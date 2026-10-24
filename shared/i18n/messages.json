@@ -3074,16 +3074,6 @@
       ]
     },
     {
-      "id": "ai.databaseContext",
-      "description": "Windows UI: ai.databaseContext",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "type": "string"
-      }
-    },
-    {
       "id": "ai.deleteNamedSkill",
       "description": "Windows UI: ai.deleteNamedSkill",
       "platforms": [
@@ -7160,13 +7150,6 @@
       ]
     },
     {
-      "id": "commandPalette.categories.Database",
-      "description": "Windows UI: commandPalette.categories.Database",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
       "id": "commandPalette.categories.Developer",
       "description": "Windows UI: commandPalette.categories.Developer",
       "platforms": [
@@ -7634,761 +7617,8 @@
       ]
     },
     {
-      "id": "database.add",
-      "description": "Windows UI: database.add",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.addColumn",
-      "description": "Windows UI: database.addColumn",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.addDatabase",
-      "description": "Windows UI: database.addDatabase",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.addFilter",
-      "description": "Windows UI: database.addFilter",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.addNewRow",
-      "description": "Windows UI: database.addNewRow",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.addRow",
-      "description": "Windows UI: database.addRow",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.addRowToTable",
-      "description": "Windows UI: database.addRowToTable",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "table": "string"
-      }
-    },
-    {
-      "id": "database.apply",
-      "description": "Windows UI: database.apply",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.applyQuery",
-      "description": "Windows UI: database.applyQuery",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.backToCommands",
-      "description": "Windows UI: database.backToCommands",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.chooseOrDropFile",
-      "description": "Windows UI: database.chooseOrDropFile",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "provider": "string"
-      }
-    },
-    {
-      "id": "database.clearAll",
-      "description": "Windows UI: database.clearAll",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.clearAllFilters",
-      "description": "Windows UI: database.clearAllFilters",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.clearRecentQueries",
-      "description": "Windows UI: database.clearRecentQueries",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.cmdCtrlEnterToRun",
-      "description": "Windows UI: database.cmdCtrlEnterToRun",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.collections",
-      "description": "Windows UI: database.collections",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.collectionsCount",
-      "description": "Windows UI: database.collectionsCount",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "count": "string"
-      }
-    },
-    {
-      "id": "database.columnName",
-      "description": "Windows UI: database.columnName",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.columnNumber",
-      "description": "Windows UI: database.columnNumber",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "number": "string"
-      }
-    },
-    {
-      "id": "database.columns",
-      "description": "Windows UI: database.columns",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
       "id": "database.connect",
       "description": "Windows UI: database.connect",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.connectImmediately",
-      "description": "Windows UI: database.connectImmediately",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.connectToDatabase",
-      "description": "Windows UI: database.connectToDatabase",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.connected",
-      "description": "Windows UI: database.connected",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.connecting",
-      "description": "Windows UI: database.connecting",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.connectionName",
-      "description": "Windows UI: database.connectionName",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.connectionString",
-      "description": "Windows UI: database.connectionString",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.connectionStringMode",
-      "description": "Windows UI: database.connectionStringMode",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.connectionTestFailed",
-      "description": "Windows UI: database.connectionTestFailed",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.connectionTestSuccessful",
-      "description": "Windows UI: database.connectionTestSuccessful",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.copyAsJson",
-      "description": "Windows UI: database.copyAsJson",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.copyExistingData",
-      "description": "Windows UI: database.copyExistingData",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.copyQuery",
-      "description": "Windows UI: database.copyQuery",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.copyQueryFromHistory",
-      "description": "Windows UI: database.copyQueryFromHistory",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "preview": "string"
-      }
-    },
-    {
-      "id": "database.copySelection",
-      "description": "Windows UI: database.copySelection",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.copySelectionWithHeaders",
-      "description": "Windows UI: database.copySelectionWithHeaders",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.copyValue",
-      "description": "Windows UI: database.copyValue",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.copyVisiblePageJson",
-      "description": "Windows UI: database.copyVisiblePageJson",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.copyVisibleQueryPageJson",
-      "description": "Windows UI: database.copyVisibleQueryPageJson",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.create",
-      "description": "Windows UI: database.create",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.createNewTable",
-      "description": "Windows UI: database.createNewTable",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.createSlot",
-      "description": "Windows UI: database.createSlot",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.createSubscription",
-      "description": "Windows UI: database.createSubscription",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.createTable",
-      "description": "Windows UI: database.createTable",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.currentObject",
-      "description": "Windows UI: database.currentObject",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "name": "string"
-      }
-    },
-    {
-      "id": "database.currentPage",
-      "description": "Windows UI: database.currentPage",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.data",
-      "description": "Windows UI: database.data",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.database",
-      "description": "Windows UI: database.database",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.databaseFile",
-      "description": "Windows UI: database.databaseFile",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.databaseFilePathMissing",
-      "description": "Windows UI: database.databaseFilePathMissing",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.databaseRows",
-      "description": "Windows UI: database.databaseRows",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.databases",
-      "description": "Windows UI: database.databases",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.deleteConnection",
-      "description": "Windows UI: database.deleteConnection",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "name": "string"
-      }
-    },
-    {
-      "id": "database.deleteDocument",
-      "description": "Windows UI: database.deleteDocument",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "id": "string"
-      }
-    },
-    {
-      "id": "database.deleteIndex",
-      "description": "Windows UI: database.deleteIndex",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.deleteKey",
-      "description": "Windows UI: database.deleteKey",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.deleteMaterializedView",
-      "description": "Windows UI: database.deleteMaterializedView",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.deleteRow",
-      "description": "Windows UI: database.deleteRow",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.deleteTable",
-      "description": "Windows UI: database.deleteTable",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.deleteView",
-      "description": "Windows UI: database.deleteView",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.detected",
-      "description": "Windows UI: database.detected",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.disableSubscription",
-      "description": "Windows UI: database.disableSubscription",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.documentNumber",
-      "description": "Windows UI: database.documentNumber",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "number": "string"
-      }
-    },
-    {
-      "id": "database.documentsCount",
-      "description": "Windows UI: database.documentsCount",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "count": "string"
-      }
-    },
-    {
-      "id": "database.documentsPerPage",
-      "description": "Windows UI: database.documentsPerPage",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.dropDatabaseFile",
-      "description": "Windows UI: database.dropDatabaseFile",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.dropSubscription",
-      "description": "Windows UI: database.dropSubscription",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.dropSupportedDatabaseFile",
-      "description": "Windows UI: database.dropSupportedDatabaseFile",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.editRow",
-      "description": "Windows UI: database.editRow",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.editRowInTable",
-      "description": "Windows UI: database.editRowInTable",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "table": "string"
-      }
-    },
-    {
-      "id": "database.emptyFilterResult",
-      "description": "Windows UI: database.emptyFilterResult",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.enableFailoverSlotSync",
-      "description": "Windows UI: database.enableFailoverSlotSync",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.enableSubscription",
-      "description": "Windows UI: database.enableSubscription",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.enabled",
-      "description": "Windows UI: database.enabled",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.enterConnectionString",
-      "description": "Windows UI: database.enterConnectionString",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.enterDatabaseName",
-      "description": "Windows UI: database.enterDatabaseName",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.enterHost",
-      "description": "Windows UI: database.enterHost",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.enterTableName",
-      "description": "Windows UI: database.enterTableName",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.enterValidPort",
-      "description": "Windows UI: database.enterValidPort",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.execute",
-      "description": "Windows UI: database.execute",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.expandCell",
-      "description": "Windows UI: database.expandCell",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.expandJson",
-      "description": "Windows UI: database.expandJson",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.exportAsCsv",
-      "description": "Windows UI: database.exportAsCsv",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.exportVisiblePageCsv",
-      "description": "Windows UI: database.exportVisiblePageCsv",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.exportVisibleQueryPageCsv",
-      "description": "Windows UI: database.exportVisibleQueryPageCsv",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.filterBetween",
-      "description": "Windows UI: database.filterBetween",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.filterByColumn",
-      "description": "Windows UI: database.filterByColumn",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "column": "string"
-      }
-    },
-    {
-      "id": "database.filterContains",
-      "description": "Windows UI: database.filterContains",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.filterEndsWith",
-      "description": "Windows UI: database.filterEndsWith",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.filterEquals",
-      "description": "Windows UI: database.filterEquals",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.filterGreaterThan",
-      "description": "Windows UI: database.filterGreaterThan",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.filterGreaterThanOrEqual",
-      "description": "Windows UI: database.filterGreaterThanOrEqual",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.filterIsNotNull",
-      "description": "Windows UI: database.filterIsNotNull",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.filterIsNull",
-      "description": "Windows UI: database.filterIsNull",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.filterLessThan",
-      "description": "Windows UI: database.filterLessThan",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.filterLessThanOrEqual",
-      "description": "Windows UI: database.filterLessThanOrEqual",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.filterNotEquals",
-      "description": "Windows UI: database.filterNotEquals",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.filterStartsWith",
-      "description": "Windows UI: database.filterStartsWith",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.filtersCount",
-      "description": "Windows UI: database.filtersCount",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "count": "string"
-      }
-    },
-    {
-      "id": "database.firstPage",
-      "description": "Windows UI: database.firstPage",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.form",
-      "description": "Windows UI: database.form",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.formMode",
-      "description": "Windows UI: database.formMode",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.hideColumnTypes",
-      "description": "Windows UI: database.hideColumnTypes",
       "platforms": [
         "windows"
       ]
@@ -8401,249 +7631,6 @@
       ]
     },
     {
-      "id": "database.indexes",
-      "description": "Windows UI: database.indexes",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.indexesCount",
-      "description": "Windows UI: database.indexesCount",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "count": "string"
-      }
-    },
-    {
-      "id": "database.info",
-      "description": "Windows UI: database.info",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.insertSqlCompletion",
-      "description": "Windows UI: database.insertSqlCompletion",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "detail": "string",
-        "label": "string"
-      }
-    },
-    {
-      "id": "database.installProviderFromExtensions",
-      "description": "Windows UI: database.installProviderFromExtensions",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.keyPattern",
-      "description": "Windows UI: database.keyPattern",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.keyPatternPlaceholder",
-      "description": "Windows UI: database.keyPatternPlaceholder",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.lastPage",
-      "description": "Windows UI: database.lastPage",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.lastRunMs",
-      "description": "Windows UI: database.lastRunMs",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "ms": "string"
-      }
-    },
-    {
-      "id": "database.leaveBlankForDefault",
-      "description": "Windows UI: database.leaveBlankForDefault",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.loadingDatabases",
-      "description": "Windows UI: database.loadingDatabases",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.loadingKeysEllipsis",
-      "description": "Windows UI: database.loadingKeysEllipsis",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.loadingMoreKeys",
-      "description": "Windows UI: database.loadingMoreKeys",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.materializedViews",
-      "description": "Windows UI: database.materializedViews",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.mongodbFilterQuery",
-      "description": "Windows UI: database.mongodbFilterQuery",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.mongodbSortQuery",
-      "description": "Windows UI: database.mongodbSortQuery",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.moreKeysEllipsis",
-      "description": "Windows UI: database.moreKeysEllipsis",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.name",
-      "description": "Windows UI: database.name",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.noData",
-      "description": "Windows UI: database.noData",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.noDocumentsFound",
-      "description": "Windows UI: database.noDocumentsFound",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.noMatchingDatabases",
-      "description": "Windows UI: database.noMatchingDatabases",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.noProvidersInstalled",
-      "description": "Windows UI: database.noProvidersInstalled",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.noWorkspaceDatabases",
-      "description": "Windows UI: database.noWorkspaceDatabases",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.objects",
-      "description": "Windows UI: database.objects",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.objectsCount",
-      "description": "Windows UI: database.objectsCount",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "count": "string"
-      }
-    },
-    {
-      "id": "database.onOwner",
-      "description": "Windows UI: database.onOwner",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "owner": "string"
-      }
-    },
-    {
-      "id": "database.openDatabase",
-      "description": "Windows UI: database.openDatabase",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.openExtensions",
-      "description": "Windows UI: database.openExtensions",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.openQuery",
-      "description": "Windows UI: database.openQuery",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "preview": "string"
-      }
-    },
-    {
-      "id": "database.openSqlEditor",
-      "description": "Windows UI: database.openSqlEditor",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.openWorkspaceBeforeAdding",
-      "description": "Windows UI: database.openWorkspaceBeforeAdding",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.openWorkspaceToAdd",
-      "description": "Windows UI: database.openWorkspaceToAdd",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
       "id": "database.optional",
       "description": "Windows UI: database.optional",
       "platforms": [
@@ -8651,26 +7638,8 @@
       ]
     },
     {
-      "id": "database.pageOf",
-      "description": "Windows UI: database.pageOf",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "page": "string",
-        "pages": "string"
-      }
-    },
-    {
       "id": "database.password",
       "description": "Windows UI: database.password",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.perPage",
-      "description": "Windows UI: database.perPage",
       "platforms": [
         "windows"
       ]
@@ -8683,474 +7652,11 @@
       ]
     },
     {
-      "id": "database.publications",
-      "description": "Windows UI: database.publications",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.queryRows",
-      "description": "Windows UI: database.queryRows",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "count": "string"
-      }
-    },
-    {
-      "id": "database.queryRowsLabel",
-      "description": "Windows UI: database.queryRowsLabel",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.queryRowsOnThisPage",
-      "description": "Windows UI: database.queryRowsOnThisPage",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.recent",
-      "description": "Windows UI: database.recent",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.recentQueries",
-      "description": "Windows UI: database.recentQueries",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.refresh",
-      "description": "Windows UI: database.refresh",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.refreshKeys",
-      "description": "Windows UI: database.refreshKeys",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.refreshSubscription",
-      "description": "Windows UI: database.refreshSubscription",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.refreshingKeys",
-      "description": "Windows UI: database.refreshingKeys",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.removeColumn",
-      "description": "Windows UI: database.removeColumn",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "column": "string"
-      }
-    },
-    {
-      "id": "database.removeFilter",
-      "description": "Windows UI: database.removeFilter",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.removeFromHistory",
-      "description": "Windows UI: database.removeFromHistory",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.removeQueryFromHistory",
-      "description": "Windows UI: database.removeQueryFromHistory",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "preview": "string"
-      }
-    },
-    {
-      "id": "database.required",
-      "description": "Windows UI: database.required",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.reset",
-      "description": "Windows UI: database.reset",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.resetQuery",
-      "description": "Windows UI: database.resetQuery",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.resultCount",
-      "description": "Windows UI: database.resultCount",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "count": "string",
-        "label": "string"
-      }
-    },
-    {
-      "id": "database.rows",
-      "description": "Windows UI: database.rows",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.rowsPerPage",
-      "description": "Windows UI: database.rowsPerPage",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.runQuery",
-      "description": "Windows UI: database.runQuery",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.runQueryFromHistory",
-      "description": "Windows UI: database.runQueryFromHistory",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "preview": "string"
-      }
-    },
-    {
-      "id": "database.runSelection",
-      "description": "Windows UI: database.runSelection",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.saveChanges",
-      "description": "Windows UI: database.saveChanges",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.savePasswordSecurely",
-      "description": "Windows UI: database.savePasswordSecurely",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.scanningKeys",
-      "description": "Windows UI: database.scanningKeys",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.schema",
-      "description": "Windows UI: database.schema",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.searchDatabases",
-      "description": "Windows UI: database.searchDatabases",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.searchKeys",
-      "description": "Windows UI: database.searchKeys",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.selectAllVisibleCells",
-      "description": "Windows UI: database.selectAllVisibleCells",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.selectCollection",
-      "description": "Windows UI: database.selectCollection",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "collection": "string"
-      }
-    },
-    {
-      "id": "database.selectCollectionDescription",
-      "description": "Windows UI: database.selectCollectionDescription",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.selectCollectionTitle",
-      "description": "Windows UI: database.selectCollectionTitle",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.selectDatabase",
-      "description": "Windows UI: database.selectDatabase",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.selectDatabaseFile",
-      "description": "Windows UI: database.selectDatabaseFile",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.selectKey",
-      "description": "Windows UI: database.selectKey",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "key": "string"
-      }
-    },
-    {
-      "id": "database.selectKeyDescription",
-      "description": "Windows UI: database.selectKeyDescription",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.selectKeyTitle",
-      "description": "Windows UI: database.selectKeyTitle",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.selectObject",
-      "description": "Windows UI: database.selectObject",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "kind": "string",
-        "name": "string"
-      }
-    },
-    {
-      "id": "database.selectSqliteDatabaseFile",
-      "description": "Windows UI: database.selectSqliteDatabaseFile",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.selectionWillRun",
-      "description": "Windows UI: database.selectionWillRun",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.serverInfo",
-      "description": "Windows UI: database.serverInfo",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.setColumnNotNull",
-      "description": "Windows UI: database.setColumnNotNull",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "column": "string"
-      }
-    },
-    {
-      "id": "database.showColumnTypes",
-      "description": "Windows UI: database.showColumnTypes",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.slotName",
-      "description": "Windows UI: database.slotName",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.subscriptions",
-      "description": "Windows UI: database.subscriptions",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.switchToView",
-      "description": "Windows UI: database.switchToView",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "view": "string"
-      }
-    },
-    {
-      "id": "database.tableName",
-      "description": "Windows UI: database.tableName",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.tables",
-      "description": "Windows UI: database.tables",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.tablesCount",
-      "description": "Windows UI: database.tablesCount",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "count": "string"
-      }
-    },
-    {
-      "id": "database.test",
-      "description": "Windows UI: database.test",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.testConnection",
-      "description": "Windows UI: database.testConnection",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.testing",
-      "description": "Windows UI: database.testing",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.to",
-      "description": "Windows UI: database.to",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.toggleColumnTypes",
-      "description": "Windows UI: database.toggleColumnTypes",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.toggleServerInfo",
-      "description": "Windows UI: database.toggleServerInfo",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
       "id": "database.username",
       "description": "Windows UI: database.username",
       "platforms": [
         "windows"
       ]
-    },
-    {
-      "id": "database.value",
-      "description": "Windows UI: database.value",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.views",
-      "description": "Windows UI: database.views",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "database.visibleQueryRowsOnPage",
-      "description": "Windows UI: database.visibleQueryRowsOnPage",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "count": "string",
-        "page": "string",
-        "pages": "string"
-      }
-    },
-    {
-      "id": "database.visibleRows",
-      "description": "Windows UI: database.visibleRows",
-      "platforms": [
-        "windows"
-      ],
-      "parameters": {
-        "count": "string"
-      }
     },
     {
       "id": "debugger.adapterOutputAppearsHere",
@@ -11956,13 +10462,6 @@
       ]
     },
     {
-      "id": "extensions.category.database",
-      "description": "Windows UI: extensions.category.database",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
       "id": "extensions.category.iconTheme",
       "description": "Windows UI: extensions.category.icon-theme",
       "platforms": [
@@ -12033,13 +10532,6 @@
       "parameters": {
         "name": "string"
       }
-    },
-    {
-      "id": "extensions.databases",
-      "description": "Windows UI: extensions.databases",
-      "platforms": [
-        "windows"
-      ]
     },
     {
       "id": "extensions.deactivate",
@@ -26764,13 +25256,6 @@
       ]
     },
     {
-      "id": "menu.databases",
-      "description": "Windows UI: menu.databases",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
       "id": "menu.deleteLine",
       "description": "Windows UI: menu.deleteLine",
       "platforms": [
@@ -29735,17 +28220,6 @@
       }
     },
     {
-      "id": "native.backUpDatabaseAsSQL",
-      "description": "Native UI: Back Up Database as SQL…",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Back Up Database as SQL…",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.backgroundCommandEndedExitCodeArg1Arg2",
       "description": "Native UI: Background command ended (exit code %@): %@",
       "platforms": [
@@ -30141,17 +28615,6 @@
       ],
       "macos": {
         "key": "Breakpoints",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.browseDatabase",
-      "description": "Native UI: Browse Database",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Browse Database",
         "arguments": []
       }
     },
@@ -31994,17 +30457,6 @@
       }
     },
     {
-      "id": "native.clearOutput",
-      "description": "Native UI: Clear output",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Clear output",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.clearOverride",
       "description": "Native UI: Clear Override",
       "platforms": [
@@ -33268,17 +31720,6 @@
       }
     },
     {
-      "id": "native.commonActions",
-      "description": "Native UI: Common Actions",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Common Actions",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.community",
       "description": "Native UI: Community",
       "platforms": [
@@ -33836,17 +32277,6 @@
       ],
       "macos": {
         "key": "Connection recovery is taking longer. The Agent is still retrying.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.connections",
-      "description": "Native UI: Connections",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Connections",
         "arguments": []
       }
     },
@@ -35599,28 +34029,6 @@
       }
     },
     {
-      "id": "native.dRowsRetrievedInDMs",
-      "description": "Native UI: %d rows retrieved in %d ms",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "%d rows retrieved in %d ms",
-        "arguments": [
-          "arg1",
-          "arg2"
-        ],
-        "formats": {
-          "arg1": "d",
-          "arg2": "d"
-        }
-      },
-      "parameters": {
-        "arg1": "integer",
-        "arg2": "integer"
-      }
-    },
-    {
       "id": "native.dSelected",
       "description": "Native UI: %d selected",
       "platforms": [
@@ -35684,17 +34092,6 @@
       }
     },
     {
-      "id": "native.dataTools",
-      "description": "Native UI: Data Tools",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Data Tools",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.database",
       "description": "Native UI: Database",
       "platforms": [
@@ -35702,28 +34099,6 @@
       ],
       "macos": {
         "key": "Database",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.databaseOverview",
-      "description": "Native UI: Database Overview",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Database Overview",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.databaseTypes",
-      "description": "Native UI: Database types",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Database types",
         "arguments": []
       }
     },
@@ -37387,17 +35762,6 @@
       }
     },
     {
-      "id": "native.duplicateConnection",
-      "description": "Native UI: Duplicate Connection",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Duplicate Connection",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.duplicateOmitted",
       "description": "Native UI: duplicate omitted",
       "platforms": [
@@ -37586,17 +35950,6 @@
       ],
       "macos": {
         "key": "Edit configuration text",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.editConnection",
-      "description": "Native UI: Edit Connection",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Edit Connection",
         "arguments": []
       }
     },
@@ -38937,28 +37290,6 @@
       }
     },
     {
-      "id": "native.exportTableAsCSV",
-      "description": "Native UI: Export Table as CSV…",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Export Table as CSV…",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.exportTableAsJSON",
-      "description": "Native UI: Export Table as JSON…",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Export Table as JSON…",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.exportingConversations",
       "description": "Native UI: Exporting conversations…",
       "platforms": [
@@ -39084,25 +37415,6 @@
       "macos": {
         "key": "Failed",
         "arguments": []
-      }
-    },
-    {
-      "id": "native.failedLineD",
-      "description": "Native UI: Failed, line %d",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Failed, line %d",
-        "arguments": [
-          "arg1"
-        ],
-        "formats": {
-          "arg1": "d"
-        }
-      },
-      "parameters": {
-        "arg1": "integer"
       }
     },
     {
@@ -39658,17 +37970,6 @@
       ],
       "macos": {
         "key": "Filter by title, author, or label",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.filterDatabaseType",
-      "description": "Native UI: Filter database type",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Filter database type",
         "arguments": []
       }
     },
@@ -41672,28 +39973,6 @@
       }
     },
     {
-      "id": "native.importCSV",
-      "description": "Native UI: Import CSV…",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Import CSV…",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.importConnectionsFromDBX",
-      "description": "Native UI: Import connections from DBX",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Import connections from DBX",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.importFromClaude",
       "description": "Native UI: Import from Claude",
       "platforms": [
@@ -41712,17 +39991,6 @@
       ],
       "macos": {
         "key": "Import from Codex",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.importJSON",
-      "description": "Native UI: Import JSON…",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Import JSON…",
         "arguments": []
       }
     },
@@ -45416,28 +43684,6 @@
       }
     },
     {
-      "id": "native.lluRowsAffectedInDMs",
-      "description": "Native UI: %llu rows affected in %d ms",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "%llu rows affected in %d ms",
-        "arguments": [
-          "arg1",
-          "arg2"
-        ],
-        "formats": {
-          "arg1": "llu",
-          "arg2": "d"
-        }
-      },
-      "parameters": {
-        "arg1": "unsignedInteger",
-        "arg2": "integer"
-      }
-    },
-    {
       "id": "native.load",
       "description": "Native UI: Load",
       "platforms": [
@@ -48121,17 +46367,6 @@
       }
     },
     {
-      "id": "native.newQuery",
-      "description": "Native UI: New Query",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "New Query",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.newRunConfiguration",
       "description": "Native UI: New Run Configuration",
       "platforms": [
@@ -48628,17 +46863,6 @@
       ],
       "macos": {
         "key": "No custom providers yet.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.noDatabasesLoaded",
-      "description": "Native UI: No databases loaded",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "No databases loaded",
         "arguments": []
       }
     },
@@ -49362,17 +47586,6 @@
       }
     },
     {
-      "id": "native.noQueryOutput",
-      "description": "Native UI: No query output",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "No query output",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.noRecentProgressHasBeenReceivedTheTaskIsStillActive",
       "description": "Native UI: No recent progress has been received. The task is still active.",
       "platforms": [
@@ -49550,17 +47763,6 @@
       ],
       "macos": {
         "key": "No subagents yet",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.noTableSelected",
-      "description": "Native UI: No Table Selected",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "No Table Selected",
         "arguments": []
       }
     },
@@ -49747,17 +47949,6 @@
       }
     },
     {
-      "id": "native.nonIntrospected",
-      "description": "Native UI: Non-Introspected",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Non-Introspected",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.nonStreaming",
       "description": "Native UI: Non-streaming",
       "platforms": [
@@ -49847,17 +48038,6 @@
       ],
       "macos": {
         "key": "Not available yet: dependencies are not indexed",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.notConnected",
-      "description": "Native UI: Not connected",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Not connected",
         "arguments": []
       }
     },
@@ -51443,17 +49623,6 @@
       ],
       "macos": {
         "key": "Paste Patch",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.pasteTSVFromClipboard",
-      "description": "Native UI: Paste TSV from Clipboard",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Paste TSV from Clipboard",
         "arguments": []
       }
     },
@@ -53417,22 +51586,6 @@
       }
     },
     {
-      "id": "native.queryHistory",
-      "description": "Native UI: %@ Query History",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "%@ Query History",
-        "arguments": [
-          "arg1"
-        ]
-      },
-      "parameters": {
-        "arg1": "string"
-      }
-    },
-    {
       "id": "native.quickInformation",
       "description": "Native UI: Quick Information",
       "platforms": [
@@ -53451,17 +51604,6 @@
       ],
       "macos": {
         "key": "Quick responses with basic reasoning",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.quickStart",
-      "description": "Native UI: Quick Start",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Quick Start",
         "arguments": []
       }
     },
@@ -53887,17 +52029,6 @@
       }
     },
     {
-      "id": "native.recentSQL",
-      "description": "Native UI: Recent SQL",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Recent SQL",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.recommendedKeepWorktreesInAPersistentFolderNextToTheRepositoryYouCanChoosePrivf758d1db78",
       "description": "Native UI: Recommended: keep worktrees in a persistent folder next to the repository. You can choose /private/tmp manually for disposable checkouts.",
       "platforms": [
@@ -54038,17 +52169,6 @@
       ],
       "macos": {
         "key": "Refresh connection structure",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.refreshDatabases",
-      "description": "Native UI: Refresh databases",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Refresh databases",
         "arguments": []
       }
     },
@@ -55062,17 +53182,6 @@
       }
     },
     {
-      "id": "native.replaceInCurrentPage",
-      "description": "Native UI: Replace in Current Page…",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Replace in Current Page…",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.replaceInFile",
       "description": "Native UI: Replace in File",
       "platforms": [
@@ -55820,17 +53929,6 @@
       }
     },
     {
-      "id": "native.restoreSQLBackup",
-      "description": "Native UI: Restore SQL Backup…",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Restore SQL Backup…",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.restoringGitHubConnection",
       "description": "Native UI: Restoring GitHub connection",
       "platforms": [
@@ -55850,25 +53948,6 @@
       "macos": {
         "key": "Result",
         "arguments": []
-      }
-    },
-    {
-      "id": "native.resultD",
-      "description": "Native UI: Result %d",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Result %d",
-        "arguments": [
-          "arg1"
-        ],
-        "formats": {
-          "arg1": "d"
-        }
-      },
-      "parameters": {
-        "arg1": "integer"
       }
     },
     {
@@ -59368,17 +57447,6 @@
       }
     },
     {
-      "id": "native.sortConnections",
-      "description": "Native UI: Sort connections",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Sort connections",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.sortPlugins",
       "description": "Native UI: Sort plugins",
       "platforms": [
@@ -59474,17 +57542,6 @@
       ],
       "macos": {
         "key": "Spring Endpoints",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.sqlExecutionMarkers",
-      "description": "Native UI: SQL execution markers",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "SQL execution markers",
         "arguments": []
       }
     },
@@ -60600,25 +58657,6 @@
       }
     },
     {
-      "id": "native.succeededLineD",
-      "description": "Native UI: Succeeded, line %d",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Succeeded, line %d",
-        "arguments": [
-          "arg1"
-        ],
-        "formats": {
-          "arg1": "d"
-        }
-      },
-      "parameters": {
-        "arg1": "integer"
-      }
-    },
-    {
       "id": "native.supplementaryMessageCancelled",
       "description": "Native UI: Supplementary message cancelled.",
       "platforms": [
@@ -60682,17 +58720,6 @@
       ],
       "macos": {
         "key": "Switch Agent",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.switchCurrentDatabase",
-      "description": "Native UI: Switch current database",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Switch current database",
         "arguments": []
       }
     },
@@ -67700,13 +65727,6 @@
     {
       "id": "outline.title",
       "description": "Windows UI: outline.title",
-      "platforms": [
-        "windows"
-      ]
-    },
-    {
-      "id": "panes.missingDatabaseConnection",
-      "description": "Windows UI: panes.missingDatabaseConnection",
       "platforms": [
         "windows"
       ]
@@ -80350,17 +78370,6 @@
       }
     },
     {
-      "id": "native.aFolderWithThisNameAlreadyExists",
-      "description": "Native UI: A folder with this name already exists.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "A folder with this name already exists.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.aHookWithThisNameAlreadyExists",
       "description": "Native UI: A Hook with this name already exists.",
       "platforms": [
@@ -80522,17 +78531,6 @@
       ],
       "macos": {
         "key": "Agent hooks",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.allSchemas",
-      "description": "Native UI: All schemas",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "All schemas",
         "arguments": []
       }
     },
@@ -80982,28 +78980,6 @@
       }
     },
     {
-      "id": "native.collapseDatabase",
-      "description": "Native UI: Collapse database",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Collapse database",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.collapseTable",
-      "description": "Native UI: Collapse table",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Collapse table",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.connectedButLitheCannotRunOnThisPlatformYetLinuxOnX8664OrARM64IsSupported",
       "description": "Native UI: Connected, but Lithe cannot run on this platform yet. Linux on x86_64 or ARM64 is supported.",
       "platforms": [
@@ -81044,47 +79020,6 @@
       ],
       "macos": {
         "key": "Connection",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.connectionSuccessful",
-      "description": "Native UI: Connection successful",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Connection successful",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.connectionTestDurationLldMs",
-      "description": "Native UI: Connection test duration: %lld ms",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Connection test duration: %lld ms",
-        "arguments": [
-          "arg1"
-        ],
-        "formats": {
-          "arg1": "lld"
-        }
-      },
-      "parameters": {
-        "arg1": "integer"
-      }
-    },
-    {
-      "id": "native.connectionTestResult",
-      "description": "Native UI: Connection test result",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Connection test result",
         "arguments": []
       }
     },
@@ -81242,17 +79177,6 @@
       }
     },
     {
-      "id": "native.dataSource",
-      "description": "Native UI: Data Source",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Data Source",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.deleteChatX93291d9c41",
       "description": "Native UI: Delete chat",
       "platforms": [
@@ -81315,17 +79239,6 @@
       ],
       "macos": {
         "key": "Disk",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.doubleClickATableToViewData",
-      "description": "Native UI: Double-click a table to view data",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Double-click a table to view data",
         "arguments": []
       }
     },
@@ -81454,28 +79367,6 @@
       }
     },
     {
-      "id": "native.expandDatabase",
-      "description": "Native UI: Expand database",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Expand database",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.expandTable",
-      "description": "Native UI: Expand table",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Expand table",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.fileEdits",
       "description": "Native UI: File edits",
       "platforms": [
@@ -81553,17 +79444,6 @@
       }
     },
     {
-      "id": "native.folderNameIsRequired",
-      "description": "Native UI: Folder name is required.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Folder name is required.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.forExampleNotify",
       "description": "Native UI: For example, notify",
       "platforms": [
@@ -81582,28 +79462,6 @@
       ],
       "macos": {
         "key": "For example, notify me when a turn ends",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.forceRefresh",
-      "description": "Native UI: Force Refresh",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Force Refresh",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.forever",
-      "description": "Native UI: Forever",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Forever",
         "arguments": []
       }
     },
@@ -81846,17 +79704,6 @@
       ],
       "macos": {
         "key": "https://github.com/owner/repository",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.importDataSources",
-      "description": "Native UI: Import Data Sources…",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Import Data Sources…",
         "arguments": []
       }
     },
@@ -82208,17 +80055,6 @@
       }
     },
     {
-      "id": "native.newFolderX633810e9b0",
-      "description": "Native UI: New Folder…",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "New Folder…",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.newHook",
       "description": "Native UI: New Hook",
       "platforms": [
@@ -82259,28 +80095,6 @@
       ],
       "macos": {
         "key": "Next image",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.noAccessibleDatabases",
-      "description": "Native UI: No accessible databases",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "No accessible databases",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.noColumnsToDisplay",
-      "description": "Native UI: No columns to display",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "No columns to display",
         "arguments": []
       }
     },
@@ -82370,17 +80184,6 @@
       }
     },
     {
-      "id": "native.noSchemasSelected",
-      "description": "Native UI: No schemas selected",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "No schemas selected",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.notTested",
       "description": "Native UI: Not tested",
       "platforms": [
@@ -82399,17 +80202,6 @@
       ],
       "macos": {
         "key": "One entry per line. Directory names hide matching folders; file entries support * and ?.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.openATableToInspectItsStructure",
-      "description": "Native UI: Open a table to inspect its structure",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Open a table to inspect its structure",
         "arguments": []
       }
     },
@@ -82509,17 +80301,6 @@
       ],
       "macos": {
         "key": "Port",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.pressEnterOrClickOutsideTheListToApply",
-      "description": "Native UI: Press Enter or click outside the list to apply",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Press Enter or click outside the list to apply",
         "arguments": []
       }
     },
@@ -82669,17 +80450,6 @@
       }
     },
     {
-      "id": "native.queryConsole",
-      "description": "Native UI: Query Console",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Query Console",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.quotaX6c105cae1a",
       "description": "Native UI: Quota",
       "platforms": [
@@ -82687,17 +80457,6 @@
       ],
       "macos": {
         "key": "Quota",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.refreshSelectedStructure",
-      "description": "Native UI: Refresh selected structure",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Refresh selected structure",
         "arguments": []
       }
     },
@@ -82757,17 +80516,6 @@
       }
     },
     {
-      "id": "native.renameFolder",
-      "description": "Native UI: Rename Folder",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Rename Folder",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.resources",
       "description": "Native UI: Resources",
       "platforms": [
@@ -82823,39 +80571,6 @@
       }
     },
     {
-      "id": "native.sSHTLS",
-      "description": "Native UI: SSH / TLS",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "SSH / TLS",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.safetyAndLabels",
-      "description": "Native UI: Safety and Labels",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Safety and Labels",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.save",
-      "description": "Native UI: Save:",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Save:",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.saveHook",
       "description": "Native UI: Save Hook",
       "platforms": [
@@ -82863,17 +80578,6 @@
       ],
       "macos": {
         "key": "Save Hook",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.savePassword",
-      "description": "Native UI: Save password",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Save password",
         "arguments": []
       }
     },
@@ -82896,17 +80600,6 @@
       ],
       "macos": {
         "key": "Saves, connects, and opens the remote folder in this window.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.searchDatabases",
-      "description": "Native UI: Search databases",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Search databases",
         "arguments": []
       }
     },
@@ -82962,28 +80655,6 @@
       ],
       "macos": {
         "key": "Security",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.selectAConnectionInTheDatabaseTree",
-      "description": "Native UI: Select a connection in the database tree",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Select a connection in the database tree",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.selectDatabases",
-      "description": "Native UI: Select databases",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Select databases",
         "arguments": []
       }
     },
@@ -83111,17 +80782,6 @@
       }
     },
     {
-      "id": "native.testingConnection",
-      "description": "Native UI: Testing connection…",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Testing connection…",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.theAddressIsInvalid",
       "description": "Native UI: The address is invalid.",
       "platforms": [
@@ -83173,17 +80833,6 @@
       ],
       "macos": {
         "key": "The connection to the remote host was lost. Reconnect to continue.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.theDatabaseSelectionIsNoLongerAvailableRefreshAndTryAgain",
-      "description": "Native UI: The database selection is no longer available. Refresh and try again.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "The database selection is no longer available. Refresh and try again.",
         "arguments": []
       }
     },
@@ -83468,28 +81117,6 @@
       }
     },
     {
-      "id": "native.theSelectedConnectionFolderNoLongerExists",
-      "description": "Native UI: The selected connection folder no longer exists.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "The selected connection folder no longer exists.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.theSelectedFolderCannotBeMovedThere",
-      "description": "Native UI: The selected folder cannot be moved there.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "The selected folder cannot be moved there.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.theServerAskedAgainCheckThePreviousAnswer",
       "description": "Native UI: The server asked again. Check the previous answer.",
       "platforms": [
@@ -83663,28 +81290,6 @@
       }
     },
     {
-      "id": "native.toFolder",
-      "description": "Native UI: To Folder…",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "To Folder…",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.toTopLevel",
-      "description": "Native UI: To Top Level",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "To Top Level",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.toolFilter",
       "description": "Native UI: Tool filter",
       "platforms": [
@@ -83744,17 +81349,6 @@
       ],
       "macos": {
         "key": "Unpin conversation",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.untilRestart",
-      "description": "Native UI: Until restart",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Until restart",
         "arguments": []
       }
     },
@@ -85140,6 +82734,28 @@
       ],
       "macos": {
         "key": "Usage is whatever the Agent last reported. Claude Code reports it while a reply runs; Codex is also refreshed about once a minute while the Agent panel is open. Lithe never queries the account itself, so a value can be out of date, and an account you are not using keeps its last values until you switch back. A window that has already reset is shown without a reset time or pace.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.databaseIsNowAPluginInstallItFromTheMarketplace",
+      "description": "Native UI: Database is now a plugin. Install it from the Marketplace, and your saved connections and passwords move into it.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Database is now a plugin. Install it from the Marketplace, and your saved connections and passwords move into it.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.openMarketplace",
+      "description": "Native UI: Open Marketplace",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Open Marketplace",
         "arguments": []
       }
     }

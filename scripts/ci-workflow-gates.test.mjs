@@ -15,7 +15,7 @@ const commonBindings = {
 const workflows = [
   {
     id: 'macos',
-    selected: ['swift', 'swift_database', 'rust_core', 'macos_release'],
+    selected: ['swift', 'rust_core', 'macos_release'],
     lanes: [
       { lane: 'swift', job: 'swift-tests', run: 'run_swift' },
       { lane: 'rust', job: 'rust-core-tests', run: 'run_rust' },
@@ -29,7 +29,7 @@ const workflows = [
       RUN_SWIFT: 'needs.changes.outputs.run_swift',
       RUN_RUST: 'needs.changes.outputs.run_rust',
       RUN_RELEASE: 'needs.changes.outputs.run_release',
-      SWIFT_SELECTED: "needs.changes.outputs.swift == 'true' || needs.changes.outputs.swift_database == 'true' || needs.changes.outputs.rust_core == 'true'",
+      SWIFT_SELECTED: "needs.changes.outputs.swift == 'true' || needs.changes.outputs.rust_core == 'true'",
       RUST_CORE_SELECTED: 'needs.changes.outputs.rust_core',
       RELEASE_SELECTED: 'needs.changes.outputs.macos_release',
     },
@@ -66,16 +66,6 @@ const workflows = [
       PLUGIN_SELECTED: 'needs.changes.outputs.plugins',
       PLUGIN_RESULT: 'needs.plugin-tests.result',
       RUN_PLUGINS: 'needs.changes.outputs.run_plugins',
-    },
-  },
-  {
-    id: 'database',
-    selected: ['rust_database'],
-    lanes: [{ lane: 'database', job: 'rust-database-tests' }],
-    bindings: {
-      CHANGES_RESULT: 'needs.changes.result',
-      RUST_DATABASE_SELECTED: 'needs.changes.outputs.rust_database',
-      RUST_DATABASE_RESULT: 'needs.rust-database-tests.result',
     },
   },
   {

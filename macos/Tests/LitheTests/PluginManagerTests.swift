@@ -109,32 +109,6 @@ struct PluginManagerTests {
     }
 
     @Test
-    func internalDatabaseModuleIsNotShownAsAPlugin() async throws {
-        let root = temporaryRoot()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let preferences = PluginManagerKeyValueStore()
-        let configuration = MacModuleConfigurationStore(store: preferences)
-        let runtime = ModuleRuntime(configurationStore: configuration, recoveryStore: configuration)
-        let manager = MacPluginManager(
-            packageStore: makeStore(root: root),
-            moduleRuntime: runtime,
-            configurationStore: configuration,
-            settings: InMemoryPluginSettings(),
-            launchMode: .normal,
-            startup: MacPluginStartupResult(
-                installedPlugins: [],
-                registeredPlugins: [],
-                issues: []
-            ),
-            managedBuiltInPlugins: []
-        )
-
-        #expect(manager.snapshots.isEmpty)
-        #expect(try #require(BuiltInModuleCatalog.manifests.first { $0.id == .database }).defaultState == .enabled)
-        #expect(configuration.enabledState(for: .database) == nil)
-    }
-
-    @Test
     func enablingAPluginInstalledAfterLaunchPersistsPreferenceAndRequiresRestart() async throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }

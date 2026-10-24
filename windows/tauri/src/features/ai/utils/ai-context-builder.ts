@@ -14,7 +14,6 @@ function formatOpenContextSummary(buffer: PaneContent, projectRoot?: string) {
   if (buffer.type === "terminal") {
     return `Terminal: ${buffer.name}${buffer.workingDirectory ? ` (${buffer.workingDirectory})` : ""}`;
   }
-  if (buffer.type === "database") return `Database: ${buffer.name} (${buffer.databaseType})`;
   if (buffer.type === "pullRequest")
     return `GitHub pull request: ${buffer.name} (#${buffer.prNumber})`;
   if (buffer.type === "githubIssue") return `GitHub issue: ${buffer.name} (#${buffer.issueNumber})`;

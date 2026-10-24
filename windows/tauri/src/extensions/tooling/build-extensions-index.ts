@@ -53,7 +53,7 @@ type IndexEntry = {
   description: string;
   version: string;
   author: string;
-  category: "Languages" | "Themes" | "Icon Themes" | "Databases" | "Agents" | "Integrations";
+  category: "Languages" | "Themes" | "Icon Themes" | "Agents" | "Integrations";
   icon: string;
   manifestUrl: string;
   downloads: number;
@@ -70,7 +70,6 @@ function normalizeIndexCategory(raw?: string): IndexEntry["category"] {
   const value = (raw ?? "").toLowerCase().replace(/[_-]+/g, " ").trim();
 
   if (value === "icon" || value === "icon theme" || value === "icon themes") return "Icon Themes";
-  if (value === "database" || value === "databases") return "Databases";
   if (value === "agent" || value === "agents") return "Agents";
   if (value === "integration" || value === "integrations") return "Integrations";
   if (value === "theme" || value === "themes") return "Themes";
@@ -80,7 +79,6 @@ function normalizeIndexCategory(raw?: string): IndexEntry["category"] {
 function normalizeRegistryCategory(raw?: string): string {
   const normalized = (raw ?? "").toLowerCase();
   if (normalized.includes("icon")) return "icon-theme";
-  if (normalized.includes("database")) return "database";
   if (normalized.includes("agent")) return "agent";
   if (normalized.includes("integration")) return "integration";
   if (normalized.includes("theme")) return "theme";
@@ -118,7 +116,6 @@ async function buildCatalog() {
     }
 
     const languages = getContributionArray(manifest, "languages");
-    const databases = getContributionArray(manifest, "databases");
     const agents = getContributionArray(manifest, "agents");
     const themes = getContributionArray(manifest, "themes");
     const icons = getContributionArray(manifest, "icons");
@@ -133,7 +130,6 @@ async function buildCatalog() {
 
     if (
       languages.length === 0 &&
-      databases.length === 0 &&
       agents.length === 0 &&
       themes.length === 0 &&
       icons.length === 0 &&

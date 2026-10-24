@@ -75,7 +75,6 @@ function toExtensionCategories(rawCategories: string[] | undefined): ExtensionCa
   return rawCategories.map((category) => {
     const normalized = category.trim().toLowerCase();
     if (normalized === "language") return "Language";
-    if (normalized === "database") return "Database";
     if (normalized === "icon theme" || normalized === "icon-theme" || normalized === "icontheme") {
       return "Icon Theme";
     }

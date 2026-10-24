@@ -183,7 +183,6 @@ export interface Settings {
     | "theme"
     | "icon-theme"
     | "snippet"
-    | "database"
     | "ai"
     | "integration"
     | "skill"

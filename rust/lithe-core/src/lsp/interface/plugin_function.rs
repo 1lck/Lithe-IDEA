@@ -20,8 +20,11 @@ use std::collections::BTreeSet;
 /// Key under `capabilities.experimental` on both sides of the exchange.
 const EXPERIMENTAL_KEY: &str = "litheFunctions";
 
-/// Plugin-function protocol versions this client speaks, in preference order.
-const SUPPORTED_VERSIONS: [u64; 1] = [1];
+/// Plugin-function protocol versions this client speaks. Version 2 keeps
+/// every rule of version 1 and adds the host services of `host_request`.
+const SUPPORTED_VERSIONS: [u64; 2] = [1, 2];
+/// First protocol version that offers host services.
+const HOST_SERVICES_VERSION: u64 = 2;
 
 /// Feature name recorded in the session's server capabilities once a backend
 /// answered a supported version with a valid function list.
@@ -48,6 +51,18 @@ const MAX_MESSAGE_BYTES: usize = 1024;
 const MAX_RESULT_BYTES: usize = 1 << 20;
 /// Upper bound of one invocation's deadline, matching build-provider requests.
 pub(crate) const MAX_FUNCTION_TIMEOUT_MS: u64 = 60 * 60_000;
+
+/// Host service that keeps secrets for the plugin, private to its ID.
+pub(crate) const HOST_SERVICE_CREDENTIALS: &str = "credentials";
+const CREDENTIALS_GET: &str = "lithe/host/credentials/get";
+const CREDENTIALS_SET: &str = "lithe/host/credentials/set";
+const CREDENTIALS_DELETE: &str = "lithe/host/credentials/delete";
+const MAX_CREDENTIAL_KEY_BYTES: usize = 128;
+/// Bound of one stored secret, in UTF-8 bytes; enough for a password, a
+/// token, or a private key, not for documents.
+pub(crate) const MAX_CREDENTIAL_SECRET_BYTES: usize = 16 * 1024;
+/// Host requests one session may have awaiting the host's answer.
+pub(crate) const MAX_PENDING_HOST_REQUESTS: usize = 16;
 
 /// Stable codes of the plugin-function contract. Synchronous refusals carry
 /// them in `CoreError::details`; asynchronous outcomes in the runtime error's
@@ -77,6 +92,14 @@ pub(crate) mod codes {
     pub const RECURSIVE_CALL: &str = "plugin.function.recursiveCall";
     /// The backend asked for a host capability this host does not offer.
     pub const HOST_UNAVAILABLE: &str = "plugin.host.unavailable";
+    /// The host offers the service, but the plugin's permissions do not
+    /// grant it to this session.
+    pub const HOST_PERMISSION_DENIED: &str = "plugin.host.permissionDenied";
+    /// A host-service request has malformed or unknown params.
+    pub const HOST_INVALID_PARAMS: &str = "plugin.host.invalidParams";
+    /// The host could not perform the service, or too many requests of
+    /// the session were already waiting for it.
+    pub const HOST_FAILED: &str = "plugin.host.failed";
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -125,10 +148,11 @@ pub(crate) fn client_experimental_capabilities() -> (&'static str, Value) {
     (EXPERIMENTAL_KEY, json!({ "versions": SUPPORTED_VERSIONS }))
 }
 
-/// Functions of a backend that answered a version this client offered, or
-/// `None` when the protocol was not negotiated. A malformed function list
-/// rejects the whole answer, so a session never starts with half a registry.
-pub(crate) fn negotiate(capabilities: &Value) -> Option<BTreeSet<String>> {
+/// The version and functions of a backend that answered a version this
+/// client offered, or `None` when the protocol was not negotiated. A
+/// malformed function list rejects the whole answer, so a session never
+/// starts with half a registry.
+pub(crate) fn negotiate(capabilities: &Value) -> Option<(u64, BTreeSet<String>)> {
     let answer = capabilities
         .get("experimental")
         .and_then(|experimental| experimental.get(EXPERIMENTAL_KEY))?;
@@ -136,10 +160,11 @@ pub(crate) fn negotiate(capabilities: &Value) -> Option<BTreeSet<String>> {
     if !SUPPORTED_VERSIONS.contains(&version) {
         return None;
     }
-    match answer.get("functions") {
-        None => Some(BTreeSet::new()),
-        Some(descriptors) => descriptor_ids(descriptors, &BTreeSet::new()).ok(),
-    }
+    let functions = match answer.get("functions") {
+        None => BTreeSet::new(),
+        Some(descriptors) => descriptor_ids(descriptors, &BTreeSet::new()).ok()?,
+    };
+    Some((version, functions))
 }
 
 /// The registry after a `lithe/function/register` request. The request is
@@ -311,6 +336,98 @@ pub(crate) fn refused_backend_request(method: &str) -> Option<&'static str> {
     }
 }
 
+/// Why a backend's `lithe/host/*` request is not forwarded to the host.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct HostRequestRefusal {
+    /// JSON-RPC error code of the answer.
+    pub rpc_code: i64,
+    /// Stable contract code, sent as `error.data.code`.
+    pub code: &'static str,
+    pub message: &'static str,
+}
+
+/// The host service a backend request asks for, or why it is refused.
+/// `version` is the negotiated protocol version (0 when not negotiated) and
+/// `granted` the services the plugin's permissions grant the session. The
+/// params are checked here, so the host only ever sees a well-formed
+/// request, and unknown params are refused so a later version can add them.
+pub(crate) fn host_request(
+    method: &str,
+    params: Option<&Value>,
+    version: u64,
+    granted: &BTreeSet<String>,
+) -> Result<&'static str, HostRequestRefusal> {
+    let unavailable = HostRequestRefusal {
+        rpc_code: -32601,
+        code: codes::HOST_UNAVAILABLE,
+        message: "The host offers no such service to this plugin process.",
+    };
+    if version < HOST_SERVICES_VERSION {
+        return Err(unavailable);
+    }
+    let (service, with_secret) = match method {
+        CREDENTIALS_GET | CREDENTIALS_DELETE => (HOST_SERVICE_CREDENTIALS, false),
+        CREDENTIALS_SET => (HOST_SERVICE_CREDENTIALS, true),
+        _ => return Err(unavailable),
+    };
+    if !granted.contains(service) {
+        return Err(HostRequestRefusal {
+            rpc_code: -32601,
+            code: codes::HOST_PERMISSION_DENIED,
+            message: "The plugin does not declare the permission for this host service.",
+        });
+    }
+    let invalid = |message| HostRequestRefusal {
+        rpc_code: -32602,
+        code: codes::HOST_INVALID_PARAMS,
+        message,
+    };
+    let params = params
+        .and_then(Value::as_object)
+        .ok_or(invalid("Params must be an object."))?;
+    let allowed: &[&str] = if with_secret {
+        &["key", "secret"]
+    } else {
+        &["key"]
+    };
+    if params.keys().any(|key| !allowed.contains(&key.as_str())) {
+        return Err(invalid("Params name a field this service does not define."));
+    }
+    if !params
+        .get("key")
+        .and_then(Value::as_str)
+        .is_some_and(is_credential_key)
+    {
+        return Err(invalid(
+            "A credential key is 1-128 ASCII letters, digits, '.', '_', ':' or '-'.",
+        ));
+    }
+    if with_secret
+        && !params
+            .get("secret")
+            .and_then(Value::as_str)
+            .is_some_and(|secret| secret.len() <= MAX_CREDENTIAL_SECRET_BYTES)
+    {
+        return Err(invalid("A secret is a string of at most 16 KiB."));
+    }
+    Ok(service)
+}
+
+/// Key of a stored secret. The alphabet excludes path separators so a host
+/// may use the key in a store item name without escaping.
+fn is_credential_key(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_CREDENTIAL_KEY_BYTES
+        && value.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '.' | '_' | ':' | '-')
+        })
+}
+
+/// Truncates a host's failure message like a backend's.
+pub(crate) fn bounded_host_message(value: &str) -> String {
+    bounded_message(value)
+}
+
 /// IDs of a descriptor array, refusing malformed descriptors, duplicates,
 /// IDs already in `existing`, and a registry beyond the session limit.
 fn descriptor_ids(
@@ -453,7 +570,10 @@ mod tests {
             match expected["functions"].as_array() {
                 Some(_) => assert_eq!(
                     negotiated,
-                    Some(id_set(&expected["functions"])),
+                    Some((
+                        expected["version"].as_u64().unwrap_or(1),
+                        id_set(&expected["functions"])
+                    )),
                     "{}",
                     name(&case)
                 ),
@@ -577,6 +697,49 @@ mod tests {
                 name(&case)
             );
         }
+    }
+
+    #[test]
+    fn host_requests_follow_the_fixture() {
+        for case in cases("hostRequests") {
+            let granted: BTreeSet<String> = id_set(&case["hostServices"]);
+            let outcome = host_request(
+                case["method"].as_str().unwrap(),
+                case.get("params"),
+                case["version"].as_u64().unwrap(),
+                &granted,
+            );
+            let expected = &case["expected"];
+            match expected["forward"].as_str() {
+                Some(service) => assert_eq!(outcome, Ok(service), "{}", name(&case)),
+                None => {
+                    let refusal = outcome.expect_err(name(&case));
+                    assert_eq!(refusal.code, expected["code"], "{}", name(&case));
+                    assert_eq!(refusal.rpc_code, expected["rpcCode"], "{}", name(&case));
+                }
+            }
+        }
+    }
+
+    /// The secret bound is inclusive and measured in UTF-8 bytes.
+    #[test]
+    fn credential_secrets_are_bounded() {
+        let granted = BTreeSet::from([HOST_SERVICE_CREDENTIALS.to_string()]);
+        let set = |secret: String| {
+            host_request(
+                CREDENTIALS_SET,
+                Some(&json!({ "key": "k", "secret": secret })),
+                2,
+                &granted,
+            )
+        };
+        assert!(set("x".repeat(MAX_CREDENTIAL_SECRET_BYTES)).is_ok());
+        assert_eq!(
+            set("x".repeat(MAX_CREDENTIAL_SECRET_BYTES + 1))
+                .unwrap_err()
+                .code,
+            codes::HOST_INVALID_PARAMS
+        );
     }
 
     /// A message over the bound is cut at a character boundary, never inside

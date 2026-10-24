@@ -1,5 +1,4 @@
 import {
-  DatabaseIcon as Database,
   FileTextIcon as FileText,
   GitPullRequestIcon as GitPullRequest,
   GlobeIcon as Globe,
@@ -26,7 +25,6 @@ import type { PaneContent } from "@/features/panes/types/pane-content.types";
 function getBufferContextDescription(buffer: PaneContent, t: (key: string, values?: Record<string, string | number>) => string) {
   if (buffer.type === "webViewer") return buffer.url;
   if (buffer.type === "terminal") return buffer.workingDirectory || t("ai.terminal");
-  if (buffer.type === "database") return t("ai.databaseContext", { type: buffer.databaseType });
   if (buffer.type === "pullRequest") return t("ai.pullRequestNumber", { number: buffer.prNumber });
   if (buffer.type === "githubIssue") return `Issue #${buffer.issueNumber}`;
   if (buffer.type === "githubAction") return t("ai.actionRunNumber", { number: buffer.runId });
@@ -36,7 +34,6 @@ function getBufferContextDescription(buffer: PaneContent, t: (key: string, value
 function getBufferContextIcon(buffer: PaneContent) {
   if (buffer.type === "webViewer") return <Globe />;
   if (buffer.type === "terminal") return <TerminalWindow />;
-  if (buffer.type === "database") return <Database />;
   if (buffer.type === "pullRequest") return <GitPullRequest />;
   if (buffer.type === "githubIssue") return <FileText />;
   if (buffer.type === "githubAction") return <PlayCircle />;

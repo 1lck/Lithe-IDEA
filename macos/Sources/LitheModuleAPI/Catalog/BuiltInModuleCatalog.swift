@@ -24,16 +24,6 @@ public enum BuiltInModuleCatalog {
             providedCapabilities: [.aiCommitMessage, .aiPullRequestDescription]
         ),
         ModuleManifest(
-            id: .database,
-            displayName: "Database",
-            scope: .workspace,
-            defaultState: .enabled,
-            activationPolicy: .onDemand,
-            sleepPolicy: .whenIdle(afterSeconds: 10 * 60),
-            dependencies: [.module(.workspace)],
-            providedCapabilities: [.databaseWorkspace]
-        ),
-        ModuleManifest(
             id: .debug,
             displayName: "Debug",
             scope: .workspace,
@@ -115,10 +105,6 @@ public enum BuiltInModuleCatalog {
             ModuleContribution(id: "ai.pull-request-description", kind: .command, title: "Generate Pull Request Description", icon: "wand.and.stars"),
             ModuleContribution(id: "ai.settings", kind: .settings, title: "AI Assistance", icon: "wand.and.stars")
         ],
-        .database: [
-            ModuleContribution(id: "database.workspace", kind: .toolWindow, title: "Database", icon: "cylinder", placement: .rightSidebar, order: 150, actionID: "database.toggle", rendererID: "database.workspace"),
-            ModuleContribution(id: "database.services", kind: .toolWindow, title: "Services", icon: "server.rack", order: 450, actionID: "database.services.toggle", rendererID: "database.services")
-        ],
         .debug: [
             ModuleContribution(id: "debug.session", kind: .toolWindow, title: "Debug", icon: "ladybug", order: 700, actionID: "debug.toggle", rendererID: "debug.session")
         ],
@@ -196,7 +182,6 @@ public enum BuiltInPluginCatalog {
         switch id {
         case .aiAssistance: "LitheAIAssistanceModule"
         case .agentConversation: "LitheAgentConversationModule"
-        case .database: "LitheDatabaseModule"
         case .debug: "LitheDebugModule"
         case .execution: "LitheExecutionModule"
         case .git: "LitheGitModule"

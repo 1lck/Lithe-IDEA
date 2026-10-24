@@ -1,6 +1,9 @@
 //! Stateful language-server sessions coordinating client state and child processes.
 
-use super::client::{client_apply_server_message_for_plugin, client_initialize_for_plugin};
+use super::client::{
+    client_apply_server_message_for_plugin, client_initialize_for_plugin, json_rpc_error_with_code,
+    json_rpc_result,
+};
 use super::process::{LspProcessHandle, LspProcessLauncher, LspProcessSpec, SystemProcessLauncher};
 use super::{
     client_change_document, client_close_document, client_feature_request_canonical,
@@ -99,6 +102,12 @@ pub struct StartServerRequest {
     /// host-owned servers leave it out.
     #[serde(default)]
     pub plugin_id: Option<String>,
+    /// Host services the plugin's permissions grant the session, as the
+    /// launch plan lists them (`backend.hostServices`). Only a plugin-owned
+    /// session may name any; Core forwards only these `lithe/host/*`
+    /// requests to the host.
+    #[serde(default)]
+    pub host_services: Vec<String>,
     pub executable_path: String,
     #[serde(default)]
     pub arguments: Vec<String>,
@@ -427,6 +436,32 @@ pub struct VcsProviderRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// The host's answer to one `hostRequest` event: the outcome of a host
+/// service a plugin backend asked for. Exactly one of `result` and `error`.
+pub struct PluginHostResponse {
+    pub session_id: String,
+    /// The `hostRequestID` of the `hostRequest` event being answered,
+    /// spelled as the event spells it.
+    #[serde(rename = "hostRequestID")]
+    pub host_request_id: String,
+    /// The service's result; `null` for a write or delete.
+    #[serde(default)]
+    pub result: Option<Value>,
+    /// The host could not perform the service. Its message reaches the
+    /// backend, bounded; the code is always `plugin.host.failed`.
+    #[serde(default)]
+    pub error: Option<PluginHostFailure>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+/// Why the host could not perform a forwarded host-service request.
+pub struct PluginHostFailure {
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 /// One plugin-function invocation. The result arrives as a `requestCompleted`
 /// event whose `result.value` is the function's result; failures carry a
 /// stable `plugin.function.*` code. Progress arrives as `requestProgress`.
@@ -692,6 +727,10 @@ struct SessionState {
     deadline_cancellations: Vec<String>,
     /// Bounds an outbound maintenance write independently of caller deadlines.
     maintenance_write_deadline: Option<Instant>,
+    /// Backend requests for a host service awaiting `lsp.hostResponse`, by
+    /// the opaque ID the host sees, with the backend's own JSON-RPC ID.
+    host_requests: BTreeMap<String, Value>,
+    next_host_request_id: u64,
 }
 
 struct RuntimeSession {
@@ -1273,6 +1312,14 @@ pub fn vcs_provider_request(request: VcsProviderRequest) -> Result<OperationResp
     Ok(OperationResponse { operation_id })
 }
 
+/// Answers one `hostRequest` event of a plugin backend with the outcome of
+/// the host service it asked for.
+pub fn plugin_host_response(request: PluginHostResponse) -> Result<(), CoreError> {
+    engine()
+        .session(&request.session_id)?
+        .host_response(request)
+}
+
 /// Invokes one plugin function on a session of the function's plugin.
 pub fn plugin_function_request(
     request: PluginFunctionRequest,
@@ -1612,7 +1659,10 @@ impl LspEngine {
             outbound_order: Mutex::new(()),
             state: Mutex::new(SessionState {
                 lifecycle: LspLifecycleState::Created,
-                client: initialize.state,
+                client: LspClientState {
+                    host_services: request.host_services.into_iter().collect(),
+                    ..initialize.state
+                },
                 pending: BTreeMap::from([(
                     request_id,
                     PendingRequest {
@@ -1656,6 +1706,8 @@ impl LspEngine {
                 java_build_timeout,
                 deadline_cancellations: Vec::new(),
                 maintenance_write_deadline: None,
+                host_requests: BTreeMap::new(),
+                next_host_request_id: 1,
             }),
             event_signal: Condvar::new(),
             process: process.handle,
@@ -2241,6 +2293,36 @@ impl RuntimeSession {
             (response.messages, request_id)
         };
         self.send_request_or_fail(&outbound_order, messages, &request_id)
+    }
+
+    /// Sends the backend the host's answer to one forwarded host-service
+    /// request. An unknown ID, including one already answered or of a session
+    /// that restarted, is refused so a late answer never reaches another
+    /// request.
+    fn host_response(&self, response: PluginHostResponse) -> Result<(), CoreError> {
+        let outbound_order = self.lock_outbound_order()?;
+        let message = {
+            let mut state = self.lock_state()?;
+            let backend_id = state
+                .host_requests
+                .remove(&response.host_request_id)
+                .ok_or_else(|| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "No host-service request with this ID is waiting for an answer.",
+                    )
+                })?;
+            match (response.result, response.error) {
+                (_, Some(failure)) => json_rpc_error_with_code(
+                    &backend_id,
+                    -32603,
+                    &super::plugin_function::bounded_host_message(&failure.message),
+                    super::plugin_function::codes::HOST_FAILED,
+                )?,
+                (result, None) => json_rpc_result(&backend_id, result.unwrap_or(Value::Null))?,
+            }
+        };
+        self.send_messages_or_fail(&outbound_order, vec![message], "hostResponse")
     }
 
     fn request_with_kind(
@@ -3697,6 +3779,13 @@ impl RuntimeSession {
                     push_functions_event(self, &mut state, result);
                 } else if event.kind == "functionProgress" {
                     push_function_progress_locked(self, &mut state, event.result);
+                } else if event.kind == "hostRequest" {
+                    outbound.extend(forward_host_request_locked(
+                        self,
+                        &mut state,
+                        event.method.unwrap_or_default(),
+                        event.result.unwrap_or_default(),
+                    )?);
                 } else if event.kind == super::vcs_provider::NEGOTIATED_EVENT {
                     push_vcs_provider_event(self, &mut state, event.result.unwrap_or_default());
                 } else if event.kind == "diagnostics" {
@@ -4775,6 +4864,17 @@ fn validate_start_request(request: &StartServerRequest) -> Result<(), CoreError>
     if request.provider_id.trim().is_empty() {
         return Err(invalid_field("providerId"));
     }
+    // A host-owned server is no plugin's backend, and a service Core does not
+    // know could never be forwarded.
+    if !request.host_services.is_empty()
+        && (request.plugin_id.is_none()
+            || request
+                .host_services
+                .iter()
+                .any(|service| service != super::plugin_function::HOST_SERVICE_CREDENTIALS))
+    {
+        return Err(invalid_field("hostServices"));
+    }
     if request.executable_path.trim().is_empty()
         || request.executable_path.contains('\0')
         || request.working_directory.trim().is_empty()
@@ -5481,6 +5581,62 @@ fn push_vcs_provider_event(session: &RuntimeSession, state: &mut SessionState, r
 }
 
 /// Publishes the session's registered functions after a registry change.
+/// Publishes a backend's well-formed host-service request as `hostRequest`,
+/// or answers it at once when the session already has the most requests the
+/// host may owe it. Returns the messages to send to the backend.
+fn forward_host_request_locked(
+    session: &RuntimeSession,
+    state: &mut SessionState,
+    method: String,
+    request: Value,
+) -> Result<Vec<String>, CoreError> {
+    let backend_id = request.get("id").cloned().unwrap_or(Value::Null);
+    if state.host_requests.len() >= super::plugin_function::MAX_PENDING_HOST_REQUESTS {
+        return Ok(vec![json_rpc_error_with_code(
+            &backend_id,
+            -32603,
+            "Too many host-service requests are waiting for the host.",
+            super::plugin_function::codes::HOST_FAILED,
+        )?]);
+    }
+    let host_request_id = format!("host-{}", state.next_host_request_id);
+    state.next_host_request_id += 1;
+    state
+        .host_requests
+        .insert(host_request_id.clone(), backend_id);
+    let sequence = take_sequence(state);
+    enqueue_runtime_event(
+        session,
+        state,
+        LspRuntimeEvent {
+            kind: "hostRequest".to_string(),
+            sequence,
+            provider_id: session.provider_id.clone(),
+            session_id: session.id.clone(),
+            state: None,
+            operation_id: None,
+            method: Some(method),
+            uri: None,
+            version: None,
+            diagnostics: None,
+            result: Some(json!({
+                "hostRequestID": host_request_id,
+                "service": request.get("service").cloned().unwrap_or(Value::Null),
+                "params": request.get("params").cloned().unwrap_or(Value::Null),
+            })),
+            error: None,
+            capabilities: None,
+            server_info: None,
+            level: None,
+            message: None,
+            detail: None,
+            maven_profile_project: None,
+            maven_profile_task: None,
+        },
+    );
+    Ok(Vec::new())
+}
+
 fn push_functions_event(session: &RuntimeSession, state: &mut SessionState, result: Value) {
     let sequence = take_sequence(state);
     enqueue_runtime_event(
@@ -6166,6 +6322,7 @@ mod tests {
             // `adapt_start` is covered by its own tests.
             provider_id: "gopls".to_string(),
             plugin_id: None,
+            host_services: Vec::new(),
             executable_path: "/usr/bin/scripted-server".to_string(),
             arguments: vec!["--stdio".to_string()],
             environment: BTreeMap::new(),
@@ -9739,6 +9896,7 @@ public class Main {
             .start_server(StartServerRequest {
                 provider_id: "java".to_string(),
                 plugin_id: None,
+                host_services: Vec::new(),
                 executable_path,
                 arguments: Vec::new(),
                 environment: BTreeMap::from([(
@@ -10474,6 +10632,7 @@ public class Main {
         let request = StartServerRequest {
             provider_id: String::new(),
             plugin_id: None,
+            host_services: Vec::new(),
             executable_path: "/bin/server".to_string(),
             arguments: Vec::new(),
             environment: BTreeMap::new(),
@@ -11500,7 +11659,7 @@ public class Main {
             initialize["params"]["capabilities"]["experimental"],
             json!({
                 "litheBuild": { "versions": [1] },
-                "litheFunctions": { "versions": [1] },
+                "litheFunctions": { "versions": [1, 2] },
                 "litheVcs": { "versions": [1] }
             })
         );
@@ -12251,5 +12410,142 @@ public class Main {
             let reply = await_reply(&harness, id);
             assert_eq!(reply["error"]["data"]["code"], code, "{method}");
         }
+    }
+
+    fn host_service_backend(version: u64, host_services: &[&str]) -> Harness {
+        let host_services: Vec<String> = host_services.iter().map(ToString::to_string).collect();
+        let mut harness = Harness::start(move |request| {
+            request.plugin_id = Some(FUNCTION_PLUGIN.to_string());
+            request.host_services = host_services.clone();
+        });
+        harness.server.complete_initialize(json!({
+            "experimental": { "litheFunctions": { "version": version } }
+        }));
+        harness.await_state(LspLifecycleState::Ready);
+        harness
+    }
+
+    fn host_response(
+        harness: &Harness,
+        host_request_id: &str,
+        result: Option<Value>,
+        error: Option<&str>,
+    ) -> Result<(), CoreError> {
+        // Decoded from the wire shape `lsp.hostResponse` documents, so the
+        // field spelling is checked with the round trip.
+        let mut wire = json!({
+            "sessionId": harness.session_id,
+            "hostRequestID": host_request_id,
+        });
+        if let Some(result) = result {
+            wire["result"] = result;
+        }
+        if let Some(message) = error {
+            wire["error"] = json!({ "message": message });
+        }
+        let response: PluginHostResponse =
+            serde_json::from_value(wire).expect("documented wire shape");
+        harness.session().host_response(response)
+    }
+
+    /// A granted credential request reaches the host as `hostRequest`. The
+    /// backend receives exactly the host's answer under its own ID, and a
+    /// second answer to the same request is refused instead of reaching a
+    /// later request.
+    #[test]
+    fn a_granted_host_service_request_round_trips_through_the_host() {
+        let mut harness = host_service_backend(2, &["credentials"]);
+        harness.server.send(json!({
+            "jsonrpc": "2.0", "id": "read",
+            "method": "lithe/host/credentials/get",
+            "params": { "key": "connection.prod" }
+        }));
+        let event = harness
+            .await_event(|event| event.kind == "hostRequest")
+            .clone();
+        assert_eq!(event.method.as_deref(), Some("lithe/host/credentials/get"));
+        let request = event.result.expect("the request is described");
+        assert_eq!(request["service"], "credentials");
+        assert_eq!(request["params"], json!({ "key": "connection.prod" }));
+        let read_id = request["hostRequestID"].as_str().unwrap().to_string();
+        host_response(
+            &harness,
+            &read_id,
+            Some(json!({ "secret": "s3cret" })),
+            None,
+        )
+        .expect("the host answers once");
+        assert_eq!(
+            await_reply(&harness, "read")["result"],
+            json!({ "secret": "s3cret" })
+        );
+        assert!(host_response(&harness, &read_id, None, None).is_err());
+
+        harness.server.send(json!({
+            "jsonrpc": "2.0", "id": "write",
+            "method": "lithe/host/credentials/set",
+            "params": { "key": "connection.prod", "secret": "s3cret" }
+        }));
+        let event = harness
+            .await_event(|event| {
+                event.kind == "hostRequest"
+                    && event.method.as_deref() == Some("lithe/host/credentials/set")
+            })
+            .clone();
+        let write_id = event.result.unwrap()["hostRequestID"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert_ne!(write_id, read_id);
+        host_response(&harness, &write_id, None, Some("The keychain is locked."))
+            .expect("the host reports its failure");
+        let reply = await_reply(&harness, "write");
+        assert_eq!(reply["error"]["data"]["code"], "plugin.host.failed");
+        assert_eq!(reply["error"]["message"], "The keychain is locked.");
+    }
+
+    /// Host services start with protocol version 2 and only for the services
+    /// the plugin's permissions grant; refusals never reach the host.
+    #[test]
+    fn host_services_need_version_2_and_a_grant() {
+        for (version, services, code) in [
+            (1, &["credentials"][..], "plugin.host.unavailable"),
+            (2, &[][..], "plugin.host.permissionDenied"),
+        ] {
+            let mut harness = host_service_backend(version, services);
+            harness.server.send(json!({
+                "jsonrpc": "2.0", "id": "read",
+                "method": "lithe/host/credentials/get",
+                "params": { "key": "connection.prod" }
+            }));
+            let reply = await_reply(&harness, "read");
+            assert_eq!(reply["error"]["data"]["code"], code, "version {version}");
+            harness.poll();
+            assert!(harness
+                .events
+                .iter()
+                .all(|event| event.kind != "hostRequest"));
+        }
+    }
+
+    /// A host that stops answering cannot make a backend grow the session's
+    /// state: requests beyond the bound fail at once.
+    #[test]
+    fn unanswered_host_requests_are_bounded() {
+        let harness = host_service_backend(2, &["credentials"]);
+        let limit = super::super::plugin_function::MAX_PENDING_HOST_REQUESTS;
+        for index in 0..=limit {
+            harness.server.send(json!({
+                "jsonrpc": "2.0", "id": format!("read-{index}"),
+                "method": "lithe/host/credentials/get",
+                "params": { "key": "connection.prod" }
+            }));
+        }
+        let reply = await_reply(&harness, &format!("read-{limit}"));
+        assert_eq!(reply["error"]["data"]["code"], "plugin.host.failed");
+        assert_eq!(
+            harness.session().lock_state().unwrap().host_requests.len(),
+            limit
+        );
     }
 }

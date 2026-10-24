@@ -10,7 +10,6 @@
 "%@ (%@ failed)" = "%@ (%@ failed)";
 "%@ (%lld)" = "%@ (%lld)";
 "%@ (not available for this Lithe or Mac)" = "%@ (not available for this Lithe or Mac)";
-"%@ Query History" = "%@ Query History";
 "%@ already exists. Choose another name or location." = "%@ already exists. Choose another name or location.";
 "%@ answered with status %lld. %@" = "%@ answered with status %lld. %@";
 "%@ build files changed" = "%@ build files changed";
@@ -55,7 +54,6 @@
 "%d lines of its own" = "%d lines of its own";
 "%d messages" = "%d messages";
 "%d minutes ago" = "%d minutes ago";
-"%d rows retrieved in %d ms" = "%d rows retrieved in %d ms";
 "%d selected" = "%d selected";
 "%d tools" = "%d tools";
 "%lld CPU cores" = "%lld CPU cores";
@@ -103,7 +101,6 @@
 "%lldh %lldm %llds" = "%lldh %lldm %llds";
 "%lldm %llds" = "%lldm %llds";
 "%llds" = "%llds";
-"%llu rows affected in %d ms" = "%llu rows affected in %d ms";
 ", " = ", ";
 "0.5 seconds" = "0.5 seconds";
 "1 file" = "1 file";
@@ -123,7 +120,6 @@
 "A basic project with a free structure." = "A basic project with a free structure.";
 "A custom Agent can follow either your Codex or your Claude configuration." = "A custom Agent can follow either your Codex or your Claude configuration.";
 "A detailed message with a clear subject and body" = "A detailed message with a clear subject and body";
-"A folder with this name already exists." = "A folder with this name already exists.";
 "A host name, an IP address, or a Host alias from ~/.ssh/config. Settings from that file, such as ProxyJump and IdentityFile, still apply." = "A host name, an IP address, or a Host alias from ~/.ssh/config. Settings from that file, such as ProxyJump and IdentityFile, still apply.";
 "A managed Hook was edited outside Lithe. Restore or remove that native entry before synchronizing." = "A managed Hook was edited outside Lithe. Restore or remove that native entry before synchronizing.";
 "A message creates an annotated tag." = "A message creates an annotated tag.";
@@ -255,7 +251,6 @@
 "All modules" = "All modules";
 "All projects" = "All projects";
 "All projects · project can override" = "All projects · project can override";
-"All schemas" = "All schemas";
 "All servers" = "All servers";
 "All sessions" = "All sessions";
 "All severities" = "All severities";
@@ -370,7 +365,6 @@
 "Average time to first token (TTFT)" = "Average time to first token (TTFT)";
 "Average total" = "Average total";
 "Back" = "Back";
-"Back Up Database as SQL…" = "Back Up Database as SQL…";
 "Back to all references" = "Back to all references";
 "Back to the conversation" = "Back to the conversation";
 "Background Services" = "Background Services";
@@ -410,7 +404,6 @@
 "Breakdown unavailable" = "Breakdown unavailable";
 "Breakpoint actions" = "Breakpoint actions";
 "Breakpoints" = "Breakpoints";
-"Browse Database" = "Browse Database";
 "Browse…" = "Browse…";
 "Bug report" = "Bug report";
 "Build" = "Build";
@@ -603,7 +596,6 @@
 "Clear date filter" = "Clear date filter";
 "Clear debug output" = "Clear debug output";
 "Clear log search" = "Clear log search";
-"Clear output" = "Clear output";
 "Clear path filter" = "Clear path filter";
 "Clear run output" = "Clear run output";
 "Clear search" = "Clear search";
@@ -673,13 +665,11 @@
 "Collapse All" = "Collapse All";
 "Collapse JSON block" = "Collapse JSON block";
 "Collapse all" = "Collapse all";
-"Collapse database" = "Collapse database";
 "Collapse directory" = "Collapse directory";
 "Collapse long graph edges" = "Collapse long graph edges";
 "Collapse notification" = "Collapse notification";
 "Collapse repository" = "Collapse repository";
 "Collapse section" = "Collapse section";
-"Collapse table" = "Collapse table";
 "Collapsed" = "Collapsed";
 "Collected logs cleared." = "Collected logs cleared.";
 "Color theme" = "Color theme";
@@ -726,7 +716,6 @@
 "Committer name" = "Committer name";
 "Committing…" = "Committing…";
 "Commit…" = "Commit…";
-"Common Actions" = "Common Actions";
 "Community" = "Community";
 "Community / Disk" = "Community / Disk";
 "Community plugin installed from disk. Its publisher and repository have not been verified." = "Community plugin installed from disk. Its publisher and repository have not been verified.";
@@ -781,11 +770,7 @@
 "Connecting…" = "Connecting…";
 "Connection" = "Connection";
 "Connection recovery is taking longer. The Agent is still retrying." = "Connection recovery is taking longer. The Agent is still retrying.";
-"Connection successful" = "Connection successful";
-"Connection test duration: %lld ms" = "Connection test duration: %lld ms";
-"Connection test result" = "Connection test result";
 "Connection timeout" = "Connection timeout";
-"Connections" = "Connections";
 "Connections: %lld" = "Connections: %lld";
 "Console" = "Console";
 "Content" = "Content";
@@ -948,11 +933,8 @@
 "Danger Zone" = "Danger Zone";
 "Dark" = "Dark";
 "Dart Support" = "Dart Support";
-"Data Source" = "Data Source";
-"Data Tools" = "Data Tools";
 "Database" = "Database";
-"Database Overview" = "Database Overview";
-"Database types" = "Database types";
+"Database is now a plugin. Install it from the Marketplace, and your saved connections and passwords move into it." = "Database is now a plugin. Install it from the Marketplace, and your saved connections and passwords move into it.";
 "Date" = "Date";
 "Debug" = "Debug";
 "Debug target" = "Debug target";
@@ -1085,7 +1067,6 @@
 "Don't ask again" = "Don't ask again";
 "Done" = "Done";
 "Don’t Allow" = "Don’t Allow";
-"Double-click a table to view data" = "Double-click a table to view data";
 "Download" = "Download";
 "Download %@" = "Download %@";
 "Download PHP Support from the official plugin release." = "Download PHP Support from the official plugin release.";
@@ -1109,7 +1090,6 @@
 "Drop this shelf?" = "Drop this shelf?";
 "Dropped: %lld; write failures: %lld" = "Dropped: %lld; write failures: %lld";
 "Duplicate" = "Duplicate";
-"Duplicate Connection" = "Duplicate Connection";
 "Duration: %lld ms" = "Duration: %lld ms";
 "Each Agent keeps its own configuration file. Turning an Agent off removes only the entry Lithe wrote; an entry created outside Lithe is never removed without taking ownership first." = "Each Agent keeps its own configuration file. Turning an Agent off removes only the entry Lithe wrote; an entry created outside Lithe is never removed without taking ownership first.";
 "Each account is a separate configuration folder of the official CLI. Sign-in runs the CLI's own login command in the background and opens your browser, so Lithe never reads or copies credentials. Switching restarts this project's connection for this Agent and is refused while a reply or permission request is pending. Lithe never switches accounts by itself when a limit is reached." = "Each account is a separate configuration folder of the official CLI. Sign-in runs the CLI's own login command in the background and opens your browser, so Lithe never reads or copies credentials. Switching restarts this project's connection for this Agent and is refused while a reply or permission request is pending. Lithe never switches accounts by itself when a limit is reached.";
@@ -1130,7 +1110,6 @@
 "Edit Commit Message" = "Edit Commit Message";
 "Edit Commit Message…" = "Edit Commit Message…";
 "Edit Configuration…" = "Edit Configuration…";
-"Edit Connection" = "Edit Connection";
 "Edit Hook" = "Edit Hook";
 "Edit MCP server" = "Edit MCP server";
 "Edit Service" = "Edit Service";
@@ -1246,20 +1225,16 @@
 "Expand %lld lines" = "Expand %lld lines";
 "Expand All" = "Expand All";
 "Expand JSON block" = "Expand JSON block";
-"Expand database" = "Expand database";
 "Expand directory" = "Expand directory";
 "Expand notification" = "Expand notification";
 "Expand repository" = "Expand repository";
 "Expand section" = "Expand section";
-"Expand table" = "Expand table";
 "Expand temporary Git configuration or command details" = "Expand temporary Git configuration or command details";
 "Expanded" = "Expanded";
 "Explain the intent, testing, and anything reviewers should know…" = "Explain the intent, testing, and anything reviewers should know…";
 "Explain what must change before this pull request can be approved." = "Explain what must change before this pull request can be approved.";
 "Export Diagnostics Bundle" = "Export Diagnostics Bundle";
 "Export Diagnostics Bundle…" = "Export Diagnostics Bundle…";
-"Export Table as CSV…" = "Export Table as CSV…";
-"Export Table as JSON…" = "Export Table as JSON…";
 "Export as PDF…" = "Export as PDF…";
 "Export conversations" = "Export conversations";
 "Export logs" = "Export logs";
@@ -1275,7 +1250,6 @@
 "F# Support" = "F# Support";
 "Failed" = "Failed";
 "Failed to start; check the language server configuration" = "Failed to start; check the language server configuration";
-"Failed, line %d" = "Failed, line %d";
 "Failures" = "Failures";
 "Fast" = "Fast";
 "Fast mode" = "Fast mode";
@@ -1329,7 +1303,6 @@
 "Files will stay unchanged. Nothing will be staged or committed automatically." = "Files will stay unchanged. Nothing will be staged or committed automatically.";
 "Filter by changed path" = "Filter by changed path";
 "Filter by title, author, or label" = "Filter by title, author, or label";
-"Filter database type" = "Filter database type";
 "Filter log messages" = "Filter log messages";
 "Filter problems by severity" = "Filter problems by severity";
 "Filter results" = "Filter results";
@@ -1355,7 +1328,6 @@
 "Fixup" = "Fixup";
 "Folder" = "Folder";
 "Folder name" = "Folder name";
-"Folder name is required." = "Folder name is required.";
 "Follow Git setting" = "Follow Git setting";
 "Follow Git tag rules" = "Follow Git tag rules";
 "Follow the instructions you define below" = "Follow the instructions you define below";
@@ -1365,10 +1337,8 @@
 "For example, notify" = "For example, notify";
 "For example, notify me when a turn ends" = "For example, notify me when a turn ends";
 "Force Checkout" = "Force Checkout";
-"Force Refresh" = "Force Refresh";
 "Force Remove" = "Force Remove";
 "Force remove worktree?" = "Force remove worktree?";
-"Forever" = "Forever";
 "Forget" = "Forget";
 "Fork conversation" = "Fork conversation";
 "Format" = "Format";
@@ -1540,14 +1510,10 @@
 "Ignored entries: %lld" = "Ignored entries: %lld";
 "Imperative subject" = "Imperative subject";
 "Implementations" = "Implementations";
-"Import CSV…" = "Import CSV…";
-"Import Data Sources…" = "Import Data Sources…";
 "Import JSON" = "Import JSON";
-"Import JSON…" = "Import JSON…";
 "Import MCP configuration" = "Import MCP configuration";
 "Import SKILL.md" = "Import SKILL.md";
 "Import a regular file or directory instead of a symbolic link." = "Import a regular file or directory instead of a symbolic link.";
-"Import connections from DBX" = "Import connections from DBX";
 "Import from Claude" = "Import from Claude";
 "Import from Codex" = "Import from Codex";
 "Import skill" = "Import skill";
@@ -2004,12 +1970,10 @@
 "New Directory…" = "New Directory…";
 "New File…" = "New File…";
 "New Folder" = "New Folder";
-"New Folder…" = "New Folder…";
 "New Hook" = "New Hook";
 "New MCP server" = "New MCP server";
 "New Project" = "New Project";
 "New Project…" = "New Project…";
-"New Query" = "New Query";
 "New Run Configuration" = "New Run Configuration";
 "New SSH Connection" = "New SSH Connection";
 "New Tag" = "New Tag";
@@ -2062,8 +2026,6 @@
 "No Remote Branches" = "No Remote Branches";
 "No SSH connections yet." = "No SSH connections yet.";
 "No Spring Boot or Maven Module configurations" = "No Spring Boot or Maven Module configurations";
-"No Table Selected" = "No Table Selected";
-"No accessible databases" = "No accessible databases";
 "No available local branch. Branches already checked out in another worktree cannot be reused." = "No available local branch. Branches already checked out in another worktree cannot be reused.";
 "No background image selected" = "No background image selected";
 "No branches found" = "No branches found";
@@ -2071,7 +2033,6 @@
 "No callable target at this location" = "No callable target at this location";
 "No changed files" = "No changed files";
 "No changes" = "No changes";
-"No columns to display" = "No columns to display";
 "No command" = "No command";
 "No commit selected" = "No commit selected";
 "No commits" = "No commits";
@@ -2084,7 +2045,6 @@
 "No credential found in Codex configuration" = "No credential found in Codex configuration";
 "No current branch" = "No current branch";
 "No custom providers yet." = "No custom providers yet.";
-"No databases loaded" = "No databases loaded";
 "No default shell was detected. Choose a detected shell or run detection again." = "No default shell was detected. Choose a detected shell or run detection again.";
 "No dependencies" = "No dependencies";
 "No dependencies." = "No dependencies.";
@@ -2140,7 +2100,6 @@
 "No published release is available yet." = "No published release is available yet.";
 "No pull requests" = "No pull requests";
 "No pull requests match the selected state." = "No pull requests match the selected state.";
-"No query output" = "No query output";
 "No recent progress has been received. The task is still active." = "No recent progress has been received. The task is still active.";
 "No recent projects" = "No recent projects";
 "No release is available yet" = "No release is available yet";
@@ -2152,7 +2111,6 @@
 "No runnable services were detected in this project." = "No runnable services were detected in this project.";
 "No running debug process accepts standard input" = "No running debug process accepts standard input";
 "No saved changes" = "No saved changes";
-"No schemas selected" = "No schemas selected";
 "No settings found" = "No settings found";
 "No shell was found at %@. Choose a detected shell or run detection again." = "No shell was found at %@. Choose a detected shell or run detection again.";
 "No shelves" = "No shelves";
@@ -2174,7 +2132,6 @@
 "Node.js %lld or later is required; found %@." = "Node.js %lld or later is required; found %@.";
 "Node.js %lld or later was not found. Install it, then check again." = "Node.js %lld or later was not found. Install it, then check again.";
 "Node.js Support" = "Node.js Support";
-"Non-Introspected" = "Non-Introspected";
 "Non-streaming" = "Non-streaming";
 "Non-streaming responses" = "Non-streaming responses";
 "None" = "None";
@@ -2183,7 +2140,6 @@
 "Not Assigned" = "Not Assigned";
 "Not Supported" = "Not Supported";
 "Not available yet: dependencies are not indexed" = "Not available yet: dependencies are not indexed";
-"Not connected" = "Not connected";
 "Not detected" = "Not detected";
 "Not fetched yet." = "Not fetched yet.";
 "Not found" = "Not found";
@@ -2247,6 +2203,7 @@
 "Open GitHub profile" = "Open GitHub profile";
 "Open HTML in Browser" = "Open HTML in Browser";
 "Open Log Directory" = "Open Log Directory";
+"Open Marketplace" = "Open Marketplace";
 "Open Patch…" = "Open Patch…";
 "Open Plugin Management" = "Open Plugin Management";
 "Open Project" = "Open Project";
@@ -2271,7 +2228,6 @@
 "Open a project to manage its skills." = "Open a project to manage its skills.";
 "Open a project to see its language service." = "Open a project to see its language service.";
 "Open a project to use Git" = "Open a project to use Git";
-"Open a table to inspect its structure" = "Open a table to inspect its structure";
 "Open again" = "Open again";
 "Open file" = "Open file";
 "Open file in editor to see problems" = "Open file in editor to see problems";
@@ -2330,7 +2286,6 @@
 "Password or passphrase" = "Password or passphrase";
 "Paste" = "Paste";
 "Paste Patch" = "Paste Patch";
-"Paste TSV from Clipboard" = "Paste TSV from Clipboard";
 "Paste a JSON object containing mcpServers." = "Paste a JSON object containing mcpServers.";
 "Paste an https plugin index URL or a GitHub repository URL. A GitHub repository must contain lithe-plugin-index.json at its root." = "Paste an https plugin index URL or a GitHub repository URL. A GitHub repository must contain lithe-plugin-index.json at its root.";
 "Paste standard JSON with an mcpServers object. Choose a server to review before saving. Only the editor's supported command, arguments, environment, URL and header fields are imported; authentication and client-specific options must be configured separately. Importing does not take ownership of an existing entry." = "Paste standard JSON with an mcpServers object. Choose a server to review before saving. Only the editor's supported command, arguments, environment, URL and header fields are imported; authentication and client-specific options must be configured separately. Importing does not take ownership of an existing entry.";
@@ -2396,7 +2351,6 @@
 "Preparing conversation…" = "Preparing conversation…";
 "Preparing download…" = "Preparing download…";
 "Preserves every commit and adds a merge commit to the base branch." = "Preserves every commit and adds a merge commit to the base branch.";
-"Press Enter or click outside the list to apply" = "Press Enter or click outside the list to apply";
 "Press shortcut…" = "Press shortcut…";
 "Preview" = "Preview";
 "Preview Update" = "Preview Update";
@@ -2526,9 +2480,7 @@
 "Push to %@" = "Push to %@";
 "Push…" = "Push…";
 "Python Support" = "Python Support";
-"Query Console" = "Query Console";
 "Quick Information" = "Quick Information";
-"Quick Start" = "Quick Start";
 "Quick responses with basic reasoning" = "Quick responses with basic reasoning";
 "Quit" = "Quit";
 "Quit with Selection" = "Quit with Selection";
@@ -2568,7 +2520,6 @@
 "Rebase requires a clean working tree. Commit or stash local changes before choosing Rebase." = "Rebase requires a clean working tree. Commit or stash local changes before choosing Rebase.";
 "Recent" = "Recent";
 "Recent Projects" = "Recent Projects";
-"Recent SQL" = "Recent SQL";
 "Recommended: keep worktrees in a persistent folder next to the repository. You can choose /private/tmp manually for disposable checkouts." = "Recommended: keep worktrees in a persistent folder next to the repository. You can choose /private/tmp manually for disposable checkouts.";
 "Reconnect" = "Reconnect";
 "Reconnect this Agent to refresh its model list." = "Reconnect this Agent to refresh its model list.";
@@ -2587,14 +2538,12 @@
 "Refresh Preview" = "Refresh Preview";
 "Refresh changes" = "Refresh changes";
 "Refresh connection structure" = "Refresh connection structure";
-"Refresh databases" = "Refresh databases";
 "Refresh dependencies" = "Refresh dependencies";
 "Refresh detected runtimes" = "Refresh detected runtimes";
 "Refresh history" = "Refresh history";
 "Refresh local history" = "Refresh local history";
 "Refresh project history" = "Refresh project history";
 "Refresh pull requests" = "Refresh pull requests";
-"Refresh selected structure" = "Refresh selected structure";
 "Refresh skills" = "Refresh skills";
 "Refresh worktrees" = "Refresh worktrees";
 "Refreshed %@" = "Refreshed %@";
@@ -2672,7 +2621,6 @@
 "Rename Branch" = "Rename Branch";
 "Rename ChangeList" = "Rename ChangeList";
 "Rename Chat" = "Rename Chat";
-"Rename Folder" = "Rename Folder";
 "Rename conversation" = "Rename conversation";
 "Renamed" = "Renamed";
 "Rename…" = "Rename…";
@@ -2687,7 +2635,6 @@
 "Replace" = "Replace";
 "Replace current commit message?" = "Replace current commit message?";
 "Replace existing content" = "Replace existing content";
-"Replace in Current Page…" = "Replace in Current Page…";
 "Replace in File" = "Replace in File";
 "Replace in Files" = "Replace in Files";
 "Replace in File…" = "Replace in File…";
@@ -2756,12 +2703,10 @@
 "Restore Default Template" = "Restore Default Template";
 "Restore Default UI Layout" = "Restore Default UI Layout";
 "Restore Defaults" = "Restore Defaults";
-"Restore SQL Backup…" = "Restore SQL Backup…";
 "Restore conversations" = "Restore conversations";
 "Restore path" = "Restore path";
 "Restoring GitHub connection" = "Restoring GitHub connection";
 "Result" = "Result";
-"Result %d" = "Result %d";
 "Results" = "Results";
 "Resume" = "Resume";
 "Resume the paused debug session" = "Resume the paused debug session";
@@ -2868,13 +2813,10 @@
 "SKILL.md needs a name and description." = "SKILL.md needs a name and description.";
 "SKILL.md needs instructions after its frontmatter." = "SKILL.md needs instructions after its frontmatter.";
 "SQL Support" = "SQL Support";
-"SQL execution markers" = "SQL execution markers";
 "SSH" = "SSH";
-"SSH / TLS" = "SSH / TLS";
 "SSH Agent" = "SSH Agent";
 "SSH Authentication" = "SSH Authentication";
 "STAGED" = "STAGED";
-"Safety and Labels" = "Safety and Labels";
 "Sample interval" = "Sample interval";
 "Save" = "Save";
 "Save Changes" = "Save Changes";
@@ -2890,12 +2832,10 @@
 "Save local changes with" = "Save local changes with";
 "Save message" = "Save message";
 "Save or discard unsaved files before deleting this item" = "Save or discard unsaved files before deleting this item";
-"Save password" = "Save password";
 "Save scope" = "Save scope";
 "Save shared instructions" = "Save shared instructions";
 "Save the active document" = "Save the active document";
 "Save title" = "Save title";
-"Save:" = "Save:";
 "Saved" = "Saved";
 "Saved in .lithe/run/configurations.json for the whole team. Local JDK paths are never shared." = "Saved in .lithe/run/configurations.json for the whole team. Local JDK paths are never shared.";
 "Saved in .lithe/run/local.json and excluded from Git." = "Saved in .lithe/run/local.json and excluded from Git.";
@@ -2924,7 +2864,6 @@
 "Search connections" = "Search connections";
 "Search conversation" = "Search conversation";
 "Search conversation titles or IDs…" = "Search conversation titles or IDs…";
-"Search databases" = "Search databases";
 "Search diff" = "Search diff";
 "Search exclusions" = "Search exclusions";
 "Search files and contents" = "Search files and contents";
@@ -2959,7 +2898,6 @@
 "Select a Spring Boot or Maven Module configuration before starting Debug" = "Select a Spring Boot or Maven Module configuration before starting Debug";
 "Select a changed file first" = "Select a changed file first";
 "Select a commit" = "Select a commit";
-"Select a connection in the database tree" = "Select a connection in the database tree";
 "Select a file" = "Select a file";
 "Select a file to preview" = "Select a file to preview";
 "Select a file to review" = "Select a file to review";
@@ -2974,7 +2912,6 @@
 "Select branch" = "Select branch";
 "Select configurations for batch actions" = "Select configurations for batch actions";
 "Select conversation" = "Select conversation";
-"Select databases" = "Select databases";
 "Select for Compare" = "Select for Compare";
 "Select repository for commits and branch operations" = "Select repository for commits and branch operations";
 "Select run configuration" = "Select run configuration";
@@ -3143,7 +3080,6 @@
 "Some dependencies are not shown." = "Some dependencies are not shown.";
 "Sort by Last Updated" = "Sort by Last Updated";
 "Sort by Name" = "Sort by Name";
-"Sort connections" = "Sort connections";
 "Sort plugins" = "Sort plugins";
 "Source" = "Source";
 "Source Code" = "Source Code";
@@ -3252,14 +3188,12 @@
 "Submitting review…" = "Submitting review…";
 "Subscription accounts" = "Subscription accounts";
 "Succeeded" = "Succeeded";
-"Succeeded, line %d" = "Succeeded, line %d";
 "Supplementary message cancelled." = "Supplementary message cancelled.";
 "Supported placeholders: {summary}, {changes}, {testing}, {risks}." = "Supported placeholders: {summary}, {changes}, {testing}, {risks}.";
 "Svelte Support" = "Svelte Support";
 "Swap Direction" = "Swap Direction";
 "Swift Support" = "Swift Support";
 "Switch Agent" = "Switch Agent";
-"Switch current database" = "Switch current database";
 "Switch project view" = "Switch project view";
 "Switch to the Node.js/npm environment that installed this CLI, update it there, then check again." = "Switch to the Node.js/npm environment that installed this CLI, update it there, then check again.";
 "Switched" = "Switched";
@@ -3302,7 +3236,6 @@
 "Test process tree · Resident memory" = "Test process tree · Resident memory";
 "Test the connection to see the host's system, resources, and address." = "Test the connection to see the host's system, resources, and address.";
 "Testing" = "Testing";
-"Testing connection…" = "Testing connection…";
 "Tests" = "Tests";
 "Tests failed" = "Tests failed";
 "Tests passed" = "Tests passed";
@@ -3373,7 +3306,6 @@
 "The credential store version is unsupported. Existing credentials were preserved." = "The credential store version is unsupported. Existing credentials were preserved.";
 "The current file will be saved to Local History before it is replaced." = "The current file will be saved to Local History before it is replaced.";
 "The current worktree cannot be removed here." = "The current worktree cannot be removed here.";
-"The database selection is no longer available. Refresh and try again." = "The database selection is no longer available. Refresh and try again.";
 "The default ChangeList cannot be renamed." = "The default ChangeList cannot be renamed.";
 "The downloaded app does not match the selected stable release. Nothing was installed." = "The downloaded app does not match the selected stable release. Nothing was installed.";
 "The downloaded disk image does not contain Lithe.app." = "The downloaded disk image does not contain Lithe.app.";
@@ -3438,10 +3370,8 @@
 "The selected background image is unavailable and was removed." = "The selected background image is unavailable and was removed.";
 "The selected branch diff is sent to the active AI provider when you generate." = "The selected branch diff is sent to the active AI provider when you generate.";
 "The selected branches have no textual changes to summarize." = "The selected branches have no textual changes to summarize.";
-"The selected connection folder no longer exists." = "The selected connection folder no longer exists.";
 "The selected file changed before generation finished" = "The selected file changed before generation finished";
 "The selected file has no textual diff to summarize." = "The selected file has no textual diff to summarize.";
-"The selected folder cannot be moved there." = "The selected folder cannot be moved there.";
 "The selected table has no columns to display." = "The selected table has no columns to display.";
 "The selected versions match" = "The selected versions match";
 "The server asked again. Check the previous answer." = "The server asked again. Check the previous answer.";
@@ -3569,8 +3499,6 @@
 "Timed Out" = "Timed Out";
 "Timeout (seconds)" = "Timeout (seconds)";
 "Title" = "Title";
-"To Folder…" = "To Folder…";
-"To Top Level" = "To Top Level";
 "To debug your code, do one of the following:" = "To debug your code, do one of the following:";
 "To track changes to code:" = "To track changes to code:";
 "Today" = "Today";
@@ -3679,7 +3607,6 @@
 "Unstaged changes" = "Unstaged changes";
 "Unsupported content" = "Unsupported content";
 "Until (UTC ISO 8601)" = "Until (UTC ISO 8601)";
-"Until restart" = "Until restart";
 "Untitled conversation" = "Untitled conversation";
 "Untracked" = "Untracked";
 "Unused code" = "Unused code";
@@ -3942,7 +3869,6 @@
 "native.aChangeListWithThisNameAlreadyExists" = "A ChangeList with this name already exists.";
 "native.aCustomAgentCanFollowEitherYourCodexOrYourClaudeConfiguration" = "A custom Agent can follow either your Codex or your Claude configuration.";
 "native.aDetailedMessageWithAClearSubjectAndBody" = "A detailed message with a clear subject and body";
-"native.aFolderWithThisNameAlreadyExists" = "A folder with this name already exists.";
 "native.aHookWithThisNameAlreadyExists" = "A Hook with this name already exists.";
 "native.aHostNameAnIPAddressOrAHostAliasFromSshConfigSettingsFromThatFileSuchAsProxyJumpAndIdentit" = "A host name, an IP address, or a Host alias from ~/.ssh/config. Settings from that file, such as ProxyJump and IdentityFile, still apply.";
 "native.aJavaProjectWithNoBuildToolMavenOrGradle" = "A Java project with no build tool, Maven, or Gradle.";
@@ -4080,7 +4006,6 @@
 "native.allProjectsProjectCanOverride" = "All projects · project can override";
 "native.allReferences" = "All References";
 "native.allRepositories" = "All Repositories";
-"native.allSchemas" = "All schemas";
 "native.allServers" = "All servers";
 "native.allSessions" = "All sessions";
 "native.allSeverities" = "All severities";
@@ -4217,7 +4142,6 @@
 "native.avg" = "avg";
 "native.backToAllReferences" = "Back to all references";
 "native.backToTheConversation" = "Back to the conversation";
-"native.backUpDatabaseAsSQL" = "Back Up Database as SQL…";
 "native.backgroundCommandEndedExitCodeArg1Arg2" = "Background command ended (exit code %1$@): %2$@";
 "native.backgroundCommandFinished" = "Background command finished: %1$@";
 "native.backgroundServices" = "Background Services";
@@ -4257,7 +4181,6 @@
 "native.breakpointActions" = "Breakpoint actions";
 "native.breakpoints" = "Breakpoints";
 "native.browse" = "Browse…";
-"native.browseDatabase" = "Browse Database";
 "native.bugReport" = "Bug report";
 "native.build" = "Build";
 "native.build.variant2" = "Build %1$@ → %2$@";
@@ -4446,7 +4369,6 @@
 "native.clearGitConsole" = "Clear Git console";
 "native.clearLogSearch" = "Clear log search";
 "native.clearLogs" = "Clear Logs";
-"native.clearOutput" = "Clear output";
 "native.clearOverride" = "Clear Override";
 "native.clearPathFilter" = "Clear path filter";
 "native.clearRunOutput" = "Clear run output";
@@ -4518,14 +4440,12 @@
 "native.collaborationMode" = "Collaboration mode";
 "native.collapse" = "Collapse";
 "native.collapseAll" = "Collapse all";
-"native.collapseDatabase" = "Collapse database";
 "native.collapseDirectory" = "Collapse directory";
 "native.collapseJSONBlock" = "Collapse JSON block";
 "native.collapseLongGraphEdges" = "Collapse long graph edges";
 "native.collapseNotification" = "Collapse notification";
 "native.collapseRepository" = "Collapse repository";
 "native.collapseSection" = "Collapse section";
-"native.collapseTable" = "Collapse table";
 "native.collapsed" = "Collapsed";
 "native.collectedLogsCleared" = "Collected logs cleared.";
 "native.colorTheme" = "Color theme";
@@ -4574,7 +4494,6 @@
 "native.committerEmail" = "Committer email";
 "native.committerName" = "Committer name";
 "native.committing" = "Committing…";
-"native.commonActions" = "Common Actions";
 "native.community" = "Community";
 "native.communityDisk" = "Community / Disk";
 "native.communityPluginInstalledFromDiskItsPublisherAndRepositoryHaveNotBeenVerified" = "Community plugin installed from disk. Its publisher and repository have not been verified.";
@@ -4629,11 +4548,7 @@
 "native.connecting" = "Connecting…";
 "native.connection" = "Connection";
 "native.connectionRecoveryIsTakingLongerTheAgentIsStillRetrying" = "Connection recovery is taking longer. The Agent is still retrying.";
-"native.connectionSuccessful" = "Connection successful";
-"native.connectionTestDurationLldMs" = "Connection test duration: %1$lld ms";
-"native.connectionTestResult" = "Connection test result";
 "native.connectionTimeout" = "Connection timeout";
-"native.connections" = "Connections";
 "native.connectionsLld" = "Connections: %1$lld";
 "native.console" = "Console";
 "native.content" = "Content";
@@ -4797,17 +4712,13 @@
 "native.dConversations" = "%1$d conversations";
 "native.dMessages" = "%1$d messages";
 "native.dMinutesAgo" = "%1$d minutes ago";
-"native.dRowsRetrievedInDMs" = "%1$d rows retrieved in %2$d ms";
 "native.dSelected" = "%1$d selected";
 "native.daemon" = "Daemon";
 "native.dangerZone" = "Danger Zone";
 "native.dark" = "Dark";
 "native.dartSupport" = "Dart Support";
-"native.dataSource" = "Data Source";
-"native.dataTools" = "Data Tools";
 "native.database" = "Database";
-"native.databaseOverview" = "Database Overview";
-"native.databaseTypes" = "Database types";
+"native.databaseIsNowAPluginInstallItFromTheMarketplace" = "Database is now a plugin. Install it from the Marketplace, and your saved connections and passwords move into it.";
 "native.date" = "Date";
 "native.debug" = "Debug";
 "native.debugResume" = "Debug: Resume";
@@ -4944,7 +4855,6 @@
 "native.doesNotProvideArchivedConversations" = "%1$@ does not provide archived conversations.";
 "native.donTAllow" = "Don’t Allow";
 "native.donTAskAgain" = "Don't ask again";
-"native.doubleClickATableToViewData" = "Double-click a table to view data";
 "native.download" = "Download";
 "native.download.variant2" = "Download %1$@";
 "native.downloadAndInstall" = "Download and Install";
@@ -4968,7 +4878,6 @@
 "native.dropThisShelf" = "Drop this shelf?";
 "native.droppedLldWriteFailuresLld" = "Dropped: %1$lld; write failures: %2$lld";
 "native.duplicate" = "Duplicate";
-"native.duplicateConnection" = "Duplicate Connection";
 "native.duplicateOmitted" = "duplicate omitted";
 "native.durationLldMs" = "Duration: %1$lld ms";
 "native.eachAgentKeepsItsOwnConfigurationFileTurningAnAgentOffRemovesOnlyTheEntryLithe602e7165d1" = "Each Agent keeps its own configuration file. Turning an Agent off removes only the entry Lithe wrote; an entry created outside Lithe is never removed without taking ownership first.";
@@ -4987,7 +4896,6 @@
 "native.editCommitMessage.variant2" = "Edit Commit Message…";
 "native.editConfiguration" = "Edit Configuration…";
 "native.editConfigurationText" = "Edit configuration text";
-"native.editConnection" = "Edit Connection";
 "native.editExceptionBreakpoint" = "Edit %1$@ exception breakpoint";
 "native.editExceptionBreakpoint.variant2" = "Edit exception breakpoint";
 "native.editFieldBreakpoint" = "Edit %1$@ field breakpoint";
@@ -5101,14 +5009,12 @@
 "native.exitCodeLld" = "Exit code %1$lld";
 "native.exitedWithStatusD" = "%1$@ exited with status %2$d.\n%3$@";
 "native.expand" = "Expand";
-"native.expandDatabase" = "Expand database";
 "native.expandDirectory" = "Expand directory";
 "native.expandJSONBlock" = "Expand JSON block";
 "native.expandLldLines" = "Expand %1$lld lines";
 "native.expandNotification" = "Expand notification";
 "native.expandRepository" = "Expand repository";
 "native.expandSection" = "Expand section";
-"native.expandTable" = "Expand table";
 "native.expandTemporaryGitConfigurationOrCommandDetails" = "Expand temporary Git configuration or command details";
 "native.expanded" = "Expanded";
 "native.explainTheIntentTestingAndAnythingReviewersShouldKnow" = "Explain the intent, testing, and anything reviewers should know…";
@@ -5119,8 +5025,6 @@
 "native.exportDiagnosticsBundle" = "Export Diagnostics Bundle";
 "native.exportDiagnosticsBundle.variant2" = "Export Diagnostics Bundle…";
 "native.exportLogs" = "Export logs";
-"native.exportTableAsCSV" = "Export Table as CSV…";
-"native.exportTableAsJSON" = "Export Table as JSON…";
 "native.exportingConversations" = "Exporting conversations…";
 "native.exportsTheIndexAgainstHEAD" = "Exports the index against HEAD.";
 "native.exportsTheWorkingTreeSNetChangesAgainstHEADIncludingSelectedUntrackedFiles" = "Exports the working tree's net changes against HEAD, including selected untracked files.";
@@ -5132,7 +5036,6 @@
 "native.fSupport" = "F# Support";
 "native.failed" = "%1$@ (%2$@ failed)";
 "native.failed.variant2" = "Failed";
-"native.failedLineD" = "Failed, line %1$d";
 "native.failedToStartCheckTheLanguageServerConfiguration" = "Failed to start; check the language server configuration";
 "native.failures" = "Failures";
 "native.fast" = "Fast";
@@ -5189,7 +5092,6 @@
 "native.filesWillStayUnchangedNothingWillBeStagedOrCommittedAutomatically" = "Files will stay unchanged. Nothing will be staged or committed automatically.";
 "native.filterByChangedPath" = "Filter by changed path";
 "native.filterByTitleAuthorOrLabel" = "Filter by title, author, or label";
-"native.filterDatabaseType" = "Filter database type";
 "native.filterLogMessages" = "Filter log messages";
 "native.filterProblemsBySeverity" = "Filter problems by severity";
 "native.filterResults" = "Filter results";
@@ -5216,7 +5118,6 @@
 "native.fixup" = "Fixup";
 "native.folder" = "Folder";
 "native.folderName" = "Folder name";
-"native.folderNameIsRequired" = "Folder name is required.";
 "native.followGitSetting" = "Follow Git setting";
 "native.followGitTagRules" = "Follow Git tag rules";
 "native.followTheInstructionsYouDefineBelow" = "Follow the instructions you define below";
@@ -5225,10 +5126,8 @@
 "native.forExampleNotify" = "For example, notify";
 "native.forExampleNotifyMeWhenATurnEnds" = "For example, notify me when a turn ends";
 "native.forceCheckout" = "Force Checkout";
-"native.forceRefresh" = "Force Refresh";
 "native.forceRemove" = "Force Remove";
 "native.forceRemoveWorktree" = "Force remove worktree?";
-"native.forever" = "Forever";
 "native.forget" = "Forget";
 "native.forkConversation" = "Fork conversation";
 "native.format" = "Format";
@@ -5406,12 +5305,8 @@
 "native.imperativeSubject" = "Imperative subject";
 "native.implementations" = "Implementations";
 "native.importARegularFileOrDirectoryInsteadOfASymbolicLink" = "Import a regular file or directory instead of a symbolic link.";
-"native.importCSV" = "Import CSV…";
-"native.importConnectionsFromDBX" = "Import connections from DBX";
-"native.importDataSources" = "Import Data Sources…";
 "native.importFromClaude" = "Import from Claude";
 "native.importFromCodex" = "Import from Codex";
-"native.importJSON" = "Import JSON…";
 "native.importJson" = "Import JSON";
 "native.importMcpConfiguration" = "Import MCP configuration";
 "native.importSkill" = "Import skill";
@@ -5773,7 +5668,6 @@
 "native.lldhLldmLlds" = "%1$lldh %2$lldm %3$llds";
 "native.lldmLlds" = "%1$lldm %2$llds";
 "native.llds" = "%1$llds";
-"native.lluRowsAffectedInDMs" = "%1$llu rows affected in %2$d ms";
 "native.load" = "Load";
 "native.loadDiskVersion" = "Load Disk Version";
 "native.loadMore" = "Load More";
@@ -6039,12 +5933,10 @@
 "native.newDirectory" = "New Directory…";
 "native.newFile" = "New File…";
 "native.newFolder" = "New Folder";
-"native.newFolderX633810e9b0" = "New Folder…";
 "native.newHook" = "New Hook";
 "native.newMcpServer" = "New MCP server";
 "native.newProject" = "New Project…";
 "native.newProjectX6f8d176462" = "New Project";
-"native.newQuery" = "New Query";
 "native.newRunConfiguration" = "New Run Configuration";
 "native.newSSHConnection" = "New SSH Connection";
 "native.newSkill" = "New skill";
@@ -6066,7 +5958,6 @@
 "native.noAIProviderIsConfiguredYet" = "No AI provider is configured yet.";
 "native.noAPIKeyFoundInClaudeConfiguration" = "No API key found in Claude configuration";
 "native.noAPIKeyFoundInCodexAuthJson" = "No API key found in Codex auth.json";
-"native.noAccessibleDatabases" = "No accessible databases";
 "native.noAgent" = "no Agent";
 "native.noAgentIsReadyYetOpenThePanelSettingsToInstallAnAgentAndChooseALocalOrCustomProvider" = "No Agent is ready yet. Open Settings > AI > Agents to install an Agent and choose a local or custom provider.";
 "native.noAgentIsReadyYetOpenThePanelSettingsToInstallAnAgentAndFetchItsLocalConfiguration" = "No Agent is ready yet. Open Settings > AI > Agents to install an Agent and fetch its local configuration.";
@@ -6082,7 +5973,6 @@
 "native.noChanges" = "No changes";
 "native.noCodexConfigurationWasFound" = "No Codex configuration was found";
 "native.noColumns" = "No Columns";
-"native.noColumnsToDisplay" = "No columns to display";
 "native.noCommand" = "No command";
 "native.noCommitSelected" = "No commit selected";
 "native.noCommits" = "No commits";
@@ -6096,7 +5986,6 @@
 "native.noCredentialFoundInCodexConfiguration" = "No credential found in Codex configuration";
 "native.noCurrentBranch" = "No current branch";
 "native.noCustomProvidersYet" = "No custom providers yet.";
-"native.noDatabasesLoaded" = "No databases loaded";
 "native.noDefaultShellWasDetectedChooseADetectedShellOrRunDetectionAgain" = "No default shell was detected. Choose a detected shell or run detection again.";
 "native.noDependencies" = "No dependencies";
 "native.noDependencies.variant2" = "No dependencies.";
@@ -6169,7 +6058,6 @@
 "native.noPublishedReleaseIsAvailableYet" = "No published release is available yet.";
 "native.noPullRequests" = "No pull requests";
 "native.noPullRequestsMatchTheSelectedState" = "No pull requests match the selected state.";
-"native.noQueryOutput" = "No query output";
 "native.noRecentProgressHasBeenReceivedTheTaskIsStillActive" = "No recent progress has been received. The task is still active.";
 "native.noRecentProjects" = "No recent projects";
 "native.noReleaseIsAvailableYet" = "No release is available yet";
@@ -6183,14 +6071,12 @@
 "native.noRunningDebugProcessAcceptsStandardInput" = "No running debug process accepts standard input";
 "native.noSSHConnectionsYet" = "No SSH connections yet.";
 "native.noSavedChanges" = "No saved changes";
-"native.noSchemasSelected" = "No schemas selected";
 "native.noShellWasFoundAtChooseADetectedShellOrRunDetectionAgain" = "No shell was found at %1$@. Choose a detected shell or run detection again.";
 "native.noShelves" = "No shelves";
 "native.noSkillsInThisScope" = "No skills in this scope.";
 "native.noSpringBootOrMavenModuleConfigurations" = "No Spring Boot or Maven Module configurations";
 "native.noSubagentOutputYet" = "No subagent output yet";
 "native.noSubagentsYet" = "No subagents yet";
-"native.noTableSelected" = "No Table Selected";
 "native.noTasksYet" = "No tasks yet";
 "native.noTextualDiffAvailable" = "No textual diff available";
 "native.noTextualDifference" = "No textual difference";
@@ -6206,7 +6092,6 @@
 "native.nodeJsLldOrLaterIsRequiredFound" = "Node.js %1$lld or later is required; found %2$@.";
 "native.nodeJsLldOrLaterWasNotFoundInstallItThenCheckAgain" = "Node.js %1$lld or later was not found. Install it, then check again.";
 "native.nodeJsSupport" = "Node.js Support";
-"native.nonIntrospected" = "Non-Introspected";
 "native.nonStreaming" = "Non-streaming";
 "native.nonStreamingResponses" = "Non-streaming responses";
 "native.none" = "None";
@@ -6215,7 +6100,6 @@
 "native.notAssigned" = "Not Assigned";
 "native.notAvailableForThisLitheOrMac" = "%1$@ (not available for this Lithe or Mac)";
 "native.notAvailableYetDependenciesAreNotIndexed" = "Not available yet: dependencies are not indexed";
-"native.notConnected" = "Not connected";
 "native.notDetected" = "Not detected";
 "native.notFetchedYet" = "Not fetched yet.";
 "native.notFound" = "Not found";
@@ -6284,7 +6168,6 @@
 "native.openAProjectToManageItsSkills" = "Open a project to manage its skills.";
 "native.openAProjectToSeeItsLanguageService" = "Open a project to see its language service.";
 "native.openAProjectToUseGit" = "Open a project to use Git";
-"native.openATableToInspectItsStructure" = "Open a table to inspect its structure";
 "native.openAgain" = "Open again";
 "native.openAgentSettings" = "Open Agent Settings";
 "native.openAutoBuildDownloads" = "Open AutoBuild Downloads";
@@ -6306,6 +6189,7 @@
 "native.openInNewWindow" = "Open in New Window";
 "native.openInRightSplit" = "Open in Right Split";
 "native.openLogDirectory" = "Open Log Directory";
+"native.openMarketplace" = "Open Marketplace";
 "native.openModulePomXml" = "Open module pom.xml";
 "native.openNotificationHistory" = "Open notification history";
 "native.openPagesClickTypeAndInspectABrowserThroughItsAccessibilityTree" = "Open pages, click, type and inspect a browser through its accessibility tree.";
@@ -6367,7 +6251,6 @@
 "native.pasteAnHttpsPluginIndexURLOrAGitHubRepositoryURLAGitHubRepositoryMustContainLi7616c31790" = "Paste an https plugin index URL or a GitHub repository URL. A GitHub repository must contain lithe-plugin-index.json at its root.";
 "native.pastePatch" = "Paste Patch";
 "native.pasteStandardJsonWithAnMcpserversObjectChooseAServerToReviewBeforeSavingOnlyTheEditorSSupportedCommandArgumentsEnvironmentUrlAndHeaderFieldsAreImportedAuthenticationAndClientSpecificOptionsMustBeConfiguredSeparatelyImportingDoesNotTakeOwnershipOfAnExistingEntry" = "Paste standard JSON with an mcpServers object. Choose a server to review before saving. Only the editor's supported command, arguments, environment, URL and header fields are imported; authentication and client-specific options must be configured separately. Importing does not take ownership of an existing entry.";
-"native.pasteTSVFromClipboard" = "Paste TSV from Clipboard";
 "native.pasteThisIntoYourMCPClientConfiguration" = "Paste this into your MCP client configuration.";
 "native.pastedFiles" = "Pasted files";
 "native.patchCanBeAppliedToTheSelectedDestination" = "Patch can be applied to the selected destination.";
@@ -6431,7 +6314,6 @@
 "native.preparingConversation" = "Preparing conversation…";
 "native.preparingDownload" = "Preparing download…";
 "native.preservesEveryCommitAndAddsAMergeCommitToTheBaseBranch" = "Preserves every commit and adds a merge commit to the base branch.";
-"native.pressEnterOrClickOutsideTheListToApply" = "Press Enter or click outside the list to apply";
 "native.pressShortcut" = "Press shortcut…";
 "native.previewAndExport" = "Preview and Export…";
 "native.previewAndExportTheSelectedLogsWithEnvironmentInformationCredentialsAndHomeDir65f650979b" = "Preview and export the selected logs with environment information. Credentials and home-directory paths are redacted; source code, editor buffers and terminal history are excluded.";
@@ -6561,11 +6443,8 @@
 "native.pushTo" = "Push to %1$@";
 "native.pushXc68c0bf1cd" = "Push '%1$@'?";
 "native.pythonSupport" = "Python Support";
-"native.queryConsole" = "Query Console";
-"native.queryHistory" = "%1$@ Query History";
 "native.quickInformation" = "Quick Information";
 "native.quickResponsesWithBasicReasoning" = "Quick responses with basic reasoning";
-"native.quickStart" = "Quick Start";
 "native.quit" = "Quit";
 "native.quitWithSelection" = "Quit with Selection";
 "native.quittingLitheEndsThesePrograms" = "Quitting Lithe ends these programs.";
@@ -6605,7 +6484,6 @@
 "native.rebaseRequiresACleanWorkingTreeCommitOrStashLocalChangesBeforeChoosingRebase" = "Rebase requires a clean working tree. Commit or stash local changes before choosing Rebase.";
 "native.recent" = "Recent";
 "native.recentProjects" = "Recent Projects";
-"native.recentSQL" = "Recent SQL";
 "native.recommendedKeepWorktreesInAPersistentFolderNextToTheRepositoryYouCanChoosePrivf758d1db78" = "Recommended: keep worktrees in a persistent folder next to the repository. You can choose /private/tmp manually for disposable checkouts.";
 "native.reconnect" = "Reconnect";
 "native.reconnectThisAgentToRefreshItsModelList" = "Reconnect this Agent to refresh its model list.";
@@ -6617,7 +6495,6 @@
 "native.refreshAll" = "Refresh All";
 "native.refreshChanges" = "Refresh changes";
 "native.refreshConnectionStructure" = "Refresh connection structure";
-"native.refreshDatabases" = "Refresh databases";
 "native.refreshDependencies" = "Refresh dependencies";
 "native.refreshDetectedRuntimes" = "Refresh detected runtimes";
 "native.refreshFiles" = "Refresh Files";
@@ -6630,7 +6507,6 @@
 "native.refreshPreview" = "Refresh Preview";
 "native.refreshProjectHistory" = "Refresh project history";
 "native.refreshPullRequests" = "Refresh pull requests";
-"native.refreshSelectedStructure" = "Refresh selected structure";
 "native.refreshSkills" = "Refresh skills";
 "native.refreshWorktrees" = "Refresh worktrees";
 "native.refreshed" = "Refreshed %1$@";
@@ -6705,7 +6581,6 @@
 "native.renameChangeList" = "Rename ChangeList";
 "native.renameChat" = "Rename Chat";
 "native.renameConversation" = "Rename conversation";
-"native.renameFolder" = "Rename Folder";
 "native.renamed" = "Renamed";
 "native.reopenPullRequest" = "Reopen Pull Request";
 "native.reopenPullRequest.variant2" = "Reopen pull request";
@@ -6718,7 +6593,6 @@
 "native.replace" = "Replace";
 "native.replaceCurrentCommitMessage" = "Replace current commit message?";
 "native.replaceExistingContent" = "Replace existing content";
-"native.replaceInCurrentPage" = "Replace in Current Page…";
 "native.replaceInFile" = "Replace in File";
 "native.replaceInFile.variant2" = "Replace in File…";
 "native.replaceInFiles" = "Replace in Files";
@@ -6787,10 +6661,8 @@
 "native.restoreDefaultTemplate" = "Restore Default Template";
 "native.restoreDefaultUILayout" = "Restore Default UI Layout";
 "native.restorePath" = "Restore path";
-"native.restoreSQLBackup" = "Restore SQL Backup…";
 "native.restoringGitHubConnection" = "Restoring GitHub connection";
 "native.result" = "Result";
-"native.resultD" = "Result %1$d";
 "native.results" = "Results";
 "native.results.variant2" = "results";
 "native.resume" = "Resume";
@@ -6894,10 +6766,7 @@
 "native.sSH" = "SSH";
 "native.sSHAgent" = "SSH Agent";
 "native.sSHAuthentication" = "SSH Authentication";
-"native.sSHTLS" = "SSH / TLS";
-"native.safetyAndLabels" = "Safety and Labels";
 "native.sampleInterval" = "Sample interval";
-"native.save" = "Save:";
 "native.saveAfter" = "Save after";
 "native.saveChangedFilesAutomatically" = "Save changed files automatically";
 "native.saveChanges" = "Save Changes";
@@ -6910,7 +6779,6 @@
 "native.saveMessage.variant2" = "Save message";
 "native.saveMetadata" = "Save Metadata";
 "native.saveOrDiscardUnsavedFilesBeforeDeletingThisItem" = "Save or discard unsaved files before deleting this item";
-"native.savePassword" = "Save password";
 "native.savePatch" = "Save Patch…";
 "native.saveScope" = "Save scope";
 "native.saveSharedInstructions" = "Save shared instructions";
@@ -6939,7 +6807,6 @@
 "native.searchConnections" = "Search connections";
 "native.searchConversation" = "Search conversation";
 "native.searchConversationTitlesOrIDs" = "Search conversation titles or IDs…";
-"native.searchDatabases" = "Search databases";
 "native.searchDiff" = "Search diff";
 "native.searchEverywhere" = "Search Everywhere";
 "native.searchEverywhere.variant2" = "Search Everywhere…";
@@ -6975,7 +6842,6 @@
 "native.select.variant2" = "Select %1$@";
 "native.selectAChangedFileFirst" = "Select a changed file first";
 "native.selectACommit" = "Select a commit";
-"native.selectAConnectionInTheDatabaseTree" = "Select a connection in the database tree";
 "native.selectAFile" = "Select a file";
 "native.selectAFileToPreview" = "Select a file to preview";
 "native.selectAFileToReview" = "Select a file to review";
@@ -6994,7 +6860,6 @@
 "native.selectBranch" = "Select branch";
 "native.selectConfigurationsForBatchActions" = "Select configurations for batch actions";
 "native.selectConversation" = "Select conversation";
-"native.selectDatabases" = "Select databases";
 "native.selectDebugInTheEditorContextMenu" = "— Select \"Debug...\" in the editor context menu";
 "native.selectForCompare" = "Select for Compare";
 "native.selectRepositoryForCommitsAndBranchOperations" = "Select repository for commits and branch operations";
@@ -7168,7 +7033,6 @@
 "native.someMCPConfigurationFilesCouldNotBeRestoredRefreshAndCheckTheseFilesBeforeRetrying" = "Some MCP configuration files could not be restored: %1$@. Refresh and check these files before retrying.";
 "native.sortByLastUpdated" = "Sort by Last Updated";
 "native.sortByName" = "Sort by Name";
-"native.sortConnections" = "Sort connections";
 "native.sortPlugins" = "Sort plugins";
 "native.source" = "Source";
 "native.sourceCode" = "Source Code";
@@ -7178,7 +7042,6 @@
 "native.speed" = "Speed";
 "native.springBoot" = "Spring Boot";
 "native.springEndpoints" = "Spring Endpoints";
-"native.sqlExecutionMarkers" = "SQL execution markers";
 "native.sqlSupport" = "SQL Support";
 "native.squash" = "Squash";
 "native.squash1" = "Squash → 1";
@@ -7280,14 +7143,12 @@
 "native.subjectMaximumLength" = "Subject maximum length";
 "native.submittingReview" = "Submitting review…";
 "native.succeeded" = "Succeeded";
-"native.succeededLineD" = "Succeeded, line %1$d";
 "native.supplementaryMessageCancelled" = "Supplementary message cancelled.";
 "native.supportedPlaceholdersSummaryChangesTestingRisks" = "Supported placeholders: {summary}, {changes}, {testing}, {risks}.";
 "native.svelteSupport" = "Svelte Support";
 "native.swapDirection" = "Swap Direction";
 "native.swiftSupport" = "Swift Support";
 "native.switchAgent" = "Switch Agent";
-"native.switchCurrentDatabase" = "Switch current database";
 "native.switchProjectView" = "Switch project view";
 "native.switchToTheNodeJsNpmEnvironmentThatInstalledThisCLIUpdateItThereThenCheckAgain" = "Switch to the Node.js/npm environment that installed this CLI, update it there, then check again.";
 "native.switched" = "Switched";
@@ -7331,7 +7192,6 @@
 "native.testRunTimedOutAfterSeconds" = "%1$@ test run timed out after %2$@ seconds.";
 "native.testTheConnectionToSeeTheHostSSystemResourcesAndAddress" = "Test the connection to see the host's system, resources, and address.";
 "native.testing" = "Testing";
-"native.testingConnection" = "Testing connection…";
 "native.tests" = "Tests";
 "native.testsFailed" = "Tests failed";
 "native.testsPassed" = "Tests passed";
@@ -7382,7 +7242,6 @@
 "native.theCredentialStoreVersionIsUnsupportedExistingCredentialsWerePreserved" = "The credential store version is unsupported. Existing credentials were preserved.";
 "native.theCurrentFileWillBeSavedToLocalHistoryBeforeItIsReplaced" = "The current file will be saved to Local History before it is replaced.";
 "native.theCurrentWorktreeCannotBeRemovedHere" = "The current worktree cannot be removed here.";
-"native.theDatabaseSelectionIsNoLongerAvailableRefreshAndTryAgain" = "The database selection is no longer available. Refresh and try again.";
 "native.theDefaultChangeListCannotBeRenamed" = "The default ChangeList cannot be renamed.";
 "native.theDownloadedAppDoesNotMatchTheSelectedStableReleaseNothingWasInstalled" = "The downloaded app does not match the selected stable release. Nothing was installed.";
 "native.theDownloadedDiskImageDoesNotContainLitheApp" = "The downloaded disk image does not contain Lithe.app.";
@@ -7465,10 +7324,8 @@
 "native.theSelectedBackgroundImageIsUnavailableAndWasRemoved" = "The selected background image is unavailable and was removed.";
 "native.theSelectedBranchDiffIsSentToTheActiveAIProviderWhenYouGenerate" = "The selected branch diff is sent to the active AI provider when you generate.";
 "native.theSelectedBranchesHaveNoTextualChangesToSummarize" = "The selected branches have no textual changes to summarize.";
-"native.theSelectedConnectionFolderNoLongerExists" = "The selected connection folder no longer exists.";
 "native.theSelectedFileChangedBeforeGenerationFinished" = "The selected file changed before generation finished";
 "native.theSelectedFileHasNoTextualDiffToSummarize" = "The selected file has no textual diff to summarize.";
-"native.theSelectedFolderCannotBeMovedThere" = "The selected folder cannot be moved there.";
 "native.theSelectedTableHasNoColumnsToDisplay" = "The selected table has no columns to display.";
 "native.theSelectedVersionsMatch" = "The selected versions match";
 "native.theServerAskedAgainCheckThePreviousAnswer" = "The server asked again. Check the previous answer.";
@@ -7600,8 +7457,6 @@
 "native.timeoutSeconds" = "Timeout (seconds)";
 "native.title" = "Title";
 "native.toDebugYourCodeDoOneOfTheFollowing" = "To debug your code, do one of the following:";
-"native.toFolder" = "To Folder…";
-"native.toTopLevel" = "To Top Level";
 "native.toTrackChangesToCode" = "To track changes to code:";
 "native.today" = "Today";
 "native.toggle" = "Toggle %1$@";
@@ -7710,7 +7565,6 @@
 "native.unstaged" = "Unstaged";
 "native.unstagedChanges" = "Unstaged changes";
 "native.unsupportedContent" = "Unsupported content";
-"native.untilRestart" = "Until restart";
 "native.untilUTCISO8601" = "Until (UTC ISO 8601)";
 "native.untitledConversation" = "Untitled conversation";
 "native.untracked" = "Untracked";

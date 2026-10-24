@@ -1,6 +1,5 @@
 import {
   PulseIcon as Activity,
-  DatabaseIcon as Database,
   GitBranchIcon as GitBranch,
   GitDiffIcon as GitDiff,
   GitPullRequestIcon as GitPullRequest,
@@ -213,8 +212,6 @@ const TabBarItem = memo(function TabBarItem({
               ) : (
                 <Globe className="text-subtle-foreground" />
               )
-            ) : buffer.type === "database" ? (
-              <Database className="text-subtle-foreground" />
             ) : buffer.type === "pullRequest" ? (
               authorAvatarUrl && !avatarError ? (
                 <img

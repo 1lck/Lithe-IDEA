@@ -117,5 +117,5 @@ export function openAcpDiffOutput(output: unknown): string | null {
 
   return useBufferStore
     .getState()
-    .actions.openBuffer(virtualPath, displayName, "", false, undefined, true, true, multiDiff);
+    .actions.openBuffer(virtualPath, displayName, "", false, true, true, multiDiff);
 }

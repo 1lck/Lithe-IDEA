@@ -21,6 +21,7 @@
       "minProperties": 1,
       "additionalProperties": false,
       "properties": {
+        "backend": { "description": "Required exactly when backend is present: the plugin's own process serving its web pages.", "enum": [1] },
         "buildProviders": { "description": "Required exactly when any buildSystems[].provider is present, including own-process and shared language-server providers. Declares host support for Provider orchestration, independent of declarative buildSystems and serverProcess launch support.", "enum": [1] },
         "buildSystems": { "description": "Declarative build detection, models, and command plans; does not imply buildProviders support.", "enum": [1, 2] },
         "executableResolution": { "enum": [1], "description": "Shared executable candidate ordering and strict selection." },
@@ -28,7 +29,7 @@
         "languageServers": { "enum": [1] },
         "languages": { "enum": [1] },
         "projectGenerators": { "description": "Entries of the New Project window: fields, requirements, and steps.", "enum": [1] },
-        "serverProcess": { "description": "The launch fields of language servers, of build providers that start their own process, and of VCS providers.", "enum": [1] },
+        "serverProcess": { "description": "The launch fields of language servers, of build providers that start their own process, of VCS providers, and of the plugin backend.", "enum": [1] },
         "settings": { "enum": [1] },
         "ui": { "description": "Version 2 adds web content; version 3 adds native controls.", "enum": [1, 2, 3] },
         "vcsProviders": { "description": "Required exactly when vcsProviders is non-empty. The provider protocol itself is negotiated in initialize (shared/contracts/vcs-provider-v1.md).", "enum": [1] }
@@ -46,7 +47,7 @@
     },
     "permissions": {
       "type": "array",
-      "items": { "enum": ["languageServer.launch", "process.build", "process.run", "process.test", "process.vcs", "project.generate", "ui.contribute", "ui.web"] }
+      "items": { "enum": ["backend.launch", "credentials.store", "languageServer.launch", "process.build", "process.run", "process.test", "process.vcs", "project.generate", "ui.contribute", "ui.web"] }
     },
     "activationEvents": {
       "type": "array",
@@ -70,6 +71,10 @@
       "type": "array",
       "maxItems": 16,
       "items": { "$ref": "#/$defs/buildSystem" }
+    },
+    "backend": {
+      "description": "pluginAPIVersion 3, requires.backend 1: the plugin's own LSP base-protocol process. The host starts it on the first plugin-function call from one of the plugin's web pages, keeps one process per plugin independent of any workspace, and ends it when the plugin is disabled, updated, or uninstalled. Requires backend.launch and a web tool window; credentials.store lets it use the host's private credential store.",
+      "$ref": "#/$defs/backend"
     },
     "vcsProviders": {
       "description": "pluginAPIVersion 3: version control systems the plugin provides, each through its own LSP base-protocol process. Requires languageServer.launch, process.vcs, and one onVcsRoot:<id> activation event per provider.",
@@ -635,6 +640,12 @@
           }
         }
       ]
+    },
+    "backend": {
+      "description": "Launch fields of the plugin backend. ${workspaceStateDir} is refused because the backend is not bound to a workspace.",
+      "type": "object",
+      "$ref": "#/$defs/serverProcess",
+      "unevaluatedProperties": false
     },
     "vcsProvider": {
       "description": "pluginAPIVersion 3: a VCS provider process (shared/contracts/vcs-provider-v1.md). Detection uses the markers only and never starts the process; capabilities are negotiated, not declared.",

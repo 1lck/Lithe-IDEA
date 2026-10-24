@@ -95,7 +95,6 @@ fi
   abort "AI must be disabled by default" unless modules.find { |m| m.fetch("id") == "dev.lithe.ai-assistance" }.fetch("defaultState") == "disabled"
   agent = modules.find { |m| m.fetch("id") == "dev.lithe.agent-conversation" }
   abort "Agent must be disabled and on demand" unless agent.fetch("defaultState") == "disabled" && agent.fetch("activationPolicy") == "onDemand"
-  abort "Database must be disabled by default" unless modules.find { |m| m.fetch("id") == "dev.lithe.database" }.fetch("defaultState") == "disabled"
   allowed_states = ["enabled", "disabled"]
   allowed_scopes = ["application", "workspace"]
   allowed_policies = ["eager", "onDemand", "manual"]
@@ -218,7 +217,7 @@ done
   functions = JSON.parse(File.read(File.join(root, "fixtures", "function-protocol.json")))
   abort "function protocol fixture schema must be 1" unless functions.fetch("schemaVersion") == 1
   abort "function protocol fixture must describe litheFunctions" unless functions.fetch("protocol") == "litheFunctions"
-  function_sections = %w[negotiation registration invocations outcomes progress backendRequests]
+  function_sections = %w[negotiation registration invocations outcomes progress backendRequests hostRequests]
   function_names = function_sections.flat_map { |section| functions.fetch(section).map { |item| item.fetch("name") } }
   abort "function protocol case names must be unique" unless function_names.uniq.length == function_names.length
   function_codes = []
@@ -229,6 +228,7 @@ done
   functions.fetch("invocations").each { |item| function_codes << item.fetch("expected")["code"] }
   functions.fetch("outcomes").each { |item| function_codes << item.fetch("expected").fetch("error", {})["code"] }
   functions.fetch("backendRequests").each { |item| function_codes << item.fetch("expected")["code"] }
+  functions.fetch("hostRequests").each { |item| function_codes << item.fetch("expected")["code"] }
   function_codes.compact.uniq.each do |code|
     abort "function protocol fixture uses an undocumented code #{code}" unless documented.include?(code)
   end

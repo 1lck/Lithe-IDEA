@@ -23,21 +23,16 @@ mkdir -p \
     Plugins/win/ExampleSupport \
     macos/Sources/Lithe/Platform/MacOS/Plugins \
     macos/Sources/Lithe/Views/Community \
-    macos/Sources/Lithe/Views/Database \
     macos/Sources/Lithe/Core/Rust \
     macos/Sources/LitheCoreContracts \
-    macos/Sources/LitheDatabaseModule \
     Plugins/mac/Official/GoSupport/Sources/LitheGoSupportModule \
-    macos/Tests/LitheDatabaseModuleTests \
     Plugins/mac/Official/GoSupport/Tests/LitheGoSupportModuleTests \
     macos/Tests/LitheTests \
     macos/Sources/LitheGitModule \
     macos/Tests/LitheGitPerformanceTests \
-    infra/docker/database-validation \
     rust/lithe-core/src/tests \
     rust/lithe-core/src/lsp/languages \
     rust/lithe-core/tests \
-    rust/lithe-db-sidecar/src \
     shared/fixtures/core \
     windows/tauri/src \
     windows/tauri/src-tauri/src
@@ -45,22 +40,16 @@ printf '%s\n' '//! Test module.' 'pub fn value() -> u8 { 1 }' > rust/lithe-core/
 printf '%s\n' '#[test]' 'fn source_test() { assert_eq!(1, 1); }' > rust/lithe-core/src/lsp/tests.rs
 printf '%s\n' 'pub fn normalize() {}' > rust/lithe-core/src/lsp/languages/java_tests.rs
 printf '%s\n' '#[test]' 'fn value_is_one() { assert_eq!(1, 1); }' > rust/lithe-core/tests/value.rs
-printf '%s\n' 'fn main() {}' > rust/lithe-db-sidecar/src/main.rs
-printf '%s\n' 'services: {}' > infra/docker/database-validation/compose.yaml
 printf '%s\n' '#!/bin/zsh' 'print -- package' > scripts/verify-macos-package.sh
 printf '%s\n' 'struct App {}' > macos/Sources/Lithe/App.swift
 printf '%s\n' 'struct RustCoreBridge {}' > macos/Sources/Lithe/Core/Rust/RustCoreBridge.swift
 printf '%s\n' 'struct PluginManager {}' > macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginManager.swift
-printf '%s\n' 'struct DatabaseView {}' > macos/Sources/Lithe/Views/Database/DatabaseView.swift
 printf '%s\n' 'struct CoreContracts {}' > macos/Sources/LitheCoreContracts/CoreContracts.swift
-printf '%s\n' 'struct DatabaseModule {}' > macos/Sources/LitheDatabaseModule/DatabaseModule.swift
 printf '%s\n' 'struct GoSupportModule {}' > Plugins/mac/Official/GoSupport/Sources/LitheGoSupportModule/GoSupportModule.swift
 printf '%s\n' 'struct AppTests {}' > macos/Tests/LitheTests/AppTests.swift
 printf '%s\n' 'struct GitFeature {}' > macos/Sources/LitheGitModule/GitFeature.swift
 printf '%s\n' 'struct GitPerformanceTests {}' > macos/Tests/LitheGitPerformanceTests/GitPerformanceTests.swift
 printf '%s\n' 'struct PluginManagerTests {}' > macos/Tests/LitheTests/PluginManagerTests.swift
-printf '%s\n' 'struct LitheCoreLogicTests {}' > macos/Tests/LitheTests/LitheCoreLogicTests.swift
-printf '%s\n' 'struct DatabaseTests {}' > macos/Tests/LitheDatabaseModuleTests/DatabaseTests.swift
 printf '%s\n' 'struct GoSupportTests {}' > Plugins/mac/Official/GoSupport/Tests/LitheGoSupportModuleTests/GoSupportTests.swift
 printf '%s\n' '{"id":"dev.lithe.go-support"}' > Plugins/mac/Official/GoSupport/plugin.json
 printf '%s\n' '{"id":"dev.lithe.win.example-support"}' > Plugins/win/ExampleSupport/plugin.json
@@ -76,24 +65,20 @@ BASE_REVISION="$(git rev-parse HEAD)"
 classification() {
     local swift="$1"
     local plugins="$2"
-    local swift_database="$3"
-    local rust_core="$4"
-    local rust_database="$5"
-    local macos_release="$6"
-    local windows="$7"
-    local windows_rust="$8"
-    local rust_comments="$9"
-    local metadata="${10}"
-    local git_validation="${11:-false}"
-    local java_jdt="${12:-false}"
-    local ci_scope="${13:-pull_request}"
-    local rust_remote="${14:-false}"
+    local rust_core="$3"
+    local macos_release="$4"
+    local windows="$5"
+    local windows_rust="$6"
+    local rust_comments="$7"
+    local metadata="${8}"
+    local git_validation="${9:-false}"
+    local java_jdt="${10:-false}"
+    local ci_scope="${11:-pull_request}"
+    local rust_remote="${12:-false}"
 
     printf 'swift=%s\n' "$swift"
     printf 'plugins=%s\n' "$plugins"
-    printf 'swift_database=%s\n' "$swift_database"
     printf 'rust_core=%s\n' "$rust_core"
-    printf 'rust_database=%s\n' "$rust_database"
     printf 'rust_remote=%s\n' "$rust_remote"
     printf 'macos_release=%s\n' "$macos_release"
     printf 'windows=%s\n' "$windows"
@@ -130,7 +115,6 @@ modify_rust_comment() { printf '%s\n' '//! Updated test module.' 'pub fn value()
 modify_rust_code() { printf '%s\n' '//! Test module.' 'pub fn value() -> u8 { 2 }' > rust/lithe-core/src/lib.rs; }
 modify_rust_test() { printf '%s\n' '#[test]' 'fn value_is_two() { assert_eq!(2, 2); }' > rust/lithe-core/tests/value.rs; }
 modify_rust_source_test() { printf '%s\n' '#[test]' 'fn source_test() { assert_eq!(2, 2); }' > rust/lithe-core/src/lsp/tests.rs; }
-modify_database_rust() { printf '%s\n' 'fn main() { println!("updated"); }' > rust/lithe-db-sidecar/src/main.rs; }
 modify_remote_rust() {
     mkdir -p rust/lithe-remote-server/src
     printf '%s\n' '//! Remote server.' > rust/lithe-remote-server/src/lib.rs
@@ -139,7 +123,6 @@ modify_remote_workflow() {
     mkdir -p .github/workflows
     printf '%s\n' 'name: Remote Workspace CI' > .github/workflows/ci-remote.yml
 }
-modify_database_docker() { printf '%s\n' 'services:' '  mariadb: {}' > infra/docker/database-validation/compose.yaml; }
 modify_macos_package_verifier() { printf '%s\n' '#!/bin/zsh' 'print -- updated-package' > scripts/verify-macos-package.sh; }
 modify_localization_packaging() { printf '%s\n' '#!/bin/zsh' 'print -- localizations' > scripts/package-macos-localizations.sh; }
 modify_macos_performance_baseline() { printf '%s\n' '#!/bin/zsh' 'print -- baseline' > scripts/measure-macos-performance-baseline.sh; }
@@ -156,10 +139,6 @@ modify_windows_plugin_manifest() { printf '%s\n' '{"id":"dev.lithe.win.example-s
 modify_plugin_host_source() { printf '%s\n' 'struct UpdatedPluginManager {}' > macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginManager.swift; }
 modify_plugin_host_test() { printf '%s\n' 'struct UpdatedPluginManagerTests {}' > macos/Tests/LitheTests/PluginManagerTests.swift; }
 modify_shared_swift_contract() { printf '%s\n' 'struct UpdatedCoreContracts {}' > macos/Sources/LitheCoreContracts/CoreContracts.swift; }
-modify_database_swift() { printf '%s\n' 'struct UpdatedDatabaseModule {}' > macos/Sources/LitheDatabaseModule/DatabaseModule.swift; }
-modify_database_swift_test() { printf '%s\n' 'struct UpdatedDatabaseTests {}' > macos/Tests/LitheDatabaseModuleTests/DatabaseTests.swift; }
-modify_database_app_source() { printf '%s\n' 'struct UpdatedDatabaseView {}' > macos/Sources/Lithe/Views/Database/DatabaseView.swift; }
-modify_mixed_core_logic_test() { printf '%s\n' 'struct UpdatedLitheCoreLogicTests {}' > macos/Tests/LitheTests/LitheCoreLogicTests.swift; }
 modify_feature_matrix() {
     mkdir -p shared/platform-feature-matrix/features
     printf '%s\n' '{"id":"updated"}' > shared/platform-feature-matrix/features/example.json
@@ -212,10 +191,6 @@ add_bundled_jdt_manifest() {
 }
 add_jdk_preparation_script() { printf '%s\n' '#!/bin/zsh' 'print -- jdk' > scripts/prepare-jdk.sh; }
 add_windows_java_source() { printf '%s\n' 'export const java = true;' > windows/tauri/src/java.ts; }
-modify_swift_and_database() {
-    modify_swift_source
-    modify_database_swift
-}
 rename_rust_to_markdown() {
     mkdir -p docs
     git mv rust/lithe-core/src/lib.rs docs/lib.md
@@ -224,157 +199,136 @@ add_chinese_swift_source() { printf '%s\n' 'struct Example {}' > 'macos/Sources/
 rename_swift_source() {
     git mv macos/Sources/Lithe/App.swift macos/Sources/Lithe/RenamedApp.swift
 }
-rename_swift_into_database_module() {
-    git mv macos/Sources/Lithe/App.swift macos/Sources/LitheDatabaseModule/App.swift
+rename_swift_into_contracts_module() {
+    git mv macos/Sources/Lithe/App.swift macos/Sources/LitheCoreContracts/App.swift
 }
 modify_rust_bridge_verifier() { printf '%s\n' '#!/bin/zsh' > scripts/verify-rust-core-swift-bridge.sh; }
 
 assert_classification readme \
-    "$(classification false false false false false false false false false false)" \
+    "$(classification false false false false false false false false)" \
     modify_readme
 assert_classification rust-comment \
-    "$(classification false false false false false false false false true false)" \
+    "$(classification false false false false false false true false)" \
     modify_rust_comment
 assert_classification rust-code \
-    "$(classification false false false true false true true true false false)" \
+    "$(classification false false true true true true false false)" \
     modify_rust_code
 assert_classification rust-test \
-    "$(classification false false false true false false false false false false)" \
+    "$(classification false false true false false false false false)" \
     modify_rust_test
 assert_classification rust-source-test \
-    "$(classification false false false true false false false false false false)" \
+    "$(classification false false true false false false false false)" \
     modify_rust_source_test
-assert_classification database-rust \
-    "$(classification false false false false true true false false false false)" \
-    modify_database_rust
 # Remote workspace crates select only their own Linux lane.
 assert_classification remote-rust \
-    "$(classification false false false false false false false false false false false false pull_request true)" \
+    "$(classification false false false false false false false false false false pull_request true)" \
     modify_remote_rust
 assert_classification remote-workflow \
-    "$(classification false false false false false false false false false false false false pull_request true)" \
+    "$(classification false false false false false false false false false false pull_request true)" \
     modify_remote_workflow
-assert_classification database-docker \
-    "$(classification false false false false true false false false false false)" \
-    modify_database_docker
 assert_classification macos-package-verifier \
-    "$(classification false false false false false true false false false false)" \
+    "$(classification false false false true false false false false)" \
     modify_macos_package_verifier
 assert_classification swift-source \
-    "$(classification true false false false false false false false false false)" \
+    "$(classification true false false false false false false false)" \
     modify_swift_source
 assert_classification swift-bridge \
-    "$(classification true false false false false true false false false false)" \
+    "$(classification true false false true false false false false)" \
     modify_swift_bridge
 assert_classification git-source \
-    "$(classification true false false false false false false false false false true)" \
+    "$(classification true false false false false false false false true)" \
     modify_git_source
 assert_classification git-performance-test \
-    "$(classification true false false false false false false false false false true)" \
+    "$(classification true false false false false false false false true)" \
     modify_git_performance_test
 assert_classification localization-packaging \
-    "$(classification true false false false false true false false false false)" \
+    "$(classification true false false true false false false false)" \
     modify_localization_packaging
 assert_classification macos-performance-baseline \
-    "$(classification false false false false false true false false false false)" \
+    "$(classification false false false true false false false false)" \
     modify_macos_performance_baseline
 assert_classification unknown-script \
-    "$(classification true true true true true true true true false false true true pull_request true)" \
+    "$(classification true true true true true true false false true true pull_request true)" \
     modify_unknown_script
 assert_classification swift-test \
-    "$(classification true false false false false false false false false false)" \
+    "$(classification true false false false false false false false)" \
     modify_swift_test
 assert_classification plugin-manifest \
-    "$(classification false true false true false false false false false false)" \
+    "$(classification false true true false false false false false)" \
     modify_plugin_manifest
 assert_classification plugin-source \
-    "$(classification false true false true false false false false false false)" \
+    "$(classification false true true false false false false false)" \
     modify_plugin_source
 assert_classification plugin-test \
-    "$(classification false true false true false false false false false false)" \
+    "$(classification false true true false false false false false)" \
     modify_plugin_test
 assert_classification windows-plugin-manifest \
-    "$(classification false false false false false false true true false false)" \
+    "$(classification false false false false true true false false)" \
     modify_windows_plugin_manifest
 assert_classification plugin-host-source \
-    "$(classification true true false false false true false false false false)" \
+    "$(classification true true false true false false false false)" \
     modify_plugin_host_source
 assert_classification plugin-host-test \
-    "$(classification false true false false false false false false false false)" \
+    "$(classification false true false false false false false false)" \
     modify_plugin_host_test
 assert_classification shared-swift-contract \
-    "$(classification true true true false false true false false false false)" \
+    "$(classification true true false true false false false false)" \
     modify_shared_swift_contract
-assert_classification database-swift \
-    "$(classification false false true false false true false false false false)" \
-    modify_database_swift
-assert_classification database-swift-test \
-    "$(classification false false true false false false false false false false)" \
-    modify_database_swift_test
-assert_classification database-app-source \
-    "$(classification false false true false false true false false false false)" \
-    modify_database_app_source
-assert_classification mixed-core-logic-test \
-    "$(classification true false true false false false false false false false)" \
-    modify_mixed_core_logic_test
-assert_classification swift-and-database \
-    "$(classification true false true false false true false false false false)" \
-    modify_swift_and_database
 assert_classification shared-fixture \
-    "$(classification true false false true false false true true false false)" \
+    "$(classification true false true false true true false false)" \
     modify_shared_fixture
 assert_classification feature-matrix \
-    "$(classification false false false false false false false false false false)" \
+    "$(classification false false false false false false false false)" \
     modify_feature_matrix
 assert_classification feature-matrix-with-swift \
-    "$(classification true false false false false false false false false false)" \
+    "$(classification true false false false false false false false)" \
     modify_feature_matrix_and_swift
 assert_classification shared-editor \
-    "$(classification false false false false false true true false false false)" \
+    "$(classification false false false true true false false false)" \
     modify_shared_editor
 assert_classification workbench-view \
-    "$(classification true false true false false true false false false false)" \
+    "$(classification true false false true false false false false)" \
     modify_workbench_view
 assert_classification localization-strings \
-    "$(classification true false true false false true false false false false)" \
+    "$(classification true false false true false false false false)" \
     modify_localization_strings
 assert_classification windows-frontend \
-    "$(classification false false false false false false true false false false)" \
+    "$(classification false false false false true false false false)" \
     modify_windows_frontend
 assert_classification windows-rust \
-    "$(classification false false false false false false true true false false)" \
+    "$(classification false false false false true true false false)" \
     modify_windows_rust
 # Swift Java adapters compile in the Swift lane; only the shared engine and
 # its Windows consumers select the separate real-JDT integration lane.
 assert_classification macos-java-source \
-    "$(classification true false false false false false false false false false)" \
+    "$(classification true false false false false false false false)" \
     add_macos_java_source
 assert_classification macos-java-test \
-    "$(classification true false false false false false false false false false)" \
+    "$(classification true false false false false false false false)" \
     add_macos_java_test
 assert_classification java-jdt \
-    "$(classification false false false true false true true true false false false true)" \
+    "$(classification false false true true true true false false false true)" \
     modify_java_jdt
 assert_classification shared-jdt-engine \
-    "$(classification false false false true false true true true false false false true)" \
+    "$(classification false false true true true true false false false true)" \
     add_shared_jdt_engine
 assert_classification bundled-jdt-manifest \
-    "$(classification true true true true true true true true false false true true pull_request true)" \
+    "$(classification true true true true true true false false true true pull_request true)" \
     add_bundled_jdt_manifest
 assert_classification jdk-preparation \
-    "$(classification false false false false false true false false false false false true)" \
+    "$(classification false false false true false false false false false true)" \
     add_jdk_preparation_script
 assert_classification windows-java-source \
-    "$(classification false false false false false false true false false false false true)" \
+    "$(classification false false false false true false false false false true)" \
     add_windows_java_source
 assert_classification download-cache-validator \
-    "$(classification true true true true false true true true false false)" \
+    "$(classification true true true true true true false false)" \
     modify_download_cache_validator
 assert_classification worktree-resource-registry \
-    "$(classification true true true true false true true true false false)" \
+    "$(classification true true true true true true false false)" \
     modify_worktree_resource_registry
 assert_classification test-stability-runner \
-    "$(classification true true true true false false true true false false true)" \
+    "$(classification true true true false true true false false true)" \
     modify_test_stability_runner
 modify_swift_version() { printf '%s\n' '6.3.3' > .swift-version; }
 modify_macos_toolchain_action() {
@@ -382,28 +336,28 @@ modify_macos_toolchain_action() {
     printf '%s\n' 'name: Toolchain fixture' > .github/actions/setup-macos-toolchain/action.yml
 }
 assert_classification swift-version \
-    "$(classification true true true true false true false false false false true)" \
+    "$(classification true true true true false false false false true)" \
     modify_swift_version
 assert_classification macos-toolchain-action \
-    "$(classification true true true true false true false false false false true)" \
+    "$(classification true true true true false false false false true)" \
     modify_macos_toolchain_action
 assert_classification macos-cache-action \
-    "$(classification true true true true false true false false false false true)" \
+    "$(classification true true true true false false false false true)" \
     modify_macos_cache_action
 assert_classification macos-cache-save-action \
-    "$(classification true true true true false true false false false false true)" \
+    "$(classification true true true true false false false false true)" \
     modify_macos_cache_save_action
 assert_classification metadata \
-    "$(classification false false false false false false false false false true)" \
+    "$(classification false false false false false false false true)" \
     modify_metadata
 assert_classification classifier \
-    "$(classification true true true true true true true true false false true true pull_request true)" \
+    "$(classification true true true true true true false false true true pull_request true)" \
     modify_classifier
 LITHE_CI_DRAFT_PULL_REQUEST=true assert_classification draft-defers-runner-lanes \
-    "$(classification false false false false true false false false false false false false pull_request true)" \
+    "$(classification false false false false false false false false false false pull_request true)" \
     modify_unknown_script
 LITHE_CI_DRAFT_PULL_REQUEST=true assert_classification draft-keeps-linux-lanes \
-    "$(classification false false false false false false false false true false)" \
+    "$(classification false false false false false false true false)" \
     modify_rust_comment
 # A rename classifies both endpoints instead of selecting every lane: the old
 # Rust source still selects Rust Core, packaging, and Windows Rust.
@@ -416,42 +370,42 @@ ONLY_PATHS_DIR="$(mktemp -d)"
 trap 'rm -rf "$TEST_ROOT" "$ONLY_PATHS_DIR"' EXIT
 printf '%s\n' 'macos/Sources/Lithe/App.swift' > "$ONLY_PATHS_DIR/only-swift.txt"
 LITHE_CI_ONLY_PATHS="$ONLY_PATHS_DIR/only-swift.txt" assert_classification only-paths-limits-classification \
-    "$(classification true false false false false false false false false false)" \
+    "$(classification true false false false false false false false)" \
     modify_swift_and_rust
 assert_classification chinese-swift-source-keeps-its-raw-path \
-    "$(classification true false false false false false false false false false)" \
+    "$(classification true false false false false false false false)" \
     add_chinese_swift_source
 printf '%s\n' 'macos/Sources/Lithe/示例 "quoted".swift' > "$ONLY_PATHS_DIR/only-chinese.txt"
 LITHE_CI_ONLY_PATHS="$ONLY_PATHS_DIR/only-chinese.txt" assert_classification only-paths-matches-raw-chinese-path \
-    "$(classification true false false false false false false false false false)" \
+    "$(classification true false false false false false false false)" \
     add_chinese_swift_source
 : > "$ONLY_PATHS_DIR/only-none.txt"
 LITHE_CI_ONLY_PATHS="$ONLY_PATHS_DIR/only-none.txt" assert_classification only-paths-empty-selects-nothing \
-    "$(classification false false false false false false false false false false)" \
+    "$(classification false false false false false false false false)" \
     modify_swift_and_rust
 LITHE_CI_SCOPE=post_merge assert_classification post-merge-builds-only-the-package \
-    "$(classification false false false false false true false false false false false false post_merge)" \
+    "$(classification false false false true false false false false false false post_merge)" \
     modify_swift_source
 LITHE_CI_SCOPE=post_merge assert_classification post-merge-skips-windows-only-changes \
-    "$(classification false false false false false false false false false false false false post_merge)" \
+    "$(classification false false false false false false false false false false post_merge)" \
     modify_windows_frontend
 LITHE_CI_SCOPE=post_merge assert_classification post-merge-skips-documentation \
-    "$(classification false false false false false false false false false false false false post_merge)" \
+    "$(classification false false false false false false false false false false post_merge)" \
     modify_readme
 LITHE_CI_SCOPE=release_promotion assert_classification release-promotion-reruns-nothing \
-    "$(classification false false false false false false false false false false false false release_promotion)" \
+    "$(classification false false false false false false false false false false release_promotion)" \
     modify_classifier
 assert_classification rename-rust-to-markdown \
-    "$(classification false false false true false true true true false false)" \
+    "$(classification false false true true true true false false)" \
     rename_rust_to_markdown
 assert_classification rename-swift-source \
-    "$(classification true false false false false false false false false false)" \
+    "$(classification true false false false false false false false)" \
     rename_swift_source
 assert_classification rename-swift-across-modules \
-    "$(classification true false true false false true false false false false)" \
-    rename_swift_into_database_module
+    "$(classification true true false true false false false false)" \
+    rename_swift_into_contracts_module
 assert_classification rust-bridge-verifier \
-    "$(classification false false false true false true false false false false)" \
+    "$(classification false false true true false false false false)" \
     modify_rust_bridge_verifier
 
 printf '%s\n' 'CI change classifier tests passed'

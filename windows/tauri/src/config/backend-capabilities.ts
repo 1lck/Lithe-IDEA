@@ -6,7 +6,6 @@ export const backendCapabilities = {
   // that never had a Windows backend and is removed by #957.
   agent: true,
   aiChat: false,
-  database: false,
   debugger: true,
   docker: false,
   extensions: true,

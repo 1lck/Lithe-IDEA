@@ -2,26 +2,27 @@
   "id": "database-multi-schema-tree",
   "area": "数据库",
   "group": "数据库工作区",
-  "capability": "连接下多数据库独立展开、显示范围选择与树单选",
+  "capability": "连接下多数据库独立展开与显示范围选择（由社区插件提供）",
   "macos": {
     "evidence": [
-      "macos/Sources/LitheDatabaseModule/Application/DatabaseFeatureModel.swift",
-      "macos/Sources/Lithe/Views/Database/DatabaseSidebarView.swift",
-      "macos/Sources/Lithe/Views/Components/LitheTreeCheckbox.swift",
-      "macos/Tests/LitheTests/DatabaseWorkspaceLifecycleTests.swift",
-      ".agents/notes/implemented/feature/2026-10-22-database-multi-schema-tree.md",
-      "macos/Sources/Lithe/Theme/DatabaseBrandIcon.swift"
+      "macos/Sources/LitheModuleAPI/Catalog/BuiltInModuleCatalog.swift",
+      "macos/Sources/Lithe/Application/Features/PluginMarketplace.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginBackendSessions.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginCredentialStore.swift",
+      "rust/lithe-core/src/plugins/backend.rs",
+      "macos/Tests/LitheTests/PluginWebBridgeTests.swift",
+      ".agents/notes/implemented/architecture/2026-10-24-database-provider-plugin.md"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "windows": {
     "evidence": [
-      "windows/tauri/src/features/database/components/table-sidebar.tsx"
+      "shared/contracts/plugins/v1/README.md"
     ],
     "implementationStatus": "missing",
     "verificationStatus": "not-applicable"
   },
-  "owner": "Database",
-  "verification": "macOS：在分组中放置 MySQL 与 SQLite 连接，展开 MySQL/MariaDB 后同时展开两个账号可见的数据库，文件夹/连接/MySQL 数据库/SQLite 默认库/Tables 分组名称单击只选择、反复双击收缩后再次双击展开，独立箭头仍单击切换；表名双击打开数据而不展开结构，未分组连接直接显示在根层而无额外分区标题，保留空白落点和移回根目录菜单；检查同名表上下文、独立折叠/刷新/失败重试；依次点击连接、数据库、表，每次只能高亮被点击的一行，展开箭头不增加选择。执行 DatabaseWorkspaceLifecycleTests/databaseTree、LitheTreeRowStyleTests，并完成真实数据库完整工作区深浅主题验收。刷新按选中连接/库/表限定元数据范围，连接 Diagnostics/Force Refresh 清缓存重载，刷新不查询记录或移动编辑器；检查数据/结构空状态使用共享状态文字。Windows 尚未接入此多库树。 表节点：单击只选择，箭头立即展开并显示 loading；用受控慢 describeTable 验证展开不发 pageTable、不切换编辑器、折叠后迟到结果不重开，双击/打开数据编辑器与树共享结构缓存和请求，失败可重试。 点击 MySQL/MariaDB 连接旁 N of M，在共享搜索/复选框弹层中选择库后 Enter 或点击外部应用，仅显示已选库；Esc 不保存草稿；弹层不显示标题和 Apply/Cancel 按钮，输入时出现搜索，连接徽标在中文界面仍为紧凑 N of M 而非序号句，深浅主题检查 24pt 行内徽标边框与悬停、名称间距，悬停徽标显示小手但无文字提示；范围弹框内部使用普通箭头，复用 Git 提升的 IDEA 原版树复选框与共享树行/缩进/背景/悬停色，保留高列表空白区及底部说明，长库名单行省略，行内空白可点击；设置页复选框保持原行为；全选包含以后新增的库，空选保持 0 of M，展开后显示小号灰色“未选择架构”且无省略号按钮；连接名称与徽标右侧空白均可反复双击展开/折叠，零选库也一样，徽标点击仍只打开范围列表；重启后保留选择，连接级刷新不扫描已隐藏库，范围变更不读密码或切换编辑器。右键侧栏空白区及无连接空状态可新建连接/分组、导入 DBX、刷新所选结构和全部折叠，节点右键菜单仍可独立使用。 点击工具栏带右下角下拉标记的＋，检查统一菜单中的查询控制台、数据源子菜单、分组、导入数据源；数据源列出全部已支持引擎及品牌图标，选择 SQLite 直接打开文件路径表单，取消不保存，选择其他引擎采用相应端口与账号默认值；空白区 New 复用同一菜单，尚未实现的云数据源/模板/驱动管理不显示。 新建菜单数据源按用户指定复用右侧数据库工具窗口的 dbms 圆柱图标，其他菜单图标核对 Community 原图：七种已有数据库使用 providers 图标，Nacos 使用通用 settings 深浅图标，不使用第三方 PNG 或 SF Symbols 备用图标；连接编辑器采用固定名称区、常规/SSH TLS/安全与标记分页及固定操作栏，保留原有引擎字段。 新建菜单前 3 项连续使用共享 24pt 行高，仅导入数据源前保留分隔组，避免每项叠加 11pt 分组留白。 连接草稿测试复用已有 sidecar testConnection，不保存配置或密码、不切换当前连接、不改变连接状态；成功、失败、取消及模块释放均由受控端口回归。测试连接为主题色纯文字，hover 下划线同色，原生深浅主题核对分页与按钮。 成功检测自动显示共享上浮层，绿色成功标题、复制入口、引擎和真实检测耗时；底栏绿色对号和引擎可重新展开/收起，修改参数或关闭编辑器清理浮层。接口不提供的版本/驱动/实际 TLS 信息不展示，耗时不冒称 Ping。 成功气泡纠正菜单背景：Community c7f91397 的 locale 字体分支（Inter 13 regular；CJK 的 macOS Helvetica Neue 13）、4pt 圆角和14×10pt底部指针，ManyIslands dialog surface/popup border独立色值；标题按截图加粗，复制跟随主题强调色。正文保留普通字重，不虚构 Database Tools 私有源码可得性。 连接表单复用共享 4pt 圆角输入框，用户名/密码与 Host 等宽；检测耗时跟随界面语言；结果浮层关闭原生阴影外沿，普通菜单不变。 Copy 悬停手形、点击复制并关闭结果；新建用户名为空。密码保存仅提供直到重启（进程内存）和永久（现有安全存储），范围转换删除旧存储、保存失败恢复旧值与范围，旧配置兼容永久。 成功结果浮层使用 500ms 透明度淡入，减少动态效果时立即展示；关闭不等待动画。 Commit 对话框共享输入样式也复用 4pt 圆角 chrome，覆盖既有 Git 与数据库调用点。"
+  "owner": "Database（社区插件 Lithe-IDEA/lithe-plugin-database，Lithe Store 上架）",
+  "verification": "macOS 从插件市场的 Lithe Store 安装社区插件 io.github.lithe-idea.database，打开 Database 工具窗口：展开 MySQL/MariaDB 连接后同时展开多个数据库，各自折叠、刷新和失败重试；用“Databases Shown…”只显示选中的库，选择随连接保存；表、视图、例程、触发器、序列分组按需加载。 Windows：插件宿主和插件市场就绪前不提供数据库功能，主程序不再包含数据库入口。"
 }

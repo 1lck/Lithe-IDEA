@@ -66,8 +66,7 @@ export function GitHubNotificationsMenu() {
       state.isCommandPaletteVisible ||
       state.isGlobalSearchVisible ||
       state.isSettingsDialogVisible ||
-      state.isProjectPickerVisible ||
-      state.isDatabaseConnectionVisible,
+      state.isProjectPickerVisible,
   );
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<GitHubNotification[]>([]);

@@ -82,7 +82,6 @@ Services 接入容器、Spring Boot、数据库和本地服务。后续统一设
 - `macos/Sources/LitheApplicationKernel/`
 - `macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift`
 - `macos/Sources/Lithe/Views/Workbench/`
-- `macos/Sources/Lithe/Views/Database/`
 - `windows/`
 
 ## 跟踪任务

@@ -3,7 +3,6 @@ import LitheAIAssistanceModule
 import LitheAgentConversationModule
 import LitheApplicationKernel
 import LitheCoreContracts
-import LitheDatabaseModule
 import LitheDebugModule
 import LitheExecutionModule
 import LitheGitModule
@@ -126,10 +125,6 @@ final class MacServiceContainer {
         )
         let processRunner = MacProcessRunner(logging: applicationLogging)
         let secureStore = MacLocalSecretStore()
-        let databaseSecureStore = MacKeychainSecureStore(
-            service: fileStorage.identity.keychainService("database"),
-            legacyStore: secureStore
-        )
         let githubService = GitHubService(
             core: RustGitHubCore(bridge: rustCore),
             transport: MacGitHubHTTPTransport(),
@@ -157,13 +152,7 @@ final class MacServiceContainer {
         )
         let ideCapabilityRegistry = IdeCapabilityRegistry()
         let languageExecutionHost = MacLanguageExecutionHost(processRegistry: processRegistry)
-        let databaseSidecarURL = MacDatabaseSidecarLocator(fileStorage: fileStorage).executableURL()
         let moduleStore = providedModuleStore ?? MacModuleConfigurationStore(store: store)
-        // Database is now an internal on-demand workspace feature, so an old
-        // plugin-market preference must not leave the workspace inaccessible.
-        if moduleStore.enabledState(for: .database) == false {
-            moduleStore.setEnabledState(true, for: .database)
-        }
         let moduleRuntime = ModuleRuntime(
             configurationStore: moduleStore,
             recoveryStore: moduleStore,
@@ -171,9 +160,13 @@ final class MacServiceContainer {
         )
         moduleLifecycleCoordinator = ModuleLifecycleCoordinator(runtime: moduleRuntime)
         let declarativePluginOperations = RustDeclarativePluginOperations(core: rustCore)
+        let pluginCredentials = MacPluginCredentialStore(
+            servicePrefix: fileStorage.identity.keychainService("plugin-credentials")
+        )
         let pluginPackageStore = MacPluginPackageStore(
             fileStorage: fileStorage,
-            validator: declarativePluginOperations
+            validator: declarativePluginOperations,
+            credentials: pluginCredentials
         )
         let pluginSettings = MacPluginSettingsStore(store: store)
         let pluginLaunchResolver = MacPluginLanguageServerLaunchResolver(
@@ -217,19 +210,6 @@ final class MacServiceContainer {
                     historyPersistence: MacAgentHistoryPersistence(store: store),
                     historyExporter: MacAgentHistoryExporter(storage: fileStorage),
                     statisticsPersistence: MacAgentSessionStatisticsPersistence(store: store)
-                )
-            })
-            try moduleRegistry.register(ModuleFactory(manifest: DatabaseModule.moduleManifest, contributions: DatabaseModule.moduleContributions) {
-                DatabaseModule(
-                    processRunner: processRunner,
-                    executableURL: databaseSidecarURL,
-                    preferenceStore: MacDatabasePreferenceStore(store: store),
-                    secureStore: MacKeychainSecureStore(
-                        service: fileStorage.identity.keychainService("database"),
-                        legacyStore: MacLocalSecretStore()
-                    ),
-                    recoveryStore: MacDatabaseRecoveryStore(fileStorage: fileStorage),
-                    fileStorage: fileStorage
                 )
             })
             try moduleRegistry.register(ModuleFactory(manifest: TerminalModule.moduleManifest, contributions: TerminalModule.moduleContributions) {
@@ -291,6 +271,40 @@ final class MacServiceContainer {
             core: rustCore,
             processRegistry: processRegistry
         )
+        // Plugin backends, one per plugin for the whole application: the
+        // first project window creates them, and every window registers the
+        // same startup snapshot. Nothing starts until a page calls one.
+        let pluginBackends = MacPluginBackendSessions.shared {
+            // The former built-in database module's connections and
+            // passwords move into the Database plugin from Lithe Store
+            // before its backend first starts; the old data is read, never
+            // changed.
+            let databaseKeychain = MacKeychainSecureStore(service: fileStorage.identity.keychainService("database"))
+            let databaseMigration = MacDatabasePluginMigration(
+                preferences: store,
+                legacyPassword: { [secureStore] key in databaseKeychain.read(key: key) ?? secureStore.read(key: key) },
+                credentials: pluginCredentials,
+                log: { [applicationLogging] message in
+                    applicationLogging?.record(level: "warn", scope: "plugins.migration", message: message, fields: [:])
+                }
+            )
+            return MacPluginBackendSessions(
+                launchResolver: pluginLaunchResolver,
+                tools: MacBuildToolResolver(runtime: runtimeService, processRunner: processRunner, fileStorage: fileStorage),
+                versionChecker: declarativePluginOperations,
+                runtime: runtimeService,
+                core: rustCore,
+                processRegistry: processRegistry,
+                credentials: pluginCredentials,
+                prepareState: { [applicationLogging] installation, stateDirectory in
+                    if case let .migrated(profiles, passwords) = databaseMigration.prepare(installation: installation, stateDirectory: stateDirectory) {
+                        applicationLogging?.record(level: "info", scope: "plugins.migration", message: "database connections moved into the plugin",
+                            fields: ["profiles": String(profiles), "passwords": String(passwords)])
+                    }
+                }
+            )
+        }
+        pluginBackends.register(pluginStartup.registeredPlugins)
         let rustLanguageProviderCatalogSource = RustLanguageProviderCatalogSource(core: rustCore)
         // Installation owns the process-backed language boundary even when a
         // package is disabled, quarantined, or failed to load. Only the active
@@ -682,7 +696,9 @@ final class MacServiceContainer {
                 directories: MacPluginStateDirectories(fileStorage: fileStorage),
                 fileStorage: fileStorage
             ),
-            prompt: MacPluginWebConsentPrompt.confirm
+            backends: pluginBackends,
+            prompt: MacPluginWebConsentPrompt.confirm,
+            chooseFile: MacPluginWebFileDialog.choose
         )
         pluginWebPageLifecycle.register(pluginWebPages)
         let pluginMarketplaceEvaluator = RustPluginMarketplaceOperations(core: rustCore)
@@ -694,10 +710,17 @@ final class MacServiceContainer {
             launchMode: moduleLaunchMode,
             startup: pluginStartup,
             managedBuiltInPlugins: bundledLanguageManifests,
-            invalidateWebPages: { id in pluginWebPageLifecycle.disable(id.rawValue) },
-            enableWebPages: { id in pluginWebPageLifecycle.enable(id.rawValue) },
+            invalidateWebPages: { id in
+                pluginWebPageLifecycle.disable(id.rawValue)
+                pluginBackends.disable(id.rawValue)
+            },
+            enableWebPages: { id in
+                pluginBackends.enable(id.rawValue)
+                pluginWebPageLifecycle.enable(id.rawValue)
+            },
             beforePackageReplacement: { id in
                 pluginWebPageLifecycle.packageWillChange(id.rawValue)
+                pluginBackends.packageWillChange(id.rawValue)
                 // The running provider still executes the old files; the
                 // build systems' plugin list is a startup snapshot and does
                 // not see the replacement.
@@ -786,7 +809,6 @@ final class MacServiceContainer {
             gitWatchContextProvider: gitWatchContextProvider,
             githubService: githubService,
             secureStore: secureStore,
-            databaseSecureStore: databaseSecureStore,
             diagnosticsExportService: diagnosticsExportService,
             credentialResolver: credentialResolver,
             agentManagement: RustAgentManagementService(core: rustCore, accountDirectory: { agentID in

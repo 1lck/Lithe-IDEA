@@ -39,6 +39,7 @@ private final class IdleHost: PluginWebBridgeHost {
     func pluginWebShowBuildOutput() {}
     func pluginWebOpenFile(_ url: URL, line: Int?, column: Int?) -> Bool { false }
     func pluginWebConfirmProcessStart(_ consent: PluginWebProcessConsent) async -> Bool { false }
+    func pluginWebChooseFile(_ request: PluginWebFileRequest) async -> URL? { nil }
 }
 
 /// A plugin's own page, loaded through the package scheme into a window of its own.

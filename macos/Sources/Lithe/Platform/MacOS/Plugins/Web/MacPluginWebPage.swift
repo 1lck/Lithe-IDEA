@@ -196,7 +196,7 @@ final class MacPluginWebPage: NSObject, PluginWebPageHandle, WKNavigationDelegat
         return WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page)
     }
 
-    /// Bridge version 1. The handler reference is taken before any page
+    /// Bridge version 2, which adds file dialogs to version 1. The handler reference is taken before any page
     /// script runs, and `window.lithe` cannot be replaced or extended.
     private static let bridgeScript = #"""
     (() => {
@@ -221,7 +221,7 @@ final class MacPluginWebPage: NSObject, PluginWebPageHandle, WKNavigationDelegat
         }
       };
       const lithe = freeze({
-        version: 1,
+        version: 2,
         context: freeze({
           pluginID: initial.pluginID, windowID: initial.windowID, platform: initial.platform, locale: initial.locale,
           get theme() { return theme.theme; }

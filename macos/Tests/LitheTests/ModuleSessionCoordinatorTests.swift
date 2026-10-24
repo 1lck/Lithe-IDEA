@@ -8,15 +8,14 @@ import Testing
 @MainActor
 struct ModuleSessionCoordinatorTests {
     @Test
-    func releaseEventsClearOnlyTheirModuleAndCloseTheDatabaseDock() {
+    func releaseEventsClearOnlyTheirModule() {
         let runtime = ModuleRuntime()
         let store = ModuleCapabilityStore()
         let workbench = WorkbenchFeatureModel()
-        let database = SessionTestCapability()
+        let search = SessionTestCapability()
         let git = SessionTestCapability()
-        store.cache(database, id: .databaseWorkspace, moduleID: .database)
+        store.cache(search, id: .searchWorkspace, moduleID: .search)
         store.cache(git, id: .gitWorkspace, moduleID: .git)
-        workbench.setVisibility(.database, isVisible: true)
         var released: [ModuleID] = []
         var changes = 0
         let coordinator = ModuleSessionCoordinator(
@@ -26,17 +25,16 @@ struct ModuleSessionCoordinatorTests {
         )
         defer { coordinator.stopObserving() }
 
-        runtime.publish(ModuleEvent(source: .database, name: "module.sleeping"))
+        runtime.publish(ModuleEvent(source: .search, name: "module.sleeping"))
 
-        #expect(store.capability(.databaseWorkspace, as: SessionTestCapability.self) == nil)
+        #expect(store.capability(.searchWorkspace, as: SessionTestCapability.self) == nil)
         #expect(store.capability(.gitWorkspace) === git)
         #expect(workbench.selectedSidebar == .project)
-        #expect(!workbench.isVisible(.database))
-        #expect(released == [.database])
+        #expect(released == [.search])
         #expect(changes == 1)
         runtime.publish(ModuleEvent(source: .git, name: ModuleEvent.stateChangedName))
         #expect(changes == 2)
-        #expect(released == [.database])
+        #expect(released == [.search])
 
         coordinator.stopObserving()
         coordinator.stopObserving()
@@ -76,13 +74,10 @@ struct ModuleSessionCoordinatorTests {
     func repeatedShutdownRequestsShareWorkAndWaitersResumeAfterCleanup() async {
         let started = TestGate()
         let release = TestGate()
-        let store = ModuleCapabilityStore()
-        store.cache(SessionTestCapability(), id: .databaseWorkspace, moduleID: .database)
         var shutdowns = 0
-        var released: [ModuleID] = []
         let coordinator = ModuleSessionCoordinator(
-            runtime: ModuleRuntime(), capabilities: store, workbench: WorkbenchFeatureModel(),
-            onModuleReleased: { released.append($0) },
+            runtime: ModuleRuntime(), capabilities: ModuleCapabilityStore(), workbench: WorkbenchFeatureModel(),
+            onModuleReleased: { _ in },
             onChange: {},
             shutdownRuntime: {
                 shutdowns += 1
@@ -98,17 +93,14 @@ struct ModuleSessionCoordinatorTests {
         coordinator.beginShutdown()
         #expect(await started.waitUntilOpen())
         #expect(shutdowns == 1)
-        #expect(released.isEmpty)
-        #expect(store.capability(.databaseWorkspace, as: SessionTestCapability.self) != nil)
 
         release.open()
         await coordinator.awaitShutdown()
-        #expect(released == [.database])
-        #expect(store.capability(.databaseWorkspace, as: SessionTestCapability.self) == nil)
+        #expect(shutdowns == 1)
 
+        // A finished shutdown no longer counts as running.
         await coordinator.shutdown()
         #expect(shutdowns == 2)
-        #expect(released == [.database, .database])
     }
 
     @Test

@@ -1,7 +1,6 @@
 import Combine
 import Foundation
 import LitheGitModule
-import LitheDatabaseModule
 import LitheDebugModule
 import LitheExecutionModule
 import LitheLocalHistoryModule
@@ -259,12 +258,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         notify: { [weak self] in self?.showNotification($0) },
         onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) }
     )
-    lazy var databaseModuleCoordinator = DatabaseModuleCoordinator(
-        runtime: services.moduleRuntime,
-        store: moduleCapabilityStore,
-        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) },
-        onError: { [weak self] in self?.showNotification($0) }
-    )
     lazy var searchModuleCoordinator = SearchModuleCoordinator(
         runtime: services.moduleRuntime,
         store: moduleCapabilityStore,
@@ -299,12 +292,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     var javaFeature: JavaFeatureModel { featureGraph.java }
     var springFeature: SpringFeatureModel { featureGraph.spring }
     var mybatisFeature: MybatisFeatureModel { featureGraph.mybatis }
-    // Views retain this instance in their environment so a final SwiftUI update
-    // remains safe after module shutdown clears the capability cache.
-    var databaseFeatureIfActive: DatabaseFeatureModel? {
-        let capability: LitheDatabaseModule.DatabaseModuleCapability? = cachedModuleCapability(.databaseWorkspace)
-        return capability?.feature
-    }
     var moduleSnapshots: [ModuleSnapshot] { services.moduleRuntime.snapshots() }
     lazy var workbenchUIRegistry: WorkbenchModuleUIRegistry = {
         do { return try WorkbenchModuleUIComposition.registry(for: services.pluginCatalog, iconResources: services.pluginUIIconResources) }
@@ -560,7 +547,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             workbench: workbenchFeature,
             onModuleReleased: { [weak self] moduleID in
                 self?.unregisterModuleLanguageExtensions(for: moduleID)
-                if moduleID == .database { self?.closeDatabaseWorkspace() }
             },
             onChange: { [weak self] in
                 self?.scheduleObjectWillChangeRelay()
@@ -589,6 +575,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             guard let self, let root = self.workspaceURL else { return }
             self.searchFeatureIfActive?.invalidateIndex(at: root, visibilityRules: self.settings.searchEverywhereVisibilityRules.searchRules)
         }
+        suggestDatabasePluginIfNeeded()
         detectedAIConfigurations = loadAIConfigurations()
         let activeProviderHasAPIKey = settings.activeCommitMessageProvider
             .flatMap { services.credentialResolver.readAPIKey(for: $0) }
@@ -668,20 +655,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
                 break
             }
         }
-    }
-
-    func activateDatabaseModule(toolWindow: WorkbenchFeatureModel.ToolWindow = .database) async {
-        let workspace = workspaceURL
-        await awaitModuleRuntimeShutdown()
-        guard workspaceURL == workspace, await databaseModuleCoordinator.activate() != nil,
-              workspaceURL == workspace else { return }
-        workbenchFeature.setVisibility(toolWindow, isVisible: true)
-    }
-
-    func sleepDatabaseModule() async {
-        await databaseModuleCoordinator.sleep()
-        workbenchFeature.setVisibility(.database, isVisible: false)
-        closeDatabaseWorkspace()
     }
 
     deinit {
@@ -1082,7 +1055,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         allowsOutsideWorkspace: Bool = false
     ) {
         editorTabOrderFeature.repositoryDiffSelected = false
-        editorTabOrderFeature.databaseSelected = false
         selectedChange = nil
         closeBranchComparison()
         editorNavigationTarget = nil
@@ -1628,9 +1600,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             if let session = terminalSessions.first(where: { $0.id == id }) { selectEditorTerminalSession(session) }
         case .media(let id):
             if let media = openMediaDocuments.first(where: { $0.id == id }) { selectMediaDocument(media) }
-        case .databaseOverview: openDatabaseWorkspace(overview: true)
-        case .database(let profileID): selectDatabaseWorkspace(profileID: profileID)
-        case let .databaseQuery(profileID, queryID): selectDatabaseWorkspace(profileID: profileID, queryID: queryID)
         case .repositoryDiff, nil: break
         }
     }

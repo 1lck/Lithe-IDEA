@@ -31,10 +31,8 @@ an installer; Windows installers come from preview and stable release workflows.
 The summary records the exact checked-out revision. For a pull request this is
 normally GitHub's test merge commit. Check **macOS CI gate** or **Windows CI
 gate** for the combined test result. The macOS **Swift tests** job builds the
-Swift tests once and runs the main and database suites selected by the
-classifier, so **macOS CI gate** also owns the Swift database result;
-**Database CI gate** checks the Linux Rust database lane and **Remote Workspace
-CI gate** the Linux remote workspace lane (`scripts/verify-remote-workspace.sh`),
+Swift tests once and runs the suites selected by the classifier;
+**Remote Workspace CI gate** checks the Linux remote workspace lane (`scripts/verify-remote-workspace.sh`),
 which draft pull requests keep because it uses no macOS runner. **macOS Plugin CI**
 stays separate: it only reserves a macOS runner when the classifier selects the
 plugin lane, and otherwise **Plugin CI gate** passes on Linux in seconds.
@@ -276,7 +274,7 @@ were already hitting, but macOS had no cache for compiled Rust dependencies.
 
 The macOS package CI and preview workflows now cache Cargo fingerprints, build
 script outputs, and dependency outputs for both `rust/target/macos` (Core) and
-`rust/target` (database helpers). Keys include runner architecture, compiler,
+`rust/target` (the `lithe-mcp` helper). Keys include runner architecture, compiler,
 Xcode/SDK/macOS versions, build flags, dependency manifests, and build scripts.
 An architecture-specific job can restore the universal cache from its base
 branch. Final executables are not cached; Cargo still runs before packaging.
@@ -352,7 +350,7 @@ LITHE_RUN_GIT_COMPOSITOR_TESTS=1 \
 Swift 文本文件策略直接调用 Rust Core，因此 `scripts/test-macos.sh` 会先构建并链接
 当前工作树的 Core 静态库。它复用现有 `rust/target/macos` 构建路径；这是可变编译状态，
 不允许跨工作树复制或共享，也没有新增可复用资源目录。依赖下载仍按下文清单复用。
-Swift 单元、插件和数据库 CI 通道复用已有 Cargo 下载缓存。先通过
+Swift 单元和插件 CI 通道复用已有 Cargo 下载缓存。先通过
 `./scripts/test-macos.sh list` 构建并发现测试，独立步骤上限为 40 分钟；随后计时工具
 传入 `--skip-build`，测试阶段保留 960 秒总时限及 17 分钟外层步骤时限，给超时清理
 与报告留出一分钟。构建失败时不生成合并报告，避免同一失败被重复计为“未生成测试

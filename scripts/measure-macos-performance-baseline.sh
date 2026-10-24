@@ -109,7 +109,6 @@ prepare_baseline_app() {
     cp -R "$project_root/.artifacts/editor/macos" "$app_dir/Contents/Resources/MonacoEditor"
     cp -R "$project_root/macos/Resources/IDEAIcons" "$app_dir/Contents/Resources/IDEAIcons"
     cp -R "$project_root/macos/Resources/GitGraph" "$app_dir/Contents/Resources/GitGraph"
-    cp -R "$project_root/macos/Resources/DatabaseIcons" "$app_dir/Contents/Resources/DatabaseIcons"
     zsh "$project_root/scripts/package-macos-localizations.sh" \
         "$project_root/macos/Resources" "$app_dir/Contents/Resources"
     /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $bundle_identifier" \

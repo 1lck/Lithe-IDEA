@@ -4,7 +4,6 @@ type BuiltInCommandPaletteViewId =
   | "icon-theme"
   | "local-history"
   | "outline"
-  | "databases"
   | "encoding";
 
 type ExtensionCommandPaletteViewId = `extension:${string}`;

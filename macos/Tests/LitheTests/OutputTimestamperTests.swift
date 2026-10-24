@@ -8,8 +8,8 @@ import Testing
 @Suite("Output Copy cursor ownership")
 @MainActor
 struct OutputCopyCursorTests {
-    @Test(arguments: [false, true])
-    func databaseTextAndCopyIgnoreLateEventsOverDivider(editable: Bool) throws {
+    @Test
+    func outputTextAndCopyIgnoreLateEventsOverDivider() throws {
         let previousCursor = NSCursor.current
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 360, height: 240), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -17,12 +17,10 @@ struct OutputCopyCursorTests {
         let content = try #require(window.contentView)
         let output = OutputNativeTextView(frame: NSRect(x: 0, y: 0, width: 160, height: 240))
         output.isEditable = false; output.isSelectable = true; output.string = "output"
-        let console = SQLTextView(frame: NSRect(x: 180, y: 0, width: 180, height: 240))
-        console.isEditable = editable; console.string = "select 1;"
         let copy = OutputCopyButtonHost(rootView: AnyView(Button("Copy") {}))
         copy.frame = NSRect(x: 100, y: 200, width: 50, height: 22)
         let handle = SplitHandleInteractionView(frame: NSRect(x: 160, y: 0, width: 10, height: 240))
-        for view in [output, console, copy, handle] { content.addSubview(view) }
+        for view in [output, copy, handle] { content.addSubview(view) }
         output.copyButtonView = copy
         let point = NSPoint(x: 165, y: 120)
         #expect(content.hitTest(point) === handle)
@@ -35,7 +33,7 @@ struct OutputCopyCursorTests {
         let exited = try tracking(.mouseExited, at: point)
         let moved = try #require(NSEvent.mouseEvent(with: .mouseMoved, location: point, modifierFlags: [], timestamp: 0,
             windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0))
-        for view in [output, console, copy] {
+        for view in [output, copy] {
             for event in [cursor, entered, moved, exited] {
                 handle.cursorUpdate(with: cursor)
                 switch event.type {
@@ -47,16 +45,14 @@ struct OutputCopyCursorTests {
                 #expect(NSCursor.current === NSCursor.resizeLeftRight)
             }
         }
-        // Normal body tracking still supplies the native text cursor (or the read-only preview arrow).
+        // Normal body tracking still supplies the native text cursor.
         output.cursorUpdate(with: try tracking(.cursorUpdate, at: NSPoint(x: 20, y: 120)))
         #expect(NSCursor.current === NSCursor.iBeam)
-        console.cursorUpdate(with: try tracking(.cursorUpdate, at: NSPoint(x: 200, y: 120)))
-        #expect(NSCursor.current === (editable ? NSCursor.iBeam : NSCursor.arrow))
         copy.cursorUpdate(with: try tracking(.cursorUpdate, at: NSPoint(x: 125, y: 211)))
         #expect(NSCursor.current === NSCursor.arrow)
         content.subviews.forEach { $0.removeFromSuperview() }
         NSCursor.resizeLeftRight.set()
-        output.cursorUpdate(with: cursor); console.cursorUpdate(with: cursor); copy.cursorUpdate(with: cursor)
+        output.cursorUpdate(with: cursor); copy.cursorUpdate(with: cursor)
         #expect(NSCursor.current === NSCursor.resizeLeftRight)
     }
 

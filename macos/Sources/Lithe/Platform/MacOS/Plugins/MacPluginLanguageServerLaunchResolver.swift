@@ -60,6 +60,12 @@ struct MacPluginStateDirectories: Sendable {
             .appendingPathComponent(vcs, isDirectory: true)
     }
 
+    /// `${stateDir}` of the plugin backend, also its root and working
+    /// directory. It goes with the plugin directory on uninstall.
+    func backendStateDirectory(pluginID: String) -> URL {
+        pluginDirectory(pluginID: pluginID).appendingPathComponent("backend", isDirectory: true)
+    }
+
     /// `${workspaceStateDir}` of one VCS provider.
     func vcsProviderWorkspaceStateDirectory(pluginID: String, vcs: String, workspaceRootURL: URL) -> URL {
         vcsProviderStateDirectory(pluginID: pluginID, vcs: vcs)
@@ -144,13 +150,7 @@ struct MacPluginLanguageServerLaunchResolver {
             request: request
         )
         try verifyPackagePaths(plan.requiredPackagePaths, packageURL: source.packageURL)
-        for directory in plan.requiredDirectories {
-            let url = switch directory {
-            case .state: request.stateDirectory
-            case .workspaceState: request.workspaceStateDirectory
-            }
-            try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
-        }
+        try createRequiredDirectories(of: plan, request: request)
         return ResolvedLanguageServerLaunch(
             arguments: plan.arguments,
             initializationOptions: plan.initializationOptions,
@@ -282,6 +282,48 @@ struct MacPluginLanguageServerLaunchResolver {
         )
     }
 
+    /// The plugin backend's process, with the host services the session may
+    /// request. It belongs to no workspace, so its launch has no
+    /// `${workspaceStateDir}` and no project settings.
+    struct BackendProcess: Equatable {
+        let process: BuildProviderProcess
+        let hostServices: [String]
+        /// `${stateDir}`, created; the session's root and working directory.
+        let stateDirectory: URL
+    }
+
+    /// The setting values a backend launch expands with now: the global
+    /// layer only, since a backend belongs to no project.
+    func backendSettingValues(forPlugin pluginID: String) -> [String: ToolingJSONValue] {
+        settings.values(forPlugin: pluginID)
+    }
+
+    func resolveBackend(pluginID: String, manifest: Data, packageURL: URL) throws -> BackendProcess {
+        let launchSettings = backendSettingValues(forPlugin: pluginID)
+        let stateDirectory = directories.backendStateDirectory(pluginID: pluginID)
+        let request = DeclarativeLanguageServerLaunchRequest(
+            pluginDirectory: packageURL.standardizedFileURL,
+            stateDirectory: stateDirectory,
+            workspaceStateDirectory: nil,
+            architecture: Self.hostArchitecture,
+            settings: launchSettings
+        )
+        let plan = try planner.backendLaunchPlan(manifest: manifest, request: request)
+        guard let backend = plan.backend else {
+            throw DeclarativePluginRejection(
+                code: "plugin.launch.unavailable",
+                message: "Rust Core returned no backend for \(pluginID)."
+            )
+        }
+        let process = try providerProcess(
+            plan, request: request, packageURL: packageURL,
+            executesProjectCode: false, mayUseNetwork: true, settings: launchSettings
+        )
+        // The session starts in this directory even when no argument names it.
+        try fileManager.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+        return BackendProcess(process: process, hostServices: backend.hostServices, stateDirectory: stateDirectory)
+    }
+
     /// The executable of a plan's own process, with its package paths
     /// verified and state directories created.
     private func providerProcess(
@@ -312,13 +354,7 @@ struct MacPluginLanguageServerLaunchResolver {
                 message: "Rust Core returned a provider launch without an executable."
             )
         }
-        for directory in plan.requiredDirectories {
-            let url = switch directory {
-            case .state: request.stateDirectory
-            case .workspaceState: request.workspaceStateDirectory
-            }
-            try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
-        }
+        try createRequiredDirectories(of: plan, request: request)
         return BuildProviderProcess(
             executable: executable,
             arguments: plan.arguments,
@@ -405,6 +441,28 @@ struct MacPluginLanguageServerLaunchResolver {
             settings: settings.values(forPlugin: source.pluginID),
             projectSettings: settings.projectValues(forPlugin: source.pluginID, projectRoot: workspaceRootURL)
         )
+    }
+
+    /// Creates the state directories the plan expands into. Core refuses a
+    /// workspace directory the request did not give, so a missing one here
+    /// means the plan and request disagree.
+    private func createRequiredDirectories(
+        of plan: DeclarativeLanguageServerLaunchPlan,
+        request: DeclarativeLanguageServerLaunchRequest
+    ) throws {
+        for directory in plan.requiredDirectories {
+            let url: URL? = switch directory {
+            case .state: request.stateDirectory
+            case .workspaceState: request.workspaceStateDirectory
+            }
+            guard let url else {
+                throw DeclarativePluginRejection(
+                    code: "plugin.launch.invalidRequest",
+                    message: "The launch needs a workspace state directory, but it belongs to no workspace."
+                )
+            }
+            try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
+        }
     }
 
     /// A packaged file the host starts: inside the package, reached without

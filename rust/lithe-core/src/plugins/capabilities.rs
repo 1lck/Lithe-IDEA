@@ -45,6 +45,10 @@ pub(crate) const BUILD_PROVIDERS: &str = "buildProviders";
 /// process; see `crate::vcs`.
 pub(crate) const VCS_PROVIDERS: &str = "vcsProviders";
 
+/// `backend`: the plugin's own long-lived process serving its pages; see
+/// `super::backend`.
+pub(crate) const BACKEND: &str = "backend";
+
 /// `projectGenerators[]`: entries of the New Project window.
 pub(crate) const PROJECT_GENERATORS: &str = "projectGenerators";
 
@@ -54,6 +58,7 @@ pub(crate) const EXECUTABLE_RESOLUTION: &str = "executableResolution";
 /// Capability versions this Core build validates and plans. Version 1 of a
 /// capability keeps the meaning its section had at API level 2.
 pub const SUPPORTED_CAPABILITIES: &[(&str, &[u32])] = &[
+    (BACKEND, &[1]),
     (BUILD_PROVIDERS, &[1]),
     (BUILD_SYSTEMS, &[1, 2]),
     (EXECUTION_PROVIDERS, &[1]),

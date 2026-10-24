@@ -59,7 +59,7 @@ Codex、Claude Code 等 AI 编程工具已经可以承担大量编码工作，�
 
 Lithe 是一款主要面向 Java 和 Spring Boot 开发者的轻量级 IDEA 替代品，保留项目浏览、代码编辑与导航、搜索、Maven、运行调试、Git Diff、本地历史和数据库等核心工作流。
 
-打开普通项目后，Lithe 应用本身的基础内存占用通常约为 **300～400 MB**。语言服务器、终端、构建工具、调试器和数据库组件均按需启动；实际占用会随项目和启用的服务变化。
+打开普通项目后，Lithe 应用本身的基础内存占用通常约为 **300～400 MB**。语言服务器、终端、构建工具和调试器均按需启动；实际占用会随项目和启用的服务变化。
 
 > **AI 负责编写代码，Lithe 负责帮你看懂、跑通并审查修改。**
 
@@ -102,7 +102,7 @@ Lithe 是一款主要面向 Java 和 Spring Boot 开发者的轻量级 IDEA 替�
 14. 自动识别 Spring Boot、Java、Maven、Gradle、npm、Cargo、Go、Python、Make、Docker Compose、Procfile 和 Shell 项目的可运行入口，并支持一键运行。
 15. 支持按语言独立开关语言服务，可根据电脑配置自由启用或停用。
 16. 支持类似 IDEA 的多行编辑器标签，同时展示更多打开的文件。
-17. 新增数据库连接工作台，支持多种数据库类型、连接管理、SQL 历史、表浏览和数据库操作。
+17. 数据库连接改为社区插件（目前仅支持 macOS），从插件市场的 Lithe Store 安装，支持多种数据库类型、连接管理、SQL 历史、表浏览和数据库操作。
 18. 持续修复问题并优化用户体验。
 
 </details>
@@ -145,11 +145,6 @@ Lithe 是一款主要面向 Java 和 Spring Boot 开发者的轻量级 IDEA 替�
 
 <p align="center">
   <img src="./docs/assets/screenshots/multi-line-editor-tabs.png" width="49%" alt="多行编辑器标签">
-  <img src="./docs/assets/screenshots/database-workspace-overview.png" width="49%" alt="数据库连接工作台">
-</p>
-
-<p align="center">
-  <img src="./docs/assets/screenshots/database-sql-operation.png" width="49%" alt="数据库 SQL 操作和表结构">
 </p>
 
 </details>

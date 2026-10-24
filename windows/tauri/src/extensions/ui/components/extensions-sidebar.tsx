@@ -4,7 +4,6 @@ import {
   ArrowCounterClockwiseIcon as Reset,
   BrainIcon as Brain,
   CheckIcon as Check,
-  DatabaseIcon as Database,
   DownloadSimpleIcon as Download,
   PackageIcon as Package,
   PaintBrushIcon as PaintBrush,
@@ -37,7 +36,6 @@ import { themeRegistry } from "@/extensions/themes/theme-registry";
 import { DynamicIcon } from "@/extensions/ui/components/dynamic-icon";
 import {
   getManifestAIProviderContributions,
-  getManifestDatabaseContributions,
   getManifestIconContributions,
   getManifestIntegrationContributions,
   getManifestThemeContributions,
@@ -77,7 +75,6 @@ interface UnifiedExtension {
     | "language"
     | "theme"
     | "icon-theme"
-    | "database"
     | "ai"
     | "integration"
     | "skill"
@@ -115,7 +112,6 @@ const FILTER_TABS = [
   { id: "language", labelKey: "extensions.languages", icon: TextT },
   { id: "theme", labelKey: "extensions.themes", icon: PaintBrush },
   { id: "icon-theme", labelKey: "extensions.iconThemes", icon: Package },
-  { id: "database", labelKey: "extensions.databases", icon: Database },
   { id: "ai", labelKey: "extensions.ai", icon: Sparkles },
   { id: "integration", labelKey: "extensions.integrations", icon: PlugsConnected },
   { id: "skill", labelKey: "extensions.skills", icon: Brain },
@@ -194,10 +190,6 @@ const LOCAL_ICON_ALIASES: Record<string, string> = {
 };
 
 const SIMPLE_ICON_COLOR = "8B8F99";
-
-function isBuiltInDatabaseProvider(providerId: string): boolean {
-  return providerId === "sqlite";
-}
 
 function resolvePackageSize(manifest: {
   installation?: {
@@ -365,8 +357,6 @@ function getCategoryIcon(category: UnifiedExtension["category"]): ReactNode {
       return <PaintBrush className={className} weight="duotone" />;
     case "icon-theme":
       return <Package className={className} weight="duotone" />;
-    case "database":
-      return <Database className={className} weight="duotone" />;
     case "ai":
       return <Sparkles className={className} weight="duotone" />;
     case "integration":
@@ -671,34 +661,6 @@ export const ExtensionsSidebar = ({
             ...(ext.manifest.formatter?.name ? [`formatter:${ext.manifest.formatter.name}`] : []),
             ...(ext.manifest.linter?.name ? [`linter:${ext.manifest.linter.name}`] : []),
           ],
-        });
-      }
-
-      const databaseContributions = getManifestDatabaseContributions(ext.manifest);
-      if (databaseContributions.length > 0) {
-        const provider = databaseContributions[0];
-        const isBuiltInDatabase = isBuiltInDatabaseProvider(provider.id);
-        allExtensions.push({
-          id: ext.manifest.id,
-          name: ext.manifest.displayName,
-          description: ext.manifest.description,
-          category: "database",
-          isInstalled: ext.isInstalled,
-          isEnabled: ext.isEnabled,
-          version: ext.manifest.version,
-          extensions: provider.fileExtensions?.map((item) => item.replace(".", "")),
-          publisher: ext.manifest.publisher,
-          isMarketplace: !isBuiltInDatabase,
-          isBundled: isBuiltInDatabase,
-          icon: resolveManifestIcon(
-            ext.manifest.icon,
-            provider.id,
-            provider.label,
-            ext.manifest.displayName,
-          ),
-          runtimeIssues: ext.runtimeIssues,
-          packageSize: resolvePackageSize(ext.manifest),
-          contributionSummary: [`database:${provider.id}`],
         });
       }
 

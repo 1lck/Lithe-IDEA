@@ -1,4 +1,3 @@
-import type { DatabaseType } from "@/features/database/types/provider.types";
 import type { MultiFileDiff } from "@/features/git/types/git-diff.types";
 import type { GitDiff } from "@/features/git/types/git.types";
 import type { OnboardingMode } from "@/features/onboarding/lib/onboarding-state";
@@ -41,7 +40,6 @@ export type PaneContentType =
   | "image"
   | "pdf"
   | "binary"
-  | "database"
   | "pullRequest"
   | "githubIssue"
   | "githubAction"
@@ -172,12 +170,6 @@ interface BinaryContent extends PaneContentBase {
   type: "binary";
 }
 
-interface DatabaseContent extends PaneContentBase {
-  type: "database";
-  databaseType: DatabaseType;
-  connectionId?: string;
-}
-
 export interface PullRequestContent extends PaneContentBase {
   type: "pullRequest";
   repoPath?: string;
@@ -271,7 +263,6 @@ export type PaneContent =
   | ImageContent
   | PdfContent
   | BinaryContent
-  | DatabaseContent
   | PullRequestContent
   | GitHubIssueContent
   | GitHubActionContent
@@ -402,13 +393,6 @@ export type OpenContentSpec =
   | { type: "image"; path: string; name: string }
   | { type: "pdf"; path: string; name: string }
   | { type: "binary"; path: string; name: string }
-  | {
-      type: "database";
-      path: string;
-      name: string;
-      databaseType: DatabaseType;
-      connectionId?: string;
-    }
   | {
       type: "pullRequest";
       prNumber: number;

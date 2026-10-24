@@ -300,6 +300,8 @@ pub enum CoreCommand {
     LspVcsRequest,
     /// Invokes one plugin function (`lsp.functionRequest`).
     LspFunctionRequest,
+    /// Answers a plugin backend's host-service request (`lsp.hostResponse`).
+    LspHostResponse,
     /// Queues shared Java gutter marker resolution (`java.navigationMarkers`).
     JavaNavigationMarkers,
     /// Queues click-time Java navigation resolution (`java.resolveNavigation`).
@@ -611,6 +613,7 @@ impl CoreCommand {
             "lsp.buildRequest" => Some(Self::LspBuildRequest),
             "lsp.vcsRequest" => Some(Self::LspVcsRequest),
             "lsp.functionRequest" => Some(Self::LspFunctionRequest),
+            "lsp.hostResponse" => Some(Self::LspHostResponse),
             "java.resolveNavigation" => Some(Self::JavaResolveNavigation),
             "lsp.cancelOperation" => Some(Self::LspCancelOperation),
             "lsp.pollEvents" => Some(Self::LspPollEvents),
@@ -717,6 +720,7 @@ mod tests {
             "lsp.buildRequest",
             "lsp.vcsRequest",
             "lsp.functionRequest",
+            "lsp.hostResponse",
             "lsp.cancelOperation",
             "lsp.pollEvents",
             "lsp.waitEvents",

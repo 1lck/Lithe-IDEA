@@ -50,8 +50,15 @@ const PERMISSION_VCS: &str = "process.vcs";
 /// Creating projects: writing template files, running scaffolding tools,
 /// and downloading project archives. API level 3.
 const PERMISSION_PROJECT_GENERATE: &str = "project.generate";
+/// Starting the plugin's own backend process. `backend` 1.
+const PERMISSION_BACKEND: &str = "backend.launch";
+/// Letting the backend keep secrets in the host's credential store, private
+/// to the plugin. `backend` 1.
+const PERMISSION_CREDENTIALS: &str = "credentials.store";
 const KNOWN_PERMISSIONS: &[&str] = &[
+    PERMISSION_BACKEND,
     PERMISSION_BUILD,
+    PERMISSION_CREDENTIALS,
     PERMISSION_LANGUAGE_SERVER,
     PERMISSION_PROJECT_GENERATE,
     PERMISSION_RUN,
@@ -172,6 +179,10 @@ pub struct DeclarativePluginManifest {
     /// validation live in `crate::project_generators`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     project_generators: Vec<crate::project_generators::ProjectGeneratorDeclaration>,
+    /// The plugin's own process serving its pages. `backend` 1; see
+    /// `super::backend`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    backend: Option<super::backend::BackendDeclaration>,
 }
 
 /// UI supplied by plugins. The host owns every window shell: docking, title,
@@ -442,6 +453,7 @@ pub(crate) enum ServerRole {
     LanguageServer,
     BuildProvider,
     VcsProvider,
+    Backend,
 }
 
 impl ServerRole {
@@ -450,6 +462,7 @@ impl ServerRole {
             Self::LanguageServer => "language server",
             Self::BuildProvider => "build provider",
             Self::VcsProvider => "VCS provider",
+            Self::Backend => "plugin backend",
         }
     }
 }
@@ -950,6 +963,16 @@ impl DeclarativePluginManifest {
                 declared_settings: &declared_settings,
             },
         )?;
+        if let Some(backend) = &self.backend {
+            backend.validate(&super::backend::DeclarationContext {
+                plugin_api_version: self.plugin_api_version,
+                declared_settings: &declared_settings,
+                has_web_window: self
+                    .ui
+                    .as_ref()
+                    .is_some_and(|ui| ui.tool_windows.iter().any(|window| window.web.is_some())),
+            })?;
+        }
         self.validate_permissions()?;
         self.validate_activation_events()?;
         Ok(self)
@@ -985,6 +1008,7 @@ impl DeclarativePluginManifest {
                 capabilities::SERVER_PROCESS,
                 !self.language_servers.is_empty()
                     || !self.vcs_providers.is_empty()
+                    || self.backend.is_some()
                     || self
                         .build_systems
                         .iter()
@@ -1011,6 +1035,7 @@ impl DeclarativePluginManifest {
                     .any(|system| system.provider.is_some()),
             ),
             (capabilities::VCS_PROVIDERS, !self.vcs_providers.is_empty()),
+            (capabilities::BACKEND, self.backend.is_some()),
         ];
         sections
             .into_iter()
@@ -1176,6 +1201,16 @@ impl DeclarativePluginManifest {
         if !self.project_generators.is_empty() {
             required.insert(PERMISSION_PROJECT_GENERATE);
         }
+        if self.backend.is_some() {
+            required.insert(PERMISSION_BACKEND);
+        } else if self.permissions.iter().any(|p| p == PERMISSION_CREDENTIALS) {
+            // Only a backend can use the store; listing the permission
+            // without one would show the user a grant nothing exercises.
+            return Err(invalid(
+                "permissions",
+                "credentials.store is used by a plugin backend; declare one or remove the permission.",
+            ));
+        }
         for permission in required {
             if !self
                 .permissions
@@ -1293,6 +1328,16 @@ impl DeclarativePluginManifest {
     /// Validated VCS providers, sorted by VCS ID.
     pub(crate) fn vcs_providers(&self) -> &[crate::vcs::VcsProviderDeclaration] {
         &self.vcs_providers
+    }
+
+    /// Host services the plugin's backend may request, sorted; empty without
+    /// a backend. Each is granted by one permission.
+    pub(crate) fn backend_host_services(&self) -> Vec<&'static str> {
+        let mut services = Vec::new();
+        if self.backend.is_some() && self.permissions.iter().any(|p| p == PERMISSION_CREDENTIALS) {
+            services.push(super::backend::HOST_SERVICE_CREDENTIALS);
+        }
+        services
     }
 
     /// Checks the declared settings, sorts them by ID, and returns the IDs
@@ -1449,6 +1494,9 @@ impl DeclarativePluginManifest {
         }
         for generator in &self.project_generators {
             programs.extend(crate::project_generators::programs(generator));
+        }
+        if let Some(backend) = &self.backend {
+            programs.extend(super::backend::programs(backend));
         }
         // Order by kind, then language or tool, then the full serialized
         // value as a total tie-breaker; duplicates (two servers needing the
@@ -1876,6 +1924,7 @@ impl ServerProcess {
             ServerRole::LanguageServer => "LanguageServer",
             ServerRole::BuildProvider => "BuildProvider",
             ServerRole::VcsProvider => "VcsProvider",
+            ServerRole::Backend => "Backend",
         };
         let mut program = match &self.launch {
             LanguageServerLaunch::Packaged { path } => json!({
@@ -1912,6 +1961,46 @@ impl ServerProcess {
             program["initializationOptions"] = options.clone();
         }
         program
+    }
+
+    /// Whether any start template names `${workspaceStateDir}`, which only
+    /// a process bound to one workspace can be given.
+    pub(crate) fn uses_workspace_state_directory(&self) -> bool {
+        let runtime_arguments = match &self.launch {
+            LanguageServerLaunch::Runtime {
+                runtime_arguments, ..
+            } => runtime_arguments.as_slice(),
+            _ => &[],
+        };
+        let mentions = |text: &str| {
+            parse_template_with(text, LaunchVariable::parse)
+                .unwrap_or_default()
+                .iter()
+                .any(|part| {
+                    matches!(
+                        part,
+                        TemplatePart::Variable(LaunchVariable::WorkspaceStateDir)
+                    )
+                })
+        };
+        fn strings<'a>(value: &'a Value, out: &mut Vec<&'a str>) {
+            match value {
+                Value::String(text) => out.push(text),
+                Value::Array(items) => items.iter().for_each(|item| strings(item, out)),
+                Value::Object(members) => members.values().for_each(|item| strings(item, out)),
+                _ => {}
+            }
+        }
+        let mut option_strings = Vec::new();
+        if let Some(options) = &self.initialization_options {
+            strings(options, &mut option_strings);
+        }
+        self.arguments
+            .iter()
+            .chain(runtime_arguments)
+            .map(String::as_str)
+            .chain(option_strings)
+            .any(mentions)
     }
 
     /// Install-review entries of the runtimes the host discovers for it.
@@ -2591,7 +2680,10 @@ pub struct LanguageServerLaunchPlanRequest {
     /// Absolute writable directory the host keeps for this plugin's server.
     state_directory: String,
     /// Absolute writable directory for the server's state of this workspace.
-    workspace_state_directory: String,
+    /// A host without a workspace, such as one starting a plugin backend,
+    /// omits it; a launch that names it then has no usable plan.
+    #[serde(default)]
+    workspace_state_directory: Option<String>,
     /// Host CPU architecture, one of `KNOWN_ARCHITECTURES`.
     architecture: String,
     /// Values the user stored for the plugin's settings, by setting ID. A
@@ -2780,6 +2872,24 @@ fn vcs_provider_launch_plan(
     Ok(plan)
 }
 
+/// The launch plan of the plugin's backend. `backend.hostServices` lists the
+/// host services its permissions grant, which the host passes to
+/// `lsp.startServer` so Core admits only those requests.
+fn backend_launch_plan(
+    manifest: &DeclarativePluginManifest,
+    request: &LanguageServerLaunchPlanRequest,
+) -> Validation<Value> {
+    let backend = manifest.backend.as_ref().ok_or_else(|| {
+        PluginRejection::new(
+            "plugin.launch.unavailable",
+            "The plugin declares no backend.",
+        )
+    })?;
+    let mut plan = server_launch_plan(manifest, &backend.process, None, request)?;
+    plan["backend"] = super::backend::plan_descriptor(&manifest.backend_host_services());
+    Ok(plan)
+}
+
 fn server_launch_plan(
     manifest: &DeclarativePluginManifest,
     process: &ServerProcess,
@@ -2790,10 +2900,16 @@ fn server_launch_plan(
     let values = LaunchValues {
         plugin_directory: launch_directory(&request.plugin_directory, "pluginDirectory")?,
         state_directory: launch_directory(&request.state_directory, "stateDirectory")?,
-        workspace_state_directory: launch_directory(
-            &request.workspace_state_directory,
-            "workspaceStateDirectory",
-        )?,
+        workspace_state_directory: match &request.workspace_state_directory {
+            Some(directory) => launch_directory(directory, "workspaceStateDirectory")?,
+            None if process.uses_workspace_state_directory() => {
+                return Err(PluginRejection::new(
+                    "plugin.launch.invalidRequest",
+                    "The launch request has no usable workspaceStateDirectory.",
+                ))
+            }
+            None => "",
+        },
         architecture: &request.architecture,
         settings: &effective_settings,
     };
@@ -3326,6 +3442,9 @@ struct LaunchPlanPayload {
     build_system_id: Option<String>,
     #[serde(default, rename = "vcsProviderID")]
     vcs_provider_id: Option<String>,
+    /// Selects the plugin's backend; `backend` 1.
+    #[serde(default)]
+    backend: bool,
     request: LanguageServerLaunchPlanRequest,
 }
 
@@ -3333,6 +3452,7 @@ enum LaunchSelection<'a> {
     Language(&'a str),
     BuildSystem(&'a str),
     VcsProvider(&'a str),
+    Backend,
 }
 
 pub(crate) fn decode_payload<T: for<'de> Deserialize<'de>>(
@@ -3419,16 +3539,20 @@ pub fn language_server_launch_plan_command(payload: Value) -> Result<Value, Core
         &payload.language_id,
         &payload.build_system_id,
         &payload.vcs_provider_id,
+        payload.backend,
     ) {
-        (Some(language_id), None, None) => LaunchSelection::Language(language_id),
-        (None, Some(build_system_id), None) => LaunchSelection::BuildSystem(build_system_id),
-        (None, None, Some(vcs_id)) => LaunchSelection::VcsProvider(vcs_id),
+        (Some(language_id), None, None, false) => LaunchSelection::Language(language_id),
+        (None, Some(build_system_id), None, false) => LaunchSelection::BuildSystem(build_system_id),
+        (None, None, Some(vcs_id), false) => LaunchSelection::VcsProvider(vcs_id),
+        (None, None, None, true) => LaunchSelection::Backend,
         _ => {
             return Err(CoreError::new(
                 ErrorCode::InvalidRequest,
                 format!("Invalid {COMMAND} payload"),
             )
-            .with_details("Name exactly one of languageID, buildSystemID, and vcsProviderID."))
+            .with_details(
+                "Name exactly one of languageID, buildSystemID, vcsProviderID, and backend.",
+            ))
         }
     };
     Ok(outcome(validate_manifest_value(payload.manifest).and_then(
@@ -3443,6 +3567,7 @@ pub fn language_server_launch_plan_command(payload: Value) -> Result<Value, Core
                 LaunchSelection::VcsProvider(vcs_id) => {
                     vcs_provider_launch_plan(&manifest, vcs_id, &payload.request)
                 }
+                LaunchSelection::Backend => backend_launch_plan(&manifest, &payload.request),
             }
             .map(|plan| ("plan", plan))
         },
