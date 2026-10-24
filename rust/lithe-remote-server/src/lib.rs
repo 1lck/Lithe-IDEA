@@ -25,11 +25,10 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::io::{self, Read, Write};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender};
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Messages buffered for the writer thread. A full queue blocks producers,
 /// which in turn stops reading child output, so a slow client applies
@@ -43,6 +42,60 @@ const MAX_IN_FLIGHT_REQUESTS: usize = 64;
 /// Time spawned process groups get to exit after `SIGTERM` when the client
 /// disconnects, before they are killed.
 const TERMINATION_GRACE: Duration = Duration::from_secs(2);
+
+/// Time filesystem requests still running at shutdown get to finish. A write
+/// that is cut off leaves its temporary sibling next to the user's file; one
+/// request moves at most 8 MiB, so a healthy disk finishes well within this.
+const FILESYSTEM_DRAIN_GRACE: Duration = Duration::from_secs(5);
+
+/// Filesystem requests currently executing on worker threads.
+#[derive(Default)]
+struct InFlight {
+    count: Mutex<usize>,
+    changed: Condvar,
+}
+
+impl InFlight {
+    /// Reserves a slot, or returns `false` when the limit is reached.
+    fn try_acquire(&self) -> bool {
+        let mut count = lock(&self.count);
+        if *count >= MAX_IN_FLIGHT_REQUESTS {
+            return false;
+        }
+        *count += 1;
+        true
+    }
+
+    fn release(&self) {
+        *lock(&self.count) -= 1;
+        self.changed.notify_all();
+    }
+
+    /// Waits until no request is running or `grace` has passed, and returns
+    /// how many are still running.
+    fn drain(&self, grace: Duration) -> usize {
+        let deadline = Instant::now() + grace;
+        let mut count = lock(&self.count);
+        while *count > 0 {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            count = self
+                .changed
+                .wait_timeout(count, remaining)
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .0;
+        }
+        *count
+    }
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 /// Item consumed by the writer thread.
 pub(crate) enum Outgoing {
@@ -77,7 +130,7 @@ pub fn serve(input: impl Read, mut output: impl Write + Send + 'static) -> io::R
         .spawn(move || write_loop(output, receiver))?;
     let outbox = Outbox(sender.clone());
     let processes = process::ProcessTable::new(outbox.clone());
-    let in_flight = Arc::new(AtomicUsize::new(0));
+    let in_flight = Arc::new(InFlight::default());
     let mut input = io::BufReader::new(input);
     let mut handshaken = false;
 
@@ -135,6 +188,12 @@ pub fn serve(input: impl Read, mut output: impl Write + Send + 'static) -> io::R
     }
 
     processes.terminate_all(TERMINATION_GRACE);
+    // Running writes finish, and clean up their temporary files on failure,
+    // before the process exits and stops their threads mid-operation.
+    let unfinished = in_flight.drain(FILESYSTEM_DRAIN_GRACE);
+    if unfinished > 0 {
+        eprintln!("lithe-remote-server: {unfinished} filesystem requests did not finish");
+    }
     let _ = sender.send(Outgoing::Close);
     match writer.join() {
         Ok(result) => result,
@@ -147,10 +206,9 @@ fn dispatch_filesystem(
     method: String,
     params: Value,
     outbox: &Outbox,
-    in_flight: &Arc<AtomicUsize>,
+    in_flight: &Arc<InFlight>,
 ) {
-    if in_flight.fetch_add(1, Ordering::AcqRel) >= MAX_IN_FLIGHT_REQUESTS {
-        in_flight.fetch_sub(1, Ordering::AcqRel);
+    if !in_flight.try_acquire() {
         outbox.send(Message::failure(
             id,
             RemoteError::new(ErrorCode::Busy, "too many requests in flight"),
@@ -164,10 +222,10 @@ fn dispatch_filesystem(
         .spawn(move || {
             let reply = fs::handle(&method, params);
             outbox_for_worker.send(respond(id, reply));
-            counter.fetch_sub(1, Ordering::AcqRel);
+            counter.release();
         });
     if let Err(error) = spawned {
-        in_flight.fetch_sub(1, Ordering::AcqRel);
+        in_flight.release();
         outbox.send(Message::failure(
             id,
             RemoteError::new(ErrorCode::Busy, format!("cannot start worker: {error}")),

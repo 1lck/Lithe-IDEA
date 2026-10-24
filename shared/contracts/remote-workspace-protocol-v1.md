@@ -16,7 +16,8 @@ clients. Design rationale lives in
    bytes of UTF-8 JSON. Frames larger than 16 MiB are rejected.
 3. Closing the client-to-server stream is a disconnect. The server then
    terminates every process group it still owns (`SIGTERM`, then `SIGKILL`
-   after 2 seconds to groups that still have members) and exits.
+   after 2 seconds to groups that still have members), lets running
+   filesystem requests finish for up to 5 seconds, and exits.
 
 The server never listens on a network port; all traffic, including future
 port forwarding, uses this stream.

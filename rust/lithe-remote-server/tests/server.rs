@@ -216,6 +216,54 @@ fn concurrent_creations_of_one_path_keep_exactly_one_file() {
     session.shutdown(STEP_TIMEOUT);
 }
 
+// A client that disconnects right after sending a write must not leave the
+// write's temporary file behind: the server lets running filesystem
+// requests finish before it exits.
+#[test]
+fn a_write_in_flight_at_disconnect_completes_without_leftovers() {
+    let directory = TempDir::new("drain");
+    let file = directory.join("large.bin");
+    let data = vec![7_u8; 8 << 20];
+    let mut child = Command::new(SERVER)
+        .arg("--stdio")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut input = child.stdin.take().unwrap();
+    let mut output = BufReader::new(child.stdout.take().unwrap());
+    skip_preamble(&mut output, 0).unwrap();
+    let mut send = |id, method: &str, params| {
+        let message = Message::Request {
+            id,
+            method: method.into(),
+            params,
+        };
+        write_frame(&mut input, &serde_json::to_vec(&message).unwrap()).unwrap();
+    };
+    send(
+        1,
+        methods::SERVER_HELLO,
+        json!({ "protocolVersion": lithe_remote_protocol::PROTOCOL_VERSION, "clientName": "test" }),
+    );
+    send(
+        2,
+        methods::FS_WRITE_FILE,
+        json!({ "path": file, "data": encode_bytes(&data) }),
+    );
+    drop(input);
+    // Responses are drained so the server never blocks on a full pipe.
+    while read_frame(&mut output).ok().flatten().is_some() {}
+    assert!(child.wait().unwrap().success());
+
+    assert_eq!(std::fs::read(&file).unwrap(), data);
+    let names: Vec<_> = std::fs::read_dir(directory.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(names, ["large.bin"]);
+}
+
 #[test]
 fn writing_through_a_symbolic_link_keeps_the_link() {
     let directory = TempDir::new("links");
