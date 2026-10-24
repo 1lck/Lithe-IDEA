@@ -308,7 +308,9 @@ final class RemoteConnectionsFeatureModel: ObservableObject {
                     return
                 }
                 self.testState = .finished(probe)
-                connected(self.connections.first { $0.id == connection.id } ?? connection, session)
+                // The snapshot that was connected: the form may have been edited
+                // since, and the session belongs to this host.
+                connected(connection, session)
             }
         }
     }

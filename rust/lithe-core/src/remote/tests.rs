@@ -370,3 +370,18 @@ fn closed_connections_cannot_be_used() {
 fn closing_all_connections_with_none_open_succeeds() {
     assert_eq!(sessions::close_all(), 0);
 }
+
+// ssh splits an option value on whitespace, so a key path with spaces must
+// reach it quoted.
+#[test]
+fn private_key_paths_with_spaces_are_quoted() {
+    let command = command_line(json!({
+        "host": "devbox.example",
+        "authentication": "privateKey",
+        "identityFile": "/Users/me/My Keys/id_rsa",
+    }));
+    assert_eq!(
+        option_value(&command, "IdentityFile").as_deref(),
+        Some("\"/Users/me/My Keys/id_rsa\"")
+    );
+}

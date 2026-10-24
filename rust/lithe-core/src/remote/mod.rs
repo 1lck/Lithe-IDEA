@@ -274,7 +274,20 @@ fn ssh_hop(connection: &SshConnection) -> Result<SshHop, CoreError> {
             if identity.chars().any(char::is_control) {
                 return Err(invalid("The private key path is invalid"));
             }
-            option("IdentityFile", identity.to_string());
+            // ssh splits an option value on whitespace, so a path such as
+            // "~/My Keys/id_rsa" must be quoted (ssh_config quoting rules).
+            let identity = if identity
+                .chars()
+                .any(|c| c.is_whitespace() || c == '"' || c == '\\')
+            {
+                format!(
+                    "\"{}\"",
+                    identity.replace('\\', "\\\\").replace('"', "\\\"")
+                )
+            } else {
+                identity.to_string()
+            };
+            option("IdentityFile", identity);
             // Without this, keys from the agent are tried first and can use
             // up the server's attempt limit before the chosen key is offered.
             option("IdentitiesOnly", "yes".into());

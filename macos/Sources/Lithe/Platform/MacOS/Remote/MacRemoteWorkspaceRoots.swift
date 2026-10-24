@@ -15,7 +15,9 @@ enum MacRemoteWorkspaceRoots {
     static func prepare(in applicationSupport: URL, connection: UUID, remotePath: String) throws -> URL {
         let hash = SHA256.hash(data: Data(remotePath.utf8)).prefix(6).map { String(format: "%02x", $0) }.joined()
         let name = (remotePath as NSString).lastPathComponent
-        let folder = name.isEmpty || name == "/" ? "root" : name
+        // "." and ".." would collapse the placeholder onto its parent when
+        // the URL is standardized.
+        let folder = name.isEmpty || name == "/" || name == "." || name == ".." ? "root" : name
         let root = applicationSupport
             .appendingPathComponent("Lithe/RemoteWorkspaces", isDirectory: true)
             .appendingPathComponent(connection.uuidString, isDirectory: true)

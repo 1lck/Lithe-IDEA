@@ -376,4 +376,21 @@ struct RemoteWorkspaceRoutingTests {
         #expect(throws: CocoaError.self) { try files.removeItem(at: root.appendingPathComponent("a.txt")) }
         #expect(throws: CocoaError.self) { try files.moveItem(at: root.appendingPathComponent("a"), to: root.appendingPathComponent("b")) }
     }
+
+    @Test
+    func placeholderFoldersNeverCollapseOntoTheirParent() throws {
+        let support = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-roots-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: support) }
+        let id = UUID()
+        let root = try MacRemoteWorkspaceRoots.prepare(in: support, connection: id, remotePath: "/srv/app/..")
+        #expect(root.lastPathComponent == "root")
+    }
+
+    @Test
+    func nonPublicAddressesAreNeverLookedUp() {
+        for address in ["10.0.0.1", "::ffff:192.168.1.5", "::", "0.0.0.0", "198.18.0.1", "224.0.0.1", "fd00::1", "ff02::1"] {
+            #expect(MacRemoteHostLocator.isPrivate(address), "\(address)")
+        }
+        #expect(!MacRemoteHostLocator.isPrivate("8.8.8.8"))
+    }
 }

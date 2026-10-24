@@ -15,7 +15,8 @@ final class MacLiveProcessGroups: @unchecked Sendable {
 
     /// Registers cleanup for resources that live in Rust Core rather than in a
     /// Swift-owned process group, such as remote SSH connections. The action
-    /// runs once per exit under `key`; registering again replaces it.
+    /// runs on every `terminateAllAndWait` under `key`, so it must be idempotent;
+    /// registering again replaces it.
     func setExitAction(_ key: String, _ action: @escaping @Sendable () -> Void) {
         lock.withLock { exitActions[key] = action }
     }

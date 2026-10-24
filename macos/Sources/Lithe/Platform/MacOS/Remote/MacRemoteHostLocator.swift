@@ -62,17 +62,22 @@ struct MacRemoteHostLocator: RemoteHostLocating {
         return String(cString: buffer)
     }
 
-    /// RFC 1918, loopback, link-local, CGNAT and IPv6 unique-local ranges.
+    /// RFC 1918, loopback, unspecified, link-local, CGNAT, benchmarking, documentation,
+    /// multicast/reserved and IPv6 unique-local ranges, including IPv4-mapped forms.
     static func isPrivate(_ address: String) -> Bool {
-        let octets = address.split(separator: ".").compactMap { Int($0) }
+        var lower = address.lowercased()
+        // An IPv4-mapped IPv6 address is judged by the IPv4 address inside.
+        if lower.hasPrefix("::ffff:"), lower.contains(".") { lower = String(lower.dropFirst("::ffff:".count)) }
+        let octets = lower.split(separator: ".").compactMap { Int($0) }
         if octets.count == 4 {
-            switch (octets[0], octets[1]) {
-            case (10, _), (127, _), (169, 254), (192, 168): return true
-            case (172, 16...31), (100, 64...127): return true
+            switch (octets[0], octets[1], octets[2]) {
+            case (0, _, _), (10, _, _), (127, _, _), (169, 254, _), (192, 168, _): return true
+            case (172, 16...31, _), (100, 64...127, _), (198, 18...19, _), (192, 0, 0), (192, 0, 2): return true
+            case (224..., _, _): return true  // multicast, reserved and broadcast
             default: return false
             }
         }
-        let lower = address.lowercased()
-        return lower == "::1" || lower.hasPrefix("fe80:") || lower.hasPrefix("fc") || lower.hasPrefix("fd")
+        return lower == "::" || lower == "::1" || lower.hasPrefix("fe80:") || lower.hasPrefix("fc")
+            || lower.hasPrefix("fd") || lower.hasPrefix("ff")
     }
 }

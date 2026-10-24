@@ -205,9 +205,12 @@ pub(super) fn connect_with(
         .with_details(error.to_string())
     })?;
     let stderr_tail = Arc::new(Mutex::new(VecDeque::new()));
-    if let Some(stderr) = child.stderr.take() {
-        keep_tail(stderr, Arc::clone(&stderr_tail));
-    }
+    let stderr_reader = Mutex::new(
+        child
+            .stderr
+            .take()
+            .map(|stderr| keep_tail(stderr, Arc::clone(&stderr_tail))),
+    );
     let mut input = child.stdin.take().expect("stdin is piped");
     let mut output = child.stdout.take().expect("stdout is piped");
 
@@ -282,7 +285,17 @@ pub(super) fn connect_with(
         }
     };
 
+    // Only called once the OpenSSH tree has ended, so joining the reader
+    // cannot block; it guarantees the last bytes OpenSSH printed (the reason
+    // it gave up) are in the buffer before the failure is classified.
     let tail = |tail: &Mutex<VecDeque<u8>>| {
+        let reader = stderr_reader
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take();
+        if let Some(reader) = reader {
+            let _ = reader.join();
+        }
         let bytes: Vec<u8> = tail
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -601,7 +614,10 @@ fn join_diagnostics(summary: &str, stderr: &str) -> String {
     }
 }
 
-fn keep_tail(mut stderr: impl Read + Send + 'static, tail: Arc<Mutex<VecDeque<u8>>>) {
+fn keep_tail(
+    mut stderr: impl Read + Send + 'static,
+    tail: Arc<Mutex<VecDeque<u8>>>,
+) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         let mut buffer = [0_u8; 4096];
         loop {
@@ -615,7 +631,7 @@ fn keep_tail(mut stderr: impl Read + Send + 'static, tail: Arc<Mutex<VecDeque<u8
                 }
             }
         }
-    });
+    })
 }
 
 /// Unguessable connection id, so one host request cannot address a
