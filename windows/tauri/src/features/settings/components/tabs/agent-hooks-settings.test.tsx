@@ -9,6 +9,60 @@ import * as switchControl from "@/ui/switch";
 import fixture from "../../../../../../../shared/fixtures/agent/hooks-management-v1.json";
 import { AgentHooksSettings } from "./agent-hooks-settings";
 
+test.each([
+  { language: "en-US" as const, searchLabel: "Search Hooks", reloadLabel: "Reload from disk", noMatches: "No matching Hooks.", empty: "No Hooks yet." },
+  { language: "zh-CN" as const, searchLabel: "搜索 Hook", reloadLabel: "从磁盘重新加载", noMatches: "没有匹配的 Hook。", empty: "还没有 Hook。" },
+])("Hook search reports no matches and restores results ($language)", async ({ language, searchLabel, reloadLabel, noMatches, empty }) => {
+  const restoreDom = installHappyDom();
+  const environment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
+  const previousAct = environment.IS_REACT_ACT_ENVIRONMENT;
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  let library = service.parseHookLibrary(fixture.library)!;
+  const managed = spyOn(service, "manageHooks").mockImplementation(async () => library);
+  try {
+    environment.IS_REACT_ACT_ENVIRONMENT = true;
+    await act(async () => root.render(<LocaleProvider language={language}><AgentHooksSettings /></LocaleProvider>));
+    const search = container.querySelector<HTMLInputElement>(`input[aria-label="${searchLabel}"]`)!;
+    expect(search).not.toBeNull();
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    const searchFor = async (query: string) => act(async () => {
+      setValue.call(search, query);
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    for (const query of ["NOTIFY", "结束时", "PRINTF DONE"]) {
+      await searchFor(query);
+      expect(container.querySelector("strong")?.textContent).toBe("notify");
+      expect(container.querySelector('[role="status"]')).toBeNull();
+    }
+    await searchFor("unmatched-hook");
+    expect(container.querySelector("strong")).toBeNull();
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(noMatches);
+    expect(container.textContent).not.toContain(empty);
+    await searchFor("");
+    expect(container.querySelector("strong")?.textContent).toBe("notify");
+    expect(container.querySelector('[role="status"]')).toBeNull();
+    expect(managed).toHaveBeenCalledTimes(1);
+    library = { ...library, hooks: [] };
+    const reload = Array.from(container.querySelectorAll("button")).find(button => button.textContent === reloadLabel)!;
+    expect(reload).toBeDefined();
+    await act(async () => reload.click());
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(empty);
+    await searchFor("unmatched-hook");
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(noMatches);
+    expect(managed.mock.calls.every(([action]) => action === "read")).toBe(true);
+  } finally {
+    try { await act(async () => root.unmount()); }
+    finally {
+      managed.mockRestore();
+      container.remove();
+      if (previousAct === undefined) delete environment.IS_REACT_ACT_ENVIRONMENT;
+      else environment.IS_REACT_ACT_ENVIRONMENT = previousAct;
+      restoreDom();
+    }
+  }
+});
+
 test("Hook editor retains a failed draft, retries with its guard and updates native switches", async () => {
   const restoreDom = installHappyDom();
   const environment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };

@@ -68,6 +68,7 @@ export function AgentHooksSettings() {
   const timeoutValid = timeout === "" || (/^[0-9]+$/.test(timeout) && Number(timeout) >= 1 && Number(timeout) <= 86400);
   const duplicate = draft && library?.hooks.some(h => h.id !== draft.id && h.name.toLowerCase() === draft.name.toLowerCase());
   const isNew = draft && !library?.hooks.some(h => h.id === draft.id);
+  const filteredHooks = library?.hooks.filter(h => [h.name, h.description, h.command].some(value => value.toLowerCase().includes(query.toLowerCase())));
   return <div className="space-y-3">
     <h2 className="font-medium">{t("settings.tabs.hooks")}</h2>
     <p className="ui-text-sm text-subtle-foreground">{t("hooks.intro")}</p>
@@ -82,8 +83,8 @@ export function AgentHooksSettings() {
       {target.disabled ? <p role="alert" className="text-warning">{t("hooks.disabledAll")}</p> : null}
     </div>)}
     {library?.hooks.some(h => h.needsSync || h.pendingRemoval) ? <Button disabled={busy} onClick={() => void run("sync")}>{t("hooks.retry")}</Button> : null}
-    {library?.hooks.length === 0 ? <p className="py-8 text-subtle-foreground">{t("hooks.empty")}</p> : null}
-    {library?.hooks.filter(h => [h.name, h.description, h.command].some(value => value.toLowerCase().includes(query.toLowerCase()))).map(hook => <div key={hook.id} className="space-y-2 rounded-md border border-border p-3">
+    {filteredHooks?.length === 0 ? <p role="status" className="py-8 text-subtle-foreground">{t(query ? "No matching Hooks." : "hooks.empty")}</p> : null}
+    {filteredHooks?.map(hook => <div key={hook.id} className="space-y-2 rounded-md border border-border p-3">
       <div className="flex flex-wrap items-center gap-2">
         <strong title={hook.description}>{hook.name}</strong>
         <span className="ml-auto ui-text-sm text-warning">{hook.pendingRemoval ? t("hooks.pendingRemoval") : hook.needsSync ? t("hooks.needsSync") : ""}</span>
