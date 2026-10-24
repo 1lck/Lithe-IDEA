@@ -84649,6 +84649,224 @@
       "windows": {
         "key": "When to run"
       }
+    },
+    {
+      "id": "native.agentAccounts",
+      "description": "Native UI: Subscription accounts",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Subscription accounts",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.agentAccountsInfo",
+      "description": "Native UI: Each account is a separate configuration folder of the official CLI. Sign-in runs the CLI's own login command in the background and opens your browser, so Lithe never reads or copies credentials. Switching restarts this project's connection for this Agent and is refused while a reply or permission request is pending. Lithe never switches accounts by itself when a limit is reached.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Each account is a separate configuration folder of the official CLI. Sign-in runs the CLI's own login command in the background and opens your browser, so Lithe never reads or copies credentials. Switching restarts this project's connection for this Agent and is refused while a reply or permission request is pending. Lithe never switches accounts by itself when a limit is reached.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.defaultAgentAccount",
+      "description": "Native UI: Default account",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Default account",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.agentAccountPreferred",
+      "description": "Native UI: Preferred",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Preferred",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.agentAccountSetPreferred",
+      "description": "Native UI: Set as preferred",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Set as preferred",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.agentAccountSignInAgain",
+      "description": "Native UI: Sign in again",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Sign in again",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.agentAccountRemove",
+      "description": "Native UI: Remove account",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Remove account",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.agentAccountRemoveMessage",
+      "description": "Native UI: Remove this account from Lithe? Its sign-in folder is left on disk untouched.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Remove this account from Lithe? Its sign-in folder is left on disk untouched.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.agentAccountAdd",
+      "description": "Native UI: Add another account",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Add another account",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.agentAccountWaiting",
+      "description": "Native UI: Waiting for browser sign-in…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Waiting for browser sign-in…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.agentAccountSnapshotNote",
+      "description": "Native UI: As of %@; not refreshed by Lithe.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "As of %@; not refreshed by Lithe.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.agentAccountResets",
+      "description": "Native UI: Resets %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Resets %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.agentAccountPace",
+      "description": "Native UI: Pace %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Pace %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.agentAccountDefaultName",
+      "description": "Native UI: Account %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Account %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.agentAccountSignInUnsupported",
+      "description": "Native UI: This Agent has no account sign-in.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This Agent has no account sign-in.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.agentAccountSignInFailed",
+      "description": "Native UI: Sign-in did not finish. Check that the Agent's CLI is installed, then try again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Sign-in did not finish. Check that the Agent's CLI is installed, then try again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.agentAccountSignInTimedOut",
+      "description": "Native UI: Sign-in timed out. Try again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Sign-in timed out. Try again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.agentAccountUsageInfo",
+      "description": "Native UI: Usage is whatever the Agent last reported. Claude Code reports it while a reply runs; Codex is also refreshed about once a minute while the Agent panel is open. Lithe never queries the account itself, so a value can be out of date, and an account you are not using keeps its last values until you switch back. A window that has already reset is shown without a reset time or pace.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Usage is whatever the Agent last reported. Claude Code reports it while a reply runs; Codex is also refreshed about once a minute while the Agent panel is open. Lithe never queries the account itself, so a value can be out of date, and an account you are not using keeps its last values until you switch back. A window that has already reset is shown without a reset time or pace.",
+        "arguments": []
+      }
     }
   ]
 }

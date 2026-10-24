@@ -44,6 +44,10 @@ public struct AgentLaunchConfiguration: Equatable, Sendable {
     /// Route API-key provider traffic through the Host's loopback proxy to
     /// observe individual model calls. Subscription connections ignore it.
     public let observesModelCalls: Bool
+    /// Configuration directory of the chosen subscription account, exported as
+    /// `CLAUDE_CONFIG_DIR` or `CODEX_HOME`. `nil` keeps the CLI's default
+    /// account. It only holds the official CLI's own login; Lithe never reads it.
+    public let accountDirectory: URL?
 
     public init(
         agentID: String?,
@@ -58,7 +62,8 @@ public struct AgentLaunchConfiguration: Equatable, Sendable {
         model: String,
         allowsInsecureHTTP: Bool,
         authentication: AgentAuthentication = .apiKey,
-        observesModelCalls: Bool = false
+        observesModelCalls: Bool = false,
+        accountDirectory: URL? = nil
     ) {
         self.authentication = authentication
         self.agentID = agentID
@@ -73,6 +78,7 @@ public struct AgentLaunchConfiguration: Equatable, Sendable {
         self.model = model
         self.allowsInsecureHTTP = allowsInsecureHTTP
         self.observesModelCalls = observesModelCalls
+        self.accountDirectory = accountDirectory
     }
 }
 

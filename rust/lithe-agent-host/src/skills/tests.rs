@@ -476,6 +476,27 @@ fn native_response_keeps_disabled_scope_and_rejects_foreign_workspace() {
 
 #[cfg(unix)]
 #[tokio::test]
+async fn native_discovery_uses_the_selected_account_directory() {
+    use std::os::unix::fs::PermissionsExt;
+    let fixture = Sandbox::new();
+    let executable = fixture.0.join("fake-codex");
+    let home = fixture.0.join("account");
+    let response = json!({"data":[{"cwd":fixture.0.join("project"), "skills":[], "errors":[]}]});
+    let script = format!("#!/bin/sh\nprintf '%s' \"$CODEX_HOME\" > '{}'/home.log\nwhile IFS= read -r line; do\n  case \"$line\" in\n    *'\"method\":\"initialize\"'*) printf '%s\\n' '{{\"id\":1,\"result\":{{}}}}' ;;\n    *'\"method\":\"skills/list\"'*) printf '%s\\n' '{{\"id\":2,\"result\":{response}}}' ;;\n  esac\ndone\n", fixture.0.display());
+    fs::write(&executable, script).unwrap();
+    fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        CodexHistory::skills(executable, fixture.0.join("project"), Some(home.clone()), &|| false),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(fs::read_to_string(fixture.0.join("home.log")).unwrap(), home.to_str().unwrap());
+}
+
+#[cfg(unix)]
+#[tokio::test]
 async fn native_discovery_only_initializes_and_lists_without_creating_or_prompting() {
     use std::os::unix::fs::PermissionsExt;
     let fixture = Sandbox::new();
@@ -486,7 +507,7 @@ async fn native_discovery_only_initializes_and_lists_without_creating_or_prompti
     fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
     let result = tokio::time::timeout(
         Duration::from_secs(5),
-        CodexHistory::skills(executable, fixture.0.join("project"), &|| false),
+        CodexHistory::skills(executable, fixture.0.join("project"), None, &|| false),
     )
     .await
     .unwrap()
@@ -525,6 +546,7 @@ async fn native_toggle_validates_path_writes_native_config_and_reads_back() {
             fixture.0.join("project"),
             path.clone(),
             false,
+            None,
             &|| false,
         ),
     )
@@ -559,6 +581,7 @@ async fn native_toggle_validates_path_writes_native_config_and_reads_back() {
             fixture.0.join("project"),
             fixture.0.join("foreign/SKILL.md"),
             false,
+            None,
             &|| false,
         ),
     )
@@ -617,7 +640,7 @@ async fn cancelled_discovery_reaps_the_probe_even_while_initialization_is_stalle
     let cancelled = || pid_file.exists();
     let result = tokio::time::timeout(
         Duration::from_secs(5),
-        CodexHistory::skills(executable, fixture.0.join("project"), &cancelled),
+        CodexHistory::skills(executable, fixture.0.join("project"), None, &cancelled),
     )
     .await
     .unwrap();

@@ -10,20 +10,29 @@ public final class AgentHistoryFeatureModel: ObservableObject {
     @Published public private(set) var isExporting = false
     private let connection: AgentConnectionModel
     private let workspaceURL: URL?
-    private let agentID: String
+    /// Preference identity, evaluated on every access so an account switch moves
+    /// annotations without recreating the model.
+    private let identity: () -> String
     private let persistence: (any AgentHistoryPersisting)?
     private let exporter: (any AgentHistoryExporting)?
     private var exportTask: Task<Void, Never>?
 
     public init(connection: AgentConnectionModel, workspaceURL: URL?, agentID: String,
+                identity: (() -> String)? = nil,
                 persistence: (any AgentHistoryPersisting)? = nil, exporter: (any AgentHistoryExporting)? = nil) {
         self.connection = connection
         self.workspaceURL = workspaceURL
-        self.agentID = agentID
+        self.identity = identity ?? { agentID }
         self.persistence = persistence
         self.exporter = exporter
         do { metadata = try readMetadata() }
         catch { errorMessage = error.localizedDescription }
+    }
+
+    /// Re-read annotations after the identity changed, e.g. another account was chosen.
+    public func reloadMetadata() {
+        do { metadata = try readMetadata(); errorMessage = nil }
+        catch { metadata = [:]; errorMessage = error.localizedDescription }
     }
 
     public func title(for session: AgentSessionSummary) -> String? {
@@ -100,7 +109,7 @@ public final class AgentHistoryFeatureModel: ObservableObject {
 
     private func readMetadata() throws -> [String: AgentHistoryMetadata] {
         guard let workspaceURL, let persistence else { return metadata }
-        return try persistence.load(workspaceURL: workspaceURL, agentID: agentID)
+        return try persistence.load(workspaceURL: workspaceURL, agentID: identity())
     }
 
     private func change(_ ids: [String], mutation: (inout AgentHistoryMetadata) -> Void) -> Bool {
@@ -111,7 +120,7 @@ public final class AgentHistoryFeatureModel: ObservableObject {
             var updated = try readMetadata()
             for id in validIDs { mutation(&updated[id, default: AgentHistoryMetadata()]) }
             if let workspaceURL, let persistence {
-                try persistence.save(updated, workspaceURL: workspaceURL, agentID: agentID)
+                try persistence.save(updated, workspaceURL: workspaceURL, agentID: identity())
             }
             metadata = updated
             errorMessage = nil

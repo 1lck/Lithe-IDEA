@@ -55,6 +55,9 @@ final class AppSettings: ObservableObject {
         static let agentCommand = "settings.agentCommand"
         static let agentArguments = "settings.agentArguments"
         static let agentConfigurations = "settings.agentConfigurations"
+        static let agentAccounts = "settings.agentAccounts"
+        static let preferredAgentAccountIDs = "settings.preferredAgentAccountIDs"
+        static let agentAccountSnapshots = "settings.agentAccountSnapshots"
         static let agentModelCallStatistics = "settings.agentModelCallStatistics"
         static let keyboardShortcutOverrides = "settings.keyboardShortcutOverrides"
         static let keyboardShortcutPreset = "settings.keyboardShortcutPreset"
@@ -208,6 +211,31 @@ final class AppSettings: ObservableObject {
             }
         }
     }
+    /// Extra subscription accounts per Agent, each an isolated CLI configuration
+    /// directory. Holds names and paths only; the official CLI owns every credential.
+    @Published var agentAccounts: [AgentAccountProfile] {
+        didSet {
+            if let data = try? JSONEncoder().encode(agentAccounts) {
+                defaults.set(data, forKey: Key.agentAccounts)
+            }
+        }
+    }
+    /// Account new connections use, by Agent id; a missing entry is the CLI's default account.
+    @Published var preferredAgentAccountIDs: [String: UUID] {
+        didSet {
+            if let data = try? JSONEncoder().encode(preferredAgentAccountIDs) {
+                defaults.set(data, forKey: Key.preferredAgentAccountIDs)
+            }
+        }
+    }
+    /// Last email, plan and usage windows the adapter reported per account key.
+    @Published var agentAccountSnapshots: [String: AgentAccountSnapshot] {
+        didSet {
+            if let data = try? JSONEncoder().encode(agentAccountSnapshots) {
+                defaults.set(data, forKey: Key.agentAccountSnapshots)
+            }
+        }
+    }
     @Published private(set) var keyboardShortcutOverrides: [String: [KeyboardShortcutBinding]]
     @Published private(set) var keyboardShortcutPreset: KeyboardShortcutPreset
     private var keyboardShortcutOverridesByPreset: [String: [String: [KeyboardShortcutBinding]]]
@@ -307,6 +335,12 @@ final class AppSettings: ObservableObject {
         agentModelCallStatistics = defaults.object(forKey: Key.agentModelCallStatistics) as? Bool ?? true
         agentConfigurations = defaults.data(forKey: Key.agentConfigurations)
             .flatMap { try? JSONDecoder().decode([String: AgentConfiguration].self, from: $0) } ?? [:]
+        agentAccounts = defaults.data(forKey: Key.agentAccounts)
+            .flatMap { try? JSONDecoder().decode([AgentAccountProfile].self, from: $0) } ?? []
+        preferredAgentAccountIDs = defaults.data(forKey: Key.preferredAgentAccountIDs)
+            .flatMap { try? JSONDecoder().decode([String: UUID].self, from: $0) } ?? [:]
+        agentAccountSnapshots = defaults.data(forKey: Key.agentAccountSnapshots)
+            .flatMap { try? JSONDecoder().decode([String: AgentAccountSnapshot].self, from: $0) } ?? [:]
         if let data = defaults.data(forKey: Key.javaBuildFailurePolicies),
            let saved = try? JSONDecoder().decode([String: JavaBuildFailurePolicy].self, from: data) {
             javaBuildFailurePolicies = saved
@@ -458,6 +492,9 @@ final class AppSettings: ObservableObject {
         agentArguments = ""
         agentModelCallStatistics = true
         agentConfigurations = [:]
+        agentAccounts = []
+        preferredAgentAccountIDs = [:]
+        agentAccountSnapshots = [:]
         setCustomLogDirectory(nil)
         clearWorkbenchBackground()
         workbenchBackgroundOpacity = 0.22

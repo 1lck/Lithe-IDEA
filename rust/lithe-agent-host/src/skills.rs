@@ -30,6 +30,10 @@ pub struct Request {
     pub source: Option<PathBuf>,
     /// Desired native visibility; required only for setEnabled.
     pub enabled: Option<bool>,
+    /// Selected Codex account directory (`CODEX_HOME`); None uses the default account.
+    pub codex_home: Option<PathBuf>,
+    /// Selected Claude account directory (`CLAUDE_CONFIG_DIR`); None uses the environment or default.
+    pub claude_config_dir: Option<PathBuf>,
 }
 
 /// Mutations require an explicit settings action, never a discovery request.
@@ -93,8 +97,10 @@ pub fn execute(request: Request, cancelled: &dyn Fn() -> bool) -> Result<Value, 
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())
         .ok_or_else(|| Error::Failed("The user home directory is unavailable.".into()))?;
-    let claude = std::env::var_os("CLAUDE_CONFIG_DIR")
-        .map(PathBuf::from)
+    let claude = request
+        .claude_config_dir
+        .clone()
+        .or_else(|| std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from))
         .unwrap_or_else(|| home.join(".claude"));
     execute_at(request, &home, &claude, cancelled)
 }
@@ -116,6 +122,7 @@ fn execute_at(
         .as_ref()
         .is_some_and(|p| !p.is_absolute() || !p.is_dir())
         || !claude.is_absolute()
+        || request.codex_home.as_ref().is_some_and(|p| !p.is_absolute())
     {
         return Err(Error::Invalid(
             "The skill workspace and configuration directory must be absolute directories.".into(),
@@ -146,7 +153,7 @@ fn execute_at(
             .enable_all()
             .build()
             .map_err(|_| Error::Failed("Skill discovery could not start.".into()))?;
-        let result = runtime.block_on(CodexHistory::skills(cli.path, cwd.to_path_buf(), cancelled));
+        let result = runtime.block_on(CodexHistory::skills(cli.path, cwd.to_path_buf(), request.codex_home.clone(), cancelled));
         check(cancelled)?;
         let value = result.map_err(|_| {
             Error::Failed("Codex skill discovery failed. Check the CLI and retry.".into())
