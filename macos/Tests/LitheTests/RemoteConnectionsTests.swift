@@ -330,6 +330,46 @@ struct RemoteWorkspaceRoutingTests {
         #expect(snapshot.root.children?.first?.children == nil)
     }
 
+    // Two files with equal bytes have different versions; saving the first
+    // must not send the second one's version to the host.
+    @Test
+    func equalContentInTwoFilesKeepsSeparateVersions() throws {
+        let (files, _, transport, _) = routing()
+        transport.put("same", at: "/srv/app/a.txt")
+        transport.put("same", at: "/srv/app/b.txt")
+        let a = root.appendingPathComponent("a.txt")
+        let b = root.appendingPathComponent("b.txt")
+        let readA = try #require(try files.readDocumentDetails(from: a, encoding: nil))
+        _ = try files.readDocumentDetails(from: b, encoding: nil)
+        let saved = try files.writeDocumentText("edited", to: a, expectedContent: nil, encoding: .utf8, expectedIdentity: readA.identity)
+        guard case .saved = saved else { Issue.record("expected a save, got \(saved)"); return }
+        #expect(transport.text(at: "/srv/app/a.txt") == "edited")
+    }
+
+    @Test
+    func existenceAndKindComeFromTheHostListing() {
+        let (files, _, transport, _) = routing()
+        transport.directories["/srv/app"] = [entry("src", "directory"), entry("a.txt", "file")]
+        #expect(files.fileExists(at: root))
+        #expect(files.isDirectory(at: root))
+        #expect(files.fileExists(at: root.appendingPathComponent("src")))
+        #expect(files.isDirectory(at: root.appendingPathComponent("src")))
+        #expect(files.fileExists(at: root.appendingPathComponent("a.txt")))
+        #expect(!files.isDirectory(at: root.appendingPathComponent("a.txt")))
+        #expect(!files.fileExists(at: root.appendingPathComponent("missing.txt")))
+    }
+
+    @Test
+    func creatingRemoteFilesIsUnsupported() {
+        let (files, tree, transport, _) = routing()
+        let url = root.appendingPathComponent("new.txt")
+        #expect(throws: CocoaError.self) { try files.createFile(at: url) }
+        #expect(throws: CocoaError.self) { try files.writeText("x", to: url) }
+        #expect(!tree.writeFile("x", at: root, relativePath: "new.txt"))
+        #expect(transport.expectedVersions.isEmpty)
+        #expect(transport.text(at: "/srv/app/new.txt") == nil)
+    }
+
     @Test
     func unsupportedChangesToRemoteFilesFailInsteadOfTouchingTheDisk() {
         let (files, _, _, _) = routing()

@@ -2490,6 +2490,10 @@ fn execute(request: &str) -> CoreResponse {
                 ),
             }
         }
+        CoreCommand::RemoteCloseAll => CoreResponse::success(
+            id,
+            json!({ "closed": crate::remote::sessions::close_all() }),
+        ),
         CoreCommand::RemoteAuthRespond => {
             #[derive(serde::Deserialize)]
             #[serde(rename_all = "camelCase", deny_unknown_fields)]

@@ -39,6 +39,15 @@ struct RustRemoteConnectionOperations: RemoteConnectionProbing, RemoteSessionCon
         )
     }
 
+    /// Closes every open connection and waits for their OpenSSH trees to end.
+    /// Application exit calls this; it blocks, so it never runs on a UI path.
+    func closeAllBlocking() {
+        struct Closed: Decodable { let closed: Int }
+        let _: Result<Closed, RustCoreBridge.CoreCallError> = core.executeResult(
+            command: "remote.closeAll", payload: [String: String]()
+        )
+    }
+
     /// Runs one blocking Core command off the caller's thread. Cancelling
     /// the calling task cancels the command.
     private func run<Payload: Encodable & Sendable, Value: Decodable & Sendable>(

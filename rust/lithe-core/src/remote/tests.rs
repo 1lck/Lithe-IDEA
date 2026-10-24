@@ -364,3 +364,9 @@ fn closed_connections_cannot_be_used() {
         serde_json::from_value(json!({ "sessionId": "missing" })).unwrap();
     assert!(!sessions::disconnect(request));
 }
+
+// Application exit closes whatever is open and must be safe with nothing open.
+#[test]
+fn closing_all_connections_with_none_open_succeeds() {
+    assert_eq!(sessions::close_all(), 0);
+}

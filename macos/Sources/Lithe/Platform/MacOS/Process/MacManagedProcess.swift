@@ -11,6 +11,14 @@ final class MacLiveProcessGroups: @unchecked Sendable {
 
     private let lock = NSLock()
     private var groups: [pid_t: MacProcessGroup] = [:]
+    private var exitActions: [String: @Sendable () -> Void] = [:]
+
+    /// Registers cleanup for resources that live in Rust Core rather than in a
+    /// Swift-owned process group, such as remote SSH connections. The action
+    /// runs once per exit under `key`; registering again replaces it.
+    func setExitAction(_ key: String, _ action: @escaping @Sendable () -> Void) {
+        lock.withLock { exitActions[key] = action }
+    }
 
     func insert(_ group: MacProcessGroup) {
         lock.withLock { groups[group.processGroupID] = group }
@@ -36,6 +44,8 @@ final class MacLiveProcessGroups: @unchecked Sendable {
         gracePeriod: TimeInterval = 0.2,
         forcedTerminationTimeout: TimeInterval = 1
     ) -> Bool {
+        let actions = lock.withLock { Array(exitActions.values) }
+        actions.forEach { $0() }
         let live = lock.withLock { Array(groups.values) }
         guard !live.isEmpty else { return true }
         live.forEach { $0.send(SIGTERM) }

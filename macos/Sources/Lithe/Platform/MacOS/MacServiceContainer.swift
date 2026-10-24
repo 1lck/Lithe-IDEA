@@ -115,6 +115,11 @@ final class MacServiceContainer {
         // ports route every URL below such a root to the connected host.
         let remoteWorkspaces = RemoteWorkspaceRegistry()
         let remoteOperations = RustRemoteConnectionOperations(core: rustCore)
+        // Core owns the OpenSSH trees; closing them at exit also stops the
+        // remote servers they carry.
+        MacLiveProcessGroups.application.setExitAction("remote-connections") {
+            remoteOperations.closeAllBlocking()
+        }
         let fileOperations = RemoteRoutingFileOperations(
             local: MacWorkspaceFileOperations(), registry: remoteWorkspaces, transport: remoteOperations
         )

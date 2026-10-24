@@ -388,6 +388,8 @@ pub enum CoreCommand {
     RemoteReadDir,
     /// Closes a remote connection (`remote.disconnect`).
     RemoteDisconnect,
+    /// Closes every open remote connection at application exit (`remote.closeAll`).
+    RemoteCloseAll,
     /// Reads a file over an open remote connection (`remote.readFile`).
     RemoteReadFile,
     /// Saves a file over an open remote connection (`remote.writeFile`).
@@ -653,6 +655,7 @@ impl CoreCommand {
             "remote.connect" => Some(Self::RemoteConnect),
             "remote.readDir" => Some(Self::RemoteReadDir),
             "remote.disconnect" => Some(Self::RemoteDisconnect),
+            "remote.closeAll" => Some(Self::RemoteCloseAll),
             "remote.readFile" => Some(Self::RemoteReadFile),
             "remote.writeFile" => Some(Self::RemoteWriteFile),
             "git.historyRewritePreview" => Some(Self::GitHistoryRewritePreview),

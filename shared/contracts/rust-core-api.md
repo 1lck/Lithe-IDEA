@@ -1050,6 +1050,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `remote.connect` | Open a connection, installing the shipped server when needed |
 | `remote.readDir` / `remote.readFile` / `remote.writeFile` | List, read or save over an open connection |
 | `remote.disconnect` | Close an open connection and its OpenSSH process tree |
+| `remote.closeAll` | Close every open connection; the host calls it at application exit |
 | `git.historyRewritePreview` | Review undo, message edit, squash, or drop with complete messages, eligibility, and an immutable checkout expectation |
 | `git.rebasePreview` | Resolve the complete local linear range strictly after a selected unchanged base |
 | `git.rebaseStart` | Start a reviewed native interactive rebase with persisted messages and recovery identity |
@@ -3426,7 +3427,10 @@ build is `unsupportedPlatform` and nothing is uploaded.
 
 Core keeps an open connection until `remote.disconnect` (`{ sessionId }`,
 returning `{ closed }`) or until the host process exits; ending it terminates
-the OpenSSH process tree. Requests over it take `sessionId`:
+the OpenSSH process tree. `remote.closeAll` (no payload, returning
+`{ closed }` with the number of connections) ends all of them; the host calls
+it while quitting because exiting without it can leave the OpenSSH tree and
+the remote server running. Requests over it take `sessionId`:
 
 | Command | Request | Result |
 | --- | --- | --- |

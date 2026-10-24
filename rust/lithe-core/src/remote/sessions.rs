@@ -519,6 +519,26 @@ pub(crate) fn disconnect(request: DisconnectRequest) -> bool {
     true
 }
 
+/// Closes every open connection, for application exit. Connections close in
+/// parallel so a dead host costs one grace period, not one per connection.
+pub(crate) fn close_all() -> usize {
+    let connections: Vec<Arc<Connection>> = registry()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .drain()
+        .map(|(_, connection)| connection)
+        .collect();
+    let count = connections.len();
+    let closers: Vec<_> = connections
+        .into_iter()
+        .map(|connection| std::thread::spawn(move || connection.close()))
+        .collect();
+    for closer in closers {
+        let _ = closer.join();
+    }
+    count
+}
+
 fn request_error(session_id: &str, error: ClientError) -> CoreError {
     match error {
         ClientError::Remote(error) => {

@@ -117,12 +117,11 @@ struct RemoteRoutingWorkspaceOperations: WorkspaceOperations {
 
     func writeFile(_ text: String, at rootURL: URL, relativePath: String) -> Bool {
         let url = rootURL.appendingPathComponent(relativePath)
-        guard let (binding, path) = registry.resolve(url) else {
+        guard registry.contains(url) else {
             return local.writeFile(text, at: rootURL, relativePath: relativePath)
         }
-        // This legacy entry point has no version to check; it only creates.
-        let outcome = try? transport.writeFile(Data(text.utf8), to: path, expected: nil, session: binding.sessionID)
-        if case .saved = outcome { return true }
+        // This legacy entry point has no version to check, and remote files
+        // cannot be created yet, so it never writes.
         return false
     }
 
@@ -151,13 +150,15 @@ struct RemoteRoutingWorkspaceOperations: WorkspaceOperations {
 ///
 /// A document identity is the SHA-256 of the bytes that were read, as for
 /// local files. The host compares versions (size and modification time), so
-/// each identity read here remembers its version for the following save.
+/// each read remembers its version per session, path and identity: equal
+/// bytes in two files, or on two hosts, never share a version.
 final class RemoteRoutingFileOperations: WorkspaceFileOperations, @unchecked Sendable {
     private let local: any WorkspaceFileOperations
     private let registry: RemoteWorkspaceRegistry
     private let transport: any RemoteWorkspaceTransport
     private let lock = NSLock()
-    /// Version read for each identity, bounded to recently opened files.
+    /// Version read for each session, path and identity, bounded to recently
+    /// opened files.
     private var versions: [String: RemoteFileVersion] = [:]
     private var versionOrder: [String] = []
     private static let rememberedVersions = 512
@@ -190,7 +191,7 @@ final class RemoteRoutingFileOperations: WorkspaceFileOperations, @unchecked Sen
             throw CocoaError(.fileReadInapplicableStringEncoding)
         }
         let identity = Self.identity(of: content.data)
-        remember(content.version, for: identity)
+        remember(content.version, for: versionKey(binding, path, identity))
         return (text, encoding, identity)
     }
 
@@ -201,22 +202,22 @@ final class RemoteRoutingFileOperations: WorkspaceFileOperations, @unchecked Sen
         guard encoding == .utf8 || encoding == .utf8Bom else { throw CocoaError(.fileWriteInapplicableStringEncoding) }
         var data = Data(text.utf8)
         if encoding == .utf8Bom { data.insert(contentsOf: [0xEF, 0xBB, 0xBF], at: 0) }
-        var expected: RemoteFileVersion?
-        if let expectedIdentity {
-            expected = version(for: expectedIdentity)
-            if expected == nil {
-                // Opened before this session: compare the current bytes.
-                let current = try transport.readFile(path, session: binding.sessionID)
-                guard Self.identity(of: current.data) == expectedIdentity else {
-                    return .conflict(content: String(data: current.data, encoding: .utf8), identity: Self.identity(of: current.data))
-                }
-                expected = current.version
+        // Without a version the host would create the file; remote files
+        // cannot be created yet.
+        guard let expectedIdentity else { throw CocoaError(.featureUnsupported) }
+        var expected = version(for: versionKey(binding, path, expectedIdentity))
+        if expected == nil {
+            // Opened before this session: compare the current bytes.
+            let current = try transport.readFile(path, session: binding.sessionID)
+            guard Self.identity(of: current.data) == expectedIdentity else {
+                return .conflict(content: String(data: current.data, encoding: .utf8), identity: Self.identity(of: current.data))
             }
+            expected = current.version
         }
         switch try transport.writeFile(data, to: path, expected: expected, session: binding.sessionID) {
         case .saved(let version):
             let identity = Self.identity(of: data)
-            remember(version, for: identity)
+            remember(version, for: versionKey(binding, path, identity))
             return .saved(identity: identity)
         case .conflict:
             let current = try? transport.readFile(path, session: binding.sessionID)
@@ -229,6 +230,10 @@ final class RemoteRoutingFileOperations: WorkspaceFileOperations, @unchecked Sen
 
     private static func identity(of data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func versionKey(_ binding: RemoteWorkspaceBinding, _ path: String, _ identity: String) -> String {
+        "\(binding.sessionID)\n\(path)\n\(identity)"
     }
 
     private func remember(_ version: RemoteFileVersion, for identity: String) {
@@ -250,20 +255,29 @@ final class RemoteRoutingFileOperations: WorkspaceFileOperations, @unchecked Sen
 
     // MARK: WorkspaceFileOperations
 
+    /// Whether the host has `url`, and if so whether it is a folder. The
+    /// root is a folder; anything else is looked up in its parent's listing.
+    private func remoteKind(of url: URL) -> (exists: Bool, isDirectory: Bool)? {
+        guard let (binding, _) = registry.resolve(url) else { return nil }
+        if url.standardizedFileURL == binding.root.standardizedFileURL { return (true, true) }
+        guard let (_, parentPath) = registry.resolve(url.deletingLastPathComponent()),
+              let entries = try? transport.listDirectory(parentPath, session: binding.sessionID),
+              let entry = entries.first(where: { $0.name == url.lastPathComponent })
+        else { return (false, false) }
+        return (true, entry.isDirectory)
+    }
+
     func fileExists(at url: URL) -> Bool {
-        registry.contains(url) ? true : local.fileExists(at: url)
+        remoteKind(of: url)?.exists ?? local.fileExists(at: url)
     }
 
     func isDirectory(at url: URL) -> Bool {
-        if let binding = registry.binding(forRoot: url) { return binding.root == url.standardizedFileURL }
-        return local.isDirectory(at: url)
+        remoteKind(of: url)?.isDirectory ?? local.isDirectory(at: url)
     }
 
     func createFile(at url: URL) throws {
-        guard let (binding, path) = registry.resolve(url) else { return try local.createFile(at: url) }
-        guard case .saved = try transport.writeFile(Data(), to: path, expected: nil, session: binding.sessionID) else {
-            throw CocoaError(.fileWriteFileExists)
-        }
+        try remoteOnly(url)
+        try local.createFile(at: url)
     }
 
     func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws {
