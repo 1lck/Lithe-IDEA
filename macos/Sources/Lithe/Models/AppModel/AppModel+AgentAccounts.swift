@@ -25,9 +25,12 @@ extension AppModel {
         let id = UUID()
         let directory = agentAccountsDirectory(agentID).appendingPathComponent(id.uuidString, isDirectory: true)
         try services.fileStorage.createDirectory(at: directory, withIntermediateDirectories: true)
-        let number = String(settings.agentAccounts(for: agentID).count + 2)
+        // Numbered after the highest existing "Account N", so removals never cause a repeat.
+        let used = Set(settings.agentAccounts(for: agentID).map(\.name))
+        var number = settings.agentAccounts(for: agentID).count + 2
+        while used.contains(String(format: String(localized: "Account %@"), String(number))) { number += 1 }
         settings.agentAccounts.append(AgentAccountProfile(
-            id: id, agentID: agentID, name: String(format: String(localized: "Account %@"), number),
+            id: id, agentID: agentID, name: String(format: String(localized: "Account %@"), String(number)),
             directoryPath: directory.path))
         try await services.agentAccountSignIn.signIn(agentID: agentID, directory: directory)
     }
@@ -51,6 +54,7 @@ extension AppModel {
         try await stopAgentsForProviderChange([agentID])
         settings.preferredAgentAccountIDs[agentID] = id
         agentConversationFeatureIfActive?.history(for: agentID).reloadMetadata()
+        agentSkillsFeature.accountDidChange()
     }
 
     /// Forget an account. Its directory is left on disk: it holds the CLI's login,
