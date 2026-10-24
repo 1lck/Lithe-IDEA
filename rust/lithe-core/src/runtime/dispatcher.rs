@@ -149,6 +149,7 @@ fn execute(request: &str) -> CoreResponse {
             agent_response(id, parsed.payload, crate::agent::instructions::shared)
         }
         CoreCommand::AgentSkills => agent_response(id, parsed.payload, crate::agent::skills),
+        CoreCommand::AgentHooks => agent_response(id, parsed.payload, crate::agent::hooks::execute),
         CoreCommand::AgentParseProviderConfiguration => {
             match crate::ai::parse_provider_configuration(parsed.payload) {
                 Ok(data) => CoreResponse::success(id, data),

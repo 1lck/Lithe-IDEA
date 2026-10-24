@@ -1,0 +1,76 @@
+import { expect, spyOn, test } from "bun:test";
+import { act } from "react";
+import { createRoot } from "react-dom/client";
+import { installHappyDom } from "@/test-utils/happy-dom";
+import { LocaleProvider } from "@/i18n/locale-provider";
+import * as service from "@/features/agent/services/agent-hooks";
+import * as dialog from "@/ui/dialog";
+import * as switchControl from "@/ui/switch";
+import fixture from "../../../../../../../shared/fixtures/agent/hooks-management-v1.json";
+import { AgentHooksSettings } from "./agent-hooks-settings";
+
+test("Hook editor retains a failed draft, retries with its guard and updates native switches", async () => {
+  const restoreDom = installHappyDom();
+  const environment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
+  const previousAct = environment.IS_REACT_ACT_ENVIRONMENT;
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  const library = service.parseHookLibrary(fixture.library)!;
+  const writes: service.AgentHook[] = [];
+  const revisions: string[] = [];
+  let fails = true;
+  const managed = spyOn(service, "manageHooks").mockImplementation(async (action, before, hook) => {
+    if (action === "read") return library;
+    if (action === "save") {
+      expect(before).not.toBeUndefined();
+      expect(hook).not.toBeUndefined();
+      if (fails) throw new Error("Fixture conflict");
+      writes.push(hook!); revisions.push(before!.revision);
+      return { ...library, revision: `saved-${writes.length}`, hooks: [{ ...hook!, configuredAgents: hook!.enabled ? hook!.agents : [], needsSync: false }] };
+    }
+    if (action === "remove") return { ...library, revision: "removed", hooks: [] };
+    return library;
+  });
+  const frame = spyOn(dialog, "default").mockImplementation(({ children, footer }) => <div role="dialog">{children}{footer}</div>);
+  const confirms = spyOn(dialog, "showConfirmDialog").mockResolvedValue(true);
+  const toggle = spyOn(switchControl, "default").mockImplementation(({ checked, onChange, disabled, "aria-label": label }) => (
+    <button aria-label={label} aria-checked={checked} disabled={disabled} onClick={() => onChange(!checked)}>native-switch</button>
+  ));
+  const button = (title: string) => {
+    const found = Array.from(container.querySelectorAll("button")).find(element => element.textContent === title);
+    expect(found).toBeDefined();
+    return found!;
+  };
+  try {
+    environment.IS_REACT_ACT_ENVIRONMENT = true;
+    await act(async () => root.render(<LocaleProvider language="en-US"><AgentHooksSettings /></LocaleProvider>));
+    expect(container.textContent).toContain("notify");
+    expect(container.textContent).toContain("Sync needed");
+    await act(async () => button("Edit").click());
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    await act(async () => button("Save Hook").click());
+    expect(container.textContent).toContain("Fixture conflict");
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(container.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe("printf done");
+    fails = false;
+    await act(async () => button("Save Hook").click());
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(writes[0]?.id).toBe(fixture.hook.id);
+    expect(revisions[0]).toBe(fixture.library.revision);
+    await act(async () => button("native-switch").click());
+    expect(writes[1]?.enabled).toBe(false);
+    expect(revisions[1]).toBe("saved-1");
+    await act(async () => button("Delete").click());
+    expect(confirms).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain("No Hooks yet.");
+  } finally {
+    try { await act(async () => root.unmount()); }
+    finally {
+      toggle.mockRestore(); confirms.mockRestore(); frame.mockRestore(); managed.mockRestore();
+      container.remove();
+      if (previousAct === undefined) delete environment.IS_REACT_ACT_ENVIRONMENT;
+      else environment.IS_REACT_ACT_ENVIRONMENT = previousAct;
+      restoreDom();
+    }
+  }
+});

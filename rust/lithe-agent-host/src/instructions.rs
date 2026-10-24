@@ -66,7 +66,7 @@ pub fn save(request: SaveRequest) -> Result<InstructionFile, InstructionError> {
 }
 
 // Resolution stays outside Core and never derives a destination from packaged resources.
-fn profile(agent_id: &str) -> Result<PathBuf, InstructionError> {
+pub(crate) fn profile(agent_id: &str) -> Result<PathBuf, InstructionError> {
     let (variable, fallback) = match agent_id {
         "codex-acp" => ("CODEX_HOME", ".codex"),
         "claude-acp" => ("CLAUDE_CONFIG_DIR", ".claude"),
@@ -124,7 +124,7 @@ fn read_in(agent_id: &str, directory: &Path) -> Result<InstructionFile, Instruct
     snapshot(agent_id, directory.join(filename))
 }
 
-fn snapshot(agent_id: &str, path: PathBuf) -> Result<InstructionFile, InstructionError> {
+pub(crate) fn snapshot(agent_id: &str, path: PathBuf) -> Result<InstructionFile, InstructionError> {
     let metadata = match fs::symlink_metadata(&path) {
         Ok(metadata) => Some(metadata),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
@@ -225,7 +225,7 @@ fn save_unlocked(
 
 // Both the shared library and native files use the same guarded atomic replacement.
 // The caller holds SAVE_LOCK; the recheck also protects native precedence changes.
-fn write_snapshot(
+pub(crate) fn write_snapshot(
     previous: &InstructionFile,
     content: &str,
     recheck: impl Fn() -> Result<InstructionFile, InstructionError>,

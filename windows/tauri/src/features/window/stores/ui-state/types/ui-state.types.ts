@@ -8,6 +8,7 @@ export type SettingsTab =
   | "appearance"
   | "ai"
   | "agents"
+  | "hooks"
   | "ai-commit"
   | "keyboard"
   | "language"

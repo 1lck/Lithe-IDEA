@@ -46,6 +46,8 @@ pub enum CoreCommand {
     AgentInstructionsShared,
     /// Lists native skills or creates/imports one explicitly (`agent.skills`).
     AgentSkills,
+    /// Manages a user Hook library and native Agent configuration (`agent.hooks`).
+    AgentHooks,
     /// Installs a catalog ACP adapter with the user's npm (`agent.install`).
     AgentInstall,
     /// Removes a Lithe-managed ACP adapter install (`agent.uninstall`).
@@ -450,6 +452,7 @@ impl CoreCommand {
             "agent.instructions.save" => Some(Self::AgentInstructionsSave),
             "agent.instructions.shared" => Some(Self::AgentInstructionsShared),
             "agent.skills" => Some(Self::AgentSkills),
+            "agent.hooks" => Some(Self::AgentHooks),
             "agent.install" => Some(Self::AgentInstall),
             "agent.uninstall" => Some(Self::AgentUninstall),
             "agent.installCli" => Some(Self::AgentInstallCli),
