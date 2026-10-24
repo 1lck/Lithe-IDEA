@@ -189,6 +189,12 @@ struct AgentImageViewer: View {
     @Environment(\.locale) private var locale
     @ObservedObject var state: AgentImageViewerState
     let gallery: AgentImageGallery
+    /// Relative to the fitted size, so 100% always shows the whole picture.
+    @State private var zoom: CGFloat = 1
+    @State private var pinchBase: CGFloat = 1
+    @State private var pan: CGSize = .zero
+    @State private var panBase: CGSize = .zero
+    private static let zoomRange: ClosedRange<CGFloat> = 0.25...8
 
     var body: some View {
         let image = gallery.images[gallery.index]
@@ -198,9 +204,21 @@ struct AgentImageViewer: View {
                 .onTapGesture { state.gallery = nil }
             VStack(spacing: 10) {
                 AgentImageThumbnail(image: image, maxPixel: 2400, fills: false)
+                    .scaleEffect(zoom)
+                    .offset(pan)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipped()
                     .shadow(color: .black.opacity(0.35), radius: 12)
-                    .allowsHitTesting(false)
+                    .contentShape(Rectangle())
+                    .gesture(MagnificationGesture()
+                        .onChanged { setZoom(pinchBase * $0) }
+                        .onEnded { _ in pinchBase = zoom })
+                    .simultaneousGesture(DragGesture()
+                        .onChanged { if zoom > 1 { pan = CGSize(width: panBase.width + $0.translation.width,
+                                                                height: panBase.height + $0.translation.height) } }
+                        .onEnded { _ in panBase = pan })
+                    .onTapGesture(count: 2) { withAnimation(.none) { zoom > 1 ? resetZoom() : setZoom(2) } }
+                    .onChange(of: gallery.index) { _ in resetZoom() }
                 HStack(spacing: 8) {
                     Text(verbatim: image.title ?? "")
                         .lineLimit(1).truncationMode(.middle)
@@ -212,6 +230,7 @@ struct AgentImageViewer: View {
                 }
                 .font(LitheTheme.uiFont(size: 12.5))
                 .foregroundStyle(.white)
+                zoomControls
             }
             .padding(.horizontal, 56)
             .padding(.vertical, 40)
@@ -247,6 +266,51 @@ struct AgentImageViewer: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("agent-image-viewer")
+    }
+
+    private var zoomControls: some View {
+        HStack(spacing: 6) {
+            zoomButton("minus", help: "Zoom Out", key: "-") { setZoom(zoom / 1.25) }
+            Button { resetZoom() } label: {
+                Text(verbatim: "\(Int((zoom * 100).rounded()))%")
+                    .font(LitheTheme.uiFont(size: 12, weight: .medium)).monospacedDigit()
+                    .frame(minWidth: 48, minHeight: 24)
+                    .background(.white.opacity(0.16), in: Capsule())
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.litheNoPress)
+            .foregroundStyle(.white)
+            .keyboardShortcut("0", modifiers: .command)
+            .lithePointer()
+            .help("Fit to Window")
+            zoomButton("plus", help: "Zoom In", key: "=") { setZoom(zoom * 1.25) }
+        }
+    }
+
+    private func zoomButton(_ systemImage: String, help: LocalizedStringKey, key: KeyEquivalent,
+                            action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage).font(LitheTheme.uiFont(size: 11, weight: .semibold))
+                .frame(width: 24, height: 24)
+                .background(.white.opacity(0.16), in: Circle())
+                .contentShape(Circle())
+        }
+        .buttonStyle(.litheNoPress)
+        .foregroundStyle(.white)
+        .keyboardShortcut(key, modifiers: .command)
+        .lithePointer()
+        .help(help)
+        .accessibilityLabel(help)
+    }
+
+    private func setZoom(_ value: CGFloat) {
+        zoom = min(max(value, Self.zoomRange.lowerBound), Self.zoomRange.upperBound)
+        pinchBase = zoom
+        if zoom <= 1 { pan = .zero; panBase = .zero }
+    }
+
+    private func resetZoom() {
+        zoom = 1; pinchBase = 1; pan = .zero; panBase = .zero
     }
 
     private func step(_ delta: Int, systemImage: String, key: KeyEquivalent, label: LocalizedStringKey) -> some View {

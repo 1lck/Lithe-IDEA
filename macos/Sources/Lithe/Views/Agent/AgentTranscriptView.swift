@@ -75,6 +75,10 @@ enum AgentTranscriptItem: Identifiable {
             pending.removeAll(keepingCapacity: true)
         }
         for message in messages {
+            if message.role == .user, AgentClaudeCodeMarkup.parse(message.text)?.isEmpty == true {
+                // Model-only reminders and caveats are not conversation.
+                continue
+            }
             if message.role == .user {
                 flush()
                 items.append(.message(message))
@@ -543,10 +547,10 @@ private struct AgentMessageRow: View {
     var body: some View {
         switch message.role {
         case .user:
-            if let notifications = AgentTaskNotification.parse(message.text) {
+            if let entries = AgentClaudeCodeMarkup.parse(message.text) {
                 VStack(alignment: .leading, spacing: 4) {
-                    ForEach(Array(notifications.enumerated()), id: \.offset) { _, notification in
-                        AgentTaskNotificationRow(notification: notification)
+                    ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
+                        AgentClaudeCodeEntryRow(entry: entry)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -576,7 +580,7 @@ private struct AgentMessageRow: View {
     /// Attached image files and replayed pictures show as thumbnails that open
     /// the viewer; the text keeps the user's words and non-image attachments.
     private var userBubble: some View {
-        let content = AgentUserMessageContent.parse(message.text)
+        let content = AgentUserMessageContent.parse(AgentClaudeCodeMarkup.removingModelOnlyBlocks(message.text))
         let images = message.images + content.images
         return HStack(alignment: .bottom, spacing: 4) {
             Spacer(minLength: 40)
@@ -609,26 +613,114 @@ private struct AgentMessageRow: View {
     }
 }
 
-/// A Claude Code background-task report, shown as a quiet status line instead of the raw markup.
-private struct AgentTaskNotificationRow: View {
+/// Claude Code's own markup in a user message, shown as a quiet status line or output block.
+private struct AgentClaudeCodeEntryRow: View {
     @Environment(\.locale) private var locale
-    let notification: AgentTaskNotification
-
-    private var failed: Bool { ["failed", "error", "killed", "stopped"].contains(notification.status?.lowercased() ?? "") }
+    let entry: AgentClaudeCodeEntry
 
     var body: some View {
+        switch entry {
+        case .taskNotification(let notification):
+            let failed = ["failed", "error", "killed", "stopped"].contains(notification.status?.lowercased() ?? "")
+            line(systemImage: failed ? "exclamationmark.circle" : "checkmark.circle", isError: failed,
+                 text: notification.summary ?? AgentLocalization.string(
+                    failed ? "Background task ended" : "Background task finished", locale: locale))
+                .help(notification.outputFile ?? "")
+                .accessibilityIdentifier("agent-task-notification")
+        case .command(let name, let arguments):
+            line(systemImage: "chevron.right.square", isError: false,
+                 text: [name, arguments].compactMap { $0 }.joined(separator: " "), monospaced: true)
+                .accessibilityIdentifier("agent-command-entry")
+        case .shell(let command):
+            line(systemImage: "terminal", isError: false, text: command, monospaced: true)
+                .accessibilityIdentifier("agent-shell-entry")
+        case .output(let text, let isError):
+            Text(verbatim: text)
+                .font(LitheTheme.uiFont(size: 12, design: .monospaced))
+                .foregroundStyle(isError ? LitheTheme.error : LitheTheme.secondaryText)
+                .lineLimit(12)
+                .textSelection(.enabled)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(LitheTheme.raised.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+                .accessibilityIdentifier("agent-command-output")
+        case .interrupted(let text):
+            line(systemImage: "pause.circle", isError: false, text: text)
+                .accessibilityIdentifier("agent-interrupted-entry")
+        case .summary(let text, let tools):
+            AgentCollapsedBlock(title: AgentLocalization.string("Conversation continued from a summary", locale: locale),
+                                systemImage: "text.append", detail: tools, text: text)
+                .accessibilityIdentifier("agent-summary-entry")
+        case .skill(let name, let body):
+            AgentCollapsedBlock(title: String(format: AgentLocalization.string("Skill loaded: %@", locale: locale), name),
+                                systemImage: "sparkles", detail: nil, text: body)
+                .accessibilityIdentifier("agent-skill-entry")
+        case .context(let name, let body):
+            AgentCollapsedBlock(title: String(format: AgentLocalization.string("Context: %@", locale: locale), name),
+                                systemImage: "tray.full", detail: nil, text: body)
+                .accessibilityIdentifier("agent-context-entry")
+        }
+    }
+
+    private func line(systemImage: String, isError: Bool, text: String, monospaced: Bool = false) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: failed ? "exclamationmark.circle" : "checkmark.circle")
+            Image(systemName: systemImage)
                 .font(LitheTheme.uiFont(size: 11))
-                .foregroundStyle(failed ? LitheTheme.error : LitheTheme.tertiaryText)
-            Text(verbatim: notification.summary ?? AgentLocalization.string(
-                failed ? "Background task ended" : "Background task finished", locale: locale))
+                .foregroundStyle(isError ? LitheTheme.error : LitheTheme.tertiaryText)
+            Text(verbatim: text)
+                .font(monospaced ? LitheTheme.uiFont(size: 12, design: .monospaced) : LitheTheme.uiFont(size: 12.5))
                 .lineLimit(2)
         }
-        .font(LitheTheme.uiFont(size: 12.5))
         .foregroundStyle(LitheTheme.secondaryText)
-        .help(notification.outputFile ?? "")
         .textSelection(.enabled)
-        .accessibilityIdentifier("agent-task-notification")
+    }
+}
+
+/// Long Claude Code-owned text (recap, skill instructions, host context) behind a one-line header.
+private struct AgentCollapsedBlock: View {
+    let title: String
+    let systemImage: String
+    let detail: String?
+    let text: String
+    @State private var expanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button { expanded.toggle() } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: systemImage)
+                        .font(LitheTheme.uiFont(size: 11))
+                        .foregroundStyle(LitheTheme.tertiaryText)
+                    Text(verbatim: title).lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .font(LitheTheme.uiFont(size: 9, weight: .semibold))
+                        .rotationEffect(.degrees(expanded ? 0 : -90))
+                }
+                .font(LitheTheme.uiFont(size: 12.5))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.litheNoPress)
+            .lithePointer()
+            .accessibilityValue(expanded ? Text("Expanded") : Text("Collapsed"))
+            if expanded {
+                VStack(alignment: .leading, spacing: 6) {
+                    if let detail {
+                        Text(verbatim: detail)
+                            .font(LitheTheme.uiFont(size: 11, design: .monospaced))
+                            .foregroundStyle(LitheTheme.tertiaryText)
+                    }
+                    AgentMarkdownMessage(text: text, size: 12)
+                        .equatable()
+                        .foregroundStyle(LitheTheme.secondaryText)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(LitheTheme.raised.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+                .textSelection(.enabled)
+            }
+        }
     }
 }

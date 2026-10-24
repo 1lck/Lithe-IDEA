@@ -806,6 +806,7 @@
 "Conventional Commits" = "Conventional Commits 规范";
 "Conversation" = "讨论";
 "Conversation actions" = "会话操作";
+"Conversation continued from a summary" = "对话已从摘要继续";
 "Conversation history" = "对话历史";
 "Conversation history is unavailable" = "当前无法读取对话历史";
 "Conversation tabs" = "会话标签";
@@ -1342,6 +1343,7 @@
 "Find references to the selected symbol" = "查找所选符号的引用";
 "Finished" = "已完成";
 "First %lld locations" = "前 %lld 个位置";
+"Fit to Window" = "适应窗口";
 "Fix the failing checks below before installing." = "请先解决下方未通过的检测项，再进行安装。";
 "Fixup" = "合并并丢弃消息";
 "Folder" = "分组";
@@ -3093,6 +3095,7 @@
 "Skill files" = "技能文件";
 "Skill imports cannot contain symbolic links or special files." = "导入的技能不能包含符号链接或特殊文件。";
 "Skill instructions" = "技能正文";
+"Skill loaded: %@" = "已加载技能：%@";
 "Skill name (lowercase-with-hyphens)" = "技能名称（小写字母与连字符）";
 "Skill project" = "当前项目";
 "Skill saved. Refresh or reconnect the Agent if it does not appear in the conversation." = "技能已保存。如果对话中未显示，请刷新或重新连接 Agent。";
@@ -4618,6 +4621,7 @@
 "native.conventionalCommits" = "Conventional Commits 规范";
 "native.conversation" = "讨论";
 "native.conversationActions" = "会话操作";
+"native.conversationContinuedFromASummary" = "对话已从摘要继续";
 "native.conversationHistory" = "对话历史";
 "native.conversationHistoryIsUnavailable" = "当前无法读取对话历史";
 "native.conversationTabs" = "会话标签";
@@ -5167,6 +5171,7 @@
 "native.finished" = "已完成";
 "native.finishedWithoutCreating" = "%1$@ 已结束，但没有生成 %2$@。";
 "native.firstLldLocations" = "前 %1$lld 个位置";
+"native.fitToWindow" = "适应窗口";
 "native.fixTheFailingChecksBelowBeforeInstalling" = "请先解决下方未通过的检测项，再进行安装。";
 "native.fixup" = "合并并丢弃消息";
 "native.folder" = "分组";
@@ -7084,6 +7089,7 @@
 "native.skillFiles" = "技能文件";
 "native.skillImportsCannotContainSymbolicLinksOrSpecialFiles" = "导入的技能不能包含符号链接或特殊文件。";
 "native.skillInstructions" = "技能正文";
+"native.skillLoaded" = "已加载技能：%1$@";
 "native.skillMdExceedsThe128KibLimit" = "SKILL.md 超过了 128 KiB 的大小限制。";
 "native.skillMdFrontmatterIsNotClosed" = "SKILL.md 的文件头缺少结束标记。";
 "native.skillMdHasInvalidYamlFrontmatter" = "SKILL.md 的 YAML 文件头格式不正确。";

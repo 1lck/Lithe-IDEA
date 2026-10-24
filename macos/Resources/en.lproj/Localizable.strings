@@ -806,6 +806,7 @@
 "Conventional Commits" = "Conventional Commits";
 "Conversation" = "Conversation";
 "Conversation actions" = "Conversation actions";
+"Conversation continued from a summary" = "Conversation continued from a summary";
 "Conversation history" = "Conversation history";
 "Conversation history is unavailable" = "Conversation history is unavailable";
 "Conversation tabs" = "Conversation tabs";
@@ -1342,6 +1343,7 @@
 "Find references to the selected symbol" = "Find references to the selected symbol";
 "Finished" = "Finished";
 "First %lld locations" = "First %lld locations";
+"Fit to Window" = "Fit to Window";
 "Fix the failing checks below before installing." = "Fix the failing checks below before installing.";
 "Fixup" = "Fixup";
 "Folder" = "Folder";
@@ -3093,6 +3095,7 @@
 "Skill files" = "Skill files";
 "Skill imports cannot contain symbolic links or special files." = "Skill imports cannot contain symbolic links or special files.";
 "Skill instructions" = "Skill instructions";
+"Skill loaded: %@" = "Skill loaded: %@";
 "Skill name (lowercase-with-hyphens)" = "Skill name (lowercase-with-hyphens)";
 "Skill project" = "Skill project";
 "Skill saved. Refresh or reconnect the Agent if it does not appear in the conversation." = "Skill saved. Refresh or reconnect the Agent if it does not appear in the conversation.";
@@ -4618,6 +4621,7 @@
 "native.conventionalCommits" = "Conventional Commits";
 "native.conversation" = "Conversation";
 "native.conversationActions" = "Conversation actions";
+"native.conversationContinuedFromASummary" = "Conversation continued from a summary";
 "native.conversationHistory" = "Conversation history";
 "native.conversationHistoryIsUnavailable" = "Conversation history is unavailable";
 "native.conversationTabs" = "Conversation tabs";
@@ -5167,6 +5171,7 @@
 "native.finished" = "Finished";
 "native.finishedWithoutCreating" = "%1$@ finished without creating %2$@.";
 "native.firstLldLocations" = "First %1$lld locations";
+"native.fitToWindow" = "Fit to Window";
 "native.fixTheFailingChecksBelowBeforeInstalling" = "Fix the failing checks below before installing.";
 "native.fixup" = "Fixup";
 "native.folder" = "Folder";
@@ -7084,6 +7089,7 @@
 "native.skillFiles" = "Skill files";
 "native.skillImportsCannotContainSymbolicLinksOrSpecialFiles" = "Skill imports cannot contain symbolic links or special files.";
 "native.skillInstructions" = "Skill instructions";
+"native.skillLoaded" = "Skill loaded: %1$@";
 "native.skillMdExceedsThe128KibLimit" = "SKILL.md exceeds the 128 KiB limit.";
 "native.skillMdFrontmatterIsNotClosed" = "SKILL.md frontmatter is not closed.";
 "native.skillMdHasInvalidYamlFrontmatter" = "SKILL.md has invalid YAML frontmatter.";

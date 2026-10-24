@@ -81077,6 +81077,17 @@
       }
     },
     {
+      "id": "native.conversationContinuedFromASummary",
+      "description": "Native UI: Conversation continued from a summary",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Conversation continued from a summary",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.couldNotOpenTheRemoteFolder",
       "description": "Native UI: Could not open the remote folder: %@",
       "platforms": [
@@ -81483,6 +81494,17 @@
       "parameters": {
         "arg1": "string",
         "arg2": "string"
+      }
+    },
+    {
+      "id": "native.fitToWindow",
+      "description": "Native UI: Fit to Window",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Fit to Window",
+        "arguments": []
       }
     },
     {
@@ -82992,6 +83014,22 @@
       "macos": {
         "key": "Show more",
         "arguments": []
+      }
+    },
+    {
+      "id": "native.skillLoaded",
+      "description": "Native UI: Skill loaded: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Skill loaded: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
       }
     },
     {
