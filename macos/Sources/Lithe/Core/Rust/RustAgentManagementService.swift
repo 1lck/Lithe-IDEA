@@ -6,11 +6,14 @@ import LitheRustCore
 /// task cancels the Core operation, which stops a running npm install.
 struct RustAgentManagementService: AgentManagementService {
     let core: RustCoreBridge
+    /// Preferred account directory of an Agent, so Codex skills follow the selected account.
+    var accountDirectory: @Sendable (String) async -> URL? = { _ in nil }
 
     private struct SkillsPayload: Encodable, Sendable {
         var action = "list"
         let agentId: String
         let workspace: String?
+        var codexHome: String?
     }
     private struct SkillDirectoriesResult: Decodable, Sendable { let directories: [String: String] }
     func skillDirectories(agentID: String, workspace: URL?) async throws -> [String: String] {
@@ -30,7 +33,8 @@ struct RustAgentManagementService: AgentManagementService {
     private struct SkillWriteResult: Decodable, Sendable { let path: String }
 
     func listSkills(agentID: String, workspace: URL?) async throws -> AgentSkillListing {
-        try await run("agent.skills", SkillsPayload(agentId: agentID, workspace: workspace?.path))
+        let home = agentID == "codex-acp" ? await accountDirectory(agentID)?.path : nil
+        return try await run("agent.skills", SkillsPayload(agentId: agentID, workspace: workspace?.path, codexHome: home))
     }
 
     func writeSkill(_ request: AgentSkillWrite) async throws -> URL {
@@ -39,7 +43,9 @@ struct RustAgentManagementService: AgentManagementService {
     }
 
     func setSkillEnabled(_ request: AgentSkillEnablement) async throws -> AgentSkillListing {
-        try await run("agent.skills", request)
+        var request = request
+        if request.agentId == "codex-acp" { request.codexHome = await accountDirectory(request.agentId)?.path }
+        return try await run("agent.skills", request)
     }
 
     private struct StatusPayload: Encodable { let dataDirectory: String }

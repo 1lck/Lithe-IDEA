@@ -789,7 +789,9 @@ final class MacServiceContainer {
             databaseSecureStore: databaseSecureStore,
             diagnosticsExportService: diagnosticsExportService,
             credentialResolver: credentialResolver,
-            agentManagement: RustAgentManagementService(core: rustCore),
+            agentManagement: RustAgentManagementService(core: rustCore, accountDirectory: { agentID in
+                await MainActor.run { settings.preferredAgentAccountDirectory(for: agentID) }
+            }),
             agentInstructions: RustAgentInstructionsService(core: rustCore,
                 sharedDirectory: fileStorage.applicationSupportDirectory().appendingPathComponent("Lithe/AgentInstructions", isDirectory: true)),
             agentHooks: RustAgentHooksService(core: rustCore,

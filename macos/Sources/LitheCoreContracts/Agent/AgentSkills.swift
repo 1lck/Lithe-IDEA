@@ -24,6 +24,8 @@ public struct AgentSkillEnablement: Encodable, Sendable {
     public let scope: String
     public let source: String
     public let enabled: Bool
+    /// Selected Codex account directory; nil keeps the default account.
+    public var codexHome: String?
 
     public init(agentID: String, workspace: URL?, skill: AgentSkill, enabled: Bool) {
         agentId = agentID; self.workspace = workspace?.path; scope = skill.scope; source = skill.path; self.enabled = enabled

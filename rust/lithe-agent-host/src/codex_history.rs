@@ -47,13 +47,14 @@ impl CodexHistory {
         cwd: PathBuf,
         path: PathBuf,
         enabled: bool,
+        codex_home: Option<PathBuf>,
         cancelled: &dyn Fn() -> bool,
     ) -> Result<Value, &'static str> {
         let probe = Self {
             executable,
             cwd: cwd.clone(),
             model_provider: SUBSCRIPTION_PROVIDER,
-            codex_home: None,
+            codex_home,
         };
         probe
             .exchange_cancellable(
@@ -91,13 +92,14 @@ impl CodexHistory {
     pub(crate) async fn skills(
         executable: PathBuf,
         cwd: PathBuf,
+        codex_home: Option<PathBuf>,
         cancelled: &dyn Fn() -> bool,
     ) -> Result<Value, &'static str> {
         let probe = Self {
             executable,
             cwd: cwd.clone(),
             model_provider: SUBSCRIPTION_PROVIDER,
-            codex_home: None,
+            codex_home,
         };
         probe
             .exchange_cancellable(
