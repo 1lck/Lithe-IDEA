@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "parameters": { "name": "string", "count": "integer" },
+  "arguments": ["name", "count"],
+  "cases": [
+    {
+      "name": "Reordered parameters and literal percent",
+      "template": "100% {count} 个：{name}",
+      "nativeTemplate": "100%% %2$lld 个：%1$@",
+      "stringValue": "中文/%@/{count}",
+      "integerValue": 9000000000,
+      "expected": "100% 9000000000 个：中文/%@/{count}"
+    },
+    {
+      "name": "Repeated parameter and zero count",
+      "template": "{name}: {count} files ({name})",
+      "nativeTemplate": "%1$@: %2$lld files (%1$@)",
+      "stringValue": "feature/100%",
+      "integerValue": 0,
+      "expected": "feature/100%: 0 files (feature/100%)"
+    }
+  ]
+}

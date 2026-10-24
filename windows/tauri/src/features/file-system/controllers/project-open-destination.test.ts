@@ -1,3 +1,4 @@
+import type { DisplayLanguage } from "@/i18n/locale";
 import { describe, expect, test } from "bun:test";
 import { defaultSettings } from "@/features/settings/config/default-settings";
 import {
@@ -13,9 +14,9 @@ function createServices(options?: {
   askWhereToOpenProjects?: boolean;
   projectOpenDefaultDestination?: ProjectOpenDestination;
   promptResult?: ProjectOpenPromptResult | null;
-  language?: "en-US" | "zh-CN";
+  language?: DisplayLanguage;
 }) {
-  const promptRequests: Array<{ projectName: string; language: "en-US" | "zh-CN" }> = [];
+  const promptRequests: Array<Parameters<ProjectOpenDestinationServices["prompt"]>[0]> = [];
   const updates: Array<[string, boolean | string]> = [];
 
   const services: ProjectOpenDestinationServices = {

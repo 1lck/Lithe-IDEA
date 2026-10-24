@@ -104,6 +104,9 @@ function Invoke-TimedRustTests {
             # These retained-path Shelf cases also perform four preview/apply cycles.
             $arguments += @("--test-budget", "tests::git_patch_exchange::shelf_roundtrip_preserves_staged_deletions_with_retained_paths=60000")
             $arguments += @("--test-budget", "tests::git_patch_exchange::shelf_roundtrip_preserves_staged_rename_with_recreated_source=60000")
+            # Two repositories, three confirmation previews and two pushes invoke
+            # 287 Git processes; this integration case measured 49.9s on Windows.
+            $arguments += @("--test-budget", "tests::git_workspace_commit::git_workspace_commit_push_confirms_each_repository_separately=60000")
         }
         return $arguments
     }

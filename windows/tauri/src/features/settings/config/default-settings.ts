@@ -1,3 +1,4 @@
+import { DEFAULT_DISPLAY_LANGUAGE } from "@/i18n/shared.generated";
 import { normalizeUiFontSize, UI_FONT_SIZE_DEFAULT } from "@/features/settings/lib/ui-font-size";
 import {
   DEFAULT_CODE_FONT_SIZE,
@@ -90,7 +91,7 @@ export const defaultSettings: Settings = {
   // UI
   uiFontFamily: DEFAULT_UI_FONT_FAMILY,
   uiFontSize: UI_FONT_SIZE_DEFAULT,
-  displayLanguage: "zh-CN",
+  displayLanguage: DEFAULT_DISPLAY_LANGUAGE,
   reduceMotion: false,
   showStatusBar: true,
   showTabIcons: true,

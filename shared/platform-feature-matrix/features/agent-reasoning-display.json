@@ -2,7 +2,7 @@
   "id": "agent-reasoning-display",
   "area": "AI",
   "group": "Agent 对话",
-  "capability": "Agent 上报的思考内容（ACP agent_thought_chunk）显示为独立的可折叠思考块，流式输出时展开、回复或工具到达后收起，不并入回复正文，导出 Markdown 时以引用块保留",
+  "capability": "每轮思考、过程说明和工具调用合成一个默认折叠的过程入口，流式时也由用户主动展开；最终回复单独展示，空白片段不占行，搜索临时展开匹配内容，原始思考记录与 Markdown 导出保持独立",
   "macos": {
     "evidence": [
       "macos/Sources/LitheAgentConversationModule/Application/AgentConnectionModel.swift",
@@ -12,7 +12,8 @@
       "shared/fixtures/agent/acp-events-v1.json",
       "macos/Tests/LitheTests/AgentConversationPresentationTests.swift",
       "macos/Sources/Lithe/Views/Agent/AgentTranscriptView.swift",
-      "macos/Sources/Lithe/Views/Agent/AgentTurnStatisticsView.swift"
+      "macos/Sources/Lithe/Views/Agent/AgentTurnStatisticsView.swift",
+      "macos/Sources/Lithe/Views/Agent/AgentProcessGroupView.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -25,12 +26,14 @@
       "shared/fixtures/agent/acp-events-v1.json",
       "windows/tauri/src/features/agent/services/agent-transcript-items.ts",
       "windows/tauri/src/features/agent/services/agent-history-export.ts",
-      "windows/tauri/src/features/agent/services/agent-history-view.ts"
+      "windows/tauri/src/features/agent/services/agent-history-view.ts",
+      "windows/tauri/src/features/agent/services/agent-transcript-items.test.ts",
+      "windows/tauri/src/features/agent/components/agent-transcript.process.test.tsx"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "owner": "Agent",
-  "verification": "macOS：使用会上报思考内容的 Agent 与思考强度发送需要推理的问题，确认思考块在流式输出时展开显示“思考中…”，底部等待行显示“回复中…”并保留本轮计时，回复或工具调用到达后自动收起为“思考过程”，手动展开后保持；搜索不匹配的文字使思考行消失后，清空搜索仍恢复手动展开状态，切换会话不串用偏好、关闭会话后释放偏好；思考与回复交替时顺序正确且文本不混合；手动收起思考块后搜索其内容，命中时仍展开，搜索期间保持可见，清空搜索后恢复手动折叠状态；加载历史会话后思考块与实时流一致；导出 Markdown 中思考以引用块出现，历史消息数不计思考。在窄宽面板及深浅主题检查长文本换行与可读性。Windows 已把 `agent_thought_chunk` 作为独立 `reasoning` 行接入：流式期间默认展开，回复或工具到达后自动折叠，手动展开保持；搜索命中时强制展开，清空搜索后回到手动或默认状态；思考文本不并入回复，历史消息数不计思考，导出标为 Thinking 并以引用块呈现。真机与历史回放验收待执行。",
-  "notes": "2026-10-18 Windows：推理块先冲刷待合并正文，保证思考与回复的流顺序；思考行默认在流式时展开、回复到达后折叠，搜索命中时展开且不改变手动偏好。历史导出与消息计数已排除推理行。真机验收待执行。"
+  "verification": "macOS 与 Windows：构造思考→过程说明→读文件→思考→执行命令→最终回复，确认每轮只有一个过程入口且默认收起，流式也不自动展开；收起时过程文字与工具行不占高度，最终回复始终可读。展开按原顺序呈现，只有相邻工具合并，状态与证据可继续查看。纯空白思考、过程说明不产生空行，没有思考和工具的直接回答不产生入口；新用户消息、已记录的轮次结束分别切断分组，工具或思考结束而没有最终回复时不伪造回复。搜索过程文字及工具输入、输出、文件路径，匹配组临时展开且不能在搜索期间收起，清空后恢复手动选择；切换和关闭会话验证偏好隔离与释放。深浅主题、窄宽面板、历史恢复和实时流均验证；历史导出、文件审阅、权限卡片、轮次统计和回复复制继续可用。单元测试与组件回放不替代真实 Agent 和 Windows Tauri 运行验收，未执行部分保持 pending。",
+  "notes": "2026-10-24：改为每轮一个默认折叠的过程区，包含思考、工具和中间说明；只改变呈现，不改写历史或 ACP 协议。ACP 无最终回复角色，按最后一条思考或工具的位置保留末尾正文；后续活动到达时才将先前正文移入过程。"
 }

@@ -209,6 +209,9 @@ macOS runner（GitHub 托管的 Mac 构建机）按组织共享，Free 计划同
   Windows lane，只保留 Linux 上的分类、diff、Rust 数据库、注释和元数据检查；
   PR 标记为 ready for review 时，macOS CI、Windows CI 和 macOS Plugin CI 重新
   触发完整分类。
+- 独立共享 i18n 校验同样遵循 Draft 限制：Draft 只展开 Linux 生成器检查，
+  ready PR、preview 推送和手动运行展开三系统矩阵。工作流监听
+  `ready_for_review`，并取消同一 PR 的旧 i18n 校验，避免重复占用 runner。
 
 正确做法：新增 Swift 专项测试时，在共用 **Swift tests** job 里加一个按分类
 结果执行的过滤步骤。不要这样做：新建一个 macOS job 再跑一遍
@@ -237,6 +240,16 @@ runner 上可能出现断言都通过、计时工具仍因超过十秒而失败�
 这类原生启动使用独立的 5 秒就绪期限，并在失败时报告 PID 和运行状态；fork、
 持久化观察和退出信号仍保持原有短期限，单测试仍受 15 秒计时上限约束。
 正确做法是等待明确的就绪事件，不通过固定睡眠同步，也不修改产品进程行为。
+
+Windows 的真实 Git 集成测试按实测成本设置单例预算，普通用例仍为 15 秒。
+双仓库分别确认推送目标的用例会初始化两个工作仓库与两个裸远端，先检查
+三种确认状态，再提交并推送两个仓库；同一提交在真实 JDT 任务中用时 12.3 秒，
+在 SharedRust 任务中触发了 15 秒进程期限。本机跟踪 287 次 Git 进程全部退出，
+没有单次 Git 内部操作超过 0.6 秒，但完整测试耗时 49.9 秒，30 秒预算也不足。
+两个任务都仅给这个用例 60 秒，
+保留每次 Git 请求的期限、进程树清理和整套测试期限。正确做法是给已测量的
+外部进程成本配置精确用例预算；不要统一放宽所有测试或用清缓存重编译掩盖
+测试超时。具体预算与证据维护在 `write-stable-tests` 的 Windows/Rust 指引中。
 
 CI 缓存 Cargo fingerprints、build script outputs 和依赖 outputs，不缓存
 最终可执行文件。缓存覆盖 `rust/target/macos` 的 Rust Core 和 `rust/target`

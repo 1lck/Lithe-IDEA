@@ -81,6 +81,8 @@ async function readRegistry() {
   // are mutable user state, never download artifacts. Runtime profile import is
   // owned by the platform startup adapters; this build reuse route always rejects
   // both original state and migration snapshots and must not gain a validator.
+  // Shared i18n source and generated tables take this same refusal route:
+  // rebuild from the target checkout, never copy another worktree's translations.
   const excludedResources = registry.excludedResources ?? [];
   if (!Array.isArray(excludedResources)) throw new Error("Invalid excluded worktree resources");
   for (const resource of excludedResources) {

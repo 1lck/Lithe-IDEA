@@ -4,7 +4,7 @@ import { defaultSettings } from "@/features/settings/config/default-settings";
 
 describe("default Windows workbench capability policy", () => {
   test("does not enable unavailable feature families by default", () => {
-    expect(BACKEND_UNAVAILABLE_TOOLTIP).toBe("待开发");
+    expect(BACKEND_UNAVAILABLE_TOOLTIP).toBe("This feature is not available yet.");
 
     for (const capability of ["github", "remote", "docker", "aiChat"] as const) {
       expect(backendCapabilities[capability]).toBe(false);

@@ -790,7 +790,7 @@ jobs:
             --test-budget tests::git_history_rewrite::native_rebase_skip_omits_conflicted_message_from_later_squash=45000 `
             --test-budget tests::git_remote_checkout::=30000 `
             --test-budget tests::git_workspace_commit::git_workspace_commit_push_checks_submodule_publication_before_updating_the_remote=30000 `
-            --test-budget tests::git_workspace_commit::git_workspace_commit_push_confirms_each_repository_separately=30000 `
+            --test-budget tests::git_workspace_commit::git_workspace_commit_push_confirms_each_repository_separately=60000 `
             --test-budget tests::git::git_write_squashes_=30000 `
             --test-budget tests::git::git_write_deletes_a_local_commit_=30000 `
             --test-budget tests::git::git_write_edits_a_local_commit_message_=30000 `

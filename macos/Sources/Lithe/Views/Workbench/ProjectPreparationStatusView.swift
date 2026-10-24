@@ -18,7 +18,6 @@ private struct ProjectPreparationContent: View {
     var compact: Bool
     @State private var showingDetails = false
 
-    private var chinese: Bool { settings.language == .simplifiedChinese }
     private var snapshot: ProjectPreparationSnapshot? {
         feature.projectPreparation
     }
@@ -33,14 +32,14 @@ private struct ProjectPreparationContent: View {
                         Image(systemName: snapshot.status == "failed" ? "exclamationmark.triangle" : "checkmark.circle")
                     }
                     Text(snapshot.status == "failed"
-                        ? (chinese ? "Java 项目准备失败" : "Java project preparation failed")
+                        ? (settings.language.localizedString("native.inline.javaProjectPreparationFailed"))
                         : phaseTitle(snapshot.phase))
                         .lineLimit(1)
                 }
                 .font(LitheTheme.uiFont(size: 11))
             }
             .buttonStyle(.litheNoPress)
-            .help(chinese ? "查看项目准备详情" : "View project preparation details")
+            .help(settings.language.localizedString("native.inline.viewProjectPreparationDetails"))
             .litheDropdown(isPresented: $showingDetails, opensUpward: !compact) {
                 VStack(alignment: .leading, spacing: 12) {
                     Text(phaseTitle(snapshot.phase)).font(LitheTheme.uiFont(.headline))
@@ -48,26 +47,22 @@ private struct ProjectPreparationContent: View {
                         Text((snapshot.phase == phase ? "› " : "· ") + phaseTitle(phase))
                             .font(LitheTheme.uiFont(size: 12, weight: snapshot.phase == phase ? .semibold : .regular))
                     }
-                    Text(chinese
-                        ? "Java 工作区准备完成后才能启动。普通后台索引不阻塞运行，编译在运行前执行。"
-                        : "The Java workspace must finish preparation before launch. Background indexing does not block running; compilation runs before launch.")
+                    Text(settings.language.localizedString("native.inline.theJavaWorkspaceMustFinishPreparationBeforeLaunchBackgroundIndexingDoesNotB"))
                         .font(LitheTheme.uiFont(size: 12))
-                    Button(chinese ? "语言服务设置与重试" : "Language service settings and retry") {
+                    Button(settings.language.localizedString("native.inline.languageServiceSettingsAndRetry")) {
                         showingDetails = false
                         model.showSettings(category: .lsp)
                     }
-                    Button(chinese ? "查看日志" : "View logs") {
+                    Button(settings.language.localizedString("native.inline.viewLogs")) {
                         showingDetails = false
                         model.showSettings(category: .diagnostics)
                     }
                     if model.alwaysContinuesAfterJavaBuildFailures {
                         Divider()
-                        Text(chinese
-                            ? "此工作区的 Java 构建失败将始终继续启动。"
-                            : "Java launches always continue after build failures in this workspace.")
+                        Text(settings.language.localizedString("native.inline.javaLaunchesAlwaysContinueAfterBuildFailuresInThisWorkspace"))
                             .font(LitheTheme.uiFont(size: 12))
                             .foregroundStyle(LitheTheme.secondaryText)
-                        Button(chinese ? "再次询问" : "Ask Again") {
+                        Button(settings.language.localizedString("native.inline.askAgain")) {
                             model.askAgainForJavaBuildFailures()
                         }
                     }
@@ -80,12 +75,12 @@ private struct ProjectPreparationContent: View {
 
     private func phaseTitle(_ phase: String) -> String {
         switch phase {
-        case "starting": chinese ? "正在启动 Java 服务" : "Starting Java service"
-        case "importing": chinese ? "正在导入 Java 项目与依赖" : "Importing Java project and dependencies"
-        case "configuring": chinese ? "正在同步 Java 项目配置" : "Synchronizing Java project configuration"
-        case "building": chinese ? "正在构建 Java 项目" : "Building Java project"
-        case "ready": chinese ? "Java 项目模型已就绪" : "Java project model ready"
-        default: chinese ? "Java 项目准备已停止" : "Java project preparation stopped"
+        case "starting": settings.language.localizedString("native.inline.startingJavaService")
+        case "importing": settings.language.localizedString("native.inline.importingJavaProjectAndDependencies")
+        case "configuring": settings.language.localizedString("native.inline.synchronizingJavaProjectConfiguration")
+        case "building": settings.language.localizedString("native.inline.buildingJavaProject")
+        case "ready": settings.language.localizedString("native.inline.javaProjectModelReady")
+        default: settings.language.localizedString("native.inline.javaProjectPreparationStopped")
         }
     }
 }

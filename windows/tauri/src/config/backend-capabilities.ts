@@ -1,4 +1,4 @@
-export const BACKEND_UNAVAILABLE_TOOLTIP = "待开发";
+export const BACKEND_UNAVAILABLE_TOOLTIP = "This feature is not available yet.";
 
 export const backendCapabilities = {
   // The Agent host is the shared `lithe-agent-host`, so the Windows panel's
