@@ -1,8 +1,8 @@
 import Foundation
 
 /// Account-owned subscription windows, separate from session context occupancy.
-public struct AgentSubscriptionQuota: Decodable, Equatable, Sendable {
-    public struct Window: Decodable, Equatable, Sendable, Identifiable {
+public struct AgentSubscriptionQuota: Codable, Equatable, Sendable {
+    public struct Window: Codable, Equatable, Sendable, Identifiable {
         public let id: String
         public let name: String
         public let limitSeconds: UInt64

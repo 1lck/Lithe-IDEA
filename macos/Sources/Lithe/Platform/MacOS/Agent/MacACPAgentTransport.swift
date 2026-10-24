@@ -30,6 +30,13 @@ final class MacACPAgentTransport: AgentConversationTransport {
                 "allowInsecureHttp": configuration.allowsInsecureHTTP
             ]
         }
+        if let directory = configuration.accountDirectory {
+            switch configuration.authentication {
+            case .claudeSubscription: configurationJSON["claudeConfigDir"] = directory.path
+            case .codexSubscription: configurationJSON["codexHome"] = directory.path
+            case .apiKey: break
+            }
+        }
         if let agentID = configuration.agentID {
             configurationJSON["agentId"] = agentID
         } else {

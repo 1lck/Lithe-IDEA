@@ -228,6 +228,8 @@ fn run_local_api_turn_with(status: u16, observe_model_calls: bool) {
             observe_model_calls,
             observe_subagents: false,
             process_scope: None,
+            claude_config_dir: None,
+            codex_home: None,
             provider: Some(ProviderCredentials {
                 protocol: ProviderProtocol::AnthropicMessages,
                 base_url: format!("http://{}", listener.local_addr().unwrap()),
@@ -456,6 +458,8 @@ fn local_model_phase(
             observe_model_calls: false,
             observe_subagents: false,
             process_scope: None,
+            claude_config_dir: None,
+            codex_home: None,
             provider: Some(ProviderCredentials {
                 protocol: ProviderProtocol::AnthropicMessages,
                 base_url: format!("http://{}", listener.local_addr().unwrap()),

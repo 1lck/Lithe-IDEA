@@ -1,0 +1,33 @@
+{
+  "id": "agent-subscription-multi-account",
+  "area": "AI",
+  "group": "Agent 对话",
+  "capability": "Claude 与 Codex 官方订阅支持多个账号：每个账号是官方 CLI 的独立配置目录（CLAUDE_CONFIG_DIR / CODEX_HOME），登录在后台运行官方登录命令并由 CLI 打开浏览器，手动设为首选并重启连接；账号卡片显示邮箱、套餐和最近一次推送的 5 小时/7 天用量，会话收藏与重命名按账号分开，不读取、复制凭据，也不在额度耗尽时自动换号",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Models/Settings/AgentAccounts.swift",
+      "macos/Sources/Lithe/Models/AppModel/AppModel+AgentAccounts.swift",
+      "macos/Sources/Lithe/Views/Agent/AgentAccountsSection.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Agent/MacAgentAccountSignIn.swift",
+      "macos/Sources/Lithe/Application/Features/AgentLaunchConfigurationResolver.swift",
+      "macos/Sources/LitheAgentConversationModule/Application/AgentHistoryFeatureModel.swift",
+      "macos/Tests/LitheTests/AgentAccountTests.swift",
+      "rust/lithe-agent-host/src/claude_subscription.rs",
+      "rust/lithe-agent-host/src/subscription.rs",
+      ".agents/notes/implemented/feature/2026-10-24-agent-subscription-multi-account.md"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
+    "evidence": [
+      "rust/lithe-agent-host/src/claude_subscription.rs",
+      "rust/lithe-agent-host/src/subscription.rs",
+      "rust/lithe-agent-host/src/lib.rs"
+    ]
+  },
+  "owner": "Agent",
+  "verification": "macOS：启用 Claude 或 Codex 官方订阅后，在设置 > AI > Agent 管理对应 Agent 的「订阅账号」中点击「添加另一个账号」，不弹出终端，卡片显示「正在等待浏览器登录…」并可取消，浏览器由官方 CLI 打开并完成授权；分别用带该账号目录的 claude auth status / codex login status 与默认账号确认互不覆盖登录（macOS 钥匙串隔离需实机确认）。将新账号设为首选，当前项目该 Agent 的连接重启，卡片显示该账号邮箱与套餐，发送消息后显示 5 小时/7 天用量、重置时间、配速和「截至 …，本次未主动刷新」（Codex 的用量由已有额度查询刷新，使用同一账号目录）；正在回复或等待授权时设为首选被拒绝；两个账号下的会话收藏和重命名互不影响；Codex 已归档历史按账号目录列出；移除账号不删除其目录；额度耗尽时不会自动换号；关闭设置页会取消进行中的登录。Windows：共享 Host 已支持 claudeConfigDir 与 codexHome 启动参数，设置界面和登录入口尚未提供，待接入并真机验收。"
+}

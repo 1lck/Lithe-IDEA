@@ -103,7 +103,7 @@ extension AppModel {
         }
     }
 
-    private func stopAgentsForProviderChange(_ agentIDs: [String]) async throws {
+    func stopAgentsForProviderChange(_ agentIDs: [String]) async throws {
         try Task.checkCancellation()
         guard let feature = agentConversationFeatureIfActive else { return }
         let connections = agentIDs.sorted().map { feature.connection(for: $0) }
@@ -117,13 +117,13 @@ extension AppModel {
         try Task.checkCancellation()
     }
 
-    private func beginAgentProviderChange() throws {
+    func beginAgentProviderChange() throws {
         try Task.checkCancellation()
         guard !isChangingAgentProvider else { throw AgentProviderConfigurationError.busy }
         isChangingAgentProvider = true
     }
 
-    private func finishAgentProviderChange() {
+    func finishAgentProviderChange() {
         isChangingAgentProvider = false
         // Restore the old profile after a storage failure, or connect using the saved selection.
         connectAgentConversation()

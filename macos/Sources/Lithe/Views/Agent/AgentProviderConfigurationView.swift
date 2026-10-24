@@ -31,6 +31,13 @@ struct AgentProviderConfigurationView: View {
     }
 
     var body: some View {
+        providersSection
+        if usesSubscription {
+            AgentAccountsSection(agentID: agentID, model: model, settings: settings)
+        }
+    }
+
+    private var providersSection: some View {
         LitheSettingsSection(title: "Providers", accessory: {
             LitheInfoTip("Local configuration follows your CLI files. Custom providers are saved in Lithe and do not change those files. Switching restarts this project's Agent connection; open history again to continue a saved conversation.")
         }) {
