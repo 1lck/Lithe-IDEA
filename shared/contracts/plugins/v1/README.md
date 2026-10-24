@@ -1190,7 +1190,7 @@ owns it and invokes its functions from that plugin's web pages (the
 `functions.*` bridge methods below). A provider served by a shared language
 server is started by the host for every plugin of its language, so it serves
 no plugin's functions. Windows has no plugin backend host. The
-[official Node SDK](#official-backend-sdk) implements the backend side.
+[official SDKs](#official-backend-sdk) implement the backend side.
 
 ### Capability ownership
 
@@ -1410,13 +1410,25 @@ to shade into their backend. It enforces the same rules with the same error
 mapping, with one difference: on Java 8 it stops only a cancelled tool's
 direct child, and the host's process scope ends the rest.
 
-Each SDK has a sample plugin (`sdk/*/examples/sample-build`), and both samples
-answer one end-to-end scenario driven through a real Core session. That
-repository runs it against the Lithe commit its contract copy pins, and weekly
-against the latest `preview`, the branch Lithe changes merge into.
+[`sdk/rust`](https://github.com/Lithe-IDEA/lithe-plugin-docs/blob/main/sdk/rust/README.md) is the SDK for
+[plugin backends](#plugin-backend), which ship as packaged executables. It
+implements plugin-function protocol versions 1 and 2, including the
+`credentials` host service, but neither build nor VCS providers. It needs
+Rust 1.87 or newer, depends only on `serde_json`, and is released
+(`sdk-rust-v<version>`) as a `.crate` archive with its SHA-256, or used as a
+Git dependency pinned by the tag. It enforces the same rules: on Unix it
+points stdout at stderr so only protocol frames reach the host, and a panic
+ends only its call, reported like any unexpected failure.
 
-Neither SDK adds a wire field: a backend written without one is equally
-valid.
+The Node.js and Java SDKs each have a sample build provider
+(`sdk/*/examples/sample-build`) that answers one end-to-end scenario driven
+through a real Core session; the Rust SDK's sample backend
+(`sdk/rust/examples/sample-backend`) answers a plugin backend scenario in which
+the test plays the host and serves the credential requests. That repository
+runs them against the Lithe commit its contract copy pins, and weekly against
+the latest `preview`, the branch Lithe changes merge into.
+
+No SDK adds a wire field: a backend written without one is equally valid.
 
 ## Outcomes and error codes
 
