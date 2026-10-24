@@ -850,7 +850,10 @@ struct DatabaseSidebarView: View {
                     let isExpanded = expandedTableKeys.contains(tableKey)
                     HStack(spacing: LitheTheme.Tree.iconTextGap) {
                         Button {
-                            if isExpanded { expandedTableKeys.remove(tableKey) }
+                            if isExpanded {
+                                expandedTableKeys.remove(tableKey)
+                                feature.cancelTableTreeLoad(tableKey)
+                            }
                             else { expandedTableKeys.insert(tableKey) }
                         } label: {
                             LitheIDEAIcon(resourcePath: isExpanded ? "expui/general/chevronDown.svg" : "expui/general/chevronRight.svg", size: LitheTheme.Tree.iconSize)
@@ -905,6 +908,7 @@ struct DatabaseSidebarView: View {
                             }
                         }
                         .task(id: feature.tableTrees[tableKey]?.requestID) { await feature.loadTableTree(tableKey) }
+                        .onDisappear { feature.cancelTableTreeLoad(tableKey) }
                     }
                 }
             }
@@ -973,7 +977,13 @@ struct DatabaseSidebarView: View {
     }
 
     private func toggleObjectSection(_ kind: DatabaseObjectKind, profile: DatabaseProfile) {
-        collapsedObjectKinds[DatabaseTreePath(profile), default: []].formSymmetricDifference([kind])
+        let path = DatabaseTreePath(profile)
+        collapsedObjectKinds[path, default: []].formSymmetricDifference([kind])
+        if kind == .tables && collapsedObjectKinds[path]?.contains(kind) == true {
+            for key in expandedTableKeys where key.profileID == profile.id && key.database == profile.database {
+                feature.cancelTableTreeLoad(key)
+            }
+        }
     }
 
     private func sidebarLeaf(

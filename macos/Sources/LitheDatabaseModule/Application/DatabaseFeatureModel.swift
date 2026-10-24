@@ -768,6 +768,9 @@ package final class DatabaseFeatureModel: ObservableObject {
 
     /// Collapsed nodes keep completed metadata but stop requests no longer visible in the tree.
     package func cancelDatabaseTreeLoad(for profileID: UUID, database: String? = nil) {
+        for key in tableMetadataTasks.keys.filter({ $0.profileID == profileID && (database == nil || $0.database == database) }) {
+            cancelTableTreeLoad(key)
+        }
         if let database {
             databaseStructureTasks.removeValue(forKey: DatabaseTreeDatabaseKey(profileID: profileID, database: database))?.cancel()
             if databaseTrees[profileID]?.databases[database]?.state == .loading {
@@ -799,6 +802,17 @@ package final class DatabaseFeatureModel: ObservableObject {
         }
     }
 
+    /// A collapsed tree node relinquishes its request unless the active editor is using it.
+    package func cancelTableTreeLoad(_ key: DatabaseTreeTableKey) {
+        guard !(isLoading && selectedProfileID == key.profileID && selectedProfile?.database == key.database && selectedTable == key.table),
+              let task = tableMetadataTasks.removeValue(forKey: key) else { return }
+        task.cancel()
+        if tableTrees[key]?.state == .loading {
+            tableTrees[key]?.state = .idle
+            tableTrees[key]?.requestID = UUID()
+        }
+    }
+
     private func tableConnection(_ profile: DatabaseProfile, database: String) async -> DatabaseConnection {
         var target = connection(profile, password: "")
         target.database = database
@@ -812,7 +826,14 @@ package final class DatabaseFeatureModel: ObservableObject {
     }
 
     private func tableMetadata(_ key: DatabaseTreeTableKey, profile: DatabaseProfile, force: Bool = false) async throws -> DatabaseTreeTable {
-        if let task = tableMetadataTasks[key] { return try await task.value }
+        if let task = tableMetadataTasks[key] {
+            if force {
+                task.cancel()
+                tableMetadataTasks.removeValue(forKey: key)
+            } else {
+                return try await task.value
+            }
+        }
         if !force, let cached = tableTrees[key], cached.state == .ready { return cached }
         var snapshot = tableTrees[key] ?? DatabaseTreeTable()
         snapshot.state = .loading

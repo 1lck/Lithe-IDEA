@@ -901,6 +901,7 @@ struct DatabaseWorkspaceLifecycleTests {
         defer { editor.cancel(); runner.release.open() }
         #expect(await runner.pageEntered.waitUntilOpen())
         #expect(feature.isLoading)
+        feature.cancelTableTreeLoad(key) // Collapsing the tree must preserve the editor's shared metadata request.
         runner.release.open()
         await tree.value
         await editor.value
@@ -936,6 +937,31 @@ struct DatabaseWorkspaceLifecycleTests {
         await feature.loadTableTree(key, force: true)
         #expect(feature.tableTrees[key]?.state == .ready)
         #expect(feature.tableTrees[key]?.columns.count == 2)
+        #expect(!feature.hasActiveModuleWork)
+    }
+
+    @Test
+    func databaseTreeForcedTableRefreshReplacesAnInFlightRequest() async throws {
+        let runner = DatabaseTreeRunner()
+        runner.blocks = true
+        runner.blockedMethod = "describeTable"
+        let store = DatabaseConnectionStore(store: DatabaseLifecyclePreferences(), secureStore: DatabaseLifecycleSecrets())
+        let profile = DatabaseProfile(name: "Server", kind: .mysql, database: "alpha")
+        try store.save([profile])
+        let feature = DatabaseFeatureModel(operations: DatabaseSidecarService(processRunner: runner, executableURL: URL(fileURLWithPath: "/fixture/database")), connectionStore: store)
+        defer { runner.release.open(); feature.prepareForModuleRelease() }
+        let key = DatabaseTreeTableKey(profileID: profile.id, database: "alpha", table: "shared")
+        let old = Task { await feature.loadTableTree(key) }
+        defer { old.cancel() }
+        #expect(await runner.entered.waitUntilOpen())
+        runner.columnNames = ["fresh"]
+        runner.blocks = false
+        await feature.loadTableTree(key, force: true)
+        #expect(feature.tableTrees[key]?.columns.compactMap { $0["column_name"] } == [.string("fresh")])
+        #expect(runner.requests.filter { $0.method == "describeTable" }.count == 2)
+        runner.release.open()
+        await old.value
+        #expect(feature.tableTrees[key]?.columns.compactMap { $0["column_name"] } == [.string("fresh")])
         #expect(!feature.hasActiveModuleWork)
     }
 
@@ -1167,7 +1193,7 @@ struct DatabaseWorkspaceLifecycleTests {
     @Test(arguments: [
         ("listDatabases", "cancel"), ("listDatabases", "collapse"), ("listDatabases", "release"),
         ("listTables", "collapse"), ("listTables", "disconnect"), ("listTables", "forceRefresh"),
-        ("describeTable", "release")
+        ("describeTable", "release"), ("describeTable", "tableCollapse"), ("describeTable", "tableForceRefresh")
     ])
     func databaseTreeCancellationStopsSidecarWithoutReleasingARequest(scenario: (String, String)) async throws {
         let (method, action) = scenario
@@ -1196,7 +1222,7 @@ struct DatabaseWorkspaceLifecycleTests {
         }
         defer { loading.cancel() }
         let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(2))
+        let deadline = clock.now.advanced(by: .seconds(5))
         var processID: Int32?
         while clock.now < deadline {
             processID = (try? String(contentsOf: pidFile, encoding: .utf8)).flatMap { Int32($0) }
@@ -1211,6 +1237,10 @@ struct DatabaseWorkspaceLifecycleTests {
         case "cancel": loading.cancel()
         case "release": feature.prepareForModuleRelease()
         case "collapse": feature.cancelDatabaseTreeLoad(for: profile.id, database: method == "listTables" ? "alpha" : nil)
+        case "tableCollapse": feature.cancelTableTreeLoad(DatabaseTreeTableKey(profileID: profile.id, database: "alpha", table: "shared"))
+        case "tableForceRefresh":
+            runner.shouldBlock = false
+            await feature.loadTableTree(DatabaseTreeTableKey(profileID: profile.id, database: "alpha", table: "shared"), force: true)
         case "disconnect": feature.disconnect(profile)
         default:
             runner.shouldBlock = false
@@ -2863,6 +2893,7 @@ private final class DatabaseTreeRunner: DatabaseProcessRunning, @unchecked Senda
     private var storedBlocks = false
     private var storedBlockedMethod = "listTables"
     private var storedFailureMethod = "listTables"
+    private var storedColumnNames = ["id", "name"]
     let entered = TestGate(), release = TestGate(), pageEntered = TestGate()
     var requests: [Request] { lock.withLock { recorded } }
     var names: [String] {
@@ -2886,6 +2917,10 @@ private final class DatabaseTreeRunner: DatabaseProcessRunning, @unchecked Senda
         get { lock.withLock { storedFailureMethod } }
         set { lock.withLock { storedFailureMethod = newValue } }
     }
+    var columnNames: [String] {
+        get { lock.withLock { storedColumnNames } }
+        set { lock.withLock { storedColumnNames = newValue } }
+    }
 
     var includesObjects: Bool {
         get { lock.withLock { storedIncludesObjects } }
@@ -2902,6 +2937,7 @@ private final class DatabaseTreeRunner: DatabaseProcessRunning, @unchecked Senda
             let connection = params["connection"] as? [String: Any] ?? [:]
             let database = connection["database"] as? String ?? ""
             lock.withLock { recorded.append(Request(method: method, database: database)) }
+            let columns = columnNames
             if blocks && method == blockedMethod && database == "alpha" {
                 entered.open()
                 // Production invokes this synchronous port on its worker; the gate has a local deadline.
@@ -2913,7 +2949,7 @@ private final class DatabaseTreeRunner: DatabaseProcessRunning, @unchecked Senda
             case "listDatabases": result = names
             case "listTables": result = [["table_name": "\(database)_only"], ["table_name": "shared"]]
             case "listObjects": result = includesObjects ? [["name": "fixture_\(params["kind"] as? String ?? "object")"]] : []
-            case "describeTable": result = [["column_name": "id", "data_type": "int"], ["column_name": "name", "data_type": "text"]]
+            case "describeTable": result = columns.map { ["column_name": $0, "data_type": $0 == "id" ? "int" : "text"] }
             case "listIndexes", "listForeignKeys": result = [] as [String]
             case "pageTable":
                 pageEntered.open()
