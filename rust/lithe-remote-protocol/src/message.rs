@@ -32,6 +32,12 @@ pub enum Message {
         event: String,
         #[serde(default)]
         params: Value,
+        /// Position in the session's event stream, increasing by one per
+        /// event. Clients acknowledge it with `server.ack` and resume after
+        /// it with `server.resume`, so no event is lost or repeated across a
+        /// reconnection.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        seq: Option<u64>,
     },
 }
 
@@ -80,10 +86,15 @@ pub enum ErrorCode {
     Conflict,
     /// A requested transfer exceeds the per-call size limit.
     TooLarge,
-    /// The process id is unknown or the process already exited.
-    ProcessNotFound,
+    /// The process, terminal, watch, tunnel or walk id is unknown, or the
+    /// resource already ended.
+    UnknownResource,
+    /// A resource with the client-chosen id already exists in the session.
+    ResourceIdInUse,
     /// The program could not be started.
     SpawnFailed,
+    /// A tunnel could not connect to its remote target.
+    ConnectFailed,
     /// The server has too many requests in flight.
     Busy,
     /// The operation is not available on this host.
@@ -159,7 +170,8 @@ mod tests {
             event,
             Message::Event {
                 event: "process.exit".into(),
-                params: Value::Null
+                params: Value::Null,
+                seq: None,
             }
         );
     }

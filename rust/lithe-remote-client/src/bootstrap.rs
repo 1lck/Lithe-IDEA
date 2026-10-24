@@ -140,9 +140,16 @@ pub struct InstalledServer {
 }
 
 impl InstalledServer {
-    /// Server command line to pass to [`TransportChain::command`].
+    /// Command line of a session that ends with the connection.
     pub fn stdio_command(&self) -> Vec<String> {
         vec![self.path.clone(), "--stdio".into()]
+    }
+
+    /// Command line of the persistent session `key`, which survives a
+    /// dropped connection. `key` must be 1–64 characters from
+    /// `[A-Za-z0-9._-]`, for example a hash of the workspace path.
+    pub fn connect_command(&self, key: &str) -> Vec<String> {
+        vec![self.path.clone(), "--connect".into(), key.into()]
     }
 }
 

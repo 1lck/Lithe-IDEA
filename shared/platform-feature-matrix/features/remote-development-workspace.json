@@ -22,5 +22,5 @@
     "verificationStatus": "not-applicable"
   },
   "owner": "Workspace",
-  "verification": "接入产品后，分别连接一台 Linux SSH 主机、一个 Docker 容器和一台远程 Mac：打开远程文件夹、编辑保存、在终端运行命令、构建运行项目，断开连接后确认远端没有残留进程。当前只有 Rust 核心（协议、远端服务、传输链），由 scripts/verify-remote-workspace.sh 验证，尚无产品入口。"
+  "verification": "接入产品后，分别连接一台 Linux SSH 主机、一个 Docker 容器和一台远程 Mac：打开远程文件夹、编辑保存、文件变化实时刷新、在终端运行命令、用登录环境构建运行项目、通过端口转发访问远端服务；断开网络再重连后终端和构建仍在，主动关闭后远端没有残留进程。当前只有 Rust 后端（协议、远端服务、常驻会话、传输链、客户端 API），由 scripts/verify-remote-workspace.sh 验证，尚无产品入口。"
 }

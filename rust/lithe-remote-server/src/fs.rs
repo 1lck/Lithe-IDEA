@@ -6,15 +6,16 @@
 
 use crate::{parse, platform, to_value};
 use lithe_remote_protocol::methods::{
-    self, decode_bytes, encode_bytes, CreateDirParams, DirectoryEntry, FileKind, FileMetadata,
-    PathParams, ReadDirResult, ReadFileParams, ReadFileResult, RemoveParams, RenameParams,
-    VolumeInfo, WriteFileParams, MAX_TRANSFER_BYTES,
+    self, decode_bytes, encode_bytes, CopyParams, CopyResult, CreateDirParams, DirectoryEntry,
+    FileKind, FileMetadata, PathParams, ReadDirResult, ReadFileParams, ReadFileResult,
+    RealPathResult, RemoveParams, RenameParams, SetPermissionsParams, VolumeInfo, WriteFileParams,
+    MAX_TRANSFER_BYTES,
 };
 use lithe_remote_protocol::{ErrorCode, RemoteError};
 use serde_json::{json, Value};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::UNIX_EPOCH;
@@ -33,6 +34,34 @@ pub(crate) fn handle(method: &str, params: Value) -> Result<Value, RemoteError> 
         methods::FS_CREATE_DIR => create_dir(parse(params)?).map(|()| Value::Null),
         methods::FS_REMOVE => remove(parse(params)?).map(|()| Value::Null),
         methods::FS_RENAME => rename(parse(params)?).map(|()| Value::Null),
+        methods::FS_COPY => to_value(copy(parse(params)?)?),
+        methods::FS_REAL_PATH => {
+            let params: PathParams = parse(params)?;
+            let resolved = fs::canonicalize(host_path(&params.path)?)
+                .map_err(|error| io_error(error, &params.path))?;
+            let path = resolved.into_os_string().into_string().map_err(|_| {
+                RemoteError::new(
+                    ErrorCode::InvalidPath,
+                    "the resolved path is not valid UTF-8",
+                )
+            })?;
+            to_value(RealPathResult { path })
+        }
+        methods::FS_SET_PERMISSIONS => {
+            let params: SetPermissionsParams = parse(params)?;
+            if params.mode > 0o7777 {
+                return Err(RemoteError::new(
+                    ErrorCode::InvalidRequest,
+                    "mode has bits beyond 0o7777",
+                ));
+            }
+            fs::set_permissions(
+                host_path(&params.path)?,
+                fs::Permissions::from_mode(params.mode),
+            )
+            .map_err(|error| io_error(error, &params.path))
+            .map(|()| Value::Null)
+        }
         methods::FS_VOLUME_INFO => {
             let params: PathParams = parse(params)?;
             let path = host_path(&params.path)?;
@@ -49,7 +78,7 @@ pub(crate) fn handle(method: &str, params: Value) -> Result<Value, RemoteError> 
 
 /// Accepts only absolute paths. A relative path would resolve against the
 /// server's working directory, which depends on how the transport started it.
-fn host_path(path: &str) -> Result<PathBuf, RemoteError> {
+pub(crate) fn host_path(path: &str) -> Result<PathBuf, RemoteError> {
     if !path.starts_with('/') || path.contains('\0') {
         return Err(
             RemoteError::new(ErrorCode::InvalidPath, "paths must be absolute host paths")
@@ -87,12 +116,13 @@ fn describe(path: &Path, metadata: &fs::Metadata) -> FileMetadata {
             .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
             .and_then(|duration| i64::try_from(duration.as_millis()).ok()),
         readonly: metadata.permissions().readonly(),
+        mode: metadata.mode() & 0o7777,
         symlink_target,
         symlink_target_kind,
     }
 }
 
-fn kind_of(file_type: &fs::FileType) -> FileKind {
+pub(crate) fn kind_of(file_type: &fs::FileType) -> FileKind {
     if file_type.is_symlink() {
         FileKind::Symlink
     } else if file_type.is_dir() {
@@ -310,6 +340,155 @@ fn rename(params: RenameParams) -> Result<(), RemoteError> {
         platform::rename_no_replace(&from, &to)
     };
     renamed.map_err(|error| io_error(error, &params.from))
+}
+
+fn copy(params: CopyParams) -> Result<CopyResult, RemoteError> {
+    let from = host_path(&params.from)?;
+    let to = host_path(&params.to)?;
+    let source = fs::symlink_metadata(&from).map_err(|error| io_error(error, &params.from))?;
+    let kind = kind_of(&source.file_type());
+    if kind == FileKind::Other {
+        return Err(RemoteError::new(
+            ErrorCode::Unsupported,
+            "sockets, FIFOs and devices cannot be copied",
+        ));
+    }
+    if kind == FileKind::Directory && !params.recursive {
+        return Err(RemoteError::new(
+            ErrorCode::IsADirectory,
+            "copying a directory requires recursive",
+        ));
+    }
+    if kind == FileKind::Directory && is_inside(&from, &to) {
+        // Copying a directory into itself would recurse until the disk is full.
+        return Err(RemoteError::new(
+            ErrorCode::InvalidRequest,
+            "cannot copy a directory into itself",
+        ));
+    }
+    match fs::symlink_metadata(&to) {
+        Ok(_) if !params.overwrite => {
+            return Err(RemoteError::new(
+                ErrorCode::AlreadyExists,
+                "the target already exists",
+            ))
+        }
+        Ok(existing) if existing.is_dir() && kind != FileKind::Directory => {
+            return Err(RemoteError::new(
+                ErrorCode::IsADirectory,
+                "cannot replace a directory with a file",
+            ))
+        }
+        Ok(_) if same_file(&from, &to) => {
+            // Overwriting truncates the target before the source is read, so
+            // copying a file onto itself would erase it.
+            return Err(RemoteError::new(
+                ErrorCode::InvalidRequest,
+                "the source and the target are the same file",
+            ));
+        }
+        _ => {}
+    }
+    let mut result = CopyResult::default();
+    copy_entry(&from, &to, &source, &mut result).map_err(|error| io_error(error, &params.from))?;
+    Ok(result)
+}
+
+/// Whether copying `from` onto the existing `to` would destroy the source.
+///
+/// A link source replaces only the entry at `to`, so it is destructive when
+/// that entry is the link itself or the file the link points to. A file
+/// source is written through `to` with truncation, so it is destructive when
+/// `to` resolves to the source file, directly, through a link or as a hard
+/// link.
+fn same_file(from: &Path, to: &Path) -> bool {
+    let identity = |metadata: io::Result<fs::Metadata>| {
+        metadata
+            .ok()
+            .map(|metadata| (metadata.dev(), metadata.ino()))
+    };
+    let source_entry = identity(fs::symlink_metadata(from));
+    let source_file = identity(fs::metadata(from));
+    let is_link =
+        fs::symlink_metadata(from).is_ok_and(|metadata| metadata.file_type().is_symlink());
+    if is_link {
+        let target_entry = identity(fs::symlink_metadata(to));
+        target_entry.is_some() && (target_entry == source_entry || target_entry == source_file)
+    } else {
+        let target_file = identity(fs::metadata(to));
+        target_file.is_some() && target_file == source_file
+    }
+}
+
+/// Whether `target` is `directory` or lies inside it once links are
+/// resolved, for example `/w/link-to-src/inner` with `link-to-src -> src`.
+fn is_inside(directory: &Path, target: &Path) -> bool {
+    let Ok(directory) = fs::canonicalize(directory) else {
+        return target.starts_with(directory);
+    };
+    let resolved = fs::canonicalize(target).or_else(|_| {
+        let parent = target
+            .parent()
+            .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;
+        let name = target
+            .file_name()
+            .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;
+        fs::canonicalize(parent).map(|parent| parent.join(name))
+    });
+    match resolved {
+        Ok(resolved) => resolved.starts_with(&directory),
+        Err(_) => target.starts_with(&directory),
+    }
+}
+
+fn copy_entry(
+    from: &Path,
+    to: &Path,
+    metadata: &fs::Metadata,
+    result: &mut CopyResult,
+) -> io::Result<()> {
+    let file_type = metadata.file_type();
+    if file_type.is_symlink() {
+        let target = fs::read_link(from)?;
+        if fs::symlink_metadata(to).is_ok() {
+            fs::remove_file(to)?;
+        }
+        return std::os::unix::fs::symlink(target, to);
+    }
+    if file_type.is_dir() {
+        match fs::create_dir(to) {
+            Err(error) if error.kind() != io::ErrorKind::AlreadyExists => return Err(error),
+            _ => {}
+        }
+        let mut children: Vec<_> = fs::read_dir(from)?.collect::<Result<_, _>>()?;
+        children.sort_by_key(|entry| entry.file_name());
+        for child in children {
+            let child_metadata = fs::symlink_metadata(child.path())?;
+            copy_entry(
+                &child.path(),
+                &to.join(child.file_name()),
+                &child_metadata,
+                result,
+            )?;
+        }
+        return fs::set_permissions(to, metadata.permissions());
+    }
+    if !file_type.is_file() {
+        // Opening a FIFO for reading blocks until a writer appears, which may
+        // be never, and devices are not file content.
+        result.skipped_special_files += 1;
+        return Ok(());
+    }
+    if fs::symlink_metadata(to).is_ok() && same_file(from, to) {
+        // A merge into an existing tree can meet a hard link of the source.
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{} and its target are the same file", from.display()),
+        ));
+    }
+    // `fs::copy` keeps permission bits and uses copy-on-write clones where
+    // the filesystem supports them.
+    fs::copy(from, to).map(|_| ())
 }
 
 fn too_large(length: u64) -> RemoteError {
