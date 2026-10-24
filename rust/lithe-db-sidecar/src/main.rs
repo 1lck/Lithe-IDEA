@@ -80,7 +80,9 @@ struct Connection {
     ssh_key_path: String,
     #[serde(default)]
     ssh_local_port: u16,
-    #[serde(default)]
+    /// Lithe's clients send `proxyURL`; `proxyUrl` is the serde default
+    /// this field was once read as, kept so neither spelling is dropped.
+    #[serde(default, rename = "proxyURL", alias = "proxyUrl")]
     proxy_url: String,
     #[serde(default)]
     read_only: bool,
@@ -4195,6 +4197,18 @@ impl Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn connections_read_the_proxy_url_lithe_sends() {
+        for key in ["proxyURL", "proxyUrl"] {
+            let connection: Connection = serde_json::from_value(json!({
+                "kind": "mysql",
+                key: "ssh -W %h:%p bastion",
+            }))
+            .unwrap();
+            assert_eq!(connection.proxy_url, "ssh -W %h:%p bastion", "{key}");
+        }
+    }
 
     #[tokio::test]
     async fn sqlite_metadata_preserves_primary_key_ordinals() {
