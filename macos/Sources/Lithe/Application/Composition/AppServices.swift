@@ -76,6 +76,7 @@ final class AppServices {
     /// Detects Node.js and installs ACP adapters for the Agents settings page.
     let agentManagement: any AgentManagementService
     let agentInstructions: any AgentInstructionsService
+    let agentHooks: any AgentHooksService
     let agentProviderConfigurationParser: any AgentProviderConfigurationParsing
     let aiConfigurationSources: [any AIConfigurationSource]
     let recentProjectsStore: RecentProjectsStore
@@ -122,6 +123,7 @@ final class AppServices {
         credentialResolver: any AIProviderCredentialResolver,
         agentManagement: any AgentManagementService = UnavailableAgentManagementService(),
         agentInstructions: any AgentInstructionsService = UnavailableAgentInstructionsService(),
+        agentHooks: any AgentHooksService = UnavailableAgentHooksService(),
         agentProviderConfigurationParser: any AgentProviderConfigurationParsing = UnavailableAgentProviderConfigurationParser(),
         aiConfigurationSources: [any AIConfigurationSource],
         recentProjectsStore: RecentProjectsStore,
@@ -180,6 +182,7 @@ final class AppServices {
         self.credentialResolver = credentialResolver
         self.agentManagement = agentManagement
         self.agentInstructions = agentInstructions
+        self.agentHooks = agentHooks
         self.agentProviderConfigurationParser = agentProviderConfigurationParser
         self.aiConfigurationSources = aiConfigurationSources
         self.recentProjectsStore = recentProjectsStore

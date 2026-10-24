@@ -812,6 +812,44 @@ atomic and partial success is explicit. Cancellation stops remaining targets and
 next page read reconciles actual state. None of these files is a build cache or
 installed resource. The fixture is `fixtures/agent/shared-instructions-v1.json`.
 
+`agent.hooks` manages a platform-owned writable Hook library. Requests take
+`dataDirectory` and a strict `action`: `read`, `save`, `remove`, or `sync`.
+Mutations require `expectedRevision` and native `files` guards containing
+`agentId`, `path`, and `revision`. Guard paths never select write destinations:
+Agent Host resolves `CODEX_HOME/hooks.json` and `CLAUDE_CONFIG_DIR/settings.json`
+using native profile defaults when environment overrides are absent.
+
+`save` also takes `hook`: a UUID `id`, unique ASCII `name` (1–80 letters,
+digits, hyphens or underscores), `description` (at most 200 Unicode scalars),
+`event` (`turn-end`, `after-tool`, `before-tool`, `prompt`, `session-start`),
+`matcher` (`all`, `shell`, `edit`), nonempty UTF-8 `command` (at most 32768 bytes),
+nullable `timeoutSeconds` (1–86400, null inherits the native default), selected
+`agents` (`codex-acp`, `claude-acp`), `enabled`, and `pendingRemoval: false`.
+Only tool events accept a non-`all` matcher. `remove` takes `id`; `sync` retries
+the existing desired state. Neither configuration management nor reading the
+library executes commands or grants native trust.
+
+The result contains source `revision`, flattened `hooks` with actual
+`configuredAgents` and `needsSync`, plus `targets` containing `agentId`, nullable
+`file` guard, nullable `issue`, and `disabled` (Claude's `disableAllHooks`).
+Native configuration contents, which can include secrets, are never returned.
+Desired state is committed before target writes; target failures remain visible
+and removal failures retain a `pendingRemoval` row. A nonblocking OS file lock
+coordinates library writers. Each bounded UTF-8 file replacement is guarded and
+atomic; cross-file synchronization is explicitly partial, with write-ahead
+ownership records permitting recovery after interruption. Native duplicate JSON
+keys, malformed JSON, symlinks, nonregular files and changed snapshots are rejected.
+Existing unknown JSON values survive writes, while formatting is normalized.
+
+Only exact recorded placements can be retired. Native groups are cleared to
+`{"hooks":[]}` instead of compacted, preserving Codex's index-based trust keys.
+Unchanged commands keep their original positions; edited commands do not inherit
+trust. A matching user-owned entry is never claimed or duplicated. Codex still
+requires native Hook enablement and approval in `/hooks`; `configuredAgents`
+does not claim execution. Source, ownership journal, lock and temporary siblings
+are user state outside installed resources and cannot be reused across worktrees.
+The shared fixture is `shared/fixtures/agent/hooks-management-v1.json`.
+
 `agent.status`, `agent.install`, `agent.uninstall`, and `agent.installCli` manage ACP adapters in
 `<dataDirectory>/agents/<agentId>`, using the Node.js and npm the user installed.
 Lithe never installs Node.js or npm; the agents' own command-line tools are installed only through `agent.installCli` on an explicit user action. `agent.status`
