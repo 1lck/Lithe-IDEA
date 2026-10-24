@@ -2,7 +2,7 @@
   "id": "database-query-history",
   "area": "数据库",
   "group": "数据库工作区",
-  "capability": "SQL 查询、历史与分页（由官方插件提供）",
+  "capability": "SQL 查询、历史与分页（由社区插件提供）",
   "macos": {
     "evidence": [
       "macos/Sources/LitheModuleAPI/Catalog/BuiltInModuleCatalog.swift",
@@ -23,6 +23,6 @@
     "implementationStatus": "missing",
     "verificationStatus": "not-applicable"
   },
-  "owner": "Database（官方插件 Lithe-IDEA/lithe-plugin-database）",
-  "verification": "macOS 从插件市场安装官方插件 dev.lithe.plugin.database（发布者签名），打开 Database 工具窗口：在查询控制台执行单条和多条语句，取消正在执行的语句，查看逐语句结果、耗时、行数和错误；只读连接拒绝写入语句（包括以查询或导出形式发送的写入）；不带 WHERE 的 UPDATE/DELETE 等危险语句在生产保护连接上先确认；SQL 历史保留最近 100 条并可恢复到所属连接。 Windows：插件宿主和插件市场就绪前不提供数据库功能，主程序不再包含数据库入口。"
+  "owner": "Database（社区插件 Lithe-IDEA/lithe-plugin-database，Lithe Store 上架）",
+  "verification": "macOS 从插件市场的 Lithe Store 安装社区插件 io.github.lithe-idea.database，打开 Database 工具窗口：在查询控制台执行单条和多条语句，取消正在执行的语句，查看逐语句结果、耗时、行数和错误；只读连接拒绝写入语句（包括以查询或导出形式发送的写入）；不带 WHERE 的 UPDATE/DELETE 等危险语句在生产保护连接上先确认；SQL 历史保留最近 100 条并可恢复到所属连接。 Windows：插件宿主和插件市场就绪前不提供数据库功能，主程序不再包含数据库入口。"
 }

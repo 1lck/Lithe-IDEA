@@ -2,7 +2,7 @@
   "id": "database-connections",
   "area": "数据库",
   "group": "数据库工作区",
-  "capability": "连接配置与 Provider（由官方插件提供）",
+  "capability": "连接配置与 Provider（由社区插件提供）",
   "macos": {
     "evidence": [
       "macos/Sources/LitheModuleAPI/Catalog/BuiltInModuleCatalog.swift",
@@ -23,6 +23,6 @@
     "implementationStatus": "missing",
     "verificationStatus": "not-applicable"
   },
-  "owner": "Database（官方插件 Lithe-IDEA/lithe-plugin-database）",
-  "verification": "macOS 从插件市场安装官方插件 dev.lithe.plugin.database（发布者签名），打开 Database 工具窗口：新建、编辑、复制、测试、删除 MySQL、MariaDB、PostgreSQL、SQLite、SQL Server、MongoDB、Redis、Nacos 连接，含 SSH 隧道、TLS、只读和生产保护；永久保存的密码进入 Keychain（服务 <前缀>.plugin-credentials.dev.lithe.plugin.database），“直到重启”的密码不落盘；文件夹的新建、嵌套、移动、重命名和删除，以及从 DBX 导入连接。停用后入口消失、后端进程退出，重新启用或更新后连接和密码仍在；卸载后凭据和 ${stateDir} 一并删除。确认安装包目录没有任何写入。 Windows：插件宿主和插件市场就绪前不提供数据库功能，主程序不再包含数据库入口。"
+  "owner": "Database（社区插件 Lithe-IDEA/lithe-plugin-database，Lithe Store 上架）",
+  "verification": "macOS 从插件市场的 Lithe Store 安装社区插件 io.github.lithe-idea.database，打开 Database 工具窗口：新建、编辑、复制、测试、删除 MySQL、MariaDB、PostgreSQL、SQLite、SQL Server、MongoDB、Redis、Nacos 连接，含 SSH 隧道、TLS、只读和生产保护；永久保存的密码进入 Keychain（服务 <前缀>.plugin-credentials.dev.lithe.plugin.database），“直到重启”的密码不落盘；文件夹的新建、嵌套、移动、重命名和删除，以及从 DBX 导入连接。停用后入口消失、后端进程退出，重新启用或更新后连接和密码仍在；卸载后凭据和 ${stateDir} 一并删除。确认安装包目录没有任何写入。 Windows：插件宿主和插件市场就绪前不提供数据库功能，主程序不再包含数据库入口。"
 }

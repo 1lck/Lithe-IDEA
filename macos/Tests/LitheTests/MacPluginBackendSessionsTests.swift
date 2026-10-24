@@ -38,10 +38,10 @@ struct MacPluginBackendSessionsTests {
     @Test
     func stateIsPreparedBeforeTheBackendStarts() async throws {
         let prepared = PreparedStates()
-        let fixture = try BackendFixture { pluginID, stateDirectory in
+        let fixture = try BackendFixture { installation, stateDirectory in
             try? FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
             try? Data("moved".utf8).write(to: stateDirectory.appendingPathComponent("migrated.json"))
-            prepared.record(pluginID: pluginID, stateDirectory: stateDirectory)
+            prepared.record(pluginID: installation.pluginID.rawValue, stateDirectory: stateDirectory)
         }
         defer { fixture.remove() }
 
@@ -174,7 +174,7 @@ private struct BackendFixture {
     let core = ScriptedBackendCore()
     let sessions: MacPluginBackendSessions
 
-    init(prepareState: @escaping @Sendable (_ pluginID: String, _ stateDirectory: URL) -> Void = { _, _ in }) throws {
+    init(prepareState: @escaping @Sendable (_ installation: PluginInstallationRecord, _ stateDirectory: URL) -> Void = { _, _ in }) throws {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("lithe-plugin-backend-\(UUID().uuidString)", isDirectory: true)
         packageURL = root.appendingPathComponent("package", isDirectory: true)

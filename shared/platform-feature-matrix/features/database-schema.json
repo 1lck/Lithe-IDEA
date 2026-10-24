@@ -2,7 +2,7 @@
   "id": "database-schema",
   "area": "数据库",
   "group": "数据库工作区",
-  "capability": "Schema、表与列浏览及结构编辑（由官方插件提供）",
+  "capability": "Schema、表与列浏览及结构编辑（由社区插件提供）",
   "macos": {
     "evidence": [
       "macos/Sources/LitheModuleAPI/Catalog/BuiltInModuleCatalog.swift",
@@ -23,6 +23,6 @@
     "implementationStatus": "missing",
     "verificationStatus": "not-applicable"
   },
-  "owner": "Database（官方插件 Lithe-IDEA/lithe-plugin-database）",
-  "verification": "macOS 从插件市场安装官方插件 dev.lithe.plugin.database（发布者签名），打开 Database 工具窗口：浏览 schema、表、列、索引、外键和 DDL；新增、修改、删除列与索引，生产保护连接上的结构变更先确认；MongoDB 集合、Redis Key、Nacos 配置与服务各自的浏览和编辑页面可用。 Windows：插件宿主和插件市场就绪前不提供数据库功能，主程序不再包含数据库入口。"
+  "owner": "Database（社区插件 Lithe-IDEA/lithe-plugin-database，Lithe Store 上架）",
+  "verification": "macOS 从插件市场的 Lithe Store 安装社区插件 io.github.lithe-idea.database，打开 Database 工具窗口：浏览 schema、表、列、索引、外键和 DDL；新增、修改、删除列与索引，生产保护连接上的结构变更先确认；MongoDB 集合、Redis Key、Nacos 配置与服务各自的浏览和编辑页面可用。 Windows：插件宿主和插件市场就绪前不提供数据库功能，主程序不再包含数据库入口。"
 }

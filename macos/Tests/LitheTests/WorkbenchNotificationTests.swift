@@ -64,7 +64,7 @@ struct WorkbenchNotificationTests {
                   forKey: DatabasePluginTransition.legacyProfilesKey)
         #expect(DatabasePluginTransition.shouldSuggest(store: store, installedPluginIDs: none))
         #expect(!DatabasePluginTransition.shouldSuggest(store: store,
-            installedPluginIDs: [OfficialPluginCatalog.databasePluginID]))
+            installedPluginIDs: [DatabasePluginTransition.pluginID]))
         store.set(true, forKey: DatabasePluginTransition.suggestionKey)
         #expect(!DatabasePluginTransition.shouldSuggest(store: store, installedPluginIDs: none))
     }

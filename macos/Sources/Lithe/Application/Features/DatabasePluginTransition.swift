@@ -3,11 +3,15 @@ import LitheModuleAPI
 
 // Note: 数据库改为插件后的老用户提示与迁移见 .agents/notes/implemented/architecture/2026-10-24-database-provider-plugin.md
 
-/// Lithe no longer contains a database module; the official Database plugin
-/// replaces it. Someone who saved connections in the old module learns that
-/// once, and their data moves into the plugin when it first runs
+/// Lithe no longer contains a database module; the Database plugin from
+/// Lithe Store replaces it. Someone who saved connections in the old module
+/// learns that once, and their data moves into the plugin when it first runs
 /// (`MacDatabasePluginMigration`). Nothing downloads on its own.
 enum DatabasePluginTransition {
+    /// The Database plugin in Lithe Store, and the repository its index
+    /// entry must name for the old data to move into it.
+    static let pluginID = PluginID("io.github.lithe-idea.database")
+    static let repository = "https://github.com/Lithe-IDEA/lithe-plugin-database"
     /// Where the old module saved its connection profiles.
     static let legacyProfilesKey = "database.profiles.v1"
     static let suggestionKey = "lithe.databasePluginSuggestion.v1"
@@ -16,7 +20,7 @@ enum DatabasePluginTransition {
     /// is not installed, and the suggestion was never shown.
     static func shouldSuggest(store: any KeyValueStore, installedPluginIDs: Set<PluginID>) -> Bool {
         guard store.object(forKey: suggestionKey) == nil,
-              !installedPluginIDs.contains(OfficialPluginCatalog.databasePluginID),
+              !installedPluginIDs.contains(pluginID),
               let data = store.data(forKey: legacyProfilesKey),
               let profiles = try? JSONSerialization.jsonObject(with: data) as? [Any] else { return false }
         return !profiles.isEmpty

@@ -213,22 +213,16 @@ public enum OfficialPluginCatalog {
         case migratedToCommunity(PluginID)
     }
 
-    /// The language an official plugin supports.
-    public struct Language: Equatable, Sendable {
-        public let id: String
-        public let displayName: String
-        /// Used to suggest the plugin for a project before it is installed.
-        public let fileExtensions: [String]
-        public let projectFileNames: [String]
-    }
-
     public struct Entry: Equatable, Sendable {
         public let id: PluginID
         public let displayName: String
         public let signatureRequirement: PluginSignatureRequirement
         public let distribution: Distribution
-        /// nil for a plugin that supports no language, such as Database.
-        public let language: Language?
+        public let languageID: String
+        public let languageDisplayName: String
+        /// Used to suggest the plugin for a project before it is installed.
+        public let fileExtensions: [String]
+        public let projectFileNames: [String]
 
         /// The community plugin that replaces this retired official plugin.
         public var communityReplacementID: PluginID? {
@@ -240,53 +234,37 @@ public enum OfficialPluginCatalog {
     public static let phpPluginID = PluginID("dev.lithe.plugin.php-support")
     public static let goPluginID = PluginID("dev.lithe.plugin.go-support")
     public static let javaPluginID = PluginID("dev.lithe.plugin.java-support")
-    public static let databasePluginID = PluginID("dev.lithe.plugin.database")
 
     public static let entries: [Entry] = [
-        // Published from its own repository; it handles database passwords,
-        // so only a Lithe publisher signature may load it.
-        Entry(
-            id: databasePluginID,
-            displayName: "Database",
-            signatureRequirement: .publisherPackage,
-            distribution: .download,
-            language: nil
-        ),
         Entry(
             id: javaPluginID,
             displayName: "Java Support",
             signatureRequirement: .sameTeamAsHost,
             distribution: .bundled,
-            language: Language(
-                id: "java",
-                displayName: "Java",
-                fileExtensions: ["java"],
-                projectFileNames: ["pom.xml", "build.gradle", "build.gradle.kts"]
-            )
+            languageID: "java",
+            languageDisplayName: "Java",
+            fileExtensions: ["java"],
+            projectFileNames: ["pom.xml", "build.gradle", "build.gradle.kts"]
         ),
         Entry(
             id: goPluginID,
             displayName: "Go Support",
             signatureRequirement: .publisherPackage,
             distribution: .migratedToCommunity(PluginID("io.github.lithe-idea.go-support")),
-            language: Language(
-                id: "go",
-                displayName: "Go",
-                fileExtensions: ["go"],
-                projectFileNames: ["go.mod", "go.work"]
-            )
+            languageID: "go",
+            languageDisplayName: "Go",
+            fileExtensions: ["go"],
+            projectFileNames: ["go.mod", "go.work"]
         ),
         Entry(
             id: phpPluginID,
             displayName: "PHP Support",
             signatureRequirement: .publisherPackage,
             distribution: .migratedToCommunity(PluginID("io.github.lithe-idea.php-support")),
-            language: Language(
-                id: "php",
-                displayName: "PHP",
-                fileExtensions: ["php", "phtml"],
-                projectFileNames: ["composer.json"]
-            )
+            languageID: "php",
+            languageDisplayName: "PHP",
+            fileExtensions: ["php", "phtml"],
+            projectFileNames: ["composer.json"]
         )
     ]
 

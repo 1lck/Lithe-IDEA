@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-数据库连接功能已经从 Lithe 主仓库和主安装包中移出，成为组织仓库 `Lithe-IDEA/lithe-plugin-database` 中的官方插件 `dev.lithe.plugin.database`。只装 IDE 时没有任何数据库入口；从插件市场安装后才能使用。插件的界面是包内网页，后端用 Rust 编写，macOS 和 Windows 将共用同一份代码。
+数据库连接功能已经从 Lithe 主仓库和主安装包中移出，成为组织仓库 `Lithe-IDEA/lithe-plugin-database` 中的社区插件 `io.github.lithe-idea.database`，在 Lithe Store 上架。只装 IDE 时没有任何数据库入口；从插件市场安装后才能使用。插件的界面是包内网页，后端用 Rust 编写，macOS 和 Windows 将共用同一份代码。
 
 主仓库只保留通用的插件能力：不依附构建系统的插件后端、宿主凭据存储，以及一个过渡垫片——把旧版内置模块保存的连接、历史和密码迁入插件，并提示老用户安装。macOS 先上线；Windows 等插件宿主和插件市场就绪后，补一轮编译、适配和测试即可使用，插件本体不重写。
 
@@ -81,10 +81,11 @@
 
 ### 三、插件身份与分发
 
-- 使用官方 ID（`dev.lithe.plugin.database`），带 Lithe 发布者签名。原因是插件会经手用户的数据库密码，不能使用不需要 Lithe 签名的社区插件身份。
-- 签名在组织仓库的发布 CI 中完成：发布者私钥只作为插件仓库的 CI secret 存在，插件自己出包、签名、登记索引；主仓库的发布流程不参与插件出包。
-- 每个版本按平台发布下载包（`darwin-arm64`、`darwin-x64`，Windows 就绪后再加 Windows 的包），在插件索引里登记。网页界面和清单在各平台通用，只有 Rust 可执行文件按平台编译。
-- 构建阶段固定依赖并签名，规则沿用[LSP 插件构建与资源归属](2026-09-30-lsp-plugin-build-and-distribution.md)。安装目录只读，运行状态写进平台存储。
+- 先作为社区插件发布：ID 为 `io.github.lithe-idea.database`，`vendor.signatureRequirement` 为 `"none"`，和 Cargo、SVN 等 7 个插件一样在 Lithe Store 上架。宿主按索引固定的 SHA-256 校验下载包，安装确认列出权限和后端程序，加载时重新核对安装文件的内容摘要。
+- 为什么暂不做官方签名：官方签名的完整路径（`lithe-official-plugins-v2` 公钥、`release-official-plugins.yml`、官方索引 `Plugins/marketplace/index.json`）从未发布过任何插件。v2 私钥在原组织主仓库的维护者手里，该仓库已改名归档，官方索引地址也还指向它。另配一把密钥是信任根变更，需要单独决定，所以先不走这条路。
+- 插件仓库的发布工作流在 `v*` 标签上测试、打包 universal 后端、跑端到端检查，然后发布 GitHub Release（zip 与 SHA-256）；上架和升级是向 Lithe Store 提 PR 登记下载地址和 SHA-256。
+- 网页界面和清单在各平台通用，只有 Rust 可执行文件按平台编译；macOS 发一个 universal 包，同时登记 `darwin-arm64` 和 `darwin-x64`，Windows 就绪后再加 Windows 的包。
+- 构建阶段固定依赖，规则沿用[LSP 插件构建与资源归属](2026-09-30-lsp-plugin-build-and-distribution.md)。安装目录只读，运行状态写进平台存储。
 
 ### 四、主仓库要新增的通用能力
 
@@ -109,6 +110,7 @@
 
 ### 六、老用户迁移
 
+- **只迁给 Lithe Store 上的那份插件。** 社区包不带 Lithe 签名，插件 ID 谁都能用，所以垫片不认 ID，只认来源：安装记录必须是从 Lithe Store（`PluginMarketplaceSource.communityID`）安装的社区包，且索引条目的仓库地址正是 `https://github.com/Lithe-IDEA/lithe-plugin-database`（`DatabasePluginTransition.repository`）。从磁盘安装、来自其他市场来源或仓库地址不同的同 ID 包得不到任何旧数据和密码，也不写迁移标记，之后改从 Lithe Store 安装仍会迁移。安装后的文件每次加载都按内容摘要复核，安装后被改动的包不会加载。
 - 迁移由宿主的过渡垫片 `MacDatabasePluginMigration` 完成。它挂在插件后端的启动路径上（`MacPluginBackendSessions` 的 `prepareState`），在数据库插件后端第一次启动、读取状态之前运行，所以插件永远不会先看到空状态。
 - 迁移内容：偏好里的连接（`database.profiles.v1`）、文件夹（`database.connection-folders.v1`）和 SQL 历史（`database.sql-history.v1`）写进插件的 `${stateDir}`（`connections.json`、`sql-history.json`）；“永久”密码从旧 Keychain 服务移到插件凭据（key 为 `connection:<id>:password`）。旧的 `group` 字段变成顶层文件夹；历史只保留属于现存连接的最近 100 条，时间从 2001 年起算的秒换成 1970 年起算的毫秒。“直到重启”的密码本来就不落盘，不迁移。
 - 顺序有讲究：先迁密码，再写历史，最后写 `connections.json`，然后才写迁移标记。这样任何一步失败，下次启动都会重试；`connections.json` 的存在表示插件已有自己的状态，之后永远不会被覆盖。迁不动的密码只记日志（不含密码本身），对应连接改为重新询问。
@@ -161,9 +163,9 @@
 
 它最吸引人的地方是两端都能保持原生控件，组件也能给其他插件复用。暂不采用，因为两端都要实现带编辑的数据表格和 SQL 编辑器这类重组件，契约面很大，会拖慢数据库上线。以后可以先从数据库树这类简单结构开始，逐步改成宿主原生渲染。
 
-### 做成社区插件，不要求 Lithe 签名
+### 带 Lithe 发布者签名的官方插件
 
-它最吸引人的地方是发布流程最简单，和现有 7 个社区插件完全一样。不采用，因为插件会经手用户的数据库密码。不需要 Lithe 签名的包可以被替换或冒充，信任边界不够。
+它最吸引人的地方是信任最强：只有带 Lithe 签名的包才能用这个 ID，迁移密码时不必另外核对来源。最初就是这样设计的。暂不采用，因为官方签名路线从未真正发布过插件，v2 私钥不在当前维护者手中，官方索引也指向已归档的仓库；要用就得另配一把密钥并改信任表，这是信任根变更。改为社区插件后，冒充风险由“迁移只认 Lithe Store 来源和仓库地址”来堵。以后官方签名路线恢复时，可以再把插件迁成官方身份（参照 Go、PHP 的 `migratedToCommunity` 反向处理）。
 
 ### 只把两个程序改成按需下载
 
@@ -172,15 +174,15 @@
 ## 后果
 
 - `Lithe.app` 不再包含 `lithe-db-sidecar`、`lithe-db-mcp`、数据库图标和数据库界面代码；主仓库删除了 `LitheDatabaseModule`、`Views/Database/`、两个 Rust crate、Windows 的 `features/database/`、数据库 CI 工作流与分流、打包脚本中的数据库部分和对应测试。
-- **发布顺序是硬约束：** 主程序删除数据库后，老用户只能从插件找回功能。所以插件的第一个版本必须先在插件仓库发布，并在 `Plugins/marketplace/index.json` 登记，之后才能发布不含数据库的 Lithe。
-- **签名私钥：** 私钥放在插件仓库 `release` 环境的受保护 secret 中，只有 `v*` 标签触发并经审批的发布工作流能读取，PR 构建接触不到。泄露面因此扩大到插件仓库的发布流程，需要维护者审批来兜底。
+- **发布顺序是硬约束：** 主程序删除数据库后，老用户只能从插件找回功能。所以插件的第一个版本必须先在插件仓库发布，并在 Lithe Store 的 `lithe-plugin-index.json` 登记，之后才能发布不含数据库的 Lithe。
+- **信任边界：** 不带签名，信任来自 Lithe Store 的收录审查和索引固定的 SHA-256。如果用户移除了 Lithe Store 来源，或只从磁盘安装，旧连接和密码就不会迁入（旧数据仍保留）。Lithe Store 收录这个插件的更新时，维护者要像审查代码一样审查，因为它会拿到迁移过来的密码。
 - **网页界面体验：** macOS 上不再是原生 SwiftUI。插件使用宿主注入的主题变量和语言上下文贴近宿主风格；数据表格和 SQL 编辑器由插件自带，包体积和性能需要随版本实测。
 - **Windows 暂时没有数据库功能：** 第 6 期依赖 Windows 插件宿主和插件市场；在此之前 Windows 用户看不到数据库入口（以前的入口本来就不能用）。
 - Agent 用的数据库工具暂时没有。以后由插件以插件函数提供，登记进现有 `lithe` MCP，不再单独起 MCP 进程。
 
 ## 验证
 
-- `./scripts/test-macos.sh --filter "MacDatabasePluginMigrationTests|MacPluginBackendSessionsTests|WorkbenchNotificationTests|PluginManagerTests"`：迁移的内容、格式、只执行一次、不覆盖插件自有状态、密码迁移失败的处理；迁移先于后端启动；带动作的通知和一次性安装提示；目录中的官方插件条目。
+- `./scripts/test-macos.sh --filter "MacDatabasePluginMigrationTests|MacPluginBackendSessionsTests|WorkbenchNotificationTests"`：迁移的内容、格式、只执行一次、不覆盖插件自有状态、密码迁移失败的处理；磁盘安装、其他来源和其他仓库地址的同 ID 包得不到旧数据，之后从 Lithe Store 安装仍会迁移；迁移先于后端启动并拿到安装记录；带动作的通知和一次性安装提示。
 - `./scripts/verify-module-boundaries.sh` 与 `./scripts/verify-shared-contracts.sh`：内置模块列表和共享模块样例中不再有数据库模块。
 - `bash scripts/test-classify-ci-changes.sh` 与 `node --test scripts/ci-workflow-gates.test.mjs`：CI 分流不再有数据库通道。
 - `./scripts/verify-runtime-bundle-immutability.sh`：运行时不向发行目录写入。
@@ -192,16 +194,17 @@
 
 - 界面使用插件网页，不保留 SwiftUI 原生数据库界面；
 - 插件放在组织仓库，主仓库不保留数据库专属代码；
-- 使用带 Lithe 签名的官方身份；
+- ~~使用带 Lithe 签名的官方身份~~（同日改为先作为社区插件发布，见下）；
 - 后端为长期运行的 Rust 插件后端；
 - macOS 先上线，Windows 等宿主和插件市场就绪后跟上；
 - 老用户提示一键安装，不自动下载；
 - 现有 Windows 数据库前端不迁移；
 - 暂不支持 DuckDB；
-- 签名在组织仓库 CI 中完成，私钥是插件仓库的受保护 secret；
+- ~~签名在组织仓库 CI 中完成，私钥是插件仓库的受保护 secret~~（随社区插件决定取消）；
 - 远程开发第一版只在本机运行数据库后端，远端数据库通过 SSH 隧道访问；
 - Windows 这次不做插件侧适配，等 Windows 插件市场就绪后再小幅调整；
-- 第 1 到第 5 期在同一个 PR 中分步提交，不拆成多个小 PR。
+- 第 1 到第 5 期在同一个 PR 中分步提交，不拆成多个小 PR；
+- 官方签名路线从未发布过插件、v2 私钥拿不到，因此数据库插件先当作社区插件，在 Lithe Store 上架，不作为官方插件。
 
 按用户授权由实现方确定（2026-10-24）：
 
@@ -210,11 +213,11 @@
 - 按平台可执行文件不改契约，各平台下载包使用固定路径；
 - Agent 工具之后经由现有 `lithe` MCP 暴露，不单独起 MCP 进程；
 - 网页界面全新编写（TypeScript，符合 CSP 的打包产物），参照 macOS 现有功能；
-- 老用户迁移由宿主侧的过渡垫片完成，挂在插件后端启动路径上，只迁移一次。
+- 老用户迁移由宿主侧的过渡垫片完成，挂在插件后端启动路径上，只迁移一次；
+- 社区插件下，迁移只认 Lithe Store 来源和插件仓库地址，不认插件 ID。
 
 ## 适用范围
 
-- `macos/Sources/LitheModuleAPI/Catalog/BuiltInModuleCatalog.swift`
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/MacDatabasePluginMigration.swift`
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginBackendSessions.swift`
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginCredentialStore.swift`
@@ -225,6 +228,5 @@
 - `rust/lithe-core/src/plugins/backend.rs`
 - `rust/lithe-core/src/lsp/interface/plugin_function.rs`
 - `shared/platform-feature-matrix/features/`
-- `Plugins/marketplace/index.json`
 
 相关 Note：[统一 VCS 模型与 Provider 接入](../../proposed/architecture/2026-10-22-unified-vcs-provider-model.md)（同类 provider 做法）、[模块运行时抽取路线](../../proposed/architecture/2026-09-13-module-runtime-extraction-roadmap.md)（数据库被列为适合插件化）、[插件自带网页界面](2026-10-18-plugin-web-content-in-host-windows.md)、[插件市场](../feature/2026-10-12-plugin-marketplace.md)。

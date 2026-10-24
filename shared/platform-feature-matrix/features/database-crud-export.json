@@ -2,7 +2,7 @@
   "id": "database-crud-export",
   "area": "数据库",
   "group": "数据库工作区",
-  "capability": "表数据编辑、CRUD 与导出（由官方插件提供）",
+  "capability": "表数据编辑、CRUD 与导出（由社区插件提供）",
   "macos": {
     "evidence": [
       "macos/Sources/LitheModuleAPI/Catalog/BuiltInModuleCatalog.swift",
@@ -23,6 +23,6 @@
     "implementationStatus": "missing",
     "verificationStatus": "not-applicable"
   },
-  "owner": "Database（官方插件 Lithe-IDEA/lithe-plugin-database）",
-  "verification": "macOS 从插件市场安装官方插件 dev.lithe.plugin.database（发布者签名），打开 Database 工具窗口：打开表数据，筛选、排序、分页，编辑单元格、新增和删除行后提交与撤销；只读连接和脱敏列不可编辑；生产保护连接上的危险写入弹出确认；通过宿主文件对话框导出 CSV/JSON/SQL、导入 CSV/JSON、备份与恢复 SQL，大结果超过 1 MiB 时提示截断。 Windows：插件宿主和插件市场就绪前不提供数据库功能，主程序不再包含数据库入口。"
+  "owner": "Database（社区插件 Lithe-IDEA/lithe-plugin-database，Lithe Store 上架）",
+  "verification": "macOS 从插件市场的 Lithe Store 安装社区插件 io.github.lithe-idea.database，打开 Database 工具窗口：打开表数据，筛选、排序、分页，编辑单元格、新增和删除行后提交与撤销；只读连接和脱敏列不可编辑；生产保护连接上的危险写入弹出确认；通过宿主文件对话框导出 CSV/JSON/SQL、导入 CSV/JSON、备份与恢复 SQL，大结果超过 1 MiB 时提示截断。 Windows：插件宿主和插件市场就绪前不提供数据库功能，主程序不再包含数据库入口。"
 }

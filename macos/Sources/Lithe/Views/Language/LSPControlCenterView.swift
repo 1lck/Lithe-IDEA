@@ -134,7 +134,7 @@ struct LSPControlCenterView: View {
     // Languages owned by a published official plugin are controlled here only once
     // that plugin is installed, enabled, and loaded in this process.
     private func officialPluginEntry(languageID: String) -> OfficialPluginCatalog.Entry? {
-        OfficialPluginCatalog.publishedEntries.first { $0.language?.id == languageID }
+        OfficialPluginCatalog.publishedEntries.first { $0.languageID == languageID }
     }
 
     private func pluginSnapshot(_ entry: OfficialPluginCatalog.Entry) -> PluginManagementSnapshot? {
@@ -147,10 +147,9 @@ struct LSPControlCenterView: View {
     }
 
     private func projectUses(_ entry: OfficialPluginCatalog.Entry) -> Bool {
-        guard let language = entry.language else { return false }
-        return model.projectFiles.contains { fileURL in
-            language.fileExtensions.contains(fileURL.pathExtension.lowercased())
-                || language.projectFileNames.contains(fileURL.lastPathComponent.lowercased())
+        model.projectFiles.contains { fileURL in
+            entry.fileExtensions.contains(fileURL.pathExtension.lowercased())
+                || entry.projectFileNames.contains(fileURL.lastPathComponent.lowercased())
         }
     }
 
@@ -169,7 +168,7 @@ struct LSPControlCenterView: View {
     /// the uninstall-and-restart step while the retired official one remains.
     private func migratedPluginNotice(_ entry: OfficialPluginCatalog.Entry, replacementID: PluginID) -> String? {
         let name = entry.displayName
-        let language = entry.language?.displayName ?? name
+        let language = entry.languageDisplayName
         if let retired = pluginSnapshot(entry) {
             if retired.installationStatus == .uninstallPending {
                 return settings.language.localizedFormat("native.inline.restartLitheToFinishUninstallingTheOldArg1ThenInstallTheCommunityArg2FromLi", String(describing: name), String(describing: name))
@@ -188,7 +187,7 @@ struct LSPControlCenterView: View {
 
     private func pluginNotice(_ entry: OfficialPluginCatalog.Entry) -> String {
         let name = entry.displayName
-        let language = entry.language?.displayName ?? name
+        let language = entry.languageDisplayName
         guard let snapshot = pluginSnapshot(entry) else {
             return settings.language.localizedFormat("native.inline.thisArg1ProjectNeedsArg2DownloadAndInstallItFromPluginManagement", String(describing: language), String(describing: name))
         }

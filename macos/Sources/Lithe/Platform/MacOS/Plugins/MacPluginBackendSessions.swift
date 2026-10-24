@@ -38,6 +38,8 @@ final class MacPluginBackendSessions: PluginBackendRequesting {
     struct Package: Equatable {
         let manifest: Data
         let packageURL: URL
+        /// How the package was installed, for `prepareState`.
+        let installation: PluginInstallationRecord
     }
 
     private let launchResolver: MacPluginLanguageServerLaunchResolver
@@ -47,7 +49,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting {
     private let core: any LanguageServerRuntimeCore
     private weak var processRegistry: (any LanguageServerProcessRegistry)?
     private let credentials: any PluginCredentialStoring
-    private let prepareState: @Sendable (_ pluginID: String, _ stateDirectory: URL) -> Void
+    private let prepareState: @Sendable (_ installation: PluginInstallationRecord, _ stateDirectory: URL) -> Void
     private let endBackendProcesses: @MainActor (_ token: String, _ immediately: Bool) -> Void
     private let stuckSendGrace: Duration
     private var packages: [String: Package] = [:]
@@ -77,7 +79,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting {
         core: any LanguageServerRuntimeCore,
         processRegistry: (any LanguageServerProcessRegistry)?,
         credentials: any PluginCredentialStoring,
-        prepareState: @escaping @Sendable (_ pluginID: String, _ stateDirectory: URL) -> Void = { _, _ in },
+        prepareState: @escaping @Sendable (_ installation: PluginInstallationRecord, _ stateDirectory: URL) -> Void = { _, _ in },
         stuckSendGrace: Duration = .seconds(2),
         endBackendProcesses: @escaping @MainActor (_ token: String, _ immediately: Bool) -> Void = { token, immediately in
             MacPluginBackendProcesses.end(
@@ -105,7 +107,11 @@ final class MacPluginBackendSessions: PluginBackendRequesting {
         for plugin in plugins where plugin.descriptor.declaresBackend {
             let id = plugin.descriptor.id.rawValue
             guard !replacedPluginIDs.contains(id), packages[id] == nil else { continue }
-            packages[id] = Package(manifest: plugin.descriptor.normalizedManifest, packageURL: plugin.packageURL)
+            packages[id] = Package(
+                manifest: plugin.descriptor.normalizedManifest,
+                packageURL: plugin.packageURL,
+                installation: plugin.installation
+            )
         }
     }
 
@@ -190,7 +196,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting {
         let task = Task { @MainActor [weak self] () throws -> LanguageServerRuntimeSession in
             guard let self else { throw CancellationError() }
             do {
-                return try await self.launch(backend, pluginID: pluginID, entry: entry)
+                return try await self.launch(backend, pluginID: pluginID, installation: package.installation, entry: entry)
             } catch {
                 if self.running[pluginID] === entry { self.running[pluginID] = nil }
                 throw error
@@ -205,6 +211,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting {
     private func launch(
         _ backend: MacPluginLanguageServerLaunchResolver.BackendProcess,
         pluginID: String,
+        installation: PluginInstallationRecord,
         entry: Running
     ) async throws -> LanguageServerRuntimeSession {
         // Data the host moves into a plugin lands before its backend reads
@@ -212,7 +219,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting {
         // off the main actor.
         let prepareState = prepareState
         let stateDirectory = backend.stateDirectory
-        await Task.detached(priority: .userInitiated) { prepareState(pluginID, stateDirectory) }.value
+        await Task.detached(priority: .userInitiated) { prepareState(installation, stateDirectory) }.value
         try Task.checkCancellation()
         guard running[pluginID] === entry else { throw CancellationError() }
         var (executableURL, environment) = try await resolveExecutable(backend.process, directory: backend.stateDirectory)

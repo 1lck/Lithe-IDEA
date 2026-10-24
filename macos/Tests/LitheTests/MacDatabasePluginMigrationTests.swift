@@ -1,11 +1,12 @@
 import Foundation
 @testable import Lithe
+import LitheModuleAPI
 import Testing
 
 /// What the former built-in database module saved, moved once into the
 /// database plugin's state and credentials, in the format the plugin reads.
 struct MacDatabasePluginMigrationTests {
-    private static let pluginID = MacDatabasePluginMigration.pluginID
+    private static let pluginID = DatabasePluginTransition.pluginID.rawValue
     private static let production = "6F1B0B6E-6A8E-4C35-9F0B-1E2D3C4B5A60"
     private static let scratch = "0C2A7B1D-3E4F-4A5B-8C6D-7E8F9A0B1C2D"
     private static let reporting = "9A8B7C6D-5E4F-4321-8765-0FEDCBA98765"
@@ -35,7 +36,7 @@ struct MacDatabasePluginMigrationTests {
         fixture.legacyPasswords["database.connection.\(Self.reporting).password"] = "my-secret"
         fixture.legacyPasswords["database.connection.\(Self.scratch).password"] = "never-kept"
 
-        #expect(fixture.migration.prepare(pluginID: Self.pluginID, stateDirectory: fixture.state)
+        #expect(fixture.migration.prepare(installation: .fromLitheStore(), stateDirectory: fixture.state)
             == .migrated(profiles: 3, passwords: 2))
 
         #expect(try fixture.credentials.secret(pluginID: Self.pluginID, key: "connection:\(Self.production):password") == "pg-secret")
@@ -72,18 +73,41 @@ struct MacDatabasePluginMigrationTests {
         fixture.preferences.set(try json([["id": Self.production, "name": "Production", "kind": "postgresql"]]),
                                 forKey: MacDatabasePluginMigration.profilesKey)
 
-        #expect(fixture.migration.prepare(pluginID: "dev.example.other", stateDirectory: fixture.state) == .otherPlugin)
+        #expect(fixture.migration.prepare(installation: .fromLitheStore(id: "dev.example.other"), stateDirectory: fixture.state) == .otherPlugin)
         #expect(!FileManager.default.fileExists(atPath: fixture.state.path))
 
         try FileManager.default.createDirectory(at: fixture.state, withIntermediateDirectories: true)
         let own = Data(#"{"schemaVersion":1,"profiles":[],"folders":[]}"#.utf8)
         try own.write(to: fixture.state.appendingPathComponent("connections.json"))
-        #expect(fixture.migration.prepare(pluginID: Self.pluginID, stateDirectory: fixture.state) == .keptPluginState)
+        #expect(fixture.migration.prepare(installation: .fromLitheStore(), stateDirectory: fixture.state) == .keptPluginState)
         #expect(try Data(contentsOf: fixture.state.appendingPathComponent("connections.json")) == own)
 
         try FileManager.default.removeItem(at: fixture.state)
-        #expect(fixture.migration.prepare(pluginID: Self.pluginID, stateDirectory: fixture.state) == .alreadyMigrated)
+        #expect(fixture.migration.prepare(installation: .fromLitheStore(), stateDirectory: fixture.state) == .alreadyMigrated)
         #expect(!FileManager.default.fileExists(atPath: fixture.state.path))
+    }
+
+    /// The package is unsigned, so its ID proves nothing: only the copy
+    /// Lithe Store lists from the plugin's repository receives the data.
+    @Test(arguments: [
+        PluginInstallationRecord.fromDisk(),
+        .fromLitheStore(sourceID: "example-source"),
+        .fromLitheStore(repository: "https://github.com/example/lithe-plugin-database"),
+    ])
+    func aCopyFromAnywhereElseReceivesNothing(installation: PluginInstallationRecord) throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        fixture.preferences.set(try json([["id": Self.production, "name": "Production", "kind": "postgresql"]]),
+                                forKey: MacDatabasePluginMigration.profilesKey)
+        fixture.legacyPasswords["database.connection.\(Self.production).password"] = "pg-secret"
+
+        #expect(fixture.migration.prepare(installation: installation, stateDirectory: fixture.state) == .untrustedSource)
+        #expect(!FileManager.default.fileExists(atPath: fixture.state.path))
+        #expect(try fixture.credentials.secret(pluginID: Self.pluginID, key: "connection:\(Self.production):password") == nil)
+        // The copy from Lithe Store still receives everything later.
+        #expect(fixture.preferences.object(forKey: MacDatabasePluginMigration.markerKey) == nil)
+        #expect(fixture.migration.prepare(installation: .fromLitheStore(), stateDirectory: fixture.state)
+            == .migrated(profiles: 1, passwords: 1))
     }
 
     @Test
@@ -94,7 +118,7 @@ struct MacDatabasePluginMigrationTests {
                                 forKey: MacDatabasePluginMigration.profilesKey)
         fixture.legacyPasswords["database.connection.\(Self.production).password"] = "pg-secret"
 
-        #expect(fixture.migration.prepare(pluginID: Self.pluginID, stateDirectory: fixture.state)
+        #expect(fixture.migration.prepare(installation: .fromLitheStore(), stateDirectory: fixture.state)
             == .migrated(profiles: 1, passwords: 0))
         #expect(fixture.logged.messages.count == 1)
         #expect(fixture.logged.messages.allSatisfy { !$0.contains("pg-secret") })
@@ -105,7 +129,7 @@ struct MacDatabasePluginMigrationTests {
         let fixture = try Fixture()
         defer { fixture.remove() }
 
-        #expect(fixture.migration.prepare(pluginID: Self.pluginID, stateDirectory: fixture.state) == .nothingToMigrate)
+        #expect(fixture.migration.prepare(installation: .fromLitheStore(), stateDirectory: fixture.state) == .nothingToMigrate)
         #expect(!FileManager.default.fileExists(atPath: fixture.state.path))
         #expect(fixture.preferences.object(forKey: MacDatabasePluginMigration.markerKey) != nil)
     }
@@ -132,7 +156,7 @@ private struct Fixture {
     init(credentials: any PluginCredentialStoring = MemoryPluginCredentialStore()) throws {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("lithe-database-migration-\(UUID().uuidString)", isDirectory: true)
-        state = root.appendingPathComponent("state/dev.lithe.plugin.database/backend", isDirectory: true)
+        state = root.appendingPathComponent("state/io.github.lithe-idea.database/backend", isDirectory: true)
         self.credentials = credentials
         let passwords = legacyPasswordBox
         let log = logged
@@ -184,4 +208,31 @@ private struct LockedCredentials: PluginCredentialStoring {
     func setSecret(_: String, pluginID _: String, key _: String) throws { throw Locked() }
     func deleteSecret(pluginID _: String, key _: String) throws { throw Locked() }
     func deleteAll(pluginID _: String) throws { throw Locked() }
+}
+
+private extension PluginInstallationRecord {
+    static func fromLitheStore(
+        id: String = DatabasePluginTransition.pluginID.rawValue,
+        sourceID: String = PluginMarketplaceSource.communityID,
+        repository: String = DatabasePluginTransition.repository
+    ) -> PluginInstallationRecord {
+        PluginInstallationRecord(
+            pluginID: PluginID(id),
+            activeVersion: PluginVersion(major: 0, minor: 1, patch: 0),
+            origin: .community,
+            marketplace: PluginMarketplaceProvenance(
+                sourceID: sourceID, sourceName: "Lithe Store", repository: repository,
+                archiveSHA256: String(repeating: "0", count: 64), contentDigest: "digest", approvedPrograms: []
+            )
+        )
+    }
+
+    static func fromDisk() -> PluginInstallationRecord {
+        PluginInstallationRecord(
+            pluginID: DatabasePluginTransition.pluginID,
+            activeVersion: PluginVersion(major: 0, minor: 1, patch: 0),
+            origin: .community,
+            disk: PluginDiskProvenance(fileName: "database.zip", archiveSHA256: nil, contentDigest: "digest", approvedPrograms: [])
+        )
+    }
 }

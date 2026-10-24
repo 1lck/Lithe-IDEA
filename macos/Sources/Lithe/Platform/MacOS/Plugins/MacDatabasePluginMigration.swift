@@ -1,19 +1,26 @@
 import Foundation
+import LitheModuleAPI
 
 // Note: 数据库改为插件后的老用户迁移见 .agents/notes/implemented/architecture/2026-10-24-database-provider-plugin.md
 
 /// Moves what Lithe's former built-in database module saved into the
-/// database plugin, once, before the plugin's backend first starts: the
+/// Database community plugin, once, before the plugin's backend first
+/// starts: the
 /// connections, folders, and SQL history from the preferences into the
 /// plugin's `${stateDir}`, and the passwords kept forever from the module's
 /// Keychain service into the plugin's credentials.
+///
+/// The package carries no Lithe signature, so the plugin ID alone proves
+/// nothing: anyone can build a package with it. Only a copy installed from
+/// Lithe Store, whose index pins its repository and archive, receives the
+/// data; the host rechecks the installed files on every load. A copy from
+/// disk or another source gets nothing and leaves the move for later.
 ///
 /// The old data stays where it is, so an older Lithe still finds it, and a
 /// marker records that the move happened. This is a transition shim that
 /// knows both the old module's storage and the plugin's; remove it once no
 /// supported Lithe version shipped the built-in module.
 final class MacDatabasePluginMigration: @unchecked Sendable {
-    static let pluginID = "dev.lithe.plugin.database"
     static let markerKey = "lithe.databasePluginMigration.v1"
     static let profilesKey = DatabasePluginTransition.legacyProfilesKey
     static let foldersKey = "database.connection-folders.v1"
@@ -21,6 +28,8 @@ final class MacDatabasePluginMigration: @unchecked Sendable {
 
     enum Outcome: Equatable {
         case otherPlugin
+        /// Not installed from Lithe Store; nothing was marked.
+        case untrustedSource
         case alreadyMigrated
         case nothingToMigrate
         /// The plugin already keeps connections of its own; they win.
@@ -59,9 +68,14 @@ final class MacDatabasePluginMigration: @unchecked Sendable {
     }
 
     @discardableResult
-    func prepare(pluginID: String, stateDirectory: URL) -> Outcome {
-        guard pluginID == Self.pluginID else { return .otherPlugin }
+    func prepare(installation: PluginInstallationRecord, stateDirectory: URL) -> Outcome {
+        guard installation.pluginID == DatabasePluginTransition.pluginID else { return .otherPlugin }
         guard preferences.object(forKey: Self.markerKey) == nil else { return .alreadyMigrated }
+        guard installation.origin == .community,
+              let source = installation.marketplace,
+              source.sourceID == PluginMarketplaceSource.communityID,
+              source.repository == DatabasePluginTransition.repository else { return .untrustedSource }
+        let pluginID = installation.pluginID.rawValue
         let connectionsURL = stateDirectory.appendingPathComponent("connections.json")
         if fileManager.fileExists(atPath: connectionsURL.path) {
             markDone()

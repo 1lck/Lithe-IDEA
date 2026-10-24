@@ -102,7 +102,7 @@ Only use these steps for an app whose source you trust. Homebrew installations u
 14. Automatic project entry-point detection with one-click run support for Spring Boot, Java, Maven, Gradle, npm, Cargo, Go, Python, Make, Docker Compose, Procfile, and shell projects.
 15. Per-language service switches so language servers can be enabled or disabled independently to match the machine's resources.
 16. Multi-line editor tabs for keeping more files visible in the same workspace.
-17. Database connections as an official plugin (currently macOS only), installed from the Plugin Marketplace: multiple database types, connection management, SQL history, table browsing, and database operations.
+17. Database connections as a community plugin (currently macOS only), installed from Lithe Store in the Plugin Marketplace: multiple database types, connection management, SQL history, table browsing, and database operations.
 18. Ongoing bug fixes and user experience improvements.
 
 </details>

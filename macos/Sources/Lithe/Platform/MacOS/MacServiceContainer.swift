@@ -276,8 +276,9 @@ final class MacServiceContainer {
         // same startup snapshot. Nothing starts until a page calls one.
         let pluginBackends = MacPluginBackendSessions.shared {
             // The former built-in database module's connections and
-            // passwords move into the database plugin before its backend
-            // first starts; the old data is read, never changed.
+            // passwords move into the Database plugin from Lithe Store
+            // before its backend first starts; the old data is read, never
+            // changed.
             let databaseKeychain = MacKeychainSecureStore(service: fileStorage.identity.keychainService("database"))
             let databaseMigration = MacDatabasePluginMigration(
                 preferences: store,
@@ -295,8 +296,8 @@ final class MacServiceContainer {
                 core: rustCore,
                 processRegistry: processRegistry,
                 credentials: pluginCredentials,
-                prepareState: { [applicationLogging] pluginID, stateDirectory in
-                    if case let .migrated(profiles, passwords) = databaseMigration.prepare(pluginID: pluginID, stateDirectory: stateDirectory) {
+                prepareState: { [applicationLogging] installation, stateDirectory in
+                    if case let .migrated(profiles, passwords) = databaseMigration.prepare(installation: installation, stateDirectory: stateDirectory) {
                         applicationLogging?.record(level: "info", scope: "plugins.migration", message: "database connections moved into the plugin",
                             fields: ["profiles": String(profiles), "passwords": String(passwords)])
                     }
