@@ -98,7 +98,7 @@ struct AgentHooksSettingsView: View {
             } message: { Text(key("This removes only the native entries written by Lithe. Other Hooks are kept.")) }
     }
     private var search: some View {
-        LitheSearchTextField(LocalizedStringKey(localized("Search Hooks")), text: $feature.query).litheSearchField()
+        LitheSearchField(LocalizedStringKey(localized("Search Hooks")), text: $feature.query)
     }
     @ViewBuilder private var toolbar: some View {
         Button(key("Reload from disk")) { run { await feature.load() } }.buttonStyle(LitheActionButtonStyle())
