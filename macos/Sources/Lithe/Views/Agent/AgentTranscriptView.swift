@@ -67,7 +67,13 @@ enum AgentTranscriptItem: Identifiable {
             // ACP has no final/commentary role. Only text after the last thought
             // or tool is presented as the reply; earlier prose is process narration.
             if let lastActivity = pending.lastIndex(where: { $0.role != .agent }) {
-                items.append(.processGroup(Array(pending[...lastActivity])))
+                let process = Array(pending[...lastActivity])
+                // Notices that triggered no thinking or tool use have no process to join.
+                if process.allSatisfy(Self.isQuietNotification) {
+                    items += process.map(Self.message)
+                } else {
+                    items.append(.processGroup(process))
+                }
                 items += pending.dropFirst(lastActivity + 1).map(Self.message)
             } else {
                 items += pending.map(Self.message)
@@ -79,7 +85,12 @@ enum AgentTranscriptItem: Identifiable {
                 // Model-only reminders and caveats are not conversation.
                 continue
             }
-            if message.role == .user {
+            if Self.isQuietNotification(message) {
+                // A finished background task wakes the Agent for a follow-up turn.
+                // The notice joins that turn's collapsed process instead of
+                // interrupting the transcript between two replies.
+                pending.append(message)
+            } else if message.role == .user {
                 flush()
                 items.append(.message(message))
             } else if message.role == .tool || !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -93,6 +104,16 @@ enum AgentTranscriptItem: Identifiable {
         }
         flush()
         return items
+    }
+
+    /// A successful background-task notice: protocol markup that needs no attention.
+    /// Failures stay on the transcript where the user can see them.
+    static func isQuietNotification(_ message: AgentConversationMessage) -> Bool {
+        guard message.role == .user, let entries = AgentClaudeCodeMarkup.parse(message.text), !entries.isEmpty else { return false }
+        return entries.allSatisfy {
+            if case .taskNotification(let notification) = $0 { return !notification.isFailure }
+            return false
+        }
     }
 
     /// Within an expanded process, keep prose in order and combine adjacent tools.
@@ -644,18 +665,40 @@ private enum AgentUserMessagePresentation {
     }
 }
 
+extension AgentTaskNotification {
+    private static let shellSummary = try! NSRegularExpression(
+        pattern: "^Background command \"(.+)\" (?:completed|failed) \\(exit code (-?\\d+)\\)$")
+
+    /// One line for the transcript. Claude Code words shell-task summaries in
+    /// English (`Background command "…" completed (exit code 0)`); those are
+    /// shown in the interface language, and any other summary is kept verbatim.
+    func displayText(locale: Locale) -> String {
+        guard let summary else {
+            return AgentLocalization.string(isFailure ? "Background task ended" : "Background task finished", locale: locale)
+        }
+        guard let match = Self.shellSummary.firstMatch(in: summary, range: NSRange(summary.startIndex..., in: summary)),
+              let name = Range(match.range(at: 1), in: summary), let code = Range(match.range(at: 2), in: summary) else {
+            return summary
+        }
+        if summary[code] == "0" {
+            return String(format: AgentLocalization.string("Background command finished: %@", locale: locale), String(summary[name]))
+        }
+        return String(format: AgentLocalization.string("Background command ended (exit code %@): %@", locale: locale),
+                      String(summary[code]), String(summary[name]))
+    }
+}
+
 /// Claude Code's own markup in a user message, shown as a quiet status line or output block.
-private struct AgentClaudeCodeEntryRow: View {
+struct AgentClaudeCodeEntryRow: View {
     @Environment(\.locale) private var locale
     let entry: AgentClaudeCodeEntry
 
     var body: some View {
         switch entry {
         case .taskNotification(let notification):
-            let failed = ["failed", "error", "killed", "stopped"].contains(notification.status?.lowercased() ?? "")
+            let failed = notification.isFailure
             line(systemImage: failed ? "exclamationmark.circle" : "checkmark.circle", isError: failed,
-                 text: notification.summary ?? AgentLocalization.string(
-                    failed ? "Background task ended" : "Background task finished", locale: locale))
+                 text: notification.displayText(locale: locale))
                 .help(notification.outputFile ?? "")
                 .accessibilityIdentifier("agent-task-notification")
         case .command(let name, let arguments):

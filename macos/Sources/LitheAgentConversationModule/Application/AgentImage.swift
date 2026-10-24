@@ -186,6 +186,11 @@ public struct AgentTaskNotification: Equatable, Sendable {
     public var summary: String?
     public var outputFile: String?
 
+    /// Statuses that mean the task did not finish normally.
+    public var isFailure: Bool {
+        ["failed", "error", "killed", "stopped"].contains(status?.lowercased() ?? "")
+    }
+
     /// Nil unless the whole message consists of one or more notification blocks.
     public static func parse(_ message: String) -> [Self]? {
         let open = "<task-notification>", close = "</task-notification>"

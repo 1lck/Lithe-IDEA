@@ -374,6 +374,8 @@
 "Back to all references" = "Back to all references";
 "Back to the conversation" = "Back to the conversation";
 "Background Services" = "Background Services";
+"Background command ended (exit code %@): %@" = "Background command ended (exit code %@): %@";
+"Background command finished: %@" = "Background command finished: %@";
 "Background services" = "Background services";
 "Background services started in Lithe are still running" = "Background services started in Lithe are still running";
 "Background task ended" = "Background task ended";
@@ -4216,6 +4218,8 @@
 "native.backToAllReferences" = "Back to all references";
 "native.backToTheConversation" = "Back to the conversation";
 "native.backUpDatabaseAsSQL" = "Back Up Database as SQL…";
+"native.backgroundCommandEndedExitCodeArg1Arg2" = "Background command ended (exit code %1$@): %2$@";
+"native.backgroundCommandFinished" = "Background command finished: %1$@";
 "native.backgroundServices" = "Background Services";
 "native.backgroundServices.variant2" = "Background services";
 "native.backgroundServicesStartedInLitheAreStillRunning" = "Background services started in Lithe are still running";

@@ -53,6 +53,13 @@ struct AgentProcessGroupView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(AgentTranscriptItem.processContents(messages).filter { $0.matches(searchText) }) { item in
                         switch item {
+                        case .message(let message) where message.role == .user:
+                            // Background-task notices that woke the Agent for this turn.
+                            VStack(alignment: .leading, spacing: 4) {
+                                ForEach(Array((AgentClaudeCodeMarkup.parse(message.text) ?? []).enumerated()), id: \.offset) { _, entry in
+                                    AgentClaudeCodeEntryRow(entry: entry)
+                                }
+                            }
                         case .message(let message):
                             AgentMarkdownMessage(text: message.text.trimmingCharacters(in: .whitespacesAndNewlines), size: 12)
                                 .equatable()

@@ -227,4 +227,52 @@ struct AgentImageTests {
         #expect(content.entries.map(\.id) == ["real"])
         #expect(content.turnByMessageID["reply"] == "real")
     }
+
+    private func notice(_ id: String, status: String = "completed", summary: String) -> AgentConversationMessage {
+        AgentConversationMessage(id: id, role: .user, text: "<task-notification><status>\(status)</status><summary>\(summary)</summary></task-notification>")
+    }
+
+    @Test
+    func finishedBackgroundTasksJoinTheFollowUpProcessInsteadOfInterruptingTheTranscript() {
+        let messages = [
+            AgentConversationMessage(id: "u", role: .user, text: "go"),
+            AgentConversationMessage(id: "reply", role: .agent, text: "running"),
+            notice("n1", summary: "Background command \"Build\" completed (exit code 0)"),
+            AgentConversationMessage(id: "th", role: .thought, text: "checking"),
+            notice("n2", summary: "Background command \"Test\" completed (exit code 0)"),
+            AgentConversationMessage(id: "th2", role: .thought, text: "done"),
+            AgentConversationMessage(id: "final", role: .agent, text: "All green"),
+        ]
+        let items = AgentTranscriptItem.grouped(messages)
+        #expect(!items.contains { if case .message(let m) = $0 { m.id == "n1" || m.id == "n2" } else { false } })
+        let processes = items.compactMap { item -> [AgentConversationMessage]? in
+            if case .processGroup(let process) = item { process } else { nil }
+        }
+        #expect(processes.flatMap { $0.map(\.id) }.contains("n1"))
+        #expect(processes.flatMap { $0.map(\.id) }.contains("n2"))
+    }
+
+    @Test
+    func failedOrIsolatedBackgroundNoticesStayVisible() {
+        let failed = [
+            AgentConversationMessage(id: "u", role: .user, text: "go"),
+            notice("bad", status: "failed", summary: "Background command \"Build\" failed (exit code 1)"),
+            AgentConversationMessage(id: "th", role: .thought, text: "hm"),
+        ]
+        #expect(AgentTranscriptItem.grouped(failed).contains { if case .message(let m) = $0 { m.id == "bad" } else { false } })
+        // With no thinking or tool use after it, a successful notice is still shown, not an empty process.
+        let lone = [AgentConversationMessage(id: "u", role: .user, text: "go"), notice("ok", summary: "Task finished")]
+        #expect(AgentTranscriptItem.grouped(lone).contains { if case .message(let m) = $0 { m.id == "ok" } else { false } })
+    }
+
+    @Test
+    func shellTaskSummariesAreRewordedAndOtherSummariesKeptVerbatim() throws {
+        let locale = Locale(identifier: "en")
+        let ok = try #require(AgentTaskNotification.parse(notice("a", summary: "Background command \"Run tests\" completed (exit code 0)").text)?.first)
+        #expect(ok.displayText(locale: locale) == "Background command finished: Run tests")
+        let bad = try #require(AgentTaskNotification.parse(notice("b", status: "failed", summary: "Background command \"Run tests\" completed (exit code 2)").text)?.first)
+        #expect(bad.displayText(locale: locale) == "Background command ended (exit code 2): Run tests")
+        let other = try #require(AgentTaskNotification.parse(notice("c", summary: "Agent \"Explore\" finished").text)?.first)
+        #expect(other.displayText(locale: locale) == "Agent \"Explore\" finished")
+    }
 }

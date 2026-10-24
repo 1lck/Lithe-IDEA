@@ -29746,6 +29746,40 @@
       }
     },
     {
+      "id": "native.backgroundCommandEndedExitCodeArg1Arg2",
+      "description": "Native UI: Background command ended (exit code %@): %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Background command ended (exit code %@): %@",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string"
+      }
+    },
+    {
+      "id": "native.backgroundCommandFinished",
+      "description": "Native UI: Background command finished: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Background command finished: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
       "id": "native.backgroundServices",
       "description": "Native UI: Background Services",
       "platforms": [

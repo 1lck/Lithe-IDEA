@@ -15,6 +15,7 @@ fn launch(env: Vec<(String, String)>, subscription_cli: Option<PathBuf>) -> Reso
         subscription_cli,
         claude_subscription: false,
         codex_home: None,
+        claude_projects: None,
     }
 }
 

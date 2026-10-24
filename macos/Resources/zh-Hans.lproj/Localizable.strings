@@ -374,6 +374,8 @@
 "Back to all references" = "返回所有引用";
 "Back to the conversation" = "返回对话";
 "Background Services" = "后台服务";
+"Background command ended (exit code %@): %@" = "后台命令已结束（退出码 %@）：%@";
+"Background command finished: %@" = "后台命令已完成：%@";
 "Background services" = "后台服务";
 "Background services started in Lithe are still running" = "在 Lithe 中启动的后台服务仍在运行";
 "Background task ended" = "后台任务已结束";
@@ -4216,6 +4218,8 @@
 "native.backToAllReferences" = "返回所有引用";
 "native.backToTheConversation" = "返回对话";
 "native.backUpDatabaseAsSQL" = "将数据库备份为 SQL…";
+"native.backgroundCommandEndedExitCodeArg1Arg2" = "后台命令已结束（退出码 %1$@）：%2$@";
+"native.backgroundCommandFinished" = "后台命令已完成：%1$@";
 "native.backgroundServices" = "后台服务";
 "native.backgroundServices.variant2" = "后台服务";
 "native.backgroundServicesStartedInLitheAreStillRunning" = "在 Lithe 中启动的后台服务仍在运行";

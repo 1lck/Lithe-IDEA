@@ -3785,6 +3785,8 @@
     "native.backToAllReferences": "Back to all references",
     "native.backToTheConversation": "Back to the conversation",
     "native.backUpDatabaseAsSQL": "Back Up Database as SQL…",
+    "native.backgroundCommandEndedExitCodeArg1Arg2": "Background command ended (exit code {arg1}): {arg2}",
+    "native.backgroundCommandFinished": "Background command finished: {arg1}",
     "native.backgroundServices": "Background Services",
     "native.backgroundServices.variant2": "Background services",
     "native.backgroundServicesStartedInLitheAreStillRunning": "Background services started in Lithe are still running",

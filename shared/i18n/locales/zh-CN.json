@@ -3785,6 +3785,8 @@
     "native.backToAllReferences": "返回所有引用",
     "native.backToTheConversation": "返回对话",
     "native.backUpDatabaseAsSQL": "将数据库备份为 SQL…",
+    "native.backgroundCommandEndedExitCodeArg1Arg2": "后台命令已结束（退出码 {arg1}）：{arg2}",
+    "native.backgroundCommandFinished": "后台命令已完成：{arg1}",
     "native.backgroundServices": "后台服务",
     "native.backgroundServices.variant2": "后台服务",
     "native.backgroundServicesStartedInLitheAreStillRunning": "在 Lithe 中启动的后台服务仍在运行",

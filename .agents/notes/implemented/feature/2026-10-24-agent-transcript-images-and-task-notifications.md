@@ -43,6 +43,31 @@ ACP（Agent Client Protocol，Agent 与客户端之间的协议）的工具结�
 - `<task-notification>` 只有在整条用户消息完全由通知块组成时才解析，用户自己输入的相同文字不会被吞掉。
   这是协议标记的呈现，不按 Agent 名称在宿主里分支。
 
+### 后台任务通知并入后续过程
+
+后台命令的完成通知会唤醒 Agent 再跑一轮。连续几次后台命令会让对话里反复出现“通知行 + 思考过程”。
+现在成功的通知（`AgentTranscriptItem.isQuietNotification`）不单独成行，而是进入随后一轮的折叠过程区，展开后按原顺序显示。
+失败、被终止的通知，以及后面没有任何思考或工具的通知，仍作为状态行保留，避免用户错过。
+Claude Code 为 shell 任务生成的英文摘要（`Background command "…" completed (exit code 0)`）按界面语言显示。
+
+### 恢复会话时补全压缩前的历史
+
+Claude Agent SDK 的 `getSessionMessages` 只返回当前 parent 链；压缩边界（`compact_boundary`）没有 parent，
+因此适配器回放从最后一个边界开始，更早的记录虽然还在 `<配置目录>/projects/*/<会话 id>.jsonl`，却不会到达客户端，
+对话里看起来像“前文丢了”。Rust 宿主（`claude_earlier_history.rs`）在 `session/load` 之前只读取该文件中最后一个边界之前的行，
+转成与回放一致的 ACP 更新（用户、回复、思考、工具调用和结果），先于适配器的回放发出，
+所以每次压缩的摘要也会在原位置显示为“对话已从摘要继续”。
+
+这是对“宿主不读取转录文件”约定的有限例外，边界如下：
+
+- 只读，只打开 `projects/*/<会话 id>.jsonl`；账号目录里的登录信息和其他文件不触碰；会话 id 只接受字母、数字、`-`、`_`。
+- 配置目录按所选 Claude 账号解析（账号目录、`CLAUDE_CONFIG_DIR`、`~/.claude`），不写入任何文件，不缓存。
+- 超过 128 MiB 的记录文件不读取；最多发出 30000 条更新；工具输入输出每段截断到 4000 字符；子代理侧链和 `isMeta` 行跳过，图片不回放。
+- 文件格式由 Claude Code 拥有。解析失败或格式变化时只是不显示更早的历史，不影响适配器自身的回放。
+- Codex 的历史仍由其官方 App Server 提供，不受此例外影响。
+
+不要这样做：不要把前文合并进适配器已回放的片段，也不要改写或重新压缩 Claude 自己的记录文件。
+
 ### 不要这样做
 
 - 不要把图片 `Data` 放进 `Equatable` 的逐字节比较，也不要在主线程解码原图。
@@ -69,6 +94,7 @@ issue #1462 指出的多余复制按钮来自不属于最终回复的过程文�
 ## 验证
 
 - `./scripts/test-macos.sh --filter AgentImageTests`
+- `cargo test -p lithe-agent-host claude_earlier_history`
 - `./scripts/verify-agent-notes.sh`
 
 ## 适用范围
@@ -76,3 +102,4 @@ issue #1462 指出的多余复制按钮来自不属于最终回复的过程文�
 - `macos/Sources/LitheAgentConversationModule/Application/AgentImage.swift`
 - `macos/Sources/Lithe/Views/Agent/AgentImageViews.swift`
 - `macos/Sources/Lithe/Views/Agent/AgentToolGroupView.swift`
+- `rust/lithe-agent-host/src/claude_earlier_history.rs`
