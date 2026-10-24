@@ -223,6 +223,8 @@ required_resources=(
     "$app_path/$java_plugin_package/runtime/arm64/lib"
     "$app_path/$java_plugin_package/runtime/x86_64/bin/java"
     "$app_path/$java_plugin_package/runtime/x86_64/lib"
+    "$app_path/$java_plugin_package/icons/java.svg"
+    "$app_path/$java_plugin_package/templates/java/maven/pom.xml"
 )
 for resource in "${required_resources[@]}"; do
     if [[ ! -e "$resource" ]]; then

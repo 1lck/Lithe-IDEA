@@ -293,7 +293,8 @@
         ".artifacts/test-stability/*.png",
         ".artifacts/test-stability/{mcp-ui,instructions-ui}/*.png",
         ".artifacts/<test-report>/screenshots/*.png",
-        "<temporary>/lithe-localized-logging.*/Lithe Logging UI.app/"
+        "<temporary>/lithe-localized-logging.*/Lithe Logging UI.app/",
+        ".artifacts/test-stability/hooks-ui/*.png"
       ],
       "identity": "One first-party native test run at an exact source revision, platform, theme, viewport and fixture parameters. No reusable build identity stamp or installed runtime ownership. Localized log-page hosts additionally bind the selected Xcode SwiftPM runner and the product string tables.",
       "reason": "Native fixture views produce these sanitized review/diagnostic screenshots inside the owning worktree report directory. CI uploads them with test-stability-macos and applies artifact retention; local reports remain until removed by the developer. They never capture the user desktop, enter a package, modify a signed bundle or participate in any worktree copy stage. scripts/probe-macos-logging-ui.sh copies the stock runner and compiled product localizations into one disposable temporary app; its EXIT trap removes the host after bounded native rendering. The original toolchain and installed app bundles remain read-only."
@@ -345,6 +346,18 @@
       ],
       "identity": "User-requested, bounded SDK connections and mutable native exclusion rules. No generated build identity, version/platform/architecture/toolchain stamp or reusable artifact.",
       "reason": "Probes run only after an explicit action, list metadata without tool calls, and cancel on page exit. Process trees and HTTP sessions are cleaned up; temporary policy snapshots stay in memory. Native rules use the existing platform atomic writer and Application Support backups. User preferences remember added exclusion ownership and retained Codex allow/deny tool names after removal, never credentials. Retained filters survive page/process exit until re-registration and do not prove live source ownership. No copy stage, runtime bundle writes, or cross-worktree transfer is allowed. Upstream package caches created by an explicitly run command remain owned by that runtime, not Lithe build resources."
+    },
+    {
+      "id": "agent-hook-library-state",
+      "reusable": false,
+      "locations": [
+        "<app-support>/Lithe/AgentHooks/hooks.json",
+        "<app-support>/Lithe/AgentHooks/.sync.lock",
+        "<app-support>/Lithe/AgentHooks/.lithe-instructions-<UUID>.tmp",
+        "<native-agent-profile>/{hooks.json,settings.json}"
+      ],
+      "identity": "Mutable user-authored Hook definitions, guarded native snapshots and write-ahead ownership placements; no reusable version/platform/architecture/toolchain build identity.",
+      "reason": "Platform storage supplies the writable application-support directory. Agent Host performs bounded explicit JSON writes; pending placements survive interrupted native commits and only exact matching native groups can be retired. Sibling temporary files are removed on success/failure, an empty OS lock remains user-owned. Never copy or share at any worktree stage. Native Agent runtimes own execution and trust; installed bundles and Sparkle baselines remain read-only."
     }
   ]
 }

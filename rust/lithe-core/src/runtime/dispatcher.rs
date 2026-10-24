@@ -149,6 +149,7 @@ fn execute(request: &str) -> CoreResponse {
             agent_response(id, parsed.payload, crate::agent::instructions::shared)
         }
         CoreCommand::AgentSkills => agent_response(id, parsed.payload, crate::agent::skills),
+        CoreCommand::AgentHooks => agent_response(id, parsed.payload, crate::agent::hooks::execute),
         CoreCommand::AgentParseProviderConfiguration => {
             match crate::ai::parse_provider_configuration(parsed.payload) {
                 Ok(data) => CoreResponse::success(id, data),
@@ -291,6 +292,31 @@ fn execute(request: &str) -> CoreResponse {
         CoreCommand::VcsDecodeReply => {
             plugin_response(id, parsed.payload, crate::vcs::vcs_decode_reply_command)
         }
+        CoreCommand::ProjectGeneratorCatalog => plugin_response(
+            id,
+            parsed.payload,
+            crate::project_generators::project_generator_catalog_command,
+        ),
+        CoreCommand::ProjectGeneratorForm => plugin_response(
+            id,
+            parsed.payload,
+            crate::project_generators::project_generator_form_command,
+        ),
+        CoreCommand::ProjectGenerationPlan => plugin_response(
+            id,
+            parsed.payload,
+            crate::project_generators::project_generation_plan_command,
+        ),
+        CoreCommand::ProjectCheckName => plugin_response(
+            id,
+            parsed.payload,
+            crate::project_generators::project_check_name_command,
+        ),
+        CoreCommand::ProjectExtractArchive => plugin_response(
+            id,
+            parsed.payload,
+            crate::project_generators::project_extract_archive_command,
+        ),
         CoreCommand::PluginsMarketplaceValidateIndex => plugin_response(
             id,
             parsed.payload,

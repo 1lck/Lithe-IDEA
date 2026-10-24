@@ -18,6 +18,12 @@ final class AppServices {
     var mcpTools: (any McpToolsManaging)?
     /// Confirms closing terminals with running programs; `nil` closes directly.
     var processExitCoordinator: ProcessExitCoordinator?
+    /// Creates projects for the New Project window; `nil` falls back to
+    /// choosing an existing folder.
+    var projectGeneration: ProjectGenerationService?
+    /// Installed plugins with their enabled state, for the New Project
+    /// catalog and the plugins that provide a generator's requirements.
+    var projectGeneratorSources: (@MainActor () -> [ProjectGeneratorPluginSource])?
     /// Gives build providers that share a language server the language
     /// sessions; `nil` when the platform starts no build providers.
     var connectBuildProviderLanguageSessions: ((@escaping @MainActor () -> LanguageToolingSessionManager?) -> Void)?
@@ -70,6 +76,7 @@ final class AppServices {
     /// Detects Node.js and installs ACP adapters for the Agents settings page.
     let agentManagement: any AgentManagementService
     let agentInstructions: any AgentInstructionsService
+    let agentHooks: any AgentHooksService
     let agentProviderConfigurationParser: any AgentProviderConfigurationParsing
     let aiConfigurationSources: [any AIConfigurationSource]
     let recentProjectsStore: RecentProjectsStore
@@ -116,6 +123,7 @@ final class AppServices {
         credentialResolver: any AIProviderCredentialResolver,
         agentManagement: any AgentManagementService = UnavailableAgentManagementService(),
         agentInstructions: any AgentInstructionsService = UnavailableAgentInstructionsService(),
+        agentHooks: any AgentHooksService = UnavailableAgentHooksService(),
         agentProviderConfigurationParser: any AgentProviderConfigurationParsing = UnavailableAgentProviderConfigurationParser(),
         aiConfigurationSources: [any AIConfigurationSource],
         recentProjectsStore: RecentProjectsStore,
@@ -174,6 +182,7 @@ final class AppServices {
         self.credentialResolver = credentialResolver
         self.agentManagement = agentManagement
         self.agentInstructions = agentInstructions
+        self.agentHooks = agentHooks
         self.agentProviderConfigurationParser = agentProviderConfigurationParser
         self.aiConfigurationSources = aiConfigurationSources
         self.recentProjectsStore = recentProjectsStore

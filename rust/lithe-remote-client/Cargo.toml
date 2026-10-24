@@ -1,0 +1,13 @@
+[package]
+name = "lithe-remote-client"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Transport chains, server bootstrap and sessions for Lithe remote workspaces"
+publish = false
+
+[dependencies]
+lithe-remote-protocol = { path = "../lithe-remote-protocol" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"

@@ -47,9 +47,13 @@ const PERMISSION_BUILD: &str = "process.build";
 /// Letting a VCS provider change the working copy and contact its server.
 /// API level 3.
 const PERMISSION_VCS: &str = "process.vcs";
+/// Creating projects: writing template files, running scaffolding tools,
+/// and downloading project archives. API level 3.
+const PERMISSION_PROJECT_GENERATE: &str = "project.generate";
 const KNOWN_PERMISSIONS: &[&str] = &[
     PERMISSION_BUILD,
     PERMISSION_LANGUAGE_SERVER,
+    PERMISSION_PROJECT_GENERATE,
     PERMISSION_RUN,
     PERMISSION_TEST,
     PERMISSION_UI,
@@ -164,6 +168,10 @@ pub struct DeclarativePluginManifest {
     /// shape and its validation live in `crate::vcs`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     vcs_providers: Vec<crate::vcs::VcsProviderDeclaration>,
+    /// Entries of the New Project window. API level 3; the shape and its
+    /// validation live in `crate::project_generators`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    project_generators: Vec<crate::project_generators::ProjectGeneratorDeclaration>,
 }
 
 /// UI supplied by plugins. The host owns every window shell: docking, title,
@@ -772,6 +780,7 @@ impl DeclarativePluginManifest {
             && self.ui.is_none()
             && self.build_systems.is_empty()
             && self.vcs_providers.is_empty()
+            && self.project_generators.is_empty()
         {
             return Err(invalid("languages", "The plugin declares no languages."));
         }
@@ -899,6 +908,7 @@ impl DeclarativePluginManifest {
             && self.ui.is_none()
             && self.build_systems.is_empty()
             && self.vcs_providers.is_empty()
+            && self.project_generators.is_empty()
         {
             return Err(invalid(
                 "languages",
@@ -906,6 +916,14 @@ impl DeclarativePluginManifest {
             ));
         }
         self.validate_ui()?;
+        if !self.project_generators.is_empty() && self.plugin_api_version < CAPABILITIES_API_VERSION
+        {
+            return Err(invalid(
+                "projectGenerators",
+                "Project generators require plugin API level 3.",
+            ));
+        }
+        crate::project_generators::validate_declarations(&self.project_generators)?;
         crate::build::validate_declarations(
             &mut self.build_systems,
             &crate::build::DeclarationContext {
@@ -973,6 +991,10 @@ impl DeclarativePluginManifest {
             ),
             (capabilities::UI, self.ui.is_some()),
             (capabilities::BUILD_SYSTEMS, !self.build_systems.is_empty()),
+            (
+                capabilities::PROJECT_GENERATORS,
+                !self.project_generators.is_empty(),
+            ),
             (
                 capabilities::BUILD_PROVIDERS,
                 self.build_systems
@@ -1124,6 +1146,9 @@ impl DeclarativePluginManifest {
         if !self.vcs_providers.is_empty() {
             required.insert(PERMISSION_VCS);
         }
+        if !self.project_generators.is_empty() {
+            required.insert(PERMISSION_PROJECT_GENERATE);
+        }
         for permission in required {
             if !self
                 .permissions
@@ -1204,6 +1229,23 @@ impl DeclarativePluginManifest {
     /// Plugin version, `major.minor.patch`.
     pub(crate) fn version(&self) -> &str {
         &self.version
+    }
+
+    /// Name shown to the user.
+    pub(crate) fn display_name(&self) -> &str {
+        &self.display_name
+    }
+
+    /// IDs of the languages the plugin declares.
+    pub(crate) fn language_ids(&self) -> impl Iterator<Item = &str> {
+        self.languages.iter().map(|language| language.id.as_str())
+    }
+
+    /// Validated project generators, in declaration order.
+    pub(crate) fn project_generators(
+        &self,
+    ) -> &[crate::project_generators::ProjectGeneratorDeclaration] {
+        &self.project_generators
     }
 
     /// Normalized, sorted permission list.
@@ -1377,6 +1419,9 @@ impl DeclarativePluginManifest {
         }
         for provider in &self.vcs_providers {
             programs.extend(crate::vcs::programs(provider));
+        }
+        for generator in &self.project_generators {
+            programs.extend(crate::project_generators::programs(generator));
         }
         // Order by kind, then language or tool, then the full serialized
         // value as a total tie-breaker; duplicates (two servers needing the

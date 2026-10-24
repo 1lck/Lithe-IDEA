@@ -49,6 +49,25 @@ fn run(command: &str, payload: Value) -> Value {
     serde_json::from_str(&execute_json(&request.to_string())).expect("core response JSON")
 }
 
+#[test]
+fn hook_contract_dispatch_is_strict_before_accessing_native_files() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/agent/hooks-management-v1.json"
+    ))
+    .unwrap();
+    assert!(crate::protocol::CoreCommand::parse(fixture["command"].as_str().unwrap()).is_some());
+    for payload in [
+        json!({"dataDirectory":"relative", "action":"read"}),
+        json!({"dataDirectory":"/fixture", "action":"unknown"}),
+        json!({"dataDirectory":"/fixture", "action":"read", "path":"/arbitrary"}),
+        json!({"dataDirectory":"/fixture", "action":"save", "hook":fixture["hook"]}),
+    ] {
+        let response = run("agent.hooks", payload);
+        assert_eq!(response["ok"], false, "{response}");
+        assert_eq!(response["error"]["code"], "invalid_request", "{response}");
+    }
+}
+
 fn fixture() -> Value {
     serde_json::from_str(include_str!(
         "../../../../shared/fixtures/agent/agent-management-v1.json"

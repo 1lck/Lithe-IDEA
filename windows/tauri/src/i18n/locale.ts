@@ -6,6 +6,7 @@ import { workspaceCommitChinese, workspaceCommitEnglish } from "./git-workspace-
 import { aiCommitChinese, aiCommitEnglish } from "./ai-commit";
 import { updateChannelEnglish, updateChannelChinese } from "./update-channel";
 import { agentParityEnglish, agentParityChinese } from "./agent-parity";
+import { hookEnglish, hookChinese } from "./agent-hooks";
 import { runningServicesChinese, runningServicesEnglish } from "./running-services";
 export const DISPLAY_LANGUAGES = ["en-US", "zh-CN"] as const;
 
@@ -14,6 +15,7 @@ export type DisplayLanguage = (typeof DISPLAY_LANGUAGES)[number];
 const catalogs = {
   "en-US": {
     ...agentParityEnglish,
+    ...hookEnglish,
     "agent.quietNotice": "No recent progress has been received. The task is still active.",
     "agent.continueWaiting": "Continue waiting",
     "agent.stop": "Stop",
@@ -4922,6 +4924,7 @@ const catalogs = {
   },
   "zh-CN": {
     ...agentParityChinese,
+    ...hookChinese,
     "agent.quietNotice": "暂未收到新的进度，任务仍在进行。",
     "agent.continueWaiting": "继续等待",
     "agent.stop": "停止",
