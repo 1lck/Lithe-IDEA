@@ -207,6 +207,7 @@ private final class ScriptedBackendCore: LanguageServerRuntimeCore, @unchecked S
     private var _starts: [Start] = []
     private var _stops: [String] = []
     private var _responses: [Response] = []
+    private var waiters: [UUID: (count: Int, continuation: CheckedContinuation<Bool, Never>)] = [:]
 
     var starts: [Start] { lock.withLock { _starts } }
     var stops: [String] { lock.withLock { _stops } }
@@ -247,18 +248,31 @@ private final class ScriptedBackendCore: LanguageServerRuntimeCore, @unchecked S
     func respondToPluginHostRequest(
         sessionID _: String, hostRequestID: String, outcome: Result<ToolingJSONValue, PluginHostRequestFailure>
     ) -> Result<Void, LanguageServerRuntimeFailure> {
-        lock.withLock { _responses.append(Response(id: hostRequestID, outcome: outcome)) }
+        let satisfied = lock.withLock {
+            _responses.append(Response(id: hostRequestID, outcome: outcome))
+            let ready = waiters.filter { $0.value.count <= _responses.count }
+            ready.keys.forEach { waiters.removeValue(forKey: $0) }
+            return ready.values.map(\.continuation)
+        }
+        satisfied.forEach { $0.resume(returning: true) }
         return .success(())
     }
 
-    /// Answers arrive off the main actor; waits a bounded time for them.
+    /// Answers arrive off the main actor. The next answer resumes the
+    /// waiter; a watchdog fails it after five seconds instead of hanging.
     func waitForResponses(_ count: Int) async -> Bool {
-        let deadline = ContinuousClock.now + .seconds(5)
-        while ContinuousClock.now < deadline {
-            if responses.count >= count { return true }
-            try? await Task.sleep(for: .milliseconds(5))
+        await withCheckedContinuation { continuation in
+            let id = UUID()
+            let ready: Bool = lock.withLock {
+                guard _responses.count < count else { return true }
+                waiters[id] = (count, continuation)
+                return false
+            }
+            if ready { return continuation.resume(returning: true) }
+            DispatchQueue.global().asyncAfter(deadline: .now() + 5) { [self] in
+                lock.withLock { waiters.removeValue(forKey: id) }?.continuation.resume(returning: false)
+            }
         }
-        return false
     }
 
     func startLanguageServer(
