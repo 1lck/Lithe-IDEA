@@ -167,9 +167,16 @@ fn port_forwards_bridge_local_connections_to_the_remote() {
     drop(local);
     server.join().unwrap();
     drop(forward);
-    Arc::into_inner(session)
-        .expect("forwarded connections released the session")
-        .shutdown(STEP_TIMEOUT);
+    // Bridge threads finish asynchronously once the remote side reports the
+    // tunnel closed, and may still hold the session; shut it down through
+    // the shared handle instead of waiting for sole ownership.
+    session
+        .request_value(
+            lithe_remote_protocol::methods::SERVER_SHUTDOWN,
+            serde_json::Value::Null,
+            STEP_TIMEOUT,
+        )
+        .unwrap();
 }
 
 #[test]
