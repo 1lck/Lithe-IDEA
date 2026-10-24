@@ -109,7 +109,7 @@ enum AgentTranscriptItem: Identifiable {
     /// A successful background-task notice: protocol markup that needs no attention.
     /// Failures stay on the transcript where the user can see them.
     static func isQuietNotification(_ message: AgentConversationMessage) -> Bool {
-        guard message.role == .user, let entries = AgentClaudeCodeMarkup.parse(message.text), !entries.isEmpty else { return false }
+        guard message.role == .user, case .markup(let entries) = AgentUserMessagePresentation.of(message), !entries.isEmpty else { return false }
         return entries.allSatisfy {
             if case .taskNotification(let notification) = $0 { return !notification.isFailure }
             return false
