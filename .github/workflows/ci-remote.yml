@@ -1,0 +1,152 @@
+# Registered by the standalone preview repository.
+name: Remote Workspace CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: remote-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Classify changes
+    runs-on: ubuntu-latest
+    outputs:
+      rust_remote: ${{ steps.classify.outputs.rust_remote }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Resolve comparison base
+        id: base
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BASE_SHA: ${{ github.event.before }}
+        shell: bash
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            echo "manual=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          base_sha="$PUSH_BASE_SHA"
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            base_sha="$PR_BASE_SHA"
+          fi
+          {
+            echo "manual=false"
+            echo "base_sha=$base_sha"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Classify changed paths
+        id: classify
+        env:
+          MANUAL: ${{ steps.base.outputs.manual }}
+          BASE_SHA: ${{ steps.base.outputs.base_sha }}
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+        shell: bash
+        run: |
+          if [[ "$MANUAL" == "true" ]]; then
+            echo "rust_remote=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Promoting preview to main reruns no lane; macOS CI requires the
+          # preview verification of the same commit instead.
+          if [[ "$BASE_REF" == "main" && "$HEAD_REF" == "preview" && "$HEAD_REPOSITORY" == "$GITHUB_REPOSITORY" ]]; then
+            export LITHE_CI_SCOPE=release_promotion
+          fi
+          ./scripts/classify-ci-changes.sh "$BASE_SHA" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Summarize selected lanes
+        shell: bash
+        env:
+          RUST_REMOTE: ${{ steps.classify.outputs.rust_remote }}
+        run: |
+          {
+            echo "### Remote workspace CI lanes"
+            echo "| Lane | Run |"
+            echo "| --- | --- |"
+            echo "| Rust remote workspace tests | $RUST_REMOTE |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # Runs on Linux, which exercises the server's Linux adapter
+  # (PR_SET_PDEATHSIG, renameat2) that macOS runners cannot. Draft pull
+  # requests keep this lane because it uses no macOS or Windows runner.
+  rust-remote-tests:
+    name: Rust remote workspace tests
+    needs: changes
+    if: needs.changes.outputs.rust_remote == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: x86_64-unknown-linux-musl, aarch64-unknown-linux-musl, aarch64-apple-darwin, x86_64-apple-darwin
+
+      - name: Restore Cargo dependencies
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/git
+            ~/.cargo/registry
+          key: cargo-dependencies-${{ runner.os }}-${{ hashFiles('rust/Cargo.lock') }}
+
+      - name: Check formatting, lints and remote server targets
+        run: ./scripts/verify-remote-workspace.sh --static
+
+      - name: Test remote workspace crates
+        run: ./scripts/verify-remote-workspace.sh --tests
+
+      - name: Upload test timing report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-remote-tests-linux
+          path: .artifacts/test-stability/
+          if-no-files-found: ignore
+
+  gate:
+    name: Remote Workspace CI gate
+    needs:
+      - changes
+      - rust-remote-tests
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Verify required jobs
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          RUST_REMOTE_SELECTED: ${{ needs.changes.outputs.rust_remote }}
+          RUST_REMOTE_RESULT: ${{ needs.rust-remote-tests.result }}
+        shell: bash
+        run: |
+          [[ "$CHANGES_RESULT" == "success" ]]
+          require_selected_job() {
+            local selected="$1"
+            local result="$2"
+            if [[ "$selected" == "true" ]]; then
+              [[ "$result" == "success" ]]
+            else
+              [[ "$result" == "skipped" ]]
+            fi
+          }
+          require_selected_job "$RUST_REMOTE_SELECTED" "$RUST_REMOTE_RESULT"
