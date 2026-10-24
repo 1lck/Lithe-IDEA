@@ -17,6 +17,8 @@ public final class AgentConnectionModel: ObservableObject {
 
     @Published public private(set) var connectionState: ConnectionState = .idle
     @Published public private(set) var usesSubscription = false
+    /// The signed-in Claude Code account pays; its quota arrives with replies.
+    @Published public private(set) var usesClaudeSubscription = false
     @Published public private(set) var subscriptionEmail: String?
     @Published public private(set) var subscriptionPlan: String?
     @Published public private(set) var subscriptionQuota: AgentSubscriptionQuota?
@@ -161,6 +163,7 @@ public final class AgentConnectionModel: ObservableObject {
         errorMessage = nil
         isClaudeConnection = configuration.agentID == "claude-acp"
         usesSubscription = configuration.authentication == .codexSubscription
+        usesClaudeSubscription = configuration.authentication == .claudeSubscription
         subscriptionEmail = nil
         subscriptionPlan = nil
         subscriptionQuota = nil
@@ -927,6 +930,14 @@ public final class AgentConnectionModel: ObservableObject {
             let source = (meta?["lithe"] as? [String: Any])?["contextUsageSource"] as? String
             conversations[sessionID]?.contextUsageIsHistorical = source == "history" && conversations[sessionID]?.contextUsage != nil
             conversations[sessionID]?.hasReportedContextUsage = true
+            if usesClaudeSubscription, let info = meta?["_claude/rateLimit"] as? [String: Any] {
+                // Account-wide, so it is kept on the connection rather than the session.
+                let now = Date()
+                if let merged = subscriptionQuota?.mergingClaudeRateLimit(info, at: now)
+                    ?? AgentSubscriptionQuota.claudeRateLimit(info, at: now) {
+                    subscriptionQuota = merged
+                }
+            }
             if conversations[sessionID]?.isResponding == false { persistStatistics(sessionID) }
         case "config_option_update":
             applyConfiguration(update["configOptions"], to: sessionID)

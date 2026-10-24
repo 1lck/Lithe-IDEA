@@ -8,10 +8,11 @@ private enum AgentSelectorLayout {
 
 /// Presentation only; the Agent still owns IDs, choices and confirmed values.
 enum AgentSessionSelectorPresentation {
-    /// Upstream approval-mode ids of the pinned adapters and their product titles:
-    /// Claude Agent (`default`, `acceptEdits`, `plan`, `auto`, `bypassPermissions`)
-    /// and Codex (`read-only`, `agent`, `agent-full-access`). Unknown ids keep the
-    /// Agent's own name.
+    /// Approval modes of the pinned adapters, keyed by upstream id, with the
+    /// English name each adapter reports: Claude Agent (`default`, `acceptEdits`,
+    /// `plan`, `auto`, `bypassPermissions`) and Codex (`read-only`, `agent`,
+    /// `agent-full-access`). Both must match before the product title replaces the
+    /// Agent's name, so another Agent's `default` mode is never relabeled.
     private static let knownModeTitles: [String: String] = [
         "default": "Manual", "acceptEdits": "Accept edits", "plan": "Plan", "auto": "Auto",
         "bypassPermissions": "Bypass permissions",
@@ -31,7 +32,7 @@ enum AgentSessionSelectorPresentation {
         }
         // Known approval modes keep a stable localized label. Unknown mode,
         // model and thinking-level names stay verbatim below.
-        if option.category == "mode", let title = knownModeTitles[choice.id] {
+        if option.category == "mode", let title = knownModeTitles[choice.id], title == choice.name {
             return localized(title, bundle: bundle, locale: locale)
         }
         // Agent-owned names must not collide with translations used elsewhere in the app.

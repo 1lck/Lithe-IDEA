@@ -506,6 +506,8 @@ private struct AgentConnectionView: View {
                 onToggleDetails: { showsEditorDetails.toggle() }
             )
             GeometryReader { geometry in
+                let showsColumn = showsEditorDetails
+                    && geometry.size.width >= AgentEditorConversationMetrics.detailsMinimumTotalWidth
                 HStack(spacing: 0) {
                     VStack(spacing: 0) {
                         if showsSearch {
@@ -517,14 +519,17 @@ private struct AgentConnectionView: View {
                                 errorNotice.modifier(AgentEditorColumn(isEditor: true))
                             }
                         } composer: {
-                            // The editor keeps the card alone; the activity summary
-                            // and session controls live in the details column.
-                            composer
-                                .modifier(AgentEditorColumn(isEditor: true))
+                            // The details column owns tasks, subagents and file review.
+                            // When it is hidden or does not fit, the composer keeps the
+                            // activity summary so those entries never disappear.
+                            Group {
+                                if showsColumn { composer } else { conversationComposer }
+                            }
+                            .modifier(AgentEditorColumn(isEditor: true))
                         }
                     }
                     .frame(maxWidth: .infinity)
-                    if showsEditorDetails && geometry.size.width >= AgentEditorConversationMetrics.detailsMinimumTotalWidth {
+                    if showsColumn {
                         detailsPanel
                     }
                 }
@@ -674,7 +679,8 @@ private struct AgentConnectionView: View {
             hasPendingContinuation: feature.hasPendingContinuation,
             contextUsage: feature.selectedConversation?.contextUsage,
             sessionStatistics: feature.selectedConversation?.sessionStatistics,
-            showsSubscriptionQuota: feature.usesSubscription,
+            showsSubscriptionQuota: feature.usesSubscription || feature.usesClaudeSubscription,
+            subscriptionQuotaSource: feature.usesClaudeSubscription ? .claude : .codex,
             subscriptionQuota: feature.subscriptionQuota,
             subscriptionAccount: feature.subscriptionEmail,
             quotaFailure: feature.quotaFailure,

@@ -22,7 +22,9 @@
 - 编辑区对话 UI：用户消息用中性灰圆角气泡；输入框改 16pt 圆角带轻阴影，卡片内只留“添加”和“发送”，审批模式在状态行左侧、模型在右侧，之后是订阅额度和上下文环。详情栏的上下文、更改、会话统计三个分区可单独折叠，状态保存在 `lithe.agent.editor.detailsCollapsed`；标题栏新增详情栏开关按钮，原菜单项保留。“更改”来自对话中的文件编辑记录，只显示已有数据。
 - 历史列表滚动与刷新：页面观察整个 `AgentConnectionModel`，流式输出每几十毫秒发布一次。`AgentHistoryRowsCache` 分三层记忆：排序结果（会话、标注、搜索、筛选不变就不重排，O(n log n) 只在必要时执行）、行数据（当前会话、已加载对话的消息条数、分钟数不变就复用）、版本号（列表 `==` 只比较版本号，O(1)）。时间戳解析、本地化 `.lproj` 查找、`DateFormatter` 都做了缓存；`canExport` 改为打开菜单时对该行计算；行高固定为 56pt；行菜单只在悬停或当前行时挂载原生锚点。
 - 编辑区右侧详情栏改为 `AgentEditorDetailsColumn`：每个分区一张圆角卡片，标题后有 ▾ 可折叠；上下文卡显示已用百分比、容量、彩色进度条和"彩色方块 + 名称 + token + 占比"图例（无分解数据时显示"—"）；更改卡显示总增删行数和文件列表（文件名 + 所在目录），超过 5 个折叠到"显示更多"。工具窗口输入框打开的会话详情弹窗仍是原来的 `AgentEditorDetailsPanel`，样式不变。
-- 审批模式（auto/manual/plan/acceptEdits）显示本地化名称；编辑区输入卡片内是 Agent、审批模式、模型、添加、发送。
+- 编辑区输入卡片左侧是 Agent、审批模式、模型，右侧是额度圆环（订阅时）与上下文圆环；回车发送，文件用拖入、粘贴或 @，回复进行中才显示停止按钮。上下文圆环始终显示，未上报时为空圈。审批模式的本地化规则见共享 Agent 对话 Note。
+- 详情栏负责任务、子代理和文件审查。详情栏被关闭或编辑区宽度不足以放下它时，输入框上方恢复显示活动摘要，避免这些入口消失。
+- Claude 订阅额度：Claude Code 在回复过程中产生 `rate_limit_event`，适配器以 `usage_update._meta["_claude/rateLimit"]` 转发，每条只描述一个窗口（`five_hour`、`seven_day`、`seven_day_opus`、`seven_day_sonnet`，`utilization` 为 0–1 比例，`resetsAt` 为 Unix 秒）。`AgentSubscriptionQuota` 按窗口类型累积，来源标为 `claude`：快照在窗口重置前一直有效（Codex 的“超过 2 分钟视为过期”只适用于主动轮询），悬停卡片显示“截至某时刻，仅在回复时更新”。不调用 Anthropic 接口、不轮询；overage 和未知窗口不显示。
 - 这些改动只作用于 `isEditorLayout`；工具窗口的 Agent 面板（CC GUI 样式）没有改变。
 
 ## 考虑过的备选方案

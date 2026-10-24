@@ -115,6 +115,63 @@ struct AgentLargeHistoryLoadTests {
     }
 }
 
+// Claude Code reports one rate-limit window per reply; the subscription quota
+// accumulates them and stays valid until a window resets, not after two minutes.
+@MainActor
+struct AgentClaudeSubscriptionQuotaTests {
+    @Test
+    func rateLimitReportsAccumulateIntoPassiveWindows() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let fiveHour: [String: Any] = ["status": "allowed", "rateLimitType": "five_hour", "utilization": 0.36,
+                                       "resetsAt": 1_800_010_000]
+        var quota = try #require(AgentSubscriptionQuota.claudeRateLimit(fiveHour, at: now))
+        #expect(quota.source == .claude && quota.windows.count == 1)
+        #expect(quota.windows[0].limitSeconds == 5 * 3_600)
+        #expect(abs((quota.windows[0].usedPercent ?? 0) - 36) < 0.001)
+        quota = try #require(quota.mergingClaudeRateLimit(
+            ["rateLimitType": "seven_day", "utilization": 0.83, "resetsAt": 1_800_200_000], at: now))
+        #expect(quota.windows.map(\.id) == ["five_hour", "seven_day"])
+        #expect(quota.mostUsedWindow?.id == "seven_day")
+        // A newer report for the same window replaces it.
+        quota = try #require(quota.mergingClaudeRateLimit(
+            ["rateLimitType": "five_hour", "utilization": 0.5, "resetsAt": 1_800_010_000], at: now))
+        #expect(quota.windows.count == 2 && abs((quota.windows[0].usedPercent ?? 0) - 50) < 0.001)
+        // Passive: an hour later is still current; after a reset it is stale.
+        #expect(!quota.isStale(at: now.addingTimeInterval(3_600)))
+        #expect(quota.isStale(at: Date(timeIntervalSince1970: 1_800_010_001)))
+        // Overage, unknown kinds and out-of-range utilization are never guessed.
+        #expect(quota.mergingClaudeRateLimit(["rateLimitType": "overage", "utilization": 0.2], at: now) == nil)
+        #expect(AgentSubscriptionQuota.claudeRateLimit(["status": "allowed"], at: now) == nil)
+        let invalid = try #require(AgentSubscriptionQuota.claudeRateLimit(
+            ["rateLimitType": "seven_day_opus", "utilization": 7.5], at: now))
+        #expect(invalid.windows[0].usedPercent == nil && invalid.windows[0].name == "Opus")
+    }
+
+    @Test
+    func onlyAClaudeSubscriptionConnectionKeepsReportedQuota() throws {
+        for authentication in [AgentAuthentication.claudeSubscription, .apiKey] {
+            let transport = ReplayFixtureTransport()
+            let panel = AgentConversationFeatureModel(transport: transport)
+            panel.setAgents([.init(id: "claude-acp", name: "Claude")])
+            let feature = try #require(panel.selectedConnection)
+            try feature.connect(configuration: .init(agentID: "claude-acp", command: "", arguments: [],
+                workspaceURL: URL(fileURLWithPath: "/example/project"), dataDirectory: URL(fileURLWithPath: "/example/agents"),
+                providerProtocol: "", providerEndpoint: "", apiKey: "", providerName: "", model: "",
+                allowsInsecureHTTP: false, authentication: authentication))
+            func receive(_ value: [String: Any]) {
+                feature.receive(String(decoding: try! JSONSerialization.data(withJSONObject: value), as: UTF8.self))
+            }
+            receive(["kind": "ready", "agentName": "Claude"])
+            receive(["kind": "update", "sessionId": "s", "update": [
+                "sessionUpdate": "usage_update", "used": 1_000, "size": 200_000,
+                "_meta": ["_claude/rateLimit": ["rateLimitType": "five_hour", "utilization": 0.4]]]])
+            #expect(feature.usesClaudeSubscription == (authentication == .claudeSubscription))
+            #expect(!feature.usesSubscription, "Codex polling and account events stay off")
+            #expect((feature.subscriptionQuota != nil) == (authentication == .claudeSubscription))
+        }
+    }
+}
+
 @MainActor
 private final class ReplayFixture {
     let transport = ReplayFixtureTransport()

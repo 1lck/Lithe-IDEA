@@ -26,6 +26,7 @@ struct AgentComposerView: View {
     var contextUsage: AgentContextUsage?
     var sessionStatistics: AgentSessionStatistics?
     var showsSubscriptionQuota = false
+    var subscriptionQuotaSource: AgentSubscriptionQuota.Source = .codex
     var subscriptionQuota: AgentSubscriptionQuota?
     var subscriptionAccount: String?
     var quotaFailure: String?
@@ -163,11 +164,13 @@ struct AgentComposerView: View {
             // only live status. Stop stays reachable while a turn runs.
             if showsStopAction { primaryActionButton }
             if showsSubscriptionQuota {
-                AgentSubscriptionQuotaView(quota: subscriptionQuota, account: subscriptionAccount, failure: quotaFailure)
+                AgentSubscriptionQuotaView(quota: subscriptionQuota, account: subscriptionAccount, failure: quotaFailure,
+                                           source: subscriptionQuotaSource)
                     .id(sessionID ?? selectedAgent?.id)
             }
+            // Always present, like Claude Desktop: an empty ring until the Agent reports.
             AgentContextUsageView(usage: contextUsage, composition: sessionStatistics?.modelCalls?.latestContext,
-                                  showsPercentage: false, isHiddenUntilReported: true)
+                                  showsPercentage: false)
         }
         .padding(.horizontal, AgentComposerMetrics.toolbarHorizontalInset + 3)
         .frame(height: AgentComposerMetrics.toolbarHeight - 2)
@@ -206,7 +209,8 @@ struct AgentComposerView: View {
             }
             Spacer(minLength: 0)
             if showsSubscriptionQuota {
-                AgentSubscriptionQuotaView(quota: subscriptionQuota, account: subscriptionAccount, failure: quotaFailure)
+                AgentSubscriptionQuotaView(quota: subscriptionQuota, account: subscriptionAccount, failure: quotaFailure,
+                                           source: subscriptionQuotaSource)
                     .id(sessionID ?? selectedAgent?.id)
             }
             detailsButton

@@ -2631,6 +2631,9 @@
 "Quota —" = "额度 —";
 
 "Codex subscription quota" = "Codex 订阅额度";
+"Claude subscription quota" = "Claude 订阅额度";
+"Usage appears after the next reply." = "下一次回复后显示用量。";
+"As of %@; updated only while replying." = "截至 %@，仅在回复时更新。";
 
 "Resets: %@" = "重置时间：%@";
 
