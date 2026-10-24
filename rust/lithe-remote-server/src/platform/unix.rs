@@ -3,6 +3,7 @@
 use std::ffi::{CStr, OsStr};
 use std::fs;
 use std::io;
+use std::os::fd::{FromRawFd, OwnedFd, RawFd};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
@@ -95,6 +96,29 @@ pub(crate) fn process_group_exists(group: u32) -> bool {
     io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
+/// Whether the session led by `leader` still has a member: its own process
+/// group, or a job-control group that left it.
+pub(crate) fn session_exists(leader: u32) -> bool {
+    process_group_exists(leader) || !super::host::session_members(leader).is_empty()
+}
+
+/// Sends `signal` to every process of the session led by `leader`: its own
+/// process group and the separate groups that job control gives background
+/// jobs. Shells differ in whether they forward hangups to their jobs, so the
+/// server does it for them. Fails with `ESRCH` when nothing was signalled.
+pub(crate) fn signal_session(leader: u32, signal: libc::c_int) -> io::Result<()> {
+    let mut signalled = signal_process_group(leader, signal).is_ok();
+    for pid in super::host::session_members(leader) {
+        // SAFETY: kill has no memory-safety preconditions.
+        signalled |= unsafe { libc::kill(pid as libc::pid_t, signal) } == 0;
+    }
+    if signalled {
+        Ok(())
+    } else {
+        Err(io::Error::from_raw_os_error(libc::ESRCH))
+    }
+}
+
 /// Determines case sensitivity without writing: it looks up the nearest
 /// component with letters under its swapped-case spelling and checks whether
 /// that resolves to the same file. Only components on the same device as
@@ -151,4 +175,122 @@ pub(crate) fn rename_if_absent(from: &Path, to: &Path) -> io::Result<()> {
 pub(crate) fn c_path(path: &Path) -> io::Result<std::ffi::CString> {
     std::ffi::CString::new(path.as_os_str().as_bytes())
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "path contains NUL"))
+}
+
+pub(crate) fn current_uid() -> u32 {
+    // SAFETY: getuid has no preconditions.
+    unsafe { libc::getuid() }
+}
+
+/// Opens a pseudo-terminal pair sized `columns` x `rows`. Both descriptors
+/// are close-on-exec, so no other child inherits the master; the child that
+/// uses the slave receives it as its standard streams, which exec keeps.
+pub(crate) fn open_pty(columns: u16, rows: u16) -> io::Result<(OwnedFd, OwnedFd)> {
+    let mut master: RawFd = -1;
+    let mut slave: RawFd = -1;
+    let mut size = window_size(columns, rows);
+    // SAFETY: the out-pointers reference live locals; a null name and
+    // terminal attributes request the defaults.
+    let status = unsafe {
+        libc::openpty(
+            &mut master,
+            &mut slave,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            // Linux declares the parameter const and macOS mutable; a raw
+            // mutable pointer fits both.
+            std::ptr::addr_of_mut!(size),
+        )
+    };
+    if status != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: openpty succeeded, so both descriptors are open and owned here.
+    let (master, slave) = unsafe { (OwnedFd::from_raw_fd(master), OwnedFd::from_raw_fd(slave)) };
+    for fd in [&master, &slave] {
+        set_close_on_exec(std::os::fd::AsRawFd::as_raw_fd(fd))?;
+    }
+    Ok((master, slave))
+}
+
+pub(crate) fn set_window_size(master: RawFd, columns: u16, rows: u16) -> io::Result<()> {
+    let size = window_size(columns, rows);
+    // SAFETY: TIOCSWINSZ reads a winsize from the pointer, which references a
+    // live local.
+    if unsafe { libc::ioctl(master, libc::TIOCSWINSZ as _, &size) } == -1 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+fn window_size(columns: u16, rows: u16) -> libc::winsize {
+    libc::winsize {
+        ws_row: rows.max(1),
+        ws_col: columns.max(1),
+        ws_xpixel: 0,
+        ws_ypixel: 0,
+    }
+}
+
+fn set_close_on_exec(fd: RawFd) -> io::Result<()> {
+    // SAFETY: fcntl on a descriptor this process owns.
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+    if flags == -1 || unsafe { libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC) } == -1 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+/// Makes the child's standard input, a pseudo-terminal slave, its
+/// controlling terminal. Must run after `setsid` between fork and exec.
+pub(crate) fn acquire_controlling_terminal() -> io::Result<()> {
+    // SAFETY: ioctl is async-signal-safe; descriptor 0 is the slave.
+    if unsafe { libc::ioctl(0, libc::TIOCSCTTY as _, 0) } == -1 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+/// Interval between exit checks of a bounded helper command.
+const HELPER_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(10);
+
+/// Reads a helper's standard output and waits for it with a deadline. On
+/// timeout the helper's whole process group is killed, so shells that started
+/// background jobs from profile files do not linger.
+pub(crate) fn collect_output(
+    mut child: std::process::Child,
+    timeout: std::time::Duration,
+) -> io::Result<(std::process::ExitStatus, Vec<u8>)> {
+    use std::io::Read;
+    let (sender, receiver) = std::sync::mpsc::channel();
+    if let Some(mut stdout) = child.stdout.take() {
+        std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            let _ = stdout.read_to_end(&mut bytes);
+            let _ = sender.send(bytes);
+        });
+    } else {
+        let _ = sender.send(Vec::new());
+    }
+    let deadline = std::time::Instant::now() + timeout;
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if std::time::Instant::now() >= deadline {
+            let _ = signal_process_group(child.id(), libc::SIGKILL);
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "helper command timed out",
+            ));
+        }
+        std::thread::sleep(HELPER_POLL_INTERVAL);
+    };
+    // Descendants may keep the pipe open; their output is not waited for.
+    let stdout = receiver
+        .recv_timeout(std::time::Duration::from_millis(500))
+        .unwrap_or_default();
+    Ok((status, stdout))
 }

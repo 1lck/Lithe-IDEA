@@ -1,28 +1,24 @@
-//! End-to-end behavior of the server binary over the local transport.
+//! Handshake, filesystem and bootstrap behavior of the server binary over the
+//! local transport.
 
 mod support;
 
 use lithe_remote_client::bootstrap::Bootstrapper;
 use lithe_remote_client::session::ClientError;
-use lithe_remote_client::{InstallLocation, RemoteSession, ServerArtifact, TransportChain};
+use lithe_remote_client::{
+    InstallLocation, RemoteSession, ServerArtifact, TransportChain, WriteOptions,
+};
 use lithe_remote_protocol::frame::{read_frame, skip_preamble, write_frame};
 use lithe_remote_protocol::methods::{
-    self, decode_bytes, encode_bytes, FileKind, FileMetadata, OperatingSystem, OrphanProtection,
-    ReadDirResult, ReadFileResult, SpawnResult, VolumeInfo,
+    self, encode_bytes, FileKind, FileVersion, OperatingSystem, OrphanProtection, WatchBackend,
 };
 use lithe_remote_protocol::{ErrorCode, Message};
-use serde_json::{json, Value};
+use serde_json::json;
 use std::io::BufReader;
 use std::process::{Command, Stdio};
-use support::{
-    connect, connect_command, wait_for_exit, wait_until_gone, TempDir, SERVER, STEP_TIMEOUT,
-};
+use support::{connect, connect_command, options, TempDir, SERVER, STEP_TIMEOUT};
 
-fn call(session: &RemoteSession, method: &str, params: Value) -> Result<Value, ClientError> {
-    session.request_value(method, params, STEP_TIMEOUT)
-}
-
-fn error_code(result: Result<Value, ClientError>) -> ErrorCode {
+fn code<T: std::fmt::Debug>(result: Result<T, ClientError>) -> ErrorCode {
     match result {
         Err(ClientError::Remote(error)) => error.code,
         other => panic!("expected a remote error, got {other:?}"),
@@ -32,28 +28,36 @@ fn error_code(result: Result<Value, ClientError>) -> ErrorCode {
 #[test]
 fn handshake_reports_the_host_as_capabilities() {
     let (session, _events) = connect();
-    let host = &session.hello().host;
-    let expected_os = if cfg!(target_os = "macos") {
-        OperatingSystem::Macos
+    let hello = session.hello();
+    let host = &hello.host;
+    if cfg!(target_os = "macos") {
+        assert_eq!(host.os, OperatingSystem::Macos);
+        assert_eq!(host.watch.backend, WatchBackend::Fsevents);
+        assert_eq!(
+            host.process.orphan_protection,
+            OrphanProtection::ServerShutdown
+        );
     } else {
-        OperatingSystem::Linux
-    };
-    assert_eq!(host.os, expected_os);
+        assert_eq!(host.os, OperatingSystem::Linux);
+        assert_eq!(host.watch.backend, WatchBackend::Inotify);
+        assert_eq!(
+            host.process.orphan_protection,
+            OrphanProtection::ParentDeathSignal
+        );
+    }
     assert_eq!(host.arch, std::env::consts::ARCH);
     assert_eq!(host.path_separator, "/");
-    assert_eq!(
-        host.process.orphan_protection,
-        if cfg!(target_os = "linux") {
-            OrphanProtection::ParentDeathSignal
-        } else {
-            OrphanProtection::ServerShutdown
-        }
-    );
     assert!(host
         .home_directory
         .as_deref()
         .is_some_and(|home| home.starts_with('/')));
-    assert!(!host.features.is_empty());
+    let mut sorted = host.features.clone();
+    sorted.sort();
+    assert_eq!(host.features, sorted);
+    // A `--stdio` session ends with its connection.
+    assert!(!hello.session.persistent);
+    assert!(!hello.session.resumed);
+    assert!(session.ping().is_ok());
     session.shutdown(STEP_TIMEOUT);
 }
 
@@ -83,7 +87,6 @@ fn requests_before_hello_and_foreign_protocol_versions_are_rejected() {
     assert!(
         matches!(early, Message::Response { error: Some(ref error), .. } if error.code == ErrorCode::InvalidRequest)
     );
-
     let mismatch = exchange(Message::Request {
         id: 2,
         method: methods::SERVER_HELLO.into(),
@@ -94,8 +97,7 @@ fn requests_before_hello_and_foreign_protocol_versions_are_rejected() {
     );
 
     drop(input);
-    let status = child.wait().unwrap();
-    assert!(status.success());
+    assert!(child.wait().unwrap().success());
 }
 
 #[test]
@@ -103,71 +105,44 @@ fn files_are_written_atomically_and_guarded_against_concurrent_changes() {
     let directory = TempDir::new("files");
     let (session, _events) = connect();
     let file = directory.join("nested/a.txt");
+    let create = WriteOptions {
+        create_parents: true,
+        ..WriteOptions::default()
+    };
 
-    let created: FileMetadata = serde_json::from_value(
-        call(
-            &session,
-            methods::FS_WRITE_FILE,
-            json!({ "path": file, "data": encode_bytes(b"one"), "createParents": true }),
-        )
-        .unwrap(),
-    )
-    .unwrap();
+    let created = session.write_file(&file, b"one", create).unwrap();
     assert_eq!((created.kind, created.size), (FileKind::File, 3));
-
     // Without a version guard an existing file is never replaced silently.
     assert_eq!(
-        error_code(call(
-            &session,
-            methods::FS_WRITE_FILE,
-            json!({ "path": file, "data": encode_bytes(b"x") })
-        )),
+        code(session.write_file(&file, b"x", WriteOptions::default())),
         ErrorCode::AlreadyExists
     );
-
-    let expected = json!({ "size": created.size, "modifiedMs": created.modified_ms });
-    call(
-        &session,
-        methods::FS_WRITE_FILE,
-        json!({ "path": file, "data": encode_bytes(b"second"), "expected": expected }),
-    )
-    .unwrap();
+    let guarded = WriteOptions {
+        expected: Some(FileVersion {
+            size: created.size,
+            modified_ms: created.modified_ms,
+        }),
+        ..WriteOptions::default()
+    };
+    session
+        .write_file(&file, b"second", guarded.clone())
+        .unwrap();
     // The first version is now stale: another editor's change must not be lost.
     assert_eq!(
-        error_code(call(
-            &session,
-            methods::FS_WRITE_FILE,
-            json!({ "path": file, "data": encode_bytes(b"third"), "expected": expected })
-        )),
+        code(session.write_file(&file, b"third", guarded)),
         ErrorCode::Conflict
     );
 
-    let read: ReadFileResult = serde_json::from_value(
-        call(
-            &session,
-            methods::FS_READ_FILE,
-            json!({ "path": file, "offset": 2, "length": 3 }),
-        )
-        .unwrap(),
-    )
-    .unwrap();
-    assert_eq!(decode_bytes(&read.data).unwrap(), b"con");
-    assert!(!read.eof);
-
+    let (content, metadata) = session.read_file(&file).unwrap();
+    assert_eq!(content, b"second");
+    assert_eq!(metadata.size, 6);
     // No temporary files are left next to the target.
-    let listing: ReadDirResult = serde_json::from_value(
-        call(
-            &session,
-            methods::FS_READ_DIR,
-            json!({ "path": directory.join("nested") }),
-        )
-        .unwrap(),
-    )
-    .unwrap();
-    let names: Vec<_> = listing
+    let names: Vec<_> = session
+        .read_dir(&directory.join("nested"))
+        .unwrap()
         .entries
-        .iter()
-        .map(|entry| entry.name.as_str())
+        .into_iter()
+        .map(|entry| entry.name)
         .collect();
     assert_eq!(names, ["a.txt"]);
     session.shutdown(STEP_TIMEOUT);
@@ -188,12 +163,10 @@ fn concurrent_creations_of_one_path_keep_exactly_one_file() {
                 .map(|data| {
                     let (session, file) = (&session, &file);
                     scope.spawn(move || {
-                        let result = call(
-                            session,
-                            methods::FS_WRITE_FILE,
-                            json!({ "path": file, "data": encode_bytes(data) }),
-                        );
-                        (data, result)
+                        (
+                            data,
+                            session.write_file(file, data, WriteOptions::default()),
+                        )
                     })
                 })
                 .collect();
@@ -209,7 +182,7 @@ fn concurrent_creations_of_one_path_keep_exactly_one_file() {
             .collect();
         assert_eq!(winners.len(), 1, "round {round}: {results:?}");
         for (_, result) in results.into_iter().filter(|(_, result)| result.is_err()) {
-            assert_eq!(error_code(result), ErrorCode::AlreadyExists);
+            assert_eq!(code(result), ErrorCode::AlreadyExists);
         }
         assert_eq!(std::fs::read(&file).unwrap(), winners[0]);
     }
@@ -217,8 +190,8 @@ fn concurrent_creations_of_one_path_keep_exactly_one_file() {
 }
 
 // A client that disconnects right after sending a write must not leave the
-// write's temporary file behind: the server lets running filesystem
-// requests finish before it exits.
+// write's temporary file behind: the server lets running requests finish
+// before it exits.
 #[test]
 fn a_write_in_flight_at_disconnect_completes_without_leftovers() {
     let directory = TempDir::new("drain");
@@ -262,265 +235,6 @@ fn a_write_in_flight_at_disconnect_completes_without_leftovers() {
         .map(|entry| entry.unwrap().file_name())
         .collect();
     assert_eq!(names, ["large.bin"]);
-}
-
-#[test]
-fn writing_through_a_symbolic_link_keeps_the_link() {
-    let directory = TempDir::new("links");
-    std::fs::write(directory.path().join("target.txt"), b"old").unwrap();
-    std::os::unix::fs::symlink("target.txt", directory.path().join("link.txt")).unwrap();
-    let (session, _events) = connect();
-
-    call(
-        &session,
-        methods::FS_WRITE_FILE,
-        json!({ "path": directory.join("link.txt"), "data": encode_bytes(b"new"), "overwrite": true }),
-    )
-    .unwrap();
-    let link: FileMetadata = serde_json::from_value(
-        call(
-            &session,
-            methods::FS_STAT,
-            json!({ "path": directory.join("link.txt") }),
-        )
-        .unwrap(),
-    )
-    .unwrap();
-    assert_eq!(link.kind, FileKind::Symlink);
-    assert_eq!(link.symlink_target.as_deref(), Some("target.txt"));
-    assert_eq!(link.symlink_target_kind, Some(FileKind::File));
-    assert_eq!(
-        std::fs::read(directory.path().join("target.txt")).unwrap(),
-        b"new"
-    );
-    session.shutdown(STEP_TIMEOUT);
-}
-
-#[test]
-fn directory_operations_report_stable_error_codes() {
-    let directory = TempDir::new("dirs");
-    let (session, _events) = connect();
-    let tree = directory.join("tree");
-    call(
-        &session,
-        methods::FS_CREATE_DIR,
-        json!({ "path": format!("{tree}/b/c"), "recursive": true }),
-    )
-    .unwrap();
-    std::fs::write(format!("{tree}/a.txt"), b"a").unwrap();
-
-    let listing: ReadDirResult = serde_json::from_value(
-        call(&session, methods::FS_READ_DIR, json!({ "path": tree })).unwrap(),
-    )
-    .unwrap();
-    let names: Vec<_> = listing
-        .entries
-        .iter()
-        .map(|entry| entry.name.as_str())
-        .collect();
-    assert_eq!(names, ["a.txt", "b"]);
-
-    assert_eq!(
-        error_code(call(
-            &session,
-            methods::FS_RENAME,
-            json!({ "from": format!("{tree}/b"), "to": format!("{tree}/a.txt") })
-        )),
-        ErrorCode::AlreadyExists
-    );
-    call(
-        &session,
-        methods::FS_RENAME,
-        json!({ "from": format!("{tree}/b"), "to": format!("{tree}/d") }),
-    )
-    .unwrap();
-    assert_eq!(
-        error_code(call(
-            &session,
-            methods::FS_REMOVE,
-            json!({ "path": format!("{tree}/d") })
-        )),
-        ErrorCode::DirectoryNotEmpty
-    );
-    call(
-        &session,
-        methods::FS_REMOVE,
-        json!({ "path": format!("{tree}/d"), "recursive": true }),
-    )
-    .unwrap();
-    assert_eq!(
-        error_code(call(
-            &session,
-            methods::FS_STAT,
-            json!({ "path": format!("{tree}/d") })
-        )),
-        ErrorCode::NotFound
-    );
-    assert_eq!(
-        error_code(call(
-            &session,
-            methods::FS_STAT,
-            json!({ "path": "relative/path" })
-        )),
-        ErrorCode::InvalidPath
-    );
-    let volume: VolumeInfo = serde_json::from_value(
-        call(&session, methods::FS_VOLUME_INFO, json!({ "path": tree })).unwrap(),
-    )
-    .unwrap();
-    assert!(volume.case_sensitive.is_some());
-    session.shutdown(STEP_TIMEOUT);
-}
-
-#[test]
-fn process_output_precedes_its_exit_event() {
-    let (session, events) = connect();
-    let spawned: SpawnResult = session
-        .request(
-            methods::PROCESS_SPAWN,
-            &json!({ "argv": ["sh", "-c", "printf out; printf err >&2; exit 3"], "env": { "LITHE_TEST": "1" } }),
-            STEP_TIMEOUT,
-        )
-        .unwrap();
-    let finished = wait_for_exit(&events, spawned.process_id);
-    assert_eq!(finished.stdout, b"out");
-    assert_eq!(finished.stderr, b"err");
-    assert_eq!(finished.exit.unwrap().exit_code, Some(3));
-    assert!(!finished.output_after_exit);
-    session.shutdown(STEP_TIMEOUT);
-}
-
-#[test]
-fn standard_input_is_forwarded_and_closed() {
-    let (session, events) = connect();
-    let spawned: SpawnResult = session
-        .request(
-            methods::PROCESS_SPAWN,
-            &json!({ "argv": ["cat"], "pipeStdin": true }),
-            STEP_TIMEOUT,
-        )
-        .unwrap();
-    let process = json!({ "processId": spawned.process_id });
-    call(
-        &session,
-        methods::PROCESS_WRITE_STDIN,
-        json!({ "processId": spawned.process_id, "data": encode_bytes(b"echoed") }),
-    )
-    .unwrap();
-    call(&session, methods::PROCESS_CLOSE_STDIN, process).unwrap();
-    let finished = wait_for_exit(&events, spawned.process_id);
-    assert_eq!(finished.stdout, b"echoed");
-    assert_eq!(finished.exit.unwrap().exit_code, Some(0));
-    session.shutdown(STEP_TIMEOUT);
-}
-
-// Build tools start worker processes; killing only the leader would leave
-// them running on the remote host.
-#[test]
-fn kill_reaches_the_whole_process_group() {
-    let (session, events) = connect();
-    let spawned: SpawnResult = session
-        .request(
-            methods::PROCESS_SPAWN,
-            &json!({ "argv": ["sh", "-c", "sleep 60 & echo $!; wait"] }),
-            STEP_TIMEOUT,
-        )
-        .unwrap();
-    let worker = read_first_line_pid(&events, spawned.process_id);
-    call(
-        &session,
-        methods::PROCESS_KILL,
-        json!({ "processId": spawned.process_id }),
-    )
-    .unwrap();
-    let finished = wait_for_exit(&events, spawned.process_id);
-    assert_eq!(finished.exit.unwrap().signal, Some(libc::SIGTERM));
-    assert!(
-        wait_until_gone(worker),
-        "worker {worker} survived the group kill"
-    );
-    assert_eq!(
-        error_code(call(
-            &session,
-            methods::PROCESS_KILL,
-            json!({ "processId": spawned.process_id })
-        )),
-        ErrorCode::ProcessNotFound
-    );
-    session.shutdown(STEP_TIMEOUT);
-}
-
-#[test]
-fn disconnecting_terminates_spawned_processes() {
-    let (session, events) = connect();
-    let spawned: SpawnResult = session
-        .request(
-            methods::PROCESS_SPAWN,
-            &json!({ "argv": ["sleep", "60"] }),
-            STEP_TIMEOUT,
-        )
-        .unwrap();
-    drop(events);
-    // Dropping without shutdown is what a lost network connection looks like.
-    drop(session);
-    assert!(
-        wait_until_gone(spawned.pid),
-        "process {} outlived the session",
-        spawned.pid
-    );
-}
-
-/// Starts a group whose leader exits right away while a member keeps
-/// running, as a build tool that leaves a daemon behind does. Returns the
-/// process id and the surviving member's pid after the leader's exit event.
-fn spawn_group_that_outlives_its_leader(
-    session: &RemoteSession,
-    events: &std::sync::mpsc::Receiver<lithe_remote_client::session::Event>,
-) -> (u64, u32) {
-    let spawned: SpawnResult = session
-        .request(
-            methods::PROCESS_SPAWN,
-            &json!({ "argv": ["sh", "-c", "sleep 60 >/dev/null 2>&1 & echo $!"] }),
-            STEP_TIMEOUT,
-        )
-        .unwrap();
-    let finished = wait_for_exit(events, spawned.process_id);
-    assert_eq!(finished.exit.unwrap().exit_code, Some(0));
-    let member = String::from_utf8(finished.stdout)
-        .unwrap()
-        .trim()
-        .parse()
-        .unwrap();
-    (spawned.process_id, member)
-}
-
-#[test]
-fn kill_reaches_members_that_outlive_the_leader() {
-    let (session, events) = connect();
-    let (process_id, member) = spawn_group_that_outlives_its_leader(&session, &events);
-    call(
-        &session,
-        methods::PROCESS_KILL,
-        json!({ "processId": process_id, "force": true }),
-    )
-    .unwrap();
-    assert!(
-        wait_until_gone(member),
-        "member {member} survived the group kill"
-    );
-    session.shutdown(STEP_TIMEOUT);
-}
-
-#[test]
-fn disconnecting_terminates_members_that_outlive_the_leader() {
-    let (session, events) = connect();
-    let (_, member) = spawn_group_that_outlives_its_leader(&session, &events);
-    drop(events);
-    drop(session);
-    assert!(
-        wait_until_gone(member),
-        "member {member} outlived the session"
-    );
 }
 
 /// Reader that blocks while its gate is closed, standing in for a server
@@ -578,15 +292,11 @@ fn a_peer_that_stops_reading_cannot_block_requests_past_their_timeout() {
             gate: std::sync::Arc::clone(&gate),
         };
         std::thread::spawn(move || {
-            let _ = served.send(lithe_remote_server::serve(reader, server_output));
+            let _ = served.send(lithe_remote_server::serve_stdio(reader, server_output));
         });
     }
-    let options = lithe_remote_client::session::ConnectOptions {
-        client_name: "test".into(),
-        handshake_timeout: STEP_TIMEOUT,
-    };
     let (session, _events) =
-        RemoteSession::from_streams(client_input, client_output, &options).unwrap();
+        RemoteSession::from_streams(client_input, client_output, &options()).unwrap();
     let session = std::sync::Arc::new(session);
     let directory = TempDir::new("stalled");
 
@@ -618,12 +328,156 @@ fn a_peer_that_stops_reading_cannot_block_requests_past_their_timeout() {
     let session = std::sync::Arc::try_unwrap(session)
         .ok()
         .expect("the helper thread released the session");
-    call(&session, methods::FS_STAT, json!({ "path": "/" })).unwrap();
+    session.stat("/").unwrap();
     session.shutdown(STEP_TIMEOUT);
     server_done
         .recv_timeout(STEP_TIMEOUT)
         .expect("server did not stop after shutdown")
         .unwrap();
+}
+
+// Files larger than one transfer are read in chunks and reassembled.
+#[test]
+fn large_files_are_read_in_chunks() {
+    let directory = TempDir::new("large");
+    let path = directory.path().join("big.bin");
+    let content: Vec<u8> = (0..(9 * 1024 * 1024))
+        .map(|index| (index % 251) as u8)
+        .collect();
+    std::fs::write(&path, &content).unwrap();
+    let (session, _events) = connect();
+    let (read, metadata) = session.read_file(path.to_str().unwrap()).unwrap();
+    assert_eq!(metadata.size, content.len() as u64);
+    assert!(read == content, "chunked read differs from the file");
+    session.shutdown(STEP_TIMEOUT);
+}
+
+#[test]
+fn writing_through_a_symbolic_link_keeps_the_link() {
+    let directory = TempDir::new("links");
+    std::fs::write(directory.path().join("target.txt"), b"old").unwrap();
+    std::os::unix::fs::symlink("target.txt", directory.path().join("link.txt")).unwrap();
+    let (session, _events) = connect();
+
+    let overwrite = WriteOptions {
+        overwrite: true,
+        ..WriteOptions::default()
+    };
+    session
+        .write_file(&directory.join("link.txt"), b"new", overwrite)
+        .unwrap();
+    let link = session.stat(&directory.join("link.txt")).unwrap();
+    assert_eq!(link.kind, FileKind::Symlink);
+    assert_eq!(link.symlink_target.as_deref(), Some("target.txt"));
+    assert_eq!(link.symlink_target_kind, Some(FileKind::File));
+    assert_eq!(
+        std::fs::read(directory.path().join("target.txt")).unwrap(),
+        b"new"
+    );
+    assert_eq!(
+        session.real_path(&directory.join("link.txt")).unwrap(),
+        directory.join("target.txt")
+    );
+    session.shutdown(STEP_TIMEOUT);
+}
+
+#[test]
+fn directory_operations_report_stable_error_codes() {
+    let directory = TempDir::new("dirs");
+    let (session, _events) = connect();
+    let tree = directory.join("tree");
+    session.create_dir(&format!("{tree}/b/c"), true).unwrap();
+    std::fs::write(format!("{tree}/a.txt"), b"a").unwrap();
+
+    let names: Vec<_> = session
+        .read_dir(&tree)
+        .unwrap()
+        .entries
+        .into_iter()
+        .map(|entry| entry.name)
+        .collect();
+    assert_eq!(names, ["a.txt", "b"]);
+    assert_eq!(
+        code(session.rename(&format!("{tree}/b"), &format!("{tree}/a.txt"), false)),
+        ErrorCode::AlreadyExists
+    );
+    session
+        .rename(&format!("{tree}/b"), &format!("{tree}/d"), false)
+        .unwrap();
+    assert_eq!(
+        code(session.remove(&format!("{tree}/d"), false)),
+        ErrorCode::DirectoryNotEmpty
+    );
+    session.remove(&format!("{tree}/d"), true).unwrap();
+    assert_eq!(
+        code(session.stat(&format!("{tree}/d"))),
+        ErrorCode::NotFound
+    );
+    assert_eq!(code(session.stat("relative/path")), ErrorCode::InvalidPath);
+    assert!(session.volume_info(&tree).unwrap().case_sensitive.is_some());
+    session.shutdown(STEP_TIMEOUT);
+}
+
+// Pasting a folder in the project tree copies it recursively; links inside
+// must stay links rather than duplicating what they point to.
+#[test]
+fn copies_keep_links_and_permissions_and_refuse_to_nest() {
+    use std::os::unix::fs::PermissionsExt;
+    let directory = TempDir::new("copy");
+    let source = directory.path().join("source");
+    std::fs::create_dir_all(source.join("bin")).unwrap();
+    std::fs::write(source.join("bin/run.sh"), b"#!/bin/sh\n").unwrap();
+    std::fs::set_permissions(
+        source.join("bin/run.sh"),
+        std::fs::Permissions::from_mode(0o750),
+    )
+    .unwrap();
+    std::os::unix::fs::symlink("bin/run.sh", source.join("start")).unwrap();
+    let (session, _events) = connect();
+
+    session
+        .copy(
+            &directory.join("source"),
+            &directory.join("copy"),
+            true,
+            false,
+        )
+        .unwrap();
+    let script = session.stat(&directory.join("copy/bin/run.sh")).unwrap();
+    assert_eq!(script.mode, 0o750);
+    let link = session.stat(&directory.join("copy/start")).unwrap();
+    assert_eq!(link.kind, FileKind::Symlink);
+    assert_eq!(link.symlink_target.as_deref(), Some("bin/run.sh"));
+
+    assert_eq!(
+        code(session.copy(
+            &directory.join("source"),
+            &directory.join("source/inner"),
+            true,
+            false
+        )),
+        ErrorCode::InvalidRequest
+    );
+    assert_eq!(
+        code(session.copy(
+            &directory.join("source"),
+            &directory.join("copy"),
+            true,
+            false
+        )),
+        ErrorCode::AlreadyExists
+    );
+    session
+        .set_permissions(&directory.join("copy/bin/run.sh"), 0o700)
+        .unwrap();
+    assert_eq!(
+        session
+            .stat(&directory.join("copy/bin/run.sh"))
+            .unwrap()
+            .mode,
+        0o700
+    );
+    session.shutdown(STEP_TIMEOUT);
 }
 
 #[test]
@@ -634,16 +488,12 @@ fn shell_banners_before_the_server_are_ignored() {
         "printf 'Welcome to devbox'; exec \"$0\" --stdio".into(),
         SERVER.into(),
     ]);
-    call(&session, methods::FS_STAT, json!({ "path": "/" })).unwrap();
+    session.stat("/").unwrap();
     session.shutdown(STEP_TIMEOUT);
 }
 
 #[test]
 fn a_missing_server_reports_the_transport_output() {
-    let options = lithe_remote_client::session::ConnectOptions {
-        client_name: "test".into(),
-        handshake_timeout: STEP_TIMEOUT,
-    };
     let result = RemoteSession::connect(
         &TransportChain::local(),
         &[
@@ -651,7 +501,7 @@ fn a_missing_server_reports_the_transport_output() {
             "-c".into(),
             "echo 'lithe-remote-server: not found' >&2; exit 127".into(),
         ],
-        &options,
+        &options(),
     );
     match result {
         Err(ClientError::Disconnected { diagnostics }) => {
@@ -666,7 +516,7 @@ fn a_missing_server_reports_the_transport_output() {
 fn bootstrap_uploads_once_and_reuses_the_verified_binary() {
     let install = TempDir::new("install");
     let mut bootstrapper = Bootstrapper::new(TransportChain::local());
-    bootstrapper.location = InstallLocation::Directory(install.path().to_str().unwrap().into());
+    bootstrapper.location = InstallLocation::Directory(install.str().into());
     let probe = bootstrapper.probe().unwrap();
     let artifact =
         ServerArtifact::from_file(probe.target, SERVER.into(), env!("CARGO_PKG_VERSION")).unwrap();
@@ -674,33 +524,12 @@ fn bootstrap_uploads_once_and_reuses_the_verified_binary() {
 
     let first = bootstrapper.ensure_installed(artifact_for).unwrap();
     assert!(first.uploaded);
-    assert!(first.path.starts_with(install.path().to_str().unwrap()));
+    assert!(first.path.starts_with(install.str()));
     let second = bootstrapper.ensure_installed(artifact_for).unwrap();
     assert!(!second.uploaded);
     assert_eq!(first.path, second.path);
 
     let (session, _events) = connect_command(&first.stdio_command());
-    call(&session, methods::FS_STAT, json!({ "path": "/" })).unwrap();
+    session.stat("/").unwrap();
     session.shutdown(STEP_TIMEOUT);
-}
-
-fn read_first_line_pid(
-    events: &std::sync::mpsc::Receiver<lithe_remote_client::session::Event>,
-    process_id: u64,
-) -> u32 {
-    let mut line = Vec::new();
-    let deadline = std::time::Instant::now() + STEP_TIMEOUT;
-    while !line.contains(&b'\n') {
-        let event = events
-            .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
-            .expect("worker pid was not printed");
-        if event.event != methods::EVENT_PROCESS_OUTPUT {
-            continue;
-        }
-        let output: methods::ProcessOutputEvent = serde_json::from_value(event.params).unwrap();
-        if output.process_id == process_id {
-            line.extend(decode_bytes(&output.data).unwrap());
-        }
-    }
-    String::from_utf8(line).unwrap().trim().parse().unwrap()
 }

@@ -1,50 +1,63 @@
 //! Command-line entry of the remote workspace server.
 //!
-//! `--stdio` speaks the protocol on standard input and output. Nothing else may
-//! be written to standard output in that mode; diagnostics go to standard error.
+//! - `--stdio`: one session on standard input and output, ending with it.
+//! - `--connect <key>`: relay standard streams to the persistent session
+//!   `<key>`, starting its daemon when needed. This is what transports run.
+//! - `--daemon <key>`: the persistent session itself, started by `--connect`.
+//! - `--identity`, `--version`, `--print-environment`: helpers for the
+//!   bootstrapper and for environment resolution.
+//!
+//! Nothing but protocol bytes may reach standard output in `--stdio` and
+//! `--connect` modes; diagnostics go to standard error.
 
+use lithe_remote_server::PersistentOptions;
 use std::io::{self, Write};
+use std::path::PathBuf;
 use std::process::ExitCode;
+
+const USAGE: &str = "usage: lithe-remote-server --stdio | --connect <key> [--state-dir <dir>] | --daemon <key> [--state-dir <dir>] | --identity | --version | --print-environment";
 
 fn main() -> ExitCode {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
-    match arguments
-        .iter()
-        .map(String::as_str)
-        .collect::<Vec<_>>()
-        .as_slice()
-    {
-        ["--stdio"] => match lithe_remote_server::serve(io::stdin(), io::stdout()) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(error) => {
-                eprintln!("lithe-remote-server: {error}");
-                ExitCode::FAILURE
-            }
-        },
-        ["--identity"] => match lithe_remote_server::identity() {
-            Ok(identity) => {
-                let mut stdout = io::stdout();
-                let printed = serde_json::to_writer(&mut stdout, &identity)
-                    .map_err(io::Error::from)
-                    .and_then(|()| writeln!(stdout));
-                if let Err(error) = printed {
-                    eprintln!("lithe-remote-server: {error}");
-                    return ExitCode::FAILURE;
-                }
-                ExitCode::SUCCESS
-            }
-            Err(error) => {
-                eprintln!("lithe-remote-server: cannot hash own executable: {error}");
-                ExitCode::FAILURE
-            }
-        },
-        ["--version"] => {
-            println!("{}", env!("CARGO_PKG_VERSION"));
-            ExitCode::SUCCESS
+    let arguments: Vec<&str> = arguments.iter().map(String::as_str).collect();
+    let result = match arguments.as_slice() {
+        ["--stdio"] => lithe_remote_server::serve_stdio(io::stdin(), io::stdout()),
+        ["--connect", key, rest @ ..] => {
+            persistent(key, rest).and_then(|options| lithe_remote_server::run_proxy(&options))
         }
+        ["--daemon", key, rest @ ..] => {
+            persistent(key, rest).and_then(|options| lithe_remote_server::run_daemon(&options))
+        }
+        ["--identity"] => lithe_remote_server::identity().and_then(|identity| {
+            let mut stdout = io::stdout();
+            serde_json::to_writer(&mut stdout, &identity)
+                .map_err(io::Error::from)
+                .and_then(|()| writeln!(stdout))
+        }),
+        ["--version"] => writeln!(io::stdout(), "{}", env!("CARGO_PKG_VERSION")),
+        ["--print-environment"] => lithe_remote_server::print_environment(),
         _ => {
-            eprintln!("usage: lithe-remote-server --stdio | --identity | --version");
-            ExitCode::from(2)
+            eprintln!("{USAGE}");
+            return ExitCode::from(2);
+        }
+    };
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("lithe-remote-server: {error}");
+            ExitCode::FAILURE
         }
     }
+}
+
+fn persistent(key: &str, rest: &[&str]) -> io::Result<PersistentOptions> {
+    let state_directory = match rest {
+        [] => None,
+        ["--state-dir", directory] => Some(PathBuf::from(directory)),
+        _ => return Err(io::Error::new(io::ErrorKind::InvalidInput, USAGE)),
+    };
+    Ok(PersistentOptions {
+        key: key.into(),
+        state_directory,
+    })
 }

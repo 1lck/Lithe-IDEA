@@ -1,9 +1,14 @@
 //! A connected remote server.
 //!
 //! One reader thread owns the incoming stream. It routes each response to the
-//! request waiting for it and forwards events to a bounded channel. Callers
-//! must drain that channel: when it is full the reader stops, and with it the
-//! server's output, which is the intended backpressure for chatty processes.
+//! request waiting for it, and each event either to the subscriber of its
+//! resource (`terminal.output` with `terminalId` 7 goes to the subscription
+//! for terminal 7) or, without one, to the session's general event channel.
+//!
+//! Every channel is bounded and the reader blocks when one is full, which
+//! stops reading the server's stream and so applies backpressure all the way
+//! to the remote process. Consumers must therefore drain what they subscribe
+//! to, and either drain the general channel or drop its receiver.
 //!
 //! A writer thread owns the outgoing stream. Requests queue their frames for
 //! it, so a peer that stops reading blocks only that thread, and every request
@@ -26,7 +31,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-/// Events buffered before the reader blocks.
+/// Events buffered per channel before the reader blocks.
 const EVENT_CAPACITY: usize = 1024;
 
 /// Bytes accepted before the preamble, for example a login banner.
@@ -49,6 +54,22 @@ const EXIT_POLL_INTERVAL: Duration = Duration::from_millis(20);
 pub struct Event {
     pub event: String,
     pub params: Value,
+}
+
+impl Event {
+    /// Resource this event belongs to: `("terminal", 7)` for a
+    /// `terminal.output` event with `terminalId` 7.
+    pub fn resource(&self) -> Option<(&str, u64)> {
+        let family = self.event.split('.').next()?;
+        let id = self.params.get(format!("{family}Id"))?.as_u64()?;
+        Some((family, id))
+    }
+
+    /// Decodes the parameters into a typed event.
+    pub fn decode<T: DeserializeOwned>(&self) -> Result<T, ClientError> {
+        serde_json::from_value(self.params.clone())
+            .map_err(|error| ClientError::Protocol(format!("{}: {error}", self.event)))
+    }
 }
 
 #[derive(Debug)]
@@ -98,12 +119,16 @@ struct Pending {
     waiting: HashMap<u64, SyncSender<Reply>>,
 }
 
+type Routes = Mutex<HashMap<(String, u64), SyncSender<Event>>>;
+
 /// Options for establishing a session.
 #[derive(Clone, Debug)]
 pub struct ConnectOptions {
     pub client_name: String,
     /// Bounds transport start-up, the preamble and `server.hello` together.
     pub handshake_timeout: Duration,
+    /// How long a persistent session keeps running without a client.
+    pub idle_timeout: Option<Duration>,
 }
 
 impl Default for ConnectOptions {
@@ -111,6 +136,7 @@ impl Default for ConnectOptions {
         Self {
             client_name: "lithe".into(),
             handshake_timeout: Duration::from_secs(30),
+            idle_timeout: None,
         }
     }
 }
@@ -200,7 +226,9 @@ impl Outgoing {
 pub struct RemoteSession {
     outgoing: Arc<Outgoing>,
     pending: Arc<Mutex<Pending>>,
-    next_id: AtomicU64,
+    routes: Arc<Routes>,
+    next_request: AtomicU64,
+    next_resource: AtomicU64,
     child: Mutex<Option<Child>>,
     stderr_tail: Arc<Mutex<VecDeque<u8>>>,
     hello: Option<HelloResult>,
@@ -253,16 +281,10 @@ impl RemoteSession {
     ) -> Result<(Self, Receiver<Event>), ClientError> {
         let deadline = Instant::now() + options.handshake_timeout;
         let pending = Arc::new(Mutex::new(Pending::default()));
+        let routes: Arc<Routes> = Arc::default();
         let (event_sender, events) = mpsc::sync_channel(EVENT_CAPACITY);
         let (ready_sender, ready) = mpsc::channel();
         let outgoing = Arc::new(Outgoing::default());
-        {
-            let pending = Arc::clone(&pending);
-            thread::Builder::new()
-                .name("remote-reader".into())
-                .spawn(move || read_loop(reader, pending, event_sender, ready_sender))
-                .map_err(ClientError::Spawn)?;
-        }
         {
             let outgoing = Arc::clone(&outgoing);
             let pending = Arc::clone(&pending);
@@ -271,10 +293,20 @@ impl RemoteSession {
                 .spawn(move || write_loop(writer, &outgoing, &pending))
                 .map_err(ClientError::Spawn)?;
         }
+        {
+            let pending = Arc::clone(&pending);
+            let routes = Arc::clone(&routes);
+            thread::Builder::new()
+                .name("remote-reader".into())
+                .spawn(move || read_loop(reader, pending, routes, event_sender, ready_sender))
+                .map_err(ClientError::Spawn)?;
+        }
         let mut session = Self {
             outgoing,
             pending,
-            next_id: AtomicU64::new(0),
+            routes,
+            next_request: AtomicU64::new(0),
+            next_resource: AtomicU64::new(1),
             child: Mutex::new(child),
             stderr_tail,
             hello: None,
@@ -284,6 +316,7 @@ impl RemoteSession {
             Ok(Ok(())) => {}
             Ok(Err(FrameError::PreambleNotFound { noise })) => {
                 let mut output = String::from_utf8_lossy(&noise).trim().to_owned();
+                session.wait_for_transport_exit(SHUTDOWN_GRACE);
                 let stderr = session.diagnostics();
                 if !stderr.is_empty() {
                     output = format!("{output}\n{stderr}").trim().to_owned();
@@ -306,9 +339,13 @@ impl RemoteSession {
             &HelloParams {
                 protocol_version: PROTOCOL_VERSION,
                 client_name: options.client_name.clone(),
+                idle_timeout_seconds: options.idle_timeout.map(|timeout| timeout.as_secs()),
             },
             deadline.saturating_duration_since(Instant::now()),
         )?;
+        session
+            .next_resource
+            .store(hello.session.next_resource_id.max(1), Ordering::Release);
         session.hello = Some(hello);
         Ok((session, events))
     }
@@ -316,6 +353,25 @@ impl RemoteSession {
     /// Handshake result, including the host capabilities.
     pub fn hello(&self) -> &HelloResult {
         self.hello.as_ref().expect("set by establish")
+    }
+
+    /// Returns a resource id that is unused in this session, also across
+    /// reconnections.
+    pub fn allocate_id(&self) -> u64 {
+        self.next_resource.fetch_add(1, Ordering::AcqRel)
+    }
+
+    /// Routes the events of one resource to a dedicated channel. Subscribe
+    /// before creating the resource, so its first events are not missed.
+    /// Dropping the receiver ends the subscription.
+    pub fn subscribe(&self, family: &str, id: u64) -> Receiver<Event> {
+        let (sender, receiver) = mpsc::sync_channel(EVENT_CAPACITY);
+        lock(&self.routes).insert((family.to_owned(), id), sender);
+        receiver
+    }
+
+    pub fn unsubscribe(&self, family: &str, id: u64) {
+        lock(&self.routes).remove(&(family.to_owned(), id));
     }
 
     /// Sends a request and waits for its typed result.
@@ -339,7 +395,7 @@ impl RemoteSession {
         timeout: Duration,
     ) -> Result<Value, ClientError> {
         let deadline = Instant::now() + timeout;
-        let id = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
+        let id = self.next_request.fetch_add(1, Ordering::Relaxed) + 1;
         let (reply_sender, reply) = mpsc::sync_channel(1);
         {
             let mut pending = lock(&self.pending);
@@ -372,8 +428,13 @@ impl RemoteSession {
         }
     }
 
-    /// Asks the server to stop, then closes the transport. Spawned remote
-    /// processes are terminated by the server as part of its shutdown.
+    /// Whether the stream has ended.
+    pub fn is_closed(&self) -> bool {
+        lock(&self.pending).closed
+    }
+
+    /// Asks the server to stop. A `--stdio` server ends; a persistent
+    /// session ends together with everything it runs.
     pub fn shutdown(self, timeout: Duration) {
         let _ = self.request_value(methods::SERVER_SHUTDOWN, Value::Null, timeout);
         // Drop closes the stream and reaps the transport process.
@@ -436,6 +497,7 @@ impl Drop for RemoteSession {
 fn read_loop(
     reader: impl Read,
     pending: Arc<Mutex<Pending>>,
+    routes: Arc<Routes>,
     events: SyncSender<Event>,
     ready: mpsc::Sender<Result<(), FrameError>>,
 ) {
@@ -459,14 +521,15 @@ fn read_loop(
                 }
             }
             Ok(Message::Event { event, params }) => {
-                // A dropped receiver means nobody consumes events; keep
-                // routing responses.
-                let _ = events.send(Event { event, params });
+                let event = Event { event, params };
+                route(&routes, &events, event);
             }
             Ok(Message::Request { .. }) | Err(_) => break,
         }
     }
     close(&pending);
+    // Ending every subscription tells consumers the stream is gone.
+    lock(&routes).clear();
 }
 
 fn write_loop(mut writer: Box<dyn Write + Send>, outgoing: &Outgoing, pending: &Mutex<Pending>) {
@@ -477,6 +540,26 @@ fn write_loop(mut writer: Box<dyn Write + Send>, outgoing: &Outgoing, pending: &
             outgoing.close();
             close(pending);
             return;
+        }
+    }
+}
+
+fn route(routes: &Routes, events: &SyncSender<Event>, event: Event) {
+    let key = event.resource().map(|(family, id)| (family.to_owned(), id));
+    // The sender is cloned so that a blocking send does not hold the lock
+    // a consumer needs to subscribe or unsubscribe.
+    let subscriber = key.as_ref().and_then(|key| lock(routes).get(key).cloned());
+    match subscriber {
+        Some(subscriber) => {
+            if subscriber.send(event).is_err() {
+                if let Some(key) = key {
+                    lock(routes).remove(&key);
+                }
+            }
+        }
+        // A dropped general receiver means nobody consumes these events.
+        None => {
+            let _ = events.send(event);
         }
     }
 }
@@ -512,4 +595,24 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn events_name_their_resource_by_family_and_id() {
+        let event = Event {
+            event: "terminal.output".into(),
+            params: json!({ "terminalId": 7, "data": "" }),
+        };
+        assert_eq!(event.resource(), Some(("terminal", 7)));
+        let unrelated = Event {
+            event: "watch.changed".into(),
+            params: json!({ "terminalId": 7 }),
+        };
+        assert_eq!(unrelated.resource(), None);
+    }
 }
