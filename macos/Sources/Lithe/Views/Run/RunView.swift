@@ -712,7 +712,7 @@ struct RunView: View {
 
     private func selectionCheckbox(_ entries: [RunConfiguration], title: String) -> some View {
         let state = browser.checkState(for: entries)
-        return GitChangeInclusionCheckbox(
+        return LitheTreeCheckbox(
             state: state == .checked ? .on : state == .mixed ? .mixed : .off,
             accessibilityTitle: String(format: runText("Select %@"), title)
         ) { browser.toggle(entries) }

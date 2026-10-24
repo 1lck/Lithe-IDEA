@@ -376,6 +376,18 @@ HTTP/SSE 响应体和 stdio 元数据限制为 2 MiB，原生文件由现有平�
 这些保留值随资料持久化，不能复制到其他工作树；取消/离页释放进程与内存，不写 app bundle 或安装目录。
 用户明确运行包命令可能产生的 npm/uv 缓存归上游运行时管理，不属于可跨工作树复用的 Lithe 构建资源。
 
+随 App 附带的远端工作区服务登记为 `remote-server-artifacts`。`scripts/build-remote-servers.sh`
+每次打包都用本工作树源码重新构建两个 Linux musl 静态版（约 25 秒），输出到
+`rust/target/remote-servers/`，再复制到 `Contents/Resources/RemoteServers/`；构建机需要
+`x86_64-unknown-linux-musl` 和 `aarch64-unknown-linux-musl` 两个 Rust 目标。清单只记录服务版本，
+不带工具链或源码身份，所以不跨工作树复用。运行时只读取这份副本并上传给 SSH 主机，
+不写 bundle，不影响签名和 Sparkle delta。
+
+远程开发的用户状态登记为 `remote-connection-state`：偏好中的 SSH 连接列表、钥匙串服务
+`remote` 中记住的密码或口令、`Application Support/Lithe/RemoteWorkspaces/` 下打开远程文件夹时
+创建的空占位根目录，以及远端主机上 `~/.lithe-server/bin/` 中按 SHA-256 校验后复用的服务。
+它们属于用户资料或远端主机，没有构建身份，所有复用阶段均拒绝复制。
+
 MCP 编辑器、工具面板和指令页的原生验收截图分别输出到
 `.artifacts/test-stability/mcp-ui/` 与 `.artifacts/test-stability/instructions-ui/`，随
 `test-stability-macos` artifact 提供给评审下载。截图只渲染隔离 fixture 的实际产品视图，

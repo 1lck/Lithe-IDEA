@@ -153,11 +153,13 @@ struct LitheCenteredPopupTests {
         parent.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
         let presenter = LitheCenteredPopupPresenter()
         defer { presenter.close(); parent.close() }
-        for kind in [ProjectItemEditKind.createFile, .createDirectory] {
-            let host = NSHostingController(rootView: ProjectItemNameDialogContent(
-                request: ProjectItemEditRequest(kind: kind, targetURL: URL(fileURLWithPath: "/")),
-                onSubmit: { _ in }, onCancel: {})
-                .environment(\.colorScheme, scheme))
+        let contents: [(String, AnyView)] = [
+            ("file", AnyView(ProjectItemNameDialogContent(request: ProjectItemEditRequest(kind: .createFile, targetURL: URL(fileURLWithPath: "/")), onSubmit: { _ in }, onCancel: {}))),
+            ("directory", AnyView(ProjectItemNameDialogContent(request: ProjectItemEditRequest(kind: .createDirectory, targetURL: URL(fileURLWithPath: "/")), onSubmit: { _ in }, onCancel: {}))),
+            ("folder", AnyView(LitheNamePopup(title: "New Folder", onSubmit: { _ in }, onCancel: {})))
+        ]
+        for (kind, content) in contents {
+            let host = NSHostingController(rootView: content.environment(\.colorScheme, scheme))
             presenter.show(contentController: host, parent: parent, onDismiss: {})
             let clock = ContinuousClock()
             let deadline = clock.now.advanced(by: .seconds(1))
@@ -178,7 +180,7 @@ struct LitheCenteredPopupTests {
                         "Focused name input must not draw a separate fill or focus border")
             }
             if let directory = ProcessInfo.processInfo.environment["LITHE_POPUP_CAPTURE_DIR"] {
-                let name = "new-\(kind == .createFile ? "file" : "directory")-\(scheme == .dark ? "dark" : "light").png"
+                let name = "new-\(kind)-\(scheme == .dark ? "dark" : "light").png"
                 try #require(bitmap.representation(using: .png, properties: [:])).write(to:
                     URL(fileURLWithPath: directory).appendingPathComponent(name))
             }

@@ -195,15 +195,13 @@ fn ssh_command(hop: &SshHop, remote: &[Word]) -> Result<Vec<Word>, TransportErro
         // Never interpret `~.` style escapes inside the binary stream.
         "-e".into(),
         "none".into(),
-        "-o".into(),
-        format!("ServerAliveInterval={SSH_KEEPALIVE_SECONDS}"),
-        "-o".into(),
-        format!("ServerAliveCountMax={SSH_KEEPALIVE_MISSES}"),
     ];
     if let Some(port) = hop.port {
         command.push("-p".into());
         command.push(port.to_string());
     }
+    // ssh keeps the first value it sees for each option, so the hop's own
+    // options precede the keep-alive defaults and can override them.
     for (key, value) in &hop.options {
         if key.is_empty()
             || !key
@@ -217,6 +215,12 @@ fn ssh_command(hop: &SshHop, remote: &[Word]) -> Result<Vec<Word>, TransportErro
         command.push("-o".into());
         command.push(format!("{key}={value}"));
     }
+    command.extend([
+        "-o".into(),
+        format!("ServerAliveInterval={SSH_KEEPALIVE_SECONDS}"),
+        "-o".into(),
+        format!("ServerAliveCountMax={SSH_KEEPALIVE_MISSES}"),
+    ]);
     command.push("--".into());
     command.push(hop.destination.clone());
     let remote_command = shell_join(remote)?;
@@ -367,14 +371,14 @@ mod tests {
                 "-T",
                 "-e",
                 "none",
-                "-o",
-                "ServerAliveInterval=15",
-                "-o",
-                "ServerAliveCountMax=3",
                 "-p",
                 "2222",
                 "-o",
                 "ConnectTimeout=10",
+                "-o",
+                "ServerAliveInterval=15",
+                "-o",
+                "ServerAliveCountMax=3",
                 "--",
                 "dev@box",
                 "sh -c 'echo \"$HOME\" && uname -s'",

@@ -457,7 +457,7 @@ fn send(sink: &EventSink, operation_id: &str, kind: Kind<'_>) {
 }
 
 /// Sends structured native diagnostics on the same ordered request channel.
-pub(super) fn emit(mut value: serde_json::Value) {
+pub(crate) fn emit(mut value: serde_json::Value) {
     let context = CURRENT.with(|current| {
         current.borrow().as_ref().map(|context| {
             (
@@ -477,7 +477,7 @@ pub(super) fn emit(mut value: serde_json::Value) {
 }
 
 /// Redacts complete records, including credentials split across native chunks.
-pub(super) fn redact(text: &str) -> String {
+pub(crate) fn redact(text: &str) -> String {
     static URL_AUTH: OnceLock<regex::Regex> = OnceLock::new();
     let pattern = URL_AUTH.get_or_init(|| {
         regex::Regex::new(r"(?i)(https?|ssh)://[^\s/@]+(?::[^\s/@]*)?@")

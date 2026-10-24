@@ -5,14 +5,22 @@
   "capability": "在 SSH 主机、容器和远程 Mac 上打开并开发项目",
   "macos": {
     "evidence": [
+      "macos/Sources/Lithe/Views/Workspace/RemoteConnectionsView.swift",
+      "macos/Sources/Lithe/Application/Features/RemoteConnectionsFeatureModel.swift",
+      "macos/Sources/Lithe/Services/Remote/RemoteWorkspaceRouting.swift",
+      "macos/Tests/LitheTests/RemoteConnectionsTests.swift",
+      "rust/lithe-core/src/remote",
+      "rust/lithe-remote-client/src/launch.rs",
       "rust/lithe-remote-protocol",
       "rust/lithe-remote-server",
       "rust/lithe-remote-client",
       "shared/contracts/remote-workspace-protocol-v1.md",
+      ".agents/notes/implemented/feature/2026-10-24-remote-ssh-connections.md",
+      ".agents/notes/implemented/architecture/2026-10-24-remote-workspace-routing.md",
       ".agents/notes/proposed/architecture/2026-10-24-remote-development-workspace-host.md"
     ],
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable"
+    "implementationStatus": "partial",
+    "verificationStatus": "pending"
   },
   "windows": {
     "evidence": [
@@ -22,5 +30,5 @@
     "verificationStatus": "not-applicable"
   },
   "owner": "Workspace",
-  "verification": "接入产品后，分别连接一台 Linux SSH 主机、一个 Docker 容器和一台远程 Mac：打开远程文件夹、编辑保存、文件变化实时刷新、在终端运行命令、用登录环境构建运行项目、通过端口转发访问远端服务；断开网络再重连后终端和构建仍在，主动关闭后远端没有残留进程。当前只有 Rust 后端（协议、远端服务、常驻会话、传输链、客户端 API），由 scripts/verify-remote-workspace.sh 验证，尚无产品入口。"
+  "verification": "欢迎页点“远程开发”：新建一条 Linux SSH 连接（分别试 SSH Agent、私钥和密码，密码主机再试一次 2FA），测试连接后核对主机信息卡片，手动查询地区；点“打开”后文件树列出远端目录，打开、编辑并保存一个文件，在远端用其他方式修改同一文件后再次保存应提示冲突。远程 Mac、容器、Git、搜索、终端、构建和文件监听尚未接入远程工作区。Rust 后端由 scripts/verify-remote-workspace.sh 验证。"
 }

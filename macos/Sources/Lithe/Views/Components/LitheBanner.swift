@@ -100,13 +100,14 @@ private struct LitheBannerSurface: ViewModifier {
 
 /// InlineBanner actions use ordinary link labels, with no separate button background.
 struct LitheBannerActionStyle: ButtonStyle {
+    var linkColor: Color? = nil
     @Environment(\.isEnabled) private var isEnabled
     @State private var isHovering = false
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(LitheTheme.settingsFont)
-            .foregroundStyle(isEnabled ? LitheTheme.Banner.link : LitheTheme.Banner.disabledText)
+            .foregroundStyle(isEnabled ? (linkColor ?? LitheTheme.Banner.link) : LitheTheme.Banner.disabledText)
             .underline(isHovering && isEnabled)
             .contentShape(Rectangle())
             .onHover { isHovering = $0 }

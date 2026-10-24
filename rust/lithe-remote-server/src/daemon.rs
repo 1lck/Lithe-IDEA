@@ -367,7 +367,10 @@ fn acquire_lock(lock: &File, socket: &Path) -> bool {
         if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
             return true;
         }
-        if UnixStream::connect(socket).is_ok() {
+        // The socket's presence is the signal, not a connection to it: the
+        // serving daemon would accept a probe connection as a new client and
+        // disconnect the real one it replaces.
+        if fs::symlink_metadata(socket).is_ok() {
             eprintln!("lithe-remote-server: another daemon serves this session; exiting");
             return false;
         }
