@@ -1085,12 +1085,16 @@ GitFeatureModel 写入及确认流程；只读历史/保存记录模式不提供
 
 ### 普通选中行与窗口焦点
 
-项目树原先固定使用灰色选中底色，其余列表也有只用活动色或只用灰色的入口。
-现在普通树和列表都通过 `litheSelectionRow(isSelected:isFocused:)` 绘制选中与
-悬停表面。单行树由 `litheTreeRow` 转交；多行列表直接调用该入口，保留原行高、
-内边距、字体和圆角参数。只有“区域有焦点”且“窗口接收键盘输入”同时成立才显示
-主题活动色；失去任一条件都显示灰色。窗口是否活动由共享样式读取
-`controlActiveState == .key`，不能让每个新调用方自行决定是否检查。
+普通树和列表现在通过完整控件 `LitheTreeList` 提交数据、选择绑定、层级和业务动作。
+外侧留白、字体、行高、悬停、活动/失焦选择、焦点环处理、方向键、范围选择、回车动作、
+滚动定位和可访问性动作由控件负责。递归业务树可以提交 `LitheTreeListNode`，控件只读取
+已展开的子节点并形成直接的惰性行；异步加载、取消和插件动作仍归各业务数据拥有者。
+旧 `litheTreeRow` / `litheSelectionRow` 业务扩展已经删除，不能继续手工拼装样式。
+`LitheTreeListRowSurface` 仅是组件内部绘制和像素测试的实现，业务代码不得直接使用。
+
+选中色只有在列表区域有焦点且窗口接收键盘输入时才使用活动色，否则使用失焦色。
+单行默认使用 `LitheTheme.Tree`；多行保留内容高度。项目树的用户行高设置属于已有产品
+选项，由原生交互适配器传入，不能因为共用控件而把 20–32pt 设置强制改成 24pt。
 
 颜色依据 Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade` 的
 `platform/platform-resources/src/themes/islands/ManyIslandsDark.theme.json` 与
@@ -1098,8 +1102,10 @@ GitFeatureModel 写入及确认流程；只读历史/保存记录模式不提供
 `selection-bg-inactive`。Lithe 默认主题的深色活动/失焦色为 `#2A4371/#33353B`，
 浅色为 `#D0DFFE/#E9EAEE`；其他主题沿用既有主题定义，不逐页面复制颜色。
 
-区域焦点沿用 `LitheToolWindowActivityTracker`，应安装在列表所在区域，不能
-装在整个工作台后让多个列表同时变蓝。观察器按实际被编辑的输入框判断焦点，
+区域焦点由完整控件的 SwiftUI FocusState 和已有 `LitheToolWindowActivityTracker` 共同确认。
+键盘代理视图（KeyViewProxy）的可见矩形可能为空，此时必须保留 FocusState 的真实键盘归属，
+不能仅靠矩形相交把已取得键盘的列表判为失焦。观察器由完整控件安装在列表区域，不能
+由调用方装在整个工作台后让多个列表同时变蓝。观察器按实际被编辑的输入框判断焦点，
 不能只比较 macOS 共用的 field editor（窗口内多个输入框共用的文本编辑器）；
 鼠标回调、焦点变化和卸载共用事件版本；延迟点击只有版本仍最新、窗口未变且
 当前 focus owner 未变时才能发布点击状态，否则按当前 responder 重算。
@@ -1107,9 +1113,14 @@ GitFeatureModel 写入及确认流程；只读历史/保存记录模式不提供
 区域均在下一次主队列回调发布。挂载、卸载及窗口通知不得同步写 SwiftUI Binding，
 否则真实 NSHostingView 销毁期间会与 GraphHost.invalidate 发生独占访问冲突并
 触发 SIGABRT。旧挂载或较早点击的回调不能覆盖新焦点。
+原生项目树可消费方向键而暂时保留旧 SwiftUI 键盘代理，因此控件在有效的区域外鼠标回调中
+释放自身 FocusState，避免两棵树同时显示活动选中。不能为解决颜色而抢回异步编辑器焦点。
 
-项目树是已有键盘路由的特殊消费者：`ProjectTreeKeyboardCommands` 发布
-键盘归属变化，颜色与实际消费方向键的区域一致。通过窗口 didUpdate 及时识别
+双向滚动的短项目树必须由公共视口提供最小宽高并顶部对齐；否则 SwiftUI 会把短内容
+垂直居中。尺寸来自唯一的视口 GeometryReader，不给每行增加几何测量。
+
+项目树通过 `LitheTreeListNativeInteraction` 接入已有的 `ProjectTreeKeyboardCommands`：
+完整控件接收键盘归属变化，颜色与实际消费方向键的区域一致。通过窗口 didUpdate 及时识别
 新获得焦点的文本框，搜索框尚未输入字符时树就失焦；其他编辑器仍保留首次按键
 建立基线的异步聚焦处理。直接套用普通区域观察器会在
 文件打开后的 WebKit 异步聚焦中误判。惰性树内容的相等判断必须包含焦点，
@@ -1123,24 +1134,40 @@ SwiftUI 消费者包括 Project、Commit、Maven、Git Log 分支/比较/Rebase 
 输入接收视图）判断，并在宿主窗口状态改变时重绘。Shelf 的原位展开行沿用
 共享树色与窗口判断，不替换其已有展开 renderer（负责行绘制的组件）。
 
-正确做法是给已有多行历史行调用
-`litheSelectionRow(isSelected: selected, isFocused: historyListActive)`，再在
-历史列表区域安装已有观察器。不要写 `.background(selected ?
-LitheTheme.selection : .clear)`；这种写法无法在窗口失焦时切换灰色。
-不要把只读详情或相邻列表的活动状态传给该历史行。
+正确做法是调用 `LitheTreeList(entries, selection: binding, multiline: true) { entry in ... }`，
+只在行内容里保留图标、文字和业务按钮。不要另外加 ScrollView、外侧 padding、焦点观察器、
+选中色或方向键处理。选择变化与主点击/回车动作有独立回调，避免方向键移动时误打开编辑器。
+
+Git 提交文件树和 Worktree 列表仍使用原生视口绘制，经 `LitheTreeList(native:)` 进入；
+它们调用同一 `LitheTreeListAppearance` 和 `LitheTreeListNavigation`，不再各自维护背景留白
+或方向键边界规则。原生列表使用真实第一响应者与 key window 判断焦点，不由页面传布尔值。
+项目树保留拖放、剪贴板和同级全选语义，但单选/范围选择与方向键决策复用相同纯函数。
+Search Everywhere 使用输入框驱动的结果模式，保留搜索输入和左右切换分类，不能把文本焦点
+抢到结果列表。Shelf 的悬停展开由 `LitheTreeListOverflowRow` 保留，展开窗口也读取控件内的
+选择与焦点状态，调用方不再自己绘制另一套背景。
+
+本轮还核对 Community `idea/262.9437.185` 的
+`platform/platform-impl/src/com/intellij/ide/ui/laf/darcula/ui/DarculaTreeUI.java` 和
+`platform/util/ui/src/com/intellij/util/ui/tree/WideSelectionTreeUI.java`：树的整行绘制、
+焦点/非焦点选择与层级导航属于控件自身。Lithe 复用已有 Tree 主题尺寸和原生事件路由，
+没有引入另一套配色或复制 Swing（Java 桌面组件）的实现。
 
 工具窗口标签、菜单高亮、活动栏、数据库单元格、编辑器文本选择、状态徽章、
 复选框包含状态和选定设置值有各自语义与主题，不强制与普通行的 RGB 相同。
-它们继续使用各自共享样式；没有持久选择的 Dependencies、普通 Search 结果
-也不会因此新增选择功能。Windows 本次未修改；其文件树已有
+它们继续使用各自共享样式；Dependencies、普通 Search 结果现在也使用完整控件的行与键盘入口，
+只读内容和编辑器本身仍保留各自语义。Windows 本次未修改；其文件树已有
 `data-tree-focused` 在 `--selected` 与 `--border` 之间切换，不能把 macOS
 组件验证当作 Windows 实机验收。
 
-统一入口减少遗漏窗口判断和重复颜色的机会，代价是每个独立列表仍需明确提供
-区域焦点状态。没有把所有页面强制改成 24pt 树行，也没有新增第二套焦点系统。
+完整入口使业务代码不再负责补焦点修饰符或行表面；代价是必须提交稳定行标识和可见层级。
+不能把多行列表、表格或提交图谱强制变成 24pt 树行。`LitheTreeListTests` 的覆盖检查禁止
+业务代码再次调用旧修饰符或直接使用组件内部的行表面。
 
 回归通过 `LitheTreeRowStyleTests` 检查真实绘制的深浅色、区域活动/失焦与
 窗口 key/inactive 状态，以及 24pt 树和 40pt 多行尺寸；
+`LitheTreeListTests` 检查统一导航、多选与锚点、惰性节点、完整挂载的辅助功能选择和行内按钮；
+`LitheTreeListViewportTests` 检查短原生树顶部对齐以及区域外鼠标回调的版本与卸载失效；
+`DependencyTreePresentationTests` 检查取消及旧加载结果不能覆盖新的展示状态；
 `ProjectTreeSelectionTests` 检查方向键和多选；
 `EditorTabOrderFeatureModelTests.tabActivityFollowsNativeKeyboardFocusAcrossRegions`
 检查原生区域及共用输入编辑器之间的焦点转移、卸载失效和重新挂载同步；
@@ -1154,6 +1181,8 @@ SwiftUI State 宿主销毁和主队列清理，不能只靠手写 Binding 的组
 完整应用验收与组件回归分别记录，
 不由编译或单一页面截图推断整个产品已验证。
 
+本轮 302 项相关 macOS 回归通过；深色完整预览中，项目树恢复顶部排列，
+点击项目树时插件树失焦变灰，插件树方向键展开/折叠与 Inspect 动作通过。
 深色新预览已通过真实鼠标验证 Settings 分类：点击分类显示主题色，点击右侧
 内容变灰，重新点击恢复。完整应用全部入口、浅色/非默认主题和跨窗口切换仍
 保留 pending；共享像素与原生焦点回归不替代这些实机验收。
@@ -1217,7 +1246,11 @@ Debug 空状态标题栏使用 Git Log / Terminal 已有的 41pt 工具窗口规
 13pt Bold 标题、左 12pt / 右 8pt 留白、两侧各 2pt 的 22pt 图标按钮，
 `expui/general/moreVertical.svg` 与 `expui/general/hide.svg` 原始 16pt 资源。
 底线复用 `LitheToolWindowHeaderDivider` 的主题边框颜色、1pt 高度和两侧 1pt 内缩，
-以内侧 overlay 绘制，不能再叠加普通 divider，也不使用旧 `LitheToolWindowHeader` 的 30pt 度量。
+以内侧 overlay 绘制，不能再叠加普通 divider。
+公共 `LitheToolWindowHeader` 已同步使用 41pt、13pt Bold、左12pt/右8pt留白。
+按用户明确的统一规则，普通面板标题只显示文字，不显示图标、外框或底部分隔线；
+标题栏 API 不再接受图标参数，调用方也不得补 `LitheToolWindowHeaderDivider`。
+插件及普通标题栏调用公共入口即可，不再保留其原有30pt规则。
 
 标题栏源码依据同一 Community revision 的
 `platform/platform-impl/src/com/intellij/toolWindow/ToolWindowHeader.kt`：New UI 高度走
@@ -1886,3 +1919,83 @@ JDT Run marker 的测试元数据，不根据文件名包含 Test 推断。深�
 ### 2026-10-17 软换行覆盖按钮光标
 
 软换行按钮已改为 WebKit 文档内的标准 HTML 按钮，与 Monaco 正文使用同一套光标系统；旧的 `EditorSoftWrapToggle` 原生覆盖层及手动光标回调已删除，不再使用 `onContinuousHover` 强制设置箭头。按钮尺寸和绘制参数仍来自共享图标按钮样式，悬停使用小手，正文与空白编辑区保留 I 形光标。可见性、禁用和点击继续通过现有 configure 与同源消息处理。原因和真实 WebKit 验证见[Monaco 可行性与原生桥接 Note](../architecture/2026-09-15-macos-monaco-feasibility-probe.md)的软换行按钮决策；独立组件测试不代替完整应用悬停验收。
+
+### 公共树的展开入口补齐（2026-10-21）
+
+项目树与声明式插件树共用 `LitheTreeDisclosureIcon`，由它持有原始 chevron SVG、
+16pt 图标和 Tree 图标槽；调用方不再复制资源路径与对齐。公共树的可选中分支
+双击名称默认切换展开，叶子保留激活动作；回车使用相同的分支优先规则。
+不可选分组保留单击展开，连续双击不应撤销第一次展开。Project 原生指针
+适配器继续负责双击与拖放，公共层不重复派发。语言测试树删除了重复折叠回调。
+用 `LitheTreeListTests` 覆盖展开/收起与叶子激活；本轮42项树/列表/插件/Project
+回归通过，新增激活检查耗时1ms。打包预览实机验证动态树名称双击展开和再次收起、
+静态树名称双击收起；预览保留给用户继续验收。1379项包文件/符号链接清单与哈希未变。
+
+### 声明式工具栏颜色与原生动作尺寸（2026-10-21）
+
+`litheToolbarIconButton` 直接传入 `ActionToolbar.icon`，不再要求每个标签重复
+foregroundStyle。通用 `litheIconButton` 保留原来的文字颜色，避免影响其他用途。
+声明式 `WorkbenchContributionIcon` 按 role 选资源：活动栏保留20pt，已有16pt
+动作版本的 run/debug/settings/vcs 使用原生16pt SVG；不靠缩小活动栏图标改变描边。
+包内品牌图标仍遵守 original/template 契约，菜单与主工具栏保留各自的颜色上下文。
+
+核对 Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade` 的
+`platform/icons/src/expui/toolwindows/run.svg` 与现有资源字节一致；
+`platform/platform-resources/src/themes/islands/ManyIslandsDark.theme.json`
+将 CED0D6 映射到 icon-default-stroke/gray-120（C3C5CB），与现有 ActionToolbar token 一致。
+深浅主题用真实 SwiftUI 按钮像素检查无调用方颜色修饰时的工具栏色，
+并检查动作明暗 SVG 均为16pt，防止再次取20pt活动栏图标。
+
+模板动作必须使用空心/描边素材，不能把带深色内部填充的彩色 run/debug SVG 套成单色，
+否则内层底色也变为前景而得到实心图形。run 使用已有16pt空心版本，debug 使用已有
+`debug_stroke.svg` 模板版本；后者无单独暗色文件，两种主题都由统一 token 着色。
+
+本轮15项图标/悬停/树行样式测试通过（2.836s），新增按钮着色像素检查覆盖深浅主题，
+新增资源检查拒绝把深色内部填充素材当模板图标。实际预览确认面板内显露工具栏，
+不将组件深浅主题检查等同于完整工作台深浅主题人工验收。
+
+## 完整输入组件入口（2026-10-22）
+
+搜索只保留LitheSearchField，移除LitheSettingsSearchField的第二份实现。
+原设置搜索的28pt外框改为现有共享搜索样式的36pt完整占位；选择器弹窗高度
+同步取完整搜索组件高度，避免搜索和列表相互挤压。所有原生产品搜索配方
+调用迁入此入口，原有筛选、替换、匹配导航等语义动作以附加内容保留，
+布尔和枚举焦点仍由原页面控制。多行Agent任务编辑不是搜索框，保留其原生编辑器。
+
+普通共享表单输入通过LitheTextField、LitheTextEditor调用。原修饰器成为文件内
+私有实现，业务页面和声明式均不能漏装外框、焦点或光标处理。密码仍用
+原生SecureField，不改为明文模拟；外部焦点、回车、原生文本编辑和撤销保留。
+已有专用表格单元格、提交消息和编辑器查找等仍保留各自的交互所有者。
+
+LitheFormField复用原公共标签；禁用仅作用于编辑内容。LitheInfoTip在组件内部
+恢复可用环境，让现有页面即使禁用整个区块，也可用鼠标/键盘查看说明。
+这只开放说明，不开放值写入或插件动作；声明式Feature仍拒绝禁用字段编辑。
+LitheTextInputTests检查旧入口重新出现，并验证实际原生编辑器、清空与焦点；
+PluginNativeUITests验证禁用说明可点击打开真正的公共弹窗。
+
+## 公共树的右键与无障碍动作边界（#1423审查修复）
+
+右键选择只定位菜单目标，不代表打开内容。数据库连接/表的打开行为迁到明确的
+点击或激活路径，避免仅右键另一张表再取消菜单，就切换活动表并清空当前草稿。
+方向键和右键仍可改变树的选中行，但不触发数据库工作区导航。
+
+没有实际条目的节点菜单不安装外层右键捕获视图，保留运行配置和依赖内容内已有
+业务菜单。菜单构造只生成描述；显示时仍重新获取条目，保留选择后的可用状态。
+单选和多选节点适配器共用同一判断，不在运行/依赖调用方分别补例外。
+
+无障碍默认按下先选中，再执行与Return相同的激活语义：分支展开/折叠，叶节点
+调用激活动作，未提供激活动作时使用点击动作。节点适配器遵守相同回退。
+普通键盘移动保持仅选择；行内独立按钮仍执行自身动作，不打开整个结果行。
+原生回归覆盖数据库三类未应用编辑、菜单Escape取消、行内业务菜单，以及
+无障碍动作最终打开的编辑器文档。
+
+本轮使用仓库固定Swift6.3.3运行89项/9套件回归通过（10.718s）。新增数据库
+右键草稿保留、嵌套菜单单/多选两种适配器，以及无障碍打开文档的回归均有
+独立计时；没有运行新的产品预览，也没有改动插件协议或按钮统一方案。
+
+## 声明式文字按钮接入#1422标准
+
+声明式插件与产品文字动作使用同一个LitheActionButtonStyle，删除插件分支对该样式
+增加的拉伸、最大宽和外圈留白参数。按钮组按公共ActionButton.spacing横排，
+空间不足时纵排。旧实验声明的width/span保留解析兼容，新示例不再声明这些布局提示；
+不得为了兼容旧包重新绘制fill按钮或恢复输入焦点色作为主按钮颜色。

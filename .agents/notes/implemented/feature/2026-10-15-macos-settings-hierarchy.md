@@ -26,6 +26,8 @@ macOS 设置侧栏现在只有七个一级入口：外观与行为、插件、�
 
 插件如果带来了新的设置，默认放进“插件”页；只有它新增的是上表中某个分组本来就该有的能力（例如新的版本控制系统）时，才放进那个分组。
 
+AI 分组内按“AI 服务商 → Agent 管理 → 指令 → 技能 → Hooks → MCP 配置 → AI 与提交”排列：先放基础配置，再放行为规则和扩展能力，最后放具体应用功能。顺序仍只在 `SettingsGroup.categories` 中声明，搜索过滤后的侧栏也沿用这一顺序。
+
 ### 插件注册的页面
 
 插件可以在清单里把设置和按钮放到“语言与框架 › <语言>”或“构建、执行、部署 › <构建系统>”。这些页面不是 `SettingsCategory` 的 case，而是由 `PluginSettingsRegistry` 从已启用插件的声明推导，跟在对应分组的静态页面后面；面包屑和搜索同样从注册结果推导。宿主不为任何具体语言或构建工具写专用页面，规则见 [插件设置的通用注册面与生效方式](../architecture/2026-10-21-plugin-settings-surfaces.md)。
@@ -59,7 +61,7 @@ Issue 希望“构建工具 → Maven”“服务运行”“框架支持”也�
 
 ## 验证
 
-- `SettingsSidebarLayoutTests` 保证每个页面恰好属于一个分组或是一级页面，并固定本表的分组内容。
+- `SettingsSidebarLayoutTests` 保证每个页面恰好属于一个分组或是一级页面，并固定本表的分组内容与 AI 页面顺序。
 - `SettingsSearchVocabularyTests` 保证每个页面仍能被检索到。
 - `./scripts/test-macos.sh --filter SettingsSidebarLayoutTests`。
 - 实机查看设置窗口的侧栏、面包屑、搜索展开和从其他入口跳转到某一页时展开所属分组。

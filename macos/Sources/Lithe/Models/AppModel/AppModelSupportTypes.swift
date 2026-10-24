@@ -14,6 +14,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     case agents = "Agents"
     case instructions = "Instructions"
     case skills = "Skills"
+    case hooks = "Hooks"
     case providers = "AI Providers"
     case git = "Git"
     case updates = "Updates"
@@ -49,6 +50,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .agents: "sparkles"
         case .instructions: "doc.text"
         case .skills: "book"
+        case .hooks: "arrow.turn.down.right"
         case .providers: "key"
         case .git: "arrow.triangle.branch"
         case .updates: "arrow.down.circle"
@@ -82,7 +84,7 @@ enum SettingsGroup: String, CaseIterable, Identifiable {
         case .build: [.project, .run]
         case .languages: [.lsp]
         case .tools: [.terminal, .diagnostics]
-        case .ai: [.mcp, .ai, .instructions, .agents, .skills, .providers]
+        case .ai: [.providers, .agents, .instructions, .skills, .hooks, .mcp, .ai]
         }
     }
 }

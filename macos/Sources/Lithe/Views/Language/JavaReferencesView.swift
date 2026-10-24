@@ -18,8 +18,6 @@ struct LanguageReferencesView: View {
     private var toolbar: some View {
         LitheToolWindowHeader(
             title: model.languageNavigationKind.title,
-            systemImage: "scope",
-            ideaAssetPath: "toolwindows/toolWindowFind.svg",
             subtitle: "\(model.languageNavigationResults.count) results",
             onMinimize: { model.closeLanguageNavigationResults() }
         ) {
@@ -83,7 +81,6 @@ struct LanguageImplementationChooserView: View {
         VStack(spacing: 0) {
             LitheToolWindowHeader(
                 title: "Choose Implementation",
-                systemImage: "arrow.triangle.branch",
                 subtitle: "\(filteredLocations.count) found",
                 onMinimize: { model.closeLanguageNavigationResults() }
             )

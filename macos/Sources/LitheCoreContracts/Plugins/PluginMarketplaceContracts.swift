@@ -245,6 +245,7 @@ public struct PluginProgram: Equatable, Hashable, Sendable {
         case packagedVcsProvider
         case systemVcsProvider
         case runtimeVcsProvider
+        case projectGenerator
         case unknown
     }
 
@@ -311,6 +312,10 @@ public struct PluginProgram: Equatable, Hashable, Sendable {
 
     /// VCS ID of a VCS provider program.
     public var vcs: String? { string("vcs") }
+
+    /// Generator ID and scaffolding command of a `projectGenerator` program.
+    public var generatorID: String? { string("generatorID") }
+    public var command: String? { string("command") }
 
     /// Client commands a VCS provider may run, in resolution order. They
     /// belong to the approved program, so another client is a new approval.

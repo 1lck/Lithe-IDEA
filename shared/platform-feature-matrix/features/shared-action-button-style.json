@@ -2,7 +2,7 @@
   "id": "shared-action-button-style",
   "area": "工作台",
   "group": "外观",
-  "capability": "普通文字动作按钮采用欢迎页完整几何与间距：28高、4圆角、14水平留白、72最小宽、内容自适应且无固定最大宽、相邻间距6；主操作使用独立标准实蓝及无外框焦点提示",
+  "capability": "普通文字动作按钮采用欢迎页完整几何与间距：28高、4圆角、14水平留白、72最小宽、内容自适应且无固定最大宽、相邻间距6；主操作使用独立标准实蓝及无外框焦点提示；原生声明式插件动作复用同一入口，实验包fill提示不再改变文字按钮宽度，动作组空间不足时纵排",
   "macos": {
     "evidence": [
       "macos/Sources/Lithe/Views/Components/LitheActionButtonStyle.swift",
@@ -12,7 +12,9 @@
       "macos/Sources/Lithe/Views/Run/JavaLaunchDecisionDialog.swift",
       "macos/Tests/LitheTests/RunEntryPointTests.swift",
       "macos/Sources/Lithe/Views/App/PluginDetailView.swift",
-      "macos/Tests/LitheTests/PluginDetailLayoutTests.swift"
+      "macos/Tests/LitheTests/PluginDetailLayoutTests.swift",
+      "macos/Sources/Lithe/Views/Workbench/PluginNativeToolWindowView.swift",
+      "macos/Tests/LitheTests/PluginNativeUITests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"

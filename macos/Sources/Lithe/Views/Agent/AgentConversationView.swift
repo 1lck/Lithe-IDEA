@@ -182,6 +182,15 @@ struct AgentChatHeader: View {
                     .disabled(onSearch == nil)
                 iconButton("expui/general/history.svg", fallback: "clock.arrow.circlepath", help: "Conversation history", identifier: "agent-history-open") { onHistory?() }
                     .disabled(onHistory == nil)
+                if let onToggleDetails {
+                    Button(action: onToggleDetails) {
+                        LitheSystemIcon(systemImage: "sidebar.right", size: LitheTheme.Metrics.toolbarIconSize)
+                    }
+                    .buttonStyle(LitheIconButtonStyle(size: LitheTheme.Metrics.toolbarIconButtonSize, isSelected: showsDetails))
+                    .help(showsDetails ? "Hide Session Details" : "Show Session Details")
+                    .accessibilityLabel(showsDetails ? "Hide Session Details" : "Show Session Details")
+                    .accessibilityIdentifier("agent-details-toggle")
+                }
                 LitheMenu {
                     LitheContextMenuItem.action("Rename Chat", isEnabled: onRename != nil) { onRename?() }
                     LitheContextMenuItem.action("Copy Conversation", isEnabled: onCopyConversation != nil) { onCopyConversation?() }
@@ -346,7 +355,8 @@ struct AgentUnconfiguredConversationView: View {
                     onCancel: {}, onSelectAgent: { id in
                         onChooseAgent?(id)
                     }, onOpenSettings: onOpenSettings,
-                    onError: { notice = $0 }, fallbackAgentName: agentName
+                    onError: { notice = $0 }, fallbackAgentName: agentName,
+                    isEditorLayout: isEditorLayout
                 )
                 .modifier(AgentEditorColumn(isEditor: isEditorLayout))
             }
@@ -496,6 +506,8 @@ private struct AgentConnectionView: View {
                 onToggleDetails: { showsEditorDetails.toggle() }
             )
             GeometryReader { geometry in
+                let showsColumn = showsEditorDetails
+                    && geometry.size.width >= AgentEditorConversationMetrics.detailsMinimumTotalWidth
                 HStack(spacing: 0) {
                     VStack(spacing: 0) {
                         if showsSearch {
@@ -507,12 +519,17 @@ private struct AgentConnectionView: View {
                                 errorNotice.modifier(AgentEditorColumn(isEditor: true))
                             }
                         } composer: {
-                            conversationComposer
-                                .modifier(AgentEditorColumn(isEditor: true))
+                            // The details column owns tasks, subagents and file review.
+                            // When it is hidden or does not fit, the composer keeps the
+                            // activity summary so those entries never disappear.
+                            Group {
+                                if showsColumn { composer } else { conversationComposer }
+                            }
+                            .modifier(AgentEditorColumn(isEditor: true))
                         }
                     }
                     .frame(maxWidth: .infinity)
-                    if showsEditorDetails && geometry.size.width >= AgentEditorConversationMetrics.detailsMinimumTotalWidth {
+                    if showsColumn {
                         detailsPanel
                     }
                 }
@@ -521,9 +538,23 @@ private struct AgentConnectionView: View {
     }
 
     private var detailsPanel: some View {
-        AgentEditorDetailsPanel(
-            statistics: feature.selectedConversation?.sessionStatistics,
-            contextUsage: feature.selectedConversation?.contextUsage
+        let conversation = feature.selectedConversation
+        let sessionID = feature.selectedSessionID
+        return AgentEditorDetailsColumn(
+            statistics: conversation?.sessionStatistics,
+            contextUsage: conversation?.contextUsage,
+            changes: AgentActivity(messages: conversation?.messages ?? [],
+                                   reviewed: conversation?.reviewedFileChanges ?? [:]).files,
+            sessionID: sessionID,
+            isResponding: conversation?.isResponding == true,
+            isReviewing: feature.fileReviewSessionID != nil,
+            reviewError: feature.fileReviewErrorSessionID == sessionID ? feature.fileReviewError : nil,
+            onKeep: { changes in if let sessionID { feature.keepFileChanges(changes, in: sessionID) } },
+            onRestore: { changes in
+                if let sessionID { await feature.restoreFileChanges(changes, in: sessionID, restore: onRestoreFile) }
+            },
+            activity: activity(includesEdits: false),
+            onOpenFile: onOpenFile
         )
     }
 
@@ -590,18 +621,15 @@ private struct AgentConnectionView: View {
     }
 
     private var searchBar: some View {
-        HStack(spacing: 6) {
-            LitheIDEAIcon(resourcePath: "expui/general/search.svg", size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true)
-            LitheSearchTextField("Search conversation", text: $searchText)
+        LitheSearchField("Search conversation", text: $searchText) {
             Button { showsSearch = false; searchText = "" } label: {
                 LitheIDEAIcon(resourcePath: "expui/general/close.svg", size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true)
             }
-                .litheToolbarIconButton()
-                .help("Close search")
+            .litheToolbarIconButton()
+            .help("Close search")
         }
         .padding(.leading, 12)
         .padding(.trailing, 6)
-        .frame(height: 34)
         .litheWorkbenchSurface(AgentPanelStyle.context)
     }
 
@@ -648,7 +676,8 @@ private struct AgentConnectionView: View {
             hasPendingContinuation: feature.hasPendingContinuation,
             contextUsage: feature.selectedConversation?.contextUsage,
             sessionStatistics: feature.selectedConversation?.sessionStatistics,
-            showsSubscriptionQuota: feature.usesSubscription,
+            showsSubscriptionQuota: feature.usesSubscription || feature.usesClaudeSubscription,
+            subscriptionQuotaSource: feature.usesClaudeSubscription ? .claude : .codex,
             subscriptionQuota: feature.subscriptionQuota,
             subscriptionAccount: feature.subscriptionEmail,
             quotaFailure: feature.quotaFailure,
@@ -658,7 +687,7 @@ private struct AgentConnectionView: View {
             fileMentionRevision: fileMentionRevision,
             savePastedImage: onSavePastedImage,
             showsToolbar: showsToolbar, draftText: $feature.draftText, draftFiles: $feature.draftFiles,
-            focusRequest: feature.composerFocusRequest
+            focusRequest: feature.composerFocusRequest, isEditorLayout: isEditorLayout
         )
         .id(draftReset)
     }
@@ -692,13 +721,16 @@ private struct AgentConnectionView: View {
         }
     }
 
-    private var activity: AgentActivitySummaryBar {
+    private var activity: AgentActivitySummaryBar { activity(includesEdits: true) }
+
+    private func activity(includesEdits: Bool) -> AgentActivitySummaryBar {
         let conversation = feature.selectedConversation
         let sessionID = feature.selectedSessionID
         return AgentActivitySummaryBar(messages: conversation?.messages ?? [], sessionID: sessionID,
             plan: conversation?.plan, subagents: conversation?.subagents ?? [], reviewed: conversation?.reviewedFileChanges ?? [:],
             isResponding: conversation?.isResponding == true, isReviewing: feature.fileReviewSessionID != nil,
             reviewError: feature.fileReviewErrorSessionID == sessionID ? feature.fileReviewError : nil,
+            includesEdits: includesEdits,
             onOpenFile: onOpenFile,
             onKeep: { changes in if let sessionID { feature.keepFileChanges(changes, in: sessionID) } },
             onRestore: { changes in

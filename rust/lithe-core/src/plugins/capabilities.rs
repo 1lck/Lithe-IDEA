@@ -45,6 +45,9 @@ pub(crate) const BUILD_PROVIDERS: &str = "buildProviders";
 /// process; see `crate::vcs`.
 pub(crate) const VCS_PROVIDERS: &str = "vcsProviders";
 
+/// `projectGenerators[]`: entries of the New Project window.
+pub(crate) const PROJECT_GENERATORS: &str = "projectGenerators";
+
 /// Shared executable candidate order and strict explicit selection.
 pub(crate) const EXECUTABLE_RESOLUTION: &str = "executableResolution";
 
@@ -57,9 +60,10 @@ pub const SUPPORTED_CAPABILITIES: &[(&str, &[u32])] = &[
     (EXECUTABLE_RESOLUTION, &[1]),
     (LANGUAGE_SERVERS, &[1, 2]),
     (LANGUAGES, &[1]),
+    (PROJECT_GENERATORS, &[1]),
     (SERVER_PROCESS, &[1]),
     (SETTINGS, &[1, 2]),
-    (UI, &[1, 2]),
+    (UI, &[1, 2, 3]),
     (VCS_PROVIDERS, &[1]),
 ];
 

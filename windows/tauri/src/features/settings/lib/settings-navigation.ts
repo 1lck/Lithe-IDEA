@@ -38,7 +38,7 @@ const toolsGroup = {
 const aiGroup = {
   id: "ai",
   labelKey: "settings.groups.ai",
-  categories: ["mcp", "ai-commit", "ai", "agents"],
+  categories: ["mcp", "ai-commit", "ai", "agents", "hooks"],
 } as const;
 
 export const settingsGroups = [
@@ -74,6 +74,7 @@ export const settingsCategories: Array<{
   labelKey: string;
   terms: string[];
 }> = [
+  { id: "hooks", labelKey: "settings.tabs.hooks", terms: ["Hooks", "Hook", "hooks.name", "hooks.command", "hooks.when", "hooks.timeout", "Codex", "Claude Code"] },
   {
     id: "general",
     labelKey: "settings.tabs.general",

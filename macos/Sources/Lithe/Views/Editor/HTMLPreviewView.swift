@@ -88,9 +88,7 @@ struct HTMLPreviewView: View {
                 }
             }
 
-            LitheSearchTextField("Enter address", text: $addressText)
-                .focused($addressFocused)
-                .litheSearchField(isFocused: addressFocused)
+            LitheTextField("Enter address", text: $addressText, focus: $addressFocused)
                 .onSubmit {
                     if browser.navigate(toAddress: addressText) { addressFocused = false }
                 }

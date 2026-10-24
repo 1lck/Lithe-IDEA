@@ -46,6 +46,8 @@ pub enum CoreCommand {
     AgentInstructionsShared,
     /// Lists native skills or creates/imports one explicitly (`agent.skills`).
     AgentSkills,
+    /// Manages a user Hook library and native Agent configuration (`agent.hooks`).
+    AgentHooks,
     /// Installs a catalog ACP adapter with the user's npm (`agent.install`).
     AgentInstall,
     /// Removes a Lithe-managed ACP adapter install (`agent.uninstall`).
@@ -70,6 +72,8 @@ pub enum CoreCommand {
     McpCommandLine,
     /// Validates and normalizes a declarative plugin manifest (`plugins.declarative.validate`).
     PluginsDeclarativeValidate,
+    /// Validates native plugin UI data with declaration identity and node budgets.
+    PluginsNativeUIValidateData,
     /// Expands a declarative plugin's run template (`plugins.declarative.runPlan`).
     PluginsDeclarativeRunPlan,
     /// Lists a declarative plugin's workspace and file tests (`plugins.declarative.discoverTests`).
@@ -118,6 +122,16 @@ pub enum CoreCommand {
     VcsOwnerOf,
     /// Validates and normalizes a VCS provider's reply (`vcs.decodeReply`).
     VcsDecodeReply,
+    /// Lists plugin project generators and who provides their requirements (`project.generatorCatalog`).
+    ProjectGeneratorCatalog,
+    /// Derives a generator form's defaults, visibility, and field errors (`project.generatorForm`).
+    ProjectGeneratorForm,
+    /// Expands a generator's steps into files, argv, and URLs (`project.generationPlan`).
+    ProjectGenerationPlan,
+    /// Validates a new project's name against its parent directory (`project.checkName`).
+    ProjectCheckName,
+    /// Extracts a downloaded archive inside a bounded staging directory (`project.extractArchive`).
+    ProjectExtractArchive,
     /// Validates and filters a marketplace index (`plugins.marketplace.validateIndex`).
     PluginsMarketplaceValidateIndex,
     /// Resolves a user-entered marketplace source URL (`plugins.marketplace.resolveSource`).
@@ -450,6 +464,7 @@ impl CoreCommand {
             "agent.instructions.save" => Some(Self::AgentInstructionsSave),
             "agent.instructions.shared" => Some(Self::AgentInstructionsShared),
             "agent.skills" => Some(Self::AgentSkills),
+            "agent.hooks" => Some(Self::AgentHooks),
             "agent.install" => Some(Self::AgentInstall),
             "agent.uninstall" => Some(Self::AgentUninstall),
             "agent.installCli" => Some(Self::AgentInstallCli),
@@ -462,6 +477,7 @@ impl CoreCommand {
             "mcp.toolPolicy" => Some(Self::McpToolPolicy),
             "mcp.commandLine" => Some(Self::McpCommandLine),
             "plugins.declarative.validate" => Some(Self::PluginsDeclarativeValidate),
+            "plugins.nativeUI.validateData" => Some(Self::PluginsNativeUIValidateData),
             "plugins.declarative.runPlan" => Some(Self::PluginsDeclarativeRunPlan),
             "plugins.declarative.discoverTests" => Some(Self::PluginsDeclarativeDiscoverTests),
             "plugins.declarative.testPlan" => Some(Self::PluginsDeclarativeTestPlan),
@@ -492,6 +508,11 @@ impl CoreCommand {
             "vcs.detectRoots" => Some(Self::VcsDetectRoots),
             "vcs.ownerOf" => Some(Self::VcsOwnerOf),
             "vcs.decodeReply" => Some(Self::VcsDecodeReply),
+            "project.generatorCatalog" => Some(Self::ProjectGeneratorCatalog),
+            "project.generatorForm" => Some(Self::ProjectGeneratorForm),
+            "project.generationPlan" => Some(Self::ProjectGenerationPlan),
+            "project.checkName" => Some(Self::ProjectCheckName),
+            "project.extractArchive" => Some(Self::ProjectExtractArchive),
             "plugins.marketplace.validateIndex" => Some(Self::PluginsMarketplaceValidateIndex),
             "plugins.marketplace.resolveSource" => Some(Self::PluginsMarketplaceResolveSource),
             "plugins.marketplace.installReview" => Some(Self::PluginsMarketplaceInstallReview),

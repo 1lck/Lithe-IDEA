@@ -78,6 +78,16 @@ const workflows = [
       RUST_DATABASE_RESULT: 'needs.rust-database-tests.result',
     },
   },
+  {
+    id: 'remote',
+    selected: ['rust_remote'],
+    lanes: [{ lane: 'remote', job: 'rust-remote-tests' }],
+    bindings: {
+      CHANGES_RESULT: 'needs.changes.result',
+      RUST_REMOTE_SELECTED: 'needs.changes.outputs.rust_remote',
+      RUST_REMOTE_RESULT: 'needs.rust-remote-tests.result',
+    },
+  },
 ];
 
 // Read the indentation-delimited blocks in the checked-in workflows, without a
@@ -281,7 +291,8 @@ for (const workflow of workflows) {
     }
   }
 
-  if (workflow.id === 'database') continue;
+  // Lanes without a run output cannot be reused from an earlier revision.
+  if (!workflow.lanes.some((lane) => lane.run)) continue;
   test(`${workflow.id}: reuse checkout and verifier preserve their conditions, credentials and deadline`, testOptions, () => {
     const checkout = block(workflow.gate, '- name: Check out the reused-result verifier', 6);
     const verifier = block(workflow.gate, '- name: Verify reused lane results', 6);

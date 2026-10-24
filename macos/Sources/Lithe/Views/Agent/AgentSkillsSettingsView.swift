@@ -43,7 +43,7 @@ struct AgentSkillsSettingsView: View {
             LitheSettingsSegmentedControl(selection: $feature.scope, options: ["user", "repo"], width: 300,
                 title: { text($0 == "user" ? "Global skills" : "Project skills") + "  \(feature.count(in: $0))" })
                 .disabled(feature.isWriting)
-            LitheSearchTextField("Search skills", text: $feature.query).litheSearchField()
+            LitheSearchField("Search skills", text: $feature.query)
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 8) { toolbar }
                 VStack(alignment: .leading, spacing: 8) { toolbar }

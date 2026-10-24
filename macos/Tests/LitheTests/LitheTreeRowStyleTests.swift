@@ -17,8 +17,11 @@ struct LitheTreeRowStyleTests {
                     Spacer()
                 }
                 let content = tree
-                    ? AnyView(row.litheTreeRow(isSelected: true, isFocused: focused))
-                    : AnyView(row.frame(height: 40).litheSelectionRow(isSelected: true, isFocused: focused))
+                    ? AnyView(
+                        row.frame(height: LitheTheme.Tree.rowHeight).modifier(
+                            LitheTreeListRowSurface(isSelected: true, isFocused: focused)))
+                    : AnyView(
+                        row.frame(height: 40).modifier(LitheTreeListRowSurface(isSelected: true, isFocused: focused)))
                 let renderer = ImageRenderer(content: content.frame(width: 220)
                     .environment(\.colorScheme, scheme)
                     .environment(\.controlActiveState, windowState))

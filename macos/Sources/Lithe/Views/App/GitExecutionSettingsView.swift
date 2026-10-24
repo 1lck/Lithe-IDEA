@@ -359,8 +359,7 @@ private struct GitProgramSection<Extra: View>: View {
             LitheInfoTip("Lithe does not save passwords. Credentials are stored by the Git credential helper you choose.")
         }) {
             LitheSettingsRow("Git executable") {
-                TextField("Use Git from PATH", text: $executable)
-                    .litheSettingsTextField()
+                LitheTextField("Use Git from PATH", text: $executable)
                     .frame(minWidth: 180, maxWidth: 320)
                     .onSubmit(save)
                 if trimmed != settings.gitExecutable {
@@ -533,8 +532,7 @@ private struct GitIdentityRow: View {
         let shown = configured ?? effective ?? ""
         let isDirty = !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && draft != shown
         LitheSettingsRow(title, isModified: configured != nil) {
-            TextField(title, text: $draft)
-                .litheSettingsTextField()
+            LitheTextField(title, text: $draft)
                 .frame(width: 220)
                 .onSubmit { if isDirty { save(field, false) } }
             if isDirty {

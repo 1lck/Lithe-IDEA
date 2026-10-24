@@ -387,6 +387,7 @@ async function main() {
       // Includes agent-ui-test-evidence: fixture screenshots belong to one test
       // revision/theme/viewport, never to a reusable build or runtime resource.
       // Includes plugin-ui-icons: signed runtime packages are never build-cache inputs.
+      // Includes agent-hook-library-state: user commands, native ownership journals and locks have no copy stage.
       // Includes agent-instruction-library-state: user text and sync locks have no build identity or copy stage.
       // Includes mcp-tool-probe-state: SDK sessions, native tool exclusions and
       // retained Codex tool lists and in-memory snapshots belong to one user

@@ -15,7 +15,6 @@ struct ProjectReplaceView: View {
     @State private var selectedResult: String?
     @State private var previewNeedsRefresh = false
     @State private var retainedPreview: (file: ProjectReplacementFile, match: ProjectReplacementMatch)?
-    @State private var resultListActive = false
     @State private var query = ""
     @State private var replacement = ""
     @State private var options = ProjectSearchOptions.default
@@ -215,17 +214,16 @@ struct ProjectReplaceView: View {
                     minimum: 90, maximum: max(90, geometry.size.height - 150),
                     flexibleMinimum: 150
                 ) {
-                    ScrollView(.vertical) {
-                        LazyVStack(spacing: 0) {
-                            ForEach(feature.projectReplacementFiles) { file in
-                                ForEach(file.matches) { match in
-                                    matchRow(file, match: match, selected: resultID(file, match) == resultID(selected.file, selected.match))
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 8)
+                    LitheTreeList(
+                        feature.projectReplacementFiles.flatMap { file in
+                            file.matches.map { (id: resultID(file, $0), file: file, match: $0) }
+                        }, id: \.id,
+                        selection: Binding(
+                            get: { resultID(selected.file, selected.match) }, set: { selectedResult = $0 }),
+                        onActivate: { openFile($0.file.url, $0.file.relativePath) }, multiline: true
+                    ) { row in
+                        matchRow(row.file, match: row.match)
                     }
-                    .background(LitheToolWindowActivityTracker(isActive: $resultListActive))
                     .overlay {
                         if previewNeedsRefresh && feature.projectReplacementFiles.isEmpty {
                             Text("File changed. Run Preview again to refresh results.")
@@ -260,11 +258,8 @@ struct ProjectReplaceView: View {
         }
     }
 
-    private func matchRow(_ file: ProjectReplacementFile, match: ProjectReplacementMatch, selected: Bool) -> some View {
-        Button {
-            selectedResult = resultID(file, match)
-        } label: {
-            HStack(spacing: 12) {
+    private func matchRow(_ file: ProjectReplacementFile, match: ProjectReplacementMatch) -> some View {
+        HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
                         Text("Before").foregroundStyle(LitheTheme.secondaryText)
@@ -287,14 +282,9 @@ struct ProjectReplaceView: View {
             }
             .padding(.horizontal, 8)
             .frame(height: 46)
-            .litheSelectionRow(isSelected: selected, isFocused: resultListActive)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
             .contentShape(Rectangle())
-        }
-        .buttonStyle(ProjectReplacementResultButtonStyle())
         .projectReplaceArrowCursor()
         .accessibilityLabel("\(file.relativePath), Line \(match.line), \(match.before)")
-        .accessibilityAddTraits(selected ? .isSelected : [])
         .litheContextMenu {
             [
                 .action("Open", systemImage: "doc.text", action: { openFile(file.url, file.relativePath) }),

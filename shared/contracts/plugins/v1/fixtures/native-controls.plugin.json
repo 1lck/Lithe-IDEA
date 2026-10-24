@@ -1,0 +1,407 @@
+{
+  "schemaVersion": 2,
+  "id": "dev.lithe.fixture.native-controls",
+  "displayName": "Native public controls fixture",
+  "version": "0.1.0",
+  "pluginAPIVersion": 3,
+  "requires": {
+    "buildProviders": 1,
+    "buildSystems": 1,
+    "serverProcess": 1,
+    "ui": 3
+  },
+  "vendor": {
+    "id": "org.example",
+    "displayName": "Example",
+    "signatureRequirement": "publisherPackage"
+  },
+  "permissions": [
+    "languageServer.launch",
+    "process.build",
+    "ui.contribute"
+  ],
+  "activationEvents": [
+    "onBuildSystem:sample",
+    "onView:dev.lithe.fixture.native-controls.form"
+  ],
+  "languages": [],
+  "buildSystems": [
+    {
+      "id": "sample",
+      "displayName": "Sample",
+      "detection": {
+        "markers": [
+          "lithe-sample.json"
+        ],
+        "nesting": "outermost"
+      },
+      "invocation": {
+        "executables": [
+          {
+            "kind": "command",
+            "command": "node"
+          }
+        ]
+      },
+      "provider": {
+        "launch": {
+          "kind": "runtime",
+          "tool": "node",
+          "minimumVersion": "20.3",
+          "entry": "backend/main.mjs"
+        },
+        "arguments": [
+          "--state",
+          "${workspaceStateDir}"
+        ],
+        "executesProjectCode": true,
+        "mayUseNetwork": false
+      },
+      "model": {
+        "source": "provider"
+      },
+      "tasks": [
+        {
+          "id": "build",
+          "displayName": "Build",
+          "group": "build",
+          "scopes": [
+            "workspace"
+          ],
+          "arguments": [
+            "--version"
+          ]
+        }
+      ],
+      "dependencies": {
+        "source": "provider",
+        "scopes": [
+          "workspace",
+          "project"
+        ]
+      },
+      "sync": {
+        "watch": [
+          "lithe-sample.json"
+        ]
+      }
+    }
+  ],
+  "ui": {
+    "toolWindows": [
+      {
+        "id": "dev.lithe.fixture.native-controls.form",
+        "title": "Public controls",
+        "placement": "bottom",
+        "native": {
+          "schemaVersion": 1,
+          "id": "form",
+          "kind": "form",
+          "nodes": [],
+          "controls": [
+            {
+              "id": "name",
+              "kind": "input",
+              "label": "名称（输入后按回车）",
+              "value": "UI Lab",
+              "placeholder": "输入中文、English 或 😀🚀",
+              "onCommit": "changed",
+              "span": 6,
+              "info": "使用 IDE 公共控件。当前值会在提交时传给示例插件，界面样式由宿主管理。"
+            },
+            {
+              "id": "query",
+              "kind": "input",
+              "label": "空输入框与占位提示",
+              "value": "",
+              "placeholder": "试试中文输入法、粘贴、撤销",
+              "onCommit": "changed",
+              "span": 6,
+              "info": "使用 IDE 公共控件。当前值会在提交时传给示例插件，界面样式由宿主管理。"
+            },
+            {
+              "id": "environment",
+              "kind": "select",
+              "label": "环境（切换后自动提交）",
+              "value": "dev",
+              "options": [
+                {
+                  "id": "dev",
+                  "label": "开发环境"
+                },
+                {
+                  "id": "test",
+                  "label": "测试环境 / English"
+                },
+                {
+                  "id": "prod",
+                  "label": "生产环境 😀"
+                }
+              ],
+              "onCommit": "changed",
+              "span": 6,
+              "info": "使用 IDE 公共控件。当前值会在提交时传给示例插件，界面样式由宿主管理。"
+            },
+            {
+              "id": "notify",
+              "kind": "checkbox",
+              "label": "启用通知（切换后自动提交）",
+              "value": true,
+              "onCommit": "changed",
+              "span": 6,
+              "info": "使用 IDE 公共控件。当前值会在提交时传给示例插件，界面样式由宿主管理。"
+            },
+            {
+              "id": "offline",
+              "kind": "checkbox",
+              "label": "离线模式（仅本地保存）",
+              "value": false,
+              "span": 6,
+              "info": "使用 IDE 公共控件。当前值会在提交时传给示例插件，界面样式由宿主管理。"
+            },
+            {
+              "id": "locked-input",
+              "kind": "input",
+              "label": "禁用输入框",
+              "value": "不可编辑",
+              "enabled": false,
+              "span": 6,
+              "info": "使用 IDE 公共控件。此控件已禁用；悬停可查看说明。"
+            },
+            {
+              "id": "locked-select",
+              "kind": "select",
+              "label": "禁用下拉选择",
+              "value": "locked",
+              "options": [
+                {
+                  "id": "locked",
+                  "label": "固定选项"
+                }
+              ],
+              "enabled": false,
+              "span": 6,
+              "info": "使用 IDE 公共控件。此控件已禁用；悬停可查看说明。"
+            },
+            {
+              "id": "locked-check",
+              "kind": "checkbox",
+              "label": "禁用复选框",
+              "value": true,
+              "enabled": false,
+              "span": 6,
+              "info": "使用 IDE 公共控件。此控件已禁用；悬停可查看说明。"
+            },
+            {
+              "id": "search",
+              "kind": "search",
+              "label": "搜索框（回车提交）",
+              "value": "",
+              "placeholder": "搜索中文 / English / 😀",
+              "onCommit": "changed",
+              "info": "复用共享搜索输入、焦点样式、I形光标和清空按钮。清空仅修改本地值。",
+              "span": 6
+            },
+            {
+              "id": "notes",
+              "kind": "editor",
+              "label": "多行输入（使用下方按钮提交）",
+              "value": "第一行：中文\nSecond line 😀",
+              "rows": 4,
+              "info": "Enter 换行，支持组合输入、选择和撤销；最多8192 UTF-8字节。",
+              "span": 6
+            },
+            {
+              "id": "mode",
+              "kind": "segmented",
+              "label": "分段选择",
+              "value": "safe",
+              "options": [
+                {
+                  "id": "fast",
+                  "label": "快速"
+                },
+                {
+                  "id": "safe",
+                  "label": "安全"
+                },
+                {
+                  "id": "debug",
+                  "label": "调试 😀"
+                }
+              ],
+              "onCommit": "changed",
+              "info": "复用设置页分段选择，传递稳定选项ID。",
+              "span": 6
+            },
+            {
+              "id": "concurrency",
+              "kind": "stepper",
+              "label": "数字步进器",
+              "value": 2,
+              "minimum": 1,
+              "maximum": 8,
+              "step": 1,
+              "onCommit": "changed",
+              "info": "最小1、最大8、步长1；到边界后对应按钮禁用。",
+              "span": 6
+            },
+            {
+              "id": "disabled-search",
+              "kind": "search",
+              "label": "禁用 · 搜索框（回车提交）",
+              "value": "",
+              "placeholder": "搜索中文 / English / 😀",
+              "onCommit": "changed",
+              "info": "复用共享搜索输入、焦点样式、I形光标和清空按钮。清空仅修改本地值。",
+              "enabled": false,
+              "span": 6
+            },
+            {
+              "id": "disabled-notes",
+              "kind": "editor",
+              "label": "禁用 · 多行输入（使用下方按钮提交）",
+              "value": "第一行：中文\nSecond line 😀",
+              "rows": 4,
+              "info": "Enter 换行，支持组合输入、选择和撤销；最多8192 UTF-8字节。",
+              "enabled": false,
+              "span": 6
+            },
+            {
+              "id": "disabled-mode",
+              "kind": "segmented",
+              "label": "禁用 · 分段选择",
+              "value": "safe",
+              "options": [
+                {
+                  "id": "fast",
+                  "label": "快速"
+                },
+                {
+                  "id": "safe",
+                  "label": "安全"
+                },
+                {
+                  "id": "debug",
+                  "label": "调试 😀"
+                }
+              ],
+              "onCommit": "changed",
+              "info": "复用设置页分段选择，传递稳定选项ID。",
+              "enabled": false,
+              "span": 6
+            },
+            {
+              "id": "disabled-concurrency",
+              "kind": "stepper",
+              "label": "禁用 · 数字步进器",
+              "value": 2,
+              "minimum": 1,
+              "maximum": 8,
+              "step": 1,
+              "onCommit": "changed",
+              "info": "最小1、最大8、步长1；到边界后对应按钮禁用。",
+              "enabled": false,
+              "span": 6
+            }
+          ],
+          "source": {
+            "buildSystemID": "sample",
+            "function": "form.nodes"
+          },
+          "actions": [
+            {
+              "id": "changed",
+              "title": "提交控件值",
+              "kind": "invoke",
+              "function": "form.changed",
+              "requiresSelection": false
+            },
+            {
+              "id": "form-slow",
+              "title": "慢提交",
+              "kind": "invoke",
+              "function": "form.slow",
+              "requiresSelection": false
+            },
+            {
+              "id": "form-fail",
+              "title": "模拟提交失败",
+              "kind": "invoke",
+              "function": "form.fail",
+              "requiresSelection": false
+            }
+          ],
+          "toolbar": [],
+          "contextMenu": [],
+          "layout": {
+            "columns": 12
+          },
+          "buttons": [
+            {
+              "id": "secondary-content",
+              "label": "普通按钮（内容宽度）",
+              "action": "changed",
+              "width": "content",
+              "span": 6,
+              "info": "随文字宽度伸缩，保留公共最小宽度、外框和内边距。"
+            },
+            {
+              "id": "secondary-fill",
+              "label": "普通按钮（填满栅格）",
+              "action": "changed",
+              "width": "fill",
+              "span": 6,
+              "info": "填满剩余空间，样式和高度仍由公共按钮控制。"
+            },
+            {
+              "id": "primary-content",
+              "label": "主要按钮（内容宽度）",
+              "action": "changed",
+              "primary": true,
+              "width": "content",
+              "span": 6
+            },
+            {
+              "id": "primary-fill",
+              "label": "主要按钮（填满栅格）",
+              "action": "changed",
+              "primary": true,
+              "width": "fill",
+              "span": 6
+            },
+            {
+              "id": "disabled-button",
+              "label": "禁用普通按钮",
+              "action": "changed",
+              "enabled": false,
+              "span": 6
+            },
+            {
+              "id": "disabled-primary",
+              "label": "禁用主要按钮",
+              "action": "changed",
+              "primary": true,
+              "enabled": false,
+              "width": "fill",
+              "span": 6
+            },
+            {
+              "id": "slow-button",
+              "label": "慢提交（3秒，检查禁用/取消）",
+              "action": "form-slow",
+              "span": 6
+            },
+            {
+              "id": "failure-button",
+              "label": "模拟提交失败",
+              "action": "form-fail",
+              "width": "fill",
+              "span": 6
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

@@ -247,6 +247,11 @@
 "Maven" = "Maven";
 "Maven source" = "Maven 来源";
 "Automatic" = "自动";
+"Accept edits" = "接受编辑";
+"Mode" = "模式";
+"Bypass permissions" = "跳过权限确认";
+"Manual" = "手动";
+"Auto" = "自动";
 "Maven Wrapper" = "Maven Wrapper";
 "Custom Maven Home" = "自定义 Maven 主目录";
 "Maven Home" = "Maven 主目录";
@@ -768,7 +773,7 @@
 "Destination folder" = "目标文件夹";
 "Folder name" = "文件夹名称";
 "Repository URL" = "仓库 URL";
-"Lithe will clone the repository into (destinationDescription)." = "Lithe 会将仓库克隆到（目标文件夹）。";
+"Lithe will clone the repository into %@." = "Lithe 会将仓库克隆到 %@。";
 "Close" = "关闭";
 "Close run configuration" = "关闭运行配置";
 "Close comparison" = "关闭比较";
@@ -2285,6 +2290,12 @@
 "Thinking…" = "思考中…";
 "Responding…" = "回复中…";
 "Loading conversation…" = "正在加载对话…";
+"Previous 7 days" = "过去 7 天";
+"Previous 30 days" = "过去 30 天";
+"Earlier" = "更早";
+"Unknown date" = "时间未知";
+"Conversation actions" = "会话操作";
+"Show %lld earlier items" = "显示更早的 %lld 项";
 "Starting the Agent…" = "正在启动 Agent…";
 "The Agent process starts when this panel opens." = "打开此面板时才会启动 Agent 进程。";
 "The Agent could not start" = "Agent 无法启动";
@@ -2597,6 +2608,11 @@
 "Repository needs attention" = "仓库需要处理";
 
 "Codex subscription" = "Codex 官方订阅（本机账号）";
+"Claude subscription" = "Claude 官方订阅（本机账号）";
+"Use the claude.ai account you signed in to with Claude Code. No API key or URL is needed; Lithe never reads its credentials." = "使用你在 Claude Code 中登录的 claude.ai 账号，无需 API Key 或地址；Lithe 不会读取它的登录凭据。";
+"Claude Code is not signed in. Run `claude` in a terminal, sign in with /login, then retry." = "Claude Code 尚未登录。请在终端运行 `claude`，用 /login 登录后再重试。";
+"Uses your local ChatGPT account." = "使用本机 ChatGPT 账号。";
+"Uses the claude.ai account signed in to Claude Code. Sign in with /login in Claude Code if the Agent asks." = "使用 Claude Code 中登录的 claude.ai 账号；如提示未登录，请在 Claude Code 中用 /login 登录。";
 "Loading session settings…" = "正在加载会话设置…";
 
 "Use your local ChatGPT account. No API key or URL is needed." = "使用本机已登录的 ChatGPT 账号，无需 API Key 或 URL。";
@@ -2611,9 +2627,13 @@
 
 "%@ · %@ used" = "%@ · 已用 %@";
 
+"Quota" = "额度";
 "Quota —" = "额度 —";
 
 "Codex subscription quota" = "Codex 订阅额度";
+"Claude subscription quota" = "Claude 订阅额度";
+"Usage appears after the next reply." = "下一次回复后显示用量。";
+"As of %@; updated only while replying." = "截至 %@，仅在回复时更新。";
 
 "Resets: %@" = "重置时间：%@";
 
@@ -2942,6 +2962,14 @@
 "Refresh All" = "全部刷新";
 "Refreshed %@" = "已于 %@ 刷新";
 "just now" = "刚刚";
+"Delete chat" = "删除会话";
+"Archive conversation" = "归档会话";
+"Fork conversation" = "分叉会话";
+"Unpin conversation" = "取消置顶";
+"Pin conversation" = "置顶会话";
+"Unpin" = "取消置顶";
+"Pin" = "置顶";
+"%d minutes ago" = "%d分钟前";
 "Not refreshed yet" = "尚未刷新";
 "Ignored entries: %lld" = "已忽略条目：%lld";
 "Uninstall %@?" = "卸载 %@？";
@@ -2956,6 +2984,8 @@
 "Local Package" = "本地插件包";
 "Full Program Declaration" = "完整程序声明";
 "Builds %@ projects" = "构建 %@ 项目";
+"Creates %@ projects" = "创建 %@ 项目";
+"May connect to the internet" = "可能连接网络";
 "Tasks: %@" = "任务：%@";
 "Archive SHA-256" = "归档 SHA-256";
 "Content SHA-256" = "内容 SHA-256";
@@ -3203,6 +3233,7 @@
 "Errors" = "错误输出";
 "Exit code %lld" = "退出码 %lld";
 "Show less" = "收起";
+"Show more" = "显示更多";
 "Show all %lld lines" = "显示全部 %lld 行";
 /* Explicit update channel selection. */
 "Update channel" = "更新渠道";
@@ -3717,6 +3748,30 @@
 "Print…" = "打印…";
 "Export as PDF…" = "导出为 PDF…";
 
+"One entry per line. Directory names hide matching folders; file entries support * and ?." = "每行输入一项。目录名用于隐藏匹配的文件夹；文件条目支持 * 和 ?。";
+
+"Directories" = "目录";
+
+"File patterns" = "文件模式";
+
+"This sends the selected local branch to its configured remote." = "这会将选中的本地分支推送到已配置的远程仓库。";
+
+"Push '%@'?" = "推送“%@”？";
+
+"Tracking %@" = "跟踪 %@";
+
+"Publish %@ (Core selects default remote)" = "发布 %@（自动选择默认远程仓库）";
+
+"https://github.com/owner/repository" = "https://github.com/owner/repository";
+
+"No items" = "暂无项目";
+
+"This panel needs exactly one matching plugin instance in the workspace." = "此面板要求工作区中恰好有一个匹配的插件实例。";
+
+"The field value is invalid or exceeds 1024 UTF-8 bytes." = "字段值无效或超过 1024 个 UTF-8 字节。";
+
+"The field value does not match its declaration or exceeds its size limit." = "字段值不符合声明或超过大小限制。";
+
 /* 插件 VCS Provider：安装审核、工具窗口、项目树和差异比较。 */
 "%@ provider (inside the plugin)" = "%@ Provider（插件内置）";
 "%@ provider (installed on this Mac)" = "%@ Provider（使用本机已安装的程序）";
@@ -4003,3 +4058,138 @@
 "MCP detection was cancelled." = "MCP 检测已取消。";
 "Invalid MCP tool configuration" = "MCP 工具配置无效";
 "Claude Code has MCP tool restrictions. Update its native rules before renaming a server so disabled tools do not become available under a new name." = "Claude Code 存在 MCP 工具限制。重命名服务器前请先更新其原生规则，以免已禁用的工具在新名称下重新可用。";
+
+/* Agent Hooks */
+"New Hook" = "新 Hook";
+"Edit Hook" = "编辑 Hook";
+"Hook name" = "Hook 名称";
+"For example, notify" = "例如 notify";
+"For example, notify me when a turn ends" = "例如：一轮结束时提醒我";
+"Hooks" = "Hooks";
+"Hook" = "Hook";
+"Agent hooks" = "Agent 钩子";
+"Search Hooks" = "搜索 Hook";
+"Add Hook" = "添加 Hook";
+"Save Hook" = "保存 Hook";
+"No Hooks yet." = "还没有 Hook。";
+"No matching Hooks." = "没有匹配的 Hook。";
+"Enable Hook" = "启用 Hook";
+"Removal pending" = "等待移除";
+"Retry Hook synchronization" = "重试 Hook 同步";
+"Codex Hook approval" = "Codex Hook 授权";
+"Hook description" = "Hook 描述";
+"Hook command" = "Hook 命令";
+"When to run" = "何时运行";
+"Tool filter" = "工具筛选";
+"Timeout (seconds)" = "超时（秒）";
+"Agent default" = "沿用 Agent 默认值";
+"When a turn ends" = "一轮结束时";
+"After a tool runs" = "工具运行后";
+"Before a tool runs" = "工具运行前";
+"When submitting a prompt" = "提交提示词时";
+"When a session starts" = "会话开始时";
+"All tools" = "所有工具";
+"Shell commands" = "Shell 命令";
+"File edits" = "文件编辑";
+"Delete Hook?" = "删除 Hook？";
+"This removes only the native entries written by Lithe. Other Hooks are kept." = "仅移除 Lithe 写入的原生配置条目，保留其他 Hook。";
+"Claude Code has disabled all Hooks in its settings." = "Claude Code 已在设置中关闭所有 Hook。";
+"Hooks run shell commands at Agent lifecycle events. The Agent supplies event JSON on standard input and runs the command in the session folder. Changes apply to new sessions; existing sessions keep their own loaded configuration." = "Hook 会在 Agent 的生命周期事件中运行 Shell 命令。Agent 通过标准输入传入事件 JSON，并在会话目录中执行。更改对新会话生效，现有会话继续使用已加载的配置。";
+"Codex requires Hooks to be enabled and commands to be trusted in its native /hooks screen. Lithe saves configuration without granting trust. Editing a command requires approval again. A configured Hook is not proof it ran." = "Codex 需要启用 Hooks，并在原生 /hooks 页面中信任命令。Lithe 只保存配置，不授予信任。编辑命令后需要重新批准。配置已写入不代表已执行。";
+"Use 1–80 letters, digits, hyphens or underscores. Names must be unique." = "使用 1–80 个字母、数字、连字符或下划线，名称不能重复。";
+"Optional description, up to 200 characters. Only the Hook library stores it." = "可选描述，最多 200 个字符，仅保存在 Hook 资源库中。";
+"The Agent executes this command using its own shell and passes event JSON on standard input. Commands run with your user permissions; add only commands you trust." = "Agent 使用自身 Shell 执行命令，并通过标准输入传入事件 JSON。命令以你的用户权限运行，请只添加你信任的命令。";
+"Leave empty to use the Agent default, or enter an integer from 1 to 86400." = "留空以沿用 Agent 默认值，或输入 1–86400 之间的整数。";
+"The Hook library directory must be absolute." = "Hook 资源库目录必须是绝对路径。";
+"Another Hook update is running. Try again." = "另一个 Hook 更新正在进行，请稍后重试。";
+"A removed Hook cannot be saved." = "无法保存已移除的 Hook。";
+"Invalid Hook file guards." = "Hook 文件校验信息无效。";
+"A Hook with this name already exists." = "已存在同名 Hook。";
+"The Hook library can contain at most 200 Hooks." = "Hook 资源库最多可包含 200 个 Hook。";
+"This Hook no longer exists. Reload the library." = "该 Hook 已不存在，请重新加载资源库。";
+"Hook synchronization was cancelled." = "Hook 同步已取消。";
+"The Hook library is invalid. Restore it before making changes." = "Hook 资源库格式无效，请恢复文件后再修改。";
+"The Hook library exceeded its size limit." = "Hook 资源库超过大小限制。";
+"The Hook library contains duplicate Hooks." = "Hook 资源库中存在重复条目。";
+"Check the Hook name, command, event, Agents and timeout (1–86400 seconds)." = "请检查 Hook 名称、命令、事件、Agent 和超时（1–86400 秒）。";
+"The native Hook configuration must be valid JSON. Existing contents were kept." = "原生 Hook 配置必须是有效 JSON，已有内容已保留。";
+"The native hooks field must be a JSON object. Existing contents were kept." = "原生 hooks 字段必须是 JSON 对象，已有内容已保留。";
+"The Agent profile changed. Restore the previous profile before synchronizing its Hooks." = "Agent 配置目录已改变，请恢复之前的目录后再同步其 Hook。";
+"A managed Hook was edited outside Lithe. Restore or remove that native entry before synchronizing." = "Lithe 管理的 Hook 已在外部修改，请先恢复或移除该原生条目再同步。";
+"The native Hook event must contain an array. Existing contents were kept." = "原生 Hook 事件必须是数组，已有内容已保留。";
+"An identical native Hook already exists. Lithe kept it unchanged." = "已存在相同的原生 Hook，Lithe 保留了该条目。";
+"Cannot encode Hook configuration." = "无法编码 Hook 配置。";
+"Hook configuration changed outside this editor. Reload before saving." = "Hook 配置已在外部改变，请重新加载后再保存。";
+"Hook configuration must be a regular file, not a symbolic link or directory." = "Hook 配置必须是普通文件，不能是符号链接或目录。";
+"Hook configuration must be no larger than 1 MiB." = "Hook 配置不能超过 1 MiB。";
+"Hook configuration must use UTF-8 encoding." = "Hook 配置必须使用 UTF-8 编码。";
+"Cannot access Hook configuration. Check the file permissions and Agent profile." = "无法访问 Hook 配置，请检查文件权限和 Agent 配置目录。";
+"Cannot encode the Hook library." = "无法编码 Hook 资源库。";
+"Cannot access the Hook library. Check its permissions." = "无法访问 Hook 资源库，请检查权限。";
+"The Hook library lock must be a regular file." = "Hook 资源库锁必须是普通文件。";
+"The Hook library response was not recognised." = "无法识别 Hook 资源库响应。";
+
+/* New Project */
+"New Project" = "新建项目";
+"Empty Project" = "空项目";
+"Generators" = "生成器";
+"Get more languages and frameworks from plugins…" = "通过插件获取更多语言和框架…";
+"Provided by a disabled plugin" = "由已停用的插件提供";
+"A basic project with a free structure." = "具有自由结构的基本项目。";
+"Location" = "位置";
+"Project will be created in: %@" = "项目将在以下位置创建：%@";
+"Create Git repository" = "创建 Git 仓库";
+"This template comes from %@, which is disabled." = "此模板由已停用的插件 %@ 提供。";
+"%@ is needed for this project but %@ is disabled." = "此项目需要 %1$@ 支持，但 %2$@ 已停用。";
+"No installed plugin supports %@ yet." = "尚未安装支持 %@ 的插件。";
+"Find in Marketplace" = "在插件市场中查找";
+"Advanced Settings" = "高级设置";
+"Creating this project downloads files from the internet." = "创建此项目需要从网络下载文件。";
+"Looking for installed JDKs…" = "正在查找已安装的 JDK…";
+"No JDK was found. Install a JDK, then reopen this window." = "未找到 JDK。请安装 JDK 后重新打开此窗口。";
+"Search JDKs" = "搜索 JDK";
+"Creating project…" = "正在创建项目…";
+"Enter a value." = "请输入内容。";
+"The value is too long." = "内容过长。";
+"The value is not in the expected format." = "格式不正确。";
+"Choose one of the offered values." = "请从提供的选项中选择。";
+"This runtime is older than the generator requires." = "此运行时版本低于模板要求。";
+"This version is newer than the selected runtime supports." = "该版本高于所选运行时支持的版本。";
+"%@ already exists. Choose another name or location." = "%@ 已存在，请更换名称或位置。";
+"%@ finished without creating %@." = "%1$@ 已结束，但没有生成 %2$@。";
+"Lithe could not find %@. Install it or add it to PATH, then try again." = "Lithe 找不到 %@。请安装它或将它加入 PATH 后重试。";
+"%@ exited with status %d.\n%@" = "%1$@ 以状态 %2$d 退出。\n%3$@";
+"%@ did not finish within %lld seconds." = "%1$@ 未在 %2$lld 秒内完成。";
+"The project archive from %@ is too large." = "来自 %@ 的项目压缩包过大。";
+"%@ answered with status %lld. %@" = "%1$@ 返回状态 %2$lld。%3$@";
+"The project was created, but Git could not be set up: %@" = "项目已创建，但无法初始化 Git 仓库：%@";
+"Project Template" = "项目模板";
+"A Java project with no build tool, Maven, or Gradle." = "不使用构建工具，或使用 Maven、Gradle 的 Java 项目。";
+"A project generated by Maven from an archetype." = "由 Maven 根据原型（Archetype）生成的项目。";
+"A Spring Boot project from Spring Initializr." = "由 Spring Initializr 生成的 Spring Boot 项目。";
+"Build system" = "构建系统";
+"Gradle DSL" = "Gradle DSL";
+"Add sample code" = "添加示例代码";
+"Usually the reversed domain name of your organization, such as com.example." = "通常是组织域名的反写，例如 com.example。";
+"The name of the artifact the build produces." = "构建产物的名称。";
+"Archetype" = "原型";
+"Custom archetype…" = "自定义原型…";
+"Archetype GroupId" = "原型 GroupId";
+"Archetype ArtifactId" = "原型 ArtifactId";
+"Archetype version" = "原型版本";
+"Leave empty to use the latest version Maven finds in its catalog." = "留空则使用 Maven 目录中的最新版本。";
+"Latest" = "最新";
+"Maven runs with this JDK, and the new project uses it." = "Maven 使用此 JDK 运行，新项目也使用它。";
+"Server URL" = "服务器 URL";
+"The Spring Initializr server that generates the project. Change it to use a mirror or your company's own server." = "生成项目的 Spring Initializr 服务器。可改为镜像或公司内部服务器。";
+"Group" = "组";
+"Artifact" = "工件";
+"Package name" = "软件包名称";
+"The JDK the new project uses. It must be at least the Java version below." = "新项目使用的 JDK，版本不能低于下方的 Java 版本。";
+"Packaging" = "打包";
+"Leave empty to use the version the server recommends." = "留空则使用服务器推荐的版本。";
+"Server default" = "服务器默认";
+"Template Engines" = "模板引擎";
+"Security" = "安全";
+"Messaging" = "消息";
+"Testing" = "测试";

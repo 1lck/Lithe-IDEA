@@ -2118,6 +2118,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "lithe-remote-client"
+version = "0.1.0"
+dependencies = [
+ "lithe-remote-protocol",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
+name = "lithe-remote-protocol"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "lithe-remote-server"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "lithe-remote-client",
+ "lithe-remote-protocol",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "lock_api"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"

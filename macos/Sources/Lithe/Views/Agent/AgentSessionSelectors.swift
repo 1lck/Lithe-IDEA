@@ -8,6 +8,17 @@ private enum AgentSelectorLayout {
 
 /// Presentation only; the Agent still owns IDs, choices and confirmed values.
 enum AgentSessionSelectorPresentation {
+    /// Approval modes of the pinned adapters, keyed by upstream id, with the
+    /// English name each adapter reports: Claude Agent (`default`, `acceptEdits`,
+    /// `plan`, `auto`, `bypassPermissions`) and Codex (`read-only`, `agent`,
+    /// `agent-full-access`). Both must match before the product title replaces the
+    /// Agent's name, so another Agent's `default` mode is never relabeled.
+    private static let knownModeTitles: [String: String] = [
+        "default": "Manual", "acceptEdits": "Accept edits", "plan": "Plan", "auto": "Auto",
+        "bypassPermissions": "Bypass permissions",
+        "read-only": "Ask for approval", "agent": "Approve for me", "agent-full-access": "Full access",
+    ]
+
     static func title(_ option: AgentSessionConfigOption, locale: Locale = .current) -> String {
         if option.category == "thought_level" { return AgentLocalization.string("Thinking level", locale: locale) }
         if option.id == "fast-mode" { return AgentLocalization.string("Speed", locale: locale) }
@@ -18,6 +29,11 @@ enum AgentSessionSelectorPresentation {
         if option.id == "fast-mode" {
             if choice.id == "off" { return localized("Standard", bundle: bundle, locale: locale) }
             if choice.id == "on" { return localized("Fast", bundle: bundle, locale: locale) }
+        }
+        // Known approval modes keep a stable localized label. Unknown mode,
+        // model and thinking-level names stay verbatim below.
+        if option.category == "mode", let title = knownModeTitles[choice.id], title == choice.name {
+            return localized(title, bundle: bundle, locale: locale)
         }
         // Agent-owned names must not collide with translations used elsewhere in the app.
         if option.category == "model" || option.category == "mode" || option.category == "thought_level" {
@@ -70,6 +86,9 @@ struct AgentSessionSelectors: View {
     let agentName: String?
     let isDisabled: Bool
     var appliesToNextTurn = false
+    /// Hides the fallback "more settings" menu when there is no model selector;
+    /// the editor card keeps only the approval mode and model.
+    var showsSettings = true
     let onSelect: (String, String) -> Void
     @State private var showsModels = false
 
@@ -128,7 +147,7 @@ struct AgentSessionSelectors: View {
                     AgentModelPopover(option: model, settings: settings, agentName: agentName, onSelect: select)
                         .onExitCommand { showsModels = false }
                 }
-            } else if !settings.isEmpty {
+            } else if showsSettings, !settings.isEmpty {
                 LitheMenu {
                     for option in settings {
                         LitheContextMenuItem.submenu(AgentSessionSelectorPresentation.title(option, locale: locale)) {

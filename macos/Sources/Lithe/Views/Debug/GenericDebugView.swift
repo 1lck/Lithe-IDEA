@@ -11,11 +11,12 @@ struct GenericDebugView: View {
     @State private var performanceWidth: CGFloat = 360
     @State private var inspectorWidth: CGFloat?
     @State private var watchesHeight: CGFloat?
-    @State private var stackListActive = false
     @State private var showsStackSourceName = true
     @State private var debugToolActive = false
     @State private var evaluateExpression = ""
     @State private var showsVariableJSON = true
+    @State private var selectedVariableRowID: String?
+    @State private var selectedWatchID: String?
     @State private var editingVariable: DebugVariable?
     @State private var watchEditor: WatchEditorContext?
     @State private var smartStepTargets: [DebugStepInTarget] = []
@@ -473,7 +474,6 @@ struct GenericDebugView: View {
                 dividerColor: LitheTheme.toolWindowBorder(for: colorScheme),
                 onCommit: { inspectorWidth = $0 }) {
                 executionInspector
-                    .background(LitheToolWindowActivityTracker(isActive: $stackListActive))
             } flexible: {
                 dataInspector
             }
@@ -494,94 +494,111 @@ struct GenericDebugView: View {
             if feature.stackFrames.isEmpty {
                 LitheToolWindowStatusText("Frames are not available")
             } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        if feature.areFilteredStackFramesExpanded,
-                           feature.hiddenStackFrameCount > 0 {
-                            Button {
-                                feature.collapseFilteredStackFrames()
-                            } label: {
-                                HStack(spacing: 6) {
-                                    LitheIDEAIcon(resourcePath: "expui/general/collapseAll.svg", size: 16, preservesOriginalColors: true)
-                                    Text("Collapse filtered frames")
-                                }
-                                    .font(LitheTheme.uiFont(size: 13))
-                                    .foregroundStyle(LitheTheme.secondaryText)
-                                    .padding(.horizontal, 10)
-                                    .frame(minHeight: 27)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                            .buttonStyle(.litheNoPress)
+                if feature.areFilteredStackFramesExpanded,
+                    feature.hiddenStackFrameCount > 0
+                {
+                    Button {
+                        feature.collapseFilteredStackFrames()
+                    } label: {
+                        HStack(spacing: 6) {
+                            LitheIDEAIcon(
+                                resourcePath: "expui/general/collapseAll.svg", size: 16, preservesOriginalColors: true)
+                            Text("Collapse filtered frames")
                         }
-                        ForEach(feature.visibleStackFrameRows) { row in
-                            if let frame = row.frame {
-                                rowButton(selected: feature.selectedFrameID == frame.id) {
-                                    feature.selectFrame(frame)
-                                    if let sourceURL = frame.sourceURL {
-                                        model.revealDebugLocation(
-                                            url: sourceURL,
-                                            line: frame.line,
-                                            column: frame.column
-                                        )
-                                    }
-                                } label: {
-                                    if frame.isFiltered {
-                                        LitheIDEAIcon(resourcePath: "expui/general/moreHorizontal.svg", size: 16,
-                                                          preservesOriginalColors: true)
-                                    }
-                                    Text(DebugToolbarPresentation.stackFrameText(frame,
-                                        showsSourceName: showsStackSourceName, isDark: colorScheme == .dark))
-                                        .font(LitheTheme.uiFont(size: 13, weight: .regular))
-                                        .lineLimit(1)
-                                        .truncationMode(.middle)
-                                    Spacer(minLength: LitheTheme.Tree.horizontalInset)
-                                    if showsStackSourceName, let sourceURL = frame.sourceURL {
-                                        Text(sourceURL.lastPathComponent)
-                                            .font(LitheTheme.uiFont(size: 13, weight: .regular))
-                                            .foregroundStyle(LitheTheme.Tree.secondaryText)
-                                            .lineLimit(1)
-                                            .truncationMode(.middle)
-                                    }
-                                }
-                                .opacity(frame.isFiltered ? 0.58 : 1)
-                                .litheContextMenu {
-                                    var items: [LitheContextMenuItem] = []
-                                    items.append(.action("Copy Method Name", action: {
+                        .font(LitheTheme.uiFont(size: 13))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                        .padding(.horizontal, 10)
+                        .frame(minHeight: 27)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.litheNoPress)
+                }
+                LitheTreeList(
+                    feature.visibleStackFrameRows,
+                    selection: Binding(
+                        get: { feature.visibleStackFrameRows.first { $0.frame?.id == feature.selectedFrameID }?.id },
+                        set: { id in
+                            guard let frame = feature.visibleStackFrameRows.first(where: { $0.id == id })?.frame else {
+                                return
+                            }
+                            feature.selectFrame(frame)
+                            if let sourceURL = frame.sourceURL {
+                                model.revealDebugLocation(url: sourceURL, line: frame.line, column: frame.column)
+                            }
+                        }), hierarchy: { .init(isSelectable: $0.frame != nil) }
+                ) { row in
+                    if let frame = row.frame {
+                        HStack(spacing: LitheTheme.Tree.iconTextGap) {
+                            if frame.isFiltered {
+                                LitheIDEAIcon(
+                                    resourcePath: "expui/general/moreHorizontal.svg", size: 16,
+                                    preservesOriginalColors: true)
+                            }
+                            Text(
+                                DebugToolbarPresentation.stackFrameText(
+                                    frame,
+                                    showsSourceName: showsStackSourceName, isDark: colorScheme == .dark)
+                            )
+                            .font(LitheTheme.uiFont(size: 13, weight: .regular))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            Spacer(minLength: LitheTheme.Tree.horizontalInset)
+                            if showsStackSourceName, let sourceURL = frame.sourceURL {
+                                Text(sourceURL.lastPathComponent)
+                                    .font(LitheTheme.uiFont(size: 13, weight: .regular))
+                                    .foregroundStyle(LitheTheme.Tree.secondaryText)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                        }
+                        .opacity(frame.isFiltered ? 0.58 : 1)
+                        .litheContextMenu {
+                            var items: [LitheContextMenuItem] = []
+                            items.append(
+                                .action(
+                                    "Copy Method Name",
+                                    action: {
                                         copyToPasteboard(frame.name)
                                     }))
-                                    if let sourceURL = frame.sourceURL {
-                                        items.append(.separator)
-                                        items.append(.action("Copy Source Location", action: {
+                            if let sourceURL = frame.sourceURL {
+                                items.append(.separator)
+                                items.append(
+                                    .action(
+                                        "Copy Source Location",
+                                        action: {
                                             copyToPasteboard(
                                                 "\(sourceURL.path):\(frame.line):\(frame.column)"
                                             )
                                         }))
-                                        items.append(.action("Copy Relative Location", action: {
+                                items.append(
+                                    .action(
+                                        "Copy Relative Location",
+                                        action: {
                                             copyToPasteboard(
                                                 "\(sourceURL.lastPathComponent):\(frame.line):\(frame.column)"
                                             )
                                         }))
-                                    }
-                                    return items
-                                }
-                            } else {
-                                Button {
-                                    feature.expandFilteredStackFrames()
-                                } label: {
-                                    HStack(spacing: 6) {
-                                        LitheIDEAIcon(resourcePath: "expui/general/moreHorizontal.svg", size: 16, preservesOriginalColors: true)
-                                        Text("\(row.hiddenFrameCount) hidden frames")
-                                    }
-                                    .font(LitheTheme.uiFont(size: 13))
-                                    .foregroundStyle(LitheTheme.secondaryText)
-                                    .padding(.horizontal, 10)
-                                    .frame(minHeight: 27)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                }
-                                .buttonStyle(.litheNoPress)
-                                .help("Show JDK, proxy, and framework frames")
                             }
+                            return items
                         }
+                    } else {
+                        Button {
+                            feature.expandFilteredStackFrames()
+                        } label: {
+                            HStack(spacing: 6) {
+                                LitheIDEAIcon(
+                                    resourcePath: "expui/general/moreHorizontal.svg", size: 16,
+                                    preservesOriginalColors: true)
+                                Text("\(row.hiddenFrameCount) hidden frames")
+                            }
+                            .font(LitheTheme.uiFont(size: 13))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                            .padding(.horizontal, 10)
+                            .frame(minHeight: 27)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.litheNoPress)
+                        .help("Show JDK, proxy, and framework frames")
                     }
                 }
             }
@@ -712,105 +729,106 @@ struct GenericDebugView: View {
     private var variablesInspector: some View {
         VStack(spacing: 0) {
             variablesHeader
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    if let exceptionInfo = feature.exceptionInfo {
-                        exceptionInspector(exceptionInfo)
-                        divider
-                    }
-                    if showsVariableJSON && !feature.presentedVariables.isEmpty {
-                        DebugVariableJSONView(feature: feature)
-                    } else if !feature.visibleVariableRows.isEmpty {
-                        ForEach(feature.visibleVariableRows) { row in
-                            switch row.content {
-                            case .variable(let variable):
-                                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                                    Group {
-                                        if feature.isVariableLoading(variable) {
-                                            ProgressView().controlSize(.mini)
-                                        } else {
-                                            LitheIDEAIcon(resourcePath: feature.isVariableExpanded(variable)
-                                                ? "expui/general/chevronDown.svg" : "expui/general/chevronRight.svg",
-                                                size: LitheTheme.Tree.iconSize, preservesOriginalColors: true)
-                                        }
-                                    }
-                                        .frame(width: LitheTheme.Tree.disclosureSlot)
-                                        .opacity(variable.isExpandable ? 1 : 0)
-                                    LitheIDEAIcon(
-                                        resourcePath: variableIconResourcePath(variable),
-                                        size: LitheTheme.Tree.iconSize,
-                                        preservesOriginalColors: true
-                                    )
-                                    Text(variable.name)
-                                        .font(LitheTheme.uiFont(size: 13, design: .monospaced))
-                                        .foregroundStyle(LitheTheme.Tree.text)
-                                    Text("=")
-                                        .foregroundStyle(LitheTheme.secondaryText)
-                                    Text(variable.value)
-                                        .font(LitheTheme.uiFont(size: 13, design: .monospaced))
-                                        .foregroundStyle(LitheTheme.Debugger.value)
-                                        .lineLimit(2)
-                                    if let type = variable.type, !type.isEmpty {
-                                        Text(": \(type)")
-                                            .font(LitheTheme.uiFont(size: 13, design: .monospaced))
-                                            .foregroundStyle(LitheTheme.Debugger.type)
-                                            .lineLimit(1)
-                                    }
-                                    Spacer(minLength: 0)
-                                }
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    feature.toggleVariableExpansion(variable)
-                                }
-                                .padding(.leading, LitheTheme.Tree.horizontalInset + CGFloat(row.depth) * LitheTheme.Tree.indent)
-                                .padding(.trailing, 10)
-                                .padding(.vertical, LitheTheme.Tree.verticalInset)
-                                .frame(minHeight: LitheTheme.Tree.rowHeight)
-                                .litheRowHover()
-                                .litheContextMenu {
-                                    var items: [LitheContextMenuItem] = []
-                                    if feature.capabilities.supportsSetVariable,
-                                       variable.containerReference != nil {
-                                        items.append(.action("Set Value…", action: { editingVariable = variable }))
-                                    }
-                                    if feature.capabilities.supportsDataBreakpoints,
-                                       variable.containerReference != nil {
-                                        items.append(.action("Break on Field Access…", action: {
+            if showsVariableJSON && !feature.presentedVariables.isEmpty {
+                ScrollView {
+                    if let exceptionInfo = feature.exceptionInfo { exceptionInspector(exceptionInfo); divider }
+                    DebugVariableJSONView(feature: feature)
+                }
+            } else {
+                if let exceptionInfo = feature.exceptionInfo { exceptionInspector(exceptionInfo); divider }
+                LitheTreeList(
+                    feature.visibleVariableRows, selection: $selectedVariableRowID,
+                    hierarchy: { row in
+                        .init(
+                            depth: row.depth, isBranch: row.variable?.isExpandable == true,
+                            isExpanded: row.variable.map { feature.isVariableExpanded($0) } == true,
+                            isSelectable: row.variable != nil)
+                    },
+                    onExpansion: { row, expanded in
+                        if let variable = row.variable, feature.isVariableExpanded(variable) != expanded {
+                            feature.toggleVariableExpansion(variable)
+                        }
+                    }, multiline: true
+                ) { row in
+                    switch row.content {
+                    case .variable(let variable):
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            if feature.isVariableLoading(variable) { ProgressView().controlSize(.mini) }
+                            LitheIDEAIcon(
+                                resourcePath: variableIconResourcePath(variable),
+                                size: LitheTheme.Tree.iconSize,
+                                preservesOriginalColors: true
+                            )
+                            Text(variable.name)
+                                .font(LitheTheme.uiFont(size: 13, design: .monospaced))
+                                .foregroundStyle(LitheTheme.Tree.text)
+                            Text("=")
+                                .foregroundStyle(LitheTheme.secondaryText)
+                            Text(variable.value)
+                                .font(LitheTheme.uiFont(size: 13, design: .monospaced))
+                                .foregroundStyle(LitheTheme.Debugger.value)
+                                .lineLimit(2)
+                            if let type = variable.type, !type.isEmpty {
+                                Text(": \(type)")
+                                    .font(LitheTheme.uiFont(size: 13, design: .monospaced))
+                                    .foregroundStyle(LitheTheme.Debugger.type)
+                                    .lineLimit(1)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.vertical, LitheTheme.Tree.verticalInset)
+                        .litheContextMenu {
+                            var items: [LitheContextMenuItem] = []
+                            if feature.capabilities.supportsSetVariable,
+                                variable.containerReference != nil
+                            {
+                                items.append(.action("Set Value…", action: { editingVariable = variable }))
+                            }
+                            if feature.capabilities.supportsDataBreakpoints,
+                                variable.containerReference != nil
+                            {
+                                items.append(
+                                    .action(
+                                        "Break on Field Access…",
+                                        action: {
                                             feature.requestDataBreakpoint(for: variable)
                                         }))
-                                    }
-                                    items.append(.separator)
-                                    items.append(.action("Copy Value", action: { copyToPasteboard(variable.value) }))
-                                    items.append(.action("Copy Expression", action: {
+                            }
+                            items.append(.separator)
+                            items.append(.action("Copy Value", action: { copyToPasteboard(variable.value) }))
+                            items.append(
+                                .action(
+                                    "Copy Expression",
+                                    action: {
                                         copyToPasteboard(variable.evaluateName ?? variable.name)
                                     }))
-                                    items.append(.action("Copy Name", action: { copyToPasteboard(variable.name) }))
-                                    if let expression = variable.evaluateName,
-                                       !expression.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                        items.append(.separator)
-                                        items.append(.action("Add to Watches", action: {
+                            items.append(.action("Copy Name", action: { copyToPasteboard(variable.name) }))
+                            if let expression = variable.evaluateName,
+                                !expression.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            {
+                                items.append(.separator)
+                                items.append(
+                                    .action(
+                                        "Add to Watches",
+                                        action: {
                                             feature.addWatch(expression)
                                         }))
-                                    }
-                                    return items
-                                }
-                            case .loadMore(let parentVariableID, let nextCount, let remainingCount):
-                                variableLoadMoreRow(
-                                    parentVariableID: parentVariableID,
-                                    nextCount: nextCount,
-                                    remainingCount: remainingCount,
-                                    depth: row.depth
-                                )
                             }
+                            return items
                         }
+                    case .loadMore(let parentVariableID, let nextCount, let remainingCount):
+                        variableLoadMoreRow(
+                            parentVariableID: parentVariableID, nextCount: nextCount,
+                            remainingCount: remainingCount, depth: 0)
                     }
-
                 }
-            }
-            .overlay {
-                if feature.visibleVariableRows.isEmpty && feature.exceptionInfo == nil {
-                    LitheToolWindowStatusText(feature.state == .paused
-                        ? "Select a stack frame to inspect variables" : "Pause the process to inspect variables")
+                .overlay {
+                    if feature.visibleVariableRows.isEmpty && feature.exceptionInfo == nil {
+                        LitheToolWindowStatusText(
+                            feature.state == .paused
+                                ? "Select a stack frame to inspect variables" : "Pause the process to inspect variables"
+                        )
+                    }
                 }
             }
         }
@@ -820,60 +838,62 @@ struct GenericDebugView: View {
     private var watchesInspector: some View {
         VStack(spacing: 0) {
             watchSectionHeader
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    if !feature.watches.isEmpty {
-                        ForEach(feature.watches) { watch in
-                            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                                LitheIDEAIcon(
-                                    resourcePath: "expui/debugger/watch.svg",
-                                    size: LitheTheme.Tree.iconSize,
-                                    preservesOriginalColors: true
-                                )
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(watch.expression)
-                                        .font(LitheTheme.uiFont(size: 13, design: .monospaced))
-                                        .foregroundStyle(LitheTheme.Tree.text)
-                                        .lineLimit(1)
-                                    if let error = watch.error {
-                                        Text(error)
-                                            .font(LitheTheme.uiFont(size: 13))
-                                            .foregroundStyle(LitheTheme.error)
-                                            .lineLimit(2)
-                                    } else if let value = watch.value {
-                                        HStack(spacing: 4) {
-                                            Text(value)
-                                                .foregroundStyle(LitheTheme.Debugger.value)
-                                            if let type = watch.type {
-                                                Text(type).foregroundStyle(LitheTheme.Debugger.type)
-                                            }
-                                        }
-                                        .font(LitheTheme.uiFont(size: 13, design: .monospaced))
-                                        .lineLimit(2)
-                                    } else {
-                                        Text(feature.state == .paused ? "Evaluating…" : "Not available")
-                                            .font(LitheTheme.uiFont(size: 13))
-                                            .foregroundStyle(LitheTheme.secondaryText)
-                                    }
+            LitheTreeList(feature.watches, selection: $selectedWatchID, multiline: true) { watch in
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    LitheIDEAIcon(
+                        resourcePath: "expui/debugger/watch.svg",
+                        size: LitheTheme.Tree.iconSize,
+                        preservesOriginalColors: true
+                    )
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(watch.expression)
+                            .font(LitheTheme.uiFont(size: 13, design: .monospaced))
+                            .foregroundStyle(LitheTheme.Tree.text)
+                            .lineLimit(1)
+                        if let error = watch.error {
+                            Text(error)
+                                .font(LitheTheme.uiFont(size: 13))
+                                .foregroundStyle(LitheTheme.error)
+                                .lineLimit(2)
+                        } else if let value = watch.value {
+                            HStack(spacing: 4) {
+                                Text(value)
+                                    .foregroundStyle(LitheTheme.Debugger.value)
+                                if let type = watch.type {
+                                    Text(type).foregroundStyle(LitheTheme.Debugger.type)
                                 }
-                                Spacer(minLength: 0)
                             }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .litheContextMenu {
-                                var items: [LitheContextMenuItem] = []
-                                items.append(.action("Refresh", isEnabled: !(feature.state != .paused), action: { feature.refreshWatches() }))
-                                items.append(.action("Edit…", action: {
-                                    watchEditor = WatchEditorContext(watch: watch)
-                                }))
-                                items.append(.separator)
-                                items.append(.action("Remove", role: .destructive, action: {
-                                    feature.removeWatch(watch)
-                                }))
-                                return items
-                            }
+                            .font(LitheTheme.uiFont(size: 13, design: .monospaced))
+                            .lineLimit(2)
+                        } else {
+                            Text(feature.state == .paused ? "Evaluating…" : "Not available")
+                                .font(LitheTheme.uiFont(size: 13))
+                                .foregroundStyle(LitheTheme.secondaryText)
                         }
                     }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .litheContextMenu {
+                    var items: [LitheContextMenuItem] = []
+                    items.append(
+                        .action("Refresh", isEnabled: !(feature.state != .paused), action: { feature.refreshWatches() })
+                    )
+                    items.append(
+                        .action(
+                            "Edit…",
+                            action: {
+                                watchEditor = WatchEditorContext(watch: watch)
+                            }))
+                    items.append(.separator)
+                    items.append(
+                        .action(
+                            "Remove", role: .destructive,
+                            action: {
+                                feature.removeWatch(watch)
+                            }))
+                    return items
                 }
             }
         }
@@ -1014,7 +1034,7 @@ struct GenericDebugView: View {
 
     private var evaluateRow: some View {
         HStack(spacing: 6) {
-            LitheSearchTextField("Evaluate expression", text: $evaluateExpression)
+            LitheTextField("Evaluate expression", text: $evaluateExpression)
                 .font(LitheTheme.uiFont(size: 13, design: .monospaced))
                 .onSubmit { evaluateInspectorExpression() }
 
@@ -1294,25 +1314,7 @@ struct GenericDebugView: View {
         LitheToolWindowHeaderDivider()
     }
 
-    private func rowButton<Label: View>(
-        selected: Bool,
-        action: @escaping () -> Void,
-        @ViewBuilder label: () -> Label
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: LitheTheme.Tree.iconTextGap) {
-                label()
-            }
-            .font(LitheTheme.uiFont(size: 13, weight: .regular))
-            .fontWeight(.regular)
-            .foregroundStyle(LitheTheme.Tree.text)
-            .padding(.horizontal, LitheTheme.Tree.horizontalInset)
-            .frame(minHeight: LitheTheme.Tree.rowHeight)
-            .litheSelectionRow(isSelected: selected, isFocused: stackListActive)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.litheNoPress)
-    }
+
 }
 
 struct DebugBreakpointManagerDialog: View {
@@ -2458,9 +2460,7 @@ private struct WatchEditorView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text(watch == nil ? "Add Watch" : "Edit Watch")
                 .font(LitheTheme.uiFont(size: 14, weight: .semibold))
-            LitheSearchTextField("Expression", text: $expression)
-                .focused($expressionFocused)
-                .litheSearchField(isFocused: expressionFocused)
+            LitheSearchField("Expression", text: $expression, focus: $expressionFocused)
                 .onSubmit { save() }
             HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()

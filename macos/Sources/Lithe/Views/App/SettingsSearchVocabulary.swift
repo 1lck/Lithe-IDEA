@@ -37,6 +37,8 @@ enum SettingsSearchVocabulary {
             ["Instructions", "Global instructions", "AGENTS.md", "AGENTS.override.md", "CLAUDE.md", "Codex", "Claude"]
         case .skills:
             ["Skills", "Agent skills", "SKILL.md", "Global skills", "Project skills", "Import skill", "New skill", "Codex", "Claude"]
+        case .hooks:
+            ["Hooks", "Hook", "When to run", "Command", "Timeout (seconds)", "Codex", "Claude Code"]
         case .providers:
             ["AI Providers", "AI provider", "Model", "API key", "Endpoint", "Responses", "Anthropic"]
         case .git:

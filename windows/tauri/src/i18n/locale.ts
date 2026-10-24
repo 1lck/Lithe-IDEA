@@ -6,6 +6,7 @@ import { workspaceCommitChinese, workspaceCommitEnglish } from "./git-workspace-
 import { aiCommitChinese, aiCommitEnglish } from "./ai-commit";
 import { updateChannelEnglish, updateChannelChinese } from "./update-channel";
 import { agentParityEnglish, agentParityChinese } from "./agent-parity";
+import { hookEnglish, hookChinese } from "./agent-hooks";
 import { runningServicesChinese, runningServicesEnglish } from "./running-services";
 export const DISPLAY_LANGUAGES = ["en-US", "zh-CN"] as const;
 
@@ -14,6 +15,7 @@ export type DisplayLanguage = (typeof DISPLAY_LANGUAGES)[number];
 const catalogs = {
   "en-US": {
     ...agentParityEnglish,
+    ...hookEnglish,
     "agent.quietNotice": "No recent progress has been received. The task is still active.",
     "agent.continueWaiting": "Continue waiting",
     "agent.stop": "Stop",
@@ -3625,6 +3627,11 @@ const catalogs = {
     "terminal.tabAriaPinned": " (pinned)",
     "terminal.tabRenameAria": "Rename {name}",
     "terminal.toolbarFullWidth": "Full Width",
+    "terminal.movePanel": "Drag to move terminal; click to switch bottom/right",
+    "terminal.dockRight": "Dock Terminal on Right",
+    "terminal.dockLeft": "Dock Terminal on Left",
+    "terminal.resizePanel": "Resize Terminal Panel",
+    "terminal.dockBottom": "Dock Terminal at Bottom",
     "terminal.toolbarEditorWidth": "Editor Width",
     "terminal.toolbarHorizontalTabs": "Horizontal Tabs",
     "terminal.toolbarVerticalTabs": "Vertical Tabs",
@@ -4133,6 +4140,10 @@ const catalogs = {
     "commandPalette.actions.view-show-outline.label": "View: Show Outline",
     "commandPalette.actions.search-global.label": "Search: Global Search",
     "commandPalette.actions.go-to-line.label": "Go: Go to Line",
+    "commandPalette.actions.cursor-undo.label": "Edit: Cursor Undo",
+    "commandPalette.actions.cursor-undo.description": "Restore the previous cursor and selection without changing text",
+    "commandPalette.actions.cursor-redo.label": "Edit: Cursor Redo",
+    "commandPalette.actions.cursor-redo.description": "Restore the next cursor and selection without changing text",
     "commandPalette.actions.quick-open.label": "Go: Quick Open",
     "commandPalette.actions.go-to-symbol-in-editor.label": "Go: Symbol in Editor",
     "commandPalette.actions.pane-split-editor-right.label": "View: Split Editor Right",
@@ -4423,6 +4434,10 @@ const catalogs = {
     "keybindings.commands.editor.selectAll.title": "Select All",
     "keybindings.commands.editor.undo.title": "Undo",
     "keybindings.commands.editor.redo.title": "Redo",
+    "keybindings.commands.editor.cursorUndo.title": "Cursor Undo",
+    "keybindings.commands.editor.cursorUndo.description": "Restore the previous cursor and selection without changing text",
+    "keybindings.commands.editor.cursorRedo.title": "Cursor Redo",
+    "keybindings.commands.editor.cursorRedo.description": "Restore the next cursor and selection without changing text",
     "keybindings.commands.editor.copy.title": "Copy",
     "keybindings.commands.editor.cut.title": "Cut",
     "keybindings.commands.editor.paste.title": "Paste",
@@ -4942,6 +4957,7 @@ const catalogs = {
   },
   "zh-CN": {
     ...agentParityChinese,
+    ...hookChinese,
     "agent.quietNotice": "暂未收到新的进度，任务仍在进行。",
     "agent.continueWaiting": "继续等待",
     "agent.stop": "停止",
@@ -8404,6 +8420,11 @@ const catalogs = {
     "terminal.tabAriaPinned": "（已固定）",
     "terminal.tabRenameAria": "重命名 {name}",
     "terminal.toolbarFullWidth": "全宽",
+    "terminal.movePanel": "拖动以移动终端；点击切换底部/右侧",
+    "terminal.dockRight": "终端停靠到右侧",
+    "terminal.dockLeft": "终端停靠到左侧",
+    "terminal.resizePanel": "调整终端面板宽度",
+    "terminal.dockBottom": "终端停靠到底部",
     "terminal.toolbarEditorWidth": "编辑器宽度",
     "terminal.toolbarHorizontalTabs": "水平标签页",
     "terminal.toolbarVerticalTabs": "垂直标签页",
@@ -8909,6 +8930,10 @@ const catalogs = {
     "commandPalette.actions.view-show-outline.label": "视图：显示大纲",
     "commandPalette.actions.search-global.label": "搜索：全局搜索",
     "commandPalette.actions.go-to-line.label": "转到：行",
+    "commandPalette.actions.cursor-undo.label": "编辑：光标撤销",
+    "commandPalette.actions.cursor-undo.description": "回到上一个光标位置和选区，保留代码修改",
+    "commandPalette.actions.cursor-redo.label": "编辑：光标重做",
+    "commandPalette.actions.cursor-redo.description": "恢复下一个光标位置和选区，保留代码修改",
     "commandPalette.actions.quick-open.label": "转到：快速打开",
     "commandPalette.actions.go-to-symbol-in-editor.label": "转到：编辑器中的符号",
     "commandPalette.actions.pane-split-editor-right.label": "视图：向右拆分编辑器",
@@ -9182,6 +9207,10 @@ const catalogs = {
     "keybindings.commands.editor.selectAll.title": "全选",
     "keybindings.commands.editor.undo.title": "撤销",
     "keybindings.commands.editor.redo.title": "重做",
+    "keybindings.commands.editor.cursorUndo.title": "光标撤销",
+    "keybindings.commands.editor.cursorUndo.description": "回到上一个光标位置和选区，保留代码修改",
+    "keybindings.commands.editor.cursorRedo.title": "光标重做",
+    "keybindings.commands.editor.cursorRedo.description": "恢复下一个光标位置和选区，保留代码修改",
     "keybindings.commands.editor.copy.title": "复制",
     "keybindings.commands.editor.cut.title": "剪切",
     "keybindings.commands.editor.paste.title": "粘贴",

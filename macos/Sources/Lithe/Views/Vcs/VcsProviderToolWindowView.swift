@@ -22,7 +22,6 @@ struct VcsProviderToolWindowView: View {
     let pluginID: String
     let vcs: String
     let actions: VcsProviderToolWindowActions
-    @Environment(\.controlActiveState) private var controlActiveState
     @State private var tab = Tab.changes
     @State private var listActive = false
     @State private var selectedRootID: String?
@@ -355,44 +354,72 @@ struct VcsProviderToolWindowView: View {
 
     private func changesPane(_ root: VcsRootState) -> some View {
         VStack(spacing: 0) {
-            ScrollView(.vertical) {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    let groups = Self.groups(root.snapshot?.changes ?? [])
-                    if root.snapshot == nil, root.isRefreshing {
-                        // The first read also starts the provider process,
-                        // which can take a few seconds.
-                        HStack(spacing: 6) {
-                            ProgressView().controlSize(.small)
-                            Text("Reading changes…")
-                        }
+            SwiftUI.Group {
+                let groups = Self.groups(root.snapshot?.changes ?? [])
+                if root.snapshot == nil, root.isRefreshing {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text("Reading changes…")
+                    }
+                    .font(LitheTheme.uiFont(size: 12))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .padding(.vertical, 20)
+                } else if groups.isEmpty, root.snapshot != nil {
+                    Text("No local changes")
                         .font(LitheTheme.uiFont(size: 12))
                         .foregroundStyle(LitheTheme.secondaryText)
-                        .frame(maxWidth: .infinity)
                         .padding(.vertical, 20)
-                    } else if groups.isEmpty, root.snapshot != nil {
-                        Text("No local changes")
-                            .font(LitheTheme.uiFont(size: 12))
-                            .foregroundStyle(LitheTheme.secondaryText)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 20)
+                } else {
+                    let rows: [ChangeEntry] = groups.flatMap { entry in
+                        [.group(entry)] + (collapsedGroups.contains(entry.group) ? [] : entry.changes.map(ChangeEntry.file))
                     }
-                    ForEach(groups, id: \.group) { entry in
-                        groupHeader(entry.group, changes: entry.changes, root: root)
-                        if !collapsedGroups.contains(entry.group) {
-                            ForEach(entry.changes, id: \.path) { change in
-                                changeRow(change, group: entry.group, root: root)
+                    LitheTreeList(
+                        rows, id: \.id,
+                        selection: Binding<Set<ChangeEntry.ID>>(
+                            get: { Set(selection.map(ChangeEntry.ID.file)) },
+                            set: { selection = Set($0.compactMap { if case .file(let path) = $0 { return path }; return nil }) }),
+                        hierarchy: { entry in
+                            switch entry {
+                            case .group(let group): .init(isBranch: true, isExpanded: !collapsedGroups.contains(group.group), isSelectable: false)
+                            case .file: .init(depth: 1)
                             }
+                        },
+                        onExpansion: { entry, expanded in
+                            guard case .group(let group) = entry else { return }
+                            if expanded { collapsedGroups.remove(group.group) } else { collapsedGroups.insert(group.group) }
+                        },
+                        onActivate: { entry in if case .file(let change) = entry { open(change, in: root) } },
+                        contextMenu: { entry in
+                            if case .file(let change) = entry { return contextMenu(for: change, root: root) }
+                            return []
+                        }
+                    ) { entry in
+                        switch entry {
+                        case .group(let group): groupHeader(group.group, changes: group.changes, root: root)
+                        case .file(let change): changeRow(change, group: Self.group(of: change), root: root)
                         }
                     }
                 }
-                .padding(.horizontal, LitheTheme.Tree.horizontalInset)
-                .padding(.vertical, LitheTheme.Tree.verticalInset)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .litheWorkbenchSurface(LitheTheme.sidebar)
             .background(LitheToolWindowActivityTracker(isActive: $listActive))
             if root.supports(.checkin) {
                 Rectangle().fill(LitheTheme.divider).frame(height: 1)
                 commitArea(root)
+            }
+        }
+    }
+
+    private enum ChangeEntry: Identifiable {
+        enum ID: Hashable { case group(Group), file(String) }
+        case group(GroupedChanges)
+        case file(VcsChange)
+
+        var id: ID {
+            switch self {
+            case .group(let entry): .group(entry.group)
+            case .file(let change): .file(change.path)
             }
         }
     }
@@ -432,16 +459,8 @@ struct VcsProviderToolWindowView: View {
     }
 
     private func groupHeader(_ group: Group, changes: [VcsChange], root: VcsRootState) -> some View {
-        let collapsed = collapsedGroups.contains(group)
         let included = changes.filter(isIncluded).count
         return HStack(spacing: LitheTheme.Tree.iconTextGap) {
-            Button {
-                if collapsed { collapsedGroups.remove(group) } else { collapsedGroups.insert(group) }
-            } label: {
-                icon(collapsed ? "expui/general/chevronRight.svg" : "expui/general/chevronDown.svg")
-            }
-            .buttonStyle(.litheNoPress)
-            .accessibilityLabel(Text(collapsed ? "Expand" : "Collapse"))
             if group != .conflicts && root.supports(.checkin) {
                 GitChangeInclusionCheckbox(
                     state: included == 0 ? .off : included == changes.count ? .on : .mixed,
@@ -456,12 +475,10 @@ struct VcsProviderToolWindowView: View {
                 .foregroundStyle(LitheTheme.secondaryText)
             Spacer(minLength: 0)
         }
-        .litheTreeRow()
     }
 
     private func changeRow(_ change: VcsChange, group: Group, root: VcsRootState) -> some View {
         let url = root.url.appendingPathComponent(change.path)
-        let isSelected = selection.contains(change.path)
         let name = (change.path as NSString).lastPathComponent
         let directory = (change.path as NSString).deletingLastPathComponent
         let detail = change.oldPath.map { "← " + $0 } ?? directory
@@ -496,23 +513,9 @@ struct VcsProviderToolWindowView: View {
                 .foregroundStyle(change.status.listColor)
                 .padding(.trailing, 4)
         }
-        .padding(.leading, LitheTheme.Tree.indent)
-        .litheTreeRow(isSelected: isSelected, isFocused: listActive && controlActiveState == .key)
         .help(Self.rowHelp(change))
-        .onTapGesture(count: 2) { open(change, in: root) }
-        .simultaneousGesture(TapGesture().onEnded { select(change) })
-        .litheContextMenu(items: { contextMenu(for: change, root: root) }, onRightClick: {
-            if !selection.contains(change.path) { selection = [change.path] }
-        })
-        // The combined row would otherwise only toggle its checkbox, so
-        // selecting, opening and including are separate actions.
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(verbatim: "\(change.path), \(change.status.title)"))
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .accessibilityAction { select(change) }
-        .accessibilityAction(named: Text(root.comparesWithBase(change) ? "Show Diff" : "Open File")) {
-            open(change, in: root)
-        }
         .accessibilityAction(named: Text("Include in commit")) {
             guard root.supports(.checkin), group != .conflicts else { return }
             inclusion[change.path] = !isIncluded(change)
@@ -527,14 +530,6 @@ struct VcsProviderToolWindowView: View {
         if change.flags.contains("locked") { parts.append(String(localized: "Locked in this working copy")) }
         if change.flags.contains("lockedByOther") { parts.append(String(localized: "Locked by another user")) }
         return parts.joined(separator: "\n")
-    }
-
-    private func select(_ change: VcsChange) {
-        if NSEvent.modifierFlags.contains(.command) {
-            if selection.contains(change.path) { selection.remove(change.path) } else { selection.insert(change.path) }
-        } else {
-            selection = [change.path]
-        }
     }
 
     /// Double-click compares with the base when there is one; a new file

@@ -1,0 +1,64 @@
+{
+  "command": "agent.hooks",
+  "readRequest": {
+    "dataDirectory": "/fixture/library",
+    "action": "read"
+  },
+  "hook": {
+    "id": "00000000-0000-4000-8000-000000000001",
+    "name": "notify",
+    "description": "一轮结束时提醒",
+    "event": "turn-end",
+    "matcher": "all",
+    "command": "printf done",
+    "timeoutSeconds": null,
+    "agents": [
+      "codex-acp",
+      "claude-acp"
+    ],
+    "enabled": true,
+    "pendingRemoval": false
+  },
+  "library": {
+    "revision": "fixture-library-revision",
+    "hooks": [
+      {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "name": "notify",
+        "description": "一轮结束时提醒",
+        "event": "turn-end",
+        "matcher": "all",
+        "command": "printf done",
+        "timeoutSeconds": null,
+        "agents": [
+          "codex-acp",
+          "claude-acp"
+        ],
+        "enabled": true,
+        "pendingRemoval": false,
+        "configuredAgents": [
+          "codex-acp"
+        ],
+        "needsSync": true
+      }
+    ],
+    "targets": [
+      {
+        "agentId": "codex-acp",
+        "file": {
+          "agentId": "codex-acp",
+          "path": "/fixture/.codex/hooks.json",
+          "revision": "codex-revision"
+        },
+        "issue": null,
+        "disabled": false
+      },
+      {
+        "agentId": "claude-acp",
+        "file": null,
+        "issue": "Hook configuration must be a regular file, not a symbolic link or directory.",
+        "disabled": false
+      }
+    ]
+  }
+}
