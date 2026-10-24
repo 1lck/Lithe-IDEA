@@ -16,11 +16,26 @@ struct RemoteWorkspaceBinding: Sendable {
     let connectionID: UUID
 }
 
+extension Notification.Name {
+    /// Posted once when the connection of an open remote workspace is lost.
+    /// `userInfo` holds `RemoteConnectionLoss.userInfoKey`.
+    static let remoteWorkspaceConnectionLost = Notification.Name("LitheRemoteWorkspaceConnectionLost")
+}
+
+/// What a window needs to offer reconnecting a lost remote workspace.
+struct RemoteConnectionLoss: Sendable {
+    static let userInfoKey = "loss"
+    let root: URL
+    let remoteRoot: String
+    let connectionID: UUID
+}
+
 /// Which local roots are remote workspaces. Shared by every window; the
 /// adapters below ask it for each URL they are given.
 final class RemoteWorkspaceRegistry: @unchecked Sendable {
     private let lock = NSLock()
     private var bindings: [String: RemoteWorkspaceBinding] = [:]
+    private var lostSessions: Set<String> = []
 
     func register(_ binding: RemoteWorkspaceBinding) {
         lock.withLock { bindings[binding.root.standardizedFileURL.path] = binding }
@@ -51,6 +66,57 @@ final class RemoteWorkspaceRegistry: @unchecked Sendable {
     }
 
     func contains(_ url: URL) -> Bool { resolve(url) != nil }
+
+    /// The binding of `sessionID`, the first time that session is reported
+    /// lost; later reports return nil so one loss is announced once.
+    func markLost(sessionID: String) -> RemoteWorkspaceBinding? {
+        lock.withLock {
+            guard let binding = bindings.values.first(where: { $0.sessionID == sessionID }),
+                  lostSessions.insert(sessionID).inserted else { return nil }
+            return binding
+        }
+    }
+}
+
+/// Reports a lost connection to the window that shows the workspace, so it
+/// can offer to reconnect, and passes every other result through.
+struct ConnectionWatchingTransport: RemoteWorkspaceTransport {
+    /// Stable Core code of a closed or lost connection.
+    static let closedCode = "connection_closed"
+
+    let base: any RemoteWorkspaceTransport
+    let registry: RemoteWorkspaceRegistry
+
+    func listDirectory(_ path: String, session id: String) throws -> [RemoteDirectoryEntry] {
+        try watching(id) { try base.listDirectory(path, session: id) }
+    }
+
+    func readFile(_ path: String, session id: String) throws -> (data: Data, version: RemoteFileVersion) {
+        try watching(id) { try base.readFile(path, session: id) }
+    }
+
+    func writeFile(
+        _ data: Data, to path: String, expected: RemoteFileVersion?, session id: String
+    ) throws -> RemoteWriteOutcome {
+        try watching(id) { try base.writeFile(data, to: path, expected: expected, session: id) }
+    }
+
+    private func watching<Value>(_ id: String, _ work: () throws -> Value) throws -> Value {
+        do {
+            return try work()
+        } catch let failure as RemoteProbeFailure where failure.code == Self.closedCode {
+            if let binding = registry.markLost(sessionID: id) {
+                let loss = RemoteConnectionLoss(
+                    root: binding.root, remoteRoot: binding.remoteRoot, connectionID: binding.connectionID
+                )
+                NotificationCenter.default.post(
+                    name: .remoteWorkspaceConnectionLost, object: nil,
+                    userInfo: [RemoteConnectionLoss.userInfoKey: loss]
+                )
+            }
+            throw failure
+        }
+    }
 }
 
 /// Project tree and plain file access: remote roots are listed on the host,

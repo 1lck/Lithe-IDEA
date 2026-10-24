@@ -3442,8 +3442,8 @@ the remote server running. Requests over it take `sessionId`:
 `expected` (`{ size, modifiedMs }` from the read) a changed file is a
 `conflict`; without it the file must not exist yet. A missing path is
 `workspace_not_found`, a denied one `permission_denied`. A broken connection
-fails with `process_failed` and is forgotten, so the host reconnects; an
-unknown `sessionId` is `invalid_request`.
+fails with `connection_closed` and is forgotten, so the host reconnects; an
+unknown or closed `sessionId` is also `connection_closed`.
 
 ### Git patch discovery and rebase amendment preconditions
 

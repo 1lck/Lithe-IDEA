@@ -69,7 +69,7 @@
 
 - 新增 Core 命令 `remote.probe`、`remote.connect`、`remote.readDir`、`remote.readFile`、`remote.writeFile`、`remote.disconnect`、`remote.authRespond`，契约见 `shared/contracts/rust-core-api.md` 的“Remote connections”一节。
 - 三个打包 workflow 需要安装 `x86_64-unknown-linux-musl` 和 `aarch64-unknown-linux-musl` 目标。
-- 连接打开后由 Core 持有，直到 `remote.disconnect` 或 App 退出；断线不会自动重连，界面需要重新连接。
+- 连接打开后由 Core 持有，直到 `remote.disconnect` 或 App 退出；断线不会自动重连：Core 返回 `connection_closed`，传输层首次发现时通知所属窗口，弹出远程开发窗口并预选原连接，用户重新认证后恢复同一个远程文件夹，工作区随之重新加载。关闭项目会释放连接。
 
 ## 验证
 

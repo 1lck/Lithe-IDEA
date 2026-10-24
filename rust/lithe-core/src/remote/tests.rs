@@ -358,7 +358,7 @@ fn closed_connections_cannot_be_used() {
         serde_json::from_value(json!({ "sessionId": "missing", "path": "/" })).unwrap();
     assert!(matches!(
         sessions::read_dir(request).unwrap_err().code,
-        ErrorCode::InvalidRequest
+        ErrorCode::ConnectionClosed
     ));
     let request: sessions::DisconnectRequest =
         serde_json::from_value(json!({ "sessionId": "missing" })).unwrap();

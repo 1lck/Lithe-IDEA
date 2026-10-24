@@ -21,6 +21,25 @@ extension AppModel {
 
     func showRemoteConnections() {
         guard canManageRemoteConnections else { return }
+        workbenchFeature.remoteReconnect = nil
+        workbenchFeature.isRemoteConnectionsPresented = true
+    }
+
+    /// Starts listening for lost connections; the window showing the lost
+    /// workspace offers to reconnect it.
+    func observeRemoteConnectionLoss() {
+        remoteLossObserver = NotificationCenter.default.addObserver(
+            forName: .remoteWorkspaceConnectionLost, object: nil, queue: .main
+        ) { [weak self] notification in
+            guard let loss = notification.userInfo?[RemoteConnectionLoss.userInfoKey] as? RemoteConnectionLoss else { return }
+            MainActor.assumeIsolated { self?.offerReconnect(loss) }
+        }
+    }
+
+    private func offerReconnect(_ loss: RemoteConnectionLoss) {
+        guard workspaceURL?.standardizedFileURL == loss.root.standardizedFileURL else { return }
+        showNotification(String(localized: "The connection to the remote host was lost. Reconnect to continue."))
+        workbenchFeature.remoteReconnect = loss
         workbenchFeature.isRemoteConnectionsPresented = true
     }
 
@@ -31,6 +50,7 @@ extension AppModel {
         return RemoteConnectionsFeatureModel(
             store: services.store, prober: services.prober, sessions: services.sessions,
             locator: services.locator, servers: services.servers,
+            reconnect: workbenchFeature.remoteReconnect,
             openWorkspace: { [weak self] connection, folder, session in
                 try self?.openRemoteWorkspace(connection: connection, folder: folder, session: session, services: services)
             }
@@ -62,6 +82,7 @@ extension AppModel {
             root: root, remoteRoot: folder, sessionID: session.id, connectionID: connection.id
         ))
         workbenchFeature.isRemoteConnectionsPresented = false
+        workbenchFeature.remoteReconnect = nil
         openProject(root)
     }
 }

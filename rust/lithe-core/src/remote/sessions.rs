@@ -144,7 +144,12 @@ fn lookup(id: &str) -> Result<Arc<Connection>, CoreError> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .get(id)
         .cloned()
-        .ok_or_else(|| CoreError::new(ErrorCode::InvalidRequest, "The remote connection is closed"))
+        .ok_or_else(|| {
+            CoreError::new(
+                ErrorCode::ConnectionClosed,
+                "The remote connection is closed",
+            )
+        })
 }
 
 /// Opens a connection and registers it.
@@ -660,7 +665,7 @@ fn request_error(session_id: &str, error: ClientError) -> CoreError {
             {
                 std::thread::spawn(move || connection.close());
             }
-            CoreError::new(ErrorCode::ProcessFailed, "The remote connection closed")
+            CoreError::new(ErrorCode::ConnectionClosed, "The remote connection closed")
                 .with_details(diagnostics)
         }
         other => CoreError::new(ErrorCode::ProcessFailed, "The remote request failed")

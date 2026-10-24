@@ -120,8 +120,9 @@ final class MacServiceContainer {
         MacLiveProcessGroups.application.setExitAction("remote-connections") {
             remoteOperations.closeAllBlocking()
         }
+        let remoteTransport = ConnectionWatchingTransport(base: remoteOperations, registry: remoteWorkspaces)
         let fileOperations = RemoteRoutingFileOperations(
-            local: MacWorkspaceFileOperations(), registry: remoteWorkspaces, transport: remoteOperations
+            local: MacWorkspaceFileOperations(), registry: remoteWorkspaces, transport: remoteTransport
         )
         let processRunner = MacProcessRunner(logging: applicationLogging)
         let secureStore = MacLocalSecretStore()
@@ -610,7 +611,7 @@ final class MacServiceContainer {
         let workspaceOperations: any WorkspaceOperations = RemoteRoutingWorkspaceOperations(
             local: providedWorkspaceOperations ?? defaultWorkspaceOperations,
             registry: remoteWorkspaces,
-            transport: remoteOperations
+            transport: remoteTransport
         )
         let searchOperations: any SearchOperations =
             (providedWorkspaceOperations as? any SearchOperations) ?? defaultWorkspaceOperations

@@ -4272,3 +4272,4 @@
 "Operating system" = "系统";
 "Saves, connects, and opens the remote folder in this window." = "保存、连接，并在当前窗口打开远程文件夹。";
 "Could not open the remote folder: %@" = "无法打开远程文件夹：%@";
+"The connection to the remote host was lost. Reconnect to continue." = "与远程主机的连接已断开，请重新连接后继续。";

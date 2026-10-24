@@ -404,4 +404,31 @@ struct RemoteWorkspaceRoutingTests {
         for _ in 0..<5 { _ = files.fileExists(at: root.appendingPathComponent("a.txt")) }
         #expect(transport.listCount == 1)
     }
+
+    // A lost connection is announced once, however many requests fail.
+    @Test
+    func aLostConnectionIsReportedOnce() {
+        let (_, _, _, registry) = routing()
+        let closed = ClosedTransport()
+        let watching = ConnectionWatchingTransport(base: closed, registry: registry)
+        var announced = 0
+        let observer = NotificationCenter.default.addObserver(
+            forName: .remoteWorkspaceConnectionLost, object: nil, queue: nil
+        ) { _ in announced += 1 }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        for _ in 0..<3 { #expect(throws: RemoteProbeFailure.self) { try watching.listDirectory("/srv/app", session: "s") } }
+        #expect(announced == 1)
+    }
+}
+
+private struct ClosedTransport: RemoteWorkspaceTransport {
+    func listDirectory(_ path: String, session id: String) throws -> [RemoteDirectoryEntry] {
+        throw RemoteProbeFailure(code: ConnectionWatchingTransport.closedCode, message: "closed")
+    }
+    func readFile(_ path: String, session id: String) throws -> (data: Data, version: RemoteFileVersion) {
+        throw RemoteProbeFailure(code: ConnectionWatchingTransport.closedCode, message: "closed")
+    }
+    func writeFile(_ data: Data, to path: String, expected: RemoteFileVersion?, session id: String) throws -> RemoteWriteOutcome {
+        throw RemoteProbeFailure(code: ConnectionWatchingTransport.closedCode, message: "closed")
+    }
 }

@@ -60,6 +60,9 @@ final class RemoteConnectionsFeatureModel: ObservableObject {
     /// Opens a connected folder as a workspace; the session then belongs to
     /// the workspace instead of this window.
     private let openWorkspace: (RemoteSSHConnection, String, RemoteOpenedSession) throws -> Void
+    /// The lost workspace this window reconnects; Open then restores its
+    /// folder rather than the connection's saved one.
+    let reconnect: RemoteConnectionLoss?
     /// Set once a workspace was opened, so the window can close.
     @Published private(set) var didOpenWorkspace = false
     @Published private(set) var isLocating = false
@@ -84,9 +87,11 @@ final class RemoteConnectionsFeatureModel: ObservableObject {
         sessions: any RemoteSessionConnecting,
         locator: any RemoteHostLocating,
         servers: RemoteServerBundle?,
+        reconnect: RemoteConnectionLoss? = nil,
         openWorkspace: @escaping (RemoteSSHConnection, String, RemoteOpenedSession) throws -> Void = { _, _, _ in }
     ) {
         self.openWorkspace = openWorkspace
+        self.reconnect = reconnect
         self.store = store
         self.prober = prober
         self.sessions = sessions
@@ -95,7 +100,7 @@ final class RemoteConnectionsFeatureModel: ObservableObject {
         let saved = store.load()
         savedConnections = saved
         connections = saved
-        selectedID = saved.first?.id
+        selectedID = saved.first(where: { $0.id == reconnect?.connectionID })?.id ?? saved.first?.id
     }
 
     var selection: RemoteSSHConnection? {
@@ -264,7 +269,8 @@ final class RemoteConnectionsFeatureModel: ObservableObject {
     func openSelection() {
         guard save() else { return }
         connectSelection { connection, session in
-            let folder = connection.effectiveRemoteDirectory ?? session.homeDirectory ?? "/"
+            let folder = self.reconnect.flatMap { $0.connectionID == connection.id ? $0.remoteRoot : nil }
+                ?? connection.effectiveRemoteDirectory ?? session.homeDirectory ?? "/"
             do {
                 try self.openWorkspace(connection, folder, session)
                 self.didOpenWorkspace = true
