@@ -61,6 +61,8 @@ fn custom_launch(command: &str, provider: ProviderCredentials) -> AgentLaunch {
         observe_model_calls: false,
         observe_subagents: false,
         process_scope: None,
+        claude_config_dir: None,
+        codex_home: None,
     }
 }
 
@@ -123,9 +125,15 @@ impl MockAgent {
 
 #[tokio::test(flavor = "current_thread")]
 async fn native_subagents_keep_child_permissions_owned_by_the_root_turn() {
-    let mut harness = Harness::start_observing_subagents(false, gateway(), std::env::temp_dir(), true);
+    let mut harness =
+        Harness::start_observing_subagents(false, gateway(), std::env::temp_dir(), true);
     let initialize = harness.agent.expect("initialize").await;
-    assert!(initialize["params"]["clientCapabilities"]["_meta"]["jetbrains"]["air"]["capabilities"].as_array().unwrap().contains(&json!("nativeSubagentSessions")));
+    assert!(
+        initialize["params"]["clientCapabilities"]["_meta"]["jetbrains"]["air"]["capabilities"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("nativeSubagentSessions"))
+    );
     harness.agent.reply(&initialize, json!({"protocolVersion":1,"agentCapabilities":{},"authMethods":[{"id":"gateway","name":"Gateway"}]})).await;
     let auth = harness.agent.expect("authenticate").await;
     harness.agent.reply(&auth, json!({})).await;
@@ -134,7 +142,12 @@ async fn native_subagents_keep_child_permissions_owned_by_the_root_turn() {
     harness.send(json!({"kind":"prompt","sessionId":"session-1","text":"Inspect the sample"}));
     let prompt = harness.agent.expect("session/prompt").await;
     let fixture = fixture();
-    for name in ["subagentSpawned", "nestedSubagentSpawned", "subagentToolCall", "subagentMessageChunk"] {
+    for name in [
+        "subagentSpawned",
+        "nestedSubagentSpawned",
+        "subagentToolCall",
+        "subagentMessageChunk",
+    ] {
         let event = &fixture["events"][name];
         harness.agent.write(json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":event["sessionId"],"update":event["update"]}})).await;
         assert_eq!(serde_json::to_value(harness.event().await).unwrap(), *event);
@@ -142,7 +155,14 @@ async fn native_subagents_keep_child_permissions_owned_by_the_root_turn() {
     let mut request = fixture["events"]["permission"]["request"].clone();
     request["sessionId"] = json!("child-2");
     harness.agent.write(json!({"jsonrpc":"2.0","id":"child-permission","method":"session/request_permission","params":request})).await;
-    let AgentEvent::Permission { session_id, request_id, request: received } = harness.event().await else { panic!("child permission must reach the owning turn") };
+    let AgentEvent::Permission {
+        session_id,
+        request_id,
+        request: received,
+    } = harness.event().await
+    else {
+        panic!("child permission must reach the owning turn")
+    };
     assert_eq!(session_id, "session-1");
     assert_eq!(received["sessionId"], "child-2");
     answer_permission(&harness.permissions, &request_id, Some("allow_once".into())).unwrap();
@@ -152,19 +172,31 @@ async fn native_subagents_keep_child_permissions_owned_by_the_root_turn() {
 
     // Parent cancellation must settle the child's next permission without a timer.
     harness.agent.write(json!({"jsonrpc":"2.0","id":"pending-child","method":"session/request_permission","params":request})).await;
-    assert!(matches!(harness.event().await, AgentEvent::Permission { session_id, .. } if session_id == "session-1"));
+    assert!(
+        matches!(harness.event().await, AgentEvent::Permission { session_id, .. } if session_id == "session-1")
+    );
     harness.send(json!({"kind":"cancel","sessionId":"session-1"}));
     let mut cancelled_permission = false;
     let mut cancelled_turn = false;
     for _ in 0..2 {
         let message = harness.agent.next().await;
-        cancelled_permission |= message["id"] == "pending-child" && message["result"]["outcome"]["outcome"] == "cancelled";
-        cancelled_turn |= message["method"] == "session/cancel" && message["params"]["sessionId"] == "session-1";
+        cancelled_permission |= message["id"] == "pending-child"
+            && message["result"]["outcome"]["outcome"] == "cancelled";
+        cancelled_turn |=
+            message["method"] == "session/cancel" && message["params"]["sessionId"] == "session-1";
     }
     assert!(cancelled_permission && cancelled_turn);
-    assert!(matches!(harness.event().await, AgentEvent::TurnCancelling { session_id } if session_id == "session-1"));
-    harness.agent.reply(&prompt, json!({"stopReason":"cancelled"})).await;
-    assert!(matches!(harness.event().await, AgentEvent::TurnFinished { .. }));
+    assert!(
+        matches!(harness.event().await, AgentEvent::TurnCancelling { session_id } if session_id == "session-1")
+    );
+    harness
+        .agent
+        .reply(&prompt, json!({"stopReason":"cancelled"}))
+        .await;
+    assert!(matches!(
+        harness.event().await,
+        AgentEvent::TurnFinished { .. }
+    ));
     assert_eq!(harness.stop().await, Ok(()));
 }
 
@@ -595,7 +627,12 @@ impl Harness {
         Self::start_observing_subagents(subscription, route, cwd, false)
     }
 
-    fn start_observing_subagents(subscription: bool, route: Option<GatewaySignIn>, cwd: PathBuf, observe_subagents: bool) -> Self {
+    fn start_observing_subagents(
+        subscription: bool,
+        route: Option<GatewaySignIn>,
+        cwd: PathBuf,
+        observe_subagents: bool,
+    ) -> Self {
         let (client, peer) = tokio::io::duplex(64 * 1024);
         let (client_reader, client_writer) = tokio::io::split(client);
         let (peer_reader, peer_writer) = tokio::io::split(peer);
@@ -607,7 +644,9 @@ impl Harness {
             cwd,
             route,
             subscription.then(|| PathBuf::from("/fixture/codex")),
+            None,
             false,
+            None,
             None,
             None,
             observe_subagents,
@@ -3176,6 +3215,8 @@ fn catalog_agents_resolve_to_their_install_and_key_delivery() {
         observe_model_calls: false,
         observe_subagents: false,
         process_scope: None,
+        claude_config_dir: None,
+        codex_home: None,
     };
     let anthropic = ProviderCredentials {
         protocol: ProviderProtocol::AnthropicMessages,
@@ -3227,6 +3268,30 @@ fn catalog_agents_resolve_to_their_install_and_key_delivery() {
     assert!(config.get("model").is_none());
     assert_eq!(config["tools"]["update_plan"]["enabled"], true);
     assert!(config.get("collaboration_mode").is_none());
+    assert!(
+        subscription
+            .env
+            .iter()
+            .all(|(name, _)| name != "CODEX_HOME"),
+        "the default account keeps the CLI's own home"
+    );
+    // An account directory selects an isolated Codex login for the adapter and
+    // for the quota probe; a relative path would pick an account by accident.
+    let home = std::env::temp_dir().join("lithe-codex-account");
+    let mut isolated = launch("codex-acp", provider());
+    isolated.authentication = AgentAuthentication::CodexSubscription;
+    isolated.provider = None;
+    isolated.codex_home = Some(home.clone());
+    let isolated = resolve(isolated).unwrap();
+    assert!(isolated
+        .env
+        .contains(&("CODEX_HOME".to_owned(), home.to_string_lossy().into_owned())));
+    assert_eq!(isolated.codex_home, Some(home));
+    let mut relative_home = launch("codex-acp", provider());
+    relative_home.authentication = AgentAuthentication::CodexSubscription;
+    relative_home.provider = None;
+    relative_home.codex_home = Some(PathBuf::from("relative/account"));
+    assert!(resolve(relative_home).err().unwrap().contains("absolute"));
 
     // Statistics changes only this process's inference route; native account,
     // quota and model ownership survive without installing a second provider.
@@ -4154,6 +4219,8 @@ fn claude_subscription_launches_the_signed_in_cli_without_a_route() {
         observe_model_calls: false,
         observe_subagents: false,
         process_scope: None,
+        claude_config_dir: None,
+        codex_home: None,
     };
     let claude_cli = |command: &str| {
         (command == "claude").then(|| environment::DetectedTool {
@@ -4212,6 +4279,22 @@ fn claude_subscription_launches_the_signed_in_cli_without_a_route() {
     assert!(codex.contains("only available for Claude Agent"), "{codex}");
     let missing_cli = resolve_with(launch("claude-acp"), &|_| None).err().unwrap();
     assert!(!missing_cli.is_empty());
+    // An account directory selects the official CLI's isolated login and is
+    // exported unchanged; a relative path would pick an account by accident.
+    let account = std::env::temp_dir().join("lithe-claude-account");
+    let mut isolated = launch("claude-acp");
+    isolated.claude_config_dir = Some(account.clone());
+    let resolved = resolve_with(isolated, &claude_cli).unwrap();
+    assert!(resolved.env.contains(&(
+        "CLAUDE_CONFIG_DIR".to_owned(),
+        account.to_string_lossy().into_owned()
+    )));
+    let mut relative_account = launch("claude-acp");
+    relative_account.claude_config_dir = Some(PathBuf::from("relative/account"));
+    assert!(resolve_with(relative_account, &claude_cli)
+        .err()
+        .unwrap()
+        .contains("absolute"));
     let mut relative = launch("claude-acp");
     relative.cwd = PathBuf::from("relative/workspace");
     assert!(resolve_with(relative, &claude_cli)
@@ -4237,10 +4320,23 @@ async fn claude_subscription_rejects_only_a_signed_out_cli() {
         tx.send_replace(Some(status(kind)));
         assert_eq!(
             claude_subscription::ensure_signed_in(&mut rx).await,
-            Ok(()),
+            Ok(None),
             "{kind}"
         );
     }
+    // The reported claude.ai account travels to the UI for display only.
+    let reported = subscription::Account {
+        email: Some("user@example.com".into()),
+        plan: Some("Claude Pro".into()),
+    };
+    tx.send_replace(Some(subscription::AuthStatus {
+        kind: "account".into(),
+        account: Some(reported.clone()),
+    }));
+    assert_eq!(
+        claude_subscription::ensure_signed_in(&mut rx).await,
+        Ok(Some(reported))
+    );
 
     // A report that arrives after initialization is still honored.
     let (late_tx, mut late_rx) = tokio::sync::watch::channel(None::<subscription::AuthStatus>);
@@ -4255,6 +4351,6 @@ async fn claude_subscription_rejects_only_a_signed_out_cli() {
     let (_silent_tx, mut silent_rx) = tokio::sync::watch::channel(None::<subscription::AuthStatus>);
     assert_eq!(
         claude_subscription::ensure_signed_in(&mut silent_rx).await,
-        Ok(())
+        Ok(None)
     );
 }

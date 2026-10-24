@@ -1,4 +1,5 @@
 import { runExtensionAction } from "@/extensions/run/extension-run-actions";
+import { runDeclarativeAction } from "@/features/plugins/declarative-plugin-run";
 import { RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -130,7 +131,7 @@ export default function RunActionsButton() {
   const [draft, setDraft] = useState<RunActionDraft>(EMPTY_DRAFT);
   const triggerRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const { projectActions, lspActions, isDiscovering, discoveryError, refresh } =
+  const { projectActions, declarativeActions, lspActions, isDiscovering, discoveryError, refresh } =
     useRunActionDiscovery(
       workspaceId,
       workspacePath,
@@ -163,8 +164,15 @@ export default function RunActionsButton() {
     () => customRunActions.filter((action) => matchesRunAction(action, query)),
     [customRunActions, query],
   );
+  const visibleDeclarativeActions = useMemo(
+    () => declarativeActions.filter((action) => matchesRunAction(action, query)),
+    [declarativeActions, query],
+  );
   const firstVisibleAction =
-    visibleLspActions[0] ?? visibleProjectActions[0] ?? visibleCustomActions[0];
+    visibleLspActions[0] ??
+    visibleProjectActions[0] ??
+    visibleDeclarativeActions[0] ??
+    visibleCustomActions[0];
   const hasVisibleActions = Boolean(firstVisibleAction);
 
   const closeMenu = () => setIsMenuOpen(false);
@@ -184,6 +192,14 @@ export default function RunActionsButton() {
   };
 
   const runAction = (action: RunActionItem) => {
+    if (action.source === "declarative") {
+      if (workspacePath && activeFilePath)
+        void runDeclarativeAction(action, workspaceId, workspacePath, activeFilePath).catch(
+          (error) => toast.error(String(error)),
+        );
+      closeMenu();
+      return;
+    }
     if (action.source === "extension") {
       if (workspacePath)
         void runExtensionAction(action, workspaceId, workspacePath).catch((error) =>
@@ -349,6 +365,11 @@ export default function RunActionsButton() {
             <RunActionSection
               label={t("run.currentFile")}
               actions={visibleLspActions}
+              onRun={runAction}
+            />
+            <RunActionSection
+              label={t("run.declarativePlugins")}
+              actions={visibleDeclarativeActions}
               onRun={runAction}
             />
             <RunActionSection

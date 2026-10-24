@@ -86,6 +86,7 @@ pub(super) fn set_enabled(
             cwd.to_owned(),
             path.to_owned(),
             enabled,
+            request.codex_home.clone(),
             cancelled,
         ));
         check(cancelled)?;

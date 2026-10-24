@@ -129,6 +129,13 @@ mock.module("@/features/agent/components/agent-trigger", () => ({ AgentTrigger: 
 mock.module("@/features/notifications/components/notifications-trigger", () => ({
   NotificationsTrigger: () => null,
 }));
+// Keep the real activity rail without starting the unrelated native plugin host.
+mock.module("@/features/plugins/declarative-plugin-ui", () => ({
+  useDeclarativePluginUI: create(() => ({ windows: [] })),
+}));
+mock.module("@/features/plugins/declarative-plugin-launch", () => ({
+  openDeclarativeWebWindow: async () => {},
+}));
 mock.module("@/features/panes/stores/pane.store", () => ({
   usePaneStore: {
     use: { bottomRoot: () => null, actions: () => ({ moveBufferToPane: () => {} }) },

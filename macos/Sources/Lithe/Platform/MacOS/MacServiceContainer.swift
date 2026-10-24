@@ -810,11 +810,14 @@ final class MacServiceContainer {
             secureStore: secureStore,
             diagnosticsExportService: diagnosticsExportService,
             credentialResolver: credentialResolver,
-            agentManagement: RustAgentManagementService(core: rustCore),
+            agentManagement: RustAgentManagementService(core: rustCore, accountDirectory: { agentID in
+                await MainActor.run { settings.preferredAgentAccountDirectory(for: agentID) }
+            }),
             agentInstructions: RustAgentInstructionsService(core: rustCore,
                 sharedDirectory: fileStorage.applicationSupportDirectory().appendingPathComponent("Lithe/AgentInstructions", isDirectory: true)),
             agentHooks: RustAgentHooksService(core: rustCore,
                 directory: fileStorage.applicationSupportDirectory().appendingPathComponent("Lithe/AgentHooks", isDirectory: true)),
+            agentAccountSignIn: MacAgentAccountSignIn(runner: processRunner),
             agentProviderConfigurationParser: MacAgentProviderConfigurationParser(core: rustCore),
             aiConfigurationSources: aiConfigurationSources,
             recentProjectsStore: RecentProjectsStore(store: store, excludes: { remoteWorkspaces.contains($0) }),

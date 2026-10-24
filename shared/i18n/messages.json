@@ -28220,6 +28220,40 @@
       }
     },
     {
+      "id": "native.backgroundCommandEndedExitCodeArg1Arg2",
+      "description": "Native UI: Background command ended (exit code %@): %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Background command ended (exit code %@): %@",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string"
+      }
+    },
+    {
+      "id": "native.backgroundCommandFinished",
+      "description": "Native UI: Background command finished: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Background command finished: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
       "id": "native.backgroundServices",
       "description": "Native UI: Background Services",
       "platforms": [
@@ -78696,6 +78730,28 @@
       }
     },
     {
+      "id": "native.backgroundTaskEnded",
+      "description": "Native UI: Background task ended",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Background task ended",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.backgroundTaskFinished",
+      "description": "Native UI: Background task finished",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Background task finished",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.beforeAToolRuns",
       "description": "Native UI: Before a tool runs",
       "platforms": [
@@ -78990,6 +79046,17 @@
       }
     },
     {
+      "id": "native.conversationContinuedFromASummary",
+      "description": "Native UI: Conversation continued from a summary",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Conversation continued from a summary",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.couldNotOpenTheRemoteFolder",
       "description": "Native UI: Could not open the remote folder: %@",
       "platforms": [
@@ -79220,6 +79287,17 @@
       }
     },
     {
+      "id": "native.enlargeImage",
+      "description": "Native UI: Enlarge image",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Enlarge image",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.enterAHost",
       "description": "Native UI: Enter a host.",
       "platforms": [
@@ -79341,6 +79419,17 @@
       "parameters": {
         "arg1": "string",
         "arg2": "string"
+      }
+    },
+    {
+      "id": "native.fitToWindow",
+      "description": "Native UI: Fit to Window",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Fit to Window",
+        "arguments": []
       }
     },
     {
@@ -79649,6 +79738,24 @@
       "parameters": {
         "arg1": "string",
         "arg2": "string"
+      }
+    },
+    {
+      "id": "native.itemLldOfLld",
+      "description": "Native UI: Item %lld of %lld",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Item %lld of %lld",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ]
+      },
+      "parameters": {
+        "arg1": "integer",
+        "arg2": "integer"
       }
     },
     {
@@ -79981,6 +80088,17 @@
       }
     },
     {
+      "id": "native.nextImage",
+      "description": "Native UI: Next image",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Next image",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.noHooksYet",
       "description": "Native UI: No Hooks yet.",
       "platforms": [
@@ -80205,6 +80323,17 @@
       ],
       "macos": {
         "key": "Previous 7 days",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.previousImage",
+      "description": "Native UI: Previous image",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Previous image",
         "arguments": []
       }
     },
@@ -80590,6 +80719,22 @@
       "macos": {
         "key": "Show more",
         "arguments": []
+      }
+    },
+    {
+      "id": "native.skillLoaded",
+      "description": "Native UI: Skill loaded: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Skill loaded: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
       }
     },
     {
@@ -82131,6 +82276,465 @@
       ],
       "windows": {
         "key": "When to run"
+      }
+    },
+    {
+      "id": "run.declarativePlugins",
+      "description": "Windows declarative plugin UI: run.declarativePlugins",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.title",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.title",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.description",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.description",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.import",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.import",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.reviewTitle",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.reviewTitle",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "name": "string",
+        "version": "string"
+      }
+    },
+    {
+      "id": "settings.declarativePlugins.unverified",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.unverified",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.confirmInstall",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.confirmInstall",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.programDeclaration",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.programDeclaration",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "settings.declarativePlugins.empty",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.empty",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.toggle",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.toggle",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "settings.declarativePlugins.rollback",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.rollback",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.uninstall",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.uninstall",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.source.bundled",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.source.bundled",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.source.installed",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.source.installed",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.settings",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.settings",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.webWindows",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.webWindows",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.openWindow",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.openWindow",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.closeWindow",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.closeWindow",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.placement.left",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.placement.left",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.placement.right",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.placement.right",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.placement.bottom",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.placement.bottom",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.showSettings",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.showSettings",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.hideSettings",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.hideSettings",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.settingsUnavailable",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.settingsUnavailable",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.settingSource.default",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.settingSource.default",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.settingSource.global",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.settingSource.global",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.settingSource.project",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.settingSource.project",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.settingScope.global",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.settingScope.global",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.settingScope.project",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.settingScope.project",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.settingEffect.restart",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.settingEffect.restart",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.settingEffect.immediate",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.settingEffect.immediate",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.settingEffect.reload",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.settingEffect.reload",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.settingEffect.nextRun",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.settingEffect.nextRun",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "native.agentAccounts",
+      "description": "Native UI: Subscription accounts",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Subscription accounts",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.agentAccountsInfo",
+      "description": "Native UI: Each account is a separate configuration folder of the official CLI. Sign-in runs the CLI's own login command in the background and opens your browser, so Lithe never reads or copies credentials. Switching restarts this project's connection for this Agent and is refused while a reply or permission request is pending. Lithe never switches accounts by itself when a limit is reached.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Each account is a separate configuration folder of the official CLI. Sign-in runs the CLI's own login command in the background and opens your browser, so Lithe never reads or copies credentials. Switching restarts this project's connection for this Agent and is refused while a reply or permission request is pending. Lithe never switches accounts by itself when a limit is reached.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.defaultAgentAccount",
+      "description": "Native UI: Default account",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Default account",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.agentAccountPreferred",
+      "description": "Native UI: Preferred",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Preferred",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.agentAccountSetPreferred",
+      "description": "Native UI: Set as preferred",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Set as preferred",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.agentAccountSignInAgain",
+      "description": "Native UI: Sign in again",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Sign in again",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.agentAccountRemove",
+      "description": "Native UI: Remove account",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Remove account",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.agentAccountRemoveMessage",
+      "description": "Native UI: Remove this account from Lithe? Its sign-in folder is left on disk untouched.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Remove this account from Lithe? Its sign-in folder is left on disk untouched.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.agentAccountAdd",
+      "description": "Native UI: Add another account",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Add another account",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.agentAccountWaiting",
+      "description": "Native UI: Waiting for browser sign-in…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Waiting for browser sign-in…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.agentAccountSnapshotNote",
+      "description": "Native UI: As of %@; not refreshed by Lithe.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "As of %@; not refreshed by Lithe.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.agentAccountResets",
+      "description": "Native UI: Resets %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Resets %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.agentAccountPace",
+      "description": "Native UI: Pace %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Pace %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.agentAccountDefaultName",
+      "description": "Native UI: Account %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Account %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.agentAccountSignInUnsupported",
+      "description": "Native UI: This Agent has no account sign-in.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This Agent has no account sign-in.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.agentAccountSignInFailed",
+      "description": "Native UI: Sign-in did not finish. Check that the Agent's CLI is installed, then try again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Sign-in did not finish. Check that the Agent's CLI is installed, then try again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.agentAccountSignInTimedOut",
+      "description": "Native UI: Sign-in timed out. Try again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Sign-in timed out. Try again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.agentAccountUsageInfo",
+      "description": "Native UI: Usage is whatever the Agent last reported. Claude Code reports it while a reply runs; Codex is also refreshed about once a minute while the Agent panel is open. Lithe never queries the account itself, so a value can be out of date, and an account you are not using keeps its last values until you switch back. A window that has already reset is shown without a reset time or pace.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Usage is whatever the Agent last reported. Claude Code reports it while a reply runs; Codex is also refreshed about once a minute while the Agent panel is open. Lithe never queries the account itself, so a value can be out of date, and an account you are not using keeps its last values until you switch back. A window that has already reset is shown without a reset time or pace.",
+        "arguments": []
       }
     },
     {

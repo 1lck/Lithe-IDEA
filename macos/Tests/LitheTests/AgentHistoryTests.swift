@@ -695,6 +695,31 @@ struct AgentHistoryTests {
     }
 
     @Test
+    func consecutiveReplayedUserMessagesStaySeparateEntries() async throws {
+        try await HistoryFixture().run { fixture in
+            let feature = fixture.feature
+            fixture.transport.connection.onCommand = { [weak feature] command in
+                guard command["kind"] as? String == "loadSession", let feature else { return }
+                @MainActor func user(_ text: String, id: String) {
+                    feature.receive(HistoryFixture.json(["kind": "update", "sessionId": "session-a",
+                        "update": ["sessionUpdate": "user_message_chunk", "messageId": id,
+                                   "content": ["type": "text", "text": text]]]))
+                }
+                user("<task-notification><status>completed</status></task-notification>", id: "one")
+                user("Please continue", id: "two")
+                // Chunks of one message without a new id still belong together.
+                user(" now", id: "two")
+                feature.receive(HistoryFixture.json(["kind": "sessionLoaded", "sessionId": "session-a",
+                                                     "token": command["token"] as Any]))
+            }
+            feature.selectSession("session-a")
+            #expect(feature.conversations["session-a"]?.messages.map(\.text) == [
+                "<task-notification><status>completed</status></task-notification>", "Please continue now",
+            ])
+        }
+    }
+
+    @Test
     func batchExportReplaysUnopenedHistoryWithoutChangingSelection() async throws {
         try await HistoryFixture().run { fixture in
             let feature = fixture.feature

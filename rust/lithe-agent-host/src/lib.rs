@@ -7,6 +7,8 @@
 //! See `.agents/notes/implemented/architecture/2026-09-25-shared-acp-agent-conversation.md`.
 
 pub mod catalog;
+mod claude_desktop;
+mod claude_earlier_history;
 mod claude_subscription;
 pub mod cli_update;
 mod codex_context;
@@ -116,6 +118,15 @@ pub struct AgentLaunch {
     /// Exported as [`AGENT_SCOPE_ENVIRONMENT`] to the agent process tree.
     #[serde(default)]
     pub process_scope: Option<String>,
+    /// Claude Code configuration directory of one account, exported as
+    /// `CLAUDE_CONFIG_DIR`. Only the Claude subscription mode accepts it; the
+    /// directory holds the official CLI's own login and Lithe never reads it.
+    #[serde(default)]
+    pub claude_config_dir: Option<PathBuf>,
+    /// Codex home directory of one account, exported as `CODEX_HOME`, including
+    /// to the quota probe. Only the Codex subscription mode accepts it.
+    #[serde(default)]
+    pub codex_home: Option<PathBuf>,
 }
 
 /// Subscription access is explicit: each mode is limited to its own installed adapter.
@@ -218,6 +229,11 @@ struct ResolvedLaunch {
     subscription_cli: Option<PathBuf>,
     /// The signed-in Claude Code CLI pays: no route, key or token is injected.
     claude_subscription: bool,
+    /// Account directory the Codex quota probe must share with the adapter.
+    codex_home: Option<PathBuf>,
+    /// Claude transcript root of the adapter's account, for history that
+    /// compaction hides from `session/load`; None for every other agent.
+    claude_projects: Option<PathBuf>,
 }
 
 #[cfg(test)]
@@ -299,6 +315,8 @@ fn resolve_with(
             secret: provider.api_key,
             subscription_cli: None,
             claude_subscription: false,
+            codex_home: None,
+            claude_projects: None,
         });
     };
     let agent = catalog::find(&agent_id).ok_or_else(|| format!("Unknown agent `{agent_id}`"))?;
@@ -356,6 +374,10 @@ fn resolve_with(
         secret: provider.api_key,
         subscription_cli: None,
         claude_subscription: false,
+        codex_home: None,
+        claude_projects: (agent.id == "claude-acp")
+            .then(|| claude_earlier_history::projects_directory(None))
+            .flatten(),
     })
 }
 
@@ -1131,6 +1153,7 @@ async fn run_agent(
     // Account credentials belong to the CLI in both subscription modes.
     let subscription = launch.subscription_cli.is_some() || launch.claude_subscription;
     let claude_subscription = launch.claude_subscription;
+    let claude_projects = launch.claude_projects.clone();
     let secret = launch.secret.clone();
     let transport = ByteStreams::new(stdin.compat_write(), stdout.compat());
     let result = run_connection(
@@ -1138,7 +1161,9 @@ async fn run_agent(
         launch.cwd,
         launch.gateway,
         launch.subscription_cli,
+        launch.codex_home,
         claude_subscription,
+        claude_projects,
         history,
         context_recovery,
         observe_subagents,
@@ -1287,7 +1312,9 @@ async fn run_connection<OB, IB>(
     cwd: PathBuf,
     gateway: Option<GatewaySignIn>,
     subscription_cli: Option<PathBuf>,
+    codex_home: Option<PathBuf>,
     claude_subscription: bool,
+    claude_projects: Option<PathBuf>,
     history: Option<codex_history::CodexHistory>,
     context_recovery: Option<Arc<codex_context::Recovery>>,
     observe_subagents: bool,
@@ -1307,6 +1334,8 @@ where
     let session_meta = session_routing::metadata(gateway.as_ref())?;
     let workspace = Arc::new(workspace_context::WorkspaceContext::new(&cwd)?);
     let update_workspace = workspace.clone();
+    let desktop = Arc::new(Mutex::new(claude_desktop::Presenter::default()));
+    let update_desktop = desktop.clone();
     let restored_meta = session_routing::restored_metadata(gateway.as_ref())?;
     let (auth_tx, mut auth_rx) = tokio::sync::watch::channel(None::<subscription::AuthStatus>);
     let updates = emit.clone();
@@ -1349,6 +1378,9 @@ where
                         sessions.is_live(&session_id).then(|| sessions.root(&session_id)).flatten()
                     };
                     let Some(update) = update_workspace.present_update(update) else {
+                        return Ok(());
+                    };
+                    let Some(update) = update_desktop.lock().map_err(|_| internal("Replay presentation is unavailable"))?.present(&session_id, update) else {
                         return Ok(());
                     };
                     if update["sessionUpdate"] == "usage_update" {
@@ -1515,9 +1547,12 @@ where
                 .map_err(|_| internal("The Agent did not finish API key sign-in in time"))??;
             }
             if claude_subscription {
-                claude_subscription::ensure_signed_in(&mut auth_rx)
+                let account = claude_subscription::ensure_signed_in(&mut auth_rx)
                     .await
                     .map_err(|message| internal(&message))?;
+                if let Some(account) = account {
+                    emit(AgentEvent::Account { account });
+                }
             }
             let account = if subscription_cli.is_some() {
                 if !initialized.auth_methods.iter().any(|method| method.id().0.as_ref() == "chat-gpt") {
@@ -1596,9 +1631,9 @@ where
                         if quota_running.load(Ordering::SeqCst) || last_quota.is_some_and(|time| time.elapsed() < subscription::QUOTA_INTERVAL) { continue; }
                         quota_running.store(true, Ordering::SeqCst);
                         last_quota = Some(tokio::time::Instant::now());
-                        let (cli, cwd, account, emit, running) = (cli.clone(), cwd.clone(), account.clone(), emit.clone(), quota_running.clone());
+                        let (cli, cwd, account, emit, running, home) = (cli.clone(), cwd.clone(), account.clone(), emit.clone(), quota_running.clone(), codex_home.clone());
                         tasks.spawn(async move {
-                            let result = subscription::read_quota(&cli, &cwd, &account).await;
+                            let result = subscription::read_quota(&cli, &cwd, &account, home.as_deref()).await;
                             emit(match result {
                                 Ok(snapshot) => AgentEvent::Quota { snapshot },
                                 Err(code) => AgentEvent::QuotaFailed { code: code.into() },
@@ -1648,7 +1683,27 @@ where
                         let session_meta = restored_meta.clone();
                         let confirm_model = session_meta.is_some();
                         let capture = context_recovery.as_ref().and_then(|recovery| recovery.capture(&session_id));
+                        let earlier = claude_projects.clone();
+                        let desktop = desktop.clone();
                         tasks.spawn(async move {
+                            // Compaction hides earlier segments from the adapter's replay;
+                            // they precede it, so the transcript reads in order.
+                            if let Some(projects) = earlier {
+                                let (workspace, id) = (cwd.clone(), session_id.clone());
+                                let updates = tokio::task::spawn_blocking(move || {
+                                    claude_earlier_history::earlier_updates(&projects, &workspace, &id)
+                                })
+                                .await
+                                .unwrap_or_default();
+                                // Collected first: the guard must not live across `emit`.
+                                let updates: Vec<_> = match desktop.lock() {
+                                    Ok(mut desktop) => updates.into_iter().filter_map(|u| desktop.present(&session_id, u)).collect(),
+                                    Err(_) => updates,
+                                };
+                                for update in updates {
+                                    emit(AgentEvent::Update { session_id: session_id.clone(), update });
+                                }
+                            }
                             let mut request = LoadSessionRequest::new(session_id.clone(), cwd);
                             request.meta = session_meta;
                             let result = request_with_timeout(

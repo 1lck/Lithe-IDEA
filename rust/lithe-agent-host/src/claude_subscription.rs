@@ -29,6 +29,9 @@ pub(super) const INHERITED_OVERRIDES: [&str; 6] = [
     "CLAUDE_CODE_EXECUTABLE",
 ];
 
+/// Claude Code's own switch for selecting an isolated account directory.
+pub(super) const CONFIG_DIR_ENVIRONMENT: &str = "CLAUDE_CONFIG_DIR";
+
 /// Launch the installed Claude adapter against the detected Claude Code CLI,
 /// without an API provider.
 pub(super) fn resolve(
@@ -54,24 +57,45 @@ pub(super) fn resolve(
         return Err(issue);
     }
     let detected = detected.ok_or("Claude Code is unavailable")?;
+    let mut env: Vec<(String, String)> = cli_path_env(cli, &detected).into_iter().collect();
+    if let Some(directory) = launch.claude_config_dir {
+        // A relative path would resolve against the adapter's working directory
+        // and silently select a different account than the one the user chose.
+        if !directory.is_absolute() {
+            return Err("The Claude account directory must be an absolute path".into());
+        }
+        env.retain(|(name, _)| name != CONFIG_DIR_ENVIRONMENT);
+        env.push((
+            CONFIG_DIR_ENVIRONMENT.into(),
+            directory.to_string_lossy().into_owned(),
+        ));
+    }
+    let claude_projects = crate::claude_earlier_history::projects_directory(
+        env.iter()
+            .find(|(name, _)| name == CONFIG_DIR_ENVIRONMENT)
+            .map(|(_, value)| std::path::Path::new(value)),
+    );
     Ok(ResolvedLaunch {
         command: install::installed_command(&data, agent),
         args: launch.args,
         cwd: launch.cwd,
-        env: cli_path_env(cli, &detected).into_iter().collect(),
+        env,
         gateway: None,
         secret: String::new(),
         subscription_cli: None,
         claude_subscription: true,
+        codex_home: None,
+        claude_projects,
     })
 }
 
 /// Fail the connection with an actionable message when the CLI is signed out.
 /// A status that never arrives, or any signed-in kind (account, API key,
-/// external backend), lets the connection continue unchanged.
+/// external backend), lets the connection continue unchanged. A claude.ai
+/// account the adapter reported is returned for display only.
 pub(super) async fn ensure_signed_in(
     status: &mut tokio::sync::watch::Receiver<Option<subscription::AuthStatus>>,
-) -> Result<(), String> {
+) -> Result<Option<subscription::Account>, String> {
     let reported = tokio::time::timeout(STATUS_TIMEOUT, async {
         loop {
             if let Some(value) = status.borrow_and_update().clone() {
@@ -87,6 +111,7 @@ pub(super) async fn ensure_signed_in(
     .flatten();
     match reported {
         Some(value) if value.kind == "none" => Err(SIGN_IN_REQUIRED.into()),
-        _ => Ok(()),
+        Some(value) if value.kind == "account" => Ok(value.account),
+        _ => Ok(None),
     }
 }

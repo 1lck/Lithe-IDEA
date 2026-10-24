@@ -159,6 +159,8 @@ fn open(workspace: &std::path::Path) -> Session {
         observe_model_calls: false,
         observe_subagents: false,
         process_scope: None,
+        claude_config_dir: None,
+        codex_home: None,
         provider: Some(ProviderCredentials {
             protocol,
             base_url: required("LITHE_ACP_E2E_BASE_URL"),

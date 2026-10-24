@@ -239,6 +239,7 @@ extension AppModel {
         feature.onAttentionChanged = { [weak self] needsAttention in
             self?.agentConversationNeedsAttention = needsAttention
         }
+        feature.historyIdentity = { [weak self] agentID in self?.agentHistoryIdentity(agentID) ?? agentID }
         feature.setAgents(configuredAgentOptions)
         guard feature.agents.contains(where: { $0.id == selectedAgentConversationID }) else { return }
         feature.selectAgent(selectedAgentConversationID)
@@ -249,6 +250,9 @@ extension AppModel {
             // Refresh the displayed fallback even when credential validation fails.
             defer { feature.setAgents(configuredAgentOptions) }
             let configuration = try agentLaunchConfiguration(agentID: agentID)
+            connection.onAccountObserved = { [weak self] directory, email, plan, quota in
+                self?.settings.recordAgentAccount(agentID: agentID, directory: directory, email: email, plan: plan, quota: quota)
+            }
             try connection.connect(configuration: configuration)
         } catch {
             // The panel shows the reason and offers a retry.

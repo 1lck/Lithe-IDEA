@@ -165,6 +165,7 @@
 "Accept" = "Accept";
 "Accept edits" = "Accept edits";
 "Accepts all permissions" = "Skip routine approval prompts; environment and managed policies still apply.";
+"Account %@" = "Account %@";
 "Action for %@" = "Action for %@";
 "Actions" = "Actions";
 "Actions for %@" = "Actions for %@";
@@ -180,6 +181,7 @@
 "Add a class or method name" = "Add a class or method name";
 "Add a memory usage indicator to the status bar" = "Add a memory usage indicator to the status bar";
 "Add an AI provider in AI Providers first." = "Add an AI provider in AI Providers first.";
+"Add another account" = "Add another account";
 "Add at least one absolute allowed folder path after the Filesystem package argument." = "Add at least one absolute allowed folder path after the Filesystem package argument.";
 "Add at least one absolute folder path after the package argument, one per line. Filesystem can read and write only in the folders you allow. Requires Node.js 24 or later." = "Add at least one absolute folder path after the package argument, one per line. Filesystem can read and write only in the folders you allow. Requires Node.js 24 or later.";
 "Add database connection" = "Add database connection";
@@ -316,6 +318,7 @@
 "Arguments from the page:" = "Arguments from the page:";
 "Arguments passed to the program" = "Arguments passed to the program";
 "Artifact" = "Artifact";
+"As of %@; not refreshed by Lithe." = "As of %@; not refreshed by Lithe.";
 "As of %@; updated only while replying." = "As of %@; updated only while replying.";
 "Ask before closing a tab with running programs" = "Ask before closing a tab with running programs";
 "Ask before stopping" = "Ask before stopping";
@@ -365,8 +368,12 @@
 "Back to all references" = "Back to all references";
 "Back to the conversation" = "Back to the conversation";
 "Background Services" = "Background Services";
+"Background command ended (exit code %@): %@" = "Background command ended (exit code %@): %@";
+"Background command finished: %@" = "Background command finished: %@";
 "Background services" = "Background services";
 "Background services started in Lithe are still running" = "Background services started in Lithe are still running";
+"Background task ended" = "Background task ended";
+"Background task finished" = "Background task finished";
 "Balanced reasoning" = "Balanced reasoning";
 "Base" = "Base";
 "Base %@ → Target %@" = "Base %@ → Target %@";
@@ -789,6 +796,7 @@
 "Conventional Commits" = "Conventional Commits";
 "Conversation" = "Conversation";
 "Conversation actions" = "Conversation actions";
+"Conversation continued from a summary" = "Conversation continued from a summary";
 "Conversation history" = "Conversation history";
 "Conversation history is unavailable" = "Conversation history is unavailable";
 "Conversation tabs" = "Conversation tabs";
@@ -940,6 +948,7 @@
 "Deep reasoning for complex tasks" = "Deep reasoning for complex tasks";
 "Default" = "Default";
 "Default ChangeList" = "Default ChangeList";
+"Default account" = "Default account";
 "Default directory" = "Default directory";
 "Default instructions" = "Default instructions";
 "Default options" = "Default options";
@@ -1083,6 +1092,7 @@
 "Duplicate" = "Duplicate";
 "Duration: %lld ms" = "Duration: %lld ms";
 "Each Agent keeps its own configuration file. Turning an Agent off removes only the entry Lithe wrote; an entry created outside Lithe is never removed without taking ownership first." = "Each Agent keeps its own configuration file. Turning an Agent off removes only the entry Lithe wrote; an entry created outside Lithe is never removed without taking ownership first.";
+"Each account is a separate configuration folder of the official CLI. Sign-in runs the CLI's own login command in the background and opens your browser, so Lithe never reads or copies credentials. Switching restarts this project's connection for this Agent and is refused while a reply or permission request is pending. Lithe never switches accounts by itself when a limit is reached." = "Each account is a separate configuration folder of the official CLI. Sign-in runs the CLI's own login command in the background and opens your browser, so Lithe never reads or copies credentials. Switching restarts this project's connection for this Agent and is refused while a reply or permission request is pending. Lithe never switches accounts by itself when a limit is reached.";
 "Each built-in preset includes a preview of the generated message." = "Each built-in preset includes a preview of the generated message.";
 "Each repository has its own commit. Completed steps are kept if another repository fails." = "Each repository has its own commit. Completed steps are kept if another repository fails.";
 "Each row explains the setting, the value Git is actually using, and where that value comes from." = "Each row explains the setting, the value Git is actually using, and where that value comes from.";
@@ -1159,6 +1169,7 @@
 "End on next launch" = "End on next launch";
 "End without asking" = "End without asking";
 "English" = "English";
+"Enlarge image" = "Enlarge image";
 "Enter API key" = "Enter API key";
 "Enter a ChangeList name (1–100 characters)." = "Enter a ChangeList name (1–100 characters).";
 "Enter a branch name" = "Enter a branch name";
@@ -1312,6 +1323,7 @@
 "Find references to the selected symbol" = "Find references to the selected symbol";
 "Finished" = "Finished";
 "First %lld locations" = "First %lld locations";
+"Fit to Window" = "Fit to Window";
 "Fix the failing checks below before installing." = "Fix the failing checks below before installing.";
 "Fixup" = "Fixup";
 "Folder" = "Folder";
@@ -1593,6 +1605,7 @@
 "Invalid shared instruction request." = "Invalid shared instruction request.";
 "Invert" = "Invert";
 "It can read files, run commands and edit code after asking for permission." = "It can read files, run commands and edit code after asking for permission.";
+"Item %lld of %lld" = "Item %lld of %lld";
 "Its details and actions will appear here." = "Its details and actions will appear here.";
 "JDK Home" = "JDK Home";
 "JDK home" = "JDK home";
@@ -1978,6 +1991,7 @@
 "Next console expression" = "Next console expression";
 "Next diff match" = "Next diff match";
 "Next difference" = "Next difference";
+"Next image" = "Next image";
 "Next match" = "Next match";
 "Next match (Return)" = "Next match (Return)";
 "Next run" = "Next run";
@@ -2257,6 +2271,7 @@
 "Overview" = "Overview";
 "PHP Support" = "PHP Support";
 "PHP language support will be removed after restarting Lithe." = "PHP language support will be removed after restarting Lithe.";
+"Pace %@" = "Pace %@";
 "Package" = "Package";
 "Package name" = "Package name";
 "Package the redacted application log with an environment and performance snapshot into a zip you can attach to a bug report. Credentials, tokens, and home-directory paths are removed automatically, and you can review the file list before anything is written." = "Package the redacted application log with an environment and performance snapshot into a zip you can attach to a bug report. Credentials, tokens, and home-directory paths are removed automatically, and you can review the file list before anything is written.";
@@ -2331,6 +2346,7 @@
 "Port" = "Port";
 "Posting comment…" = "Posting comment…";
 "PowerShell Support" = "PowerShell Support";
+"Preferred" = "Preferred";
 "Preflight" = "Preflight";
 "Preparing conversation…" = "Preparing conversation…";
 "Preparing download…" = "Preparing download…";
@@ -2353,6 +2369,7 @@
 "Previous console expression" = "Previous console expression";
 "Previous diff match" = "Previous diff match";
 "Previous difference" = "Previous difference";
+"Previous image" = "Previous image";
 "Previous match" = "Previous match";
 "Previous match (Shift+Return)" = "Previous match (Shift+Return)";
 "Previous session" = "Previous session";
@@ -2579,6 +2596,7 @@
 "Remove All" = "Remove All";
 "Remove Connection" = "Remove Connection";
 "Remove Worktree…" = "Remove Worktree…";
+"Remove account" = "Remove account";
 "Remove file %@" = "Remove file %@";
 "Remove from Recent Projects" = "Remove from Recent Projects";
 "Remove from favorites" = "Remove from favorites";
@@ -2590,6 +2608,7 @@
 "Remove stale remote branches" = "Remove stale remote branches";
 "Remove stale tags" = "Remove stale tags";
 "Remove the selected commit and its changes from this branch. Later commits will be replayed. A recovery reference will retain the original history." = "Remove the selected commit and its changes from this branch. Later commits will be replayed. A recovery reference will retain the original history.";
+"Remove this account from Lithe? Its sign-in folder is left on disk untouched." = "Remove this account from Lithe? Its sign-in folder is left on disk untouched.";
 "Remove worktree?" = "Remove worktree?";
 "Removed" = "Removed";
 "Removed %@" = "Removed %@";
@@ -2654,6 +2673,7 @@
 "Reset current branch?" = "Reset current branch?";
 "Reset this setting to its inherited value" = "Reset this setting to its inherited value";
 "Reset to Default" = "Reset to Default";
+"Resets %@" = "Resets %@";
 "Resets: %@" = "Resets: %@";
 "Resident Memory" = "Resident Memory";
 "Resident memory of Lithe and its managed process trees" = "Resident memory of Lithe and its managed process trees";
@@ -2921,6 +2941,7 @@
 "Session" = "Session";
 "Session statistics" = "Session statistics";
 "Set Up Agent File Attachments…" = "Set Up Agent File Attachments…";
+"Set as preferred" = "Set as preferred";
 "Set the custom Agent's executable in the panel settings." = "Set the custom Agent's executable in Settings > AI > Agents.";
 "Set the defaults used by ordinary Fetch in every project. Credentials use your existing Git helper and SSH configuration." = "Set the defaults used by ordinary Fetch in every project. Credentials use your existing Git helper and SSH configuration.";
 "Set your Git name and email in Settings before committing." = "Set your Git name and email in Settings before committing.";
@@ -3010,10 +3031,13 @@
 "Showing the previous Java entries while the Java language service prepares the project." = "Showing the previous Java entries while the Java language service prepares the project.";
 "Shown across the entire workbench, including toolbars, project tree, editor, tabs, terminals, and status bar." = "Shown across the entire workbench, including toolbars, project tree, editor, tabs, terminals, and status bar.";
 "Side-by-side" = "Side-by-side";
+"Sign in again" = "Sign in again";
 "Sign in to Codex" = "Sign in to Codex";
 "Sign in to GitHub" = "Sign in to GitHub";
 "Sign in to view and manage pull requests." = "Sign in to view and manage pull requests.";
 "Sign in with ChatGPT" = "Sign in with ChatGPT";
+"Sign-in did not finish. Check that the Agent's CLI is installed, then try again." = "Sign-in did not finish. Check that the Agent's CLI is installed, then try again.";
+"Sign-in timed out. Try again." = "Sign-in timed out. Try again.";
 "Signals that the changes are ready to merge. A summary is optional." = "Signals that the changes are ready to merge. A summary is optional.";
 "Signature" = "Signature";
 "Signed in through the ACP gateway with the API key from your local configuration." = "Signed in through the ACP gateway with the API key from your local configuration.";
@@ -3024,6 +3048,7 @@
 "Skill files" = "Skill files";
 "Skill imports cannot contain symbolic links or special files." = "Skill imports cannot contain symbolic links or special files.";
 "Skill instructions" = "Skill instructions";
+"Skill loaded: %@" = "Skill loaded: %@";
 "Skill name (lowercase-with-hyphens)" = "Skill name (lowercase-with-hyphens)";
 "Skill project" = "Skill project";
 "Skill saved. Refresh or reconnect the Agent if it does not appear in the conversation." = "Skill saved. Refresh or reconnect the Agent if it does not appear in the conversation.";
@@ -3161,6 +3186,7 @@
 "Subagents" = "Subagents";
 "Subject maximum length" = "Subject maximum length";
 "Submitting review…" = "Submitting review…";
+"Subscription accounts" = "Subscription accounts";
 "Succeeded" = "Succeeded";
 "Supplementary message cancelled." = "Supplementary message cancelled.";
 "Supported placeholders: {summary}, {changes}, {testing}, {risks}." = "Supported placeholders: {summary}, {changes}, {testing}, {risks}.";
@@ -3401,6 +3427,7 @@
 "Thinking…" = "Thinking…";
 "This Agent" = "This Agent";
 "This Agent cannot reopen earlier conversations. Start a new conversation." = "This Agent cannot reopen earlier conversations. Start a new conversation.";
+"This Agent has no account sign-in." = "This Agent has no account sign-in.";
 "This Agent has no global MCP configuration file." = "This Agent has no global MCP configuration file.";
 "This Agent is no longer configured. Open Agent settings to configure it." = "This Agent is no longer configured. Open Agent settings to configure it.";
 "This Agent's provider has no API key. Update its local configuration or edit the custom provider in the panel settings." = "This Agent's provider has no API key. Update its local configuration or edit the custom provider in Settings > AI > Agents.";
@@ -3622,6 +3649,7 @@
 "Upstream branch" = "Upstream branch";
 "Uptime" = "Uptime";
 "Usage appears after the next reply." = "Usage appears after the next reply.";
+"Usage is whatever the Agent last reported. Claude Code reports it while a reply runs; Codex is also refreshed about once a minute while the Agent panel is open. Lithe never queries the account itself, so a value can be out of date, and an account you are not using keeps its last values until you switch back. A window that has already reset is shown without a reset time or pace." = "Usage is whatever the Agent last reported. Claude Code reports it while a reply runs; Codex is also refreshed about once a minute while the Agent panel is open. Lithe never queries the account itself, so a value can be out of date, and an account you are not using keeps its last values until you switch back. A window that has already reset is shown without a reset time or pace.";
 "Usages" = "Usages";
 "Use %@ configuration" = "Use %@ configuration";
 "Use 1–80 letters, digits, hyphens or underscores. Names must be unique." = "Use 1–80 letters, digits, hyphens or underscores. Names must be unique.";
@@ -3715,6 +3743,7 @@
 "Waiting for GitHub…" = "Waiting for GitHub…";
 "Waiting for JVM performance data…" = "Waiting for JVM performance data…";
 "Waiting for a local test JVM…" = "Waiting for a local test JVM…";
+"Waiting for browser sign-in…" = "Waiting for browser sign-in…";
 "Waiting for debugger output…" = "Waiting for debugger output…";
 "Waiting for download data. Check your network or proxy if this continues." = "Waiting for download data. Check your network or proxy if this continues.";
 "Waiting for permission…" = "Waiting for permission…";
@@ -3919,6 +3948,23 @@
 "native.afterAToolRuns" = "After a tool runs";
 "native.afterLitheClosesUnexpectedly" = "After Lithe closes unexpectedly";
 "native.agent" = "Agent";
+"native.agentAccountAdd" = "Add another account";
+"native.agentAccountDefaultName" = "Account %1$@";
+"native.agentAccountPace" = "Pace %1$@";
+"native.agentAccountPreferred" = "Preferred";
+"native.agentAccountRemove" = "Remove account";
+"native.agentAccountRemoveMessage" = "Remove this account from Lithe? Its sign-in folder is left on disk untouched.";
+"native.agentAccountResets" = "Resets %1$@";
+"native.agentAccountSetPreferred" = "Set as preferred";
+"native.agentAccountSignInAgain" = "Sign in again";
+"native.agentAccountSignInFailed" = "Sign-in did not finish. Check that the Agent's CLI is installed, then try again.";
+"native.agentAccountSignInTimedOut" = "Sign-in timed out. Try again.";
+"native.agentAccountSignInUnsupported" = "This Agent has no account sign-in.";
+"native.agentAccountSnapshotNote" = "As of %1$@; not refreshed by Lithe.";
+"native.agentAccountUsageInfo" = "Usage is whatever the Agent last reported. Claude Code reports it while a reply runs; Codex is also refreshed about once a minute while the Agent panel is open. Lithe never queries the account itself, so a value can be out of date, and an account you are not using keeps its last values until you switch back. A window that has already reset is shown without a reset time or pace.";
+"native.agentAccountWaiting" = "Waiting for browser sign-in…";
+"native.agentAccounts" = "Subscription accounts";
+"native.agentAccountsInfo" = "Each account is a separate configuration folder of the official CLI. Sign-in runs the CLI's own login command in the background and opens your browser, so Lithe never reads or copies credentials. Switching restarts this project's connection for this Agent and is refused while a reply or permission request is pending. Lithe never switches accounts by itself when a limit is reached.";
 "native.agentChangeRollbackIsUnavailable" = "Agent change rollback is unavailable.";
 "native.agentCommands" = "Agent commands";
 "native.agentConfiguration" = "Agent configuration";
@@ -4096,9 +4142,13 @@
 "native.avg" = "avg";
 "native.backToAllReferences" = "Back to all references";
 "native.backToTheConversation" = "Back to the conversation";
+"native.backgroundCommandEndedExitCodeArg1Arg2" = "Background command ended (exit code %1$@): %2$@";
+"native.backgroundCommandFinished" = "Background command finished: %1$@";
 "native.backgroundServices" = "Background Services";
 "native.backgroundServices.variant2" = "Background services";
 "native.backgroundServicesStartedInLitheAreStillRunning" = "Background services started in Lithe are still running";
+"native.backgroundTaskEnded" = "Background task ended";
+"native.backgroundTaskFinished" = "Background task finished";
 "native.balancedReasoning" = "Balanced reasoning";
 "native.base" = "Base";
 "native.base.variant2" = "Base: %1$@";
@@ -4525,6 +4575,7 @@
 "native.conventionalCommits" = "Conventional Commits";
 "native.conversation" = "Conversation";
 "native.conversationActions" = "Conversation actions";
+"native.conversationContinuedFromASummary" = "Conversation continued from a summary";
 "native.conversationHistory" = "Conversation history";
 "native.conversationHistoryIsUnavailable" = "Conversation history is unavailable";
 "native.conversationTabs" = "Conversation tabs";
@@ -4680,6 +4731,7 @@
 "native.decreaseFontSize" = "Decrease Font Size";
 "native.deepReasoningForComplexTasks" = "Deep reasoning for complex tasks";
 "native.default" = "Default";
+"native.defaultAgentAccount" = "Default account";
 "native.defaultChangeList" = "Default ChangeList";
 "native.defaultDirectory" = "Default directory";
 "native.defaultInstructions" = "Default instructions";
@@ -4903,6 +4955,7 @@
 "native.endThisTerminal" = "End This Terminal";
 "native.endWithoutAsking" = "End without asking";
 "native.english" = "English";
+"native.enlargeImage" = "Enlarge image";
 "native.enterABranchName" = "Enter a branch name";
 "native.enterABranchName.variant2" = "Enter a branch name.";
 "native.enterABranchNameBeforePublishing" = "Enter a branch name before publishing.";
@@ -5060,6 +5113,7 @@
 "native.finished" = "Finished";
 "native.finishedWithoutCreating" = "%1$@ finished without creating %2$@.";
 "native.firstLldLocations" = "First %1$lld locations";
+"native.fitToWindow" = "Fit to Window";
 "native.fixTheFailingChecksBelowBeforeInstalling" = "Fix the failing checks below before installing.";
 "native.fixup" = "Fixup";
 "native.folder" = "Folder";
@@ -5446,6 +5500,7 @@
 "native.isNotInstalledLitheInstallsItWithYourNpmIntoItsApplicationData" = "%1$@ is not installed. Lithe installs it with your npm into its application data.";
 "native.isVersionOrNewerIsRequired" = "%1$@ is version %2$@; %3$@ or newer is required.";
 "native.itCanReadFilesRunCommandsAndEditCodeAfterAskingForPermission" = "It can read files, run commands and edit code after asking for permission.";
+"native.itemLldOfLld" = "Item %1$lld of %2$lld";
 "native.itsDetailsAndActionsWillAppearHere" = "Its details and actions will appear here.";
 "native.japaneseCharacters" = "Japanese characters";
 "native.javaApplication" = "Java Application";
@@ -5895,6 +5950,7 @@
 "native.nextDiffMatch" = "Next diff match";
 "native.nextDifference" = "Next difference";
 "native.nextFile" = "Next File";
+"native.nextImage" = "Next image";
 "native.nextMatch" = "Next Match";
 "native.nextMatch.variant2" = "Next match";
 "native.nextMatchReturn" = "Next match (Return)";
@@ -6273,6 +6329,7 @@
 "native.previousDiffMatch" = "Previous diff match";
 "native.previousDifference" = "Previous difference";
 "native.previousFile" = "Previous File";
+"native.previousImage" = "Previous image";
 "native.previousMatch" = "Previous Match";
 "native.previousMatch.variant2" = "Previous match";
 "native.previousMatchShiftReturn" = "Previous match (Shift+Return)";
@@ -6937,6 +6994,7 @@
 "native.skillFiles" = "Skill files";
 "native.skillImportsCannotContainSymbolicLinksOrSpecialFiles" = "Skill imports cannot contain symbolic links or special files.";
 "native.skillInstructions" = "Skill instructions";
+"native.skillLoaded" = "Skill loaded: %1$@";
 "native.skillMdExceedsThe128KibLimit" = "SKILL.md exceeds the 128 KiB limit.";
 "native.skillMdFrontmatterIsNotClosed" = "SKILL.md frontmatter is not closed.";
 "native.skillMdHasInvalidYamlFrontmatter" = "SKILL.md has invalid YAML frontmatter.";
