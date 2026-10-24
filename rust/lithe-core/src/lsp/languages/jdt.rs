@@ -162,6 +162,9 @@ pub(crate) struct JdtJavaRuntime {
 /// Values Lithe owns in JDT LS's `settings.java`, borrowed from one session.
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct JdtSettings<'a> {
+    /// Plugin-declared completion options from this session's initialization;
+    /// all leaves survive except the provider-owned guessMethodArguments.
+    pub completion: Option<&'a Value>,
     pub maven: Option<&'a JdtMavenConfiguration>,
     /// Gradle import settings, present only for Gradle workspaces.
     pub gradle: Option<&'a JdtGradleConfiguration>,
@@ -443,7 +446,7 @@ pub(crate) fn adapt_initialization_options(
 /// initialization options.
 ///
 /// Catalog keys that the provider does not own are preserved, while the Maven,
-/// build, and code-lens values Lithe depends on stay authoritative.
+/// build, completion, and code-lens values Lithe depends on stay authoritative.
 fn merge_java_settings(options: &mut Map<String, Value>, provider_settings: Value) {
     let settings = options.entry("settings").or_insert_with(|| json!({}));
     if !settings.is_object() {
@@ -467,6 +470,19 @@ fn merge_java_settings(options: &mut Map<String, Value>, provider_settings: Valu
         return;
     };
     for (key, value) in provider_java {
+        if key == "completion" {
+            let completion = java.entry(key).or_insert_with(|| json!({}));
+            if !completion.is_object() {
+                *completion = json!({});
+            }
+            completion.as_object_mut().unwrap().extend(
+                value
+                    .as_object()
+                    .expect("completion settings are an object")
+                    .clone(),
+            );
+            continue;
+        }
         // `java.import.gradle` is the only `import` leaf Lithe owns. The options
         // Lithe deliberately never guesses (`java.home`, `version`,
         // `offline.enabled`, ...) have to survive, so the owned leaves merge
@@ -1074,6 +1090,9 @@ fn java_settings(settings: JdtSettings<'_>) -> Value {
             "configuration": {
                 "updateBuildConfiguration": "automatic"
             },
+            // JDT LS otherwise inserts parameter names into calls. Its "off"
+            // mode keeps the argument list empty and the snippet cursor inside.
+            "completion": java_completion_settings(settings.completion),
             "inlayHints": {
                 "parameterNames": {
                     "enabled": "all"
@@ -1102,6 +1121,17 @@ fn java_settings(settings: JdtSettings<'_>) -> Value {
         java["java"]["configuration"]["runtimes"] = java_runtimes_value(settings.java_runtimes);
     }
     java
+}
+
+/// Retains the plugin's completion leaves while applying Lithe's argument policy.
+/// Invalid section shapes are normalized without mutating the session input.
+fn java_completion_settings(declared: Option<&Value>) -> Value {
+    let mut completion = declared
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    completion.insert("guessMethodArguments".to_string(), json!("off"));
+    Value::Object(completion)
 }
 
 fn java_runtimes_value(runtimes: &[JdtJavaRuntime]) -> Value {
@@ -1163,6 +1193,15 @@ fn java_configuration_for_section(section: Option<&str>, settings: JdtSettings<'
     let gradle_configuration = settings.gradle;
     match section {
         Some("java") => java_settings(settings)["java"].clone(),
+        Some("java.completion") => java_settings(settings)["java"]["completion"].clone(),
+        Some(section) if section.starts_with("java.completion.") => {
+            let completion = java_completion_settings(settings.completion);
+            section["java.completion.".len()..]
+                .split('.')
+                .try_fold(&completion, |value, key| value.get(key))
+                .cloned()
+                .unwrap_or(Value::Null)
+        }
         Some("java.inlayHints") => json!({
             "parameterNames": {
                 "enabled": "all"
@@ -1424,6 +1463,7 @@ mod tests {
             maven: None,
             gradle: None,
             java_runtimes: &runtimes,
+            ..Default::default()
         };
         let expected = json!([{ "name": "JavaSE-25", "path": "C:/Program Files/Java/jdk-25" }]);
         let options = adapt_initialization_options("java", None, &[], settings).unwrap();
@@ -1462,6 +1502,7 @@ mod tests {
             maven: Some(configuration),
             gradle: None,
             java_runtimes: &[],
+            ..Default::default()
         }
     }
 
@@ -1470,6 +1511,7 @@ mod tests {
             maven: None,
             gradle: Some(configuration),
             java_runtimes: &[],
+            ..Default::default()
         }
     }
 
@@ -1966,6 +2008,63 @@ mod tests {
         // Catalog values outside the provider-owned keys survive the overlay.
         assert_eq!(options["settings"]["java"]["custom"], true);
         assert_eq!(options["workspace"]["custom"], true);
+    }
+
+    #[test]
+    fn java_completion_leaves_arguments_empty_across_configuration_channels() {
+        // Initialization, notifications and pull configuration must agree, or
+        // JDT LS can restore parameter placeholders after the first completion.
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../../../shared/fixtures/lsp/java-completion-v1.json"
+        ))
+        .expect("Java completion fixture should be valid");
+        let expected = &fixture["javaSettings"]["completion"];
+        let settings = JdtSettings {
+            completion: Some(&fixture["pluginCompletion"]),
+            ..Default::default()
+        };
+        let options = adapt_initialization_options(
+            "java",
+            Some(json!({ "settings": { "java": { "completion": fixture["pluginCompletion"] } } })),
+            &[],
+            settings,
+        )
+        .unwrap();
+        assert_eq!(
+            options["settings"]["java"]["completion"]["guessMethodArguments"],
+            expected["guessMethodArguments"]
+        );
+        assert_eq!(
+            options["settings"]["java"]["completion"]["favoriteStaticMembers"],
+            json!(["java.util.Objects.*"])
+        );
+
+        assert_eq!(options["settings"]["java"]["completion"], *expected);
+        let notification = initialized_notification("java", settings).unwrap();
+        assert_eq!(
+            notification.params["settings"]["java"]["completion"],
+            *expected
+        );
+        let items = fixture["workspaceConfigurationSections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|section| WorkspaceConfigurationItem {
+                scope_uri: None,
+                section: Some(section.as_str().unwrap().to_string()),
+            })
+            .collect::<Vec<_>>();
+        let values = workspace_configuration("java", &items, settings).unwrap();
+        assert_eq!(values[0]["completion"], *expected);
+        assert_eq!(values[1], *expected);
+        assert_eq!(values[2], expected["guessMethodArguments"]);
+        assert_eq!(values[3], expected["favoriteStaticMembers"]);
+        assert_eq!(values[4], expected["filteredTypes"]);
+        assert_eq!(values[5], Value::Null);
+        assert_eq!(
+            fixture["pluginCompletion"]["guessMethodArguments"],
+            "insertParameterNames"
+        );
     }
 
     #[test]
