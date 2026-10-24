@@ -34,6 +34,31 @@ struct ProjectGenerationTests {
         #expect(capabilities.filter { $0.kind == .projectGenerator }.map(\.title) == ["Java", "Maven Archetype", "Spring Boot"])
     }
 
+    /// Startup refuses a plugin that declares a module the host does not
+    /// register, so every Java Support module, the project-generators one
+    /// included, needs a factory.
+    @Test
+    func everyJavaSupportModuleIsRegisteredAtStartup() throws {
+        let directory = Self.javaSupportDirectory
+        let descriptor = try DeclarativePluginTestSupport.officialDescriptor(directory)
+        let installed = InstalledPluginPackage(
+            descriptor: descriptor,
+            installation: PluginInstallationRecord(
+                pluginID: descriptor.id,
+                activeVersion: descriptor.pluginManifest.version,
+                origin: .localDevelopment
+            ),
+            packageURL: DeclarativePluginTestSupport.officialPackageURL(directory)
+        )
+        let registered = Set(MacServiceContainer.declarativePluginFactories(
+            [installed],
+            executionHost: MacLanguageExecutionHost(processRegistry: ManagedProcessRegistry()),
+            planner: DeclarativePluginTestSupport.operations
+        ).map(\.manifest.id))
+        #expect(registered.contains(.projectGeneratorsExtension(descriptor.id.rawValue)))
+        #expect(Set(descriptor.pluginManifest.modules.map(\.manifest.id)).isSubset(of: registered))
+    }
+
     // MARK: Rust Core
 
     @Test
