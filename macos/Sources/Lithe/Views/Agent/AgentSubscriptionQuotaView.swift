@@ -62,7 +62,22 @@ enum AgentSubscriptionQuotaPresentation {
                duration(window.limitSeconds), percentage(window, locale: locale))
     }
 
-    static func notice(quota: AgentSubscriptionQuota?, failure: String?, stale: Bool) -> String.LocalizationValue? {
+    static func title(_ source: AgentSubscriptionQuota.Source) -> String.LocalizationValue {
+        source == .claude ? "Claude subscription quota" : "Codex subscription quota"
+    }
+
+    static func notice(quota: AgentSubscriptionQuota?, failure: String?, stale: Bool,
+                       source: AgentSubscriptionQuota.Source = .codex, locale: Locale = .current) -> String? {
+        if source == .claude {
+            guard let quota else { return AgentLocalization.string("Usage appears after the next reply.", locale: locale) }
+            let date = Date(timeIntervalSince1970: Double(quota.fetchedAt))
+                .formatted(.dateTime.month().day().hour().minute().second().locale(locale))
+            return String(format: AgentLocalization.string("As of %@; updated only while replying.", locale: locale), date)
+        }
+        return codexNotice(quota: quota, failure: failure, stale: stale).map { AgentLocalization.string($0, locale: locale) }
+    }
+
+    private static func codexNotice(quota: AgentSubscriptionQuota?, failure: String?, stale: Bool) -> String.LocalizationValue? {
         if failure == "accountChanged" || failure == "unauthorized" {
             return "The local Codex account changed. Reconnect to refresh quota."
         }
@@ -76,6 +91,8 @@ struct AgentSubscriptionQuotaView: View {
     let quota: AgentSubscriptionQuota?
     let account: String?
     let failure: String?
+    /// Before the first Claude report there is no quota value to read the source from.
+    var source: AgentSubscriptionQuota.Source = .codex
     @Environment(\.locale) private var locale
 
     var body: some View {
@@ -101,7 +118,8 @@ struct AgentSubscriptionQuotaView: View {
                 panel(stale: stale).litheHoverTooltipSurface()
             }
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Codex subscription quota")
+            .accessibilityLabel(Text(verbatim: AgentLocalization.string(
+                AgentSubscriptionQuotaPresentation.title(quota?.source ?? source), locale: locale)))
             .accessibilityValue(ring.map { AgentSubscriptionQuotaPresentation.usage($0, locale: locale) }
                                 ?? AgentLocalization.string("Quota —", locale: locale))
             .accessibilityIdentifier("agent-subscription-quota")
@@ -109,7 +127,8 @@ struct AgentSubscriptionQuotaView: View {
     }
 
     private func panel(stale: Bool) -> some View {
-        AgentSubscriptionQuotaPanel(quota: quota, account: account, failure: failure, stale: stale)
+        AgentSubscriptionQuotaPanel(quota: quota, account: account, failure: failure, stale: stale,
+                                    source: quota?.source ?? source)
             .padding(12)
             .frame(maxWidth: AgentStatusCardMetrics.width)
     }
@@ -122,12 +141,14 @@ struct AgentSubscriptionQuotaPanel: View {
     let account: String?
     let failure: String?
     let stale: Bool
+    var source: AgentSubscriptionQuota.Source = .codex
     @Environment(\.locale) private var locale
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Codex subscription quota").font(LitheTheme.uiFont(size: 12, weight: .semibold))
+                Text(verbatim: AgentLocalization.string(AgentSubscriptionQuotaPresentation.title(source), locale: locale))
+                    .font(LitheTheme.uiFont(size: 12, weight: .semibold))
                 if let account {
                     Text(verbatim: account).font(LitheTheme.uiFont(size: 11))
                         .foregroundStyle(LitheTheme.HoverTooltip.infoForeground)
@@ -137,8 +158,9 @@ struct AgentSubscriptionQuotaPanel: View {
             ForEach(AgentSubscriptionQuotaPresentation.windows(quota)) { window in
                 windowRow(window)
             }
-            if let message = AgentSubscriptionQuotaPresentation.notice(quota: quota, failure: failure, stale: stale) {
-                Text(verbatim: AgentLocalization.string(message, locale: locale))
+            if let message = AgentSubscriptionQuotaPresentation.notice(quota: quota, failure: failure, stale: stale,
+                                                                       source: source, locale: locale) {
+                Text(verbatim: message)
                     .font(LitheTheme.uiFont(size: 10.5))
                     .foregroundStyle(LitheTheme.HoverTooltip.infoForeground)
                     .fixedSize(horizontal: false, vertical: true)
@@ -183,7 +205,7 @@ struct AgentSubscriptionQuotaPanel: View {
 
     private func windowTitle(_ window: AgentSubscriptionQuota.Window) -> some View {
         HStack(spacing: 4) {
-            if window.name != "codex" { Text(verbatim: window.name) }
+            if window.name != "codex" && window.name != "claude" { Text(verbatim: window.name) }
             if window.limitSeconds == AgentSubscriptionQuotaPresentation.fiveHours { Text("5 hours") }
             else if window.limitSeconds == AgentSubscriptionQuotaPresentation.sevenDays { Text("7 days") }
             else { Text(verbatim: AgentSubscriptionQuotaPresentation.duration(window.limitSeconds)) }

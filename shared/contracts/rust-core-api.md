@@ -812,6 +812,44 @@ atomic and partial success is explicit. Cancellation stops remaining targets and
 next page read reconciles actual state. None of these files is a build cache or
 installed resource. The fixture is `fixtures/agent/shared-instructions-v1.json`.
 
+`agent.hooks` manages a platform-owned writable Hook library. Requests take
+`dataDirectory` and a strict `action`: `read`, `save`, `remove`, or `sync`.
+Mutations require `expectedRevision` and native `files` guards containing
+`agentId`, `path`, and `revision`. Guard paths never select write destinations:
+Agent Host resolves `CODEX_HOME/hooks.json` and `CLAUDE_CONFIG_DIR/settings.json`
+using native profile defaults when environment overrides are absent.
+
+`save` also takes `hook`: a UUID `id`, unique ASCII `name` (1–80 letters,
+digits, hyphens or underscores), `description` (at most 200 Unicode scalars),
+`event` (`turn-end`, `after-tool`, `before-tool`, `prompt`, `session-start`),
+`matcher` (`all`, `shell`, `edit`), nonempty UTF-8 `command` (at most 32768 bytes),
+nullable `timeoutSeconds` (1–86400, null inherits the native default), selected
+`agents` (`codex-acp`, `claude-acp`), `enabled`, and `pendingRemoval: false`.
+Only tool events accept a non-`all` matcher. `remove` takes `id`; `sync` retries
+the existing desired state. Neither configuration management nor reading the
+library executes commands or grants native trust.
+
+The result contains source `revision`, flattened `hooks` with actual
+`configuredAgents` and `needsSync`, plus `targets` containing `agentId`, nullable
+`file` guard, nullable `issue`, and `disabled` (Claude's `disableAllHooks`).
+Native configuration contents, which can include secrets, are never returned.
+Desired state is committed before target writes; target failures remain visible
+and removal failures retain a `pendingRemoval` row. A nonblocking OS file lock
+coordinates library writers. Each bounded UTF-8 file replacement is guarded and
+atomic; cross-file synchronization is explicitly partial, with write-ahead
+ownership records permitting recovery after interruption. Native duplicate JSON
+keys, malformed JSON, symlinks, nonregular files and changed snapshots are rejected.
+Existing unknown JSON values survive writes, while formatting is normalized.
+
+Only exact recorded placements can be retired. Native groups are cleared to
+`{"hooks":[]}` instead of compacted, preserving Codex's index-based trust keys.
+Unchanged commands keep their original positions; edited commands do not inherit
+trust. A matching user-owned entry is never claimed or duplicated. Codex still
+requires native Hook enablement and approval in `/hooks`; `configuredAgents`
+does not claim execution. Source, ownership journal, lock and temporary siblings
+are user state outside installed resources and cannot be reused across worktrees.
+The shared fixture is `shared/fixtures/agent/hooks-management-v1.json`.
+
 `agent.status`, `agent.install`, `agent.uninstall`, and `agent.installCli` manage ACP adapters in
 `<dataDirectory>/agents/<agentId>`, using the Node.js and npm the user installed.
 Lithe never installs Node.js or npm; the agents' own command-line tools are installed only through `agent.installCli` on an explicit user action. `agent.status`
@@ -1062,6 +1100,11 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `vcs.detectRoots` | Find the VCS roots of a workspace from static markers, with registered providers, ambiguous directories, and applied mappings |
 | `vcs.ownerOf` | Assign workspace paths to the detected root that owns each |
 | `vcs.decodeReply` | Validate a VCS provider's reply and return the normalized result |
+| `project.generatorCatalog` | List the project generators of the given plugins, with the plugins that provide each requirement |
+| `project.generatorForm` | Evaluate a generator's form: derived defaults, visibility, problems, and active requirements |
+| `project.generationPlan` | Expand a filled-in form into the files, commands, and archive downloads that create a project |
+| `project.checkName` | Check that a name can be a new project's directory name |
+| `project.extractArchive` | Extract a downloaded project archive into the staging directory, refusing unsafe entries |
 | `plugins.marketplace.validateIndex` | Validate a marketplace index and report each plugin's availability for one platform |
 | `plugins.marketplace.resolveSource` | Resolve a user-entered marketplace source to the index URL to fetch |
 | `plugins.marketplace.installReview` | List a package's permissions and programs, and those not yet approved |
@@ -3305,6 +3348,22 @@ levels and 20,000 directories) and the marker names in its ancestors; it never
 reads file contents, writes anything, or starts a process. The other two
 commands touch no file. `shared/fixtures/vcs/model-v1.json` holds the
 detection cases, decoded snapshots, and reply validation cases.
+### Project generators
+
+The `project.*` commands back the New Project window. Payloads, results, and
+problem codes are specified in the plugin contract's
+[Project generators](plugins/v1/README.md#project-generators) section, and
+`shared/contracts/plugins/v1/fixtures/project-plans.json` holds the golden
+answers. Results use the `plugins.declarative.*` envelope: `catalog`, `form`,
+`plan`, `name`, and `extracted`. Commands that take a manifest revalidate it
+and answer `plugin.project.unavailable` for an undeclared generator.
+
+`project.generationPlan` reads template files below `packagePath` (bounded,
+no symbolic links). `project.extractArchive` is the only command that writes:
+it extracts into an existing staging directory the host created and never
+replaces a file. Neither starts a process or downloads anything; the host
+runs command steps, downloads archives, and moves the finished project into
+place.
 
 ### Git patch discovery and rebase amendment preconditions
 
@@ -3656,6 +3715,21 @@ an identity that is no longer present. Legacy positional references remain accep
 See `shared/fixtures/git/saved-stash-v1.json`. Native Shelf persistence is platform-owned;
 raw patch bytes are kept separately for index and working-tree versions.
 
+### Native plugin UI data
+
+`plugins.nativeUI.validateData` accepts `{ ui, data }`, where `ui` is the
+validated native schema-1 declaration and `data` is a provider's `{ nodes }`
+reply. It returns `{ status: "ok", nodes }` or
+`{ status: "rejected", error: { code: "plugin.ui.invalidData", message } }`.
+Malformed envelopes remain Core `invalid_request` failures. The operation uses
+the same identity, literal label, nesting and node budgets as manifest validation
+and rejects data above 1 MiB. Form declarations validate bounded input/select/checkbox
+controls (including search/editor/segmented/stepper), typed scalar defaults, choices,
+info, button action references/width policies and onCommit references; form source replies
+require empty nodes. Hosts inject this typed operation into their
+presentation feature; views never call the C ABI. Windows can reuse validation
+when it later adds a native renderer; Core support does not advertise ui 3 on
+that platform.
 
 ### Agent skill management
 

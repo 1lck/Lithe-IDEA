@@ -314,21 +314,31 @@ struct LitheSettingsNotice<Actions: View>: View {
 /// page stays scannable and the explanation appears only when the pointer rests
 /// on the icon. The tip opens after `LitheInfoTip`'s hover delay.
 struct LitheSettingsLabel: View {
-    private let title: LocalizedStringKey
-    private let info: LocalizedStringKey?
+    private let title: Text
+    private let info: LitheInfoTip?
+    private var wrapsTitle = false
 
     init(_ title: LocalizedStringKey, info: LocalizedStringKey? = nil) {
+        self.title = Text(title)
+        self.info = info.map { LitheInfoTip($0) }
+    }
+
+    init(verbatim title: String, info: String? = nil) {
+        self.title = Text(verbatim: title)
+        self.info = info.map { LitheInfoTip(verbatim: $0) }
+        wrapsTitle = true
+    }
+
+    init(_ title: Text, info: String? = nil) {
         self.title = title
-        self.info = info
+        self.info = info.map { LitheInfoTip(verbatim: $0) }
+        wrapsTitle = true
     }
 
     var body: some View {
-        HStack(spacing: 4) {
-            Text(title)
-                .fixedSize(horizontal: true, vertical: false)
-            if let info {
-                LitheInfoTip(info)
-            }
+        HStack(spacing: LitheInfoTip.labelSpacing) {
+            title.fixedSize(horizontal: !wrapsTitle, vertical: false)
+            if let info { info }
         }
     }
 }
@@ -343,63 +353,6 @@ enum LitheSettingsSelectSearch {
         guard !trimmed.isEmpty else { return true }
 
         return candidate.localizedStandardContains(trimmed)
-    }
-}
-
-struct LitheSettingsSearchField: View {
-    /// Height shared with the popups that host this field, so a searchable list
-    /// reserves exactly the room the field occupies.
-    static let height: CGFloat = 28
-
-    @FocusState private var isFocused: Bool
-    private let externalFocus: FocusState<Bool>.Binding?
-    private let placeholder: LocalizedStringKey
-    @Binding private var text: String
-    private let onTextChanged: ((String) -> Void)?
-
-    init(
-        _ placeholder: LocalizedStringKey,
-        text: Binding<String>,
-        focus: FocusState<Bool>.Binding? = nil,
-        onTextChanged: ((String) -> Void)? = nil
-    ) {
-        self.placeholder = placeholder
-        _text = text
-        externalFocus = focus
-        self.onTextChanged = onTextChanged
-    }
-
-    var body: some View {
-        HStack(spacing: 7) {
-            LitheIDEAIcon(resourcePath: "expui/general/search.svg", size: 16, fallbackSystemImage: "magnifyingglass", preservesOriginalColors: true)
-
-            TextField(placeholder, text: $text)
-                .textFieldStyle(.plain)
-                .font(LitheTheme.settingsFont)
-                .focused(externalFocus ?? $isFocused)
-
-            if !text.isEmpty {
-                Button {
-                    text = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(LitheTheme.uiFont(size: 11))
-                        .foregroundStyle(LitheTheme.tertiaryText)
-                }
-                .buttonStyle(.litheNoPress)
-                .lithePointer()
-                .help("Clear search")
-            }
-        }
-        .padding(.horizontal, 9)
-        .frame(height: Self.height)
-        .litheSettingsControlChrome(
-            background: .clear,
-            border: (externalFocus?.wrappedValue ?? isFocused) ? LitheTheme.settingsControlAccent : LitheTheme.settingsControlBorder
-        )
-        .onChange(of: text) { value in
-            onTextChanged?(value)
-        }
     }
 }
 
@@ -574,7 +527,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
     /// the first row, and the same top padding the rows container already owns.
     private var searchFieldCost: CGFloat {
         guard searchPrompt != nil else { return 0 }
-        return LitheSettingsSearchField.height
+        return LitheSearchField<EmptyView>.height
             + SettingsSelectMetrics.searchSpacing
             + SettingsSelectMetrics.popupPadding
     }
@@ -725,7 +678,7 @@ private struct LitheSettingsSelectPopupContent<Value: Hashable>: View {
     var body: some View {
         VStack(spacing: 0) {
             if let searchPrompt {
-                LitheSettingsSearchField(searchPrompt, text: $state.query)
+                LitheSearchField(searchPrompt, text: $state.query)
                     .padding(.horizontal, SettingsSelectMetrics.popupPadding)
                     .padding(.top, SettingsSelectMetrics.popupPadding)
                     .padding(.bottom, SettingsSelectMetrics.searchSpacing)
@@ -989,17 +942,20 @@ struct LitheSettingsSegmentedControl<Value: Hashable>: View {
     private let options: [Value]
     private let width: CGFloat
     private let title: (Value) -> String
+    private let localizesTitles: Bool
 
     init(
         selection: Binding<Value>,
         options: [Value],
         width: CGFloat,
-        title: @escaping (Value) -> String
+        title: @escaping (Value) -> String,
+        localizesTitles: Bool = true
     ) {
         _selection = selection
         self.options = options
         self.width = width
         self.title = title
+        self.localizesTitles = localizesTitles
     }
 
     var body: some View {
@@ -1008,7 +964,7 @@ struct LitheSettingsSegmentedControl<Value: Hashable>: View {
                 Button {
                     selection = option
                 } label: {
-                    Text(LocalizedStringKey(title(option)))
+                    (localizesTitles ? Text(LocalizedStringKey(title(option))) : Text(verbatim: title(option)))
                         .font(LitheTheme.uiFont(size: 12, weight: .medium))
                         .litheSettingsSegmentedOption(isSelected: selection == option)
                 }
@@ -1023,19 +979,25 @@ struct LitheSettingsSegmentedControl<Value: Hashable>: View {
 
 struct LitheSettingsCheckbox: View {
     @Binding var isOn: Bool
-    private let title: LocalizedStringKey?
-    private let accessibilityLabel: LocalizedStringKey
+    private let title: Text?
+    private let accessibilityLabel: Text
 
     init(isOn: Binding<Bool>, title: LocalizedStringKey) {
         _isOn = isOn
-        self.title = title
-        accessibilityLabel = title
+        self.title = Text(title)
+        accessibilityLabel = Text(title)
     }
 
     init(isOn: Binding<Bool>, accessibilityLabel: LocalizedStringKey) {
         _isOn = isOn
         title = nil
-        self.accessibilityLabel = accessibilityLabel
+        self.accessibilityLabel = Text(accessibilityLabel)
+    }
+
+    init(isOn: Binding<Bool>, verbatimTitle: String) {
+        _isOn = isOn
+        title = Text(verbatim: verbatimTitle)
+        accessibilityLabel = Text(verbatim: verbatimTitle)
     }
 
     var body: some View {
@@ -1057,7 +1019,7 @@ struct LitheSettingsCheckbox: View {
                 )
 
                 if let title {
-                    Text(title)
+                    title
                         .font(LitheTheme.uiFont(size: 12.5))
                         .foregroundStyle(LitheTheme.primaryText)
                 }
@@ -1067,7 +1029,7 @@ struct LitheSettingsCheckbox: View {
         .buttonStyle(.litheNoPress)
         .lithePointer()
         .accessibilityRepresentation {
-            Toggle(accessibilityLabel, isOn: $isOn)
+            Toggle(isOn: $isOn) { accessibilityLabel }
         }
     }
 }
@@ -1077,7 +1039,7 @@ struct LitheSettingsStepper<Value>: View where Value: Strideable & Comparable, V
     private let range: ClosedRange<Value>
     private let step: Value.Stride
     private let width: CGFloat
-    private let accessibilityLabel: LocalizedStringKey
+    private let accessibilityLabel: Text
     private let title: (Value) -> String
 
     init(
@@ -1092,7 +1054,19 @@ struct LitheSettingsStepper<Value>: View where Value: Strideable & Comparable, V
         self.range = range
         self.step = step
         self.width = width
-        self.accessibilityLabel = accessibilityLabel
+        self.accessibilityLabel = Text(accessibilityLabel)
+        self.title = title
+    }
+
+    init(
+        value: Binding<Value>, in range: ClosedRange<Value>, step: Value.Stride, width: CGFloat,
+        verbatimAccessibilityLabel: String, title: @escaping (Value) -> String
+    ) {
+        _value = value
+        self.range = range
+        self.step = step
+        self.width = width
+        accessibilityLabel = Text(verbatim: verbatimAccessibilityLabel)
         self.title = title
     }
 
@@ -1121,7 +1095,7 @@ struct LitheSettingsStepper<Value>: View where Value: Strideable & Comparable, V
         .litheSettingsControlChrome()
         .clipShape(RoundedRectangle(cornerRadius: SettingsSelectMetrics.controlCornerRadius))
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(Text(accessibilityLabel))
+        .accessibilityLabel(accessibilityLabel)
     }
 
     private func stepButton(
@@ -1140,48 +1114,6 @@ struct LitheSettingsStepper<Value>: View where Value: Strideable & Comparable, V
         .buttonStyle(.litheNoPress)
         .disabled(isDisabled)
         .lithePointer()
-    }
-}
-
-private struct LitheSettingsTextFieldModifier: ViewModifier {
-    @Environment(\.isEnabled) private var isEnabled
-    @FocusState private var isFocused: Bool
-
-    func body(content: Content) -> some View {
-        content
-            .textFieldStyle(.plain)
-            .font(LitheTheme.settingsFont)
-            .focused($isFocused)
-            .padding(.horizontal, 9)
-            .frame(height: SettingsSelectMetrics.controlHeight)
-            .litheSettingsControlChrome(
-                background: LitheTheme.settingsTextFieldBackground,
-                border: isFocused ? LitheTheme.settingsControlAccent : LitheTheme.settingsControlBorder
-            )
-            .opacity(isEnabled ? 1 : 0.55)
-    }
-}
-
-private struct LitheSettingsTextEditorModifier: ViewModifier {
-    @FocusState private var isFocused: Bool
-    let height: CGFloat
-    var externalFocus: FocusState<Bool>.Binding? = nil
-
-    private var hasFocus: Bool { externalFocus?.wrappedValue ?? isFocused }
-
-    func body(content: Content) -> some View {
-        content
-            .scrollContentBackground(.hidden)
-            .font(LitheTheme.uiFont(size: 12, design: .monospaced))
-            .focused(externalFocus ?? $isFocused)
-            .frame(height: height)
-            .padding(5)
-            .litheSettingsControlChrome(
-                background: LitheTheme.settingsTextFieldBackground,
-                border: hasFocus ? LitheTheme.settingsControlAccent : LitheTheme.settingsControlBorder,
-                lineWidth: hasFocus ? 2 : 1,
-                borderOutset: hasFocus ? 1 : 0
-            )
     }
 }
 
@@ -1215,11 +1147,4 @@ extension View {
                                            lineWidth: lineWidth, borderOutset: borderOutset))
     }
 
-    func litheSettingsTextField() -> some View {
-        modifier(LitheSettingsTextFieldModifier())
-    }
-
-    func litheSettingsTextEditor(height: CGFloat, focus: FocusState<Bool>.Binding? = nil) -> some View {
-        modifier(LitheSettingsTextEditorModifier(height: height, externalFocus: focus))
-    }
 }

@@ -217,7 +217,7 @@ struct ChangesSidebarView: View {
     }
 
     private var shelfContent: some View {
-        GitSavedChangesView(feature: feature, isActive: commitToolActive, openDiff: openSavedDiff,
+        GitSavedChangesView(feature: feature, openDiff: openSavedDiff,
             dropStash: { pendingDropStash = $0 }, dropShelf: { pendingDropShelf = $0 })
     }
 
@@ -365,28 +365,49 @@ struct ChangesSidebarView: View {
     private var groupedChangeList: some View {
         GeometryReader { geometry in
             let showsParentPaths = geometry.size.width >= 300
-            ScrollView(.vertical) {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(changeRows) { row in
-                        Group {
-                            switch row.content {
-                            case .repository(let repository):
-                                repositoryHeader(repository)
-                            case .changelist(let section, let key):
-                                changelistHeader(section, key: key)
-                            case .change(let change, let depth):
-                                changeRow(change, showsParentPath: showsParentPaths && depth == 0, depth: depth)
-                            }
-                        }
-                        .overlay(alignment: .bottom) {
-                            if row.closesRepository { repositoryDivider }
+            LitheTreeList(changeRows, id: \.id, selection: Binding<Set<String>>(get: { selection.ids }, set: { selection.replace(with: $0) }),
+                hierarchy: { row in
+                    switch row.content {
+                    case .repository(let repository):
+                        .init(isBranch: true, isExpanded: repositoryExpanded[repository.id] ?? true, isSelectable: false)
+                    case .changelist(_, let key):
+                        .init(depth: feature.availableRepositoryRoots.count > 1 ? 1 : 0, isBranch: true,
+                              isExpanded: changelistExpanded[key] ?? true, isSelectable: false)
+                    case .change(let change, let depth):
+                        .init(depth: depth + (feature.availableRepositoryRoots.count > 1 ? 2 : 1),
+                              isBranch: change.isUntrackedDirectory,
+                              isExpanded: feature.expandedUntrackedDirectoryIDs.contains(change.id))
+                    }
+                }, onExpansion: { row, expanded in
+                    switch row.content {
+                    case .repository(let repository): repositoryExpanded[repository.id] = expanded
+                    case .changelist(_, let key): changelistExpanded[key] = expanded
+                    case .change(let change, _):
+                        if feature.expandedUntrackedDirectoryIDs.contains(change.id) != expanded {
+                            Task { await feature.toggleUntrackedDirectory(change) }
                         }
                     }
+                }, onActivate: openChange, onClick: openChange,
+                contextMenu: { row in
+                    if case .change(let change, _) = row.content { return changeContextMenuItems(for: change) }
+                    return []
+                }) { row in
+                    Group {
+                        switch row.content {
+                        case .repository(let repository): repositoryHeader(repository)
+                        case .changelist(let section, let key): changelistHeader(section, key: key)
+                        case .change(let change, let depth):
+                            changeRow(change, showsParentPath: showsParentPaths && depth == 0, depth: depth)
+                        }
+                    }
+                    .overlay(alignment: .bottom) { if row.closesRepository { repositoryDivider } }
                 }
-                .padding(.horizontal, LitheTheme.Tree.horizontalInset)
-                .padding(.bottom, 8)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-            }
+        }
+    }
+
+    private func openChange(_ row: GitChangeSectionsCache.Row) {
+        if case .change(let change, _) = row.content, !change.isUntrackedDirectory, feature.selectedChange != change {
+            selectChange(change)
         }
     }
 
@@ -397,107 +418,29 @@ struct ChangesSidebarView: View {
     }
 
     private func repositoryHeader(_ repository: GitChangeSectionsCache.RepositorySection) -> some View {
-        let repositoryID = repository.id
-        let activeChanges = repository.changes.filter { feature.changelists.listID(for: $0) == feature.changelists.activeID }
-        let isExpanded = repositoryExpanded[repositoryID] ?? true
-
-        return HStack(spacing: 0) {
-            Button {
-                repositoryExpanded[repositoryID] = !isExpanded
-            } label: {
-                LitheIDEAIcon(resourcePath: isExpanded ? "expui/general/chevronDown.svg" : "expui/general/chevronRight.svg",
-                              size: LitheTheme.Tree.iconSize, preservesOriginalColors: true)
-                    .frame(width: LitheTheme.Tree.disclosureSlot, height: changeRowHeight)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.litheNoPress)
-            .help(LocalizedStringKey(isExpanded ? "Collapse repository" : "Expand repository"))
-
-            LitheTreeCheckbox(state: stagingState(for: activeChanges), accessibilityTitle: "Include in commit") {
-                setStaging(activeChanges, !allChangesStaged(activeChanges))
-            }
-            .disabled(feature.isCommitting || feature.changelistStorageFailed || !activeChanges.contains(where: \.canToggleStaging))
-            .help(LocalizedStringKey(
-                allChangesStaged(activeChanges)
-                    ? "Unstage all files in repository"
-                    : "Stage all files in repository"
-            ))
-
-            Button {
-                repositoryExpanded[repositoryID] = !isExpanded
-            } label: {
-                HStack(spacing: LitheTheme.Tree.iconTextGap) {
-                    Image(systemName: "folder.fill")
-                        .font(LitheTheme.uiFont(size: 12, weight: .medium))
-                        .foregroundStyle(GitRepositoryColor.color(
-                            for: repository.root,
-                            in: feature.availableRepositoryRoots
-                        ))
-                    Text(repositoryDisplayName(repository.root))
-                        .font(LitheTheme.uiFont(size: 13, weight: .semibold))
-                        .foregroundStyle(LitheTheme.primaryText)
-                        .lineLimit(1)
-                    Text("\(repository.fileCount)")
-                        .font(LitheTheme.uiFont(size: 13))
-                        .foregroundStyle(LitheTheme.Tree.secondaryText)
-                    Spacer(minLength: 0)
-                }
-                .frame(maxWidth: .infinity, minHeight: changeRowHeight, alignment: .leading)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.litheNoPress)
-            .help(repository.root.path)
+        let changes = repository.changes.filter { feature.changelists.listID(for: $0) == feature.changelists.activeID }
+        return HStack(spacing: LitheTheme.Tree.iconTextGap) {
+            inclusionCheckbox(changes)
+            Image(systemName: "folder.fill")
+                .foregroundStyle(GitRepositoryColor.color(for: repository.root, in: feature.availableRepositoryRoots))
+            Text(repositoryDisplayName(repository.root)).font(LitheTheme.uiFont(size: 13, weight: .semibold))
+            Text(String(repository.fileCount)).foregroundStyle(LitheTheme.Tree.secondaryText)
         }
-        .frame(maxWidth: .infinity)
     }
 
     private func changelistHeader(_ section: GitChangeSectionsCache.ChangelistSection, key: String) -> some View {
-        let list = section.list
-        let changes = section.changes
-        let isExpanded = changelistExpanded[key] ?? true
-        return HStack(spacing: 0) {
-            Button {
-                changelistExpanded[key] = !isExpanded
-            } label: {
-                LitheIDEAIcon(resourcePath: isExpanded ? "expui/general/chevronDown.svg" : "expui/general/chevronRight.svg",
-                              size: LitheTheme.Tree.iconSize, preservesOriginalColors: true)
-                    .frame(width: LitheTheme.Tree.disclosureSlot, height: changeRowHeight)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.litheNoPress)
-            .help(LocalizedStringKey(isExpanded ? "Collapse section" : "Expand section"))
+        HStack(spacing: LitheTheme.Tree.iconTextGap) {
+            inclusionCheckbox(section.changes)
+            if section.list.id == GitLocalChangelists.defaultID { Text("Default ChangeList") }
+            else { Text(verbatim: section.list.name) }
+            Text("\(section.fileCount) files").foregroundStyle(LitheTheme.Tree.secondaryText)
+        }
+    }
 
-            LitheTreeCheckbox(state: stagingState(for: changes), accessibilityTitle: "Include in commit") {
-                setStaging(changes, !allChangesStaged(changes))
-            }
+    private func inclusionCheckbox(_ changes: [GitChange]) -> some View {
+        LitheTreeCheckbox(state: stagingState(for: changes), accessibilityTitle: "Include in commit") { setStaging(changes, !allChangesStaged(changes)) }
             .disabled(feature.isCommitting || feature.changelistStorageFailed || !changes.contains(where: \.canToggleStaging))
             .help(LocalizedStringKey(allChangesStaged(changes) ? "Unstage all files" : "Stage all files"))
-
-            Button {
-                changelistExpanded[key] = !isExpanded
-            } label: {
-                HStack(spacing: 6) {
-                    Group {
-                        if list.id == GitLocalChangelists.defaultID {
-                            Text("Default ChangeList")
-                        } else {
-                            Text(verbatim: list.name)
-                        }
-                    }
-                        .font(LitheTheme.uiFont(size: 13, weight: .semibold))
-                        .foregroundStyle(LitheTheme.primaryText)
-                    Text("\(section.fileCount) files")
-                        .font(LitheTheme.uiFont(size: 13))
-                        .foregroundStyle(LitheTheme.Tree.secondaryText)
-                    Spacer()
-                }
-                .frame(maxWidth: .infinity, minHeight: 24)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.litheNoPress)
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: changeRowHeight)
     }
 
     private func changeRow(
@@ -506,11 +449,7 @@ struct ChangesSidebarView: View {
         depth: Int,
         includesRepositoryRootInParentPath: Bool = true
     ) -> some View {
-        let indent = LitheTheme.Tree.indent * CGFloat(depth + 1)
         return HStack(spacing: LitheTheme.Tree.iconTextGap) {
-            if change.isUntrackedDirectory {
-                untrackedDirectoryDisclosure(change)
-            }
             LitheTreeCheckbox(state: isEffectivelyStaged(change) ? .on : .off, accessibilityTitle: "Include in commit") {
                 let targets = selection.actionTargets(in: displayedChanges, clicked: change)
                 setStaging(targets, !isEffectivelyStaged(change))
@@ -520,10 +459,7 @@ struct ChangesSidebarView: View {
                 ? (isEffectivelyStaged(change) ? "Unstage file" : "Stage file")
                 : "Commit changed files in the submodule first"))
 
-            Button {
-                selectRow(change)
-            } label: {
-                HStack(spacing: LitheTheme.Tree.iconTextGap) {
+            HStack(spacing: LitheTheme.Tree.iconTextGap) {
                     LitheIcon(kind: LitheIcons.kind(for: change.url, isDirectory: change.isUntrackedDirectory),
                               size: LitheTheme.Tree.iconSize)
                         .help(LocalizedStringKey(change.kind.title))
@@ -557,37 +493,10 @@ struct ChangesSidebarView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(height: changeRowHeight)
                 .contentShape(Rectangle())
-            }
-            .buttonStyle(.litheNoPress)
         }
-        // A directory's disclosure occupies the slot files leave empty.
-        .padding(.leading, indent + (change.isUntrackedDirectory ? 0 : LitheTheme.Tree.disclosureSlot))
         .padding(.trailing, 6)
         .frame(maxWidth: .infinity)
         .frame(height: changeRowHeight)
-        .litheTreeRow(isSelected: selection.ids.contains(change.id), isFocused: commitToolActive && controlActiveState == .key)
-        .contentShape(Rectangle())
-        .onTapGesture { selectRow(change) }
-        .accessibilityAddTraits(selection.ids.contains(change.id) ? .isSelected : [])
-        .transaction { $0.animation = nil }
-        .litheContextMenu {
-            changeContextMenuItems(for: change)
-        }
-    }
-
-    private func untrackedDirectoryDisclosure(_ directory: GitChange) -> some View {
-        let isExpanded = feature.expandedUntrackedDirectoryIDs.contains(directory.id)
-        return Button {
-            Task { await feature.toggleUntrackedDirectory(directory) }
-        } label: {
-            LitheIDEAIcon(resourcePath: isExpanded ? "expui/general/chevronDown.svg" : "expui/general/chevronRight.svg",
-                          size: LitheTheme.Tree.iconSize, preservesOriginalColors: true)
-                .frame(width: LitheTheme.Tree.disclosureSlot, height: changeRowHeight)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.litheNoPress)
-        .padding(.trailing, -LitheTheme.Tree.iconTextGap)
-        .help(LocalizedStringKey(isExpanded ? "Collapse directory" : "Expand directory"))
     }
 
     private func repositoryDisplayName(_ root: URL) -> String {
@@ -603,18 +512,6 @@ struct ChangesSidebarView: View {
         changeRows.compactMap { row in
             if case .change(let change, _) = row.content { return change.id }
             return nil
-        }
-    }
-
-    private func selectRow(_ change: GitChange) {
-        let modifiers = NSEvent.modifierFlags
-        let command = modifiers.contains(.command)
-        let shift = modifiers.contains(.shift)
-        selection.select(change.id, orderedIDs: visibleChangeIDs, command: command, shift: shift)
-        // Extending a selection must not rebuild the diff or launch Git reads.
-        // A directory summary has no diff of its own; its disclosure lists it.
-        if !command && !shift && !change.isUntrackedDirectory && feature.selectedChange != change {
-            selectChange(change)
         }
     }
 
@@ -866,6 +763,34 @@ private enum CommitTab: String, CaseIterable, Identifiable {
     var title: String { self == .shelf ? "Stash" : "Commit" }
 }
 
+/// ChangesTreeCellRenderer uses a 24pt ThreeStateCheckBox with a 16pt painted square.
+struct GitChangeInclusionCheckbox: View {
+    let state: NSControl.StateValue
+    var accessibilityTitle = "Include in commit"
+    let action: () -> Void
+    @Environment(\.isEnabled) private var isEnabled
+    @FocusState private var isFocused: Bool
+
+    static func assetPath(state: NSControl.StateValue, enabled: Bool, focused: Bool) -> String {
+        let name = state == .mixed ? "checkBoxIndeterminateSelected" : state == .on ? "checkBoxSelected" : "checkBox"
+        let suffix = !enabled ? "Disabled" : focused ? "Focused" : ""
+        return "commit/" + name + suffix + ".svg"
+    }
+
+    var body: some View {
+        Button(action: action) {
+            LitheIDEAIcon(resourcePath: Self.assetPath(state: state, enabled: isEnabled, focused: isFocused),
+                          size: 24, preservesOriginalColors: true)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.litheNoPress)
+        .focused($isFocused)
+        .accessibilityRepresentation {
+            Toggle(LocalizedStringKey(accessibilityTitle), isOn: Binding(get: { state == .on }, set: { _ in action() }))
+                .accessibilityValue(Text(state == .mixed ? "Partially selected" : state == .on ? "Selected" : "Not selected"))
+        }
+    }
+}
 
 extension GitChange {
     var fileNameColor: Color {

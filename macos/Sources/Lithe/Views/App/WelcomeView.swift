@@ -101,24 +101,14 @@ struct WelcomeView: View {
     private var projectsContent: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                HStack(spacing: 8) {
-                    LitheIDEAIcon(
-                        resourcePath: "expui/general/search.svg",
-                        size: 16,
-                        preservesOriginalColors: true
-                    )
-                    LitheSearchTextField("Search projects", text: $projectFilter)
-                        .focused($searchFocused)
-                }
-                .foregroundStyle(textColor)
-                .padding(.horizontal, 8)
+                LitheSearchField("Search projects", text: $projectFilter, focus: $searchFocused)
                 .frame(maxWidth: 220)
 
                 Spacer()
 
                 HStack(spacing: LitheTheme.ActionButton.spacing) {
                     Button("New Project") {
-                        model.chooseProject(title: "New Project", prompt: "Choose Folder")
+                        model.showNewProject()
                     }
                     .buttonStyle(LitheActionButtonStyle())
 

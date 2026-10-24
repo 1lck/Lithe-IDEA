@@ -162,6 +162,8 @@ done
   published_base = ARGV.fetch(1)
   schema = JSON.parse(File.read(File.join(root, "plugin-manifest.schema.json")))
   abort "plugin manifest schema ID mismatch" unless schema.fetch("$id") == "#{published_base}/plugin-manifest.schema.json"
+  native_schema = JSON.parse(File.read(File.join(root, "native-ui.schema.json")))
+  abort "native UI schema ID mismatch" unless native_schema.fetch("$id") == "#{published_base}/native-ui.schema.json"
   abort "declarative manifests must use schemaVersion 2" unless schema.fetch("properties").fetch("schemaVersion").fetch("const") == 2
   readme = File.read(File.join(root, "README.md"), encoding: "UTF-8")
   # The mirror only holds this directory, so a relative link must resolve here.

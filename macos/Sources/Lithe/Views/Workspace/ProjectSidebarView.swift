@@ -317,7 +317,7 @@ private struct ProjectTreeViewState: Equatable {
     var expandedTreeRootPath: String?
     var contextMenuPath: String?
     var selection = ProjectTreeSelection()
-    var isActive = false
+    var scrollRequest: LitheTreeListScrollRequest<String>?
 
     mutating func updateExpandedPaths(_ paths: Set<String>, in root: FileNode) {
         let added = paths.subtracting(expandedDirectoryPaths)
@@ -342,7 +342,6 @@ private struct ProjectSidebarTree: View, Equatable {
     let revealRequest: ProjectTreeRevealRequest?
     let stateSnapshot: ProjectTreeViewState
     @Binding var state: ProjectTreeViewState
-    @Environment(\.controlActiveState) private var controlActiveState
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.model === rhs.model && lhs.root == rhs.root && lhs.rowHeight == rhs.rowHeight
@@ -368,45 +367,33 @@ private struct ProjectSidebarTree: View, Equatable {
         let visibleRows = ProjectTreeSelection.visibleRows(in: root, expandedPaths: displayedExpandedPaths)
         let visiblePaths = visibleRows.map(\.id)
         GeometryReader { geometry in
-            ScrollViewReader { proxy in
-                ScrollView([.vertical, .horizontal]) {
-                    ProjectFileTreeContent(
-                        root: root,
-                        availableWidth: geometry.size.width,
-                        rowHeight: rowHeight,
-                        activeDocumentURL: activeDocumentURL,
-                        gitStatus: gitStatus,
-                        directoryMarks: directoryMarks,
-                        actions: ProjectTreeActions(model: model),
-                        selectionSnapshot: state.selection,
-                        isFocused: state.isActive && controlActiveState == .key,
-                        selection: $state.selection,
-                        visibleRows: visibleRows,
-                        expandedDirectoryPathsSnapshot: displayedExpandedPaths,
-                        expandedDirectoryPaths: Binding(
-                            get: { displayedExpandedPaths },
-                            set: { state.updateExpandedPaths($0, in: root) }
-                        ),
-                        contextMenuPath: $state.contextMenuPath
-                    )
-                    .equatable()
-                    .padding(.vertical, LitheTheme.Metrics.projectTreeContentVerticalInset)
-                    .frame(
-                        minWidth: geometry.size.width,
-                        minHeight: geometry.size.height,
-                        alignment: .topLeading
-                    )
-                }
-                .background(ProjectTreeKeyboardCommands(
+            ProjectFileTreeContent(
+                root: root,
+                availableWidth: geometry.size.width,
+                rowHeight: rowHeight,
+                activeDocumentURL: activeDocumentURL,
+                gitStatus: gitStatus,
+                directoryMarks: directoryMarks,
+                actions: ProjectTreeActions(model: model),
+                selectionSnapshot: state.selection,
+                selection: $state.selection,
+                visibleRows: visibleRows,
+                expandedDirectoryPathsSnapshot: displayedExpandedPaths,
+                expandedDirectoryPaths: Binding(
+                    get: { displayedExpandedPaths },
+                    set: { state.updateExpandedPaths($0, in: root) }
+                ),
+                contextMenuPath: $state.contextMenuPath,
+                scrollRequest: state.scrollRequest,
+                native: LitheTreeListNativeInteraction(
+                    rowHeight: rowHeight,
                     copy: { model.copyProjectItems(selectedURLs(in: root)) },
                     paste: {
                         let focused = visibleRows.first { $0.id == state.selection.focusedPath }?.node
-                        let destination = focused.map { $0.isDirectory ? $0.url : $0.url.deletingLastPathComponent() } ?? root.url
+                        let destination =
+                            focused.map { $0.isDirectory ? $0.url : $0.url.deletingLastPathComponent() } ?? root.url
                         Task { await model.pasteProjectItems(in: destination) }
-                    },
-                    selectAll: {
-                        state.selection.selectAll(in: root)
-                    },
+                    }, selectAll: { state.selection.selectAll(in: root) },
                     navigate: { key, extending in
                         var updated = state
                         updated.contextMenuPath = nil
@@ -414,73 +401,71 @@ private struct ProjectSidebarTree: View, Equatable {
                         updated.selection.navigate(key, in: root, expandedPaths: &paths, extending: extending)
                         updated.updateExpandedPaths(paths, in: root)
                         state = updated
-                        if let path = updated.selection.focusedPath { proxy.scrollTo(path) }
+                        return updated.selection.focusedPath
                     },
-                    focusChanged: { state.isActive = $0 }
-                ).frame(maxWidth: .infinity, maxHeight: .infinity))
-                .onChange(of: root) { [old = root] new in
-                    let loaded = Set(old.unloadedRows(expandedPaths: state.expandedDirectoryPaths).map(\.url.path))
-                    state.expandedDirectoryPaths = ProjectTreeSelection.expandingSingleDirectoryChains(
-                        from: loaded, in: new, expandedPaths: state.expandedDirectoryPaths
+                    isSelected: { path in
+                        state.selection.covers(path) || state.contextMenuPath == path
+                            || (state.selection.paths.isEmpty && activeDocumentURL?.standardizedFileURL.path == path)
+                    })
+            )
+            .equatable()
+            .onChange(of: root) { [old = root] new in
+                let loaded = Set(old.unloadedRows(expandedPaths: state.expandedDirectoryPaths).map(\.url.path))
+                state.expandedDirectoryPaths = ProjectTreeSelection.expandingSingleDirectoryChains(
+                    from: loaded, in: new, expandedPaths: state.expandedDirectoryPaths
+                )
+                state.pendingDirectoryExpansionPaths.subtract(loaded)
+            }
+            .onChange(of: visiblePaths) { paths in
+                var retained = state.selection
+                retained.retain(visiblePaths: paths)
+                if retained != state.selection { state.selection = retained }
+            }
+            .onChange(of: activeDocumentURL?.standardizedFileURL.path) { path in
+                // A single selection follows the editor, as it did before
+                // multi-selection; an explicit group stays until changed.
+                guard let path, state.selection.paths.count <= 1 else { return }
+                state.selection.select(path, visiblePaths: [], extending: false, toggling: false)
+            }
+            // Directories are listed when first expanded; this also
+            // covers rows a rescan or reveal left expanded but unloaded.
+            .task(id: root.unloadedRows(expandedPaths: state.expandedDirectoryPaths).map(\.url.path)) {
+                await model.loadExpandedProjectDirectories(state.expandedDirectoryPaths)
+            }
+            .task(
+                id: ProjectTreeTaskID(
+                    rootPath: root.url.standardizedFileURL.path,
+                    revealRequestID: revealRequest?.id
+                )
+            ) {
+                let rootPath = root.url.standardizedFileURL.path
+                let shouldRefreshGit = state.expandedTreeRootPath != rootPath
+                if shouldRefreshGit {
+                    state.selection = ProjectTreeSelection()
+                    state.expandedTreeRootPath = rootPath
+                    state.pendingDirectoryExpansionPaths = []
+                    state.updateExpandedPaths([rootPath], in: root)
+                }
+                if let request = revealRequest {
+                    let paths = state.expandedDirectoryPaths.union(
+                        ProjectTreeLocator.expandedDirectoryPaths(
+                            for: request.fileURL,
+                            rootURL: root.url,
+                            includeItem: request.isDirectory
+                        )
                     )
-                    state.pendingDirectoryExpansionPaths.subtract(loaded)
-                }
-                .onChange(of: visiblePaths) { paths in
-                    var retained = state.selection
-                    retained.retain(visiblePaths: paths)
-                    if retained != state.selection { state.selection = retained }
-                }
-                .onChange(of: activeDocumentURL?.standardizedFileURL.path) { path in
-                    // A single selection follows the editor, as it did before
-                    // multi-selection; an explicit group stays until changed.
-                    guard let path, state.selection.paths.count <= 1 else { return }
-                    state.selection.select(path, visiblePaths: [], extending: false, toggling: false)
-                }
-                .scrollContentBackground(.hidden)
-                .litheScrollViewChrome(usesCompactScrollers: true)
-                // Directories are listed when first expanded; this also
-                // covers rows a rescan or reveal left expanded but unloaded.
-                .task(id: root.unloadedRows(expandedPaths: state.expandedDirectoryPaths).map(\.url.path)) {
+                    state.updateExpandedPaths(paths, in: root)
                     await model.loadExpandedProjectDirectories(state.expandedDirectoryPaths)
+                    await Task.yield()
+                    // Listing can fold the target into a compact package row.
+                    let rowURL = model.projectTreeURL(for: request.fileURL) ?? request.fileURL
+                    state.scrollRequest = .init(id: rowURL.standardizedFileURL.path)
                 }
-                .task(
-                    id: ProjectTreeTaskID(
-                        rootPath: root.url.standardizedFileURL.path,
-                        revealRequestID: revealRequest?.id
-                    )
-                ) {
-                    let rootPath = root.url.standardizedFileURL.path
-                    let shouldRefreshGit = state.expandedTreeRootPath != rootPath
-                    if shouldRefreshGit {
-                        state.selection = ProjectTreeSelection()
-                        state.expandedTreeRootPath = rootPath
-                        state.pendingDirectoryExpansionPaths = []
-                        state.updateExpandedPaths([rootPath], in: root)
-                    }
-                    if let request = revealRequest {
-                        let paths = state.expandedDirectoryPaths.union(
-                            ProjectTreeLocator.expandedDirectoryPaths(
-                                for: request.fileURL,
-                                rootURL: root.url,
-                                includeItem: request.isDirectory
-                            )
-                        )
-                        state.updateExpandedPaths(paths, in: root)
-                        await model.loadExpandedProjectDirectories(state.expandedDirectoryPaths)
-                        await Task.yield()
-                        // Listing can fold the target into a compact package row.
-                        let rowURL = model.projectTreeURL(for: request.fileURL) ?? request.fileURL
-                        proxy.scrollTo(
-                            rowURL.standardizedFileURL.path,
-                            anchor: .center
-                        )
-                    }
-                    if shouldRefreshGit {
-                        await model.refreshGit()
-                    }
-                    if let request = revealRequest {
-                        model.consumeProjectTreeRevealRequest(id: request.id)
-                    }
+                if shouldRefreshGit {
+                    await model.refreshGit()
+                }
+                if let request = revealRequest {
+                    model.consumeProjectTreeRevealRequest(id: request.id)
                 }
             }
         }
@@ -647,16 +632,16 @@ private struct ProjectFileTreeContent: View, Equatable {
     let directoryMarks: [String: WorkspaceDirectoryMark]
     let actions: ProjectTreeActions
     let selectionSnapshot: ProjectTreeSelection
-    let isFocused: Bool
     @Binding var selection: ProjectTreeSelection
     let visibleRows: [ProjectTreeSelection.VisibleRow]
     let expandedDirectoryPathsSnapshot: Set<String>
     @Binding var expandedDirectoryPaths: Set<String>
     @Binding var contextMenuPath: String?
+    let scrollRequest: LitheTreeListScrollRequest<String>?
+    let native: LitheTreeListNativeInteraction<String>
 
     static func == (lhs: ProjectFileTreeContent, rhs: ProjectFileTreeContent) -> Bool {
         lhs.selectionSnapshot == rhs.selectionSnapshot
-            && lhs.isFocused == rhs.isFocused
             && lhs.root == rhs.root
             && lhs.availableWidth == rhs.availableWidth
             && lhs.rowHeight == rhs.rowHeight
@@ -665,31 +650,31 @@ private struct ProjectFileTreeContent: View, Equatable {
             && lhs.directoryMarks == rhs.directoryMarks
             && lhs.expandedDirectoryPathsSnapshot == rhs.expandedDirectoryPathsSnapshot
             && lhs.contextMenuPath == rhs.contextMenuPath
+            && lhs.scrollRequest == rhs.scrollRequest
     }
 
     var body: some View {
         // Each visible row is a direct lazy child: recursive stacks instantiate
         // every descendant and cannot virtualize a large expanded directory.
-        LazyVStack(alignment: .leading, spacing: LitheTheme.Metrics.projectTreeRowSpacing) {
-            ForEach(visibleRows) { row in
-                FileNodeRow(
-                    node: row.node,
-                    depth: row.depth,
-                    availableWidth: availableWidth,
-                    rowHeight: rowHeight,
-                    activeDocumentURL: activeDocumentURL,
-                    gitStatus: gitStatus,
-                    projectRootURL: root.url,
-                    directoryMarks: directoryMarks,
-                    actions: actions,
-                    selection: $selection,
-                    isFocused: isFocused,
-                    visibleRows: visibleRows,
-                    expandedDirectoryPaths: $expandedDirectoryPaths,
-                    contextMenuPath: $contextMenuPath
-                )
-                .id(row.id)
-            }
+        LitheTreeList(
+            visibleRows, id: \.id, selection: .constant(Set<String>()),
+            native: native, scrollRequest: scrollRequest
+        ) { row in
+            FileNodeRow(
+                node: row.node,
+                depth: row.depth,
+                availableWidth: availableWidth,
+                rowHeight: rowHeight,
+                activeDocumentURL: activeDocumentURL,
+                gitStatus: gitStatus,
+                projectRootURL: root.url,
+                directoryMarks: directoryMarks,
+                actions: actions,
+                selection: $selection,
+                visibleRows: visibleRows,
+                expandedDirectoryPaths: $expandedDirectoryPaths,
+                contextMenuPath: $contextMenuPath
+            )
         }
     }
 }
@@ -705,7 +690,6 @@ private struct FileNodeRow: View {
     let directoryMarks: [String: WorkspaceDirectoryMark]
     let actions: ProjectTreeActions
     @Binding var selection: ProjectTreeSelection
-    let isFocused: Bool
     let visibleRows: [ProjectTreeSelection.VisibleRow]
     @Binding var expandedDirectoryPaths: Set<String>
     @Binding var contextMenuPath: String?
@@ -756,7 +740,7 @@ private struct FileNodeRow: View {
             workspaceURL: projectRootURL,
             destinationURL: node.isDirectory ? node.url : nil,
             disclosureInset: node.isDirectory
-                ? (CGFloat(depth) * LitheTheme.Tree.indent + LitheTheme.Tree.disclosureSlot) + LitheTheme.Metrics.projectTreeContentHorizontalInset : 0,
+                ? (CGFloat(depth) * LitheTheme.Tree.indent + LitheTheme.Tree.disclosureSlot) : 0,
             select: { flags in
                 contextMenuPath = nil
                 selectRow(flags: flags)
@@ -787,14 +771,7 @@ private struct FileNodeRow: View {
             toggleExpanded()
         } label: {
             HStack(spacing: LitheTheme.Tree.iconTextGap) {
-                LitheIDEAIcon(
-                    resourcePath: isExpanded
-                        ? "expui/general/chevronDown.svg"
-                        : "expui/general/chevronRight.svg",
-                    size: 16,
-                    preservesOriginalColors: true
-                )
-                .frame(width: LitheTheme.Tree.disclosureSlot, alignment: .leading)
+                LitheTreeDisclosureIcon(isExpanded: isExpanded)
                 .opacity(node.children?.isEmpty == true ? 0 : 1)
                 LitheIcon(kind: directoryIconKind, size: LitheTheme.Metrics.treeIconSize)
                     .frame(width: LitheTheme.Metrics.treeIconSize, height: LitheTheme.Metrics.treeIconSize)
@@ -811,14 +788,9 @@ private struct FileNodeRow: View {
             .frame(width: rowWidth, alignment: .leading)
             .frame(height: rowHeight)
             .contentShape(Rectangle())
-            .litheSelectionRow(
-                isSelected: selection.covers(node.url.path) || contextMenuPath == node.url.standardizedFileURL.path,
-                isFocused: isFocused,
-                cornerRadius: LitheTheme.Metrics.projectTreeSelectionCornerRadius
-            )
+
         }
         .buttonStyle(.litheNoPress)
-        .padding(.horizontal, LitheTheme.Metrics.projectTreeContentHorizontalInset)
         .overlay { rowInteraction }
         .litheContextMenu(
             items: { selection.paths.count > 1 ? batchMenuItems : clipboardMenuItems + [.separator] + directoryContextMenuItems },
@@ -861,17 +833,10 @@ private struct FileNodeRow: View {
             .frame(width: rowWidth, alignment: .leading)
             .frame(height: rowHeight)
             .contentShape(Rectangle())
-            .litheSelectionRow(
-                isSelected: selection.covers(node.url.path)
-                    || (selection.paths.isEmpty && activeDocumentURL?.standardizedFileURL.path == node.url.standardizedFileURL.path)
-                    || contextMenuPath == node.url.standardizedFileURL.path,
-                isFocused: isFocused,
-                cornerRadius: LitheTheme.Metrics.projectTreeSelectionCornerRadius
-            )
+
         }
         .buttonStyle(.litheNoPress)
         .lithePointer()
-        .padding(.horizontal, LitheTheme.Metrics.projectTreeContentHorizontalInset)
         .overlay { rowInteraction }
         .litheContextMenu(
             items: { selection.paths.count > 1 ? batchMenuItems : clipboardMenuItems + [.separator] + fileContextMenuItems },
@@ -1206,9 +1171,7 @@ private struct ProjectItemNameDialog: View {
                     .foregroundStyle(LitheTheme.secondaryText)
             }
 
-            TextField(LocalizedStringKey(placeholder), text: $name)
-                .litheSettingsTextField()
-                .focused($nameFieldFocused)
+            LitheTextField(LocalizedStringKey(placeholder), text: $name, focus: $nameFieldFocused)
                 .onSubmit(submit)
 
             HStack(spacing: LitheTheme.ActionButton.spacing) {

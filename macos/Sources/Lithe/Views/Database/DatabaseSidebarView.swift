@@ -41,8 +41,6 @@ private enum DatabaseFolderMoveTarget {
 struct DatabaseSidebarView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var feature: DatabaseFeatureModel
-    @Environment(\.controlActiveState) private var controlActiveState
-    @State private var treeActive = false
     @State private var treeSelection: DatabaseTreeSelection?
     @State private var showsConnectionEditor = false
     @State private var editingProfile: DatabaseProfile?
@@ -219,24 +217,8 @@ struct DatabaseSidebarView: View {
             .frame(height: LitheTheme.Metrics.toolbarIconButtonSize + 10)
 
             if showsSearch {
-                HStack(spacing: 2) {
-                    LitheIDEAIcon(resourcePath: "expui/general/search.svg", size: 16,
-                                  fallbackSystemImage: "magnifyingglass", preservesOriginalColors: true)
-                    LitheSearchTextField("Search connections", text: $searchText)
-                        .focused($searchFocused)
-                        .onExitCommand { showsSearch = false; searchText = "" }
-                    if !searchText.isEmpty {
-                        Button { searchText = "" } label: {
-                            LitheIDEAIcon(resourcePath: "expui/general/closeSmall.svg", size: 16,
-                                          fallbackSystemImage: "xmark", preservesOriginalColors: true)
-                        }
-                        .litheToolbarIconButton()
-                        .padding(.leading, 1)
-                        .workbenchHoverHelp(Text("Clear search"))
-                        .accessibilityLabel("Clear search")
-                    }
-                }
-                .litheSearchField(isFocused: searchFocused)
+                LitheSearchField("Search connections", text: $searchText, focus: $searchFocused)
+                    .onExitCommand { showsSearch = false; searchText = "" }
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 7)
@@ -247,27 +229,15 @@ struct DatabaseSidebarView: View {
                     .contentShape(Rectangle())
                     .litheContextMenu { panelContextMenu }
             } else {
-                GeometryReader { geometry in
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 0) {
-                            LazyVStack(alignment: .leading, spacing: 1) { connectionTree }
-                                .padding(.horizontal, LitheTheme.Tree.horizontalInset)
-                                .padding(.top, LitheTheme.Tree.verticalInset)
-                            Color.clear
-                                .frame(maxWidth: .infinity, minHeight: LitheTheme.Tree.rowHeight, maxHeight: .infinity)
-                                .contentShape(Rectangle())
-                                .litheContextMenu { panelContextMenu }
-                                .dropDestination(for: String.self) { items, _ in
-                                    moveDroppedProfile(items, to: nil)
-                                } isTargeted: { targeted in
-                                    isRootDropTarget = targeted
-                                }
-                                .background(isRootDropTarget ? LitheTheme.accent.opacity(0.18) : .clear)
-                        }
-                        .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .topLeading)
-                    }
-                    .background(LitheToolWindowActivityTracker(isActive: $treeActive))
-                }
+                LitheTreeList(nodes: connectionNodes, selection: Binding(
+                    get: { treeSelection.map(treeNodeID) },
+                    set: { if $0 == nil { treeSelection = nil } }
+                ))
+                .litheContextMenu { panelContextMenu }
+                .dropDestination(for: String.self) { items, _ in
+                    moveDroppedProfile(items, to: nil)
+                } isTargeted: { isRootDropTarget = $0 }
+                .background(isRootDropTarget ? LitheTheme.accent.opacity(0.18) : .clear)
             }
             if feature.isLoading { ProgressView().controlSize(.small).padding(8) }
         }
@@ -422,243 +392,147 @@ struct DatabaseSidebarView: View {
         ]
     }
 
-    @ViewBuilder
-    private var connectionTree: some View {
-        let rootProfiles = unfiledProfiles
-        let hasVisibleFolders = feature.folders.contains { folder in
-            isFolderVisible(folder)
-        }
-
-        ForEach(rootFolders) { folder in
-            if isFolderVisible(folder) {
-                folderRow(folder)
-            }
-        }
-
-        if !rootProfiles.isEmpty {
-            ForEach(rootProfiles) { profile in
-                profileRow(profile)
-            }
-        } else if (!searchQuery.isEmpty || kindFilter != nil) && !hasVisibleFolders {
-            VStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .font(LitheTheme.uiFont(size: 13, weight: .medium))
-                Text("No connections match your search.")
-                    .font(LitheTheme.uiFont(size: 10.5))
-            }
-            .foregroundStyle(LitheTheme.tertiaryText)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 20)
-        } else if feature.profiles.isEmpty {
-            VStack(spacing: 6) {
-                Image(systemName: "cylinder.split.1x2")
-                    .font(LitheTheme.uiFont(size: 13, weight: .medium))
-                Text("No database connections")
-                    .font(LitheTheme.uiFont(size: 10.5))
-            }
-            .foregroundStyle(LitheTheme.tertiaryText)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 18)
+    private func treeNodeID(_ selection: DatabaseTreeSelection) -> String {
+        switch selection {
+        case .folder(let id): return "folder:\(id)"
+        case .connection(let id): return "profile:\(id)"
+        case .database(let path): return "database:\(path.profileID):\(path.database)"
+        case .table(let key): return "table:\(key.profileID):\(key.database):\(key.table)"
+        case .objects(let path, let kind): return "objects:\(path.profileID):\(path.database):\(kind.rawValue)"
         }
     }
 
-    private func folderRow(_ folder: DatabaseConnectionFolder, indent: CGFloat = 0) -> AnyView {
-        let profiles = visibleProfiles(in: folder)
-        let isExpanded = !searchQuery.isEmpty || !collapsedFolderIDs.contains(folder.id)
-        let totalCount = recursiveProfileCount(in: folder)
+    private var connectionNodes: [LitheTreeListNode] {
+        var nodes = rootFolders.filter(isFolderVisible).map(folderNode)
+        nodes += unfiledProfiles.map(profileNode)
+        if nodes.isEmpty && (!searchQuery.isEmpty || kindFilter != nil) {
+            nodes.append(LitheTreeListNode(id: "no-matches", isSelectable: false) {
+                Text("No connections match your search.").foregroundStyle(LitheTheme.tertiaryText)
+            })
+        }
+        return nodes
+    }
 
-        return AnyView(VStack(alignment: .leading, spacing: 1) {
-            HStack(spacing: LitheTheme.Tree.iconTextGap) {
-                Button { toggleFolder(folder) } label: {
-                    LitheIDEAIcon(resourcePath: isExpanded ? "expui/general/chevronDown.svg" : "expui/general/chevronRight.svg", size: LitheTheme.Tree.iconSize)
-                        .foregroundStyle(LitheTheme.tertiaryText)
-                        .frame(width: LitheTheme.Tree.disclosureSlot, height: LitheTheme.Tree.rowHeight)
-                }
-                .buttonStyle(.litheNoPress)
-                .accessibilityLabel(Text(verbatim: "\(String(localized: isExpanded ? "Collapse Folder" : "Expand Folder")) \(folder.name)"))
-                Button { treeSelection = .folder(folder.id) } label: {
-                    HStack(spacing: LitheTheme.Tree.iconTextGap) {
-                        LitheIcon(kind: .folder, size: LitheTheme.Metrics.treeIconSize)
-                        Text(folder.name).lineLimit(1)
-                        Spacer(minLength: 4)
-                        if totalCount > 0 {
-                            Text("\(totalCount)").foregroundStyle(LitheTheme.tertiaryText)
+    private func folderNode(_ folder: DatabaseConnectionFolder) -> LitheTreeListNode {
+        let expanded = !searchQuery.isEmpty || !collapsedFolderIDs.contains(folder.id)
+        let count = recursiveProfileCount(in: folder)
+        return LitheTreeListNode(
+            id: treeNodeID(.folder(folder.id)), isExpanded: expanded,
+            disclosureLabel: "\(expanded ? String(localized: "Collapse Folder") : String(localized: "Expand Folder")) \(folder.name)",
+            accessibilityTitle: folder.name,
+            onExpansion: { value in if value != expanded { toggleFolder(folder) } },
+            onSelect: { treeSelection = .folder(folder.id) },
+            menu: {
+                [
+                    .action(expanded ? "Collapse Folder" : "Expand Folder") { toggleFolder(folder) },
+                    .action("New Connection") { presentConnectionEditor(defaultFolderID: folder.id) },
+                    .action("New Subfolder") { presentFolderEditor(parentID: folder.id) },
+                    .action("Rename Folder") { presentFolderEditor(folder: folder) },
+                    .submenu("Move", items: [
+                        .action("To Folder…") { presentFolderMove(.folder(folder.id)) },
+                        .action("To Top Level", isEnabled: folder.parentID != nil) {
+                            feature.moveFolder(folder.id, toParent: nil)
                         }
+                    ]),
+                    .action("Remove Folder", role: .destructive) {
+                        folderPendingDeletion = folder
+                        showsFolderDeletionConfirmation = true
                     }
-                    .font(LitheTheme.uiFont(size: 13))
-                    .frame(maxWidth: .infinity, minHeight: LitheTheme.Tree.rowHeight, alignment: .leading)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.litheNoPress)
-                .simultaneousGesture(TapGesture(count: 2).onEnded { toggleFolder(folder) })
-                .accessibilityLabel(Text(verbatim: folder.name))
+                ]
             }
-            .padding(.leading, indent)
-            .padding(.trailing, 3)
-            .litheTreeRow(isSelected: treeSelection == .folder(folder.id), isFocused: treeActive && controlActiveState == .key)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        ) {
+            HStack(spacing: LitheTheme.Tree.iconTextGap) {
+                LitheIcon(kind: .folder, size: LitheTheme.Metrics.treeIconSize)
+                Text(folder.name).lineLimit(1)
+                Spacer(minLength: 4)
+                if count > 0 { Text("\(count)").foregroundStyle(LitheTheme.tertiaryText) }
+            }
             .contentShape(Rectangle())
             .background(targetedFolderID == folder.id ? LitheTheme.accent.opacity(0.18) : .clear)
-            .clipShape(RoundedRectangle(cornerRadius: 5))
-            .litheContextMenu {
-                var items: [LitheContextMenuItem] = []
-                items.append(.action(isExpanded ? "Collapse Folder" : "Expand Folder", action: {
-                    toggleFolder(folder)
-                }))
-                items.append(.action("New Connection", action: {
-                    presentConnectionEditor(defaultFolderID: folder.id)
-                }))
-                items.append(.action("New Subfolder", action: {
-                    presentFolderEditor(parentID: folder.id)
-                }))
-                items.append(.action("Rename Folder", action: {
-                    presentFolderEditor(folder: folder)
-                }))
-                items.append(.submenu("Move", items: [
-                    .action("To Folder…") { presentFolderMove(.folder(folder.id)) },
-                    .action("To Top Level", isEnabled: folder.parentID != nil) { feature.moveFolder(folder.id, toParent: nil) }
-                ]))
-                items.append(.action("Remove Folder", role: .destructive, action: {
-                    folderPendingDeletion = folder
-                    showsFolderDeletionConfirmation = true
-                }))
-                return items
-            }
-            .dropDestination(for: String.self) { items, _ in
-                moveDroppedProfile(items, to: folder.id)
-            } isTargeted: { targeted in
-                targetedFolderID = targeted ? folder.id : nil
-            }
-
-            if isExpanded {
-                ForEach(profiles) { profile in
-                    profileRow(profile, indent: LitheTheme.Tree.indent + indent)
-                }
-                ForEach(childFolders(of: folder).filter(isFolderVisible)) { child in
-                    folderRow(child, indent: indent + LitheTheme.Tree.indent)
-                }
-            }
-        })
+            .dropDestination(for: String.self) { items, _ in moveDroppedProfile(items, to: folder.id) }
+                isTargeted: { targetedFolderID = $0 ? folder.id : nil }
+        } children: {
+            visibleProfiles(in: folder).map(profileNode)
+                + childFolders(of: folder).filter(isFolderVisible).map(folderNode)
+        }
     }
 
-    private func profileRow(_ profile: DatabaseProfile, indent: CGFloat = 0) -> some View {
-        let isExpanded = expandedProfileIDs.contains(profile.id)
-        let isSelected = feature.selectedProfileID == profile.id
-
-        return VStack(alignment: .leading, spacing: 1) {
+    private func profileNode(_ profile: DatabaseProfile) -> LitheTreeListNode {
+        let expanded = expandedProfileIDs.contains(profile.id)
+        let tree = feature.databaseTrees[profile.id]
+        return LitheTreeListNode(
+            id: treeNodeID(.connection(profile.id)), isExpanded: expanded,
+            disclosureLabel: String(localized: expanded ? "Collapse connection" : "Expand connection"),
+            accessibilityTitle: profile.name,
+            onExpansion: { value in if value != expanded { toggleProfile(profile) } },
+            onSelect: { treeSelection = .connection(profile.id) },
+            onClick: { selectProfile(profile, expand: false) },
+            menu: { connectionContextMenu(profile) }
+        ) {
             HStack(spacing: LitheTheme.Tree.iconTextGap) {
-                Button {
-                    toggleProfile(profile)
-                } label: {
-                    LitheIDEAIcon(resourcePath: isExpanded ? "expui/general/chevronDown.svg" : "expui/general/chevronRight.svg", size: LitheTheme.Tree.iconSize)
-                        .foregroundStyle(LitheTheme.tertiaryText)
-                        .frame(width: LitheTheme.Tree.disclosureSlot, height: LitheTheme.Tree.rowHeight)
+                DatabaseBrandIcon(kind: profile.kind, size: LitheTheme.Tree.iconSize)
+                    .overlay(alignment: .bottomTrailing) { connectionStatusIndicator(profile) }
+                Text(profile.name).lineLimit(1)
+                if profile.productionProtection {
+                    Image(systemName: "shield.fill")
+                        .font(LitheTheme.uiFont(size: 8)).foregroundStyle(LitheTheme.warning)
                 }
-                .buttonStyle(.litheNoPress)
-                .accessibilityLabel(Text(isExpanded ? "Collapse connection" : "Expand connection"))
-
-                Button {
-                    selectProfile(profile, expand: false)
-                } label: {
-                    HStack(spacing: LitheTheme.Tree.iconTextGap) {
-                        DatabaseBrandIcon(kind: profile.kind, size: LitheTheme.Tree.iconSize)
-                            .overlay(alignment: .bottomTrailing) {
-                                connectionStatusIndicator(profile)
-                            }
-                        Text(profile.name)
-                            .lineLimit(1)
-                            .font(LitheTheme.uiFont(size: 13))
-                        if profile.productionProtection {
-                            Image(systemName: "shield.fill")
-                                .font(LitheTheme.uiFont(size: 8))
-                                .foregroundStyle(LitheTheme.warning)
-                        }
-                    }
-                    .frame(height: LitheTheme.Tree.rowHeight)
-                    .contentShape(Rectangle())
+                if (profile.kind == .mysql || profile.kind == .mariadb), let tree,
+                   tree.state == .ready || !tree.names.isEmpty {
+                    scopeButton(profile, names: tree.names)
                 }
-                .buttonStyle(.litheNoPress)
-                .simultaneousGesture(TapGesture(count: 2).onEnded {
-                    toggleProfile(profile)
-                })
-                .layoutPriority(1)
-                .contentShape(Rectangle())
-                if (profile.kind == .mysql || profile.kind == .mariadb),
-                   let tree = feature.databaseTrees[profile.id], tree.state == .ready || !tree.names.isEmpty {
-                    let selected = feature.visibleDatabaseNames(for: profile.id).count
-                    Button {
-                        treeSelection = .connection(profile.id)
-                        if databaseScopeProfileID == profile.id { applyDatabaseScope(for: profile.id) }
-                        else {
-                            databaseScopeSelection = profile.visibleDatabases
-                            databaseScopeProfileID = profile.id
-                        }
-                    } label: {
-                        // This is a selected/available count, never the localized ordinal "%lld of %lld".
-                        Text(verbatim: " \(selected) of \(tree.names.count) ")
-                            .font(LitheTheme.uiFont(size: 11))
-                            .foregroundStyle(LitheTheme.Tree.secondaryText)
-                            .frame(height: LitheTheme.Tree.rowHeight)
-                            .background {
-                                // IDEA SimpleColoredComponent.drawClickableFrag: 1/2 insets, arc diameter 6.
-                                let shape = RoundedRectangle(cornerRadius: 3)
-                                let hovered = hoveredScopeProfileID == profile.id
-                                    && !(treeSelection == .connection(profile.id) && treeActive && controlActiveState == .key)
-                                shape.fill(hovered ? LitheTheme.toolbarHoverBackground : .clear)
-                                    .overlay(shape.stroke(hovered ? .clear : LitheTheme.toolbarHoverBackground, lineWidth: 1))
-                                    .padding(.horizontal, 1).padding(.vertical, 2)
-                            }
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.litheNoPress)
-                    .fixedSize()
-                    .accessibilityLabel("Select databases")
-                    .accessibilityValue(Text(verbatim: "\(selected) of \(tree.names.count)"))
-                    .accessibilityIdentifier("database-schema-scope")
-                    // IDEA separates the connection name with an en space at the normal 13pt tree font.
-                    .padding(.leading, 13 / 2 - LitheTheme.Tree.iconTextGap)
-                    .onHover { hoveredScopeProfileID = $0 ? profile.id : nil }
-                    .lithePointer()
-                    .litheDropdown(isPresented: Binding(
-                        get: { databaseScopeProfileID == profile.id },
-                        set: { databaseScopeProfileID = $0 ? profile.id : nil }
-                    ), searchOnTyping: true, onAccept: {
-                        applyDatabaseScope(for: profile.id)
-                    }) {
-                        DatabaseSchemaSelector(profileID: profile.id, names: tree.names, selection: $databaseScopeSelection) {
-                            applyDatabaseScope(for: profile.id)
-                        }
-                        .environmentObject(feature)
-                        .environment(\.locale, model.settings.language.locale)
-                    }
-                }
-                Button {
-                    selectProfile(profile, expand: false)
-                } label: {
-                    Color.clear
-                        .frame(maxWidth: .infinity, minHeight: LitheTheme.Tree.rowHeight)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.litheNoPress)
-                .simultaneousGesture(TapGesture(count: 2).onEnded { toggleProfile(profile) })
-                .accessibilityHidden(true)
             }
-            .padding(.trailing, 9)
-            .padding(.leading, indent)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            .litheTreeRow(isSelected: treeSelection == .connection(profile.id), isFocused: treeActive && controlActiveState == .key)
             .draggable(profile.id.uuidString)
-            .litheContextMenu { connectionContextMenu(profile) }
-
-            if isExpanded {
-                if profile.kind == .mysql || profile.kind == .mariadb {
-                    mysqlDatabaseTree(profile, indent: indent + LitheTheme.Tree.indent)
-                        .task(id: profile) { await feature.loadDatabaseTree(for: profile.id) }
-                } else if isSelected {
-                    profileObjectTree(profile, indent: indent + LitheTheme.Tree.indent)
+            .task(id: expanded) {
+                if expanded && (profile.kind == .mysql || profile.kind == .mariadb) {
+                    await feature.loadDatabaseTree(for: profile.id)
                 }
             }
+        } children: {
+            if profile.kind == .mysql || profile.kind == .mariadb {
+                return mysqlDatabaseNodes(profile)
+            }
+            return feature.selectedProfileID == profile.id ? profileObjectNodes(profile) : []
+        }
+    }
+
+    private func scopeButton(_ profile: DatabaseProfile, names: [String]) -> some View {
+        let selected = feature.visibleDatabaseNames(for: profile.id).count
+        return Button {
+            treeSelection = .connection(profile.id)
+            if databaseScopeProfileID == profile.id { applyDatabaseScope(for: profile.id) }
+            else {
+                databaseScopeSelection = profile.visibleDatabases
+                databaseScopeProfileID = profile.id
+            }
+        } label: {
+            Text(verbatim: " \(selected) of \(names.count) ")
+                .font(LitheTheme.uiFont(size: 11))
+                .foregroundStyle(LitheTheme.Tree.secondaryText)
+                .frame(height: LitheTheme.Tree.rowHeight)
+                .background {
+                    let shape = RoundedRectangle(cornerRadius: 3)
+                    let hovered = hoveredScopeProfileID == profile.id
+                    shape.fill(hovered ? LitheTheme.toolbarHoverBackground : .clear)
+                        .overlay(shape.stroke(hovered ? .clear : LitheTheme.toolbarHoverBackground, lineWidth: 1))
+                }
+        }
+        .buttonStyle(.litheNoPress)
+        .fixedSize()
+        .accessibilityLabel("Select databases")
+        .accessibilityValue(Text(verbatim: "\(selected) of \(names.count)"))
+        .accessibilityIdentifier("database-schema-scope")
+        .onHover { hoveredScopeProfileID = $0 ? profile.id : nil }
+        .lithePointer()
+        .litheDropdown(isPresented: Binding(
+            get: { databaseScopeProfileID == profile.id },
+            set: { databaseScopeProfileID = $0 ? profile.id : nil }
+        ), searchOnTyping: true, onAccept: { applyDatabaseScope(for: profile.id) }) {
+            DatabaseSchemaSelector(profileID: profile.id, names: names, selection: $databaseScopeSelection) {
+                applyDatabaseScope(for: profile.id)
+            }
+            .environmentObject(feature)
+            .environment(\.locale, model.settings.language.locale)
         }
     }
 
@@ -666,95 +540,27 @@ struct DatabaseSidebarView: View {
         if feature.setVisibleDatabases(databaseScopeSelection, for: profileID) { databaseScopeProfileID = nil }
     }
 
-    @ViewBuilder
-    private func mysqlDatabaseTree(_ profile: DatabaseProfile, indent: CGFloat) -> some View {
+    private func mysqlDatabaseNodes(_ profile: DatabaseProfile) -> [LitheTreeListNode] {
         let tree = feature.databaseTrees[profile.id] ?? DatabaseConnectionTree()
-        treeLoadStatus(tree.state, indent: indent) {
+        var nodes = statusNodes(tree.state, id: "profile:\(profile.id):status") {
             Task { await feature.loadDatabaseTree(for: profile.id, force: true) }
         }
-        ForEach(feature.visibleDatabaseNames(for: profile.id), id: \.self) { database in
-            let target = databaseProfile(profile, database: database)
-            let path = DatabaseTreePath(target)
-            let isExpanded = expandedDatabasePaths.contains(path)
-            let snapshot = tree.databases[database] ?? DatabaseTreeDatabase()
-            HStack(spacing: LitheTheme.Tree.iconTextGap) {
-                Button {
-                    toggleDatabase(target)
-                } label: {
-                    LitheIDEAIcon(resourcePath: isExpanded ? "expui/general/chevronDown.svg" : "expui/general/chevronRight.svg", size: LitheTheme.Tree.iconSize)
-                        .frame(width: LitheTheme.Tree.disclosureSlot)
-                }
-                .buttonStyle(.litheNoPress)
-                .accessibilityLabel(Text(verbatim: "\(String(localized: isExpanded ? "Collapse database" : "Expand database")) \(database)"))
-                Button {
-                    treeSelection = .database(path)
-                } label: {
-                    HStack(spacing: LitheTheme.Tree.iconTextGap) {
-                        LitheIDEAIcon(resourcePath: "database/expui/schema.svg", size: LitheTheme.Tree.iconSize, preservesOriginalColors: true)
-                        Text(verbatim: database).lineLimit(1)
-                        Spacer(minLength: 0)
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.litheNoPress)
-                .simultaneousGesture(TapGesture(count: 2).onEnded { toggleDatabase(target) })
-            }
-            .font(LitheTheme.uiFont(size: 13))
-            .padding(.leading, indent)
-            .frame(maxWidth: .infinity, minHeight: LitheTheme.Tree.rowHeight, alignment: .leading)
-            .litheTreeRow(isSelected: treeSelection == .database(path),
-                          isFocused: treeActive && controlActiveState == .key)
-            .litheContextMenu { databaseContextMenu(target) }
-            if isExpanded {
-                VStack(alignment: .leading, spacing: 0) {
-                    treeLoadStatus(snapshot.state, indent: indent + LitheTheme.Tree.indent) {
-                        Task { await feature.loadDatabaseTree(database, for: profile.id, force: true) }
-                    }
-                    if snapshot.state == .ready || !snapshot.tables.isEmpty || !snapshot.objects.isEmpty {
-                        databaseObjects(for: target, indent: indent + LitheTheme.Tree.indent, snapshot: snapshot)
-                    }
-                }
-                .task(id: profile) { await feature.loadDatabaseTree(database, for: profile.id) }
-            }
+        nodes += feature.visibleDatabaseNames(for: profile.id).map { database in
+            databaseNode(databaseProfile(profile, database: database), snapshot: tree.databases[database])
         }
-        if tree.state == .ready, tree.names.isEmpty {
-            Text("No accessible databases")
-                .font(LitheTheme.uiFont(size: 13)).foregroundStyle(LitheTheme.Tree.secondaryText)
-                .padding(.leading, indent).frame(height: LitheTheme.Tree.rowHeight)
-        } else if tree.state == .ready, feature.visibleDatabaseNames(for: profile.id).isEmpty {
-            Text("No schemas selected")
-                .font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.Tree.secondaryText)
-                .padding(.leading, indent + LitheTheme.Tree.indent).frame(height: LitheTheme.Tree.rowHeight)
-                .accessibilityIdentifier("database-no-schemas-selected")
+        if tree.state == .ready && tree.names.isEmpty {
+            nodes.append(LitheTreeListNode(id: "profile:\(profile.id):empty", isSelectable: false) {
+                Text("No accessible databases").foregroundStyle(LitheTheme.Tree.secondaryText)
+            })
+        } else if tree.state == .ready && feature.visibleDatabaseNames(for: profile.id).isEmpty {
+            nodes.append(LitheTreeListNode(id: "profile:\(profile.id):none-selected", isSelectable: false) {
+                Text("No schemas selected")
+                    .font(LitheTheme.uiFont(size: 11))
+                    .foregroundStyle(LitheTheme.Tree.secondaryText)
+                    .accessibilityIdentifier("database-no-schemas-selected")
+            })
         }
-    }
-
-    @ViewBuilder
-    private func treeLoadStatus(_ state: DatabaseTreeLoadState, indent: CGFloat, retry: @escaping () -> Void) -> some View {
-        switch state {
-        case .idle, .loading:
-            HStack(spacing: LitheTheme.Tree.iconTextGap) {
-                ProgressView().controlSize(.mini)
-                Text("Loading…")
-            }
-            .font(LitheTheme.uiFont(size: 13)).foregroundStyle(LitheTheme.Tree.secondaryText)
-            .padding(.leading, indent).frame(height: LitheTheme.Tree.rowHeight)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(Text("Loading…"))
-        case .failed(let message):
-            Button(action: retry) {
-                HStack(spacing: LitheTheme.Tree.iconTextGap) {
-                    LitheIDEAIcon(resourcePath: "expui/general/refresh.svg", size: LitheTheme.Tree.iconSize)
-                    Text("Retry").lineLimit(1)
-                }
-                .padding(.leading, indent).frame(maxWidth: .infinity, minHeight: LitheTheme.Tree.rowHeight, alignment: .leading)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.litheNoPress).litheTreeRow().help(message)
-            .accessibilityLabel(Text(message))
-        case .ready:
-            EmptyView()
-        }
+        return nodes
     }
 
     private func databaseProfile(_ profile: DatabaseProfile, database: String) -> DatabaseProfile {
@@ -763,201 +569,196 @@ struct DatabaseSidebarView: View {
         return target
     }
 
-    @ViewBuilder
-    private func profileObjectTree(_ profile: DatabaseProfile, indent: CGFloat) -> some View {
-        if profile.kind.supportsDataGrid {
-            let databaseExpanded = !collapsedDatabaseProfileIDs.contains(profile.id)
+    private func databaseNode(_ profile: DatabaseProfile, snapshot: DatabaseTreeDatabase? = nil) -> LitheTreeListNode {
+        let path = DatabaseTreePath(profile)
+        let expanded = profile.kind == .mysql || profile.kind == .mariadb
+            ? expandedDatabasePaths.contains(path) : !collapsedDatabaseProfileIDs.contains(profile.id)
+        return LitheTreeListNode(
+            id: treeNodeID(.database(path)), isExpanded: expanded,
+            disclosureLabel: "\(String(localized: expanded ? "Collapse database" : "Expand database")) \(profile.database.isEmpty ? (profile.kind == .mongodb ? "admin" : String(localized: "Default database")) : profile.database)",
+            accessibilityTitle: profile.database.isEmpty
+                ? (profile.kind == .mongodb ? "admin" : String(localized: "Default database")) : profile.database,
+            onExpansion: { value in if value != expanded { toggleDatabase(profile) } },
+            onSelect: { treeSelection = .database(path) },
+            menu: { profile.kind == .mongodb ? mongoDatabaseContextMenu(profile) : databaseContextMenu(profile) }
+        ) {
             HStack(spacing: LitheTheme.Tree.iconTextGap) {
-                Button { toggleDatabase(profile) } label: {
-                    LitheIDEAIcon(resourcePath: databaseExpanded ? "expui/general/chevronDown.svg" : "expui/general/chevronRight.svg", size: LitheTheme.Tree.iconSize)
-                        .foregroundStyle(LitheTheme.tertiaryText)
-                        .frame(width: LitheTheme.Tree.disclosureSlot, height: LitheTheme.Tree.rowHeight)
+                LitheIDEAIcon(resourcePath: "database/expui/schema.svg", size: LitheTheme.Tree.iconSize,
+                              preservesOriginalColors: true)
+                if profile.database.isEmpty { Text(profile.kind == .mongodb ? "admin" : "Default database") }
+                else { Text(verbatim: profile.database) }
+            }
+            .task(id: expanded) {
+                if expanded && (profile.kind == .mysql || profile.kind == .mariadb) {
+                    await feature.loadDatabaseTree(profile.database, for: profile.id)
                 }
-                .buttonStyle(.litheNoPress)
-                .accessibilityLabel(Text(verbatim: "\(String(localized: databaseExpanded ? "Collapse database" : "Expand database")) \(profile.database.isEmpty ? (profile.kind == .mongodb ? "admin" : String(localized: "Default database")) : profile.database)"))
-                Button { treeSelection = .database(DatabaseTreePath(profile)) } label: {
-                    HStack(spacing: LitheTheme.Tree.iconTextGap) {
-                        LitheIDEAIcon(resourcePath: "database/expui/schema.svg", size: LitheTheme.Tree.iconSize, preservesOriginalColors: true)
-                        Group {
-                            if profile.database.isEmpty { Text(profile.kind == .mongodb ? "admin" : "Default database") }
-                            else { Text(verbatim: profile.database) }
-                        }
-                        .lineLimit(1)
-                        Spacer(minLength: 0)
-                    }
-                    .frame(maxWidth: .infinity, minHeight: LitheTheme.Tree.rowHeight, alignment: .leading)
-                    .contentShape(Rectangle())
+            }
+        } children: {
+            if profile.kind == .mysql || profile.kind == .mariadb {
+                let current = snapshot ?? DatabaseTreeDatabase()
+                var nodes = statusNodes(current.state, id: "\(treeNodeID(.database(path))):status") {
+                    Task { await feature.loadDatabaseTree(profile.database, for: profile.id, force: true) }
                 }
-                .buttonStyle(.litheNoPress)
-                .simultaneousGesture(TapGesture(count: 2).onEnded { toggleDatabase(profile) })
+                if current.state == .ready || !current.tables.isEmpty || !current.objects.isEmpty {
+                    nodes += databaseObjectNodes(profile, snapshot: current)
+                }
+                return nodes
             }
-            .font(LitheTheme.uiFont(size: 13))
-            .padding(.leading, indent)
-            .padding(.trailing, 8)
-            .litheTreeRow(isSelected: treeSelection == .database(DatabaseTreePath(profile)), isFocused: treeActive && controlActiveState == .key)
-            .litheContextMenu {
-                var items: [LitheContextMenuItem] = []
-                if profile.kind == .mongodb { items.append(contentsOf: mongoDatabaseContextMenu(profile)) }
-                else { items.append(contentsOf: databaseContextMenu(profile)) }
-                return items
-            }
-
-            if databaseExpanded {
-                databaseObjects(for: profile, indent: indent + LitheTheme.Tree.indent)
-            }
-        } else if profile.kind == .redis {
-            sidebarLeaf(
-                title: "Redis database",
-                detail: profile.database.isEmpty ? "0" : profile.database,
-                symbol: "square.stack.3d.up",
-                count: feature.redisKeys.count,
-                indent: indent
-            )
-            .litheContextMenu { redisDatabaseContextMenu(profile) }
-        } else {
-            sidebarLeaf(title: "Configurations", symbol: "doc.text", count: feature.nacosConfigs.count, indent: indent)
-                .litheContextMenu { nacosContextMenu(profile) }
-            sidebarLeaf(title: "Services", symbol: "network", count: feature.nacosServices.count, indent: indent)
-                .litheContextMenu { nacosContextMenu(profile) }
+            return databaseObjectNodes(profile)
         }
     }
 
-    @ViewBuilder
-    private func databaseObjects(for profile: DatabaseProfile, indent: CGFloat, snapshot: DatabaseTreeDatabase? = nil) -> some View {
-        let path = DatabaseTreePath(profile)
-        let collapsed = collapsedObjectKinds[path] ?? []
+    private func profileObjectNodes(_ profile: DatabaseProfile) -> [LitheTreeListNode] {
+        if profile.kind.supportsDataGrid { return [databaseNode(profile)] }
+        let prefix = "profile:\(profile.id)"
+        if profile.kind == .redis {
+            return [LitheTreeListNode(id: prefix + ":redis", menu: { redisDatabaseContextMenu(profile) }) {
+                sidebarLeaf(title: "Redis database", detail: profile.database.isEmpty ? "0" : profile.database,
+                            symbol: "", count: feature.redisKeys.count, indent: 0)
+            }]
+        }
+        return [
+            LitheTreeListNode(id: prefix + ":configs", menu: { nacosContextMenu(profile) }) {
+                sidebarLeaf(title: "Configurations", symbol: "", count: feature.nacosConfigs.count, indent: 0)
+            },
+            LitheTreeListNode(id: prefix + ":services", menu: { nacosContextMenu(profile) }) {
+                sidebarLeaf(title: "Services", symbol: "", count: feature.nacosServices.count, indent: 0)
+            }
+        ]
+    }
+
+    private func databaseObjectNodes(_ profile: DatabaseProfile, snapshot: DatabaseTreeDatabase? = nil) -> [LitheTreeListNode] {
         let tables = snapshot?.tables ?? feature.tables
         let objects = snapshot?.objects ?? feature.objects
-        let isLoading = snapshot.map { $0.state == .loading } ?? feature.isLoading
-        if profile.kind.supportsDataGrid {
-            objectSectionHeader(kind: .tables, title: profile.kind == .mongodb ? "Collections" : "Tables", profile: profile, count: tables.count, indent: indent)
-                .litheContextMenu {
-                    var items: [LitheContextMenuItem] = []
-                    if profile.kind == .mongodb { items.append(.action("Refresh Collections", action: { refresh(profile) })) }
-                    else { items.append(contentsOf: tableGroupContextMenu(profile)) }
-                    return items
-                }
-            if !collapsed.contains(.tables), tables.isEmpty && !isLoading {
-                Text(profile.kind == .mongodb ? "No collections yet" : "No tables yet")
-                    .font(LitheTheme.uiFont(size: 13))
-                    .foregroundStyle(LitheTheme.Tree.secondaryText)
-                    .padding(.leading, indent + LitheTheme.Tree.indent)
-                    .frame(maxWidth: .infinity, minHeight: LitheTheme.Tree.rowHeight, alignment: .leading)
+        let loading = snapshot.map { $0.state == .loading } ?? feature.isLoading
+        var nodes = [objectSectionNode(.tables, profile: profile, count: tables.count) {
+            if tables.isEmpty && !loading {
+                return [LitheTreeListNode(id: "\(profile.id):\(profile.database):empty-tables", isSelectable: false) {
+                    Text(profile.kind == .mongodb ? "No collections yet" : "No tables yet")
+                        .foregroundStyle(LitheTheme.Tree.secondaryText)
+                }]
             }
-            if !collapsed.contains(.tables) {
-                ForEach(tables, id: \.self) { table in
-                    let tableKey = DatabaseTreeTableKey(profileID: profile.id, database: profile.database, table: table)
-                    let isExpanded = expandedTableKeys.contains(tableKey)
-                    HStack(spacing: LitheTheme.Tree.iconTextGap) {
-                        Button {
-                            if isExpanded {
-                                expandedTableKeys.remove(tableKey)
-                                feature.cancelTableTreeLoad(tableKey)
-                            }
-                            else { expandedTableKeys.insert(tableKey) }
-                        } label: {
-                            LitheIDEAIcon(resourcePath: isExpanded ? "expui/general/chevronDown.svg" : "expui/general/chevronRight.svg", size: LitheTheme.Tree.iconSize)
-                                .foregroundStyle(LitheTheme.tertiaryText)
-                                .frame(width: LitheTheme.Tree.disclosureSlot)
-                        }
-                        .buttonStyle(.litheNoPress)
-                        .accessibilityLabel(Text(verbatim: "\(String(localized: isExpanded ? "Collapse table" : "Expand table")) \(table)"))
-                        Button {
-                            treeSelection = .table(tableKey)
-                        } label: {
-                            HStack(spacing: LitheTheme.Tree.iconTextGap) {
-                                LitheIDEAIcon(resourcePath: profile.kind == .mongodb ? "database/expui/collection.svg" : "database/expui/table.svg", size: LitheTheme.Tree.iconSize, preservesOriginalColors: true)
-                                Text(table).font(LitheTheme.uiFont(size: 13)).lineLimit(1)
-                                Spacer(minLength: 0)
-                            }
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.litheNoPress)
-                        .simultaneousGesture(TapGesture(count: 2).onEnded {
-                            openTable(profile, table: table, section: .data)
-                        })
-                        .accessibilityAction(named: Text("Open")) {
-                            openTable(profile, table: table, section: .data)
-                        }
-                    }
-                    .padding(.leading, indent + LitheTheme.Tree.indent)
-                    .padding(.trailing, 8)
-                    .frame(maxWidth: .infinity, minHeight: LitheTheme.Tree.rowHeight, alignment: .leading)
-                    .contentShape(Rectangle())
-                    .litheTreeRow(isSelected: treeSelection == .table(tableKey),
-                                  isFocused: treeActive && controlActiveState == .key)
-                    .litheContextMenu {
-                        var items: [LitheContextMenuItem] = []
-                        if profile.kind == .mongodb { items.append(contentsOf: mongoCollectionContextMenu(profile, collection: table)) }
-                        else { items.append(contentsOf: tableContextMenu(profile, table: table)) }
-                        return items
-                    }
-
-                    if isExpanded {
-                        let metadata = feature.tableTrees[tableKey] ?? DatabaseTreeTable()
-                        VStack(alignment: .leading, spacing: 0) {
-                            treeLoadStatus(metadata.state, indent: indent + LitheTheme.Tree.indent * 2) {
-                                Task { await feature.loadTableTree(tableKey, force: true) }
-                            }
-                            if metadata.state == .ready {
-                                sidebarLeaf(title: profile.kind == .mongodb ? "Fields" : "Columns", symbol: "database/expui/column.svg", count: metadata.columns.count, indent: indent + LitheTheme.Tree.indent * 2)
-                                sidebarLeaf(title: "Indexes", symbol: "database/expui/goldKey.svg", count: metadata.indexes.count, indent: indent + LitheTheme.Tree.indent * 2)
-                                if profile.kind != .mongodb {
-                                    sidebarLeaf(title: "Foreign Keys", symbol: "database/expui/blueKey.svg", count: metadata.foreignKeys.count, indent: indent + LitheTheme.Tree.indent * 2)
-                                }
-                            }
-                        }
-                        .task(id: feature.tableTrees[tableKey]?.requestID) { await feature.loadTableTree(tableKey) }
-                        .onDisappear { feature.cancelTableTreeLoad(tableKey) }
-                    }
-                }
-            }
-            ForEach(profile.kind == .mongodb ? [] : DatabaseObjectKind.allCases.filter { $0 != .tables }, id: \.self) { kind in
+            return tables.map { tableNode(profile, table: $0) }
+        }]
+        if profile.kind != .mongodb {
+            for kind in DatabaseObjectKind.allCases where kind != .tables {
                 let entries = objects[kind] ?? []
                 if !entries.isEmpty {
-                    objectSectionHeader(kind: kind, title: LocalizedStringKey(kind.title), profile: profile, count: entries.count, indent: indent)
-                    if !collapsed.contains(kind) {
-                        ForEach(Array(entries.enumerated()), id: \.offset) { _, row in
-                            Text(objectLabel(row)).font(LitheTheme.uiFont(size: 13)).lineLimit(1)
-                                .padding(.leading, indent + LitheTheme.Tree.indent)
-                                .frame(maxWidth: .infinity, minHeight: LitheTheme.Tree.rowHeight, alignment: .leading)
-                                .litheTreeRow()
+                    nodes.append(objectSectionNode(kind, profile: profile, count: entries.count) {
+                        entries.enumerated().map { index, row in
+                            LitheTreeListNode(id: "\(profile.id):\(profile.database):\(kind.rawValue):\(index)") {
+                                Text(objectLabel(row)).lineLimit(1)
+                            }
                         }
-                    }
+                    })
                 }
             }
+        }
+        return nodes
+    }
+
+    private func objectSectionNode(_ kind: DatabaseObjectKind, profile: DatabaseProfile, count: Int,
+                                   children: @escaping () -> [LitheTreeListNode]) -> LitheTreeListNode {
+        let path = DatabaseTreePath(profile)
+        let expanded = !(collapsedObjectKinds[path] ?? []).contains(kind)
+        return LitheTreeListNode(
+            id: treeNodeID(.objects(path, kind)), isExpanded: expanded,
+            disclosureLabel: "\(String(localized: expanded ? "Collapse" : "Expand")) \(kind.title)",
+            accessibilityTitle: kind == .tables && profile.kind == .mongodb
+                ? String(localized: "Collections") : kind.title,
+            onExpansion: { value in if value != expanded { toggleObjectSection(kind, profile: profile) } },
+            onSelect: { treeSelection = .objects(path, kind) },
+            menu: {
+                if kind == .tables {
+                    return profile.kind == .mongodb
+                        ? [.action("Refresh Collections") { refresh(profile) }] : tableGroupContextMenu(profile)
+                }
+                return []
+            }, content: {
+            sidebarLeaf(title: LocalizedStringKey(kind == .tables && profile.kind == .mongodb ? "Collections" : kind.title),
+                        symbol: "database/expui/objectGroup.svg", count: count, indent: 0)
+            }, children: children
+        )
+    }
+
+    private func tableNode(_ profile: DatabaseProfile, table: String) -> LitheTreeListNode {
+        let key = DatabaseTreeTableKey(profileID: profile.id, database: profile.database, table: table)
+        let expanded = expandedTableKeys.contains(key)
+        return LitheTreeListNode(
+            id: treeNodeID(.table(key)), isExpanded: expanded, activatesOnDoubleClick: true,
+            disclosureLabel: "\(String(localized: expanded ? "Collapse table" : "Expand table")) \(table)",
+            accessibilityTitle: table,
+            onExpansion: { value in
+                if value { expandedTableKeys.insert(key) }
+                else {
+                    expandedTableKeys.remove(key)
+                    feature.cancelTableTreeLoad(key)
+                }
+            },
+            onSelect: { treeSelection = .table(key) },
+            onActivate: { openTable(profile, table: table, section: .data) },
+            menu: {
+                profile.kind == .mongodb
+                    ? mongoCollectionContextMenu(profile, collection: table) : tableContextMenu(profile, table: table)
+            }
+        ) {
+            HStack(spacing: LitheTheme.Tree.iconTextGap) {
+                LitheIDEAIcon(resourcePath: profile.kind == .mongodb
+                    ? "database/expui/collection.svg" : "database/expui/table.svg",
+                    size: LitheTheme.Tree.iconSize, preservesOriginalColors: true)
+                Text(table).lineLimit(1)
+            }
+            .accessibilityAction(named: Text("Open")) { openTable(profile, table: table, section: .data) }
+            .task(id: expanded) {
+                if expanded { await feature.loadTableTree(key) }
+            }
+        } children: {
+            let metadata = feature.tableTrees[key] ?? DatabaseTreeTable()
+            var nodes = statusNodes(metadata.state, id: "\(treeNodeID(.table(key))):status") {
+                Task { await feature.loadTableTree(key, force: true) }
+            }
+            if metadata.state == .ready {
+                nodes.append(LitheTreeListNode(id: "\(treeNodeID(.table(key))):columns") {
+                    sidebarLeaf(title: profile.kind == .mongodb ? "Fields" : "Columns",
+                                symbol: "database/expui/column.svg", count: metadata.columns.count, indent: 0)
+                })
+                nodes.append(LitheTreeListNode(id: "\(treeNodeID(.table(key))):indexes") {
+                    sidebarLeaf(title: "Indexes", symbol: "database/expui/goldKey.svg",
+                                count: metadata.indexes.count, indent: 0)
+                })
+                if profile.kind != .mongodb {
+                    nodes.append(LitheTreeListNode(id: "\(treeNodeID(.table(key))):foreign-keys") {
+                        sidebarLeaf(title: "Foreign Keys", symbol: "database/expui/blueKey.svg",
+                                    count: metadata.foreignKeys.count, indent: 0)
+                    })
+                }
+            }
+            return nodes
         }
     }
 
-    private func objectSectionHeader(kind: DatabaseObjectKind, title: LocalizedStringKey, profile: DatabaseProfile, count: Int, indent: CGFloat) -> some View {
-        let path = DatabaseTreePath(profile)
-        let collapsed = collapsedObjectKinds[path] ?? []
-        return HStack(spacing: LitheTheme.Tree.iconTextGap) {
-            Button { toggleObjectSection(kind, profile: profile) } label: {
-                LitheIDEAIcon(resourcePath: !collapsed.contains(kind) ? "expui/general/chevronDown.svg" : "expui/general/chevronRight.svg", size: LitheTheme.Tree.iconSize)
-                    .frame(width: LitheTheme.Tree.disclosureSlot, height: LitheTheme.Tree.rowHeight)
-            }
-            .buttonStyle(.litheNoPress)
-            .accessibilityLabel((collapsed.contains(kind) ? Text("Expand") : Text("Collapse")) + Text(" ") + Text(title))
-            Button { treeSelection = .objects(path, kind) } label: {
+    private func statusNodes(_ state: DatabaseTreeLoadState, id: String, retry: @escaping () -> Void) -> [LitheTreeListNode] {
+        switch state {
+        case .ready: return []
+        case .idle, .loading:
+            return [LitheTreeListNode(id: id, isSelectable: false) {
                 HStack(spacing: LitheTheme.Tree.iconTextGap) {
-                    LitheIDEAIcon(resourcePath: "database/expui/objectGroup.svg", size: LitheTheme.Tree.iconSize, preservesOriginalColors: true)
-                    Text(title).foregroundStyle(LitheTheme.Tree.text)
-                    Spacer(minLength: 0)
-                    Text("\(count)").monospacedDigit().foregroundStyle(LitheTheme.Tree.secondaryText)
+                    ProgressView().controlSize(.mini)
+                    Text("Loading…")
                 }
-                .frame(maxWidth: .infinity, minHeight: LitheTheme.Tree.rowHeight, alignment: .leading)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.litheNoPress)
-            .simultaneousGesture(TapGesture(count: 2).onEnded { toggleObjectSection(kind, profile: profile) })
-            .accessibilityLabel(Text(title))
+                .foregroundStyle(LitheTheme.Tree.secondaryText)
+                .accessibilityLabel("Loading…")
+            }]
+        case .failed(let message):
+            return [LitheTreeListNode(id: id, onClick: retry) {
+                HStack(spacing: LitheTheme.Tree.iconTextGap) {
+                    LitheIDEAIcon(resourcePath: "expui/general/refresh.svg", size: LitheTheme.Tree.iconSize)
+                    Text("Retry")
+                }
+                .help(message)
+                .accessibilityLabel(Text(verbatim: message))
+            }]
         }
-        .font(LitheTheme.uiFont(size: 13))
-        .foregroundStyle(LitheTheme.secondaryText)
-        .padding(.leading, indent)
-        .padding(.trailing, 8)
-        .litheTreeRow(isSelected: treeSelection == .objects(path, kind), isFocused: treeActive && controlActiveState == .key)
     }
 
     private func toggleFolder(_ folder: DatabaseConnectionFolder) {
@@ -1910,9 +1711,7 @@ private struct DatabaseSchemaSelector: View {
             .frame(height: LitheTheme.Metrics.toolbarHeight)
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             // Keep the native editor mounted for the shared host's type-to-search/IME routing.
-            LitheSearchTextField("Search databases", text: $query)
-                .focused($searchFocused)
-                .litheSearchField(isFocused: searchFocused)
+            LitheSearchField("Search databases", text: $query, focus: $searchFocused)
                 .padding(.horizontal, LitheTheme.Tree.horizontalInset)
                 .frame(height: searchFocused || !query.isEmpty ? LitheTheme.Tree.rowHeight : 0)
                 .clipped()
@@ -1925,9 +1724,7 @@ private struct DatabaseSchemaSelector: View {
                         .padding(.leading, LitheTheme.Tree.indent)
                     ForEach(names.filter { query.isEmpty || $0.localizedStandardContains(query) }, id: \.self) { name in
                         schemaRow(title: Text(verbatim: name), name: name, isOn: selection?.contains(name) ?? true) {
-                            var selected = Set(selection ?? names)
-                            if selected.contains(name) { selected.remove(name) } else { selected.insert(name) }
-                            selection = names.filter { selected.contains($0) }
+                            toggleSchema(name)
                         }
                     }
                 }
@@ -1963,9 +1760,15 @@ private struct DatabaseSchemaSelector: View {
             selectedRow = name ?? ""
             action()
         }
-        // CheckboxTree hides the root but reserves its handle, using the shared tree indent.
         .padding(.leading, LitheTheme.Tree.indent)
-        .litheTreeRow(isSelected: selectedRow == (name ?? ""), isFocused: true)
+        .background(selectedRow == (name ?? "") ? LitheTheme.Tree.focusedSelection : .clear)
+        .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.projectTreeSelectionCornerRadius))
+    }
+
+    private func toggleSchema(_ name: String) {
+        var selected = Set(selection ?? names)
+        if selected.contains(name) { selected.remove(name) } else { selected.insert(name) }
+        selection = names.filter { selected.contains($0) }
     }
 }
 
@@ -2112,7 +1915,7 @@ struct DatabaseConnectionEditor: View {
     @State private var usesSSHTunnel = false
     @State private var hasSavedPassword = false
     @State private var isConnecting = false
-    @FocusState private var focusedField: String?
+    @FocusState private var nameFocused: Bool
 
     private let profile: DatabaseProfile?
 
@@ -2152,16 +1955,14 @@ struct DatabaseConnectionEditor: View {
                     GridRow {
                         Text("Name")
                             .frame(width: 140, alignment: .leading)
-                        TextField("", text: Binding(get: { connectionName }, set: { name = $0; usesDefaultName = false }))
+                        LitheTextField("", text: Binding(get: { connectionName }, set: { name = $0; usesDefaultName = false }), focus: $nameFocused)
                             .accessibilityLabel("Name")
-                            .focused($focusedField, equals: "name")
-                            .litheSettingsTextField()
                             .frame(maxWidth: .infinity)
                     }
             }.padding(16)
             HStack(spacing: 6) {
                 ForEach(Section.allCases, id: \.self) { item in
-                    Button { focusedField = nil; section = item } label: {
+                    Button { nameFocused = false; section = item } label: {
                         Text(LocalizedStringKey(item.rawValue)).font(LitheTheme.uiFont(size: 13)).padding(.horizontal, 10)
                     }
                     .buttonStyle(.litheNoPress)
@@ -2186,10 +1987,8 @@ struct DatabaseConnectionEditor: View {
                                 GridRow {
                                     Text("Database file path")
                                         .frame(width: 140, alignment: .leading)
-                                    TextField("", text: $path)
+                                    LitheTextField("", text: $path)
                                         .accessibilityLabel("Database file path")
-                                        .focused($focusedField, equals: "path")
-                                        .litheSettingsTextField()
                                         .frame(maxWidth: .infinity)
                                 }
                             } else {
@@ -2197,16 +1996,12 @@ struct DatabaseConnectionEditor: View {
                                     Text(kind == .mongodb ? "Host or MongoDB URI" : "Host")
                                         .frame(width: 140, alignment: .leading)
                                     HStack(spacing: 12) {
-                                        TextField("", text: $host)
+                                        LitheTextField("", text: $host)
                                             .accessibilityLabel(kind == .mongodb ? "Host or MongoDB URI" : "Host")
-                                            .focused($focusedField, equals: "host")
-                                            .litheSettingsTextField()
                                             .frame(maxWidth: .infinity)
                                         Text("Port").frame(width: 42, alignment: .trailing)
-                                        TextField("", text: $port)
+                                        LitheTextField("", text: $port)
                                             .accessibilityLabel("Port")
-                                            .focused($focusedField, equals: "port")
-                                            .litheSettingsTextField()
                                             .frame(width: 140)
                                     }
                                 }
@@ -2214,10 +2009,8 @@ struct DatabaseConnectionEditor: View {
                                     Text(kind == .nacos || kind == .mongodb ? "Username (optional)" : (kind == .redis ? "Username / ACL user (optional)" : "Username"))
                                         .frame(width: 140, alignment: .leading)
                                     HStack(spacing: 12) {
-                                        TextField("", text: $username)
+                                        LitheTextField("", text: $username)
                                             .accessibilityLabel(kind == .nacos || kind == .mongodb ? "Username (optional)" : (kind == .redis ? "Username / ACL user (optional)" : "Username"))
-                                            .focused($focusedField, equals: "username")
-                                            .litheSettingsTextField()
                                             .frame(maxWidth: .infinity)
                                         HStack(spacing: 12) {
                                             Text("Port").frame(width: 42, alignment: .trailing)
@@ -2229,10 +2022,8 @@ struct DatabaseConnectionEditor: View {
                                     Text(profile == nil ? "Password" : (hasSavedPassword ? "Password (leave blank to keep current)" : "Password (no saved password)"))
                                         .frame(width: 140, alignment: .leading)
                                     HStack(spacing: 12) {
-                                        SecureField("", text: $password)
+                                        LitheTextField("", text: $password, secure: true)
                                             .accessibilityLabel("Password")
-                                            .focused($focusedField, equals: "password")
-                                            .litheSettingsTextField()
                                             .frame(maxWidth: .infinity)
                                         HStack(spacing: 12) {
                                             Text("Save:").frame(width: 42, alignment: .trailing)
@@ -2247,10 +2038,8 @@ struct DatabaseConnectionEditor: View {
                                     GridRow {
                                         Text("Redis database index")
                                             .frame(width: 140, alignment: .leading)
-                                        TextField("", text: $database)
+                                        LitheTextField("", text: $database)
                                             .accessibilityLabel("Redis database index")
-                                            .focused($focusedField, equals: "database")
-                                            .litheSettingsTextField()
                                             .frame(maxWidth: .infinity)
                                     }
                                         .onChange(of: database) { value in
@@ -2277,19 +2066,15 @@ struct DatabaseConnectionEditor: View {
                                     GridRow {
                                         Text("Namespace ID (optional)")
                                             .frame(width: 140, alignment: .leading)
-                                        TextField("", text: $database)
+                                        LitheTextField("", text: $database)
                                             .accessibilityLabel("Namespace ID (optional)")
-                                            .focused($focusedField, equals: "database")
-                                            .litheSettingsTextField()
                                             .frame(maxWidth: .infinity)
                                     }
                                     GridRow {
                                         Text("API context path")
                                             .frame(width: 140, alignment: .leading)
-                                        TextField("", text: $path)
+                                        LitheTextField("", text: $path)
                                             .accessibilityLabel("API context path")
-                                            .focused($focusedField, equals: "path")
-                                            .litheSettingsTextField()
                                             .frame(maxWidth: .infinity)
                                     }
                                     GridRow {
@@ -2303,10 +2088,8 @@ struct DatabaseConnectionEditor: View {
                                     GridRow {
                                         Text("Database name")
                                             .frame(width: 140, alignment: .leading)
-                                        TextField("", text: $database)
+                                        LitheTextField("", text: $database)
                                             .accessibilityLabel("Database name")
-                                            .focused($focusedField, equals: "database")
-                                            .litheSettingsTextField()
                                             .frame(maxWidth: .infinity)
                                     }
                                 }
@@ -2327,19 +2110,15 @@ struct DatabaseConnectionEditor: View {
                                 GridRow {
                                     Text("TLS CA certificate path")
                                         .frame(width: 140, alignment: .leading)
-                                    TextField("", text: $caCertificatePath)
+                                    LitheTextField("", text: $caCertificatePath)
                                         .accessibilityLabel("TLS CA certificate path")
-                                        .focused($focusedField, equals: "caCertificatePath")
-                                        .litheSettingsTextField()
                                         .frame(maxWidth: .infinity)
                                 }
                                 GridRow {
                                     Text("TLS server name")
                                         .frame(width: 140, alignment: .leading)
-                                    TextField("", text: $serverName)
+                                    LitheTextField("", text: $serverName)
                                         .accessibilityLabel("TLS server name")
-                                        .focused($focusedField, equals: "serverName")
-                                        .litheSettingsTextField()
                                         .frame(maxWidth: .infinity)
                                 }
                             }
@@ -2354,55 +2133,43 @@ struct DatabaseConnectionEditor: View {
                                 GridRow {
                                     Text("SSH host")
                                         .frame(width: 140, alignment: .leading)
-                                    TextField("", text: $sshHost)
+                                    LitheTextField("", text: $sshHost)
                                         .accessibilityLabel("SSH host")
-                                        .focused($focusedField, equals: "sshHost")
-                                        .litheSettingsTextField()
                                         .frame(maxWidth: .infinity)
                                 }
                                 GridRow {
                                     Text("SSH port")
                                         .frame(width: 140, alignment: .leading)
-                                    TextField("", text: $sshPort)
+                                    LitheTextField("", text: $sshPort)
                                         .accessibilityLabel("SSH port")
-                                        .focused($focusedField, equals: "sshPort")
-                                        .litheSettingsTextField()
                                         .frame(maxWidth: .infinity)
                                 }
                                 GridRow {
                                     Text("SSH username")
                                         .frame(width: 140, alignment: .leading)
-                                    TextField("", text: $sshUsername)
+                                    LitheTextField("", text: $sshUsername)
                                         .accessibilityLabel("SSH username")
-                                        .focused($focusedField, equals: "sshUsername")
-                                        .litheSettingsTextField()
                                         .frame(maxWidth: .infinity)
                                 }
                                 GridRow {
                                     Text("SSH key path")
                                         .frame(width: 140, alignment: .leading)
-                                    TextField("", text: $sshKeyPath)
+                                    LitheTextField("", text: $sshKeyPath)
                                         .accessibilityLabel("SSH key path")
-                                        .focused($focusedField, equals: "sshKeyPath")
-                                        .litheSettingsTextField()
                                         .frame(maxWidth: .infinity)
                                 }
                                 GridRow {
                                     Text("SSH local port")
                                         .frame(width: 140, alignment: .leading)
-                                    TextField("", text: $sshLocalPort)
+                                    LitheTextField("", text: $sshLocalPort)
                                         .accessibilityLabel("SSH local port")
-                                        .focused($focusedField, equals: "sshLocalPort")
-                                        .litheSettingsTextField()
                                         .frame(maxWidth: .infinity)
                                 }
                                 GridRow {
                                     Text("Proxy URL (optional)")
                                         .frame(width: 140, alignment: .leading)
-                                    TextField("", text: $proxyURL)
+                                    LitheTextField("", text: $proxyURL)
                                         .accessibilityLabel("Proxy URL (optional)")
-                                        .focused($focusedField, equals: "proxyURL")
-                                        .litheSettingsTextField()
                                         .frame(maxWidth: .infinity)
                                 }
                             }
@@ -2417,10 +2184,8 @@ struct DatabaseConnectionEditor: View {
                             GridRow {
                                 Text("Color hex (optional)")
                                     .frame(width: 140, alignment: .leading)
-                                TextField("", text: $colorHex)
+                                LitheTextField("", text: $colorHex)
                                     .accessibilityLabel("Color hex (optional)")
-                                    .focused($focusedField, equals: "colorHex")
-                                    .litheSettingsTextField()
                                     .frame(maxWidth: .infinity)
                             }
                             GridRow {
@@ -2448,10 +2213,8 @@ struct DatabaseConnectionEditor: View {
                                 GridRow {
                                     Text("Sensitive column patterns")
                                         .frame(width: 140, alignment: .leading)
-                                    TextField("", text: $sensitiveColumnPatterns)
+                                    LitheTextField("", text: $sensitiveColumnPatterns)
                                         .accessibilityLabel("Sensitive column patterns")
-                                        .focused($focusedField, equals: "sensitiveColumnPatterns")
-                                        .litheSettingsTextField()
                                         .frame(maxWidth: .infinity)
                                 }
                             }
@@ -2518,7 +2281,7 @@ struct DatabaseConnectionEditor: View {
             guard profile == nil else { return }
             applyNewConnectionDefaults(kind)
         }
-        .task { focusedField = "name" }
+        .task { nameFocused = true }
         .onAppear {
             feature.errorMessage = nil
             if let profile {

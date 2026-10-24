@@ -107,7 +107,6 @@ struct DatabaseHistoryView: View {
                     .font(LitheTheme.uiFont(size: 12))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
-            LitheToolWindowHeaderDivider()
             if entries.isEmpty {
                 LitheUnavailableView("No query history", systemImage: "clock.arrow.circlepath")
                     .foregroundStyle(LitheTheme.secondaryText)
@@ -585,7 +584,6 @@ struct DatabaseStructureView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         LitheToolWindowHeader(title: "Columns")
-                        LitheToolWindowHeaderDivider()
                         Group {
                             ForEach(feature.columns, id: \.self) { column in
                                 HStack {
@@ -621,7 +619,6 @@ struct DatabaseStructureView: View {
                             }
                         }
                         LitheToolWindowHeader(title: "Indexes")
-                        LitheToolWindowHeaderDivider()
                         Group {
                             if feature.indexes.isEmpty { Text("No indexes").foregroundStyle(LitheTheme.secondaryText) }
                             ForEach(Array(feature.indexes.enumerated()), id: \.offset) { _, row in
@@ -629,7 +626,6 @@ struct DatabaseStructureView: View {
                             }
                         }
                         LitheToolWindowHeader(title: "Foreign Keys")
-                        LitheToolWindowHeaderDivider()
                         Group {
                             if feature.foreignKeys.isEmpty { Text("No foreign keys").foregroundStyle(LitheTheme.secondaryText) }
                             ForEach(Array(feature.foreignKeys.enumerated()), id: \.offset) { _, row in
@@ -1648,7 +1644,6 @@ struct DatabaseOverviewView: View {
     private var quickStart: some View {
         VStack(alignment: .leading, spacing: 0) {
             LitheToolWindowHeader(title: "Quick Start")
-            LitheToolWindowHeaderDivider()
             if feature.profiles.isEmpty {
                 Text("No saved connections yet.")
                     .font(LitheTheme.uiFont(size: 12))
@@ -1686,7 +1681,6 @@ struct DatabaseOverviewView: View {
     private var commonActions: some View {
         VStack(alignment: .leading, spacing: 0) {
             LitheToolWindowHeader(title: "Common Actions")
-            LitheToolWindowHeaderDivider()
             action("New Connection", icon: "expui/general/add.svg") { showsConnectionEditor = true }
             action("New Query", icon: "expui/fileTypes/shell.svg",
                    enabled: feature.profiles.contains { $0.kind.isSQLDatabase }) {
@@ -1713,7 +1707,6 @@ struct DatabaseOverviewView: View {
                 .litheToolbarIconButton().workbenchHoverHelp(Text("SQL History"))
                 .accessibilityLabel("SQL History")
             }
-            LitheToolWindowHeaderDivider()
             if feature.sqlHistory.isEmpty {
                 Text("No SQL history yet.")
                     .font(LitheTheme.uiFont(size: 12))

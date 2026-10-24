@@ -71,7 +71,7 @@ test("every settings page belongs to exactly one group or is a top-level page, i
     ["build", ["project", "run", "maven"]],
     ["languages", ["lsp"]],
     ["tools", ["terminal", "logs"]],
-    ["ai", ["mcp", "ai-commit", "ai", "agents"]],
+    ["ai", ["mcp", "ai-commit", "ai", "agents", "hooks"]],
   ]);
   expect(
     settingsSidebarLayout.flatMap((entry) => (entry.type === "page" ? [entry.id] : [])),

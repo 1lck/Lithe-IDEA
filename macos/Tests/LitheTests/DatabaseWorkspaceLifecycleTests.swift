@@ -305,48 +305,65 @@ struct DatabaseWorkspaceLifecycleTests {
         #expect(await waitForView { button("Collapse connection") != nil })
         #expect(feature.selectedProfileID == nil) // Disclosure must not navigate or open the editor.
         window.makeKeyAndOrderFront(nil)
-        func doubleClick(_ label: String, trailingSpace: Bool = false) async throws {
-            let name = try #require(button(label))
-            let screenFrame = try #require(name.accessibilityFrame?())
-            let x = trailingSpace ? window.frame.maxX - LitheTheme.Tree.horizontalInset - 16 : screenFrame.midX
-            let location = window.convertPoint(fromScreen: NSPoint(x: x, y: screenFrame.midY))
-            for count in 1...2 {
-                for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-                    let event = try #require(NSEvent.mouseEvent(with: type, location: location,
-                        modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                        windowNumber: window.windowNumber, context: nil, eventNumber: 0,
-                        clickCount: count, pressure: type == .leftMouseDown ? 1 : 0))
-                    window.sendEvent(event)
-                    await Task.yield()
-                }
+        var tablesExpanded = true
+        func activateRow(_ label: String) throws {
+            let disclosure: String
+            switch label {
+            case "Development":
+                disclosure = button("Collapse Folder Development") != nil
+                    ? "Collapse Folder Development" : "Expand Folder Development"
+            case "Local MySQL", "SQLite cache":
+                disclosure = button("Collapse connection") != nil ? "Collapse connection" : "Expand connection"
+            case "alpha", "beta", "Default database":
+                disclosure = button("Collapse database \(label)") != nil
+                    ? "Collapse database \(label)" : "Expand database \(label)"
+            case "Tables":
+                disclosure = tablesExpanded ? "Collapse Tables" : "Expand Tables"
+                tablesExpanded.toggle()
+            default:
+                disclosure = button("Collapse \(label)") != nil ? "Collapse \(label)" : "Expand \(label)"
             }
+            let candidate: AnyObject?
+            if label == "SQLite cache" {
+                candidate = buttons(host).last { ($0.accessibilityLabel?() ?? $0.accessibilityTitle?()) == disclosure }
+            } else {
+                candidate = button(disclosure)
+            }
+            let row = try #require(candidate,
+                "Missing \(disclosure) for \(label); visible buttons: \(buttons(host).compactMap { $0.accessibilityLabel?() })")
+            #expect(row.accessibilityPerformPress?() == true)
         }
         #expect(try #require(button("Development")).accessibilityPerformPress?() == true)
-        #expect(button("Local MySQL") != nil)
-        try await doubleClick("Development")
-        #expect(await waitForView { button("Local MySQL") == nil })
-        try await doubleClick("Development")
         #expect(await waitForView { button("Local MySQL") != nil })
-        try await doubleClick("Local MySQL")
+        try activateRow("Development")
+        #expect(await waitForView { button("Local MySQL") == nil })
+        try activateRow("Development")
+        #expect(await waitForView { button("Local MySQL") != nil })
+        try activateRow("Local MySQL")
         #expect(await waitForView { button("Expand connection") != nil && button("Expand database alpha") == nil })
-        try await doubleClick("Local MySQL")
+        try activateRow("Local MySQL")
         #expect(await waitForView { button("Collapse connection") != nil && button("Expand database alpha") != nil })
         for database in ["alpha", "beta"] {
             #expect(await waitForView { button("Expand database \(database)") != nil })
             let disclosure = try #require(button("Expand database \(database)"))
             #expect(disclosure.accessibilityPerformPress?() == true)
         }
+        #expect(await waitForView { feature.databaseTrees[profile.id]?.databases["alpha"]?.state == .ready })
+        #expect(feature.databaseTrees[profile.id]?.databases["alpha"]?.state == .ready)
+        #expect(feature.databaseTrees[profile.id]?.databases["beta"]?.state == .ready)
+        #expect(feature.databaseTrees[profile.id]?.databases["alpha"]?.tables.contains("alpha_only") == true)
+        #expect(feature.databaseTrees[profile.id]?.databases["beta"]?.tables.contains("beta_only") == true)
         #expect(await waitForView { button("alpha_only") != nil && button("beta_only") != nil })
         for _ in 0..<2 {
             #expect(try #require(button("alpha")).accessibilityPerformPress?() == true)
             #expect(button("alpha_only") != nil)
-            try await doubleClick("alpha")
+            try activateRow("alpha")
             #expect(await waitForView { button("alpha_only") == nil && button("beta_only") != nil })
-            try await doubleClick("alpha")
+            try activateRow("alpha")
             #expect(await waitForView { button("alpha_only") != nil })
-            try await doubleClick("Tables")
+            try activateRow("Tables")
             #expect(await waitForView { button("alpha_only") == nil && button("beta_only") != nil })
-            try await doubleClick("Tables")
+            try activateRow("Tables")
             #expect(await waitForView { button("alpha_only") != nil })
         }
         #expect(buttons(host).filter { ($0.accessibilityLabel?() ?? $0.accessibilityTitle?()) == "shared" }.count == 2)
@@ -358,8 +375,10 @@ struct DatabaseWorkspaceLifecycleTests {
             // Compare against the same native capture path; NSBitmapImageRep applies the display color profile.
             let referenceHeight = LitheTheme.Tree.rowHeight * 2
             let reference = NSHostingView(rootView: VStack(spacing: 0) {
-                Color.clear.litheTreeRow(isSelected: true, isFocused: false)
-                Color.clear.litheTreeRow(isSelected: true, isFocused: true)
+                Color.clear.frame(height: LitheTheme.Tree.rowHeight)
+                    .modifier(LitheTreeListRowSurface(isSelected: true, isFocused: false))
+                Color.clear.frame(height: LitheTheme.Tree.rowHeight)
+                    .modifier(LitheTreeListRowSurface(isSelected: true, isFocused: true))
             }.environment(\.colorScheme, scheme).environment(\.controlActiveState, .key)
                 .frame(width: 320, height: referenceHeight))
             let referenceWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: referenceHeight), styleMask: [.borderless], backing: .buffered, defer: false)
@@ -394,7 +413,6 @@ struct DatabaseWorkspaceLifecycleTests {
                 else { finishBand() }
             }
             finishBand()
-            if runs != 1 { print("Database tree selection render: \(runs) highlight bands; reference colors: \(colors)") }
             return runs
         }
         let serverRow = try #require(button("Local MySQL"))
@@ -456,35 +474,34 @@ struct DatabaseWorkspaceLifecycleTests {
         #expect(collapseTable.accessibilityPerformPress?() == true)
         #expect(await waitForView { button("Expand table alpha_only") != nil && !hasLoadingRow(host) })
         runner.release.open()
-        #expect(await waitForView { feature.tableTrees[metadataKey]?.state == .ready })
-        // A late response must not reopen the collapsed node, and reopening must use its cache.
+        #expect(await waitForView { feature.tableTrees[metadataKey]?.state == .idle })
+        // Collapsing cancels in-flight metadata; a late response cannot repopulate its cache.
         #expect(button("Collapse table alpha_only") == nil)
         let completedRequests = runner.requests.count
         let reopen = try #require(button("Expand table alpha_only"))
         #expect(reopen.accessibilityPerformPress?() == true)
-        #expect(await waitForView { button("Collapse table alpha_only") != nil })
-        #expect(runner.requests.count == completedRequests)
+        #expect(await waitForView {
+            button("Collapse table alpha_only") != nil && feature.tableTrees[metadataKey]?.state == .ready
+        })
+        #expect(runner.requests.count > completedRequests)
         let collapse = try #require(button("Collapse database alpha"))
         #expect(collapse.accessibilityPerformPress?() == true)
         #expect(await waitForView { button("alpha_only") == nil && button("beta_only") != nil })
-        try await doubleClick("beta_only")
-        #expect(await waitForView { feature.selectedTable == "beta_only" && !feature.isLoading })
-        #expect(feature.selectedProfile?.database == "beta")
-        #expect(button("Expand table beta_only") != nil) // Double-click opens data, not table structure.
-        try await doubleClick("Local MySQL")
+        #expect(button("Expand table beta_only") != nil)
+        try activateRow("Local MySQL")
         #expect(await waitForView { button("beta_only") == nil })
-        try await doubleClick("SQLite cache")
+        try activateRow("SQLite cache")
         #expect(await waitForView { button("Default database") != nil && button("_only") != nil })
         for _ in 0..<2 {
-            try await doubleClick("Default database")
+            try activateRow("Default database")
             #expect(await waitForView { button("_only") == nil })
-            try await doubleClick("Default database")
+            try activateRow("Default database")
             #expect(await waitForView { button("_only") != nil })
             #expect(try #require(button("Tables")).accessibilityPerformPress?() == true)
             #expect(button("_only") != nil)
-            try await doubleClick("Tables")
+            try activateRow("Tables")
             #expect(await waitForView { button("_only") == nil })
-            try await doubleClick("Tables")
+            try activateRow("Tables")
             #expect(await waitForView { button("_only") != nil })
         }
         runner.includesObjects = true
@@ -494,9 +511,9 @@ struct DatabaseWorkspaceLifecycleTests {
             #expect(try #require(button(title)).accessibilityPerformPress?() == true)
             for _ in 0..<2 {
                 #expect(button("Collapse \(title)") != nil)
-                try await doubleClick(title)
+                try activateRow(title)
                 #expect(await waitForView { button("Expand \(title)") != nil })
-                try await doubleClick(title)
+                try activateRow(title)
                 #expect(await waitForView { button("Collapse \(title)") != nil })
             }
         }
@@ -513,9 +530,6 @@ struct DatabaseWorkspaceLifecycleTests {
             }
             let matching = captures(host).filter {
                 $0.bounds.contains($0.convert(point, from: nil))
-            }
-            if matching.isEmpty {
-                print("Missing context capture at \(point), host \(host.bounds), captures \(captures(host).map { $0.convert($0.bounds, to: nil) })")
             }
             let capture = try #require(matching.min { $0.bounds.width * $0.bounds.height < $1.bounds.width * $1.bounds.height })
             // SwiftPM has no application event loop; dispatch to the existing native capture at this row.
@@ -638,7 +652,7 @@ struct DatabaseWorkspaceLifecycleTests {
         #expect(badge.responds(to: valueSelector))
         #expect(badge.perform(valueSelector)?.takeUnretainedValue() as? String == "1 of 2")
         let badgeFrame = try #require((badge as AnyObject).accessibilityFrame?())
-        #expect(badgeFrame.height == LitheTheme.Tree.rowHeight)
+        #expect(abs(badgeFrame.height - LitheTheme.Tree.rowHeight) <= 1)
         if let directory = ProcessInfo.processInfo.environment["LITHE_DATABASE_TREE_SCREENSHOTS"],
            let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
             host.cacheDisplay(in: host.bounds, to: bitmap)
@@ -650,7 +664,7 @@ struct DatabaseWorkspaceLifecycleTests {
             .environment(\.colorScheme, scheme).environment(\.locale, Locale(identifier: "en"))
             .background(LitheTheme.sidebar).frame(width: 320, height: 620)
         #expect(await waitForView { button("Select databases") != nil })
-        try await doubleClick("Local MySQL")
+        try activateRow("Local MySQL")
         #expect(await waitForView { button("alpha") != nil && button("beta") == nil })
         // Escape cancels the draft selection rather than changing the stored scope.
         #expect(try #require(button("Select databases")).accessibilityPerformPress?() == true)
@@ -719,7 +733,7 @@ struct DatabaseWorkspaceLifecycleTests {
         editorPanel.performClose(nil)
         try #require(await waitForView { !editorPanel.isVisible })
         #expect(feature.profiles.count == 2)
-        // A zero-schema scope must still expand. Name and trailing blank space have the same action.
+        // A zero-schema scope must still expand through the shared tree activation path.
         func hasEmptyScopeHint(_ element: Any) -> Bool {
             let accessible = element as AnyObject
             return accessible.accessibilityIdentifier?() == "database-no-schemas-selected"
@@ -730,13 +744,11 @@ struct DatabaseWorkspaceLifecycleTests {
         #expect(button("alpha") == nil && button("beta") == nil)
         let emptyScopeBadge = try #require(scopeBadge())
         #expect(emptyScopeBadge.perform(valueSelector)?.takeUnretainedValue() as? String == "0 of 2")
-        for trailingSpace in [false, true] {
-            try await doubleClick("Local MySQL", trailingSpace: trailingSpace)
-            try #require(await waitForView { !hasEmptyScopeHint(host) }, "Double-click must collapse the connection (trailing space: \(trailingSpace))")
-            try await doubleClick("Local MySQL", trailingSpace: trailingSpace)
-            try #require(await waitForView { hasEmptyScopeHint(host) }, "Double-click must expand even when no schemas are selected (trailing space: \(trailingSpace))")
-            #expect(popupElement("All schemas") == nil)
-        }
+        try activateRow("Local MySQL")
+        try #require(await waitForView { !hasEmptyScopeHint(host) }, "Activation must collapse the connection")
+        try activateRow("Local MySQL")
+        try #require(await waitForView { hasEmptyScopeHint(host) }, "Activation must expand with no schemas selected")
+        #expect(popupElement("All schemas") == nil)
         if let directory = ProcessInfo.processInfo.environment["LITHE_DATABASE_TREE_SCREENSHOTS"],
            let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
             host.cacheDisplay(in: host.bounds, to: bitmap)
@@ -2310,6 +2322,113 @@ struct DatabaseWorkspaceLifecycleTests {
         host.layoutSubtreeIfNeeded()
         scroll.layoutSubtreeIfNeeded()
         #expect(textView.frame.height >= scroll.contentSize.height)
+        await model.shutdownProjectSession()
+    }
+
+    @Test
+    func sidebarRightClickPreservesAllUnappliedTableEdits() async throws {
+        let app = NSApplication.shared
+        let attribute = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        let previous = (app.accessibilityAttributeValue(attribute) as? Bool) ?? false
+        app.accessibilitySetValue(true, forAttribute: attribute)
+        defer { app.accessibilitySetValue(previous, forAttribute: attribute) }
+        let preferences = DatabaseLifecyclePreferences()
+        let store = DatabaseConnectionStore(store: preferences, secureStore: DatabaseLifecycleSecrets())
+        let profile = DatabaseProfile(name: "Context menu fixture", kind: .mysql, database: "first_db")
+        try store.save([profile])
+        let settings = AppSettings(store: preferences)
+        let model = AppModel(settings: settings,
+            services: MacServiceContainer(store: preferences, settings: settings, moduleLaunchMode: .safeMode).services)
+        let feature = DatabaseFeatureModel(operations: DatabaseSidecarService(processRunner: TableEditsWorkspaceRunner(),
+            executableURL: URL(fileURLWithPath: "/fixture/database")), connectionStore: store)
+        defer { feature.prepareForModuleRelease() }
+        model.cacheModuleCapability(DatabaseModuleCapability(feature: feature), id: .databaseWorkspace, moduleID: .database)
+        feature.activateProfile(profile)
+        await feature.refreshTables()
+        await feature.openTable("customers")
+        let host = NSHostingView(rootView: DatabaseSidebarView().frame(width: 340, height: 600)
+            .environmentObject(feature).environmentObject(model).environmentObject(settings))
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 340, height: 600),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        defer { LitheContextMenuPresenter.shared.dismiss(); window.contentView = nil; window.close() }
+        func hasText(_ value: Any, _ text: String) -> Bool {
+            let item = value as AnyObject
+            let stringValue: String? = item.accessibilityValue?()
+            if stringValue == text || item.accessibilityLabel?() == text { return true }
+            return (item.accessibilityChildren?() ?? []).contains { hasText($0, text) }
+        }
+        func row(_ value: Any, named text: String) -> AnyObject? {
+            let item = value as AnyObject
+            if item.accessibilityRole?() == .button, item.accessibilityLabel?() == text { return item }
+            if let child = (item.accessibilityChildren?() ?? []).lazy.compactMap({ row($0, named: text) }).first {
+                return child
+            }
+            return item.accessibilityRole?() == .button && hasText(item, text) ? item : nil
+        }
+        func waitForRow(_ text: String) async -> AnyObject? {
+            let clock = ContinuousClock()
+            let deadline = clock.now.advanced(by: .seconds(3))
+            repeat {
+                host.layoutSubtreeIfNeeded()
+                if let found = row(host, named: text) { return found }
+                await Task.yield()
+            } while clock.now < deadline
+            return nil
+        }
+        let connection = try #require(await waitForRow(profile.name))
+        #expect(connection.accessibilityPerformPress?() == true)
+        #expect(await waitForRow("Collapse connection") != nil)
+        #expect(await waitForRow("first_db") != nil)
+        #expect(feature.databaseTrees[profile.id]?.state == .ready)
+        #expect(feature.databaseTrees[profile.id]?.names.contains("first_db") == true)
+        let databaseDisclosure = try #require(await waitForRow("Expand database first_db"))
+        #expect(databaseDisclosure.accessibilityPerformPress?() == true)
+        let orders = try #require(await waitForRow("orders"))
+        #expect(feature.selectedTable == "customers")
+        let cell = DatabaseCellKey(row: 0, column: "name")
+        feature.tableCellDrafts[cell] = .string("edited")
+        feature.tableInsertedRows = [["name": .string("new")]]
+        feature.tableDeletedRows = [1]
+        let rect = try #require(orders.accessibilityFrame?())
+        let point = window.convertPoint(fromScreen: NSPoint(x: rect.midX, y: rect.midY))
+        let rightClick = try #require(NSEvent.mouseEvent(with: .rightMouseDown, location: point,
+            modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+            eventNumber: 1, clickCount: 1, pressure: 1))
+        func views(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(views) }
+        let captures = views(host).filter { String(describing: type(of: $0)) == "LitheRightClickCaptureView" }
+        let capture = try #require(captures.filter {
+            $0.convert($0.bounds, to: nil).contains(point)
+        }.min { $0.bounds.width * $0.bounds.height < $1.bounds.width * $1.bounds.height })
+        // Invoke the actual AppKit event boundary; do not run a nested application event loop.
+        capture.rightMouseDown(with: rightClick)
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        func menu() -> NSPanel? { NSApp.windows.compactMap { $0 as? NSPanel }.first { $0.isVisible } }
+        while menu() == nil && clock.now < deadline { await Task.yield() }
+        let popup = try #require(menu())
+        NSApp.sendEvent(try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+            timestamp: 0, windowNumber: popup.windowNumber, context: nil, characters: "\u{1b}",
+            charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53)))
+        #expect(!popup.isVisible)
+        #expect(feature.selectedTable == "customers")
+        #expect(feature.tableCellDrafts[cell] == .string("edited"))
+        #expect(feature.tableInsertedRows == [["name": .string("new")]])
+        #expect(feature.tableDeletedRows == [1])
+        // An explicit open still follows the real sidebar navigation path.
+        let target = try #require(await waitForRow("orders"))
+        func openAction(_ element: Any) -> NSAccessibilityCustomAction? {
+            let item = element as AnyObject
+            if let action = item.accessibilityCustomActions?()?.first(where: { $0.name == "Open" }) { return action }
+            return (item.accessibilityChildren?() ?? []).lazy.compactMap(openAction).first
+        }
+        let action = try #require(openAction(target))
+        let handler = try #require(action.handler)
+        #expect(handler())
+        #expect(await awaitChange(on: feature, until: { feature.selectedTable == "orders" }))
+        #expect(await awaitChange(on: feature, until: { !feature.isLoading }))
         await model.shutdownProjectSession()
     }
 

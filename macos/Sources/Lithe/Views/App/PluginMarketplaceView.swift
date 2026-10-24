@@ -12,7 +12,6 @@ struct PluginMarketplaceView: View {
     @EnvironmentObject private var settingsContext: SettingsModelContext
     private var model: AppModel { settingsContext.model }
     @ObservedObject var feature: PluginMarketplaceFeatureModel
-    @State private var pluginListActive = false
     @State private var searchText = ""
     @State private var sourceFilter = PluginMarketplaceView.allSources
     @State private var sortOrder = PluginMarketplaceFeatureModel.SortOrder.name
@@ -42,17 +41,21 @@ struct PluginMarketplaceView: View {
             maximum: PluginManagementView.listMaximumWidth,
             flexibleMinimum: PluginManagementView.detailMinimumWidth,
             onCommit: { listWidth = Double($0) },
-            sized: { sidebar.background(LitheToolWindowActivityTracker(isActive: $pluginListActive)) },
+            sized: { sidebar },
             flexible: { detail }
         )
         .task { await feature.refreshIfNeeded() }
+        .onReceive(feature.$requestedSearch.compactMap { $0 }) { query in
+            searchText = query
+            feature.requestedSearch = nil
+        }
     }
 
     // MARK: List
 
     private var sidebar: some View {
         VStack(spacing: 0) {
-            LitheSettingsSearchField("Search plugins", text: $searchText)
+            LitheSearchField("Search plugins", text: $searchText)
                 .padding(.horizontal, 8)
                 .frame(height: 44)
             HStack(spacing: 8) {
@@ -88,14 +91,9 @@ struct PluginMarketplaceView: View {
             if listings.isEmpty {
                 emptyList
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(listings) { listing in
-                            row(listing)
-                        }
-                    }
+                LitheTreeList(listings, id: \.pluginID, selection: $selectedPluginID, multiline: true) { listing in
+                    row(listing)
                 }
-                .litheScrollViewChrome()
             }
         }
         .frame(maxWidth: .infinity)
@@ -136,9 +134,7 @@ struct PluginMarketplaceView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .litheSelectionRow(isSelected: isSelected, isFocused: pluginListActive)
         .contentShape(Rectangle())
-        .onTapGesture { selectedPluginID = listing.pluginID }
         // Keep the row's Install button a separate element: combining the
         // children makes pressing the row install the plugin instead of
         // selecting it.
@@ -852,6 +848,15 @@ enum PluginMarketplacePresentation {
                 lines.append(localized("May connect to the repository server", locale: locale))
             }
             return (title, lines.joined(separator: "\n"))
+        case .projectGenerator:
+            var lines = [line([program.command ?? ""] + program.argumentTemplate("arguments"))]
+            if program.mayUseNetwork {
+                lines.append(localized("May connect to the internet", locale: locale))
+            }
+            return (
+                String(format: localized("Creates %@ projects", locale: locale), program.generatorID ?? ""),
+                lines.joined(separator: "\n")
+            )
         case .unknown:
             // The full declaration stays behind the disclosure below so an
             // unfamiliar kind cannot push the sheet's buttons off screen.
@@ -1052,12 +1057,8 @@ struct PluginRepositoriesSheet: View {
         HStack(spacing: 8) {
             // A verbatim prompt: as a LocalizedStringKey the example address
             // is parsed as markdown and drawn as a blue underlined link.
-            TextField(
-                LocalizedStringKey("Plugin Repositories"),
-                text: $newSource,
-                prompt: Text(verbatim: "https://github.com/owner/repository").foregroundColor(LitheTheme.tertiaryText)
-            )
-            .litheSettingsTextField()
+            LitheTextField(verbatim: "https://github.com/owner/repository", text: $newSource)
+                .accessibilityLabel("Plugin Repositories")
             .onSubmit(add)
             Button {
                 add()

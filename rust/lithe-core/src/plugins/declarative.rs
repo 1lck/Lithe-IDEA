@@ -47,9 +47,13 @@ const PERMISSION_BUILD: &str = "process.build";
 /// Letting a VCS provider change the working copy and contact its server.
 /// API level 3.
 const PERMISSION_VCS: &str = "process.vcs";
+/// Creating projects: writing template files, running scaffolding tools,
+/// and downloading project archives. API level 3.
+const PERMISSION_PROJECT_GENERATE: &str = "project.generate";
 const KNOWN_PERMISSIONS: &[&str] = &[
     PERMISSION_BUILD,
     PERMISSION_LANGUAGE_SERVER,
+    PERMISSION_PROJECT_GENERATE,
     PERMISSION_RUN,
     PERMISSION_TEST,
     PERMISSION_UI,
@@ -164,6 +168,10 @@ pub struct DeclarativePluginManifest {
     /// shape and its validation live in `crate::vcs`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     vcs_providers: Vec<crate::vcs::VcsProviderDeclaration>,
+    /// Entries of the New Project window. API level 3; the shape and its
+    /// validation live in `crate::project_generators`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    project_generators: Vec<crate::project_generators::ProjectGeneratorDeclaration>,
 }
 
 /// UI supplied by plugins. The host owns every window shell: docking, title,
@@ -197,6 +205,9 @@ struct UIToolWindow {
     /// The plugin's own page shown in the window body. `ui` 2.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     web: Option<UIWebContent>,
+    /// Versioned host-rendered tree/list content. `ui` 3.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    native: Option<super::native_ui::NativeUI>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     icon: Option<UIIcon>,
 }
@@ -265,6 +276,11 @@ enum UIIconMode {
 }
 
 impl UIIcon {
+    /// Native actions reuse the host vocabulary, without package resource loading.
+    pub(crate) fn is_valid_host_icon(&self) -> bool {
+        self.host.is_some() && self.validate().is_ok()
+    }
+
     fn validate(&self) -> Validation<()> {
         self.validate_at("ui.icon")
     }
@@ -280,6 +296,7 @@ impl UIIcon {
             "terminal",
             "search",
             "refresh",
+            "reset",
             "run",
             "debug",
             "settings",
@@ -772,6 +789,7 @@ impl DeclarativePluginManifest {
             && self.ui.is_none()
             && self.build_systems.is_empty()
             && self.vcs_providers.is_empty()
+            && self.project_generators.is_empty()
         {
             return Err(invalid("languages", "The plugin declares no languages."));
         }
@@ -899,6 +917,7 @@ impl DeclarativePluginManifest {
             && self.ui.is_none()
             && self.build_systems.is_empty()
             && self.vcs_providers.is_empty()
+            && self.project_generators.is_empty()
         {
             return Err(invalid(
                 "languages",
@@ -906,6 +925,14 @@ impl DeclarativePluginManifest {
             ));
         }
         self.validate_ui()?;
+        if !self.project_generators.is_empty() && self.plugin_api_version < CAPABILITIES_API_VERSION
+        {
+            return Err(invalid(
+                "projectGenerators",
+                "Project generators require plugin API level 3.",
+            ));
+        }
+        crate::project_generators::validate_declarations(&self.project_generators)?;
         crate::build::validate_declarations(
             &mut self.build_systems,
             &crate::build::DeclarationContext {
@@ -974,6 +1001,10 @@ impl DeclarativePluginManifest {
             (capabilities::UI, self.ui.is_some()),
             (capabilities::BUILD_SYSTEMS, !self.build_systems.is_empty()),
             (
+                capabilities::PROJECT_GENERATORS,
+                !self.project_generators.is_empty(),
+            ),
+            (
                 capabilities::BUILD_PROVIDERS,
                 self.build_systems
                     .iter()
@@ -1014,6 +1045,22 @@ impl DeclarativePluginManifest {
                 icon.validate()?;
             }
             validate_window_body(window, index, version)?;
+            if let Some(source) = window
+                .native
+                .as_ref()
+                .and_then(|native| native.source.as_ref())
+            {
+                if !self
+                    .build_systems
+                    .iter()
+                    .any(|system| system.id == source.build_system_id)
+                {
+                    return Err(invalid(
+                        "ui.toolWindows.native.source",
+                        "The native source must belong to this plugin's build systems.",
+                    ));
+                }
+            }
             if !is_plugin_id(&window.id)
                 || !window.id.starts_with(&prefix)
                 || window.title.trim().is_empty()
@@ -1068,10 +1115,12 @@ impl DeclarativePluginManifest {
         }
         // A version only adds; declaring one without using it only hides
         // the plugin from hosts that could run it.
-        if version >= 2 && ui.tool_windows.iter().all(|window| window.web.is_none()) {
+        if (version == 2 && ui.tool_windows.iter().all(|window| window.web.is_none()))
+            || (version == 3 && ui.tool_windows.iter().all(|window| window.native.is_none()))
+        {
             return Err(invalid(
                 "requires.ui",
-                "ui 2 adds web content; a manifest without it requires ui 1.",
+                "The declared ui version must be used: ui 2 adds web, ui 3 adds native content.",
             ));
         }
         ui.tool_windows
@@ -1123,6 +1172,9 @@ impl DeclarativePluginManifest {
         }
         if !self.vcs_providers.is_empty() {
             required.insert(PERMISSION_VCS);
+        }
+        if !self.project_generators.is_empty() {
+            required.insert(PERMISSION_PROJECT_GENERATE);
         }
         for permission in required {
             if !self
@@ -1204,6 +1256,23 @@ impl DeclarativePluginManifest {
     /// Plugin version, `major.minor.patch`.
     pub(crate) fn version(&self) -> &str {
         &self.version
+    }
+
+    /// Name shown to the user.
+    pub(crate) fn display_name(&self) -> &str {
+        &self.display_name
+    }
+
+    /// IDs of the languages the plugin declares.
+    pub(crate) fn language_ids(&self) -> impl Iterator<Item = &str> {
+        self.languages.iter().map(|language| language.id.as_str())
+    }
+
+    /// Validated project generators, in declaration order.
+    pub(crate) fn project_generators(
+        &self,
+    ) -> &[crate::project_generators::ProjectGeneratorDeclaration] {
+        &self.project_generators
     }
 
     /// Normalized, sorted permission list.
@@ -1377,6 +1446,9 @@ impl DeclarativePluginManifest {
         }
         for provider in &self.vcs_providers {
             programs.extend(crate::vcs::programs(provider));
+        }
+        for generator in &self.project_generators {
+            programs.extend(crate::project_generators::programs(generator));
         }
         // Order by kind, then language or tool, then the full serialized
         // value as a total tie-breaker; duplicates (two servers needing the
@@ -1909,6 +1981,17 @@ fn is_packaged_runtime_path(value: &str) -> bool {
 /// A window body is literal text or, from `ui` 2 on, one package HTML page.
 fn validate_window_body(window: &UIToolWindow, index: usize, version: u32) -> Validation<()> {
     let field = format!("ui.toolWindows[{index}]");
+    if let Some(native) = &window.native {
+        if version < 3 || window.text.is_some() || window.web.is_some() {
+            return Err(invalid(
+                &field,
+                "Native content requires ui 3 and cannot coexist with text or web.",
+            ));
+        }
+        return native
+            .validate()
+            .map_err(|message| invalid(&field, message));
+    }
     match (&window.text, &window.web) {
         (Some(text), None) if text.len() <= 65536 => Ok(()),
         (Some(_), None) => Err(invalid(

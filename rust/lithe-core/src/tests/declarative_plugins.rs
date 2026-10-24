@@ -649,6 +649,246 @@ fn ui_icon_declarations_validate_and_preserve_theme_resources() {
     }
 }
 
+/// Validate the shipped acceptance plugin through the same boundary as installation.
+#[test]
+fn native_ui_lab_package_manifest_is_installable() {
+    let manifest: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../macos/Tests/Fixtures/native-ui-lab/plugin.json"
+    )))
+    .unwrap();
+    let result = validate(manifest);
+    assert_eq!(result["status"], "ok", "{result}");
+}
+
+/// Native controls are opt-in; legacy hosts reject them before presentation.
+#[test]
+fn native_ui_validates_version_ownership_actions_and_budgets() {
+    let manifest: Value =
+        serde_json::from_str(contract_file!("fixtures/native-panel.plugin.json")).unwrap();
+    let result = validate(manifest.clone());
+    assert_eq!(result["status"], "ok", "{result}");
+    for icon in [json!({"host":"search"}), json!({"host":"reset"})] {
+        let mut with_icon = manifest.clone();
+        with_icon["ui"]["toolWindows"][0]["native"]["actions"][1]["icon"] = icon;
+        assert_eq!(validate(with_icon)["status"], "ok");
+    }
+    for icon in [
+        json!({"host":"unknown"}),
+        json!({"path":"icons/custom.svg"}),
+        json!({"host":"reset","mode":"original"}),
+    ] {
+        let mut invalid = manifest.clone();
+        invalid["ui"]["toolWindows"][0]["native"]["actions"][1]["icon"] = icon;
+        assert_eq!(validate(invalid)["status"], "rejected");
+    }
+    let old_host = validate_command(json!({"manifest": manifest, "hostCapabilities": {"ui":[1,2], "buildSystems":[1], "buildProviders":[1], "serverProcess":[1]}})).unwrap();
+    assert_eq!(old_host["error"]["code"], "plugin.api.unsupported");
+    for (pointer, value) in [
+        ("/ui/toolWindows/0/native/schemaVersion", json!(2)),
+        (
+            "/ui/toolWindows/0/native/source/buildSystemID",
+            json!("foreign"),
+        ),
+        ("/ui/toolWindows/0/native/toolbar", json!(["missing"])),
+        (
+            "/ui/toolWindows/0/native/contextMenu",
+            json!(["inspect", "inspect"]),
+        ),
+        (
+            "/ui/toolWindows/0/native/nodes",
+            json!([{"id":"same","label":"A"},{"id":"same","label":"B"}]),
+        ),
+        (
+            "/ui/toolWindows/0/native/nodes",
+            json!(vec![json!({"id":"row","label":"x"}); 2001]),
+        ),
+        ("/requires/ui", json!(2)),
+    ] {
+        let mut invalid = manifest.clone();
+        *invalid.pointer_mut(pointer).unwrap() = value;
+        assert_eq!(validate(invalid)["status"], "rejected", "{pointer}");
+    }
+    let mut styled = manifest.clone();
+    styled["ui"]["toolWindows"][0]["native"]["color"] = json!("red");
+    assert_eq!(validate(styled)["status"], "rejected");
+    let mut mixed = manifest;
+    mixed["ui"]["toolWindows"][0]["text"] = json!("cannot mix body types");
+    assert_eq!(validate(mixed)["status"], "rejected");
+}
+
+#[test]
+fn native_ui_forms_validate_controls_values_actions_and_budgets() {
+    let manifest: Value =
+        serde_json::from_str(contract_file!("fixtures/native-form.plugin.json")).unwrap();
+    assert_eq!(validate(manifest.clone())["status"], "ok");
+    for (pointer, value) in [
+        ("/ui/toolWindows/0/native/kind", json!("list")),
+        (
+            "/ui/toolWindows/0/native/nodes",
+            json!([{"id":"row","label":"Row"}]),
+        ),
+        ("/ui/toolWindows/0/native/controls", json!([])),
+        (
+            "/ui/toolWindows/0/native/controls",
+            json!(vec![
+                json!({"id":"field","kind":"input","label":"Field","value":""});
+                33
+            ]),
+        ),
+        ("/ui/toolWindows/0/native/controls/0/kind", json!("html")),
+        ("/ui/toolWindows/0/native/controls/0/id", json!("form")),
+        ("/ui/toolWindows/0/native/controls/0/value", json!(false)),
+        (
+            "/ui/toolWindows/0/native/controls/0/value",
+            json!("😀".repeat(257)),
+        ),
+        (
+            "/ui/toolWindows/0/native/controls/2/value",
+            json!("missing"),
+        ),
+        ("/ui/toolWindows/0/native/controls/2/options", json!([])),
+        (
+            "/ui/toolWindows/0/native/controls/2/options",
+            json!([{"id":"same","label":"A"},{"id":"same","label":"B"}]),
+        ),
+        (
+            "/ui/toolWindows/0/native/controls/2/options",
+            json!(vec![json!({"id":"option","label":"Option"}); 129]),
+        ),
+        ("/ui/toolWindows/0/native/controls/3/value", json!("true")),
+    ] {
+        let mut invalid = manifest.clone();
+        *invalid.pointer_mut(pointer).unwrap() = value;
+        assert_eq!(validate(invalid)["status"], "rejected", "{pointer}");
+    }
+    for (key, value) in [
+        ("onCommit", json!("missing")),
+        ("options", json!([])),
+        ("color", json!("red")),
+    ] {
+        let mut invalid = manifest.clone();
+        invalid["ui"]["toolWindows"][0]["native"]["controls"][0][key] = value;
+        assert_eq!(validate(invalid)["status"], "rejected", "{key}");
+    }
+    let mut dynamic = manifest;
+    let native = &mut dynamic["ui"]["toolWindows"][0]["native"];
+    native["source"] = json!({"buildSystemID":"sample","function":"form.nodes"});
+    native["actions"] = json!([{"id":"changed","title":"Changed","kind":"invoke","function":"form.changed","requiresSelection":false}]);
+    native["controls"][0]["onCommit"] = json!("changed");
+    assert_eq!(validate(dynamic.clone())["status"], "ok");
+    dynamic["ui"]["toolWindows"][0]["native"]["actions"][0]["requiresSelection"] = json!(true);
+    assert_eq!(validate(dynamic)["status"], "rejected");
+}
+
+#[test]
+fn native_ui_form_grid_validates_columns_spans_and_scope() {
+    let manifest: Value =
+        serde_json::from_str(contract_file!("fixtures/native-form.plugin.json")).unwrap();
+    assert_eq!(validate(manifest.clone())["status"], "ok");
+    for (pointer, value) in [
+        ("/ui/toolWindows/0/native/layout/columns", json!(0)),
+        ("/ui/toolWindows/0/native/layout/columns", json!(13)),
+        ("/ui/toolWindows/0/native/layout/columns", json!(1.5)),
+        ("/ui/toolWindows/0/native/controls/0/span", json!(0)),
+        ("/ui/toolWindows/0/native/controls/0/span", json!(13)),
+        ("/ui/toolWindows/0/native/controls/0/span", json!("6")),
+    ] {
+        let mut invalid = manifest.clone();
+        *invalid.pointer_mut(pointer).unwrap() = value;
+        assert_eq!(validate(invalid)["status"], "rejected", "{pointer}");
+    }
+    let mut smaller_grid = manifest.clone();
+    smaller_grid["ui"]["toolWindows"][0]["native"]["layout"]["columns"] = json!(4);
+    assert_eq!(validate(smaller_grid)["status"], "rejected");
+    let mut missing_grid = manifest.clone();
+    missing_grid["ui"]["toolWindows"][0]["native"]
+        .as_object_mut()
+        .unwrap()
+        .remove("layout");
+    assert_eq!(validate(missing_grid.clone())["status"], "rejected");
+    for control in missing_grid["ui"]["toolWindows"][0]["native"]["controls"]
+        .as_array_mut()
+        .unwrap()
+    {
+        control.as_object_mut().unwrap().remove("span");
+    }
+    assert_eq!(validate(missing_grid)["status"], "ok");
+    let mut styled = manifest;
+    styled["ui"]["toolWindows"][0]["native"]["layout"]["gap"] = json!(99);
+    assert_eq!(validate(styled)["status"], "rejected");
+    let mut tree: Value =
+        serde_json::from_str(contract_file!("fixtures/native-panel.plugin.json")).unwrap();
+    tree["ui"]["toolWindows"][0]["native"]["layout"] = json!({"columns":12});
+    assert_eq!(validate(tree)["status"], "rejected");
+}
+
+#[test]
+fn native_public_controls_validate_types_ranges_info_and_buttons() {
+    let manifest: Value =
+        serde_json::from_str(contract_file!("fixtures/native-controls.plugin.json")).unwrap();
+    assert_eq!(validate(manifest.clone())["status"], "ok");
+    for (pointer, value) in [
+        ("/ui/toolWindows/0/native/controls/0/info", json!(" ")),
+        (
+            "/ui/toolWindows/0/native/controls/0/info",
+            json!("x".repeat(1025)),
+        ),
+        ("/ui/toolWindows/0/native/controls/8/value", json!(true)),
+        (
+            "/ui/toolWindows/0/native/controls/9/value",
+            json!("😀".repeat(2049)),
+        ),
+        ("/ui/toolWindows/0/native/controls/9/rows", json!(13)),
+        (
+            "/ui/toolWindows/0/native/controls/10/value",
+            json!("unknown"),
+        ),
+        (
+            "/ui/toolWindows/0/native/controls/10/options",
+            json!(vec![json!({"id":"option","label":"Option"}); 9]),
+        ),
+        ("/ui/toolWindows/0/native/controls/11/value", json!("2")),
+        ("/ui/toolWindows/0/native/controls/11/value", json!(9)),
+        ("/ui/toolWindows/0/native/controls/11/minimum", json!(10)),
+        ("/ui/toolWindows/0/native/controls/11/step", json!(0)),
+        ("/ui/toolWindows/0/native/buttons/0/id", json!("name")),
+        (
+            "/ui/toolWindows/0/native/buttons/0/action",
+            json!("unknown"),
+        ),
+        ("/ui/toolWindows/0/native/buttons/0/width", json!(200)),
+        ("/ui/toolWindows/0/native/buttons/0/span", json!(13)),
+        (
+            "/ui/toolWindows/0/native/buttons",
+            json!(vec![
+                json!({"id":"button","label":"Button","action":"changed"});
+                17
+            ]),
+        ),
+    ] {
+        let mut invalid = manifest.clone();
+        *invalid.pointer_mut(pointer).unwrap() = value;
+        assert_eq!(validate(invalid)["status"], "rejected", "{pointer}");
+    }
+    for (index, key, value) in [
+        (0, "minimum", json!(0)),
+        (0, "rows", json!(2)),
+        (9, "onCommit", json!("changed")),
+        (11, "placeholder", json!("hint")),
+    ] {
+        let mut invalid = manifest.clone();
+        invalid["ui"]["toolWindows"][0]["native"]["controls"][index][key] = value;
+        assert_eq!(validate(invalid)["status"], "rejected");
+    }
+    let mut styled = manifest.clone();
+    styled["ui"]["toolWindows"][0]["native"]["buttons"][0]["color"] = json!("red");
+    assert_eq!(validate(styled)["status"], "rejected");
+    let mut button_only = manifest;
+    button_only["ui"]["toolWindows"][0]["native"]["controls"] = json!([]);
+    assert_eq!(validate(button_only)["status"], "ok");
+}
+
 /// A level 3 manifest using settings v2: scoped, page-placed settings with an
 /// `immediate` one that only the server's `workspaceConfiguration` may read.
 /// The shared settings v2 fixture: project and immediate settings on a

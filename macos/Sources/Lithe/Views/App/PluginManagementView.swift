@@ -286,7 +286,7 @@ private struct InstalledPluginsView: View {
     private var sidebar: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 8) {
-                LitheSettingsSearchField("Type / to see options", text: $searchText)
+                LitheSearchField("Type / to see options", text: $searchText)
                 filterChips
             }
             .padding(.horizontal, 8)
@@ -311,33 +311,15 @@ private struct InstalledPluginsView: View {
             let selectedID = (plugins.first { $0.id == selectedPluginID } ?? plugins.first)?.id
             let enabled = plugins.filter { effectiveEnabledState(for: $0) }
             let disabled = plugins.filter { !effectiveEnabledState(for: $0) }
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    if !enabled.isEmpty {
-                        groupHeader("Enabled")
-                        ForEach(enabled) { plugin in
-                            pluginRow(plugin, isSelected: plugin.id == selectedID)
-                        }
-                    }
-                    if !disabled.isEmpty {
-                        groupHeader("Disabled")
-                        ForEach(disabled) { plugin in
-                            pluginRow(plugin, isSelected: plugin.id == selectedID)
-                        }
-                    }
-                    if plugins.isEmpty {
-                        Text(LocalizedStringKey("No matching plugins"))
-                            .font(LitheTheme.smallFont)
-                            .foregroundStyle(LitheTheme.secondaryText)
-                            .padding(.vertical, 24)
-                    }
-                    if filter == .all {
-                        ForEach(brokenPluginIssues) { issue in
+            LitheTreeList(nodes:
+                pluginNodes(enabled, title: "Enabled") + pluginNodes(disabled, title: "Disabled")
+                    + (filter == .all ? brokenPluginIssues.map { issue in
+                        LitheTreeListNode(id: "issue:" + String(describing: issue.id), isSelectable: false) {
                             brokenPluginRow(issue)
                         }
-                    }
-                }
-            }
+                    } : []),
+                selection: Binding(get: { selectedID.map { "plugin:" + $0.rawValue } }, set: { _ in }), multiline: true)
+
         }
         .frame(maxWidth: .infinity)
         .background(LitheTheme.settingsListSurface)
@@ -410,14 +392,23 @@ private struct InstalledPluginsView: View {
             .padding(.bottom, 4)
     }
 
-    private func pluginRow(_ plugin: PluginManagementSnapshot, isSelected: Bool) -> some View {
+    private func pluginNodes(_ plugins: [PluginManagementSnapshot], title: String) -> [LitheTreeListNode] {
+        guard !plugins.isEmpty else { return [] }
+        return [LitheTreeListNode(id: "group:" + (plugins.first?.id.rawValue ?? ""), isSelectable: false) {
+            groupHeader(title)
+        }] + plugins.map { plugin in
+            LitheTreeListNode(id: "plugin:" + plugin.id.rawValue, onSelect: { selectedPluginID = plugin.id }) {
+                pluginRow(plugin)
+            }
+        }
+    }
+
+    private func pluginRow(_ plugin: PluginManagementSnapshot) -> some View {
         InstalledPluginRow(
             displayName: plugin.manifest.displayName,
             subtitle: rowSubtitle(plugin),
             hasUpdate: feature.availableUpdate(for: plugin.id) != nil,
-            isEnabled: effectiveEnabledState(for: plugin),
-            isSelected: isSelected,
-            select: { selectedPluginID = plugin.id }
+            isEnabled: effectiveEnabledState(for: plugin)
         ) {
             pluginIcon(plugin, size: 32)
         }
@@ -760,23 +751,17 @@ private struct PluginFilterChipLayout: Layout {
     }
 }
 
-/// One installed plugin row. Hover state stays inside the row, so moving the
-/// pointer over the list redraws only the rows it enters and leaves instead
-/// of the whole Installed page and its detail pane.
+/// Installed plugin content; the shared tree owns focus, selection, hover and activation.
 private struct InstalledPluginRow<Icon: View>: View {
     let displayName: String
     let subtitle: String
     let hasUpdate: Bool
     let isEnabled: Bool
-    let isSelected: Bool
-    let select: () -> Void
     @ViewBuilder let icon: () -> Icon
-    @State private var isHovered = false
 
     var body: some View {
         HStack(spacing: 10) {
             icon()
-                .scaleEffect(isHovered && !isSelected ? 1.06 : 1)
             VStack(alignment: .leading, spacing: 3) {
                 Text(LocalizedStringKey(displayName)).lineLimit(1)
                     .font(LitheTheme.uiFont(size: 13, weight: .semibold))
@@ -796,16 +781,7 @@ private struct InstalledPluginRow<Icon: View>: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            isSelected
-                ? LitheTheme.settingsSelection
-                : (isHovered ? LitheTheme.hoverBackground : Color.clear)
-        )
-        .contentShape(Rectangle())
-        .onTapGesture(count: 1, perform: select)
-        .onHover { isHovered = $0 }
         .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction { select() }
+
     }
 }

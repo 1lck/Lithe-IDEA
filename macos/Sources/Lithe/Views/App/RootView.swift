@@ -314,6 +314,14 @@ private struct ActiveSessionChrome: View {
                     .environmentObject(session)
             }
             .sheet(isPresented: Binding(
+                get: { session.workbenchFeature.isNewProjectPresented },
+                set: { session.workbenchFeature.isNewProjectPresented = $0 }
+            )) {
+                if session.canCreateProjects {
+                    NewProjectSheet(feature: session.makeNewProjectFeature()!)
+                }
+            }
+            .sheet(isPresented: Binding(
                 get: { session.diagnosticsFeature.isPresented },
                 set: { session.diagnosticsFeature.isPresented = $0 }
             )) {

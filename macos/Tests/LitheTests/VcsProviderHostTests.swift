@@ -1,4 +1,6 @@
 import Foundation
+import AppKit
+import SwiftUI
 import LitheCoreContracts
 import LitheModuleAPI
 import Testing
@@ -10,6 +12,47 @@ import Testing
 @Suite("VCS provider host")
 @MainActor
 struct VcsProviderHostTests {
+    @Test
+    func sharedChangesTreeActivatesAnUnversionedFile() async throws {
+        let fixture = try VcsFeatureFixture(roots: [("", "svn")])
+        defer { fixture.close() }
+        fixture.providers.replies["status"] = try VcsTestData.statusReply([("new.txt", "unversioned")])
+        #expect(await fixture.open())
+        var opened: URL?
+        let app = NSApplication.shared
+        let attribute = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
+        let previous = (app.accessibilityAttributeValue(attribute) as? Bool) ?? false
+        app.accessibilitySetValue(true, forAttribute: attribute)
+        defer { app.accessibilitySetValue(previous, forAttribute: attribute) }
+        let host = NSHostingView(rootView: VcsProviderToolWindowView(
+            feature: fixture.feature, title: "Subversion", pluginID: VcsTestData.pluginID, vcs: "svn",
+            actions: .init(openFile: { opened = $0 }, revealInFinder: { _ in }, copyPath: { _ in }, hide: {})))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 500),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.contentView = nil; window.close() }
+        func elements(_ value: Any) -> [AnyObject] {
+            let item = value as AnyObject
+            return [item] + (item.accessibilityChildren?() ?? []).flatMap(elements)
+        }
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        var row: AnyObject?
+        repeat {
+            host.layoutSubtreeIfNeeded()
+            row = elements(host).first { item in
+                item.accessibilityRole?() == .button && elements(item).contains {
+                    ($0.accessibilityLabel?() ?? "").contains("new.txt")
+                }
+            }
+            if row != nil { break }
+            await Task.yield()
+        } while clock.now < deadline
+        #expect(try #require(row).accessibilityPerformPress?() == true)
+        #expect(opened == fixture.url("new.txt"))
+    }
+
     // MARK: Feature model
 
     @Test
