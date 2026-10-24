@@ -88,7 +88,9 @@ final class ProjectGenerationService: Sendable {
             try platform.moveItem(at: staging, to: destination)
         } catch {
             platform.removeItem(at: staging)
-            if error is CancellationError { throw error }
+            // A cancelled download fails with URLError(.cancelled), not
+            // CancellationError; either way the user asked to stop.
+            if error is CancellationError || Task.isCancelled { throw CancellationError() }
             if let error = error as? ProjectGenerationError { throw error }
             if let rejection = error as? CoreRejection { throw ProjectGenerationError(message: rejection.message) }
             throw ProjectGenerationError(message: error.localizedDescription)

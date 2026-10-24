@@ -75,6 +75,9 @@ final class NewProjectFeatureModel: ObservableObject {
     @Published private(set) var nameProblem: ProjectFieldProblem?
     @Published private(set) var formError: String?
     @Published private(set) var javaRuntimes: [JavaRuntimeCandidate] = []
+    /// Set once JDK discovery finished, so an empty list reads as "none
+    /// installed" rather than "still looking".
+    @Published private(set) var hasLoadedJavaRuntimes = false
     @Published private(set) var isCreating = false
     @Published private(set) var progressOutput = ""
     @Published private(set) var errorMessage: String?
@@ -84,6 +87,10 @@ final class NewProjectFeatureModel: ObservableObject {
     /// Inputs per generator, so switching entries keeps what the user typed.
     private var inputs: [String: ProjectGeneratorFormInput] = [:]
     private var creation: Task<Void, Never>?
+    /// Plugin sources as of the last catalog load. Reading them is not
+    /// cheap (every plugin's management snapshot), so form evaluation on
+    /// each keystroke reuses these; `reloadCatalog()` refreshes them.
+    private var sources: [ProjectGeneratorPluginSource] = []
 
     init(environment: NewProjectEnvironment) {
         self.environment = environment
@@ -100,12 +107,14 @@ final class NewProjectFeatureModel: ObservableObject {
             selection = .generator(first.id)
         }
         javaRuntimes = await environment.javaRuntimes()
+        hasLoadedJavaRuntimes = true
         evaluate()
     }
 
     func reloadCatalog() {
+        sources = environment.sources()
         do {
-            let catalog = try environment.service.planner.catalog(environment.sources())
+            let catalog = try environment.service.planner.catalog(sources)
             entries = catalog.generators
             catalogError = nil
         } catch let rejection as CoreRejection {
@@ -206,8 +215,7 @@ final class NewProjectFeatureModel: ObservableObject {
     }
 
     var destinationPath: String {
-        parentURL.appendingPathComponent(projectName).path
-            .replacingOccurrences(of: NSHomeDirectory(), with: "~")
+        (parentURL.appendingPathComponent(projectName).path as NSString).abbreviatingWithTildeInPath
     }
 
     var canCreate: Bool {
@@ -263,8 +271,16 @@ final class NewProjectFeatureModel: ObservableObject {
         let input = input(for: entry)
         inputs[entry.id] = input
         do {
-            formState = try environment.service.planner.form(target, input: input)
+            let state = try environment.service.planner.form(target, input: input)
+            formState = state
             formError = nil
+            // A problem in a collapsed section would leave Create disabled
+            // with no visible reason (a project name with a space makes the
+            // derived ArtifactId invalid), so the section opens.
+            let advancedIDs = Set(entry.generator.fields.filter(\.advanced).map(\.id))
+            if state.fields.contains(where: { advancedIDs.contains($0.id) && $0.visible && $0.problem != nil }) {
+                showsAdvancedFields = true
+            }
         } catch let rejection as CoreRejection {
             formState = nil
             formError = rejection.message
@@ -275,7 +291,7 @@ final class NewProjectFeatureModel: ObservableObject {
     }
 
     private func target(for entry: ProjectGeneratorEntry) -> ProjectGeneratorTarget? {
-        guard let source = environment.sources().first(where: { $0.pluginID.rawValue == entry.pluginID }) else {
+        guard let source = sources.first(where: { $0.pluginID.rawValue == entry.pluginID }) else {
             return nil
         }
         return ProjectGeneratorTarget(

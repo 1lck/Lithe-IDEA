@@ -171,7 +171,7 @@ struct NewProjectView: View {
                         .accessibilityLabel(Text(LocalizedStringKey("Location")))
                     Button {
                         if let path = LitheDirectoryPicker.choose(startingAt: feature.location) {
-                            feature.location = path.replacingOccurrences(of: NSHomeDirectory(), with: "~")
+                            feature.location = (path as NSString).abbreviatingWithTildeInPath
                         }
                     } label: {
                         Image(systemName: "folder")
@@ -356,7 +356,10 @@ struct NewProjectView: View {
     }
 
     @ViewBuilder private func runtimeControl(_ field: ProjectGeneratorField) -> some View {
-        if feature.javaRuntimes.isEmpty {
+        if feature.javaRuntimes.isEmpty, feature.hasLoadedJavaRuntimes {
+            Text(LocalizedStringKey("No JDK was found. Install a JDK, then reopen this window."))
+                .foregroundStyle(LitheTheme.secondaryText)
+        } else if feature.javaRuntimes.isEmpty {
             HStack(spacing: 6) {
                 ProgressView().controlSize(.small)
                 Text(LocalizedStringKey("Looking for installed JDKs…"))
@@ -373,7 +376,7 @@ struct NewProjectView: View {
                 accessibilityLabel: field.title,
                 title: { home in
                     guard let runtime = feature.javaRuntimes.first(where: { $0.homePath == home }) else { return home }
-                    return "\(runtime.displayName) — \(home.replacingOccurrences(of: NSHomeDirectory(), with: "~"))"
+                    return "\(runtime.displayName) — \((home as NSString).abbreviatingWithTildeInPath)"
                 },
                 localizesTitles: false,
                 searchPrompt: feature.javaRuntimes.count > 8 ? "Search JDKs" : nil

@@ -4021,6 +4021,7 @@
 "Advanced Settings" = "高级设置";
 "Creating this project downloads files from the internet." = "创建此项目需要从网络下载文件。";
 "Looking for installed JDKs…" = "正在查找已安装的 JDK…";
+"No JDK was found. Install a JDK, then reopen this window." = "未找到 JDK。请安装 JDK 后重新打开此窗口。";
 "Search JDKs" = "搜索 JDK";
 "Creating project…" = "正在创建项目…";
 "Enter a value." = "请输入内容。";
