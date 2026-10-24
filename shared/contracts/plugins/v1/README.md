@@ -1529,8 +1529,11 @@ host's provider requests: once given for a plugin and workspace, it holds
 until the project is closed.
 macOS implements web content with WKWebView and advertises `ui: [1, 2, 3]`
 (including the native controls described below).
-Windows has no WebView2 host yet and still advertises `ui: [1]`, so Core refuses
-`ui` 2 plugins there with `plugin.api.unsupported`.
+Windows implements web content with WebView2 under a plugin-private
+`lithe-plugin://` origin and also advertises `ui: [1, 2]`; its bridge v0
+answers `ui.getState`, `ui.setState`, and `workspace.openFile`, and returns
+`plugin.web.unknownMethod` for `build.*` and `functions.*` until the Windows
+build-system capability lands. Windows does not advertise `ui` 3.
 
 ### Future public extension direction (not implemented in API level 2)
 

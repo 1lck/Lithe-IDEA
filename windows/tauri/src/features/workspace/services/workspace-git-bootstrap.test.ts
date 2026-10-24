@@ -32,7 +32,12 @@ const resolveJavaLspLaunch = mock(async () => ({
   arguments: [], environment: {}, cacheDirectory: "C:/runtime/cache",
 }));
 const mavenLaunchContextForWorkspace = mock(async () => null);
-const dependencies = { ensureWorkspaceGitBootstrap, resolveJavaLspLaunch, mavenLaunchContextForWorkspace };
+const dependencies = {
+  ensureWorkspaceGitBootstrap,
+  resolveJavaLspLaunch,
+  mavenLaunchContextForWorkspace,
+  resolveDeclarativePluginLaunch: async () => null,
+};
 let invokeSpy: ReturnType<typeof spyOn<typeof tauriCore, "invoke">>;
 
 function openRuntime() {

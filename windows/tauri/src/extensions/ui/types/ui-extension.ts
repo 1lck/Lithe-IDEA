@@ -30,6 +30,7 @@ export interface RegisteredToolbarAction {
 }
 
 export interface RegisteredCommand {
+  placements?: string[];
   id: string;
   extensionId: string;
   title: string;

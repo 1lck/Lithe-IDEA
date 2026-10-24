@@ -2976,6 +2976,7 @@ version = "0.3.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
+ "http",
  "keyring",
  "lithe-agent-host",
  "lithe-core",
@@ -3007,6 +3008,7 @@ dependencies = [
  "tokio",
  "url",
  "webbrowser",
+ "webview2-com",
  "windows 0.61.3",
  "windows-sys 0.61.2",
  "zip 2.4.2",

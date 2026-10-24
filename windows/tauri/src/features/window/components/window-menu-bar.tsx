@@ -1,3 +1,4 @@
+import { useUIExtensionStore } from "@/extensions/ui/stores/ui-extension-store";
 import { openNewEntry } from "@/features/file-explorer/stores/new-entry.store";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useUIState } from "@/features/window/stores/ui-state.store";
@@ -43,6 +44,7 @@ const WindowMenuBar = ({
 }: Props) => {
   const { t } = useTranslation();
   const themes = useRegisteredThemes();
+  const pluginCommands = useUIExtensionStore((state) => state.commands);
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
   const canCreateJava = !!rootFolderPath && !/^(?:remote|wsl):\/\//.test(rootFolderPath);
   const menuWindowRaiseRef = useRef<{ restoreTo: boolean } | null>(null);
@@ -488,6 +490,11 @@ const WindowMenuBar = ({
       ),
       Tools: (
         <MenubarContent>
+          {[...pluginCommands.values()].filter((command) => command.placements?.includes("menu")).map((command) => (
+            <MenubarItem key={command.id} onClick={() => { closeMenu(); void Promise.resolve(command.execute()).catch(console.error); }}>
+              {command.title}
+            </MenubarItem>
+          ))}
           <MenubarItem
             onClick={() => handleCommand("database.connect")}
             disabled={!isBackendCapabilityAvailable("database")}
@@ -579,6 +586,7 @@ const WindowMenuBar = ({
       ),
     }),
     [
+      pluginCommands,
       closeMenu,
       handleClickEmit,
       handleCommand,

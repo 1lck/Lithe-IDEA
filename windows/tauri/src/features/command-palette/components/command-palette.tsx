@@ -1,3 +1,4 @@
+import { useUIExtensionStore } from "@/extensions/ui/stores/ui-extension-store";
 import { appDataDir } from "@tauri-apps/api/path";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ClockCounterClockwiseIcon as History } from "@/ui/icons";
@@ -68,6 +69,7 @@ interface CommandPaletteContentProps {
 
 const CommandPaletteContent = ({ commandPaletteInitialView }: CommandPaletteContentProps) => {
   const { t } = useTranslation();
+  const pluginCommands = useUIExtensionStore((state) => state.commands);
   // Get data from stores
   const setIsCommandPaletteVisible = useUIState((state) => state.setIsCommandPaletteVisible);
   const setIsSettingsDialogVisible = useUIState((state) => state.setIsSettingsDialogVisible);
@@ -388,7 +390,12 @@ const CommandPaletteContent = ({ commandPaletteInitialView }: CommandPaletteCont
       onClose,
     }),
   ];
-  const allActions = rawActions.map((action) => localizeCommandPaletteAction(action, t));
+  const allActions: Action[] = [
+    ...rawActions.map((action) => localizeCommandPaletteAction(action, t)),
+    ...[...pluginCommands.values()].filter((command) => command.extensionId.startsWith("declarative:") && command.placements?.includes("commandPalette"))
+      .map((command) => ({ id: command.id, label: command.title, description: command.category ?? "", category: "plugins", icon: null,
+        action: async () => { onClose(); await command.execute(); } })),
+  ];
 
   // Filter actions based on query
   const filteredActions = allActions.filter(

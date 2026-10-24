@@ -57,4 +57,19 @@ describe("Shared built-in translations", () => {
       expect(t(key)).toBe(key);
     expect(t("quickOpen.filesCount", Object.create({ count: 3 }))).toBe("{count} files");
   });
+
+  test("declarative plugin labels and review parameters survive shared catalog migration", () => {
+    for (const [language, group, review, programs, toggle] of [
+      ["en-US", "Declarative plugins", "Install Demo {version} 1.0?", "Program declaration (0)", "Enable or disable Demo"],
+      ["zh-CN", "声明式插件", "安装 Demo {version} 1.0？", "程序声明（0 项）", "启用或停用 Demo"],
+    ] as const) {
+      const t = createTranslator(language);
+      expect(t("run.declarativePlugins")).toBe(group);
+      expect(t("settings.declarativePlugins.reviewTitle", {
+        name: "Demo {version}", version: "1.0",
+      })).toBe(review);
+      expect(t("settings.declarativePlugins.programDeclaration", { count: 0 })).toBe(programs);
+      expect(t("settings.declarativePlugins.toggle", { name: "Demo" })).toBe(toggle);
+    }
+  });
 });

@@ -1,4 +1,5 @@
 import type { BackendLanguageToolConfigSet } from "@/extensions/registry/extension-store-runtime";
+import { resolveDeclarativePluginLaunch } from "@/features/plugins/declarative-plugin-launch";
 import { isJavaSourcePath, JAVA_LANGUAGE_ID, JAVA_PROVIDER_ID } from "./built-in-language-support";
 import {
   resolveJavaLspLaunch,
@@ -14,10 +15,12 @@ import { ensureWorkspaceGitBootstrap } from "@/features/workspace/services/works
 
 export interface EditorLspLaunch {
   providerId: string;
+  pluginId?: string;
   languageId: string;
   serverPath: string;
   serverArgs: string[];
   initializationOptions?: Record<string, unknown>;
+  workspaceConfiguration?: Record<string, unknown>;
   tools?: BackendLanguageToolConfigSet;
   runtimeExecutablePath?: string | null;
   jdtlsLaunchResources?: JdtlsLaunchResources | null;
@@ -35,12 +38,14 @@ export interface EditorLspLaunchDependencies {
   ensureWorkspaceGitBootstrap: typeof ensureWorkspaceGitBootstrap;
   resolveJavaLspLaunch: typeof resolveJavaLspLaunch;
   mavenLaunchContextForWorkspace: typeof mavenLaunchContextForWorkspace;
+  resolveDeclarativePluginLaunch: typeof resolveDeclarativePluginLaunch;
 }
 
 const defaultDependencies: EditorLspLaunchDependencies = {
   ensureWorkspaceGitBootstrap,
   resolveJavaLspLaunch,
   mavenLaunchContextForWorkspace,
+  resolveDeclarativePluginLaunch,
 };
 
 export async function resolveEditorLspLaunch(
@@ -88,7 +93,9 @@ export async function resolveEditorLspLaunch(
   const extension = extensionRegistry.getExtensionForFilePath(filePath);
   const serverPath = extensionRegistry.getLspServerPath(filePath);
   const languageId = extensionRegistry.getLanguageId(filePath);
-  if (!serverPath || !languageId) return null;
+  if (!serverPath || !languageId) {
+    return resolveDeclarativeFallback(filePath, workspacePath, dependencies);
+  }
 
   return {
     providerId: languageId,
@@ -97,5 +104,28 @@ export async function resolveEditorLspLaunch(
     serverArgs: extensionRegistry.getLspServerArgs(filePath),
     initializationOptions: extensionRegistry.getLspInitializationOptions(filePath),
     tools: getLanguageToolConfigSet(extension?.manifest),
+  };
+}
+
+/**
+ * Contract v1 declarative plugins resolve after the Worker extension model so
+ * a Worker-owned language keeps its server until the package migration lands.
+ */
+async function resolveDeclarativeFallback(
+  filePath: string,
+  workspacePath: string,
+  dependencies: EditorLspLaunchDependencies,
+): Promise<EditorLspLaunch | null> {
+  const launch = await dependencies.resolveDeclarativePluginLaunch(filePath, workspacePath);
+  if (!launch) return null;
+  return {
+    providerId: launch.pluginId,
+    pluginId: launch.pluginId,
+    languageId: launch.languageId,
+    serverPath: launch.serverPath,
+    serverArgs: launch.serverArgs,
+    initializationOptions: launch.initializationOptions ?? undefined,
+    workspaceConfiguration: launch.workspaceConfiguration ?? undefined,
+    environment: launch.environment,
   };
 }

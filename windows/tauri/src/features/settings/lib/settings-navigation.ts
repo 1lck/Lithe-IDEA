@@ -60,6 +60,7 @@ export const settingsSidebarLayout: ReadonlyArray<
 > = [
   { type: "group", group: appearanceGroup },
   { type: "page", id: "plugins" },
+  { type: "page", id: "declarative-plugins" },
   { type: "group", group: versionControlGroup },
   { type: "group", group: buildGroup },
   { type: "group", group: languagesGroup },
@@ -139,6 +140,18 @@ export const settingsCategories: Array<{
       "settings.editor.showMinimap",
       "settings.mac.editorTabs",
       "settings.mac.layout",
+    ],
+  },
+  {
+    id: "declarative-plugins",
+    labelKey: "settings.declarativePlugins.title",
+    terms: [
+      "Declarative plugins",
+      "Contract v1",
+      "插件包",
+      "声明式插件",
+      "settings.declarativePlugins.title",
+      "settings.declarativePlugins.import",
     ],
   },
   {

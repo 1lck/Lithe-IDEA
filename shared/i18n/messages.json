@@ -84540,6 +84540,247 @@
       }
     },
     {
+      "id": "run.declarativePlugins",
+      "description": "Windows declarative plugin UI: run.declarativePlugins",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.title",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.title",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.description",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.description",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.import",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.import",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.reviewTitle",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.reviewTitle",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "name": "string",
+        "version": "string"
+      }
+    },
+    {
+      "id": "settings.declarativePlugins.unverified",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.unverified",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.confirmInstall",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.confirmInstall",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.programDeclaration",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.programDeclaration",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "settings.declarativePlugins.empty",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.empty",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.toggle",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.toggle",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "settings.declarativePlugins.rollback",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.rollback",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.uninstall",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.uninstall",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.source.bundled",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.source.bundled",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.source.installed",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.source.installed",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.settings",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.settings",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.webWindows",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.webWindows",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.openWindow",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.openWindow",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.closeWindow",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.closeWindow",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.placement.left",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.placement.left",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.placement.right",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.placement.right",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.placement.bottom",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.placement.bottom",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.showSettings",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.showSettings",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.hideSettings",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.hideSettings",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.settingsUnavailable",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.settingsUnavailable",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.settingSource.default",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.settingSource.default",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.settingSource.global",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.settingSource.global",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.settingSource.project",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.settingSource.project",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.settingScope.global",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.settingScope.global",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.settingScope.project",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.settingScope.project",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.settingEffect.restart",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.settingEffect.restart",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.settingEffect.immediate",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.settingEffect.immediate",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.settingEffect.reload",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.settingEffect.reload",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.settingEffect.nextRun",
+      "description": "Windows declarative plugin UI: settings.declarativePlugins.settingEffect.nextRun",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
       "id": "native.agentAccounts",
       "description": "Native UI: Subscription accounts",
       "platforms": [

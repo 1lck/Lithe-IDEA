@@ -1,0 +1,9 @@
+{
+  "$schema": "https://schema.tauri.app/config/2/capability",
+  "identifier": "plugin-web-capability",
+  "description": "Plugin-private WebView2 origins reach only the audited declarative-web request bridge. The bridge independently checks the calling window, enabled package and current document origin. No filesystem, HTTP, event, shell, dialog or store commands are granted.",
+  "windows": ["plugin-web-*"],
+  "local": false,
+  "remote": { "urls": ["http://lithe-plugin.*/*"] },
+  "permissions": ["declarative-web:allow-request"]
+}

@@ -11,6 +11,7 @@ const globalListen = mock(async () => () => {});
 const appendOutput = mock(() => undefined);
 const finishProcess = mock(() => undefined);
 const releaseRunSessionWorkspace = mock(() => undefined);
+const declarativeFinished = mock(() => undefined);
 
 const actualRunStore = await import("../stores/run.store");
 
@@ -21,6 +22,9 @@ mock.module("@tauri-apps/api/webviewWindow", () => ({
   }),
 }));
 mock.module("@tauri-apps/api/event", () => ({ listen: globalListen }));
+mock.module("@/features/plugins/declarative-plugin-process-owner", () => ({
+  declarativePluginProcessOwner: { finished: declarativeFinished },
+}));
 mock.module("../stores/run.store", () => ({
   ...actualRunStore,
   runStoreForSession: () => ({
@@ -38,6 +42,7 @@ describe("run process event listeners", () => {
     appendOutput.mockClear();
     finishProcess.mockClear();
     releaseRunSessionWorkspace.mockClear();
+    declarativeFinished.mockClear();
   });
 
   test("concurrent owners register run-output and run-exit only once on the current webview", async () => {
@@ -67,5 +72,12 @@ describe("run process event listeners", () => {
     });
 
     expect(appendOutput).toHaveBeenCalledWith("primary", "hello\n");
+  });
+
+  test("releases declarative process ownership when a run exits", () => {
+    const exitHandler = eventHandlers.get("run-exit");
+    expect(exitHandler).toBeDefined();
+    exitHandler?.({ payload: { sessionId: "declarative:php:1", exitCode: 0 } });
+    expect(declarativeFinished).toHaveBeenCalledWith("declarative:php:1");
   });
 });

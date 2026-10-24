@@ -39,6 +39,7 @@ regex = "1"
 quick-xml = "0.37"
 same-file = "1.0.6"
 sha2 = "0.10"
+http = "1"
 sysinfo = "0.32"
 zip = { version = "2.4", default-features = false, features = ["deflate"] }
 tauri = { version = "2", features = ["common-controls-v6", "protocol-asset"] }
@@ -77,4 +78,5 @@ codegen-units = 1
 [profile.dev.package.num-bigint-dig]
 opt-level = 3
 [target.'cfg(windows)'.dependencies]
-windows = { version = "=0.61.3", features = ["Win32_Graphics_DirectWrite", "Win32_Globalization"] }
+windows = { version = "=0.61.3", features = ["Win32_Graphics_DirectWrite", "Win32_Globalization", "Win32_System_Com"] }
+webview2-com = "=0.38.2"

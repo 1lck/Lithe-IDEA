@@ -1,4 +1,5 @@
 import { extensionProcessOwner } from "@/extensions/run/extension-process-owner";
+import { declarativePluginProcessOwner } from "@/features/plugins/declarative-plugin-process-owner";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { releaseRunSessionWorkspace, runStoreForSession } from "../stores/run.store";
@@ -44,6 +45,7 @@ async function installRunProcessListeners(): Promise<void> {
         .actions.finishProcess(sessionId, event.payload.exitCode);
       releaseRunSessionWorkspace(sessionId);
       extensionProcessOwner.finished(sessionId);
+      declarativePluginProcessOwner.finished(sessionId);
     });
   }
 }
