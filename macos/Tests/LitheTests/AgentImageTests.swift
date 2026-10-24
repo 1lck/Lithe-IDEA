@@ -167,4 +167,17 @@ struct AgentImageTests {
         #expect(content.text == "看一下这个")
         #expect(AgentUserMessageContent.parse("[Image #1] 看这个").images.isEmpty)
     }
+
+    @Test
+    func claudeCodeMarkupMessagesDoNotBecomeNavigationPrompts() {
+        let messages = [
+            AgentConversationMessage(id: "caveat", role: .user, text: "<local-command-caveat>x</local-command-caveat>"),
+            AgentConversationMessage(id: "real", role: .user, text: "hello"),
+            AgentConversationMessage(id: "note", role: .user, text: "<task-notification><status>completed</status></task-notification>"),
+            AgentConversationMessage(id: "reply", role: .agent, text: "hi"),
+        ]
+        let content = AgentTranscriptNavigationContent(messages: messages)
+        #expect(content.entries.map(\.id) == ["real"])
+        #expect(content.turnByMessageID["reply"] == "real")
+    }
 }

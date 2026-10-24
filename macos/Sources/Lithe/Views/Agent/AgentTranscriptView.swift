@@ -167,7 +167,8 @@ struct AgentTranscriptView: View {
     var isEditorLayout = false
     @State private var navigation = AgentTranscriptNavigationState()
     @State private var showsAgentPicker = false
-    @StateObject private var imageViewer = AgentImageViewerState()
+    // A reference the rows share; only the overlay observes it, so opening an image does not re-evaluate this view.
+    @State private var imageViewer = AgentImageViewerState()
     // A filtered-out row can be destroyed. Keep its preference in the owning
     // transcript view, isolated by session and message, until the actual data goes away.
     @State private var thoughtExpansions: [String: [String: AgentThoughtExpansion]] = [:]
@@ -584,9 +585,11 @@ private struct AgentMessageRow: View {
         let images = message.images + content.images
         return HStack(alignment: .bottom, spacing: 4) {
             Spacer(minLength: 40)
-            AgentCopyButton(text: content.text, help: "Copy message")
-                .opacity(isHovered ? 1 : 0)
-                .allowsHitTesting(isHovered)
+            if !content.text.isEmpty {
+                AgentCopyButton(text: content.text, help: "Copy message")
+                    .opacity(isHovered ? 1 : 0)
+                    .allowsHitTesting(isHovered)
+            }
             VStack(alignment: .trailing, spacing: 6) {
                 if !images.isEmpty { AgentUserImages(images: images) }
                 if !content.text.isEmpty { Text(content.text) }
