@@ -1640,6 +1640,25 @@ package final class DatabaseFeatureModel: ObservableObject {
         DatabaseSQLAnalyzer.analyze(sql(for: tabID, scope: scope))
     }
 
+    /// Returns the analysis the user must confirm before running, or nil when the SQL may run directly.
+    /// The database helper owns production protection, so it is asked before the first statement runs;
+    /// otherwise a statement it rejects would stop the batch after earlier statements were applied.
+    package func sqlConfirmation(forSQLTab tabID: UUID, scope: DatabaseSQLExecutionScope = .all) async -> DatabaseSQLAnalysis? {
+        let sql = sql(for: tabID, scope: scope)
+        let analysis = DatabaseSQLAnalyzer.analyze(sql)
+        if analysis.requiresConfirmation { return analysis }
+        guard analysis.canExecute, let profile = selectedProfile, profile.productionProtection,
+              analysis.statements.contains(where: { !DatabaseSQLAnalyzer.analyze($0).kind.usesQueryEndpoint }) else { return nil }
+        let connection = connection(profile)
+        // A helper failure falls through: execute reports it, and the helper still refuses unconfirmed risky SQL.
+        let requiresConfirmation = (try? await Task.detached { [operations] in
+            try operations.requiresWriteConfirmation(connection: connection, sql: sql)
+        }.value) ?? false
+        guard requiresConfirmation else { return nil }
+        return DatabaseSQLAnalysis(kind: analysis.kind, statementCount: analysis.statementCount, requiresConfirmation: true,
+                                   warning: "Production protection requires confirmation before this SQL runs.", statements: analysis.statements)
+    }
+
     private func sql(for tabID: UUID, scope: DatabaseSQLExecutionScope) -> String {
         switch scope {
         case .all:
