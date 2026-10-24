@@ -6,7 +6,7 @@
 
 数据库连接功能将从 Lithe 主仓库和主安装包中移出，做成一个独立仓库的官方插件。用户只装 IDE 时，看不到数据库入口；从插件市场安装后才能使用。插件的界面是包内网页，后端用 Rust 编写，macOS 和 Windows 共用同一份代码。
 
-主仓库不再保留任何数据库专属代码，只提供通用的插件能力：不依附构建系统的插件后端、宿主凭据存储、插件提供的 MCP 服务，以及按平台区分的可执行文件。macOS 先上线；Windows 等插件宿主和插件市场就绪后，补一轮编译、适配和测试即可使用，插件本体不重写。
+主仓库不再保留任何数据库专属代码，只提供通用的插件能力：不依附构建系统的插件后端、宿主凭据存储，以及之后经由 Lithe 自带 MCP 暴露的插件 Agent 工具。macOS 先上线；Windows 等插件宿主和插件市场就绪后，补一轮编译、适配和测试即可使用，插件本体不重写。
 
 这次评估还发现，数据库模块已经偏离“两套界面、一个核心”：同一条 SQL 安全规则写了三份并且不一致，Windows 界面从导入起就没有后端。插件化之后，这些规则只在插件后端保留一份。
 
@@ -57,8 +57,7 @@
 
 - **网页界面只能操作构建系统。** 网页桥接对象（`window.lithe`）只能操作本插件声明的构建系统；插件函数在 macOS 上也只由构建 provider 的会话提供。数据库插件只能伪装成构建系统，违反[公共扩展契约](2026-10-13-public-extension-contract-and-provider-api.md)的“不要伪造声明”。
 - **插件拿不到宿主的凭据存储。** 插件调用宿主服务（`lithe/host/*`）在协议 v1 中全部被拒绝，没有地方安全地保存密码。
-- **Agent 找不到插件提供的 MCP 服务。** Agent 现在直接到 app 里查找 `lithe-db-mcp`，不会去已安装的插件里找。
-- **跨平台可执行文件路径未定义。** `packaged` 启动方式只有一个固定路径，没有规定 Windows 可执行文件（`.exe`）怎么声明。
+- **Agent 用不上数据库能力。** `lithe-db-mcp` 只被打包进 `Contents/Helpers`，没有任何代码启动或登记它，Agent 实际调用不到。Lithe 已有自己的 `lithe` MCP（`lithe-mcp` 加 IDE 宿主的能力目录和项目授权），插件能力应当从这里进入，而不是再起一个独立 MCP 进程。
 - **Windows 还没有声明式插件宿主和插件市场。** 声明式插件宿主正在 #1424 中开发；插件市场目前只有 macOS 版。
 
 ## 提案
@@ -74,7 +73,7 @@
 
 | 位置 | 内容 |
 | --- | --- |
-| 组织仓库 `Lithe-IDEA/lithe-plugin-database`（新建） | Rust 后端（从 `lithe-db-sidecar` 演进）、MCP 服务（从 `lithe-db-mcp` 演进）、网页界面、`plugin.json`、数据库专属的测试样例和兼容性测试 |
+| 组织仓库 `Lithe-IDEA/lithe-plugin-database`（新建） | Rust 后端（从 `lithe-db-sidecar` 演进，吸收 `lithe-db-mcp` 的查询能力）、网页界面、`plugin.json`、数据库专属的测试样例和兼容性测试 |
 | 主仓库 | 只保留通用能力：契约、Rust Core 校验、两端宿主实现、Rust 后端 SDK 的契约测试 |
 | 主仓库最终删除 | `macos/Sources/LitheDatabaseModule/`、`macos/Sources/Lithe/Views/Database/`、`rust/lithe-db-sidecar/`、`rust/lithe-db-mcp/`、`windows/tauri/src/features/database/` 及打包脚本中的数据库部分 |
 
@@ -91,17 +90,22 @@
 
 每一项都先写进契约、Rust Core 和测试样例，再由 macOS 宿主实现；Windows 宿主（#1424）按同一份契约实现。
 
-1. **插件后端（不依附构建系统）。** 新增一项能力：插件声明一个归属于自己的后端进程，宿主在插件的界面打开时按需启动它，会话按插件和工作区划分。网页桥接新增调用本插件后端函数的方法，复用现有[插件函数协议](../../implemented/architecture/2026-10-20-plugin-function-contract.md)的注册、调用、进度、取消和超时规则。网页原生面板的数据源也可以改为指向这个后端，不再强制要求 `buildSystemID`。
-2. **宿主凭据存储。** 在插件函数协议的新版本中加入第一个宿主能力：插件私有的凭据读写。macOS 使用 Keychain，Windows 使用系统凭据管理器。插件需要声明专门的权限，安装审查会列出这项权限。凭据只按插件 ID 隔离，插件读不到别的插件或宿主自身的凭据。
-3. **插件提供的 MCP 服务。** 插件声明 MCP 服务的入口；Agent 从已启用的插件中发现它。插件停用后，这些工具随之消失。
-4. **按平台的可执行文件。** 契约规定 `packaged` 在不同平台上怎么定位可执行文件，例如允许按平台给出路径，或规定 Windows 自动补 `.exe` 后缀。具体方式在契约 PR 中确定。
+1. **插件后端（`backend` 1，已在契约中实现）。** 清单的 `backend` 字段只含 `serverProcess` 的启动字段，需要 `backend.launch` 权限和一个网页工具窗。设计取舍：
+   - **每个插件一个进程，宿主全局，不按工作区划分。** 数据库连接属于用户而不是项目，按工作区起多份进程只会重复连接池；因此后端不能使用 `${workspaceStateDir}`，状态写在 `${stateDir}`，宿主以 `${stateDir}` 作为根目录和工作目录启动它。
+   - **按需启动、随插件结束。** 本插件网页第一次调用 `functions.*` 时启动；插件停用、更新、卸载或宿主退出时结束。
+   - **授权就是安装审查。** 后端在安装审查中以 `packagedBackend` 等条目列出，调用时不再按工作区弹同意框；带 `instance` 的构建 provider 调用仍沿用原来的同意规则。
+   - **不承担领域契约。** 后端只回答插件函数，不回答 `lithe/build/*` 或 VCS 请求，避免再次“伪装成构建系统”。
+   - 网页桥接 `functions.list` / `functions.invoke` 省略 `instance` 即调用本插件后端，复用现有[插件函数协议](../../implemented/architecture/2026-10-20-plugin-function-contract.md)的注册、调用、进度、取消和超时规则。
+2. **宿主凭据存储（插件函数协议 v2，已在契约中实现）。** v2 是第一个提供宿主服务的协议版本：`lithe/host/credentials/{get,set,delete}`，需要 `credentials.store` 权限（没有后端时声明即无效）。Core 在宿主看到请求前校验协议版本、授权和参数（key 只允许 `[A-Za-z0-9._:-]` 且不超过 128 字节，secret 不超过 16 KiB，拒绝未知字段以便后续版本扩展），通过 `hostRequest` 事件交给宿主，宿主用 `lsp.hostResponse` 应答；每个会话最多 16 个未应答请求。macOS 使用 Keychain，按插件 ID 划分命名空间；插件读不到别的插件或宿主自身的凭据。生命周期：停用和更新时保留，卸载时与 `${stateDir}` 一起删除。
+3. **Agent 工具经由 `lithe` MCP（后续）。** 不新增“插件声明 MCP 服务”的契约，也不保留独立的 `lithe-db-mcp` 进程。之后由插件以插件函数的形式提供 Agent 工具，IDE 宿主把它们登记进现有 `lithe` MCP 的能力目录，沿用其项目授权；插件停用时工具随之消失。这一项在数据库插件上线后单独设计，不阻塞第 1 到第 5 期。
+4. **按平台的可执行文件：不改契约。** 每个平台单独出下载包，可执行文件放在包内固定路径（例如 `bin/backend`），macOS 包可以是 universal 二进制。`${arch}` 本来就不能用于 `packaged` 路径，这样也不需要。Windows 的 `.exe` 等 Windows 宿主就绪时再定。
 5. **Rust 后端 SDK。** 在 `lithe-plugin-docs` 中新增 `sdk/rust`，实现插件函数协议和宿主能力，并补端到端样例，和 Node、Java SDK 对齐。
 
 ### 五、规则只保留一份
 
 - SQL 分析、语句拆分、标识符引用、DDL 生成和危险语句判定，全部只在插件的 Rust 后端里实现。界面要不要弹出确认框、执行时要不要拦截，都使用同一个分析结果。
 - 插件仓库维护数据库专属的黄金样例。必须覆盖：换行或制表符分隔的 `WHERE`、开头的行注释和块注释、`WITH … DELETE`、多语句、无法识别的语句。
-- 主仓库只维护通用能力的样例（插件后端、凭据、MCP 声明），不再维护数据库样例。
+- 主仓库只维护通用能力的样例（`fixtures/backend.plugin.json`、`function-protocol.json` 的 `hostRequests`），不再维护数据库样例。
 
 ### 六、老用户迁移
 
@@ -120,9 +124,9 @@
 | 期 | 内容 | 依赖 |
 | --- | --- | --- |
 | 1 | Windows 矩阵、`.db` 拦截、README 修正；修复 `WHERE` 误判，让 sidecar 与界面使用一致的词法判断，并让 macOS 处理 `confirmation_required` | 无 |
-| 2 | 契约：插件后端、凭据宿主能力、MCP 声明、按平台可执行文件；Rust Core 校验与样例 | 无 |
+| 2 | 契约：插件后端、函数协议 v2 凭据宿主服务；Rust Core 校验与样例 | 无 |
 | 3 | macOS 宿主实现第 2 期能力；`lithe-plugin-docs` 新增 Rust SDK | 第 2 期 |
-| 4 | 新建 `lithe-plugin-database`：Rust 后端、MCP、网页界面、样例；先在 macOS 上以本地开发包验证 | 第 3 期 |
+| 4 | 新建 `lithe-plugin-database`：Rust 后端、网页界面、样例；先在 macOS 上以本地开发包验证 | 第 3 期 |
 | 5 | macOS 发布插件，加入迁移提示，从主仓库删除数据库代码 | 第 4 期 |
 | 6 | Windows 插件宿主和插件市场就绪后，按当时的宿主能力小幅调整插件，补 Windows 构建后发布 | Windows 插件市场 |
 
@@ -166,9 +170,9 @@
 
 - 只安装 Lithe 时没有任何数据库入口；`Lithe.app` 中不含数据库程序和界面代码；主仓库中搜不到数据库专属模块。
 - 从插件市场安装后，现有连接、查询、编辑、导入导出、结构对比、Redis 和 Nacos 功能可用。老用户的连接和密码完成迁移。
-- 停用或卸载后，入口消失，插件进程结束；重新安装后，凭据和连接仍在。
+- 停用或卸载后，入口消失，插件进程结束。停用后重新启用、或更新插件后，凭据和连接仍在；卸载后凭据和 `${stateDir}` 一并删除。
 - 插件仓库中只有一份 SQL 危险判定。换行写的 `DELETE … WHERE` 可以直接执行，不带 `WHERE` 的删除会弹出确认框。
-- 插件后端、凭据和 MCP 声明的通用样例在 Rust Core 测试中通过；Windows 宿主实现后，同一批样例在 Windows 上也通过。
+- 插件后端和凭据宿主服务的通用样例在 Rust Core 测试中通过；Windows 宿主实现后，同一批样例在 Windows 上也通过。
 - `scripts/verify-runtime-bundle-immutability.sh` 覆盖插件安装和典型数据库工作流，发行目录哈希不变。
 - Windows 宿主就绪后，同一插件版本只增加 Windows 下载包即可安装使用。
 
@@ -197,9 +201,18 @@
 - Windows 这次不做插件侧适配，等 Windows 插件市场就绪后再小幅调整；
 - 第 1 到第 5 期在同一个 PR 中分步提交，不拆成多个小 PR。
 
+按用户授权由实现方确定（2026-10-24）：
+
+- 后端每个插件一个进程、宿主全局，不按工作区划分；授权由安装审查覆盖；
+- 凭据停用和更新时保留，卸载时删除；
+- 按平台可执行文件不改契约，各平台下载包使用固定路径；
+- Agent 工具之后经由现有 `lithe` MCP 暴露，不单独起 MCP 进程；
+- 网页界面全新编写（TypeScript，符合 CSP 的打包产物），参照 macOS 现有功能；
+- 老用户迁移由宿主侧的过渡垫片完成，第 5 期设计。
+
 ## 待确认
 
-- `packaged` 按平台定位可执行文件的具体方式，在契约提交中确定。
+- 无。
 
 ## 适用范围
 
@@ -214,6 +227,8 @@
 - `windows/tauri/src/extensions/tooling/package-database-sidecars.ts`
 - `windows/tauri/src/features/file-system/controllers/file-utils.ts`
 - `shared/contracts/plugins/v1/`
+- `rust/lithe-core/src/plugins/backend.rs`
+- `rust/lithe-core/src/lsp/interface/plugin_function.rs`
 - `shared/platform-feature-matrix/features/`
 - `scripts/package-app.sh`
 
