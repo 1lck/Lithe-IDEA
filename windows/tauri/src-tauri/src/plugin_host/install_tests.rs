@@ -1,12 +1,15 @@
-/// M2 disk-import tests exercise the internal functions directly (the Tauri
-/// commands are thin AppHandle wrappers): snapshot isolation, ZIP safety,
-/// staging install, and rollback version selection.
+//! M2 disk-import tests exercise the internal functions directly (the Tauri
+//! commands are thin AppHandle wrappers): snapshot isolation, ZIP safety,
+//! the staged publish transaction, and rollback verification. The M1
+//! trust-chain tests cover the same transaction against the recorded
+//! content digest.
+
 mod install_tests {
     use crate::plugin_host::install::{
-        copy_directory_snapshot, extract_zip_snapshot, staging_install, write_installation_record,
+        copy_directory_snapshot, extract_zip_snapshot, publish_installed_version,
     };
-    use crate::plugin_host::store;
-    use crate::plugin_host::store::InstallationRecord;
+    use crate::plugin_host::signature::{self, InstallOrigin};
+    use crate::plugin_host::store::{self, DiskProvenance, InstallationRecord};
     use crate::plugin_host::tests::read_fixture_for_tests;
     use std::path::PathBuf;
 
@@ -23,10 +26,17 @@ mod install_tests {
         root
     }
 
+    const TEST_PLUGIN_ID: &str = "io.example.acme-php";
+
     fn package_directory(root: &std::path::Path, version: &str) -> PathBuf {
         let directory = root.join(format!("pkg-{version}"));
         std::fs::create_dir_all(&directory).expect("package dir");
         let mut manifest = read_fixture_for_tests("language-packaged-server.plugin.json");
+        // A community install requires a non-official ID and an unsigned
+        // trust declaration; the official-namespace fixture is reshaped the
+        // way a real disk package looks.
+        manifest["id"] = serde_json::json!(TEST_PLUGIN_ID);
+        manifest["vendor"]["signatureRequirement"] = serde_json::json!("none");
         manifest["version"] = serde_json::json!(version);
         std::fs::write(
             directory.join("plugin.json"),
@@ -37,6 +47,33 @@ mod install_tests {
         std::fs::create_dir_all(&server_directory).expect("server dir");
         std::fs::write(server_directory.join("intelephense.js"), b"entry").expect("entry file");
         directory
+    }
+
+    /// A schema 2 community record for `package_directory`, with the content
+    /// digest the real install flow records from the approved snapshot.
+    fn community_record(
+        plugin_id: &str,
+        version: &str,
+        package_directory: &std::path::Path,
+    ) -> InstallationRecord {
+        InstallationRecord {
+            schema_version: 2,
+            plugin_id: plugin_id.to_string(),
+            version: version.to_string(),
+            previous_version: None,
+            enabled: true,
+            origin: Some(InstallOrigin::Community),
+            previous_origin: None,
+            marketplace: None,
+            previous_marketplace: None,
+            disk: Some(DiskProvenance {
+                file_name: "plugin.zip".to_string(),
+                archive_sha256: None,
+                content_digest: signature::content_digest(package_directory).expect("digest"),
+                approved_programs: Vec::new(),
+            }),
+            previous_disk: None,
+        }
     }
 
     #[test]
@@ -114,105 +151,279 @@ mod install_tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// Two entries that only differ in case (or a duplicated name) would
+    /// silently overwrite each other on Windows and break the approved file
+    /// set, so the second one is a rejection.
     #[test]
-    fn staging_install_replaces_version_and_rejects_broken_manifests() {
+    fn zip_case_conflicting_entries_are_rejected() {
+        let root = unique_temp_root("zip-conflict");
+        let zip_path = root.join("conflict.zip");
+        let zip_file = std::fs::File::create(&zip_path).expect("zip file");
+        let mut writer = zip::ZipWriter::new(zip_file);
+        let options: zip::write::SimpleFileOptions = Default::default();
+        let mut manifest = read_fixture_for_tests("language-packaged-server.plugin.json");
+        manifest["version"] = serde_json::json!("1.0.0");
+        let manifest_text = serde_json::to_string_pretty(&manifest).expect("manifest text");
+        for name in ["plugin.json", "Plugin.json"] {
+            writer.start_file(name, options).expect("entry");
+            std::io::Write::write_all(&mut writer, manifest_text.as_bytes()).expect("entry bytes");
+        }
+        writer.finish().expect("zip finish");
+        let snapshot = root.join("snapshot");
+        assert!(extract_zip_snapshot(&zip_path, &snapshot).is_err());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn publish_rejects_broken_manifests_and_keeps_the_active_version() {
         let root = unique_temp_root("staging");
         let install_root = root.join("plugins");
         let good = package_directory(&root, "1.0.0");
-        staging_install(&install_root, "acme.php", "1.0.0", &good).expect("installs");
-        assert!(install_root.join("acme.php/1.0.0/plugin.json").is_file());
-        write_installation_record(&install_root, "acme.php", "1.0.0").expect("record");
+        let record = community_record(TEST_PLUGIN_ID, "1.0.0", &good);
+        publish_installed_version(
+            &install_root,
+            TEST_PLUGIN_ID,
+            "1.0.0",
+            &good,
+            record.clone(),
+        )
+        .expect("installs");
+        assert!(install_root
+            .join(TEST_PLUGIN_ID)
+            .join("1.0.0/plugin.json")
+            .is_file());
 
         // A broken package fails validation and leaves the active version.
         let broken = root.join("pkg-broken");
         std::fs::create_dir_all(&broken).expect("broken dir");
         std::fs::write(broken.join("plugin.json"), "{ not json").expect("broken manifest");
-        assert!(staging_install(&install_root, "acme.php", "2.0.0", &broken).is_err());
-        assert!(!install_root.join("acme.php/2.0.0").exists());
-        assert!(install_root.join("acme.php/1.0.0/plugin.json").is_file());
+        let broken_record = community_record(TEST_PLUGIN_ID, "2.0.0", &broken);
+        assert!(publish_installed_version(
+            &install_root,
+            TEST_PLUGIN_ID,
+            "2.0.0",
+            &broken,
+            broken_record,
+        )
+        .is_err());
+        assert!(!install_root.join(TEST_PLUGIN_ID).join("2.0.0").exists());
+        assert!(install_root
+            .join(TEST_PLUGIN_ID)
+            .join("1.0.0/plugin.json")
+            .is_file());
         // The staging directory is cleaned up on failure.
-        assert!(!install_root.join("acme.php/.staging-2.0.0").exists());
+        assert!(!install_root
+            .join(TEST_PLUGIN_ID)
+            .join(".staging-2.0.0")
+            .exists());
 
         // A successful upgrade keeps both versions for rollback.
         let upgrade = package_directory(&root, "2.0.0");
-        staging_install(&install_root, "acme.php", "2.0.0", &upgrade).expect("upgrade");
-        assert!(install_root.join("acme.php/1.0.0/plugin.json").is_file());
-        assert!(install_root.join("acme.php/2.0.0/plugin.json").is_file());
+        let upgrade_record = community_record(TEST_PLUGIN_ID, "2.0.0", &upgrade);
+        publish_installed_version(
+            &install_root,
+            TEST_PLUGIN_ID,
+            "2.0.0",
+            &upgrade,
+            upgrade_record,
+        )
+        .expect("upgrade");
+        assert!(install_root
+            .join(TEST_PLUGIN_ID)
+            .join("1.0.0/plugin.json")
+            .is_file());
+        assert!(install_root
+            .join(TEST_PLUGIN_ID)
+            .join("2.0.0/plugin.json")
+            .is_file());
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// The staged copy must match the digest recorded for the approved
+    /// snapshot: a snapshot swapped between review and publish never becomes
+    /// the active version, and the old version stays intact.
     #[test]
-    fn same_version_activation_failure_restores_the_previous_directory() {
-        let root = unique_temp_root("staging-restore");
+    fn publish_binds_the_staged_bytes_to_the_approved_digest() {
+        let root = unique_temp_root("staging-digest");
         let install_root = root.join("plugins");
-        let good = package_directory(&root, "1.0.0");
-        staging_install(&install_root, "acme.php", "1.0.0", &good).expect("installs");
-        let installed_marker = install_root.join("acme.php/1.0.0/marker.txt");
-        std::fs::write(&installed_marker, b"original").expect("marker");
+        let approved = package_directory(&root, "1.0.0");
+        let record = community_record(TEST_PLUGIN_ID, "2.0.0", &approved);
 
-        // A same-version reinstall whose activation rename fails (the
-        // version directory is non-empty on Windows when a file inside it is
-        // held open; simulate by making the staging rename impossible) must
-        // keep the original bytes.
-        let replacement = package_directory(&root, "1.0.0-alt");
-        // Force failure: pre-create the staging path as a file so rename onto
-        // it cannot succeed after the backup move.
-        std::fs::create_dir_all(install_root.join("acme.php")).expect("plugin dir");
-        std::fs::write(install_root.join("acme.php/.staging-1.0.0"), b"occupied").expect("blocker");
-        // staging_install removes the blocking staging path first, so instead
-        // occupy the TARGET by opening it with a share lock is not testable
-        // portably; simulate rename failure by removing write permission is
-        // also platform-specific. The contract under test is the restore
-        // path: inject failure by making the staging directory disappear
-        // between validate and activate is not possible via this API, so we
-        // assert the restore path directly through the backup/restore
-        // sequence: rename current aside, fail the staging rename, restore.
-        let version_directory = install_root.join("acme.php").join("1.0.0");
-        let backup_directory = version_directory.with_extension("previous-tmp");
-        std::fs::rename(&version_directory, &backup_directory).expect("backup move");
-        // Failing activation: staging path does not exist.
-        assert!(std::fs::rename(root.join("pkg-nonexistent"), &version_directory).is_err());
-        std::fs::rename(&backup_directory, &version_directory).expect("restore move");
-        assert!(installed_marker.exists(), "original bytes restored");
+        let tampered = package_directory(&root, "2.0.0");
+        std::fs::write(
+            tampered.join("language-server/bin/intelephense.js"),
+            b"evil",
+        )
+        .expect("tampered entry");
+        assert!(publish_installed_version(
+            &install_root,
+            TEST_PLUGIN_ID,
+            "2.0.0",
+            &tampered,
+            record.clone(),
+        )
+        .is_err());
+        assert!(!install_root.join(TEST_PLUGIN_ID).join("2.0.0").exists());
+
+        // Publishing the approved bytes succeeds and the record carries the
+        // same digest the installed files recompute to.
+        publish_installed_version(
+            &install_root,
+            TEST_PLUGIN_ID,
+            "2.0.0",
+            &approved,
+            record.clone(),
+        )
+        .expect("installs");
+        let stored: InstallationRecord = serde_json::from_str(
+            &std::fs::read_to_string(install_root.join(TEST_PLUGIN_ID).join("installation.json"))
+                .expect("record"),
+        )
+        .expect("record parses");
+        let installed_directory = install_root.join(TEST_PLUGIN_ID).join("2.0.0");
         assert_eq!(
-            std::fs::read(&installed_marker).expect("marker bytes"),
-            b"original"
+            stored
+                .disk
+                .as_ref()
+                .expect("disk provenance")
+                .content_digest,
+            signature::content_digest(&installed_directory).expect("digest")
         );
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// A same-version reinstall of changed bytes is rejected: the record and
+    /// the version directory keep the originally approved state.
     #[test]
-    fn rollback_picks_the_highest_previous_version() {
-        // Mirrors the selection logic of declarative_plugins_rollback without
-        // an AppHandle: enumerate versions, pick highest != current.
+    fn same_version_reinstall_of_changed_bytes_is_rejected() {
+        let root = unique_temp_root("staging-same-version");
+        let install_root = root.join("plugins");
+        let approved = package_directory(&root, "1.0.0");
+        let record = community_record(TEST_PLUGIN_ID, "1.0.0", &approved);
+        publish_installed_version(
+            &install_root,
+            TEST_PLUGIN_ID,
+            "1.0.0",
+            &approved,
+            record.clone(),
+        )
+        .expect("installs");
+        let marker = install_root
+            .join(TEST_PLUGIN_ID)
+            .join("1.0.0/language-server/bin/intelephense.js");
+        assert_eq!(std::fs::read(&marker).expect("marker"), b"entry");
+
+        let replacement = package_directory(&root, "1.0.0-replacement");
+        std::fs::write(
+            replacement.join("language-server/bin/intelephense.js"),
+            b"replaced",
+        )
+        .expect("replacement entry");
+        assert!(publish_installed_version(
+            &install_root,
+            TEST_PLUGIN_ID,
+            "1.0.0",
+            &replacement,
+            record,
+        )
+        .is_err());
+        assert_eq!(
+            std::fs::read(&marker).expect("marker"),
+            b"entry",
+            "the active version keeps its approved bytes"
+        );
+        assert!(!install_root
+            .join(TEST_PLUGIN_ID)
+            .join(".staging-1.0.0")
+            .exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Rollback verification: the restored version is checked against its
+    /// own recorded digest before the record may swap. The production
+    /// command performs exactly this check on the previous version
+    /// directory before writing the swapped record.
+    #[test]
+    fn rollback_rejects_a_tampered_previous_version() {
         let root = unique_temp_root("rollback");
         let install_root = root.join("plugins");
-        for version in ["1.0.0", "1.5.0", "2.0.0"] {
-            let package = package_directory(&root, version);
-            staging_install(&install_root, "acme.php", version, &package).expect("installs");
-        }
-        write_installation_record(&install_root, "acme.php", "2.0.0").expect("record");
-        let plugin_directory = install_root.join("acme.php");
-        let mut versions: Vec<String> = std::fs::read_dir(&plugin_directory)
-            .expect("plugin dir")
-            .flatten()
-            .filter_map(|entry| {
-                let name = entry.file_name().to_string_lossy().to_string();
-                let path = entry.path();
-                (path.is_dir() && path.join("plugin.json").is_file()).then_some(name)
-            })
-            .collect();
-        versions.sort_by(|left, right| store::compare_versions(left, right));
-        versions.reverse();
-        let record: InstallationRecord = serde_json::from_str(
-            &std::fs::read_to_string(plugin_directory.join("installation.json")).expect("record"),
+        let first = package_directory(&root, "1.0.0");
+        let first_digest = signature::content_digest(&first).expect("digest");
+        publish_installed_version(
+            &install_root,
+            TEST_PLUGIN_ID,
+            "1.0.0",
+            &first,
+            community_record(TEST_PLUGIN_ID, "1.0.0", &first),
         )
-        .expect("record parses");
-        let previous = versions
-            .into_iter()
-            .find(|version| *version != record.version)
-            .expect("previous version");
-        assert_eq!(previous, "1.5.0");
+        .expect("installs");
+
+        // Tampering with the previous version makes the rollback candidate
+        // unverifiable against its recorded digest.
+        let previous_directory = install_root.join(TEST_PLUGIN_ID).join("1.0.0");
+        std::fs::write(
+            previous_directory.join("language-server/bin/intelephense.js"),
+            b"evil",
+        )
+        .expect("tamper");
+        let manifest_text =
+            std::fs::read_to_string(previous_directory.join("plugin.json")).expect("manifest");
+        let manifest: serde_json::Value = serde_json::from_str(&manifest_text).expect("manifest");
+        let error = signature::verify_for_origin(
+            &previous_directory,
+            TEST_PLUGIN_ID,
+            "1.0.0",
+            &manifest,
+            InstallOrigin::Community,
+            Some(first_digest.as_str()),
+            signature::trusted_keys(),
+        )
+        .expect_err("tampered previous version must be refused");
+        assert_eq!(error.code(), "plugin.trust.contentChanged");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The record shape survives serde round-trips with all provenance
+    /// fields intact; the scan and launch paths rely on this.
+    #[test]
+    fn installation_record_round_trips_provenance() {
+        let root = unique_temp_root("record-shape");
+        let package = package_directory(&root, "1.0.0");
+        let record = community_record(TEST_PLUGIN_ID, "1.0.0", &package);
+        let text = serde_json::to_string_pretty(&record).expect("record text");
+        let parsed: InstallationRecord = serde_json::from_str(&text).expect("record parses");
+        assert_eq!(parsed.schema_version, 2);
+        assert_eq!(parsed.origin, Some(InstallOrigin::Community));
+        assert_eq!(
+            parsed.active_content_digest(),
+            record.active_content_digest()
+        );
+        // A schema 1 record decodes without provenance; discovery quarantines
+        // it instead of trusting the enabled flag.
+        let legacy: InstallationRecord = serde_json::from_str(&format!(
+            r#"{{"schemaVersion": 1, "pluginId": "{TEST_PLUGIN_ID}", "version": "1.0.0"}}"#
+        ))
+        .expect("legacy record parses");
+        assert_eq!(legacy.origin, None);
+        assert_eq!(legacy.active_content_digest(), None);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The write helper produces an atomic record the discovery path reads
+    /// back with its provenance.
+    #[test]
+    fn record_write_is_readable_by_discovery() {
+        let root = unique_temp_root("record-write");
+        let install_root = root.join("plugins");
+        let package = package_directory(&root, "1.0.0");
+        let record = community_record(TEST_PLUGIN_ID, "1.0.0", &package);
+        publish_installed_version(&install_root, TEST_PLUGIN_ID, "1.0.0", &package, record)
+            .expect("published");
+        let discovered = store::discover_installed_in(&install_root).expect("discovery works");
+        assert_eq!(discovered.len(), 1);
+        assert!(discovered[0].record_problem.is_none());
+        assert_eq!(discovered[0].origin, Some(InstallOrigin::Community));
+        assert!(discovered[0].content_digest.is_some());
         let _ = std::fs::remove_dir_all(&root);
     }
 }

@@ -16,6 +16,7 @@ pub mod lifecycle;
 pub mod run_plans;
 pub mod scan;
 pub mod settings;
+pub mod signature;
 pub mod store;
 #[cfg(test)]
 mod tests;
@@ -108,6 +109,19 @@ pub struct ScannedPackage {
     pub root: PathBuf,
     /// Raw manifest; plan commands are pure functions and take it every time.
     pub manifest: Value,
+    /// Trust evidence the launch path re-verifies against the live bytes;
+    /// `None` for quarantined packages, which never reach a launch.
+    pub trust: Option<TrustEvidence>,
+}
+
+/// Origin and approved-bytes evidence recorded when the package was
+/// accepted, so every later launch can prove the on-disk bytes again.
+#[derive(Debug, Clone)]
+pub struct TrustEvidence {
+    pub origin: signature::InstallOrigin,
+    /// Content digest recorded for a community approval; bundled and signed
+    /// packages verify through the pinned policy instead.
+    pub expected_content_digest: Option<String>,
 }
 
 /// Cached scan result. The frontend rescans at startup and after installs,
