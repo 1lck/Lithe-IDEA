@@ -38,7 +38,9 @@ enum AgentTranscriptItem: Identifiable {
     func matches(_ searchText: String) -> Bool {
         guard !searchText.isEmpty else { return true }
         switch self {
-        case .message(let message): return message.text.localizedStandardContains(searchText)
+        case .message(let message):
+            return message.text.localizedStandardContains(searchText)
+                || message.plan?.entries.contains { $0.content.localizedStandardContains(searchText) } == true
         case .processGroup(let messages): return messages.contains {
             $0.role == .tool ? Self.toolMatches($0, searchText) : $0.text.localizedStandardContains(searchText)
         }
@@ -85,7 +87,12 @@ enum AgentTranscriptItem: Identifiable {
                 // Model-only reminders and caveats are not conversation.
                 continue
             }
-            if Self.isQuietNotification(message) {
+            if message.plan != nil {
+                // A replayed plan snapshot is what the Agent reported at that point;
+                // it stays on the transcript like Claude Desktop's checklist.
+                flush()
+                items.append(.message(message))
+            } else if Self.isQuietNotification(message) {
                 // A finished background task wakes the Agent for a follow-up turn.
                 // The notice joins that turn's collapsed process instead of
                 // interrupting the transcript between two replies.
@@ -413,6 +420,8 @@ private struct AgentTranscriptRows: View, Equatable {
         ForEach(transcript) { item in
             Group {
                 switch item {
+                case .message(let message) where message.plan != nil:
+                    AgentPlanView(plan: message.plan!, isResponding: false, horizontalInset: 0)
                 case .message(let message):
                     AgentMessageRow(
                         message: message,

@@ -23,6 +23,13 @@ struct AgentProcessGroupView: View {
                 Image(systemName: "chevron.down")
                     .font(LitheTheme.uiFont(size: 9, weight: .semibold))
                     .rotationEffect(.degrees(isExpanded ? 0 : -90))
+                // Like Claude Desktop's "Ran 3 commands": a collapsed process still says what it did.
+                if !isExpanded && !toolSummary.isEmpty {
+                    Text(verbatim: toolSummary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .foregroundStyle(LitheTheme.tertiaryText)
+                }
             }
             .font(LitheTheme.uiFont(size: 12.5))
             .foregroundStyle(LitheTheme.secondaryText)
@@ -34,6 +41,10 @@ struct AgentProcessGroupView: View {
         .help(isExpanded ? "Hide thinking" : "Show thinking")
         .accessibilityValue(isExpanded ? AgentLocalization.string("Expanded", locale: locale) : AgentLocalization.string("Collapsed", locale: locale))
         .accessibilityIdentifier("agent-process-group-header")
+    }
+
+    private var toolSummary: String {
+        AgentToolGroupPresentation.summary(messages.filter { $0.role == .tool }, locale: locale)
     }
 
     private var images: [AgentImage] {

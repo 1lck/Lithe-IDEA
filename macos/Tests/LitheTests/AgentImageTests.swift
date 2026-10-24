@@ -266,6 +266,23 @@ struct AgentImageTests {
     }
 
     @Test
+    func replayedPlanSnapshotsStayVisibleBetweenCollapsedProcesses() {
+        var plan = AgentConversationMessage(id: "plan", role: .agent, text: "")
+        plan.plan = AgentPlan(entries: [.init(content: "Build", status: .inProgress)])
+        let messages = [
+            AgentConversationMessage(id: "u", role: .user, text: "go"),
+            AgentConversationMessage(id: "t1", role: .tool, text: "Bash", toolStatus: .completed),
+            plan,
+            AgentConversationMessage(id: "t2", role: .tool, text: "Bash", toolStatus: .completed),
+        ]
+        let items = AgentTranscriptItem.grouped(messages)
+        // A turn of tool calls only (Claude Desktop history) must not collapse its plan away.
+        #expect(items.map(\.id) == ["u", "process:t1", "plan", "process:t2"])
+        #expect(items.last?.matches("Build") == false)
+        #expect(items[2].matches("Build"))
+    }
+
+    @Test
     func shellTaskSummariesAreRewordedAndOtherSummariesKeptVerbatim() throws {
         let locale = Locale(identifier: "en")
         let ok = try #require(AgentTaskNotification.parse(notice("a", summary: "Background command \"Run tests\" completed (exit code 0)").text)?.first)

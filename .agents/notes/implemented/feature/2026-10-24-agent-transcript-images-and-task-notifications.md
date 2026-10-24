@@ -68,6 +68,28 @@ Claude Agent SDK 的 `getSessionMessages` 只返回当前 parent 链；压缩边
 
 不要这样做：不要把前文合并进适配器已回放的片段，也不要改写或重新压缩 Claude 自己的记录文件。
 
+任务进行中排队发送的提示（含后台任务通知）在记录文件里只存成 `attachment` 行（`queued_command`），
+没有对应的用户行，所以前文转换把它当作用户消息回放，并用该行的 `uuid` 区分相邻消息。
+
+### 兼容 Claude Desktop 开始的会话
+
+Claude Desktop 给 Claude Code 挂了自己的 `ccd_turn` MCP 服务，模型在那里几乎不直接输出文字，
+而是用 `mcp__ccd_turn__wrap_up` 工具交出每轮的总结（`recap`）和提问（`ask`），由 Desktop 渲染成卡片。
+在 Lithe 里恢复这类会话时，整段对话只剩折叠的工具调用，看起来像历史没有回放。
+
+宿主（`claude_desktop.rs`）把 `wrap_up` 的工具调用改写成一条 Agent 回复（总结与提问各一段），
+并吞掉该调用后续的 `tool_call_update`；建议回复按钮不显示，因为用户点过的那条会作为下一条用户消息出现。
+改写同时作用于适配器的回放和上面的前文转换，Windows 共用同一宿主。Lithe 自己不提供 `ccd_turn` 工具，
+所以只影响从 Desktop 带过来的历史。
+
+`update_plan` 有整表（`items`）和增量（`done`/`start`/`advance`）两种写法。宿主按会话记住当前列表，
+把每次调用改写成一条完整的 ACP `plan` 更新；增量调用之前没有整表时原样保留为工具调用。
+Swift 在加载历史期间把每份计划快照记成一条不带文字的 Agent 消息，转录里在两段折叠过程之间显示成清单，
+导出 Markdown 时写成任务列表，不计入消息数。折叠的过程标题后面附上工具摘要（如“运行了 3 条命令”），
+没有文字回复的段落也能看出做了什么。
+
+不要这样做：不要在 Swift 或 Windows 前端按工具名再做一份改写，也不要读取或模拟 Desktop 的 MCP 服务。
+
 ### 不要这样做
 
 - 不要把图片 `Data` 放进 `Equatable` 的逐字节比较，也不要在主线程解码原图。
@@ -95,6 +117,7 @@ issue #1462 指出的多余复制按钮来自不属于最终回复的过程文�
 
 - `./scripts/test-macos.sh --filter AgentImageTests`
 - `cargo test -p lithe-agent-host claude_earlier_history`
+- `cargo test -p lithe-agent-host claude_desktop`
 - `./scripts/verify-agent-notes.sh`
 
 ## 适用范围

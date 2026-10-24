@@ -7,6 +7,7 @@
 //! See `.agents/notes/implemented/architecture/2026-09-25-shared-acp-agent-conversation.md`.
 
 pub mod catalog;
+mod claude_desktop;
 mod claude_earlier_history;
 mod claude_subscription;
 pub mod cli_update;
@@ -1333,6 +1334,8 @@ where
     let session_meta = session_routing::metadata(gateway.as_ref())?;
     let workspace = Arc::new(workspace_context::WorkspaceContext::new(&cwd)?);
     let update_workspace = workspace.clone();
+    let desktop = Arc::new(Mutex::new(claude_desktop::Presenter::default()));
+    let update_desktop = desktop.clone();
     let restored_meta = session_routing::restored_metadata(gateway.as_ref())?;
     let (auth_tx, mut auth_rx) = tokio::sync::watch::channel(None::<subscription::AuthStatus>);
     let updates = emit.clone();
@@ -1375,6 +1378,9 @@ where
                         sessions.is_live(&session_id).then(|| sessions.root(&session_id)).flatten()
                     };
                     let Some(update) = update_workspace.present_update(update) else {
+                        return Ok(());
+                    };
+                    let Some(update) = update_desktop.lock().map_err(|_| internal("Replay presentation is unavailable"))?.present(&session_id, update) else {
                         return Ok(());
                     };
                     if update["sessionUpdate"] == "usage_update" {
@@ -1678,6 +1684,7 @@ where
                         let confirm_model = session_meta.is_some();
                         let capture = context_recovery.as_ref().and_then(|recovery| recovery.capture(&session_id));
                         let earlier = claude_projects.clone();
+                        let desktop = desktop.clone();
                         tasks.spawn(async move {
                             // Compaction hides earlier segments from the adapter's replay;
                             // they precede it, so the transcript reads in order.
@@ -1688,6 +1695,11 @@ where
                                 })
                                 .await
                                 .unwrap_or_default();
+                                // Collected first: the guard must not live across `emit`.
+                                let updates: Vec<_> = match desktop.lock() {
+                                    Ok(mut desktop) => updates.into_iter().filter_map(|u| desktop.present(&session_id, u)).collect(),
+                                    Err(_) => updates,
+                                };
                                 for update in updates {
                                     emit(AgentEvent::Update { session_id: session_id.clone(), update });
                                 }

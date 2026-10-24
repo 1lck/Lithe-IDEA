@@ -143,13 +143,22 @@ impl Converter {
         let role = match row["type"].as_str() {
             Some("user") => Chunk::User,
             Some("assistant") => Chunk::Agent,
+            // A prompt sent while a turn was running is stored only as this
+            // attachment, never as a user row, so it is the message itself.
+            Some("attachment") if row["attachment"]["type"] == "queued_command" => {
+                return self.content(Chunk::User, &row["attachment"]["prompt"]);
+            }
             _ => return,
         };
         // API error stand-ins are synthesized by the CLI, not model output.
         if row["message"]["model"] == "<synthetic>" {
             return;
         }
-        match &row["message"]["content"] {
+        self.content(role, &row["message"]["content"]);
+    }
+
+    fn content(&mut self, role: Chunk, content: &Value) {
+        match content {
             Value::String(text) if role == Chunk::User => self.text(Chunk::User, text),
             Value::Array(blocks) => {
                 for block in blocks {
@@ -211,6 +220,7 @@ impl Converter {
         self.updates.push(json!({
             "sessionUpdate": "tool_call",
             "toolCallId": id,
+            "name": name,
             "title": title(name, input),
             "kind": kind(name),
             "status": "completed",
@@ -396,6 +406,22 @@ mod tests {
         assert_eq!(updates.len(), 2);
         assert_eq!(updates[0]["title"], "Read /a/b.rs");
         assert_eq!(updates[1]["status"], "failed");
+    }
+
+    #[test]
+    fn prompts_queued_during_a_turn_and_tool_names_are_kept() {
+        let (dir, cwd) = transcript(&[
+            json!({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "w", "name": "mcp__ccd_turn__wrap_up", "input": {"recap": "done"}}]}}),
+            json!({"type": "attachment", "uuid": "q1", "attachment": {"type": "queued_command", "prompt": "go faster"}}),
+            json!({"type": "attachment", "uuid": "r1", "attachment": {"type": "total_tokens_reminder"}}),
+            boundary(),
+        ]);
+        let updates = earlier_updates(dir.path(), &cwd, "abc-1");
+        assert_eq!(updates.len(), 2);
+        assert_eq!(updates[0]["name"], "mcp__ccd_turn__wrap_up");
+        assert_eq!(updates[1]["sessionUpdate"], "user_message_chunk");
+        assert_eq!(updates[1]["content"]["text"], "go faster");
+        assert_eq!(updates[1]["messageId"], "q1");
     }
 
     #[test]

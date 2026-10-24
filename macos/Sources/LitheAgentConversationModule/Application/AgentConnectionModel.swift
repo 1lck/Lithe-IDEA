@@ -967,6 +967,15 @@ public final class AgentConnectionModel: ObservableObject {
         case "plan":
             guard let plan = AgentPlan.parse(update) else { return }
             conversations[sessionID, default: AgentConversation()].plan = plan.entries.isEmpty ? nil : plan
+            // Live plans are pinned above the composer. A replay instead keeps every
+            // snapshot in order, so a history whose Agent wrote little prose (Claude
+            // Desktop reports progress this way) still shows what each turn did.
+            if conversations[sessionID]?.isLoading == true, subagentSessionID == nil, !plan.entries.isEmpty {
+                flushPendingText()
+                var message = AgentConversationMessage(role: .agent, text: "")
+                message.plan = plan
+                replayMessages[sessionID, default: []].append(message)
+            }
             // A valid plan proves recovery without implying streamed reasoning.
             if conversations[sessionID]?.responsePhase == .retrying {
                 markResponseProgress(.waiting, in: sessionID)
