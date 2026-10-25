@@ -363,6 +363,11 @@ jobs:
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-project-tree.json -- src/features/file-explorer/hooks/use-file-explorer-drag-drop.test.tsx src/features/file-explorer/components/file-explorer-selection.test.tsx src/features/file-explorer/components/file-explorer-reveal.test.tsx src/features/file-explorer/stores/directory-marks.test.ts src/features/sidebar/utils/tree-selection.test.ts src/utils/path-helpers.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Test F4 focused file navigation
+        shell: pwsh
+        timeout-minutes: 2
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-f4-file-navigation.json -- src/features/global-search/components/f4-file-navigation.integration.test.tsx
+
       - name: Test workspace open, replace, and close lifecycle
         shell: pwsh
         run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-workspace-lifecycle.json -- src/features/workspace/services/workspace-lifecycle.test.ts src/features/window/services/project-window-router.test.ts

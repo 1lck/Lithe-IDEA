@@ -23332,6 +23332,13 @@
       ]
     },
     {
+      "id": "keybindings.commands.file.openSelected.title",
+      "description": "Windows command: open the focused file or search result",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
       "id": "keybindings.commands.file.quickOpen.title",
       "description": "Windows UI: keybindings.commands.file.quickOpen.title",
       "platforms": [

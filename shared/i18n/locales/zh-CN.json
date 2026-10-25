@@ -3028,6 +3028,7 @@
     "keybindings.commands.file.localHistory.title": "显示本地历史",
     "keybindings.commands.file.new.title": "新建文件",
     "keybindings.commands.file.open.title": "打开项目",
+    "keybindings.commands.file.openSelected.title": "打开所选文件",
     "keybindings.commands.file.quickOpen.title": "快速打开",
     "keybindings.commands.file.reopenClosed.title": "重新打开已关闭标签页",
     "keybindings.commands.file.revert.title": "还原文件",
