@@ -140,8 +140,8 @@ struct AgentManagementFeatureModelTests {
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let data = try Data(contentsOf: root.appendingPathComponent("shared/fixtures/agent/agent-management-v1.json"))
         let results = try JSONDecoder().decode(Fixture.self, from: data).responses
-        #expect(results.installCli == AgentCliUpdateResult(cliVersion: "0.156.1"))
-        #expect(results.installCliRecovered == AgentCliUpdateResult(cliVersion: "0.157.1", updaterWarning: "Download failed; retry completed"))
+        #expect(results.installCli == AgentCliUpdateResult(cliVersion: "0.160.1"))
+        #expect(results.installCliRecovered == AgentCliUpdateResult(cliVersion: "0.161.1", updaterWarning: "Download failed; retry completed"))
     }
 
     @Test

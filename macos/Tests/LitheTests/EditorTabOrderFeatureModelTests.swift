@@ -60,11 +60,12 @@ struct EditorTabOrderFeatureModelTests {
             let document = try #require(model.activeDocument)
             model.showAgentChatsInEditor()
             model.showAgentChatsInEditor()
-            #expect(model.editorTabItems == [file, .agentConversation])
+            let agent = EditorTabItem.agentConversation(try #require(model.focusedAgentEditorTab))
+            #expect(model.editorTabItems == [file, agent])
             #expect(model.isAgentEditorSelected)
             model.selectEditorTab(file)
             #expect(!model.isAgentEditorSelected && model.agentChatsInEditor)
-            model.selectEditorTab(.agentConversation)
+            model.selectEditorTab(agent)
             #expect(model.isAgentEditorSelected)
             #expect(model.requestCloseActiveWorkbenchItem())
             #expect(!model.agentChatsInEditor)
@@ -79,18 +80,66 @@ struct EditorTabOrderFeatureModelTests {
         let feature = EditorTabOrderFeatureModel()
         let file = EditorTabItem.document(UUID())
         feature.moveToEnd(file)
-        feature.moveToEnd(.agentConversation)
-        feature.focus(.agentConversation)
-        #expect(feature.focusedItem == .agentConversation)
+        let agent = EditorTabItem.agentConversation(UUID())
+        feature.moveToEnd(agent)
+        feature.focus(agent)
+        #expect(feature.focusedItem == agent)
         feature.reconcileDocuments(orderedIDs: feature.documentIDs)
-        #expect(feature.items == [file, .agentConversation])
+        #expect(feature.items == [file, agent])
         let group = try #require(feature.groupLayout.groups.first)
-        #expect(feature.drop(.agentConversation, into: group, side: .right))
-        feature.focus(.agentConversation)
-        #expect(feature.focusedItem == .agentConversation)
-        feature.remove(.agentConversation)
+        #expect(feature.drop(agent, into: group, side: .right))
+        feature.focus(agent)
+        #expect(feature.focusedItem == agent)
+        feature.remove(agent)
         #expect(feature.items == [file])
         #expect(feature.groupLayout.groups.count == 1)
+    }
+
+    @Test func agentTabsPresentOneSessionEachAndForgetClosedTabs() {
+        let feature = EditorTabOrderFeatureModel()
+        let first = UUID(), second = UUID()
+        feature.moveToEnd(.agentConversation(first))
+        feature.moveToEnd(.agentConversation(second))
+        #expect(feature.agentTabIDs == [first, second])
+        feature.bindAgentTab(first, to: "a")
+        feature.bindAgentTab(second, to: "b")
+        #expect(feature.agentTab(showing: "b") == second)
+        // A session is shown by one tab only: rebinding moves it.
+        feature.bindAgentTab(first, to: "b")
+        #expect(feature.agentSession(of: first) == "b")
+        #expect(feature.agentSession(of: second) == nil)
+        // Closing a tab releases its binding.
+        feature.remove(.agentConversation(first))
+        #expect(feature.agentTab(showing: "b") == nil)
+        // A tab that is not open cannot be bound.
+        feature.bindAgentTab(UUID(), to: "c")
+        #expect(feature.agentSessionByTab.isEmpty)
+    }
+
+    @Test func newChatOpensItsOwnAgentTabAndClosingKeepsTheOthers() async throws {
+        let store = EditorTabOrderTestStore()
+        let settings = AppSettings(store: store)
+        let model = AppModel(settings: settings, services: MacServiceContainer(
+            store: store, settings: settings, moduleLaunchMode: .safeMode).services)
+        do {
+            model.showAgentChatsInEditor()
+            let first = try #require(model.focusedAgentEditorTab)
+            // The tab is still empty, so New Chat reuses it instead of adding another.
+            model.openNewAgentEditorTab()
+            #expect(model.editorTabOrderFeature.agentTabIDs == [first])
+            model.editorTabOrderFeature.bindAgentTab(first, to: "session-a")
+            model.openNewAgentEditorTab()
+            let second = try #require(model.focusedAgentEditorTab)
+            #expect(second != first)
+            #expect(model.editorTabOrderFeature.agentTabIDs == [first, second])
+            model.closeAgentEditorTab(second)
+            #expect(model.editorTabOrderFeature.agentTabIDs == [first])
+            #expect(model.focusedAgentEditorTab == first)
+            // Closing the last Agent tab hands the conversation back to the tool window.
+            model.closeAgentEditorTab(first)
+            #expect(!model.agentChatsInEditor)
+        } catch { await model.shutdownProjectSession(); throw error }
+        await model.shutdownProjectSession()
     }
 
     @Test func splitMenuEligibilityMatchesDropForSingleAndMixedGroups() throws {

@@ -29,6 +29,16 @@ public final class AgentConnectionModel: ObservableObject {
     /// Reports the account and the latest usage windows of a subscription
     /// connection so the app can keep the last known values per account. Lithe
     /// requests nothing for this; these are only what the Host or adapter pushed.
+    /// The context length the Agent reports while the user has set no limit: what
+    /// "default" means for this Agent. Called for every report; the owner dedupes.
+    public var onContextCapacityObserved: ((UInt64) -> Void)?
+    /// Context sizing of the current connection. The ring reads as full at its capacity.
+    public private(set) var contextLimits = AgentContextLimits()
+    private var agentID: String?
+    private var contextCapacityLimit: UInt64? { contextLimits.displayCapacity(forAgentID: agentID) }
+    /// The auto-compact threshold to show beside the ring, when it differs from where the ring is full.
+    public var autoCompactDisplayTokens: UInt64? { contextLimits.visibleAutoCompact(forAgentID: agentID) }
+
     public var onAccountObserved: ((_ directory: URL?, _ email: String?, _ plan: String?,
                                     _ quota: AgentSubscriptionQuota?) -> Void)?
 
@@ -173,6 +183,8 @@ public final class AgentConnectionModel: ObservableObject {
         let (events, continuation) = AsyncStream<String>.makeStream()
         errorMessage = nil
         isClaudeConnection = configuration.agentID == "claude-acp"
+        agentID = configuration.agentID
+        contextLimits = configuration.contextLimits
         usesSubscription = configuration.authentication == .codexSubscription
         usesClaudeSubscription = configuration.authentication == .claudeSubscription
         accountDirectory = configuration.authentication.isSubscription ? configuration.accountDirectory : nil
@@ -954,7 +966,9 @@ public final class AgentConnectionModel: ObservableObject {
             } else { applyNotice(notice, to: sessionID) }
         case "usage_update":
             guard connectionState == .ready else { return }
-            conversations[sessionID, default: AgentConversation()].contextUsage = AgentContextUsage.parse(update)
+            let reported = AgentContextUsage.parse(update)
+            if let reported, contextLimits.isEmpty { onContextCapacityObserved?(reported.capacityTokens) }
+            conversations[sessionID, default: AgentConversation()].contextUsage = reported?.capped(to: contextCapacityLimit)
             let meta = update["_meta"] as? [String: Any]
             let source = (meta?["lithe"] as? [String: Any])?["contextUsageSource"] as? String
             conversations[sessionID]?.contextUsageIsHistorical = source == "history" && conversations[sessionID]?.contextUsage != nil
@@ -1415,7 +1429,7 @@ public final class AgentConnectionModel: ObservableObject {
         let snapshot = conversation.statisticsBaseline ?? loadBackups[sessionID]?.statisticsRecord(at: .distantPast)
         guard let usage = snapshot?.contextUsage, let models = snapshot?.contextModels,
               !models.isEmpty, models == conversation.contextModelValues else { return }
-        conversations[sessionID]?.contextUsage = usage
+        conversations[sessionID]?.contextUsage = usage.capped(to: contextCapacityLimit)
         conversations[sessionID]?.contextUsageIsHistorical = true
     }
 

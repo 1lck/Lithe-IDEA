@@ -1259,6 +1259,62 @@ struct AgentConversationFeatureModelTests {
     }
 
     @Test
+    func theRingReadsAsFullAtTheUsersContextLimitAndNeverWidensWhatTheAgentReported() async throws {
+        func launch(_ agentID: String, _ limits: AgentContextLimits) -> AgentLaunchConfiguration {
+            AgentLaunchConfiguration(agentID: agentID, command: "", arguments: [], workspaceURL: configuration.workspaceURL,
+                dataDirectory: configuration.dataDirectory, providerProtocol: "responses", providerEndpoint: "https://api.example/v1",
+                apiKey: "key", providerName: "Provider", model: "", allowsInsecureHTTP: false, contextLimits: limits)
+        }
+        func capacity(agentID: String, limits: AgentContextLimits, reported: Int) async throws -> (UInt64?, UInt64?, [UInt64]) {
+            let transport = TestAgentTransport()
+            let feature = AgentConnectionModel(transport: transport)
+            var observed: [UInt64] = []
+            feature.onContextCapacityObserved = { observed.append($0) }
+            try feature.connect(configuration: launch(agentID, limits))
+            try feature.receive(event("ready"))
+            feature.prepareConversation()
+            try feature.receive(event("sessionCreated", ["token": transport.connections.last?.commands.last?["token"] as Any]))
+            try feature.receive(event("usageUpdate", ["update": ["sessionUpdate": "usage_update", "used": 90_000, "size": reported]]))
+            let result = (feature.selectedConversation?.contextUsage?.capacityTokens, feature.autoCompactDisplayTokens, observed)
+            await feature.stop()
+            return result
+        }
+        // Nothing set: the Agent's size is shown and remembered as its default.
+        let plain = try await capacity(agentID: "codex-acp", limits: AgentContextLimits(), reported: 1_000_000)
+        #expect(plain.0 == 1_000_000 && plain.1 == nil && plain.2 == [1_000_000])
+        // Codex: the context length is the denominator; a threshold is shown beside the ring.
+        let codex = try await capacity(agentID: "codex-acp",
+            limits: AgentContextLimits(windowTokens: 200_000, autoCompactTokens: 150_000), reported: 258_400)
+        #expect(codex.0 == 200_000 && codex.1 == 150_000 && codex.2.isEmpty)
+        // A limit above what the Agent reported never widens it.
+        let wider = try await capacity(agentID: "codex-acp",
+            limits: AgentContextLimits(windowTokens: 2_000_000), reported: 258_400)
+        #expect(wider.0 == 258_400)
+        // Claude Code compacts at its threshold, so that is where the ring is full.
+        let claude = try await capacity(agentID: "claude-acp",
+            limits: AgentContextLimits(windowTokens: 400_000, autoCompactTokens: 150_000), reported: 1_000_000)
+        #expect(claude.0 == 150_000 && claude.1 == nil)
+        let claudeWindowOnly = try await capacity(agentID: "claude-acp",
+            limits: AgentContextLimits(windowTokens: 200_000), reported: 1_000_000)
+        #expect(claudeWindowOnly.0 == 200_000)
+    }
+
+    @Test
+    func contextLimitsTreatZeroAsUnsetAndPickTheRightDisplayRule() throws {
+        let zero = AgentContextLimits(windowTokens: 0, autoCompactTokens: 0)
+        #expect(zero.isEmpty)
+        #expect(AgentContextLimits(windowTokens: 200_000).displayCapacity(forAgentID: "codex-acp") == 200_000)
+        #expect(AgentContextLimits(autoCompactTokens: 150_000).displayCapacity(forAgentID: "codex-acp") == nil)
+        #expect(AgentContextLimits(autoCompactTokens: 150_000).visibleAutoCompact(forAgentID: "codex-acp") == 150_000)
+        #expect(AgentContextLimits(autoCompactTokens: 150_000).visibleAutoCompact(forAgentID: "claude-acp") == nil)
+        let usage = try #require(AgentContextUsage(usedTokens: 1, capacityTokens: 100))
+        #expect(usage.capped(to: 50).capacityTokens == 50)
+        #expect(usage.capped(to: 500).capacityTokens == 100)
+        #expect(usage.capped(to: nil).capacityTokens == 100)
+        #expect(usage.capped(to: 0).capacityTokens == 100)
+    }
+
+    @Test
     func missingInvalidAndDisconnectedUsageRemainUnknown() async throws {
         try await withContextFeature { feature, connection in
             feature.prepareConversation()
@@ -1946,8 +2002,8 @@ struct AgentConversationFeatureModelTests {
         #expect(status.environment.node?.version == "20.11.0")
         let codex = try #require(status.agents.first)
         #expect(codex.isInstalled && !codex.needsUpdate)
-        #expect(codex.cli?.detected?.version == "0.156.1")
-        #expect(codex.cli?.minimumVersion == "0.156.0")
+        #expect(codex.cli?.detected?.version == "0.160.1")
+        #expect(codex.cli?.minimumVersion == "0.160.1")
         #expect(codex.cli?.installation?.source == .npm)
         #expect(codex.cli?.installation?.canUpdate == true)
         let claude = try #require(status.agents.last)
@@ -2374,8 +2430,28 @@ struct AgentConversationFeatureModelTests {
         #expect(main.latestContext?.messageTokens == 9000)
     }
 
-    private func modelCall(usage: [String: Any]? = nil, context: [String: Any]? = nil) throws -> AgentModelCall {
+    @Test
+    func auxiliaryRequestsSpendTokensButAreNotConversationSteps() throws {
+        var totals = AgentModelCallTotals()
+        let usage: [String: Any] = ["inputTokens": 10, "cacheReadTokens": 0, "cacheWriteTokens": 0, "outputTokens": 16]
+        // Claude Code names the session with a request of its own.
+        totals.record(try modelCall(usage: usage, context: context(messages: 300, tools: 0), auxiliary: true))
+        #expect(totals.callCount == 0)
+        #expect(totals.duration == 0)
+        #expect(totals.averageFirstToken == nil)
+        #expect(totals.latestContext == nil)
+        #expect(totals.outputTokens == 16)
+        #expect(totals.callsWithUsage == 1)
+        totals.record(try modelCall(usage: usage, context: context(messages: 4000, tools: 11)))
+        #expect(totals.callCount == 1)
+        #expect(totals.outputTokens == 32)
+        #expect(totals.latestContext?.toolCount == 11)
+    }
+
+    private func modelCall(usage: [String: Any]? = nil, context: [String: Any]? = nil,
+                           auxiliary: Bool = false) throws -> AgentModelCall {
         var call: [String: Any] = ["api": "anthropicMessages", "status": 200, "streaming": true, "durationMs": 1000]
+        if auxiliary { call["auxiliary"] = true }
         if let usage { call["usage"] = usage }
         if let context { call["context"] = context }
         return try #require(AgentModelCall.parse(call))

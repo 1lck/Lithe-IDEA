@@ -107,7 +107,21 @@ pub struct ModelCall {
     pub usage: Option<ModelCallUsage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<ContextComposition>,
+    /// A background request the Agent makes for itself, such as naming the
+    /// session, rather than a step of the conversation. Its tokens are still
+    /// spent, but consumers must not count it as a step or a generation speed.
+    #[serde(skip_serializing_if = "is_false")]
+    pub auxiliary: bool,
 }
+
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
+/// Claude Code's session-naming request announces itself in its system prompt.
+/// Matching it is a best effort: a reworded prompt only makes the call count as
+/// a step again, never changes forwarding.
+const SESSION_NAMING_MARKER: &str = "naming a coding session";
 
 /// Serialized byte sizes of the parts of one generation request.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -122,6 +136,7 @@ pub(crate) struct RequestShape {
     message_bytes: u64,
     tool_count: u32,
     mcp_tool_count: u32,
+    auxiliary: bool,
 }
 
 /// Measure the request sections. Unknown or malformed bodies yield `None` and
@@ -164,6 +179,8 @@ pub(crate) fn request_shape(api: ModelApi, body: &[u8]) -> Option<RequestShape> 
         ModelApi::Responses => (request.get("instructions"), request.get("input")),
         ModelApi::ChatCompletions => (None, request.get("messages")),
     };
+    shape.auxiliary = api == ModelApi::AnthropicMessages
+        && system.is_some_and(|system| system.to_string().contains(SESSION_NAMING_MARKER));
     shape.instruction_bytes = system.map(text_len).unwrap_or_default();
     shape.system_bytes += shape.instruction_bytes;
     match messages {
@@ -383,6 +400,7 @@ impl ResponseObserver {
             duration_ms: millis(now.saturating_duration_since(self.started)),
             usage: self.usage,
             context: request.map(|request| request.composition(self.usage.as_ref())),
+            auxiliary: request.is_some_and(|request| request.auxiliary),
         }
     }
 
@@ -784,6 +802,28 @@ mod tests {
                 .map(|part| u128::from(*part))
                 .sum::<u128>(),
             u128::from(u64::MAX)
+        );
+    }
+
+    #[test]
+    fn claude_session_naming_requests_are_marked_auxiliary() {
+        let naming = br#"{"model":"m","system":[{"type":"text","text":"You are naming a coding session so the user can pick it out."}],"messages":[]}"#;
+        let turn = br#"{"model":"m","system":[{"type":"text","text":"You are a Claude agent."}],"messages":[]}"#;
+        assert!(
+            request_shape(ModelApi::AnthropicMessages, naming)
+                .unwrap()
+                .auxiliary
+        );
+        assert!(
+            !request_shape(ModelApi::AnthropicMessages, turn)
+                .unwrap()
+                .auxiliary
+        );
+        // Only the Anthropic protocol carries this request.
+        assert!(
+            !request_shape(ModelApi::Responses, naming)
+                .unwrap()
+                .auxiliary
         );
     }
 }

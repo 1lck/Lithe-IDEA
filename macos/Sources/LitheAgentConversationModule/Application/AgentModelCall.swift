@@ -37,6 +37,11 @@ public struct AgentModelCall: Decodable, Equatable, Sendable {
     public let durationMs: UInt64
     public let usage: Usage?
     public let context: Context?
+    /// Present only for a background request the Agent made for itself, such as
+    /// naming the session. Absent means an ordinary conversation step.
+    public var auxiliary: Bool? = nil
+
+    public var isAuxiliary: Bool { auxiliary == true }
 
     static func parse(_ value: Any?) -> Self? {
         guard let value, JSONSerialization.isValidJSONObject(value),
@@ -104,20 +109,29 @@ public struct AgentModelCallTotals: Codable, Equatable, Sendable {
         generatedTokens += later.generatedTokens
     }
 
+    private mutating func recordUsage(_ usage: AgentModelCall.Usage?) {
+        guard let usage else { return }
+        callsWithUsage += 1
+        inputTokens += usage.inputTokens
+        cacheReadTokens += usage.cacheReadTokens
+        cacheWriteTokens += usage.cacheWriteTokens
+        outputTokens += usage.outputTokens
+        if let reasoning = usage.reasoningTokens { reasoningTokens = (reasoningTokens ?? 0) + reasoning }
+    }
+
     mutating func record(_ call: AgentModelCall) {
+        if call.isAuxiliary {
+            // The tokens were really spent, but a title request is neither a step
+            // of the conversation nor a measure of its latency or generation speed.
+            recordUsage(call.usage)
+            return
+        }
         callCount += 1
         if call.status >= 400 { failedCount += 1 }
         if !call.streaming && call.status < 400 { nonStreamingCount += 1 }
         let duration = Double(call.durationMs) / 1000
         self.duration += duration
-        if let usage = call.usage {
-            callsWithUsage += 1
-            inputTokens += usage.inputTokens
-            cacheReadTokens += usage.cacheReadTokens
-            cacheWriteTokens += usage.cacheWriteTokens
-            outputTokens += usage.outputTokens
-            if let reasoning = usage.reasoningTokens { reasoningTokens = (reasoningTokens ?? 0) + reasoning }
-        }
+        recordUsage(call.usage)
         if call.streaming, let firstToken = call.firstTokenMs.map({ Double($0) / 1000 }) {
             firstTokenTotal += firstToken
             firstTokenCount += 1

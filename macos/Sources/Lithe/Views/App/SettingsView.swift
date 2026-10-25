@@ -221,7 +221,14 @@ struct SettingsView: View {
                             Text(LocalizedStringKey(group.rawValue)).font(LitheTheme.uiFont(size: 13, weight: .medium))
                         }
                     } children: {
-                        visible.map { categoryNode($0, nested: true) } + pages.map { page in
+                        group.entries.compactMap { entry -> LitheTreeListNode? in
+                            switch entry {
+                            case .page(let category):
+                                return visible.contains(category) ? categoryNode(category, nested: true) : nil
+                            case .subgroup(let subgroup):
+                                return subgroupNode(subgroup, visible: visible)
+                            }
+                        } + pages.map { page in
                             LitheTreeListNode(id: "plugin:" + page.id, onSelect: {
                                 isSearchFocused = false; viewState.contributedPageID = page.id
                             }) {
@@ -236,6 +243,22 @@ struct SettingsView: View {
                     }]
             }
         }
+    }
+
+    private func subgroupNode(_ subgroup: SettingsSubgroup, visible: [SettingsCategory]) -> LitheTreeListNode? {
+        let pages = subgroup.categories.filter { visible.contains($0) }
+        guard !pages.isEmpty else { return nil }
+        return LitheTreeListNode(id: "subgroup:" + subgroup.rawValue,
+            isExpanded: expandedSidebarGroups.contains(subgroup.rawValue) || !viewState.searchQuery.isEmpty,
+            isSelectable: false, onExpansion: { expanded in
+                isSearchFocused = false
+                if expanded { expandedSidebarGroups.insert(subgroup.rawValue) }
+                else { expandedSidebarGroups.remove(subgroup.rawValue) }
+            }) {
+                Text(LocalizedStringKey(subgroup.rawValue)).font(LitheTheme.uiFont(size: 12.5))
+            } children: {
+                pages.map { categoryNode($0, nested: true) }
+            }
     }
 
     private func categoryNode(_ category: SettingsCategory, nested: Bool = false) -> LitheTreeListNode {
@@ -278,6 +301,7 @@ struct SettingsView: View {
 
     private func expandGroup(containing category: SettingsCategory) {
         if let group = category.group { expandedSidebarGroups.insert(group.rawValue) }
+        if let subgroup = category.subgroup { expandedSidebarGroups.insert(subgroup.rawValue) }
     }
 
     private var filteredCategories: [SettingsCategory] {
@@ -334,7 +358,7 @@ struct SettingsView: View {
     private var settingsBreadcrumb: [String] {
         if let page = selectedContributedPage { return [page.group.rawValue, page.title] }
         let category = viewState.selection
-        return [category.group?.rawValue, category.title].compactMap { $0 }
+        return [category.group?.rawValue, category.subgroup?.rawValue, category.title].compactMap { $0 }
     }
 
     @ViewBuilder
@@ -417,7 +441,7 @@ struct SettingsView: View {
                 .padding(.horizontal, 26)
                 .padding(.top, 20)
                 .padding(.bottom, 36)
-                .frame(maxWidth: 900, alignment: .leading)
+                // Pages follow the window width; a cap here left a blank band on the right.
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .litheScrollViewChrome(alwaysShowVertical: true, usesCompactScrollers: true)
@@ -989,7 +1013,7 @@ struct SettingsView: View {
             }
 
         }
-        .frame(maxWidth: 760, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// Provider being edited, falling back to the commit message provider.
