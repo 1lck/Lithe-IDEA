@@ -323,11 +323,20 @@ private struct ActiveSessionChrome: View {
                 }
             }
             .sheet(isPresented: Binding(
+                get: { session.workbenchFeature.isOpenTargetChooserPresented },
+                set: { session.workbenchFeature.isOpenTargetChooserPresented = $0 }
+            )) {
+                if session.canManageRemoteConnections {
+                    OpenProjectPanelSheet(feature: session.makeRemoteConnectionsFeature()!)
+                        .environmentObject(session)
+                }
+            }
+            .sheet(isPresented: Binding(
                 get: { session.workbenchFeature.isRemoteConnectionsPresented },
                 set: { session.workbenchFeature.isRemoteConnectionsPresented = $0 }
             )) {
-                if let feature = session.makeRemoteConnectionsFeature() {
-                    RemoteConnectionsSheet(feature: feature)
+                if session.canManageRemoteConnections {
+                    RemoteConnectionsSheet(feature: session.makeRemoteConnectionsFeature()!)
                 }
             }
             .sheet(isPresented: Binding(

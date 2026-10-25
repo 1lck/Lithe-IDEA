@@ -201,15 +201,20 @@ struct LitheSettingsPill: View {
 
     private let text: Text
     private let kind: Kind
+    /// A long value wraps onto more lines instead of keeping its full width,
+    /// so it cannot push the row past its container.
+    private let wraps: Bool
 
     init(_ title: LocalizedStringKey, kind: Kind = .neutral) {
         self.text = Text(title)
         self.kind = kind
+        self.wraps = false
     }
 
-    init(verbatim title: String, kind: Kind = .neutral) {
+    init(verbatim title: String, kind: Kind = .neutral, wraps: Bool = false) {
         self.text = Text(verbatim: title)
         self.kind = kind
+        self.wraps = wraps
     }
 
     var body: some View {
@@ -217,12 +222,15 @@ struct LitheSettingsPill: View {
             .font(kind == .value
                   ? LitheTheme.uiFont(size: 10.5, design: .monospaced)
                   : LitheTheme.uiFont(size: 10.5))
-            .lineLimit(1)
+            .lineLimit(wraps ? nil : 1)
+            .multilineTextAlignment(.leading)
             .foregroundStyle(foreground)
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
-            .background(Capsule().fill(background))
-            .fixedSize()
+            .background(
+                RoundedRectangle(cornerRadius: wraps ? 10 : 100, style: .continuous).fill(background)
+            )
+            .modifier(PillSizing(wraps: wraps))
     }
 
     private var foreground: Color {
@@ -240,6 +248,18 @@ struct LitheSettingsPill: View {
         case .project: LitheTheme.settingsProjectPill
         case .effect: LitheTheme.settingsEffectPill
         case .value: LitheTheme.settingsValuePill
+        }
+    }
+}
+
+private struct PillSizing: ViewModifier {
+    let wraps: Bool
+
+    func body(content: Content) -> some View {
+        if wraps {
+            content.fixedSize(horizontal: false, vertical: true)
+        } else {
+            content.fixedSize()
         }
     }
 }
