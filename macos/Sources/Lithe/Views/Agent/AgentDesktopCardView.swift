@@ -218,7 +218,7 @@ private struct AgentDesktopWidgetCard: View {
 }
 
 /// Renders agent-written HTML or SVG offline: the page cannot load anything,
-/// keeps no storage, and cannot navigate. Inline scripts run so interactive
+/// keeps no storage, and cannot navigate or open links. Inline scripts run so interactive
 /// explainers work; `sendPrompt` only fills the composer, and only right after
 /// the user clicked or typed in the page, since the page's script is agent-written
 /// and must not replace a draft or take focus on its own.
@@ -231,6 +231,13 @@ struct AgentDesktopWidgetWebView: NSViewRepresentable {
     let isDark: Bool
     @Binding var height: CGFloat
     let onPrompt: (String) -> Void
+
+    /// Only the page this view loaded itself. A link never leaves the page, not even
+    /// to the system browser: a script can click its own link, and WebKit reports that
+    /// like a user's click, so opening it would let the page send its content to any address.
+    static func allowsNavigation(_ type: WKNavigationType, url: URL?) -> Bool {
+        type == .other && url?.absoluteString == "about:blank"
+    }
 
     /// A prompt is honoured only shortly after the user's own click or key press in the page.
     static func isFollowingUserGesture(_ lastGesture: TimeInterval?, now: TimeInterval) -> Bool {
@@ -345,16 +352,8 @@ struct AgentDesktopWidgetWebView: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
                      decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
-            // Only the page this view loaded; a clicked web link opens in the browser.
-            if action.navigationType == .other, action.request.url?.absoluteString == "about:blank" {
-                decisionHandler(.allow)
-                return
-            }
-            if action.navigationType == .linkActivated, let url = action.request.url,
-               ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
-                NSWorkspace.shared.open(url)
-            }
-            decisionHandler(.cancel)
+            decisionHandler(AgentDesktopWidgetWebView.allowsNavigation(action.navigationType, url: action.request.url)
+                            ? .allow : .cancel)
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {

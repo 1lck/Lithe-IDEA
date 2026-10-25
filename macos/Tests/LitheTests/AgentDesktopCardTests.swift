@@ -147,4 +147,15 @@ struct AgentDesktopCardTests {
         #expect(!Widget.isFollowingUserGesture(100 - Widget.gestureWindow - 0.1, now: 100), "A stale gesture is not the user's")
         #expect(!Widget.isFollowingUserGesture(101, now: 100), "A gesture cannot come from the future")
     }
+
+    @Test
+    func widgetPagesCannotNavigateOrOpenLinksByThemselves() throws {
+        typealias Widget = AgentDesktopWidgetWebView
+        #expect(Widget.allowsNavigation(.other, url: URL(string: "about:blank")))
+        // A script's own `a.click()` is reported as a link activation, like a user's.
+        #expect(!Widget.allowsNavigation(.linkActivated, url: URL(string: "https://example.invalid/?d=secret")))
+        #expect(!Widget.allowsNavigation(.formSubmitted, url: URL(string: "https://example.invalid/")))
+        #expect(!Widget.allowsNavigation(.other, url: URL(string: "https://example.invalid/")))
+        #expect(!Widget.allowsNavigation(.other, url: nil))
+    }
 }

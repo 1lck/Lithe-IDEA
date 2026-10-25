@@ -56,9 +56,18 @@ pub(crate) struct Presenter {
     tasks: HashMap<String, Value>,
     /// Desktop task id (`task_…`) → tool call id of the card that proposed it.
     task_ids: HashMap<String, String>,
-    /// Calls that change a task card once their result arrives:
-    /// tool call id → (task id, state a successful result means).
-    task_changes: HashMap<String, (String, &'static str)>,
+    /// Calls that change a task card once their result arrives, by tool call id.
+    task_changes: HashMap<String, TaskChange>,
+}
+
+/// A `dismiss_task` or `start_session` call held back until its result says
+/// whether the card it targets really changed.
+struct TaskChange {
+    task: String,
+    /// State a successful result means.
+    state: &'static str,
+    /// The call as a readable tool row, shown only if the call fails.
+    call: Value,
 }
 
 impl Presenter {
@@ -118,7 +127,8 @@ impl Presenter {
             "mcp__ccd_session__dismiss_task" => {
                 // Shown as the state of the card it withdraws, once the result confirms it.
                 if let Some(task) = str_field(&input, "task_id") {
-                    self.task_changes.insert(id.clone(), (task.to_owned(), "withdrawn"));
+                    let call = readable_call(update, "Withdrew a suggested task");
+                    self.task_changes.insert(id.clone(), TaskChange { task: task.to_owned(), state: "withdrawn", call });
                 }
                 self.absorbed.insert(id);
                 Vec::new()
@@ -126,7 +136,8 @@ impl Presenter {
             "mcp__ccd_session__start_session" if str_field(&input, "proposal_id").is_some() => {
                 // Starting a proposed card: the card itself changes state.
                 let task = str_field(&input, "proposal_id").unwrap_or_default().to_owned();
-                self.task_changes.insert(id.clone(), (task, "started"));
+                let call = readable_call(update, "Started a suggested task");
+                self.task_changes.insert(id.clone(), TaskChange { task, state: "started", call });
                 self.absorbed.insert(id);
                 Vec::new()
             }
@@ -150,19 +161,8 @@ impl Presenter {
     }
 
     fn tool_call_update(&mut self, id: String, mut update: Value) -> Vec<Value> {
-        if let Some((task, state)) = self.task_changes.remove(&id) {
-            self.absorbed.remove(&id);
-            if update["status"] == "failed" {
-                return Vec::new();
-            }
-            // dismiss_task reports a task the user already started instead of withdrawing it.
-            let text = result_text(&update);
-            let state = if text.contains("already started") || text.contains("no longer pending") {
-                "started"
-            } else {
-                state
-            };
-            return self.change_task(&task, state);
+        if self.task_changes.contains_key(&id) {
+            return self.finish_task_change(&id, update);
         }
         if self.absorbed.contains(&id) {
             return Vec::new();
@@ -179,6 +179,30 @@ impl Presenter {
             }
         }
         vec![update]
+    }
+
+    /// A held-back task call got an update: wait out progress, apply a success
+    /// to its card, and keep a failure visible, since nothing changed.
+    fn finish_task_change(&mut self, id: &str, update: Value) -> Vec<Value> {
+        let status = update["status"].as_str();
+        if !matches!(status, Some("completed" | "failed")) {
+            return Vec::new();
+        }
+        let Some(change) = self.task_changes.remove(id) else {
+            return vec![update];
+        };
+        self.absorbed.remove(id);
+        if status == Some("failed") {
+            return vec![change.call, update];
+        }
+        // dismiss_task reports a task the user already started instead of withdrawing it.
+        let text = result_text(&update);
+        let state = if text.contains("already started") || text.contains("no longer pending") {
+            "started"
+        } else {
+            change.state
+        };
+        self.change_task(&change.task, state)
     }
 
     fn retitle(&mut self, id: String, mut update: Value, title: &str, kind: &'static str) -> Vec<Value> {
@@ -202,6 +226,30 @@ impl Presenter {
         vec![update]
     }
 }
+
+/// `call` as an ordinary tool row with a readable title.
+fn readable_call(mut call: Value, title: &str) -> Value {
+    call["title"] = json!(title);
+    call["kind"] = json!("other");
+    call
+}
+
+/// Whether a tool's input feeds a card, plan or reply, so a replay must carry
+/// it whole instead of cut for a tool-detail preview.
+pub(crate) fn carries_card_input(name: &str) -> bool {
+    name.strip_prefix("mcp__")
+        .and_then(|rest| rest.split_once("__"))
+        .is_some_and(|(server, _)| {
+            matches!(
+                server,
+                "ccd_turn" | "ccd_session" | "ccd_pr" | "ccd_directory" | "ccd_view" | "ccd_host" | "visualize"
+            )
+        })
+}
+
+/// Largest string of such an input a replay carries; the widget source limit
+/// is the largest of the card fields.
+pub(crate) const CARD_INPUT_LIMIT: usize = WIDGET_CODE_LIMIT;
 
 /// Readable presentation of one Desktop tool call.
 struct Described {
@@ -714,6 +762,31 @@ mod tests {
         let handoff = one(presenter.present("s", call("mcp__ccd_session__hand_off_to_session", "h", input)));
         assert_eq!(card(&handoff)["state"], "handedOff");
         assert_eq!(card(&handoff)["summary"], "Done: x");
+    }
+
+    #[test]
+    fn failed_task_actions_stay_visible_and_progress_does_not_change_the_card() {
+        let mut presenter = Presenter::default();
+        presenter.present("s", call("mcp__ccd_session__spawn_task", "t1", json!({"title": "Fix", "prompt": "Do it"})));
+        presenter.present("s", result("t1", "Noted (task_id: task_9edecafe)."));
+
+        let dismiss = call("mcp__ccd_session__dismiss_task", "x", json!({"task_id": "task_9edecafe"}));
+        assert!(presenter.present("s", dismiss).is_empty());
+        let progress = json!({"sessionUpdate": "tool_call_update", "toolCallId": "x", "status": "in_progress"});
+        assert!(presenter.present("s", progress).is_empty(), "Progress must not withdraw the card");
+        let failed = json!({"sessionUpdate": "tool_call_update", "toolCallId": "x", "status": "failed",
+                            "content": [{"type": "content", "content": {"type": "text", "text": "Denied"}}]});
+        let shown = presenter.present("s", failed);
+        assert_eq!(shown.len(), 2, "{shown:?}");
+        assert_eq!(shown[0]["sessionUpdate"], "tool_call");
+        assert_eq!(shown[0]["toolCallId"], "x");
+        assert_eq!(shown[0]["title"], "Withdrew a suggested task");
+        assert_eq!(shown[1]["status"], "failed");
+
+        let start = call("mcp__ccd_session__start_session", "y", json!({"proposal_id": "task_9edecafe"}));
+        assert!(presenter.present("s", start).is_empty());
+        let failed = json!({"sessionUpdate": "tool_call_update", "toolCallId": "y", "status": "failed"});
+        assert_eq!(presenter.present("s", failed)[0]["title"], "Started a suggested task");
     }
 
     #[test]
