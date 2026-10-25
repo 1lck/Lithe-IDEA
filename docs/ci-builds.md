@@ -721,6 +721,9 @@ Windows 的插件源配置、按源与平台缓存的原始索引、摘要绑定
 同属 `plugin-marketplace-state` 排除路由：由运行时平台 adapter 注入用户可写根，
 取消或失败清理临时文件，持久配置由当前用户实例管理；没有可复用的版本/架构/工具链 identity，
 不得在任何 worktree 复制阶段共享，也不写入发行资源或改变签名及增量更新基线。
+Windows 命令模型的 `<windows-app-local-data>/plugin-state/<plugin-id>/build-<pid>-<operation-sequence>.model.json`
+按 `official-plugin-packages` 排除路由处理：由当前窗口、工作区代次和操作独占，确认后以
+`create_new` 创建，进程树清理完成后删除；崩溃遗留由插件状态/卸载流程回收，不跨工作树复用。
 生成资源只有在构建流程写入可验证的源码、配置、平台、架构和工具链 identity
 stamp 后才能加入注册表，不能仅凭目录存在就跨 worktree 复制。
 

@@ -1,0 +1,36 @@
+{
+  "id": "agent-context-limits",
+  "area": "AI",
+  "group": "Agent 对话",
+  "capability": "Agent 上下文长度与自动压缩阈值：每个 Agent 可在设置里调整，圆环按配置值显示，留空沿用 Agent 默认值；macOS 恢复默认后失焦、离页和重开不回写旧草稿",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Views/Agent/AgentContextLimitsSettings.swift",
+      "macos/Sources/Lithe/Models/Settings/AppSettings.swift",
+      "macos/Sources/Lithe/Views/Agent/AgentPanelSettingsView.swift",
+      "macos/Sources/Lithe/Views/Agent/AgentSessionStatusView.swift",
+      "macos/Sources/LitheCoreContracts/Agent/AgentConversationPorts.swift",
+      "macos/Sources/LitheAgentConversationModule/Application/AgentConnectionModel.swift",
+      "macos/Sources/Lithe/Application/Features/AgentLaunchConfigurationResolver.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Agent/MacACPAgentTransport.swift",
+      "macos/Tests/LitheTests/AgentContextTokenTextTests.swift",
+      "macos/Tests/LitheTests/AgentLaunchConfigurationResolverTests.swift",
+      "macos/Tests/LitheTests/AgentConversationFeatureModelTests.swift",
+      "macos/Tests/LitheTests/AgentContextLimitsSettingsTests.swift"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
+    "evidence": [
+      "rust/lithe-agent-host/src/lib.rs",
+      "rust/lithe-agent-host/src/tests.rs",
+      "shared/contracts/rust-core-api.md"
+    ]
+  },
+  "owner": "Agent",
+  "verification": "macOS：设置 › AI › Agents 选择 Codex 或 Claude，“上下文”卡片有“上下文长度”和“自动压缩阈值”两项，输入框占位显示 Agent 自己上报过的默认长度（未上报显示“暂未上报”）；输入 200K、1M、200000 均可，范围 10K 到 10M，非法输入标红且不保存，阈值大于上下文长度报错，留空或点“重置”恢复 Agent 默认值；保存 200K/150K 后点击全局“恢复默认值”，立即失焦、切页或关闭，再重开确认两项仍为空且持久化限制已清除；原限制为空时输入未保存草稿再恢复默认，失焦后也不得新建覆盖；外部更新同一 Agent 时刷新表单，更新其他 Agent 不丢当前草稿。已连接时修改提示“重新连接 Agent 后生效”。重连后：Codex 把两项作为 model_context_window 与 model_auto_compact_token_limit 传入，圆环分母为配置的上下文长度（Codex 自己按其 95% 上报），悬停与详情多一行“自动压缩阈值”；Claude Code 只有一个压缩窗口开关，阈值（否则上下文长度）作为 CLAUDE_CODE_AUTO_COMPACT_WINDOW 传入，圆环以它为满。配置值大于 Agent 上报值时不放大圆环；2026-10-25 已用真实 Claude 订阅和本机 Codex（API Key，本机转发）各完成一轮，确认上报大小随配置变化。Windows：共享 Host 已支持 contextLimits 并有单元测试，设置界面尚未提供入口。",
+  "notes": "Claude Code 的上报大小会在回合内来回变化（先报配置值、结束时报模型值），所以圆环分母由 Lithe 按配置封顶，不直接用上报值。"
+}

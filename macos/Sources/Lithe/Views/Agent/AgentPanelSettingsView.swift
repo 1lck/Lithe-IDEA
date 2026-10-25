@@ -19,7 +19,7 @@ struct AgentPanelSettingsView: View {
             }
             AgentsManagementPage(model: model, settings: settings, feature: feature)
         }
-        .frame(maxWidth: 760, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .task { await feature.refresh() }
     }
 }
@@ -181,6 +181,7 @@ private struct AgentDetailView: View {
         }
         versionCard
         preflightCard
+        AgentContextLimitsSettings(agentID: agent.id, model: model, settings: settings)
         AgentProviderConfigurationView(
             agentID: agent.id,
             name: agent.name,

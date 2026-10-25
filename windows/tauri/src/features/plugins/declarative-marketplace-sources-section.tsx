@@ -12,10 +12,8 @@ import {
 } from "./declarative-marketplace-sources";
 
 /**
- * Source management for the declarative marketplace. This slice covers the
- * source list, add, enable/disable, remove, and its persistence only — no
- * index refresh, download, or installation exists yet, and the UI must not
- * suggest otherwise.
+ * Source management for the declarative marketplace. The parent invalidates
+ * its browsing session after a successful source mutation.
  *
  * Async discipline:
  * - Mutations are serialized by a synchronous in-flight flag checked at
@@ -29,7 +27,7 @@ import {
  * - No response touches an unmounted component, and operations stay
  *   disabled until the first load resolves.
  */
-export function DeclarativeMarketplaceSources() {
+export function DeclarativeMarketplaceSources({ onChanged }: { onChanged?: () => void }) {
   const { t, language } = useTranslation();
   const [state, setState] = useState<DeclarativeMarketplaceSourcesState | null>(null);
   const [urlInput, setUrlInput] = useState("");
@@ -54,6 +52,8 @@ export function DeclarativeMarketplaceSources() {
   // list; the localized strings it produces are always the current ones.
   const tRef = useRef(t);
   tRef.current = t;
+  const onChangedRef = useRef(onChanged);
+  onChangedRef.current = onChanged;
 
   const applyIfMounted = useCallback((update: () => void) => {
     if (!mountedRef.current) return;
@@ -152,6 +152,7 @@ export function DeclarativeMarketplaceSources() {
             // corruption notice no longer describes the current file.
             setState({ sources: next, problem: null });
             onSuccess(next);
+            onChangedRef.current?.();
           });
         })
         .catch((reason: unknown) => {

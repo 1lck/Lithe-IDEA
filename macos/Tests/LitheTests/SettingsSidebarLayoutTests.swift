@@ -38,5 +38,24 @@ struct SettingsSidebarLayoutTests {
         #expect(SettingsGroup.languages.categories == [.lsp])
         #expect(SettingsGroup.tools.categories == [.terminal, .diagnostics])
         #expect(SettingsGroup.ai.categories == [.providers, .agents, .instructions, .skills, .hooks, .mcp, .ai])
+        #expect(SettingsSubgroup.library.categories == [.instructions, .skills, .hooks, .mcp])
+    }
+
+    @Test func subgroupEntriesCoverEveryGroupPageExactlyOnce() {
+        for group in SettingsGroup.allCases {
+            let listed = group.entries.flatMap { entry -> [SettingsCategory] in
+                switch entry {
+                case .page(let category): [category]
+                case .subgroup(let subgroup): subgroup.categories
+                }
+            }
+            #expect(listed == group.categories)
+        }
+        for subgroup in SettingsSubgroup.allCases {
+            for category in subgroup.categories {
+                #expect(category.subgroup == subgroup)
+                #expect(category.group == subgroup.parent)
+            }
+        }
     }
 }

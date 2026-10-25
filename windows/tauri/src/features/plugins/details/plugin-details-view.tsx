@@ -23,7 +23,7 @@ export interface PluginDetailsPanelProps {
   selection: PluginDetailsSelection | null;
   workspacePath: string | null;
   service?: PluginDetailsService;
-  onChanged?: (selection: PluginDetailsSelection, workspacePath: string | null) => void;
+  onChanged?: (selection: PluginDetailsSelection, workspacePath: string | null, operation: PluginDetailsOperation) => void;
 }
 
 /** Load-owning wrapper. The management page supplies the selected catalog identity. */

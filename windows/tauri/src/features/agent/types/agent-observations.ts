@@ -32,6 +32,8 @@ export interface AgentModelCall {
   firstTokenMs: number | null;
   usage: { inputTokens: number; cacheReadTokens: number; cacheWriteTokens: number; outputTokens: number; reasoningTokens: number | null } | null;
   context: { systemPromptTokens: number; toolTokens: number; mcpToolTokens: number; messageTokens: number; toolCount: number; mcpToolCount: number; scaledToUsage: boolean } | null;
+  /** A background request the Agent made for itself (Claude Code naming the session): its tokens count, it is not a step. */
+  auxiliary: boolean;
 }
 
 export function record(value: unknown): value is Record<string, unknown> {
@@ -114,7 +116,7 @@ export function parseModelCall(value: unknown): AgentModelCall | null {
   const validContext = context !== null && ["systemPromptTokens", "toolTokens", "mcpToolTokens", "messageTokens", "toolCount", "mcpToolCount"].every((key) => count(context[key]) !== null);
   return {
     api: value.api, model: typeof value.model === "string" ? value.model : null, status,
-    streaming: value.streaming === true, durationMs, firstTokenMs: count(value.firstTokenMs),
+    streaming: value.streaming === true, durationMs, firstTokenMs: count(value.firstTokenMs), auxiliary: value.auxiliary === true,
     usage: validUsage ? { inputTokens: usage.inputTokens as number, cacheReadTokens: usage.cacheReadTokens as number, cacheWriteTokens: usage.cacheWriteTokens as number, outputTokens: usage.outputTokens as number, reasoningTokens: count(usage.reasoningTokens) } : null,
     context: validContext ? { systemPromptTokens: context.systemPromptTokens as number, toolTokens: context.toolTokens as number, mcpToolTokens: context.mcpToolTokens as number, messageTokens: context.messageTokens as number, toolCount: context.toolCount as number, mcpToolCount: context.mcpToolCount as number, scaledToUsage: context.scaledToUsage === true } : null,
   };
@@ -132,6 +134,16 @@ export function emptyModelCallTotals() {
 export type AgentModelCallTotals = ReturnType<typeof emptyModelCallTotals>;
 
 export function addModelCall(total: AgentModelCallTotals, call: AgentModelCall): AgentModelCallTotals {
+  if (call.auxiliary) {
+    return {
+      ...total,
+      input: total.input + (call.usage?.inputTokens ?? 0),
+      cacheRead: total.cacheRead + (call.usage?.cacheReadTokens ?? 0),
+      cacheWrite: total.cacheWrite + (call.usage?.cacheWriteTokens ?? 0),
+      output: total.output + (call.usage?.outputTokens ?? 0),
+      lowerBound: total.lowerBound || call.usage === null,
+    };
+  }
   const measuredStream = call.streaming && call.usage !== null && call.firstTokenMs !== null && call.durationMs > call.firstTokenMs;
   return {
     calls: total.calls + 1,

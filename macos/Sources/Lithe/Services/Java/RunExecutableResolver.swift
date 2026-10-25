@@ -24,20 +24,21 @@ final class RunExecutableResolver: RunExecutableResolving {
     ) throws -> ResolvedRunExecutable {
         let planEnvironment = plan.environment.merging(options.environment) { _, userValue in userValue }
 
+        let resolved: ResolvedRunExecutable
         switch plan.executable {
         case .toolchain(let id):
             let toolchainProjectURL = id == "project-maven" && plan.workingDirectory != "."
                 ? projectURL.appending(path: plan.workingDirectory, directoryHint: .isDirectory)
                 : projectURL
-            let resolved = try toolchainRegistry.resolve(
+            let toolchain = try toolchainRegistry.resolve(
                 identifier: id,
                 projectURL: toolchainProjectURL.standardizedFileURL,
                 options: options,
                 runtimeService: runtimeService
             )
-            return ResolvedRunExecutable(
-                executableURL: resolved.executableURL,
-                environment: resolved.environment.merging(planEnvironment) { _, override in override }
+            resolved = ResolvedRunExecutable(
+                executableURL: toolchain.executableURL,
+                environment: toolchain.environment.merging(planEnvironment) { _, override in override }
             )
 
         case .command(let command):
@@ -46,11 +47,21 @@ final class RunExecutableResolver: RunExecutableResolving {
                     message: runtimeService.missingToolMessage(command)
                 )
             }
-            return ResolvedRunExecutable(
+            resolved = ResolvedRunExecutable(
                 executableURL: executable,
                 environment: runtimeService.processEnvironment(overrides: planEnvironment)
             )
         }
+
+        return ResolvedRunExecutable(
+            executableURL: resolved.executableURL,
+            environment: RunLaunchEnvironment.augmenting(
+                resolved.environment,
+                executableURL: resolved.executableURL,
+                nodeCandidates: runtimeService.executableCandidates("node"),
+                projectURL: projectURL
+            )
+        )
     }
 
     func refreshCandidates(projectURL: URL) async {

@@ -314,11 +314,24 @@ jobs:
           $suites = @(
             "src/features/plugins/declarative-marketplace-sources.test.ts",
             "src/features/plugins/declarative-marketplace-sources.test.tsx",
+            "src/features/plugins/declarative-marketplace.test.ts",
+            "src/features/plugins/marketplace/marketplace-types.test.ts",
+            "src/features/plugins/marketplace/marketplace-session.test.ts",
+            "src/features/plugins/marketplace/marketplace-section.test.tsx",
+            "src/features/plugins/marketplace/marketplace-host-service.test.ts",
             "src/features/plugins/details/plugin-details.service.test.ts",
             "src/features/plugins/details/plugin-details-view.test.tsx",
+            "src/features/plugins/declarative-plugin-list-model.test.ts",
+            "src/features/plugins/declarative-plugins-section.test.tsx",
             "src/features/build-systems/build-systems-service.test.ts",
             "src/features/build-systems/build-systems-store.test.ts",
             "src/features/build-systems/components/build-system-pane.test.tsx",
+            "src/features/build-systems/output/build-output-store.test.ts",
+            "src/features/build-systems/output/build-output-path.test.ts",
+            "src/features/build-systems/output/components/build-output-pane.test.tsx",
+            "src/features/build-systems/output/components/build-output-log.test.tsx",
+            "src/features/build-systems/output/components/build-output-problems.test.tsx",
+            "src/features/build-systems/output/components/build-output-tests.test.tsx",
             "src/features/editor/lsp/built-in-language-support.test.ts",
             "src/features/editor/lsp/declarative-language-support.test.ts",
             "src/features/editor/hooks/use-lsp-integration-declarative.test.tsx"
@@ -388,6 +401,11 @@ jobs:
         run: |
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-project-tree.json -- src/features/file-explorer/hooks/use-file-explorer-drag-drop.test.tsx src/features/file-explorer/components/file-explorer-selection.test.tsx src/features/file-explorer/components/file-explorer-reveal.test.tsx src/features/file-explorer/stores/directory-marks.test.ts src/features/sidebar/utils/tree-selection.test.ts src/utils/path-helpers.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Test F4 focused file navigation
+        shell: pwsh
+        timeout-minutes: 2
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-f4-file-navigation.json -- src/features/global-search/components/f4-file-navigation.integration.test.tsx
 
       - name: Test workspace open, replace, and close lifecycle
         shell: pwsh

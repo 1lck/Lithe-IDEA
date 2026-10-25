@@ -210,7 +210,7 @@ struct EditorAreaView: View {
 
 
     private var activeItem: EditorTabItem? {
-        if model.isAgentEditorSelected { return .agentConversation }
+        if let tab = model.focusedAgentEditorTab { return .agentConversation(tab) }
         if model.isRepositoryDiffSelected { return .repositoryDiff }
         return model.activeEditorTerminalSession.map { .terminal($0.id) }
             ?? model.activeMediaDocument.map { .media($0.id) }
@@ -365,8 +365,8 @@ struct EditorAreaView: View {
         ForEach(displayedTabItems) { item in
             Group {
                 switch item {
-                case .agentConversation:
-                    agentConversationTab
+                case .agentConversation(let tab):
+                    agentConversationTab(tab)
                 case .repositoryDiff:
                     repositoryDiffTab
                 case .document(let documentID):
@@ -415,24 +415,25 @@ struct EditorAreaView: View {
         return items
     }
 
-    private var agentConversationTab: some View {
-        let selected = paneItem == .agentConversation
+    private func agentConversationTab(_ tab: UUID) -> some View {
+        let item = EditorTabItem.agentConversation(tab)
+        let selected = paneItem == item
         return HStack(spacing: 0) {
-            AgentEditorTabTitle(model: model)
+            AgentEditorTabTitle(model: model, tab: tab)
                 .padding(.leading, 8).frame(height: 28).contentShape(Rectangle())
-                .onTapGesture { model.selectEditorTab(.agentConversation) }
+                .onTapGesture { model.selectEditorTab(item) }
                 .accessibilityAddTraits(.isButton)
-                .accessibilityAction { model.selectEditorTab(.agentConversation) }
-            LitheToolWindowTabCloseButton { model.showAgentChatsInToolWindow() }
-                .opacity(selected || hoveredTabItem == .agentConversation ? 1 : 0)
-                .allowsHitTesting(selected || hoveredTabItem == .agentConversation)
+                .accessibilityAction { model.selectEditorTab(item) }
+            LitheToolWindowTabCloseButton { model.closeAgentEditorTab(tab) }
+                .opacity(selected || hoveredTabItem == item ? 1 : 0)
+                .allowsHitTesting(selected || hoveredTabItem == item)
         }
         .foregroundStyle(selected ? LitheTheme.primaryText : LitheTheme.secondaryText)
         .modifier(LitheToolWindowTabStyle(isSelected: selected, isActive: editorGroupIsActive))
         .padding(.horizontal, 4).padding(.vertical, 4)
-        .onHover { updateHoveredTab(.agentConversation, isHovering: $0) }
-        .background { editorTabFrameReader(for: .agentConversation) }
-        .zIndex(tabDragState.draggedItem == .agentConversation ? 1 : 0)
+        .onHover { updateHoveredTab(item, isHovering: $0) }
+        .background { editorTabFrameReader(for: item) }
+        .zIndex(tabDragState.draggedItem == item ? 1 : 0)
     }
 
     private var repositoryDiffTab: some View {
@@ -782,7 +783,7 @@ struct EditorAreaView: View {
 
     private func closeEditorTab(_ item: EditorTabItem) {
         switch item {
-        case .agentConversation: model.showAgentChatsInToolWindow()
+        case .agentConversation(let tab): model.closeAgentEditorTab(tab)
         case .repositoryDiff:
             model.closeGitCommitDiff()
         case .document(let documentID):
@@ -825,7 +826,7 @@ struct EditorAreaView: View {
     @ViewBuilder
     private func tabDragLabel(_ item: EditorTabItem) -> some View {
         switch item {
-        case .agentConversation: AgentEditorTabTitle(model: model)
+        case .agentConversation(let tab): AgentEditorTabTitle(model: model, tab: tab)
         case .document(let id):
             if let document = model.openDocuments.first(where: { $0.id == id }) {
                 LitheIcon(kind: EditorDocumentIconResolver.kind(for: document.url, resolvedKind: resolvedTabIcons[id]), size: 16)
@@ -1145,8 +1146,14 @@ struct EditorAreaView: View {
                 })
             LitheToolWindowHeaderDivider()
 
-            if paneItem == .agentConversation {
-                AgentConversationView(model: model, isEditor: true)
+            if case .agentConversation(let tab) = paneItem {
+                if tab == model.focusedAgentEditorTab {
+                    AgentConversationView(model: model, isEditor: true)
+                } else {
+                    // The Agent shows one conversation at a time: a pane whose tab is
+                    // not the focused one offers to bring its conversation back.
+                    AgentInactiveConversationPane(model: model, tab: tab)
+                }
             } else if paneDiffSelected {
                 if let feature = model.gitFeatureIfActive, let context = feature.selectedGitCommitDiffContext {
                     RepositoryDiffView(feature: feature, context: context,

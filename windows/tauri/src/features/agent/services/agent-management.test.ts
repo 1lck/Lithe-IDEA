@@ -16,8 +16,8 @@ describe("Agent management status", () => {
     expect(parsed.environment.node).toEqual(status.environment.node);
     expect(parsed.environment.npm).toEqual(status.environment.npm);
     expect(parsed.agents.map((agent) => agent.id)).toEqual(["codex-acp", "claude-acp"]);
-    expect(parsed.agents[0]?.installedVersion).toBe("1.13.1");
-    expect(parsed.agents[0]?.cli?.detected?.version).toBe("0.156.1");
+    expect(parsed.agents[0]?.installedVersion).toBe("2.2.2");
+    expect(parsed.agents[0]?.cli?.detected?.version).toBe("0.160.1");
   });
 
   test("an agent without an install keeps its issues and installation owner", () => {
@@ -73,14 +73,14 @@ describe("Agent install progress", () => {
 describe("Agent CLI update result", () => {
   test("reads the verified version of a clean update", () => {
     expect(parseAgentCliUpdateResult(fixture.responses.installCli)).toEqual({
-      cliVersion: "0.156.1",
+      cliVersion: "0.160.1",
       updaterWarning: null,
     });
   });
 
   test("keeps a recovered installer warning separate from the version", () => {
     expect(parseAgentCliUpdateResult(fixture.responses.installCliRecovered)).toEqual({
-      cliVersion: "0.157.1",
+      cliVersion: "0.161.1",
       updaterWarning: "Download failed; retry completed",
     });
   });
@@ -89,7 +89,7 @@ describe("Agent CLI update result", () => {
     expect(parseAgentCliUpdateResult({ updaterWarning: "x" })).toBeNull();
     expect(parseAgentCliUpdateResult({ cliVersion: "" })).toBeNull();
     expect(parseAgentCliUpdateResult({ cliVersion: 156 })).toBeNull();
-    expect(parseAgentCliUpdateResult("0.156.1")).toBeNull();
+    expect(parseAgentCliUpdateResult("0.160.1")).toBeNull();
     expect(parseAgentCliUpdateResult(null)).toBeNull();
   });
 });

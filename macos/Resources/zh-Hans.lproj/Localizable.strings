@@ -226,6 +226,7 @@
 "Agent conversation" = "Agent 对话";
 "Agent conversation is turned off. Turn it on in the panel settings to send messages." = "Agent 对话功能已关闭。请在设置窗口的 Agent 页面中开启后再发送消息。";
 "Agent default" = "沿用 Agent 默认值";
+"Agent default: %@" = "Agent 默认值：%@";
 "Agent executable" = "Agent 可执行文件";
 "Agent hooks" = "Agent 钩子";
 "Agent list" = "Agent 列表";
@@ -331,6 +332,7 @@
 "Ask questions about public GitHub repositories and read their generated documentation." = "向公开 GitHub 仓库提问，阅读自动生成的项目文档。";
 "Ask the Agent about this workspace" = "向 Agent 询问这个工作区";
 "Ask the Agent, Enter to send, Shift-Enter for a new line" = "向 Agent 提问，Enter 发送，Shift-Enter 换行";
+"Asked for access to %@" = "请求访问 %@";
 "Assignees" = "负责人";
 "Astro Support" = "Astro 支持";
 "Attach" = "连接";
@@ -348,6 +350,8 @@
 "Authorize this project to expose environment, Maven, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes." = "仅授权此项目，连接的 Agent 可以读取环境、Maven、运行配置和输出。输出可能包含项目敏感信息。关闭项目或退出 Lithe 后连接失效。";
 "Authorize this project to expose environment, Maven, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes. Enabled plugins can also use this project grant." = "仅授权此项目，连接的 Agent 可以读取环境、Maven、运行配置和输出。输出可能包含项目敏感信息。关闭项目或退出 Lithe 后连接失效。已启用的插件也可使用此项目授权。";
 "Auto" = "自动";
+"Auto-compact at" = "自动压缩阈值";
+"Auto-compact must not be larger than the context length." = "自动压缩阈值不能大于上下文长度。";
 "AutoBuild Rolling" = "AutoBuild 滚动版";
 "AutoBuild Update" = "AutoBuild 更新";
 "AutoBuild is rebuilt nightly and may contain unfinished features, serious bugs, or other problems. Stable releases are recommended for most users." = "AutoBuild 每晚滚动构建，可能包含未完成的功能、严重缺陷或其他异常，普通用户建议使用正式版。";
@@ -461,6 +465,7 @@
 "ChangeList storage is unavailable. Restore the saved data and reopen the workspace." = "更改列表保存数据不可用。请恢复保存的数据后重新打开工作区。";
 "Changed" = "已更改";
 "Changed Files" = "已更改文件";
+"Changed the working directory to %@" = "已将工作目录切换到 %@";
 "Changes" = "更改";
 "Changes apply to the next turn." = "修改将在下一轮对话生效。";
 "Changes are written to" = "更改写入";
@@ -469,6 +474,7 @@
 "Changes requested" = "已请求修改";
 "Changing channels requires a full installation and may install an older version. On its first launch, Lithe-Dev copies Stable settings and workspaces if it has no user data. The apps then save settings and caches separately. Some accounts may need sign-in again. Your project files stay in their current locations." = "切换渠道需要全量安装，可能安装较旧的版本。Lithe-Dev 首次启动且没有自己的用户数据时，会自动复制正式版的设置和工作区，之后两版分别保存设置和缓存。部分账号可能需要重新登录。项目文件仍保留在原位置。";
 "Changing channels requires a full installation and may install an older version. Open the selected release page to download its installer. Your channel selection is saved for future updates." = "切换渠道需要全量安装，可能安装较旧的版本。请打开所选渠道的发布页下载安装包。渠道选择已保存，用于后续更新。";
+"Chapter: %@" = "章节：%@";
 "Chat Completions" = "Chat Completions";
 "Chat History" = "对话历史";
 "Chat options" = "对话选项";
@@ -776,6 +782,7 @@
 "Content" = "内容";
 "Content SHA-256" = "内容 SHA-256";
 "Context" = "上下文";
+"Context length" = "上下文长度";
 "Context tokens" = "上下文 Token";
 "Context usage" = "上下文用量";
 "Context usage is not reported by this Agent" = "此 Agent 尚未提供上下文用量";
@@ -1183,6 +1190,7 @@
 "Enter a nonempty Git identity without control characters or angle brackets" = "请输入非空姓名或邮箱，不要包含控制字符或尖括号。";
 "Enter a provider name." = "请输入供应商名称。";
 "Enter a server name." = "请输入服务器名称。";
+"Enter a size such as 200K or 1M, between 10K and 10M." = "请输入如 200K 或 1M 的大小，范围为 10K 到 10M。";
 "Enter a tag name" = "请输入标签名称";
 "Enter a tag name, branch name, commit hash, or other Git revision." = "输入标签名、分支名、提交 Hash 或其他 Git 修订版本。";
 "Enter a value." = "请输入内容。";
@@ -1445,6 +1453,7 @@
 "HTTP is blocked until you explicitly allow it for this provider." = "在你为此服务商明确允许之前，HTTP 请求会被阻止。";
 "HTTP is disabled for this provider. Enable the insecure HTTP option or use HTTPS." = "此服务商未允许 HTTP，请开启不安全 HTTP 选项或改用 HTTPS。";
 "HTTP sends the API credential without encryption. Use only a trusted endpoint." = "HTTP 会以明文传输 API 凭据，请仅对可信地址启用。";
+"Handed off" = "已移交";
 "Hard Reset (Discard Changes)" = "硬重置（丢弃更改）";
 "Haskell Support" = "Haskell 支持";
 "Head branch" = "来源分支";
@@ -1471,6 +1480,7 @@
 "Hide plan" = "收起计划";
 "Hide thinking" = "收起思考";
 "Hide tool details" = "收起工具详情";
+"Hide visualization" = "隐藏可视化";
 "Hide worktree repositories" = "隐藏工作树仓库";
 "High" = "高";
 "Highlight words" = "高亮单词";
@@ -1675,6 +1685,7 @@
 "Leave empty to use the version the server recommends." = "留空则使用服务器推荐的版本。";
 "Legacy SSE probing is unavailable. Use the publisher's Streamable HTTP endpoint." = "暂不支持检测旧式 SSE 连接，请使用发布者提供的 Streamable HTTP 地址。";
 "Let connected agents inspect and control this project." = "允许连接的 Agent 查看和控制此项目。";
+"Library" = "资源库";
 "License" = "许可证";
 "Lifecycle" = "生命周期";
 "Light" = "浅色";
@@ -1683,6 +1694,7 @@
 "Line breakpoint actions" = "行断点操作";
 "Linear" = "Linear";
 "Lines kept for scrolling back in new terminal sessions." = "新建终端会话保留的可回滚行数。";
+"Linked this conversation to a pull request" = "已将此对话关联到拉取请求";
 "Linked worktree" = "关联工作树";
 "Listed in" = "所在插件仓库";
 "Lithe" = "Lithe";
@@ -1894,6 +1906,7 @@
 "Mixed Reset (Keep Changes Unstaged)" = "混合重置（保留未暂存更改）";
 "Mode" = "模式";
 "Model" = "模型";
+"Model call details need Model call statistics (on by default). After turning it on, reconnect and send a message." = "模型调用详情需要开启“模型调用统计”（默认开启）。开启后请重新连接并发送消息。";
 "Model call statistics" = "模型调用统计";
 "Model calls (steps)" = "模型调用（步）";
 "Model calls observed by the local proxy during this turn. TTFT is the average time to the first generated token." = "本轮由本机代理观测到的模型调用；首字为首个生成 token 的平均等待时间。";
@@ -2522,6 +2535,7 @@
 "Recent Projects" = "最近项目";
 "Recommended: keep worktrees in a persistent folder next to the repository. You can choose /private/tmp manually for disposable checkouts." = "建议将工作树放在仓库旁的持久目录中。临时检出时可以手动选择 /private/tmp。";
 "Reconnect" = "重新连接";
+"Reconnect the Agent to apply these limits." = "重新连接 Agent 后生效。";
 "Reconnect this Agent to refresh its model list." = "重新连接此 Agent 即可刷新模型列表。";
 "Reconnecting %d/%d…" = "正在重连 %d/%d…";
 "Reconnecting…" = "正在重连…";
@@ -3026,6 +3040,7 @@
 "Show thinking" = "展开思考";
 "Show tool details" = "展开工具详情";
 "Show usages and Git author" = "显示引用数量和 Git 作者";
+"Show visualization" = "显示可视化";
 "Show worktree repositories" = "显示工作树仓库";
 "Showing available matches." = "仍显示可用的匹配项。";
 "Showing the previous Java entries while the Java language service prepares the project." = "Java 语言服务正在准备项目，暂时显示上次的 Java 入口。";
@@ -3123,11 +3138,13 @@
 "Start debugging" = "开始调试";
 "Start debugging the current Java file" = "开始调试当前 Java 文件";
 "Start from" = "起始引用";
+"Start in new conversation" = "在新对话中开始";
 "Start service" = "启动服务";
 "Start the discussion or submit the first review." = "发起讨论或提交第一次审查。";
 "Start the session by sending a message" = "发送消息以开始会话";
 "Start this configuration to see its output here." = "启动此配置后，输出将显示在这里。";
 "Start with an action verb, without a type prefix" = "以动作动词开头，不添加类型前缀";
+"Started in Claude Desktop" = "已在 Claude Desktop 中开始";
 "Starting" = "正在启动";
 "Starting Interactive Rebase" = "正在开始交互式变基";
 "Starting Java language server..." = "正在启动 Java 语言服务器…";
@@ -3188,6 +3205,8 @@
 "Submitting review…" = "正在提交审查…";
 "Subscription accounts" = "订阅账号";
 "Succeeded" = "成功";
+"Suggested" = "建议";
+"Suggested replies" = "建议的回复";
 "Supplementary message cancelled." = "补充消息已取消。";
 "Supported placeholders: {summary}, {changes}, {testing}, {risks}." = "支持的占位符：{summary}、{changes}、{testing}、{risks}。";
 "Svelte Support" = "Svelte 支持";
@@ -3294,6 +3313,7 @@
 "The address is invalid." = "地址无效。";
 "The branch could not be published" = "无法发布该分支";
 "The branch now contains the completed plan. Its original history remains available through the recovery reference." = "操作计划已执行完成。仍可通过恢复引用查看分支的原始历史。";
+"The breakdown needs Model call statistics (on by default). After turning it on, reconnect and send a message." = "分项需要开启“模型调用统计”（默认开启）。开启后请重新连接并发送消息。";
 "The build tool exited with code %lld." = "构建工具已退出，退出码 %lld。";
 "The build tool output is too large or not UTF-8." = "构建工具的输出过大或不是 UTF-8 编码。";
 "The build tool timed out." = "构建工具超时。";
@@ -3516,6 +3536,8 @@
 "Toggle preview" = "切换预览";
 "Token counts reported by the Agent. Accounting scope depends on the Agent." = "Agent 上报的 token 数；统计口径由 Agent 决定。";
 "Token usage" = "Token 用量";
+"Tokens at which the Agent summarizes its context automatically. Lower it to cap what each request costs. Leave empty for the Agent's default. Applies after reconnecting." = "Agent 自动总结上下文的 Token 阈值。调低可限制每次请求的花费。留空使用 Agent 默认值。重新连接后生效。";
+"Tokens of context this Agent may use. The context ring reads as full at this size. Codex applies it as its context window; for Claude Code the model decides its own size, so this sets where it compacts when no threshold is given. Leave empty for the Agent's default. Applies after reconnecting." = "该 Agent 可使用的上下文 Token 数，上下文圆环以此为满。Codex 把它作为上下文窗口；Claude Code 的窗口由模型决定，没有设置压缩阈值时，它决定压缩的位置。留空使用 Agent 默认值。重新连接后生效。";
 "Tool" = "工具";
 "Tool Window" = "工具窗口";
 "Tool Windows" = "工具窗口";
@@ -3540,11 +3562,10 @@
 "Try another title or session ID." = "试试其他标题或会话 ID。";
 "Try another title, author, number, or label." = "请尝试其他标题、作者、编号或标签。";
 "Turn on MCP to generate a configuration for agents." = "开启 MCP 后会生成供 Agent 使用的配置。";
-"Turn on Model call statistics in Agent settings and reconnect to see model calls, time to first token and output speed." = "在 Agent 设置中开启“模型调用统计”并重新连接后，可查看模型调用次数、首 token 延迟和输出速度。";
 "Turn on Model call statistics in Agent settings and reconnect to see the MCP tools sent with each request." = "在 Agent 设置中开启模型调用统计并重新连接后，可查看每次请求携带的 MCP 工具。";
-"Turn on Model call statistics in Agent settings and reconnect to see the system prompt, tool definitions and messages." = "在 Agent 设置中开启“模型调用统计”并重新连接后，可查看系统提示词、工具定义和对话消息的占比。";
-"Turn on Model call statistics, reconnect and send a message to see the breakdown." = "开启“模型调用统计”，重新连接并发送消息后可查看分项。";
 "Turn usage" = "本轮用量";
+"Turned off auto-merge" = "已关闭自动合并";
+"Turned on auto-merge" = "已开启自动合并";
 "Turning this off stops every Agent process." = "关闭后会停止所有 Agent 进程。";
 "Turns" = "轮次";
 "Type" = "类型";
@@ -3583,6 +3604,7 @@
 "Unknown error" = "未知错误";
 "Unknown source" = "未知来源";
 "Unlink" = "取消关联";
+"Unlinked the pull request" = "已取消关联拉取请求";
 "Unlock Worktree" = "解锁工作树";
 "Unlock the worktree before removing it." = "请先解锁工作树再删除。";
 "Unlocked" = "未锁定";
@@ -3729,6 +3751,7 @@
 "View breakpoints" = "查看断点";
 "View breakpoints (⌘⇧F8)" = "查看断点（⌘⇧F8）";
 "View skill" = "查看";
+"Visualization" = "可视化";
 "Vue Support" = "Vue 支持";
 "WIP" = "进行中";
 "WORKING TREE" = "工作区";
@@ -3756,6 +3779,8 @@
 "Waiting to quit to complete the update." = "等待退出应用以完成更新。";
 "Warning" = "警告";
 "Warnings" = "警告";
+"Watching pull request checks" = "正在关注拉取请求检查";
+"Watching pull request checks and fixing failures" = "正在关注拉取请求检查并修复失败项";
 "Welcome to Lithe" = "欢迎使用 Lithe";
 "Welcome to Lithe Agent" = "欢迎使用 Lithe Agent";
 "What Fetch removes or downloads before you start working." = "开始工作前，Fetch 会清理或下载什么。";
@@ -3774,6 +3799,7 @@
 "Whitespace comparison" = "空白字符比较";
 "Whole Words" = "全字匹配";
 "Window" = "窗口";
+"Withdrawn" = "已撤回";
 "Without Remember in Keychain, Lithe asks every time it connects. A remembered secret is answered only the first time the server asks for it; if it is rejected, Lithe asks you." = "不勾选“记住到钥匙串”时每次连接都会询问。记住的密码只在服务器第一次询问时自动填入；如果被拒绝，Lithe 会改为询问你。";
 "Without it, Lithe asks every time it connects. A remembered secret is answered only the first time the server asks for it; if it is rejected, Lithe asks you." = "不勾选时每次连接都会询问。记住的密码只在服务器第一次询问时自动填入；如果被拒绝，Lithe 会改为询问你。";
 "Work with GitHub repositories, issues, pull requests and Actions. A personal access token is required." = "访问 GitHub 仓库、Issue、PR 和 Actions。需要个人访问令牌。";
@@ -3971,6 +3997,7 @@
 "native.agentConversation" = "Agent 对话";
 "native.agentConversationIsTurnedOffTurnItOnInThePanelSettingsToSendMessages" = "Agent 对话功能已关闭。请在设置窗口的 Agent 页面中开启后再发送消息。";
 "native.agentDefault" = "沿用 Agent 默认值";
+"native.agentDefaultValue" = "Agent 默认值：%1$@";
 "native.agentExecutable" = "Agent 可执行文件";
 "native.agentHooks" = "Agent 钩子";
 "native.agentList" = "Agent 列表";
@@ -4106,6 +4133,7 @@
 "native.askQuestionsAboutPublicGithubRepositoriesAndReadTheirGeneratedDocumentation" = "向公开 GitHub 仓库提问，阅读自动生成的项目文档。";
 "native.askTheAgentAboutThisWorkspace" = "向 Agent 询问这个工作区";
 "native.askTheAgentEnterToSendShiftEnterForANewLine" = "向 Agent 提问，Enter 发送，Shift-Enter 换行";
+"native.askedForAccessTo" = "请求访问 %1$@";
 "native.assignees" = "负责人";
 "native.astroSupport" = "Astro 支持";
 "native.attach" = "连接";
@@ -4123,6 +4151,9 @@
 "native.authorizeThisProjectToExposeEnvironmentMavenRunConfigurationsAndOutputToConnecb6f617e865" = "仅授权此项目，连接的 Agent 可以读取环境、Maven、运行配置和输出。输出可能包含项目敏感信息。关闭项目或退出 Lithe 后连接失效。已启用的插件也可使用此项目授权。";
 "native.authorizeThisProjectToExposeEnvironmentMavenRunConfigurationsAndOutputToConnece4d5e32bce" = "授权当前项目后，已连接的 Agent 可以访问环境、Maven、运行配置与输出。输出可能包含敏感项目数据。关闭项目或退出 Lithe 时访问结束，并移除项目级服务器注册。已启用的插件也可以使用该授权。";
 "native.auto" = "自动";
+"native.autoCompactAboveContext" = "自动压缩阈值不能大于上下文长度。";
+"native.autoCompactAt" = "自动压缩阈值";
+"native.autoCompactAtTip" = "Agent 自动总结上下文的 Token 阈值。调低可限制每次请求的花费。留空使用 Agent 默认值。重新连接后生效。";
 "native.autobuildBuiltAt" = "AutoBuild — 构建自 %1$@";
 "native.autobuildIsRebuiltNightlyAndMayContainUnfinishedFeaturesSeriousBugsOrOtherProbd0994a4a11" = "AutoBuild 每晚滚动构建，可能包含未完成的功能、严重缺陷或其他异常，普通用户建议使用正式版。";
 "native.autobuildRolling" = "AutoBuild 滚动版";
@@ -4229,6 +4260,7 @@
 "native.changed" = "已更改";
 "native.changedFiles" = "已更改文件";
 "native.changedOutsideLitheRefreshAndTryAgain" = "“%1$@”在 Lithe 之外被修改。请刷新后重试。";
+"native.changedTheWorkingDirectoryTo" = "已将工作目录切换到 %1$@";
 "native.changelist" = "更改列表";
 "native.changelistEditingIsUnavailable" = "暂时无法编辑更改列表。";
 "native.changelistName" = "更改列表名称";
@@ -4241,6 +4273,7 @@
 "native.changesRequested" = "已请求修改";
 "native.changingChannelsRequiresAFullInstallationAndMayInstallAnOlderVersionOnItsFirste8ccfd1e52" = "切换渠道需要全量安装，可能安装较旧的版本。Lithe-Dev 首次启动且没有自己的用户数据时，会自动复制正式版的设置和工作区，之后两版分别保存设置和缓存。部分账号可能需要重新登录。项目文件仍保留在原位置。";
 "native.changingChannelsRequiresAFullInstallationAndMayInstallAnOlderVersionOpenTheSelda3c463026" = "切换渠道需要全量安装，可能安装较旧的版本。请打开所选渠道的发布页下载安装包。渠道选择已保存，用于后续更新。";
+"native.chapter" = "章节：%1$@";
 "native.charactersUsedByTheInterfaceAndYourFiles" = "界面和文件用到的字符";
 "native.chars" = "字符";
 "native.chatCompletions" = "Chat Completions";
@@ -4555,6 +4588,10 @@
 "native.contentSHA256" = "内容 SHA-256";
 "native.context" = "上下文";
 "native.context.variant2" = "上下文: %1$@";
+"native.contextBreakdownNeedsAnObservableConnection" = "分项需要开启“模型调用统计”（默认开启）。开启后请重新连接并发送消息。";
+"native.contextLength" = "上下文长度";
+"native.contextLengthTip" = "该 Agent 可使用的上下文 Token 数，上下文圆环以此为满。Codex 把它作为上下文窗口；Claude Code 的窗口由模型决定，没有设置压缩阈值时，它决定压缩的位置。留空使用 Agent 默认值。重新连接后生效。";
+"native.contextSizeInvalid" = "请输入如 200K 或 1M 的大小，范围为 10K 到 10M。";
 "native.contextTokens" = "%1$@ · %2$@ / %3$@ 上下文 token";
 "native.contextTokens.variant2" = "上下文 Token";
 "native.contextUsage" = "上下文用量";
@@ -5230,6 +5267,7 @@
 "native.groovySupport" = "Groovy 支持";
 "native.group" = "组";
 "native.groups" = "组合";
+"native.handedOff" = "已移交";
 "native.hardResetDiscardChanges" = "硬重置（丢弃更改）";
 "native.haskellSupport" = "Haskell 支持";
 "native.head" = "HEAD";
@@ -5260,6 +5298,7 @@
 "native.hideTerminalToolWindow" = "隐藏终端工具窗口";
 "native.hideThinking" = "收起思考";
 "native.hideToolDetails" = "收起工具详情";
+"native.hideVisualization" = "隐藏可视化";
 "native.hideWorktreeRepositories" = "隐藏工作树仓库";
 "native.high" = "高";
 "native.highlightWords" = "高亮单词";
@@ -5572,6 +5611,7 @@
 "native.leaveEmptyToUseTheVersionTheServerRecommends" = "留空则使用服务器推荐的版本。";
 "native.legacySseProbingIsUnavailableUseThePublisherSStreamableHttpEndpoint" = "暂不支持检测旧式 SSE 连接，请使用发布者提供的 Streamable HTTP 地址。";
 "native.letConnectedAgentsInspectAndControlThisProject" = "允许连接的 Agent 查看和控制此项目。";
+"native.library" = "资源库";
 "native.license" = "许可证";
 "native.lifecycle" = "生命周期";
 "native.light" = "浅色";
@@ -5581,6 +5621,7 @@
 "native.lineColumn" = "[行] [:列]:";
 "native.linear" = "Linear";
 "native.linesKeptForScrollingBackInNewTerminalSessions" = "新建终端会话保留的可回滚行数。";
+"native.linkedThisConversationToAPullRequest" = "已将此对话关联到拉取请求";
 "native.linkedWorktree" = "关联工作树";
 "native.listedIn" = "所在插件仓库";
 "native.lithe" = "Lithe";
@@ -5853,6 +5894,7 @@
 "native.mixedResetKeepChangesUnstaged" = "混合重置（保留未暂存更改）";
 "native.mode" = "模式";
 "native.model" = "模型";
+"native.modelCallDetailsNeedAnObservableConnection" = "模型调用详情需要开启“模型调用统计”（默认开启）。开启后请重新连接并发送消息。";
 "native.modelCallStatistics" = "模型调用统计";
 "native.modelCallsObservedByTheLocalProxyDuringThisTurnTTFTIsTheAverageTimeToTheFirstGeneratedToken" = "本轮由本机代理观测到的模型调用；首字为首个生成 token 的平均等待时间。";
 "native.modelCallsSteps" = "模型调用（步）";
@@ -6108,6 +6150,7 @@
 "native.notInstalled.variant2" = "未安装 · %1$@";
 "native.notInstalledInstallItToStartUsingThisAgent" = "尚未安装。安装后即可使用该 Agent。";
 "native.notRefreshedYet" = "尚未刷新";
+"native.notReportedYet" = "暂未上报";
 "native.notRun" = "尚未运行";
 "native.notRunning" = "未运行";
 "native.notSelected" = "未勾选";
@@ -6487,6 +6530,7 @@
 "native.recommendedKeepWorktreesInAPersistentFolderNextToTheRepositoryYouCanChoosePrivf758d1db78" = "建议将工作树放在仓库旁的持久目录中。临时检出时可以手动选择 /private/tmp。";
 "native.reconnect" = "重新连接";
 "native.reconnectThisAgentToRefreshItsModelList" = "重新连接此 Agent 即可刷新模型列表。";
+"native.reconnectToApplyLimits" = "重新连接 Agent 后生效。";
 "native.reconnecting" = "正在重连…";
 "native.reconnectingDD" = "正在重连 %1$d/%2$d…";
 "native.recoveryReference" = "恢复引用：%1$@";
@@ -6975,6 +7019,7 @@
 "native.showToolDetails" = "展开工具详情";
 "native.showToolbar" = "显示工具栏";
 "native.showUsagesAndGitAuthor" = "显示引用数量和 Git 作者";
+"native.showVisualization" = "显示可视化";
 "native.showWorktreeRepositories" = "显示工作树仓库";
 "native.showingAvailableMatches" = "仍显示可用的匹配项。";
 "native.showingThePreviousJavaEntriesWhileTheJavaLanguageServicePreparesTheProject" = "Java 语言服务正在准备项目，暂时显示上次的 Java 入口。";
@@ -7076,6 +7121,7 @@
 "native.startDebugging.variant2" = "开始调试";
 "native.startDebuggingTheCurrentJavaFile" = "开始调试当前 Java 文件";
 "native.startFrom" = "起始引用";
+"native.startInNewConversation" = "在新对话中开始";
 "native.startRebase" = "开始变基";
 "native.startRecording" = "开始录制";
 "native.startService" = "启动服务";
@@ -7084,6 +7130,7 @@
 "native.startThisConfigurationToSeeItsOutputHere" = "启动此配置后，输出将显示在这里。";
 "native.startWithAnActionVerbWithoutATypePrefix" = "以动作动词开头，不添加类型前缀";
 "native.startedATaskThatIsStillRunning" = "%1$@ 启动的任务仍在运行";
+"native.startedInClaudeDesktop" = "已在 Claude Desktop 中开始";
 "native.starting" = "正在启动";
 "native.startingCommitOptional" = "起始提交（可选）";
 "native.startingInteractiveRebase" = "正在开始交互式变基";
@@ -7143,6 +7190,8 @@
 "native.subjectMaximumLength" = "标题最大长度";
 "native.submittingReview" = "正在提交审查…";
 "native.succeeded" = "成功";
+"native.suggested" = "建议";
+"native.suggestedReplies" = "建议的回复";
 "native.supplementaryMessageCancelled" = "补充消息已取消。";
 "native.supportedPlaceholdersSummaryChangesTestingRisks" = "支持的占位符：{summary}、{changes}、{testing}、{risks}。";
 "native.svelteSupport" = "Svelte 支持";
@@ -7501,11 +7550,10 @@
 "native.tryAnotherTitleOrSessionID" = "试试其他标题或会话 ID。";
 "native.ttft" = "首字 %1$@";
 "native.turnOnMCPToGenerateAConfigurationForAgents" = "开启 MCP 后会生成供 Agent 使用的配置。";
-"native.turnOnModelCallStatisticsInAgentSettingsAndReconnectToSeeModelCallsTimeToFirstc4f5efa5f9" = "在 Agent 设置中开启“模型调用统计”并重新连接后，可查看模型调用次数、首 token 延迟和输出速度。";
 "native.turnOnModelCallStatisticsInAgentSettingsAndReconnectToSeeTheMCPToolsSentWithEachRequest" = "在 Agent 设置中开启模型调用统计并重新连接后，可查看每次请求携带的 MCP 工具。";
-"native.turnOnModelCallStatisticsInAgentSettingsAndReconnectToSeeTheSystemPromptToolDeffd4968e05" = "在 Agent 设置中开启“模型调用统计”并重新连接后，可查看系统提示词、工具定义和对话消息的占比。";
-"native.turnOnModelCallStatisticsReconnectAndSendAMessageToSeeTheBreakdown" = "开启“模型调用统计”，重新连接并发送消息后可查看分项。";
 "native.turnUsage" = "本轮用量";
+"native.turnedOffAutoMerge" = "已关闭自动合并";
+"native.turnedOnAutoMerge" = "已开启自动合并";
 "native.turningThisOffStopsEveryAgentProcess" = "关闭后会停止所有 Agent 进程。";
 "native.turns" = "轮次";
 "native.type" = "类型";
@@ -7542,6 +7590,7 @@
 "native.unknownError" = "未知错误";
 "native.unknownSource" = "未知来源";
 "native.unlink" = "取消关联";
+"native.unlinkedThePullRequest" = "已取消关联拉取请求";
 "native.unlockTheWorktreeBeforeRemovingIt" = "请先解锁工作树再删除。";
 "native.unlockWorktree" = "解锁工作树";
 "native.unlocked" = "未锁定";
@@ -7699,6 +7748,7 @@
 "native.viewOptions" = "视图选项";
 "native.viewSavedChanges" = "查看已保存的更改";
 "native.viewSkill" = "查看";
+"native.visualization" = "可视化";
 "native.vmArguments" = "VM 参数";
 "native.vmOptions" = "VM 选项";
 "native.vueSupport" = "Vue 支持";
@@ -7730,6 +7780,8 @@
 "native.warnings" = "警告";
 "native.wasCreatedOutsideLitheTakeOwnershipBeforeChangingIt" = "“%1$@”是在 Lithe 之外创建的。请先接管所有权再修改。";
 "native.wasNotFoundInstallItForExampleThenCheckAgain" = "未找到 %1$@。请先安装（例如 `%2$@`），然后重新检测。";
+"native.watchingPullRequestChecks" = "正在关注拉取请求检查";
+"native.watchingPullRequestChecksAndFixingFailures" = "正在关注拉取请求检查并修复失败项";
 "native.welcomeToLithe" = "欢迎使用 Lithe";
 "native.welcomeToLitheAgent" = "欢迎使用 Lithe Agent";
 "native.whatDoesThisPullRequestChange" = "这个拉取请求更改了什么？";
@@ -7749,6 +7801,7 @@
 "native.wholeWords" = "全字匹配";
 "native.window" = "窗口";
 "native.wip" = "进行中";
+"native.withdrawn" = "已撤回";
 "native.withoutItLitheAsksEveryTimeItConnectsARememberedSecretIsAnsweredOnlyTheFirstTimeTheServerA" = "不勾选时每次连接都会询问。记住的密码只在服务器第一次询问时自动填入；如果被拒绝，Lithe 会改为询问你。";
 "native.withoutRememberInKeychainLitheAsksEveryTimeItConnectsARememberedSecretIsAnsweredOnlyTheFir" = "不勾选“记住到钥匙串”时每次连接都会询问。记住的密码只在服务器第一次询问时自动填入；如果被拒绝，Lithe 会改为询问你。";
 "native.workWithGithubRepositoriesIssuesPullRequestsAndActionsAPersonalAccessTokenIsRequired" = "访问 GitHub 仓库、Issue、PR 和 Actions。需要个人访问令牌。";
@@ -7798,6 +7851,7 @@
 "native.zoomIn" = "放大";
 "native.zoomOut" = "缩小";
 "no Agent" = "无 Agent";
+"not reported yet" = "暂未上报";
 "npm was not found. It is normally installed with Node.js." = "未找到 npm。它通常随 Node.js 一起安装。";
 "or" = "或";
 "outline.expandAll" = "全部展开";

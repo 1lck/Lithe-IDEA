@@ -147,6 +147,7 @@ fn main() {
             app.manage(plugin_host::build::BuildHostState::default());
             app.manage(plugin_host::web::WebPageHostState::default());
             app.manage(plugin_host::lifecycle::LifecycleState::default());
+            app.manage(plugin_host::marketplace::MarketplaceState::default());
             run::cleanup_legacy_appdata(app.handle());
             maven::clear_dependency_outputs(app.handle());
             plugin_host::install::cleanup_stale_snapshots(app.handle());
@@ -162,6 +163,14 @@ fn main() {
             if matches!(event, tauri::WindowEvent::Destroyed) {
                 plugin_host::web::forget_window_appearance(window.app_handle(), window.label());
                 plugin_host::lifecycle::window_destroyed(window.app_handle(), window.label());
+                plugin_host::marketplace::window_destroyed(window.app_handle(), window.label());
+                let build_app = window.app_handle().clone();
+                let build_window = window.label().to_owned();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(error) = plugin_host::build::close_build_window(build_app, build_window).await {
+                        eprintln!("Could not release plugin build operations: {error}");
+                    }
+                });
                 run::release_window_processes(window.label());
                 core::close_ide_hosts(window.label());
                 agent::close_window_connections(window.label());
@@ -308,6 +317,11 @@ fn main() {
                             plugin_host::launch::declarative_plugins_language_launch,
                             plugin_host::launch::declarative_plugins_language_owner,
                             plugin_host::install::declarative_plugins_prepare_disk_install,
+                            plugin_host::marketplace::declarative_marketplace_list,
+                            plugin_host::marketplace::declarative_marketplace_refresh,
+                            plugin_host::marketplace::declarative_marketplace_prepare,
+                            plugin_host::marketplace::declarative_marketplace_confirm,
+                            plugin_host::marketplace::declarative_marketplace_cancel,
                             plugin_host::install::declarative_plugins_confirm_disk_install,
                             plugin_host::install::declarative_plugins_cancel_disk_install,
                             plugin_host::install::declarative_plugins_uninstall,
@@ -328,6 +342,9 @@ fn main() {
                             plugin_host::build::declarative_plugins_build_sync_check,
                             plugin_host::build::declarative_plugins_build_plugins_changed,
                             plugin_host::build::declarative_plugins_build_close_workspace,
+                            plugin_host::build::declarative_plugins_build_prepare_model,
+                            plugin_host::build::declarative_plugins_build_load_model,
+                            plugin_host::build::declarative_plugins_build_cancel_operation,
                             plugin_host::web::declarative_plugins_close_workspace_pages,
                             plugin_host::web::declarative_plugins_web_windows,
                             plugin_host::web::declarative_plugins_open_web_window,

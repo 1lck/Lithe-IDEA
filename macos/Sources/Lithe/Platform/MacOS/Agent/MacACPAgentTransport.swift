@@ -37,6 +37,12 @@ final class MacACPAgentTransport: AgentConversationTransport {
             case .apiKey: break
             }
         }
+        if !configuration.contextLimits.isEmpty {
+            var limits: [String: Any] = [:]
+            if let tokens = configuration.contextLimits.windowTokens { limits["windowTokens"] = tokens }
+            if let tokens = configuration.contextLimits.autoCompactTokens { limits["autoCompactTokens"] = tokens }
+            configurationJSON["contextLimits"] = limits
+        }
         if let agentID = configuration.agentID {
             configurationJSON["agentId"] = agentID
         } else {

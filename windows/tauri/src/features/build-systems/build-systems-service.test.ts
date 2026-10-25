@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
+import * as eventApi from "@tauri-apps/api/event";
 import type { BuildView } from "./build-systems-types";
 
 /**
@@ -44,28 +45,30 @@ function deferCommand(command: string): Deferred {
   return entry;
 }
 
-mock.module("@/platform/tauri-core", () => ({
-  invoke: mock(async (command: string, args?: Record<string, unknown>) => {
-    invokeCalls.push({ command, args: args ?? {} });
-    const queue = deferredByCommand.get(command);
-    if (queue && queue.length > 0) {
-      return queue.shift()!.promise;
-    }
-    if (command === "declarative_plugins_build_catalog") {
-      return nextCatalog;
-    }
-    if (nextError) {
-      throw nextError;
-    }
-    return nextResult;
-  }),
-}));
+const invokeMock = mock(async (command: string, args?: Record<string, unknown>) => {
+  invokeCalls.push({ command, args: args ?? {} });
+  const queue = deferredByCommand.get(command);
+  if (queue && queue.length > 0) {
+    return queue.shift()!.promise;
+  }
+  if (command === "declarative_plugins_build_catalog") {
+    return nextCatalog;
+  }
+  if (nextError) {
+    throw nextError;
+  }
+  return nextResult;
+});
+mock.module("@/platform/tauri-core", () => ({ invoke: invokeMock }));
 
 type LifecycleHandler = (event: { payload: unknown }) => void;
 let lifecycleHandler: LifecycleHandler | null = null;
 let fileChangeHandler: LifecycleHandler | null = null;
 
 mock.module("@tauri-apps/api/event", () => ({
+  // Keep unrelated named exports available when the pane tests share Bun's
+  // module graph; only the subscription boundary belongs to this test double.
+  ...eventApi,
   listen: mock(async (event: string, handler: LifecycleHandler) => {
     if (event === "declarative-plugin-lifecycle") {
       lifecycleHandler = handler;
@@ -142,6 +145,8 @@ afterEach(async () => {
   for (const pending of pendingDeferred) pending.resolve(null);
   pendingDeferred.clear();
   await flushMicrotasks();
+  // A pane suite may spy on this same export later in the process.
+  invokeMock.mockClear();
 });
 
 const catalogEntry = {
@@ -510,5 +515,199 @@ describe("workspace activation", () => {
     expect(sync?.args.workspaceRoot).toBe(WORKSPACE_A);
 
     cleanupRuntime();
+  });
+});
+
+describe("explicit command model operations", () => {
+  const review = {
+    operationId: "fixture-operation",
+    pluginId: catalogEntry.pluginId,
+    buildSystemId: "cargo",
+    workspaceRoot: WORKSPACE_A,
+    root: ".",
+    generation: 1,
+    executesProjectCode: true,
+    mayUseNetwork: true,
+  };
+
+  test("only confirmation starts the prepared operation and applies its matching result", async () => {
+    resetState();
+    activateWorkspace("ws-a", WORKSPACE_A);
+    const prepared = deferCommand("declarative_plugins_build_prepare_model");
+    const loaded = deferCommand("declarative_plugins_build_load_model");
+    const approve = mock(async () => true);
+    const pending = buildSystemsService.loadBuildModel(
+      catalogEntry.pluginId,
+      "cargo",
+      ".",
+      approve,
+      { java: "C:/fixture tools/jdk/bin/java.exe" },
+    );
+    await flushMicrotasks();
+    expect(
+      invokeCalls.some((call) => call.command === "declarative_plugins_build_load_model"),
+    ).toBe(false);
+    prepared.resolve(review);
+    await flushMicrotasks();
+    expect(approve).toHaveBeenCalledTimes(1);
+    const execute = invokeCalls.find(
+      (call) => call.command === "declarative_plugins_build_load_model",
+    );
+    expect(execute?.args).toEqual({ operationId: review.operationId });
+    loaded.resolve({
+      operationId: review.operationId,
+      view: cargoView(WORKSPACE_A, 1),
+      stderr: "fixture warning",
+    });
+    expect((await pending)?.stderr).toBe("fixture warning");
+    expect(useBuildSystemsStore.getStore("ws-a").getState().status).toBe("ready");
+  });
+
+  test("declining the review releases the native slot without execution", async () => {
+    resetState();
+    activateWorkspace("ws-a", WORKSPACE_A);
+    const prepared = deferCommand("declarative_plugins_build_prepare_model");
+    const pending = buildSystemsService.loadBuildModel(
+      catalogEntry.pluginId,
+      "cargo",
+      ".",
+      async () => false,
+    );
+    await flushMicrotasks();
+    prepared.resolve(review);
+    expect(await pending).toBeNull();
+    expect(
+      invokeCalls.some((call) => call.command === "declarative_plugins_build_load_model"),
+    ).toBe(false);
+    expect(
+      invokeCalls.some((call) => call.command === "declarative_plugins_build_cancel_operation"),
+    ).toBe(true);
+  });
+
+  test("switching to the welcome screen aborts consent and cancels immediately", async () => {
+    resetState();
+    activateWorkspace("ws-a", WORKSPACE_A);
+    nextResult = cargoView(WORKSPACE_A, 1);
+    const cleanup = await startBuildSystemsRuntime();
+    cleanups.push(cleanup);
+    await flushMicrotasks();
+    const prepared = deferCommand("declarative_plugins_build_prepare_model");
+    const consent = deferred();
+    let signal: AbortSignal | null = null;
+    const pending = buildSystemsService.loadBuildModel(
+      catalogEntry.pluginId,
+      "cargo",
+      ".",
+      (_review, nextSignal) => {
+        signal = nextSignal;
+        return consent.promise as Promise<boolean>;
+      },
+    );
+    await flushMicrotasks();
+    prepared.resolve(review);
+    await flushMicrotasks();
+    activateWorkspace("welcome", null);
+    await flushMicrotasks();
+    expect(signal!.aborted).toBe(true);
+    expect(await pending).toBeNull();
+    expect(
+      invokeCalls.some((call) => call.command === "declarative_plugins_build_load_model"),
+    ).toBe(false);
+    consent.resolve(true);
+  });
+
+  test("workspace refresh can cancel a running load and a late model cannot update either workspace", async () => {
+    resetState();
+    activateWorkspace("ws-a", WORKSPACE_A);
+    nextResult = cargoView(WORKSPACE_A, 1);
+    const cleanup = await startBuildSystemsRuntime();
+    cleanups.push(cleanup);
+    await flushMicrotasks();
+    const prepared = deferCommand("declarative_plugins_build_prepare_model");
+    const loaded = deferCommand("declarative_plugins_build_load_model");
+    const pending = buildSystemsService.loadBuildModel(
+      catalogEntry.pluginId,
+      "cargo",
+      ".",
+      async () => true,
+    );
+    await flushMicrotasks();
+    prepared.resolve(review);
+    await flushMicrotasks();
+    nextResult = cargoView(WORKSPACE_B, 2);
+    activateWorkspace("ws-b", WORKSPACE_B);
+    await flushMicrotasks();
+    expect(
+      invokeCalls.some((call) => call.command === "declarative_plugins_build_cancel_operation"),
+    ).toBe(true);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call.command === "declarative_plugins_build_refresh" &&
+          call.args.workspaceRoot === WORKSPACE_B,
+      ),
+    ).toBe(true);
+    loaded.resolve({
+      operationId: review.operationId,
+      view: cargoView(WORKSPACE_A, 99),
+      stderr: "late",
+    });
+    expect(await pending).toBeNull();
+    expect(useBuildSystemsStore.getStore("ws-a").getState().generation).toBe(1);
+    expect(useBuildSystemsStore.getStore("ws-b").getState().generation).toBe(2);
+  });
+
+  test("revocation during consent cannot be approved after re-enable", async () => {
+    resetState();
+    activateWorkspace("ws-a", WORKSPACE_A);
+    nextResult = cargoView(WORKSPACE_A, 1);
+    const cleanup = await startBuildSystemsRuntime();
+    cleanups.push(cleanup);
+    await flushMicrotasks();
+    const prepared = deferCommand("declarative_plugins_build_prepare_model");
+    const consent = deferred();
+    const pending = buildSystemsService.loadBuildModel(
+      catalogEntry.pluginId,
+      "cargo",
+      ".",
+      () => consent.promise as Promise<boolean>,
+    );
+    await flushMicrotasks();
+    prepared.resolve(review);
+    await flushMicrotasks();
+    lifecycleHandler!({ payload: { pluginId: catalogEntry.pluginId, active: false } });
+    await flushMicrotasks();
+    consent.resolve(true);
+    expect(await pending).toBeNull();
+    expect(
+      invokeCalls.some((call) => call.command === "declarative_plugins_build_load_model"),
+    ).toBe(false);
+    expect(useBuildSystemsStore.getStore("ws-a").getState().windows).toEqual({});
+  });
+
+  test("execution failure stays failed after native slot cleanup", async () => {
+    resetState();
+    activateWorkspace("ws-a", WORKSPACE_A);
+    const prepared = deferCommand("declarative_plugins_build_prepare_model");
+    const loaded = deferCommand("declarative_plugins_build_load_model");
+    const pending = buildSystemsService.loadBuildModel(
+      catalogEntry.pluginId,
+      "cargo",
+      ".",
+      async () => true,
+    );
+    const failed = pending.then(
+      () => null,
+      (error: unknown) => error,
+    );
+    await flushMicrotasks();
+    prepared.resolve(review);
+    await flushMicrotasks();
+    loaded.reject(new Error("plugin.build.outputLimit"));
+    expect(String(await failed)).toContain("plugin.build.outputLimit");
+    expect(useBuildSystemsStore.getStore("ws-a").getState().status).toBe("failed");
+    expect(
+      invokeCalls.some((call) => call.command === "declarative_plugins_build_cancel_operation"),
+    ).toBe(true);
   });
 });

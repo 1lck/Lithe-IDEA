@@ -16,12 +16,18 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 
+use crate::claude_desktop;
+
 /// Larger transcripts are skipped rather than read: the recap alone is shown.
 const MAX_TRANSCRIPT_BYTES: u64 = 128 * 1024 * 1024;
 /// Upper bound on emitted updates, keeping the replay event queue bounded.
 const MAX_UPDATES: usize = 30_000;
 /// Per-field text limit, in characters, for tool output and tool input values.
 const TEXT_LIMIT: usize = 4_000;
+/// Longest base64 image replayed, in bytes: the client's 10 MB decoded limit
+/// (`AgentImage.maximumBytes`) inflated by a third. A larger screenshot would only
+/// be dropped on arrival, so it is not sent.
+const IMAGE_DATA_LIMIT: usize = 10_000_000 / 3 * 4;
 
 /// Projects directory of the account the adapter runs under: the explicit
 /// account directory, then `CLAUDE_CONFIG_DIR`, then `~/.claude`.
@@ -182,8 +188,35 @@ impl Converter {
             }
             (Chunk::Agent, Some("tool_use")) => self.tool_call(block),
             (Chunk::User, Some("tool_result")) => self.tool_result(block),
+            (Chunk::User, Some("image")) => self.user_image(block),
             _ => {}
         }
+    }
+
+    /// A pasted screenshot stays attached to the user message that references
+    /// it. Only inline base64 sources are replayed; the client bounds the size.
+    fn user_image(&mut self, block: &Value) {
+        let source = &block["source"];
+        let (Some("base64"), Some(data)) = (source["type"].as_str(), source["data"].as_str())
+        else {
+            return;
+        };
+        if data.is_empty() || data.len() > IMAGE_DATA_LIMIT {
+            return;
+        }
+        self.last = Some(Chunk::User);
+        let mut update = json!({
+            "sessionUpdate": "user_message_chunk",
+            "content": {
+                "type": "image",
+                "data": data,
+                "mimeType": source["media_type"].as_str().unwrap_or("image/png"),
+            },
+        });
+        if let Some(id) = &self.row_id {
+            update["messageId"] = json!(id);
+        }
+        self.updates.push(update);
     }
 
     fn text(&mut self, kind: Chunk, text: &str) {
@@ -224,7 +257,12 @@ impl Converter {
             "title": title(name, input),
             "kind": kind(name),
             "status": "completed",
-            "rawInput": bounded(input),
+            // A card, plan or reply is built from this input, so it is not cut to a preview.
+            "rawInput": if claude_desktop::carries_card_input(name) {
+                bounded(input, claude_desktop::CARD_INPUT_LIMIT)
+            } else {
+                bounded(input, TEXT_LIMIT)
+            },
         }));
     }
 
@@ -291,15 +329,15 @@ fn title(name: &str, input: &Value) -> String {
     }
 }
 
-/// Copy of `value` whose strings are cut to [`TEXT_LIMIT`], so a whole-file
+/// Copy of `value` whose strings are cut to `limit` characters, so a whole-file
 /// `Write` input does not travel through the replay queue.
-fn bounded(value: &Value) -> Value {
+fn bounded(value: &Value, limit: usize) -> Value {
     match value {
-        Value::String(text) => Value::String(truncate(text)),
-        Value::Array(items) => Value::Array(items.iter().map(bounded).collect()),
-        Value::Object(map) => {
-            Value::Object(map.iter().map(|(k, v)| (k.clone(), bounded(v))).collect())
-        }
+        Value::String(text) => Value::String(truncate_to(text, limit)),
+        Value::Array(items) => Value::Array(items.iter().map(|item| bounded(item, limit)).collect()),
+        Value::Object(map) => Value::Object(
+            map.iter().map(|(k, v)| (k.clone(), bounded(v, limit))).collect(),
+        ),
         other => other.clone(),
     }
 }
@@ -422,6 +460,47 @@ mod tests {
         assert_eq!(updates[1]["sessionUpdate"], "user_message_chunk");
         assert_eq!(updates[1]["content"]["text"], "go faster");
         assert_eq!(updates[1]["messageId"], "q1");
+    }
+
+    #[test]
+    fn card_inputs_survive_the_replay_whole_while_other_tool_inputs_are_cut() {
+        let widget = format!("<svg>{}</svg>", "x".repeat(TEXT_LIMIT * 2));
+        let (dir, cwd) = transcript(&[
+            json!({"type": "assistant", "message": {"content": [
+                {"type": "tool_use", "id": "v", "name": "mcp__visualize__show_widget",
+                 "input": {"title": "chart", "widget_code": widget}},
+                {"type": "tool_use", "id": "w", "name": "Write",
+                 "input": {"file_path": "/a/b.rs", "content": "y".repeat(TEXT_LIMIT * 2)}},
+            ]}}),
+            boundary(),
+        ]);
+        let updates = earlier_updates(dir.path(), &cwd, "abc-1");
+        let mut presenter = claude_desktop::Presenter::default();
+        let shown = presenter.present("s", updates[0].clone());
+        assert_eq!(shown[0]["_meta"]["lithe"]["claudeDesktop"]["code"], widget.as_str());
+        let write = updates[1]["rawInput"]["content"].as_str().unwrap();
+        assert_eq!(write.chars().count(), TEXT_LIMIT + 1, "Ordinary inputs stay previews");
+    }
+
+    #[test]
+    fn pasted_screenshots_stay_on_the_user_message_that_references_them() {
+        let (dir, cwd) = transcript(&[
+            json!({"type": "user", "uuid": "u1", "message": {"content": [
+                {"type": "text", "text": "[Image #1] look"},
+                {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": "/9j/4A=="}},
+                {"type": "image", "source": {"type": "url", "url": "https://example.test/a.png"}},
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": ""}},
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "A".repeat(IMAGE_DATA_LIMIT + 4)}},
+            ]}}),
+            boundary(),
+        ]);
+        let updates = earlier_updates(dir.path(), &cwd, "abc-1");
+        assert_eq!(updates.len(), 2, "only the inline base64 image within the limit is replayed");
+        assert_eq!(updates[1]["sessionUpdate"], "user_message_chunk");
+        assert_eq!(updates[1]["content"]["type"], "image");
+        assert_eq!(updates[1]["content"]["data"], "/9j/4A==");
+        assert_eq!(updates[1]["content"]["mimeType"], "image/jpeg");
+        assert_eq!(updates[1]["messageId"], updates[0]["messageId"]);
     }
 
     #[test]

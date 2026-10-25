@@ -1946,8 +1946,15 @@ mod tests {
         }
         fn call(&self, command: &str, mut payload: serde_json::Value) -> serde_json::Value {
             payload["root"] = serde_json::json!(self.0);
+            // Initialization also inspects identity/configuration through several
+            // real Git subprocesses; the Windows case retains a 30s watchdog.
+            let timeout_milliseconds = if command == "git.initialize" {
+                15_000
+            } else {
+                5000
+            };
             let response: serde_json::Value = serde_json::from_str(&lithe_core::execute_json(&serde_json::json!({
-                "id": "tag-policy", "command": command, "timeoutMilliseconds": 5000, "payload": payload
+                "id": "tag-policy", "command": command, "timeoutMilliseconds": timeout_milliseconds, "payload": payload
             }).to_string())).unwrap();
             assert_eq!(response["ok"], true, "{response}");
             response["data"].clone()

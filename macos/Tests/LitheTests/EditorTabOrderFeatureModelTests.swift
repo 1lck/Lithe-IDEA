@@ -4,6 +4,10 @@ import SwiftUI
 @testable import LitheGitModule
 import Testing
 import LitheTestDesktopIsolation
+import LitheApplicationKernel
+import LitheCoreContracts
+import LitheModuleAPI
+@testable import LitheAgentConversationModule
 @testable import Lithe
 
 @Suite("Editor tab order")
@@ -60,11 +64,12 @@ struct EditorTabOrderFeatureModelTests {
             let document = try #require(model.activeDocument)
             model.showAgentChatsInEditor()
             model.showAgentChatsInEditor()
-            #expect(model.editorTabItems == [file, .agentConversation])
+            let agent = EditorTabItem.agentConversation(try #require(model.focusedAgentEditorTab))
+            #expect(model.editorTabItems == [file, agent])
             #expect(model.isAgentEditorSelected)
             model.selectEditorTab(file)
             #expect(!model.isAgentEditorSelected && model.agentChatsInEditor)
-            model.selectEditorTab(.agentConversation)
+            model.selectEditorTab(agent)
             #expect(model.isAgentEditorSelected)
             #expect(model.requestCloseActiveWorkbenchItem())
             #expect(!model.agentChatsInEditor)
@@ -79,18 +84,234 @@ struct EditorTabOrderFeatureModelTests {
         let feature = EditorTabOrderFeatureModel()
         let file = EditorTabItem.document(UUID())
         feature.moveToEnd(file)
-        feature.moveToEnd(.agentConversation)
-        feature.focus(.agentConversation)
-        #expect(feature.focusedItem == .agentConversation)
+        let agent = EditorTabItem.agentConversation(UUID())
+        feature.moveToEnd(agent)
+        feature.focus(agent)
+        #expect(feature.focusedItem == agent)
         feature.reconcileDocuments(orderedIDs: feature.documentIDs)
-        #expect(feature.items == [file, .agentConversation])
+        #expect(feature.items == [file, agent])
         let group = try #require(feature.groupLayout.groups.first)
-        #expect(feature.drop(.agentConversation, into: group, side: .right))
-        feature.focus(.agentConversation)
-        #expect(feature.focusedItem == .agentConversation)
-        feature.remove(.agentConversation)
+        #expect(feature.drop(agent, into: group, side: .right))
+        feature.focus(agent)
+        #expect(feature.focusedItem == agent)
+        feature.remove(agent)
         #expect(feature.items == [file])
         #expect(feature.groupLayout.groups.count == 1)
+    }
+
+    @Test func agentTabsPresentOneSessionEachAndForgetClosedTabs() {
+        let feature = EditorTabOrderFeatureModel()
+        let first = UUID(), second = UUID()
+        feature.moveToEnd(.agentConversation(first))
+        feature.moveToEnd(.agentConversation(second))
+        #expect(feature.agentTabIDs == [first, second])
+        feature.bindAgentTab(first, to: "a", agentID: "codex-acp")
+        feature.bindAgentTab(second, to: "b", agentID: "codex-acp")
+        #expect(feature.agentTab(showing: "b", agentID: "codex-acp") == second)
+        // A session is shown by one tab only: rebinding moves it.
+        feature.bindAgentTab(first, to: "b", agentID: "codex-acp")
+        #expect(feature.agentSession(of: first) == "b")
+        #expect(feature.agentSession(of: second) == nil)
+        // Closing a tab releases its binding.
+        feature.remove(.agentConversation(first))
+        #expect(feature.agentTab(showing: "b", agentID: "codex-acp") == nil)
+        // A tab that is not open cannot be bound.
+        feature.bindAgentTab(UUID(), to: "c", agentID: "codex-acp")
+        #expect(feature.agentSessionByTab.isEmpty)
+    }
+
+    @Test func agentBindingsIsolateIdenticalSessionIDsAndDiscardOnlyTheirEmptyTabs() {
+        let feature = EditorTabOrderFeatureModel()
+        let codex = UUID(), claude = UUID(), background = UUID()
+        for tab in [codex, claude, background] { feature.moveToEnd(.agentConversation(tab)) }
+        feature.bindAgentTab(codex, to: "same-session", agentID: "codex-acp")
+        feature.bindAgentTab(claude, to: "same-session", agentID: "claude-acp")
+        feature.bindAgentTab(background, to: "discarded", agentID: "codex-acp")
+        feature.focus(.agentConversation(codex))
+        #expect(feature.agentTab(showing: "same-session", agentID: "codex-acp") == codex)
+        #expect(feature.agentTab(showing: "same-session", agentID: "claude-acp") == claude)
+        feature.discardAgentSessions(["same-session", "discarded"], agentID: "codex-acp")
+        #expect(feature.agentTabIDs == [codex, claude])
+        #expect(feature.agentConversation(of: codex) == AgentEditorConversation(agentID: "codex-acp", sessionID: nil))
+        #expect(feature.agentSession(of: claude) == "same-session")
+        #expect(feature.focusedAgentTab == codex)
+    }
+
+    @Test func selectingAnEditorTabRestoresItsAgentAndSession() async throws {
+        let store = EditorTabOrderTestStore()
+        let settings = AppSettings(store: store)
+        // Missing providers reject launch before touching a real Agent CLI.
+        for id in ["codex-acp", "claude-acp"] {
+            settings.agentConfigurations[id] = .init(name: id, providerID: UUID())
+        }
+        let services = MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .normal).services
+        let model = AppModel(settings: settings, services: services)
+        do {
+            try await services.moduleRuntime.setEnabled(true, for: .agentConversation)
+            let capability = try #require(try await services.moduleRuntime.activateCapability(.agentConversation) as? AgentConversationCapability)
+            let feature = capability.feature
+            model.selectAgentConversationAgent("codex-acp")
+            let codex = feature.connection(for: "codex-acp")
+            codex.selectSession("same-session")
+            codex.draftText = "Codex draft"
+            model.showAgentChatsInEditor()
+            let codexTab = try #require(model.focusedAgentEditorTab)
+            let host = NSHostingView(rootView: AgentConfiguredConversationView(
+                feature: feature, setupError: nil, onSelectAgent: model.selectAgentConversationAgent,
+                onConnect: {}, onOpenSettings: {}, onHide: {}, onCopySessionID: { _ in }, onOpenFile: { _ in },
+                onSessionChanged: { model.reconcileAgentEditorTabs() }).frame(width: 600, height: 500))
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 500),
+                                  styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = host
+            defer { window.contentView = nil; window.close() }
+            _ = try await AgentNativeControlTestSupport.frame(of: "agent-composer-agent-selector", in: host)
+            func rendered(_ condition: () -> Bool) async throws {
+                let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+                repeat {
+                    host.layoutSubtreeIfNeeded()
+                    if condition() { return }
+                    await withCheckedContinuation { gate in DispatchQueue.main.async { gate.resume() } }
+                } while ContinuousClock.now < deadline
+                try #require(condition(), "Agent tab selection did not reconcile within two seconds")
+            }
+            model.selectAgentConversationAgent("claude-acp")
+            let claude = feature.connection(for: "claude-acp")
+            // Agent changes must reconcile even before the new connection has a session.
+            try await rendered { model.focusedAgentEditorTab != codexTab }
+            let claudeTab = try #require(model.focusedAgentEditorTab)
+            #expect(model.editorTabOrderFeature.agentConversation(of: claudeTab)
+                == AgentEditorConversation(agentID: "claude-acp", sessionID: nil))
+            claude.selectSession("same-session")
+            claude.draftText = "Claude draft"
+            try await rendered { model.editorTabOrderFeature.agentSession(of: claudeTab) == "same-session" }
+            #expect(claudeTab != codexTab)
+            claude.selectSession("another-claude-session")
+            model.selectEditorTab(.agentConversation(codexTab))
+            #expect(feature.selectedAgentID == "codex-acp")
+            #expect(model.selectedAgentConversationID == "codex-acp")
+            #expect(codex.selectedSessionID == "same-session")
+            #expect(codex.draftText == "Codex draft")
+            #expect(claude.selectedSessionID == "another-claude-session")
+            model.selectEditorTab(.agentConversation(claudeTab))
+            #expect(feature.selectedAgentID == "claude-acp")
+            #expect(claude.selectedSessionID == "same-session")
+            #expect(claude.draftText == "Claude draft")
+            try await rendered { feature.selectedAgentID == "claude-acp" && model.focusedAgentEditorTab == claudeTab }
+            #expect(model.editorTabOrderFeature.agentTabIDs == [codexTab, claudeTab])
+            #expect(!feature.hasActiveConnection)
+        } catch { await model.shutdownProjectSession(); throw error }
+        await model.shutdownProjectSession()
+    }
+
+    @Test func newChatOpensItsOwnAgentTabAndClosingKeepsTheOthers() async throws {
+        let store = EditorTabOrderTestStore()
+        let settings = AppSettings(store: store)
+        let model = AppModel(settings: settings, services: MacServiceContainer(
+            store: store, settings: settings, moduleLaunchMode: .safeMode).services)
+        do {
+            model.showAgentChatsInEditor()
+            let first = try #require(model.focusedAgentEditorTab)
+            // The tab is still empty, so New Chat reuses it instead of adding another.
+            model.openNewAgentEditorTab()
+            #expect(model.editorTabOrderFeature.agentTabIDs == [first])
+            model.editorTabOrderFeature.bindAgentTab(first, to: "session-a", agentID: "codex-acp")
+            model.openNewAgentEditorTab()
+            let second = try #require(model.focusedAgentEditorTab)
+            #expect(second != first)
+            #expect(model.editorTabOrderFeature.agentTabIDs == [first, second])
+            model.closeAgentEditorTab(second)
+            #expect(model.editorTabOrderFeature.agentTabIDs == [first])
+            #expect(model.focusedAgentEditorTab == first)
+            // Closing the last Agent tab hands the conversation back to the tool window.
+            model.closeAgentEditorTab(first)
+            #expect(!model.agentChatsInEditor)
+        } catch { await model.shutdownProjectSession(); throw error }
+        await model.shutdownProjectSession()
+    }
+
+    @Test func newChatReusesPrecreatedEmptyTabsAndReconnectReplacesStaleBindings() async throws {
+        let store = EditorTabOrderTestStore(), transport = EditorTabAgentTransport()
+        let settings = AppSettings(store: store)
+        settings.agentConfigurations["codex-acp"] = .init(name: "Codex", providerID: UUID())
+        let runtime = ModuleRuntime()
+        try runtime.register(ModuleFactory(manifest: AgentConversationModule.moduleManifest,
+            contributions: AgentConversationModule.moduleContributions) {
+            AgentConversationModule(transportFactory: { transport })
+        }, enabled: true)
+        let base = MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode).services
+        let model = AppModel(settings: settings, services: agentTabServices(base, runtime: runtime))
+        do {
+            let capability = try #require(try await runtime.activateCapability(.agentConversation) as? AgentConversationCapability)
+            let feature = capability.feature
+            feature.setAgents(model.configuredAgentOptions)
+            let connection = feature.connection(for: "codex-acp")
+            let configuration = AgentLaunchConfiguration(agentID: "codex-acp", command: "", arguments: [],
+                workspaceURL: URL(fileURLWithPath: "/example/project"), dataDirectory: URL(fileURLWithPath: "/example/data"),
+                providerProtocol: "responses", providerEndpoint: "https://provider.example/v1", apiKey: "test-key",
+                providerName: "Example", model: "", allowsInsecureHTTP: false)
+            try connection.connect(configuration: configuration)
+            model.selectAgentConversationAgent("codex-acp")
+            connection.receive(#"{"kind":"ready"}"#)
+            func created(_ id: String) throws {
+                let token = try #require(transport.commands.last?["token"] as? String)
+                connection.receive(String(decoding: try JSONSerialization.data(withJSONObject:
+                    ["kind": "sessionCreated", "token": token, "sessionId": id]), as: UTF8.self))
+                model.reconcileAgentEditorTabs()
+            }
+            connection.prepareConversation()
+            try created("empty-0")
+            model.showAgentChatsInEditor()
+            let first = try #require(model.focusedAgentEditorTab)
+            for index in 1...2 {
+                model.openNewAgentEditorTab()
+                connection.startNewConversation()
+                #expect(model.editorTabOrderFeature.agentTabIDs == [first])
+                #expect(model.editorTabOrderFeature.agentSession(of: first) == nil)
+                try created("empty-\(index)")
+                #expect(model.editorTabOrderFeature.agentSession(of: first) == "empty-\(index)")
+            }
+            // An attachment-only draft owns its original tab even without a prompt.
+            connection.draftFiles = [try AgentFileReference(url: URL(fileURLWithPath: "/example/notes.txt"))]
+            model.openNewAgentEditorTab()
+            connection.startNewConversation()
+            try created("empty-3")
+            let second = try #require(model.focusedAgentEditorTab)
+            #expect(second != first)
+            #expect(model.editorTabOrderFeature.agentSession(of: first) == "empty-2")
+            await connection.stop()
+            #expect(model.editorTabOrderFeature.agentTabIDs == [first, second])
+            #expect(model.editorTabOrderFeature.agentSession(of: second) == nil)
+            try connection.connect(configuration: configuration)
+            connection.receive(#"{"kind":"ready"}"#)
+            model.selectEditorTab(.agentConversation(first))
+            #expect(transport.commands.last?["kind"] as? String == "newSession")
+            #expect(model.editorTabOrderFeature.agentSession(of: first) == nil)
+            try created("replacement")
+            #expect(model.editorTabOrderFeature.agentSession(of: first) == "replacement")
+            #expect(connection.draftFiles.first?.name == "notes.txt")
+        } catch { await model.shutdownProjectSession(); throw error }
+        await model.shutdownProjectSession()
+    }
+
+    private func agentTabServices(_ base: AppServices, runtime: ModuleRuntime) -> AppServices {
+        AppServices(moduleRuntime: runtime, pluginManager: base.pluginManager,
+            pluginMarketplace: base.pluginMarketplace, pluginCatalog: base.pluginCatalog,
+            languageProviderCatalogSource: base.languageProviderCatalogSource,
+            workspaceLanguageServerPreferences: base.workspaceLanguageServerPreferences,
+            javaTestResultServerFactory: { MacJavaTestResultServer() },
+            workspaceOperations: base.workspaceOperations, documentLifecycleDecider: base.documentLifecycleDecider,
+            lineEditing: base.lineEditing, javaMavenOperations: base.javaMavenOperations,
+            markdownRenderer: base.markdownRenderer, markdownImageImporter: base.markdownImageImporter,
+            store: base.store, fileStorage: base.fileStorage, fileOperations: base.fileOperations,
+            binaryFileViewerRegistry: base.binaryFileViewerRegistry, projectRuntimeService: base.projectRuntimeService,
+            gitWatchContextProvider: base.gitWatchContextProvider, githubService: base.githubService,
+            secureStore: base.secureStore, diagnosticsExportService: base.diagnosticsExportService,
+            credentialResolver: base.credentialResolver, aiConfigurationSources: [],
+            recentProjectsStore: base.recentProjectsStore, workspaceSessionStore: base.workspaceSessionStore,
+            directoryMarkStore: base.directoryMarkStore, workbenchLayoutStore: base.workbenchLayoutStore,
+            workbenchBackgroundPlatform: base.workbenchBackgroundPlatform, directoryWatcherFactory: base.directoryWatcherFactory,
+            platformUI: base.platformUI, shortcutDetectorFactory: base.shortcutDetectorFactory)
     }
 
     @Test func splitMenuEligibilityMatchesDropForSingleAndMixedGroups() throws {
@@ -967,6 +1188,17 @@ private final class EditorTabOrderTestStore: KeyValueStore, @unchecked Sendable 
     func string(forKey key: String) -> String? { values[key] as? String }
     func stringArray(forKey key: String) -> [String]? { values[key] as? [String] }
     func set(_ value: Any?, forKey key: String) { values[key] = value }
+}
+
+@MainActor
+private final class EditorTabAgentTransport: AgentConversationTransport, AgentConnection {
+    var commands: [[String: Any]] = []
+    func open(configuration: AgentLaunchConfiguration,
+              onEvent: @escaping @Sendable (String) -> Void) throws -> any AgentConnection { self }
+    func send(commandJSON: String) throws {
+        commands.append(try #require(JSONSerialization.jsonObject(with: Data(commandJSON.utf8)) as? [String: Any]))
+    }
+    func close() async {}
 }
 
 private struct ActivityTrackerLifecycleTestView: View {

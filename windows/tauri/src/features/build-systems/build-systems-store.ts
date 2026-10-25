@@ -42,6 +42,7 @@ export interface BuildSystemsState {
     beginRequest: () => BuildRequestVersion;
     applyView: (view: BuildView, request: BuildRequestVersion) => void;
     fail: (message: string, request: BuildRequestVersion) => void;
+    cancelRequest: (request: BuildRequestVersion) => void;
     selectInstance: (viewId: string, root: string) => void;
     /** Drops one disabled plugin and invalidates requests started before it. */
     dropPlugin: (pluginId: string) => void;
@@ -179,6 +180,14 @@ const createBuildSystemsStore = () =>
             lastAppliedSequence: request.sequence,
           };
         }),
+      cancelRequest: (request) =>
+        set((state) =>
+          state.status === "loading" &&
+          request.sequence === state.requestSequence &&
+          request.revocationEpoch === state.revocationEpoch
+            ? { status: state.workspaceRoot ? "ready" : "idle" }
+            : state,
+        ),
       dropPlugin: (pluginId) =>
         set((state) => {
           const revocationEpoch = state.revocationEpoch + 1;

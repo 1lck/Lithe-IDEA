@@ -50,9 +50,42 @@ impl RuntimeExecutableInput {
 pub(crate) struct WindowsBuildToolResolver {
     environment: BTreeMap<String, String>,
     runtimes: BTreeMap<String, RuntimeExecutableInput>,
+    discovery_root: Option<PathBuf>,
 }
 
 impl WindowsBuildToolResolver {
+    /// Passive cwd validation shared by the model planner; this performs no
+    /// executable discovery or version probe.
+    pub(crate) fn instance_directory(
+        invocation: &Value,
+        workspace: &Path,
+    ) -> Result<PathBuf, BuildResolutionError> {
+        Self {
+            environment: BTreeMap::new(),
+            runtimes: BTreeMap::new(),
+            discovery_root: None,
+        }
+        .start(invocation, workspace)
+        .map(|session| session.instance_root)
+    }
+    /// Option-owned environment is frozen before both probes and execution.
+    pub(crate) fn with_overrides(mut self, values: BTreeMap<String, String>) -> Self {
+        for (key, value) in values {
+            environment_set(&mut self.environment, key, value);
+        }
+        self
+    }
+
+    /// Freeze relative discovery before an operation can wait for consent.
+    pub(crate) fn freeze_discovery(mut self) -> Result<Self, BuildResolutionError> {
+        self.discovery_root = Some(std::env::current_dir().map_err(|error| {
+            BuildResolutionError::invalid_plan(format!(
+                "host tool discovery directory could not be resolved: {error}"
+            ))
+        })?);
+        Ok(self)
+    }
+
     /// Uses the process environment and caller-supplied runtime preferences.
     /// Runtime settings stay owned by the existing Windows runtime manager;
     /// this module deliberately has no persistence of its own.
@@ -60,6 +93,7 @@ impl WindowsBuildToolResolver {
         Self {
             environment: std::env::vars().collect(),
             runtimes,
+            discovery_root: None,
         }
     }
 
@@ -71,6 +105,7 @@ impl WindowsBuildToolResolver {
         Self {
             environment,
             runtimes,
+            discovery_root: None,
         }
     }
 
@@ -106,11 +141,16 @@ impl WindowsBuildToolResolver {
             .any(ExecutableCandidate::has_configured_setting);
         // Relative discovery inputs belong to the host's current directory,
         // never the workspace that a later probe or build runs in.
-        let discovery_root = std::env::current_dir().map_err(|error| {
-            BuildResolutionError::invalid_plan(format!(
-                "host tool discovery directory could not be resolved: {error}"
-            ))
-        })?;
+        let discovery_root = self
+            .discovery_root
+            .clone()
+            .map(Ok)
+            .unwrap_or_else(std::env::current_dir)
+            .map_err(|error| {
+                BuildResolutionError::invalid_plan(format!(
+                    "host tool discovery directory could not be resolved: {error}"
+                ))
+            })?;
         Ok(BuildResolutionSession {
             plan,
             workspace_root,

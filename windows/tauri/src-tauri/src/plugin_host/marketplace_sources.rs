@@ -118,7 +118,7 @@ fn community_source() -> MarketplaceSource {
 
 /// `sources.json` next to the other plugin-host stores. Writes only ever
 /// target `app_local_data_dir()`; installed packages stay read-only.
-fn sources_path(app: &AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn sources_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(app
         .path()
         .app_local_data_dir()
@@ -157,7 +157,9 @@ pub(crate) fn load_sources(
     load_sources_unlocked(path)
 }
 
-fn load_sources_unlocked(path: &Path) -> Result<(Vec<MarketplaceSource>, Option<String>), String> {
+pub(crate) fn load_sources_unlocked(
+    path: &Path,
+) -> Result<(Vec<MarketplaceSource>, Option<String>), String> {
     let mut official = official_source();
     let mut community = community_source();
     let text = match std::fs::read_to_string(path) {
@@ -480,6 +482,9 @@ pub fn declarative_marketplace_sources_set_enabled(
 ) -> Result<Vec<Value>, String> {
     let path = sources_path(&app)?;
     let sources = set_enabled(&path, &source_id, enabled)?;
+    if !enabled {
+        super::marketplace::cancel_source(&app, &source_id);
+    }
     Ok(source_views(&sources))
 }
 
@@ -491,5 +496,6 @@ pub fn declarative_marketplace_sources_remove(
 ) -> Result<Vec<Value>, String> {
     let path = sources_path(&app)?;
     let sources = remove_source(&path, &source_id)?;
+    super::marketplace::cancel_source(&app, &source_id);
     Ok(source_views(&sources))
 }

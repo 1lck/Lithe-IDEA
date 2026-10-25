@@ -18,6 +18,17 @@ macOS 使用系统多文件拖动，工作区模块继续负责实际文件操�
 
 ## 决策
 
+- Windows 的“打开所选文件”命令为 `file.openSelected`，默认 F4，沿用现有快捷键设置的
+  覆盖与禁用规则。查询输入框复用统一的两段式快捷键状态机；完成、未匹配按键和超时均重置，
+  监听器因首段输入重新注册时保留超时，组件卸载时清理计时器。
+  当前获得 DOM 焦点（页面里真正接收键盘输入的元素）的区域提供打开动作，
+  项目树仍持有焦点路径，搜索仍持有匹配行列，不把这些状态再复制到快捷键 store。
+  项目树打开有效的可见文件并固定标签页；目录、失效路径、重命名及树搜索输入框不执行。
+  内容搜索的查询框打开当前键盘选中的匹配，结果文件行与片段打开自身文件及一基行列位置；
+  搜索等待期间、空结果、替换及过滤输入框、编辑器和终端不借用其他区域的选择。
+  编辑器开启 Vim 时，这些文件区域仍能使用 F4。区域卸载即注销动作，弹窗通过真实 DOM
+  焦点隔离。例如搜索选中了 A，但焦点在 B 的文件行时，应打开 B；不要读取侧栏旧路径而打开 A。
+
 - 文件、目录、项目根和多选右键菜单复用已有项目范围查找与替换入口，沿用整个项目范围、
   选中文字预填和既有替换预览/确认流程；树视图只提供入口，实际查找和替换由已有功能处理。
 
@@ -77,6 +88,8 @@ macOS 使用系统多文件拖动，工作区模块继续负责实际文件操�
 
 ## 考虑过的备选方案
 
+- 在项目树和搜索框分别硬编码 F4：改绑和禁用后仍可能触发，也会与全局捕获监听冲突，
+  因此只在集中命令目录注册一次，复用各区域已有的文件打开动作。
 - 监听侧栏活动路径来跟随编辑器：该路径同时接受目录点击，无法区分树选择与编辑器切换，
   会把刚选中的目录改回编辑文件；改为复用同步 Hook 已有的编辑器目标，不另建缓冲区选择器。
 - 在树菜单单独实现搜索或直接替换文件：会绕过已有搜索状态和替换预览/确认流程，不采用。
@@ -89,6 +102,10 @@ macOS 使用系统多文件拖动，工作区模块继续负责实际文件操�
 
 ## 后果
 
+F4 不新增文件解析、导航历史或原生调用；代价是文件区域需要注册和清理自己的焦点动作。
+搜索片段内的代码行按钮以自己的映射行作为 F4 目标，匹配行保留匹配列，上下文行从第一列打开；片段标题或容器仍使用该片段的已选匹配，避免同一片段里 Tab 聚焦到另一行后跳回旧位置。
+本次只补齐 Windows，macOS 的 F4 行为仍需独立实现与验收。
+
 独立选择减少误解，目录移动不需要枚举磁盘后代，懒加载避免为屏幕外每行启动图标任务。
 代价是维护一个原生输入适配器；真实拖动、上下滚动及大目录性能仍需 macOS 实机验收。
 Windows 现已加入 Ctrl/Shift 可见范围多选、批量复制/剪切/删除及已选集合拖动，目录单击选择、双击/箭头展开。拖动预检重名和父子重复，底层用不覆盖发布防止同名文件丢失；逐项操作并在工作区切换后停止后续项。Windows 原生 WebView2 的拖动、焦点与大树验收仍 pending，不能用选择工具函数测试代替。
@@ -96,6 +113,11 @@ Windows 现已加入 Ctrl/Shift 可见范围多选、批量复制/剪切/删除�
 
 ## 验证
 
+- Windows F4 回归使用 `test-stability-windows.ps1 -Scope Frontend` 运行
+  `file-explorer-selection.test.tsx`、`f4-file-navigation.integration.test.tsx`、
+  `use-keymaps.integration.test.tsx` 与 `tree-dom-event.test.tsx`。
+  验证方向键后的目标、搜索一基行列、焦点文件与旧选择不一致、改绑与禁用、Vim 设置、
+  输入框和无效目标隔离；真实 WebView2 焦点及四项修复的完整 Windows 构建另行验收。
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'ProjectTree|batchMove'`
 - `./scripts/verify-service-boundaries.sh`
@@ -129,6 +151,11 @@ Windows 现已加入 Ctrl/Shift 可见范围多选、批量复制/剪切/删除�
 
 ## 适用范围
 
+- `windows/tauri/src/features/keymaps/hooks/use-file-open-target.ts`
+- `windows/tauri/src/features/global-search/components/global-search-buffer.tsx`
+- `windows/tauri/src/features/global-search/components/global-search-results.tsx`
+- `windows/tauri/src/features/global-search/components/search-excerpt-results.tsx`
+- `windows/tauri/src/features/global-search/components/f4-file-navigation.integration.test.tsx`
 - `windows/tauri/src/features/file-explorer/components/file-explorer-tree.tsx`
 - `windows/tauri/src/features/file-explorer/hooks/use-file-explorer-sync.ts`
 - `windows/tauri/src/features/file-explorer/components/file-explorer-reveal.test.tsx`

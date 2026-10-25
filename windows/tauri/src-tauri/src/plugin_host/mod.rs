@@ -28,6 +28,10 @@ pub mod marketplace_sources;
 mod marketplace_sources_tests;
 pub mod marketplace_download;
 pub mod marketplace_index;
+pub mod marketplace;
+pub(crate) mod marketplace_coordinator;
+#[cfg(test)]
+mod marketplace_tests;
 pub mod run_plans;
 pub mod scan;
 pub mod settings;

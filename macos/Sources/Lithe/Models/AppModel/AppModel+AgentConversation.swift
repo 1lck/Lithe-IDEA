@@ -46,23 +46,131 @@ extension AppModel {
         }
     }
 
-    var agentChatsInEditor: Bool { editorTabOrderFeature.contains(.agentConversation) }
-    var isAgentEditorSelected: Bool { agentChatsInEditor && editorTabOrderFeature.focusedItem == .agentConversation }
+    var agentChatsInEditor: Bool { !editorTabOrderFeature.agentTabIDs.isEmpty }
+    var isAgentEditorSelected: Bool { editorTabOrderFeature.focusedAgentTab != nil }
+    var focusedAgentEditorTab: UUID? { editorTabOrderFeature.focusedAgentTab }
 
-    func showAgentChatsInEditor() {
-        if !agentChatsInEditor { editorTabOrderFeature.moveToEnd(.agentConversation) }
-        selectedChange = nil
-        closeBranchComparison()
-        editorTabOrderFeature.repositoryDiffSelected = false
-        editorTabOrderFeature.focus(.agentConversation)
-        workbenchFeature.setVisibility(.agent, isVisible: true)
+    private var selectedAgentSessionID: String? {
+        agentConversationFeatureIfActive?.selectedConnection?.selectedSessionID
+    }
+
+    /// Shows the Agent conversation in the editor. With `tab`, that tab is focused
+    /// and the Agent follows it; without one, the Agent's current session decides
+    /// which tab is focused (opening one when no tab shows it yet).
+    func showAgentChatsInEditor(tab requested: UUID? = nil) {
+        let order = editorTabOrderFeature
+        if let requested, order.contains(.agentConversation(requested)) {
+            focusAgentEditorTab(requested)
+            followAgentEditorTab(requested)
+            return
+        }
+        let selected = selectedAgentSessionID
+        let tab: UUID
+        let agentID = agentConversationFeatureIfActive?.selectedAgentID
+        if let selected, let agentID, let owner = order.agentTab(showing: selected, agentID: agentID) {
+            tab = owner
+        } else if let unbound = ([order.focusedAgentTab].compactMap { $0 } + order.agentTabIDs.reversed())
+            .first(where: { order.agentSession(of: $0) == nil &&
+                (order.agentConversation(of: $0)?.agentID == nil || order.agentConversation(of: $0)?.agentID == agentID) }) {
+            // An empty tab is reused rather than piling up new ones.
+            tab = unbound
+            if let agentID { order.bindAgentTab(unbound, to: selected, agentID: agentID) }
+        } else {
+            tab = openAgentEditorTab(session: selected)
+        }
+        focusAgentEditorTab(tab)
+    }
+
+    /// The Agent's session changed while an Agent tab is focused (a new session
+    /// was created, or one was picked from history): keep tabs and session in step.
+    func reconcileAgentEditorTabs() {
+        let order = editorTabOrderFeature
+        guard let focused = order.focusedAgentTab,
+              let agentID = agentConversationFeatureIfActive?.selectedAgentID else { return }
+        let selected = selectedAgentSessionID
+        if let selected, let owner = order.agentTab(showing: selected, agentID: agentID) {
+            if owner != focused { focusAgentEditorTab(owner) }
+        } else if order.agentSession(of: focused) == nil,
+                  order.agentConversation(of: focused)?.agentID == nil || order.agentConversation(of: focused)?.agentID == agentID {
+            order.bindAgentTab(focused, to: selected, agentID: agentID)
+        } else {
+            focusAgentEditorTab(openAgentEditorTab(session: selected))
+        }
+    }
+
+    /// New Chat in an editor-hosted conversation opens a tab of its own instead of
+    /// replacing the conversation that is on screen. A tab that is still empty is
+    /// reused.
+    func openNewAgentEditorTab() {
+        let order = editorTabOrderFeature
+        if let focused = order.focusedAgentTab {
+            let binding = order.agentConversation(of: focused)
+            let feature = agentConversationFeatureIfActive
+            if binding == nil || binding?.agentID == feature?.selectedAgentID {
+                if binding?.sessionID == nil { return }
+                // Already empty: keep the tab on its session. Unbinding it would only
+                // be undone by `reconcileAgentEditorTabs`, as the connection still
+                // has that session selected.
+                if let session = binding?.sessionID,
+                   feature?.selectedConnection?.canReuseForNewConversation(session) == true {
+                    return
+                }
+            }
+        }
+        focusAgentEditorTab(openAgentEditorTab(session: nil))
+    }
+
+    func closeAgentEditorTab(_ tab: UUID) {
+        let order = editorTabOrderFeature
+        guard order.agentTabIDs.count > 1 else { return showAgentChatsInToolWindow() }
+        let item = EditorTabItem.agentConversation(tab)
+        let items = editorTabItems
+        let wasFocused = order.focusedItem == item
+        let fallback: EditorTabItem? = items.firstIndex(of: item).flatMap { index in
+            items.indices.contains(index + 1) ? items[index + 1] : (index > 0 ? items[index - 1] : nil)
+        }
+        order.remove(item)
+        if wasFocused, let fallback { selectEditorTab(fallback) }
     }
 
     func showAgentChatsInToolWindow() {
         let wasSelected = isAgentEditorSelected
-        editorTabOrderFeature.remove(.agentConversation)
+        for tab in editorTabOrderFeature.agentTabIDs { editorTabOrderFeature.remove(.agentConversation(tab)) }
         if wasSelected, let next = editorTabItems.last { selectEditorTab(next) }
         workbenchFeature.setVisibility(.agent, isVisible: true)
+    }
+
+    private func openAgentEditorTab(session: String?) -> UUID {
+        let tab = UUID()
+        editorTabOrderFeature.moveToEnd(.agentConversation(tab))
+        if let agentID = agentConversationFeatureIfActive?.selectedAgentID {
+            editorTabOrderFeature.bindAgentTab(tab, to: session, agentID: agentID)
+        }
+        return tab
+    }
+
+    private func focusAgentEditorTab(_ tab: UUID) {
+        selectedChange = nil
+        closeBranchComparison()
+        editorTabOrderFeature.repositoryDiffSelected = false
+        editorTabOrderFeature.focus(.agentConversation(tab))
+        workbenchFeature.setVisibility(.agent, isVisible: true)
+    }
+
+    /// The Agent shows whichever session the focused tab presents; an empty tab
+    /// shows a new conversation.
+    private func followAgentEditorTab(_ tab: UUID) {
+        guard let feature = agentConversationFeatureIfActive else { return }
+        if let binding = editorTabOrderFeature.agentConversation(of: tab) {
+            guard feature.agents.contains(where: { $0.id == binding.agentID }) else { return }
+            selectAgentConversationAgent(binding.agentID)
+        }
+        guard let connection = feature.selectedConnection else { return }
+        if let session = editorTabOrderFeature.agentSession(of: tab) {
+            if connection.selectedSessionID != session { connection.selectSession(session) }
+        } else if connection.selectedSessionID != nil {
+            connection.startNewConversation()
+        }
     }
 
     func copyAgentSessionID(_ id: String) {
@@ -245,11 +353,17 @@ extension AppModel {
         feature.selectAgent(selectedAgentConversationID)
         guard let agentID = feature.selectedAgentID else { return }
         let connection = feature.connection(for: agentID)
+        connection.onSessionsDiscarded = { [weak self] sessions in
+            self?.editorTabOrderFeature.discardAgentSessions(sessions, agentID: agentID)
+        }
         guard !connection.hasActiveConnection else { return }
         do {
             // Refresh the displayed fallback even when credential validation fails.
             defer { feature.setAgents(configuredAgentOptions) }
             let configuration = try agentLaunchConfiguration(agentID: agentID)
+            connection.onContextCapacityObserved = { [weak self] tokens in
+                self?.settings.recordAgentContextDefault(agentID: agentID, tokens: tokens)
+            }
             connection.onAccountObserved = { [weak self] directory, email, plan, quota in
                 self?.settings.recordAgentAccount(agentID: agentID, directory: directory, email: email, plan: plan, quota: quota)
             }

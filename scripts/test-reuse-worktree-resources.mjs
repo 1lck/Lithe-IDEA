@@ -249,6 +249,15 @@ try {
       assert.match(diagnostics(refused), new RegExp(`${id}.*cannot be reused`));
     }
   });
+  await test("command model output uses the existing isolated plugin-state route", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "official-plugin-packages");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.includes("<windows-app-local-data>/plugin-state/<plugin-id>/build-<pid>-<operation-sequence>.model.json"));
+    const refused = reuse(["--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /official-plugin-packages.*cannot be reused/);
+  });
   await test("retained MCP filters and native review screenshots remain user/run state", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const policies = registry.excludedResources.find(item => item.id === "mcp-tool-probe-state");

@@ -139,6 +139,10 @@ pub struct MarketplaceProvenance {
     pub source_id: String,
     pub source_name: String,
     pub repository: String,
+    #[serde(default)]
+    pub index_url: String,
+    #[serde(default)]
+    pub archive_url: String,
     pub archive_sha256: String,
     pub content_digest: String,
     pub approved_programs: Vec<String>,

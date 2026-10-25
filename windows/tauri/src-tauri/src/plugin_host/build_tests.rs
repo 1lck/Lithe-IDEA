@@ -158,10 +158,12 @@ impl FixedPackages {
         if !*self.enabled.lock().expect("enabled flag") {
             return None;
         }
+        let version = self.version.lock().expect("version").clone();
         Some(BuildPackageInput {
             plugin_id: self.plugin_id.clone(),
-            version: self.version.lock().expect("version").clone(),
+            version: version.clone(),
             manifest: self.manifest.lock().expect("manifest").clone(),
+            content_identity: version,
         })
     }
 }

@@ -11,22 +11,56 @@ struct AgentTranscriptNavigationContent {
         var reply: String = ""
     }
 
-    var entries: [Entry] = []
-    var turnByMessageID: [String: String] = [:]
+    /// An immutable run of turns. Finished turns never change, so one block is
+    /// built once and shared between updates instead of being rebuilt per chunk.
+    final class Block {
+        let entries: [Entry]
+        let turnByMessageID: [String: String]
+
+        init(messages: [AgentConversationMessage]) {
+            var entries: [Entry] = []
+            var turns: [String: String] = [:]
+            for message in messages {
+                // Claude Code's own markup (commands, notifications, recaps) is not a prompt the user wrote.
+                if message.role == .user, AgentClaudeCodeMarkup.parse(message.text) == nil {
+                    entries.append(Entry(id: message.id, prompt: String(message.text.prefix(320))))
+                }
+                guard let turnID = entries.last?.id else { continue }
+                turns[message.id] = turnID
+                if message.role == .agent {
+                    let excerpt = String(message.text.prefix(640)).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !excerpt.isEmpty { entries[entries.count - 1].reply = excerpt }
+                }
+            }
+            self.entries = entries
+            self.turnByMessageID = turns
+        }
+    }
+
+    /// Finished turns (shared, cached) followed by the turn that is still changing.
+    private let settled: Block?
+    private let tail: Block
 
     init(messages: [AgentConversationMessage]) {
-        for message in messages {
-            // Claude Code's own markup (commands, notifications, recaps) is not a prompt the user wrote.
-            if message.role == .user, AgentClaudeCodeMarkup.parse(message.text) == nil {
-                entries.append(Entry(id: message.id, prompt: String(message.text.prefix(320))))
-            }
-            guard let turnID = entries.last?.id else { continue }
-            turnByMessageID[message.id] = turnID
-            if message.role == .agent {
-                let excerpt = String(message.text.prefix(640)).trimmingCharacters(in: .whitespacesAndNewlines)
-                if !excerpt.isEmpty { entries[entries.count - 1].reply = excerpt }
-            }
-        }
+        settled = nil
+        tail = Block(messages: messages)
+    }
+
+    /// `tail` must start at a turn-opening user prompt, so it needs nothing from `settled`.
+    init(settled: Block, tailMessages: [AgentConversationMessage]) {
+        self.settled = settled
+        tail = Block(messages: tailMessages)
+    }
+
+    var entries: [Entry] { (settled?.entries ?? []) + tail.entries }
+
+    func turnID(forMessage id: String) -> String? {
+        tail.turnByMessageID[id] ?? settled?.turnByMessageID[id]
+    }
+
+    /// Flattened lookup, for callers that need the whole table.
+    var turnByMessageID: [String: String] {
+        (settled?.turnByMessageID ?? [:]).merging(tail.turnByMessageID) { _, later in later }
     }
 }
 

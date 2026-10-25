@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
-import Switch from "@/ui/switch";
 import {
   closeDeclarativeWebWindow,
   cancelDeclarativeDiskInstall,
@@ -12,15 +11,14 @@ import {
   prepareDeclarativeDiskInstall,
   type DeclarativeWebToolWindow,
   rescanDeclarativePlugins,
-  rollbackDeclarativePlugin,
-  setDeclarativePluginEnabled,
-  uninstallDeclarativePlugin,
   type DeclarativePluginSummary,
   type PreparedDeclarativeInstall,
 } from "./declarative-plugin-launch";
-import { DeclarativePluginSettingsEditor } from "./declarative-plugin-settings-editor";
+import { DeclarativePluginList } from "./declarative-plugin-list";
 import { DeclarativeMarketplaceSources } from "./declarative-marketplace-sources-section";
-import { PluginDetailsPanel, type PluginDetailsSelection } from "./details";
+import { DeclarativeMarketplaceSection } from "./marketplace/marketplace-section";
+import { listMarketplaceInstalledPlugins, marketplaceHostService } from "./marketplace/marketplace-host-service";
+import { PluginDetailsPanel, type PluginDetailsOperation, type PluginDetailsSelection } from "./details";
 import { useWorkspaceTabsStore } from "@/features/window/stores/workspace-tabs.store";
 
 /**
@@ -38,85 +36,135 @@ export function DeclarativePluginsSection() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [selection, setSelection] = useState<PluginDetailsSelection | null>(null);
-  const [detailsRevision, setDetailsRevision] = useState(0);
+  const [refreshing, setRefreshing] = useState(true);
+  const [marketplaceRevision, setMarketplaceRevision] = useState(0);
+  const ownerRef = useRef<{ active: boolean; refresh: number; busy: boolean } | null>(null);
+  const pendingRef = useRef<PreparedDeclarativeInstall | null>(null);
   const workspacePath = useWorkspaceTabsStore((state) =>
     state.projectTabs.find((tab) => tab.isActive)?.path ?? null,
   );
+  const selectedSummary = plugins.find((plugin) =>
+    selection !== null && plugin.pluginId === selection.pluginId && plugin.source === selection.source);
+  // A stable scan keeps the active tab and pending operation mounted. An
+  // externally changed package/state must instead reload its host details.
+  const detailKey = selectedSummary
+    ? `${selectedSummary.source}:${selectedSummary.pluginId}:${selectedSummary.version}:${selectedSummary.status}:${selectedSummary.enabled}`
+    : selection ? `${selection.source}:${selection.pluginId}` : "none";
 
   const refresh = useCallback(async () => {
-    await rescanDeclarativePlugins();
-    const next = await listDeclarativePlugins();
-    setPlugins(next);
-    setSelection((current) => current && next.some((plugin) =>
-      plugin.pluginId === current.pluginId && plugin.source === current.source,
-    ) ? current : null);
-    setDetailsRevision((revision) => revision + 1);
-    setWebWindows(await listDeclarativeWebWindows());
+    const owner = ownerRef.current;
+    if (!owner?.active) return;
+    const generation = ++owner.refresh;
+    const current = () => owner.active && owner.refresh === generation;
+    setRefreshing(true);
+    setError(null);
+    try {
+      await rescanDeclarativePlugins();
+      if (!current()) return;
+      const [next, windows] = await Promise.all([listDeclarativePlugins(), listDeclarativeWebWindows()]);
+      if (!current()) return;
+      setPlugins(next);
+      setWebWindows(windows);
+    } catch (reason) {
+      if (current()) setError(String(reason));
+    } finally {
+      if (current()) setRefreshing(false);
+    }
   }, []);
 
-  const handleChanged = useCallback(() => {
-    void refresh().catch((reason: unknown) => setError(String(reason)));
+  const handleChanged = useCallback((changed: PluginDetailsSelection, _workspacePath: string | null, operation: PluginDetailsOperation) => {
+    if (!ownerRef.current?.active) return;
+    if (operation === "uninstall") {
+      setSelection((current) => current?.pluginId === changed.pluginId && current.source === changed.source ? null : current);
+    }
+    setMarketplaceRevision((revision) => revision + 1);
+    void refresh();
   }, [refresh]);
+  const marketplaceService = useMemo(() => marketplaceHostService(() => void refresh()), [refresh]);
 
   useEffect(() => {
-    refresh().catch((reason: unknown) => setError(String(reason)));
-  }, [refresh]);
-
-  useEffect(() => {
-    if (!pending) return;
+    const owner = { active: true, refresh: 0, busy: false };
+    ownerRef.current = owner;
+    void refresh();
     return () => {
-      void cancelDeclarativeDiskInstall(pending.sessionId).catch((reason: unknown) =>
-        console.warn("Could not discard plugin install review", reason),
-      );
+      owner.active = false;
+      owner.refresh += 1;
+      const review = pendingRef.current;
+      pendingRef.current = null;
+      if (review) void discardReview(review);
     };
-  }, [pending]);
+  }, [refresh]);
 
   const importPackage = async () => {
-    const selection = await import("@tauri-apps/plugin-dialog").then(({ open }) =>
-      open({
-        multiple: false,
-        filters: [
-          { name: "Lithe plugin package", extensions: ["zip"] },
-        ],
-      }),
-    );
-    if (typeof selection !== "string") return;
+    const owner = ownerRef.current;
+    if (!owner?.active || owner.busy || pendingRef.current) return;
+    owner.busy = true;
     setBusy(true);
     setError(null);
     try {
-      setPending(await prepareDeclarativeDiskInstall(selection));
+      const path = await import("@tauri-apps/plugin-dialog").then(({ open }) =>
+        open({ multiple: false, filters: [{ name: "Lithe plugin package", extensions: ["zip"] }] }),
+      );
+      if (typeof path !== "string" || !owner.active) return;
+      const review = await prepareDeclarativeDiskInstall(path);
+      if (!owner.active) {
+        // Preparation can finish after the page closes, before a review was
+        // ever rendered. The initiating owner must still release its snapshot.
+        await discardReview(review);
+        return;
+      }
+      pendingRef.current = review;
+      setPending(review);
     } catch (reason) {
-      setError(String(reason));
+      if (owner.active) setError(String(reason));
     } finally {
-      setBusy(false);
+      owner.busy = false;
+      if (owner.active) setBusy(false);
     }
   };
 
   const confirmInstall = async () => {
-    if (!pending) return;
+    const owner = ownerRef.current;
+    const review = pendingRef.current;
+    if (!owner?.active || owner.busy || !review) return;
+    owner.busy = true;
     setBusy(true);
     setError(null);
     try {
-      await confirmDeclarativeDiskInstall(pending.sessionId, pending.manifestDigest);
+      await confirmDeclarativeDiskInstall(review.sessionId, review.manifestDigest);
+      if (!owner.active) return;
+      pendingRef.current = null;
       setPending(null);
+      setMarketplaceRevision((revision) => revision + 1);
       await refresh();
     } catch (reason) {
-      setError(String(reason));
-      setPending(null);
+      if (owner.active) {
+        setError(String(reason));
+        pendingRef.current = null;
+        setPending(null);
+        // An IPC failure may precede the host's confirmation cleanup.
+        await discardReview(review);
+      }
     } finally {
-      setBusy(false);
+      owner.busy = false;
+      if (owner.active) setBusy(false);
     }
   };
 
   return (
-    <section aria-label={t("settings.declarativePlugins.title")} className="flex flex-col gap-2">
+    <section aria-label={t("settings.declarativePlugins.title")} className="flex min-w-0 flex-col gap-2">
       <SettingsSectionGroup
         title={t("settings.declarativePlugins.title")}
         description={t("settings.declarativePlugins.description")}
         action={
-          <Button variant="accent" size="sm" disabled={busy || Boolean(pending)} onClick={() => void importPackage()}>
-            {t("settings.declarativePlugins.import")}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="ghost" disabled={refreshing || busy} onClick={() => void refresh()}>
+              {t("settings.declarativePluginList.refresh")}
+            </Button>
+            <Button variant="accent" size="sm" disabled={refreshing || busy || Boolean(pending)} onClick={() => void importPackage()}>
+              {t("settings.declarativePlugins.import")}
+            </Button>
+          </div>
         }
       />
       {error && (
@@ -128,30 +176,19 @@ export function DeclarativePluginsSection() {
         <InstallReviewCard
           pending={pending}
           onConfirm={() => void confirmInstall()}
-          onCancel={() => setPending(null)}
+          onCancel={() => {
+            pendingRef.current = null;
+            setPending(null);
+            void discardReview(pending);
+          }}
           busy={busy}
         />
       )}
-      <ul className="flex flex-col gap-1" data-testid="declarative-plugin-list">
-        {plugins.map((plugin) => (
-          <DeclarativePluginRow
-            key={`${plugin.source}-${plugin.pluginId}`}
-            plugin={plugin}
-            workspacePath={workspacePath}
-            onChanged={handleChanged}
-            selected={selection?.pluginId === plugin.pluginId && selection.source === plugin.source}
-            onSelect={() => setSelection({ pluginId: plugin.pluginId, source: plugin.source })}
-          />
-        ))}
-        {!plugins.length && (
-          <li className="text-subtle-foreground ui-text-sm">
-            {t("settings.declarativePlugins.empty")}
-          </li>
-        )}
-      </ul>
+      {refreshing && <p role="status" className="text-subtle-foreground ui-text-sm">{t("settings.declarativePluginList.loading")}</p>}
+      <DeclarativePluginList plugins={plugins} selection={selection} onSelect={setSelection} />
       <div className="min-h-64 overflow-hidden rounded-md border border-border">
         <PluginDetailsPanel
-          key={detailsRevision}
+          key={detailKey}
           selection={selection}
           workspacePath={workspacePath}
           onChanged={handleChanged}
@@ -169,9 +206,18 @@ export function DeclarativePluginsSection() {
           </ul>
         </div>
       )}
-      <DeclarativeMarketplaceSources />
+      <DeclarativeMarketplaceSources onChanged={() => setMarketplaceRevision((revision) => revision + 1)} />
+      <DeclarativeMarketplaceSection key={marketplaceRevision} service={marketplaceService} installed={listMarketplaceInstalledPlugins} />
     </section>
   );
+}
+
+async function discardReview(review: PreparedDeclarativeInstall): Promise<void> {
+  try {
+    await cancelDeclarativeDiskInstall(review.sessionId);
+  } catch (reason) {
+    console.warn("Could not discard plugin install review", reason);
+  }
 }
 
 function WebWindowRow({ window }: { window: DeclarativeWebToolWindow }) {
@@ -277,110 +323,6 @@ function ProgramDeclarationList({ programs }: { programs: unknown[] }) {
   );
 }
 
-function DeclarativePluginRow({
-  plugin,
-  workspacePath,
-  onChanged,
-  selected,
-  onSelect,
-}: {
-  plugin: DeclarativePluginSummary;
-  workspacePath: string | null;
-  onChanged: () => void;
-  selected: boolean;
-  onSelect: () => void;
-}) {
-  const { t } = useTranslation();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [showSettings, setShowSettings] = useState(false);
-  const rejected = plugin.status === "rejected";
-  const declaredSettings =
-    !rejected && Array.isArray(plugin.declaredSettings) ? plugin.declaredSettings : [];
-  const hasSettings = declaredSettings.length > 0;
-
-  const run = async (action: () => Promise<void>) => {
-    setBusy(true);
-    setError(null);
-    try {
-      await action();
-      onChanged();
-    } catch (reason) {
-      setError(String(reason));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <li className="rounded-md border border-border px-3 py-2">
-      <div className="flex items-center gap-3">
-        <div className="min-w-0 flex-1">
-          <p className="truncate ui-text-sm font-medium">
-            <button type="button" className="text-left underline-offset-2 hover:underline" aria-pressed={selected} onClick={onSelect}>
-              {plugin.displayName}
-            </button>{" "}
-            <span className="text-subtle-foreground">
-              {plugin.version} · {t(`settings.declarativePlugins.source.${plugin.source}`)}
-            </span>
-          </p>
-          {rejected && plugin.rejection && (
-            <p className="text-destructive ui-text-sm">
-              {plugin.rejection.code}: {plugin.rejection.message}
-            </p>
-          )}
-          {error && <p className="text-destructive ui-text-sm">{error}</p>}
-        </div>
-        {!rejected && hasSettings && (
-          <Button
-            variant="accent"
-            size="sm"
-            disabled={busy}
-            onClick={() => setShowSettings((value) => !value)}
-          >
-            {showSettings ? t("settings.declarativePlugins.hideSettings") : t("settings.declarativePlugins.showSettings")}
-          </Button>
-        )}
-        {!rejected && plugin.source === "installed" && (
-          <>
-            <Switch
-              checked={plugin.enabled}
-              disabled={busy}
-              onChange={(checked) =>
-                void run(() => setDeclarativePluginEnabled(plugin.pluginId, checked))
-              }
-              aria-label={t("settings.declarativePlugins.toggle", { name: plugin.displayName })}
-            />
-            <Button
-              variant="accent"
-              size="sm"
-              disabled={busy}
-              onClick={() => void run(() => rollbackDeclarativePlugin(plugin.pluginId))}
-            >
-              {t("settings.declarativePlugins.rollback")}
-            </Button>
-            <Button
-              variant="danger"
-              size="sm"
-              disabled={busy}
-              onClick={() => void run(() => uninstallDeclarativePlugin(plugin.pluginId))}
-            >
-              {t("settings.declarativePlugins.uninstall")}
-            </Button>
-          </>
-        )}
-      </div>
-      {!rejected && showSettings && hasSettings && (
-        <DeclarativePluginSettingsEditor
-          pluginId={plugin.pluginId}
-          settings={declaredSettings}
-          workspacePath={workspacePath}
-          languageId={plugin.primaryLanguageId}
-        />
-      )}
-    </li>
-  );
-}
 
 function SettingsSectionGroup({
   title,
@@ -392,7 +334,7 @@ function SettingsSectionGroup({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3">
+    <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
       <div>
         <h3 className="ui-text-sm font-semibold">{title}</h3>
         <p className="text-subtle-foreground ui-text-sm">{description}</p>

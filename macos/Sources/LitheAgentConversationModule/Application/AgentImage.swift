@@ -242,7 +242,11 @@ public enum AgentClaudeCodeMarkup {
     /// Wrappers that exist only for the model; they produce no entry.
     private static let hiddenTags = ["local-command-caveat", "system-reminder", "user-prompt-submit-hook"]
     /// Wrappers whose whole body is shown collapsed, with the tag as its name.
-    private static let contextTags: Set<String> = ["lithe_workspace_context", "side-sessions-event", "create-pr-command"]
+    private static let contextTags: Set<String> = [
+        "lithe_workspace_context", "side-sessions-event", "create-pr-command", "ci-monitor-event",
+    ]
+    /// Claude Desktop's harness notices about other sessions, written as `[Label] text`.
+    private static let desktopNotices = ["Cross-session idle notice", "Cross-session delivery notice", "handback-send-enforce"]
     private static let knownTags: Set<String> = contextTags.union([
         "task-notification", "command-name", "command-message", "command-args",
         "local-command-stdout", "local-command-stderr", "bash-input", "bash-stdout", "bash-stderr",
@@ -284,6 +288,10 @@ public enum AgentClaudeCodeMarkup {
             return [.interrupted(String(trimmed.dropFirst().dropLast()))]
         }
         if trimmed.hasPrefix(summaryPrefix) { return [summary(trimmed)] }
+        if let notice = desktopNotices.first(where: { trimmed.hasPrefix("[\($0)]") }) {
+            let body = trimmed.dropFirst(notice.count + 2).trimmingCharacters(in: .whitespacesAndNewlines)
+            return [.context(name: notice, body: body.isEmpty ? trimmed : body)]
+        }
         if trimmed.hasPrefix(skillPrefix) {
             let first = trimmed.split(separator: "\n", maxSplits: 1).first.map(String.init) ?? trimmed
             let directory = first.dropFirst(skillPrefix.count).trimmingCharacters(in: .whitespaces)
@@ -300,8 +308,10 @@ public enum AgentClaudeCodeMarkup {
         }
         while !rest.isEmpty {
             guard rest.hasPrefix("<"), let close = rest.firstIndex(of: ">") else { return nil }
-            let tag = String(rest[rest.index(after: rest.startIndex)..<close])
-            guard knownTags.contains(tag), let end = rest.range(of: "</\(tag)>") else { return nil }
+            // Desktop's event wrappers can carry attributes, such as the pull request a CI event is about.
+            let opening = rest[rest.index(after: rest.startIndex)..<close]
+            let tag = String(opening.prefix { !$0.isWhitespace })
+            guard knownTags.contains(tag), tag == opening || contextTags.contains(tag), let end = rest.range(of: "</\(tag)>") else { return nil }
             let body = String(rest[rest.index(after: close)..<end.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
             switch tag {
             case "task-notification":

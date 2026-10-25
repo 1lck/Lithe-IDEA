@@ -384,6 +384,45 @@ The decision and owning components are recorded in
   from the system. When a new page or row needs an explanation, add it to ⓘ
   and to the zh-Hans strings in the same change.
 
+### Source-backed settings
+
+When creating, changing, or reviewing settings, read
+`.agents/notes/implemented/architecture/2026-10-25-settings-native-configuration-editing.md`.
+Use this default interaction for non-sensitive tool configuration:
+
+- Discover the actual source using the tool's supported configuration precedence
+  and platform adapters; opening a page is read-only. Distinguish a missing file,
+  an upstream default, a read failure, and a local override instead of inventing values.
+- Populate editable controls with the current non-sensitive values, not only
+  placeholder hints. Identify the source and scope with compact state badges;
+  keep explanations in the existing info tips. Effective inherited values must
+  remain distinguishable from an explicitly saved override.
+- Editing creates a draft. Before replacing native configuration, require an
+  explicit Save/Apply confirmation identifying the target and scope. Never
+  write native configuration on keystrokes, focus loss, page exit, or page open.
+  Cancel performs no writes; unchanged values must not create an override.
+- Write to the confirmed native source, not a parallel application preference
+  that leaves the actual tool unchanged. Preserve unrelated content, permissions,
+  comments where supported, and secret fields; use guarded atomic replacement
+  and reject stale snapshots rather than overwriting external edits.
+- Re-read the native/effective configuration after a successful write and render
+  that result. Report any higher-priority override or reconnect requirement;
+  a failed save retains the draft and does not claim success. External reloads
+  and Restore Defaults must not be undone by stale focus-loss/page-exit commits.
+- Never echo passwords, tokens, private keys, or credential-bearing fields into
+  ordinary inputs, logs, previews, or fixtures. Do not re-save a redaction marker
+  as a secret. Packaged resources remain read-only; an inherited/read-only source
+  needs an explicitly selected writable override, not a silent privileged write.
+
+Prefer the upstream tool's configuration reader/writer or existing adapters over
+implementing another precedence model. A genuinely Lithe-owned preference may
+stay in the application store; explain its scope rather than pretending it edits
+the tool. Do not bulk-migrate unrelated pages merely because these rules changed.
+Cover discovery -> populated controls -> edit -> confirm/cancel -> guarded save ->
+read-back -> reopen, plus secrets, conflicts, read failures, and reset lifecycle.
+Record actual implementation evidence in the platform matrix; changing this
+policy does not mean existing pages have all been migrated or runtime-verified.
+
 ### Rust
 
 - Run `cargo fmt` and follow existing crate and module conventions.

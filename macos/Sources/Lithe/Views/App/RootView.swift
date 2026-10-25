@@ -385,11 +385,7 @@ private struct ActiveSessionChrome: View {
         if windowLayout == .workspace {
             return session.workspaceURL?.lastPathComponent ?? "Lithe"
         }
-        return String(
-            localized: "Welcome to Lithe",
-            bundle: .main,
-            locale: session.settings.language.locale
-        )
+        return session.settings.language.localizedString("Welcome to Lithe")
     }
 }
 

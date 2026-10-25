@@ -41,12 +41,19 @@ enum AgentTranscriptItem: Identifiable {
         case .message(let message):
             return message.text.localizedStandardContains(searchText)
                 || message.plan?.entries.contains { $0.content.localizedStandardContains(searchText) } == true
+                || message.shownDesktopCard?.searchableText.localizedStandardContains(searchText) == true
         case .processGroup(let messages): return messages.contains {
             $0.role == .tool ? Self.toolMatches($0, searchText) : $0.text.localizedStandardContains(searchText)
         }
         case .toolGroup(let tools): return tools.contains { Self.toolMatches($0, searchText) }
         case .turnSummary: return false
         }
+    }
+
+    /// Suggested replies answer only the latest turn; Desktop drops them once the conversation moves on.
+    func isStaleNextStep(lastMessageID: String?, isResponding: Bool) -> Bool {
+        guard case .message(let message) = self, case .nextStep = message.shownDesktopCard else { return false }
+        return isResponding || message.id != lastMessageID
     }
 
     static func toolMatches(_ message: AgentConversationMessage, _ searchText: String) -> Bool {
@@ -87,9 +94,12 @@ enum AgentTranscriptItem: Identifiable {
                 // Model-only reminders and caveats are not conversation.
                 continue
             }
-            if message.plan != nil {
+            if case .nextStep = message.shownDesktopCard {
+                // Suggested replies follow the turn they end, after its summary.
+            } else if message.plan != nil || message.shownDesktopCard != nil {
                 // A replayed plan snapshot is what the Agent reported at that point;
                 // it stays on the transcript like Claude Desktop's checklist.
+                // Desktop shows its chapters, tasks and pull requests the same way.
                 flush()
                 items.append(.message(message))
             } else if Self.isQuietNotification(message) {
@@ -107,6 +117,10 @@ enum AgentTranscriptItem: Identifiable {
                 let reply = pending.last.flatMap { $0.role == .agent ? $0.text : nil }
                 flush()
                 items.append(.turnSummary(summary, reply: reply))
+            }
+            if case .nextStep = message.shownDesktopCard {
+                flush()
+                items.append(.message(message))
             }
         }
         flush()
@@ -199,7 +213,10 @@ struct AgentTranscriptView: View {
     @State private var imageViewer = AgentImageViewerState()
     // A filtered-out row can be destroyed. Keep its preference in the owning
     // transcript view, isolated by session and message, until the actual data goes away.
-    @State private var thoughtExpansions: [String: [String: AgentThoughtExpansion]] = [:]
+    // A reference, so opening or closing a row never invalidates the whole transcript.
+    @State private var thoughtExpansions = AgentThoughtExpansionStore()
+    // Finished turns are grouped once; each update only regroups the turn in progress.
+    @State private var derivation = AgentTranscriptDerivation()
     /// How many trailing transcript items each session currently builds.
     @State private var windowLimits: [String: Int] = [:]
 
@@ -210,7 +227,7 @@ struct AgentTranscriptView: View {
         // A load replays the whole history one event at a time. Building rows
         // for every intermediate state is quadratic, so rows wait for the replay to end.
         let isReplaying = conversation?.isLoading == true
-        let navigationContent = AgentTranscriptNavigationContent(messages: isReplaying ? [] : messages)
+        let navigationContent = derivation.navigation(messages: isReplaying ? [] : messages)
         let liveThoughtID = conversation?.responseStatus == .thinking && messages.last?.role == .thought
             ? messages.last?.id : nil
         VStack(spacing: 0) {
@@ -259,7 +276,8 @@ struct AgentTranscriptView: View {
                                     messages: messages,
                                     completedTurns: conversation?.completedTurns ?? [],
                                     navigation: navigation,
-                                    turnByMessageID: navigationContent.turnByMessageID,
+                                    navigationContent: navigationContent,
+                                    derivation: derivation,
                                     searchText: searchText,
                                     liveThoughtID: liveThoughtID,
                                     liveProcessMessageID: conversation?.isResponding == true ? messages.last?.id : nil,
@@ -273,12 +291,12 @@ struct AgentTranscriptView: View {
                                         reader.scrollTo(anchorID, anchor: .top)
                                         DispatchQueue.main.async { reader.scrollTo(anchorID, anchor: .top) }
                                     },
-                                    thoughtExpansions: sessionID.flatMap { thoughtExpansions[$0] } ?? [:],
-                                    setThoughtExpansion: { id, value in
-                                        guard let sessionID else { return }
-                                        thoughtExpansions[sessionID, default: [:]][id] = value
-                                    },
-                                    onOpenFile: onOpenFile
+                                    expansions: thoughtExpansions,
+                                    sessionID: sessionID,
+                                    onOpenFile: onOpenFile,
+                                    onDesktopDraft: { text, inNewConversation in
+                                        feature.fillDraft(text, inNewConversation: inNewConversation)
+                                    }
                                 )
                                 .equatable()
                             }
@@ -325,7 +343,7 @@ struct AgentTranscriptView: View {
                             AgentTranscriptNavigationRail(state: navigation, entries: navigationContent.entries) { id in
                                 navigation.beginNavigation()
                                 if let sessionID {
-                                    let items = AgentTranscriptItem.grouped(messages, turns: conversation?.completedTurns ?? [])
+                                    let items = derivation.items(messages, turns: conversation?.completedTurns ?? [])
                                     let current = windowLimits[sessionID] ?? AgentTranscriptWindow.initialItems
                                     let needed = AgentTranscriptWindow.limit(including: id, in: items, current: current)
                                     if needed > current {
@@ -346,14 +364,13 @@ struct AgentTranscriptView: View {
         .environment(\.agentImageViewer, imageViewer)
         .overlay { AgentImageViewerOverlay(state: imageViewer) }
         .onChange(of: feature.openSessionIDs) { sessionIDs in
-            thoughtExpansions = thoughtExpansions.filter { sessionIDs.contains($0.key) }
+            thoughtExpansions.retain(sessions: Set(sessionIDs))
             windowLimits = windowLimits.filter { sessionIDs.contains($0.key) }
         }
         .onChange(of: messages.count) { _ in
             // Use unfiltered messages: changing the search must never discard preferences.
-            guard let sessionID = feature.selectedSessionID, let preferences = thoughtExpansions[sessionID] else { return }
-            let retainedIDs = Set((feature.selectedConversation?.messages ?? []).map(\.id))
-            thoughtExpansions[sessionID] = preferences.filter { retainedIDs.contains($0.key) }
+            guard let sessionID = feature.selectedSessionID, thoughtExpansions.hasPreferences(in: sessionID) else { return }
+            thoughtExpansions.retain(messageIDs: Set((feature.selectedConversation?.messages ?? []).map(\.id)), in: sessionID)
         }
     }
 
@@ -386,27 +403,31 @@ private struct AgentTranscriptRows: View, Equatable {
     let messages: [AgentConversationMessage]
     let completedTurns: [AgentTurnStatistics]
     let navigation: AgentTranscriptNavigationState
-    let turnByMessageID: [String: String]
+    let navigationContent: AgentTranscriptNavigationContent
+    let derivation: AgentTranscriptDerivation
     let searchText: String
     let liveThoughtID: String?
     let liveProcessMessageID: String?
     let isEditorLayout: Bool
     let limit: Int
     let showEarlier: (String) -> Void
-    let thoughtExpansions: [String: AgentThoughtExpansion]
-    let setThoughtExpansion: (String, AgentThoughtExpansion) -> Void
+    let expansions: AgentThoughtExpansionStore
+    let sessionID: String?
     let onOpenFile: (AgentToolDetails.Location) -> Void
+    let onDesktopDraft: (String, Bool) -> Void
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.messages == rhs.messages && lhs.completedTurns == rhs.completedTurns
             && lhs.searchText == rhs.searchText && lhs.liveThoughtID == rhs.liveThoughtID && lhs.limit == rhs.limit
             && lhs.liveProcessMessageID == rhs.liveProcessMessageID
             && lhs.isEditorLayout == rhs.isEditorLayout
-            && lhs.thoughtExpansions == rhs.thoughtExpansions
+            && lhs.sessionID == rhs.sessionID
     }
 
     var body: some View {
-        let matching = AgentTranscriptItem.grouped(messages, turns: completedTurns).filter { $0.matches(searchText) }
+        let matching = derivation.items(messages, turns: completedTurns).filter {
+            $0.matches(searchText) && !$0.isStaleNextStep(lastMessageID: messages.last?.id, isResponding: liveProcessMessageID != nil)
+        }
         let hidden = limit < matching.count ? matching.count - limit : 0
         let transcript = hidden > 0 ? Array(matching[hidden...]) : matching
         let turnEndingIDs = AgentTranscriptItem.repliesCopiedFromFooter(completedTurns, searchText: searchText)
@@ -422,40 +443,168 @@ private struct AgentTranscriptRows: View, Equatable {
                 switch item {
                 case .message(let message) where message.plan != nil:
                     AgentPlanView(plan: message.plan!, isResponding: false, horizontalInset: 0)
+                case .message(let message) where message.shownDesktopCard != nil:
+                    AgentDesktopCardView(card: message.shownDesktopCard!, onDraft: onDesktopDraft)
                 case .message(let message):
-                    AgentMessageRow(
-                        message: message,
-                        isStreamingThought: liveThoughtID == message.id,
-                        isSearching: !searchText.isEmpty,
-                        endsTurn: turnEndingIDs.contains(message.id),
-                        isEditorLayout: isEditorLayout,
-                        thoughtExpansion: Binding(
-                            get: { thoughtExpansions[message.id] ?? AgentThoughtExpansion() },
-                            set: { setThoughtExpansion(message.id, $0) }
-                        ),
-                        onOpenFile: onOpenFile
-                    )
+                    AgentStoredExpansion(store: expansions, sessionID: sessionID, id: message.id) { expansion in
+                        AgentMessageRow(
+                            message: message,
+                            isStreamingThought: liveThoughtID == message.id,
+                            isSearching: !searchText.isEmpty,
+                            endsTurn: turnEndingIDs.contains(message.id),
+                            isEditorLayout: isEditorLayout,
+                            thoughtExpansion: expansion,
+                            onOpenFile: onOpenFile
+                        )
+                    }
                 case .processGroup(let messages):
-                    AgentProcessGroupView(
-                        messages: messages,
-                        isStreaming: messages.contains { $0.id == liveProcessMessageID },
-                        searchText: searchText,
-                        expansion: Binding(
-                            get: { thoughtExpansions[messages[0].id] ?? AgentThoughtExpansion() },
-                            set: { setThoughtExpansion(messages[0].id, $0) }
-                        ),
-                        onOpenFile: onOpenFile
-                    )
+                    AgentStoredExpansion(store: expansions, sessionID: sessionID, id: messages[0].id) { expansion in
+                        AgentProcessGroupView(
+                            messages: messages,
+                            isStreaming: messages.contains { $0.id == liveProcessMessageID },
+                            searchText: searchText,
+                            expansion: expansion,
+                            onOpenFile: onOpenFile
+                        )
+                    }
                 case .toolGroup(let tools):
                     AgentToolGroupView(messages: tools, searchText: searchText, onOpenFile: onOpenFile)
                 case .turnSummary(let turn, let reply):
                     AgentTurnStatisticsView(statistics: turn, reply: reply)
                 }
             }
-            .background(AgentTranscriptNavigationAnchor(state: navigation, turnID: turnByMessageID[item.navigationMessageID ?? ""]))
+            .background(AgentTranscriptNavigationAnchor(state: navigation, turnID: navigationContent.turnID(forMessage: item.navigationMessageID ?? "")))
             .id(item.id)
         }
         .environment(\.openURL, AgentMarkdownLink.openAction(onOpenFile: onOpenFile))
+    }
+}
+
+extension AgentTranscriptItem {
+    /// A plain user prompt flushes everything before it and opens a navigation
+    /// turn, so the transcript before it can be derived on its own. Claude Code's
+    /// markup, quiet notifications, plans and cards do neither and never qualify.
+    fileprivate static func opensTurn(_ message: AgentConversationMessage) -> Bool {
+        guard message.role == .user, message.plan == nil, message.shownDesktopCard == nil,
+              case .bubble = AgentUserMessagePresentation.of(message) else { return false }
+        return true
+    }
+}
+
+/// Groups the transcript and builds its navigation index without redoing finished
+/// turns. Both results depend on earlier messages only through a turn-opening user
+/// prompt, so everything before the last one is derived once and reused while it is
+/// unchanged; each update then costs about one turn, not the whole conversation.
+@MainActor
+final class AgentTranscriptDerivation {
+    private struct SettledItems {
+        let messages: [AgentConversationMessage]
+        let turns: [AgentTurnStatistics]
+        let items: [AgentTranscriptItem]
+    }
+    private struct SettledNavigation {
+        let messages: [AgentConversationMessage]
+        let block: AgentTranscriptNavigationContent.Block
+    }
+    private var settledItems: SettledItems?
+    private var settledNavigation: SettledNavigation?
+
+    /// Index of the last turn-opening prompt, or 0 when there is nothing to settle.
+    static func splitIndex(_ messages: [AgentConversationMessage]) -> Int {
+        guard let index = messages.lastIndex(where: AgentTranscriptItem.opensTurn) else { return 0 }
+        return index
+    }
+
+    func items(_ messages: [AgentConversationMessage], turns: [AgentTurnStatistics]) -> [AgentTranscriptItem] {
+        let split = Self.splitIndex(messages)
+        guard split > 0 else {
+            settledItems = nil
+            return AgentTranscriptItem.grouped(messages, turns: turns)
+        }
+        let head = messages[..<split]
+        let settled: SettledItems
+        if let cached = settledItems, cached.messages.count == split, cached.turns == turns,
+           cached.messages.elementsEqual(head) {
+            settled = cached
+        } else {
+            let prefix = Array(head)
+            settled = SettledItems(messages: prefix, turns: turns,
+                                   items: AgentTranscriptItem.grouped(prefix, turns: turns))
+            settledItems = settled
+        }
+        return settled.items + AgentTranscriptItem.grouped(Array(messages[split...]), turns: turns)
+    }
+
+    func navigation(messages: [AgentConversationMessage]) -> AgentTranscriptNavigationContent {
+        let split = Self.splitIndex(messages)
+        guard split > 0 else {
+            settledNavigation = nil
+            return AgentTranscriptNavigationContent(messages: messages)
+        }
+        let head = messages[..<split]
+        let block: AgentTranscriptNavigationContent.Block
+        if let cached = settledNavigation, cached.messages.count == split, cached.messages.elementsEqual(head) {
+            block = cached.block
+        } else {
+            let prefix = Array(head)
+            block = AgentTranscriptNavigationContent.Block(messages: prefix)
+            settledNavigation = SettledNavigation(messages: prefix, block: block)
+        }
+        return AgentTranscriptNavigationContent(settled: block, tailMessages: Array(messages[split...]))
+    }
+}
+
+/// Manual open/close choices of thought and process rows, per session. Rows are
+/// destroyed when they scroll away, so the choice lives here; it is a shared
+/// reference, not view state, because changing it must not re-evaluate the
+/// transcript (that work grows with the length of the whole conversation).
+final class AgentThoughtExpansionStore {
+    private var values: [String: [String: AgentThoughtExpansion]] = [:]
+
+    func value(in session: String?, id: String) -> AgentThoughtExpansion {
+        session.flatMap { values[$0]?[id] } ?? AgentThoughtExpansion()
+    }
+
+    func set(_ value: AgentThoughtExpansion, in session: String?, id: String) {
+        guard let session else { return }
+        values[session, default: [:]][id] = value
+    }
+
+    func hasPreferences(in session: String) -> Bool { values[session] != nil }
+
+    func retain(sessions: Set<String>) {
+        values = values.filter { sessions.contains($0.key) }
+    }
+
+    func retain(messageIDs: Set<String>, in session: String) {
+        guard let preferences = values[session] else { return }
+        values[session] = preferences.filter { messageIDs.contains($0.key) }
+    }
+}
+
+/// Owns one row's displayed expansion and mirrors changes into the store, so a
+/// click re-renders this row alone.
+private struct AgentStoredExpansion<Content: View>: View {
+    let store: AgentThoughtExpansionStore
+    let sessionID: String?
+    let id: String
+    @ViewBuilder let content: (Binding<AgentThoughtExpansion>) -> Content
+    @State private var expansion: AgentThoughtExpansion
+
+    init(store: AgentThoughtExpansionStore, sessionID: String?, id: String,
+         @ViewBuilder content: @escaping (Binding<AgentThoughtExpansion>) -> Content) {
+        self.store = store
+        self.sessionID = sessionID
+        self.id = id
+        self.content = content
+        _expansion = State(initialValue: store.value(in: sessionID, id: id))
+    }
+
+    var body: some View {
+        content(Binding(get: { expansion }, set: { value in
+            expansion = value
+            store.set(value, in: sessionID, id: id)
+        }))
     }
 }
 

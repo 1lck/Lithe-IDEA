@@ -55,6 +55,8 @@ final class AppSettings: ObservableObject {
         static let agentCommand = "settings.agentCommand"
         static let agentArguments = "settings.agentArguments"
         static let agentConfigurations = "settings.agentConfigurations"
+        static let agentContextLimits = "settings.agentContextLimits"
+        static let agentContextDefaults = "settings.agentContextDefaults"
         static let agentAccounts = "settings.agentAccounts"
         static let preferredAgentAccountIDs = "settings.preferredAgentAccountIDs"
         static let agentAccountSnapshots = "settings.agentAccountSnapshots"
@@ -211,6 +213,32 @@ final class AppSettings: ObservableObject {
             }
         }
     }
+    /// Invalidates open drafts even when Restore Defaults clears an already-empty override.
+    @Published private(set) var agentContextLimitsResetID = UUID()
+    /// Context length and auto-compact threshold per Agent, keyed like `agentConfigurations`.
+    /// An Agent without an entry keeps its own defaults. Applies after reconnecting.
+    @Published var agentContextLimits: [String: AgentContextLimits] {
+        didSet {
+            if let data = try? JSONEncoder().encode(agentContextLimits) {
+                defaults.set(data, forKey: Key.agentContextLimits)
+            }
+        }
+    }
+    /// The context length each Agent last reported while no limit was set: what
+    /// "default" means for it, shown as the placeholder in Settings › Agents.
+    @Published var agentContextDefaults: [String: UInt64] {
+        didSet {
+            if let data = try? JSONEncoder().encode(agentContextDefaults) {
+                defaults.set(data, forKey: Key.agentContextDefaults)
+            }
+        }
+    }
+    /// Remembers what an Agent reports as its context length when no limit is set.
+    func recordAgentContextDefault(agentID: String, tokens: UInt64) {
+        guard tokens > 0, agentContextDefaults[agentID] != tokens else { return }
+        agentContextDefaults[agentID] = tokens
+    }
+
     /// Extra subscription accounts per Agent, each an isolated CLI configuration
     /// directory. Holds names and paths only; the official CLI owns every credential.
     @Published var agentAccounts: [AgentAccountProfile] {
@@ -335,6 +363,10 @@ final class AppSettings: ObservableObject {
         agentModelCallStatistics = defaults.object(forKey: Key.agentModelCallStatistics) as? Bool ?? true
         agentConfigurations = defaults.data(forKey: Key.agentConfigurations)
             .flatMap { try? JSONDecoder().decode([String: AgentConfiguration].self, from: $0) } ?? [:]
+        agentContextLimits = defaults.data(forKey: Key.agentContextLimits)
+            .flatMap { try? JSONDecoder().decode([String: AgentContextLimits].self, from: $0) } ?? [:]
+        agentContextDefaults = defaults.data(forKey: Key.agentContextDefaults)
+            .flatMap { try? JSONDecoder().decode([String: UInt64].self, from: $0) } ?? [:]
         agentAccounts = defaults.data(forKey: Key.agentAccounts)
             .flatMap { try? JSONDecoder().decode([AgentAccountProfile].self, from: $0) } ?? []
         preferredAgentAccountIDs = defaults.data(forKey: Key.preferredAgentAccountIDs)
@@ -492,6 +524,9 @@ final class AppSettings: ObservableObject {
         agentArguments = ""
         agentModelCallStatistics = true
         agentConfigurations = [:]
+        agentContextLimitsResetID = UUID()
+        agentContextLimits = [:]
+        agentContextDefaults = [:]
         agentAccounts = []
         preferredAgentAccountIDs = [:]
         agentAccountSnapshots = [:]

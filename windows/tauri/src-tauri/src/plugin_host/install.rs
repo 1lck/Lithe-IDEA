@@ -57,7 +57,7 @@ impl PackageBudget {
 }
 
 /// A prepared disk import awaiting user confirmation.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreparedInstall {
     pub session_id: String,
@@ -67,10 +67,13 @@ pub struct PreparedInstall {
     pub manifest_digest: String,
     /// Human-readable display name from the manifest.
     pub display_name: String,
+    /// Host policy for explicit consent to the reviewed permissions and programs.
+    #[serde(skip)]
+    pub(crate) approval_required: bool,
 }
 
 /// Core's install review, reshaped for the frontend.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InstallReview {
     pub plugin_id: String,
@@ -95,6 +98,72 @@ struct SnapshotSource {
     content_digest: String,
     /// Canonical JSON programs of the prepare-time review.
     approved_programs: Vec<String>,
+    #[serde(default)]
+    marketplace: Option<MarketplaceInstallSource>,
+    #[serde(default)]
+    previous_approval: Option<Vec<serde_json::Value>>,
+    #[serde(default)]
+    previous_record_digest: Option<String>,
+}
+
+/// Host-derived source and Core-selected archive identity. It never comes from
+/// an IPC payload: the coordinator resolves it from the current source and index.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MarketplaceInstallSource {
+    pub source_id: String,
+    pub source_name: String,
+    pub index_url: String,
+    pub repository: String,
+    pub archive_url: String,
+    pub archive_sha256: String,
+    pub plugin_id: String,
+    pub version: String,
+    pub official: bool,
+}
+
+/// Reusing an approval requires the exact original source. Disk, unknown and
+/// malformed records cannot grant a marketplace permission to take over an ID.
+pub(crate) fn marketplace_previous_record(
+    install_root: &Path,
+    source: &MarketplaceInstallSource,
+) -> Result<(Option<InstallationRecord>, Option<String>), String> {
+    let bytes = match std::fs::read(
+        install_root
+            .join(&source.plugin_id)
+            .join("installation.json"),
+    ) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            if install_root.join(&source.plugin_id).exists() {
+                return Err("the existing installation has no provenance; it cannot be adopted by a marketplace source".into());
+            }
+            return Ok((None, None));
+        }
+        Err(error) => return Err(format!("the installed source cannot be read: {error}")),
+    };
+    let record: InstallationRecord = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("the installed source cannot be read: {error}"))?;
+    let provenance = record
+        .marketplace
+        .as_ref()
+        .ok_or("disk installations cannot be taken over by a marketplace source")?;
+    if record.schema_version != 2
+        || record.plugin_id != source.plugin_id
+        || record.disk.is_some()
+        || provenance.source_id != source.source_id
+        || provenance.index_url != source.index_url
+        || !matches!(
+            record.origin,
+            Some(
+                super::signature::InstallOrigin::Community
+                    | super::signature::InstallOrigin::Marketplace
+            )
+        )
+    {
+        return Err("marketplace updates must use the original installation source".into());
+    }
+    Ok((Some(record), Some(format!("{:x}", Sha256::digest(&bytes)))))
 }
 
 /// Prepares a disk import from a ZIP archive or an unpacked directory. The
@@ -120,6 +189,34 @@ pub(crate) fn prepare_disk_install_snapshot(
     session_id: &str,
     source_path: &str,
 ) -> Result<PreparedInstall, String> {
+    prepare_install_snapshot(temporary_root, session_id, source_path, None)
+}
+
+pub(crate) fn prepare_marketplace_install_snapshot(
+    install_root: &Path,
+    temporary_root: &Path,
+    session_id: &str,
+    archive: &Path,
+    source: &MarketplaceInstallSource,
+) -> Result<PreparedInstall, String> {
+    let previous = marketplace_previous_record(install_root, source)?;
+    prepare_install_snapshot(
+        temporary_root,
+        session_id,
+        archive.to_str().ok_or("the archive path is not UTF-8")?,
+        Some((source, previous)),
+    )
+}
+
+fn prepare_install_snapshot(
+    temporary_root: &Path,
+    session_id: &str,
+    source_path: &str,
+    marketplace: Option<(
+        &MarketplaceInstallSource,
+        (Option<InstallationRecord>, Option<String>),
+    )>,
+) -> Result<PreparedInstall, String> {
     let snapshot = validated_session_path(temporary_root, session_id)?;
     std::fs::create_dir_all(temporary_root).map_err(|error| error.to_string())?;
     let source = PathBuf::from(source_path);
@@ -144,6 +241,11 @@ pub(crate) fn prepare_disk_install_snapshot(
                 source.display()
             ));
         }
+        if let Some(expected) = archive_sha256.as_deref() {
+            if archive_digest(&source)? != expected {
+                return Err("the archive changed while preparing its private snapshot".into());
+            }
+        }
         let manifest = read_package_manifest(&snapshot)?;
         let plugin_id = manifest["id"]
             .as_str()
@@ -157,12 +259,23 @@ pub(crate) fn prepare_disk_install_snapshot(
         // document must already verify here, and an unsigned package must be
         // community-installable, so the review cannot be offered for bytes
         // the host would refuse anyway.
+        let market_source = marketplace.as_ref().map(|(source, _)| *source);
+        if let Some(source) = market_source {
+            if plugin_id != source.plugin_id
+                || version != source.version
+                || archive_sha256.as_deref() != Some(source.archive_sha256.as_str())
+            {
+                return Err(
+                    "the downloaded package does not match its Core-selected archive".into(),
+                );
+            }
+        }
         super::signature::verify_for_install(
             &snapshot,
             &plugin_id,
             &version,
             &manifest,
-            super::signature::InstallOrigin::Community,
+            marketplace_origin(market_source),
             None,
             &super::signature::trusted_keys(),
         )
@@ -171,7 +284,25 @@ pub(crate) fn prepare_disk_install_snapshot(
         // the install to exactly these bytes.
         let frozen_digest =
             super::signature::content_digest(&snapshot).map_err(|error| error.message())?;
-        let review = review_snapshot(&manifest, None)?;
+        let previous_approval = marketplace
+            .as_ref()
+            .and_then(|(_, (record, _))| record.as_ref())
+            .and_then(|record| record.marketplace.as_ref())
+            .map(|provenance| {
+                provenance
+                    .approved_programs
+                    .iter()
+                    .map(|program| serde_json::from_str(program).map_err(|error| error.to_string()))
+                    .collect::<Result<Vec<serde_json::Value>, String>>()
+            })
+            .transpose()?;
+        let review =
+            review_snapshot_with_source(&manifest, previous_approval.as_deref(), market_source)?;
+        // Existing provenance records program approvals, not permission grants.
+        // An unchanged program list cannot prove that new permissions (such as
+        // ui.web) were approved. Require explicit consent for every snapshot
+        // until the approval contract can preserve both facts together.
+        let approval_required = true;
         // Source facts live beside the snapshot, not inside it: every file
         // under the snapshot becomes an installed package file.
         std::fs::write(
@@ -182,11 +313,17 @@ pub(crate) fn prepare_disk_install_snapshot(
                 manifest_digest: manifest_replay_digest(&manifest),
                 content_digest: frozen_digest,
                 approved_programs: canonical_programs(&review.programs),
+                marketplace: market_source.cloned(),
+                previous_approval,
+                previous_record_digest: marketplace
+                    .as_ref()
+                    .and_then(|(_, (_, digest))| digest.clone()),
             })
             .map_err(|error| error.to_string())?,
         )
         .map_err(|error| error.to_string())?;
         Ok(PreparedInstall {
+            approval_required,
             session_id: session_id.to_string(),
             review,
             manifest_digest: manifest_replay_digest(&manifest),
@@ -282,7 +419,7 @@ pub(crate) fn discard_install_session_for_tests(
     discard_install_session(temporary_root, session_id, snapshot)
 }
 
-fn discard_install_session(temporary_root: &Path, session_id: &str, snapshot: &Path) {
+pub(crate) fn discard_install_session(temporary_root: &Path, session_id: &str, snapshot: &Path) {
     discard_snapshot(snapshot);
     discard_source_metadata(temporary_root, session_id);
 }
@@ -360,12 +497,66 @@ pub(crate) fn confirm_disk_install_snapshot(
     session_id: &str,
     manifest_digest: &str,
 ) -> Result<ConfirmedDiskInstall, String> {
+    confirm_install_snapshot(
+        install_root,
+        temporary_root,
+        session_id,
+        manifest_digest,
+        None,
+    )
+}
+
+pub(crate) fn confirm_marketplace_install_snapshot(
+    install_root: &Path,
+    temporary_root: &Path,
+    session_id: &str,
+    manifest_digest: &str,
+    expected: &MarketplaceInstallSource,
+) -> Result<ConfirmedDiskInstall, String> {
+    confirm_install_snapshot(
+        install_root,
+        temporary_root,
+        session_id,
+        manifest_digest,
+        Some(expected),
+    )
+}
+
+fn marketplace_origin(
+    source: Option<&MarketplaceInstallSource>,
+) -> super::signature::InstallOrigin {
+    if source.is_some_and(|source| source.official) {
+        super::signature::InstallOrigin::Marketplace
+    } else {
+        super::signature::InstallOrigin::Community
+    }
+}
+
+fn confirm_install_snapshot(
+    install_root: &Path,
+    temporary_root: &Path,
+    session_id: &str,
+    manifest_digest: &str,
+    expected_marketplace: Option<&MarketplaceInstallSource>,
+) -> Result<ConfirmedDiskInstall, String> {
     let snapshot = validated_session_path(temporary_root, session_id)?;
     let source: SnapshotSource = serde_json::from_str(
         &std::fs::read_to_string(snapshot_source_path(temporary_root, session_id))
             .map_err(|error| format!("the install session has no source record: {error}"))?,
     )
     .map_err(|error| format!("the install session source record is unreadable: {error}"))?;
+    if source.marketplace.as_ref() != expected_marketplace {
+        return Err("the install channel or marketplace selection changed after review".into());
+    }
+    if let Some(expected) = expected_marketplace {
+        let (_, digest) = marketplace_previous_record(install_root, expected)?;
+        if digest != source.previous_record_digest {
+            return Err(
+                "the installed version or approvals changed; prepare a new marketplace review"
+                    .into(),
+            );
+        }
+    }
     let manifest = read_package_manifest(&snapshot)?;
     // The caller echoes the manifest digest it reviewed; the session record
     // freezes it independently, so a tampered caller cannot bless new bytes.
@@ -381,10 +572,14 @@ pub(crate) fn confirm_disk_install_snapshot(
     if package_digest != source.content_digest {
         return Err("the package changed after review; the import was cancelled".to_string());
     }
-    // Re-review with no previously approved programs: a disk install always
-    // requires a fresh full confirmation, matching the macOS rule. Its
-    // identity must still be the one the user saw at prepare.
-    let review = review_snapshot(&manifest, None)?;
+    // Disk always reviews every program afresh. Marketplace reviews compare the
+    // same original-source approval that prepare froze; the durable record must
+    // still match before those approvals can be reused.
+    let review = review_snapshot_with_source(
+        &manifest,
+        source.previous_approval.as_deref(),
+        expected_marketplace,
+    )?;
     if canonical_programs(&review.programs) != source.approved_programs {
         return Err(
             "the reviewed programs changed after the package was prepared; the import was \
@@ -401,10 +596,15 @@ pub(crate) fn confirm_disk_install_snapshot(
         .ok_or("manifest has no version")?
         .to_string();
 
+    if let Some(expected) = expected_marketplace {
+        if plugin_id != expected.plugin_id || version != expected.version {
+            return Err("the reviewed package no longer matches the marketplace selection".into());
+        }
+    }
     // Validate the final manifest against this host's capabilities before
     // anything is written into the install root.
     validate_manifest(&manifest).map_err(|rejection| rejection.message)?;
-    // Disk installs are community origin. The pinned trust policy still
+    // The pinned trust policy still
     // applies (an official ID cannot install as an unsigned community
     // package), and a signature document present in the package must
     // verify even though the community digest is the recorded evidence.
@@ -413,7 +613,7 @@ pub(crate) fn confirm_disk_install_snapshot(
         &plugin_id,
         &version,
         &manifest,
-        super::signature::InstallOrigin::Community,
+        marketplace_origin(expected_marketplace),
         None,
         &super::signature::trusted_keys(),
     )
@@ -462,12 +662,28 @@ pub(crate) fn confirm_disk_install_snapshot(
         plugin_id: plugin_id.clone(),
         version: version.clone(),
         previous_version,
-        enabled: true,
-        origin: Some(super::signature::InstallOrigin::Community),
+        enabled: if expected_marketplace.is_some() {
+            existing
+                .as_ref()
+                .map(|record| record.enabled)
+                .unwrap_or(true)
+        } else {
+            true
+        },
+        origin: Some(marketplace_origin(expected_marketplace)),
         previous_origin,
-        marketplace: None,
+        marketplace: expected_marketplace.map(|market| store::MarketplaceProvenance {
+            source_id: market.source_id.clone(),
+            source_name: market.source_name.clone(),
+            repository: market.repository.clone(),
+            index_url: market.index_url.clone(),
+            archive_url: market.archive_url.clone(),
+            archive_sha256: market.archive_sha256.clone(),
+            content_digest: package_digest.clone(),
+            approved_programs: source.approved_programs.clone(),
+        }),
         previous_marketplace,
-        disk: Some(DiskProvenance {
+        disk: expected_marketplace.is_none().then(|| DiskProvenance {
             file_name: source.file_name,
             archive_sha256: source.archive_sha256,
             // The approved bytes are the ones prepare froze, re-checked above.
@@ -502,7 +718,7 @@ fn snapshot_path(app: &AppHandle, session_id: &str) -> Result<PathBuf, String> {
     validated_session_path(&snapshot_root(&app)?, session_id)
 }
 
-fn snapshot_root(app: &AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn snapshot_root(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(app
         .path()
         .app_local_data_dir()
@@ -515,7 +731,10 @@ fn snapshot_source_path(temporary_root: &Path, session_id: &str) -> PathBuf {
 }
 
 /// Resolves and validates the snapshot directory of one review session.
-fn validated_session_path(temporary_root: &Path, session_id: &str) -> Result<PathBuf, String> {
+pub(crate) fn validated_session_path(
+    temporary_root: &Path,
+    session_id: &str,
+) -> Result<PathBuf, String> {
     if !session_id.starts_with(SNAPSHOT_PREFIX)
         || session_id.contains('/')
         || session_id.contains('\\')
@@ -536,6 +755,7 @@ pub async fn declarative_plugins_uninstall(
     app: AppHandle,
     plugin_id: String,
 ) -> Result<(), String> {
+    super::marketplace::cancel_plugin(&app, &plugin_id);
     let install_root = store::install_root(&app)?;
     let plugin_directory = install_root.join(&plugin_id);
     if !plugin_directory.is_dir() {
@@ -562,6 +782,7 @@ pub async fn declarative_plugins_set_enabled(
     plugin_id: String,
     enabled: bool,
 ) -> Result<(), String> {
+    super::marketplace::cancel_plugin(&app, &plugin_id);
     let install_root = store::install_root(&app)?;
     let record_path = install_root.join(&plugin_id).join("installation.json");
     let mut record: InstallationRecord = serde_json::from_str(
@@ -593,6 +814,7 @@ pub async fn declarative_plugins_set_enabled(
 /// package so a broken update cannot leave it disabled and forgotten.
 #[tauri::command]
 pub async fn declarative_plugins_rollback(app: AppHandle, plugin_id: String) -> Result<(), String> {
+    super::marketplace::cancel_plugin(&app, &plugin_id);
     let install_root = store::install_root(&app)?;
     let plugin_directory = install_root.join(&plugin_id);
     let record: InstallationRecord = serde_json::from_str(
@@ -640,9 +862,10 @@ pub async fn declarative_plugins_rollback(app: AppHandle, plugin_id: String) -> 
 
 // MARK: helpers
 
-fn review_snapshot(
+fn review_snapshot_with_source(
     manifest: &serde_json::Value,
     approved_programs: Option<&[serde_json::Value]>,
+    marketplace: Option<&MarketplaceInstallSource>,
 ) -> Result<InstallReview, String> {
     let outcome = core_execute(
         "plugins.marketplace.installReview",
@@ -650,6 +873,8 @@ fn review_snapshot(
             "manifest": manifest,
             "hostCapabilities": super::host_capabilities(),
             "approvedPrograms": approved_programs,
+            "expectedID": marketplace.map(|source| source.plugin_id.as_str()),
+            "expectedVersion": marketplace.map(|source| source.version.as_str()),
         }),
     )?;
     if outcome["status"] == serde_json::json!("rejected") {
@@ -705,7 +930,49 @@ pub(crate) fn publish_installed_version_with_backup_cleanup(
     record: InstallationRecord,
     cleanup_backup: &dyn Fn(&Path) -> std::io::Result<()>,
 ) -> Result<(), String> {
+    publish_installed_version_using_commit(
+        install_root,
+        plugin_id,
+        version,
+        source,
+        record,
+        cleanup_backup,
+        &|activate| activate(),
+    )
+}
+
+/// Shares the complete M1 staging and trust transaction while allowing a native
+/// owner to recheck cancellation/source ownership at the final activation boundary.
+pub(crate) fn publish_installed_version_guarded(
+    install_root: &Path,
+    plugin_id: &str,
+    version: &str,
+    source: &Path,
+    record: InstallationRecord,
+    commit: &dyn Fn(&mut dyn FnMut() -> Result<(), String>) -> Result<(), String>,
+) -> Result<(), String> {
+    publish_installed_version_using_commit(
+        install_root,
+        plugin_id,
+        version,
+        source,
+        record,
+        &|path| std::fs::remove_dir_all(path),
+        commit,
+    )
+}
+
+fn publish_installed_version_using_commit(
+    install_root: &Path,
+    plugin_id: &str,
+    version: &str,
+    source: &Path,
+    record: InstallationRecord,
+    cleanup_backup: &dyn Fn(&Path) -> std::io::Result<()>,
+    commit: &dyn Fn(&mut dyn FnMut() -> Result<(), String>) -> Result<(), String>,
+) -> Result<(), String> {
     let plugin_directory = install_root.join(plugin_id);
+    let created_plugin_directory = !plugin_directory.exists();
     std::fs::create_dir_all(&plugin_directory).map_err(|error| error.to_string())?;
     // Leftover recovery backups of any version are judged before anything is
     // staged, directed by the durable record's approved digest.
@@ -756,17 +1023,26 @@ pub(crate) fn publish_installed_version_with_backup_cleanup(
                 return Err(super::signature::TrustError::ContentChanged.message());
             }
         }
-        activate_staged_version_and_record(
-            &staging_directory,
-            &version_directory,
-            install_root,
-            version,
-            &record,
-            cleanup_backup,
-        )
+        commit(&mut || {
+            activate_staged_version_and_record(
+                &staging_directory,
+                &version_directory,
+                install_root,
+                version,
+                &record,
+                &|_| Ok(()),
+            )
+        })
     })();
     if result.is_err() {
         let _ = std::fs::remove_dir_all(&staging_directory);
+        if created_plugin_directory {
+            let _ = std::fs::remove_dir(&plugin_directory);
+        }
+    } else {
+        // Backup removal is best effort after the durable commit. Keep this
+        // potentially large IO outside the owner's short activation lock.
+        let _ = cleanup_backup(&plugin_directory.join(format!("{version}.previous-tmp")));
     }
     result
 }
@@ -1275,7 +1551,7 @@ fn string_list(value: &serde_json::Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn rescan_after_change(app: &AppHandle) -> Result<(), String> {
+pub(crate) fn rescan_after_change(app: &AppHandle) -> Result<(), String> {
     app.state::<PluginHostState>()
         .refresh(|| super::scan::build_catalog(app))
         .map(|_| ())
@@ -1312,12 +1588,18 @@ fn discard_snapshot(snapshot: &Path) {
 
 /// Time- and process-derived suffix; uniqueness across sessions is what the
 /// snapshot directory needs, not cryptographic randomness.
-fn uuid_like_suffix() -> String {
+pub(crate) fn uuid_like_suffix() -> String {
+    static SESSION_SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_nanos())
         .unwrap_or_default();
-    format!("{}-{:x}", std::process::id(), nanos)
+    format!(
+        "{}-{:x}-{:x}",
+        std::process::id(),
+        nanos,
+        SESSION_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    )
 }
 
 /// Removes snapshots left behind by a crashed review session at startup.
@@ -1334,7 +1616,7 @@ pub fn cleanup_stale_snapshots(app: &AppHandle) {
     };
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
-        if name.starts_with(SNAPSHOT_PREFIX) {
+        if name.starts_with(SNAPSHOT_PREFIX) || name.starts_with("marketplace-download-") {
             // Snapshot directories and their `.source.json` sidecar records
             // share the session-id prefix.
             if entry.path().is_dir() {

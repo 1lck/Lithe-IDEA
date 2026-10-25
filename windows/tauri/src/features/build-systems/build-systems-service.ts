@@ -3,7 +3,12 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@/platform/tauri-core";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
-import type { BuildCatalogEntry, BuildView } from "./build-systems-types";
+import type {
+  BuildCatalogEntry,
+  BuildView,
+  BuildModelReview,
+  BuildModelLoadResult,
+} from "./build-systems-types";
 import {
   BUILD_SYSTEMS_STORE_KEY,
   useBuildSystemsStore,
@@ -50,6 +55,123 @@ let lastCatalogSequence = 0;
 let registryTail: Promise<unknown> = Promise.resolve();
 let activeWorkspaceId = workspaceRuntimeRegistry.getActiveWorkspaceId();
 let activationEpoch = 0;
+
+interface PendingModelLoad {
+  workspaceId: string;
+  pluginId: string;
+  operationId: string | null;
+  controller: AbortController;
+}
+const pendingModelLoads = new Set<PendingModelLoad>();
+
+function cancelModelLoads(predicate: (pending: PendingModelLoad) => boolean): void {
+  for (const pending of pendingModelLoads) {
+    if (!predicate(pending)) continue;
+    pending.controller.abort();
+    if (pending.operationId) {
+      void invoke("declarative_plugins_build_cancel_operation", {
+        operationId: pending.operationId,
+      }).catch(() => {});
+    }
+  }
+}
+
+/** Approval owns its dialog until resolved or aborted by a workspace/lifecycle change. */
+export type ApproveBuildModel = (review: BuildModelReview, signal: AbortSignal) => Promise<boolean>;
+
+async function awaitModelApproval(
+  review: BuildModelReview,
+  approve: ApproveBuildModel,
+  signal: AbortSignal,
+): Promise<boolean> {
+  if (signal.aborted) return false;
+  let onAbort: () => void = () => {};
+  const aborted = new Promise<boolean>((resolve) => {
+    onAbort = () => resolve(false);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  try {
+    return await Promise.race([approve(review, signal), aborted]);
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
+}
+
+/** Explicit action only. Passive detection never calls this operation. */
+export async function loadBuildModel(
+  pluginId: string,
+  buildSystemId: string,
+  root: string,
+  approve: ApproveBuildModel,
+  runtimeExecutables: Record<string, string> = {},
+): Promise<BuildModelLoadResult | null> {
+  const { store, workspaceId, workspaceRoot, isCurrent } = initiatingStore();
+  if (!workspaceRoot) return null;
+  const pending: PendingModelLoad = {
+    workspaceId,
+    pluginId,
+    operationId: null,
+    controller: new AbortController(),
+  };
+  pendingModelLoads.add(pending);
+  let request: ReturnType<BuildSystemsState["actions"]["beginRequest"]> | null = null;
+  let completed = false;
+  const stillCurrent = () =>
+    !pending.controller.signal.aborted && isCurrent() && !store.getState().revokedPlugins[pluginId];
+  try {
+    const review = await enqueueRegistryOperation(() =>
+      stillCurrent()
+        ? invoke<BuildModelReview>("declarative_plugins_build_prepare_model", {
+            workspaceRoot,
+            pluginId,
+            buildSystemId,
+            root,
+            runtimeExecutables: { ...runtimeExecutables },
+          })
+        : Promise.resolve(null),
+    );
+    if (!review) return null;
+    pending.operationId = review.operationId;
+    if (
+      !stillCurrent() ||
+      !(await awaitModelApproval(review, approve, pending.controller.signal)) ||
+      !stillCurrent()
+    )
+      return null;
+    request = store.getState().actions.beginRequest();
+    // Execution must not occupy registryTail: refresh/revoke/close must be
+    // able to reach native cancellation while a model process is running.
+    const result = await invoke<BuildModelLoadResult>("declarative_plugins_build_load_model", {
+      operationId: review.operationId,
+    });
+    completed = true;
+    if (!stillCurrent() || result.operationId !== review.operationId) return null;
+    store.getState().actions.applyView(result.view, request);
+    return result;
+  } catch (error) {
+    if (stillCurrent()) {
+      if (request) store.getState().actions.fail(failureMessage(error), request);
+      throw error;
+    }
+    return null;
+  } finally {
+    pendingModelLoads.delete(pending);
+    pending.controller.abort();
+    if (request) store.getState().actions.cancelRequest(request);
+    if (!completed && pending.operationId) {
+      await invoke("declarative_plugins_build_cancel_operation", {
+        operationId: pending.operationId,
+      });
+    }
+  }
+}
+
+export async function cancelBuildModel(operationId: string): Promise<void> {
+  for (const pending of pendingModelLoads) {
+    if (pending.operationId === operationId) pending.controller.abort();
+  }
+  await invoke("declarative_plugins_build_cancel_operation", { operationId });
+}
 
 function captureActivationEpoch(): number {
   const nextId = workspaceRuntimeRegistry.getActiveWorkspaceId();
@@ -120,6 +242,7 @@ function failureMessage(error: unknown): string {
  */
 export async function refreshBuildSystems(): Promise<BuildCatalogEntry[]> {
   const { workspaceId, store, workspaceRoot, isCurrent } = initiatingStore();
+  cancelModelLoads((pending) => pending.workspaceId === workspaceId);
   if (!workspaceRoot) {
     store.getState().actions.reset();
     return fetchBuildCatalog();
@@ -278,6 +401,7 @@ export async function acquireBuildSyncWatcher(): Promise<() => void> {
  * replaced, or uninstalled.
  */
 async function revokePlugin(pluginId: string): Promise<void> {
+  cancelModelLoads((pending) => pending.pluginId === pluginId);
   const sequence = ++catalogSequence;
   applyCatalog(
     useBuildSystemsCatalogStore.getState().entries.filter((entry) => entry.pluginId !== pluginId),
@@ -356,6 +480,7 @@ function subscribeWorkspaceActivations(): () => void {
     if (nextWorkspaceId === observedWorkspaceId) {
       return;
     }
+    cancelModelLoads((pending) => pending.workspaceId === observedWorkspaceId);
     observedWorkspaceId = nextWorkspaceId;
     captureActivationEpoch();
     void refreshBuildSystems().catch(() => {});
@@ -379,6 +504,7 @@ export async function startBuildSystemsRuntime(): Promise<() => void> {
       return;
     }
     cleaned = true;
+    cancelModelLoads(() => true);
     if (hasWindow) {
       window.removeEventListener("pagehide", onPageHide);
     }

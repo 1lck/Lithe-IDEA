@@ -18,11 +18,14 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 /// One verified package as the build pipeline should see it. The version
 /// comes from the same trust check as the manifest, so a session can detect
 /// a package replacement between operations.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct BuildPackageInput {
     pub plugin_id: String,
     pub version: String,
     pub manifest: Value,
+    /// Canonical installation identity plus live whole-package digest,
+    /// including same-version replacements and package relocations.
+    pub content_identity: String,
 }
 
 /// Executes one Core `build.*` command through the shared envelope.
@@ -77,6 +80,7 @@ struct BuildSession {
     version: String,
     /// The manifest of the owning package, for plan-shaped Core calls.
     manifest: Value,
+    content_identity: String,
     /// Core's detect instance, including the static model when it has one.
     instance: Value,
     /// `build.resolveOptions` description: kinds, choices, effective values.
@@ -116,9 +120,158 @@ pub struct BuildRegistry {
     windows: HashMap<String, WindowState>,
 }
 
+/// Frozen semantic input for an explicit model load. The host operation
+/// coordinator owns execution and checks this snapshot again before writes.
+#[derive(Debug, Clone)]
+pub(crate) struct BuildModelContext {
+    pub window_label: String,
+    pub workspace_root: String,
+    pub generation: u64,
+    pub plugin_id: String,
+    pub build_system_id: String,
+    pub root: String,
+    pub package: BuildPackageInput,
+    pub options: BTreeMap<String, Value>,
+}
+
 impl BuildRegistry {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub(crate) fn model_context(
+        &self,
+        window_label: &str,
+        workspace_root: &str,
+        plugin_id: &str,
+        build_system_id: &str,
+        root: &str,
+    ) -> Result<BuildModelContext, String> {
+        let window = self
+            .windows
+            .get(window_label)
+            .ok_or("plugin.build.staleContext")?;
+        if window.workspace_root.as_deref() != Some(workspace_root) {
+            return Err("plugin.build.staleContext".into());
+        }
+        let session = window
+            .sessions
+            .get(&(plugin_id.into(), build_system_id.into(), root.into()))
+            .ok_or("plugin.build.staleContext")?;
+        Ok(BuildModelContext {
+            window_label: window_label.into(),
+            workspace_root: workspace_root.into(),
+            generation: window.generation,
+            plugin_id: plugin_id.into(),
+            build_system_id: build_system_id.into(),
+            root: root.into(),
+            package: BuildPackageInput {
+                plugin_id: plugin_id.into(),
+                version: session.version.clone(),
+                manifest: session.manifest.clone(),
+                content_identity: session.content_identity.clone(),
+            },
+            options: session.effective_options.clone(),
+        })
+    }
+
+    pub(crate) fn context_is_current(&self, context: &BuildModelContext) -> bool {
+        let Some(window) = self.windows.get(&context.window_label) else {
+            return false;
+        };
+        if window.generation != context.generation
+            || window.workspace_root.as_deref() != Some(context.workspace_root.as_str())
+        {
+            return false;
+        }
+        window
+            .sessions
+            .get(&(
+                context.plugin_id.clone(),
+                context.build_system_id.clone(),
+                context.root.clone(),
+            ))
+            .is_some_and(|session| {
+                session.version == context.package.version
+                    && session.content_identity == context.package.content_identity
+                    && session.manifest == context.package.manifest
+                    && session.effective_options == context.options
+            })
+    }
+
+    /// Apply only the result of the exact operation snapshot. Model choices
+    /// and the sync baseline still come from Core, just as on the static path.
+    pub(crate) fn apply_command_model(
+        &mut self,
+        core: &dyn BuildCoreExecutor,
+        context: &BuildModelContext,
+        model: Value,
+        fingerprint_before: &str,
+    ) -> Result<BuildView, String> {
+        if !self.context_is_current(context) {
+            return Err("plugin.build.staleContext".into());
+        }
+        let window = self
+            .windows
+            .get_mut(&context.window_label)
+            .ok_or("plugin.build.staleContext")?;
+        let key = (
+            context.plugin_id.clone(),
+            context.build_system_id.clone(),
+            context.root.clone(),
+        );
+        let previous = window
+            .sessions
+            .get(&key)
+            .ok_or("plugin.build.staleContext")?;
+        let mut instance = previous.instance.clone();
+        instance["model"] = model;
+        instance
+            .as_object_mut()
+            .ok_or("invalid build instance")?
+            .remove("modelError");
+        let mut session = resolve_session(
+            core,
+            &instance,
+            Some(&context.package),
+            &context.options,
+            BTreeSet::new(),
+        )?;
+        let after = sync_fingerprint(
+            core,
+            &context.workspace_root,
+            &session,
+            &context.package.manifest,
+        )?;
+        session.stale = fingerprint_before != after;
+        session.sync_digest = Some(after);
+        window.sessions.insert(key, session);
+        Ok(self.view(&context.window_label))
+    }
+
+    pub(crate) fn model_fingerprint(
+        &self,
+        core: &dyn BuildCoreExecutor,
+        context: &BuildModelContext,
+    ) -> Result<String, String> {
+        if !self.context_is_current(context) {
+            return Err("plugin.build.staleContext".into());
+        }
+        let session = &self.windows[&context.window_label].sessions[&(
+            context.plugin_id.clone(),
+            context.build_system_id.clone(),
+            context.root.clone(),
+        )];
+        sync_fingerprint(
+            core,
+            &context.workspace_root,
+            session,
+            &context.package.manifest,
+        )
+    }
+
+    pub(crate) fn close_window(&mut self, window_label: &str) {
+        self.windows.remove(window_label);
     }
 
     /// Re-detects every instance of the workspace for one window. A changed
@@ -302,6 +455,11 @@ impl BuildRegistry {
             persistence.save(workspace_root, &stored)?;
         }
         let window = self.windows.entry(window_label.to_string()).or_default();
+        // Even a same-workspace refresh replaces the model/options snapshot.
+        // Preserve the first-generation contract, invalidate subsequent loads.
+        if !window.sessions.is_empty() {
+            window.generation += 1;
+        }
         window.sessions = sessions;
         window.issues = issues;
         Ok(self.view(window_label))
@@ -706,6 +864,7 @@ fn resolve_session(
         root: root.clone(),
         version: package.version,
         manifest: package.manifest,
+        content_identity: package.content_identity,
         instance: instance.clone(),
         effective_options: effective_map(&description),
         options_description: description,

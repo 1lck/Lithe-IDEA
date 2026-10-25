@@ -108,6 +108,11 @@ function Invoke-TimedRustTests {
             # 287 Git processes; this integration case measured 49.9s on Windows.
             $arguments += @("--test-budget", "tests::git_workspace_commit::git_workspace_commit_push_confirms_each_repository_separately=60000")
         }
+        if (-not $Package -and $Manifest -eq "windows/tauri/src-tauri/Cargo.toml") {
+            # This real-Git integration case took 14.4s locally, while its
+            # repository initialization exceeded the former 5s Core deadline.
+            $arguments += @("--test-budget", "platform::tests::lightweight_tag_overrides_default_signing_without_running_signer_or_editor=30000")
+        }
         return $arguments
     }
 

@@ -76,6 +76,24 @@ export interface BuildView {
   issues: BuildIssue[];
 }
 
+/** A single-use native review, bound to the calling window and generation. */
+export interface BuildModelReview {
+  operationId: string;
+  pluginId: string;
+  buildSystemId: string;
+  workspaceRoot: string;
+  root: string;
+  generation: number;
+  executesProjectCode: boolean;
+  mayUseNetwork: boolean;
+}
+
+export interface BuildModelLoadResult {
+  operationId: string;
+  view: BuildView;
+  stderr: string;
+}
+
 /** Declared build system of one enabled plugin, for window registration. */
 export interface BuildCatalogEntry {
   pluginId: string;

@@ -19,7 +19,7 @@ import urllib.request
 from ctypes import wintypes
 from pathlib import Path
 
-from playwright.sync_api import Page, Playwright, sync_playwright
+from playwright.sync_api import Page, Playwright, expect, sync_playwright
 
 
 PLUGIN_ID = "io.github.lithe-acceptance.host"
@@ -77,8 +77,15 @@ class OwnedProcess:
                 # CIM serializes creation times at microsecond precision.
                 if creation_time // 10 != int(expected.get("CreationTime", -1)) // 10:
                     return None
-                if os.path.normcase(image.value) != os.path.normcase(expected.get("ExecutablePath") or ""):
-                    return None
+                expected_image = expected.get("ExecutablePath") or ""
+                if os.path.normcase(image.value) != os.path.normcase(expected_image):
+                    # CIM can preserve a runtime-manager junction while the
+                    # retained handle reports the executable's physical path.
+                    try:
+                        if not os.path.samefile(image.value, expected_image):
+                            return None
+                    except OSError:
+                        return None
             result = cls(pid, handle, creation_time, image.value)
             handle = None
             return result
@@ -621,7 +628,37 @@ def close_settings(page: Page) -> None:
 
 
 def plugin_row(page: Page):
-    return page.locator("[data-testid='declarative-plugin-list'] > li").filter(has_text=DISPLAY_NAME)
+    # List children are state groups; identify the actual installed package,
+    # including when a bundled package has the same ID or display name.
+    return page.locator(
+        "[data-testid='declarative-plugin-list'] "
+        f"[data-plugin-id='{PLUGIN_ID}'][data-plugin-source='installed']"
+    )
+
+
+def select_plugin_details(page: Page, timeout_ms: int = 30_000):
+    row = plugin_row(page)
+    expect(row).to_have_count(1, timeout=timeout_ms)
+    row.get_by_role("button").click(timeout=timeout_ms)
+    # Management actions belong to the selected detail panel, outside the
+    # grouped list. Scope the region to settings so other surfaces cannot win.
+    details = page.locator("[data-settings-content='declarative-plugins']").get_by_role(
+        "region", name=DISPLAY_NAME, exact=True
+    )
+    expect(details).to_be_visible(timeout=timeout_ms)
+    return details
+
+
+def set_plugin_enabled(page: Page, enabled: bool, timeout_ms: int = 30_000) -> None:
+    details = select_plugin_details(page, timeout_ms)
+    details.get_by_role("button", name="Enable" if enabled else "Disable", exact=True).click(
+        timeout=timeout_ms
+    )
+    # Native catalog publication can precede React's detail refresh. Do not
+    # attempt the inverse action until the selected panel reflects completion.
+    expect(details.get_by_role("button", name="Disable" if enabled else "Enable", exact=True)).to_be_visible(
+        timeout=timeout_ms
+    )
 
 
 def wait_catalog(page: Page, version: str | None = None, enabled: bool | None = None):
@@ -660,10 +697,16 @@ def cancel_review(page: Page, review) -> None:
 
 def open_fixture_file(page: Page, file_name: str = "acceptance.litheaccept") -> None:
     close_settings(page)
+    root = page.locator("[role='treeitem'][data-root='true']")
+    root.wait_for(state="visible", timeout=30_000)
+    if root.get_attribute("aria-expanded") == "false":
+        root.locator("[data-sidebar-tree-disclosure]").click()
+    expect(root).to_have_attribute("aria-expanded", "true", timeout=15_000)
     existing = page.get_by_role("tab", name=re.compile(rf"^{re.escape(file_name)}"))
     if existing.count() > 0:
-        existing.first.click(button="middle")
-        existing.first.wait_for(state="detached", timeout=15000)
+        existing.first.hover()
+        existing.first.get_by_role("button").click()
+        expect(existing).to_have_count(0, timeout=15_000)
     entry = page.get_by_text(file_name, exact=True)
     entry.first.wait_for(state="visible", timeout=30_000)
     entry.first.dblclick()
@@ -894,7 +937,8 @@ def main() -> int:
                 finish_onboarding(page)
                 open_plugin_settings(page)
                 wait_catalog(page, "1.0.0", True)
-                assert plugin_row(page).count() == 1
+                # Native catalog queries can finish before React publishes its list.
+                expect(plugin_row(page)).to_have_count(1, timeout=30_000)
 
             lsp_started = False
             try:
@@ -932,39 +976,28 @@ def main() -> int:
                     open_fixture_file(page)
                     all_owned_fixture_pids.update(wait_for_server_count(state_root, 2))
                 with reporter.step("two product windows revoke both owned process trees on disable"):
-                    known_pages = {
-                        candidate
-                        for context in session.browser.contexts
-                        for candidate in context.pages
-                    }
-                    invoke(page, "create_app_window", {"request": {
-                        "type": "path", "path": str(args.workspace_two.resolve()), "isDirectory": True,
-                    }})
-
-                    def second_product_page():
-                        for context in session.browser.contexts:
-                            for candidate in context.pages:
-                                if candidate not in known_pages:
-                                    try:
-                                        if candidate.evaluate("() => Boolean(window.__TAURI_INTERNALS__?.invoke)"):
-                                            return candidate
-                                    except Exception:
-                                        continue
-                        return None
-
-                    second = wait_until(second_product_page, 30, "the second product window")
+                    # The event wait pumps Playwright's protocol dispatcher;
+                    # polling its cached pages list cannot receive a new target.
+                    with page.context.expect_page(timeout=30_000) as new_page:
+                        second_label = invoke(page, "create_app_window", {"request": {
+                            "type": "directory", "path": str(args.workspace_two.resolve()),
+                        }})
+                    second = new_page.value
                     second.wait_for_load_state("domcontentloaded", timeout=15_000)
                     second.wait_for_function("() => Boolean(window.__TAURI_INTERNALS__?.invoke)", timeout=15_000)
+                    write_json(artifact_root / "second-product-window.json", {
+                        "label": second_label, "url": second.url,
+                        "workspace": str(args.workspace_two.resolve()),
+                    })
                     finish_onboarding(second)
                     open_fixture_file(second)
                     live = wait_for_server_count(state_root, 4)
                     all_owned_fixture_pids.update(live)
                     open_plugin_settings(page)
-                    row = plugin_row(page)
-                    row.get_by_role("switch").click()
+                    set_plugin_enabled(page, False)
                     wait_catalog(page, "1.0.0", False)
                     wait_pids_dead(live, "both windows' language-server process trees after disable")
-                    row.get_by_role("switch").click()
+                    set_plugin_enabled(page, True)
                     wait_catalog(page, "1.0.0", True)
             else:
                 reporter.document_pending(
@@ -1016,7 +1049,7 @@ def main() -> int:
                 assert record["previousDisk"]["archiveSha256"] == replacement_digest
                 assert active_fixture_marker(args.app_local_data, "1.1.0") == "1.1.0"
 
-                plugin_row(page).get_by_role("button", name="Roll back", exact=True).click()
+                select_plugin_details(page).get_by_role("button", name="Roll back…", exact=True).click()
                 wait_catalog(page, "1.0.0", True)
                 assert active_fixture_marker(args.app_local_data, "1.0.0") == "1.0.0-b"
                 assert installation_record(args.app_local_data)["disk"]["archiveSha256"] == replacement_digest
@@ -1028,12 +1061,8 @@ def main() -> int:
                     live = wait_for_server_count(state_root, 2)
                     all_owned_fixture_pids.update(live)
                 open_plugin_settings(page)
-                plugin_row(page).get_by_role("button", name="Uninstall", exact=True).click()
-                wait_until(
-                    lambda: plugin_row(page).count() == 0,
-                    45,
-                    "the plugin row to disappear after uninstall",
-                )
+                select_plugin_details(page).get_by_role("button", name="Uninstall", exact=True).click()
+                expect(plugin_row(page)).to_have_count(0, timeout=45_000)
                 if live:
                     with reporter.step("uninstall revokes the language-server process tree"):
                         wait_pids_dead(live, "language-server process cleanup on uninstall")

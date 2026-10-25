@@ -125,9 +125,11 @@
         ".build/<triple>/<configuration>/OfficialPlugins",
         "<app-support>/Lithe/Plugins/<plugin-id>/",
         "Lithe.app/Contents/Resources/OfficialPlugins/dev.lithe.plugin.java-support/",
-        "<app-support>/Lithe/PluginState/<plugin-id>/"
+        "<app-support>/Lithe/PluginState/<plugin-id>/",
+        "<windows-app-local-data>/plugin-state/<plugin-id>/",
+        "<windows-app-local-data>/plugin-state/<plugin-id>/build-<pid>-<operation-sequence>.model.json"
       ],
-      "identity": "Assembled plugin packages carry build-time downloads (JDT LS, its extensions and one JDK per target architecture for Java Support) and an optional publisher signature; no reliable worktree identity stamp. Plugin state directories are mutable language-server state of one installation",
+      "identity": "Assembled plugin packages carry build-time downloads (JDT LS, its extensions and one JDK per target architecture for Java Support) and an optional publisher signature; no reliable worktree identity stamp. Plugin state directories are mutable state of one installation. Windows command-model output is a fresh file owned by one window/workspace/operation, allocated with create_new after consent and removed after process-tree cleanup; crash leftovers are plugin state removed on uninstall, with no reuse identity stamp",
       "reason": "Assemble each official declarative plugin independently in every worktree and validate it with LitheOfficialPluginVerifier; do not copy or symlink it across worktrees. Java Support is assembled from the reusable jdtls and jdk download caches by Plugins/mac/Official/JavaSupport/assemble-package.sh, so reuse those caches rather than the package. Never copy or share plugin state at any stage."
     },
     {

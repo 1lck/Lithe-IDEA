@@ -132,7 +132,7 @@ struct ProcessTerminationSettingsView: View {
                 }
             }
         }
-        .frame(maxWidth: 760, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func row<Content: View>(

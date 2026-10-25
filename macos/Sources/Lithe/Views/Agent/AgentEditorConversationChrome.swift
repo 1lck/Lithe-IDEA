@@ -88,14 +88,17 @@ struct AgentEditorDetailsColumn: View {
     private static let changePreviewCount = 5
 
     private var composition: AgentModelCall.Context? { statistics?.modelCalls?.latestContext }
-    private var breakdown: AgentContextBreakdown { AgentContextBreakdown(usage: contextUsage, composition: composition) }
+    @Environment(\.agentAutoCompactTokens) private var autoCompact
+    private var breakdown: AgentContextBreakdown {
+        AgentContextBreakdown(usage: contextUsage, composition: composition, autoCompactTokens: autoCompact)
+    }
     private var collapsed: Set<String> { Set(collapsedRaw.split(separator: ",").map(String.init)) }
     private var hasActivity: Bool { activity.map { $0.contentHeight > 0 } ?? false }
 
     var body: some View {
         ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 12) {
-                card(.context, title: "Context") { contextContent }
+                card(.context, title: "Context", info: composition == nil ? breakdown.footnote() : nil) { contextContent }
                 card(.changes, title: "Changes") { changesContent }
                 if hasActivity, let activity {
                     card(.activity, title: "Activity") { activity }
@@ -167,14 +170,16 @@ struct AgentEditorDetailsColumn: View {
                 if let free = breakdown.freeTokens {
                     legendRow("Free space", color: AgentPanelStyle.border, tokens: free)
                 }
-            }
-            if composition == nil {
-                Text(contextUsage == nil
-                     ? "The Agent has not reported context usage yet."
-                     : "Turn on Model call statistics, reconnect and send a message to see the breakdown.")
-                    .font(LitheTheme.uiFont(size: 10.5))
-                    .foregroundStyle(AgentPanelStyle.muted)
-                    .fixedSize(horizontal: false, vertical: true)
+                if let autoCompact {
+                    HStack(spacing: 8) {
+                        Text("Auto-compact at").lineLimit(1).foregroundStyle(AgentPanelStyle.text)
+                        Spacer(minLength: 6)
+                        Text(verbatim: AgentSessionStatusPresentation.compactTokens(autoCompact, locale: locale))
+                            .foregroundStyle(AgentPanelStyle.secondary).monospacedDigit()
+                    }
+                    .font(LitheTheme.uiFont(size: 12))
+                    .accessibilityIdentifier("agent-context-auto-compact")
+                }
             }
         }
         .accessibilityIdentifier("agent-context-panel")
@@ -257,7 +262,7 @@ struct AgentEditorDetailsColumn: View {
 
     // MARK: Card
 
-    private func card<Content: View>(_ id: Section, title: LocalizedStringKey,
+    private func card<Content: View>(_ id: Section, title: LocalizedStringKey, info: Text? = nil,
                                      @ViewBuilder content: () -> Content) -> some View {
         let isCollapsed = collapsed.contains(id.rawValue)
         return VStack(alignment: .leading, spacing: 12) {
@@ -274,6 +279,7 @@ struct AgentEditorDetailsColumn: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.litheNoPress)
+            .overlay(alignment: .trailing) { if let info { LitheInfoTip(info) } }
             .accessibilityValue(isCollapsed ? "collapsed" : "expanded")
             .accessibilityIdentifier("agent-details-section-\(id.rawValue)")
             if !isCollapsed {

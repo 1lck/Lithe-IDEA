@@ -41,7 +41,7 @@ export class PluginDetailsSession {
   constructor(
     private readonly service: PluginDetailsService,
     private readonly publish: (state: PluginDetailsState) => void,
-    private readonly changed?: (selection: PluginDetailsSelection, workspacePath: string | null) => void,
+    private readonly changed?: (selection: PluginDetailsSelection, workspacePath: string | null, operation: PluginDetailsOperation) => void,
   ) {}
 
   select(selection: PluginDetailsSelection | null, workspacePath: string | null): void {
@@ -100,7 +100,7 @@ export class PluginDetailsSession {
         await this.service.rollback(selection.pluginId);
       }
       if (!this.#current(generation, selection, workspacePath)) return;
-      this.changed?.(selection, workspacePath);
+      this.changed?.(selection, workspacePath, operation);
       if (!this.#current(generation, selection, workspacePath)) return;
       if (operation === "uninstall") {
         // The removed package has no detail snapshot to reload. Leave a

@@ -1,8 +1,8 @@
-//! Tauri commands for the declarative build-system registry (M4-A).
+//! Tauri composition for declarative build detection and explicit model loads.
 //!
-//! This batch wires the read-only path only: detection, static models,
-//! option resolution and persistence, and sync fingerprints. No plugin
-//! process runs from here, and the host still does not declare the
+//! Detection, static models, options and fingerprints remain passive.
+//! Command models run only after a window confirms a prepared operation.
+//! The host still does not declare the
 //! `buildSystems` capability, so no user-visible entry exists until the
 //! remaining M4 batches land. Package trust is re-verified through M1's
 //! launch gate (`verified_package_by_id`) on every call, the caller's window
@@ -20,10 +20,20 @@ use serde_json::Value;
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager, WebviewWindow};
 
+mod host;
+mod operation;
+mod process;
+#[cfg(test)]
+mod tests;
+
+pub use host::BuildModelLoadResult;
+pub use operation::BuildModelReview;
+
 /// Registry shared by every window; entries are keyed per window label.
 #[derive(Default)]
 pub struct BuildHostState {
     registry: Mutex<BuildRegistry>,
+    operations: operation::BuildOperations,
 }
 
 /// Executes Core through the shared host envelope.
@@ -66,12 +76,17 @@ fn verified_build_packages(app: &AppHandle) -> Vec<super::ScannedPackage> {
     packages
 }
 
-fn package_input(package: &super::ScannedPackage) -> BuildPackageInput {
-    BuildPackageInput {
+fn package_input(package: &super::ScannedPackage) -> Option<BuildPackageInput> {
+    Some(BuildPackageInput {
         plugin_id: package.entry.plugin_id.clone(),
         version: package.entry.version.clone(),
         manifest: package.manifest.clone(),
-    }
+        content_identity: format!(
+            "{}:{}",
+            package.root.canonicalize().ok()?.display(),
+            super::signature::content_digest(&package.root).ok()?
+        ),
+    })
 }
 
 /// The verified build package source used by the registry.
@@ -83,7 +98,7 @@ impl BuildPackageSource for HostPackageSource {
     fn accepted_packages(&self) -> Vec<BuildPackageInput> {
         verified_build_packages(&self.app)
             .iter()
-            .map(package_input)
+            .filter_map(package_input)
             .collect()
     }
 
@@ -91,7 +106,7 @@ impl BuildPackageSource for HostPackageSource {
         verified_build_packages(&self.app)
             .iter()
             .find(|package| package.entry.plugin_id == plugin_id)
-            .map(package_input)
+            .and_then(package_input)
     }
 }
 
@@ -205,6 +220,10 @@ pub async fn declarative_plugins_build_refresh(
     workspace_root: String,
 ) -> Result<Value, String> {
     let window_label = window.label().to_string();
+    stop_build_operations(&app, |operation| {
+        operation.context.window_label == window_label
+    })
+    .await?;
     run_build_task(app, move |registry, source, persistence| {
         let view = registry.refresh(
             &HostCoreExecutor,
@@ -232,6 +251,10 @@ pub async fn declarative_plugins_build_set_option(
     value: Option<Value>,
 ) -> Result<Value, String> {
     let window_label = window.label().to_string();
+    stop_build_operations(&app, |operation| {
+        operation.context.window_label == window_label
+    })
+    .await?;
     run_build_task(app, move |registry, source, persistence| {
         let view = registry.set_option(
             &HostCoreExecutor,
@@ -287,6 +310,7 @@ pub async fn declarative_plugins_build_plugins_changed(
     plugin_id: String,
 ) -> Result<(), String> {
     let window_label = window.label().to_string();
+    stop_build_operations(&app, |operation| operation.context.plugin_id == plugin_id).await?;
     run_build_task(app, move |registry, _source, _persistence| {
         registry.drop_plugin(&plugin_id);
         let _ = window_label;
@@ -304,11 +328,82 @@ pub async fn declarative_plugins_build_close_workspace(
     workspace_root: String,
 ) -> Result<(), String> {
     let window_label = window.label().to_string();
+    stop_build_operations(&app, |operation| {
+        operation.context.window_label == window_label
+            && operation.context.workspace_root == workspace_root
+    })
+    .await?;
     run_build_task(app, move |registry, _source, _persistence| {
         registry.close_workspace(&window_label, &workspace_root);
         Ok(())
     })
     .await
+}
+
+#[tauri::command]
+pub async fn declarative_plugins_build_prepare_model(
+    app: AppHandle,
+    window: WebviewWindow,
+    workspace_root: String,
+    plugin_id: String,
+    build_system_id: String,
+    root: String,
+    runtime_executables: std::collections::BTreeMap<String, String>,
+) -> Result<BuildModelReview, String> {
+    host::prepare(
+        app,
+        window.label().to_string(),
+        workspace_root,
+        plugin_id,
+        build_system_id,
+        root,
+        runtime_executables,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn declarative_plugins_build_load_model(
+    app: AppHandle,
+    window: WebviewWindow,
+    operation_id: String,
+) -> Result<BuildModelLoadResult, String> {
+    host::load(app, window.label().to_string(), operation_id).await
+}
+
+#[tauri::command]
+pub async fn declarative_plugins_build_cancel_operation(
+    app: AppHandle,
+    window: WebviewWindow,
+    operation_id: String,
+) -> Result<(), String> {
+    host::cancel(app, window.label().to_string(), operation_id).await
+}
+
+async fn stop_build_operations(
+    app: &AppHandle,
+    predicate: impl Fn(&operation::ModelOperation) -> bool,
+) -> Result<(), String> {
+    let operations = app
+        .state::<BuildHostState>()
+        .operations
+        .cancel_matching(predicate);
+    host::drain(operations).await
+}
+
+/// Main's native window-destruction hook must call this even when pagehide
+/// cannot run. Native cancellation also observes a missing host window.
+pub async fn close_build_window(app: AppHandle, window_label: String) -> Result<(), String> {
+    stop_build_operations(&app, |operation| {
+        operation.context.window_label == window_label
+    })
+    .await?;
+    app.state::<BuildHostState>()
+        .registry
+        .lock()
+        .map_err(|_| "build registry mutex poisoned")?
+        .close_window(&window_label);
+    Ok(())
 }
 
 /// Runs one registry operation on the async runtime's blocking pool: Core
