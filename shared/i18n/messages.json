@@ -88380,17 +88380,6 @@
         "key": "Open a folder on this Mac",
         "arguments": []
       }
-    },
-    {
-      "id": "native.openRemoteFolderDetail",
-      "description": "Native UI: Open a folder on a saved SSH host",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Open a folder on a saved SSH host",
-        "arguments": []
-      }
     }
   ]
 }

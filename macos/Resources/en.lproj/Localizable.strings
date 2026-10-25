@@ -2427,7 +2427,6 @@
 "Open a Git project before using pull requests" = "Open a Git project before using pull requests";
 "Open a Java file" = "Open a Java file";
 "Open a Java file before starting Debug" = "Open a Java file before starting Debug";
-"Open a folder on a saved SSH host" = "Open a folder on a saved SSH host";
 "Open a folder on this Mac" = "Open a folder on this Mac";
 "Open a local folder to start working." = "Open a local folder to start working.";
 "Open a local project folder" = "Open a local project folder";
@@ -6873,7 +6872,6 @@
 "native.openReleasePage" = "Open Release Page";
 "native.openRemote" = "Open Remote ↗";
 "native.openRemote.variant2" = "Open remote";
-"native.openRemoteFolderDetail" = "Open a folder on a saved SSH host";
 "native.openRunConfiguration" = "Open Run Configuration";
 "native.openServiceInBrowser" = "Open service in browser";
 "native.openSkillMd" = "Open SKILL.md";

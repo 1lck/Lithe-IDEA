@@ -27,20 +27,8 @@ struct RemoteConnectionsView: View {
     private static let sidebarWidth: CGFloat = 240
     private static let labelWidth: CGFloat = 120
     private static let fieldWidth: CGFloat = 360
-    private static let preferredSize = CGSize(width: 880, height: 620)
-    private static let minimumSize = CGSize(width: 640, height: 420)
-    /// Space kept around the sheet so it never reaches past its parent window.
-    private static let windowMargin: CGFloat = 40
-
-    /// The size the window takes: the preferred size, shrunk to fit inside the
-    /// window presenting it. The detail pane scrolls, so a smaller window only
-    /// shortens the form while the footer buttons stay in view.
     private var sheetSize: CGSize {
-        let parent = NSApp.keyWindow?.contentLayoutRect.size ?? Self.preferredSize
-        return CGSize(
-            width: min(Self.preferredSize.width, max(Self.minimumSize.width, parent.width - Self.windowMargin)),
-            height: min(Self.preferredSize.height, max(Self.minimumSize.height, parent.height - Self.windowMargin))
-        )
+        ParentWindowFit.size(preferred: CGSize(width: 880, height: 620), minimum: CGSize(width: 640, height: 420))
     }
 
     var body: some View {
@@ -533,10 +521,23 @@ struct RemoteConnectionsView: View {
     }
 }
 
+/// Shrinks a sheet's preferred size to fit inside the window presenting it.
+enum ParentWindowFit {
+    /// Space kept around the sheet so it never reaches past its parent window.
+    private static let margin: CGFloat = 40
+
+    static func size(preferred: CGSize, minimum: CGSize) -> CGSize {
+        guard let parent = NSApp.keyWindow?.contentLayoutRect.size else { return preferred }
+        return CGSize(
+            width: min(preferred.width, max(minimum.width, parent.width - margin)),
+            height: min(preferred.height, max(minimum.height, parent.height - margin))
+        )
+    }
+}
+
 /// Picks a project folder on a connected host.
 private struct RemoteFolderBrowserView: View {
     @ObservedObject var feature: RemoteConnectionsFeatureModel
-    @State private var pathText = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -549,21 +550,7 @@ private struct RemoteFolderBrowserView: View {
                         .font(LitheTheme.uiFont(size: 11.5))
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
-                HStack(spacing: 6) {
-                    LitheTextField(verbatim: "/", text: $pathText)
-                        .onSubmit { feature.openBrowserPath(pathText) }
-                        .accessibilityLabel(Text(LocalizedStringKey("Path")))
-                    Button(LocalizedStringKey("Go")) { feature.openBrowserPath(pathText) }
-                        .buttonStyle(LitheActionButtonStyle())
-                }
-                listing(browser)
-                if let error = browser.error {
-                    HStack(alignment: .top, spacing: 6) {
-                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(LitheTheme.warning)
-                        Text(verbatim: error).fixedSize(horizontal: false, vertical: true)
-                    }
-                    .font(LitheTheme.uiFont(size: 12))
-                }
+                RemoteFolderListing(feature: feature, browser: browser)
                 HStack(spacing: LitheTheme.ActionButton.spacing) {
                     if browser.session.uploaded {
                         Text(LocalizedStringKey("The Lithe server was installed on this host."))
@@ -584,8 +571,35 @@ private struct RemoteFolderBrowserView: View {
         .padding(20)
         .frame(width: 600, height: 480)
         .background(LitheTheme.window)
-        .onAppear { pathText = feature.browser?.path ?? "" }
-        .onChange(of: feature.browser?.path) { pathText = $0 ?? "" }
+    }
+}
+
+/// The path bar, folder listing, and read error of a connected host's browser.
+struct RemoteFolderListing: View {
+    @ObservedObject var feature: RemoteConnectionsFeatureModel
+    let browser: RemoteConnectionsFeatureModel.DirectoryBrowser
+    @State private var pathText = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 6) {
+                LitheTextField(verbatim: "/", text: $pathText)
+                    .onSubmit { feature.openBrowserPath(pathText) }
+                    .accessibilityLabel(Text(LocalizedStringKey("Path")))
+                Button(LocalizedStringKey("Go")) { feature.openBrowserPath(pathText) }
+                    .buttonStyle(LitheActionButtonStyle())
+            }
+            listing(browser)
+            if let error = browser.error {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(LitheTheme.warning)
+                    Text(verbatim: error).fixedSize(horizontal: false, vertical: true)
+                }
+                .font(LitheTheme.uiFont(size: 12))
+            }
+        }
+        .onAppear { pathText = browser.path }
+        .onChange(of: browser.path) { pathText = $0 }
     }
 
     private func listing(_ browser: RemoteConnectionsFeatureModel.DirectoryBrowser) -> some View {
@@ -634,7 +648,7 @@ private struct RemoteFolderBrowserView: View {
 }
 
 /// The question OpenSSH asked while testing a connection.
-private struct RemoteAuthenticationView: View {
+struct RemoteAuthenticationView: View {
     let prompt: RemoteAuthenticationPrompt
     let reply: (String?) -> Void
     @State private var answer = ""

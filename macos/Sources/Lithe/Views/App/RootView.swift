@@ -326,8 +326,10 @@ private struct ActiveSessionChrome: View {
                 get: { session.workbenchFeature.isOpenTargetChooserPresented },
                 set: { session.workbenchFeature.isOpenTargetChooserPresented = $0 }
             )) {
-                OpenTargetChooserView()
-                    .environmentObject(session)
+                if let feature = session.makeRemoteConnectionsFeature() {
+                    OpenProjectPanelSheet(feature: feature)
+                        .environmentObject(session)
+                }
             }
             .sheet(isPresented: Binding(
                 get: { session.workbenchFeature.isRemoteConnectionsPresented },

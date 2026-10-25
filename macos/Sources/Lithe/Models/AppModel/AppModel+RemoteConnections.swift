@@ -88,6 +88,7 @@ extension AppModel {
             root: root, remoteRoot: folder, sessionID: session.id, connectionID: connection.id
         ))
         workbenchFeature.isRemoteConnectionsPresented = false
+        workbenchFeature.isOpenTargetChooserPresented = false
         workbenchFeature.remoteReconnect = nil
         openProject(root)
     }
