@@ -108,10 +108,11 @@ extension AppModel {
             let feature = agentConversationFeatureIfActive
             if binding == nil || binding?.agentID == feature?.selectedAgentID {
                 if binding?.sessionID == nil { return }
+                // Already empty: keep the tab on its session. Unbinding it would only
+                // be undone by `reconcileAgentEditorTabs`, as the connection still
+                // has that session selected.
                 if let session = binding?.sessionID,
-                   feature?.selectedConnection?.canReuseForNewConversation(session) == true,
-                   let agentID = binding?.agentID {
-                    order.bindAgentTab(focused, to: nil, agentID: agentID)
+                   feature?.selectedConnection?.canReuseForNewConversation(session) == true {
                     return
                 }
             }

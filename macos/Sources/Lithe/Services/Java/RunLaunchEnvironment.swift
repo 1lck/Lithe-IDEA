@@ -46,13 +46,14 @@ enum RunLaunchEnvironment {
         }
         guard !resolvedDirectories.isEmpty else { return environment }
 
-        let existingDirectories = (environment["PATH"] ?? "")
+        // A missing PATH still has to resolve `env` and system tools for shebang launchers.
+        let existingDirectories = (environment["PATH"] ?? "/usr/bin:/bin")
             .split(separator: ":")
             .map(String.init)
             .filter { !$0.isEmpty }
         var seen = Set<String>()
         let directories = (existingDirectories + resolvedDirectories).filter {
-            seen.insert($0.lowercased()).inserted
+            seen.insert($0).inserted
         }
 
         var result = environment

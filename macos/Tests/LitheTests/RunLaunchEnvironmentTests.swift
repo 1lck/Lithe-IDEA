@@ -108,7 +108,7 @@ struct RunLaunchEnvironmentTests {
     }
 
     @Test
-    func missingPathIsCreatedFromTheResolvedDirectories() {
+    func missingPathIsCreatedFromTheSystemAndResolvedDirectories() {
         let environment = RunLaunchEnvironment.augmenting(
             ["HOME": "/Users/fixture"],
             executableURL: URL(fileURLWithPath: "/opt/homebrew/bin/pnpm"),
@@ -116,7 +116,7 @@ struct RunLaunchEnvironmentTests {
             projectURL: projectURL
         )
 
-        #expect(environment["PATH"] == "/opt/homebrew/bin")
+        #expect(environment["PATH"] == "/usr/bin:/bin:/opt/homebrew/bin")
         #expect(environment["HOME"] == "/Users/fixture")
     }
 
