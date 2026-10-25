@@ -27,6 +27,11 @@ struct RemoteConnectionsView: View {
     private static let sidebarWidth: CGFloat = 240
     private static let labelWidth: CGFloat = 120
     private static let fieldWidth: CGFloat = 360
+    /// Fixed when the window opens: measuring again later would measure the
+    /// sheet itself once it is the key window, and it would shrink on every redraw.
+    @State private var sheetSize = ParentWindowFit.size(
+        preferred: CGSize(width: 880, height: 620), minimum: CGSize(width: 640, height: 420)
+    )
 
     var body: some View {
         VStack(spacing: 0) {
@@ -46,7 +51,7 @@ struct RemoteConnectionsView: View {
                     RemoteFolderBrowserView(feature: feature)
                 }
         }
-        .frame(width: 880, height: 620)
+        .frame(width: sheetSize.width, height: sheetSize.height)
         .background(LitheTheme.window)
         .sheet(item: Binding(get: { feature.prompts.first }, set: { _ in })) { prompt in
             RemoteAuthenticationView(prompt: prompt) { feature.answerPrompt($0) }
@@ -326,18 +331,25 @@ struct RemoteConnectionsView: View {
                 }
                 if let address = host.address {
                     LitheSettingsRow("Address", info: "Looking up the location sends this address to ipinfo.io. Lithe does this only when you click Look Up.") {
-                        Text(verbatim: address).font(LitheTheme.uiFont(size: 12.5, design: .monospaced)).textSelection(.enabled)
-                        if let location = host.location {
-                            LitheSettingsPill(verbatim: Self.place(of: location), kind: .neutral)
-                        }
-                    } badges: {
-                        if feature.isLocating {
-                            ProgressView().controlSize(.small)
-                        } else {
-                            Button(LocalizedStringKey(host.location == nil ? "Look Up Location" : "Look Up Again")) {
-                                feature.locateSelectedHost()
+                        // The place can be long, so it wraps under the address and button.
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(spacing: 8) {
+                                Text(verbatim: address)
+                                    .font(LitheTheme.uiFont(size: 12.5, design: .monospaced))
+                                    .textSelection(.enabled)
+                                Spacer(minLength: 0)
+                                if feature.isLocating {
+                                    ProgressView().controlSize(.small)
+                                } else {
+                                    Button(LocalizedStringKey(host.location == nil ? "Look Up Location" : "Look Up Again")) {
+                                        feature.locateSelectedHost()
+                                    }
+                                    .buttonStyle(LitheActionButtonStyle())
+                                }
                             }
-                            .buttonStyle(LitheActionButtonStyle())
+                            if let location = host.location {
+                                LitheSettingsPill(verbatim: Self.place(of: location), kind: .neutral, wraps: true)
+                            }
                         }
                     }
                 }
@@ -518,10 +530,25 @@ struct RemoteConnectionsView: View {
     }
 }
 
+/// Shrinks a sheet's preferred size to fit inside the window presenting it.
+enum ParentWindowFit {
+    /// Space kept around the sheet so it never reaches past its parent window.
+    private static let margin: CGFloat = 24
+
+    static func size(preferred: CGSize, minimum: CGSize) -> CGSize {
+        // The window the sheet opens from; a sheet that is already key reports its parent.
+        let window = NSApp.keyWindow.map { $0.sheetParent ?? $0 }
+        guard let parent = window?.contentLayoutRect.size else { return preferred }
+        return CGSize(
+            width: min(preferred.width, max(minimum.width, parent.width - margin)),
+            height: min(preferred.height, max(minimum.height, parent.height - margin))
+        )
+    }
+}
+
 /// Picks a project folder on a connected host.
 private struct RemoteFolderBrowserView: View {
     @ObservedObject var feature: RemoteConnectionsFeatureModel
-    @State private var pathText = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -534,21 +561,7 @@ private struct RemoteFolderBrowserView: View {
                         .font(LitheTheme.uiFont(size: 11.5))
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
-                HStack(spacing: 6) {
-                    LitheTextField(verbatim: "/", text: $pathText)
-                        .onSubmit { feature.openBrowserPath(pathText) }
-                        .accessibilityLabel(Text(LocalizedStringKey("Path")))
-                    Button(LocalizedStringKey("Go")) { feature.openBrowserPath(pathText) }
-                        .buttonStyle(LitheActionButtonStyle())
-                }
-                listing(browser)
-                if let error = browser.error {
-                    HStack(alignment: .top, spacing: 6) {
-                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(LitheTheme.warning)
-                        Text(verbatim: error).fixedSize(horizontal: false, vertical: true)
-                    }
-                    .font(LitheTheme.uiFont(size: 12))
-                }
+                RemoteFolderListing(feature: feature, browser: browser)
                 HStack(spacing: LitheTheme.ActionButton.spacing) {
                     if browser.session.uploaded {
                         Text(LocalizedStringKey("The Lithe server was installed on this host."))
@@ -569,21 +582,91 @@ private struct RemoteFolderBrowserView: View {
         .padding(20)
         .frame(width: 600, height: 480)
         .background(LitheTheme.window)
-        .onAppear { pathText = feature.browser?.path ?? "" }
-        .onChange(of: feature.browser?.path) { pathText = $0 ?? "" }
+    }
+}
+
+/// The path bar, folder listing, and read error of a connected host's browser.
+struct RemoteFolderListing: View {
+    @ObservedObject var feature: RemoteConnectionsFeatureModel
+    let browser: RemoteConnectionsFeatureModel.DirectoryBrowser
+
+    var body: some View {
+        FolderListing(
+            path: browser.path, parentPath: browser.parentPath,
+            entries: browser.sortedEntries.map { entry in
+                FolderListingEntry(
+                    name: entry.name, isDirectory: entry.isDirectory,
+                    byteCount: entry.isDirectory ? nil : entry.metadata.size,
+                    modified: entry.metadata.modifiedMs.map { Date(timeIntervalSince1970: Double($0) / 1000) }
+                )
+            },
+            isLoading: browser.isLoading, error: browser.error,
+            go: { feature.openBrowserPath($0) },
+            enter: { name in
+                if let entry = browser.entries.first(where: { $0.name == name }) { feature.openBrowserEntry(entry) }
+            }
+        )
+    }
+}
+
+/// The path bar, folder list, and read error shared by the local and remote
+/// folder browsers of the Open panel.
+struct FolderListing: View {
+    let path: String
+    let parentPath: String?
+    let entries: [FolderListingEntry]
+    let isLoading: Bool
+    let error: String?
+    /// Lists the typed or parent path.
+    let go: (String) -> Void
+    /// Lists the folder named `name` inside the current path.
+    let enter: (String) -> Void
+    @State private var pathText = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 6) {
+                LitheTextField(verbatim: "/", text: $pathText)
+                    .onSubmit { go(pathText) }
+                    .accessibilityLabel(Text(LocalizedStringKey("Path")))
+                Button(LocalizedStringKey("Go")) { go(pathText) }
+                    .buttonStyle(LitheActionButtonStyle())
+            }
+            listing
+                .overlay {
+                    if entries.isEmpty, !isLoading, error == nil {
+                        Text(LocalizedStringKey("This folder is empty"))
+                            .font(LitheTheme.uiFont(size: 12))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                    }
+                }
+            if let error {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(LitheTheme.warning)
+                    Text(verbatim: error).fixedSize(horizontal: false, vertical: true)
+                }
+                .font(LitheTheme.uiFont(size: 12))
+            }
+        }
+        .onAppear { pathText = path }
+        .onChange(of: path) { pathText = $0 }
     }
 
-    private func listing(_ browser: RemoteConnectionsFeatureModel.DirectoryBrowser) -> some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                if let parent = browser.parentPath {
-                    entryRow(name: "..", isDirectory: true) { feature.openBrowserPath(parent) }
+    private var listing: some View {
+        VStack(spacing: 0) {
+            columnHeader
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            ScrollView {
+                VStack(spacing: 0) {
+                    if let parentPath {
+                        entryRow(FolderListingEntry(name: "..", isDirectory: true)) { go(parentPath) }
+                    }
+                    ForEach(entries) { entry in
+                        entryRow(entry) { enter(entry.name) }
+                    }
                 }
-                ForEach(browser.sortedEntries) { entry in
-                    entryRow(name: entry.name, isDirectory: entry.isDirectory) { feature.openBrowserEntry(entry) }
-                }
+                .padding(4)
             }
-            .padding(4)
         }
         .litheScrollViewChrome(alwaysShowVertical: false, usesCompactScrollers: true)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -591,24 +674,48 @@ private struct RemoteFolderBrowserView: View {
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .overlay {
             RoundedRectangle(cornerRadius: 6).stroke(LitheTheme.divider, lineWidth: 1)
-            if browser.isLoading { ProgressView().controlSize(.small) }
+            if isLoading { ProgressView().controlSize(.small) }
         }
     }
 
-    private func entryRow(name: String, isDirectory: Bool, open: @escaping () -> Void) -> some View {
-        Button(action: open) {
+    private static let modifiedWidth: CGFloat = 112
+    private static let sizeWidth: CGFloat = 64
+
+    private var columnHeader: some View {
+        HStack(spacing: 8) {
+            Text(LocalizedStringKey("Name")).frame(maxWidth: .infinity, alignment: .leading)
+            Text(LocalizedStringKey("Modified")).frame(width: Self.modifiedWidth, alignment: .leading)
+            Text(LocalizedStringKey("Size")).frame(width: Self.sizeWidth, alignment: .trailing)
+        }
+        .font(LitheTheme.uiFont(size: 11, weight: .medium))
+        .foregroundStyle(LitheTheme.secondaryText)
+        .padding(.horizontal, 12)
+        .frame(height: 24)
+    }
+
+    private func entryRow(_ entry: FolderListingEntry, open: @escaping () -> Void) -> some View {
+        let isDirectory = entry.isDirectory
+        return Button(action: open) {
             HStack(spacing: 8) {
                 LitheIDEAIcon(
                     resourcePath: isDirectory ? "expui/nodes/folder.svg" : "fileTypes/text.svg",
                     size: 16,
                     fallbackSystemImage: isDirectory ? "folder" : "doc"
                 )
-                Text(verbatim: name)
+                Text(verbatim: entry.name)
                     .font(LitheTheme.uiFont(size: 12.5))
                     .foregroundStyle(isDirectory ? LitheTheme.primaryText : LitheTheme.secondaryText)
                     .lineLimit(1)
-                Spacer(minLength: 0)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text(verbatim: entry.modified?.formatted(Date.FormatStyle(date: .numeric, time: .shortened)) ?? "")
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .frame(width: Self.modifiedWidth, alignment: .leading)
+                Text(verbatim: entry.byteCount.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? "")
+                    .frame(width: Self.sizeWidth, alignment: .trailing)
             }
+            .font(LitheTheme.uiFont(size: 11.5))
+            .foregroundStyle(LitheTheme.secondaryText)
             .padding(.horizontal, 8)
             .frame(height: 26)
             .contentShape(Rectangle())
@@ -619,7 +726,7 @@ private struct RemoteFolderBrowserView: View {
 }
 
 /// The question OpenSSH asked while testing a connection.
-private struct RemoteAuthenticationView: View {
+struct RemoteAuthenticationView: View {
     let prompt: RemoteAuthenticationPrompt
     let reply: (String?) -> Void
     @State private var answer = ""

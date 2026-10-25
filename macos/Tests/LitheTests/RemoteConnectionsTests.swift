@@ -280,6 +280,24 @@ private func entry(_ name: String, _ kind: String) -> RemoteDirectoryEntry {
     RemoteDirectoryEntry(name: name, metadata: .init(kind: kind, symlinkTargetKind: nil))
 }
 
+@Suite("RemoteConnections directory entries")
+struct RemoteDirectoryEntryDecodingTests {
+    @Test func readsSizeAndModificationTimeFromTheServerListing() throws {
+        let json = #"{"name":"a.txt","metadata":{"kind":"file","size":2048,"modifiedMs":1761400000000,"readonly":false,"mode":420}}"#
+        let entry = try JSONDecoder().decode(RemoteDirectoryEntry.self, from: Data(json.utf8))
+        #expect(entry.metadata.size == 2048)
+        #expect(entry.metadata.modifiedMs == 1_761_400_000_000)
+        #expect(!entry.isDirectory)
+    }
+
+    @Test func toleratesListingsWithoutSizeOrTime() throws {
+        let json = #"{"name":"d","metadata":{"kind":"directory"}}"#
+        let entry = try JSONDecoder().decode(RemoteDirectoryEntry.self, from: Data(json.utf8))
+        #expect(entry.metadata.size == nil)
+        #expect(entry.isDirectory)
+    }
+}
+
 @Suite("RemoteConnections routing")
 struct RemoteWorkspaceRoutingTests {
     private let root = URL(fileURLWithPath: "/tmp/lithe-tests/RemoteWorkspaces/c/h/app", isDirectory: true)

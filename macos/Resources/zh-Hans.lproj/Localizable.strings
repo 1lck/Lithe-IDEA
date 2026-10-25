@@ -1933,6 +1933,7 @@
 "Local" = "本地";
 "Local %@ configuration" = "使用本机 %@ 配置";
 "Local Changes" = "本地更改";
+"Local Folder" = "本地文件夹";
 "Local History" = "本地历史";
 "Local History is available for text files" = "本地历史仅适用于文本文件";
 "Local History…" = "本地历史…";
@@ -3335,6 +3336,7 @@
 "Signed in through the ACP gateway with this provider's API key." = "使用该服务商的 API 密钥通过 ACP 网关登录。";
 "Single file" = "单文件";
 "Single row" = "单行";
+"Size" = "大小";
 "Skill actions" = "技能操作";
 "Skill files" = "技能文件";
 "Skill imports cannot contain symbolic links or special files." = "导入的技能不能包含符号链接或特殊文件。";
@@ -3875,6 +3877,8 @@
 "This file is outside the current project." = "此文件不在当前项目中。";
 "This file was deleted outside Lithe. Your editor content is preserved." = "该文件已被外部删除，编辑器内容已保留。";
 "This folder already belongs to a Git repository" = "此目录已属于一个 Git 仓库。";
+"This folder cannot be read." = "无法读取此文件夹。";
+"This folder is empty" = "此文件夹为空";
 "This page" = "此页面";
 "This panel needs exactly one matching plugin instance in the workspace." = "此面板要求工作区中恰好有一个匹配的插件实例。";
 "This permanently deletes uncommitted and untracked files in '%@'. The branch itself is kept." = "这会永久删除“%@”中的未提交文件和未跟踪文件，但会保留对应分支。";
@@ -6852,6 +6856,7 @@
 "native.openInLithe" = "在 Lithe 中打开";
 "native.openInNewWindow" = "在新窗口中打开";
 "native.openInRightSplit" = "在右侧分栏打开";
+"native.openLocalFolder" = "本地文件夹";
 "native.openLogDirectory" = "打开日志目录";
 "native.openMarketplace" = "打开插件市场";
 "native.openModulePomXml" = "打开所属模块的 pom.xml";
@@ -7729,6 +7734,7 @@
 "native.signedInThroughTheACPGatewayWithThisProviderSAPIKey" = "使用该服务商的 API 密钥通过 ACP 网关登录。";
 "native.singleFile" = "单文件";
 "native.singleRow" = "单行";
+"native.size" = "大小";
 "native.skillActions" = "技能操作";
 "native.skillFiles" = "技能文件";
 "native.skillImportsCannotContainSymbolicLinksOrSpecialFiles" = "导入的技能不能包含符号链接或特殊文件。";
@@ -8274,6 +8280,8 @@
 "native.thisFileWasDeletedOutsideLitheYourEditorContentIsPreserved" = "该文件已被外部删除，编辑器内容已保留。";
 "native.thisFolder" = "此文件夹";
 "native.thisFolderAlreadyBelongsToAGitRepository" = "此目录已属于一个 Git 仓库。";
+"native.thisFolderCannotBeRead" = "无法读取此文件夹。";
+"native.thisFolderIsEmpty" = "此文件夹为空";
 "native.thisHookNoLongerExistsReloadTheLibrary" = "该 Hook 已不存在，请重新加载资源库。";
 "native.thisMac" = "本机";
 "native.thisMacOnly" = "仅本机";
