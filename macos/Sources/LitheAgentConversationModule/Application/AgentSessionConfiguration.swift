@@ -81,6 +81,8 @@ public struct AgentToolDetails: Equatable, Sendable {
     public var diffs: [Diff] = []
     /// Pictures the tool returned or read, in the order the agent reported them.
     public var images: [AgentImage] = []
+    /// Set when the host recognised a Claude Desktop mechanism in this call.
+    public var desktopCard: AgentDesktopCard?
     public var isEmpty: Bool { input == nil && output == nil && locations.isEmpty && content.isEmpty && images.isEmpty }
     static let textLimit = 32_768
 
@@ -142,6 +144,11 @@ public struct AgentToolDetails: Equatable, Sendable {
             }
         }
         titleImages()
+        // A later update restates the card in full, such as a task the user started.
+        if let metadata = update["_meta"] as? [String: Any], let lithe = metadata["lithe"] as? [String: Any],
+           let card = AgentDesktopCard(lithe["claudeDesktop"]) {
+            desktopCard = card
+        }
         // The pinned Claude adapter forwards the SDK's public FileWriteOutput
         // in tool metadata. Prefer its complete text over newline-less hunks;
         // the explicit create type distinguishes a new file from an insertion.

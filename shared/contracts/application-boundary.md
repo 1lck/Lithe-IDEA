@@ -794,6 +794,13 @@ JDT-owned workspace build paths and the existing platform-owned JDT state.
 - 状态隔离到会话，新进度清除重试显示，完成/失败/断连清理本轮状态，正在停止时不因迟到进度回退；不得显示未经脱敏的原始错误或从文本猜测重试次数。请求仍等待上游完成/取消确认，既有十分钟 prompt 上限和十秒取消上限不变。
 - 这次交付 macOS 展示；Windows 对话 UI 的消费与真实验收仍待完成。展示状态只在内存中，不写入 bundle、安装目录或上游历史。
 
+### Claude Desktop 机制卡片
+
+- Host 识别 Claude Desktop 注入的 MCP 工具（`ccd_*`、`visualize`、`terminal`、`Claude_Browser`、`computer-use`、`scheduled-tasks` 与按 UUID 命名的 claude.ai 连接器），为每个调用给出可读的英文 `title` 和 `kind`；不认识的 MCP 服务原样透传。
+- 有交互含义的调用在 `tool_call` / `tool_call_update` 的 `_meta.lithe.claudeDesktop` 附加卡片，字段 `card` 决定类型：`chapter {title, summary?}`、`nextStep {actions: [{label, message}] ≤4}`、`task {title, summary?, prompt?, state: proposed|withdrawn|started|handedOff}`、`pullRequest {action: bound|unbound|monitored|autoMerge, url, number?, autoFix?, enabled?}`、`directory {action: changed|requested, path}`、`widget {title, code ≤256 KiB 字符}`。文本字段截断到 16 KiB 字符；超限的 `widget.code` 置空。
+- `nextStep` 是 Host 另发的已完成调用，id 为原 `wrap_up` 调用 id 加 `#next`；任务撤回或启动的结果到达后，Host 以原卡片调用 id 补发整张卡片。后到的卡片整体替换先前的卡片；不带卡片的更新不清除卡片。
+- 客户端只在调用状态为 `completed` 时显示卡片；未知 `card` 类型、缺字段或非 http(s) 的 PR 链接退回普通工具行。卡片动作只填写输入框，不代替用户发送。可视化内容必须在禁止网络加载、非持久存储、禁止导航的隔离网页中渲染。
+
 
 Agent skill management groups files by Global/Project and retains their Agent
 provenance. Codex-reported capabilities and Claude's partial directory inventory

@@ -41,12 +41,19 @@ enum AgentTranscriptItem: Identifiable {
         case .message(let message):
             return message.text.localizedStandardContains(searchText)
                 || message.plan?.entries.contains { $0.content.localizedStandardContains(searchText) } == true
+                || message.shownDesktopCard?.searchableText.localizedStandardContains(searchText) == true
         case .processGroup(let messages): return messages.contains {
             $0.role == .tool ? Self.toolMatches($0, searchText) : $0.text.localizedStandardContains(searchText)
         }
         case .toolGroup(let tools): return tools.contains { Self.toolMatches($0, searchText) }
         case .turnSummary: return false
         }
+    }
+
+    /// Suggested replies answer only the latest turn; Desktop drops them once the conversation moves on.
+    func isStaleNextStep(lastMessageID: String?, isResponding: Bool) -> Bool {
+        guard case .message(let message) = self, case .nextStep = message.shownDesktopCard else { return false }
+        return isResponding || message.id != lastMessageID
     }
 
     static func toolMatches(_ message: AgentConversationMessage, _ searchText: String) -> Bool {
@@ -87,9 +94,12 @@ enum AgentTranscriptItem: Identifiable {
                 // Model-only reminders and caveats are not conversation.
                 continue
             }
-            if message.plan != nil {
+            if case .nextStep = message.shownDesktopCard {
+                // Suggested replies follow the turn they end, after its summary.
+            } else if message.plan != nil || message.shownDesktopCard != nil {
                 // A replayed plan snapshot is what the Agent reported at that point;
                 // it stays on the transcript like Claude Desktop's checklist.
+                // Desktop shows its chapters, tasks and pull requests the same way.
                 flush()
                 items.append(.message(message))
             } else if Self.isQuietNotification(message) {
@@ -107,6 +117,10 @@ enum AgentTranscriptItem: Identifiable {
                 let reply = pending.last.flatMap { $0.role == .agent ? $0.text : nil }
                 flush()
                 items.append(.turnSummary(summary, reply: reply))
+            }
+            if case .nextStep = message.shownDesktopCard {
+                flush()
+                items.append(.message(message))
             }
         }
         flush()
@@ -278,7 +292,10 @@ struct AgentTranscriptView: View {
                                         guard let sessionID else { return }
                                         thoughtExpansions[sessionID, default: [:]][id] = value
                                     },
-                                    onOpenFile: onOpenFile
+                                    onOpenFile: onOpenFile,
+                                    onDesktopDraft: { text, inNewConversation in
+                                        feature.fillDraft(text, inNewConversation: inNewConversation)
+                                    }
                                 )
                                 .equatable()
                             }
@@ -396,6 +413,7 @@ private struct AgentTranscriptRows: View, Equatable {
     let thoughtExpansions: [String: AgentThoughtExpansion]
     let setThoughtExpansion: (String, AgentThoughtExpansion) -> Void
     let onOpenFile: (AgentToolDetails.Location) -> Void
+    let onDesktopDraft: (String, Bool) -> Void
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.messages == rhs.messages && lhs.completedTurns == rhs.completedTurns
@@ -406,7 +424,9 @@ private struct AgentTranscriptRows: View, Equatable {
     }
 
     var body: some View {
-        let matching = AgentTranscriptItem.grouped(messages, turns: completedTurns).filter { $0.matches(searchText) }
+        let matching = AgentTranscriptItem.grouped(messages, turns: completedTurns).filter {
+            $0.matches(searchText) && !$0.isStaleNextStep(lastMessageID: messages.last?.id, isResponding: liveProcessMessageID != nil)
+        }
         let hidden = limit < matching.count ? matching.count - limit : 0
         let transcript = hidden > 0 ? Array(matching[hidden...]) : matching
         let turnEndingIDs = AgentTranscriptItem.repliesCopiedFromFooter(completedTurns, searchText: searchText)
@@ -422,6 +442,8 @@ private struct AgentTranscriptRows: View, Equatable {
                 switch item {
                 case .message(let message) where message.plan != nil:
                     AgentPlanView(plan: message.plan!, isResponding: false, horizontalInset: 0)
+                case .message(let message) where message.shownDesktopCard != nil:
+                    AgentDesktopCardView(card: message.shownDesktopCard!, onDraft: onDesktopDraft)
                 case .message(let message):
                     AgentMessageRow(
                         message: message,

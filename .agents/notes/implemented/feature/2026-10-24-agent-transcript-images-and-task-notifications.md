@@ -78,9 +78,36 @@ Claude Desktop 给 Claude Code 挂了自己的 `ccd_turn` MCP 服务，模型在
 在 Lithe 里恢复这类会话时，整段对话只剩折叠的工具调用，看起来像历史没有回放。
 
 宿主（`claude_desktop.rs`）把 `wrap_up` 的工具调用改写成一条 Agent 回复（总结与提问各一段），
-并吞掉该调用后续的 `tool_call_update`；建议回复按钮不显示，因为用户点过的那条会作为下一条用户消息出现。
-改写同时作用于适配器的回放和上面的前文转换，Windows 共用同一宿主。Lithe 自己不提供 `ccd_turn` 工具，
-所以只影响从 Desktop 带过来的历史。
+并吞掉该调用后续的 `tool_call_update`。改写同时作用于适配器的回放和上面的前文转换，Windows 共用同一宿主。
+Lithe 自己不提供 Desktop 的 MCP 服务，所以这些只影响从 Desktop 带过来的历史；CLI 会话不受影响。
+
+Desktop 的其他机制同样在宿主里识别，结果分两层交给客户端：
+
+1. **可读的工具行**：每个 Desktop 工具（`ccd_*`、`visualize`、`terminal`、`Claude_Browser`、
+   `computer-use`、`scheduled-tasks`，以及按 UUID 命名的 claude.ai 连接器）都换成英文标题和合适的
+   `kind`，例如 “Chapter: …”“Computer use: app screenshot”“Connector: read”。不认识卡片的客户端
+   （目前是 Windows）也不会再看到 `mcp__ccd_session__mark_chapter` 这类原名。打开窗格、在编辑器打开、
+   在 Finder 显示的调用改成 `read` 并带 `locations`，点击可以打开文件。
+2. **卡片描述**：有交互含义的调用在 `_meta.lithe.claudeDesktop` 里附一张卡片，macOS 原生绘制：
+   章节（`mark_chapter`）显示为分隔线；建议回复（`wrap_up.actions`，宿主另发一个 `<id>#next` 调用）
+   显示为按钮，只在它是最后一条消息且不在回复中时出现；建议任务、启动会话、移交（`spawn_task`、
+   `start_session`、`hand_off_to_session`）显示为任务卡片，撤回（`dismiss_task`）或启动的结果回来后，
+   宿主补发一次 `tool_call_update` 改写原卡片状态；PR 绑定、监控、自动合并显示为带链接的一行；
+   切换或申请目录显示为一行说明；`show_widget` 显示为可展开的可视化卡片。助手文字里的
+   `<pr-created>URL</pr-created>` 由宿主改成 Markdown 链接。
+
+卡片只在调用成功后单独显示。历史里很多 Desktop 调用被自动模式分类器拒绝，那些调用在 Desktop 里也没有发生，
+所以留在折叠过程里作为失败的工具行。建议回复和任务按钮只把文字填进输入框（任务会先新建对话），
+不会自动发送，用户仍然决定是否发出。
+
+可视化卡片展开后才创建 `WKWebView`：非持久数据存储，CSP（内容安全策略）`default-src 'none'`
+禁止一切网络加载，只允许内联脚本和样式，导航全部取消（用户点击的 http/https 链接交给系统浏览器），
+`sendPrompt` 同样只填输入框。宿主补上 Desktop 文档里的主题变量（`--text-primary`、`--surface-1` 等），
+颜色来自当前主题。依赖 CDN 脚本的图表（例如 Chart.js）因此不会渲染，这是有意的取舍：
+不让 Agent 写的页面从会话里向外发请求。
+
+用户消息里的 `<ci-monitor-event>`（可带属性）和 `[Cross-session idle notice]` 等 Desktop 通知
+作为折叠的上下文块显示，不当成用户说的话。
 
 `update_plan` 有整表（`items`）和增量（`done`/`start`/`advance`）两种写法。宿主按会话记住当前列表，
 把每次调用改写成一条完整的 ACP `plan` 更新；增量调用之前没有整表时原样保留为工具调用。
@@ -89,6 +116,8 @@ Swift 在加载历史期间把每份计划快照记成一条不带文字的 Agen
 没有文字回复的段落也能看出做了什么。
 
 不要这样做：不要在 Swift 或 Windows 前端按工具名再做一份改写，也不要读取或模拟 Desktop 的 MCP 服务。
+卡片字段增加时，先在宿主和 `shared/contracts/application-boundary.md` 里定义，再让客户端解析；
+客户端遇到不认识的卡片类型必须退回普通工具行。
 
 ### 不要这样做
 
@@ -116,6 +145,7 @@ issue #1462 指出的多余复制按钮来自不属于最终回复的过程文�
 ## 验证
 
 - `./scripts/test-macos.sh --filter AgentImageTests`
+- `./scripts/test-macos.sh --filter AgentDesktopCardTests`
 - `cargo test -p lithe-agent-host claude_earlier_history`
 - `cargo test -p lithe-agent-host claude_desktop`
 - `./scripts/verify-agent-notes.sh`
@@ -126,3 +156,6 @@ issue #1462 指出的多余复制按钮来自不属于最终回复的过程文�
 - `macos/Sources/Lithe/Views/Agent/AgentImageViews.swift`
 - `macos/Sources/Lithe/Views/Agent/AgentToolGroupView.swift`
 - `rust/lithe-agent-host/src/claude_earlier_history.rs`
+- `rust/lithe-agent-host/src/claude_desktop.rs`
+- `macos/Sources/LitheAgentConversationModule/Application/AgentDesktopCard.swift`
+- `macos/Sources/Lithe/Views/Agent/AgentDesktopCardView.swift`

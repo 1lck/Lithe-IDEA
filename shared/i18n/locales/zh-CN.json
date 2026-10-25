@@ -8864,7 +8864,25 @@
     "settings.declarativePlugins.settingEffect.reload": "插件模型重新加载后生效",
     "settings.declarativePlugins.settingEffect.nextRun": "下次运行生效",
     "native.databaseIsNowAPluginInstallItFromTheMarketplace": "数据库已改为插件。从插件市场安装后，已保存的连接和密码会自动迁入。",
-    "native.openMarketplace": "打开插件市场"
+    "native.openMarketplace": "打开插件市场",
+    "native.suggestedReplies": "建议的回复",
+    "native.changedTheWorkingDirectoryTo": "已将工作目录切换到 {arg1}",
+    "native.askedForAccessTo": "请求访问 {arg1}",
+    "native.chapter": "章节：{arg1}",
+    "native.startInNewConversation": "在新对话中开始",
+    "native.suggested": "建议",
+    "native.withdrawn": "已撤回",
+    "native.startedInClaudeDesktop": "已在 Claude Desktop 中开始",
+    "native.handedOff": "已移交",
+    "native.linkedThisConversationToAPullRequest": "已将此对话关联到拉取请求",
+    "native.unlinkedThePullRequest": "已取消关联拉取请求",
+    "native.watchingPullRequestChecksAndFixingFailures": "正在关注拉取请求检查并修复失败项",
+    "native.watchingPullRequestChecks": "正在关注拉取请求检查",
+    "native.turnedOffAutoMerge": "已关闭自动合并",
+    "native.turnedOnAutoMerge": "已开启自动合并",
+    "native.visualization": "可视化",
+    "native.showVisualization": "显示可视化",
+    "native.hideVisualization": "隐藏可视化"
   },
   "overrides": {
     "macos": {

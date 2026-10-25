@@ -497,6 +497,21 @@ public final class AgentConnectionModel: ObservableObject {
         composerFocusRequest &+= 1
     }
 
+    /// Put text in the composer without sending it, as when the user picks a
+    /// reply or task Claude Desktop suggested. A new conversation keeps the current draft.
+    public func fillDraft(_ text: String, inNewConversation: Bool) {
+        if inNewConversation && selectedSessionID != nil {
+            if isCreatingSession || !unassignedDraft.isEmpty {
+                saveDraft()
+                restoreDraft(unassignedDraft)
+                selectedSessionID = nil
+                prepareConversation()
+            } else { startNewConversation() }
+        }
+        draftText = text
+        composerFocusRequest &+= 1
+    }
+
     private func saveDraft() {
         let draft = Draft(text: draftText, files: draftFiles)
         if let selectedSessionID { sessionDrafts[selectedSessionID] = draft }

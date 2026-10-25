@@ -82758,6 +82758,219 @@
         "key": "Open Marketplace",
         "arguments": []
       }
+    },
+    {
+      "id": "native.suggestedReplies",
+      "description": "Native UI: Suggested replies",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Suggested replies",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.changedTheWorkingDirectoryTo",
+      "description": "Native UI: Changed the working directory to %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Changed the working directory to %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.askedForAccessTo",
+      "description": "Native UI: Asked for access to %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Asked for access to %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.chapter",
+      "description": "Native UI: Chapter: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Chapter: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.startInNewConversation",
+      "description": "Native UI: Start in new conversation",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Start in new conversation",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.suggested",
+      "description": "Native UI: Suggested",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Suggested",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.withdrawn",
+      "description": "Native UI: Withdrawn",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Withdrawn",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.startedInClaudeDesktop",
+      "description": "Native UI: Started in Claude Desktop",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Started in Claude Desktop",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.handedOff",
+      "description": "Native UI: Handed off",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Handed off",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.linkedThisConversationToAPullRequest",
+      "description": "Native UI: Linked this conversation to a pull request",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Linked this conversation to a pull request",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.unlinkedThePullRequest",
+      "description": "Native UI: Unlinked the pull request",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Unlinked the pull request",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.watchingPullRequestChecksAndFixingFailures",
+      "description": "Native UI: Watching pull request checks and fixing failures",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Watching pull request checks and fixing failures",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.watchingPullRequestChecks",
+      "description": "Native UI: Watching pull request checks",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Watching pull request checks",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.turnedOffAutoMerge",
+      "description": "Native UI: Turned off auto-merge",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Turned off auto-merge",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.turnedOnAutoMerge",
+      "description": "Native UI: Turned on auto-merge",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Turned on auto-merge",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.visualization",
+      "description": "Native UI: Visualization",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Visualization",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.showVisualization",
+      "description": "Native UI: Show visualization",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Show visualization",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.hideVisualization",
+      "description": "Native UI: Hide visualization",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Hide visualization",
+        "arguments": []
+      }
     }
   ]
 }
