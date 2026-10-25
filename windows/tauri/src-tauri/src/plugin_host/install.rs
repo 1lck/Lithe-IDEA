@@ -80,13 +80,21 @@ pub struct InstallReview {
     pub new_programs: Vec<serde_json::Value>,
 }
 
-/// Source facts recorded beside the snapshot, so the installation record can
-/// name what the user installed without changing the confirm-call contract.
+/// The evidence frozen when the user's review was prepared, recorded beside
+/// the snapshot: what the user installed, and exactly which bytes and which
+/// review identity prepare showed. Confirm and staging must reach the same
+/// answers, so nothing can change between review and install.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SnapshotSource {
     file_name: String,
     archive_sha256: Option<String>,
+    /// Digest of the reviewed `plugin.json`.
+    manifest_digest: String,
+    /// Whole-package content digest of the reviewed snapshot.
+    content_digest: String,
+    /// Canonical JSON programs of the prepare-time review.
+    approved_programs: Vec<String>,
 }
 
 /// Prepares a disk import from a ZIP archive or an unpacked directory. The
@@ -98,15 +106,23 @@ pub fn declarative_plugins_prepare_disk_install(
     app: AppHandle,
     source_path: String,
 ) -> Result<PreparedInstall, String> {
-    let temporary_root = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|error| error.to_string())?
-        .join("plugin-temp");
+    let temporary_root = snapshot_root(&app)?;
     std::fs::create_dir_all(&temporary_root).map_err(|error| error.to_string())?;
     let session_id = format!("{}{}", SNAPSHOT_PREFIX, uuid_like_suffix());
-    let snapshot = temporary_root.join(&session_id);
-    let source = PathBuf::from(&source_path);
+    prepare_disk_install_snapshot(&temporary_root, &session_id, &source_path)
+}
+
+/// The testable core of the prepare command: snapshot the source, review it,
+/// and park the session under `temporary_root`. A failed prepare discards
+/// its snapshot and session record.
+pub(crate) fn prepare_disk_install_snapshot(
+    temporary_root: &Path,
+    session_id: &str,
+    source_path: &str,
+) -> Result<PreparedInstall, String> {
+    let snapshot = validated_session_path(temporary_root, session_id)?;
+    std::fs::create_dir_all(temporary_root).map_err(|error| error.to_string())?;
+    let source = PathBuf::from(source_path);
     let result = (|| {
         let file_name = source
             .file_name()
@@ -129,21 +145,51 @@ pub fn declarative_plugins_prepare_disk_install(
             ));
         }
         let manifest = read_package_manifest(&snapshot)?;
+        let plugin_id = manifest["id"]
+            .as_str()
+            .ok_or("manifest has no id")?
+            .to_string();
+        let version = manifest["version"]
+            .as_str()
+            .ok_or("manifest has no version")?
+            .to_string();
+        // Trust is verified before the review is offered: a signature
+        // document must already verify here, and an unsigned package must be
+        // community-installable, so the review cannot be offered for bytes
+        // the host would refuse anyway.
+        super::signature::verify_for_install(
+            &snapshot,
+            &plugin_id,
+            &version,
+            &manifest,
+            super::signature::InstallOrigin::Community,
+            None,
+            &super::signature::trusted_keys(),
+        )
+        .map_err(|error| error.message())?;
+        // The whole-package digest is frozen now: confirm and staging bind
+        // the install to exactly these bytes.
+        let frozen_digest =
+            super::signature::content_digest(&snapshot).map_err(|error| error.message())?;
+        let review = review_snapshot(&manifest, None)?;
         // Source facts live beside the snapshot, not inside it: every file
         // under the snapshot becomes an installed package file.
         std::fs::write(
-            snapshot_source_path(&temporary_root, &session_id),
+            snapshot_source_path(temporary_root, session_id),
             serde_json::to_string(&SnapshotSource {
                 file_name,
                 archive_sha256,
+                manifest_digest: manifest_replay_digest(&manifest),
+                content_digest: frozen_digest,
+                approved_programs: canonical_programs(&review.programs),
             })
             .map_err(|error| error.to_string())?,
         )
         .map_err(|error| error.to_string())?;
         Ok(PreparedInstall {
-            session_id: session_id.clone(),
-            review: review_snapshot(&manifest, None)?,
-            manifest_digest: content_digest(&manifest),
+            session_id: session_id.to_string(),
+            review,
+            manifest_digest: manifest_replay_digest(&manifest),
             display_name: manifest["displayName"]
                 .as_str()
                 .unwrap_or("plugin")
@@ -151,8 +197,8 @@ pub fn declarative_plugins_prepare_disk_install(
         })
     })();
     if result.is_err() {
-        discard_snapshot(&temporary_root.join(&session_id));
-        discard_source_metadata(&temporary_root, &session_id);
+        discard_snapshot(&snapshot);
+        discard_source_metadata(temporary_root, session_id);
     }
     result
 }
@@ -171,119 +217,270 @@ pub async fn declarative_plugins_confirm_disk_install(
     manifest_digest: String,
 ) -> Result<CatalogEntry, String> {
     let temporary_root = snapshot_root(&app)?;
+    let install_root = store::install_root(&app)?;
     let snapshot = snapshot_path(&app, &session_id)?;
-    let source_record_path = snapshot_source_path(&temporary_root, &session_id);
     let result = async {
-        let source: SnapshotSource = serde_json::from_str(
-            &std::fs::read_to_string(&source_record_path)
-                .map_err(|error| format!("the install session has no source record: {error}"))?,
-        )
-        .map_err(|error| format!("the install session source record is unreadable: {error}"))?;
-        let manifest = read_package_manifest(&snapshot)?;
-        if content_digest(&manifest) != manifest_digest {
-            return Err("the package changed after review; the import was cancelled".to_string());
-        }
-        // Re-review with no previously approved programs: a disk install always
-        // requires a fresh full confirmation, matching the macOS rule.
-        let review = review_snapshot(&manifest, None)?;
-        let plugin_id = manifest["id"]
-            .as_str()
-            .ok_or("manifest has no id")?
-            .to_string();
-        let version = manifest["version"]
-            .as_str()
-            .ok_or("manifest has no version")?
-            .to_string();
-
-        // Validate the final manifest against this host's capabilities before
-        // anything is written into the install root.
-        validate_manifest(&manifest).map_err(|rejection| rejection.message)?;
-        // Disk installs are community origin. The pinned trust policy still
-        // applies (an official ID cannot install as an unsigned community
-        // package), and a signature document present in the package must
-        // verify even though the community digest is the recorded evidence.
-        super::signature::verify_for_install(
-            &snapshot,
-            &plugin_id,
-            &version,
-            &manifest,
-            super::signature::InstallOrigin::Community,
-            super::signature::trusted_keys(),
-        )
-        .map_err(|error| error.message())?;
-        let approved_digest =
-            super::signature::content_digest(&snapshot).map_err(|error| error.message())?;
-
+        // The session identity is resolved once, inside the cleanup-guarded
+        // block: a malformed session fails into the same release path as
+        // everything else. This one value keys the real lifecycle barrier
+        // and is passed to the orchestration as the expected identity, so
+        // the pre-publish check compares against the barrier actually held.
+        let session_plugin = session_plugin_id(&temporary_root, &session_id)?;
         // A version switch invalidates the page's package bytes and bridge
         // authorization, so destroy all owned webviews before staging starts.
-        let mutation = super::lifecycle::begin(&app, &plugin_id).await?;
-        let install_root = store::install_root(&app)?;
-        let existing = read_installation_record(&install_root, &plugin_id);
-        let replaces_active = existing
-            .as_ref()
-            .map(|record| record.version == version)
-            .unwrap_or(false);
-        // The same-version rule keeps the previous chain intact: replacing
-        // the active version in place does not overwrite what the user can
-        // still roll back to.
-        let (previous_version, previous_origin) = if replaces_active {
-            (
-                existing
-                    .as_ref()
-                    .and_then(|record| record.previous_version.clone()),
-                existing.as_ref().and_then(|record| record.previous_origin),
-            )
-        } else {
-            (
-                existing.as_ref().map(|record| record.version.clone()),
-                existing.as_ref().and_then(|record| record.origin),
-            )
-        };
-        let (previous_marketplace, previous_disk) = if replaces_active {
-            (
-                existing
-                    .as_ref()
-                    .and_then(|record| record.previous_marketplace.clone()),
-                existing
-                    .as_ref()
-                    .and_then(|record| record.previous_disk.clone()),
-            )
-        } else {
-            (
-                existing
-                    .as_ref()
-                    .and_then(|record| record.marketplace.clone()),
-                existing.as_ref().and_then(|record| record.disk.clone()),
-            )
-        };
-        let record = InstallationRecord {
-            schema_version: 2,
-            plugin_id: plugin_id.clone(),
-            version: version.clone(),
-            previous_version,
-            enabled: true,
-            origin: Some(super::signature::InstallOrigin::Community),
-            previous_origin,
-            marketplace: None,
-            previous_marketplace,
-            disk: Some(DiskProvenance {
-                file_name: source.file_name,
-                archive_sha256: source.archive_sha256,
-                content_digest: approved_digest,
-                approved_programs: canonical_programs(&review.programs),
-            }),
-            previous_disk,
-        };
-        publish_installed_version(&install_root, &plugin_id, &version, &snapshot, record)?;
+        let mutation = super::lifecycle::begin(&app, &session_plugin).await?;
+        // Inside the barrier: the session is re-verified and the install
+        // record is read and built from the record state as it exists now,
+        // so another mutation that committed during the drain is not
+        // overwritten with a stale rollback chain.
+        let confirmed = confirm_and_publish_in_barrier(
+            &install_root,
+            &temporary_root,
+            &session_id,
+            &manifest_digest,
+            &snapshot,
+            &session_plugin,
+            &|| Ok(()),
+        )?;
         rescan_after_change(&app)?;
         mutation.complete(true);
-        Ok(catalog_entry_of(&app, &plugin_id)
-            .unwrap_or_else(|| accepted_entry_fallback(&plugin_id, &version)))
+        Ok(catalog_entry_of(&app, &confirmed.plugin_id)
+            .unwrap_or_else(|| accepted_entry_fallback(&confirmed.plugin_id, &confirmed.version)))
     }
     .await;
-    discard_snapshot(&snapshot);
-    discard_source_metadata(&temporary_root, &session_id);
+    // Every way out of the command - success, validation refusal, barrier
+    // failure - releases the snapshot and the session record.
+    discard_install_session(&temporary_root, &session_id, &snapshot);
     result
+}
+
+/// Cheap pre-barrier read of the session's plugin identity.
+#[cfg(test)]
+pub(crate) fn session_plugin_id_for_tests(
+    temporary_root: &Path,
+    session_id: &str,
+) -> Result<String, String> {
+    session_plugin_id(temporary_root, session_id)
+}
+
+fn session_plugin_id(temporary_root: &Path, session_id: &str) -> Result<String, String> {
+    let snapshot = validated_session_path(temporary_root, session_id)?;
+    let manifest = read_package_manifest(&snapshot)?;
+    manifest["id"]
+        .as_str()
+        .map(str::to_string)
+        .ok_or_else(|| "the install session has no plugin id".to_string())
+}
+
+/// Releases the snapshot directory and the session record of one review.
+#[cfg(test)]
+pub(crate) fn discard_install_session_for_tests(
+    temporary_root: &Path,
+    session_id: &str,
+    snapshot: &Path,
+) {
+    discard_install_session(temporary_root, session_id, snapshot)
+}
+
+fn discard_install_session(temporary_root: &Path, session_id: &str, snapshot: &Path) {
+    discard_snapshot(snapshot);
+    discard_source_metadata(temporary_root, session_id);
+}
+
+/// Runs the barrier-guarded section of a disk-install confirm, the same
+/// sequence the command drives. `expected_plugin_id` is the identity the
+/// caller resolved when it took its real barrier — the command awaits
+/// `lifecycle::begin` for exactly this ID and passes it here, so the check
+/// below proves the published bytes belong to the plugin whose barrier is
+/// actually held. The session is re-verified and the install record is read
+/// and built from the record state as it exists now, the identity is
+/// re-checked before anything is published, and only then are the staged
+/// bytes published. `begin` is injected so tests drive the same sequence
+/// without an AppHandle; the real command passes a no-op because its barrier
+/// is already held. A failed section releases the snapshot and session
+/// record: the session cannot be retried through this call.
+pub(crate) fn confirm_and_publish_in_barrier(
+    install_root: &Path,
+    temporary_root: &Path,
+    session_id: &str,
+    manifest_digest: &str,
+    snapshot: &Path,
+    expected_plugin_id: &str,
+    begin: &dyn Fn() -> Result<(), String>,
+) -> Result<ConfirmedDiskInstall, String> {
+    let result = (|| {
+        begin()?;
+        let confirmed = confirm_disk_install_snapshot(
+            install_root,
+            temporary_root,
+            session_id,
+            manifest_digest,
+        )?;
+        // The identity must still be the one the barrier was taken for:
+        // publishing under another plugin's barrier would bypass its stop
+        // guarantees, so this check happens before any bytes move. The
+        // expected ID comes from the caller's own barrier acquisition, never
+        // from a second read of the session.
+        if confirmed.plugin_id != expected_plugin_id {
+            return Err(format!(
+                "the install session changed during confirmation; it now installs {} but the barrier was taken for {expected_plugin_id}",
+                confirmed.plugin_id
+            ));
+        }
+        publish_installed_version(
+            install_root,
+            &confirmed.plugin_id,
+            &confirmed.version,
+            snapshot,
+            confirmed.record.clone(),
+        )?;
+        Ok(confirmed)
+    })();
+    if result.is_err() {
+        discard_install_session(temporary_root, session_id, snapshot);
+    }
+    result
+}
+
+/// The outcome of a confirmed review: everything the publish transaction
+/// needs, validated against the snapshot as it existed at confirm time.
+#[derive(Debug)]
+pub(crate) struct ConfirmedDiskInstall {
+    pub plugin_id: String,
+    pub version: String,
+    pub record: InstallationRecord,
+}
+
+/// The testable core of the confirm command: re-review the snapshot, verify
+/// its trust, and build the installation record. Publishing happens later,
+/// behind the lifecycle barrier, from the same validated record.
+pub(crate) fn confirm_disk_install_snapshot(
+    install_root: &Path,
+    temporary_root: &Path,
+    session_id: &str,
+    manifest_digest: &str,
+) -> Result<ConfirmedDiskInstall, String> {
+    let snapshot = validated_session_path(temporary_root, session_id)?;
+    let source: SnapshotSource = serde_json::from_str(
+        &std::fs::read_to_string(snapshot_source_path(temporary_root, session_id))
+            .map_err(|error| format!("the install session has no source record: {error}"))?,
+    )
+    .map_err(|error| format!("the install session source record is unreadable: {error}"))?;
+    let manifest = read_package_manifest(&snapshot)?;
+    // The caller echoes the manifest digest it reviewed; the session record
+    // freezes it independently, so a tampered caller cannot bless new bytes.
+    if manifest_replay_digest(&manifest) != manifest_digest
+        || manifest_replay_digest(&manifest) != source.manifest_digest
+    {
+        return Err("the package changed after review; the import was cancelled".to_string());
+    }
+    // The whole package must still be exactly the bytes prepare froze: any
+    // replaced, added, or removed file is a rejection before anything runs.
+    let package_digest =
+        super::signature::content_digest(&snapshot).map_err(|error| error.message())?;
+    if package_digest != source.content_digest {
+        return Err("the package changed after review; the import was cancelled".to_string());
+    }
+    // Re-review with no previously approved programs: a disk install always
+    // requires a fresh full confirmation, matching the macOS rule. Its
+    // identity must still be the one the user saw at prepare.
+    let review = review_snapshot(&manifest, None)?;
+    if canonical_programs(&review.programs) != source.approved_programs {
+        return Err(
+            "the reviewed programs changed after the package was prepared; the import was \
+             cancelled"
+                .to_string(),
+        );
+    }
+    let plugin_id = manifest["id"]
+        .as_str()
+        .ok_or("manifest has no id")?
+        .to_string();
+    let version = manifest["version"]
+        .as_str()
+        .ok_or("manifest has no version")?
+        .to_string();
+
+    // Validate the final manifest against this host's capabilities before
+    // anything is written into the install root.
+    validate_manifest(&manifest).map_err(|rejection| rejection.message)?;
+    // Disk installs are community origin. The pinned trust policy still
+    // applies (an official ID cannot install as an unsigned community
+    // package), and a signature document present in the package must
+    // verify even though the community digest is the recorded evidence.
+    super::signature::verify_for_install(
+        &snapshot,
+        &plugin_id,
+        &version,
+        &manifest,
+        super::signature::InstallOrigin::Community,
+        None,
+        &super::signature::trusted_keys(),
+    )
+    .map_err(|error| error.message())?;
+
+    let existing = read_installation_record(install_root, &plugin_id);
+    let replaces_active = existing
+        .as_ref()
+        .map(|record| record.version == version)
+        .unwrap_or(false);
+    // The same-version rule keeps the previous chain intact: replacing
+    // the active version in place does not overwrite what the user can
+    // still roll back to.
+    let (previous_version, previous_origin) = if replaces_active {
+        (
+            existing
+                .as_ref()
+                .and_then(|record| record.previous_version.clone()),
+            existing.as_ref().and_then(|record| record.previous_origin),
+        )
+    } else {
+        (
+            existing.as_ref().map(|record| record.version.clone()),
+            existing.as_ref().and_then(|record| record.origin),
+        )
+    };
+    let (previous_marketplace, previous_disk) = if replaces_active {
+        (
+            existing
+                .as_ref()
+                .and_then(|record| record.previous_marketplace.clone()),
+            existing
+                .as_ref()
+                .and_then(|record| record.previous_disk.clone()),
+        )
+    } else {
+        (
+            existing
+                .as_ref()
+                .and_then(|record| record.marketplace.clone()),
+            existing.as_ref().and_then(|record| record.disk.clone()),
+        )
+    };
+    let record = InstallationRecord {
+        schema_version: 2,
+        plugin_id: plugin_id.clone(),
+        version: version.clone(),
+        previous_version,
+        enabled: true,
+        origin: Some(super::signature::InstallOrigin::Community),
+        previous_origin,
+        marketplace: None,
+        previous_marketplace,
+        disk: Some(DiskProvenance {
+            file_name: source.file_name,
+            archive_sha256: source.archive_sha256,
+            // The approved bytes are the ones prepare froze, re-checked above.
+            content_digest: package_digest,
+            approved_programs: source.approved_programs,
+        }),
+        previous_disk,
+    };
+    Ok(ConfirmedDiskInstall {
+        plugin_id,
+        version,
+        record,
+    })
 }
 
 /// Abandons an installation review and removes its private snapshot.
@@ -302,14 +499,7 @@ pub fn declarative_plugins_cancel_disk_install(
 }
 
 fn snapshot_path(app: &AppHandle, session_id: &str) -> Result<PathBuf, String> {
-    if !session_id.starts_with(SNAPSHOT_PREFIX)
-        || session_id.contains('/')
-        || session_id.contains('\\')
-        || session_id.contains("..")
-    {
-        return Err("invalid install session".to_string());
-    }
-    Ok(snapshot_root(app)?.join(session_id))
+    validated_session_path(&snapshot_root(&app)?, session_id)
 }
 
 fn snapshot_root(app: &AppHandle) -> Result<PathBuf, String> {
@@ -322,6 +512,18 @@ fn snapshot_root(app: &AppHandle) -> Result<PathBuf, String> {
 
 fn snapshot_source_path(temporary_root: &Path, session_id: &str) -> PathBuf {
     temporary_root.join(format!("{session_id}.source.json"))
+}
+
+/// Resolves and validates the snapshot directory of one review session.
+fn validated_session_path(temporary_root: &Path, session_id: &str) -> Result<PathBuf, String> {
+    if !session_id.starts_with(SNAPSHOT_PREFIX)
+        || session_id.contains('/')
+        || session_id.contains('\\')
+        || session_id.contains("..")
+    {
+        return Err("invalid install session".to_string());
+    }
+    Ok(temporary_root.join(session_id))
 }
 
 fn discard_source_metadata(temporary_root: &Path, session_id: &str) {
@@ -409,23 +611,13 @@ pub async fn declarative_plugins_rollback(app: AppHandle, plugin_id: String) -> 
         ));
     };
     let previous_directory = plugin_directory.join(&previous);
-    let manifest = read_package_manifest(&previous_directory)?;
-    if manifest["id"].as_str() != Some(plugin_id.as_str())
-        || manifest["version"].as_str() != Some(previous.as_str())
-    {
-        return Err("the previous package does not match its installation record".to_string());
-    }
-    validate_manifest(&manifest).map_err(|rejection| rejection.message)?;
-    super::signature::verify_for_origin(
+    verify_rollback_candidate(
         &previous_directory,
         &plugin_id,
         &previous,
-        &manifest,
         previous_origin,
         record.previous_content_digest(),
-        super::signature::trusted_keys(),
-    )
-    .map_err(|error| error.message())?;
+    )?;
     let mutation = super::lifecycle::begin(&app, &plugin_id).await?;
     let swapped = InstallationRecord {
         schema_version: 2,
@@ -491,8 +683,48 @@ pub(crate) fn publish_installed_version(
     source: &Path,
     record: InstallationRecord,
 ) -> Result<(), String> {
+    publish_installed_version_with_backup_cleanup(
+        install_root,
+        plugin_id,
+        version,
+        source,
+        record,
+        &|path| std::fs::remove_dir_all(path),
+    )
+}
+
+/// Uses the same publication transaction with a replaceable final cleanup
+/// operation. Cleanup failure is deliberately non-fatal after the durable
+/// record commits; injecting it lets tests retain the real backup without
+/// relying on Windows file-attribute or antivirus timing behavior.
+pub(crate) fn publish_installed_version_with_backup_cleanup(
+    install_root: &Path,
+    plugin_id: &str,
+    version: &str,
+    source: &Path,
+    record: InstallationRecord,
+    cleanup_backup: &dyn Fn(&Path) -> std::io::Result<()>,
+) -> Result<(), String> {
     let plugin_directory = install_root.join(plugin_id);
     std::fs::create_dir_all(&plugin_directory).map_err(|error| error.to_string())?;
+    // Leftover recovery backups of any version are judged before anything is
+    // staged, directed by the durable record's approved digest.
+    let stale_backups: Vec<PathBuf> = std::fs::read_dir(&plugin_directory)
+        .map_err(|error| error.to_string())?
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.is_dir()
+                && path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .map(|name| name.ends_with(".previous-tmp"))
+                    .unwrap_or(false)
+        })
+        .collect();
+    for backup_directory in stale_backups {
+        resolve_recovery_backup(install_root, plugin_id, &backup_directory)?;
+    }
     let version_directory = plugin_directory.join(version);
     let staging_directory = plugin_directory.join(format!(".staging-{version}"));
     if staging_directory.exists() {
@@ -513,7 +745,8 @@ pub(crate) fn publish_installed_version(
             version,
             &staged_manifest,
             origin,
-            super::signature::trusted_keys(),
+            None,
+            &super::signature::trusted_keys(),
         )
         .map_err(|error| error.message())?;
         if let Some(expected) = record.active_content_digest() {
@@ -523,11 +756,14 @@ pub(crate) fn publish_installed_version(
                 return Err(super::signature::TrustError::ContentChanged.message());
             }
         }
-        activate_staged_version(&staging_directory, &version_directory)?;
-        // The record only ever points at bytes that are already in place; if
-        // this write fails, the backup restore below keeps the old version
-        // and the old record consistent.
-        write_installation_record(install_root, &record)
+        activate_staged_version_and_record(
+            &staging_directory,
+            &version_directory,
+            install_root,
+            version,
+            &record,
+            cleanup_backup,
+        )
     })();
     if result.is_err() {
         let _ = std::fs::remove_dir_all(&staging_directory);
@@ -535,35 +771,263 @@ pub(crate) fn publish_installed_version(
     result
 }
 
-/// Replaces `version_directory` with the staged copy, keeping a backup so a
-/// failed rename never leaves the install record pointing at missing bytes.
-fn activate_staged_version(
+/// Replaces `version_directory` with the staged copy and commits the
+/// installation record as one transaction. The record is staged to its temp
+/// path before any version byte moves, so a record that cannot be written
+/// fails while the old version is still intact; if the record commit fails
+/// after the swap, the previous bytes are restored and both failures are
+/// reported instead of leaving new bytes under the old record.
+/// Judges a recovery backup left by an interrupted transaction, directed by
+/// the durable installation record's approved digest: restore the backup
+/// only when it provably holds the approved bytes, remove it only when the
+/// approved bytes are provably intact elsewhere, and refuse an ambiguous
+/// state with every byte kept. Restore failures are reported, never
+/// swallowed.
+fn resolve_recovery_backup(
+    install_root: &Path,
+    plugin_id: &str,
+    backup_directory: &Path,
+) -> Result<(), String> {
+    let refuse = |message: String| -> Result<(), String> { Err(message) };
+    let backup_version = backup_directory
+        .file_name()
+        .and_then(|name| name.to_str())
+        .and_then(|name| name.strip_suffix(".previous-tmp"))
+        .ok_or("a recovery backup without a version name")?
+        .to_string();
+    let durable = match read_installation_record(install_root, plugin_id) {
+        Some(record) if record.schema_version == 2 => record,
+        _ => {
+            return refuse(
+                "a recovery backup exists and the installation record cannot prove which bytes \
+                 are approved; the backup and any interrupted bytes were kept"
+                    .to_string(),
+            );
+        }
+    };
+    // A user-writable record cannot choose another plugin or a path outside
+    // its version directory while recovery moves package bytes.
+    let is_version_component = |value: &str| {
+        !value.is_empty()
+            && !matches!(value, "." | "..")
+            && !value.contains(['/', '\\', ':'])
+            && !value.ends_with(['.', ' '])
+    };
+    if durable.plugin_id != plugin_id
+        || !is_version_component(&durable.version)
+        || !is_version_component(&backup_version)
+    {
+        return refuse(
+            "the recovery record does not name a valid version of this plugin; all bytes were kept"
+                .to_string(),
+        );
+    }
+    let backup_version_directory = install_root.join(plugin_id).join(&backup_version);
+    let Some(approved_digest) = durable.active_content_digest() else {
+        return refuse(
+            "a recovery backup exists and the installation record carries no approved digest; \
+             the backup and any interrupted bytes were kept"
+                .to_string(),
+        );
+    };
+    let backup_digest = super::signature::content_digest(backup_directory)
+        .map_err(|error| format!("the recovery backup is unreadable: {}", error.message()))?;
+    if durable.version == backup_version {
+        let version_digest = if backup_version_directory.exists() {
+            Some(
+                super::signature::content_digest(&backup_version_directory).map_err(|error| {
+                    format!("the interrupted version is unreadable: {}", error.message())
+                })?,
+            )
+        } else {
+            None
+        };
+        if version_digest.as_deref() == Some(approved_digest) {
+            // The version directory already holds the approved bytes; the
+            // backup is a stale leftover and safe to remove.
+            std::fs::remove_dir_all(backup_directory).map_err(|error| {
+                format!("a stale recovery backup could not be removed: {error}")
+            })?;
+            return Ok(());
+        }
+        if backup_digest == approved_digest {
+            // Restore the approved bytes over the interrupted ones.
+            if backup_version_directory.exists() {
+                if let Err(error) = std::fs::remove_dir_all(&backup_version_directory) {
+                    return refuse(format!(
+                        "a recovery backup exists but the interrupted version could not be removed: {error}"
+                    ));
+                }
+            }
+            if let Err(error) = std::fs::rename(backup_directory, &backup_version_directory) {
+                return refuse(format!(
+                    "the recovery backup could not be restored: {error}"
+                ));
+            }
+            return Ok(());
+        }
+        return refuse(format!(
+            "an interrupted install left an ambiguous state: neither the version directory nor \
+             its recovery backup matches the approved digest recorded in the installation \
+             record; the backup at {} and any interrupted bytes were kept",
+            backup_directory.display()
+        ));
+    }
+    // The durable record approves a different version: this backup is an
+    // orphan. It may only be cleared once the approved bytes are provably
+    // intact in their own directory, and it is restored there instead when
+    // it provably holds them.
+    let approved_directory = install_root.join(&durable.plugin_id).join(&durable.version);
+    let approved_digest_matches = approved_directory.exists()
+        && super::signature::content_digest(&approved_directory)
+            .map(|digest| digest == approved_digest)
+            .unwrap_or(false);
+    if !approved_digest_matches && backup_digest == approved_digest {
+        // The approved bytes only exist in this backup: restore them to
+        // their own directory before publishing another version.
+        std::fs::rename(backup_directory, &approved_directory).map_err(|error| {
+            format!(
+                "the recovery backup could not be restored to {}: {error}",
+                approved_directory.display()
+            )
+        })?;
+    } else if !approved_digest_matches {
+        return refuse(format!(
+            "an interrupted install left an ambiguous state: the approved version {} is missing \
+             or does not match its record digest, so the recovery backup cannot be judged; the \
+             backup at {} was kept",
+            durable.version,
+            backup_directory.display()
+        ));
+    }
+    if backup_directory.exists() {
+        std::fs::remove_dir_all(backup_directory)
+            .map_err(|error| format!("a stale recovery backup could not be removed: {error}"))?;
+    }
+    Ok(())
+}
+
+fn activate_staged_version_and_record(
     staging_directory: &Path,
     version_directory: &Path,
+    install_root: &Path,
+    version: &str,
+    record: &InstallationRecord,
+    cleanup_backup: &dyn Fn(&Path) -> std::io::Result<()>,
 ) -> Result<(), String> {
-    if !version_directory.exists() {
-        return std::fs::rename(staging_directory, version_directory)
-            .map_err(|error| format!("activation failed: {error}"));
-    }
-    // Replacing an existing version: move the current directory aside first,
-    // and restore it if activation fails, so a failed same-version reinstall
-    // never leaves the install record pointing at missing bytes.
-    let backup_directory = version_directory.with_extension("previous-tmp");
+    let record_path = install_root
+        .join(&record.plugin_id)
+        .join("installation.json");
+    let temp_path = record_path.with_extension("json.tmp");
+    std::fs::write(
+        &temp_path,
+        serde_json::to_string_pretty(record).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| format!("could not stage the installation record: {error}"))?;
+    // The backup carries the full version name: adjacent patch versions
+    // (1.0.0 and 1.0.1) must never share one recovery path. Leftovers were
+    // already resolved before staging; a backup appearing here would mean a
+    // concurrent writer and is refused instead of deleted or restored.
+    let plugin_directory = install_root.join(&record.plugin_id);
+    let backup_directory = plugin_directory.join(format!("{version}.previous-tmp"));
     if backup_directory.exists() {
-        std::fs::remove_dir_all(&backup_directory).map_err(|error| error.to_string())?;
+        let _ = std::fs::remove_file(&temp_path);
+        return Err(format!(
+            "a recovery backup for {version} appeared during the transaction; the state was kept"
+        ));
     }
-    std::fs::rename(version_directory, &backup_directory)
-        .map_err(|error| format!("could not back up the current version: {error}"))?;
-    if let Err(activation_error) = std::fs::rename(staging_directory, version_directory) {
-        if let Err(restore_error) = std::fs::rename(&backup_directory, version_directory) {
-            return Err(format!(
-                "activation failed ({activation_error}) and the previous version could not be restored ({restore_error})"
-            ));
+    if !version_directory.exists() {
+        // First install: activate, then commit. No previous version exists,
+        // so a failed commit removes the new bytes again.
+        if let Err(activation_error) = std::fs::rename(staging_directory, version_directory) {
+            let _ = std::fs::remove_file(&temp_path);
+            return Err(format!("activation failed: {activation_error}"));
         }
-        return Err(format!("activation failed: {activation_error}"));
+        if let Err(record_error) = std::fs::rename(&temp_path, &record_path) {
+            let removal_error = std::fs::remove_dir_all(version_directory).err();
+            let _ = std::fs::remove_file(&temp_path);
+            return Err(match removal_error {
+                None => format!(
+                    "could not write the installation record ({record_error}); the new version was removed"
+                ),
+                Some(removal_error) => format!(
+                    "could not write the installation record ({record_error}) and the new version could not be removed ({removal_error}); the record still names no installed version"
+                ),
+            });
+        }
+        return Ok(());
     }
-    let _ = std::fs::remove_dir_all(&backup_directory);
+    // Replacing an existing version: move the current directory aside first
+    // and keep it until the record has committed.
+    if let Err(backup_error) = std::fs::rename(version_directory, &backup_directory) {
+        let _ = std::fs::remove_file(&temp_path);
+        return Err(format!(
+            "could not back up the current version: {backup_error}"
+        ));
+    }
+    if let Err(activation_error) = std::fs::rename(staging_directory, version_directory) {
+        let restore_error = std::fs::rename(&backup_directory, version_directory).err();
+        let _ = std::fs::remove_file(&temp_path);
+        return Err(match restore_error {
+            Some(restore_error) => format!(
+                "activation failed ({activation_error}) and the previous version could not be restored ({restore_error})"
+            ),
+            None => format!("activation failed: {activation_error}"),
+        });
+    }
+    if let Err(record_error) = std::fs::rename(&temp_path, &record_path) {
+        // The old record still names the old version, so the old bytes must
+        // come back; a failed restore is reported, never swallowed.
+        let restore_result = (|| {
+            std::fs::remove_dir_all(version_directory)?;
+            std::fs::rename(&backup_directory, version_directory)?;
+            Ok::<(), std::io::Error>(())
+        })();
+        let _ = std::fs::remove_file(&temp_path);
+        return Err(match restore_result {
+            Ok(()) => format!(
+                "could not write the installation record ({record_error}); the previous version was restored"
+            ),
+            Err(restore_error) => format!(
+                "could not write the installation record ({record_error}) and the previous version could not be restored ({restore_error}); the recovery backup at {} was kept for the next attempt",
+                backup_directory.display()
+            ),
+        });
+    }
+    // Transaction committed: the backup is best-effort cleanup from here.
+    let _ = cleanup_backup(&backup_directory);
     Ok(())
+}
+
+/// Verifies a rollback candidate the way it was originally installed: the
+/// restored package must match its record, validate, and satisfy the trust
+/// policy with its own provenance. The candidate lives in the install root,
+/// so a bundled claim can never be honored here.
+pub(crate) fn verify_rollback_candidate(
+    previous_directory: &Path,
+    plugin_id: &str,
+    previous_version: &str,
+    origin: super::signature::InstallOrigin,
+    expected_content_digest: Option<&str>,
+) -> Result<(), String> {
+    let manifest = read_package_manifest(previous_directory)?;
+    if manifest["id"].as_str() != Some(plugin_id)
+        || manifest["version"].as_str() != Some(previous_version)
+    {
+        return Err("the previous package does not match its installation record".to_string());
+    }
+    validate_manifest(&manifest).map_err(|rejection| rejection.message)?;
+    super::signature::verify_for_origin(
+        previous_directory,
+        plugin_id,
+        previous_version,
+        &manifest,
+        origin,
+        expected_content_digest,
+        None,
+        &super::signature::trusted_keys(),
+    )
+    .map_err(|error| error.message())
 }
 
 /// Reads the current install record of a plugin; `None` when the plugin has
@@ -629,7 +1093,7 @@ fn read_package_manifest(package_root: &Path) -> Result<serde_json::Value, Strin
     serde_json::from_str(&text).map_err(|error| format!("plugin.json is not valid JSON: {error}"))
 }
 
-fn content_digest(manifest: &serde_json::Value) -> String {
+fn manifest_replay_digest(manifest: &serde_json::Value) -> String {
     let mut hasher = Sha256::new();
     hasher.update(manifest.to_string().as_bytes());
     format!("{:x}", hasher.finalize())

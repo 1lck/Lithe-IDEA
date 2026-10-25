@@ -371,14 +371,17 @@ fn scan_package_at(
     origin: Option<crate::plugin_host::signature::InstallOrigin>,
     content_digest: Option<String>,
 ) -> super::ScannedPackage {
-    super::scan::scan_package_for_tests(DiscoveredPackage {
-        root: root.to_path_buf(),
-        source: "installed",
-        enabled: true,
-        origin,
-        content_digest,
-        record_problem,
-    })
+    super::scan::scan_package_for_tests(
+        DiscoveredPackage {
+            root: root.to_path_buf(),
+            source: "installed",
+            enabled: true,
+            origin,
+            content_digest,
+            record_problem,
+        },
+        None,
+    )
 }
 
 /// Writes a schema 2 community record naming `version`, with the content
@@ -491,6 +494,85 @@ fn copy_directory_snapshot_for_tests(source: &std::path::Path, target: &std::pat
     }
 }
 
+/// P1 regression: an installed record can never claim bundled origin. The
+/// bundled identity comes only from the trusted resource discoverer; a
+/// schema 2 record that claims it (for the active or the previous version)
+/// is forged and the package is quarantined instead of scanned.
+#[test]
+fn installed_records_cannot_claim_bundled_origin() {
+    let root = unique_temp_root("trust-bundled-claim");
+    let install_root = root.join("plugins");
+    let plugin_directory = install_root.join("dev.lithe.plugin.php-support");
+    let version_directory = plugin_directory.join("1.0.0");
+    std::fs::create_dir_all(&version_directory).expect("version dir");
+    let mut manifest = read_fixture("language-packaged-server.plugin.json");
+    manifest["id"] = serde_json::json!("dev.lithe.plugin.php-support");
+    manifest["vendor"]["signatureRequirement"] = serde_json::json!("sameTeamAsHost");
+    manifest["version"] = serde_json::json!("1.0.0");
+    std::fs::write(
+        version_directory.join("plugin.json"),
+        serde_json::to_string_pretty(&manifest).expect("manifest text"),
+    )
+    .expect("manifest file");
+    std::fs::write(version_directory.join("server.js"), b"entry").expect("package file");
+
+    // The forged record claims bundled origin with no digest at all.
+    std::fs::write(
+        plugin_directory.join("installation.json"),
+        json!({
+            "schemaVersion": 2,
+            "pluginId": "dev.lithe.plugin.php-support",
+            "version": "1.0.0",
+            "enabled": true,
+            "origin": "bundled"
+        })
+        .to_string(),
+    )
+    .expect("record file");
+    let discovered = store::discover_installed_in(&install_root).expect("discovery works");
+    assert!(
+        discovered[0].record_problem.is_some(),
+        "a bundled-origin claim must be a record problem"
+    );
+    let catalog = build_catalog_from(&root.join("none"), &install_root).expect("catalog builds");
+    let entry = &catalog
+        .iter()
+        .find(|package| package.entry.source == "installed")
+        .expect("installed entry")
+        .entry;
+    assert_eq!(entry.status, "rejected", "the forged package must not load");
+
+    // The same holds when only the previous version claims bundled origin.
+    let digest = crate::plugin_host::signature::content_digest(&version_directory)
+        .expect("digest of the package");
+    std::fs::write(
+        plugin_directory.join("installation.json"),
+        json!({
+            "schemaVersion": 2,
+            "pluginId": "dev.lithe.plugin.php-support",
+            "version": "1.0.0",
+            "enabled": true,
+            "origin": "community",
+            "disk": {
+                "fileName": "plugin.zip",
+                "archiveSHA256": null,
+                "contentDigest": digest,
+                "approvedPrograms": []
+            },
+            "previousVersion": "0.9.0",
+            "previousOrigin": "bundled"
+        })
+        .to_string(),
+    )
+    .expect("record file");
+    let discovered = store::discover_installed_in(&install_root).expect("discovery works");
+    assert!(
+        discovered[0].record_problem.is_some(),
+        "a bundled previous-origin claim must be a record problem too"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// The bytes of an installed community package are rechecked against the
 /// recorded content digest on every scan, so a package tampered while the
 /// app was not running is quarantined at the next startup instead of loaded.
@@ -585,8 +667,11 @@ fn official_ids_reject_unsigned_community_installs() {
     );
     assert_eq!(scanned.entry.status, "rejected");
     let rejection = scanned.entry.rejection.as_ref().expect("rejection");
+    // The pinned sameTeamAsHost policy can never be honored from disk: the
+    // package is refused with the seal error even though it declares a
+    // requirement the host pins.
     assert_eq!(
-        rejection.code, "plugin.trust.unsignedNotAllowed",
+        rejection.code, "plugin.trust.hostSealRequired",
         "{rejection:?}"
     );
     let _ = std::fs::remove_dir_all(&root);

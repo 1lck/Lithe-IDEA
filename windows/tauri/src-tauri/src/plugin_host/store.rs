@@ -235,20 +235,41 @@ pub fn discover_installed_in(install_root: &Path) -> Result<Vec<DiscoveredPackag
             ));
             continue;
         }
+        // Bundled identity comes only from the trusted resource discoverer:
+        // an installed record claiming it (for the active or the previous
+        // version) is forged and the package is quarantined.
+        if record.origin == Some(super::signature::InstallOrigin::Bundled)
+            || record.previous_origin == Some(super::signature::InstallOrigin::Bundled)
+        {
+            packages.push(quarantined(
+                "the install record claims bundled provenance; only packages discovered inside \
+                 the host installation are bundled"
+                    .to_string(),
+            ));
+            continue;
+        }
+        // Community and marketplace packages carry the digest of the bytes
+        // their approval covers; without it nothing can prove those bytes.
+        if record.active_content_digest().is_none()
+            && matches!(
+                record.origin,
+                Some(
+                    super::signature::InstallOrigin::Community
+                        | super::signature::InstallOrigin::Marketplace
+                )
+            )
+        {
+            packages.push(quarantined(
+                super::signature::TrustError::ProvenanceMissing.message(),
+            ));
+            continue;
+        }
         let version_directory = plugin_directory.join(&record.version);
         if !version_directory.join("plugin.json").is_file() {
             packages.push(quarantined(format!(
                 "recorded version {} has no plugin.json",
                 record.version
             )));
-            continue;
-        }
-        if record.active_content_digest().is_none()
-            && record.origin == Some(super::signature::InstallOrigin::Community)
-        {
-            packages.push(quarantined(
-                super::signature::TrustError::ProvenanceMissing.message(),
-            ));
             continue;
         }
         packages.push(DiscoveredPackage {

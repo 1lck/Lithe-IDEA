@@ -24,10 +24,16 @@ pub fn build_catalog_from(
 ) -> Result<Vec<ScannedPackage>, String> {
     let mut discovered = store::discover_bundled_in(bundled_root)?;
     discovered.extend(store::discover_installed_in(install_root)?);
-    Ok(discovered.into_iter().map(scan_package).collect())
+    Ok(discovered
+        .into_iter()
+        .map(|package| scan_package(package, Some(bundled_root)))
+        .collect())
 }
 
-fn scan_package(package: DiscoveredPackage) -> ScannedPackage {
+fn scan_package(
+    package: DiscoveredPackage,
+    bundled_root: Option<&std::path::Path>,
+) -> ScannedPackage {
     let fallback_id = package
         .root
         .file_name()
@@ -79,7 +85,8 @@ fn scan_package(package: DiscoveredPackage) -> ScannedPackage {
                 &manifest,
                 origin,
                 package.content_digest.as_deref(),
-                super::signature::trusted_keys(),
+                bundled_root,
+                &super::signature::trusted_keys(),
             ) {
                 return quarantined(
                     package,
@@ -281,6 +288,9 @@ pub(crate) fn validate_manifest(manifest: &Value) -> Result<Value, CatalogReject
 
 /// Test entry point for the per-package scan path.
 #[cfg(test)]
-pub(crate) fn scan_package_for_tests(package: super::store::DiscoveredPackage) -> ScannedPackage {
-    scan_package(package)
+pub(crate) fn scan_package_for_tests(
+    package: super::store::DiscoveredPackage,
+    bundled_root: Option<&std::path::Path>,
+) -> ScannedPackage {
+    scan_package(package, bundled_root)
 }

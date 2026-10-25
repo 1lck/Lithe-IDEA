@@ -183,21 +183,70 @@ pub fn declared_signature_requirement(
 
 /// The host's trust keys, keyed by key ID. A malformed embedded key is a
 /// build defect and must never be silently skipped.
-pub fn trusted_keys() -> &'static BTreeMap<String, VerifyingKey> {
-    static KEYS: OnceLock<BTreeMap<String, VerifyingKey>> = OnceLock::new();
-    KEYS.get_or_init(|| {
-        let encoded = OFFICIAL_PUBLIC_KEY_BASE64;
-        let bytes = STANDARD_BASE64
-            .decode(encoded)
-            .expect("embedded official plugin signing key must be valid base64");
-        let key = VerifyingKey::from_bytes(
-            &bytes
-                .try_into()
-                .expect("embedded official plugin signing key must be 32 bytes"),
-        )
-        .expect("embedded official plugin signing key must be a valid Ed25519 key");
-        BTreeMap::from([(OFFICIAL_KEY_ID.to_string(), key)])
+pub fn trusted_keys() -> BTreeMap<String, VerifyingKey> {
+    #[cfg(test)]
+    if let Some(keys) = test_trusted_keys() {
+        return keys;
+    }
+    OFFICIAL_TRUSTED_KEYS
+        .get_or_init(|| {
+            let bytes = STANDARD_BASE64
+                .decode(OFFICIAL_PUBLIC_KEY_BASE64)
+                .expect("embedded official plugin signing key must be valid base64");
+            let key = VerifyingKey::from_bytes(
+                &bytes
+                    .try_into()
+                    .expect("embedded official plugin signing key must be 32 bytes"),
+            )
+            .expect("embedded official plugin signing key must be a valid Ed25519 key");
+            BTreeMap::from([(OFFICIAL_KEY_ID.to_string(), key)])
+        })
+        .clone()
+}
+
+static OFFICIAL_TRUSTED_KEYS: OnceLock<BTreeMap<String, VerifyingKey>> = OnceLock::new();
+
+#[cfg(test)]
+thread_local! {
+    static TEST_TRUSTED_KEYS: std::cell::RefCell<Option<BTreeMap<String, VerifyingKey>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Runs `run` with the given keys trusted by the host. Production builds
+/// never see this seam; the signature vectors' RFC 8032 key must never trust
+/// a real package.
+#[cfg(test)]
+pub(crate) fn with_trusted_keys_for_tests<R>(
+    keys: BTreeMap<String, VerifyingKey>,
+    run: impl FnOnce() -> R,
+) -> R {
+    TEST_TRUSTED_KEYS.with(|cell| {
+        let previous = cell.borrow_mut().replace(keys);
+        let result = run();
+        *cell.borrow_mut() = previous;
+        result
     })
+}
+
+#[cfg(test)]
+fn test_trusted_keys() -> Option<BTreeMap<String, VerifyingKey>> {
+    TEST_TRUSTED_KEYS.with(|cell| cell.borrow().clone())
+}
+
+/// The RFC 8032 test signing key shared with `signature-vectors.json`.
+#[cfg(test)]
+pub(crate) fn rfc8032_signing_key_for_tests() -> ed25519_dalek::SigningKey {
+    fn hex_to_bytes(hex: &str) -> Vec<u8> {
+        (0..hex.len())
+            .step_by(2)
+            .map(|index| u8::from_str_radix(&hex[index..index + 2], 16).expect("hex byte"))
+            .collect()
+    }
+    let mut seed = [0u8; 32];
+    seed.copy_from_slice(&hex_to_bytes(
+        "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+    ));
+    ed25519_dalek::SigningKey::from_bytes(&seed)
 }
 
 /// True when the package root carries a signature document.
@@ -292,32 +341,66 @@ pub fn verify_for_install(
     plugin_version: &str,
     manifest: &serde_json::Value,
     origin: InstallOrigin,
+    bundled_root: Option<&Path>,
     trusted_keys: &BTreeMap<String, VerifyingKey>,
 ) -> Result<(), TrustError> {
     let declared = declared_signature_requirement(manifest)?;
     let pinned = official_signature_requirement(plugin_id).unwrap_or(declared);
-    // Unsigned packages are community packages and nothing else: any other
-    // origin, or a host-pinned official ID, needs a real signature.
-    if declared == SignatureRequirement::Unsigned || origin == InstallOrigin::Community {
-        let allowed = declared == SignatureRequirement::Unsigned
-            && origin == InstallOrigin::Community
-            && official_signature_requirement(plugin_id).is_none();
-        if !allowed {
-            return Err(TrustError::UnsignedNotAllowed);
+    // The pinned host policy decides which channel the package may use; the
+    // package cannot pick a weaker one by declaring it.
+    match pinned {
+        SignatureRequirement::Unsigned => {
+            // Unsigned trust is community-only: the user's explicit review of
+            // the exact bytes, never a pinned official ID or another origin.
+            if origin != InstallOrigin::Community {
+                return Err(TrustError::UnsignedNotAllowed);
+            }
+            verify_signature_if_present(package_root, plugin_id, plugin_version, trusted_keys)
         }
-        return verify_signature_if_present(package_root, plugin_id, plugin_version, trusted_keys);
+        SignatureRequirement::PublisherPackage => {
+            // A publisher signature is required and verified whatever channel
+            // delivered the package: a marketplace download, or a signed disk
+            // import recorded as community provenance.
+            if !has_signature_file(package_root) {
+                return Err(TrustError::SignatureMissing);
+            }
+            verify_signature_if_present(package_root, plugin_id, plugin_version, trusted_keys)
+        }
+        SignatureRequirement::SameTeamAsHost => {
+            // Trusted only inside the host's own installation, proven by real
+            // containment in the trusted bundled root - never by a record's
+            // origin claim, and never by a publisher signature alone.
+            verify_signature_if_present(package_root, plugin_id, plugin_version, trusted_keys)?;
+            verify_bundled_seal(package_root, origin, bundled_root)
+        }
     }
-    if pinned == SignatureRequirement::PublisherPackage && !has_signature_file(package_root) {
-        return Err(TrustError::SignatureMissing);
+}
+
+/// Proves a `sameTeamAsHost` package really lives inside the host's own
+/// installation: the origin must be bundled and the package root must sit
+/// inside the trusted resource root the discoverer reported.
+fn verify_bundled_seal(
+    package_root: &Path,
+    origin: InstallOrigin,
+    bundled_root: Option<&Path>,
+) -> Result<(), TrustError> {
+    if origin != InstallOrigin::Bundled {
+        return Err(TrustError::HostSealRequired);
     }
-    verify_signature_if_present(package_root, plugin_id, plugin_version, trusted_keys)?;
-    if pinned == SignatureRequirement::PublisherPackage {
-        return Ok(());
+    let Some(bundled_root) = bundled_root else {
+        return Err(TrustError::HostSealRequired);
+    };
+    let bundled = bundled_root
+        .canonicalize()
+        .map_err(|_| TrustError::HostSealRequired)?;
+    let package = package_root
+        .canonicalize()
+        .map_err(|_| TrustError::HostSealRequired)?;
+    if package.starts_with(&bundled) {
+        Ok(())
+    } else {
+        Err(TrustError::HostSealRequired)
     }
-    if origin == InstallOrigin::Bundled {
-        return Ok(());
-    }
-    Err(TrustError::HostSealRequired)
 }
 
 /// Full load-time trust check: the host policy decides what the package must
@@ -334,6 +417,7 @@ pub fn verify_for_origin(
     manifest: &serde_json::Value,
     origin: InstallOrigin,
     expected_content_digest: Option<&str>,
+    bundled_root: Option<&Path>,
     trusted_keys: &BTreeMap<String, VerifyingKey>,
 ) -> Result<(), TrustError> {
     verify_for_install(
@@ -342,9 +426,16 @@ pub fn verify_for_origin(
         plugin_version,
         manifest,
         origin,
+        bundled_root,
         trusted_keys,
     )?;
-    if origin == InstallOrigin::Community {
+    // Signed or not, the load path rechecks the package against the digest
+    // recorded when its bytes were approved; a publisher signature proves
+    // who released the bytes, not that these bytes are what the user saw.
+    if matches!(
+        origin,
+        InstallOrigin::Community | InstallOrigin::Marketplace
+    ) {
         let expected = expected_content_digest.ok_or(TrustError::ProvenanceMissing)?;
         let actual = content_digest(package_root)?;
         if actual != expected {
@@ -526,9 +617,7 @@ mod tests {
     const RFC8032_EMPTY_SIGNATURE_HEX: &str = "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b";
 
     fn test_signing_key() -> SigningKey {
-        let mut seed = [0u8; 32];
-        seed.copy_from_slice(&hex_to_bytes(RFC8032_SEED_HEX));
-        SigningKey::from_bytes(&seed)
+        rfc8032_signing_key_for_tests()
     }
 
     fn hex_to_bytes(hex: &str) -> Vec<u8> {
@@ -620,6 +709,86 @@ mod tests {
             .decode(token.as_bytes())
             .expect("token decodes");
         assert_eq!(String::from_utf8(decoded).expect("UTF-8"), path);
+    }
+
+    /// A `sameTeamAsHost` package is only honored for a bundled origin whose
+    /// root is provably inside the trusted resource root; a record's claim
+    /// alone, or a root outside the installation, is a refused seal.
+    #[test]
+    fn bundled_origin_requires_a_verified_bundled_root() {
+        let manifest = serde_json::json!({
+            "vendor": { "signatureRequirement": "sameTeamAsHost" }
+        });
+        let root = std::env::temp_dir().join(format!(
+            "lithe-sig-seal-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        let package_root = root.join("OfficialPlugins").join("pkg");
+        std::fs::create_dir_all(&package_root).expect("package dir");
+        let outside_root =
+            std::env::temp_dir().join(format!("lithe-sig-seal-outside-{}", std::process::id()));
+        let keys = trusted_keys();
+
+        // No trusted root at all: a launch path that cannot prove the seal
+        // refuses instead of guessing.
+        assert_eq!(
+            verify_for_install(
+                &package_root,
+                "dev.lithe.plugin.php-support",
+                "1.0.0",
+                &manifest,
+                InstallOrigin::Bundled,
+                None,
+                &keys
+            ),
+            Err(TrustError::HostSealRequired)
+        );
+        // A trusted root that does not contain the package.
+        assert_eq!(
+            verify_for_install(
+                &package_root,
+                "dev.lithe.plugin.php-support",
+                "1.0.0",
+                &manifest,
+                InstallOrigin::Bundled,
+                Some(&outside_root),
+                &keys
+            ),
+            Err(TrustError::HostSealRequired)
+        );
+        // The real containment proof.
+        assert_eq!(
+            verify_for_install(
+                &package_root,
+                "dev.lithe.plugin.php-support",
+                "1.0.0",
+                &manifest,
+                InstallOrigin::Bundled,
+                Some(&root.join("OfficialPlugins")),
+                &keys
+            ),
+            Ok(())
+        );
+        // The same package on disk can never claim the seal, even though the
+        // root would contain it, because the origin is not bundled.
+        assert_eq!(
+            verify_for_install(
+                &package_root,
+                "dev.lithe.plugin.php-support",
+                "1.0.0",
+                &manifest,
+                InstallOrigin::Community,
+                Some(&root.join("OfficialPlugins")),
+                &keys
+            ),
+            Err(TrustError::HostSealRequired)
+        );
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&outside_root);
     }
 
     #[test]

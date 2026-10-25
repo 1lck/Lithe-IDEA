@@ -128,6 +128,9 @@ pub(crate) fn verified_package_by_id(
         .trust
         .as_ref()
         .expect("accepted packages carry trust evidence");
+    // Bundled packages must still sit inside the real resource root; the
+    // launch path re-proves the seal instead of trusting the scan's word.
+    let bundled_root = store::bundled_root(app).ok();
     super::signature::verify_for_origin(
         &package.root,
         &package.entry.plugin_id,
@@ -135,7 +138,8 @@ pub(crate) fn verified_package_by_id(
         &package.manifest,
         trust.origin,
         trust.expected_content_digest.as_deref(),
-        super::signature::trusted_keys(),
+        bundled_root.as_deref(),
+        &super::signature::trusted_keys(),
     )
     .map_err(|error| format!("{} trust check failed: {}", plugin_id, error.message()))?;
     Ok(package)
