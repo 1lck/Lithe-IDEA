@@ -1,9 +1,0 @@
-{
-  "draftVersion": "1210-3",
-  "operationID": "example-debug-operation",
-  "contextToken": "example-host-context-before-build",
-  "outcome": "prepare",
-  "preparation": [
-    "example-host-java-build-action"
-  ]
-}

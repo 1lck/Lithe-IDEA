@@ -1,142 +1,108 @@
-# Debug JSON 组合评审草案（#1210）
+# DebugAdapter Registry 评审草案（#1210）
 
-设计目标：**普通插件尽量只写 JSON，通过依赖插件复用运行时、工程准备、适配器启动和调试能力；宿主承担通用解释与适配的复杂度。** 动态部分使用现有插件函数调用，输入输出继续由版本化领域 schema 校验。这版将能力声明、依赖、动态函数与流程组合放进同一种 JSON 模型。
+本目录只评审两件事：**内置与第三方共用 Registry（按身份查找适配器的目录），第三方 DAP 进入现有 Debug UI**。声明放在现有 `plugin.json.debugAdapters`，不是独立注册文件。没有 `draftVersion`，没有新的配置文件格式，也没有插件示例或开发教程。
 
-这是 `feat/1210-debug-adapter-provider` 上的设计文件，当前宿主尚不接受。`draftVersion: "1210-3"` 是评审编号；`lithe.invalid` 只用于离线引用。没有修改现有插件契约、函数协议、产品 API 或运行逻辑。
+当前宿主不接受这些新增字段。本 PR 只提交计划，不改变正式契约或产品行为。
 
-## 插件作者主要写什么
+## 评审材料
 
-完整例子：[Python](examples/python.registration.json)、[Java](examples/java.registration.json)、[JS/TS](examples/node.registration.json)、[C/C++/Rust/汇编](examples/native.registration.json)。
+- [能力块 schema](debug-adapters.draft.schema.json)：唯一一份新增 schema，只校验从完整清单提取的 `debugAdapters` 段。
+- [拒绝 fixtures](semantic-rejections.draft.json)：合成的契约验收输入，不是可安装插件；区分 schema 能拒绝和待 Core 实现的语义拒绝。
+- [Debug 架构与 P1–P3 验收](../../../.agents/notes/proposed/architecture/2026-10-25-debug-adapter-provider-and-declarative-registration.md)。
 
-```json
-{
-  "pluginDependencies": {
-    "java": {
-      "pluginID": "example.java-runtime",
-      "minimumVersion": "1.0.0",
-      "maximumVersionExclusive": "2.0.0"
-    }
-  },
-  "session": {
-    "use": { "dependency": "java", "export": "debugSession", "contractVersion": 1 },
-    "with": {
-      "contextToken": { "$value": "/context/contextToken" },
-      "configuration": { "$value": "/input/configuration" }
-    }
-  },
-  "capabilities": {
-    "sourceBreakpoints": { "source": "dap" },
-    "hotCodeReplace": {
-      "source": "function",
-      "invoke": {
-        "use": { "dependency": "java", "export": "hotCodeReplace", "contractVersion": 1 },
-          "with": {
-            "contextToken": { "$value": "/context/contextToken" },
-            "sessionID": { "$value": "/input/sessionID" }
-          }
-      }
-    }
-  }
-}
-```
+插件依赖、导出与跨包授权移到[独立平台提案](../../../.agents/notes/proposed/architecture/2026-10-25-plugin-dependencies-and-exports.md)；原生指令、反汇编和内存投影移到[独立后续提案](../../../.agents/notes/proposed/architecture/2026-10-25-native-debug-projections.md)。两者都不是 #1210 的依赖或关闭条件。
 
-上面为节选：依赖是包级字段，`session` 和 `capabilities` 属于适配器。Java 插件不需要再次实现 JDT 准备和热替换。Python 同样依赖运行时插件取得 Run 使用的解释器，再依赖公共 DAP 插件启动 stdio；JS/TS 复用公共 TCP 启动流程。GCC 产生的程序由 LLDB 或支持 DAP 的 GDB 调试，原生 Provider 可同时服务多语言及无源码目标。
+## 版本与清单位置
 
-## 依赖可以继续依赖其他插件
+以下是本次选择的**拟定版本**，不是已分配、已实现的正式版本。落地前核对并行契约，若编号被占用，整体调整而非改变已发布版本的含义。
 
-```text
-Python Debug → Python Runtime（解释器） + DAP Runtime（stdio 会话）
-JS/TS Debug  → Node Runtime（运行时）    + DAP Runtime（动态 TCP 会话）
-Java Debug   → Java Runtime             → Java Project Runtime（工程准备）
-                                       → 既有 JDT 集成
-```
-
-公共插件也主要写 JSON。见 [DAP 公共流程](examples/dap-runtime.library.json)和 [Java 二级依赖组合](examples/java-runtime.library.json)。例子里的 `example.*` 包及部分导出仅用于展示目标结构，不代表这些依赖已发布。Java Project、Python Runtime、Node Runtime 的具体包清单不在本次 Debug 草案中定义。
-
-每个导出有稳定名称和版本化契约。依赖方调用导出，不复制依赖包的路径或后端实现。包版本约束解决安装哪一版；`contractVersion` 解决本次调用使用哪种输入输出。`pluginDependencies` 与现有 `requires` 分开：前者指依赖的插件，后者仍指宿主 API 能力。最终应使用统一插件依赖管理，不保留 Debug 特有的第二套依赖管理器。
-
-## 一种调用结构，三种实现来源
-
-所有调用都写成 `{ "use": ..., "with": ... }`：
-
-| use 的形式 | 谁提供实现 | 示例 |
-| --- | --- | --- |
-| `{dependency, export, contractVersion}` | 依赖插件导出的 JSON 流程或函数 | 复用 Java 的 debugSession |
-| `{backendRef, functionID}` | 本包插件函数，或已有集成的类型化桥接 | 调用 debug.resolve |
-| `{host, version}` | 通用宿主原语 | 创建适配器资源、生成启动方案 |
-
-简单调用可以直接返回结果；需要多步时使用 `steps`，每步结果通过 `$value` 引用：
-
-```json
-{
-  "steps": [
-    {
-      "id": "target",
-      "use": { "dependency": "project", "export": "prepareDebugTarget", "contractVersion": 1 },
-      "with": { "configuration": { "$value": "/input/configuration" } }
-    },
-    {
-      "id": "session",
-      "use": { "backendRef": "jdt", "functionID": "debug.resolve" },
-      "with": {
-        "contextToken": { "$value": "/context/contextToken" },
-        "configuration": { "$value": "/input/configuration" },
-        "target": { "$value": "/steps/target" }
-      }
-    }
-  ],
-  "result": { "$value": "/steps/session" }
-}
-```
-
-宿主按顺序执行，`$value` 使用 JSON Pointer 读取输入、上下文和已完成步骤，保留对象/数组/整数类型。缺失值报错，`$literal` 可转义保留字段。路径转换、参数合并、资源登记等通用行为放进共享原语，插件不重复拼接命令，也不重复实现流程执行器。这版先提供直接调用和顺序组合；后续确有需要可以版本化扩充条件等声明能力，不以减少宿主解释器复杂度为由要求每个插件另写一套后端。
-
-`/context/contextToken` 由宿主签发，调用需要它的领域契约时通过 `with` 显式传入。进入依赖包后，宿主为当前被调用方建立受限上下文，不能把调用方 token 当成访问依赖全部资源的凭据。导出契约校验公共输入和结果；JDT 桥接还接收工程准备的 `target`，该内部输入由其独立的类型化适配契约校验。
-
-## 复用现有插件函数方案
-
-动态后端仍使用现有进程启动、`litheFunctions` 协商、函数注册、`lithe/function/invoke`、进度、撤回、超时和取消机制，不新增 `lithe/debug/*` RPC。[自定义函数后端示例](examples/plugin-functions.library.json)展示普通后端如何导出调试启动能力；[调用消息示例](examples/java.function-call.json)展示复用的函数信封形状。
-
-当前函数协议 v1/v2 只允许插件私有调用，现有领域结果也不经插件函数传输。本提案新增的是**导出和依赖调用的领域绑定**：宿主校验调用方依赖、被调用方导出、契约及授权，然后在拥有该函数的目标插件会话上调用现有函数通道，最后由 Core 校验领域结果。不会把调用方的 pluginID 塞进目标会话，也不会删除旧 `wrongPlugin` 拒绝条件。旧函数继续私有；只有显式导出的新契约能被依赖方使用。
-
-JSON 组合由宿主驱动，不让正在等待结果的后端处理器再递归调度自己。依赖图与导出调用图检查循环；取消传播至本次子调用；共享后端不因一个调用取消而退出。函数撤回、插件更新或依赖禁用会使对应调用失效，迟到结果不得恢复旧会话。依赖不会继承调用者全部权限：需要执行资源时，只传递当前操作获准的受限引用。
-
-JDT 是宿主已有集成，原始 JDT LS 不会因此被假定支持 `litheFunctions`。`hostIntegration` 把现有 JDT 操作适配到同一种类型化调用入口，不更改共享语言服务器的插件归属。新增普通第三方插件不需要在组合根增加插件名称分支。
-
-## 能力也在 JSON 里
-
-- `source: "dap"`：使用标准 DAP 实现，按 initialize 和后续 capabilities 事件确定支持。
-- `source: "function"`：通过同一种 invoke 组合调用已导出的函数，结果使用该操作的标准契约。
-- `source: "disabled"`：明确关闭。省略的能力不展示。
-
-断点、变量修改、重启、反向单步、内存、反汇编、指令断点等都能声明。线程、调用栈、变量读取及基本执行控制继续复用公共 DAP 会话。函数实现标准操作也必须满足对应契约；某种绑定尚未由宿主实现时返回 `host_not_supported`。热替换作为已有的非标准能力给出完整绑定例子；其他函数操作的输入输出定义随实际接入扩充。
-
-实际状态同样返回 JSON，区分 `unknown`、`supported`、`unsupported` 及原因。例如原生插件可以声明反汇编，但当前宿主未实现时，状态如 [native.capabilities.json](examples/native.capabilities.json)，不会只凭清单点亮按钮。统一配置、可检查结果与动态确认可以同时存在。
-
-## Schema 文件
-
-| 文件 | 责任 |
+| 完整 `plugin.json` 中的位置 | 本提案的选择 |
 | --- | --- |
-| [注册](debug-adapter-registration.draft.schema.json) | 依赖、导出、后端、目标匹配、能力与会话实现 |
-| [JSON 组合](debug-composition.draft.schema.json) | 导入、导出、函数/宿主调用、步骤及类型化取值 |
-| [配置](debug-configuration.draft.schema.json) | 现有 Run 配置解析后的标准 Debug 输入 |
-| [启动方案](debug-start-plan.draft.schema.json) | prepare / ready / failed 与现有 DAP 配置 |
-| [函数领域绑定](debug-function-binding.draft.schema.json) | 复用函数通道的 Debug 输入输出契约 |
-| [有效能力状态](debug-capability-state.draft.schema.json) | 宿主计算并投影给双端的能力状态 |
+| `schemaVersion`、`id`、`version`、`vendor` 等 | 沿用现有清单；不在 Debug 段重复插件身份 |
+| `pluginAPIVersion` | 拟定 `4`：基础权限集合新增 Debug 授权；API 1/2/3 不接受新权限或 Debug 段 |
+| `requires.debugAdapters` | 拟定 `1`：固定进程/传输声明与 Registry 接入 |
+| `requires.serverProcess` | 普通进程为 `1`；使用 `runSelectedRuntime` 为拟定的 `2`。后者由共享进程契约拥有，不在版本 1 偷加 Python |
+| `permissions` | 拟定 `debug.launch`：运行 DAP 适配器、控制本次 launch 目标；声明 attach 还需 `debug.attach` |
+| `debugAdapters[]` | 本目录唯一 schema 评审的能力块 |
+| `activationEvents` | 不新增事件。发现只读清单；用户选择并开始 Debug 时才启动适配器 |
 
-已知契约由 Core 的版本目录提供 schema。插件自定义导出需提供成对的包内输入/结果 schema，引用只读包内资源；变更不兼容形状时升级契约版本。本目录没有替代 DAP 消息 schema，也不重新实现上游工程模型。
+没有 UI 或语言也可注册。`debug.launch` 不暗含 Build、测试、网络下载或其他插件的调用权限；attach 必须展示独立风险并获准。调试本身可能修改目标状态，安装审查必须如实说明，不把它包装成只读权限。未来内存写入等新操作另行评审。
 
-## 保持已有行为与后续实现
+`requires` 继续恰好列出所用能力。Core 校验、磁盘安装、市场过滤、安装确认和运行前检查使用同一能力表；宿主实际实现后才公布 `hostCapabilities`。本目录的 schema 不替代完整清单校验，特别是版本、权限、签名和 `requires` 的交叉检查。
 
-用户确认优先保证插件好写和复用能力，允许通用适配器复杂度和 API 版本增加。正式接入时为依赖/导出、领域函数绑定、新权限及宿主原语分配明确版本，旧版本语义继续保留。不是在现有 API 3 或函数 v1/v2 下悄悄接受新字段；也不预占并行开发中的具体版本号。这一阶段只改变评审设计，现有 Build/VCS/UI/设置/Run API 不变。
+拒绝顺序沿用能力版本规则：基础格式/API 支持范围 → `requires` 的能力及宿主支持 → Debug 段结构与语义 → 权限及包内资源 → 运行前目标与代次。API 3 携带 Debug 能力时，支持 API 4 的新 Core 在 `requires.debugAdapters` 拒绝；旧 Core 保留自身原来的拒绝位置和优先级，不为草案改写历史结果。
 
-Run 三层覆盖、配置 ID、导入参数与最终 `DebugLaunchConfiguration` 保持兼容。`targetBindings` 由宿主统一把目标事实映射到参数；重复显式字段报冲突，不能覆盖。Java 的准备动作继续走既有工程/构建流程和编译失败决策，使用 Run JDK；准备后从 JDT 读取新路径，调试结束不终止共享服务。
+## 必需与可选
 
-通用宿主原语示例 `debug.process.acquire`、`debug.process.acquireTcp`、`debug.session.plan` 目前也只是契约方向，需在实现时定义完整参数/结果、期限及所有权。TCP 例子的 `jsDebugStandalone` 指复用现有端口发现逻辑的解码档位，不代表可以信任任意日志地址。导入配置里的 backendRef 在入口被规范化为调用方资源描述并取得租约，不能按依赖包的局部 ID 误解析。最终方案跨包传递的是宿主签发的 processRef / endpointRef，这些引用绑定当前操作。launch 终止自己拥有的目标，attach 默认断开；失败和取消清理本次资源，插件及应用包只读。
+每个适配器只必填 `id`、`displayName`、`launch`；`launch` 只描述一个进程和一种传输。`process` 复用共享 `serverProcess` 的启动字段、模板、安装审查及校验，排除只适用于 LSP 的 `initializationOptions`。不要求后端、依赖、函数、流程或参数 schema。
 
-`java.ready.json` 中的 `${exampleHostResolved...}` 只是避免写入机器绝对路径的展示占位值，实际结果必须是宿主已解析的值；它不引入新的字符串模板语法。
+| 可选项 | 省略时的含义 |
+| --- | --- |
+| `adapterID` | DAP initialize 使用局部 `id`；Registry 身份始终是插件 ID 加局部 ID |
+| `requests` | 只允许 `launch`；attach 必须显式开启 |
+| `selectors` | 仅供显式选择，不自动匹配全部目标 |
+| `configurationTypes` | 不认领导入配置的 `type` 别名 |
+| `configurations.launch/attach` | 不提供额外默认参数、目标映射或参数 schema |
+| `capabilities.disabled` | 标准能力默认全部跟随 DAP 的默认值、initialize 与后续 capabilities 事件 |
 
-新增下载或打包运行时的资源清单、工具链身份与复用验证，在实际新增资源时同步维护。本次没有下载资源，没有启动 Lithe 或后端进程，没有运行时跨平台验收证据。
+局部适配器 ID 统一使用 `^[a-z][a-z0-9._-]{0,63}$`；插件 ID、语言 ID 沿用各自已有规则，它们不是同一种标识。身份、语言、DAP adapterID、导入 type、Run 配置 ID 和 sessionID 不相互替代。
 
-离线校验覆盖 schema、正例、参数、局部引用和关键拒绝条件；依赖安装、图校验、函数授权、资源服务与两端执行器仍需实现。正式契约和 Core 同批落地，合并后同步 lithe-plugin-docs。
-架构理由见[对应 Agent Note](../../../.agents/notes/proposed/architecture/2026-10-25-debug-adapter-provider-and-declarative-registration.md)。
+## 固定启动声明，不引入工作流
+
+`launch` 固定包含 `process` 和 `transport`：
+
+- `stdio`：适配器进程的标准输入输出直接传 DAP，stderr 仅记录诊断。
+- `tcpAnnounced`：从明确指定的 stdout/stderr 读取有界 UTF-8 行。字面量 `prefix` 后只接受端口或 `host:port`；IPv6 使用方括号，必须是 loopback。限制单行 4 KiB、总启动输出 1 MiB、连接准备 30 秒；未完整解出合法端点就不连接。没有 `jsDebugStandalone` 等按产品命名的解码档位。
+- `tcpPort`：连接本次适配器进程的固定 loopback 端口；进程先启动，端口占用则失败，不悄悄改端口。它不是 DAP attach 参数里的被调试程序端口。若无法证明连接对应本次启动的进程，平台应拒绝该传输，不公布支持。
+
+TCP 启动期限只约束端口发现与连接，不限制整个调试会话。关闭、失败、取消和禁用都会关闭连接、清理本次创建的进程；已有共享服务和外部 attach 目标不属于这条进程清理链。
+
+普通 process 沿用 `packaged`、`systemCommand`、Java/Node `runtime`；`runSelectedRuntime` 是共享进程版本 2 的新增分支，先支持 Python、Java、Node，取得 **Run 对同一目标选中的运行时**，然后执行声明的参数。没有独立 Debug 解释器偏好、隐式安装或静默切到 PATH。没有显式选择时沿用 Run 自己的发现链。一个包只声明一个 `serverProcess` 版本：包含该分支时为 2，并继续接受该包内其他进程的旧启动形式；完全不用新形式仍声明 1，避免无谓过滤旧宿主。
+
+已有 `${pluginDir}` 等启动模板保持原规则；此处永远指**声明该进程的当前包**。路径字段、模板展开及参数数组仍由共享解析器处理。`configuration.arguments` 是普通 JSON，不把其中的 `backendRef`、`$lease` 等同名字段解释为资源。此版没有资源引用输入、跨包租约或用户 JSON 中的隐藏句柄。
+
+debugpy、lldb-dap 可以走 stdio，Delve/js-debug 可按真实启动方式选择 TCP；是否能完整调试仍要核对后端版本、端口输出和目标参数。Java 先由内置 Provider 接入 Registry，继续使用已有 JDT 集成，不把宿主服务暴露为第三方 JSON 字段。一个模型统一接入方式，不保证所有后端功能相同。
+
+## 配置与能力
+
+保留现有 `DebugLaunchConfiguration`、Run 配置 ID、三层覆盖和导入参数。处理顺序是：适配器默认参数 → 现有 Run/导入/用户覆盖链 → 只补缺失的目标字段 → 可选参数 schema → Core 规范化。schema 的 `default` 是文档提示，实际默认值由 Core 实现。
+
+`targetBindings` 限定为 `program ← target.path`、`processId ← target.processID`、`cwd ← target.workingDirectory`；不允许把进程号当路径，也不引入任意表达式。如果所选目标缺少必需事实且显式参数也未提供，准备阶段失败，不启动进程。文件目标不会自动产生 `program`，插件需要选择映射或由现有 Run 配置提供参数；不能仅声明 selector 就声称能启动。
+
+路径身份和执行路径分开：工作区内源码的持久化身份仍为相对路径；Build/Run 可以提供用户已选择或授权的外部产物引用，平台在执行时解析为绝对路径。源码外构建和工作区外可执行文件无需伪造相对路径。本提案不新增 `workspacePath`、`configuration.id` 或 `target.configurationID` 的重复结构。
+
+`capabilities.disabled` 只接受标准 DAP capability 名称或 `exceptionBreakpointFilters`，Core 按固定版本的 DAP 定义检查名称并映射到对应请求/数据。结构 schema 只检查名称形状，不能证明名称存在。completions、steppingGranularity、cancel 等随 DAP，而不是再维护一份静态支持列表。省略不隐藏功能，声明也不能让尚未实现该操作的宿主点亮按钮；会话取消和清理始终保留，不能用 suppression 关闭。
+
+此版没有标准操作的 `source: function`，也没有公开扩展函数。Java 热替换保留现有类型化 `redefineClasses` 链路。将来只有先定义输入、输出、会话归属与错误语义的扩展才可能绑定函数，不能给任意标准能力填一个函数名。
+
+## 动态 resolver 明确后置
+
+本次**不开放 `resolver`、`backendRef`、`hostIntegration`、`preparation` 字段**。复杂内置适配器通过同一个内部 Provider 契约返回计划，不等于第三方可凭 JSON 调用 JDT。
+
+本包私有 resolver 比跨插件调用范围小，但仍改变了“领域结果不走插件函数”的已落地决策。它是独立的后续 `debugAdapters` 版本：先修订函数决策、定义固定的 Debug 输入/结果及本包授权，再复用 `lithe/function/invoke`。旧 `backend: 1` 仍是全局、网页触发的进程，不能为了 Debug 改成工作区后端或要求空网页。
+
+如需重新准备，后续结果只能引用宿主已解析的 Build/Run action 身份及版本，不接受任意字符串、脚本或再次进入 Registry 的命令。宿主执行成功后最多重入解析一次，第二次要求准备即拒绝；项目事实随后重新从拥有它的引擎读取。这个后续门槛不阻塞固定声明的 P1–P3。
+
+## Schema 与 Core 校验分界
+
+`semantic-rejections.draft.json` 以一个合成基线加 `set`/`remove` 描述单个拒绝输入，沿用已有 `invalid-manifests.json` 的 JSON Pointer fixture 约定，不新建编辑语法；路径只用于构造测试数据，**不是插件工作流语法**。每条记录标注校验层和预期稳定错误码，权限缺失沿用已有 `plugin.permission.undeclared`，新增 Debug 错误码仍为拟定；`expected.field` 是标准化后的错误位置，重复 ID 固定指向第二个条目。Core 计划也须验证输入目标快照与字段类型；无法从参数 schema 推断的后端必需字段，仍由 DAP 返回明确错误。无关基础清单字段按正式契约补足，不假装这些投影能安装。
+
+| 规则 | 必须拒绝的情况 | Fixture |
+| --- | --- | --- |
+| S01 关闭新字段集合 | 旧依赖/导出/steps、resolver 或 hostIntegration 回流 | `removed-platform-fields`、`removed-resolver`、`removed-host-integration`、`removed-workflow` |
+| S02 已知映射及实现 | program 绑定进程号，或标准能力绑定函数 | `program-from-process-id`、`function-for-step-back` |
+| C01 版本入口 | API 3 使用 Debug 或新权限；Core/宿主不支持所需版本 | `old-api-debug`、`missing-host-capability` |
+| C02 requires 精确匹配 | 少列 Debug/进程能力，或普通进程虚报版本 2 | `missing-debug-requirement`、`missing-process-requirement`、`unused-process-v2` |
+| C03 身份唯一 | 同一插件重复 adapter id | `duplicate-adapter-id` |
+| C04 请求与授权一致 | 缺 debug.launch、attach 缺授权、配置声明不支持的请求 | `missing-launch-permission`、`attach-without-permission`、`unsupported-request-config` |
+| C05 运行时契约 | runSelectedRuntime 却声明 serverProcess 1，或选择结果失效 | `selected-runtime-v1`、`stale-selected-runtime` |
+| C06 名称存在 | 拼写形似 DAP，但不是固定定义里的能力 | `unknown-dap-capability` |
+| C07 目标事实完整 | program 映射缺路径，且合并后也无显式 program | `missing-target-path` |
+| C08 包内资源归属 | 参数 schema 的符号链接逃出包 | `escaping-parameters-schema` |
+| C09 运行前再确认 | 插件注册代次或计划已过期 | `stale-registration` |
+
+移除后的跨依赖和 step 引用不再进入语义解释器，直接因未知字段被拒绝；并不代表实现了依赖图或流程引用检查。
+
+**验证口径：**离线检查只能证明本草案 schema 合法，且结构层 fixture 有预期结果。C01–C09 的输入已列出，但没有对应新增 Core 实现或执行证据；不得把它们计为“已通过的 Core 拒绝用例”。正式落地时把这些 fixtures 迁到正式契约并接上 Core 测试，每条校验错误码、字段、优先级及无副作用；双端运行验证另外提供。
+
+本次没有启动应用、后端或调试程序。契约与 Core 同批落地后，按仓库规则同步 `lithe-plugin-docs`；教程、SDK、示例只在该仓库维护，主仓库保留正式契约和回归 fixtures。
