@@ -136,11 +136,12 @@
       ],
       "windowsEvidence": [
         "windows/tauri/src-tauri/src/plugin_host/tests.rs:112 valid_fixtures_validate_without_host_capabilities",
-        "windows/tauri/src-tauri/src/plugin_host/tests.rs:128 host_v0_capabilities_gate_unimplemented_sections"
+        "windows/tauri/src-tauri/src/plugin_host/tests.rs:128 host_v0_capabilities_gate_unimplemented_sections",
+        "windows/tauri/src-tauri/src/plugin_host/build_tests.rs detect_reads_the_static_model_and_describes_options"
       ],
       "windowsStatus": "validated-only",
       "gapStage": "M4",
-      "gapDetail": "Windows 只有清单验收与能力门控；static 模型检测、选项、任务、同步指纹无宿主接线测试，属声明式构建接入。"
+      "gapDetail": "真实 Core 与宿主 registry 的静态模型、共享选项、指纹与撤销回归已覆盖此 fixture；生产 buildSystems 能力仍关闭，工具窗口及实际任务/测试执行尚未完整接通，不将内部夹具注入视为可安装产品验收。"
     },
     {
       "path": "build-tool-path.plugin.json",
@@ -284,10 +285,12 @@
       "coreEvidence": [
         "rust/lithe-core/src/tests/marketplace_plugins.rs:100 index_fixture_cases_match_expected_availability"
       ],
-      "windowsEvidence": [],
+      "windowsEvidence": [
+        "windows/tauri/src-tauri/src/plugin_host/marketplace_index.rs refresh_matches_the_shared_standard_answer"
+      ],
       "windowsStatus": "indirect-core",
       "gapStage": "M2",
-      "gapDetail": "Windows 声明式市场宿主未接（M2）；当前无任何 Windows 测试消费可用性判定结果。"
+      "gapDetail": "Windows 网络模块已读取此 fixture，在本地受控 HTTP 与真实 Core 下校验能力门控标准答案及缓存；尚无生产市场 IPC/列表与安装消费者，保留 M2 产品接线缺口。"
     },
     {
       "path": "marketplace/index.json",
@@ -299,10 +302,12 @@
         "rust/lithe-core/src/tests/marketplace_plugins.rs:272 ui_api_availability_requires_an_implemented_platform_host",
         "rust/lithe-core/src/tests/marketplace_plugins.rs:332 build_provider_versions_require_host_support_before_download"
       ],
-      "windowsEvidence": [],
+      "windowsEvidence": [
+        "windows/tauri/src-tauri/src/plugin_host/marketplace_index.rs refresh_matches_the_shared_standard_answer"
+      ],
       "windowsStatus": "indirect-core",
       "gapStage": "M2",
-      "gapDetail": "Windows 声明式市场宿主未接（M2）；索引归一化与可用性只经 Core 命令验证。"
+      "gapDetail": "Windows 网络模块已读取此 fixture，在本地受控 HTTP 与真实 Core 下校验能力门控标准答案及缓存；尚无生产市场 IPC/列表与安装消费者，保留 M2 产品接线缺口。"
     },
     {
       "path": "marketplace/install-reviews.json",

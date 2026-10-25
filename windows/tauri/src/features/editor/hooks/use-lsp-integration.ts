@@ -1,7 +1,14 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { useExtensionStore } from "@/extensions/registry/extension-store";
 import { deferUntilAfterNextPaint } from "@/features/editor/lsp/deferred-lsp-work";
-import { isEditorLspSupported } from "@/features/editor/lsp/built-in-language-support";
+import {
+  isEditorLspSupported,
+  resolveEditorLspSupport,
+} from "@/features/editor/lsp/built-in-language-support";
+import {
+  declarativeLanguageSupportRevision,
+  subscribeDeclarativeLanguageSupport,
+} from "@/features/editor/lsp/declarative-language-support";
 import { LspClient } from "@/features/editor/lsp/lsp-client";
 import {
   hasLspDocumentChanges,
@@ -73,12 +80,26 @@ export const useLspIntegration = ({
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
   const installedExtensions = useExtensionStore.use.installedExtensions();
   const activeFilePath = enabled ? filePath : undefined;
+  const declarativeRevision = useSyncExternalStore(
+    subscribeDeclarativeLanguageSupport,
+    declarativeLanguageSupportRevision,
+    declarativeLanguageSupportRevision,
+  );
   const isLspSupported = useMemo(
     () => isEditorLspSupported(activeFilePath),
-    [activeFilePath, installedExtensions],
+    [activeFilePath, installedExtensions, declarativeRevision],
   );
   const lastSyncedRevisionRef = useRef(contentRevision);
   const documentOwnersRef = useRef<Map<string, LspDocumentOwner>>(new Map());
+
+  useEffect(() => {
+    if (!activeFilePath || isLspSupported) return;
+    // Worker and built-in admission stay synchronous. Only unclaimed local
+    // files ask the native catalog, which performs no launch or tool probe.
+    void resolveEditorLspSupport(activeFilePath).catch((error: unknown) => {
+      logger.warn("LspIntegration", "Could not resolve declarative language ownership", error);
+    });
+  }, [activeFilePath, installedExtensions, isLspSupported, declarativeRevision]);
 
   useEffect(() => {
     if (!enabled || !filePath || !isLspSupported) return;
@@ -114,7 +135,9 @@ export const useLspIntegration = ({
       const isStillOpen = Boolean(
         getSourceEditorBufferByPath(useBufferStore.getState().buffers, filePath),
       );
-      if (isStillOpen) return;
+      // An open buffer can retain an attachment across view changes, but a
+      // revoked plugin must release it even while its document stays open.
+      if (isStillOpen && isEditorLspSupported(filePath)) return;
 
       if (owner.state.phase === "stopping" || owner.state.phase === "stopped") return;
       const previousState = owner.state;

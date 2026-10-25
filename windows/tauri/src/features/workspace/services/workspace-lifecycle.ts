@@ -490,6 +490,9 @@ async function closeWorkspaceRuntimeOnce(
   await declarativePluginProcessOwner.stop(workspaceId);
   const { invoke: invokePluginHost } = await import("@/platform/tauri-core");
   await invokePluginHost("declarative_plugins_close_workspace_pages", { workspaceId });
+  await invokePluginHost("declarative_plugins_build_close_workspace", {
+    workspaceRoot: path,
+  }).catch(() => {});
   await dispose?.(path);
 
   // Defensive: nothing can reactivate a closing project, but never leave the registry

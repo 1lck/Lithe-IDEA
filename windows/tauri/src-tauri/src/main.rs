@@ -144,6 +144,7 @@ fn main() {
             app.manage(run::RunProcessManager::default());
             app.manage(debug::DebugAdapterManager::default());
             app.manage(plugin_host::PluginHostState::default());
+            app.manage(plugin_host::build::BuildHostState::default());
             app.manage(plugin_host::web::WebPageHostState::default());
             app.manage(plugin_host::lifecycle::LifecycleState::default());
             run::cleanup_legacy_appdata(app.handle());
@@ -299,6 +300,7 @@ fn main() {
                             plugin_host::lifecycle::declarative_plugins_lifecycle_ack,
                             plugin_host::declarative_plugins_rescan,
                             plugin_host::declarative_plugins_state,
+                            plugin_host::details::declarative_plugins_details,
                             plugin_host::web::declarative_plugins_web_open_file_ack,
                             plugin_host::web::declarative_plugins_web_resolve_file,
                             plugin_host::web::declarative_plugins_web_update_appearance,
@@ -314,8 +316,18 @@ fn main() {
                             plugin_host::settings::declarative_plugins_resolve_settings,
                             plugin_host::settings::declarative_plugins_store_setting,
                             plugin_host::settings::declarative_plugins_workspace_configuration,
+                            plugin_host::marketplace_sources::declarative_marketplace_sources_state,
+                            plugin_host::marketplace_sources::declarative_marketplace_sources_add,
+                            plugin_host::marketplace_sources::declarative_marketplace_sources_set_enabled,
+                            plugin_host::marketplace_sources::declarative_marketplace_sources_remove,
                             plugin_host::run_plans::declarative_plugins_run_plan,
                             plugin_host::run_plans::declarative_plugins_test_plan,
+                            plugin_host::build::declarative_plugins_build_catalog,
+                            plugin_host::build::declarative_plugins_build_refresh,
+                            plugin_host::build::declarative_plugins_build_set_option,
+                            plugin_host::build::declarative_plugins_build_sync_check,
+                            plugin_host::build::declarative_plugins_build_plugins_changed,
+                            plugin_host::build::declarative_plugins_build_close_workspace,
                             plugin_host::web::declarative_plugins_close_workspace_pages,
                             plugin_host::web::declarative_plugins_web_windows,
                             plugin_host::web::declarative_plugins_open_web_window,

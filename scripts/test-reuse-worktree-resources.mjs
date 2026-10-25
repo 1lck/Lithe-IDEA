@@ -299,6 +299,20 @@ try {
       await assert.rejects(fs.access(missingTarget), { code: "ENOENT" });
     }
   });
+  await test("Windows plugin indexes downloads and build options are isolated runtime state", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "plugin-marketplace-state");
+    assert.equal(resource.reusable, false);
+    for (const location of [
+      "<windows-app-local-data>/plugin-marketplace/sources.json",
+      "<windows-app-local-data>/plugin-marketplace/<source-id>.<platform>.json",
+      "<windows-runtime-download-root>/marketplace-download-<pid>-<nonce>.zip",
+      "<windows-app-local-data>/plugin-build-options/<workspace-digest>.json",
+    ]) assert.ok(resource.locations.includes(location), location);
+    const refused = reuse(["--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /plugin-marketplace-state is isolated.*cannot be reused/);
+  });
   await testFailedBackupPreservesDestination();
   await fs.mkdir(path.join(sourceRoot, "third_party", "jdtls"), { recursive: true });
   await fs.writeFile(

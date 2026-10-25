@@ -717,6 +717,10 @@ Java Support（`dev.lithe.plugin.java-support`）是唯一随 Lithe.app 发行�
 排除路由直接拒绝，由 `scripts/test-reuse-worktree-resources.mjs` 验证，不能给它增加缓存校验器。
 
 如果后续新增可复用资源，必须同步更新注册表、校验器、脚本测试和本节说明。
+Windows 的插件源配置、按源与平台缓存的原始索引、摘要绑定的临时下载和按工作区保存的构建选项，
+同属 `plugin-marketplace-state` 排除路由：由运行时平台 adapter 注入用户可写根，
+取消或失败清理临时文件，持久配置由当前用户实例管理；没有可复用的版本/架构/工具链 identity，
+不得在任何 worktree 复制阶段共享，也不写入发行资源或改变签名及增量更新基线。
 生成资源只有在构建流程写入可验证的源码、配置、平台、架构和工具链 identity
 stamp 后才能加入注册表，不能仅凭目录存在就跨 worktree 复制。
 

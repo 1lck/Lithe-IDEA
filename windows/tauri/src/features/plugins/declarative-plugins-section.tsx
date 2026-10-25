@@ -19,6 +19,8 @@ import {
   type PreparedDeclarativeInstall,
 } from "./declarative-plugin-launch";
 import { DeclarativePluginSettingsEditor } from "./declarative-plugin-settings-editor";
+import { DeclarativeMarketplaceSources } from "./declarative-marketplace-sources-section";
+import { PluginDetailsPanel, type PluginDetailsSelection } from "./details";
 import { useWorkspaceTabsStore } from "@/features/window/stores/workspace-tabs.store";
 
 /**
@@ -35,15 +37,26 @@ export function DeclarativePluginsSection() {
   const [pending, setPending] = useState<PreparedDeclarativeInstall | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [selection, setSelection] = useState<PluginDetailsSelection | null>(null);
+  const [detailsRevision, setDetailsRevision] = useState(0);
   const workspacePath = useWorkspaceTabsStore((state) =>
     state.projectTabs.find((tab) => tab.isActive)?.path ?? null,
   );
 
   const refresh = useCallback(async () => {
     await rescanDeclarativePlugins();
-    setPlugins(await listDeclarativePlugins());
+    const next = await listDeclarativePlugins();
+    setPlugins(next);
+    setSelection((current) => current && next.some((plugin) =>
+      plugin.pluginId === current.pluginId && plugin.source === current.source,
+    ) ? current : null);
+    setDetailsRevision((revision) => revision + 1);
     setWebWindows(await listDeclarativeWebWindows());
   }, []);
+
+  const handleChanged = useCallback(() => {
+    void refresh().catch((reason: unknown) => setError(String(reason)));
+  }, [refresh]);
 
   useEffect(() => {
     refresh().catch((reason: unknown) => setError(String(reason)));
@@ -125,7 +138,9 @@ export function DeclarativePluginsSection() {
             key={`${plugin.source}-${plugin.pluginId}`}
             plugin={plugin}
             workspacePath={workspacePath}
-            onChanged={() => void refresh()}
+            onChanged={handleChanged}
+            selected={selection?.pluginId === plugin.pluginId && selection.source === plugin.source}
+            onSelect={() => setSelection({ pluginId: plugin.pluginId, source: plugin.source })}
           />
         ))}
         {!plugins.length && (
@@ -134,6 +149,14 @@ export function DeclarativePluginsSection() {
           </li>
         )}
       </ul>
+      <div className="min-h-64 overflow-hidden rounded-md border border-border">
+        <PluginDetailsPanel
+          key={detailsRevision}
+          selection={selection}
+          workspacePath={workspacePath}
+          onChanged={handleChanged}
+        />
+      </div>
       {webWindows.length > 0 && (
         <div className="flex flex-col gap-1">
           <h3 className="ui-text-sm font-semibold">
@@ -146,6 +169,7 @@ export function DeclarativePluginsSection() {
           </ul>
         </div>
       )}
+      <DeclarativeMarketplaceSources />
     </section>
   );
 }
@@ -257,10 +281,14 @@ function DeclarativePluginRow({
   plugin,
   workspacePath,
   onChanged,
+  selected,
+  onSelect,
 }: {
   plugin: DeclarativePluginSummary;
   workspacePath: string | null;
   onChanged: () => void;
+  selected: boolean;
+  onSelect: () => void;
 }) {
   const { t } = useTranslation();
   const [busy, setBusy] = useState(false);
@@ -289,7 +317,9 @@ function DeclarativePluginRow({
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
           <p className="truncate ui-text-sm font-medium">
-            {plugin.displayName}{" "}
+            <button type="button" className="text-left underline-offset-2 hover:underline" aria-pressed={selected} onClick={onSelect}>
+              {plugin.displayName}
+            </button>{" "}
             <span className="text-subtle-foreground">
               {plugin.version} · {t(`settings.declarativePlugins.source.${plugin.source}`)}
             </span>

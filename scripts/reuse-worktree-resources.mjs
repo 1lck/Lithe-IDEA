@@ -83,6 +83,9 @@ async function readRegistry() {
   // both original state and migration snapshots and must not gain a validator.
   // Shared i18n source and generated tables take this same refusal route:
   // rebuild from the target checkout, never copy another worktree's translations.
+  // Windows source lists, raw index caches, digest-bound download files and
+  // per-workspace build options use plugin-marketplace-state's refusal route.
+  // Core validation or a matching archive hash never transfers user ownership.
   const excludedResources = registry.excludedResources ?? [];
   if (!Array.isArray(excludedResources)) throw new Error("Invalid excluded worktree resources");
   for (const resource of excludedResources) {

@@ -6,6 +6,7 @@ import { useFileSystemFolderDrop } from "@/features/file-system/hooks/use-file-s
 import { openDroppedWorkspacePaths } from "@/features/file-system/utils/open-dropped-workspace-paths";
 import { GitStatusRefreshHost } from "@/features/git/runtime/git-status-refresh-host";
 import { closeMavenToolWindow } from "@/features/maven/actions/maven-tool-window-actions";
+import { applyRightToolWindowIntent } from "@/features/layout/actions/right-tool-window-actions";
 import { closeAgentToolWindow } from "@/features/agent/actions/agent-tool-window-actions";
 import { useMavenStore } from "@/features/maven/stores/maven.store";
 import { useMavenResolutionNotifications } from "@/features/maven/hooks/use-maven-resolution-problems";
@@ -71,6 +72,9 @@ const TerminalHost = lazy(() =>
 );
 const BottomPane = lazy(() => import("./bottom-pane/bottom-pane"));
 const MavenPane = lazy(() => import("@/features/maven/components/maven-pane"));
+const BuildSystemPane = lazy(
+  () => import("@/features/build-systems/components/build-system-pane"),
+);
 const AgentPane = lazy(() =>
   import("@/features/agent/components/agent-panel").then((module) => ({
     default: module.AgentPanel,
@@ -100,7 +104,11 @@ export function MainLayout() {
   const isMavenVisible = isRightSidebarVisible && isMavenSelected;
   const isAgentSelected = activeRightSidebarView === "agent";
   const isAgentVisible = isRightSidebarVisible && isAgentSelected;
-  const isRightToolWindowVisible = isNotificationsVisible || isMavenVisible || isAgentVisible;
+  const isBuildSystemSelected =
+    activeRightSidebarView?.startsWith("build-system:") ?? false;
+  const isBuildSystemVisible = isRightSidebarVisible && isBuildSystemSelected;
+  const isRightToolWindowVisible =
+    isNotificationsVisible || isMavenVisible || isAgentVisible || isBuildSystemVisible;
   const vimRelativeLineNumbers = useSettingsStore((state) => state.settings.vimRelativeLineNumbers);
   const relativeLineNumbers = useVimStore.use.relativeLineNumbers();
   const { setRelativeLineNumbers } = useVimStore.use.actions();
@@ -314,6 +322,16 @@ export function MainLayout() {
                     {isAgentSelected ? (
                       <Suspense fallback={null}>
                         <AgentPane onClose={closeAgentToolWindow} />
+                      </Suspense>
+                    ) : null}
+                    {isBuildSystemSelected ? (
+                      <Suspense fallback={null}>
+                        <BuildSystemPane
+                          view={activeRightSidebarView}
+                          onClose={() =>
+                            applyRightToolWindowIntent(activeRightSidebarView, "close")
+                          }
+                        />
                       </Suspense>
                     ) : null}
                   </ResizablePane>

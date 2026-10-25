@@ -82758,6 +82758,693 @@
         "key": "Open Marketplace",
         "arguments": []
       }
+    },
+    {
+      "id": "buildSystems.close",
+      "description": "Windows declarative build UI: buildSystems.close",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.detectFailed",
+      "description": "Windows declarative build UI: buildSystems.detectFailed",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "message": "string"
+      }
+    },
+    {
+      "id": "buildSystems.emptyState",
+      "description": "Windows declarative build UI: buildSystems.emptyState",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "buildSystems.fromModel",
+      "description": "Windows declarative build UI: buildSystems.fromModel",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.instanceSelector",
+      "description": "Windows declarative build UI: buildSystems.instanceSelector",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.loading",
+      "description": "Windows declarative build UI: buildSystems.loading",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.manifestRejected",
+      "description": "Windows declarative build UI: buildSystems.manifestRejected",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "plugin": "string",
+        "message": "string"
+      }
+    },
+    {
+      "id": "buildSystems.modelError",
+      "description": "Windows declarative build UI: buildSystems.modelError",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "message": "string"
+      }
+    },
+    {
+      "id": "buildSystems.optionsTitle",
+      "description": "Windows declarative build UI: buildSystems.optionsTitle",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.projectsTitle",
+      "description": "Windows declarative build UI: buildSystems.projectsTitle",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.railLabel",
+      "description": "Windows declarative build UI: buildSystems.railLabel",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "buildSystems.refresh",
+      "description": "Reload or retry Windows declarative build detection and models",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.reset",
+      "description": "Windows declarative build UI: buildSystems.reset",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.resetOption",
+      "description": "Windows declarative build UI: buildSystems.resetOption",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "buildSystems.shadowed",
+      "description": "Windows declarative build UI: buildSystems.shadowed",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "plugin": "string",
+        "by": "string"
+      }
+    },
+    {
+      "id": "buildSystems.staleBanner",
+      "description": "Windows declarative build UI: buildSystems.staleBanner",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.action.disable",
+      "description": "Windows plugin details action: disable",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.action.enable",
+      "description": "Windows plugin details action: enable",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.action.rollback",
+      "description": "Windows plugin details action: rollback",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.action.uninstall",
+      "description": "Windows plugin details action: uninstall",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.availability.available",
+      "description": "Windows plugin details: host capability available",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.availability.declaredOnly",
+      "description": "Windows plugin details: declaration not hosted",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.currentVersion",
+      "description": "Windows plugin details: current version",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.empty.features",
+      "description": "Windows plugin details: no features",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.empty.permissions",
+      "description": "Windows plugin details: no permissions",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.empty.programs",
+      "description": "Windows plugin details: no programs",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.empty.settings",
+      "description": "Windows plugin details: no settings",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.field.archiveDigest",
+      "description": "Windows plugin details field: archive SHA-256",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.field.contentDigest",
+      "description": "Windows plugin details field: content SHA-256",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.field.pluginId",
+      "description": "Windows plugin details field: plugin ID",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.field.provides",
+      "description": "Windows plugin details field: provides",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.field.repository",
+      "description": "Windows plugin details field: repository",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.field.settings",
+      "description": "Windows plugin details field: settings",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.field.source",
+      "description": "Windows plugin details field: source",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.field.status",
+      "description": "Windows plugin details field: status",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.field.update",
+      "description": "Windows plugin details field: update",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.field.verification",
+      "description": "Windows plugin details field: verification",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.field.version",
+      "description": "Windows plugin details field: version",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.loading",
+      "description": "Windows plugin details: loading",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.noSelection",
+      "description": "Windows plugin details: no selection",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.notice.community",
+      "description": "Windows plugin details: community trust notice",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.notice.diskCommunity",
+      "description": "Windows plugin details: disk community trust notice",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.permission.backend.launch",
+      "description": "Windows plugin permission: launch backend",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.permission.credentials.store",
+      "description": "Windows plugin permission: store credentials",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.permission.languageServer.launch",
+      "description": "Windows plugin permission: launch language server",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.permission.process.build",
+      "description": "Windows plugin permission: run builds",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.permission.process.run",
+      "description": "Windows plugin permission: run programs",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.permission.process.test",
+      "description": "Windows plugin permission: run tests",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.permission.process.vcs",
+      "description": "Windows plugin permission: run VCS",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.permission.project.generate",
+      "description": "Windows plugin permission: generate projects",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.permission.ui.contribute",
+      "description": "Windows plugin permission: contribute UI",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.permission.ui.web",
+      "description": "Windows plugin permission: show web content",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.permissions",
+      "description": "Windows plugin details section: permissions",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.previousVersion",
+      "description": "Windows plugin details: previous version",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.program",
+      "description": "Windows plugin details: complete numbered program declaration",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "index": "integer"
+      }
+    },
+    {
+      "id": "settings.declarativePluginDetails.programs",
+      "description": "Windows plugin details section: programs",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.retry",
+      "description": "Windows plugin details: retry",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.settingsDisabled",
+      "description": "Windows plugin details: settings disabled",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.source.bundled",
+      "description": "Windows plugin details source: bundled",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.source.disk",
+      "description": "Windows plugin details source: disk",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.source.marketplace",
+      "description": "Windows plugin details source: marketplace",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.source.unknown",
+      "description": "Windows plugin details source: unknown",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.status.disabled",
+      "description": "Windows plugin details status: disabled",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.status.enabled",
+      "description": "Windows plugin details status: enabled",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.status.quarantined",
+      "description": "Windows plugin details status: quarantined",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.tab.features",
+      "description": "Windows plugin details tab: features",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.tab.overview",
+      "description": "Windows plugin details tab: overview",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.tab.permissions",
+      "description": "Windows plugin details tab: permissions and programs",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.tab.settings",
+      "description": "Windows plugin details tab: settings",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.tab.versions",
+      "description": "Windows plugin details tab: versions and source",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.tabs",
+      "description": "Windows plugin details: tab list label",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.update.unknown",
+      "description": "Windows plugin details: update status unavailable",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.verification.approvedDigest",
+      "description": "Windows plugin details verification: approved digest",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.verification.hostSeal",
+      "description": "Windows plugin details verification: host seal",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.verification.publisherSignature",
+      "description": "Windows plugin details verification: publisher signature",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.verification.rejected",
+      "description": "Windows plugin details verification: rejected",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePluginDetails.verification.unknown",
+      "description": "Windows plugin details verification: unknown",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.sources.add",
+      "description": "Windows declarative marketplace source management: settings.declarativePlugins.sources.add",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.sources.addPlaceholder",
+      "description": "Windows declarative marketplace source management: settings.declarativePlugins.sources.addPlaceholder",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.sources.corruptNotice",
+      "description": "Windows declarative marketplace source management: settings.declarativePlugins.sources.corruptNotice",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.sources.description",
+      "description": "Windows declarative marketplace source management: settings.declarativePlugins.sources.description",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.sources.empty",
+      "description": "Windows declarative marketplace source management: settings.declarativePlugins.sources.empty",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.sources.errorAlreadyAdded",
+      "description": "Windows declarative marketplace source management: settings.declarativePlugins.sources.errorAlreadyAdded",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.sources.errorGeneric",
+      "description": "Windows declarative marketplace source management: settings.declarativePlugins.sources.errorGeneric",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.sources.errorInvalidInput",
+      "description": "Windows declarative marketplace source management: settings.declarativePlugins.sources.errorInvalidInput",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.sources.errorLoad",
+      "description": "Windows declarative marketplace source management: settings.declarativePlugins.sources.errorLoad",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.sources.errorNotFound",
+      "description": "Windows declarative marketplace source management: settings.declarativePlugins.sources.errorNotFound",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.sources.errorOfficialCannotBeRemoved",
+      "description": "Windows declarative marketplace source management: settings.declarativePlugins.sources.errorOfficialCannotBeRemoved",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.sources.official",
+      "description": "Windows declarative marketplace source management: settings.declarativePlugins.sources.official",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.sources.remove",
+      "description": "Windows declarative marketplace source management: settings.declarativePlugins.sources.remove",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.sources.retry",
+      "description": "Windows declarative marketplace source management: settings.declarativePlugins.sources.retry",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.sources.thirdParty",
+      "description": "Windows declarative marketplace source management: settings.declarativePlugins.sources.thirdParty",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.sources.title",
+      "description": "Windows declarative marketplace source management: settings.declarativePlugins.sources.title",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.declarativePlugins.sources.toggle",
+      "description": "Windows declarative marketplace source management: settings.declarativePlugins.sources.toggle",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "name": "string"
+      }
     }
   ]
 }
