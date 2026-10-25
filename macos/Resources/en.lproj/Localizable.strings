@@ -1933,6 +1933,7 @@
 "Local" = "Local";
 "Local %@ configuration" = "Local %@ configuration";
 "Local Changes" = "Local Changes";
+"Local Folder" = "Local Folder";
 "Local History" = "Local History";
 "Local History is available for text files" = "Local History is available for text files";
 "Local History…" = "Local History…";
@@ -2426,6 +2427,8 @@
 "Open a Git project before using pull requests" = "Open a Git project before using pull requests";
 "Open a Java file" = "Open a Java file";
 "Open a Java file before starting Debug" = "Open a Java file before starting Debug";
+"Open a folder on a saved SSH host" = "Open a folder on a saved SSH host";
+"Open a folder on this Mac" = "Open a folder on this Mac";
 "Open a local folder to start working." = "Open a local folder to start working.";
 "Open a local project folder" = "Open a local project folder";
 "Open a project" = "Open a project";
@@ -6852,6 +6855,8 @@
 "native.openInLithe" = "Open in Lithe";
 "native.openInNewWindow" = "Open in New Window";
 "native.openInRightSplit" = "Open in Right Split";
+"native.openLocalFolder" = "Local Folder";
+"native.openLocalFolderDetail" = "Open a folder on this Mac";
 "native.openLogDirectory" = "Open Log Directory";
 "native.openMarketplace" = "Open Marketplace";
 "native.openModulePomXml" = "Open module pom.xml";
@@ -6868,6 +6873,7 @@
 "native.openReleasePage" = "Open Release Page";
 "native.openRemote" = "Open Remote ↗";
 "native.openRemote.variant2" = "Open remote";
+"native.openRemoteFolderDetail" = "Open a folder on a saved SSH host";
 "native.openRunConfiguration" = "Open Run Configuration";
 "native.openServiceInBrowser" = "Open service in browser";
 "native.openSkillMd" = "Open SKILL.md";

@@ -323,6 +323,13 @@ private struct ActiveSessionChrome: View {
                 }
             }
             .sheet(isPresented: Binding(
+                get: { session.workbenchFeature.isOpenTargetChooserPresented },
+                set: { session.workbenchFeature.isOpenTargetChooserPresented = $0 }
+            )) {
+                OpenTargetChooserView()
+                    .environmentObject(session)
+            }
+            .sheet(isPresented: Binding(
                 get: { session.workbenchFeature.isRemoteConnectionsPresented },
                 set: { session.workbenchFeature.isRemoteConnectionsPresented = $0 }
             )) {

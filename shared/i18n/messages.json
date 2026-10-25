@@ -88358,6 +88358,39 @@
         "key": "1 usage",
         "arguments": []
       }
+    },
+    {
+      "id": "native.openLocalFolder",
+      "description": "Native UI: Local Folder",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Local Folder",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.openLocalFolderDetail",
+      "description": "Native UI: Open a folder on this Mac",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Open a folder on this Mac",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.openRemoteFolderDetail",
+      "description": "Native UI: Open a folder on a saved SSH host",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Open a folder on a saved SSH host",
+        "arguments": []
+      }
     }
   ]
 }

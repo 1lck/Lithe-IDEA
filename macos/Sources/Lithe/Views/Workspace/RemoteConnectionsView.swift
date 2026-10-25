@@ -27,6 +27,21 @@ struct RemoteConnectionsView: View {
     private static let sidebarWidth: CGFloat = 240
     private static let labelWidth: CGFloat = 120
     private static let fieldWidth: CGFloat = 360
+    private static let preferredSize = CGSize(width: 880, height: 620)
+    private static let minimumSize = CGSize(width: 640, height: 420)
+    /// Space kept around the sheet so it never reaches past its parent window.
+    private static let windowMargin: CGFloat = 40
+
+    /// The size the window takes: the preferred size, shrunk to fit inside the
+    /// window presenting it. The detail pane scrolls, so a smaller window only
+    /// shortens the form while the footer buttons stay in view.
+    private var sheetSize: CGSize {
+        let parent = NSApp.keyWindow?.contentLayoutRect.size ?? Self.preferredSize
+        return CGSize(
+            width: min(Self.preferredSize.width, max(Self.minimumSize.width, parent.width - Self.windowMargin)),
+            height: min(Self.preferredSize.height, max(Self.minimumSize.height, parent.height - Self.windowMargin))
+        )
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -46,7 +61,7 @@ struct RemoteConnectionsView: View {
                     RemoteFolderBrowserView(feature: feature)
                 }
         }
-        .frame(width: 880, height: 620)
+        .frame(width: sheetSize.width, height: sheetSize.height)
         .background(LitheTheme.window)
         .sheet(item: Binding(get: { feature.prompts.first }, set: { _ in })) { prompt in
             RemoteAuthenticationView(prompt: prompt) { feature.answerPrompt($0) }

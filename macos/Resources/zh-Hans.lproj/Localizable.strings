@@ -1933,6 +1933,7 @@
 "Local" = "本地";
 "Local %@ configuration" = "使用本机 %@ 配置";
 "Local Changes" = "本地更改";
+"Local Folder" = "本地文件夹";
 "Local History" = "本地历史";
 "Local History is available for text files" = "本地历史仅适用于文本文件";
 "Local History…" = "本地历史…";
@@ -2426,6 +2427,8 @@
 "Open a Git project before using pull requests" = "请先打开 Git 项目，再使用拉取请求功能";
 "Open a Java file" = "打开 Java 文件";
 "Open a Java file before starting Debug" = "开始调试前请先打开 Java 文件";
+"Open a folder on a saved SSH host" = "打开已保存的 SSH 主机上的文件夹";
+"Open a folder on this Mac" = "打开这台 Mac 上的文件夹";
 "Open a local folder to start working." = "打开本地文件夹开始工作。";
 "Open a local project folder" = "打开本地项目文件夹";
 "Open a project" = "打开项目";
@@ -6852,6 +6855,8 @@
 "native.openInLithe" = "在 Lithe 中打开";
 "native.openInNewWindow" = "在新窗口中打开";
 "native.openInRightSplit" = "在右侧分栏打开";
+"native.openLocalFolder" = "本地文件夹";
+"native.openLocalFolderDetail" = "打开这台 Mac 上的文件夹";
 "native.openLogDirectory" = "打开日志目录";
 "native.openMarketplace" = "打开插件市场";
 "native.openModulePomXml" = "打开所属模块的 pom.xml";
@@ -6868,6 +6873,7 @@
 "native.openReleasePage" = "打开 Release 页面";
 "native.openRemote" = "打开远程仓库 ↗";
 "native.openRemote.variant2" = "打开远程仓库";
+"native.openRemoteFolderDetail" = "打开已保存的 SSH 主机上的文件夹";
 "native.openRunConfiguration" = "打开运行配置";
 "native.openServiceInBrowser" = "在浏览器中打开服务";
 "native.openSkillMd" = "打开 SKILL.md";

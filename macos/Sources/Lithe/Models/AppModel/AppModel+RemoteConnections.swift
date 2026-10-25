@@ -20,6 +20,11 @@ struct RemoteConnectionServices {
 extension AppModel {
     var canManageRemoteConnections: Bool { services.remoteConnections != nil }
 
+    var hasSavedRemoteConnections: Bool {
+        guard let services = services.remoteConnections else { return false }
+        return !services.store.load().isEmpty
+    }
+
     func showRemoteConnections() {
         guard canManageRemoteConnections else { return }
         workbenchFeature.remoteReconnect = nil
