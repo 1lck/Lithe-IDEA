@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Combine
 import Foundation
 import LitheDebugModule
@@ -420,19 +421,19 @@ private enum DebugTerminalLaunchError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .hostUnavailable:
-            "The application closed before the debug terminal could start."
+            L10n.string("The application closed before the debug terminal could start.")
         case .externalTerminalUnsupported:
-            "This debug session requires an external terminal, which is not supported."
+            L10n.string("This debug session requires an external terminal, which is not supported.")
         case .shellInterpretationUnsupported:
-            "This debug session requires shell-interpreted terminal arguments."
+            L10n.string("This debug session requires shell-interpreted terminal arguments.")
         case .missingExecutable:
-            "The debug adapter did not provide a terminal executable."
+            L10n.string("The debug adapter did not provide a terminal executable.")
         case .workspaceUnavailable:
-            "Open a project before starting a debug terminal."
+            L10n.string("Open a project before starting a debug terminal.")
         case .terminalUnavailable:
-            "The integrated terminal is unavailable."
+            L10n.string("The integrated terminal is unavailable.")
         case .invalidWorkingDirectory:
-            "The debug adapter provided an invalid terminal working directory."
+            L10n.string("The debug adapter provided an invalid terminal working directory.")
         }
     }
 }

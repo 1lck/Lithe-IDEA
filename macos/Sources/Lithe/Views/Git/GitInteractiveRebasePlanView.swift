@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import SwiftUI
 import LitheGitModule
 
@@ -67,7 +68,7 @@ private struct GitInteractiveRebasePlanView: View {
                 LitheSettingsSelect(
                     selection: Binding(
                         get: { step.action }, set: { editor.setAction($0, for: step.hash) }
-                    ), options: GitRebaseAction.allCases, width: 130, accessibilityLabel: "Rebase action",
+                    ), options: GitRebaseAction.allCases, width: 130, accessibilityLabel: L10n.string("Rebase action"),
                     title: { $0.rawValue.capitalized }
                 )
                 .labelsHidden().frame(width: 130)

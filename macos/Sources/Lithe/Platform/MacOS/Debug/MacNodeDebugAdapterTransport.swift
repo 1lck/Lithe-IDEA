@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 
 struct MacJavaScriptDebugAdapterLocator {
@@ -7,7 +8,7 @@ struct MacJavaScriptDebugAdapterLocator {
         var errorDescription: String? {
             switch self {
             case .adapterNotFound:
-                return "Node.js debugging requires the official vscode-js-debug standalone DAP bundle. Set LITHE_JS_DEBUG_PATH to its dapDebugServer.js file or unpack it under .lithe/toolchains/js-debug."
+                return L10n.string("Node.js debugging requires the official vscode-js-debug standalone DAP bundle. Set LITHE_JS_DEBUG_PATH to its dapDebugServer.js file or unpack it under .lithe/toolchains/js-debug.")
             }
         }
     }

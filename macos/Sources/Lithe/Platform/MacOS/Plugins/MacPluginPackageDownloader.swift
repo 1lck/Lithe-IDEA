@@ -34,19 +34,19 @@ enum MacPluginPackageDownloadError: Error, Equatable, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidEndpoint:
-            return "The plugin download address is invalid."
+            return L10n.string("The plugin download address is invalid.")
         case .httpStatus(let status):
-            return "The plugin server returned HTTP \(status)."
+            return L10n.string("The plugin server returned HTTP \(status).")
         case .archiveTooLarge(let limit):
-            return "The plugin archive is larger than \(limit / 1_048_576) MB."
+            return L10n.string("The plugin archive is larger than \(limit / 1_048_576) MB.")
         case .checksumMismatch(let expected, let actual):
-            return "The downloaded plugin archive does not match the plugin repository (SHA-256 \(actual), expected \(expected))."
+            return L10n.string("The downloaded plugin archive does not match the plugin repository (SHA-256 \(actual), expected \(expected)).")
         case .invalidArchive:
-            return "The downloaded plugin archive does not contain a valid plugin package."
+            return L10n.string("The downloaded plugin archive does not contain a valid plugin package.")
         case .extractionFailed(let detail):
-            return "The downloaded plugin archive could not be extracted: \(detail)"
+            return L10n.string("The downloaded plugin archive could not be extracted: \(detail)")
         case .extractionLimitExceeded(let detail):
-            return "The plugin archive expands beyond the allowed size: \(detail)"
+            return L10n.string("The plugin archive expands beyond the allowed size: \(detail)")
         }
     }
 }

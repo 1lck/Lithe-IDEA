@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import SwiftUI
 import AppKit
 import LitheCoreContracts
@@ -1824,29 +1825,29 @@ struct DebugBreakpointManagerView: View {
 
     private func breakpointDetail(_ breakpoint: GenericDebugBreakpoint) -> String? {
         if let logMessage = breakpoint.logMessage {
-            return String(format: String(localized: "Log: %@"), logMessage)
+            return String(format: L10n.string("Log: %@"), logMessage)
         }
         if let condition = breakpoint.condition {
-            return String(format: String(localized: "If: %@"), condition)
+            return String(format: L10n.string("If: %@"), condition)
         }
         if let hitCondition = breakpoint.hitCondition {
-            return String(format: String(localized: "Hit: %@"), hitCondition)
+            return String(format: L10n.string("Hit: %@"), hitCondition)
         }
         return breakpoint.message
-            ?? String(localized: breakpoint.verified ? "Verified" : "Pending verification")
+            ?? L10n.string(breakpoint.verified ? "Verified" : "Pending verification")
     }
 
     private func functionBreakpointDetail(
         _ breakpoint: GenericDebugFunctionBreakpoint
     ) -> String? {
         if let condition = breakpoint.condition {
-            return String(format: String(localized: "If: %@"), condition)
+            return String(format: L10n.string("If: %@"), condition)
         }
         if let hitCondition = breakpoint.hitCondition {
-            return String(format: String(localized: "Hit: %@"), hitCondition)
+            return String(format: L10n.string("Hit: %@"), hitCondition)
         }
         return breakpoint.message
-            ?? String(localized: breakpoint.verified ? "Verified" : "Pending verification")
+            ?? L10n.string(breakpoint.verified ? "Verified" : "Pending verification")
     }
 
     private func dataBreakpointDetail(_ breakpoint: GenericDebugDataBreakpoint) -> String {
@@ -2252,19 +2253,19 @@ struct BreakpointEditorView: View {
                     "Condition",
                     text: $condition,
                     isSupported: supportsCondition,
-                    help: "The active debug adapter does not support conditional breakpoints."
+                    help: L10n.string("The active debug adapter does not support conditional breakpoints.")
                 )
                 editorRow(
                     "Hit count",
                     text: $hitCondition,
                     isSupported: supportsHitCondition,
-                    help: "The active debug adapter does not support hit-count breakpoints."
+                    help: L10n.string("The active debug adapter does not support hit-count breakpoints.")
                 )
                 editorRow(
                     "Log message",
                     text: $logMessage,
                     isSupported: supportsLogMessage,
-                    help: "The active debug adapter does not support logpoints."
+                    help: L10n.string("The active debug adapter does not support logpoints.")
                 )
             }
             Spacer(minLength: 0)

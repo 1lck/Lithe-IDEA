@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import LitheCoreContracts
 import LitheLanguageIntelligenceModule
@@ -155,7 +156,7 @@ extension AppModel {
         sessions.recordLanguageServerLog(
             providerID: "java",
             level: .warning,
-            message: "Java Run marker request failed",
+            message: L10n.string("Java Run marker request failed"),
             detail: error.localizedDescription
         )
     }

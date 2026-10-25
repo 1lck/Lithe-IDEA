@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import LitheCoreContracts
 import Network
@@ -93,7 +94,7 @@ class MacServerDebugAdapterTransport: DebugAdapterTransport, DebugAdapterChildTr
         var errorDescription: String? {
             switch self {
             case .launchUnavailable(let value): value
-            case .connectionFailed(let value): "Could not connect to the Debug Adapter: \(value)"
+            case .connectionFailed(let value): L10n.string("Could not connect to the Debug Adapter: \(value)")
             }
         }
     }

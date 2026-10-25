@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import LitheCoreContracts
 
@@ -14,7 +15,7 @@ struct MacJdtLaunchResources {
         var errorDescription: String? {
             switch self {
             case .missingResource(let name):
-                "The Java Support plugin does not provide \(name). Reinstall the plugin."
+                L10n.string("The Java Support plugin does not provide \(name). Reinstall the plugin.")
             }
         }
     }

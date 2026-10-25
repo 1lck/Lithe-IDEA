@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import AppKit
 import Combine
 import LitheLocalHistoryModule
@@ -168,7 +169,7 @@ struct RootView: View {
                     set: { if !$0 && scopedPendingProjectOpen.wrappedValue?.id == request.id {
                         projectSessions.cancelPendingOpen()
                     } }
-                ), dialogTitle: String(localized: "Open Project", locale: locale)) {
+                ), dialogTitle: L10n.string("Open Project", locale: locale)) {
                     OpenProjectLocationDialog(request: request, onResolve: { placement, doNotAskAgain in
                         projectSessions.resolvePendingOpen(
                             request,

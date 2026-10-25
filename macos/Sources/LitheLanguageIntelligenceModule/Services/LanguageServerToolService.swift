@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Combine
 import Foundation
 import LitheCoreContracts
@@ -55,15 +56,15 @@ package enum LanguageServerToolConfigurationError: LocalizedError, Equatable {
     package var errorDescription: String? {
         switch self {
         case .executableRequired:
-            "Choose a language-server executable."
+            L10n.string("Choose a language-server executable.")
         case .executableInvalid(let path):
-            "The selected language-server path is not executable: \(path)"
+            L10n.string("The selected language-server path is not executable: \(path)")
         case .executableValidationFailed(let path, let message):
-            "The selected language server could not run: \(path)\n\(message)"
+            L10n.string("The selected language server could not run: \(path)\n\(message)")
         case .homebrewUnavailable:
-            "Homebrew is not installed or is not available to Lithe."
+            L10n.string("Homebrew is not installed or is not available to Lithe.")
         case .homebrewUnsupported(let provider):
-            "No verified Homebrew formula is configured for \(provider)."
+            L10n.string("No verified Homebrew formula is configured for \(provider).")
         }
     }
 }

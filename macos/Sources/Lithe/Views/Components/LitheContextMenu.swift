@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import AppKit
 import JavaRuntimeSupport
 import SwiftUI
@@ -824,7 +825,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
             handle.autoresizingMask = [.width, .height]
             handle.setAccessibilityElement(true)
             handle.setAccessibilityRole(.splitter)
-            handle.setAccessibilityLabel(NSLocalizedString("Drag corner to resize", comment: ""))
+            handle.setAccessibilityLabel(L10n.string(key: "Drag corner to resize"))
             handle.onStart = { [weak self, weak panel] in self?.contentResizeStartFrame = panel?.frame }
             handle.onChange = { [weak self] translation in
                 guard let self else { return }

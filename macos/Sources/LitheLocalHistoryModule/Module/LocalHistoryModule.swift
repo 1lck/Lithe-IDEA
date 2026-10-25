@@ -52,7 +52,7 @@ public final class HistoryModule: LitheModule {
 
 public enum HistoryModuleSleepError: LocalizedError, Sendable {
     case activeWork
-    public var errorDescription: String? { "Local history work is still active." }
+    public var errorDescription: String? { L10n.string("Local history work is still active.") }
 }
 
 @MainActor

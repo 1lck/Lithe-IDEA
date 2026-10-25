@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 
 enum LanguageServerTextEditApplicator {
@@ -7,8 +8,8 @@ enum LanguageServerTextEditApplicator {
 
         var errorDescription: String? {
             switch self {
-            case .invalidRange: "Language server returned an invalid text range."
-            case .overlappingEdits: "Language server returned overlapping text edits."
+            case .invalidRange: L10n.string("Language server returned an invalid text range.")
+            case .overlappingEdits: L10n.string("Language server returned overlapping text edits.")
             }
         }
     }

@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import AppKit
 import WebKit
 
@@ -149,8 +150,8 @@ final class AppKitWebMediaCaptureConfirmer: WebMediaCaptureConfirming {
         let alert = NSAlert()
         alert.messageText = Self.question(for: devices, requester: requester)
         alert.informativeText = Self.explanation(for: requester)
-        alert.addButton(withTitle: String(localized: "Don’t Allow"))
-        alert.addButton(withTitle: String(localized: "Allow"))
+        alert.addButton(withTitle: L10n.string("Don’t Allow"))
+        alert.addButton(withTitle: L10n.string("Allow"))
         alert.beginSheetModal(for: window) { completion($0 == .alertSecondButtonReturn) }
     }
 
@@ -159,16 +160,16 @@ final class AppKitWebMediaCaptureConfirmer: WebMediaCaptureConfirming {
         switch requester {
         case let .page(name):
             let format = switch (devices.contains(.camera), devices.contains(.microphone)) {
-            case (true, true): String(localized: "“%@” wants to use your camera and microphone.")
-            case (true, false): String(localized: "“%@” wants to use your camera.")
-            default: String(localized: "“%@” wants to use your microphone.")
+            case (true, true): L10n.string("“%@” wants to use your camera and microphone.")
+            case (true, false): L10n.string("“%@” wants to use your camera.")
+            default: L10n.string("“%@” wants to use your microphone.")
             }
             return String(format: format, displayText(name))
         case let .plugin(name, _):
             let format = switch (devices.contains(.camera), devices.contains(.microphone)) {
-            case (true, true): String(localized: "The plugin “%@” wants to use your camera and microphone.")
-            case (true, false): String(localized: "The plugin “%@” wants to use your camera.")
-            default: String(localized: "The plugin “%@” wants to use your microphone.")
+            case (true, true): L10n.string("The plugin “%@” wants to use your camera and microphone.")
+            case (true, false): L10n.string("The plugin “%@” wants to use your camera.")
+            default: L10n.string("The plugin “%@” wants to use your microphone.")
             }
             return String(format: format, displayText(name))
         }
@@ -178,10 +179,10 @@ final class AppKitWebMediaCaptureConfirmer: WebMediaCaptureConfirming {
     static func explanation(for requester: WebMediaCaptureRequester) -> String {
         switch requester {
         case .page:
-            String(localized: "You can mute or stop the device from the address bar while the page is using it.")
+            L10n.string("You can mute or stop the device from the address bar while the page is using it.")
         case let .plugin(_, id):
             String(
-                format: String(localized: "Plugin ID: %@. It can keep using the device until you close or hide its window."),
+                format: L10n.string("Plugin ID: %@. It can keep using the device until you close or hide its window."),
                 displayText(id)
             )
         }

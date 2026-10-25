@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import AppKit
 import SwiftUI
 
@@ -21,10 +22,10 @@ struct EditorSoftWrapToggleConfiguration: Equatable {
 
     var bridgePayload: [String: Any] {
         let style = LitheIconButtonStyle()
-        let title = !enabled ? String(localized: "Soft wrap is unavailable for very large files")
-            : selected ? String(localized: "Disable soft wraps") : String(localized: "Use soft wraps")
+        let title = !enabled ? L10n.string("Soft wrap is unavailable for very large files")
+            : selected ? L10n.string("Disable soft wraps") : L10n.string("Use soft wraps")
         return ["visible": visible, "enabled": enabled, "selected": selected,
-                "label": String(localized: "Soft Wraps"), "title": title,
+                "label": L10n.string("Soft Wraps"), "title": title,
                 "size": LitheTheme.Metrics.toolbarIconButtonSize, "radius": style.cornerRadius,
                 "disabledOpacity": style.disabledOpacity, "hover": hover, "pressed": pressed]
     }

@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import LitheModuleAPI
 import LitheGitModule
 import UniformTypeIdentifiers
 
@@ -10,8 +11,8 @@ struct MacGitPatchFileAccess: GitPatchFileAccess {
 
     func choosePatchFile() -> URL? {
         let panel = NSOpenPanel()
-        panel.title = String(localized: "Open Git Patch")
-        panel.prompt = String(localized: "Preview")
+        panel.title = L10n.string("Open Git Patch")
+        panel.prompt = L10n.string("Preview")
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
@@ -20,7 +21,7 @@ struct MacGitPatchFileAccess: GitPatchFileAccess {
 
     func choosePatchDestination() -> URL? {
         let panel = NSSavePanel()
-        panel.title = String(localized: "Save Git Patch")
+        panel.title = L10n.string("Save Git Patch")
         panel.allowedContentTypes = [UTType(filenameExtension: "patch") ?? .plainText]
         panel.canCreateDirectories = true
         let formatter = DateFormatter()

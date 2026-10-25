@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 import LitheCoreContracts
 
 /// The selected test scope, preserved when rerunning from the main toolbar.
@@ -11,7 +12,7 @@ struct ActiveTestTarget: Equatable, Sendable {
     var name: String {
         if let resolvedName { return resolvedName }
         return switch scope {
-        case .workspace: String(localized: "Workspace")
+        case .workspace: L10n.string("Workspace")
         case .file(let url): url.lastPathComponent
         case .testCase(let identifier, _): Self.formattedName(for: identifier)
         }

@@ -16,7 +16,7 @@ extension AppModel {
         do {
             _ = try AgentFileReference.adding(urls, to: [])
             guard !urls.isEmpty, urls.allSatisfy({ services.fileStorage.metadata(for: $0)?.isRegularFile == true }) else {
-                showNotification(String(localized: "Choose existing files to add to a conversation."))
+                showNotification(L10n.string("Choose existing files to add to a conversation."))
                 return
             }
             if agentConversationFeatureIfActive == nil {
@@ -37,11 +37,11 @@ extension AppModel {
             if openDocuments.contains(where: { document in
                 document.isDirty && urls.contains { $0.standardizedFileURL == document.url.standardizedFileURL }
             }) {
-                showNotification(String(localized: "Files added. Save your editor changes before sending so the Agent can read them."))
+                showNotification(L10n.string("Files added. Save your editor changes before sending so the Agent can read them."))
             }
         } catch {
             if !error.isCancellation {
-                showNotification(String(localized: String.LocalizationValue(error.localizedDescription)))
+                showNotification(L10n.string(String.LocalizationValue(error.localizedDescription)))
             }
         }
     }
@@ -179,7 +179,7 @@ extension AppModel {
 
     func openAgentFile(_ location: AgentToolDetails.Location) {
         guard let workspaceURL, let url = location.fileURL(in: workspaceURL) else {
-            showNotification(String(localized: "This file is outside the current project."))
+            showNotification(L10n.string("This file is outside the current project."))
             return
         }
         if let line = location.line {
@@ -298,7 +298,7 @@ extension AppModel {
     func importLocalConfiguration(for agentID: String, source: AIConfigurationSourceKind, name: String) -> Bool {
         guard let configuration = loadAIConfigurations().first(where: { $0.source == source }) else {
             detectedAIConfigurations.removeAll { $0.source == source }
-            showNotification(String(format: String(localized: "No %@ configuration was found on this Mac."), source.title))
+            showNotification(String(format: L10n.string("No %@ configuration was found on this Mac."), source.title))
             return false
         }
         let commitProviderID = settings.commitMessageAI.activeProviderID
@@ -308,7 +308,7 @@ extension AppModel {
         detectedAIConfigurations.removeAll { $0.source == source }
         detectedAIConfigurations.append(configuration)
         settings.setAgentProvider(provider.id, for: agentID, name: name)
-        showNotification(String(format: String(localized: "%@ now follows your local %@ configuration."), name, source.title))
+        showNotification(String(format: L10n.string("%@ now follows your local %@ configuration."), name, source.title))
         return true
     }
 

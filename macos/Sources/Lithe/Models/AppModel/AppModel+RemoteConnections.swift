@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 
 // Note: SSH 连接配置与测试连接见 .agents/notes/implemented/feature/2026-10-24-remote-ssh-connections.md
 
@@ -38,7 +39,7 @@ extension AppModel {
 
     private func offerReconnect(_ loss: RemoteConnectionLoss) {
         guard workspaceURL?.standardizedFileURL == loss.root.standardizedFileURL else { return }
-        showNotification(String(localized: "The connection to the remote host was lost. Reconnect to continue."))
+        showNotification(L10n.string("The connection to the remote host was lost. Reconnect to continue."))
         workbenchFeature.remoteReconnect = loss
         workbenchFeature.isRemoteConnectionsPresented = true
     }

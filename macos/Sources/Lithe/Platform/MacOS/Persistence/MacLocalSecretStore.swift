@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import LitheModuleAPI
 
 /// Stores AI credentials in Lithe's local application data instead of Keychain.
 ///
@@ -83,7 +84,7 @@ final class MacLocalSecretStore: SecureStore, @unchecked Sendable {
     private enum StoreError: LocalizedError {
         case unsupportedVersion
         var errorDescription: String? {
-            String(localized: "The credential store version is unsupported. Existing credentials were preserved.")
+            L10n.string("The credential store version is unsupported. Existing credentials were preserved.")
         }
     }
 

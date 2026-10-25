@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import AppKit
 
 /// Native replacements for the dialogs a browser supplies to web pages.
@@ -36,15 +37,15 @@ final class HTMLPreviewAppKitDialogs: HTMLPreviewDialogPresenting {
     func presentAlert(message: String, source: String, in window: NSWindow?, completion: @escaping () -> Void) {
         guard let window else { return completion() }
         let alert = makeAlert(message: message, source: source)
-        alert.addButton(withTitle: String(localized: "OK"))
+        alert.addButton(withTitle: L10n.string("OK"))
         alert.beginSheetModal(for: window) { _ in completion() }
     }
 
     func presentConfirm(message: String, source: String, in window: NSWindow?, completion: @escaping (Bool) -> Void) {
         guard let window else { return completion(false) }
         let alert = makeAlert(message: message, source: source)
-        alert.addButton(withTitle: String(localized: "OK"))
-        alert.addButton(withTitle: String(localized: "Cancel"))
+        alert.addButton(withTitle: L10n.string("OK"))
+        alert.addButton(withTitle: L10n.string("Cancel"))
         alert.beginSheetModal(for: window) { completion($0 == .alertFirstButtonReturn) }
     }
 
@@ -57,8 +58,8 @@ final class HTMLPreviewAppKitDialogs: HTMLPreviewDialogPresenting {
     ) {
         guard let window else { return completion(nil) }
         let alert = makeAlert(message: message, source: source)
-        alert.addButton(withTitle: String(localized: "OK"))
-        alert.addButton(withTitle: String(localized: "Cancel"))
+        alert.addButton(withTitle: L10n.string("OK"))
+        alert.addButton(withTitle: L10n.string("Cancel"))
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 24))
         field.stringValue = defaultText ?? ""
         alert.accessoryView = field
@@ -112,7 +113,7 @@ final class HTMLPreviewAppKitDialogs: HTMLPreviewDialogPresenting {
 
     private func makeAlert(message: String, source: String) -> NSAlert {
         let alert = NSAlert()
-        alert.messageText = String(format: String(localized: "“%@” says"), source)
+        alert.messageText = String(format: L10n.string("“%@” says"), source)
         alert.informativeText = message
         return alert
     }

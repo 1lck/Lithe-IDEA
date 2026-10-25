@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import LitheCoreContracts
 import LitheExecutionModule
 import SwiftUI
@@ -124,7 +125,7 @@ struct BuildSystemToolWindowView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 0) {
                 toolbarButton(
-                    help: feature.isRunning ? String(localized: "Stop build task") : String(localized: "Run selected task"),
+                    help: feature.isRunning ? L10n.string("Stop build task") : L10n.string("Run selected task"),
                     isEnabled: feature.isRunning || selection != nil
                 ) {
                     if feature.isRunning {
@@ -146,7 +147,7 @@ struct BuildSystemToolWindowView: View {
                     }
                 }
 
-                toolbarButton(help: String(format: String(localized: "Reload %@ projects"), title),
+                toolbarButton(help: String(format: L10n.string("Reload %@ projects"), title),
                               isEnabled: !feature.isDetecting, action: refresh) {
                     treeIcon("expui/general/refresh.svg")
                 }
@@ -165,14 +166,14 @@ struct BuildSystemToolWindowView: View {
                     .accessibilityValue(isOn ? Text("On") : Text("Off"))
                 }
 
-                toolbarButton(help: String(localized: "Collapse all"), isEnabled: true) {
+                toolbarButton(help: L10n.string("Collapse all"), isEnabled: true) {
                     expandedNodeIDs.removeAll()
                 } label: {
                     treeIcon("expui/general/collapseAll.svg")
                 }
 
                 if !listedOptions.isEmpty {
-                    toolbarButton(help: String(format: String(localized: "%@ options"), title), isEnabled: true) {
+                    toolbarButton(help: String(format: L10n.string("%@ options"), title), isEnabled: true) {
                         isOptionsPresented.toggle()
                     } label: {
                         treeIcon("expui/general/settings.svg")
@@ -236,7 +237,7 @@ struct BuildSystemToolWindowView: View {
 
     private var optionsPanel: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(String(format: String(localized: "%@ options"), title))
+            Text(String(format: L10n.string("%@ options"), title))
                 .font(LitheTheme.uiFont(size: 13, weight: .semibold))
                 .padding(.bottom, 4)
             ForEach(listedOptions) { option in
@@ -277,7 +278,7 @@ struct BuildSystemToolWindowView: View {
             }
         } else if entry.isReloadRequired {
             LitheBanner(status: .warning, layout: .editor) {
-                Text(String(format: String(localized: "%@ build files changed"), entry.instance.displayName))
+                Text(String(format: L10n.string("%@ build files changed"), entry.instance.displayName))
                 Button("Reload") { feature.loadModel(entry.id, reason: .refresh) }
                     .disabled(entry.modelState == .loading)
             }
@@ -299,7 +300,7 @@ struct BuildSystemToolWindowView: View {
                 ProgressView().controlSize(.small)
                 Text("Detecting build systems…")
             } else {
-                Text(String(format: String(localized: "No %@ project was detected in this workspace."), title))
+                Text(String(format: L10n.string("No %@ project was detected in this workspace."), title))
                     .multilineTextAlignment(.center)
             }
         }
@@ -341,7 +342,7 @@ struct BuildSystemToolWindowView: View {
                         treeIcon("expui/general/add.svg").frame(width: 18, height: 20)
                     }
                     .buttonStyle(.litheNoPress)
-                    .help(String(format: String(localized: "Add to %@"), option.displayName))
+                    .help(String(format: L10n.string("Add to %@"), option.displayName))
                     .litheDropdown(isPresented: Binding(
                         get: { customValueOptionID == option.id },
                         set: { if !$0 { customValueOptionID = nil } }
@@ -387,7 +388,7 @@ struct BuildSystemToolWindowView: View {
             setOption(option.id, value: .array((selected + [value]).map(ToolingJSONValue.string)))
         }
         return VStack(alignment: .leading, spacing: 10) {
-            Text(String(format: String(localized: "Add to %@"), option.displayName))
+            Text(String(format: L10n.string("Add to %@"), option.displayName))
                 .font(LitheTheme.uiFont(size: 13, weight: .semibold))
             TextField("", text: $customValue)
                 .textFieldStyle(.roundedBorder)
@@ -444,7 +445,7 @@ struct BuildSystemToolWindowView: View {
                     }
                 } else if entry.instance.loadsModelOnRequest, entry.modelState != .loading {
                     actionRow(
-                        id: nodeID + ":load", title: String(localized: "Load Project Model"),
+                        id: nodeID + ":load", title: L10n.string("Load Project Model"),
                         iconPath: "expui/general/refresh.svg"
                     ) {
                         feature.loadModel(entry.id)
@@ -494,7 +495,7 @@ struct BuildSystemToolWindowView: View {
         categoryNodes(items, level: 0, ownerID: ownerID, entryID: entry.id)
         if let tests = testRunnable(entry, project: project, isRoot: isRoot) {
             leafRow(
-                id: ownerID + ":tests", title: String(localized: "Run Tests"), help: nil,
+                id: ownerID + ":tests", title: L10n.string("Run Tests"), help: nil,
                 iconPath: "expui/nodes/testGroup.svg", entryID: entry.id, project: project, runnable: tests
             )
         }
@@ -521,11 +522,11 @@ struct BuildSystemToolWindowView: View {
                 ) {
                     if testable {
                         leafRow(
-                            id: nodeID + ":tests", title: String(localized: "Run Tests"), help: nil,
+                            id: nodeID + ":tests", title: L10n.string("Run Tests"), help: nil,
                             iconPath: "expui/nodes/testGroup.svg", entryID: entry.id, project: project,
                             runnable: .tests(
                                 BuildTestRequest(project: BuildSelection(project: project), target: BuildSelection(target: target)),
-                                title: Self.title(String(localized: "Tests"), scope: target.name)
+                                title: Self.title(L10n.string("Tests"), scope: target.name)
                             ), target: target
                         )
                     }
@@ -685,7 +686,7 @@ struct BuildSystemToolWindowView: View {
                 project: selected.map(BuildSelection.init(project:)),
                 projects: entry.model?.projects.map(\.path) ?? []
             ),
-            title: Self.title(String(localized: "Tests"), scope: scope)
+            title: Self.title(L10n.string("Tests"), scope: scope)
         )
     }
 
@@ -713,7 +714,7 @@ struct BuildSystemToolWindowView: View {
             }
         }
         return treeNode(
-            id: nodeID, title: String(localized: "Dependencies"), iconPath: "expui/nodes/libraryFolder.svg",
+            id: nodeID, title: L10n.string("Dependencies"), iconPath: "expui/nodes/libraryFolder.svg",
             onToggle: toggle,
             menu: {
                 [.action("Reload", isEnabled: entry.dependencies[key] != .loading) {
@@ -795,7 +796,7 @@ struct BuildSystemToolWindowView: View {
             LitheContextMenuItem.separator
             for marker in entry.instance.markers {
                 LitheContextMenuItem.action(
-                    String(format: String(localized: "Open %@"), (marker as NSString).lastPathComponent),
+                    String(format: L10n.string("Open %@"), (marker as NSString).lastPathComponent),
                     localizesTitle: false
                 ) {
                     model.openFile(workspaceURL.appendingPathComponent(marker))
@@ -951,13 +952,13 @@ struct BuildSystemToolWindowView: View {
 
     static func groupTitle(_ group: BuildTaskGroup) -> String {
         switch group {
-        case .lifecycle: String(localized: "Lifecycle")
-        case .build: String(localized: "Build")
-        case .test: String(localized: "Test")
-        case .run: String(localized: "Run")
-        case .verification: String(localized: "Verification")
-        case .documentation: String(localized: "Documentation")
-        case .other: String(localized: "Other")
+        case .lifecycle: L10n.string("Lifecycle")
+        case .build: L10n.string("Build")
+        case .test: L10n.string("Test")
+        case .run: L10n.string("Run")
+        case .verification: L10n.string("Verification")
+        case .documentation: L10n.string("Documentation")
+        case .other: L10n.string("Other")
         }
     }
 }
@@ -1125,7 +1126,7 @@ struct BuildOptionRow: View {
                 LitheMenu {
                     Self.choiceItems(option: option, onChange: onChange)
                 } label: {
-                    menuLabel(current.isEmpty ? String(localized: "None") : current)
+                    menuLabel(current.isEmpty ? L10n.string("None") : current)
                 }
                 .litheToolbarIconButton(isIconOnly: false)
                 .fixedSize()
@@ -1138,7 +1139,7 @@ struct BuildOptionRow: View {
                         LitheIDEAIcon(resourcePath: "expui/general/add.svg", size: 16, preservesOriginalColors: true)
                     }
                     .litheIconButton()
-                    .help(String(format: String(localized: "Add to %@"), option.displayName))
+                    .help(String(format: L10n.string("Add to %@"), option.displayName))
                     .litheDropdown(isPresented: $isCustomPresented) { customValuePanel }
                 }
             }
@@ -1176,7 +1177,7 @@ struct BuildOptionRow: View {
 
     private var customValuePanel: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(String(format: String(localized: "Add to %@"), option.displayName))
+            Text(String(format: L10n.string("Add to %@"), option.displayName))
                 .font(LitheTheme.uiFont(size: 13, weight: .semibold))
             TextField("", text: $customText)
                 .textFieldStyle(.roundedBorder)
