@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import SwiftUI
 import LitheGitModule
 
@@ -11,7 +12,7 @@ struct GitPatchPresentation: ViewModifier {
             get: { editor.mode != nil && editor.surface == surface },
             set: { if !$0 && editor.surface == surface { editor.dismiss() } }
         ), allowsDismiss: !editor.isBusy,
-           dialogTitle: String(localized: editor.mode == .export ? "Create Patch" : "Apply Patch", locale: locale)) {
+           dialogTitle: L10n.string(editor.mode == .export ? "Create Patch" : "Apply Patch", locale: locale)) {
             GitPatchDialog(editor: editor)
         }.frame(width: 0, height: 0).allowsHitTesting(false))
     }

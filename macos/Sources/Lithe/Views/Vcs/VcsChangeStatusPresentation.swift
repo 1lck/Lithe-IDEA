@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import LitheCoreContracts
 import SwiftUI
 
@@ -24,18 +25,18 @@ extension VcsChangeStatus {
 
     var title: String {
         switch self {
-        case .modified: String(localized: "Modified")
-        case .added: String(localized: "Added")
-        case .copied: String(localized: "Copied")
-        case .deleted: String(localized: "Deleted")
-        case .missing: String(localized: "Missing")
-        case .renamed: String(localized: "Moved")
-        case .replaced: String(localized: "Replaced")
-        case .typeChanged: String(localized: "Type changed")
-        case .unversioned: String(localized: "Unversioned")
-        case .ignored: String(localized: "Ignored")
-        case .conflicted: String(localized: "Conflicted")
-        case .switched: String(localized: "Switched")
+        case .modified: L10n.string("Modified")
+        case .added: L10n.string("Added")
+        case .copied: L10n.string("Copied")
+        case .deleted: L10n.string("Deleted")
+        case .missing: L10n.string("Missing")
+        case .renamed: L10n.string("Moved")
+        case .replaced: L10n.string("Replaced")
+        case .typeChanged: L10n.string("Type changed")
+        case .unversioned: L10n.string("Unversioned")
+        case .ignored: L10n.string("Ignored")
+        case .conflicted: L10n.string("Conflicted")
+        case .switched: L10n.string("Switched")
         }
     }
 

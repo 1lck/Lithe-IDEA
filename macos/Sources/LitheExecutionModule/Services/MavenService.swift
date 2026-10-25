@@ -1,11 +1,12 @@
 import Combine
 import Foundation
+import LitheModuleAPI
 import LitheCoreContracts
 
 private enum MavenReloadError: LocalizedError {
     case projectUnavailable
     var errorDescription: String? {
-        String(localized: "The Maven project could not be reloaded. The previous model is still available.")
+        L10n.string("The Maven project could not be reloaded. The previous model is still available.")
     }
 }
 
@@ -467,7 +468,7 @@ package final class MavenService: ObservableObject {
             } catch {
                 guard self.projectLoadID == loadID, self.reloadRevision == revision else { return }
                 self.reloadError = error is CancellationError
-                    ? String(localized: "Maven reload was cancelled or timed out.")
+                    ? L10n.string("Maven reload was cancelled or timed out.")
                     : error.localizedDescription
                 self.isReloadRequired = true
             }

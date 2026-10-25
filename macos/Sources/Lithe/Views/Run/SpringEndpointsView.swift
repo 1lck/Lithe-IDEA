@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import SwiftUI
 
 struct SpringEndpointsView: View {
@@ -8,7 +9,7 @@ struct SpringEndpointsView: View {
         VStack(spacing: 0) {
             LitheToolWindowHeader(
                 title: "Spring Endpoints",
-                subtitle: "\(filteredEndpoints.count) routes",
+                subtitle: L10n.string("\(filteredEndpoints.count) routes"),
                 onMinimize: { model.workbenchFeature.setVisibility(.spring, isVisible: false) }
             )
             HStack(spacing: 7) {

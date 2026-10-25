@@ -30,6 +30,22 @@
 - 每个新增资源路径都要在代码或 Agent Note 中说明生命周期、所有权、可写位置、是否会影响代码签名和 Sparkle delta，并为典型启动/工作流增加 bundle 文件清单或哈希不变的验证。
 - 代码审查和测试必须运行 `scripts/verify-runtime-bundle-immutability.sh`；macOS 生产路径和 Windows/Tauri 资源解析路径都要覆盖。发现运行时写入发行目录时，先迁移到平台存储 adapter，再继续功能开发。
 
+## 界面文案必须走统一 i18n 接口
+
+任何会显示给用户的文字（错误、警告、弹窗、按钮、状态、通知、占位符、提示、无障碍标签、菜单与窗口标题）
+都必须通过共享 i18n 生成，不得在代码里硬编码，也不得绕过接口。词条的唯一来源是 `shared/i18n/`，
+规则与操作见 `shared/i18n/README.md`，实现要求见 `develop-lithe` Skill 的“界面文案与 i18n”一节。
+
+- macOS：视图里的字面量交给 SwiftUI（`Text("…")` 等）；视图之外（错误、`NSAlert`、通知、`errorDescription`、
+  字符串参数）一律用 `L10n.string("…")`。禁止直接使用 `String(localized:)`、`NSLocalizedString`，
+  禁止用 `locale:` 代替语言选择（它只影响数字和日期格式）。
+- 新增文案时，同一次改动里在 `shared/i18n/` 补齐中英词条，运行 `node scripts/generate-i18n.mjs`，
+  提交生成结果；不要手改 `Localizable.strings` 或 `*.generated.*`。
+- 提交前必须运行 `node scripts/verify-app-language-localization.mjs` 和
+  `node scripts/generate-i18n.mjs --check`。检查失败时补词条或改用 `L10n`，
+  不得通过放宽脚本、扩大豁免名单或跳过检查来通过。
+- 上游诊断、用户内容、Agent 返回内容不是界面翻译，不要改写（见 `shared/i18n/README.md`）。
+
 ## 特殊 UI 交互
 
 处理可拖动分隔条、可调整面板、连续拖动、滚动或其他高频 UI 交互时，先阅读：

@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import LitheCoreContracts
 
@@ -9,9 +10,9 @@ final class MacGitHubHTTPTransport: GitHubHTTPTransport, @unchecked Sendable {
 
         var errorDescription: String? {
             switch self {
-            case .invalidPlan: "GitHub produced an invalid request"
-            case .missingCredential: "Connect a GitHub account before continuing"
-            case .invalidResponse: "GitHub returned an invalid HTTP response"
+            case .invalidPlan: L10n.string("GitHub produced an invalid request")
+            case .missingCredential: L10n.string("Connect a GitHub account before continuing")
+            case .invalidResponse: L10n.string("GitHub returned an invalid HTTP response")
             }
         }
     }

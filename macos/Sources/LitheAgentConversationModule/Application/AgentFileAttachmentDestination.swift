@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import LitheCoreContracts
 
@@ -14,8 +15,8 @@ public enum AgentFileAttachmentError: LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .sessionUnavailable: "This conversation is no longer available. Choose another conversation."
-        case .agentUnavailable: "This Agent is no longer configured. Open Agent settings to configure it."
+        case .sessionUnavailable: L10n.string("This conversation is no longer available. Choose another conversation.")
+        case .agentUnavailable: L10n.string("This Agent is no longer configured. Open Agent settings to configure it.")
         }
     }
 }

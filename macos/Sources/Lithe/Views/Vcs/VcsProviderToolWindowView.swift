@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import AppKit
 import LitheCoreContracts
 import SwiftUI
@@ -44,9 +45,9 @@ struct VcsProviderToolWindowView: View {
 
         var title: String {
             switch self {
-            case .conflicts: String(localized: "Conflicts")
-            case .changes: String(localized: "Changes")
-            case .unversioned: String(localized: "Unversioned Files")
+            case .conflicts: L10n.string("Conflicts")
+            case .changes: L10n.string("Changes")
+            case .unversioned: L10n.string("Unversioned Files")
             }
         }
     }
@@ -85,11 +86,11 @@ struct VcsProviderToolWindowView: View {
             inclusion = inclusion.filter { paths.contains($0.key) }
         }
         .confirmationDialog(
-            String(localized: "Roll back the selected changes?"),
+            L10n.string("Roll back the selected changes?"),
             isPresented: Binding(get: { !pendingRollback.isEmpty }, set: { if !$0 { pendingRollback = [] } }),
             titleVisibility: .visible
         ) {
-            Button(String(localized: "Roll Back"), role: .destructive) {
+            Button(L10n.string("Roll Back"), role: .destructive) {
                 let changes = pendingRollback
                 pendingRollback = []
                 rollback(changes)
@@ -97,7 +98,7 @@ struct VcsProviderToolWindowView: View {
             Button("Cancel", role: .cancel) { pendingRollback = [] }
         } message: {
             Text(verbatim: pendingRollback.map(\.path).joined(separator: "\n") + "\n\n"
-                 + String(localized: "Local edits to these files are lost."))
+                 + L10n.string("Local edits to these files are lost."))
         }
     }
 
@@ -130,9 +131,9 @@ struct VcsProviderToolWindowView: View {
                 .lineLimit(1)
                 .padding(.trailing, 4)
             if root != nil {
-                tabButton(.changes, title: String(localized: "Changes"))
+                tabButton(.changes, title: L10n.string("Changes"))
                 if root?.supports(.history) == true {
-                    tabButton(.history, title: String(localized: "History"))
+                    tabButton(.history, title: L10n.string("History"))
                 }
             }
             Spacer()
@@ -165,30 +166,30 @@ struct VcsProviderToolWindowView: View {
         let selected = selectedChanges(root)
         return ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 0) {
-                toolbarButton(String(localized: "Refresh"), icon: "expui/general/refresh.svg",
+                toolbarButton(L10n.string("Refresh"), icon: "expui/general/refresh.svg",
                               isEnabled: !feature.isDetecting && !root.isRefreshing) {
                     feature.detect()
                 }
                 if root.supports(.update) {
-                    toolbarButton(String(localized: "Update Project"), icon: "expui/vcs/update.svg", isEnabled: !busy) {
+                    toolbarButton(L10n.string("Update Project"), icon: "expui/vcs/update.svg", isEnabled: !busy) {
                         update(root)
                     }
                 }
                 if tab == .changes {
                     if root.supports(.rollback) {
-                        toolbarButton(String(localized: "Roll Back…"), icon: "expui/vcs/revert.svg",
+                        toolbarButton(L10n.string("Roll Back…"), icon: "expui/vcs/revert.svg",
                                       isEnabled: !busy && !rollbackTargets(selected).isEmpty) {
                             pendingRollback = rollbackTargets(selected)
                         }
                     }
                     if root.supports(.baseContent) {
-                        toolbarButton(String(localized: "Show Diff"), icon: "expui/vcs/diff.svg",
+                        toolbarButton(L10n.string("Show Diff"), icon: "expui/vcs/diff.svg",
                                       isEnabled: selected.count == 1) {
                             if let change = selected.first { showDiff(change, in: root) }
                         }
                     }
                     if root.supports(.conflicts) {
-                        toolbarButton(String(localized: "Mark as Resolved"), icon: "expui/actions/checked.svg",
+                        toolbarButton(L10n.string("Mark as Resolved"), icon: "expui/actions/checked.svg",
                                       isEnabled: !busy && !conflicted(selected).isEmpty) {
                             resolve(conflicted(selected), in: root)
                         }
@@ -196,7 +197,7 @@ struct VcsProviderToolWindowView: View {
                 }
                 if root.supports(.cleanup) {
                     LitheMenu {
-                        LitheContextMenuItem.action(String(localized: "Clean Up Working Copy"), localizesTitle: false,
+                        LitheContextMenuItem.action(L10n.string("Clean Up Working Copy"), localizesTitle: false,
                                                     isEnabled: !busy) { cleanup(root) }
                     } label: {
                         icon("expui/general/moreVertical.svg")
@@ -290,8 +291,8 @@ struct VcsProviderToolWindowView: View {
         }
         ForEach(ambiguous, id: \.id) { directory in
             LitheBanner(status: .info, layout: .editor) {
-                Text(String(format: String(localized: "%@ holds the metadata of several version control systems. Choose the one that manages it."),
-                            directory.id.isEmpty ? String(localized: "The workspace") : directory.id))
+                Text(String(format: L10n.string("%@ holds the metadata of several version control systems. Choose the one that manages it."),
+                            directory.id.isEmpty ? L10n.string("The workspace") : directory.id))
                 HStack(spacing: 6) {
                     ForEach(directory.vcs, id: \.self) { candidate in
                         Button(feature.vcsNames[candidate] ?? candidate) { feature.map(directory.id, to: candidate) }
@@ -318,7 +319,7 @@ struct VcsProviderToolWindowView: View {
         if let root, let message = root.failure {
             LitheBanner(status: .error, layout: .editor) {
                 Text(verbatim: message).lineLimit(6).textSelection(.enabled)
-                Button(String(localized: "Retry")) { feature.refresh(root.id) }
+                Button(L10n.string("Retry")) { feature.refresh(root.id) }
             }
         }
         if let root, root.snapshot?.truncated == true {
@@ -339,9 +340,9 @@ struct VcsProviderToolWindowView: View {
                 ProgressView().controlSize(.small)
                 Text("Detecting working copies…")
             } else {
-                Text(String(format: String(localized: "No %@ working copy was detected in this workspace."), title))
+                Text(String(format: L10n.string("No %@ working copy was detected in this workspace."), title))
                     .multilineTextAlignment(.center)
-                Button(String(localized: "Detect Again")) { feature.detect() }
+                Button(L10n.string("Detect Again")) { feature.detect() }
             }
         }
         .font(LitheTheme.uiFont(size: 12))
@@ -464,7 +465,7 @@ struct VcsProviderToolWindowView: View {
             if group != .conflicts && root.supports(.checkin) {
                 LitheTreeCheckbox(
                     state: included == 0 ? .off : included == changes.count ? .on : .mixed,
-                    accessibilityTitle: String(localized: "Include in commit")
+                    accessibilityTitle: L10n.string("Include in commit")
                 ) {
                     let include = included < changes.count
                     for change in changes { inclusion[change.path] = include }
@@ -486,7 +487,7 @@ struct VcsProviderToolWindowView: View {
             if root.supports(.checkin) {
                 LitheTreeCheckbox(
                     state: isIncluded(change) ? .on : .off,
-                    accessibilityTitle: String(localized: "Include in commit")
+                    accessibilityTitle: L10n.string("Include in commit")
                 ) {
                     inclusion[change.path] = !isIncluded(change)
                 }
@@ -524,11 +525,11 @@ struct VcsProviderToolWindowView: View {
 
     static func rowHelp(_ change: VcsChange) -> String {
         var parts = [change.path, change.status.title]
-        if let oldPath = change.oldPath { parts.append(String(format: String(localized: "Moved from %@"), oldPath)) }
-        if change.hasTreeConflict { parts.append(String(localized: "Tree conflict")) }
-        if change.flags.contains("propertiesModified") { parts.append(String(localized: "Properties modified")) }
-        if change.flags.contains("locked") { parts.append(String(localized: "Locked in this working copy")) }
-        if change.flags.contains("lockedByOther") { parts.append(String(localized: "Locked by another user")) }
+        if let oldPath = change.oldPath { parts.append(String(format: L10n.string("Moved from %@"), oldPath)) }
+        if change.hasTreeConflict { parts.append(L10n.string("Tree conflict")) }
+        if change.flags.contains("propertiesModified") { parts.append(L10n.string("Properties modified")) }
+        if change.flags.contains("locked") { parts.append(L10n.string("Locked in this working copy")) }
+        if change.flags.contains("lockedByOther") { parts.append(L10n.string("Locked by another user")) }
         return parts.joined(separator: "\n")
     }
 
@@ -550,31 +551,31 @@ struct VcsProviderToolWindowView: View {
         let busy = feature.runningOperation != nil
         var items: [LitheContextMenuItem] = []
         if root.supports(.baseContent) {
-            items.append(.action(String(localized: "Show Diff"), localizesTitle: false, isEnabled: selected.count == 1) {
+            items.append(.action(L10n.string("Show Diff"), localizesTitle: false, isEnabled: selected.count == 1) {
                 showDiff(change, in: root)
             })
         }
-        items.append(.action(String(localized: "Open"), localizesTitle: false, isEnabled: exists) { actions.openFile(url) })
+        items.append(.action(L10n.string("Open"), localizesTitle: false, isEnabled: exists) { actions.openFile(url) })
         if root.supports(.fileHistory) && change.status != .unversioned {
-            items.append(.action(String(localized: "Show History"), localizesTitle: false) {
+            items.append(.action(L10n.string("Show History"), localizesTitle: false) {
                 historyPath = change.path
                 tab = .history
             })
         }
         items.append(.separator)
         if root.supports(.conflicts) && !conflicted(selected).isEmpty {
-            items.append(.action(String(localized: "Mark as Resolved"), localizesTitle: false, isEnabled: !busy) {
+            items.append(.action(L10n.string("Mark as Resolved"), localizesTitle: false, isEnabled: !busy) {
                 resolve(conflicted(selected), in: root)
             })
         }
         if root.supports(.rollback) && !rollbackTargets(selected).isEmpty {
-            items.append(.action(String(localized: "Roll Back…"), localizesTitle: false, role: .destructive, isEnabled: !busy) {
+            items.append(.action(L10n.string("Roll Back…"), localizesTitle: false, role: .destructive, isEnabled: !busy) {
                 pendingRollback = rollbackTargets(selected)
             })
         }
         items.append(.separator)
-        items.append(.action(String(localized: "Copy Path"), localizesTitle: false) { actions.copyPath(url) })
-        items.append(.action(String(localized: "Reveal in Finder"), localizesTitle: false, isEnabled: exists) {
+        items.append(.action(L10n.string("Copy Path"), localizesTitle: false) { actions.copyPath(url) })
+        items.append(.action(L10n.string("Reveal in Finder"), localizesTitle: false, isEnabled: exists) {
             actions.revealInFinder(url)
         })
         return items
@@ -629,7 +630,7 @@ struct VcsProviderToolWindowView: View {
                 }
                 .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                 .disabled(!canCommit)
-                Text(String(format: String(localized: "%lld files selected"), included.count))
+                Text(String(format: L10n.string("%lld files selected"), included.count))
                     .font(LitheTheme.uiFont(size: LitheTheme.Commit.metadataFontSize))
                     .foregroundStyle(LitheTheme.secondaryText)
                 Spacer(minLength: 0)
@@ -658,8 +659,8 @@ struct VcsProviderToolWindowView: View {
                 inclusion = [:]
                 selection = []
             }
-            notice = result.revision.map { String(format: String(localized: "Committed revision %@."), $0.display) }
-                ?? String(localized: "Committed.")
+            notice = result.revision.map { String(format: L10n.string("Committed revision %@."), $0.display) }
+                ?? L10n.string("Committed.")
         }
     }
 
@@ -669,10 +670,10 @@ struct VcsProviderToolWindowView: View {
         notice = nil
         Task {
             guard let result = await feature.update(root.id) else { return }
-            var text = result.revision.map { String(format: String(localized: "Updated to revision %@."), $0.display) }
-                ?? String(localized: "Updated.")
+            var text = result.revision.map { String(format: L10n.string("Updated to revision %@."), $0.display) }
+                ?? L10n.string("Updated.")
             if !result.conflicts.isEmpty {
-                text += " " + String(format: String(localized: "%lld files have conflicts."), result.conflicts.count)
+                text += " " + String(format: L10n.string("%lld files have conflicts."), result.conflicts.count)
             }
             notice = text
         }
@@ -692,7 +693,7 @@ struct VcsProviderToolWindowView: View {
 
     private func cleanup(_ root: VcsRootState) {
         Task {
-            if await feature.cleanup(root.id) { notice = String(localized: "The working copy was cleaned up.") }
+            if await feature.cleanup(root.id) { notice = L10n.string("The working copy was cleaned up.") }
         }
     }
 
@@ -707,11 +708,11 @@ struct VcsProviderToolWindowView: View {
         VStack(spacing: 0) {
             if let historyPath {
                 HStack(spacing: 6) {
-                    Text(String(format: String(localized: "History of %@"), historyPath))
+                    Text(String(format: L10n.string("History of %@"), historyPath))
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Spacer(minLength: 4)
-                    Button(String(localized: "Show All")) { self.historyPath = nil }
+                    Button(L10n.string("Show All")) { self.historyPath = nil }
                         .buttonStyle(.link)
                 }
                 .font(LitheTheme.uiFont(size: 12))

@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 import LitheCoreContracts
 
 enum DebugLaunchConfigurationResolutionError: LocalizedError, Equatable {
@@ -13,19 +14,19 @@ enum DebugLaunchConfigurationResolutionError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .unsupportedProvider(let provider):
-            return "The \(provider) Debug Adapter is not installed yet."
+            return L10n.string("The \(provider) Debug Adapter is not installed yet.")
         case .javaLaunchTargetUnavailable:
-            return "The Java language service could not resolve a main class for this file."
+            return L10n.string("The Java language service could not resolve a main class for this file.")
         case .invalidJavaAttachHost:
-            return "Enter the host name of the running JVM."
+            return L10n.string("Enter the host name of the running JVM.")
         case .invalidJavaAttachPort:
-            return "Enter a JVM debug port between 1 and 65535."
+            return L10n.string("Enter a JVM debug port between 1 and 65535.")
         case .javaRuntimeUnavailable:
-            return String(localized: "No Java runtime was found. Set JAVA_HOME or install a JDK.")
+            return L10n.string("No Java runtime was found. Set JAVA_HOME or install a JDK.")
         case .noRustBinaryConfiguration:
-            return "No Cargo binary run configuration matches this Rust file."
+            return L10n.string("No Cargo binary run configuration matches this Rust file.")
         case .rustExecutableNotBuilt(let url, let binary):
-            return "Build the Rust binary first with `cargo build --bin \(binary)`. Expected executable: \(url.path)"
+            return L10n.string("Build the Rust binary first with `cargo build --bin \(binary)`. Expected executable: \(url.path)")
         }
     }
 }

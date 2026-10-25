@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import CryptoKit
 import Foundation
 import LitheCoreContracts
@@ -109,11 +110,11 @@ private enum MacMavenConfigurationStoreError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidConfiguration(let name):
-            "The Maven configuration in \(name) is invalid."
+            L10n.string("The Maven configuration in \(name) is invalid.")
         case .unsupportedVersion:
-            "The Maven configuration was created by an unsupported version of Lithe."
+            L10n.string("The Maven configuration was created by an unsupported version of Lithe.")
         case .writeFailed(let details):
-            "Unable to save Maven configuration: \(details)"
+            L10n.string("Unable to save Maven configuration: \(details)")
         }
     }
 }

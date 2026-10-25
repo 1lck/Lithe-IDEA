@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import LitheCoreContracts
 import SwiftUI
 
@@ -422,10 +423,7 @@ private struct PluginIntegerSettingField: View {
             if !isAcceptable {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(LitheTheme.warning)
-                    .help(Text(verbatim: String(format: NSLocalizedString(
-                        "Enter a whole number from %d to %d.",
-                        comment: "Plugin integer setting range hint"
-                    ), range.lowerBound, range.upperBound)))
+                    .help(Text(verbatim: String(format: L10n.string(key: "Enter a whole number from %d to %d."), range.lowerBound, range.upperBound)))
             }
         }
         .onAppear { text = storedNumber.map(String.init) ?? "" }

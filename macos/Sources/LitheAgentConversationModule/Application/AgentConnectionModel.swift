@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Combine
 import Foundation
 import LitheCoreContracts
@@ -1656,20 +1657,20 @@ public enum AgentConversationError: LocalizedError, Equatable {
     /// Canonical product message keys; the native view selects the interface language.
     public var errorDescription: String? {
         switch self {
-        case .featureDisabled: "Agent conversation is turned off. Turn it on in the panel settings to send messages."
-        case .noAgentConfigured: "No Agent is ready yet. Open the panel settings to install an Agent and choose a local or custom provider."
-        case .moduleStarting: "The Agent module is still starting. Try again in a moment."
-        case .missingCommand: "Set the custom Agent's executable in the panel settings."
-        case .missingProvider: "Choose a local or custom provider in the Agent panel settings."
-        case .missingAPIKey: "This Agent's provider has no API key. Update its local configuration or edit the custom provider in the panel settings."
-        case .notConnected: "The Agent is not running. Connect to start a conversation."
-        case .sessionStopping: "The previous Agent is still stopping. Try again shortly."
-        case .cannotResume: "This Agent cannot reopen earlier conversations. Start a new conversation."
-        case .sessionBusy: "The Agent is still responding in this conversation."
-        case .fileReviewInProgress: "Wait for the Agent file rollback to finish."
-        case .fileReviewChanged: "The reported file changes have been updated. Review them again before rolling back."
+        case .featureDisabled: L10n.string("Agent conversation is turned off. Turn it on in the panel settings to send messages.")
+        case .noAgentConfigured: L10n.string("No Agent is ready yet. Open the panel settings to install an Agent and choose a local or custom provider.")
+        case .moduleStarting: L10n.string("The Agent module is still starting. Try again in a moment.")
+        case .missingCommand: L10n.string("Set the custom Agent's executable in the panel settings.")
+        case .missingProvider: L10n.string("Choose a local or custom provider in the Agent panel settings.")
+        case .missingAPIKey: L10n.string("This Agent's provider has no API key. Update its local configuration or edit the custom provider in the panel settings.")
+        case .notConnected: L10n.string("The Agent is not running. Connect to start a conversation.")
+        case .sessionStopping: L10n.string("The previous Agent is still stopping. Try again shortly.")
+        case .cannotResume: L10n.string("This Agent cannot reopen earlier conversations. Start a new conversation.")
+        case .sessionBusy: L10n.string("The Agent is still responding in this conversation.")
+        case .fileReviewInProgress: L10n.string("Wait for the Agent file rollback to finish.")
+        case .fileReviewChanged: L10n.string("The reported file changes have been updated. Review them again before rolling back.")
         case .sendFailed(let message): message
-        case .configurationPending: "Wait for the Agent configuration to finish updating."
+        case .configurationPending: L10n.string("Wait for the Agent configuration to finish updating.")
         }
     }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 import SwiftUI
 import LitheCoreContracts
 
@@ -184,7 +185,7 @@ struct ProjectRuntimeSettingsView: View {
                         chooseDirectoryButton(
                             value: javaHomeBinding,
                             title: "Choose a JDK directory",
-                            help: "Choose JDK directory"
+                            help: L10n.string("Choose JDK directory")
                         )
                     }
                 }
@@ -242,7 +243,7 @@ struct ProjectRuntimeSettingsView: View {
                         chooseDirectoryButton(
                             value: mavenJavaHomeBinding,
                             title: "Choose a JDK directory",
-                            help: "Choose Maven JDK"
+                            help: L10n.string("Choose Maven JDK")
                         )
                     }
                 }
@@ -255,14 +256,14 @@ struct ProjectRuntimeSettingsView: View {
                 pathField(
                     title: "settings.xml",
                     value: mavenSettingsPathBinding,
-                    placeholder: effectiveMavenSettingsPath ?? String(localized: "Not found"),
+                    placeholder: effectiveMavenSettingsPath ?? L10n.string("Not found"),
                     chooseTitle: "Choose Maven settings.xml",
                     fileOrDirectory: false
                 )
                 pathField(
-                    title: "Local Repository",
+                    title: L10n.string("Local Repository"),
                     value: mavenLocalRepositoryBinding,
-                    placeholder: effectiveMavenLocalRepositoryPath ?? String(localized: "Not found"),
+                    placeholder: effectiveMavenLocalRepositoryPath ?? L10n.string("Not found"),
                     chooseTitle: "Choose Maven Local Repository",
                     fileOrDirectory: true,
                     directoryOnly: true
@@ -296,7 +297,7 @@ struct ProjectRuntimeSettingsView: View {
                         chooseDirectoryButton(
                             value: moduleJavaHomeBinding(for: subproject),
                             title: "Choose a JDK directory",
-                            help: "Choose JDK directory"
+                            help: L10n.string("Choose JDK directory")
                         )
                     }
                 }

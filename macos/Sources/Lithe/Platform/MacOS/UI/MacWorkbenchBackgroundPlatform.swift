@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import AppKit
 import UniformTypeIdentifiers
@@ -56,21 +57,21 @@ final class MacWorkbenchBackgroundPlatform: WorkbenchBackgroundPlatformProviding
 
     func loadBundledImageData(for slot: String) -> WorkbenchBackgroundImageLoadResult {
         guard let url = bundledImageURL(for: slot) else {
-            return .temporarilyUnavailable(message: "The selected built-in background is unavailable in this build.")
+            return .temporarilyUnavailable(message: L10n.string("The selected built-in background is unavailable in this build."))
         }
         do {
             return Self.imageLoadResult(for: try Data(contentsOf: url))
         } catch {
-            return .temporarilyUnavailable(message: "Could not read the selected built-in background.")
+            return .temporarilyUnavailable(message: L10n.string("Could not read the selected built-in background."))
         }
     }
 
     func loadCustomImageData() -> WorkbenchBackgroundImageLoadResult {
         guard let accessData = store.data(forKey: Key.customImageAccess) else {
-            return .permanentlyUnavailable(message: "The selected background image authorization is invalid.")
+            return .permanentlyUnavailable(message: L10n.string("The selected background image authorization is invalid."))
         }
         guard let access = try? JSONDecoder().decode(WorkbenchBackgroundImageAccess.self, from: accessData) else {
-            return .permanentlyUnavailable(message: "The selected background image authorization is invalid.")
+            return .permanentlyUnavailable(message: L10n.string("The selected background image authorization is invalid."))
         }
         var isStale = false
         let url: URL
@@ -85,7 +86,7 @@ final class MacWorkbenchBackgroundPlatform: WorkbenchBackgroundPlatformProviding
             // Bookmark resolution can fail while an external volume is offline
             // or the sandbox cannot currently reacquire access. Keep the user's
             // configuration and let Retry attempt resolution again.
-            return .temporarilyUnavailable(message: "The selected background image is temporarily unavailable.")
+            return .temporarilyUnavailable(message: L10n.string("The selected background image is temporarily unavailable."))
         }
         let isAccessing = url.startAccessingSecurityScopedResource()
         defer {
@@ -99,7 +100,7 @@ final class MacWorkbenchBackgroundPlatform: WorkbenchBackgroundPlatformProviding
         } catch {
             // A missing external volume and a temporary permission/I/O failure
             // cannot be distinguished reliably here; preserve the selection.
-            return .temporarilyUnavailable(message: "The selected background image is temporarily unavailable.")
+            return .temporarilyUnavailable(message: L10n.string("The selected background image is temporarily unavailable."))
         }
     }
 
@@ -113,7 +114,7 @@ final class MacWorkbenchBackgroundPlatform: WorkbenchBackgroundPlatformProviding
 
     static func imageLoadResult(for data: Data) -> WorkbenchBackgroundImageLoadResult {
         guard NSImage(data: data) != nil else {
-            return .permanentlyUnavailable(message: "The selected background image could not be decoded.")
+            return .permanentlyUnavailable(message: L10n.string("The selected background image could not be decoded."))
         }
         return .loaded(data)
     }

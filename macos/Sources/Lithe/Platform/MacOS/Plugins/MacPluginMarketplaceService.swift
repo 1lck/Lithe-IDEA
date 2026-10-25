@@ -434,9 +434,9 @@ enum MacPluginMarketplaceError: Error, Equatable, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .officialPackageNotSigned(let id):
-            "Plugin \(id) from the official repository is not signed by Lithe, so it was not installed."
+            L10n.string("Plugin \(id) from the official repository is not signed by Lithe, so it was not installed.")
         case .communityPackageMustBeUnsigned(let id):
-            "Community plugin \(id) must declare \"signatureRequirement\": \"none\"; only Lithe can publish signed plugins."
+            L10n.string("Community plugin \(id) must declare \"signatureRequirement\": \"none\"; only Lithe can publish signed plugins.")
         }
     }
 }

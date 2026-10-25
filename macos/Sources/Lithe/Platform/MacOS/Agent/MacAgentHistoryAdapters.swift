@@ -1,6 +1,7 @@
 import AppKit
 import CryptoKit
 import Foundation
+import LitheModuleAPI
 import LitheCoreContracts
 import UniformTypeIdentifiers
 
@@ -58,7 +59,7 @@ struct MacAgentHistoryExporter: AgentHistoryExporting {
 
     func chooseDestination() -> URL? {
         let panel = NSSavePanel()
-        panel.title = String(localized: "Export conversations")
+        panel.title = L10n.string("Export conversations")
         panel.allowedContentTypes = [UTType(filenameExtension: "md") ?? .plainText]
         panel.nameFieldStringValue = "agent-conversations.md"
         panel.canCreateDirectories = true

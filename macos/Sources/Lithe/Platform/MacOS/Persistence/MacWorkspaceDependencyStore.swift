@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import LitheCoreContracts
 
@@ -92,11 +93,11 @@ private enum WorkspaceDependencyStoreError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidJSON(let name):
-            "The workspace dependency configuration in \(name) is invalid."
+            L10n.string("The workspace dependency configuration in \(name) is invalid.")
         case .unsupportedVersion:
-            "The workspace dependency configuration uses an unsupported version."
+            L10n.string("The workspace dependency configuration uses an unsupported version.")
         case .writeFailed(let details):
-            "Unable to save workspace dependency configuration: \(details)"
+            L10n.string("Unable to save workspace dependency configuration: \(details)")
         }
     }
 }

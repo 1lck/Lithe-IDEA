@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 import LitheCoreContracts
 
 // Note: 统一 VCS 模型见 .agents/notes/proposed/architecture/2026-10-22-unified-vcs-provider-model.md
@@ -62,7 +63,7 @@ struct RustVcsOperations: VcsRootPlanning {
         } catch {
             throw DeclarativePluginRejection(
                 code: "vcs.provider.failed",
-                message: String(localized: "Lithe could not evaluate the version control data: \(error.localizedDescription)")
+                message: L10n.string("Lithe could not evaluate the version control data: \(error.localizedDescription)")
             )
         }
         if let rejection = outcome.error {

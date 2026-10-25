@@ -84,7 +84,7 @@ private struct VcsProviderUnavailableView: View {
     let title: String
 
     var body: some View {
-        Text(String(format: String(localized: "Restart Lithe to use %@."), title))
+        Text(String(format: L10n.string("Restart Lithe to use %@."), title))
             .font(LitheTheme.uiFont(size: 12))
             .foregroundStyle(LitheTheme.secondaryText)
             .multilineTextAlignment(.center)

@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import LitheCoreContracts
 import Network
@@ -293,15 +294,15 @@ enum AIHTTPTransportError: LocalizedError, Sendable {
     var errorDescription: String? {
         switch self {
         case .invalidResponse:
-            return "The AI service returned an invalid HTTP response."
+            return L10n.string("The AI service returned an invalid HTTP response.")
         case .insecureHTTPNotAllowed:
-            return "HTTP requests are disabled for this AI provider."
+            return L10n.string("HTTP requests are disabled for this AI provider.")
         case .connectionFailed:
-            return "The AI service connection failed."
+            return L10n.string("The AI service connection failed.")
         case .timedOut:
-            return "The AI service request timed out."
+            return L10n.string("The AI service request timed out.")
         case .malformedResponse:
-            return "The AI service returned a malformed HTTP response."
+            return L10n.string("The AI service returned a malformed HTTP response.")
         }
     }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 import LitheCoreContracts
 
 /// Parses an explicit editor draft. No filesystem discovery or environment fallback.
@@ -18,17 +19,17 @@ enum AgentProviderConfigurationError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .invalidConfiguration: String(localized: "Check the configuration format, API URL and model. Each configuration must be under 64 KiB.")
-        case .invalidConfigurationQuotes: String(localized: "Invalid TOML. Use straight quotes (\") instead of smart quotes (“ ”).")
-        case .invalidAuthentication: String(localized: "Authentication must be a JSON object containing an OPENAI_API_KEY string.")
-        case .missingAPIKey: String(localized: "Enter an API key. CLI login credentials cannot be used as an API key.")
-        case .missingModel: String(localized: "Enter a model ID supported by your provider.")
-        case .invalidName: String(localized: "Enter a provider name.")
-        case .invalidEndpoint: String(localized: "Enter an HTTP or HTTPS API URL without credentials, query parameters or fragments.")
-        case .insecureHTTP: String(localized: "HTTP is blocked until you explicitly allow it for this provider.")
-        case .unsupportedProtocol: String(localized: "Codex Agents require the Responses API. Claude Agents require an Anthropic API key.")
-        case .busy: String(localized: "Wait for the Agent operation to finish before changing providers.")
-        case .unavailable: String(localized: "Provider configuration parsing is unavailable.")
+        case .invalidConfiguration: L10n.string("Check the configuration format, API URL and model. Each configuration must be under 64 KiB.")
+        case .invalidConfigurationQuotes: L10n.string("Invalid TOML. Use straight quotes (\") instead of smart quotes (“ ”).")
+        case .invalidAuthentication: L10n.string("Authentication must be a JSON object containing an OPENAI_API_KEY string.")
+        case .missingAPIKey: L10n.string("Enter an API key. CLI login credentials cannot be used as an API key.")
+        case .missingModel: L10n.string("Enter a model ID supported by your provider.")
+        case .invalidName: L10n.string("Enter a provider name.")
+        case .invalidEndpoint: L10n.string("Enter an HTTP or HTTPS API URL without credentials, query parameters or fragments.")
+        case .insecureHTTP: L10n.string("HTTP is blocked until you explicitly allow it for this provider.")
+        case .unsupportedProtocol: L10n.string("Codex Agents require the Responses API. Claude Agents require an Anthropic API key.")
+        case .busy: L10n.string("Wait for the Agent operation to finish before changing providers.")
+        case .unavailable: L10n.string("Provider configuration parsing is unavailable.")
         }
     }
 }

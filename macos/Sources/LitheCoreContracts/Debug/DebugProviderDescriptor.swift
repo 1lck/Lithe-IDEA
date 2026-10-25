@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 
 /// Debug-owned projection of language catalog metadata. DAP orchestration
@@ -40,11 +41,11 @@ public enum DebugProviderError: LocalizedError, Equatable, Sendable {
     public var errorDescription: String? {
         switch self {
         case .noProvider(let fileExtension):
-            "No debug provider handles .\(fileExtension) files."
+            L10n.string("No debug provider handles .\(fileExtension) files.")
         case .adapterUnavailable(let provider):
-            "\(provider) debug adapter is unavailable."
+            L10n.string("\(provider) debug adapter is unavailable.")
         case .capabilityUnavailable(let provider, let capability):
-            "The \(provider) debug provider does not support \(capability)."
+            L10n.string("The \(provider) debug provider does not support \(capability).")
         }
     }
 }

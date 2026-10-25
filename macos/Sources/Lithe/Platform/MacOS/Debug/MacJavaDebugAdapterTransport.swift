@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import LitheCoreContracts
 
@@ -14,11 +15,11 @@ final class MacJavaDebugAdapterTransport: DebugAdapterTransport {
         var errorDescription: String? {
             switch self {
             case .languageIntelligenceUnavailable:
-                return "The Java language service is unavailable."
+                return L10n.string("The Java language service is unavailable.")
             case .connectionFailed(let message):
-                return "Could not connect to the Java Debug Server: \(message)"
+                return L10n.string("Could not connect to the Java Debug Server: \(message)")
             case .stopped:
-                return "The Java Debug Server connection is stopped."
+                return L10n.string("The Java Debug Server connection is stopped.")
             }
         }
     }

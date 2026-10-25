@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import AppKit
 import SwiftUI
 
@@ -91,7 +92,7 @@ struct RemoteConnectionsView: View {
                         LitheIDEAIcon(resourcePath: "expui/webReferences/server.svg", size: 16,
                                       fallbackSystemImage: "server.rack")
                         Text(verbatim: connection.displayName.isEmpty
-                             ? String(localized: "New Connection") : connection.displayName)
+                             ? L10n.string("New Connection") : connection.displayName)
                             .lineLimit(1)
                     }
                 }
@@ -163,7 +164,7 @@ struct RemoteConnectionsView: View {
                     .frame(width: 40, height: 40)
                     .background(RoundedRectangle(cornerRadius: 8).fill(LitheTheme.settingsPill))
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(verbatim: connection.displayName.isEmpty ? String(localized: "New Connection") : connection.displayName)
+                    Text(verbatim: connection.displayName.isEmpty ? L10n.string("New Connection") : connection.displayName)
                         .font(LitheTheme.uiFont(size: 15, weight: .semibold))
                         .lineLimit(1)
                     Text(verbatim: Self.address(of: connection))
@@ -215,7 +216,7 @@ struct RemoteConnectionsView: View {
             LitheSettingsPill("Failed", kind: .neutral)
         case .idle:
             if let checked = connection.lastKnownHost?.checkedAt {
-                LitheSettingsPill(verbatim: String(format: String(localized: "Checked %@"),
+                LitheSettingsPill(verbatim: String(format: L10n.string("Checked %@"),
                                                    checked.formatted(.relative(presentation: .named))))
             } else {
                 LitheSettingsPill("Not tested")
@@ -304,16 +305,16 @@ struct RemoteConnectionsView: View {
                 if details.cpuCount != nil || details.memoryBytes != nil {
                     LitheSettingsRow("Resources") {
                         if let cpus = details.cpuCount {
-                            LitheSettingsPill(verbatim: String(format: String(localized: "%lld CPU cores"), cpus), kind: .value)
+                            LitheSettingsPill(verbatim: String(format: L10n.string("%lld CPU cores"), cpus), kind: .value)
                         }
                         if let memory = details.memoryBytes {
-                            LitheSettingsPill(verbatim: String(format: String(localized: "%@ memory"), Self.bytes(memory)), kind: .value)
+                            LitheSettingsPill(verbatim: String(format: L10n.string("%@ memory"), Self.bytes(memory)), kind: .value)
                         }
                     }
                 }
                 if let total = details.diskTotalBytes {
                     LitheSettingsRow("Disk", info: "The file system that holds the home directory.") {
-                        Text(verbatim: String(format: String(localized: "%@ free of %@"),
+                        Text(verbatim: String(format: L10n.string("%@ free of %@"),
                                               Self.bytes(details.diskAvailableBytes ?? 0), Self.bytes(total)))
                     }
                 }
@@ -385,7 +386,7 @@ struct RemoteConnectionsView: View {
 
     private static func address(of connection: RemoteSSHConnection) -> String {
         let host = connection.host.trimmingCharacters(in: .whitespaces)
-        guard !host.isEmpty else { return String(localized: "No host yet") }
+        guard !host.isEmpty else { return L10n.string("No host yet") }
         let user = connection.user.trimmingCharacters(in: .whitespaces)
         let target = user.isEmpty ? host : "\(user)@\(host)"
         return connection.port.map { "\(target):\($0)" } ?? target
@@ -404,7 +405,7 @@ struct RemoteConnectionsView: View {
     }
 
     private static func place(of location: RemoteHostLocation) -> String {
-        if location.isPrivate { return String(localized: "Private network") }
+        if location.isPrivate { return L10n.string("Private network") }
         let country = location.country.flatMap { Locale.current.localizedString(forRegionCode: $0) } ?? location.country
         let place = [country, location.region, location.city]
             .compactMap { $0 }
@@ -416,17 +417,17 @@ struct RemoteConnectionsView: View {
     private static func summary(of result: RemoteProbeResult) -> String {
         switch result.status {
         case .connected:
-            String(localized: "Connected. This host can be used for remote development.")
+            L10n.string("Connected. This host can be used for remote development.")
         case .unsupportedPlatform:
-            String(localized: "Connected, but Lithe cannot run on this platform yet. Linux on x86_64 or ARM64 is supported.")
+            L10n.string("Connected, but Lithe cannot run on this platform yet. Linux on x86_64 or ARM64 is supported.")
         case .authenticationFailed:
-            String(localized: "The server rejected the credentials. Check the user name and the authentication method.")
+            L10n.string("The server rejected the credentials. Check the user name and the authentication method.")
         case .hostKeyRejected:
-            String(localized: "The host key was not accepted. If the server was reinstalled, remove its old entry from ~/.ssh/known_hosts.")
+            L10n.string("The host key was not accepted. If the server was reinstalled, remove its old entry from ~/.ssh/known_hosts.")
         case .unreachable:
-            String(localized: "The host could not be reached. Check the host name, the port, and your network.")
+            L10n.string("The host could not be reached. Check the host name, the port, and your network.")
         case .failed:
-            String(localized: "The connection failed.")
+            L10n.string("The connection failed.")
         }
     }
 
@@ -509,7 +510,7 @@ struct RemoteConnectionsView: View {
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
         panel.showsHiddenFiles = true
-        panel.prompt = String(localized: "Choose")
+        panel.prompt = L10n.string("Choose")
         let start = (path.isEmpty ? "~/.ssh" : (path as NSString).deletingLastPathComponent)
         panel.directoryURL = URL(fileURLWithPath: (start as NSString).expandingTildeInPath, isDirectory: true)
         guard panel.runModal() == .OK, let url = panel.url else { return }

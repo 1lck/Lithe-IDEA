@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import AppKit
 import Combine
 import WebKit
@@ -240,7 +241,7 @@ final class HTMLPreviewBrowserController: NSObject, ObservableObject {
     @discardableResult
     func navigate(toAddress text: String) -> Bool {
         guard let scope, let url = HTMLPreviewAddress.resolve(text, in: scope) else {
-            loadError = String(localized: "This address cannot be opened here.")
+            loadError = L10n.string("This address cannot be opened here.")
             return false
         }
         load(url)
@@ -377,10 +378,10 @@ final class HTMLPreviewBrowserController: NSObject, ObservableObject {
 
     /// How a dialog names the page that raised it.
     func sourceLabel(for url: URL?) -> String {
-        guard let url else { return String(localized: "This page") }
+        guard let url else { return L10n.string("This page") }
         if HTMLPreviewURL.isInternal(url) {
             return scope.flatMap { HTMLPreviewURL.fileURL(for: url, in: $0) }?.lastPathComponent
-                ?? String(localized: "This page")
+                ?? L10n.string("This page")
         }
         return url.host ?? url.absoluteString
     }

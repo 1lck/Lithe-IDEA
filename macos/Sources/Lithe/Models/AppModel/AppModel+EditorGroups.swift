@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 
 // Group changes synchronize the existing document before committing tab placement.
 extension AppModel {
@@ -12,7 +13,7 @@ extension AppModel {
                   !self.documentFeature.hasPendingDocumentClose,
                   self.editorTabOrderFeature.contains(item) else { return }
             guard case .success = result else {
-                self.showNotification(String(localized: "Could not move the editor tab. Its content could not be synchronized."))
+                self.showNotification(L10n.string("Could not move the editor tab. Its content could not be synchronized."))
                 return
             }
             if self.editorTabOrderFeature.drop(item, into: group, side: side) { self.selectEditorTab(item) }

@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import AppKit
 import SwiftUI
 
@@ -59,7 +60,7 @@ enum GoToLineDialog {
             backing: .buffered,
             defer: false
         )
-        panel.title = String(localized: "Go to Line:Column")
+        panel.title = L10n.string("Go to Line:Column")
         panel.isReleasedWhenClosed = false
         panel.level = .floating
         panel.delegate = coordinator
@@ -77,7 +78,7 @@ enum GoToLineDialog {
     ) {
         let content = NSView(frame: NSRect(x: 0, y: 0, width: 340, height: 96))
 
-        let label = NSTextField(labelWithString: String(localized: "[Line] [:column]:"))
+        let label = NSTextField(labelWithString: L10n.string("[Line] [:column]:"))
         label.font = LitheTheme.uiNSFont(size: 13)
         label.sizeToFit()
         label.frame.origin = NSPoint(x: 16, y: 50)

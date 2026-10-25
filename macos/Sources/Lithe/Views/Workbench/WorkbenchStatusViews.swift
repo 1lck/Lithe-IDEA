@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import SwiftUI
 
 /// Status bar line:column indicator. Visually unchanged from the plain text
@@ -85,13 +86,13 @@ struct MemoryUsageStatusView: View {
                 memoryMetric(
                     "Language servers",
                     value: memoryUsageMonitor.languageServerProcessCount == 0
-                        ? String(localized: "Not running")
+                        ? L10n.string("Not running")
                         : memoryUsageMonitor.lspText
                 )
                 memoryMetric(
                     "Running services",
                     value: memoryUsageMonitor.serviceProcessCount == 0
-                        ? String(localized: "Not running")
+                        ? L10n.string("Not running")
                         : memoryUsageMonitor.serviceText
                 )
                 memoryMetric("Total", value: memoryUsageMonitor.totalText)

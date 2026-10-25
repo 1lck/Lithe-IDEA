@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Combine
 import Foundation
 import LitheCoreContracts
@@ -93,8 +94,8 @@ final class LanguageToolingFeatureModel: ObservableObject {
             sessionsProvider()?.recordLanguageServerLog(
                 providerID: providerID,
                 level: .warning,
-                message: "Language server disabled in this workspace",
-                detail: "Manual stop"
+                message: L10n.string("Language server disabled in this workspace"),
+                detail: L10n.string("Manual stop")
             )
             sessionsProvider()?.stopLanguageServer(providerID: providerID)
         }
@@ -106,8 +107,8 @@ final class LanguageToolingFeatureModel: ObservableObject {
         sessionsProvider()?.recordLanguageServerLog(
             providerID: providerID,
             level: .info,
-            message: "Language server tool configuration changed",
-            detail: "Workspace language server preference preserved"
+            message: L10n.string("Language server tool configuration changed"),
+            detail: L10n.string("Workspace language server preference preserved")
         )
     }
 
@@ -127,7 +128,7 @@ final class LanguageToolingFeatureModel: ObservableObject {
         sessionsProvider()?.recordLanguageServerLog(
             providerID: providerID,
             level: .error,
-            message: "Language server activation failed",
+            message: L10n.string("Language server activation failed"),
             detail: message
         )
         notify?("Could not start \(descriptor.displayName) language server: \(message)")

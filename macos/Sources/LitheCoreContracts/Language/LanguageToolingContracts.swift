@@ -735,7 +735,7 @@ package struct LanguageServerSessionStartError: LocalizedError, Sendable {
     }
 
     package var errorDescription: String? {
-        failure.message ?? "Language server failed to start."
+        failure.message ?? L10n.string("Language server failed to start.")
     }
 }
 
@@ -1129,9 +1129,9 @@ private enum LanguageServerFeatureUnavailable: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .javaNavigation: "Java navigation is not supported by this language server."
-        case .javaTests: "Java test discovery is not supported by this language server."
-        case .javaMainMethods: "Java main-method discovery is not supported by this language server."
+        case .javaNavigation: L10n.string("Java navigation is not supported by this language server.")
+        case .javaTests: L10n.string("Java test discovery is not supported by this language server.")
+        case .javaMainMethods: L10n.string("Java main-method discovery is not supported by this language server.")
         }
     }
 }

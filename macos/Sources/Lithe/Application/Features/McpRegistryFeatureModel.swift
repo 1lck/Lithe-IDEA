@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import LitheModuleAPI
 
 /// Owns one paginated search. Cancellation and request identity prevent a late
 /// response from replacing the results of a newer query.
@@ -24,7 +25,7 @@ final class McpRegistryFeatureModel: ObservableObject {
             featuredError = nil
         } catch {
             featured = []
-            featuredError = String(localized: "The featured MCP catalog could not be loaded.")
+            featuredError = L10n.string("The featured MCP catalog could not be loaded.")
         }
         entries = featured
     }
@@ -37,7 +38,7 @@ final class McpRegistryFeatureModel: ObservableObject {
         if cursor == nil {
             entries = featured.filter {
                 search.isEmpty || [$0.id, $0.title, $0.publisher ?? "", $0.summary,
-                    String(localized: String.LocalizationValue($0.summary))]
+                    L10n.string(String.LocalizationValue($0.summary))]
                     .contains { $0.localizedCaseInsensitiveContains(search) }
             }
             nextCursor = nil
@@ -67,14 +68,14 @@ final class McpRegistryFeatureModel: ObservableObject {
             canRetryDirectly = route == .system
             switch error as? McpRegistryError {
             case .secureConnection:
-                self.error = String(localized: "A secure connection to the MCP Registry could not be established. Check the proxy or retry directly.")
+                self.error = L10n.string("A secure connection to the MCP Registry could not be established. Check the proxy or retry directly.")
             case .timeout:
-                self.error = String(localized: "The MCP Registry request timed out. Try again.")
+                self.error = L10n.string("The MCP Registry request timed out. Try again.")
             case .offline:
-                self.error = String(localized: "The MCP Registry is unreachable. Check the network or proxy.")
+                self.error = L10n.string("The MCP Registry is unreachable. Check the network or proxy.")
             default:
                 canRetryDirectly = false
-                self.error = String(localized: "The MCP Registry could not be loaded. Try again or add a server manually.")
+                self.error = L10n.string("The MCP Registry could not be loaded. Try again or add a server manually.")
             }
         }
     }

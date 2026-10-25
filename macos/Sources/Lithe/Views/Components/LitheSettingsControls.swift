@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import AppKit
 import SwiftUI
 
@@ -515,7 +516,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
         return options.indices.filter { index in
             let text = searchText(options[index])
             let searchable = localizesTitles
-                ? String(localized: String.LocalizationValue(text), locale: locale)
+                ? L10n.string(String.LocalizationValue(text), locale: locale)
                 : text
             return LitheSettingsSelectSearch.matches(searchable, query: query)
         }
@@ -569,7 +570,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
         guard expandsToFitOptions else { return width }
         let font = LitheTheme.uiNSFont(size: SettingsSelectMetrics.fontSize)
         let titleWidth = options.reduce(CGFloat.zero) { widest, option in
-            let text = localizesTitles ? String(localized: String.LocalizationValue(title(option)), locale: locale) : title(option)
+            let text = localizesTitles ? L10n.string(String.LocalizationValue(title(option)), locale: locale) : title(option)
             return max(widest, (text as NSString).size(withAttributes: [.font: font]).width)
         }
         let chromeWidth = 2 * SettingsSelectMetrics.itemHorizontalPadding

@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 
 struct UpdateManifest: Decodable, Sendable {
     let schemaVersion: Int
@@ -161,41 +162,41 @@ enum UpdateCheckError: Error, Equatable {
     var userMessage: String {
         switch self {
         case .rateLimited:
-            return String(localized: "GitHub rejected the update request because a shared API limit was reached. Open the Release page or try again after the limit resets.")
+            return L10n.string("GitHub rejected the update request because a shared API limit was reached. Open the Release page or try again after the limit resets.")
         case .httpStatus(let status):
             return String(
-                format: String(localized: "The update server returned HTTP %@. Open the Release page to download the update manually, or try again later."),
+                format: L10n.string("The update server returned HTTP %@. Open the Release page to download the update manually, or try again later."),
                 String(status)
             )
         case .timedOut:
-            return String(localized: "The update request timed out. Check your proxy or VPN connection and try again.")
+            return L10n.string("The update request timed out. Check your proxy or VPN connection and try again.")
         case .tlsOrProxyFailure:
-            return String(localized: "A secure connection to GitHub could not be established. Check TLS inspection, proxy, VPN, or system certificate settings.")
+            return L10n.string("A secure connection to GitHub could not be established. Check TLS inspection, proxy, VPN, or system certificate settings.")
         case .connectionFailed:
-            return String(localized: "GitHub could not be reached. Check your internet, proxy, or VPN connection and try again.")
+            return L10n.string("GitHub could not be reached. Check your internet, proxy, or VPN connection and try again.")
         case .invalidResponse:
-            return String(localized: "The update server returned an unexpected response. Open the Release page and download the update manually.")
+            return L10n.string("The update server returned an unexpected response. Open the Release page and download the update manually.")
         case .invalidManifest:
-            return String(localized: "The published update manifest is invalid and cannot be trusted. Open the Release page and download the update manually.")
+            return L10n.string("The published update manifest is invalid and cannot be trusted. Open the Release page and download the update manually.")
         case .unsupportedSchema(let version):
             return String(
-                format: String(localized: "This version of Lithe cannot read update manifest schema %@. Open the Release page and update manually."),
+                format: L10n.string("This version of Lithe cannot read update manifest schema %@. Open the Release page and update manually."),
                 String(version)
             )
         case .noCompatibleAsset:
-            return String(localized: "No update package is available for this Mac architecture. Open the Release page to check available downloads.")
+            return L10n.string("No update package is available for this Mac architecture. Open the Release page to check available downloads.")
         case .checksumMismatch:
-            return String(localized: "The downloaded update failed its SHA-256 verification. Do not install it; retry or use the Release page.")
+            return L10n.string("The downloaded update failed its SHA-256 verification. Do not install it; retry or use the Release page.")
         case .downloadFailed:
-            return String(localized: "The update package could not be downloaded. Check your internet, proxy, or VPN connection and try again.")
+            return L10n.string("The update package could not be downloaded. Check your internet, proxy, or VPN connection and try again.")
         case .notAppBundle:
-            return String(localized: "Self-update is only available when Lithe is running from a packaged Lithe.app.")
+            return L10n.string("Self-update is only available when Lithe is running from a packaged Lithe.app.")
         case .appNotFoundInDiskImage:
-            return String(localized: "The downloaded disk image does not contain Lithe.app.")
+            return L10n.string("The downloaded disk image does not contain Lithe.app.")
         case .toolFailed:
-            return String(localized: "macOS could not prepare the update disk image. Open the Release page and install it manually.")
+            return L10n.string("macOS could not prepare the update disk image. Open the Release page and install it manually.")
         case .noPublishedRelease:
-            return String(localized: "There is no published GitHub Release to check yet.")
+            return L10n.string("There is no published GitHub Release to check yet.")
         }
     }
 }
