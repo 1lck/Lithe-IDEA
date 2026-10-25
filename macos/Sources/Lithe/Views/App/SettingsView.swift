@@ -316,11 +316,7 @@ struct SettingsView: View {
     }
 
     private func localizedSearchValue(_ key: String) -> String {
-        String(
-            localized: String.LocalizationValue(key),
-            bundle: .main,
-            locale: settings.language.locale
-        )
+        settings.language.localizedString(key)
     }
 
     private var content: some View {
@@ -800,7 +796,7 @@ struct SettingsView: View {
                         step: 500,
                         width: 146,
                         accessibilityLabel: "Terminal scrollback",
-                        title: { String(format: String(localized: "%lld lines"), $0) }
+                        title: { settings.language.localizedFormat("%lld lines", $0) }
                     )
                 }
             }
@@ -827,10 +823,10 @@ struct SettingsView: View {
     private func terminalShellTitle(_ path: String) -> String {
         if path.isEmpty {
             guard let detectedSystemShellPath else {
-                return String(localized: "System default · Shell not detected")
+                return settings.language.localizedString("System default · Shell not detected")
             }
-            return String(
-                format: String(localized: "System default · %@ (%@)"),
+            return settings.language.localizedFormat(
+                "System default · %@ (%@)",
                 terminalShellName(detectedSystemShellPath),
                 detectedSystemShellPath
             )
@@ -1031,14 +1027,14 @@ struct SettingsView: View {
     /// Which features use `provider`, e.g. "Used by: commit messages, Codex".
     private func providerUsage(_ provider: AIProviderProfile) -> String {
         var users: [String] = []
-        if settings.commitMessageAI.activeProviderID == provider.id { users.append(String(localized: "commit messages")) }
+        if settings.commitMessageAI.activeProviderID == provider.id { users.append(settings.language.localizedString("commit messages")) }
         users += settings.agentConfigurations.values
             .filter { $0.providerID == provider.id }
             .map(\.name)
             .sorted()
         return users.isEmpty
-            ? String(localized: "Not used yet.")
-            : String(format: String(localized: "Used by: %@"), users.joined(separator: ", "))
+            ? settings.language.localizedString("Not used yet.")
+            : settings.language.localizedFormat("Used by: %@", users.joined(separator: ", "))
     }
 
     private var aiSettings: some View {
@@ -1761,6 +1757,12 @@ private struct WorkbenchBackgroundImageError: View {
     }
 }
 
+/// The chosen file name, or the placeholder. A `Text` literal follows the app
+/// language through the environment locale; `String(localized:)` follows the system's.
+func workbenchBackgroundNameText(_ name: String?) -> Text {
+    name.map { Text(verbatim: $0) } ?? Text("No background image selected")
+}
+
 private struct WorkbenchBackgroundThumbnail: View {
     @ObservedObject var feature: WorkbenchBackgroundFeatureModel
     @State private var thumbnail: NSImage?
@@ -1805,7 +1807,7 @@ private struct WorkbenchBackgroundThumbnail: View {
                 }
             }
 
-            Text(feature.displayName ?? String(localized: "No background image selected"))
+            workbenchBackgroundNameText(feature.displayName)
                 .foregroundStyle(LitheTheme.secondaryText)
                 .lineLimit(1)
                 .truncationMode(.middle)

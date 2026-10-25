@@ -1279,19 +1279,11 @@ enum SettingsWindowChrome {
 }
 
 private func settingsWindowTitle(for language: AppLanguage) -> String {
-    String(
-        localized: "Settings",
-        bundle: .main,
-        locale: language.locale
-    )
+    language.localizedString("Settings")
 }
 
 private func softwareUpdateWindowTitle(for language: AppLanguage) -> String {
-    String(
-        localized: "Software Update",
-        bundle: .main,
-        locale: language.locale
-    )
+    language.localizedString("Software Update")
 }
 
 extension AppThemePreference {

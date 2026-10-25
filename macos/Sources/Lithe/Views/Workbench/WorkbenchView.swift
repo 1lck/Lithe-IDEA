@@ -2552,7 +2552,7 @@ struct WorkbenchBackgroundPicker: View {
 
                 Spacer(minLength: 0)
 
-                Text(model.workbenchBackgroundFeature.displayName ?? "No background image selected")
+                workbenchBackgroundNameText(model.workbenchBackgroundFeature.displayName)
                     .font(LitheTheme.uiFont(size: 10.5))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .lineLimit(1)
