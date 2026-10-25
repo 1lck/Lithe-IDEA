@@ -342,6 +342,11 @@ struct ProjectGenerationTests {
         templates["displayName"] = "Java Templates"
         templates["permissions"] = ["project.generate"]
         templates["requires"] = ["projectGenerators": 1]
+        // This separate template fixture is not the host-pinned bundled Java
+        // package, so it does not inherit that package's origin trust.
+        var templateVendor = manifest["vendor"] as? [String: Any] ?? [:]
+        templateVendor["bundledSignatureRequirement"] = nil
+        templates["vendor"] = templateVendor
         templates["activationEvents"] = [String]()
         func plugin(_ object: [String: Any], id: PluginID) throws -> ProjectGeneratorPluginSource {
             ProjectGeneratorPluginSource(

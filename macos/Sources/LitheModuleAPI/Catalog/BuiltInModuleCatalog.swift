@@ -217,6 +217,9 @@ public enum OfficialPluginCatalog {
         public let id: PluginID
         public let displayName: String
         public let signatureRequirement: PluginSignatureRequirement
+        /// The host explicitly permits its own sealed copy to omit the
+        /// publisher signature. This never applies to user-installed copies.
+        public var bundledSignatureRequirement: PluginSignatureRequirement? = nil
         public let distribution: Distribution
         public let languageID: String
         public let languageDisplayName: String
@@ -239,7 +242,8 @@ public enum OfficialPluginCatalog {
         Entry(
             id: javaPluginID,
             displayName: "Java Support",
-            signatureRequirement: .sameTeamAsHost,
+            signatureRequirement: .publisherPackage,
+            bundledSignatureRequirement: .sameTeamAsHost,
             distribution: .bundled,
             languageID: "java",
             languageDisplayName: "Java",

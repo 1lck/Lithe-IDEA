@@ -3,8 +3,8 @@
 // remain separately buildable and installable through plugin management.
 // Go Support and PHP Support moved to community plugins in Lithe Store. Java
 // Support ships inside Lithe.app so Java works offline on first launch; its
-// manifest uses `sameTeamAsHost`, and the user can remove and restore it in
-// plugin management.
+// manifest allows the sealed bundled copy while installed updates require a
+// publisher signature. The user can remove and restore it in plugin management.
 import { pathToFileURL } from "node:url";
 const bundledOfficialPluginIDs = new Set(["dev.lithe.plugin.java-support"]);
 export function isBundledOfficialPlugin(id) {

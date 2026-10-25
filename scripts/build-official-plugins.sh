@@ -91,8 +91,16 @@ for plugin_source in "$ROOT_DIR"/Plugins/mac/Official/*(/N); do
         exit 1
     fi
     signature_requirement=$(/usr/bin/plutil -extract vendor.signatureRequirement raw "$manifest")
+    bundled_signature_requirement=$(/usr/bin/plutil -extract vendor.bundledSignatureRequirement raw "$manifest" 2>/dev/null || true)
+    # The same manifest describes both distributions. Only the explicitly
+    # selected application-bundled build may rely on the application's seal;
+    # standalone packages always go through publisher signing below.
+    uses_host_seal=false
+    if [[ "$BUNDLED_ONLY" == true && "$bundled_signature_requirement" == "sameTeamAsHost" ]]; then
+        uses_host_seal=true
+    fi
     publisher_signed=false
-    if [[ "$signature_requirement" == "publisherPackage" && "$DEVELOPMENT_UNSIGNED" == false ]]; then
+    if [[ "$signature_requirement" == "publisherPackage" && "$DEVELOPMENT_UNSIGNED" == false && "$uses_host_seal" == false ]]; then
         publisher_signed=true
     fi
     if [[ "$publisher_signed" == true && -z "${LITHE_PLUGIN_PACKAGE_PRIVATE_KEY:-}" ]]; then
@@ -118,7 +126,7 @@ for plugin_source in "$ROOT_DIR"/Plugins/mac/Official/*(/N); do
         "$package_assembler" --output "$package_dir" --arch "$RUNTIME_ARCH" >&2
     fi
 
-    if [[ "$signature_requirement" == "publisherPackage" && "$publisher_signed" == false ]]; then
+    if [[ "$signature_requirement" == "publisherPackage" && "$publisher_signed" == false && "$uses_host_seal" == false ]]; then
         print -u2 -- "Built unsigned development package $package_id; only development builds of Lithe can install it"
     fi
     if [[ "$publisher_signed" == true ]]; then

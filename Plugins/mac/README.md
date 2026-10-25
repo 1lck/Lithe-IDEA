@@ -61,9 +61,10 @@ its manifest fixture, and the Core tests; the SDK's sample provider
 
 ## Downloadable official plugins
 
-No downloadable official plugin is configured right now:
-`Plugins/marketplace/official-plugins.json` and `Plugins/marketplace/index.json`
-are empty. The release flow (`scripts/build-official-plugins.sh`,
+Java Support now has a two-architecture release configuration, with automatic
+publication disabled (`releaseEnabled: false`) until the host trust capability
+and migration are released. No downloadable official plugin is listed yet:
+`Plugins/marketplace/index.json` is empty. The release flow (`scripts/build-official-plugins.sh`,
 `scripts/official-plugin-releases.mjs`, and
 `.github/workflows/release-official-plugins.yml`) is kept for future official
 plugins. A new one gets its own directory under `Official/`, its own tag series
@@ -98,3 +99,9 @@ rejected for release plugin builds. A package that does contain a signature
 document is always verified, whichever way it was installed.
 
 Plugins never delete user tools or project files.
+
+Java Support's manifest now requires `packageTrust: 1`: user-installed copies
+require a publisher signature, while the explicitly pinned bundled copy can
+rely on the host application's seal. `--bundled-only` selects that application
+build; an ordinary standalone release build must carry the publisher signature.
+Existing hosts without this capability refuse the new version before download.

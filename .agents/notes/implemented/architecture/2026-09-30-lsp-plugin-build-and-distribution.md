@@ -35,7 +35,7 @@ PHP Support 已经验证了独立插件包、固定 Intelephense 版本和插件
 
 插件包不编译、不链接任何 Swift 代码，也不做 codesign，因此与架构和宿主构建无关。
 
-唯一的例外是自带运行时的 Java Support：它的包里有每个架构各一份的 JDK，因此与架构有关，并且只随应用发行、由应用的代码签名覆盖。它的组装步骤在插件自己的目录里，见 [Java 语言服务器是一个声明式插件](2026-10-13-java-language-server-as-declarative-plugin.md)。
+唯一的例外是自带运行时的 Java Support：它的包里有每个架构各一份的 JDK，因此与架构有关，当前仍随应用发行，内置副本由应用的代码签名覆盖；独立安装副本要求完整包的发布者签名。双架构发布输入已准备，自动上架仍暂停，见[按来源校验与独立发布基础](2026-10-25-java-plugin-distribution-foundation.md)。它的组装步骤在插件自己的目录里，见 [Java 语言服务器是一个声明式插件](2026-10-13-java-language-server-as-declarative-plugin.md)。
 
 下载和组装逻辑放在插件专属的准备脚本里（PHP 迁出前是 `prepare-php-language-server.sh`，已随迁移删除）。后续插件可以复用相同的构建阶段和校验结构，但不能把某个语言的路径、版本或下载地址硬编码到宿主应用中。
 

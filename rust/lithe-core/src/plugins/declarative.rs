@@ -360,6 +360,10 @@ struct PluginVendor {
     id: String,
     display_name: String,
     signature_requirement: SignatureRequirement,
+    /// Optional trust for the host's sealed built-in copy only. Installation
+    /// from every other origin still requires the primary publisher signature.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    bundled_signature_requirement: Option<SignatureRequirement>,
 }
 
 /// How a package proves its origin. `sameTeamAsHost` is only honored by a
@@ -795,6 +799,18 @@ impl DeclarativePluginManifest {
                 "Official plugin IDs must carry a Lithe signature.",
             ));
         }
+        if let Some(bundled) = self.vendor.bundled_signature_requirement {
+            if self.plugin_api_version < CAPABILITIES_API_VERSION
+                || self.vendor.signature_requirement != SignatureRequirement::PublisherPackage
+                || bundled != SignatureRequirement::SameTeamAsHost
+                || !is_official_namespace(&self.id)
+            {
+                return Err(invalid(
+                    "vendor.bundledSignatureRequirement",
+                    "Bundled host-seal trust requires API 3, an official plugin ID, and publisherPackage for installed copies.",
+                ));
+            }
+        }
         if self.plugin_api_version >= CAPABILITIES_API_VERSION {
             capabilities::check_used(&self.requires, &self.used_capabilities())?;
         }
@@ -982,6 +998,10 @@ impl DeclarativePluginManifest {
     /// server, own build provider, and VCS provider is a `serverProcess`.
     fn used_capabilities(&self) -> BTreeSet<&'static str> {
         let sections = [
+            (
+                capabilities::PACKAGE_TRUST,
+                self.vendor.bundled_signature_requirement.is_some(),
+            ),
             (
                 capabilities::EXECUTABLE_RESOLUTION,
                 self.build_systems.iter().any(|system| {

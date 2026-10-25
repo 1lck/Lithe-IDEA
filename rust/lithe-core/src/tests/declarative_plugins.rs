@@ -21,6 +21,7 @@ const WEB_PANEL_FIXTURE: &str = contract_file!("fixtures/web-panel.plugin.json")
 const GO_FIXTURE: &str = contract_file!("fixtures/language-system-command.plugin.json");
 const JAVA_FIXTURE: &str = contract_file!("fixtures/language-host-integration.plugin.json");
 const NODE_RUNTIME_FIXTURE: &str = contract_file!("fixtures/node-runtime.plugin.json");
+const PUBLISHER_BUNDLED_FIXTURE: &str = contract_file!("fixtures/publisher-bundled.plugin.json");
 const CARGO_BUILD_FIXTURE: &str = contract_file!("fixtures/build-static-file.plugin.json");
 const GO_BUILD_FIXTURE: &str = contract_file!("fixtures/build-command-stdout.plugin.json");
 const GRADLE_BUILD_FIXTURE: &str = contract_file!("fixtures/build-command-output-file.plugin.json");
@@ -72,12 +73,66 @@ fn contract_fixtures_and_official_plugins_validate() {
         WEB_PANEL_FIXTURE,
         JAVA_FIXTURE,
         NODE_RUNTIME_FIXTURE,
+        PUBLISHER_BUNDLED_FIXTURE,
         BACKEND_FIXTURE,
         OFFICIAL_JAVA,
     ] {
         let outcome = validate(serde_json::from_str(source).unwrap());
         assert_eq!(outcome["status"], "ok", "{outcome}");
     }
+}
+
+/// The package cannot grant itself host-seal trust on an older host or
+/// downgrade independently installed copies to unsigned/local-only trust.
+#[test]
+fn bundled_publisher_trust_requires_an_explicit_host_capability() {
+    let manifest: Value = serde_json::from_str(PUBLISHER_BUNDLED_FIXTURE).unwrap();
+    let mut host = json!({"languages":[1], "languageServers":[1], "serverProcess":[1]});
+    let refused =
+        validate_command(json!({"manifest": manifest, "hostCapabilities": host})).unwrap();
+    assert_eq!(refused["error"]["code"], "plugin.api.unsupported");
+    assert_eq!(refused["error"]["field"], "requires.packageTrust");
+    host["packageTrust"] = json!([1]);
+    let accepted =
+        validate_command(json!({"manifest": manifest, "hostCapabilities": host})).unwrap();
+    assert_eq!(accepted["status"], "ok", "{accepted}");
+    assert_eq!(
+        accepted["plugin"]["vendor"]["bundledSignatureRequirement"],
+        "sameTeamAsHost"
+    );
+
+    for (field, value) in [
+        ("signatureRequirement", "none"),
+        ("signatureRequirement", "sameTeamAsHost"),
+        ("bundledSignatureRequirement", "publisherPackage"),
+        ("bundledSignatureRequirement", "none"),
+    ] {
+        let mut bad = manifest.clone();
+        bad["vendor"][field] = json!(value);
+        assert_eq!(validate(bad)["status"], "rejected", "{field}: {value}");
+    }
+    let mut community = manifest.clone();
+    community["id"] = json!("io.example.fixture");
+    assert_eq!(validate(community)["status"], "rejected");
+    let mut missing = manifest.clone();
+    missing["requires"]
+        .as_object_mut()
+        .unwrap()
+        .remove("packageTrust");
+    assert_eq!(validate(missing)["error"]["field"], "requires");
+    let mut legacy = manifest.clone();
+    legacy["pluginAPIVersion"] = json!(2);
+    legacy.as_object_mut().unwrap().remove("requires");
+    assert_eq!(
+        validate(legacy)["error"]["field"],
+        "vendor.bundledSignatureRequirement"
+    );
+    let mut unused = manifest;
+    unused["vendor"]
+        .as_object_mut()
+        .unwrap()
+        .remove("bundledSignatureRequirement");
+    assert_eq!(validate(unused)["error"]["field"], "requires.packageTrust");
 }
 
 #[test]

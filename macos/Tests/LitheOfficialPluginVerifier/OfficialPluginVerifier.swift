@@ -25,6 +25,7 @@ struct OfficialPluginVerifier {
         let manifest = descriptor.pluginManifest
         guard let entry = OfficialPluginCatalog.entry(for: manifest.id),
               entry.signatureRequirement == manifest.vendor.signatureRequirement,
+              entry.bundledSignatureRequirement == manifest.vendor.bundledSignatureRequirement,
               packageURL.lastPathComponent == manifest.id.rawValue else {
             throw VerificationError.trustPolicyMismatch(manifest.id.rawValue)
         }
@@ -100,8 +101,8 @@ struct OfficialPluginVerifier {
 
     /// The host never loads plugin code, so Mach-O files are allowed only in
     /// the top-level directory of a runtime the plugin declares with
-    /// `packagedRuntime`. Such a package ships inside the signed application,
-    /// whose code signature covers the runtime's binaries.
+    /// `packagedRuntime`. Bundled builds use the application's seal; independently
+    /// installed builds require a publisher signature over the final runtime.
     private static func rejectNativeCode(in packageURL: URL, exceptIn runtimeDirectories: [String]) throws {
         let machOMagics: Set<UInt32> = [0xfeedface, 0xfeedfacf, 0xcefaedfe, 0xcffaedfe, 0xcafebabe, 0xbebafeca]
         guard let enumerator = FileManager.default.enumerator(
