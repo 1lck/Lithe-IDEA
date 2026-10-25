@@ -88369,17 +88369,6 @@
         "key": "Local Folder",
         "arguments": []
       }
-    },
-    {
-      "id": "native.openLocalFolderDetail",
-      "description": "Native UI: Open a folder on this Mac",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Open a folder on this Mac",
-        "arguments": []
-      }
     }
   ]
 }

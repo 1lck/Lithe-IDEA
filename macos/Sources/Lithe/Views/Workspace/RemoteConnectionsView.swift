@@ -578,19 +578,45 @@ private struct RemoteFolderBrowserView: View {
 struct RemoteFolderListing: View {
     @ObservedObject var feature: RemoteConnectionsFeatureModel
     let browser: RemoteConnectionsFeatureModel.DirectoryBrowser
+
+    var body: some View {
+        FolderListing(
+            path: browser.path, parentPath: browser.parentPath,
+            entries: browser.sortedEntries.map { FolderListingEntry(name: $0.name, isDirectory: $0.isDirectory) },
+            isLoading: browser.isLoading, error: browser.error,
+            go: { feature.openBrowserPath($0) },
+            enter: { name in
+                if let entry = browser.entries.first(where: { $0.name == name }) { feature.openBrowserEntry(entry) }
+            }
+        )
+    }
+}
+
+/// The path bar, folder list, and read error shared by the local and remote
+/// folder browsers of the Open panel.
+struct FolderListing: View {
+    let path: String
+    let parentPath: String?
+    let entries: [FolderListingEntry]
+    let isLoading: Bool
+    let error: String?
+    /// Lists the typed or parent path.
+    let go: (String) -> Void
+    /// Lists the folder named `name` inside the current path.
+    let enter: (String) -> Void
     @State private var pathText = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 6) {
                 LitheTextField(verbatim: "/", text: $pathText)
-                    .onSubmit { feature.openBrowserPath(pathText) }
+                    .onSubmit { go(pathText) }
                     .accessibilityLabel(Text(LocalizedStringKey("Path")))
-                Button(LocalizedStringKey("Go")) { feature.openBrowserPath(pathText) }
+                Button(LocalizedStringKey("Go")) { go(pathText) }
                     .buttonStyle(LitheActionButtonStyle())
             }
-            listing(browser)
-            if let error = browser.error {
+            listing
+            if let error {
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(LitheTheme.warning)
                     Text(verbatim: error).fixedSize(horizontal: false, vertical: true)
@@ -598,18 +624,18 @@ struct RemoteFolderListing: View {
                 .font(LitheTheme.uiFont(size: 12))
             }
         }
-        .onAppear { pathText = browser.path }
-        .onChange(of: browser.path) { pathText = $0 }
+        .onAppear { pathText = path }
+        .onChange(of: path) { pathText = $0 }
     }
 
-    private func listing(_ browser: RemoteConnectionsFeatureModel.DirectoryBrowser) -> some View {
+    private var listing: some View {
         ScrollView {
             VStack(spacing: 0) {
-                if let parent = browser.parentPath {
-                    entryRow(name: "..", isDirectory: true) { feature.openBrowserPath(parent) }
+                if let parentPath {
+                    entryRow(name: "..", isDirectory: true) { go(parentPath) }
                 }
-                ForEach(browser.sortedEntries) { entry in
-                    entryRow(name: entry.name, isDirectory: entry.isDirectory) { feature.openBrowserEntry(entry) }
+                ForEach(entries) { entry in
+                    entryRow(name: entry.name, isDirectory: entry.isDirectory) { enter(entry.name) }
                 }
             }
             .padding(4)
@@ -620,7 +646,7 @@ struct RemoteFolderListing: View {
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .overlay {
             RoundedRectangle(cornerRadius: 6).stroke(LitheTheme.divider, lineWidth: 1)
-            if browser.isLoading { ProgressView().controlSize(.small) }
+            if isLoading { ProgressView().controlSize(.small) }
         }
     }
 

@@ -9313,8 +9313,7 @@
     "native.headValue": "HEAD：{arg1}",
     "native.resetToActualSize100": "重置为实际大小（100%）",
     "native.oneUsage": "1 处使用",
-    "native.openLocalFolder": "本地文件夹",
-    "native.openLocalFolderDetail": "打开这台 Mac 上的文件夹"
+    "native.openLocalFolder": "本地文件夹"
   },
   "overrides": {
     "macos": {

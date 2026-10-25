@@ -2427,7 +2427,6 @@
 "Open a Git project before using pull requests" = "请先打开 Git 项目，再使用拉取请求功能";
 "Open a Java file" = "打开 Java 文件";
 "Open a Java file before starting Debug" = "开始调试前请先打开 Java 文件";
-"Open a folder on this Mac" = "打开这台 Mac 上的文件夹";
 "Open a local folder to start working." = "打开本地文件夹开始工作。";
 "Open a local project folder" = "打开本地项目文件夹";
 "Open a project" = "打开项目";
@@ -6855,7 +6854,6 @@
 "native.openInNewWindow" = "在新窗口中打开";
 "native.openInRightSplit" = "在右侧分栏打开";
 "native.openLocalFolder" = "本地文件夹";
-"native.openLocalFolderDetail" = "打开这台 Mac 上的文件夹";
 "native.openLogDirectory" = "打开日志目录";
 "native.openMarketplace" = "打开插件市场";
 "native.openModulePomXml" = "打开所属模块的 pom.xml";

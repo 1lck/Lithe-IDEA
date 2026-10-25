@@ -24,6 +24,9 @@ struct OpenProjectPanel: View {
     @ObservedObject var feature: RemoteConnectionsFeatureModel
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
+    @State private var localPath = ""
+    @State private var localEntries: [FolderListingEntry] = []
+    @State private var localError: String?
 
     private static let sidebarWidth: CGFloat = 200
     private static let localID = "local"
@@ -50,7 +53,10 @@ struct OpenProjectPanel: View {
             RemoteAuthenticationView(prompt: prompt) { feature.answerPrompt($0) }
                 .interactiveDismissDisabled()
         }
-        .onAppear { feature.selectedID = nil }
+        .onAppear {
+            feature.selectedID = nil
+            listLocal(model.localHomeFolderPath)
+        }
         .onChange(of: feature.selectedID) { id in
             feature.closeBrowser()
             feature.cancelTest()
@@ -91,15 +97,12 @@ struct OpenProjectPanel: View {
 
     @ViewBuilder private var detail: some View {
         if feature.selection == nil {
-            VStack(spacing: 12) {
-                Spacer()
-                Text(LocalizedStringKey("Open a folder on this Mac"))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                Button(LocalizedStringKey("Choose…")) { openLocalFolder() }
-                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
-                Spacer()
-            }
-            .frame(maxWidth: .infinity)
+            FolderListing(
+                path: localPath, parentPath: localPath == "/" ? nil : (localPath as NSString).deletingLastPathComponent,
+                entries: localEntries, isLoading: false, error: localError,
+                go: { listLocal(($0 as NSString).expandingTildeInPath) },
+                enter: { listLocal((localPath as NSString).appendingPathComponent($0)) }
+            )
         } else if let browser = feature.browser {
             VStack(alignment: .leading, spacing: 12) {
                 RemoteFolderListing(feature: feature, browser: browser)
@@ -141,15 +144,29 @@ struct OpenProjectPanel: View {
             }
             .buttonStyle(LitheActionButtonStyle(isPrimary: true))
             .keyboardShortcut(.defaultAction)
-            .disabled(feature.selection != nil && (feature.browser?.isLoading ?? true))
+            .disabled(feature.selection == nil ? localPath.isEmpty : (feature.browser?.isLoading ?? true))
         }
         .padding(14)
         .background(LitheTheme.toolHeader)
     }
 
+    /// Lists `path` on this Mac; a path that cannot be read keeps the previous
+    /// listing and shows why.
+    private func listLocal(_ path: String) {
+        let normalized = URL(fileURLWithPath: path).standardizedFileURL.path
+        guard let entries = model.localFolderEntries(at: normalized) else {
+            localError = L10n.string("Enter an absolute path that starts with /.")
+            return
+        }
+        localPath = normalized
+        localEntries = entries
+        localError = nil
+    }
+
     private func openLocalFolder() {
+        let url = URL(fileURLWithPath: localPath, isDirectory: true)
         dismiss()
-        // The sheet must be gone before the system panel opens.
-        DispatchQueue.main.async { model.chooseLocalProject() }
+        // The sheet must be gone before the workspace replaces this window's content.
+        DispatchQueue.main.async { model.openProject(url) }
     }
 }

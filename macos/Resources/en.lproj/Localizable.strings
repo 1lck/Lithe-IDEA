@@ -2427,7 +2427,6 @@
 "Open a Git project before using pull requests" = "Open a Git project before using pull requests";
 "Open a Java file" = "Open a Java file";
 "Open a Java file before starting Debug" = "Open a Java file before starting Debug";
-"Open a folder on this Mac" = "Open a folder on this Mac";
 "Open a local folder to start working." = "Open a local folder to start working.";
 "Open a local project folder" = "Open a local project folder";
 "Open a project" = "Open a project";
@@ -6855,7 +6854,6 @@
 "native.openInNewWindow" = "Open in New Window";
 "native.openInRightSplit" = "Open in Right Split";
 "native.openLocalFolder" = "Local Folder";
-"native.openLocalFolderDetail" = "Open a folder on this Mac";
 "native.openLogDirectory" = "Open Log Directory";
 "native.openMarketplace" = "Open Marketplace";
 "native.openModulePomXml" = "Open module pom.xml";
