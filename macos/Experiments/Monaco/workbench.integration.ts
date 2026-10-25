@@ -306,6 +306,34 @@ async function verify() {
     assert(!document.querySelector(".monaco-menu-container"), "Monaco web menu still covers the shared native menu");
   });
   const model = editor.getModel()!;
+  await check("committed CJK input preserves following source and UTF-16 synchronization", async () => {
+    const id = "cjk-commit", text = "// 🚀\npublic record Test {}";
+    await send({ type: "open", id, text });
+    await window.lithe.activate({ id, text, revision: 0, language: "java", readonly: false });
+    const model = editor.getModel()!;
+    try {
+      editor.setPosition({ lineNumber: 2, column: 1 });
+      editor.pushUndoStop();
+      // Exercise committed input through the current editor and native bridge.
+      // OS candidate selection remains part of the native input-method run.
+      editor.trigger("integration", "type", { text: "你好" });
+      editor.pushUndoStop();
+      const snapshot = await window.lithe.freeze(id);
+      const native = await send({ type: "fixtureSnapshot", id });
+      assert(snapshot.text === "// 🚀\n你好public record Test {}", "CJK commit replaced following source");
+      assert(native.text === snapshot.text && native.revision === snapshot.revision,
+        "CJK commit diverged from the native document");
+      assert(editor.getPosition()?.lineNumber === 2 && editor.getPosition()?.column === 3,
+        "CJK commit moved the caret past following code");
+      window.lithe.unlock(id);
+      await model.undo();
+      assert((await window.lithe.freeze(id)).text === text, "undo lost the original Unicode source");
+    } finally {
+      window.lithe.unlock(id);
+      await window.lithe.retain(["A"]);
+      await window.lithe.activate({ id: "A", text: source, revision: 0, language: "java", readonly: false });
+    }
+  });
   await check("workbench edit queue and save barrier preserve CRLF and UTF-16", async () => {
     editor.executeEdits("integration", [{ range: new Range(2, 8, 2, 10), text: "日本語🙂" }]);
     editor.pushUndoStop();

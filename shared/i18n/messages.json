@@ -40511,27 +40511,6 @@
       }
     },
     {
-      "id": "native.inline.chooseExecutable",
-      "description": "Presentation copy: macos/Sources/Lithe/Views/Language/LanguageServerSetupView.swift",
-      "platforms": [
-        "macos"
-      ]
-    },
-    {
-      "id": "native.inline.chooseOrEnterAnAbsolutePath",
-      "description": "Presentation copy: macos/Sources/Lithe/Views/Language/LanguageServerSetupView.swift",
-      "platforms": [
-        "macos"
-      ]
-    },
-    {
-      "id": "native.inline.customPath",
-      "description": "Presentation copy: macos/Sources/Lithe/Views/Language/LanguageServerSetupView.swift",
-      "platforms": [
-        "macos"
-      ]
-    },
-    {
       "id": "native.inline.enableArg1LanguageServer",
       "description": "Presentation copy: macos/Sources/Lithe/Views/Language/LSPControlCenterView.swift",
       "platforms": [
@@ -40542,13 +40521,6 @@
       }
     },
     {
-      "id": "native.inline.executableFoundNotVerified",
-      "description": "Presentation copy: macos/Sources/Lithe/Views/Language/LanguageServerSetupView.swift",
-      "platforms": [
-        "macos"
-      ]
-    },
-    {
       "id": "native.inline.executableInvalid",
       "description": "Selected-language presentation: The selected language-server path is not executable: {path}",
       "platforms": [
@@ -40557,13 +40529,6 @@
       "parameters": {
         "path": "string"
       }
-    },
-    {
-      "id": "native.inline.executableNotFound",
-      "description": "Presentation copy: macos/Sources/Lithe/Views/Language/LanguageServerSetupView.swift",
-      "platforms": [
-        "macos"
-      ]
     },
     {
       "id": "native.inline.executableRequired",
@@ -40581,23 +40546,6 @@
       "parameters": {
         "path": "string",
         "message": "string"
-      }
-    },
-    {
-      "id": "native.inline.executableVerified",
-      "description": "Presentation copy: macos/Sources/Lithe/Views/Language/LanguageServerSetupView.swift",
-      "platforms": [
-        "macos"
-      ]
-    },
-    {
-      "id": "native.inline.expectedArg1",
-      "description": "Presentation copy: macos/Sources/Lithe/Views/Language/LanguageServerSetupView.swift",
-      "platforms": [
-        "macos"
-      ],
-      "parameters": {
-        "arg1": "string"
       }
     },
     {
@@ -40622,13 +40570,6 @@
       ]
     },
     {
-      "id": "native.inline.homebrewIsPreferredUseTheOfficialDownloadWhenHomebrewOrAFormulaIsUnavailabl",
-      "description": "Presentation copy: macos/Sources/Lithe/Views/Language/LanguageServerSetupView.swift",
-      "platforms": [
-        "macos"
-      ]
-    },
-    {
       "id": "native.inline.homebrewUnavailable",
       "description": "Selected-language presentation: Homebrew is not installed or is not available to Lithe.",
       "platforms": [
@@ -40644,13 +40585,6 @@
       "parameters": {
         "provider": "string"
       }
-    },
-    {
-      "id": "native.inline.homebrewWasNotFoundUseTheOfficialDownloadOrChooseAnExecutable",
-      "description": "Presentation copy: macos/Sources/Lithe/Views/Language/LanguageServerSetupView.swift",
-      "platforms": [
-        "macos"
-      ]
     },
     {
       "id": "native.inline.importingJavaProjectAndDependencies",
@@ -40672,47 +40606,6 @@
     {
       "id": "native.inline.initializingProjectIndex",
       "description": "Presentation copy: macos/Sources/Lithe/Views/Language/LSPControlCenterView.swift",
-      "platforms": [
-        "macos"
-      ]
-    },
-    {
-      "id": "native.inline.installArg1",
-      "description": "Presentation copy: macos/Sources/Lithe/Views/Language/LanguageServerSetupView.swift",
-      "platforms": [
-        "macos"
-      ],
-      "parameters": {
-        "arg1": "string"
-      }
-    },
-    {
-      "id": "native.inline.installDetectAndSelectLspExecutables",
-      "description": "Presentation copy: macos/Sources/Lithe/Views/Language/LanguageServerSetupView.swift",
-      "platforms": [
-        "macos"
-      ]
-    },
-    {
-      "id": "native.inline.installation",
-      "description": "Presentation copy: macos/Sources/Lithe/Views/Language/LanguageServerSetupView.swift",
-      "platforms": [
-        "macos"
-      ]
-    },
-    {
-      "id": "native.inline.installedArg1",
-      "description": "Presentation copy: macos/Sources/Lithe/Views/Language/LanguageServerSetupView.swift",
-      "platforms": [
-        "macos"
-      ],
-      "parameters": {
-        "arg1": "string"
-      }
-    },
-    {
-      "id": "native.inline.installingWithHomebrew",
-      "description": "Presentation copy: macos/Sources/Lithe/Views/Language/LanguageServerSetupView.swift",
       "platforms": [
         "macos"
       ]
@@ -40760,13 +40653,6 @@
       ]
     },
     {
-      "id": "native.inline.languageServer",
-      "description": "Presentation copy: macos/Sources/Lithe/Views/Language/LanguageServerSetupView.swift",
-      "platforms": [
-        "macos"
-      ]
-    },
-    {
       "id": "native.inline.languageServerConfigurationIsDegradedCompatibilitySettingsAreInUse",
       "description": "Presentation copy: macos/Sources/Lithe/Views/Language/LSPControlCenterView.swift",
       "platforms": [
@@ -40783,13 +40669,6 @@
     {
       "id": "native.inline.languageServerStarted",
       "description": "Presentation copy: macos/Sources/Lithe/Models/AppModel/AppModel.swift",
-      "platforms": [
-        "macos"
-      ]
-    },
-    {
-      "id": "native.inline.languageServerTools",
-      "description": "Presentation copy: macos/Sources/Lithe/Views/Language/LanguageServerSetupView.swift",
       "platforms": [
         "macos"
       ]
@@ -40816,22 +40695,8 @@
       ]
     },
     {
-      "id": "native.inline.noBrewFormula",
-      "description": "Presentation copy: macos/Sources/Lithe/Views/Language/LanguageServerSetupView.swift",
-      "platforms": [
-        "macos"
-      ]
-    },
-    {
       "id": "native.inline.noConfigurableLanguageServers",
       "description": "Presentation copy: macos/Sources/Lithe/Views/Language/LSPControlCenterView.swift",
-      "platforms": [
-        "macos"
-      ]
-    },
-    {
-      "id": "native.inline.noLaunchCommandIsConfigured",
-      "description": "Presentation copy: macos/Sources/Lithe/Views/Language/LanguageServerSetupView.swift",
       "platforms": [
         "macos"
       ]
@@ -40846,13 +40711,6 @@
     {
       "id": "native.inline.off",
       "description": "Presentation copy: macos/Sources/Lithe/Views/Language/LSPControlCenterView.swift",
-      "platforms": [
-        "macos"
-      ]
-    },
-    {
-      "id": "native.inline.officialDownload",
-      "description": "Presentation copy: macos/Sources/Lithe/Views/Language/LanguageServerSetupView.swift",
       "platforms": [
         "macos"
       ]
@@ -40914,13 +40772,6 @@
       ]
     },
     {
-      "id": "native.inline.resolvedExecutable",
-      "description": "Presentation copy: macos/Sources/Lithe/Views/Language/LanguageServerSetupView.swift",
-      "platforms": [
-        "macos"
-      ]
-    },
-    {
       "id": "native.inline.restartLitheToFinishUninstallingTheOldArg1ThenInstallTheCommunityArg2FromLi",
       "description": "Presentation copy: macos/Sources/Lithe/Views/Language/LSPControlCenterView.swift",
       "platforms": [
@@ -40958,13 +40809,6 @@
     {
       "id": "native.inline.running",
       "description": "Presentation copy: macos/Sources/Lithe/Views/Language/LSPControlCenterView.swift",
-      "platforms": [
-        "macos"
-      ]
-    },
-    {
-      "id": "native.inline.save",
-      "description": "Presentation copy: macos/Sources/Lithe/Views/Language/LanguageServerSetupView.swift",
       "platforms": [
         "macos"
       ]
@@ -41064,13 +40908,6 @@
       ]
     },
     {
-      "id": "native.inline.theNextLspSessionWillUseThisPath",
-      "description": "Presentation copy: macos/Sources/Lithe/Views/Language/LanguageServerSetupView.swift",
-      "platforms": [
-        "macos"
-      ]
-    },
-    {
       "id": "native.inline.thisArg1ProjectNeedsArg2DownloadAndInstallItFromPluginManagement",
       "description": "Presentation copy: macos/Sources/Lithe/Views/Language/LSPControlCenterView.swift",
       "platforms": [
@@ -41102,13 +40939,6 @@
         "arg1": "string",
         "arg2": "string"
       }
-    },
-    {
-      "id": "native.inline.useAutomaticDetection",
-      "description": "Presentation copy: macos/Sources/Lithe/Views/Language/LanguageServerSetupView.swift",
-      "platforms": [
-        "macos"
-      ]
     },
     {
       "id": "native.inline.viewLogs",

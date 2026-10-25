@@ -16,8 +16,6 @@ enum LitheDropdownMetrics {
     static let rowCornerRadius: CGFloat = 4
     static let shortcutFont = LitheTheme.uiNSFont(size: 11)
     static let rowHeight: CGFloat = 24
-    // A tall history viewport keeps empty space; the shared host clamps it to the screen.
-    static let historyViewportHeight: CGFloat = rowHeight * 20
     static let separatorHeight: CGFloat = 11
     static let verticalPadding: CGFloat = 2 * popupPadding
     static let submenuSpacing: CGFloat = 1

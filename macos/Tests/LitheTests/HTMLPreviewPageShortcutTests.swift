@@ -78,7 +78,7 @@ struct HTMLPreviewPageShortcutPolicyTests {
         let findField = NSTextField(frame: NSRect(x: 0, y: 0, width: 100, height: 20))
         host.addSubview(page)
         host.addSubview(findField)
-        let editor = CodeTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 120))
+        let editor = NSTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 120))
         let terminal = LitheTerminalView(frame: NSRect(x: 0, y: 0, width: 320, height: 120))
 
         // The page's own parent and its sibling views are not the page.

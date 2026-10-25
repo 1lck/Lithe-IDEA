@@ -1,0 +1,204 @@
+{
+  "description": "Synthetic rejection specifications; edits use the same JSON Pointer fixture convention as invalid-manifests.json. This is not plugin syntax or an executable Core test suite.",
+  "baseline": {
+    "block": {
+      "debugAdapters": [
+        {
+          "id": "synthetic",
+          "displayName": "Synthetic contract input",
+          "launch": {
+            "process": {
+              "launch": {
+                "kind": "packaged",
+                "path": "bin/synthetic"
+              }
+            },
+            "transport": "stdio"
+          }
+        }
+      ]
+    },
+    "context": {
+      "manifestMetadata": {
+        "pluginAPIVersion": 4,
+        "requires": {
+          "debugAdapters": 1,
+          "serverProcess": 1
+        },
+        "permissions": [
+          "debug.launch"
+        ]
+      },
+      "hostCapabilities": {
+        "debugAdapters": [
+          1
+        ],
+        "serverProcess": [
+          1,
+          2
+        ]
+      },
+      "registration": {
+        "generation": 1,
+        "currentGeneration": 1
+      },
+      "runtimeSelection": {
+        "generation": 1,
+        "currentGeneration": 1
+      },
+      "target": {
+        "kind": "file"
+      },
+      "packageResources": []
+    }
+  },
+  "cases": [
+    {
+      "id": "removed-platform-fields",
+      "layer": "schema",
+      "edits": [{"op": "set", "path": "/block/pluginDependencies", "value": {"missing": {"pluginID": "dev.lithe.fixture.absent"}}}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "pluginDependencies"},
+      "executionStatus": "offlineShapeOnly"
+    },
+    {
+      "id": "removed-resolver",
+      "layer": "schema",
+      "edits": [{"op": "set", "path": "/block/debugAdapters/0/resolver", "value": {"backendRef": "absent", "functionID": "debug.resolve"}}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].resolver"},
+      "executionStatus": "offlineShapeOnly"
+    },
+    {
+      "id": "removed-host-integration",
+      "layer": "schema",
+      "edits": [{"op": "set", "path": "/block/debugAdapters/0/hostIntegration", "value": {"integrationID": "jdt"}}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].hostIntegration"},
+      "executionStatus": "offlineShapeOnly"
+    },
+    {
+      "id": "removed-workflow",
+      "layer": "schema",
+      "edits": [{"op": "set", "path": "/block/debugAdapters/0/launch/steps", "value": [{"id": "same"}, {"id": "same"}]}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].launch.steps"},
+      "executionStatus": "offlineShapeOnly"
+    },
+    {
+      "id": "program-from-process-id",
+      "layer": "schema",
+      "edits": [{"op": "set", "path": "/block/debugAdapters/0/configurations", "value": {"launch": {"targetBindings": {"program": "target.processID"}}}}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].configurations.launch.targetBindings.program"},
+      "executionStatus": "offlineShapeOnly"
+    },
+    {
+      "id": "function-for-step-back",
+      "layer": "schema",
+      "edits": [{"op": "set", "path": "/block/debugAdapters/0/capabilities", "value": {"stepBack": {"source": "function", "functionID": "synthetic.stepBack"}}}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].capabilities.stepBack"},
+      "executionStatus": "offlineShapeOnly"
+    },
+    {
+      "id": "old-api-debug",
+      "layer": "coreManifest",
+      "edits": [{"op": "set", "path": "/context/manifestMetadata/pluginAPIVersion", "value": 3}],
+      "expected": {"code": "plugin.api.unsupported", "field": "requires.debugAdapters"},
+      "executionStatus": "pendingCoreImplementation"
+    },
+    {
+      "id": "missing-host-capability",
+      "layer": "coreManifest",
+      "edits": [{"op": "remove", "path": "/context/hostCapabilities/debugAdapters"}],
+      "expected": {"code": "plugin.api.unsupported", "field": "requires.debugAdapters"},
+      "executionStatus": "pendingCoreImplementation"
+    },
+    {
+      "id": "missing-debug-requirement",
+      "layer": "coreManifest",
+      "edits": [{"op": "remove", "path": "/context/manifestMetadata/requires/debugAdapters"}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "requires.debugAdapters"},
+      "executionStatus": "pendingCoreImplementation"
+    },
+    {
+      "id": "missing-process-requirement",
+      "layer": "coreManifest",
+      "edits": [{"op": "remove", "path": "/context/manifestMetadata/requires/serverProcess"}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "requires.serverProcess"},
+      "executionStatus": "pendingCoreImplementation"
+    },
+    {
+      "id": "unused-process-v2",
+      "layer": "coreManifest",
+      "edits": [{"op": "set", "path": "/context/manifestMetadata/requires/serverProcess", "value": 2}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "requires.serverProcess"},
+      "executionStatus": "pendingCoreImplementation"
+    },
+    {
+      "id": "duplicate-adapter-id",
+      "layer": "coreManifest",
+      "edits": [{"op": "set", "path": "/block/debugAdapters", "value": [{"id": "synthetic", "displayName": "Synthetic contract input", "launch": {"process": {"launch": {"kind": "packaged", "path": "bin/synthetic"}}, "transport": "stdio"}}, {"id": "synthetic", "displayName": "Different title, same identity", "launch": {"process": {"launch": {"kind": "packaged", "path": "bin/synthetic"}}, "transport": "stdio"}}]}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[1].id"},
+      "executionStatus": "pendingCoreImplementation"
+    },
+    {
+      "id": "missing-launch-permission",
+      "layer": "coreManifest",
+      "edits": [{"op": "set", "path": "/context/manifestMetadata/permissions", "value": []}],
+      "expected": {"code": "plugin.permission.undeclared", "field": "permissions"},
+      "executionStatus": "pendingCoreImplementation"
+    },
+    {
+      "id": "attach-without-permission",
+      "layer": "coreManifest",
+      "edits": [{"op": "set", "path": "/block/debugAdapters/0/requests", "value": ["launch", "attach"]}],
+      "expected": {"code": "plugin.permission.undeclared", "field": "permissions"},
+      "executionStatus": "pendingCoreImplementation"
+    },
+    {
+      "id": "unsupported-request-config",
+      "layer": "coreManifest",
+      "edits": [{"op": "set", "path": "/block/debugAdapters/0/configurations", "value": {"attach": {"arguments": {"port": 30000}}}}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].configurations.attach"},
+      "executionStatus": "pendingCoreImplementation"
+    },
+    {
+      "id": "selected-runtime-v1",
+      "layer": "coreManifest",
+      "edits": [{"op": "set", "path": "/block/debugAdapters/0/launch/process", "value": {"launch": {"kind": "runSelectedRuntime", "tool": "python"}}}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "requires.serverProcess"},
+      "executionStatus": "pendingCoreImplementation"
+    },
+    {
+      "id": "stale-selected-runtime",
+      "layer": "corePlan",
+      "edits": [{"op": "set", "path": "/block/debugAdapters/0/launch/process", "value": {"launch": {"kind": "runSelectedRuntime", "tool": "python"}}}, {"op": "set", "path": "/context/manifestMetadata/requires/serverProcess", "value": 2}, {"op": "set", "path": "/context/runtimeSelection/currentGeneration", "value": 2}],
+      "expected": {"code": "debug.runtime.stale", "field": "runtimeSelection"},
+      "executionStatus": "pendingCoreImplementation"
+    },
+    {
+      "id": "unknown-dap-capability",
+      "layer": "coreManifest",
+      "edits": [{"op": "set", "path": "/block/debugAdapters/0/capabilities", "value": {"disabled": ["supportsSyntheticUnknownRequest"]}}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].capabilities.disabled[0]"},
+      "executionStatus": "pendingCoreImplementation"
+    },
+    {
+      "id": "missing-target-path",
+      "layer": "corePlan",
+      "edits": [{"op": "set", "path": "/block/debugAdapters/0/configurations", "value": {"launch": {"targetBindings": {"program": "target.path"}}}}],
+      "expected": {"code": "debug.target.invalid", "field": "target.path"},
+      "executionStatus": "pendingCoreImplementation"
+    },
+    {
+      "id": "escaping-parameters-schema",
+      "layer": "coreInstall",
+      "edits": [{"op": "set", "path": "/block/debugAdapters/0/configurations", "value": {"launch": {"parametersSchema": "schemas/parameters.json"}}}, {"op": "set", "path": "/context/packageResources", "value": [{"path": "schemas/parameters.json", "kind": "symlink", "target": "../../../outside/parameters.json"}]}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].configurations.launch.parametersSchema"},
+      "executionStatus": "pendingCoreImplementation"
+    },
+    {
+      "id": "stale-registration",
+      "layer": "corePlan",
+      "edits": [{"op": "set", "path": "/context/registration/currentGeneration", "value": 2}],
+      "expected": {"code": "debug.provider.stale", "field": "registration"},
+      "executionStatus": "pendingCoreImplementation"
+    }
+  ]
+}
