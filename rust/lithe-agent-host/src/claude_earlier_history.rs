@@ -182,8 +182,35 @@ impl Converter {
             }
             (Chunk::Agent, Some("tool_use")) => self.tool_call(block),
             (Chunk::User, Some("tool_result")) => self.tool_result(block),
+            (Chunk::User, Some("image")) => self.user_image(block),
             _ => {}
         }
+    }
+
+    /// A pasted screenshot stays attached to the user message that references
+    /// it. Only inline base64 sources are replayed; the client bounds the size.
+    fn user_image(&mut self, block: &Value) {
+        let source = &block["source"];
+        let (Some("base64"), Some(data)) = (source["type"].as_str(), source["data"].as_str())
+        else {
+            return;
+        };
+        if data.is_empty() {
+            return;
+        }
+        self.last = Some(Chunk::User);
+        let mut update = json!({
+            "sessionUpdate": "user_message_chunk",
+            "content": {
+                "type": "image",
+                "data": data,
+                "mimeType": source["media_type"].as_str().unwrap_or("image/png"),
+            },
+        });
+        if let Some(id) = &self.row_id {
+            update["messageId"] = json!(id);
+        }
+        self.updates.push(update);
     }
 
     fn text(&mut self, kind: Chunk, text: &str) {
@@ -422,6 +449,26 @@ mod tests {
         assert_eq!(updates[1]["sessionUpdate"], "user_message_chunk");
         assert_eq!(updates[1]["content"]["text"], "go faster");
         assert_eq!(updates[1]["messageId"], "q1");
+    }
+
+    #[test]
+    fn pasted_screenshots_stay_on_the_user_message_that_references_them() {
+        let (dir, cwd) = transcript(&[
+            json!({"type": "user", "uuid": "u1", "message": {"content": [
+                {"type": "text", "text": "[Image #1] look"},
+                {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": "/9j/4A=="}},
+                {"type": "image", "source": {"type": "url", "url": "https://example.test/a.png"}},
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": ""}},
+            ]}}),
+            boundary(),
+        ]);
+        let updates = earlier_updates(dir.path(), &cwd, "abc-1");
+        assert_eq!(updates.len(), 2, "only the inline base64 image is replayed");
+        assert_eq!(updates[1]["sessionUpdate"], "user_message_chunk");
+        assert_eq!(updates[1]["content"]["type"], "image");
+        assert_eq!(updates[1]["content"]["data"], "/9j/4A==");
+        assert_eq!(updates[1]["content"]["mimeType"], "image/jpeg");
+        assert_eq!(updates[1]["messageId"], updates[0]["messageId"]);
     }
 
     #[test]
