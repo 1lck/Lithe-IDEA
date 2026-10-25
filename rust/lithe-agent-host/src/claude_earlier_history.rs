@@ -24,6 +24,10 @@ const MAX_TRANSCRIPT_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_UPDATES: usize = 30_000;
 /// Per-field text limit, in characters, for tool output and tool input values.
 const TEXT_LIMIT: usize = 4_000;
+/// Longest base64 image replayed, in bytes: the client's 10 MB decoded limit
+/// (`AgentImage.maximumBytes`) inflated by a third. A larger screenshot would only
+/// be dropped on arrival, so it is not sent.
+const IMAGE_DATA_LIMIT: usize = 10_000_000 / 3 * 4;
 
 /// Projects directory of the account the adapter runs under: the explicit
 /// account directory, then `CLAUDE_CONFIG_DIR`, then `~/.claude`.
@@ -184,8 +188,35 @@ impl Converter {
             }
             (Chunk::Agent, Some("tool_use")) => self.tool_call(block),
             (Chunk::User, Some("tool_result")) => self.tool_result(block),
+            (Chunk::User, Some("image")) => self.user_image(block),
             _ => {}
         }
+    }
+
+    /// A pasted screenshot stays attached to the user message that references
+    /// it. Only inline base64 sources are replayed; the client bounds the size.
+    fn user_image(&mut self, block: &Value) {
+        let source = &block["source"];
+        let (Some("base64"), Some(data)) = (source["type"].as_str(), source["data"].as_str())
+        else {
+            return;
+        };
+        if data.is_empty() || data.len() > IMAGE_DATA_LIMIT {
+            return;
+        }
+        self.last = Some(Chunk::User);
+        let mut update = json!({
+            "sessionUpdate": "user_message_chunk",
+            "content": {
+                "type": "image",
+                "data": data,
+                "mimeType": source["media_type"].as_str().unwrap_or("image/png"),
+            },
+        });
+        if let Some(id) = &self.row_id {
+            update["messageId"] = json!(id);
+        }
+        self.updates.push(update);
     }
 
     fn text(&mut self, kind: Chunk, text: &str) {
@@ -449,6 +480,27 @@ mod tests {
         assert_eq!(shown[0]["_meta"]["lithe"]["claudeDesktop"]["code"], widget.as_str());
         let write = updates[1]["rawInput"]["content"].as_str().unwrap();
         assert_eq!(write.chars().count(), TEXT_LIMIT + 1, "Ordinary inputs stay previews");
+    }
+
+    #[test]
+    fn pasted_screenshots_stay_on_the_user_message_that_references_them() {
+        let (dir, cwd) = transcript(&[
+            json!({"type": "user", "uuid": "u1", "message": {"content": [
+                {"type": "text", "text": "[Image #1] look"},
+                {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": "/9j/4A=="}},
+                {"type": "image", "source": {"type": "url", "url": "https://example.test/a.png"}},
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": ""}},
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "A".repeat(IMAGE_DATA_LIMIT + 4)}},
+            ]}}),
+            boundary(),
+        ]);
+        let updates = earlier_updates(dir.path(), &cwd, "abc-1");
+        assert_eq!(updates.len(), 2, "only the inline base64 image within the limit is replayed");
+        assert_eq!(updates[1]["sessionUpdate"], "user_message_chunk");
+        assert_eq!(updates[1]["content"]["type"], "image");
+        assert_eq!(updates[1]["content"]["data"], "/9j/4A==");
+        assert_eq!(updates[1]["content"]["mimeType"], "image/jpeg");
+        assert_eq!(updates[1]["messageId"], updates[0]["messageId"]);
     }
 
     #[test]
