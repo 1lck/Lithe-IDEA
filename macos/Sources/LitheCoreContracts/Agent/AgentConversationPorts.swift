@@ -21,6 +21,38 @@ public enum AgentAuthentication: String, Codable, Equatable, Sendable {
     }
 }
 
+/// Context sizing the user chose for one Agent; `nil` keeps the Agent's own default.
+///
+/// Codex receives both numbers as native configuration. Claude Code has one knob,
+/// its auto-compact window, so the threshold (else the context length) is applied
+/// to that and its model size stays model-defined.
+public struct AgentContextLimits: Codable, Equatable, Sendable {
+    public var windowTokens: UInt64?
+    public var autoCompactTokens: UInt64?
+
+    /// A zero means "not set", never a window of nothing.
+    public init(windowTokens: UInt64? = nil, autoCompactTokens: UInt64? = nil) {
+        self.windowTokens = windowTokens.flatMap { $0 > 0 ? $0 : nil }
+        self.autoCompactTokens = autoCompactTokens.flatMap { $0 > 0 ? $0 : nil }
+    }
+
+    public var isEmpty: Bool { windowTokens == nil && autoCompactTokens == nil }
+
+    private static let claudeAgentID = "claude-acp"
+
+    /// The size at which the context ring reads as full. Claude Code compacts at
+    /// its threshold, so that is where it is full; Codex keeps its own context length.
+    public func displayCapacity(forAgentID agentID: String?) -> UInt64? {
+        agentID == Self.claudeAgentID ? (autoCompactTokens ?? windowTokens) : windowTokens
+    }
+
+    /// The threshold worth showing next to the ring: one that differs from where it reads as full.
+    public func visibleAutoCompact(forAgentID agentID: String?) -> UInt64? {
+        guard let autoCompactTokens, autoCompactTokens != displayCapacity(forAgentID: agentID) else { return nil }
+        return autoCompactTokens
+    }
+}
+
 /// Settings required to launch one ACP agent for a workspace.
 ///
 /// API providers and local Codex subscription accounts use distinct launch paths.
@@ -42,12 +74,14 @@ public struct AgentLaunchConfiguration: Equatable, Sendable {
     public let model: String
     public let allowsInsecureHTTP: Bool
     /// Route API-key provider traffic through the Host's loopback proxy to
-    /// observe individual model calls. Subscription connections ignore it.
+    /// observe individual model calls.
     public let observesModelCalls: Bool
     /// Configuration directory of the chosen subscription account, exported as
     /// `CLAUDE_CONFIG_DIR` or `CODEX_HOME`. `nil` keeps the CLI's default
     /// account. It only holds the official CLI's own login; Lithe never reads it.
     public let accountDirectory: URL?
+    /// Context length and auto-compact threshold chosen in Settings › Agents.
+    public let contextLimits: AgentContextLimits
 
     public init(
         agentID: String?,
@@ -63,7 +97,8 @@ public struct AgentLaunchConfiguration: Equatable, Sendable {
         allowsInsecureHTTP: Bool,
         authentication: AgentAuthentication = .apiKey,
         observesModelCalls: Bool = false,
-        accountDirectory: URL? = nil
+        accountDirectory: URL? = nil,
+        contextLimits: AgentContextLimits = AgentContextLimits()
     ) {
         self.authentication = authentication
         self.agentID = agentID
@@ -79,6 +114,7 @@ public struct AgentLaunchConfiguration: Equatable, Sendable {
         self.allowsInsecureHTTP = allowsInsecureHTTP
         self.observesModelCalls = observesModelCalls
         self.accountDirectory = accountDirectory
+        self.contextLimits = contextLimits
     }
 }
 

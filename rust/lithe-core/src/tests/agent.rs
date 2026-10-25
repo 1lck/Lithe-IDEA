@@ -212,10 +212,10 @@ fn install_progress_is_request_scoped_and_uses_the_operation_identifier() {
 fn cli_update_outcome_fixture_preserves_verified_version_and_warning() {
     use lithe_agent_host::install::CliUpdateResult;
     for (name, version, warning) in [
-        ("installCli", "0.156.1", None),
+        ("installCli", "0.160.1", None),
         (
             "installCliRecovered",
-            "0.157.1",
+            "0.161.1",
             Some("Download failed; retry completed"),
         ),
     ] {

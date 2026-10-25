@@ -142,9 +142,9 @@ struct AgentSessionSummaryCard: View {
                 }
             }
         } footnote: {
-            if statistics.modelCalls == nil {
-                Text("Turn on Model call statistics in Agent settings and reconnect to see model calls, time to first token and output speed.")
-            }
+            statistics.modelCalls == nil
+                ? Text("Model call details need Model call statistics (on by default). After turning it on, reconnect and send a message.")
+                : nil
         }
     }
 
@@ -202,8 +202,22 @@ struct AgentTokenUsageCard: View {
                             tokens.callsMissingUsage))
             } else if tokens.source == .latestAgentTurn {
                 Text("Latest turn as reported by the Agent; its accounting scope depends on the Agent. Turn on Model call statistics for session totals.")
+            } else {
+                nil
             }
         }
+    }
+}
+
+private struct AgentAutoCompactTokensKey: EnvironmentKey {
+    static let defaultValue: UInt64? = nil
+}
+
+extension EnvironmentValues {
+    /// The auto-compact threshold the user chose, when it is not where the ring is full.
+    var agentAutoCompactTokens: UInt64? {
+        get { self[AgentAutoCompactTokensKey.self] }
+        set { self[AgentAutoCompactTokensKey.self] = newValue }
     }
 }
 
@@ -212,6 +226,7 @@ struct AgentTokenUsageCard: View {
 struct AgentContextBreakdown {
     let usage: AgentContextUsage?
     let composition: AgentModelCall.Context?
+    var autoCompactTokens: UInt64? = nil
 
     enum Segment: CaseIterable {
         case systemPrompt, tools, messages, mcpTools
@@ -325,16 +340,19 @@ struct AgentContextBreakdown {
             AgentStatusRow("Free space", value: AgentSessionStatusPresentation.compactTokens(freeTokens, locale: locale),
                            share: share(freeTokens, locale: locale), swatch: AgentPanelStyle.border)
         }
+        if let autoCompactTokens {
+            AgentStatusRow("Auto-compact at",
+                           value: AgentSessionStatusPresentation.compactTokens(autoCompactTokens, locale: locale))
+        }
     }
 
-    @ViewBuilder
-    func footnote(bundle: Bundle = .main) -> some View {
+    func footnote(bundle: Bundle = .main) -> Text {
         if composition != nil {
             estimationNote(bundle: bundle)
         } else if usage == nil {
             Text("The Agent has not reported context usage yet.", bundle: bundle)
         } else {
-            Text("Turn on Model call statistics in Agent settings and reconnect to see the system prompt, tool definitions and messages.", bundle: bundle)
+            Text("The breakdown needs Model call statistics (on by default). After turning it on, reconnect and send a message.", bundle: bundle)
         }
     }
 
@@ -350,8 +368,11 @@ struct AgentContextUsageCard: View {
     let usage: AgentContextUsage?
     let composition: AgentModelCall.Context?
     @Environment(\.locale) private var locale
+    @Environment(\.agentAutoCompactTokens) private var autoCompact
 
-    private var breakdown: AgentContextBreakdown { AgentContextBreakdown(usage: usage, composition: composition) }
+    private var breakdown: AgentContextBreakdown {
+        AgentContextBreakdown(usage: usage, composition: composition, autoCompactTokens: autoCompact)
+    }
 
     private var title: String {
         String(format: AgentLocalization.string("Context used %@", locale: locale),
@@ -378,13 +399,17 @@ struct AgentContextPanel: View {
     var onClose: (() -> Void)?
     var bundle: Bundle = .main
     @Environment(\.locale) private var locale
+    @Environment(\.agentAutoCompactTokens) private var autoCompact
 
-    private var breakdown: AgentContextBreakdown { AgentContextBreakdown(usage: usage, composition: composition) }
+    private var breakdown: AgentContextBreakdown {
+        AgentContextBreakdown(usage: usage, composition: composition, autoCompactTokens: autoCompact)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Text("Context usage", bundle: bundle).font(LitheTheme.uiFont(size: 12, weight: .medium))
+                if composition == nil { LitheInfoTip(breakdown.footnote(bundle: bundle)) }
                 Spacer(minLength: 8)
                 if let onClose {
                     Button(action: onClose) {
@@ -408,20 +433,15 @@ struct AgentContextPanel: View {
                 ForEach(AgentContextBreakdown.Segment.allCases, id: \.self) { segment in
                     legendRow(segment)
                 }
-            }
-            if composition == nil {
-                Divider().overlay(LitheTheme.divider)
-                Group {
-                    if usage == nil {
-                        breakdown.footnote(bundle: bundle)
-
-                    } else {
-                        Text("Turn on Model call statistics, reconnect and send a message to see the breakdown.", bundle: bundle)
+                if let autoCompact {
+                    HStack(spacing: 8) {
+                        Text("Auto-compact at", bundle: bundle).lineLimit(1)
+                        Spacer(minLength: 8)
+                        Text(verbatim: AgentSessionStatusPresentation.compactTokens(autoCompact, locale: locale))
+                            .foregroundStyle(AgentPanelStyle.secondary).monospacedDigit().fixedSize()
                     }
+                    .accessibilityIdentifier("agent-context-auto-compact")
                 }
-                .font(LitheTheme.uiFont(size: 10.5))
-                .foregroundStyle(AgentPanelStyle.muted)
-                .fixedSize(horizontal: false, vertical: true)
             }
         }
         .font(LitheTheme.uiFont(size: 12))
@@ -488,7 +508,7 @@ extension EnvironmentValues {
 }
 
 /// Shared surface of the status hover cards.
-struct AgentStatusCard<Rows: View, Footnote: View>: View {
+struct AgentStatusCard<Rows: View>: View {
     @Environment(\.locale) private var locale
     @Environment(\.agentStatusCardIsInline) private var isInline
 
@@ -496,11 +516,11 @@ struct AgentStatusCard<Rows: View, Footnote: View>: View {
     private let systemImage: String?
     private let trailing: String?
     private let rows: Rows
-    private let footnote: Footnote
+    private let footnote: Text?
     private let compact: Bool
 
     init(title: LocalizedStringKey, systemImage: String? = nil, trailing: String? = nil,
-         @ViewBuilder rows: () -> Rows, @ViewBuilder footnote: () -> Footnote) {
+         @ViewBuilder rows: () -> Rows, footnote: () -> Text?) {
         compact = false
         self.title = Text(title)
         self.systemImage = systemImage
@@ -509,7 +529,7 @@ struct AgentStatusCard<Rows: View, Footnote: View>: View {
         self.footnote = footnote()
     }
 
-    init(verbatimTitle: String, trailing: String?, compact: Bool = false, @ViewBuilder rows: () -> Rows, @ViewBuilder footnote: () -> Footnote) {
+    init(verbatimTitle: String, trailing: String?, compact: Bool = false, @ViewBuilder rows: () -> Rows, footnote: () -> Text?) {
         self.compact = compact
         title = Text(verbatim: verbatimTitle)
         systemImage = nil
@@ -527,14 +547,19 @@ struct AgentStatusCard<Rows: View, Footnote: View>: View {
                 if let trailing {
                     Text(verbatim: trailing).font(LitheTheme.uiFont(size: compact ? 11 : 12, weight: .semibold)).monospacedDigit()
                 }
+                // Inline cards (the details column) keep explanations behind an
+                // info tip; hover cards are already transient, so they print it.
+                if isInline, let footnote { LitheInfoTip(footnote) }
             }
             .foregroundStyle(LitheTheme.HoverTooltip.foreground)
             Divider().overlay(LitheTheme.divider)
             VStack(alignment: .leading, spacing: 6) { rows }
-            footnote
-                .font(LitheTheme.uiFont(size: compact ? 10 : 10.5))
-                .foregroundStyle(LitheTheme.HoverTooltip.infoForeground)
-                .fixedSize(horizontal: false, vertical: true)
+            if !isInline, let footnote {
+                footnote
+                    .font(LitheTheme.uiFont(size: compact ? 10 : 10.5))
+                    .foregroundStyle(LitheTheme.HoverTooltip.infoForeground)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .font(LitheTheme.uiFont(size: 12))
         .modifier(AgentStatusCardSurface(isInline: isInline, compact: compact))
@@ -557,9 +582,9 @@ private struct AgentStatusCardSurface: ViewModifier {
     }
 }
 
-extension AgentStatusCard where Footnote == EmptyView {
+extension AgentStatusCard {
     init(title: LocalizedStringKey, systemImage: String? = nil, trailing: String? = nil, @ViewBuilder rows: () -> Rows) {
-        self.init(title: title, systemImage: systemImage, trailing: trailing, rows: rows) { EmptyView() }
+        self.init(title: title, systemImage: systemImage, trailing: trailing, rows: rows) { nil }
     }
 }
 

@@ -2,7 +2,7 @@
   "id": "agent-claude-desktop-mechanisms",
   "area": "AI",
   "group": "Agent 对话",
-  "capability": "在 Lithe 中打开 Claude Desktop 开始的 Claude Code 会话时，Desktop 专属机制按 Desktop 的方式呈现：每轮总结（wrap_up）显示为 Agent 回复，建议回复显示为按钮（仅最新一轮、未在回复时出现，点击填入输入框）；章节显示为分隔线；建议任务、启动会话与移交显示为任务卡片并随撤回/启动更新状态，可在新对话中开始；PR 绑定、CI 监控、自动合并显示为带链接的说明行；切换或申请目录显示为说明行；show_widget 可视化在禁网、非持久、禁止导航的隔离网页中展开显示；<pr-created> 变为 PR 链接；Desktop、浏览器、电脑操作、终端、定时任务与 claude.ai 连接器的其余工具显示可读标题；CI 监控事件与跨会话通知显示为折叠上下文。被拒绝或失败的 Desktop 调用保留为失败的工具行；CLI 会话行为不变",
+  "capability": "在 Lithe 中打开 Claude Desktop 开始的 Claude Code 会话时，Desktop 专属机制按 Desktop 的方式呈现：每轮总结（wrap_up）显示为 Agent 回复，建议回复显示为按钮（仅最新一轮、未在回复时出现，点击填入输入框）；章节显示为分隔线；建议任务、启动会话与移交显示为任务卡片并随撤回/启动更新状态，可在新对话中开始；PR 绑定、CI 监控、自动合并显示为带链接的说明行；切换或申请目录显示为说明行；show_widget 可视化在禁网、非持久、禁止导航并直接拒绝摄像头/麦克风的隔离网页中展开显示；<pr-created> 变为 PR 链接；Desktop、浏览器、电脑操作、终端、定时任务与 claude.ai 连接器的其余工具显示可读标题；CI 监控事件与跨会话通知显示为折叠上下文。被拒绝或失败的 Desktop 调用保留为失败的工具行；CLI 会话行为不变",
   "macos": {
     "evidence": [
       "rust/lithe-agent-host/src/claude_desktop.rs",
@@ -12,7 +12,9 @@
       "macos/Sources/LitheAgentConversationModule/Application/AgentImage.swift",
       "macos/Sources/Lithe/Views/Agent/AgentDesktopCardView.swift",
       "macos/Sources/Lithe/Views/Agent/AgentTranscriptView.swift",
-      "macos/Tests/LitheTests/AgentDesktopCardTests.swift"
+      "macos/Tests/LitheTests/AgentDesktopCardTests.swift",
+      "macos/Sources/Lithe/Platform/MacOS/WebMediaCapture.swift",
+      "macos/Tests/LitheTests/WebMediaCaptureTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -26,6 +28,6 @@
     "verificationStatus": "pending"
   },
   "owner": "Agent",
-  "verification": "macOS：在 Lithe 中恢复一个 Claude Desktop 开始、含章节、建议回复、建议任务（含撤回与启动）、PR 监控、目录切换与 show_widget 的会话，确认各卡片按顺序出现、被拒绝的调用留在折叠过程中显示失败；建议回复只在最后一轮且未在回复时出现，点击后文字进入输入框而不发送；任务卡片“在新对话中开始”新建对话并填入提示；PR 链接在浏览器打开；可视化展开后正常显示内联 SVG/HTML、不发起网络请求、点击链接交给浏览器；深浅主题与 300pt 窄面板布局不溢出。CLI 会话中同样的工具不存在，转录不受影响。运行 AgentDesktopCardTests 与 cargo test -p lithe-agent-host claude_desktop。Windows：共用宿主，Desktop 工具显示可读标题与类型，卡片尚未绘制，退回普通工具行。 可视化页面里点链接不会打开浏览器，页面脚本自己 click 链接也不会；页面刚展开时调用 sendPrompt 不会改动输入框草稿，用户在页面内点击后才会填入。任务撤回或启动失败时，原调用和失败原因在折叠过程里可见，卡片状态不变。压缩前历史里超过 4000 字符的可视化和任务提示完整显示。",
+  "verification": "macOS：在 Lithe 中恢复一个 Claude Desktop 开始、含章节、建议回复、建议任务（含撤回与启动）、PR 监控、目录切换与 show_widget 的会话，确认各卡片按顺序出现、被拒绝的调用留在折叠过程中显示失败；建议回复只在最后一轮且未在回复时出现，点击后文字进入输入框而不发送；任务卡片“在新对话中开始”新建对话并填入提示；PR 链接在浏览器打开；可视化展开后正常显示内联 SVG/HTML、不发起网络请求、不外开链接，并通过共享拒绝委托拒绝摄像头与麦克风，不弹系统授权提示；深浅主题与 300pt 窄面板布局不溢出。CLI 会话中同样的工具不存在，转录不受影响。运行 AgentDesktopCardTests、WebMediaCaptureCoverageTests 与 cargo test -p lithe-agent-host claude_desktop。Windows：共用宿主，Desktop 工具显示可读标题与类型，卡片尚未绘制，退回普通工具行。 可视化页面里点链接不会打开浏览器，页面脚本自己 click 链接也不会；页面刚展开时调用 sendPrompt 不会改动输入框草稿，用户在页面内点击后才会填入。任务撤回或启动失败时，原调用和失败原因在折叠过程里可见，卡片状态不变。压缩前历史里超过 4000 字符的可视化和任务提示完整显示。",
   "notes": "2026-10-25：宿主在 `_meta.lithe.claudeDesktop` 附加卡片描述并为所有 Desktop 工具提供可读标题；macOS 原生绘制卡片。Windows 只获得可读工具行，卡片待对齐。用本机 96 个含 Desktop 工具的真实会话离线回放，产出章节 19、建议回复 154、建议任务 30（6 次启动、4 次撤回状态更新）、PR 3、目录 7、可视化 7、计划 854。"
 }

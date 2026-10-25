@@ -45,6 +45,12 @@
 `.agents/notes/implemented/feature/2026-10-15-macos-settings-hierarchy.md`。
 它规定每个设置页归属哪个侧栏分组，以及插件带来的设置默认放在哪里；入口文件只保留这条提醒，规则以 Note 为准。
 
+## 设置必须反映工具的真实配置
+
+新增、修改或审查设置时，遵循 `develop-lithe` 的“Source-backed settings”规则，并先阅读
+`.agents/notes/implemented/architecture/2026-10-25-settings-native-configuration-editing.md`。
+对非敏感配置，默认发现并读取工具的实际来源，回显可编辑的当前值；用户修改并确认后才写回明确的来源，再重新读取显示结果。不要只放默认值占位符、维护不生效的影子配置，或在打开页面时写文件；敏感字段不得明文回显。具体优先级、冲突保护、恢复默认值和验证要求以 Skill 与 Note 为准。
+
 ## 开发与协作
 1. 每次进行功能开发或者 bug 修复都单独从最新的 preview 分支创建新分支，如果有对应的 issue 分支名最好与 issue 编号相关
 2. 开发的时候如果涉及到 github 相关的操作麻烦使用 gh CLI 来进行操作而不是使用 Compute rUse 的 Skill。由于沙盒影响可能导致需要反复的 gh 授权，每次需要授权的时候麻烦先申请更高的权限去主环境中查看对应是否有 gh 的Token，如果有就直接复用，这个时候找不到才要求登录 gh

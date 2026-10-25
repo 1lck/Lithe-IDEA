@@ -26654,6 +26654,22 @@
       }
     },
     {
+      "id": "native.agentDefaultValue",
+      "description": "Native UI: Agent default: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Agent default: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
       "id": "native.agentExecutable",
       "description": "Native UI: Agent executable",
       "platforms": [
@@ -28015,6 +28031,39 @@
       ],
       "macos": {
         "key": "Authorize this project to expose environment, Maven, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes, and the project-level server registration is removed. Enabled plugins can also use this project grant.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.autoCompactAboveContext",
+      "description": "Native UI: Auto-compact must not be larger than the context length.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Auto-compact must not be larger than the context length.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.autoCompactAt",
+      "description": "Native UI: Auto-compact at",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Auto-compact at",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.autoCompactAtTip",
+      "description": "Native UI: Tokens at which the Agent summarizes its context automatical",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Tokens at which the Agent summarizes its context automatically. Lower it to cap what each request costs. Leave empty for the Agent's default. Applies after reconnecting.",
         "arguments": []
       }
     },
@@ -32361,6 +32410,50 @@
       },
       "parameters": {
         "arg1": "string"
+      }
+    },
+    {
+      "id": "native.contextBreakdownNeedsAnObservableConnection",
+      "description": "Native UI: The breakdown needs Model call statistics (on by default) an",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The breakdown needs Model call statistics (on by default). After turning it on, reconnect and send a message.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.contextLength",
+      "description": "Native UI: Context length",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Context length",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.contextLengthTip",
+      "description": "Native UI: Tokens of context this Agent may use. The context ring reads",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Tokens of context this Agent may use. The context ring reads as full at this size. Codex applies it as its context window; for Claude Code the model decides its own size, so this sets where it compacts when no threshold is given. Leave empty for the Agent's default. Applies after reconnecting.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.contextSizeInvalid",
+      "description": "Native UI: Enter a size such as 200K or 1M, between 10K and 10M.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Enter a size such as 200K or 1M, between 10K and 10M.",
+        "arguments": []
       }
     },
     {
@@ -42410,6 +42503,17 @@
       }
     },
     {
+      "id": "native.library",
+      "description": "Native UI: Library",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Library",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.license",
       "description": "Native UI: License",
       "platforms": [
@@ -45510,6 +45614,17 @@
       }
     },
     {
+      "id": "native.modelCallDetailsNeedAnObservableConnection",
+      "description": "Native UI: Model call details need Model call statistics (on by default",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Model call details need Model call statistics (on by default). After turning it on, reconnect and send a message.",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.modelCallStatistics",
       "description": "Native UI: Model call statistics",
       "platforms": [
@@ -48127,6 +48242,17 @@
       ],
       "macos": {
         "key": "Not refreshed yet",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.notReportedYet",
+      "description": "Native UI: not reported yet",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "not reported yet",
         "arguments": []
       }
     },
@@ -52065,6 +52191,17 @@
       ],
       "macos": {
         "key": "Reconnect this Agent to refresh its model list.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.reconnectToApplyLimits",
+      "description": "Native UI: Reconnect the Agent to apply these limits.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Reconnect the Agent to apply these limits.",
         "arguments": []
       }
     },
@@ -61723,17 +61860,6 @@
       }
     },
     {
-      "id": "native.turnOnModelCallStatisticsInAgentSettingsAndReconnectToSeeModelCallsTimeToFirstc4f5efa5f9",
-      "description": "Native UI: Turn on Model call statistics in Agent settings and reconnect to see model calls, time to first token and output speed.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Turn on Model call statistics in Agent settings and reconnect to see model calls, time to first token and output speed.",
-        "arguments": []
-      }
-    },
-    {
       "id": "native.turnOnModelCallStatisticsInAgentSettingsAndReconnectToSeeTheMCPToolsSentWithEachRequest",
       "description": "Native UI: Turn on Model call statistics in Agent settings and reconnect to see the MCP tools sent with each request.",
       "platforms": [
@@ -61741,28 +61867,6 @@
       ],
       "macos": {
         "key": "Turn on Model call statistics in Agent settings and reconnect to see the MCP tools sent with each request.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.turnOnModelCallStatisticsInAgentSettingsAndReconnectToSeeTheSystemPromptToolDeffd4968e05",
-      "description": "Native UI: Turn on Model call statistics in Agent settings and reconnect to see the system prompt, tool definitions and messages.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Turn on Model call statistics in Agent settings and reconnect to see the system prompt, tool definitions and messages.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.turnOnModelCallStatisticsReconnectAndSendAMessageToSeeTheBreakdown",
-      "description": "Native UI: Turn on Model call statistics, reconnect and send a message to see the breakdown.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Turn on Model call statistics, reconnect and send a message to see the breakdown.",
         "arguments": []
       }
     },

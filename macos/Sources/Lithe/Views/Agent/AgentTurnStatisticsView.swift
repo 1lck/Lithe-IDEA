@@ -238,9 +238,9 @@ struct AgentTurnStatisticsCard: View {
                 }
             }
         } footnote: {
-            if statistics.usage != nil {
-                Text("Token counts reported by the Agent. Accounting scope depends on the Agent.")
-            }
+            statistics.usage != nil
+                ? Text("Token counts reported by the Agent. Accounting scope depends on the Agent.")
+                : nil
         }
     }
 }

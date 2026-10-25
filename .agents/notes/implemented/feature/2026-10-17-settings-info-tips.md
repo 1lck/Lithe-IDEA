@@ -25,7 +25,7 @@ Issue #1316 的截图里，通用、Git 和 Agent 管理页在几乎每个控件
 - 运行时的生效值不再用一整行等宽文本：`EffectiveRuntimeLabel` 用卡片展示模式徽标、来源、运行时名称和可选择复制的路径，警告与错误使用同一卡片形状和警示色。
 - Git 标签继承回显只消费 Core 的规范化布尔值：Core 用 Git 自己的 `--type=bool --get` 解释 `fetch.pruneTags` 与远程覆盖，识别 `yes/on/1`、无值和假值等写法；远程显式假值仍优先于全局真值。选中文件的原始编辑值不变，避免保存时因规范化导致误报冲突。所有远程模式下 Fetch 会跳过 `remote.<name>.skipFetchAll` 为真的远程，标签回显也必须排除它们；Core 同样用 Git 布尔解析归一化该键，显式选中某个远程时不受 skipFetchAll 影响。不要在 Swift 再写一份布尔解析器，否则界面会与真实 fetch 行为漂移。
 - Git 身份输入框回显当前生效值（包括继承值），保存按钮只在草稿与显示值不同时启用；清除覆盖后输入框回到继承的生效值。这样用户看到的就是 Git 实际会使用的值，不需要从下方的小字里对照。
-- Maven 的 `settings.xml` 与 `Local Repository` 输入框在未设置覆盖时，用有效路径作为占位文本：先看已配置值，再看 `~/.m2/settings.xml`、Maven 安装的 `conf/settings.xml` 和 `~/.m2/repository`；都不存在时显示“Not found”，不再显示无信息量的“Automatic”。
+- Maven 的 `settings.xml` 与 `Local Repository` 既有输入框在未设置覆盖时，用有效路径作为占位文本：先看已配置值，再看 `~/.m2/settings.xml`、Maven 安装的 `conf/settings.xml` 和 `~/.m2/repository`；都不存在时显示“Not found”，不再显示无信息量的“Automatic”。这只是当时实现的占位提示，不是后续设置交互的目标：新增或修改这类配置编辑时，按 [设置读取真实来源并确认写回](../architecture/2026-10-25-settings-native-configuration-editing.md) 回显可编辑当前值、确认写回并重新读取；本次规则更新不代表 Maven 页面已迁移。
 - Agent 预检把版本、路径和安装来源拆成结构化 `Detail`，用带分隔线的内嵌小表展示；`message` 保留为纯文本诊断源，测试和错误文案不受影响。状态从裸 `PASS` 文本改成带图标的胶囊徽标。
 - MCP 页面改成“标题/状态徽标 + 状态卡 + 项目权限 + Agent 配置”的短序列，安全说明收进 header 的 ⓘ；启用/关闭与复制配置在状态卡完成，配置 JSON 放在独立代码块里。
 - 运行配置编辑对话框沿用同一套语言：标题栏用运行时图标和类型/生效来源胶囊取代“配置”区里的纯文本行；保存范围、项目环境继承、覆盖说明和环境变量格式都收进 ⓘ；分区标题、分段控件、复选框和输入框复用设置页共享控件，底部按钮使用共享主/次按钮样式。项目环境改为可点击的整行入口，运行目录输入框和选择按钮保持一行。

@@ -48,18 +48,18 @@
           "name": "Codex",
           "description": "OpenAI Codex through its ACP adapter",
           "package": "@agentclientprotocol/codex-acp",
-          "version": "1.13.1",
-          "installedVersion": "1.13.1",
+          "version": "2.2.2",
+          "installedVersion": "2.2.2",
           "protocol": "responses",
           "minimumNodeMajor": 20,
           "verified": true,
           "cli": {
             "name": "Codex CLI",
             "command": "codex",
-            "minimumVersion": "0.156.0",
+            "minimumVersion": "0.160.1",
             "installHint": "npm install -g @openai/codex",
             "detected": {
-              "version": "0.156.1",
+              "version": "0.160.1",
               "path": "/opt/example/node/bin/codex"
             },
             "package": "@openai/codex",
@@ -68,7 +68,7 @@
               "canUpdate": true,
               "updateHint": "npm install -g @openai/codex",
               "updateAvailable": true,
-              "availableVersion": "0.157.1"
+              "availableVersion": "0.161.1"
             }
           },
           "issues": [],
@@ -79,7 +79,7 @@
           "name": "Claude",
           "description": "Claude Agent through its ACP adapter",
           "package": "@agentclientprotocol/claude-agent-acp",
-          "version": "0.81.2",
+          "version": "0.95.0",
           "installedVersion": null,
           "protocol": "anthropicMessages",
           "minimumNodeMajor": 22,
@@ -87,7 +87,7 @@
           "cli": {
             "name": "Claude Code",
             "command": "claude",
-            "minimumVersion": "2.1.280",
+            "minimumVersion": "2.1.309",
             "installHint": "npm install -g @anthropic-ai/claude-code",
             "detected": null,
             "package": "@anthropic-ai/claude-code",
@@ -106,19 +106,19 @@
     },
     "install": {
       "agentId": "codex-acp",
-      "installedVersion": "1.13.1"
+      "installedVersion": "2.2.2"
     },
     "uninstall": {
       "agentId": "codex-acp"
     },
     "installCli": {
       "agentId": "codex-acp",
-      "cliVersion": "0.156.1",
+      "cliVersion": "0.160.1",
       "updaterWarning": null
     },
     "installCliRecovered": {
       "agentId": "codex-acp",
-      "cliVersion": "0.157.1",
+      "cliVersion": "0.161.1",
       "updaterWarning": "Download failed; retry completed"
     }
   },
@@ -174,7 +174,7 @@
       "canUpdate": true,
       "updateHint": "npm install -g @openai/codex",
       "updateAvailable": true,
-      "availableVersion": "0.157.1"
+      "availableVersion": "0.161.1"
     },
     "homebrew": {
       "source": "homebrew",

@@ -64,7 +64,6 @@ struct ContributedSettingsPageView: View {
             .padding(.horizontal, 26)
             .padding(.top, 20)
             .padding(.bottom, 36)
-            .frame(maxWidth: 900, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .litheScrollViewChrome(alwaysShowVertical: true, usesCompactScrollers: true)

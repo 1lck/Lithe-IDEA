@@ -1593,7 +1593,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         guard wasSelected else { return }
         let target = previous.flatMap { editorTabItems.contains($0) ? $0 : nil } ?? editorTabItems.last
         switch target {
-        case .agentConversation: showAgentChatsInEditor()
+        case .agentConversation(let tab): showAgentChatsInEditor(tab: tab)
         case .document(let id):
             if let document = openDocuments.first(where: { $0.id == id }) { selectEditorDocument(document) }
         case .terminal(let id):

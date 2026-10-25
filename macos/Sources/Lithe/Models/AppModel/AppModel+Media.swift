@@ -89,7 +89,7 @@ extension AppModel {
         guard wasActive else { return }
 
         switch fallbackItem {
-        case .agentConversation: showAgentChatsInEditor()
+        case .agentConversation(let tab): showAgentChatsInEditor(tab: tab)
         case .repositoryDiff:
             selectRepositoryDiffTab()
         case .document(let documentID):

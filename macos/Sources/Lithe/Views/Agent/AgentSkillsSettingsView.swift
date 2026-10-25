@@ -60,7 +60,7 @@ struct AgentSkillsSettingsView: View {
             }
         }
         .font(LitheTheme.settingsFont)
-        .frame(maxWidth: 760, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: context) { await feature.refresh(context) }
         .onChange(of: context) { _ in sheet = nil }
         .onChange(of: workspace) { _ in selectedProjectPath = workspace?.path ?? "" }

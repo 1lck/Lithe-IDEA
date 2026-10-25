@@ -475,12 +475,23 @@ optional `firstTokenMs`, `durationMs`, optional provider `usage`
 (`inputTokens` excluding cache reads and writes for every protocol, `cacheReadTokens`, `cacheWriteTokens`,
 `outputTokens`, optional `reasoningTokens`) and optional estimated prompt
 `context` (`systemPromptTokens`, `toolTokens`, `mcpToolTokens`, `messageTokens`,
-`toolCount`, `mcpToolCount`, `scaledToUsage`). `sessionId` is present only when
+`toolCount`, `mcpToolCount`, `scaledToUsage`) and, only when true, `auxiliary`
+(a background request the Agent made for itself, such as Claude Code naming the
+session: its tokens count, but it is not a conversation step). Claude subscription
+connections are observed the same way: the host points `ANTHROPIC_BASE_URL` at the
+loopback proxy, which forwards to `https://api.anthropic.com` byte for byte while
+the CLI keeps sending its own credentials. `sessionId` is present only when
 exactly one non-cancelling prompt was running when the request started; consumers
 drop unattributed calls instead of guessing. The host waits up to two seconds for
 a turn's attributed calls to report before emitting its `turnFinished`, so they
 arrive first. A call still open after that bound carries `afterTurnFinished: true`
-and counts for the session only, never for a later turn. Redirect (3xx) hops are
+and counts for the session only, never for a later turn. The launch accepts `contextLimits` (`windowTokens`, `autoCompactTokens`, both optional;
+zero means unset). Codex receives them as `model_context_window` and
+`model_auto_compact_token_limit` in its session configuration. Claude Code has a single
+switch, so the threshold (else the context length) is exported as
+`CLAUDE_CODE_AUTO_COMPACT_WINDOW`. The Agent's reported `usage_update.size` can differ from
+the configured value and may change within a turn, so consumers cap the displayed
+capacity themselves instead of trusting the report. Redirect (3xx) hops are
 forwarded but are not model calls; only the followed request is reported.
 Responses WebSocket upgrades preserve the original handshake and wire bytes,
 including masking, fragments, compression, control frames and close frames.

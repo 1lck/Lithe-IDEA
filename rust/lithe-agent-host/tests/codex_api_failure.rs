@@ -161,6 +161,7 @@ fn run_with(
         observe_subagents: false,
         process_scope: None,
         claude_config_dir: None,
+        context_limits: Default::default(),
         codex_home: None,
         provider: Some(ProviderCredentials {
             protocol: ProviderProtocol::Responses,

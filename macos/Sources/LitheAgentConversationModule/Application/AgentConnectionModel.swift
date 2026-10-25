@@ -26,6 +26,16 @@ public final class AgentConnectionModel: ObservableObject {
     /// Account directory the current subscription connection was launched with;
     /// `nil` is the CLI's default account.
     public private(set) var accountDirectory: URL?
+    /// The context length the Agent reports while the user has set no limit: what
+    /// "default" means for this Agent. Called for every report; the owner dedupes.
+    public var onContextCapacityObserved: ((UInt64) -> Void)?
+    /// Context sizing of the current connection. The ring reads as full at its capacity.
+    public private(set) var contextLimits = AgentContextLimits()
+    private var agentID: String?
+    private var contextCapacityLimit: UInt64? { contextLimits.displayCapacity(forAgentID: agentID) }
+    /// The auto-compact threshold to show beside the ring, when it differs from where the ring is full.
+    public var autoCompactDisplayTokens: UInt64? { contextLimits.visibleAutoCompact(forAgentID: agentID) }
+
     /// Reports the account and the latest usage windows of a subscription
     /// connection so the app can keep the last known values per account. Lithe
     /// requests nothing for this; these are only what the Host or adapter pushed.
@@ -86,6 +96,8 @@ public final class AgentConnectionModel: ObservableObject {
     /// Called when any conversation starts or stops waiting for a permission
     /// decision, so a background project can signal it.
     public var onAttentionChanged: ((Bool) -> Void)?
+    /// Prepared sessions discarded by the connection cannot remain editor targets.
+    public var onSessionsDiscarded: ((Set<String>) -> Void)?
     /// Persisted session totals; `nil` keeps statistics per connection only.
     var statisticsStore: AgentSessionStatisticsStore?
 
@@ -173,6 +185,8 @@ public final class AgentConnectionModel: ObservableObject {
         let (events, continuation) = AsyncStream<String>.makeStream()
         errorMessage = nil
         isClaudeConnection = configuration.agentID == "claude-acp"
+        agentID = configuration.agentID
+        contextLimits = configuration.contextLimits
         usesSubscription = configuration.authentication == .codexSubscription
         usesClaudeSubscription = configuration.authentication == .claudeSubscription
         accountDirectory = configuration.authentication.isSubscription ? configuration.accountDirectory : nil
@@ -365,6 +379,12 @@ public final class AgentConnectionModel: ObservableObject {
 
     // MARK: Conversations
 
+    public func canReuseForNewConversation(_ sessionID: String) -> Bool {
+        let draft = sessionID == selectedSessionID ? Draft(text: draftText, files: draftFiles) : sessionDrafts[sessionID] ?? Draft()
+        return unpromptedSessionIDs.contains(sessionID)
+            && conversations[sessionID]?.messages.isEmpty == true && draft.isEmpty
+    }
+
     public func startNewConversation() {
         guard !isCreatingSession else { return }
         saveDraft()
@@ -391,6 +411,7 @@ public final class AgentConnectionModel: ObservableObject {
                 sessionDrafts[sessionID] = nil
                 unpromptedSessionIDs.remove(sessionID)
                 selectedSessionID = nil
+                onSessionsDiscarded?([sessionID])
             } else {
                 if conversations[sessionID]?.isAttached != true { selectSession(sessionID) }
                 return
@@ -954,7 +975,10 @@ public final class AgentConnectionModel: ObservableObject {
             } else { applyNotice(notice, to: sessionID) }
         case "usage_update":
             guard connectionState == .ready else { return }
-            conversations[sessionID, default: AgentConversation()].contextUsage = AgentContextUsage.parse(update)
+            let reported = AgentContextUsage.parse(update)
+            // A threshold alone leaves the reported length as the Agent's own default.
+            if let reported, contextLimits.windowTokens == nil { onContextCapacityObserved?(reported.capacityTokens) }
+            conversations[sessionID, default: AgentConversation()].contextUsage = reported?.capped(to: contextCapacityLimit)
             let meta = update["_meta"] as? [String: Any]
             let source = (meta?["lithe"] as? [String: Any])?["contextUsageSource"] as? String
             conversations[sessionID]?.contextUsageIsHistorical = source == "history" && conversations[sessionID]?.contextUsage != nil
@@ -1415,7 +1439,7 @@ public final class AgentConnectionModel: ObservableObject {
         let snapshot = conversation.statisticsBaseline ?? loadBackups[sessionID]?.statisticsRecord(at: .distantPast)
         guard let usage = snapshot?.contextUsage, let models = snapshot?.contextModels,
               !models.isEmpty, models == conversation.contextModelValues else { return }
-        conversations[sessionID]?.contextUsage = usage
+        conversations[sessionID]?.contextUsage = usage.capped(to: contextCapacityLimit)
         conversations[sessionID]?.contextUsageIsHistorical = true
     }
 
@@ -1539,10 +1563,7 @@ public final class AgentConnectionModel: ObservableObject {
     }
 
     private func discardUnpersistedEmptySessions() {
-        let discarded = unpromptedSessionIDs.filter {
-            let draft = $0 == selectedSessionID ? Draft(text: draftText, files: draftFiles) : sessionDrafts[$0] ?? Draft()
-            return conversations[$0]?.messages.isEmpty == true && draft.isEmpty
-        }
+        let discarded = unpromptedSessionIDs.filter { canReuseForNewConversation($0) }
         unpromptedSessionIDs.subtract(discarded)
         // Never infer this from an empty transcript alone: unloaded history must survive.
         for id in discarded { conversations[id] = nil; sessionDrafts[id] = nil }
@@ -1551,6 +1572,7 @@ public final class AgentConnectionModel: ObservableObject {
         if let selectedSessionID, discarded.contains(selectedSessionID) {
             self.selectedSessionID = nil
         }
+        if !discarded.isEmpty { onSessionsDiscarded?(discarded) }
     }
 
     private func openTab(_ sessionID: String) {
