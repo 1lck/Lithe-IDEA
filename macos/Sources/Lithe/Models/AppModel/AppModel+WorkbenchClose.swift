@@ -20,10 +20,6 @@ extension AppModel {
             showAgentChatsInToolWindow()
             return true
         }
-        if isDatabaseWorkspaceSelected {
-            closeDatabaseTab(activeDatabaseEditorTab)
-            return true
-        }
         if branchComparison != nil {
             closeBranchComparison()
             return true
@@ -47,10 +43,6 @@ extension AppModel {
         guard let item = editorTabItems.last else { return false }
         switch item {
         case .agentConversation: showAgentChatsInToolWindow()
-        case .databaseOverview:
-            closeDatabaseWorkspace(overview: true)
-        case .database, .databaseQuery:
-            closeDatabaseTab(item)
         case .repositoryDiff:
             closeGitCommitDiff()
         case .document(let documentID):

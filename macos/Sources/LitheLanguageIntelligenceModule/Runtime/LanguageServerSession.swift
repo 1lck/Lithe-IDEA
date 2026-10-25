@@ -45,6 +45,8 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     /// The plugin that owns the process; nil for host-owned servers, which
     /// serve no plugin functions.
     private let pluginID: String?
+    /// Host services Core lets this plugin backend request.
+    private let hostServices: [String]
 
     private var sessionID: String?
     private var pendingOperations: [String: PendingOperation] = [:]
@@ -91,6 +93,10 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     /// `functionsChanged` event listed them.
     package private(set) var functionIDs: [String] = []
     package var onFunctionsChange: (([String]) -> Void)?
+    /// Receives each host-service request Core accepted. The owner answers
+    /// it once through `respond(to:with:)`; without an owner the request is
+    /// refused so the backend never waits for an answer that cannot come.
+    package var onHostRequest: ((PluginHostRequest) -> Void)?
     /// The VCS provider the process negotiated in `initialize`, as Core's
     /// `vcsProvider` event reported it; nil for every other session.
     package private(set) var vcsNegotiation: VcsProviderNegotiation?
@@ -114,7 +120,8 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         core: any LanguageServerRuntimeCore,
         processRegistry: (any LanguageServerProcessRegistry)? = nil,
         moduleID: ModuleID = .languageIntelligence,
-        pluginID: String? = nil
+        pluginID: String? = nil,
+        hostServices: [String] = []
     ) {
         self.providerID = providerID
         self.executableURL = executableURL
@@ -131,6 +138,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         self.processRegistry = processRegistry
         self.moduleID = moduleID
         self.pluginID = pluginID
+        self.hostServices = hostServices
     }
 
     /// Derived from the last lifecycle state Rust published: there is no local
@@ -193,7 +201,21 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             ([executableURL.path] + arguments).joined(separator: " "),
             nil
         )
-        let started = if let pluginID {
+        let started = if let pluginID, !hostServices.isEmpty {
+            core.startPluginLanguageServer(
+                pluginID: pluginID,
+                providerID: providerID,
+                executableURL: executableURL,
+                arguments: arguments,
+                environment: environment,
+                rootURL: normalizedRoot,
+                initializationOptions: initializationOptions,
+                hostServices: hostServices,
+                initializeTimeout: initializeTimeout,
+                requestTimeout: requestTimeout,
+                shutdownTimeout: shutdownTimeout
+            )
+        } else if let pluginID {
             core.startPluginLanguageServer(
                 pluginID: pluginID,
                 providerID: providerID,
@@ -680,6 +702,17 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         }
     }
 
+    /// Answers a host-service request. Core writes the answer to the
+    /// backend's input, which a backend that stopped reading can block, so
+    /// it is sent off the main actor like a request.
+    package func respond(to requestID: String, with outcome: Result<ToolingJSONValue, PluginHostRequestFailure>) {
+        guard let sessionID else { return }
+        let core = core
+        Task.detached(priority: .userInitiated) {
+            _ = core.respondToPluginHostRequest(sessionID: sessionID, hostRequestID: requestID, outcome: outcome)
+        }
+    }
+
     /// Codes Core puts in `details` when it refuses a call before it reaches
     /// the backend. Any other `details`, such as an OS error text from a
     /// failed write, is a diagnostic and never becomes the page's code.
@@ -1041,6 +1074,21 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             var percentage: Int?
             if case .integer(let value)? = object["percentage"] { percentage = value }
             listener(PluginFunctionProgress(message: message, percentage: percentage))
+            return false
+        case "hostRequest":
+            guard case .object(let object)? = event.result,
+                  case .string(let id)? = object["hostRequestID"],
+                  case .string(let service)? = object["service"],
+                  let method = event.method else {
+                onLog?(.error, "Invalid host request event", nil, nil)
+                return false
+            }
+            let request = PluginHostRequest(id: id, method: method, service: service, params: object["params"] ?? .null)
+            if let onHostRequest {
+                onHostRequest(request)
+            } else {
+                respond(to: id, with: .failure(PluginHostRequestFailure(message: "The host serves no requests of this process.")))
+            }
             return false
         case "vcsProvider":
             switch Self.decodeEventResult(event, as: VcsProviderNegotiation.self) {

@@ -10,7 +10,6 @@
 "%@ (%@ failed)" = "%@（失败 %@）";
 "%@ (%lld)" = "%@（%lld）";
 "%@ (not available for this Lithe or Mac)" = "%@（当前 Lithe 或这台 Mac 无法使用）";
-"%@ Query History" = "%@ 查询历史";
 "%@ already exists. Choose another name or location." = "%@ 已存在，请更换名称或位置。";
 "%@ answered with status %lld. %@" = "%1$@ 返回状态 %2$lld。%3$@";
 "%@ build files changed" = "%@ 构建文件已更改";
@@ -55,7 +54,6 @@
 "%d lines of its own" = "%d 行自有内容";
 "%d messages" = "%d 条消息";
 "%d minutes ago" = "%d分钟前";
-"%d rows retrieved in %d ms" = "取回 %d 行，耗时 %d 毫秒";
 "%d selected" = "已选 %d 项";
 "%d tools" = "%d 个工具";
 "%lld CPU cores" = "%lld 核 CPU";
@@ -103,7 +101,6 @@
 "%lldh %lldm %llds" = "%lld小时 %lld分 %lld秒";
 "%lldm %llds" = "%lld分 %lld秒";
 "%llds" = "%lld秒";
-"%llu rows affected in %d ms" = "影响 %llu 行，耗时 %d 毫秒";
 ", " = "，";
 "0.5 seconds" = "0.5 秒";
 "1 file" = "1 个文件";
@@ -123,7 +120,6 @@
 "A basic project with a free structure." = "具有自由结构的基本项目。";
 "A custom Agent can follow either your Codex or your Claude configuration." = "自定义 Agent 可以跟随你本机的 Codex 或 Claude 配置。";
 "A detailed message with a clear subject and body" = "带有清晰标题和正文的详细说明";
-"A folder with this name already exists." = "已存在同名文件夹。";
 "A host name, an IP address, or a Host alias from ~/.ssh/config. Settings from that file, such as ProxyJump and IdentityFile, still apply." = "主机名、IP 地址，或 ~/.ssh/config 中的 Host 别名。该文件里的 ProxyJump、IdentityFile 等设置仍然生效。";
 "A managed Hook was edited outside Lithe. Restore or remove that native entry before synchronizing." = "Lithe 管理的 Hook 已在外部修改，请先恢复或移除该原生条目再同步。";
 "A message creates an annotated tag." = "填写说明将创建附注标签。";
@@ -255,7 +251,6 @@
 "All modules" = "全部模块";
 "All projects" = "所有项目";
 "All projects · project can override" = "所有项目 · 项目可覆盖";
-"All schemas" = "所有架构";
 "All servers" = "所有服务器";
 "All sessions" = "全部会话";
 "All severities" = "全部级别";
@@ -370,12 +365,15 @@
 "Average time to first token (TTFT)" = "首 token 平均（TTFT）";
 "Average total" = "平均总计";
 "Back" = "后退";
-"Back Up Database as SQL…" = "将数据库备份为 SQL…";
 "Back to all references" = "返回所有引用";
 "Back to the conversation" = "返回对话";
 "Background Services" = "后台服务";
+"Background command ended (exit code %@): %@" = "后台命令已结束（退出码 %@）：%@";
+"Background command finished: %@" = "后台命令已完成：%@";
 "Background services" = "后台服务";
 "Background services started in Lithe are still running" = "在 Lithe 中启动的后台服务仍在运行";
+"Background task ended" = "后台任务已结束";
+"Background task finished" = "后台任务已完成";
 "Balanced reasoning" = "平衡思考深度与响应速度";
 "Base" = "目标";
 "Base %@ → Target %@" = "基准 %@ → 目标 %@";
@@ -406,7 +404,6 @@
 "Breakdown unavailable" = "分项暂不可用";
 "Breakpoint actions" = "断点操作";
 "Breakpoints" = "断点";
-"Browse Database" = "浏览数据库";
 "Browse…" = "浏览…";
 "Bug report" = "错误报告";
 "Build" = "构建";
@@ -599,7 +596,6 @@
 "Clear date filter" = "清除日期筛选";
 "Clear debug output" = "清除调试输出";
 "Clear log search" = "清除日志搜索";
-"Clear output" = "清除输出";
 "Clear path filter" = "清除路径筛选";
 "Clear run output" = "清除运行输出";
 "Clear search" = "清除搜索";
@@ -669,13 +665,11 @@
 "Collapse All" = "全部折叠";
 "Collapse JSON block" = "收起 JSON 段落";
 "Collapse all" = "全部折叠";
-"Collapse database" = "折叠数据库";
 "Collapse directory" = "折叠目录";
 "Collapse long graph edges" = "收束长连线";
 "Collapse notification" = "收起通知";
 "Collapse repository" = "折叠仓库";
 "Collapse section" = "折叠分组";
-"Collapse table" = "折叠表";
 "Collapsed" = "已折叠";
 "Collected logs cleared." = "已清空收集的日志。";
 "Color theme" = "配色主题";
@@ -722,7 +716,6 @@
 "Committer name" = "提交者姓名";
 "Committing…" = "正在提交…";
 "Commit…" = "提交…";
-"Common Actions" = "常用操作";
 "Community" = "社区";
 "Community / Disk" = "社区 / 磁盘";
 "Community plugin installed from disk. Its publisher and repository have not been verified." = "从磁盘安装的社区插件，尚未验证发布者与源码仓库。";
@@ -777,11 +770,7 @@
 "Connecting…" = "正在连接…";
 "Connection" = "连接";
 "Connection recovery is taking longer. The Agent is still retrying." = "连接恢复等待较久，Agent 仍在重试。";
-"Connection successful" = "连接成功";
-"Connection test duration: %lld ms" = "连接检测耗时：%lld 毫秒";
-"Connection test result" = "连接测试结果";
 "Connection timeout" = "连接超时";
-"Connections" = "连接";
 "Connections: %lld" = "连接：%lld";
 "Console" = "控制台";
 "Content" = "内容";
@@ -807,6 +796,7 @@
 "Conventional Commits" = "Conventional Commits 规范";
 "Conversation" = "讨论";
 "Conversation actions" = "会话操作";
+"Conversation continued from a summary" = "对话已从摘要继续";
 "Conversation history" = "对话历史";
 "Conversation history is unavailable" = "当前无法读取对话历史";
 "Conversation tabs" = "会话标签";
@@ -943,11 +933,8 @@
 "Danger Zone" = "危险操作";
 "Dark" = "深色";
 "Dart Support" = "Dart 支持";
-"Data Source" = "数据源";
-"Data Tools" = "数据工具";
 "Database" = "数据库连接";
-"Database Overview" = "数据库概览";
-"Database types" = "数据库类型";
+"Database is now a plugin. Install it from the Marketplace, and your saved connections and passwords move into it." = "数据库已改为插件。从插件市场安装后，已保存的连接和密码会自动迁入。";
 "Date" = "日期";
 "Debug" = "调试";
 "Debug target" = "调试目标";
@@ -1080,7 +1067,6 @@
 "Don't ask again" = "不再询问";
 "Done" = "完成";
 "Don’t Allow" = "不允许";
-"Double-click a table to view data" = "在数据库树中双击表以查看数据";
 "Download" = "下载";
 "Download %@" = "下载 %@";
 "Download PHP Support from the official plugin release." = "从官方插件版本下载 PHP 支持。";
@@ -1104,7 +1090,6 @@
 "Drop this shelf?" = "丢弃此 Shelf 吗？";
 "Dropped: %lld; write failures: %lld" = "已丢弃：%lld；写入失败：%lld";
 "Duplicate" = "复制";
-"Duplicate Connection" = "复制连接";
 "Duration: %lld ms" = "耗时：%lld 毫秒";
 "Each Agent keeps its own configuration file. Turning an Agent off removes only the entry Lithe wrote; an entry created outside Lithe is never removed without taking ownership first." = "每个 Agent 使用各自的配置文件。关闭某个 Agent 只会移除 Lithe 写入的条目；在 Lithe 之外创建的条目必须先接管所有权才会被移除。";
 "Each account is a separate configuration folder of the official CLI. Sign-in runs the CLI's own login command in the background and opens your browser, so Lithe never reads or copies credentials. Switching restarts this project's connection for this Agent and is refused while a reply or permission request is pending. Lithe never switches accounts by itself when a limit is reached." = "每个账号对应官方 CLI 的一个独立配置目录。登录会在后台运行 CLI 自己的登录命令并打开浏览器，Lithe 不会读取或复制任何凭据。切换账号会重启当前项目中该 Agent 的连接，正在回复或等待授权时会被拒绝。额度用尽时 Lithe 不会自动换账号。";
@@ -1125,7 +1110,6 @@
 "Edit Commit Message" = "编辑提交消息";
 "Edit Commit Message…" = "编辑提交消息…";
 "Edit Configuration…" = "编辑运行配置…";
-"Edit Connection" = "编辑连接";
 "Edit Hook" = "编辑 Hook";
 "Edit MCP server" = "编辑 MCP 服务器";
 "Edit Service" = "编辑服务";
@@ -1185,6 +1169,7 @@
 "End on next launch" = "下次启动时结束";
 "End without asking" = "直接结束";
 "English" = "英文";
+"Enlarge image" = "放大查看图片";
 "Enter API key" = "填写 API Key";
 "Enter a ChangeList name (1–100 characters)." = "请输入更改列表名称（1–100 个字符）。";
 "Enter a branch name" = "请输入分支名称";
@@ -1240,20 +1225,16 @@
 "Expand %lld lines" = "展开中间 %lld 行";
 "Expand All" = "全部展开";
 "Expand JSON block" = "展开 JSON 段落";
-"Expand database" = "展开数据库";
 "Expand directory" = "展开目录";
 "Expand notification" = "展开通知";
 "Expand repository" = "展开仓库";
 "Expand section" = "展开分组";
-"Expand table" = "展开表";
 "Expand temporary Git configuration or command details" = "展开临时 Git 参数或命令详情";
 "Expanded" = "已展开";
 "Explain the intent, testing, and anything reviewers should know…" = "说明更改目的、测试情况，以及审查者需要了解的内容…";
 "Explain what must change before this pull request can be approved." = "说明在批准此拉取请求之前必须修改的内容。";
 "Export Diagnostics Bundle" = "导出诊断包";
 "Export Diagnostics Bundle…" = "导出诊断包…";
-"Export Table as CSV…" = "将表导出为 CSV…";
-"Export Table as JSON…" = "将表导出为 JSON…";
 "Export as PDF…" = "导出为 PDF…";
 "Export conversations" = "导出会话";
 "Export logs" = "导出日志";
@@ -1269,7 +1250,6 @@
 "F# Support" = "F# 支持";
 "Failed" = "失败";
 "Failed to start; check the language server configuration" = "启动失败，请检查语言服务器配置";
-"Failed, line %d" = "失败，第 %d 行";
 "Failures" = "失败详情";
 "Fast" = "快速";
 "Fast mode" = "快速模式";
@@ -1323,7 +1303,6 @@
 "Files will stay unchanged. Nothing will be staged or committed automatically." = "文件内容保持不变，不会自动暂存或提交。";
 "Filter by changed path" = "按更改路径筛选";
 "Filter by title, author, or label" = "按标题、作者或标签筛选";
-"Filter database type" = "筛选数据库类型";
 "Filter log messages" = "筛选日志内容";
 "Filter problems by severity" = "按严重级别筛选问题";
 "Filter results" = "筛选结果";
@@ -1344,11 +1323,11 @@
 "Find references to the selected symbol" = "查找所选符号的引用";
 "Finished" = "已完成";
 "First %lld locations" = "前 %lld 个位置";
+"Fit to Window" = "适应窗口";
 "Fix the failing checks below before installing." = "请先解决下方未通过的检测项，再进行安装。";
 "Fixup" = "合并并丢弃消息";
 "Folder" = "分组";
 "Folder name" = "文件夹名称";
-"Folder name is required." = "请输入文件夹名称。";
 "Follow Git setting" = "遵循 Git 配置";
 "Follow Git tag rules" = "遵循 Git 标签规则";
 "Follow the instructions you define below" = "遵循你在下方定义的指令";
@@ -1358,10 +1337,8 @@
 "For example, notify" = "例如 notify";
 "For example, notify me when a turn ends" = "例如：一轮结束时提醒我";
 "Force Checkout" = "强制检出";
-"Force Refresh" = "强制刷新";
 "Force Remove" = "强制删除";
 "Force remove worktree?" = "强制删除工作树？";
-"Forever" = "永久";
 "Forget" = "忘记";
 "Fork conversation" = "分叉会话";
 "Format" = "格式";
@@ -1533,14 +1510,10 @@
 "Ignored entries: %lld" = "已忽略条目：%lld";
 "Imperative subject" = "动作式标题";
 "Implementations" = "实现";
-"Import CSV…" = "导入 CSV…";
-"Import Data Sources…" = "导入数据源…";
 "Import JSON" = "导入 JSON";
-"Import JSON…" = "导入 JSON…";
 "Import MCP configuration" = "导入 MCP 配置";
 "Import SKILL.md" = "导入 SKILL.md";
 "Import a regular file or directory instead of a symbolic link." = "请导入普通文件或目录，而不是符号链接。";
-"Import connections from DBX" = "从 DBX 导入连接";
 "Import from Claude" = "从 Claude 导入";
 "Import from Codex" = "从 Codex 导入";
 "Import skill" = "导入技能";
@@ -1632,6 +1605,7 @@
 "Invalid shared instruction request." = "共享指令请求无效。";
 "Invert" = "反选";
 "It can read files, run commands and edit code after asking for permission." = "它可以在征得你的许可后读取文件、运行命令和修改代码。";
+"Item %lld of %lld" = "第 %lld 项，共 %lld 项";
 "Its details and actions will appear here." = "工作树详情和可用操作会显示在这里。";
 "JDK Home" = "JDK 主目录";
 "JDK home" = "JDK 主目录";
@@ -1996,12 +1970,10 @@
 "New Directory…" = "新建目录…";
 "New File…" = "新建文件…";
 "New Folder" = "新建文件夹";
-"New Folder…" = "新建文件夹…";
 "New Hook" = "新 Hook";
 "New MCP server" = "新建 MCP 服务器";
 "New Project" = "新建项目";
 "New Project…" = "新建项目…";
-"New Query" = "新建查询";
 "New Run Configuration" = "新建运行配置";
 "New SSH Connection" = "新建 SSH 连接";
 "New Tag" = "新建标签";
@@ -2019,6 +1991,7 @@
 "Next console expression" = "下一条表达式";
 "Next diff match" = "下一个 Diff 匹配项";
 "Next difference" = "下一个差异";
+"Next image" = "下一张图片";
 "Next match" = "下一个匹配";
 "Next match (Return)" = "下一个匹配项（Return）";
 "Next run" = "下次运行";
@@ -2053,8 +2026,6 @@
 "No Remote Branches" = "没有远程分支";
 "No SSH connections yet." = "还没有 SSH 连接。";
 "No Spring Boot or Maven Module configurations" = "没有 Spring Boot 或 Maven Module 配置";
-"No Table Selected" = "未选择表";
-"No accessible databases" = "没有可访问的数据库";
 "No available local branch. Branches already checked out in another worktree cannot be reused." = "没有可用的本地分支。已在其他工作树检出的分支不能重复使用。";
 "No background image selected" = "未选择背景图片";
 "No branches found" = "没有匹配的分支";
@@ -2062,7 +2033,6 @@
 "No callable target at this location" = "当前位置没有可调用目标";
 "No changed files" = "没有更改的文件";
 "No changes" = "没有更改";
-"No columns to display" = "没有可显示的列";
 "No command" = "无命令";
 "No commit selected" = "未选择提交";
 "No commits" = "没有提交记录";
@@ -2075,7 +2045,6 @@
 "No credential found in Codex configuration" = "Codex 配置中未找到凭据";
 "No current branch" = "没有当前分支";
 "No custom providers yet." = "尚未添加自定义供应商。";
-"No databases loaded" = "尚未加载数据库";
 "No default shell was detected. Choose a detected shell or run detection again." = "未检测到系统默认 Shell。请选择已检测到的 Shell，或重新执行检测。";
 "No dependencies" = "无依赖";
 "No dependencies." = "没有依赖。";
@@ -2131,7 +2100,6 @@
 "No published release is available yet." = "暂时没有已发布的版本。";
 "No pull requests" = "暂无拉取请求";
 "No pull requests match the selected state." = "当前状态下没有拉取请求。";
-"No query output" = "暂无查询输出";
 "No recent progress has been received. The task is still active." = "暂未收到新的进度，任务仍在进行。";
 "No recent projects" = "没有最近项目";
 "No release is available yet" = "暂时没有可用版本";
@@ -2143,7 +2111,6 @@
 "No runnable services were detected in this project." = "未在此项目中检测到可运行的服务。";
 "No running debug process accepts standard input" = "没有正在运行且接受标准输入的调试进程";
 "No saved changes" = "没有已保存的更改";
-"No schemas selected" = "未选择架构";
 "No settings found" = "未找到设置";
 "No shell was found at %@. Choose a detected shell or run detection again." = "在 %@ 未找到 Shell。请选择已检测到的 Shell，或重新执行检测。";
 "No shelves" = "没有 Shelf";
@@ -2165,7 +2132,6 @@
 "Node.js %lld or later is required; found %@." = "需要 Node.js %lld 或更高版本，当前为 %@。";
 "Node.js %lld or later was not found. Install it, then check again." = "未找到 Node.js %lld 或更高版本。请安装后重新检测。";
 "Node.js Support" = "Node.js 支持";
-"Non-Introspected" = "未内省";
 "Non-streaming" = "非流式";
 "Non-streaming responses" = "非流式响应";
 "None" = "无";
@@ -2174,7 +2140,6 @@
 "Not Assigned" = "未分配";
 "Not Supported" = "不支持";
 "Not available yet: dependencies are not indexed" = "尚不可用：依赖尚未建立索引";
-"Not connected" = "未连接";
 "Not detected" = "未检测";
 "Not fetched yet." = "尚未获取。";
 "Not found" = "未找到";
@@ -2238,6 +2203,7 @@
 "Open GitHub profile" = "打开 GitHub 个人主页";
 "Open HTML in Browser" = "在系统浏览器中打开";
 "Open Log Directory" = "打开日志目录";
+"Open Marketplace" = "打开插件市场";
 "Open Patch…" = "打开补丁…";
 "Open Plugin Management" = "打开插件管理";
 "Open Project" = "打开项目";
@@ -2262,7 +2228,6 @@
 "Open a project to manage its skills." = "请先打开项目，再管理项目技能。";
 "Open a project to see its language service." = "打开项目后可查看其语言服务。";
 "Open a project to use Git" = "请打开项目以使用 Git";
-"Open a table to inspect its structure" = "打开表以查看其结构";
 "Open again" = "重新打开";
 "Open file" = "打开文件";
 "Open file in editor to see problems" = "在编辑器中打开文件以查看问题";
@@ -2321,7 +2286,6 @@
 "Password or passphrase" = "密码或密钥口令";
 "Paste" = "粘贴";
 "Paste Patch" = "粘贴补丁";
-"Paste TSV from Clipboard" = "从剪贴板粘贴 TSV";
 "Paste a JSON object containing mcpServers." = "请粘贴包含 mcpServers 的 JSON 对象。";
 "Paste an https plugin index URL or a GitHub repository URL. A GitHub repository must contain lithe-plugin-index.json at its root." = "粘贴 https 插件索引地址或 GitHub 仓库地址。GitHub 仓库的根目录需要包含 lithe-plugin-index.json。";
 "Paste standard JSON with an mcpServers object. Choose a server to review before saving. Only the editor's supported command, arguments, environment, URL and header fields are imported; authentication and client-specific options must be configured separately. Importing does not take ownership of an existing entry." = "粘贴包含 mcpServers 的标准 JSON，选择服务器并检查后再保存。只导入编辑器支持的命令、参数、环境变量、URL 和请求头；认证及客户端专有选项需另行配置。导入不会接管已有条目。";
@@ -2387,7 +2351,6 @@
 "Preparing conversation…" = "正在准备对话…";
 "Preparing download…" = "正在准备下载…";
 "Preserves every commit and adds a merge commit to the base branch." = "保留全部提交，并在目标分支中添加一个合并提交。";
-"Press Enter or click outside the list to apply" = "按 Enter 或点击列表外应用";
 "Press shortcut…" = "请按下快捷键…";
 "Preview" = "预览";
 "Preview Update" = "预览版更新";
@@ -2406,6 +2369,7 @@
 "Previous console expression" = "上一条表达式";
 "Previous diff match" = "上一个 Diff 匹配项";
 "Previous difference" = "上一个差异";
+"Previous image" = "上一张图片";
 "Previous match" = "上一个匹配";
 "Previous match (Shift+Return)" = "上一个匹配项（Shift+Return）";
 "Previous session" = "上一次会话";
@@ -2516,9 +2480,7 @@
 "Push to %@" = "推送到 %@";
 "Push…" = "推送…";
 "Python Support" = "Python 支持";
-"Query Console" = "查询控制台";
 "Quick Information" = "快速信息";
-"Quick Start" = "快速开始";
 "Quick responses with basic reasoning" = "快速响应，基础推理";
 "Quit" = "退出";
 "Quit with Selection" = "按选择退出";
@@ -2558,7 +2520,6 @@
 "Rebase requires a clean working tree. Commit or stash local changes before choosing Rebase." = "变基需要干净的工作区。选择变基前，请先提交或暂存本地更改。";
 "Recent" = "最近";
 "Recent Projects" = "最近项目";
-"Recent SQL" = "最近的 SQL";
 "Recommended: keep worktrees in a persistent folder next to the repository. You can choose /private/tmp manually for disposable checkouts." = "建议将工作树放在仓库旁的持久目录中。临时检出时可以手动选择 /private/tmp。";
 "Reconnect" = "重新连接";
 "Reconnect this Agent to refresh its model list." = "重新连接此 Agent 即可刷新模型列表。";
@@ -2577,14 +2538,12 @@
 "Refresh Preview" = "刷新预览";
 "Refresh changes" = "刷新更改";
 "Refresh connection structure" = "刷新连接结构";
-"Refresh databases" = "刷新数据库";
 "Refresh dependencies" = "刷新依赖";
 "Refresh detected runtimes" = "刷新运行时检测结果";
 "Refresh history" = "刷新历史";
 "Refresh local history" = "刷新本地历史";
 "Refresh project history" = "刷新项目历史";
 "Refresh pull requests" = "刷新拉取请求";
-"Refresh selected structure" = "刷新选中对象的结构";
 "Refresh skills" = "刷新技能";
 "Refresh worktrees" = "刷新工作树";
 "Refreshed %@" = "已于 %@ 刷新";
@@ -2662,7 +2621,6 @@
 "Rename Branch" = "重命名分支";
 "Rename ChangeList" = "重命名更改列表";
 "Rename Chat" = "重命名对话";
-"Rename Folder" = "重命名文件夹";
 "Rename conversation" = "重命名会话";
 "Renamed" = "已重命名";
 "Rename…" = "重命名…";
@@ -2677,7 +2635,6 @@
 "Replace" = "替换";
 "Replace current commit message?" = "替换当前提交信息？";
 "Replace existing content" = "替换现有内容";
-"Replace in Current Page…" = "在当前页替换…";
 "Replace in File" = "在文件中替换";
 "Replace in Files" = "在项目中替换";
 "Replace in File…" = "在文件中替换…";
@@ -2746,12 +2703,10 @@
 "Restore Default Template" = "恢复默认模板";
 "Restore Default UI Layout" = "恢复默认 UI 布局";
 "Restore Defaults" = "恢复默认设置";
-"Restore SQL Backup…" = "恢复 SQL 备份…";
 "Restore conversations" = "恢复会话";
 "Restore path" = "恢复路径";
 "Restoring GitHub connection" = "正在恢复 GitHub 连接";
 "Result" = "结果";
-"Result %d" = "结果 %d";
 "Results" = "测试结果";
 "Resume" = "恢复执行";
 "Resume the paused debug session" = "继续已暂停的调试会话";
@@ -2858,13 +2813,10 @@
 "SKILL.md needs a name and description." = "SKILL.md 需要技能名称和说明。";
 "SKILL.md needs instructions after its frontmatter." = "请在 SKILL.md 的文件头后添加技能正文。";
 "SQL Support" = "SQL 支持";
-"SQL execution markers" = "SQL 执行状态标记";
 "SSH" = "SSH";
-"SSH / TLS" = "SSH / TLS";
 "SSH Agent" = "SSH Agent";
 "SSH Authentication" = "SSH 认证";
 "STAGED" = "已暂存";
-"Safety and Labels" = "安全与标记";
 "Sample interval" = "采样间隔";
 "Save" = "保存";
 "Save Changes" = "保存更改";
@@ -2880,12 +2832,10 @@
 "Save local changes with" = "本地更改保存方式";
 "Save message" = "保存信息";
 "Save or discard unsaved files before deleting this item" = "删除此项目之前，请先保存或丢弃未保存的文件";
-"Save password" = "保存密码";
 "Save scope" = "保存范围";
 "Save shared instructions" = "保存共享指令";
 "Save the active document" = "保存当前文档";
 "Save title" = "保存标题";
-"Save:" = "保存：";
 "Saved" = "已保存";
 "Saved in .lithe/run/configurations.json for the whole team. Local JDK paths are never shared." = "保存在 .lithe/run/configurations.json，供整个团队使用。本机 JDK 路径不会共享。";
 "Saved in .lithe/run/local.json and excluded from Git." = "保存在 .lithe/run/local.json，并已从 Git 中排除。";
@@ -2914,7 +2864,6 @@
 "Search connections" = "搜索连接";
 "Search conversation" = "搜索对话";
 "Search conversation titles or IDs…" = "搜索会话标题或 ID…";
-"Search databases" = "搜索数据库";
 "Search diff" = "搜索 Diff";
 "Search exclusions" = "搜索排除规则";
 "Search files and contents" = "搜索文件和内容";
@@ -2949,7 +2898,6 @@
 "Select a Spring Boot or Maven Module configuration before starting Debug" = "开始调试前请选择 Spring Boot 或 Maven Module 配置";
 "Select a changed file first" = "请先选择一个更改文件";
 "Select a commit" = "选择提交";
-"Select a connection in the database tree" = "在数据库树中选择连接";
 "Select a file" = "选择文件";
 "Select a file to preview" = "选择文件以预览";
 "Select a file to review" = "选择文件以查看";
@@ -2964,7 +2912,6 @@
 "Select branch" = "选择分支";
 "Select configurations for batch actions" = "勾选配置以批量操作";
 "Select conversation" = "选择会话";
-"Select databases" = "选择数据库";
 "Select for Compare" = "选择以进行比较";
 "Select repository for commits and branch operations" = "选择用于提交和分支操作的仓库";
 "Select run configuration" = "选择运行配置";
@@ -3101,6 +3048,7 @@
 "Skill files" = "技能文件";
 "Skill imports cannot contain symbolic links or special files." = "导入的技能不能包含符号链接或特殊文件。";
 "Skill instructions" = "技能正文";
+"Skill loaded: %@" = "已加载技能：%@";
 "Skill name (lowercase-with-hyphens)" = "技能名称（小写字母与连字符）";
 "Skill project" = "当前项目";
 "Skill saved. Refresh or reconnect the Agent if it does not appear in the conversation." = "技能已保存。如果对话中未显示，请刷新或重新连接 Agent。";
@@ -3132,7 +3080,6 @@
 "Some dependencies are not shown." = "部分依赖未显示。";
 "Sort by Last Updated" = "按最近更新排序";
 "Sort by Name" = "按名称排序";
-"Sort connections" = "连接排序";
 "Sort plugins" = "插件排序";
 "Source" = "配置来源";
 "Source Code" = "源代码";
@@ -3241,14 +3188,12 @@
 "Submitting review…" = "正在提交审查…";
 "Subscription accounts" = "订阅账号";
 "Succeeded" = "成功";
-"Succeeded, line %d" = "成功，第 %d 行";
 "Supplementary message cancelled." = "补充消息已取消。";
 "Supported placeholders: {summary}, {changes}, {testing}, {risks}." = "支持的占位符：{summary}、{changes}、{testing}、{risks}。";
 "Svelte Support" = "Svelte 支持";
 "Swap Direction" = "交换方向";
 "Swift Support" = "Swift 支持";
 "Switch Agent" = "切换 Agent";
-"Switch current database" = "切换当前数据库";
 "Switch project view" = "切换项目视图";
 "Switch to the Node.js/npm environment that installed this CLI, update it there, then check again." = "请切换到安装此 CLI 的 Node.js/npm 环境，在该环境中更新后重新检测。";
 "Switched" = "已切换";
@@ -3291,7 +3236,6 @@
 "Test process tree · Resident memory" = "测试进程树 · 驻留内存";
 "Test the connection to see the host's system, resources, and address." = "测试连接后，这里会显示主机的系统、资源和地址。";
 "Testing" = "测试";
-"Testing connection…" = "正在测试连接…";
 "Tests" = "测试";
 "Tests failed" = "测试失败";
 "Tests passed" = "测试通过";
@@ -3362,7 +3306,6 @@
 "The credential store version is unsupported. Existing credentials were preserved." = "凭据存储版本暂不支持，已保留原有凭据。";
 "The current file will be saved to Local History before it is replaced." = "替换当前文件前，会将其保存到本地历史。";
 "The current worktree cannot be removed here." = "不能在这里删除当前工作树。";
-"The database selection is no longer available. Refresh and try again." = "数据库选择已失效，请刷新后重试。";
 "The default ChangeList cannot be renamed." = "默认更改列表不能重命名。";
 "The downloaded app does not match the selected stable release. Nothing was installed." = "下载的应用与所选正式版不符，未执行安装。";
 "The downloaded disk image does not contain Lithe.app." = "下载的磁盘映像中没有 Lithe.app。";
@@ -3427,10 +3370,8 @@
 "The selected background image is unavailable and was removed." = "所选背景图片不可用，已移除。";
 "The selected branch diff is sent to the active AI provider when you generate." = "生成时，所选分支的差异内容会发送给当前 AI 服务商。";
 "The selected branches have no textual changes to summarize." = "所选分支之间没有可供总结的文本更改。";
-"The selected connection folder no longer exists." = "所选连接文件夹已不存在。";
 "The selected file changed before generation finished" = "生成完成前，选中的文件已发生变化";
 "The selected file has no textual diff to summarize." = "所选文件没有可用于总结的文本 Diff。";
-"The selected folder cannot be moved there." = "无法将所选文件夹移动到该位置。";
 "The selected table has no columns to display." = "所选表没有可显示的列。";
 "The selected versions match" = "所选版本相同";
 "The server asked again. Check the previous answer." = "服务器再次提问，请检查上一次的回答。";
@@ -3558,8 +3499,6 @@
 "Timed Out" = "已超时";
 "Timeout (seconds)" = "超时（秒）";
 "Title" = "标题";
-"To Folder…" = "移至文件夹…";
-"To Top Level" = "移至顶层";
 "To debug your code, do one of the following:" = "要调试代码，请执行以下操作之一：";
 "To track changes to code:" = "要跟踪代码更改：";
 "Today" = "今天";
@@ -3668,7 +3607,6 @@
 "Unstaged changes" = "未暂存更改";
 "Unsupported content" = "不支持的内容";
 "Until (UTC ISO 8601)" = "结束时间（UTC ISO 8601）";
-"Until restart" = "直到重启";
 "Untitled conversation" = "未命名对话";
 "Untracked" = "未跟踪";
 "Unused code" = "未使用的代码";
@@ -3931,7 +3869,6 @@
 "native.aChangeListWithThisNameAlreadyExists" = "已存在同名的更改列表。";
 "native.aCustomAgentCanFollowEitherYourCodexOrYourClaudeConfiguration" = "自定义 Agent 可以跟随你本机的 Codex 或 Claude 配置。";
 "native.aDetailedMessageWithAClearSubjectAndBody" = "带有清晰标题和正文的详细说明";
-"native.aFolderWithThisNameAlreadyExists" = "已存在同名文件夹。";
 "native.aHookWithThisNameAlreadyExists" = "已存在同名 Hook。";
 "native.aHostNameAnIPAddressOrAHostAliasFromSshConfigSettingsFromThatFileSuchAsProxyJumpAndIdentit" = "主机名、IP 地址，或 ~/.ssh/config 中的 Host 别名。该文件里的 ProxyJump、IdentityFile 等设置仍然生效。";
 "native.aJavaProjectWithNoBuildToolMavenOrGradle" = "不使用构建工具，或使用 Maven、Gradle 的 Java 项目。";
@@ -4069,7 +4006,6 @@
 "native.allProjectsProjectCanOverride" = "所有项目 · 项目可覆盖";
 "native.allReferences" = "所有引用";
 "native.allRepositories" = "全部仓库";
-"native.allSchemas" = "所有架构";
 "native.allServers" = "所有服务器";
 "native.allSessions" = "全部会话";
 "native.allSeverities" = "全部级别";
@@ -4206,10 +4142,13 @@
 "native.avg" = "平均";
 "native.backToAllReferences" = "返回所有引用";
 "native.backToTheConversation" = "返回对话";
-"native.backUpDatabaseAsSQL" = "将数据库备份为 SQL…";
+"native.backgroundCommandEndedExitCodeArg1Arg2" = "后台命令已结束（退出码 %1$@）：%2$@";
+"native.backgroundCommandFinished" = "后台命令已完成：%1$@";
 "native.backgroundServices" = "后台服务";
 "native.backgroundServices.variant2" = "后台服务";
 "native.backgroundServicesStartedInLitheAreStillRunning" = "在 Lithe 中启动的后台服务仍在运行";
+"native.backgroundTaskEnded" = "后台任务已结束";
+"native.backgroundTaskFinished" = "后台任务已完成";
 "native.balancedReasoning" = "平衡思考深度与响应速度";
 "native.base" = "目标";
 "native.base.variant2" = "基点：%1$@";
@@ -4242,7 +4181,6 @@
 "native.breakpointActions" = "断点操作";
 "native.breakpoints" = "断点";
 "native.browse" = "浏览…";
-"native.browseDatabase" = "浏览数据库";
 "native.bugReport" = "错误报告";
 "native.build" = "构建";
 "native.build.variant2" = "构建 %1$@ → %2$@";
@@ -4431,7 +4369,6 @@
 "native.clearGitConsole" = "清空 Git 控制台";
 "native.clearLogSearch" = "清除日志搜索";
 "native.clearLogs" = "清空日志";
-"native.clearOutput" = "清除输出";
 "native.clearOverride" = "清除覆盖";
 "native.clearPathFilter" = "清除路径筛选";
 "native.clearRunOutput" = "清除运行输出";
@@ -4503,14 +4440,12 @@
 "native.collaborationMode" = "协作模式";
 "native.collapse" = "折叠";
 "native.collapseAll" = "全部折叠";
-"native.collapseDatabase" = "折叠数据库";
 "native.collapseDirectory" = "折叠目录";
 "native.collapseJSONBlock" = "收起 JSON 段落";
 "native.collapseLongGraphEdges" = "收束长连线";
 "native.collapseNotification" = "收起通知";
 "native.collapseRepository" = "折叠仓库";
 "native.collapseSection" = "折叠分组";
-"native.collapseTable" = "折叠表";
 "native.collapsed" = "已折叠";
 "native.collectedLogsCleared" = "已清空收集的日志。";
 "native.colorTheme" = "配色主题";
@@ -4559,7 +4494,6 @@
 "native.committerEmail" = "提交者邮箱";
 "native.committerName" = "提交者姓名";
 "native.committing" = "正在提交…";
-"native.commonActions" = "常用操作";
 "native.community" = "社区";
 "native.communityDisk" = "社区 / 磁盘";
 "native.communityPluginInstalledFromDiskItsPublisherAndRepositoryHaveNotBeenVerified" = "从磁盘安装的社区插件，尚未验证发布者与源码仓库。";
@@ -4614,11 +4548,7 @@
 "native.connecting" = "正在连接…";
 "native.connection" = "连接";
 "native.connectionRecoveryIsTakingLongerTheAgentIsStillRetrying" = "连接恢复等待较久，Agent 仍在重试。";
-"native.connectionSuccessful" = "连接成功";
-"native.connectionTestDurationLldMs" = "连接检测耗时：%1$lld 毫秒";
-"native.connectionTestResult" = "连接测试结果";
 "native.connectionTimeout" = "连接超时";
-"native.connections" = "连接";
 "native.connectionsLld" = "连接：%1$lld";
 "native.console" = "控制台";
 "native.content" = "内容";
@@ -4645,6 +4575,7 @@
 "native.conventionalCommits" = "Conventional Commits 规范";
 "native.conversation" = "讨论";
 "native.conversationActions" = "会话操作";
+"native.conversationContinuedFromASummary" = "对话已从摘要继续";
 "native.conversationHistory" = "对话历史";
 "native.conversationHistoryIsUnavailable" = "当前无法读取对话历史";
 "native.conversationTabs" = "会话标签";
@@ -4781,17 +4712,13 @@
 "native.dConversations" = "共 %1$d 个会话";
 "native.dMessages" = "%1$d 条消息";
 "native.dMinutesAgo" = "%1$d分钟前";
-"native.dRowsRetrievedInDMs" = "取回 %1$d 行，耗时 %2$d 毫秒";
 "native.dSelected" = "已选 %1$d 项";
 "native.daemon" = "守护进程";
 "native.dangerZone" = "危险操作";
 "native.dark" = "深色";
 "native.dartSupport" = "Dart 支持";
-"native.dataSource" = "数据源";
-"native.dataTools" = "数据工具";
 "native.database" = "数据库连接";
-"native.databaseOverview" = "数据库概览";
-"native.databaseTypes" = "数据库类型";
+"native.databaseIsNowAPluginInstallItFromTheMarketplace" = "数据库已改为插件。从插件市场安装后，已保存的连接和密码会自动迁入。";
 "native.date" = "日期";
 "native.debug" = "调试";
 "native.debugResume" = "调试：继续";
@@ -4928,7 +4855,6 @@
 "native.doesNotProvideArchivedConversations" = "%1$@ 不支持归档会话。";
 "native.donTAllow" = "不允许";
 "native.donTAskAgain" = "不再询问";
-"native.doubleClickATableToViewData" = "在数据库树中双击表以查看数据";
 "native.download" = "下载";
 "native.download.variant2" = "下载 %1$@";
 "native.downloadAndInstall" = "下载并安装";
@@ -4952,7 +4878,6 @@
 "native.dropThisShelf" = "丢弃此 Shelf 吗？";
 "native.droppedLldWriteFailuresLld" = "已丢弃：%1$lld；写入失败：%2$lld";
 "native.duplicate" = "复制";
-"native.duplicateConnection" = "复制连接";
 "native.duplicateOmitted" = "重复依赖已省略";
 "native.durationLldMs" = "耗时：%1$lld 毫秒";
 "native.eachAgentKeepsItsOwnConfigurationFileTurningAnAgentOffRemovesOnlyTheEntryLithe602e7165d1" = "每个 Agent 使用各自的配置文件。关闭某个 Agent 只会移除 Lithe 写入的条目；在 Lithe 之外创建的条目必须先接管所有权才会被移除。";
@@ -4971,7 +4896,6 @@
 "native.editCommitMessage.variant2" = "编辑提交消息…";
 "native.editConfiguration" = "编辑运行配置…";
 "native.editConfigurationText" = "编辑配置文本";
-"native.editConnection" = "编辑连接";
 "native.editExceptionBreakpoint" = "编辑异常断点 %1$@";
 "native.editExceptionBreakpoint.variant2" = "编辑异常断点";
 "native.editFieldBreakpoint" = "编辑字段断点 %1$@";
@@ -5031,6 +4955,7 @@
 "native.endThisTerminal" = "结束此终端";
 "native.endWithoutAsking" = "直接结束";
 "native.english" = "英文";
+"native.enlargeImage" = "放大查看图片";
 "native.enterABranchName" = "请输入分支名称";
 "native.enterABranchName.variant2" = "请输入分支名称。";
 "native.enterABranchNameBeforePublishing" = "请输入分支名称后再发布。";
@@ -5084,14 +5009,12 @@
 "native.exitCodeLld" = "退出码 %1$lld";
 "native.exitedWithStatusD" = "%1$@ 以状态 %2$d 退出。\n%3$@";
 "native.expand" = "展开";
-"native.expandDatabase" = "展开数据库";
 "native.expandDirectory" = "展开目录";
 "native.expandJSONBlock" = "展开 JSON 段落";
 "native.expandLldLines" = "展开中间 %1$lld 行";
 "native.expandNotification" = "展开通知";
 "native.expandRepository" = "展开仓库";
 "native.expandSection" = "展开分组";
-"native.expandTable" = "展开表";
 "native.expandTemporaryGitConfigurationOrCommandDetails" = "展开临时 Git 参数或命令详情";
 "native.expanded" = "已展开";
 "native.explainTheIntentTestingAndAnythingReviewersShouldKnow" = "说明更改目的、测试情况，以及审查者需要了解的内容…";
@@ -5102,8 +5025,6 @@
 "native.exportDiagnosticsBundle" = "导出诊断包";
 "native.exportDiagnosticsBundle.variant2" = "导出诊断包…";
 "native.exportLogs" = "导出日志";
-"native.exportTableAsCSV" = "将表导出为 CSV…";
-"native.exportTableAsJSON" = "将表导出为 JSON…";
 "native.exportingConversations" = "正在导出会话…";
 "native.exportsTheIndexAgainstHEAD" = "导出暂存区相对 HEAD 的更改。";
 "native.exportsTheWorkingTreeSNetChangesAgainstHEADIncludingSelectedUntrackedFiles" = "导出工作树相对 HEAD 的最终更改，包含所选的未跟踪文件。";
@@ -5115,7 +5036,6 @@
 "native.fSupport" = "F# 支持";
 "native.failed" = "%1$@（失败 %2$@）";
 "native.failed.variant2" = "失败";
-"native.failedLineD" = "失败，第 %1$d 行";
 "native.failedToStartCheckTheLanguageServerConfiguration" = "启动失败，请检查语言服务器配置";
 "native.failures" = "失败详情";
 "native.fast" = "快速";
@@ -5172,7 +5092,6 @@
 "native.filesWillStayUnchangedNothingWillBeStagedOrCommittedAutomatically" = "文件内容保持不变，不会自动暂存或提交。";
 "native.filterByChangedPath" = "按更改路径筛选";
 "native.filterByTitleAuthorOrLabel" = "按标题、作者或标签筛选";
-"native.filterDatabaseType" = "筛选数据库类型";
 "native.filterLogMessages" = "筛选日志内容";
 "native.filterProblemsBySeverity" = "按严重级别筛选问题";
 "native.filterResults" = "筛选结果";
@@ -5194,11 +5113,11 @@
 "native.finished" = "已完成";
 "native.finishedWithoutCreating" = "%1$@ 已结束，但没有生成 %2$@。";
 "native.firstLldLocations" = "前 %1$lld 个位置";
+"native.fitToWindow" = "适应窗口";
 "native.fixTheFailingChecksBelowBeforeInstalling" = "请先解决下方未通过的检测项，再进行安装。";
 "native.fixup" = "合并并丢弃消息";
 "native.folder" = "分组";
 "native.folderName" = "文件夹名称";
-"native.folderNameIsRequired" = "请输入文件夹名称。";
 "native.followGitSetting" = "遵循 Git 配置";
 "native.followGitTagRules" = "遵循 Git 标签规则";
 "native.followTheInstructionsYouDefineBelow" = "遵循你在下方定义的指令";
@@ -5207,10 +5126,8 @@
 "native.forExampleNotify" = "例如 notify";
 "native.forExampleNotifyMeWhenATurnEnds" = "例如：一轮结束时提醒我";
 "native.forceCheckout" = "强制检出";
-"native.forceRefresh" = "强制刷新";
 "native.forceRemove" = "强制删除";
 "native.forceRemoveWorktree" = "强制删除工作树？";
-"native.forever" = "永久";
 "native.forget" = "忘记";
 "native.forkConversation" = "分叉会话";
 "native.format" = "格式";
@@ -5388,12 +5305,8 @@
 "native.imperativeSubject" = "动作式标题";
 "native.implementations" = "实现";
 "native.importARegularFileOrDirectoryInsteadOfASymbolicLink" = "请导入普通文件或目录，而不是符号链接。";
-"native.importCSV" = "导入 CSV…";
-"native.importConnectionsFromDBX" = "从 DBX 导入连接";
-"native.importDataSources" = "导入数据源…";
 "native.importFromClaude" = "从 Claude 导入";
 "native.importFromCodex" = "从 Codex 导入";
-"native.importJSON" = "导入 JSON…";
 "native.importJson" = "导入 JSON";
 "native.importMcpConfiguration" = "导入 MCP 配置";
 "native.importSkill" = "导入技能";
@@ -5587,6 +5500,7 @@
 "native.isNotInstalledLitheInstallsItWithYourNpmIntoItsApplicationData" = "%1$@ 尚未安装。Lithe 会用你的 npm 把它安装到应用数据目录。";
 "native.isVersionOrNewerIsRequired" = "%1$@ 的版本是 %2$@，需要 %3$@ 或更高版本。";
 "native.itCanReadFilesRunCommandsAndEditCodeAfterAskingForPermission" = "它可以在征得你的许可后读取文件、运行命令和修改代码。";
+"native.itemLldOfLld" = "第 %1$lld 项，共 %2$lld 项";
 "native.itsDetailsAndActionsWillAppearHere" = "工作树详情和可用操作会显示在这里。";
 "native.japaneseCharacters" = "日文字符";
 "native.javaApplication" = "Java 应用";
@@ -5754,7 +5668,6 @@
 "native.lldhLldmLlds" = "%1$lld小时 %2$lld分 %3$lld秒";
 "native.lldmLlds" = "%1$lld分 %2$lld秒";
 "native.llds" = "%1$lld秒";
-"native.lluRowsAffectedInDMs" = "影响 %1$llu 行，耗时 %2$d 毫秒";
 "native.load" = "加载";
 "native.loadDiskVersion" = "加载磁盘版本";
 "native.loadMore" = "加载更多";
@@ -6020,12 +5933,10 @@
 "native.newDirectory" = "新建目录…";
 "native.newFile" = "新建文件…";
 "native.newFolder" = "新建文件夹";
-"native.newFolderX633810e9b0" = "新建文件夹…";
 "native.newHook" = "新 Hook";
 "native.newMcpServer" = "新建 MCP 服务器";
 "native.newProject" = "新建项目…";
 "native.newProjectX6f8d176462" = "新建项目";
-"native.newQuery" = "新建查询";
 "native.newRunConfiguration" = "新建运行配置";
 "native.newSSHConnection" = "新建 SSH 连接";
 "native.newSkill" = "新建技能";
@@ -6039,6 +5950,7 @@
 "native.nextDiffMatch" = "下一个 Diff 匹配项";
 "native.nextDifference" = "下一个差异";
 "native.nextFile" = "下一个文件";
+"native.nextImage" = "下一张图片";
 "native.nextMatch" = "下一个匹配项";
 "native.nextMatch.variant2" = "下一个匹配";
 "native.nextMatchReturn" = "下一个匹配项（Return）";
@@ -6046,7 +5958,6 @@
 "native.noAIProviderIsConfiguredYet" = "尚未配置 AI 服务商。";
 "native.noAPIKeyFoundInClaudeConfiguration" = "Claude 配置中未找到 API 密钥";
 "native.noAPIKeyFoundInCodexAuthJson" = "Codex auth.json 中未找到 API 密钥";
-"native.noAccessibleDatabases" = "没有可访问的数据库";
 "native.noAgent" = "无 Agent";
 "native.noAgentIsReadyYetOpenThePanelSettingsToInstallAnAgentAndChooseALocalOrCustomProvider" = "尚无可用的 Agent，请在设置窗口的 Agent 页面中安装 Agent，并选择本机配置或自定义供应商。";
 "native.noAgentIsReadyYetOpenThePanelSettingsToInstallAnAgentAndFetchItsLocalConfiguration" = "还没有可用的 Agent。请打开设置窗口的 Agent 页面，安装 Agent 并获取它的本机配置。";
@@ -6062,7 +5973,6 @@
 "native.noChanges" = "没有更改";
 "native.noCodexConfigurationWasFound" = "未找到 Codex 配置";
 "native.noColumns" = "没有列";
-"native.noColumnsToDisplay" = "没有可显示的列";
 "native.noCommand" = "无命令";
 "native.noCommitSelected" = "未选择提交";
 "native.noCommits" = "没有提交记录";
@@ -6076,7 +5986,6 @@
 "native.noCredentialFoundInCodexConfiguration" = "Codex 配置中未找到凭据";
 "native.noCurrentBranch" = "没有当前分支";
 "native.noCustomProvidersYet" = "尚未添加自定义供应商。";
-"native.noDatabasesLoaded" = "尚未加载数据库";
 "native.noDefaultShellWasDetectedChooseADetectedShellOrRunDetectionAgain" = "未检测到系统默认 Shell。请选择已检测到的 Shell，或重新执行检测。";
 "native.noDependencies" = "无依赖";
 "native.noDependencies.variant2" = "没有依赖。";
@@ -6149,7 +6058,6 @@
 "native.noPublishedReleaseIsAvailableYet" = "暂时没有已发布的版本。";
 "native.noPullRequests" = "暂无拉取请求";
 "native.noPullRequestsMatchTheSelectedState" = "当前状态下没有拉取请求。";
-"native.noQueryOutput" = "暂无查询输出";
 "native.noRecentProgressHasBeenReceivedTheTaskIsStillActive" = "暂未收到新的进度，任务仍在进行。";
 "native.noRecentProjects" = "没有最近项目";
 "native.noReleaseIsAvailableYet" = "暂时没有可用版本";
@@ -6163,14 +6071,12 @@
 "native.noRunningDebugProcessAcceptsStandardInput" = "没有正在运行且接受标准输入的调试进程";
 "native.noSSHConnectionsYet" = "还没有 SSH 连接。";
 "native.noSavedChanges" = "没有已保存的更改";
-"native.noSchemasSelected" = "未选择架构";
 "native.noShellWasFoundAtChooseADetectedShellOrRunDetectionAgain" = "在 %1$@ 未找到 Shell。请选择已检测到的 Shell，或重新执行检测。";
 "native.noShelves" = "没有 Shelf";
 "native.noSkillsInThisScope" = "当前分类暂无技能。";
 "native.noSpringBootOrMavenModuleConfigurations" = "没有 Spring Boot 或 Maven Module 配置";
 "native.noSubagentOutputYet" = "尚未收到子代理输出";
 "native.noSubagentsYet" = "暂无子代理";
-"native.noTableSelected" = "未选择表";
 "native.noTasksYet" = "暂无任务";
 "native.noTextualDiffAvailable" = "没有可用的文本 Diff";
 "native.noTextualDifference" = "没有文本差异";
@@ -6186,7 +6092,6 @@
 "native.nodeJsLldOrLaterIsRequiredFound" = "需要 Node.js %1$lld 或更高版本，当前为 %2$@。";
 "native.nodeJsLldOrLaterWasNotFoundInstallItThenCheckAgain" = "未找到 Node.js %1$lld 或更高版本。请安装后重新检测。";
 "native.nodeJsSupport" = "Node.js 支持";
-"native.nonIntrospected" = "未内省";
 "native.nonStreaming" = "非流式";
 "native.nonStreamingResponses" = "非流式响应";
 "native.none" = "无";
@@ -6195,7 +6100,6 @@
 "native.notAssigned" = "未分配";
 "native.notAvailableForThisLitheOrMac" = "%1$@（当前 Lithe 或这台 Mac 无法使用）";
 "native.notAvailableYetDependenciesAreNotIndexed" = "尚不可用：依赖尚未建立索引";
-"native.notConnected" = "未连接";
 "native.notDetected" = "未检测";
 "native.notFetchedYet" = "尚未获取。";
 "native.notFound" = "未找到";
@@ -6264,7 +6168,6 @@
 "native.openAProjectToManageItsSkills" = "请先打开项目，再管理项目技能。";
 "native.openAProjectToSeeItsLanguageService" = "打开项目后可查看其语言服务。";
 "native.openAProjectToUseGit" = "请打开项目以使用 Git";
-"native.openATableToInspectItsStructure" = "打开表以查看其结构";
 "native.openAgain" = "重新打开";
 "native.openAgentSettings" = "打开 Agent 设置";
 "native.openAutoBuildDownloads" = "打开 AutoBuild 下载页";
@@ -6286,6 +6189,7 @@
 "native.openInNewWindow" = "在新窗口中打开";
 "native.openInRightSplit" = "在右侧分栏打开";
 "native.openLogDirectory" = "打开日志目录";
+"native.openMarketplace" = "打开插件市场";
 "native.openModulePomXml" = "打开所属模块的 pom.xml";
 "native.openNotificationHistory" = "打开通知历史";
 "native.openPagesClickTypeAndInspectABrowserThroughItsAccessibilityTree" = "打开网页、点击、输入，并通过无障碍树读取浏览器页面。";
@@ -6347,7 +6251,6 @@
 "native.pasteAnHttpsPluginIndexURLOrAGitHubRepositoryURLAGitHubRepositoryMustContainLi7616c31790" = "粘贴 https 插件索引地址或 GitHub 仓库地址。GitHub 仓库的根目录需要包含 lithe-plugin-index.json。";
 "native.pastePatch" = "粘贴补丁";
 "native.pasteStandardJsonWithAnMcpserversObjectChooseAServerToReviewBeforeSavingOnlyTheEditorSSupportedCommandArgumentsEnvironmentUrlAndHeaderFieldsAreImportedAuthenticationAndClientSpecificOptionsMustBeConfiguredSeparatelyImportingDoesNotTakeOwnershipOfAnExistingEntry" = "粘贴包含 mcpServers 的标准 JSON，选择服务器并检查后再保存。只导入编辑器支持的命令、参数、环境变量、URL 和请求头；认证及客户端专有选项需另行配置。导入不会接管已有条目。";
-"native.pasteTSVFromClipboard" = "从剪贴板粘贴 TSV";
 "native.pasteThisIntoYourMCPClientConfiguration" = "将此内容粘贴到 MCP 客户端配置中。";
 "native.pastedFiles" = "已粘贴文件";
 "native.patchCanBeAppliedToTheSelectedDestination" = "补丁可应用到所选目标。";
@@ -6411,7 +6314,6 @@
 "native.preparingConversation" = "正在准备对话…";
 "native.preparingDownload" = "正在准备下载…";
 "native.preservesEveryCommitAndAddsAMergeCommitToTheBaseBranch" = "保留全部提交，并在目标分支中添加一个合并提交。";
-"native.pressEnterOrClickOutsideTheListToApply" = "按 Enter 或点击列表外应用";
 "native.pressShortcut" = "请按下快捷键…";
 "native.previewAndExport" = "预览并导出…";
 "native.previewAndExportTheSelectedLogsWithEnvironmentInformationCredentialsAndHomeDir65f650979b" = "预览并导出筛选后的日志和环境信息。凭据和用户目录路径均会脱敏，不包含源码、编辑缓冲区或终端历史。";
@@ -6427,6 +6329,7 @@
 "native.previousDiffMatch" = "上一个 Diff 匹配项";
 "native.previousDifference" = "上一个差异";
 "native.previousFile" = "上一个文件";
+"native.previousImage" = "上一张图片";
 "native.previousMatch" = "上一个匹配项";
 "native.previousMatch.variant2" = "上一个匹配";
 "native.previousMatchShiftReturn" = "上一个匹配项（Shift+Return）";
@@ -6540,11 +6443,8 @@
 "native.pushTo" = "推送到 %1$@";
 "native.pushXc68c0bf1cd" = "推送“%1$@”？";
 "native.pythonSupport" = "Python 支持";
-"native.queryConsole" = "查询控制台";
-"native.queryHistory" = "%1$@ 查询历史";
 "native.quickInformation" = "快速信息";
 "native.quickResponsesWithBasicReasoning" = "快速响应，基础推理";
-"native.quickStart" = "快速开始";
 "native.quit" = "退出";
 "native.quitWithSelection" = "按选择退出";
 "native.quittingLitheEndsThesePrograms" = "退出 Lithe 会结束这些程序。";
@@ -6584,7 +6484,6 @@
 "native.rebaseRequiresACleanWorkingTreeCommitOrStashLocalChangesBeforeChoosingRebase" = "变基需要干净的工作区。选择变基前，请先提交或暂存本地更改。";
 "native.recent" = "最近";
 "native.recentProjects" = "最近项目";
-"native.recentSQL" = "最近的 SQL";
 "native.recommendedKeepWorktreesInAPersistentFolderNextToTheRepositoryYouCanChoosePrivf758d1db78" = "建议将工作树放在仓库旁的持久目录中。临时检出时可以手动选择 /private/tmp。";
 "native.reconnect" = "重新连接";
 "native.reconnectThisAgentToRefreshItsModelList" = "重新连接此 Agent 即可刷新模型列表。";
@@ -6596,7 +6495,6 @@
 "native.refreshAll" = "全部刷新";
 "native.refreshChanges" = "刷新更改";
 "native.refreshConnectionStructure" = "刷新连接结构";
-"native.refreshDatabases" = "刷新数据库";
 "native.refreshDependencies" = "刷新依赖";
 "native.refreshDetectedRuntimes" = "刷新运行时检测结果";
 "native.refreshFiles" = "刷新文件";
@@ -6609,7 +6507,6 @@
 "native.refreshPreview" = "刷新预览";
 "native.refreshProjectHistory" = "刷新项目历史";
 "native.refreshPullRequests" = "刷新拉取请求";
-"native.refreshSelectedStructure" = "刷新选中对象的结构";
 "native.refreshSkills" = "刷新技能";
 "native.refreshWorktrees" = "刷新工作树";
 "native.refreshed" = "已于 %1$@ 刷新";
@@ -6684,7 +6581,6 @@
 "native.renameChangeList" = "重命名更改列表";
 "native.renameChat" = "重命名对话";
 "native.renameConversation" = "重命名会话";
-"native.renameFolder" = "重命名文件夹";
 "native.renamed" = "已重命名";
 "native.reopenPullRequest" = "重新打开拉取请求";
 "native.reopenPullRequest.variant2" = "重新打开拉取请求";
@@ -6697,7 +6593,6 @@
 "native.replace" = "替换";
 "native.replaceCurrentCommitMessage" = "替换当前提交信息？";
 "native.replaceExistingContent" = "替换现有内容";
-"native.replaceInCurrentPage" = "在当前页替换…";
 "native.replaceInFile" = "在文件中替换";
 "native.replaceInFile.variant2" = "在文件中替换…";
 "native.replaceInFiles" = "在项目中替换";
@@ -6766,10 +6661,8 @@
 "native.restoreDefaultTemplate" = "恢复默认模板";
 "native.restoreDefaultUILayout" = "恢复默认 UI 布局";
 "native.restorePath" = "恢复路径";
-"native.restoreSQLBackup" = "恢复 SQL 备份…";
 "native.restoringGitHubConnection" = "正在恢复 GitHub 连接";
 "native.result" = "结果";
-"native.resultD" = "结果 %1$d";
 "native.results" = "测试结果";
 "native.results.variant2" = "个结果";
 "native.resume" = "恢复执行";
@@ -6873,10 +6766,7 @@
 "native.sSH" = "SSH";
 "native.sSHAgent" = "SSH Agent";
 "native.sSHAuthentication" = "SSH 认证";
-"native.sSHTLS" = "SSH / TLS";
-"native.safetyAndLabels" = "安全与标记";
 "native.sampleInterval" = "采样间隔";
-"native.save" = "保存：";
 "native.saveAfter" = "保存延迟";
 "native.saveChangedFilesAutomatically" = "自动保存已修改的文件";
 "native.saveChanges" = "保存更改";
@@ -6889,7 +6779,6 @@
 "native.saveMessage.variant2" = "保存信息";
 "native.saveMetadata" = "保存元数据";
 "native.saveOrDiscardUnsavedFilesBeforeDeletingThisItem" = "删除此项目之前，请先保存或丢弃未保存的文件";
-"native.savePassword" = "保存密码";
 "native.savePatch" = "保存补丁…";
 "native.saveScope" = "保存范围";
 "native.saveSharedInstructions" = "保存共享指令";
@@ -6918,7 +6807,6 @@
 "native.searchConnections" = "搜索连接";
 "native.searchConversation" = "搜索对话";
 "native.searchConversationTitlesOrIDs" = "搜索会话标题或 ID…";
-"native.searchDatabases" = "搜索数据库";
 "native.searchDiff" = "搜索 Diff";
 "native.searchEverywhere" = "全局搜索";
 "native.searchEverywhere.variant2" = "全局搜索…";
@@ -6954,7 +6842,6 @@
 "native.select.variant2" = "勾选 %1$@";
 "native.selectAChangedFileFirst" = "请先选择一个更改文件";
 "native.selectACommit" = "选择提交";
-"native.selectAConnectionInTheDatabaseTree" = "在数据库树中选择连接";
 "native.selectAFile" = "选择文件";
 "native.selectAFileToPreview" = "选择文件以预览";
 "native.selectAFileToReview" = "选择文件以查看";
@@ -6973,7 +6860,6 @@
 "native.selectBranch" = "选择分支";
 "native.selectConfigurationsForBatchActions" = "勾选配置以批量操作";
 "native.selectConversation" = "选择会话";
-"native.selectDatabases" = "选择数据库";
 "native.selectDebugInTheEditorContextMenu" = "— 在编辑器右键菜单中选择“调试...”";
 "native.selectForCompare" = "选择以进行比较";
 "native.selectRepositoryForCommitsAndBranchOperations" = "选择用于提交和分支操作的仓库";
@@ -7108,6 +6994,7 @@
 "native.skillFiles" = "技能文件";
 "native.skillImportsCannotContainSymbolicLinksOrSpecialFiles" = "导入的技能不能包含符号链接或特殊文件。";
 "native.skillInstructions" = "技能正文";
+"native.skillLoaded" = "已加载技能：%1$@";
 "native.skillMdExceedsThe128KibLimit" = "SKILL.md 超过了 128 KiB 的大小限制。";
 "native.skillMdFrontmatterIsNotClosed" = "SKILL.md 的文件头缺少结束标记。";
 "native.skillMdHasInvalidYamlFrontmatter" = "SKILL.md 的 YAML 文件头格式不正确。";
@@ -7146,7 +7033,6 @@
 "native.someMCPConfigurationFilesCouldNotBeRestoredRefreshAndCheckTheseFilesBeforeRetrying" = "部分 MCP 配置文件未能恢复：%1$@。请刷新并检查这些文件后重试。";
 "native.sortByLastUpdated" = "按最近更新排序";
 "native.sortByName" = "按名称排序";
-"native.sortConnections" = "连接排序";
 "native.sortPlugins" = "插件排序";
 "native.source" = "配置来源";
 "native.sourceCode" = "源代码";
@@ -7156,7 +7042,6 @@
 "native.speed" = "速度";
 "native.springBoot" = "Spring Boot";
 "native.springEndpoints" = "Spring 接口";
-"native.sqlExecutionMarkers" = "SQL 执行状态标记";
 "native.sqlSupport" = "SQL 支持";
 "native.squash" = "合并并保留消息";
 "native.squash1" = "合并为 1 笔";
@@ -7258,14 +7143,12 @@
 "native.subjectMaximumLength" = "标题最大长度";
 "native.submittingReview" = "正在提交审查…";
 "native.succeeded" = "成功";
-"native.succeededLineD" = "成功，第 %1$d 行";
 "native.supplementaryMessageCancelled" = "补充消息已取消。";
 "native.supportedPlaceholdersSummaryChangesTestingRisks" = "支持的占位符：{summary}、{changes}、{testing}、{risks}。";
 "native.svelteSupport" = "Svelte 支持";
 "native.swapDirection" = "交换方向";
 "native.swiftSupport" = "Swift 支持";
 "native.switchAgent" = "切换 Agent";
-"native.switchCurrentDatabase" = "切换当前数据库";
 "native.switchProjectView" = "切换项目视图";
 "native.switchToTheNodeJsNpmEnvironmentThatInstalledThisCLIUpdateItThereThenCheckAgain" = "请切换到安装此 CLI 的 Node.js/npm 环境，在该环境中更新后重新检测。";
 "native.switched" = "已切换";
@@ -7309,7 +7192,6 @@
 "native.testRunTimedOutAfterSeconds" = "%1$@ 测试运行在 %2$@ 秒后超时。";
 "native.testTheConnectionToSeeTheHostSSystemResourcesAndAddress" = "测试连接后，这里会显示主机的系统、资源和地址。";
 "native.testing" = "测试";
-"native.testingConnection" = "正在测试连接…";
 "native.tests" = "测试";
 "native.testsFailed" = "测试失败";
 "native.testsPassed" = "测试通过";
@@ -7360,7 +7242,6 @@
 "native.theCredentialStoreVersionIsUnsupportedExistingCredentialsWerePreserved" = "凭据存储版本暂不支持，已保留原有凭据。";
 "native.theCurrentFileWillBeSavedToLocalHistoryBeforeItIsReplaced" = "替换当前文件前，会将其保存到本地历史。";
 "native.theCurrentWorktreeCannotBeRemovedHere" = "不能在这里删除当前工作树。";
-"native.theDatabaseSelectionIsNoLongerAvailableRefreshAndTryAgain" = "数据库选择已失效，请刷新后重试。";
 "native.theDefaultChangeListCannotBeRenamed" = "默认更改列表不能重命名。";
 "native.theDownloadedAppDoesNotMatchTheSelectedStableReleaseNothingWasInstalled" = "下载的应用与所选正式版不符，未执行安装。";
 "native.theDownloadedDiskImageDoesNotContainLitheApp" = "下载的磁盘映像中没有 Lithe.app。";
@@ -7443,10 +7324,8 @@
 "native.theSelectedBackgroundImageIsUnavailableAndWasRemoved" = "所选背景图片不可用，已移除。";
 "native.theSelectedBranchDiffIsSentToTheActiveAIProviderWhenYouGenerate" = "生成时，所选分支的差异内容会发送给当前 AI 服务商。";
 "native.theSelectedBranchesHaveNoTextualChangesToSummarize" = "所选分支之间没有可供总结的文本更改。";
-"native.theSelectedConnectionFolderNoLongerExists" = "所选连接文件夹已不存在。";
 "native.theSelectedFileChangedBeforeGenerationFinished" = "生成完成前，选中的文件已发生变化";
 "native.theSelectedFileHasNoTextualDiffToSummarize" = "所选文件没有可用于总结的文本 Diff。";
-"native.theSelectedFolderCannotBeMovedThere" = "无法将所选文件夹移动到该位置。";
 "native.theSelectedTableHasNoColumnsToDisplay" = "所选表没有可显示的列。";
 "native.theSelectedVersionsMatch" = "所选版本相同";
 "native.theServerAskedAgainCheckThePreviousAnswer" = "服务器再次提问，请检查上一次的回答。";
@@ -7578,8 +7457,6 @@
 "native.timeoutSeconds" = "超时（秒）";
 "native.title" = "标题";
 "native.toDebugYourCodeDoOneOfTheFollowing" = "要调试代码，请执行以下操作之一：";
-"native.toFolder" = "移至文件夹…";
-"native.toTopLevel" = "移至顶层";
 "native.toTrackChangesToCode" = "要跟踪代码更改：";
 "native.today" = "今天";
 "native.toggle" = "切换 %1$@";
@@ -7688,7 +7565,6 @@
 "native.unstaged" = "未暂存";
 "native.unstagedChanges" = "未暂存更改";
 "native.unsupportedContent" = "不支持的内容";
-"native.untilRestart" = "直到重启";
 "native.untilUTCISO8601" = "结束时间（UTC ISO 8601）";
 "native.untitledConversation" = "未命名对话";
 "native.untracked" = "未跟踪";

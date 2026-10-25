@@ -330,7 +330,7 @@ the existing stack can reasonably avoid.
 - Keep selection distinct from checkbox inclusion, chosen settings values,
   status badges, activity-rail buttons, menu highlight, tool-window tabs and
   editor text selection. Those retain their owning styles; tool-window tabs
-  use `LitheToolWindowTabStyle`, tables use `DatabaseGrid` tokens. Do not add
+  use `LitheToolWindowTabStyle`. Do not add
   persistent selection to a view that does not already have it. Verify dark/light
   focused/inactive rows, focus moving to a neighboring list or editor, whole
   window deactivation and reactivation, keyboard navigation, and shared field
@@ -396,7 +396,7 @@ The decision and owning components are recorded in
 #### Rust Core comments
 
 Apply the following comment standard to first-party code under
-`rust/lithe-core/`. It does not require comment coverage in the database helpers,
+`rust/lithe-core/`. It does not require comment coverage in other helper crates,
 Windows/Tauri Rust crates, generated code, or third-party sources.
 
 - Write comments in English and keep them accurate when behavior changes.

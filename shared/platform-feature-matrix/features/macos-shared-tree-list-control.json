@@ -12,8 +12,7 @@
       "macos/Tests/LitheTests/LitheTreeRowStyleTests.swift",
       "macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift",
       "macos/Sources/Lithe/Views/Workbench/PluginNativeToolWindowView.swift",
-      ".agents/notes/implemented/simplification/2026-09-30-macos-shared-dropdown-style.md",
-      "macos/Tests/LitheTests/DatabaseWorkspaceLifecycleTests.swift"
+      ".agents/notes/implemented/simplification/2026-09-30-macos-shared-dropdown-style.md"
     ]
   },
   "windows": {

@@ -55,7 +55,7 @@ const openWorkingTreeDiffBuffer = async (
 
   return useBufferStore
     .getState()
-    .actions.openBuffer(virtualPath, displayName, "", false, undefined, true, true, multiDiff);
+    .actions.openBuffer(virtualPath, displayName, "", false, true, true, multiDiff);
 };
 
 const openSidebarCommitDiffBuffer = async (

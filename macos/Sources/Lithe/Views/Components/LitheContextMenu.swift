@@ -742,7 +742,6 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
     /// Searchable filters share the action-menu window and dismissal lifecycle.
     func show(contentController: NSViewController, at screenPoint: NSPoint,
               appearance: NSAppearance?, opensUpward: Bool = false, searchOnTyping: Bool = false,
-              hasShadow: Bool = true, fadeInDuration: TimeInterval = 0,
               parentWindow: NSWindow? = nil,
               trigger: NSView? = nil,
               onAccept: (() -> Void)? = nil,
@@ -764,10 +763,6 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
             container = contentController
         }
         let panel = makePanel(contentController: container, appearance: appearance)
-        // AppKit's window shadow also adds a bright perimeter to custom balloon surfaces.
-        panel.hasShadow = hasShadow
-        let fadesIn = fadeInDuration > 0 && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        panel.alphaValue = fadesIn ? 0 : 1
         customContentController = contentController
         contentWidth = resizableWidth.flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
         contentMinimumWidth = minimumWidth
@@ -869,13 +864,6 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         panel.orderFrontRegardless()
         panel.makeKey()
         if searchOnTyping { panel.makeFirstResponder(panel) }
-        if fadesIn {
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = fadeInDuration
-                context.timingFunction = CAMediaTimingFunction(name: .linear)
-                panel.animator().alphaValue = 1
-            }
-        }
     }
 
     func resize(contentController: NSViewController) {

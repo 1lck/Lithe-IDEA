@@ -959,6 +959,60 @@
       "base": "build-command-output-file.plugin.json",
       "edits": [{ "op": "set", "path": "/buildSystems/0/tasks/0/category", "value": ["Tasks", " "] }],
       "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "backend needs its capability in requires",
+      "base": "backend.plugin.json",
+      "edits": [{ "op": "remove", "path": "/requires/backend" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "backend capability version this Core does not know",
+      "base": "backend.plugin.json",
+      "edits": [{ "op": "set", "path": "/requires/backend", "value": 2 }],
+      "expectedCode": "plugin.api.unsupported"
+    },
+    {
+      "name": "backend needs serverProcess",
+      "base": "backend.plugin.json",
+      "edits": [{ "op": "remove", "path": "/requires/serverProcess" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "backend needs the backend.launch permission",
+      "base": "backend.plugin.json",
+      "edits": [{ "op": "set", "path": "/permissions", "value": ["credentials.store", "ui.contribute", "ui.web"] }],
+      "expectedCode": "plugin.permission.undeclared"
+    },
+    {
+      "name": "backend serves only web pages",
+      "base": "backend.plugin.json",
+      "edits": [{ "op": "remove", "path": "/ui/toolWindows/0/web" }, { "op": "set", "path": "/ui/toolWindows/0/text", "value": "No page" }, { "op": "set", "path": "/requires/ui", "value": 1 }, { "op": "set", "path": "/permissions", "value": ["backend.launch", "credentials.store", "ui.contribute"] }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "backend is not bound to a workspace",
+      "base": "backend.plugin.json",
+      "edits": [{ "op": "set", "path": "/backend/arguments", "value": ["--cache", "${workspaceStateDir}"] }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "backend launch stays inside the package",
+      "base": "backend.plugin.json",
+      "edits": [{ "op": "set", "path": "/backend/launch/path", "value": "../backend" }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "backend rejects unknown fields",
+      "base": "backend.plugin.json",
+      "edits": [{ "op": "set", "path": "/backend/workspace", "value": true }],
+      "expectedCode": "plugin.manifest.invalid"
+    },
+    {
+      "name": "credentials.store without a backend",
+      "base": "backend.plugin.json",
+      "edits": [{ "op": "remove", "path": "/backend" }, { "op": "set", "path": "/requires", "value": {"ui":  2} }, { "op": "set", "path": "/permissions", "value": ["credentials.store", "ui.contribute", "ui.web"] }],
+      "expectedCode": "plugin.manifest.invalid"
     }
   ]
 }

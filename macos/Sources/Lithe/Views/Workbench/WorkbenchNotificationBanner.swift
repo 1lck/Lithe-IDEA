@@ -14,6 +14,9 @@ struct WorkbenchNotificationBanner: View {
     /// capture can render the shipped translation instead of the format key.
     var bundle: Bundle = .main
     var showHistory: () -> Void = {}
+    /// Localization key of the action button, when the notification has one.
+    var actionTitle: String?
+    var performAction: () -> Void = {}
     let dismiss: () -> Void
 
     private var displayMessage: String {
@@ -79,15 +82,24 @@ struct WorkbenchNotificationBanner: View {
         HStack(alignment: .top, spacing: 8) {
             LitheIDEAIcon(resourcePath: "expui/status/info.svg", size: 16, preservesOriginalColors: true)
                 .padding(.top, 15)
-            Group {
-                if isExpanded {
-                    ScrollView {
-                        messageText
-                            .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 8) {
+                Group {
+                    if isExpanded {
+                        ScrollView {
+                            messageText
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .frame(height: min(textHeight, 10 * lineHeight))
+                    } else {
+                        messageText.lineLimit(2)
                     }
-                    .frame(height: min(textHeight, 10 * lineHeight))
-                } else {
-                    messageText.lineLimit(2)
+                }
+                if let actionTitle {
+                    Button(LocalizedStringKey(actionTitle), action: performAction)
+                        .buttonStyle(.litheNoPress)
+                        .font(LitheTheme.uiFont(size: 13))
+                        .foregroundStyle(LitheTheme.accent)
+                        .accessibilityIdentifier("workbench-notification-action")
                 }
             }
                 .frame(maxWidth: .infinity, alignment: .leading)

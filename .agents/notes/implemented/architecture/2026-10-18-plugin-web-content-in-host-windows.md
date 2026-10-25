@@ -33,11 +33,12 @@
 
 ### 桥接对象
 
-宿主在页面脚本执行前注入 `window.lithe`（第 1 版）：`context`、`request(method, params)` 和 `on(event, listener)`。方法和事件的全集写在 `shared/contracts/plugins/v1/README.md` 的 “Web content (`ui` 2)” 一节，这里只记录边界：
+宿主在页面脚本执行前注入 `window.lithe`（当前第 2 版，`lithe.version` 给出版本号）：`context`、`request(method, params)` 和 `on(event, listener)`。方法和事件的全集写在 `shared/contracts/plugins/v1/README.md` 的 “Web content (`ui` 2)” 一节，这里只记录边界：
 
 - 页面只能操作本插件声明的构建系统和当前工作区，越界返回 `plugin.web.forbidden`。
 - 凡是会启动进程的请求（刷新模型、跑任务、跑测试），都要经过与宿主自身按钮相同的信任和同意流程，输出进入宿主的 Build Output。页面不能提交或修改进程 argv，也不能自己拼命令；模型保留 Core 返回的声明运行项 `run` 和任务 `category` 供展示，执行入口仍只有宿主校验过的任务与测试。
 - 选项写入沿用 `build.resolveOptions` 和宿主的选项存储，因此构建选项转交给 JDT 的方式与宿主自己的选项列表一致。
+- 第 2 版只多了文件对话框 `dialog.openFile` / `dialog.saveFile`，供数据库这类带后端的插件导入导出文件。对话框由宿主弹出，说明里写明是哪个插件在请求；同一页面同时只能开一个；页面只拿到用户选中的绝对路径，真正的读写交给插件后端，页面本身仍然碰不到文件。页面在对话框打开期间被关闭，就拿不到选择结果。旧宿主没有这两个方法（返回 `plugin.web.unknownMethod`），所以页面先看 `lithe.version` 再决定是否提供导入导出。之所以加桥接方法而不是让后端自己弹窗，是因为后端是无界面的子进程，弹窗必须由宿主窗口负责，也只有宿主能把插件身份写进对话框，防止页面冒充 Lithe。
 
 ### 正确做法
 

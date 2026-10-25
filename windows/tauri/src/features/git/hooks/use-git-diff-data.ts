@@ -70,7 +70,6 @@ export const useDiffData = (): UseDiffDataReturn => {
               displayName,
               "",
               false,
-              undefined,
               true,
               true,
               newDiff,

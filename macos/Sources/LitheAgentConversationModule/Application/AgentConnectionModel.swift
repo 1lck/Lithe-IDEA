@@ -124,6 +124,9 @@ public final class AgentConnectionModel: ObservableObject {
     /// square of the history. The replay lands in `conversations` once, when it ends.
     private var replayMessages: [String: [AgentConversationMessage]] = [:]
     private var replayToolIndex: [String: [String: Int]] = [:]
+    /// Upstream id of the user message a replay last appended to; consecutive user
+    /// messages are separate entries even though ACP delivers them as chunks.
+    private var replayUserMessageID: [String: String] = [:]
     /// Locally prepared sessions without a submitted prompt or upstream history evidence.
     /// Codex does not persist their rollout until the first prompt, so they cannot be resumed.
     private var unpromptedSessionIDs: Set<String> = []
@@ -964,6 +967,15 @@ public final class AgentConnectionModel: ObservableObject {
         case "plan":
             guard let plan = AgentPlan.parse(update) else { return }
             conversations[sessionID, default: AgentConversation()].plan = plan.entries.isEmpty ? nil : plan
+            // Live plans are pinned above the composer. A replay instead keeps every
+            // snapshot in order, so a history whose Agent wrote little prose (Claude
+            // Desktop reports progress this way) still shows what each turn did.
+            if conversations[sessionID]?.isLoading == true, subagentSessionID == nil, !plan.entries.isEmpty {
+                flushPendingText()
+                var message = AgentConversationMessage(role: .agent, text: "")
+                message.plan = plan
+                replayMessages[sessionID, default: []].append(message)
+            }
             // A valid plan proves recovery without implying streamed reasoning.
             if conversations[sessionID]?.responsePhase == .retrying {
                 markResponseProgress(.waiting, in: sessionID)
@@ -990,9 +1002,11 @@ public final class AgentConnectionModel: ObservableObject {
             // Live input is already shown locally, including pending steering.
             // Replay still rebuilds the upstream-owned transcript while loading.
             guard conversations[sessionID]?.isResponding != true else { return }
-            guard let text = Self.text(of: update) else { return }
+            let image = (update["content"] as? [String: Any]).flatMap(AgentImage.parse(block:))
+            guard let text = Self.text(of: update) ?? (image == nil ? nil : "") else { return }
             flushPendingText()
-            append(text, role: .user, to: sessionID, subagentSessionID: subagentSessionID)
+            append(text, role: .user, to: sessionID, subagentSessionID: subagentSessionID, image: image,
+                   messageID: update["messageId"] as? String)
         case "tool_call", "tool_call_update":
             guard let toolCallID = update["toolCallId"] as? String else { return }
             flushPendingText()
@@ -1211,22 +1225,38 @@ public final class AgentConnectionModel: ObservableObject {
     private func commitReplay(_ sessionID: String) {
         guard let messages = replayMessages.removeValue(forKey: sessionID) else { return }
         replayToolIndex[sessionID] = nil
+        replayUserMessageID[sessionID] = nil
         conversations[sessionID, default: AgentConversation()].messages = messages
     }
 
     private func discardReplay(_ sessionID: String) {
         replayMessages[sessionID] = nil
         replayToolIndex[sessionID] = nil
+        replayUserMessageID[sessionID] = nil
     }
 
-    private func append(_ text: String, role: AgentConversationMessage.Role, to sessionID: String, subagentSessionID: String? = nil) {
+    private func append(_ text: String, role: AgentConversationMessage.Role, to sessionID: String,
+                        subagentSessionID: String? = nil, image: AgentImage? = nil, messageID: String? = nil) {
+        func attach(_ image: AgentImage?, to message: inout AgentConversationMessage) {
+            if let image, message.images.count < AgentImage.maximumPerMessage,
+               !message.images.contains(where: { $0.id == image.id }) { message.images.append(image) }
+        }
         if conversations[sessionID]?.isLoading == true {
-            if let last = replayMessages[sessionID]?.indices.last, replayMessages[sessionID]?[last].role == role,
+            // Two user messages in a row (a prompt after a background notice, say) must
+            // not fuse into one bubble, which would also stop the notice being recognised.
+            var startsNewMessage = false
+            if role == .user, let messageID {
+                startsNewMessage = replayUserMessageID[sessionID].map { $0 != messageID } ?? false
+                replayUserMessageID[sessionID] = messageID
+            }
+            if !startsNewMessage, let last = replayMessages[sessionID]?.indices.last, replayMessages[sessionID]?[last].role == role,
                replayMessages[sessionID]?[last].subagentSessionID == subagentSessionID {
                 replayMessages[sessionID]?[last].text += text
+                attach(image, to: &replayMessages[sessionID]![last])
             } else {
                 var message = AgentConversationMessage(role: role, text: text)
                 message.subagentSessionID = subagentSessionID
+                attach(image, to: &message)
                 replayMessages[sessionID, default: []].append(message)
             }
             return
@@ -1235,9 +1265,12 @@ public final class AgentConnectionModel: ObservableObject {
         if let last = conversation.messages.indices.last, conversation.messages[last].role == role,
            conversation.messages[last].subagentSessionID == subagentSessionID {
             conversation.messages[last].text += text
+            attach(image, to: &conversation.messages[last])
         } else {
-            conversation.messages.append(AgentConversationMessage(role: role, text: text))
-            conversation.messages[conversation.messages.count - 1].subagentSessionID = subagentSessionID
+            var message = AgentConversationMessage(role: role, text: text)
+            message.subagentSessionID = subagentSessionID
+            attach(image, to: &message)
+            conversation.messages.append(message)
         }
         conversations[sessionID] = conversation
     }

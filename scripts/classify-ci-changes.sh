@@ -40,9 +40,7 @@ rust_diff_is_comment_only() {
 
 swift=false
 plugins=false
-swift_database=false
 rust_core=false
-rust_database=false
 rust_remote=false
 macos_release=false
 windows=false
@@ -55,9 +53,7 @@ git_validation=false
 enable_all_validation() {
     swift=true
     plugins=true
-    swift_database=true
     rust_core=true
-    rust_database=true
     rust_remote=true
     macos_release=true
     windows=true
@@ -92,20 +88,13 @@ classify_path() {
             enable_all_validation
             ;;
         .github/workflows/ci-macos.yml)
-            # The shared Swift build job also hosts the database filtered
-            # suite, so a workflow change exercises both.
             swift=true
-            swift_database=true
             rust_core=true
             macos_release=true
             git_validation=true
             ;;
         .github/workflows/ci-plugins.yml)
             plugins=true
-            ;;
-        .github/workflows/ci-database.yml)
-            swift_database=true
-            rust_database=true
             ;;
         .github/workflows/ci-remote.yml|scripts/verify-remote-workspace.sh)
             rust_remote=true
@@ -123,7 +112,6 @@ classify_path() {
         .github/actions/prepare-macos-dependency-cache/*|.github/actions/save-macos-cargo-build-cache/*|.github/actions/setup-macos-toolchain/*|.swift-version)
             swift=true
             plugins=true
-            swift_database=true
             rust_core=true
             macos_release=true
             git_validation=true
@@ -133,7 +121,6 @@ classify_path() {
             # product test lane, but does not affect release packaging.
             swift=true
             plugins=true
-            swift_database=true
             rust_core=true
             windows=true
             windows_rust=true
@@ -142,11 +129,10 @@ classify_path() {
         .github/*|docs/*|.agents/*|.idea/*|.gitignore|license)
             ;;
         package.swift|package.resolved)
-            # SwiftPM graph changes can affect the main suite and both isolated
-            # module suites even when no source path changes.
+            # SwiftPM graph changes can affect the main and plugin suites even
+            # when no source path changes.
             swift=true
             plugins=true
-            swift_database=true
             macos_release=true
             git_validation=true
             ;;
@@ -179,71 +165,37 @@ classify_path() {
             swift=true
             plugins=true
             ;;
-        macos/sources/lithedatabasemodule/*|macos/tests/lithedatabasemoduletests/*)
-            swift_database=true
-            if [[ "$lowercase_path" == macos/sources/* ]]; then
-                macos_release=true
-            fi
-            ;;
-        macos/sources/lithe/platform/macos/persistence/macdatabaserecoverystore.swift|macos/sources/lithe/platform/macos/process/macdatabasesidecarlocator.swift|macos/sources/lithe/platform/macos/storage/macdatabaseadapters.swift|macos/sources/lithe/theme/databasebrandicon.swift|macos/sources/lithe/views/database/*|macos/resources/databaseicons/*)
-            swift_database=true
-            macos_release=true
-            ;;
         macos/sources/lithe/models/appmodel/appmodel.swift)
-            # This is a shared app composition point for the database module.
+            # The app model composes every workbench feature, so a change is
+            # also verified in the packaged app.
             swift=true
-            swift_database=true
             macos_release=true
             ;;
         macos/sources/lithe/platform/macos/macservicecontainer.swift)
-            # The service container composes both database and plugin runtime dependencies.
+            # The service container composes the plugin runtime dependencies.
             swift=true
             plugins=true
-            swift_database=true
             macos_release=true
             ;;
         macos/sources/lithe/views/workbench/workbenchview.swift)
-            # The root workbench composes both database and plugin-owned UI.
+            # The root workbench composes plugin-owned UI.
             # Plugin tests cover plugin models and packages rather than this
             # view, and it is edited by most workbench pull requests, so the
             # Swift lane's full compile covers it without the plugin runner.
             swift=true
-            swift_database=true
-            macos_release=true
-            ;;
-        macos/sources/lithemoduleapi/catalog/builtinmodulecatalog.swift)
-            swift=true
-            plugins=true
-            swift_database=true
             macos_release=true
             ;;
         macos/sources/lithemoduleapi/*|macos/sources/litheapplicationkernel/*|macos/sources/lithecorecontracts/*)
             # These contracts and runtime primitives are direct dependencies of
-            # both isolated Swift module suites.
+            # both the main and the plugin Swift suites.
             swift=true
             plugins=true
-            swift_database=true
             macos_release=true
             ;;
         macos/sources/lithelanguageintelligencemodule/*)
             # Go support is an official plugin and depends on this runtime.
             swift=true
             plugins=true
-            macos_release=true
-            ;;
-        macos/tests/lithetests/lithecorelogictests.swift)
-            # This legacy mixed suite still contains the database integration
-            # tests; both filtered lanes must run until the suite is separated.
-            swift=true
-            swift_database=true
-            ;;
-        macos/resources/*.lproj/*)
-            # Localization files contain database copy and are assembled into
-            # the package. Their plugin-facing coverage lives in
-            # AppLocalizationTests, which the Swift lane runs, so UI copy
-            # changes do not reserve the separate plugin runner.
-            swift=true
-            swift_database=true
             macos_release=true
             ;;
         macos/sources/litherustcore/*)
@@ -308,17 +260,10 @@ classify_path() {
             ;;
         rust/cargo.toml|rust/cargo.lock)
             rust_core=true
-            rust_database=true
             rust_remote=true
             macos_release=true
             windows=true
             windows_rust=true
-            ;;
-        rust/lithe-db-mcp/*|rust/lithe-db-sidecar/*)
-            rust_database=true
-            # Database helpers are shipped as macOS executables, so Linux crate
-            # tests are not sufficient to validate their production target.
-            macos_release=true
             ;;
         rust/lithe-remote-protocol/*|rust/lithe-remote-server/*|rust/lithe-remote-client/*)
             # The remote workspace crates are not linked into a shipped product
@@ -330,7 +275,6 @@ classify_path() {
             # Unknown Rust workspace paths fail closed across all Rust-backed
             # products because workspace configuration can affect every crate.
             rust_core=true
-            rust_database=true
             macos_release=true
             windows=true
             windows_rust=true
@@ -361,7 +305,6 @@ classify_path() {
         scripts/test-macos.sh|scripts/test-git-performance-baseline.sh|scripts/run-git-performance-verifier.mjs)
             swift=true
             plugins=true
-            swift_database=true
             git_validation=true
             ;;
         scripts/package-macos-localizations.sh)
@@ -372,7 +315,7 @@ classify_path() {
             ;;
         scripts/measure-macos-performance-baseline.sh)
             # The baseline harness assembles a macOS release app, without changing
-            # shared Core behavior or the isolated database/plugin test lanes.
+            # shared Core behavior or the isolated plugin test lane.
             macos_release=true
             ;;
         scripts/verify-official-plugins.sh|scripts/build-official-plugins.sh)
@@ -388,20 +331,12 @@ classify_path() {
             windows=true
             windows_rust=true
             ;;
-        scripts/build-database-mcp.sh|scripts/build-database-sidecar.sh)
-            rust_database=true
-            macos_release=true
-            ;;
-        scripts/database-sidecar-smoke.sh|scripts/database-validation-smoke.sh)
-            rust_database=true
-            ;;
         scripts/*sparkle*|scripts/import-macos-signing.sh|scripts/build-macos.sh|scripts/verify-macos-app-build-safety.sh|scripts/verify-runtime-bundle-immutability.sh|scripts/verify-macos-package.sh|scripts/macos13sdkcompatibility.h|scripts/ld-macos13-compat.sh|scripts/package-app.sh|scripts/preview.sh|scripts/stamp-macos-app-build-info.sh|scripts/create-dmg.sh|scripts/create-macos-update-manifest.rb|scripts/test-macos-update-manifest.rb|scripts/prepare-jdtls.sh|scripts/prepare-jdk.sh)
             macos_release=true
             ;;
         scripts/verify-download-cache.mjs|scripts/test-verify-download-cache.mjs|scripts/reuse-worktree-resources.mjs|scripts/test-reuse-worktree-resources.mjs|scripts/worktree-resources.json)
             swift=true
             plugins=true
-            swift_database=true
             rust_core=true
             macos_release=true
             windows=true
@@ -414,7 +349,6 @@ classify_path() {
         scripts/validate-macos-dependency-caches.sh|scripts/prepare-macos-dependencies.sh)
             swift=true
             plugins=true
-            swift_database=true
             rust_core=true
             macos_release=true
             ;;
@@ -422,9 +356,6 @@ classify_path() {
             windows=true
             ;;
         scripts/prepare-lithe-pr-review.mjs|scripts/test-prepare-lithe-pr-review.mjs|scripts/run-lithe-codex-with-timeout.sh|scripts/update-repo-charts.py)
-            ;;
-        infra/docker/*)
-            rust_database=true
             ;;
         *)
             # New or unclassified repository areas are validated conservatively
@@ -477,7 +408,6 @@ if [[ "${LITHE_CI_DRAFT_PULL_REQUEST:-false}" == "true" ]]; then
     # Marking the pull request ready for review triggers a full classification.
     swift=false
     plugins=false
-    swift_database=false
     rust_core=false
     macos_release=false
     windows=false
@@ -497,14 +427,12 @@ case "$ci_scope" in
     pull_request) ;;
     post_merge)
         package_affected=false
-        for lane in "$swift" "$plugins" "$swift_database" "$rust_core" "$macos_release"; do
+        for lane in "$swift" "$plugins" "$rust_core" "$macos_release"; do
             if [[ "$lane" == true ]]; then package_affected=true; fi
         done
         swift=false
         plugins=false
-        swift_database=false
         rust_core=false
-        rust_database=false
         rust_remote=false
         macos_release="$package_affected"
         windows=false
@@ -517,9 +445,7 @@ case "$ci_scope" in
     release_promotion)
         swift=false
         plugins=false
-        swift_database=false
         rust_core=false
-        rust_database=false
         rust_remote=false
         macos_release=false
         windows=false
@@ -537,9 +463,7 @@ esac
 
 printf 'swift=%s\n' "$swift"
 printf 'plugins=%s\n' "$plugins"
-printf 'swift_database=%s\n' "$swift_database"
 printf 'rust_core=%s\n' "$rust_core"
-printf 'rust_database=%s\n' "$rust_database"
 printf 'rust_remote=%s\n' "$rust_remote"
 printf 'macos_release=%s\n' "$macos_release"
 printf 'windows=%s\n' "$windows"

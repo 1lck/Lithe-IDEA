@@ -1092,17 +1092,6 @@ const paneCommands: Command[] = [
   },
 ];
 
-const databaseCommands: Command[] = [
-  {
-    id: "database.connect",
-    title: "Show Databases",
-    category: "Database",
-    execute: () => {
-      useUIState.getState().openCommandPaletteView("databases");
-    },
-  },
-];
-
 const windowCommands: Command[] = [
   {
     id: "workbench.openSettings",
@@ -1178,7 +1167,6 @@ const allCommands: Command[] = [
   ...viewCommands,
   ...navigationCommands,
   ...paneCommands,
-  ...databaseCommands,
   ...windowCommands,
 ];
 

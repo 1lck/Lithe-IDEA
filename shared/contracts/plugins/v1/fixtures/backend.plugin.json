@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 2,
+  "id": "dev.lithe.fixture.backend",
+  "displayName": "Backend",
+  "version": "1.0.0",
+  "pluginAPIVersion": 3,
+  "requires": {
+    "backend": 1,
+    "serverProcess": 1,
+    "ui": 2
+  },
+  "vendor": {
+    "id": "org.example",
+    "displayName": "Example",
+    "signatureRequirement": "publisherPackage"
+  },
+  "permissions": [
+    "backend.launch",
+    "credentials.store",
+    "ui.contribute",
+    "ui.web"
+  ],
+  "activationEvents": [
+    "onView:dev.lithe.fixture.backend.window"
+  ],
+  "languages": [],
+  "ui": {
+    "toolWindows": [
+      {
+        "id": "dev.lithe.fixture.backend.window",
+        "title": "Backend",
+        "placement": "bottom",
+        "web": {
+          "entry": "ui/index.html"
+        }
+      }
+    ]
+  },
+  "backend": {
+    "launch": {
+      "kind": "packaged",
+      "path": "bin/backend"
+    },
+    "arguments": [
+      "--state",
+      "${stateDir}"
+    ]
+  }
+}

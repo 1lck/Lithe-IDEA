@@ -7,6 +7,8 @@
 //! See `.agents/notes/implemented/architecture/2026-09-25-shared-acp-agent-conversation.md`.
 
 pub mod catalog;
+mod claude_desktop;
+mod claude_earlier_history;
 mod claude_subscription;
 pub mod cli_update;
 mod codex_context;
@@ -229,6 +231,9 @@ struct ResolvedLaunch {
     claude_subscription: bool,
     /// Account directory the Codex quota probe must share with the adapter.
     codex_home: Option<PathBuf>,
+    /// Claude transcript root of the adapter's account, for history that
+    /// compaction hides from `session/load`; None for every other agent.
+    claude_projects: Option<PathBuf>,
 }
 
 #[cfg(test)]
@@ -311,6 +316,7 @@ fn resolve_with(
             subscription_cli: None,
             claude_subscription: false,
             codex_home: None,
+            claude_projects: None,
         });
     };
     let agent = catalog::find(&agent_id).ok_or_else(|| format!("Unknown agent `{agent_id}`"))?;
@@ -369,6 +375,9 @@ fn resolve_with(
         subscription_cli: None,
         claude_subscription: false,
         codex_home: None,
+        claude_projects: (agent.id == "claude-acp")
+            .then(|| claude_earlier_history::projects_directory(None))
+            .flatten(),
     })
 }
 
@@ -1144,6 +1153,7 @@ async fn run_agent(
     // Account credentials belong to the CLI in both subscription modes.
     let subscription = launch.subscription_cli.is_some() || launch.claude_subscription;
     let claude_subscription = launch.claude_subscription;
+    let claude_projects = launch.claude_projects.clone();
     let secret = launch.secret.clone();
     let transport = ByteStreams::new(stdin.compat_write(), stdout.compat());
     let result = run_connection(
@@ -1153,6 +1163,7 @@ async fn run_agent(
         launch.subscription_cli,
         launch.codex_home,
         claude_subscription,
+        claude_projects,
         history,
         context_recovery,
         observe_subagents,
@@ -1303,6 +1314,7 @@ async fn run_connection<OB, IB>(
     subscription_cli: Option<PathBuf>,
     codex_home: Option<PathBuf>,
     claude_subscription: bool,
+    claude_projects: Option<PathBuf>,
     history: Option<codex_history::CodexHistory>,
     context_recovery: Option<Arc<codex_context::Recovery>>,
     observe_subagents: bool,
@@ -1322,6 +1334,8 @@ where
     let session_meta = session_routing::metadata(gateway.as_ref())?;
     let workspace = Arc::new(workspace_context::WorkspaceContext::new(&cwd)?);
     let update_workspace = workspace.clone();
+    let desktop = Arc::new(Mutex::new(claude_desktop::Presenter::default()));
+    let update_desktop = desktop.clone();
     let restored_meta = session_routing::restored_metadata(gateway.as_ref())?;
     let (auth_tx, mut auth_rx) = tokio::sync::watch::channel(None::<subscription::AuthStatus>);
     let updates = emit.clone();
@@ -1364,6 +1378,9 @@ where
                         sessions.is_live(&session_id).then(|| sessions.root(&session_id)).flatten()
                     };
                     let Some(update) = update_workspace.present_update(update) else {
+                        return Ok(());
+                    };
+                    let Some(update) = update_desktop.lock().map_err(|_| internal("Replay presentation is unavailable"))?.present(&session_id, update) else {
                         return Ok(());
                     };
                     if update["sessionUpdate"] == "usage_update" {
@@ -1666,7 +1683,27 @@ where
                         let session_meta = restored_meta.clone();
                         let confirm_model = session_meta.is_some();
                         let capture = context_recovery.as_ref().and_then(|recovery| recovery.capture(&session_id));
+                        let earlier = claude_projects.clone();
+                        let desktop = desktop.clone();
                         tasks.spawn(async move {
+                            // Compaction hides earlier segments from the adapter's replay;
+                            // they precede it, so the transcript reads in order.
+                            if let Some(projects) = earlier {
+                                let (workspace, id) = (cwd.clone(), session_id.clone());
+                                let updates = tokio::task::spawn_blocking(move || {
+                                    claude_earlier_history::earlier_updates(&projects, &workspace, &id)
+                                })
+                                .await
+                                .unwrap_or_default();
+                                // Collected first: the guard must not live across `emit`.
+                                let updates: Vec<_> = match desktop.lock() {
+                                    Ok(mut desktop) => updates.into_iter().filter_map(|u| desktop.present(&session_id, u)).collect(),
+                                    Err(_) => updates,
+                                };
+                                for update in updates {
+                                    emit(AgentEvent::Update { session_id: session_id.clone(), update });
+                                }
+                            }
                             let mut request = LoadSessionRequest::new(session_id.clone(), cwd);
                             request.meta = session_meta;
                             let result = request_with_timeout(

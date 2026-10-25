@@ -228,7 +228,7 @@ runs:
       env:
         KEY_PREFIX: macos-cargo-build-v1-${{ runner.arch }}-${{ steps.cargo_build_identity.outputs.identity }}
         BUILD_ARCHITECTURE: ${{ inputs.cargo-build-architecture }}
-        SOURCE_HASH: ${{ hashFiles('rust/Cargo.lock', 'rust/**/Cargo.toml', 'rust/.cargo/**', 'scripts/build-rust-core.sh', 'scripts/build-database-*.sh') }}
+        SOURCE_HASH: ${{ hashFiles('rust/Cargo.lock', 'rust/**/Cargo.toml', 'rust/.cargo/**', 'scripts/build-rust-core.sh', 'scripts/build-ide-mcp.sh') }}
       run: |
         echo "prefix=$KEY_PREFIX" >> "$GITHUB_OUTPUT"
         echo "key=$KEY_PREFIX-$BUILD_ARCHITECTURE-$SOURCE_HASH" >> "$GITHUB_OUTPUT"
@@ -243,7 +243,7 @@ runs:
       continue-on-error: true
       uses: actions/cache/restore@v6
       with:
-        # Core uses target/macos; database helpers use target directly. Include
+        # Core uses target/macos; the MCP helper uses target directly. Include
         # both layouts, while leaving final executables for Cargo to regenerate.
         path: |
           rust/target/**/.fingerprint

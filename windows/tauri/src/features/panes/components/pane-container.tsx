@@ -1,10 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import type { DatabaseType } from "@/features/database/types/provider.types";
-import {
-  PROVIDER_REGISTRY,
-  type DatabaseViewerProps,
-} from "@/features/database/providers/provider-registry";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import type { Buffer } from "@/features/editor/stores/buffer.store";
 import { getBufferById } from "@/features/editor/utils/buffer-index";
@@ -59,16 +54,6 @@ const AgentConversationTab = lazy(() =>
 );
 const CodeEditor = lazy(() => import("@/features/editor/components/code-editor"));
 
-const databaseViewerCache = new Map<
-  DatabaseType,
-  React.LazyExoticComponent<React.ComponentType<DatabaseViewerProps>>
->();
-function getDatabaseViewer(dbType: DatabaseType) {
-  if (!databaseViewerCache.has(dbType)) {
-    databaseViewerCache.set(dbType, lazy(PROVIDER_REGISTRY[dbType].viewerComponent));
-  }
-  return databaseViewerCache.get(dbType)!;
-}
 const ExternalEditorTerminal = lazy(() =>
   import("@/features/editor/components/external-editor-terminal").then((m) => ({
     default: m.ExternalEditorTerminal,
@@ -193,7 +178,6 @@ function isStandardEditorBuffer(buffer: PaneRenderBuffer): buffer is EditorBuffe
 }
 
 export function PaneContainer({ pane }: PaneContainerProps) {
-  const { t } = useTranslation();
   const activePaneId = usePaneStore.use.activePaneId();
   const { closeBufferForce, openTerminalBuffer } = useBufferStore.use.actions();
   const rootFolderPath = useFileSystemStore.use.rootFolderPath?.();
@@ -699,26 +683,6 @@ export function PaneContainer({ pane }: PaneContainerProps) {
 
         case "pdf":
           return <PdfViewer filePath={buffer.path} fileName={buffer.name} bufferId={buffer.id} />;
-
-        case "database": {
-          const config = PROVIDER_REGISTRY[buffer.databaseType];
-          const DatabaseViewer = getDatabaseViewer(buffer.databaseType);
-          let viewerProps: DatabaseViewerProps;
-          if (config.isFileBased) {
-            viewerProps = { databasePath: buffer.path };
-          } else {
-            const connectionId = buffer.connectionId;
-            if (!connectionId) {
-              return (
-                <Empty className="h-full rounded-none" tone="error" role="alert">
-                  <EmptyDescription>{t("panes.missingDatabaseConnection")}</EmptyDescription>
-                </Empty>
-              );
-            }
-            viewerProps = { connectionId };
-          }
-          return <DatabaseViewer {...viewerProps} />;
-        }
 
         case "binary":
           return (

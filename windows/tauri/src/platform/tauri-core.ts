@@ -167,16 +167,6 @@ function capabilityForCommand(command: string): BackendCapability | null {
   ) {
     return "remote";
   }
-  if (
-    command.includes("database") ||
-    command.includes("db_credential") ||
-    command === "list_saved_connections" ||
-    command === "save_connection" ||
-    command === "delete_saved_connection" ||
-    command === "test_connection"
-  ) {
-    return "database";
-  }
   if (command.startsWith("debug_")) return "debugger";
   if (
     command === "run_discover_toolchains" ||

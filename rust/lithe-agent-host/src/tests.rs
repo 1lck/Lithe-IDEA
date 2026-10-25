@@ -648,6 +648,7 @@ impl Harness {
             false,
             None,
             None,
+            None,
             observe_subagents,
             receiver,
             TurnActivity {
