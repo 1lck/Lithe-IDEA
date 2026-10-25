@@ -26,9 +26,6 @@ public final class AgentConnectionModel: ObservableObject {
     /// Account directory the current subscription connection was launched with;
     /// `nil` is the CLI's default account.
     public private(set) var accountDirectory: URL?
-    /// Reports the account and the latest usage windows of a subscription
-    /// connection so the app can keep the last known values per account. Lithe
-    /// requests nothing for this; these are only what the Host or adapter pushed.
     /// The context length the Agent reports while the user has set no limit: what
     /// "default" means for this Agent. Called for every report; the owner dedupes.
     public var onContextCapacityObserved: ((UInt64) -> Void)?
@@ -39,6 +36,9 @@ public final class AgentConnectionModel: ObservableObject {
     /// The auto-compact threshold to show beside the ring, when it differs from where the ring is full.
     public var autoCompactDisplayTokens: UInt64? { contextLimits.visibleAutoCompact(forAgentID: agentID) }
 
+    /// Reports the account and the latest usage windows of a subscription
+    /// connection so the app can keep the last known values per account. Lithe
+    /// requests nothing for this; these are only what the Host or adapter pushed.
     public var onAccountObserved: ((_ directory: URL?, _ email: String?, _ plan: String?,
                                     _ quota: AgentSubscriptionQuota?) -> Void)?
 
@@ -976,7 +976,8 @@ public final class AgentConnectionModel: ObservableObject {
         case "usage_update":
             guard connectionState == .ready else { return }
             let reported = AgentContextUsage.parse(update)
-            if let reported, contextLimits.isEmpty { onContextCapacityObserved?(reported.capacityTokens) }
+            // A threshold alone leaves the reported length as the Agent's own default.
+            if let reported, contextLimits.windowTokens == nil { onContextCapacityObserved?(reported.capacityTokens) }
             conversations[sessionID, default: AgentConversation()].contextUsage = reported?.capped(to: contextCapacityLimit)
             let meta = update["_meta"] as? [String: Any]
             let source = (meta?["lithe"] as? [String: Any])?["contextUsageSource"] as? String

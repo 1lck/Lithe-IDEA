@@ -21,9 +21,6 @@ public enum AgentAuthentication: String, Codable, Equatable, Sendable {
     }
 }
 
-/// Settings required to launch one ACP agent for a workspace.
-///
-/// API providers and local Codex subscription accounts use distinct launch paths.
 /// Context sizing the user chose for one Agent; `nil` keeps the Agent's own default.
 ///
 /// Codex receives both numbers as native configuration. Claude Code has one knob,
@@ -56,6 +53,9 @@ public struct AgentContextLimits: Codable, Equatable, Sendable {
     }
 }
 
+/// Settings required to launch one ACP agent for a workspace.
+///
+/// API providers and local Codex subscription accounts use distinct launch paths.
 public struct AgentLaunchConfiguration: Equatable, Sendable {
     public let authentication: AgentAuthentication
     /// ACP registry id of a Lithe-installed adapter, or `nil` for `command`.

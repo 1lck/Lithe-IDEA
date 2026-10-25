@@ -21,11 +21,21 @@ pub struct PromptFile {
     pub name: String,
 }
 
+/// A native slash command is one `/word` token, not an absolute path such as
+/// `/Users/me/main.rs`, whose first token contains further separators.
+fn is_slash_command(text: &str) -> bool {
+    let Some(rest) = text.trim_start().strip_prefix('/') else {
+        return false;
+    };
+    let word = rest.split_whitespace().next().unwrap_or_default();
+    !word.is_empty() && !word.contains(['/', '\\'])
+}
+
 pub(crate) fn content(text: String, files: Vec<PromptFile>) -> Result<Vec<ContentBlock>, String> {
     if files.len() > MAXIMUM_FILES {
         return Err("Attach up to 32 files per message.".into());
     }
-    let text_is_command = text.trim_start().starts_with('/');
+    let text_is_command = is_slash_command(&text);
     let mut content = Vec::with_capacity(files.len() + 1);
     if !text.trim().is_empty() {
         content.push(ContentBlock::Text(TextContent::new(text)));
@@ -50,7 +60,11 @@ pub(crate) fn content(text: String, files: Vec<PromptFile>) -> Result<Vec<Conten
         // path in the `📎 /path` form the transcript already recognises and hides.
         if uri.path().contains('%') {
             if let Ok(path) = uri.to_file_path() {
-                decoded_paths.push(format!("📎 {}", path.display()));
+                let path = path.display().to_string();
+                // A decoded newline would start a prompt line the user never wrote.
+                if !path.chars().any(char::is_control) {
+                    decoded_paths.push(format!("📎 {path}"));
+                }
             }
         }
         content.push(ContentBlock::ResourceLink(ResourceLink::new(
@@ -122,16 +136,14 @@ mod tests {
             "file:///example/project/README.md?secret",
             "file:///example/project/README.md#section",
         ] {
-            assert!(
-                content(
-                    String::new(),
-                    vec![PromptFile {
-                        uri: uri.into(),
-                        name: "README.md".into(),
-                    }]
-                )
-                .is_err()
-            );
+            assert!(content(
+                String::new(),
+                vec![PromptFile {
+                    uri: uri.into(),
+                    name: "README.md".into(),
+                }]
+            )
+            .is_err());
         }
     }
 
@@ -182,5 +194,16 @@ mod tests {
             content.as_slice(),
             [ContentBlock::Text(_), ContentBlock::ResourceLink(_)]
         ));
+    }
+
+    #[test]
+    fn only_a_single_slash_word_is_a_native_command() {
+        assert!(is_slash_command("/compact"));
+        assert!(is_slash_command("  /review src"));
+        assert!(!is_slash_command(
+            "/Users/me/proj/main.rs why does this fail?"
+        ));
+        assert!(!is_slash_command("/"));
+        assert!(!is_slash_command("hello /compact"));
     }
 }

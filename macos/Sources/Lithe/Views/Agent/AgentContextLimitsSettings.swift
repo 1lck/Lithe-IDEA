@@ -20,7 +20,9 @@ enum AgentContextTokenText {
         var multiplier = 1.0
         if number.hasSuffix("k") { multiplier = 1_000; number.removeLast() }
         else if number.hasSuffix("m") { multiplier = 1_000_000; number.removeLast() }
-        guard let value = Double(number), value.isFinite, value > 0 else { return .invalid }
+        // Plain decimals only: `Double` would also read `0x10`, `1e4` and `inf`.
+        guard number.range(of: #"^[0-9]+(\.[0-9]+)?$"#, options: .regularExpression) != nil,
+              let value = Double(number), value.isFinite, value > 0 else { return .invalid }
         let tokens = (value * multiplier).rounded()
         guard tokens <= Double(allowed.upperBound) else { return .invalid }
         let count = UInt64(tokens)

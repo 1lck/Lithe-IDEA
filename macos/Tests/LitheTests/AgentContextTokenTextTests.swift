@@ -16,7 +16,7 @@ struct AgentContextTokenTextTests {
         #expect(AgentContextTokenText.parse(text) == .cleared)
     }
 
-    @Test(arguments: ["abc", "0", "-5K", "5K", "9999", "11M", "1e9", "K", "1.2.3M", "inf"])
+    @Test(arguments: ["abc", "0", "-5K", "5K", "9999", "11M", "1e9", "K", "1.2.3M", "inf", "0x10k", "1e4", "2e5", "0x2710"])
     func rejectsTyposAndSizesNoAgentCouldUse(text: String) {
         #expect(AgentContextTokenText.parse(text) == .invalid)
     }

@@ -123,6 +123,21 @@ fn is_false(value: &bool) -> bool {
 /// a step again, never changes forwarding.
 const SESSION_NAMING_MARKER: &str = "naming a coding session";
 
+/// The announcement is the opening of the system prompt. Looking only at its
+/// first block keeps user instructions or skills appended later from matching,
+/// and avoids serializing the whole system value on every request.
+fn announces_session_naming(system: &Value) -> bool {
+    let first = match system {
+        Value::String(text) => Some(text.as_str()),
+        Value::Array(blocks) => blocks
+            .first()
+            .and_then(|block| block.get("text"))
+            .and_then(Value::as_str),
+        _ => None,
+    };
+    first.is_some_and(|text| text.contains(SESSION_NAMING_MARKER))
+}
+
 /// Serialized byte sizes of the parts of one generation request.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct RequestShape {
@@ -179,8 +194,8 @@ pub(crate) fn request_shape(api: ModelApi, body: &[u8]) -> Option<RequestShape> 
         ModelApi::Responses => (request.get("instructions"), request.get("input")),
         ModelApi::ChatCompletions => (None, request.get("messages")),
     };
-    shape.auxiliary = api == ModelApi::AnthropicMessages
-        && system.is_some_and(|system| system.to_string().contains(SESSION_NAMING_MARKER));
+    shape.auxiliary =
+        api == ModelApi::AnthropicMessages && system.is_some_and(announces_session_naming);
     shape.instruction_bytes = system.map(text_len).unwrap_or_default();
     shape.system_bytes += shape.instruction_bytes;
     match messages {
@@ -816,6 +831,13 @@ mod tests {
         );
         assert!(
             !request_shape(ModelApi::AnthropicMessages, turn)
+                .unwrap()
+                .auxiliary
+        );
+        // Later system content that merely mentions the phrase is a real turn.
+        let mentioned = br#"{"model":"m","system":[{"type":"text","text":"You are a Claude agent."},{"type":"text","text":"CLAUDE.md: avoid naming a coding session."}],"messages":[]}"#;
+        assert!(
+            !request_shape(ModelApi::AnthropicMessages, mentioned)
                 .unwrap()
                 .auxiliary
         );

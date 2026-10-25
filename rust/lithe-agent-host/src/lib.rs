@@ -102,10 +102,21 @@ pub struct ContextLimits {
 }
 
 impl ContextLimits {
+    /// The threshold never exceeds the window: a threshold the context cannot
+    /// reach would never compact. The settings UI rejects it too, but other
+    /// callers reach this boundary directly.
+    fn auto_compact_within_window(self) -> Option<u64> {
+        let threshold = self.auto_compact_tokens.filter(|tokens| *tokens > 0)?;
+        Some(match self.window_tokens.filter(|tokens| *tokens > 0) {
+            Some(window) => threshold.min(window),
+            None => threshold,
+        })
+    }
+
     /// The single window Claude Code is told about, if any. A threshold wins
     /// because it is the point where Claude Code actually compacts.
     fn claude_auto_compact_window(self) -> Option<u64> {
-        self.auto_compact_tokens
+        self.auto_compact_within_window()
             .or(self.window_tokens)
             .filter(|tokens| *tokens > 0)
     }
@@ -114,7 +125,7 @@ impl ContextLimits {
         if let Some(tokens) = self.window_tokens.filter(|tokens| *tokens > 0) {
             config["model_context_window"] = serde_json::json!(tokens);
         }
-        if let Some(tokens) = self.auto_compact_tokens.filter(|tokens| *tokens > 0) {
+        if let Some(tokens) = self.auto_compact_within_window() {
             config["model_auto_compact_token_limit"] = serde_json::json!(tokens);
         }
     }
@@ -1014,9 +1025,11 @@ async fn run_agent(
                         .map(|_| subscription::INFERENCE_ORIGIN.to_owned())
                 })
                 .or_else(|| {
-                    launch
-                        .claude_subscription
-                        .then(|| claude_subscription::INFERENCE_ORIGIN.to_owned())
+                    // The proxy forwards to the official origin only. A user who
+                    // reaches Claude through their own base URL keeps it.
+                    (launch.claude_subscription
+                        && !claude_subscription::has_custom_base_url(&launch))
+                    .then(|| claude_subscription::INFERENCE_ORIGIN.to_owned())
                 })
         })
         .flatten();

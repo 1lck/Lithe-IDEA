@@ -35,6 +35,23 @@ pub(super) const INHERITED_OVERRIDES: [&str; 6] = [
 /// Official inference origin the observation proxy forwards to.
 pub(super) const INFERENCE_ORIGIN: &str = "https://api.anthropic.com";
 
+/// Whether the user points Claude Code at their own endpoint, through the
+/// launch environment or the inherited process environment.
+pub(super) fn has_custom_base_url(launch: &ResolvedLaunch) -> bool {
+    let is_custom = |value: &str| {
+        let value = value.trim().trim_end_matches('/');
+        !value.is_empty() && value != INFERENCE_ORIGIN
+    };
+    match launch
+        .env
+        .iter()
+        .find(|(name, _)| name == "ANTHROPIC_BASE_URL")
+    {
+        Some((_, value)) => is_custom(value),
+        None => std::env::var("ANTHROPIC_BASE_URL").is_ok_and(|value| is_custom(&value)),
+    }
+}
+
 /// Route Claude Code's requests through the loopback observation proxy. Only the
 /// base URL changes; authentication stays with the CLI and the proxy forwards it
 /// untouched, so the billing source and account are the ones the user signed in with.
