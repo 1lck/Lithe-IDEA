@@ -21,6 +21,7 @@ Project/Dependencies 标题与 Terminal shell/动作入口同样使用 `LitheMen
 - 图标、勾选、快捷键和子菜单属于菜单内容。按内容预留必要空间，不用它们切换外观；纯文字的 Project 菜单保留原先无图标栏的布局。
 - Branch、User、Paths 的可搜索内容也由 `LitheContextMenuPresenter` 的透明无边框面板承载，去掉 `NSPopover` 自带的系统外框；内容变化时保持同一面板并更新尺寸，Esc、点击外部与切换菜单共用关闭逻辑。
 - Git Log 筛选弹窗的原生锚点只负责定位，`hitTest` 返回空，避免覆盖底层按钮的 hover 和点击。
+- Git Log 筛选按钮的名称与选中值保持不同前景色，但必须由同一段单行文字完成布局和尾部截断。Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade` 的 `platform/vcs-log/impl/src/com/intellij/util/ui/FilterComponent.java` 是名称、值、3pt 箭头间距及 4pt 内缩的来源；SwiftUI 不能照搬为两个可独立压缩的 `Text`，否则窄工具栏中的名称和长用户名会挤压重叠（#1342）。不要用固定用户名宽度或整体禁止压缩来修复，这会把溢出转移到相邻筛选按钮和清除按钮。
 - Branch、User、Date、Paths 都按触发按钮左下角定位。Date 原先按点击坐标弹出，造成同一按钮点击不同位置时菜单偏移；现在也使用同一个原生锚点，并保留操作菜单的键盘导航、选中勾与关闭回调。右键菜单仍以点击位置定位。
 - 产品下拉框直接显示透明面板，`animationBehavior = .none`，不使用 SwiftUI `Menu`、菜单式 `Picker` 或系统 `NSPopover` 的弹跳展开，也不添加缩放或弹簧过渡。新增或修改产品下拉框时必须走共享组件；AI 的强制入口规则位于 `develop-lithe` Skill。
 - 调用方只提交条目、动作、可用条件和定位信息。例如 Git Log 设置调用 `show(items:at:appearance:locale:)`；不要重新增加样式布尔值或局部绘制另一套菜单。
@@ -1016,6 +1017,7 @@ SwiftUI 更新锚点时，AppKit（macOS 原生界面库）可能还在计算父
 
 ## 验证
 
+- `GitLogFilterLabelTests` 在明暗主题下渲染真实筛选文字，检查窄宽度中长用户名、中文、分支和路径前的名称仍可读，选中值统一从末尾截断；组件渲染不代替完整 Git Log 工作流验收。
 - `AgentActivityPresentationTests` 的切换场景先完成父视图布局，再有界等待已提交的主队列更新交付，然后检查长列表滚动、最后一个文件回调和面板复用。不能把旧面板仍然 `isVisible` 当作新内容已显示，否则下一次点击可能落到旧内容的可选文本并进入原生鼠标跟踪等待。
 - `preferredSizeChangesCoalesceWithoutReenteringTheCallback` 验证一轮尺寸变化只通知最终值，回调触发的新尺寸在后续执行机会交付，回调深度保持为一；`closingContentCancelsQueuedSizeFeedback` 验证移除回调后排队通知失效。
 - `dropdownPresentationDefersLayoutAndUsesTheLatestContent` 在深浅外观的原生父子窗口中验证延后打开、最新内容与环境、合并为一个子窗口，以及更新或首次打开尚未交付时卸载锚点不会重新出现面板。
