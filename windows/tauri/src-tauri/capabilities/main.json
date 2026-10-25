@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2/capability",
   "identifier": "main-capability",
-  "description": "Capability for all windows",
-  "windows": ["*"],
+  "description": "Capability for the product's own windows (main and workspace views). Plugin web pages are excluded by label and receive the minimal plugin-web capability instead.",
+  "windows": ["main", "workspace-*"],
   "permissions": [
     "core:default",
     "core:window:default",
@@ -43,6 +43,7 @@
     "fs:allow-write-file",
     "fs:allow-read-dir",
     "fs:allow-exists",
+    "fs:allow-stat",
     "fs:allow-mkdir",
     "fs:allow-write-text-file",
     "fs:allow-remove",

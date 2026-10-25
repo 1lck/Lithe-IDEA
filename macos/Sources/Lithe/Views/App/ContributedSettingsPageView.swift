@@ -10,7 +10,8 @@ import SwiftUI
 /// under its name. Nothing here depends on which language, build system,
 /// or plugin it is.
 struct ContributedSettingsPageView: View {
-    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var settingsContext: SettingsModelContext
+    private var model: AppModel { settingsContext.model }
     let page: ContributedSettingsPage
     let openPlugin: (PluginID) -> Void
     @State private var layer = PluginSettingLayer.project
@@ -92,8 +93,7 @@ private struct ContributedLanguageStatusSection: View {
             if model.workspaceURL != nil, descriptor != nil {
                 Spacer(minLength: 0)
                 Button(LocalizedStringKey("Restart Language Servers")) { model.restartLanguageServers() }
-                    .buttonStyle(.borderless)
-                    .font(LitheTheme.uiFont(size: 11.5))
+                    .buttonStyle(LitheActionButtonStyle())
                     .disabled(!isEnabled)
             }
         }) {

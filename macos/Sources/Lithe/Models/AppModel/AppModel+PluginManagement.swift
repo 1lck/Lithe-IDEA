@@ -40,6 +40,7 @@ extension AppModel {
         do {
             try await services.pluginManager.uninstall(pluginID)
             buildSystemsFeatureIfActive?.pluginsChanged()
+            vcsProvidersFeature?.pluginsChanged()
             closeStalePluginWebPages()
             objectWillChange.send()
         } catch {
@@ -48,18 +49,6 @@ extension AppModel {
     }
 
     func applyPluginEnabledChanges(_ changes: [PluginID: Bool]) async -> Set<PluginID> {
-        let snapshotsByID = Dictionary(uniqueKeysWithValues: pluginSnapshots.map { ($0.id, $0) })
-        let closesDatabase = changes.contains { pluginID, enabled in
-            !enabled && snapshotsByID[pluginID]?.manifest.modules.contains {
-                $0.manifest.id == .database
-            } == true
-        }
-        if closesDatabase {
-            closeDatabaseWorkspace()
-            workbenchFeature.setVisibility(.database, isVisible: false)
-            await Task.yield()
-        }
-
         var appliedPluginIDs: Set<PluginID> = []
         for pluginID in changes.keys.sorted(by: { $0.rawValue < $1.rawValue }) {
             guard let enabled = changes[pluginID] else { continue }
@@ -72,6 +61,7 @@ extension AppModel {
         }
         if !appliedPluginIDs.isEmpty {
             buildSystemsFeatureIfActive?.pluginsChanged()
+            vcsProvidersFeature?.pluginsChanged()
             closeStalePluginWebPages()
         }
         objectWillChange.send()

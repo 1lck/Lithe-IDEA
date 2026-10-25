@@ -2,7 +2,7 @@
 
 use crate::project::files::{
     is_inside_nested_linked_worktree, java_symbols, read_searchable_text, relative_path,
-    visible_children, VisibilityRules,
+    visible_children, ChildOrder, VisibilityRules,
 };
 use crate::protocol::{CoreError, ErrorCode, SearchMatch};
 use std::collections::{HashMap, HashSet};
@@ -416,7 +416,7 @@ fn collect_files(
     files: &mut Vec<PathBuf>,
 ) -> Result<(), CoreError> {
     crate::protocol::cancellation::check()?;
-    let children = match visible_children(path, root, rules) {
+    let children = match visible_children(path, root, rules, ChildOrder::Traversal) {
         Ok(listing) => listing.children,
         Err(error)
             if path != root
@@ -523,9 +523,12 @@ mod tests {
         }
         let _cleanup = Cleanup(root.clone());
         fs::write(root.join("src/Name.java"), "class Name {}\n").unwrap();
+        // This guards enumeration decisions, not filesystem throughput. Both generated
+        // roots only need enough entries to exceed the result cap on every platform.
+        let generated_files_per_directory = 16;
         for directory in [".build", "node_modules"] {
             fs::create_dir(root.join(directory)).unwrap();
-            for number in 0..1000 {
+            for number in 0..generated_files_per_directory {
                 fs::write(root.join(directory).join(format!("Name{number}.bin")), "").unwrap();
             }
         }
@@ -564,7 +567,8 @@ mod tests {
                 .sum();
             assert_eq!(
                 resident_files,
-                usize::from(files > 0) * 2001 + usize::from(content > 0 || symbols > 0)
+                usize::from(files > 0) * (2 * generated_files_per_directory + 1)
+                    + usize::from(content > 0 || symbols > 0)
             );
             eprintln!("Cold source caps files={files} content={content} symbols={symbols}: {:?}, indexes={}, resident files={resident_files}, results={}",
                 started.elapsed(), built.len(), response.matches.len());
@@ -702,19 +706,21 @@ mod tests {
             fs::create_dir_all(file.parent().unwrap()).unwrap();
             fs::write(file, "Name before").unwrap();
         }
-        let rules = VisibilityRules {
-            hidden_directories: vec![],
-            hidden_file_patterns: vec![
-                "cache/".into(),
-                "**/.*/".into(),
-                ".*/".into(),
-                "*.log".into(),
-            ],
-        };
         let fixture: serde_json::Value = serde_json::from_str(include_str!(
             "../../../../shared/fixtures/search/exclusions.json"
         ))
         .unwrap();
+        // The patterns come from the shared fixture, so Rust and Swift always
+        // judge the same list.
+        let rules = VisibilityRules {
+            hidden_directories: vec![],
+            hidden_file_patterns: fixture["hiddenFilePatterns"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|pattern| pattern.as_str().unwrap().to_string())
+                .collect(),
+        };
         for case in fixture["cases"].as_array().unwrap() {
             assert_eq!(
                 rules.is_hidden(

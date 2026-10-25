@@ -85,7 +85,6 @@ const SUPPORTED_EXTENSION_CATEGORIES = new Set<Settings["extensionsActiveTab"]>(
   "language",
   "theme",
   "icon-theme",
-  "database",
   "integration",
   "skill",
   "agent",

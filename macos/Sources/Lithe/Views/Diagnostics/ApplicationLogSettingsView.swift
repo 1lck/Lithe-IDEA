@@ -18,15 +18,14 @@ struct ApplicationLogSettingsView: View {
                 })
                 LitheSettingsSelect(selection: $feature.logLevel, options: ["debug", "info", "warn", "error"], width: 90, accessibilityLabel: "Minimum level", title: { $0.uppercased() })
             }
-            LitheSearchTextField("Filter log messages", text: $feature.logSearch)
-                .litheSearchField()
+            LitheSearchField("Filter log messages", text: $feature.logSearch)
                 .onSubmit { Task { await feature.refreshLogs() } }
             HStack {
-                TextField("From (UTC ISO 8601)", text: $feature.logSince).litheSettingsTextField()
-                TextField("Until (UTC ISO 8601)", text: $feature.logUntil).litheSettingsTextField()
+                LitheTextField("From (UTC ISO 8601)", text: $feature.logSince)
+                LitheTextField("Until (UTC ISO 8601)", text: $feature.logUntil)
             }
             Button("Refresh Logs") { Task { await feature.refreshLogs() } }
-                .buttonStyle(LitheSecondaryButtonStyle())
+                .buttonStyle(LitheActionButtonStyle())
                 .disabled(feature.isBusy)
                 .accessibilityIdentifier("logs.refresh")
             if feature.isLoadingLogs { ProgressView().controlSize(.small) }
@@ -90,7 +89,7 @@ struct ApplicationLogCleanupView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Button("Clear Logs") { confirmsClear = true }
-                .buttonStyle(LitheSecondaryButtonStyle())
+                .buttonStyle(LitheActionButtonStyle())
                 .disabled(feature.isBusy)
                 .accessibilityIdentifier("logs.clear")
             if let error = feature.logError { Text(error).foregroundStyle(LitheTheme.error) }
@@ -124,7 +123,7 @@ struct ApplicationLogDiagnosticsPage<Locations: View>: View {
                 LitheInfoTip("Preview and export the selected logs with environment information. Credentials and home-directory paths are redacted; source code, editor buffers and terminal history are excluded.")
             }) {
                 Button("Preview and Export…") { feature.presentExport() }
-                    .buttonStyle(LitheSecondaryButtonStyle()).disabled(feature.isBusy)
+                    .buttonStyle(LitheActionButtonStyle()).disabled(feature.isBusy)
                     .accessibilityIdentifier("logs.export")
             }
         }

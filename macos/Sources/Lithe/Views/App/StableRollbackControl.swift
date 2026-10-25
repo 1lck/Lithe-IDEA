@@ -15,7 +15,7 @@ struct StableRollbackControl: View {
                     VStack(alignment: .leading, spacing: 16) {
                         Text("Return to Stable").font(LitheTheme.uiFont(.headline))
                         StableRollbackControl().environmentObject(updateChecker)
-                        Button("Close") { showingDetails = false }
+                        Button("Close") { showingDetails = false }.buttonStyle(LitheActionButtonStyle())
                     }
                     .padding(20)
                     .frame(width: 420)
@@ -42,7 +42,7 @@ struct StableRollbackControl: View {
                         ProgressView().controlSize(.small)
                         Text(LocalizedStringKey(updateChecker.stableRollback.state == .downloading
                              ? "Downloading full stable release…" : "Verifying stable release…"))
-                        Button("Cancel") { updateChecker.stableRollback.cancel() }
+                        Button("Cancel") { updateChecker.stableRollback.cancel() }.buttonStyle(LitheActionButtonStyle())
                     }
                 case .cancelling:
                     Text("Cancelling…")
@@ -50,7 +50,7 @@ struct StableRollbackControl: View {
                     Text("Stable release \(version) is ready.")
                     HStack {
                         Button("Install and Restart") { updateChecker.stableRollback.install() }
-                        Button("Cancel") { updateChecker.stableRollback.cancel() }
+                        Button("Cancel") { updateChecker.stableRollback.cancel() }.buttonStyle(LitheActionButtonStyle())
                     }
                 case .requestingTermination, .installing:
                     Text("Waiting to quit to complete the update.")
@@ -62,7 +62,7 @@ struct StableRollbackControl: View {
                 }
             }
             .font(LitheTheme.smallFont)
-            .buttonStyle(LitheSecondaryButtonStyle())
+            .buttonStyle(LitheActionButtonStyle())
             .alert("Return to Stable?", isPresented: $confirming) {
                 Button("Cancel", role: .cancel) {}
                 Button("Download Stable Release") { updateChecker.returnToStable() }

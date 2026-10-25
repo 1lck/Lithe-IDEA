@@ -17,7 +17,8 @@ use super::outputs::{
 };
 use super::plans::{self, OutputPlanRequest, TaskPlanRequest, TestPlanRequest};
 use crate::plugins::declarative::{
-    decode_payload, outcome, validate_manifest_value, PluginRejection, Validation,
+    decode_payload, outcome, validate_manifest_value, DeclarativePluginManifest, PluginRejection,
+    Validation,
 };
 use crate::protocol::CoreError;
 use serde::de::DeserializeOwned;
@@ -52,6 +53,17 @@ fn with_build_system<T: DeserializeOwned>(
     key: &'static str,
     run: impl FnOnce(&BuildSystemDeclaration, &T) -> Validation<Value>,
 ) -> Result<Value, CoreError> {
+    with_manifest(payload, command, key, |build_system, request, _| {
+        run(build_system, request)
+    })
+}
+
+fn with_manifest<T: DeserializeOwned>(
+    payload: Value,
+    command: &str,
+    key: &'static str,
+    run: impl FnOnce(&BuildSystemDeclaration, &T, &DeclarativePluginManifest) -> Validation<Value>,
+) -> Result<Value, CoreError> {
     let payload: BuildPayload<T> = decode_payload(payload, command)?;
     Ok(outcome(validate_manifest_value(payload.manifest).and_then(
         |manifest| {
@@ -68,7 +80,7 @@ fn with_build_system<T: DeserializeOwned>(
                         ),
                     )
                 })?;
-            run(build_system, &payload.request).map(|value| (key, value))
+            run(build_system, &payload.request, &manifest).map(|value| (key, value))
         },
     )))
 }
@@ -84,12 +96,12 @@ pub(crate) fn build_detect_command(payload: Value) -> Result<Value, CoreError> {
 
 /// `build.invocationPlan`: executable candidates and version probes.
 pub(crate) fn build_invocation_plan_command(payload: Value) -> Result<Value, CoreError> {
-    with_build_system(
+    with_manifest(
         payload,
         "build.invocationPlan",
         "invocation",
-        |build_system, request: &InvocationRequest| {
-            invocation::invocation_plan(build_system, request)
+        |build_system, request: &InvocationRequest, manifest| {
+            invocation::invocation_plan(build_system, request, manifest)
         },
     )
 }

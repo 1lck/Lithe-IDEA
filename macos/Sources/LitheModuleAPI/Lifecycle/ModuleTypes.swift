@@ -207,6 +207,8 @@ public struct ModuleContribution: Identifiable, Equatable, Codable, Sendable {
     public let text: String?
     /// Package-relative HTML entry for a plugin web tool window. The host owns the window shell.
     public let webEntry: String?
+    /// Versioned native tree/list rendered with host controls.
+    public let nativeUI: PluginNativeUI?
     public let visibility: [String: String]
 
     public init(
@@ -221,7 +223,8 @@ public struct ModuleContribution: Identifiable, Equatable, Codable, Sendable {
         visibility: [String: String] = [:],
         text: String? = nil,
         uiIcon: PluginUIIcon? = nil,
-        webEntry: String? = nil
+        webEntry: String? = nil,
+        nativeUI: PluginNativeUI? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -234,14 +237,15 @@ public struct ModuleContribution: Identifiable, Equatable, Codable, Sendable {
         self.rendererID = rendererID
         self.text = text
         self.webEntry = webEntry
+        self.nativeUI = nativeUI
         self.visibility = visibility
     }
 
     /// True when the host renders the window body from the declaration instead of native code.
-    public var hasDeclarativeContent: Bool { text != nil || webEntry != nil }
+    public var hasDeclarativeContent: Bool { text != nil || webEntry != nil || nativeUI != nil }
 
     private enum CodingKeys: String, CodingKey {
-        case id, kind, title, icon, placement, order, actionID, rendererID, visibility, text, uiIcon, webEntry
+        case id, kind, title, icon, placement, order, actionID, rendererID, visibility, text, uiIcon, webEntry, nativeUI
     }
 
     public init(from decoder: Decoder) throws {
@@ -261,6 +265,7 @@ public struct ModuleContribution: Identifiable, Equatable, Codable, Sendable {
         rendererID = try container.decodeIfPresent(String.self, forKey: .rendererID)
         text = try container.decodeIfPresent(String.self, forKey: .text)
         webEntry = try container.decodeIfPresent(String.self, forKey: .webEntry)
+        nativeUI = try container.decodeIfPresent(PluginNativeUI.self, forKey: .nativeUI)
         visibility = try container.decodeIfPresent(
             [String: String].self,
             forKey: .visibility
@@ -288,7 +293,6 @@ public extension ModuleID {
     static let execution = ModuleID("dev.lithe.execution")
     static let debug = ModuleID("dev.lithe.debug")
     static let terminal = ModuleID("dev.lithe.terminal")
-    static let database = ModuleID("dev.lithe.database")
     static let aiAssistance = ModuleID("dev.lithe.ai-assistance")
     static let agentConversation = ModuleID("dev.lithe.agent-conversation")
 
@@ -304,6 +308,17 @@ public extension ModuleID {
     static func buildSystemsExtension(_ pluginID: String) -> ModuleID {
         ModuleID("\(pluginID).build-systems")
     }
+
+    /// The VCS providers one declarative plugin declares, enabled together.
+    static func vcsProvidersExtension(_ pluginID: String) -> ModuleID {
+        ModuleID("\(pluginID).vcs-providers")
+    }
+
+    /// The New Project entries one declarative plugin declares, enabled
+    /// together. Nothing runs while it is enabled; it only gates the entries.
+    static func projectGeneratorsExtension(_ pluginID: String) -> ModuleID {
+        ModuleID("\(pluginID).project-generators")
+    }
 }
 
 public extension ModuleCapabilityID {
@@ -315,7 +330,6 @@ public extension ModuleCapabilityID {
     static let executionWorkspace = ModuleCapabilityID("dev.lithe.capability.execution-workspace")
     static let debugWorkspace = ModuleCapabilityID("dev.lithe.capability.debug-workspace")
     static let terminalWorkspace = ModuleCapabilityID("dev.lithe.capability.terminal-workspace")
-    static let databaseWorkspace = ModuleCapabilityID("dev.lithe.capability.database-workspace")
     static let aiCommitMessage = ModuleCapabilityID("dev.lithe.capability.ai-commit-message")
     static let aiPullRequestDescription = ModuleCapabilityID("dev.lithe.capability.ai-pull-request-description")
     static let agentConversation = ModuleCapabilityID("dev.lithe.capability.agent-conversation")

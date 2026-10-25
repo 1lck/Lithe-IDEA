@@ -2,12 +2,18 @@
   "id": "agent-tool-activity-timeline",
   "area": "AI",
   "group": "Agent 对话",
-  "capability": "连续 Agent 工具调用（执行命令、列文件、读文件与编辑等）合并为默认折叠的时间线卡片，汇总总数与失败/中断/完成进度，并逐条展开输入、输出与文件位置",
+  "capability": "每轮工具调用与思考、过程说明放进同一个默认折叠的过程区；展开后相邻工具保留有序时间线、状态、输入输出和文件位置，最终回复单独展示；工具读取或截取的图片以缩略图显示在工具行和工具组标题旁（最多三张、其余 +N），悬停预览、点击放大，用户消息附带的图片同样可放大；Claude Code 后台任务通知：成功的并入随后一轮的折叠过程区，失败的与无后续过程的保持可见；恢复 Claude 会话时压缩前的完整记录也会显示（macOS）",
   "macos": {
     "evidence": [
       "macos/Sources/Lithe/Views/Agent/AgentTranscriptView.swift",
       "macos/Sources/Lithe/Views/Agent/AgentToolGroupView.swift",
-      "macos/Tests/LitheTests/AgentConversationPresentationTests.swift"
+      "macos/Tests/LitheTests/AgentConversationPresentationTests.swift",
+      "macos/Sources/Lithe/Views/Agent/AgentProcessGroupView.swift",
+      "macos/Tests/LitheTests/AgentThoughtTranscriptTests.swift",
+      "macos/Sources/LitheAgentConversationModule/Application/AgentImage.swift",
+      "macos/Sources/Lithe/Views/Agent/AgentImageViews.swift",
+      "macos/Tests/LitheTests/AgentImageTests.swift",
+      "rust/lithe-agent-host/src/claude_earlier_history.rs"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -17,11 +23,17 @@
       "windows/tauri/src/features",
       "windows/tauri/src/features/agent/components/agent-transcript.tsx",
       "windows/tauri/src/features/agent/services/agent-transcript-items.test.ts",
-      "windows/tauri/src/features/agent/services/agent-transcript-items.ts"
+      "windows/tauri/src/features/agent/services/agent-transcript-items.ts",
+      "windows/tauri/src/features/agent/components/agent-edit-review.tsx",
+      "windows/tauri/src/features/agent/services/agent-edit-review.test.ts",
+      "windows/tauri/crates/project/src/document_file.rs",
+      "scripts/test-windows-agent-recycle.ps1",
+      "windows/tauri/src/features/agent/components/agent-transcript.process.test.tsx"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "owner": "Agent",
-  "verification": "macOS：让真实 Agent 连续列文件、读取文件、执行命令和编辑，确认相邻工具调用只显示一张默认折叠的时间线卡片；展开后每条状态、完整输入、输出和文件位置仍可查看，进行中、全部完成、失败和中断时汇总正确。用 Agent 文字说明和新一轮用户消息隔开工具调用，确认保留文字顺序且不会跨边界合并；搜索工具输入、输出或文件路径时自动展开匹配组；覆盖文件路径仅由 diff 内容上报、未出现在工具标题、输入输出或 locations 中的情况，历史恢复结果与实时流一致。在窄宽面板及深浅主题检查长标题截断、悬停全文、列表滚动和详情可读性。Tasks/Running/Edits 使用共享工具栏按钮的 hover、按下和选中状态，普通标签字体、16pt 图标、2pt 图文间距和4pt水平留白；无独立外框或竖分隔，左右与输入框对齐，原生鼠标验证三项弹框及文件操作仍可用。 Windows 相邻工具调用按 macOS 合并为可折叠的“工具操作（N）”组，头部显示失败/中断/全部完成/已完成 n/N 摘要，失败组红框，行内状态点与证据展开（输入、内容、结果、文件位置），列表最多 4 行高；对话下方常驻任务/运行中/编辑统计条，搜索命中时自动展开；实机验证待完成。Tasks/Running/Edits 使用共享工具栏按钮的 hover、按下和选中状态，普通标签字体、16pt 图标、2pt 图文间距和4pt水平留白；无独立外框或竖分隔，左右与输入框对齐，原生鼠标验证三项弹框及文件操作仍可用。"
+  "verification": "macOS 与 Windows：构造思考→过程说明→读文件→思考→执行命令→最终回复，确认每轮只有一个过程入口且默认收起，流式也不自动展开；收起时过程文字与工具行不占高度，最终回复始终可读。展开按原顺序呈现，只有相邻工具合并，状态与证据可继续查看。纯空白思考、过程说明不产生空行，没有思考和工具的直接回答不产生入口；新用户消息、已记录的轮次结束分别切断分组，工具或思考结束而没有最终回复时不伪造回复。搜索过程文字及工具输入、输出、文件路径，匹配组临时展开且不能在搜索期间收起，清空后恢复手动选择；切换和关闭会话验证偏好隔离与释放。深浅主题、窄宽面板、历史恢复和实时流均验证；历史导出、文件审阅、权限卡片、轮次统计和回复复制继续可用。单元测试与组件回放不替代真实 Agent 和 Windows Tauri 运行验收，未执行部分保持 pending。 macOS 图片：让 Agent 读取多张图片，确认缩略图最多三张并显示 +N，悬停出现带标题和序号的预览，点击进入放大查看并可用方向键切换、Esc 关闭；用户粘贴图片后气泡显示缩略图且可放大；触发后台任务后不再出现原始 task-notification 标记。Windows 对应能力尚未实现。 macOS 后台任务与压缩历史：让 Agent 连续启动多个后台命令，确认成功的通知不再单独成行，而是在对应一轮的“思考过程”展开后以中文状态行出现；失败的通知仍在对话中可见。恢复一个经历过多次压缩的 Claude 会话，确认压缩分界线之前的用户消息、回复、思考和工具调用都能滚动查看，且每次压缩处有“对话已从摘要继续”标记。 点击缩略图后的大图支持双指缩放、拖动、百分比与 ⌘+/⌘−/⌘0；用户消息里的 file:// 链接与 [Image: source:] 占位符显示为缩略图；Claude Code 的斜杠命令、本地命令输出、Shell 转义、压缩续接摘要、技能展开和宿主上下文显示为状态行或折叠块，只给模型看的提醒不显示。 压缩前的用户消息若带粘贴截图，恢复会话后截图仍以缩略图显示在原消息气泡里（不是只剩 [Image #N] 文字），可点击放大。",
+  "notes": "2026-10-24：改为每轮一个默认折叠的过程区，包含思考、工具和中间说明；只改变呈现，不改写历史或 ACP 协议。ACP 无最终回复角色，按最后一条思考或工具的位置保留末尾正文；后续活动到达时才将先前正文移入过程。 2026-10-24：macOS 增加工具图片缩略图、悬停预览、放大查看器和后台任务通知状态行（#1462），Windows 待对齐。 2026-10-24（续）：折叠的思考过程标题行也显示图片缩略图；放大查看器增加缩放；识别更多 Claude Code 特殊消息格式。 2026-10-24（再续）：成功的后台任务通知并入后续过程区；Rust 宿主在 session/load 时只读取最后一个压缩点之前的会话记录，补全 Claude 适配器不回放的历史。 2026-10-25：压缩前历史由 Rust 宿主读取会话记录补全，之前丢弃用户消息里的内联截图，现在作为同一条用户消息的 image 块回放（仅 base64 来源）；Windows 待对齐。"
 }

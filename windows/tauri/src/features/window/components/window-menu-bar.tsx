@@ -1,10 +1,10 @@
+import { useUIExtensionStore } from "@/extensions/ui/stores/ui-extension-store";
 import { openNewEntry } from "@/features/file-explorer/stores/new-entry.store";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { invoke } from "@/platform/tauri-core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { exit } from "@tauri-apps/plugin-process";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
@@ -14,6 +14,7 @@ import {
 import { useRegisteredThemes } from "@/extensions/themes/use-registered-themes";
 import { useTranslation } from "@/i18n/locale-provider";
 import { createAppWindow } from "@/features/window/utils/create-app-window";
+import { requestApplicationQuit } from "@/features/window/utils/request-window-close";
 import {
   Menubar,
   MenubarContent,
@@ -43,6 +44,7 @@ const WindowMenuBar = ({
 }: Props) => {
   const { t } = useTranslation();
   const themes = useRegisteredThemes();
+  const pluginCommands = useUIExtensionStore((state) => state.commands);
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
   const canCreateJava = !!rootFolderPath && !/^(?:remote|wsl):\/\//.test(rootFolderPath);
   const menuWindowRaiseRef = useRef<{ restoreTo: boolean } | null>(null);
@@ -244,7 +246,7 @@ const WindowMenuBar = ({
             {t("menu.reopenClosedTab")}
           </MenubarItem>
           <MenubarSeparator />
-          <MenubarItem shortcut="mod+q" onClick={async () => await exit(0)}>
+          <MenubarItem shortcut="mod+q" onClick={() => void requestApplicationQuit()}>
             {t("menu.quit")}
           </MenubarItem>
         </MenubarContent>
@@ -488,14 +490,12 @@ const WindowMenuBar = ({
       ),
       Tools: (
         <MenubarContent>
-          <MenubarItem
-            onClick={() => handleCommand("database.connect")}
-            disabled={!isBackendCapabilityAvailable("database")}
-            title={BACKEND_UNAVAILABLE_TOOLTIP}
-          >
-            {t("menu.databases")}
-          </MenubarItem>
-          <MenubarSeparator />
+          {[...pluginCommands.values()].filter((command) => command.placements?.includes("menu")).map((command) => (
+            <MenubarItem key={command.id} onClick={() => { closeMenu(); void Promise.resolve(command.execute()).catch(console.error); }}>
+              {command.title}
+            </MenubarItem>
+          ))}
+          {[...pluginCommands.values()].some((command) => command.placements?.includes("menu")) && <MenubarSeparator />}
           <MenubarItem shortcut="mod+alt+i" onClick={handleOpenWebInspector}>
             {t("menu.webInspector")}
           </MenubarItem>
@@ -579,6 +579,7 @@ const WindowMenuBar = ({
       ),
     }),
     [
+      pluginCommands,
       closeMenu,
       handleClickEmit,
       handleCommand,
@@ -617,7 +618,7 @@ const WindowMenuBar = ({
               title={
                 (menuName === "Terminal" && !isBackendCapabilityAvailable("terminal")) ||
                 (menuName === "Run" && !isBackendCapabilityAvailable("debugger"))
-                  ? BACKEND_UNAVAILABLE_TOOLTIP
+                  ? t(BACKEND_UNAVAILABLE_TOOLTIP)
                   : undefined
               }
             >

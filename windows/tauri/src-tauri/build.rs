@@ -20,7 +20,12 @@ use std::path::{Path, PathBuf};
 const CONPTY_FILES: [&str; 3] = ["conpty.dll", "OpenConsole.exe", "ConPTY-LICENSE.txt"];
 
 fn main() {
-    tauri_build::build();
+    // Keep the page bridge in its own ACL namespace. Defining an app ACL for
+    // one command would also change authorization for every product command.
+    tauri_build::try_build(
+        tauri_build::Attributes::new().plugin("declarative-web", tauri_build::InlinedPlugin::new()),
+    )
+    .expect("Tauri build failed");
 
     if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
         return;

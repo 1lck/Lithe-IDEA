@@ -69,6 +69,8 @@ const settingsTabLabels: Record<SettingsTab, string> = {
   git: "Git",
   appearance: "Appearance",
   ai: "AI",
+  hooks: "Hooks Hook 钩子 命令 超时 Codex Claude",
+  agents: "Agents",
   "ai-commit": "AI & Commit",
   keyboard: "Keybindings",
   language: "Editor",

@@ -2,6 +2,14 @@
 use super::*;
 use serde_json::json;
 
+/// Plans without consulting Git: none of these fixtures has a divergent upstream.
+fn build_plan(
+    request: PrepareRequest,
+    states: BTreeMap<String, GitCommitState>,
+) -> Result<Preparation, CoreError> {
+    build_plan_with(request, states, &|_, _| Ok(None))
+}
+
 fn state(staged: &[&str], links: &[&str]) -> GitCommitState {
     GitCommitState {
         head: Some("initial".into()),

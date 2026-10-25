@@ -17,10 +17,20 @@ public final class AgentConnectionModel: ObservableObject {
 
     @Published public private(set) var connectionState: ConnectionState = .idle
     @Published public private(set) var usesSubscription = false
+    /// The signed-in Claude Code account pays; its quota arrives with replies.
+    @Published public private(set) var usesClaudeSubscription = false
     @Published public private(set) var subscriptionEmail: String?
     @Published public private(set) var subscriptionPlan: String?
     @Published public private(set) var subscriptionQuota: AgentSubscriptionQuota?
     @Published public private(set) var quotaFailure: String?
+    /// Account directory the current subscription connection was launched with;
+    /// `nil` is the CLI's default account.
+    public private(set) var accountDirectory: URL?
+    /// Reports the account and the latest usage windows of a subscription
+    /// connection so the app can keep the last known values per account. Lithe
+    /// requests nothing for this; these are only what the Host or adapter pushed.
+    public var onAccountObserved: ((_ directory: URL?, _ email: String?, _ plan: String?,
+                                    _ quota: AgentSubscriptionQuota?) -> Void)?
 
     /// Name and version the agent reported on `ready`, for the panel header.
     @Published public private(set) var agentName: String?
@@ -108,6 +118,15 @@ public final class AgentConnectionModel: ObservableObject {
     private var needsAttention = false
     @Published private var createToken: String?
     private var loadBackups: [String: AgentConversation] = [:]
+    /// Messages of an in-flight `session/load`, kept outside the published
+    /// `conversations`. A `@Published` dictionary is read and written whole, so
+    /// every replayed message copied all earlier ones: the cost grew with the
+    /// square of the history. The replay lands in `conversations` once, when it ends.
+    private var replayMessages: [String: [AgentConversationMessage]] = [:]
+    private var replayToolIndex: [String: [String: Int]] = [:]
+    /// Upstream id of the user message a replay last appended to; consecutive user
+    /// messages are separate entries even though ACP delivers them as chunks.
+    private var replayUserMessageID: [String: String] = [:]
     /// Locally prepared sessions without a submitted prompt or upstream history evidence.
     /// Codex does not persist their rollout until the first prompt, so they cannot be resumed.
     private var unpromptedSessionIDs: Set<String> = []
@@ -155,6 +174,8 @@ public final class AgentConnectionModel: ObservableObject {
         errorMessage = nil
         isClaudeConnection = configuration.agentID == "claude-acp"
         usesSubscription = configuration.authentication == .codexSubscription
+        usesClaudeSubscription = configuration.authentication == .claudeSubscription
+        accountDirectory = configuration.authentication.isSubscription ? configuration.accountDirectory : nil
         subscriptionEmail = nil
         subscriptionPlan = nil
         subscriptionQuota = nil
@@ -476,6 +497,21 @@ public final class AgentConnectionModel: ObservableObject {
         composerFocusRequest &+= 1
     }
 
+    /// Put text in the composer without sending it, as when the user picks a
+    /// reply or task Claude Desktop suggested. A new conversation keeps the current draft.
+    public func fillDraft(_ text: String, inNewConversation: Bool) {
+        if inNewConversation && selectedSessionID != nil {
+            if isCreatingSession || !unassignedDraft.isEmpty {
+                saveDraft()
+                restoreDraft(unassignedDraft)
+                selectedSessionID = nil
+                prepareConversation()
+            } else { startNewConversation() }
+        }
+        draftText = text
+        composerFocusRequest &+= 1
+    }
+
     private func saveDraft() {
         let draft = Draft(text: draftText, files: draftFiles)
         if let selectedSessionID { sessionDrafts[selectedSessionID] = draft }
@@ -601,14 +637,16 @@ public final class AgentConnectionModel: ObservableObject {
             guard usesSubscription else { return }
             connectionState = .authenticating
         case "account":
-            guard usesSubscription, let account = event["account"] as? [String: Any] else { return }
+            guard usesSubscription || usesClaudeSubscription, let account = event["account"] as? [String: Any] else { return }
             subscriptionEmail = account["email"] as? String
             subscriptionPlan = account["plan"] as? String
+            onAccountObserved?(accountDirectory, subscriptionEmail, subscriptionPlan, subscriptionQuota)
         case "quota":
             guard usesSubscription, connectionState == .ready else { return }
             if let snapshot = AgentSubscriptionQuota.parse(event["snapshot"]) {
                 subscriptionQuota = snapshot
                 quotaFailure = nil
+                onAccountObserved?(accountDirectory, subscriptionEmail, subscriptionPlan, snapshot)
             } else { quotaFailure = "unparsable" }
         case "quotaFailed":
             guard usesSubscription, connectionState == .ready else { return }
@@ -677,6 +715,7 @@ public final class AgentConnectionModel: ObservableObject {
             guard let sessionID, let token, loadTokens.removeValue(forKey: token) != nil else { return }
             unpromptedSessionIDs.remove(sessionID)
             flushPendingText()
+            commitReplay(sessionID)
             conversations[sessionID, default: AgentConversation()].isLoading = false
             conversations[sessionID]?.isAttached = true
             conversations[sessionID]?.hasCompleteHistory = true
@@ -850,7 +889,10 @@ public final class AgentConnectionModel: ObservableObject {
         } else if let token, let loading = loadTokens.removeValue(forKey: token) {
             queuedPrompts.removeValue(forKey: loading)
             pendingText[loading] = nil
-            if let backup = loadBackups.removeValue(forKey: loading) { conversations[loading] = backup }
+            if let backup = loadBackups.removeValue(forKey: loading) {
+                discardReplay(loading)
+                conversations[loading] = backup
+            } else { commitReplay(loading) }
             rebuildSubagentOwners()
             conversations[loading]?.isLoading = false
             conversations[loading]?.errorMessage = message
@@ -917,6 +959,15 @@ public final class AgentConnectionModel: ObservableObject {
             let source = (meta?["lithe"] as? [String: Any])?["contextUsageSource"] as? String
             conversations[sessionID]?.contextUsageIsHistorical = source == "history" && conversations[sessionID]?.contextUsage != nil
             conversations[sessionID]?.hasReportedContextUsage = true
+            if usesClaudeSubscription, let info = meta?["_claude/rateLimit"] as? [String: Any] {
+                // Account-wide, so it is kept on the connection rather than the session.
+                let now = Date()
+                if let merged = subscriptionQuota?.mergingClaudeRateLimit(info, at: now)
+                    ?? AgentSubscriptionQuota.claudeRateLimit(info, at: now) {
+                    subscriptionQuota = merged
+                    onAccountObserved?(accountDirectory, subscriptionEmail, subscriptionPlan, merged)
+                }
+            }
             if conversations[sessionID]?.isResponding == false { persistStatistics(sessionID) }
         case "config_option_update":
             applyConfiguration(update["configOptions"], to: sessionID)
@@ -931,6 +982,15 @@ public final class AgentConnectionModel: ObservableObject {
         case "plan":
             guard let plan = AgentPlan.parse(update) else { return }
             conversations[sessionID, default: AgentConversation()].plan = plan.entries.isEmpty ? nil : plan
+            // Live plans are pinned above the composer. A replay instead keeps every
+            // snapshot in order, so a history whose Agent wrote little prose (Claude
+            // Desktop reports progress this way) still shows what each turn did.
+            if conversations[sessionID]?.isLoading == true, subagentSessionID == nil, !plan.entries.isEmpty {
+                flushPendingText()
+                var message = AgentConversationMessage(role: .agent, text: "")
+                message.plan = plan
+                replayMessages[sessionID, default: []].append(message)
+            }
             // A valid plan proves recovery without implying streamed reasoning.
             if conversations[sessionID]?.responsePhase == .retrying {
                 markResponseProgress(.waiting, in: sessionID)
@@ -957,14 +1017,17 @@ public final class AgentConnectionModel: ObservableObject {
             // Live input is already shown locally, including pending steering.
             // Replay still rebuilds the upstream-owned transcript while loading.
             guard conversations[sessionID]?.isResponding != true else { return }
-            guard let text = Self.text(of: update) else { return }
+            let image = (update["content"] as? [String: Any]).flatMap(AgentImage.parse(block:))
+            guard let text = Self.text(of: update) ?? (image == nil ? nil : "") else { return }
             flushPendingText()
-            append(text, role: .user, to: sessionID, subagentSessionID: subagentSessionID)
+            append(text, role: .user, to: sessionID, subagentSessionID: subagentSessionID, image: image,
+                   messageID: update["messageId"] as? String)
         case "tool_call", "tool_call_update":
             guard let toolCallID = update["toolCallId"] as? String else { return }
             flushPendingText()
             upsertTool(toolCallID, update: update, in: sessionID, subagentSessionID: subagentSessionID)
-            conversations[sessionID]?.refreshTurnClock(at: now())
+            // Only an active turn has a clock; a replay would copy the transcript for nothing.
+            if conversations[sessionID]?.activeTurn != nil { conversations[sessionID]?.refreshTurnClock(at: now()) }
             markResponseProgress(.waiting, in: sessionID)
         case "session_info_update":
             // codex-acp 1.13.1 forwards retries in metadata without a title.
@@ -1126,7 +1189,9 @@ public final class AgentConnectionModel: ObservableObject {
                   conversation.subagents[index].state == .running || conversation.subagents[index].state == .disconnected else { return true }
             flushPendingText()
             // Flushing may have appended the child's last output to this snapshot.
-            conversation.messages = conversations[root]?.messages ?? conversation.messages
+            // A replay keeps its messages aside until it ends.
+            let replayed = replayMessages[root]
+            conversation.messages = replayed ?? conversations[root]?.messages ?? conversation.messages
             conversation.subagents[index].state = state
             var ended = Set<String>()
             if state != .running {
@@ -1149,6 +1214,10 @@ public final class AgentConnectionModel: ObservableObject {
             }
             conversation.pendingPermissions.removeAll { $0.subagentSessionID.map(ended.contains) == true }
             conversation.refreshTurnClock(at: now())
+            if replayed != nil {
+                replayMessages[root] = conversation.messages
+                conversation.messages = []
+            }
         }
         conversations[root] = conversation
         updateAttention()
@@ -1167,23 +1236,79 @@ public final class AgentConnectionModel: ObservableObject {
         return "subagent-tool:\(child.utf8.count):\(child):\(toolCallID)"
     }
 
-    private func append(_ text: String, role: AgentConversationMessage.Role, to sessionID: String, subagentSessionID: String? = nil) {
+    /// Publishes the replayed transcript in one assignment.
+    private func commitReplay(_ sessionID: String) {
+        guard let messages = replayMessages.removeValue(forKey: sessionID) else { return }
+        replayToolIndex[sessionID] = nil
+        replayUserMessageID[sessionID] = nil
+        conversations[sessionID, default: AgentConversation()].messages = messages
+    }
+
+    private func discardReplay(_ sessionID: String) {
+        replayMessages[sessionID] = nil
+        replayToolIndex[sessionID] = nil
+        replayUserMessageID[sessionID] = nil
+    }
+
+    private func append(_ text: String, role: AgentConversationMessage.Role, to sessionID: String,
+                        subagentSessionID: String? = nil, image: AgentImage? = nil, messageID: String? = nil) {
+        func attach(_ image: AgentImage?, to message: inout AgentConversationMessage) {
+            if let image, message.images.count < AgentImage.maximumPerMessage,
+               !message.images.contains(where: { $0.id == image.id }) { message.images.append(image) }
+        }
+        if conversations[sessionID]?.isLoading == true {
+            // Two user messages in a row (a prompt after a background notice, say) must
+            // not fuse into one bubble, which would also stop the notice being recognised.
+            var startsNewMessage = false
+            if role == .user, let messageID {
+                startsNewMessage = replayUserMessageID[sessionID].map { $0 != messageID } ?? false
+                replayUserMessageID[sessionID] = messageID
+            }
+            if !startsNewMessage, let last = replayMessages[sessionID]?.indices.last, replayMessages[sessionID]?[last].role == role,
+               replayMessages[sessionID]?[last].subagentSessionID == subagentSessionID {
+                replayMessages[sessionID]?[last].text += text
+                attach(image, to: &replayMessages[sessionID]![last])
+            } else {
+                var message = AgentConversationMessage(role: role, text: text)
+                message.subagentSessionID = subagentSessionID
+                attach(image, to: &message)
+                replayMessages[sessionID, default: []].append(message)
+            }
+            return
+        }
         var conversation = conversations[sessionID] ?? AgentConversation()
         if let last = conversation.messages.indices.last, conversation.messages[last].role == role,
            conversation.messages[last].subagentSessionID == subagentSessionID {
             conversation.messages[last].text += text
+            attach(image, to: &conversation.messages[last])
         } else {
-            conversation.messages.append(AgentConversationMessage(role: role, text: text))
-            conversation.messages[conversation.messages.count - 1].subagentSessionID = subagentSessionID
+            var message = AgentConversationMessage(role: role, text: text)
+            message.subagentSessionID = subagentSessionID
+            attach(image, to: &message)
+            conversation.messages.append(message)
         }
         conversations[sessionID] = conversation
     }
 
     private func upsertTool(_ toolCallID: String, update: [String: Any], in sessionID: String, subagentSessionID: String? = nil) {
-        var conversation = conversations[sessionID] ?? AgentConversation()
         let id = Self.toolMessageID(toolCallID, subagentSessionID: subagentSessionID)
         let status = (update["status"] as? String).flatMap(AgentConversationMessage.ToolStatus.init(rawValue:))
         let title = (update["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        if conversations[sessionID]?.isLoading == true {
+            if let index = replayToolIndex[sessionID]?[id] {
+                if let title { replayMessages[sessionID]?[index].text = title }
+                if let status { replayMessages[sessionID]?[index].toolStatus = status }
+                replayMessages[sessionID]?[index].toolDetails.merge(update)
+            } else {
+                var message = AgentConversationMessage(id: id, role: .tool, text: title ?? "Tool call", toolStatus: status ?? .pending)
+                message.toolDetails.merge(update)
+                message.subagentSessionID = subagentSessionID
+                replayToolIndex[sessionID, default: [:]][id] = replayMessages[sessionID]?.count ?? 0
+                replayMessages[sessionID, default: []].append(message)
+            }
+            return
+        }
+        var conversation = conversations[sessionID] ?? AgentConversation()
         if let index = conversation.messages.firstIndex(where: { $0.id == id }) {
             if let title { conversation.messages[index].text = title }
             if let status { conversation.messages[index].toolStatus = status }
@@ -1299,6 +1424,7 @@ public final class AgentConnectionModel: ObservableObject {
         loadTokens[token] = sessionID
         loadBackups[sessionID] = conversations[sessionID]
         pendingText[sessionID] = nil
+        discardReplay(sessionID)
         // The agent replays the whole history, so rebuild it from scratch.
         var conversation = AgentConversation()
         // Review decisions belong to the open tab, not the connection. Replayed
@@ -1378,6 +1504,9 @@ public final class AgentConnectionModel: ObservableObject {
         historyContinuations.removeAll()
         queuedPrompts.removeAll()
         loadTokens.removeAll()
+        for id in Array(replayMessages.keys) {
+            if loadBackups[id] == nil { commitReplay(id) } else { discardReplay(id) }
+        }
         for (id, backup) in loadBackups { conversations[id] = backup }
         rebuildSubagentOwners()
         loadBackups.removeAll()

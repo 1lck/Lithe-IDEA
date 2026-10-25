@@ -343,6 +343,17 @@ final class ProjectSessionManager: ObservableObject {
         await resetPrimaryWindowSessions()
     }
 
+    /// Asks before a project or window close would stop Run services; set by
+    /// the app delegate, which owns the termination settings.
+    var confirmRunServicesOnClose: (@MainActor ([RunServiceExitCandidate]) async -> Bool)?
+
+    /// Whether closing these sessions may stop their Run services.
+    func confirmRunServicesBeforeClosing(_ models: [AppModel]) async -> Bool {
+        let services = models.flatMap(\.runServiceExitCandidates)
+        guard !services.isEmpty, let confirmRunServicesOnClose else { return true }
+        return await confirmRunServicesOnClose(services)
+    }
+
     /// Tears down only the primary-window sessions so dedicated project windows
     /// can keep running after the welcome/host window is dismissed.
     func resetPrimaryWindowSessions() async {
@@ -524,6 +535,9 @@ final class ProjectSessionManager: ObservableObject {
             requestOpenAtPlacement: { [weak self, weak model] url, placement in
                 guard let self, let model else { return }
                 self.requestOpenProject(url, from: model.id, placement: placement)
+            },
+            confirmRunServicesBeforeClose: { [weak self] services in
+                await self?.confirmRunServicesOnClose?(services) ?? true
             }
         )
         // Only workspace open/close should wake the window chrome. Relaying

@@ -109,10 +109,10 @@ struct McpSettingsView: View {
 
             if feature.isEnabled {
                 Button("Disable MCP") { feature.disable() }
-                    .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 12, height: 28, fontSize: 12))
+                    .buttonStyle(LitheActionButtonStyle())
             } else {
                 Button("Enable MCP") { feature.enable() }
-                    .buttonStyle(LithePrimaryButtonStyle(horizontalPadding: 14, height: 28))
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
             }
         }
         .padding(12)
@@ -173,7 +173,7 @@ struct McpSettingsView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 12) {
                 Button("Copy agent configuration") { feature.copyConfiguration() }
-                    .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 12, height: 28, fontSize: 12))
+                    .buttonStyle(LitheActionButtonStyle())
                 LitheInfoTip("Paste this into your MCP client configuration.")
                 Spacer(minLength: 12)
             }

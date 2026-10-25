@@ -1,8 +1,10 @@
 import Foundation
 
 package struct FileVisibilityRules: Hashable, Sendable {
+    /// VCS metadata (`.git`, `.svn`) is hidden like IDEA's default ignore
+    /// list; providers watch their own metadata directories.
     package static let builtInHiddenDirectories = [
-        ".git", ".worktree", ".worktrees", ".build", ".swiftpm", "node_modules", "target", "build",
+        ".git", ".svn", ".worktree", ".worktrees", ".build", ".swiftpm", "node_modules", "target", "build",
         "DerivedData", ".gradle", ".next", "dist", "coverage", "design-qa-artifacts", ".artifacts"
     ]
     /// Names and globs omitted from the project tree, search index, watchers,
@@ -12,6 +14,12 @@ package struct FileVisibilityRules: Hashable, Sendable {
         ".DS_Store",
         ".lithe/run/local.json",
     ]
+
+    /// The built-in rules written as Hidden paths patterns, for display. Folder
+    /// names become `**/name/`, the pattern that hides them at any depth.
+    package static var builtInPatterns: [String] {
+        builtInHiddenDirectories.map { "**/\($0)/" } + builtInHiddenFilePatterns
+    }
 
     package var hiddenDirectoryNames: [String]
     package var hiddenFilePatterns: [String]
@@ -57,17 +65,22 @@ package struct FileVisibilityRules: Hashable, Sendable {
         }
 
         let directoryCount = isDirectory == false ? max(0, components.count - 1) : components.count
-        for pattern in hiddenFilePatterns where pattern.hasSuffix("/") {
-            for count in 1..<(directoryCount + 1) {
-                if Self.globMatches(String(pattern.dropLast()), value: components.prefix(count).joined(separator: "/")) {
-                    return true
-                }
+        let folderGlobs = hiddenFilePatterns.compactMap(Self.folderGlob)
+        if !folderGlobs.isEmpty {
+            // Each ancestor prefix is joined once and shared by every folder
+            // rule, instead of being rebuilt per rule.
+            let prefixes = stride(from: 1, through: directoryCount, by: 1).map {
+                components.prefix($0).joined(separator: "/")
             }
+            let hidesFolder = folderGlobs.contains { glob in
+                prefixes.contains { Self.pathGlobMatches(glob, value: $0) }
+            }
+            if hidesFolder { return true }
         }
         guard isDirectory != true else { return false }
         return hiddenFilePatterns.contains { pattern in
-            Self.globMatches(pattern, value: lastComponent) ||
-                Self.globMatches(pattern, value: relativePath)
+            Self.pathGlobMatches(pattern, value: lastComponent) ||
+                Self.pathGlobMatches(pattern, value: relativePath)
         }
     }
 
@@ -75,8 +88,37 @@ package struct FileVisibilityRules: Hashable, Sendable {
         isHidden(url, relativeTo: rootURL, isDirectory: nil)
     }
 
+    /// The project configuration folder at the workspace root. It is the only
+    /// folder a hidden-path rule may remove from the tree while its file events
+    /// stay watched, because edits to its JSON files reload project services.
+    package static let watchedConfigurationDirectory = ".lithe"
+
+    /// Whether file events at `url` must still be delivered although the rules
+    /// hide it. Only the built-in noise below the configuration folder, such as
+    /// `.lithe/run/local.json`, stays dropped.
+    package func isWatchedDespiteHiding(_ url: URL, relativeTo rootURL: URL) -> Bool {
+        let relativePath = relativePath(for: url, root: rootURL)
+        guard relativePath.split(separator: "/").first.map(String.init) == Self.watchedConfigurationDirectory
+        else { return false }
+        return !Self.default.isHiddenPath(url, relativeTo: rootURL)
+    }
+
     package func isHiddenDirectoryName(_ name: String) -> Bool {
         hiddenDirectoryNames.contains { $0.caseInsensitiveCompare(name) == .orderedSame }
+    }
+
+    /// The folder glob of an entry that ends in `/`, `/*` or `/**`.
+    ///
+    /// Such an entry names a folder from the project root (or at any depth when
+    /// it starts with `**/`), so the folder and everything below it is hidden
+    /// instead of leaving an empty folder behind. Other entries keep their
+    /// file-only meaning, as pinned by `shared/fixtures/search/exclusions.json`.
+    private static func folderGlob(_ pattern: String) -> String? {
+        for suffix in ["/**", "/*", "/"] where pattern.hasSuffix(suffix) {
+            let glob = String(pattern.dropLast(suffix.count))
+            return glob.isEmpty ? nil : glob
+        }
+        return nil
     }
 
     private static func normalizedEntries(_ values: [String]) -> [String] {
@@ -97,6 +139,17 @@ package struct FileVisibilityRules: Hashable, Sendable {
         let path = url.standardizedFileURL.path
         guard path.hasPrefix(rootPath + "/") else { return url.lastPathComponent }
         return String(path.dropFirst(rootPath.count + 1))
+    }
+
+    /// Matches a hidden-path glob, letting a leading `**/` stand for zero or
+    /// more folders, so `**/dist/` covers a root-level `dist` as well as
+    /// `a/b/dist`. `*` already spans `/`, which covers the non-root case; the
+    /// root case needs the second attempt because the glob would otherwise
+    /// demand a literal `/`.
+    private static func pathGlobMatches(_ pattern: String, value: String) -> Bool {
+        if globMatches(pattern, value: value) { return true }
+        guard pattern.hasPrefix("**/") else { return false }
+        return globMatches(String(pattern.dropFirst(3)), value: value)
     }
 
     private static func globMatches(_ pattern: String, value: String) -> Bool {

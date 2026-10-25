@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ArrowRightIcon as ArrowRight,
   CaretDownIcon as CaretDown,
@@ -35,7 +35,13 @@ import {
   attachGitPushDialogHost,
   type GitPushDialogRequest,
 } from "../services/git-push-dialog-service";
-import type { GitCommit, GitCommitFile, GitPushPreview, GitPushTagScope } from "../types/git.types";
+import type {
+  GitCommit,
+  GitCommitFile,
+  GitPushPreview,
+  GitPushTagScope,
+  GitPushTargetChoice,
+} from "../types/git.types";
 import { GitCommitFileTree } from "./log/git-commit-file-tree";
 
 type LoadState = "loading" | "ready" | "failed";
@@ -109,27 +115,57 @@ function GitPushDialog({
   const [tagScope, setTagScope] = useState<Exclude<GitPushTagScope, "none">>("all");
   const [isPushing, setIsPushing] = useState(false);
   const [pushError, setPushError] = useState<string | null>(null);
+  // Only set when the user confirms a divergent destination; routine pushes stay implicit.
+  const [pushTarget, setPushTarget] = useState<GitPushTargetChoice | null>(null);
+  // The remote branch the first preview of the current choice showed. A later preview
+  // that resolves elsewhere means the tracking configuration moved under the choice.
+  const confirmedDestination = useRef<{ remote: string; remoteBranch: string } | null>(null);
+  const previewSequence = useRef(0);
 
   const loadPreview = useCallback(async () => {
+    const sequence = ++previewSequence.current;
     setLoadState("loading");
     setPreviewError(null);
     setPushError(null);
     try {
+      // The preview is requested with the chosen destination, so the commits, remote
+      // branch and lease shown are exactly what the push will be checked against.
       const nextPreview = await getGitPushPreview(
         request.repoPath,
         request.reference,
         pushTags ? tagScope : "none",
+        pushTarget ?? undefined,
       );
+      if (sequence !== previewSequence.current) return;
+      if (pushTarget) {
+        const confirmed = confirmedDestination.current;
+        if (!confirmed) {
+          confirmedDestination.current = {
+            remote: nextPreview.remote,
+            remoteBranch: nextPreview.remoteBranch,
+          };
+        } else if (
+          confirmed.remote !== nextPreview.remote ||
+          confirmed.remoteBranch !== nextPreview.remoteBranch
+        ) {
+          // Do not carry the confirmation over to a branch the user never saw; clearing
+          // the choice reloads the preview and asks again.
+          confirmedDestination.current = null;
+          setPushTarget(null);
+          return;
+        }
+      }
       setPreview(nextPreview);
       setSelectedCommitHash(nextPreview.commits[0]?.hash ?? null);
       setLoadState("ready");
     } catch (error) {
+      if (sequence !== previewSequence.current) return;
       setPreview(null);
       setSelectedCommitHash(null);
       setPreviewError(error instanceof Error ? error.message : String(error));
       setLoadState("failed");
     }
-  }, [pushTags, request.reference, request.repoPath, tagScope]);
+  }, [pushTags, pushTarget, request.reference, request.repoPath, tagScope]);
 
   useEffect(() => {
     void loadPreview();
@@ -165,14 +201,25 @@ function GitPushDialog({
     () => preview?.commits.find((commit) => commit.hash === selectedCommitHash) ?? null,
     [preview?.commits, selectedCommitHash],
   );
-  const canPush = Boolean(preview && (preview.commits.length > 0 || preview.tags.length > 0));
+  // A preview that is still reloading describes the previous choice, so it cannot be pushed.
+  const canPush = Boolean(
+    loadState === "ready" && preview && (preview.commits.length > 0 || preview.tags.length > 0),
+  );
+  // A divergent destination cannot be pushed until the user picks one of the
+  // two explicit options, so the button stays disabled rather than failing late.
+  const needsTargetChoice = preview?.targetKind === "divergent" && !pushTarget;
+  const chooseTarget = (choice: GitPushTargetChoice) => {
+    if (choice === pushTarget || isPushing) return;
+    confirmedDestination.current = null;
+    setPushTarget(choice);
+  };
   const tagOptions = [
     { value: "all", label: t("git.pushDialog.tagsAll") },
     { value: "reachable", label: t("git.pushDialog.tagsReachable") },
   ];
 
   const performPush = async (force: boolean) => {
-    if (!canPush || isPushing || !preview) return;
+    if (!canPush || isPushing || !preview || needsTargetChoice) return;
     setIsPushing(true);
     setPushError(null);
     try {
@@ -183,9 +230,11 @@ function GitPushDialog({
           localHead: preview.localHead,
           remote: preview.remote,
           remoteBranch: preview.remoteBranch,
+          targetKind: preview.targetKind,
           remoteTrackingOid: preview.remoteTrackingOid,
           tags: preview.tags,
         },
+        ...(pushTarget ? { pushTarget } : {}),
         force,
         pushTags: pushTags ? tagScope : "none",
       });
@@ -254,12 +303,60 @@ function GitPushDialog({
                 <span className="min-w-0 truncate text-primary">
                   {preview.remote}/{preview.remoteBranch}
                 </span>
-                {!preview.upstream ? (
+                {preview.createsRemoteBranch ? (
+                  <span className="ml-auto shrink-0 text-subtle-foreground">
+                    {t("git.pushDialog.createsRemoteBranch")}
+                  </span>
+                ) : !preview.upstream ? (
                   <span className="ml-auto shrink-0 text-subtle-foreground">
                     {t("git.pushDialog.newUpstream")}
                   </span>
                 ) : null}
               </div>
+
+              {preview.targetKind === "divergent" ? (
+                <div
+                  data-testid="git-push-divergent-target"
+                  className="shrink-0 border-warning/30 border-b bg-warning/10 px-3 py-2"
+                >
+                  <div className="flex items-start gap-2 ui-text-sm">
+                    <WarningCircle className="mt-0.5 size-3.5 shrink-0 text-warning" />
+                    <div className="min-w-0 space-y-2">
+                      <p className="text-foreground">
+                        {t("git.pushDialog.divergentWarning", {
+                          branch: preview.localBranch,
+                          upstream: preview.upstream ?? "",
+                        })}
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          variant={pushTarget === "publish" ? "accent" : "default"}
+                          disabled={isPushing}
+                          data-testid="git-push-target-publish"
+                          onClick={() => chooseTarget("publish")}
+                        >
+                          {t("git.pushDialog.publishSameName", {
+                            remote: preview.remote,
+                            branch: preview.localBranch,
+                          })}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant={pushTarget === "upstream" ? "accent" : "default"}
+                          disabled={isPushing}
+                          data-testid="git-push-target-upstream"
+                          onClick={() => chooseTarget("upstream")}
+                        >
+                          {t("git.pushDialog.pushToUpstream", {
+                            branch: preview.upstream ?? "",
+                          })}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
 
               <div className="grid min-h-0 flex-1 grid-cols-[minmax(260px,44%)_minmax(0,1fr)] max-sm:grid-cols-1 max-sm:grid-rows-2">
                 <section className="flex min-h-0 flex-col border-border/70 border-r max-sm:border-r-0 max-sm:border-b">
@@ -364,7 +461,7 @@ function GitPushDialog({
             <ButtonGroup variant="accent">
               <Button
                 variant="accent"
-                disabled={!canPush || isPushing}
+                disabled={!canPush || isPushing || needsTargetChoice}
                 onClick={() => void performPush(false)}
               >
                 {isPushing ? t("git.pushing") : t("git.push")}
@@ -376,7 +473,7 @@ function GitPushDialog({
                     <Button
                       variant="accent"
                       size="icon"
-                      disabled={!canPush || isPushing}
+                      disabled={!canPush || isPushing || needsTargetChoice}
                       tooltip={t("git.pushDialog.moreActions")}
                       aria-label={t("git.pushDialog.moreActions")}
                     />

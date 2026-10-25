@@ -11,20 +11,31 @@ This directory is the cross-platform source of truth:
 | File | Purpose |
 | --- | --- |
 | `plugin-manifest.schema.json` | JSON shape of `plugin.json` |
-| `fixtures/*.plugin.json` | Valid example manifests: language plugins (PHP, Go, Java, a discovered Node runtime), UI (`hello-lithe`), and level 3 build systems (Cargo, Go, Gradle, Maven, and two build providers) |
+| `fixtures/*.plugin.json` | Valid example manifests, named after the capability they exercise rather than a published plugin: `language-*` (packaged, system-command, and host-integration language servers; `node-runtime` for a discovered runtime), `hello-lithe` and `web-panel` (UI), `settings-v2`, and `build-*` (level 3 build systems and the two forms of a build provider) |
 | `fixtures/invalid-manifests.json` | Edits to a valid manifest and the rejection code every host must report |
 | `fixtures/command-plans.json` | Golden run/test command expansions and language-server launch plans |
 | `fixtures/runtime-versions.json` | Golden outcomes of the launch runtime version check |
 | `fixtures/build-plans.json` | Golden build-system plans and decoded outputs |
 | `fixtures/function-protocol.json` | Golden plugin-function negotiation, registration, invocation, outcome, progress, and refusal cases |
+| `fixtures/project-generator.plugin.json`, `fixtures/project-generator-templates/` | Project generators: template files, a scaffolding command, and an archive download |
+| `fixtures/project-plans.json` | Golden `project.*` form evaluations, generation plans, and name checks |
 | `plugin-index.schema.json` | JSON shape of a marketplace source index |
 | `fixtures/marketplace/*.json` | Marketplace index, availability, source URL, and install review golden cases |
 
 Validation and template expansion are implemented once in Rust Core
 (`rust/lithe-core/src/plugins/`, with build systems in
 `rust/lithe-core/src/build/`) and exposed through the
-`plugins.declarative.*` commands in `../../rust-core-api.md`. Hosts must not
+`plugins.declarative.*` commands in [`shared/contracts/rust-core-api.md`](https://github.com/1lck/Lithe-IDEA/blob/preview/shared/contracts/rust-core-api.md). Hosts must not
 reimplement them.
+
+Plugin authors do not need this repository. The public
+[`Lithe-IDEA/lithe-plugin-docs`](https://github.com/Lithe-IDEA/lithe-plugin-docs)
+repository holds the developer guide and a byte-identical copy of this whole
+directory under `contract/v1/`, pinned to a revision of this repository; each
+schema's `$id` is its URL there. Contract changes land here first and must then
+be synced to that repository, so links in this file that leave this directory
+are absolute. `plugin.json` may not carry a `$schema` key, because unknown
+fields are rejected; editors associate the schema by file name instead.
 
 ## Package layout
 
@@ -183,15 +194,18 @@ contains a machine path, and the host decides where state lives.
 | --- | --- |
 | `${pluginDir}` | Root of the installed, read-only package. It must be used at most once per value and be followed by a `/`-rooted path inside the package; that path may vary only by `${arch}`. |
 | `${stateDir}` | Writable directory the host keeps for this plugin's server and removes when the plugin is uninstalled. Not available in `validationArguments`. |
-| `${workspaceStateDir}` | Writable directory for the server's state of the current workspace. Not available in `validationArguments`. |
+| `${workspaceStateDir}` | Writable directory for the server's state of the current workspace. Not available in `validationArguments`, nor in a [plugin backend](#plugin-backend), which belongs to no workspace. |
 | `${arch}` | Host CPU architecture: `arm64` or `x86_64`. |
 | `${setting:<id>}` | Current value of a declared [plugin setting](#plugin-settings-api-2). Not available in `validationArguments`, and never inside a package path. |
 
 `plugins.declarative.languageServerLaunchPlan` expands a server's launch. The
-host selects the process with exactly one of `languageID` (a language server)
-and `buildSystemID` (a build provider), passes `{pluginDirectory,
-stateDirectory, workspaceStateDirectory, architecture, settings?}`, and
-receives:
+host selects the process with exactly one of `languageID` (a language server),
+`buildSystemID` (a build provider), `vcsProviderID` (a VCS provider), and
+`backend: true` (the [plugin backend](#plugin-backend)), passes `{pluginDirectory,
+stateDirectory, workspaceStateDirectory?, architecture, settings?}`, and
+receives. `workspaceStateDirectory` may be omitted only when the selected
+process does not use `${workspaceStateDir}`; otherwise the request is
+`plugin.launch.invalidRequest`.
 
 | Field | Meaning |
 | --- | --- |
@@ -204,9 +218,12 @@ receives:
 | `requiredPackagePaths` | Sorted package-relative paths the launch points at. The host verifies each is inside the package and not a symbolic link before starting the server. |
 | `settings` | Effective value of every declared setting that produced this plan; absent when the plugin declares none. |
 | `buildProvider` | Present only for a `buildSystemID` selection: `{buildSystemID, executesProjectCode, mayUseNetwork, languageServer?}`. `languageServer` names the language whose server is the provider; the rest of the plan is then that server's plan, and the host reuses its running session instead of starting a second process. |
+| `vcsProvider` | Present only for a `vcsProviderID` selection: the [provider descriptor](https://github.com/1lck/Lithe-IDEA/blob/preview/shared/contracts/vcs-provider-v1.md#provider-descriptor) the host keeps for the session. |
+| `backend` | Present only for a `backend` selection: `{hostServices}`, the sorted [host services](#host-services-protocol-version-2) the plugin's permissions grant. The host passes them to `lsp.startServer.hostServices` unchanged. |
 
-A language without a server, an undeclared build system, and a build system
-without a provider are `plugin.launch.unavailable`. Core never creates or
+A language without a server, an undeclared build system, a build system
+without a provider, an undeclared VCS provider, and a plugin without a
+backend are `plugin.launch.unavailable`. Core never creates or
 reads any of these paths. The command also serves API 1
 manifests, whose arguments are returned unchanged.
 
@@ -359,7 +376,7 @@ files sorted by path, or an empty list when no project marker is present.
 | --- | --- |
 | `1` | Languages, `packaged` and `systemCommand` language servers, `node` and `go` runtime dependencies, run and test providers. |
 | `2` | `runtime` launches with a packaged or discovered runtime, host integrations, the `java` runtime, launch templates, `initializationOptions`, and plugin settings. |
-| `3` | Capability versions (`requires`), and `buildSystems`: declarative build tools with detection, options, a project model, tasks, run entries, tests, diagnostics, dependencies, and sync. |
+| `3` | Capability versions (`requires`), `buildSystems`: declarative build tools with detection, options, a project model, tasks, run entries, tests, diagnostics, dependencies, and sync, and [`vcsProviders`](#api-level-3-vcs-providers). |
 
 A level 2 feature in a level 1 manifest is refused with
 `plugin.manifest.invalid` (`plugin.runtime.unsupported` for the `java` tool),
@@ -383,12 +400,15 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 | --- | --- | --- |
 | `languages` | `languages[]` | `1` |
 | `languageServers` | `languageServers[]` apart from their launch fields | `1`, `2` (adds [`workspaceConfiguration`](#workspace-configuration-languageservers-2)) |
-| `serverProcess` | The launch fields of language servers and of build providers with a process of their own: `launch`, `arguments`, `validationArguments`, `runtimeDependencies`, `initializationOptions` | `1` |
+| `serverProcess` | The launch fields of language servers, of build providers with a process of their own, of VCS providers, and of the plugin backend: `launch`, `arguments`, `validationArguments`, `runtimeDependencies`, `initializationOptions` | `1` |
 | `executionProviders` | `executionProviders[]` | `1` |
 | `settings` | `settings[]` and `settingActions[]` | `1`, `2` (adds [placement, scope, effect, page buttons](#settings-v2-placement-scope-effect-and-page-buttons)) |
 | `ui` | `ui` | `1`, `2` (adds [web content](#web-content-ui-2)) |
 | `buildSystems` | Declarative build detection, models, and command plans | `1` |
 | `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers | `1` |
+| `vcsProviders` | `vcsProviders[]` | `1` |
+| `projectGenerators` | [`projectGenerators[]`](#project-generators): entries of the New Project window | `1` |
+| `backend` | [`backend`](#plugin-backend): the plugin's own long-lived process for its pages | `1` |
 
 Version 1 of every capability means what its section means at level 2
 (runtime launches, launch templates, `initializationOptions`, and so on), so
@@ -409,7 +429,9 @@ moving a level 2 manifest to level 3 only adds `requires`.
   `buildSystems[].provider` requires `buildProviders: 1`, whether it starts its
   own process or shares a language server. A template-only build plugin must
   omit `buildProviders`. Launch support alone does not implement Provider
-  negotiation, requests, and lifecycle.
+  negotiation, requests, and lifecycle. Every VCS provider starts its own
+  process, so `vcsProviders` always comes with `serverProcess`, and so does
+  `backend`.
 - The base fields (`schemaVersion`, `id`, `displayName`, `version`, `vendor`,
   `permissions`, `activationEvents`, and `requires` itself) change only with a
   new `pluginAPIVersion`.
@@ -434,8 +456,11 @@ The macOS host runs levels 1 to 3 and sends its capability table, including
 `buildSystems: [1]`, with all three commands. It does not implement build
 providers and does not declare `buildProviders`. Provider plugins are therefore
 filtered from the market and refused by declarative validation and install
-review; template-only build plugins remain available. Core supports
-`buildProviders: 1` for validation and plans without a host table. Windows has
+review; template-only build plugins remain available. It does not declare
+`vcsProviders` either, so VCS provider plugins are filtered the same way until
+the macOS host starts providers. It declares `backend: [1]`: it starts
+plugin backends and serves their credentials from the Keychain. Core supports `backend: 1`, `buildProviders: 1`, and
+`vcsProviders: 1` for validation and plans without a host table. Windows has
 no declarative plugin host and sends no `hostCapabilities`, so it offers no
 level 3 version.
 
@@ -464,12 +489,16 @@ Rules for publishing across levels and capability versions:
 
 | Permission | Required when |
 | --- | --- |
-| `languageServer.launch` | `languageServers` is not empty |
+| `languageServer.launch` | `languageServers` or `vcsProviders` is not empty, or a build provider starts its own process |
 | `process.run` | any provider declares `run` |
 | `process.test` | any provider declares `test` |
 | `process.build` | `buildSystems` is not empty |
+| `process.vcs` | `vcsProviders` is not empty |
+| `project.generate` | `projectGenerators` is not empty |
 | `ui.contribute` | `ui` is declared |
 | `ui.web` | a tool window shows [web content](#web-content-ui-2) |
+| `backend.launch` | `backend` is declared |
+| `credentials.store` | the backend uses the [credentials host service](#host-services-protocol-version-2); refused without a `backend` |
 
 | Activation event | Meaning |
 | --- | --- |
@@ -477,6 +506,7 @@ Rules for publishing across levels and capability versions:
 | `onRun:<id>` | Activate the run provider when the user runs a file of the language. |
 | `onTest:<id>` | Activate the test provider when the user lists or runs tests. |
 | `onBuildSystem:<id>` | Activate the build system before its first plan, model, or decode. |
+| `onVcsRoot:<id>` | Start the VCS provider once a root of its VCS is detected in the workspace. |
 
 Each provider needs its event and each event needs a provider. Enabling a
 plugin only permits activation; nothing starts until its event occurs.
@@ -613,9 +643,11 @@ the plugin, sorted by `kind`, language, and tool:
 | `runtimeLanguageServer` | `languageID`, `tool`, `packagedRuntime`, `entry`, `runtimeArguments`, `arguments`, `validationArguments` | Package entry started by a runtime; `packagedRuntime` is `null` for a discovered runtime |
 | `buildSystem` | `buildSystemID`, `invocation`, `options`, `tasks`, `run`, `test`, `model`, `dependencies`, `hostIntegration`?, `provider`? | Every command line the build system can plan; `provider` is the shared form, which sends build requests to a language server |
 | `packagedBuildProvider`, `systemBuildProvider`, `runtimeBuildProvider` | the matching language-server fields with `buildSystemID`, `executesProjectCode`, `mayUseNetwork` instead of `languageID` | A build provider with a process of its own |
-| `runtime` | `tool`, `minimumVersion`? | Runtime the host discovers and passes to a language server or build provider |
+| `packagedVcsProvider`, `systemVcsProvider`, `runtimeVcsProvider` | the matching language-server fields with `vcs`, `vcsTool`, `mayUseNetwork` instead of `languageID` | A VCS provider process; `vcsTool` is the declared VCS client or `null` |
+| `runtime` | `tool`, `minimumVersion`? | Runtime the host discovers and passes to a language server, build provider, or VCS provider |
 | `run` | `languageID`, `executable`, `arguments` | Run command and its argument template |
 | `test` | `languageID`, `executable`, `workspaceArguments`, `fileArguments`, `testCaseArguments` | Test command and its argument templates |
+| `projectGenerator` | `generatorID`, `command`, `arguments`, `environment`, `collect`, `mayUseNetwork`, `timeoutSeconds`, `when` | A `command` step of a [project generator](#project-generators); `files` and `archive` steps start no program |
 
 Each entry carries everything that decides what actually runs, so an update
 that keeps the same executable but changes its arguments, argument templates,
@@ -716,8 +748,12 @@ commands: Core validates the declaration, detects instances, decodes the
 model, and expands every command line; the host only runs the processes Core
 planned and passes their output back. A community plugin therefore needs no
 host change to add a build tool, and no host code branches on a build-system
-ID. The fixtures `cargo-build`, `go-build`, `gradle-build`, and `maven-build`
-are complete examples, `gradle-provider` and `mix-provider` show the two
+ID. One complete fixture covers each model source: `build-static-file` reads
+a project file, `build-command-stdout` decodes a command's standard output,
+`build-command-output-file` decodes a file the command writes, and
+`build-host-integration` hands the model to a host integration. They use
+Cargo, Go, Gradle, and Maven as realistic inputs; they are not those
+plugins. `build-provider` and `build-provider-language-server` show the two
 forms of a build provider, and `fixtures/build-plans.json` is the golden list
 of plans and decoded outputs every host gets from them.
 
@@ -952,20 +988,209 @@ digests the watched files. A selection the declaration does not allow is
 `plugin.build.invalidSelection`; an operation it does not declare is
 `plugin.build.unavailable`.
 
+## API level 3: VCS providers
+
+`vcsProviders[]` declares version control systems the plugin implements, each
+through its own LSP base-protocol process: the VCS ID, the static markers that
+identify a root, metadata paths the host watches, the VCS client the provider
+drives, and the shared [`serverProcess`](#capability-versions-level-3) launch
+fields. The ID `git` is reserved for the built-in support
+(`plugin.vcs.reserved`). Capabilities belong to the running process and are
+negotiated in `initialize` under `experimental.litheVcs`, never declared in
+the manifest.
+
+Detection never starts a process: `vcs.detectRoots` finds roots from the
+markers, and the host starts a provider only after a root of its VCS is
+found. The install review lists the provider as a `…VcsProvider` program with
+its VCS client (`vcsTool`) and `mayUseNetwork`. Requests go through
+`lsp.vcsRequest` by operation name and replies are normalized by
+`vcs.decodeReply`. The fields, operations, reply shapes, and error codes are
+defined in [the VCS provider contract](https://github.com/1lck/Lithe-IDEA/blob/preview/shared/contracts/vcs-provider-v1.md).
+
+## Plugin backend
+
+A plugin with its own pages may need code that a page cannot run: database
+drivers, network clients, file formats. `backend` declares one long-lived
+process that serves only the plugin itself, independent of any build system,
+language, or workspace:
+
+```json
+"pluginAPIVersion": 3,
+"requires": { "backend": 1, "serverProcess": 1, "ui": 2 },
+"permissions": ["backend.launch", "credentials.store", "ui.contribute", "ui.web"],
+"backend": { "launch": { "kind": "packaged", "path": "bin/backend" }, "arguments": ["--state", "${stateDir}"] }
+```
+
+- `backend` holds exactly the [`serverProcess`](#capability-versions-level-3)
+  launch fields, with the same templates and install review; the review lists
+  it as `packagedBackend`, `systemCommandBackend`, or `runtimeBackend`. It
+  needs `pluginAPIVersion` 3, `requires.backend: 1`, `requires.serverProcess:
+  1`, and the `backend.launch` permission. `fixtures/backend.plugin.json` is
+  the example; the backend cases of `fixtures/invalid-manifests.json` are the
+  rejections.
+- In `backend` 1 only the plugin's own [web pages](#web-content-ui-2) call it,
+  so a backend without a web tool window is `plugin.manifest.invalid`.
+- It belongs to no workspace: `${workspaceStateDir}` is refused, and its
+  writable state is `${stateDir}`. The host starts it with `${stateDir}` as
+  root and working directory.
+- The host keeps at most one backend process per plugin, starts it on the
+  first `functions.*` call from one of the plugin's pages, and ends it when
+  the plugin is disabled, updated, or uninstalled, and when the host quits.
+  Its consent is the install review: it needs no per-workspace prompt.
+- The backend speaks the [plugin-function protocol](#plugin-functions) and,
+  from version 2, may ask the host for the
+  [host services](#host-services-protocol-version-2) its permissions grant.
+  It owns no domain contract: it never answers `lithe/build/*` or VCS
+  requests.
+- A plugin publishes one archive per platform, so its packaged path does not
+  vary by `${arch}`; a macOS archive may carry a universal binary.
+
+## Project generators
+
+`projectGenerators` (requires `projectGenerators` 1 and the `project.generate`
+permission) adds entries to the host's New Project window. The host owns the
+window: the entry list and its search, the project name and location, the
+"create Git repository" option, the empty project, and the Create button. A
+generator declares only its own fields, the languages and build systems the
+result needs, and the steps that produce it. No host code branches on a
+generator ID.
+
+```json
+"projectGenerators": [{
+  "id": "spring-boot",
+  "displayName": "Spring Boot",
+  "section": "generator",
+  "icon": {"path": "icons/spring-boot.svg", "mode": "original"},
+  "fields": [
+    {"id": "groupId", "type": "text", "title": "Group", "default": "com.example", "pattern": "[a-z][a-z0-9.]*"},
+    {"id": "packageName", "type": "text", "title": "Package name",
+     "default": "${field.groupId}.${project.name|package}", "pattern": "[a-z][a-z0-9.]*"},
+    {"id": "jdk", "type": "runtime", "title": "JDK", "runtime": "java", "minimumVersion": "17"}
+  ],
+  "requirements": [{"languageID": "java"}, {"buildSystemID": "maven"}],
+  "steps": [{"kind": "archive", "url": "https://start.spring.io/starter.zip",
+             "query": [{"name": "packageName", "value": "${field.packageName}"}]}]
+}]
+```
+
+| Field | Meaning |
+| --- | --- |
+| `id` | Lowercase letters, digits, and hyphens; unique in the plugin. |
+| `section` | `project` lists the entry under "New Project" (a plain project of a language); `generator` lists it under "Generators" (a framework or scaffolding tool). |
+| `order` | 0–1000, default 100. Entries are sorted by section, `order`, then name. |
+| `fields` | The generator's inputs, drawn and evaluated in order. A field may read only fields declared before it. |
+| `requirements` | `languageID` or `buildSystemID` (optionally `when`) the created project needs. The catalog lists the installed plugins that provide each, with their enabled state, so the host can offer to enable one or open the marketplace. A requirement never blocks creation. |
+| `steps` | Run in order in a staging directory that becomes the project root. |
+| `openFiles` | Project-relative files the host opens after creating the project, optionally with `when`. |
+
+### Fields
+
+| `type` | Value | Properties |
+| --- | --- | --- |
+| `text` | A string | `default` (a template over `${project.name}` and earlier fields, re-evaluated until the user edits the field), `pattern` (matched as a whole), `maxLength` (default 256, at most 1024), `placeholder`, `optional`, `maximumVersion` |
+| `enum` | One option | `options` (1–16 `{value, title}`), `default` (the first option otherwise), `presentation` (`segmented` or `menu`), `maximumVersion` |
+| `boolean` | `true` or `false` | `default` |
+| `multiSelect` | A list of options, kept in declaration order | `options` (1–128, each with an optional `group` heading), `default` |
+| `runtime` | A host-discovered installation | `runtime` (`java`), `minimumVersion`, `optional`. The host chooses the initial value. |
+
+`maximumVersion` is a template over earlier fields naming the highest version
+the value may be, compared numerically by dotted components. A target Java
+release that must not exceed the selected JDK declares
+`"maximumVersion": "${field.jdk.major}"`; while the bound expands to an empty
+string (no JDK chosen yet) nothing is checked.
+
+Every field takes `id` (lowerCamelCase), `title`, `description` (shown behind
+an info tip), `advanced` (listed under the collapsed "Advanced Settings"
+group), and `visibleWhen`. A hidden field is not validated, and templates and
+conditions read it as absent.
+
+Text values never start with `-` and never contain control characters, so a
+value cannot become an option or split a line. A project name is one
+directory name: not empty, at most 128 characters, no `/`, `\`, `:`, or
+control characters, not `.` or `..`, no leading `-`, and no surrounding
+spaces.
+
+### Conditions
+
+`when` and `visibleWhen` take one condition or a list that must all hold:
+`{"field": "<id>", "equals" | "notEquals": <value>}` or `{"field": "<id>",
+"oneOf": [<value>, …]}`. Values are option values for `enum`, `true`/`false`
+for `boolean`, and strings for `text` and `runtime` (`notEquals: ""` tests
+that an optional field is filled). A condition on a hidden field is false.
+
+### Templates
+
+Strings in the manifest use `${…}`: `${project.name}`, `${field.<id>}` (a
+text or option value, `true`/`false`, a comma-separated list, or a runtime's
+home directory), `${field.<id>.version}`, and `${field.<id>.major}` (`21` for
+`21.0.4`, `8` for `1.8.0_412`). Modifiers follow `|` and apply in order:
+`path` turns dots into `/`, `package` makes a valid package name
+(`com.Example.my-app` → `com.example.myapp`), and `lower` lowercases.
+
+Template files use `{{ … }}` with the same variables, because POMs, Gradle
+scripts, and properties files already contain `${…}` that must reach the
+project unchanged. Only `{{` followed by `project.` or `field.` is a
+variable; any other `{{` is copied as text. A file name may also contain
+`${…}` variables, although a step's `target` is the portable place for them.
+A path segment that starts with `dot-` becomes a dotfile (`dot-gitignore` →
+`.gitignore`), because packages keep no hidden files. Hidden files in a
+template directory are skipped; symbolic links are refused.
+
+### Steps
+
+| `kind` | Properties | The host… |
+| --- | --- | --- |
+| `files` | `source` (package-relative directory), `target` (project-relative directory template), `when` | writes the files of the plan, setting the executable bit where the template file has one. |
+| `command` | `command` (a bare executable name), `arguments` (strings or `{value, when}`), `environment`, `collect`, `mayUseNetwork`, `timeoutSeconds` (default 600, at most 1800), `when` | resolves the executable like a build tool, runs it with the staging directory as the working directory, and, with `collect`, moves the contents of that subdirectory up into the project root. Arguments that expand to an empty string are left out. |
+| `archive` | `url` (no query or fragment), `query` (`{name, value, when, omitEmpty}`), `when` | downloads the zip and calls `project.extractArchive` into the staging directory. |
+
+Archive addresses must expand to HTTPS URLs (HTTP only for `localhost`,
+`127.0.0.1`, or `[::1]`) without credentials. The URL may come from a field,
+such as a configurable Spring Initializr server; the host shows the server
+before creating. Template directories are limited to 1024 files, 1 MiB per
+file, and 8 MiB in total; archives to 20,000 entries and 512 MiB extracted.
+
+### Commands
+
+| Command | Payload | Result |
+| --- | --- | --- |
+| `project.generatorCatalog` | `{plugins: [{manifest, enabled}], hostCapabilities?}` | `catalog: {generators: [{pluginID, pluginName, pluginEnabled, generator, requirements: [{languageID or buildSystemID, providers: [{pluginID, pluginName, enabled}]}], usesNetwork}], issues: [{pluginID, error}]}` |
+| `project.generatorForm` | `{manifest, generatorID, form}` | `form: {projectName: {problem}, fields: [{id, visible, value, problem?}], activeRequirements, valid}` |
+| `project.generationPlan` | `{manifest, generatorID, packagePath, form}` | `plan: {projectName, steps, openFiles, runtimes: [{field, runtime, home, version}], usesNetwork}` |
+| `project.checkName` | `{projectName}` | `name: {problem}` |
+| `project.extractArchive` | `{archivePath, destination}` | `extracted: {files}` |
+
+`form` is `{projectName, values, edited, runtimes}`. `values` maps field IDs
+to values; a text value counts only when its ID is in `edited`, so derived
+defaults keep following the fields they read. `runtimes` maps runtime field
+IDs to `{home, version}` of the user's selection. A field `problem` is one of
+`required`, `tooLong`, `invalidFormat`, `unsupportedValue`, `runtimeTooOld`,
+and `versionTooHigh`; hosts localize by code. Plan steps are `{kind:
+"writeFiles", files: [{path, contents, executable}]}`, `{kind: "command",
+command, arguments, environment, collect, mayUseNetwork, timeoutSeconds}`, and
+`{kind: "archive", url, host, format: "zip"}`.
+
+After the steps, the host moves the staging directory to its final location
+(refusing an existing one), may record a `java` runtime as the project's JDK,
+creates the Git repository when asked, and opens the project. A failure or
+cancellation removes the staging directory and leaves nothing behind
+(`plugin.project.generationFailed`).
+
 ## Plugin functions
 
-A plugin backend (a language server or build provider process the plugin
-starts) can offer **plugin functions**: plugin-private actions with
+A plugin backend (a language server, build provider, or
+[plugin backend](#plugin-backend) process the plugin starts) can offer
+**plugin functions**: plugin-private actions with
 serializable params and results, which the host invokes on behalf of the same
 plugin, for example from that plugin's own window. Functions complement the
-typed domain protocols; they never replace them. Version 1 of the protocol is
+typed domain protocols; they never replace them. Versions 1 and 2 of the protocol are
 implemented in Rust Core (`rust/lithe-core/src/lsp/interface/plugin_function.rs`).
 macOS starts every build provider process as a session of the plugin that
 owns it and invokes its functions from that plugin's web pages (the
 `functions.*` bridge methods below). A provider served by a shared language
 server is started by the host for every plugin of its language, so it serves
 no plugin's functions. Windows has no plugin backend host. The
-[official Node SDK](#official-backend-sdk) implements the backend side.
+[official SDKs](#official-backend-sdk) implement the backend side.
 
 ### Capability ownership
 
@@ -989,6 +1214,7 @@ Two rules keep these directions from forming a loop:
   domain registry. Each is added to a protocol version together with its
   params, permission, and the operation it must belong to. Version 1 offers
   none: every `lithe/host/*` request is refused with `plugin.host.unavailable`.
+  Version 2 adds the [credentials](#host-services-protocol-version-2) service.
 
 ### Declarative or backend implementation
 
@@ -1010,7 +1236,7 @@ Two rules keep these directions from forming a loop:
 ### Negotiation
 
 For a session owned by a plugin (`lsp.startServer.pluginId`), the host offers
-`capabilities.experimental.litheFunctions: { "versions": [1] }` in
+`capabilities.experimental.litheFunctions: { "versions": [1, 2] }` in
 `initialize`, next to and independent of `litheBuild`. Host-owned sessions do
 not offer or accept this protocol, retain no plugin-function registry, and
 reject register/unregister with `-32601`. A plugin backend that offers
@@ -1111,6 +1337,42 @@ A backend reports progress of a running call with the notification
 normalized report. A malformed report, or one for an operation that is not
 running on that session, is dropped.
 
+### Host services (protocol version 2)
+
+A backend that negotiated version 2 may send these requests to the host.
+Each service is granted by one manifest permission; Core receives the
+granted services as `lsp.startServer.hostServices` (from the launch plan's
+`backend.hostServices`) and checks every request before the host sees it.
+
+| Request | Params | Result | Permission |
+| --- | --- | --- | --- |
+| `lithe/host/credentials/get` | `{ key }` | `{ secret }`, `null` when nothing is stored | `credentials.store` |
+| `lithe/host/credentials/set` | `{ key, secret }` | `null` | `credentials.store` |
+| `lithe/host/credentials/delete` | `{ key }` | `null`, also when nothing was stored | `credentials.store` |
+
+- A `key` is 1–128 ASCII letters, digits, `.`, `_`, `:`, or `-`; a `secret`
+  is a string of at most 16 KiB. Unknown params are refused so a later
+  version can add them.
+- Credentials are private to the plugin ID: the host stores them in the
+  platform's secret store (the Keychain on macOS) in a namespace of that ID,
+  never in `${stateDir}` or the package. They survive disabling and updating
+  the plugin and are deleted when it is uninstalled.
+- Core refuses, without involving the host, in this order: a session that
+  negotiated version 1 or a method version 2 does not define (`-32601`,
+  `plugin.host.unavailable`), a service the plugin is not granted (`-32601`,
+  `plugin.host.permissionDenied`), and malformed params (`-32602`,
+  `plugin.host.invalidParams`). The code is in `error.data.code`.
+- An accepted request becomes the runtime event `hostRequest` with `method`
+  and `result: { hostRequestID, service, params }`. The host answers it with
+  `lsp.hostResponse { sessionId, hostRequestID, result? | error: { message } }`;
+  Core sends `result` (or `null`) to the backend, or `-32603` with
+  `plugin.host.failed` and the host's message cut to 1024 bytes. An unknown
+  `hostRequestID`, including one already answered, is `invalid_request`.
+- A session holds at most 16 unanswered host requests; a further one is
+  refused with `plugin.host.failed`. Unanswered requests end with the session.
+- `hostServices` needs `pluginId` and names only services this Core defines;
+  otherwise `lsp.startServer` is `invalid_request`.
+
 ### Compatibility
 
 - Packages of every API level are unchanged: functions add no manifest field.
@@ -1119,39 +1381,58 @@ running on that session, is dropped.
   function calls, and its function requests are answered with `-32601`.
 - A new host capability or wire field the other side must not ignore needs a
   new protocol version, offered next to the old one.
-- `fixtures/function-protocol.json` holds the golden cases. Rust Core tests run
-  them, and a scripted backend covers routing, result, failure, cancellation,
+- A backend that answers `version: 1` keeps working unchanged: version 2
+  only adds host services.
+- `fixtures/function-protocol.json` holds the golden cases, including the
+  host requests (`hostRequests`). Rust Core tests run them, and a scripted backend covers routing, result, failure, cancellation,
   deadline, late reply, revocation, and compatibility with a build-only
   backend.
 
 ### Official backend SDK
 
-[`sdk/node`](../../../../sdk/node/README.md) is the official SDK for backends
+The official SDKs live in
+[lithe-plugin-docs](https://github.com/Lithe-IDEA/lithe-plugin-docs), which
+also releases them; they implement this contract and never define protocol.
+
+[`sdk/node`](https://github.com/Lithe-IDEA/lithe-plugin-docs/blob/main/sdk/node/README.md) is the official SDK for backends
 started through a `node` runtime launch. It implements this protocol and
-`litheBuild` 1, so a plugin author writes only handlers. It enforces the
-rules above on the backend side: `lithe/*` methods are never sent, stdout
+`litheBuild` 1, so a plugin author writes only handlers. It is released
+(`sdk-node-v<version>`) as a `.tgz` with its SHA-256 for plugins to vendor
+into their package. It enforces the rules above on the backend side: `lithe/*` methods are never sent, stdout
 carries only protocol frames, `PluginError` is the only way to set a
 `pluginErrorCode`, processes started for a call end with it, and its state
-store refuses the plugin package. Its sample plugin
-(`sdk/node/examples/sample-build`) is driven through a real Core session by
-`rust/lithe-core/tests/plugin_sdk_node.rs`, which the Rust Core lane runs with
-`LITHE_PLUGIN_SDK_NODE` set.
+store refuses the plugin package.
 
-[`sdk/java`](../../../../sdk/java/README.md) is the Java twin for backends
+[`sdk/java`](https://github.com/Lithe-IDEA/lithe-plugin-docs/blob/main/sdk/java/README.md) is the Java twin for backends
 started through a `java` runtime launch. It needs Java 8 or newer, has no
 runtime dependencies, and is released as a JAR with its SHA-256 for plugins
 to shade into their backend. It enforces the same rules with the same error
 mapping, with one difference: on Java 8 it stops only a cancelled tool's
-direct child, and the host's process scope ends the rest. Its sample plugin
-(`sdk/java/examples/sample-build`) runs the same Core scenario through
-`rust/lithe-core/tests/plugin_sdk_java.rs`.
+direct child, and the host's process scope ends the rest.
 
-Neither SDK adds a wire field: a backend written without one is equally
-valid.
+[`sdk/rust`](https://github.com/Lithe-IDEA/lithe-plugin-docs/blob/main/sdk/rust/README.md) is the SDK for
+[plugin backends](#plugin-backend), which ship as packaged executables. It
+implements plugin-function protocol versions 1 and 2, including the
+`credentials` host service, but neither build nor VCS providers. It needs
+Rust 1.87 or newer, depends only on `serde_json`, and is released
+(`sdk-rust-v<version>`) as a `.crate` archive with its SHA-256, or used as a
+Git dependency pinned by the tag. It enforces the same rules: on Unix it
+points stdout at stderr so only protocol frames reach the host, and a panic
+ends only its call, reported like any unexpected failure.
+
+The Node.js and Java SDKs each have a sample build provider
+(`sdk/*/examples/sample-build`) that answers one end-to-end scenario driven
+through a real Core session; the Rust SDK's sample backend
+(`sdk/rust/examples/sample-backend`) answers a plugin backend scenario in which
+the test plays the host and serves the credential requests. That repository
+runs them against the Lithe commit its contract copy pins, and weekly against
+the latest `preview`, the branch Lithe changes merge into.
+
+No SDK adds a wire field: a backend written without one is equally valid.
 
 ## Outcomes and error codes
 
-`plugins.declarative.*`, `plugins.marketplace.*`, and `build.*` commands return `{"status": "ok", …}` or
+`plugins.declarative.*`, `plugins.marketplace.*`, `build.*`, `vcs.*`, and `project.*` commands return `{"status": "ok", …}` or
 `{"status": "rejected", "error": {"code", "message", "field"?}}`. A malformed
 command payload is a Core `invalid_request` failure instead.
 
@@ -1170,11 +1451,13 @@ command payload is a Core `invalid_request` failure instead.
 | `plugin.test.unsupportedProject` | Core | No project marker in the workspace |
 | `plugin.execution.unavailable` | Core | The plugin has no run/test provider for the language |
 | `plugin.integration.unsupported` | Core | A host integration the host does not implement, or one requested by a plugin outside the official namespace |
-| `plugin.launch.unavailable` | Core | The plugin has no language server for the language, or no provider process for the build system |
+| `plugin.launch.unavailable` | Core | The plugin has no language server for the language, no provider process for the build system, or no such VCS provider |
 | `plugin.build.unavailable` | Core | The plugin declares no such build system, or the build system does not declare the requested operation |
 | `plugin.build.invalidSelection` | Core | A build request selects a scope, target, filter, or argument the declaration does not allow, or misses a required path |
 | `plugin.build.invalidOutput` | Core | Build-tool output or a report does not fit its decoder |
 | `plugin.launch.invalidRequest` | Core | A launch plan request has an unusable directory or an unknown architecture |
+| `plugin.vcs.reserved` | Core | A VCS provider claims the ID of the built-in Git support |
+| `plugin.vcs.invalidOutput` | Core | A VCS provider's reply does not fit the [VCS provider contract](https://github.com/1lck/Lithe-IDEA/blob/preview/shared/contracts/vcs-provider-v1.md) |
 | `plugin.index.invalid` | Core | Malformed index root or entry, or an invalid URL, checksum, platform, version, or date |
 | `plugin.index.schemaUnsupported` | Core | The index `schemaVersion` is not `1` |
 | `plugin.index.officialNamespace` | Core | A third-party source lists a `dev.lithe` ID |
@@ -1195,8 +1478,17 @@ command payload is a Core `invalid_request` failure instead.
 | `plugin.function.invalidReference`, `plugin.function.invalidParams`, `plugin.function.unavailable`, `plugin.function.wrongPlugin`, `plugin.function.unknown` | Core | A [plugin-function](#plugin-functions) call is refused before it reaches the backend |
 | `plugin.function.failed`, `plugin.function.invalidResult`, `plugin.function.revoked` | Core | A plugin-function call ended without a usable result |
 | `plugin.function.invalidRegistration` | Core | A backend's register or unregister request was refused as a whole |
+| `plugin.project.unavailable` | Core | The plugin declares no such project generator |
+| `plugin.project.invalidInput` | Core | The project name or a field value is not accepted; `field` is `projectName` or `values.<id>`, or a step whose expanded path leaves the project |
+| `plugin.project.templateInvalid` | Core | A template directory is missing, too large, contains a symbolic link or non-UTF-8 file, or uses an unknown variable |
+| `plugin.project.invalidURL` | Core | An archive address does not expand to an HTTPS URL (HTTP only for loopback hosts) without credentials, query, or fragment |
+| `plugin.project.archiveInvalid` | Core | A downloaded archive is not a zip, has an entry outside the destination, a symbolic link, a file that already exists, or expands beyond the size limit |
+| `plugin.project.generationFailed` | Host | A command step failed or timed out, a download failed, or the project could not be moved into place |
 | `plugin.function.recursiveCall` | Core | A backend asked the host to dispatch a domain operation or function |
 | `plugin.host.unavailable` | Core | A backend asked for a host capability the negotiated protocol does not offer |
+| `plugin.host.permissionDenied` | Core | A backend asked for a [host service](#host-services-protocol-version-2) its plugin's permissions do not grant |
+| `plugin.host.invalidParams` | Core | A host-service request has malformed or unknown params |
+| `plugin.host.failed` | Core | The host could not complete a host-service request, or too many were unanswered |
 
 Host-facing plugin states are `notInstalled`, `installed` (enabled or
 disabled), `running`, `restartRequired`, `updateRequired`, and `failed`.
@@ -1290,8 +1582,10 @@ Hosts load a page under these rules:
 - The root element carries `data-theme` (`light` or `dark`) and the host's
   `--lithe-*` CSS colour and font variables, updated with the theme.
 
-Before the page's scripts run, the host defines `window.lithe` (bridge
-version 1): `lithe.context` (`pluginID`, `windowID`, `platform`, `locale`,
+Before the page's scripts run, the host defines `window.lithe`:
+`lithe.version`, the bridge version (2 on current macOS hosts; version 2
+adds the file dialogs to version 1, so a page checks it before offering
+them), `lithe.context` (`pluginID`, `windowID`, `platform`, `locale`,
 `theme`), `lithe.request(method, params)`, which returns a promise of the
 result or rejects with `{ code, message }`, and `lithe.on(event, listener)`,
 which returns an unsubscribe function. A page reaches only its own plugin's
@@ -1310,16 +1604,25 @@ their output appears in the host's Build output window.
 | `build.setOptions` | `{ instance, values }` | `{ options }`, checked by `build.resolveOptions` and stored like values set in the host's option list |
 | `workspace.openFile` | `{ path, line?, column? }`, a path inside the workspace | `{}` |
 | `ui.getState`, `ui.setState` | none, `{ state }` | `{ state }`, `{}`; JSON of at most 64 KiB per window and workspace |
-| `functions.list` | `{ instance }` | `{ functions }`: sorted IDs of the functions the instance's provider currently offers; starts the provider |
-| `functions.invoke` | `{ instance, function, params?, call? }`; `params` an object, `call` a page-chosen ID of at most 128 characters that the page never used before | `{ value }`, the function's result |
+| `functions.list` | `{ instance? }` | `{ functions }`: sorted IDs of the functions the instance's provider, or without `instance` the plugin's [backend](#plugin-backend), currently offers; starts that process |
+| `functions.invoke` | `{ instance?, function, params?, call? }`, without `instance` a call to the plugin's backend; `params` an object, `call` a page-chosen ID of at most 128 characters that the page never used before | `{ value }`, the function's result |
 | `functions.cancel` | `{ call }` | `{}`; a call still awaiting consent never starts, a call waiting for its provider to start ends at once while the start goes on, and a call that already ended is ignored |
+| `dialog.openFile` (bridge 2) | `{ title?, extensions? }` | `{ path }`: the absolute path of the file the user chose, or `null` when the dialog was cancelled |
+| `dialog.saveFile` (bridge 2) | `{ title?, suggestedName?, extensions? }` | `{ path }` as for `dialog.openFile`; the host has asked before replacing an existing file, and nothing is written |
 
 | Event | Payload |
 | --- | --- |
 | `build.instancesChanged` | `{ instances }`, as `build.instances` returns them |
 | `build.runChanged` | `{ run, instance, state, exitCode? }`, `state` one of `running`, `succeeded`, `failed`, `cancelled` |
-| `functions.progress` | `{ call, instance, function, message?, percentage? }`, only for a call made with `call` |
+| `functions.progress` | `{ call, instance?, function, message?, percentage? }`, only for a call made with `call`; `instance` absent for a backend call |
 | `ui.themeChanged` | `{ theme }` |
+
+The file dialogs are the host's: they name the plugin that asks, a page
+has at most one open at a time, and the page learns only the path the user
+chose. `extensions` are up to 16 file name extensions without the dot;
+`suggestedName` is a file name, not a path. A page passes the path to its
+backend, which reads or writes the file; the page itself still reaches no
+file.
 
 Bridge errors are `plugin.web.unknownMethod`, `plugin.web.invalidRequest`,
 and `plugin.web.forbidden`. Build requests also report the `build.*` codes.
@@ -1334,20 +1637,24 @@ cancelled or the provider stopped. A page
 has at most 16 function calls accepted at once, counting calls still awaiting
 consent, and closing it cancels them. Reusing a `call` ID is
 `plugin.web.invalidRequest`, also after that call ended.
-`functions.list` and `functions.invoke` ask for the same consent as the
-host's provider requests: once given for a plugin and workspace, it holds
-until the project is closed.
-macOS implements web content with WKWebView and advertises `ui: [1, 2]`.
-Windows has no WebView2 host yet and still advertises `ui: [1]`, so Core refuses
-`ui` 2 plugins there with `plugin.api.unsupported`.
+`functions.list` and `functions.invoke` with an `instance` ask for the same
+consent as the host's provider requests: once given for a plugin and
+workspace, it holds until the project is closed. Calls to the plugin's
+backend ask for none; the install review covered it.
+macOS implements web content with WKWebView and advertises `ui: [1, 2, 3]`
+(including the native controls described below).
+Windows implements web content with WebView2 under a plugin-private
+`lithe-plugin://` origin and also advertises `ui: [1, 2]`; its bridge v0
+answers `ui.getState`, `ui.setState`, and `workspace.openFile`, and returns
+`plugin.web.unknownMethod` for `build.*` and `functions.*` until the Windows
+build-system capability lands. Windows does not advertise `ui` 3.
 
 ### Future public extension direction (not implemented in API level 2)
 
 - Plugins may bring their own UI as [web content](#web-content-ui-2) inside
-  host-owned windows. A separately versioned JSON component tree
-  (Tree/List/Form/Input/Button, data sources and events) rendered by native
-  platform adapters remains the direction for plugins that want native
-  controls without writing a page. Built-in or trusted native modules may
+  host-owned windows. Native trees/lists and panel actions now use the separately versioned
+  [native schema](#host-rendered-native-content-ui-3-native-schema-1).
+  Forms and broader component composition remain follow-up work. Built-in or trusted native modules may
   register Native View/Renderer Factories under the same host window
   management. This does not restore arbitrary dynamic third-party Swift
   Bundle loading; ABI, signing and isolation need separate design.
@@ -1376,8 +1683,8 @@ existing Debug UI. Each must verify disable/re-enable, resource ownership and
 restoration; view-bearing samples also verify layout persistence. These samples
 are future acceptance criteria, not claims about current runtime support.
 
-The design source is the [proposed public Extension Contract and Provider API](../../../../.agents/notes/proposed/architecture/2026-10-13-public-extension-contract-and-provider-api.md).
-Current runtime behavior is recorded in the [first-stage workbench UI Note](../../../../.agents/notes/implemented/architecture/2026-10-12-workbench-ui-contributions.md).
+The design source is the [proposed public Extension Contract and Provider API](https://github.com/1lck/Lithe-IDEA/blob/preview/.agents/notes/proposed/architecture/2026-10-13-public-extension-contract-and-provider-api.md).
+Current runtime behavior is recorded in the [first-stage workbench UI Note](https://github.com/1lck/Lithe-IDEA/blob/preview/.agents/notes/implemented/architecture/2026-10-12-workbench-ui-contributions.md).
 
 ### Current Windows availability
 Windows can validate API level 2 through Rust Core but its UI adapter has not
@@ -1437,8 +1744,10 @@ optional; without it the same resource is used in both themes. Brand authors
 must make that resource legible in both themes or provide a dark variant.
 `host` cannot be combined with resource paths or original-color mode.
 
-The host owns icon size: 20pt tool-window rail, 16pt actions/menus/palette, 13pt
-window header. Aspect ratio is preserved inside that slot. Plugin-specified
+The host owns icon size: 20pt tool-window rail and 16pt actions/menus/palette.
+Panel titles are text-only: no title icon, outline or bottom divider. A declared
+window icon remains available in the activity rail and management menus.
+Aspect ratio is preserved inside each icon slot. Plugin-specified
 size, color, stroke, arbitrary style, remote URLs and SF Symbol names are rejected.
 Stroke geometry belongs to the asset; authors should follow the host icon
 weight, rather than expecting the host to rewrite paths or PNG pixels.
@@ -1471,3 +1780,194 @@ macOS 动作的可见、可用、勾选和激活中状态由宿主计算，不�
 条件脚本。窗口尚在激活时，其打开命令在工具栏、菜单和命令面板禁用；窗口入口
 仍可取消显示。多个窗口同时请求同一插件模块时只构造一次；禁用或关闭会取消
 并清理在途激活，旧的菜单或命令引用不能重新调用已禁用的贡献。
+
+#### Shared executable candidates (`executableResolution` 1)
+
+Declare executable sources in `invocation.executables`, in preference order.
+Array order is the recommended form; no custom path setting is required for a
+plugin that only needs automatic discovery. Existing `projectFile`, `environment`,
+`command` and `runtime` sources retain their v1 behavior. The shared
+`executableResolution: 1` capability adds `setting` and ordering metadata:
+
+```json
+"executables": [
+  { "id": "selected", "kind": "setting", "settingID": "toolPath" },
+  { "id": "wrapper", "kind": "projectFile", "path": "mvnw" },
+  { "id": "system", "kind": "command", "command": "mvn" }
+]
+```
+
+A `setting` references a declared **global file** setting with `effect: "reload"`
+or `"nextRun"` (`settings: 2`). Core receives raw `request.settings`. An absent
+value uses the declared default; an explicit empty string emits a setting candidate
+with `path: null`, which skips. A nonempty value must satisfy the setting rules,
+be absolute, and have no surrounding whitespace or controls. Invalid stored
+values reject the invocation instead of invoking the normal settings display
+resolver's fallback-to-default behavior. Project overrides never select tools.
+The host checks file permissions and versions: a configured failure is terminal,
+including a failure to probe, and must not fall back to subsequent candidates or
+a Provider's own lookup. Paths with spaces remain single paths. The selected
+setting's directory precedes PATH. Runtime candidates construct their environment
+before version probing and reuse it for execution; a rejected candidate's
+environment does not leak into the next choice. Provider hints and task/test
+execution use this same plan/selection mechanism. If resolution fails before a
+configured candidate is reached (for example, an earlier Runtime is missing),
+any nonempty setting in the tool or Runtime candidate sets still forbids the
+Provider's independent lookup. All-empty settings retain automatic-discovery
+fallback. This check applies after failure, so an earlier successful candidate
+is unaffected by a later unused setting.
+
+Optional metadata applies within **one candidate set owned by one plugin**:
+
+- `id` is a unique stable identifier; anonymous candidates cannot be anchors.
+- `priority` is a signed 32-bit integer; higher wins, absent means 0. Ties retain
+  original array order.
+- `insertBefore` or `insertAfter` names an ID in this set. One candidate cannot
+  combine either with `priority`, or declare both insertion fields. Constraints
+  mean relative order, not immediate adjacency.
+- Normalize the complete set into a directed graph before platform filtering.
+  Repeatedly select a zero-indegree node by descending priority, then original
+  index; emit it and remove its edges. Explicit edges take precedence over
+  priority. Duplicate/invalid IDs, unknown anchors, cycles/self-edges and
+  conflicting metadata are manifest errors. Filter platforms only after sorting,
+  so anchors remain valid even if they do not apply to the current platform.
+
+`plugins::executables` owns the reusable source types and deterministic order;
+`ExecutableCandidateResolver` receives file-system, Setting (already validated by
+Core), Environment, Runtime and command-discovery capabilities from the host.
+Results distinguish `skip`, `resolved` and `terminalFailure`; plugins declare data
+and cannot inject host native code. Each operation uses a value snapshot for its
+settings/environment and ordered plan. Passive import does not resolve/probe
+runtimes or execute project wrappers. A project candidate remains project code
+and is only executed through the consumer's existing trust/user-action workflow.
+
+This PR connects Build Systems and their custom Runtime Dependencies. Own Build
+Providers already adapt command/runtime launches through BuildToolResolver and
+receive the selected build tool as `tool.executable`; their ServerProcess protocol
+is unchanged. Language Servers, Execution Providers, and other ServerProcess
+launch forms can later adapt into this same resolver without changing their
+manifest structure all at once: preserve package-realpath/executable checks,
+workspace trust, auto-start restrictions, runtime ownership and cancellation.
+They do **not** advertise support for new candidate declarations until their
+adapter is implemented; this capability currently authorizes the Build candidate
+positions only. Windows does not advertise it yet.
+
+Compatibility: Cargo 0.1.1 already shipped as a preview with `buildSystems: 2`
+and `invocation.executableSetting`. That field is deprecated and supported only
+as a v2 input adapter: prepend an equivalent setting candidate to the normal
+list; never emit `configuredExecutable` or use a separate resolution branch.
+New plugins use the fifth candidate and `executableResolution: 1` (Build v1
+remains sufficient). Legacy manifests do not need the new capability; hosts
+without it reject new-style plugins before decoding unknown fields. Published
+0.1.0/0.1.1 archives remain immutable; migration is a new plugin version.
+
+See [`build-tool-path.plugin.json`](fixtures/build-tool-path.plugin.json).
+
+### Host-rendered native content (`ui` 3, native schema 1)
+
+macOS supports `requires.ui: 3` for a tool window whose sole body is `native`.
+Text and Web windows retain their existing behavior. Windows does not advertise
+ui 3 and rejects these packages before installing them. The independently
+versioned [native schema](native-ui.schema.json) has no style, script, HTML or
+host-action fields. The host renders every control with its shared theme.
+
+See [native-panel.plugin.json](fixtures/native-panel.plugin.json) and the runnable
+[Node SDK Sample Explorer](https://github.com/Lithe-IDEA/lithe-plugin-docs/blob/main/sdk/node/examples/sample-build/plugin.json).
+`native.kind` is `tree`, `list` or `form`; `nodes` contains literal `id`, `label` and
+optional `children`. IDs are stable, case-sensitive ASCII letters/digits plus
+`._-` (1–128 bytes). The component, initial nodes and actions have distinct IDs.
+The entire node set is limited to 2000 nodes and depth 16 (root depth 0); labels
+are nonblank and at most 1024 UTF-8 bytes. Lists reject nested children.
+
+A `form` declares `nodes: []`, an empty `contextMenu`, at most 32 `controls`
+and 16 `buttons`; at least one control or button is required.
+Tree/list panels cannot contain controls. Each control has a unique `id`, literal
+`label` (1–256 UTF-8 bytes), `kind`, initial `value`, optional `enabled` (default
+true), and optional `onCommit` referencing a declared `invoke` action that does
+not require a selection. An optional literal `info` (1–1024 UTF-8 bytes) renders the shared information
+icon beside the label; tooltip timing, pinning, accessibility and styling are host-owned.
+
+- `input` / `search`: string `value` (at most 1024 UTF-8 bytes), optional `placeholder`
+  (at most 256 UTF-8 bytes), no options. Uses the IDE settings text-field owner.
+- `select`: string `value` equal to one of 1–128 unique `options: [{id,label}]`;
+  option IDs use the standard identifier rule, labels are 1–256 UTF-8 bytes.
+  No placeholder. Uses `LitheSettingsSelect`, including its popup and keyboard behavior.
+- `segmented`: string value and 1–8 options, using the same option contract and
+  the shared segmented selector; no placeholder.
+- `editor`: string value up to 8192 UTF-8 bytes, optional `rows` (2–12, default 4),
+  no placeholder/options/onCommit. Reuses the shared multiline editor; Enter inserts
+  a newline and form buttons submit its current value.
+- `stepper`: finite numeric value, required `minimum`, `maximum` and positive
+  `step`; bounds and step are limited to ±1e9/1e9, and value must fit the range.
+  No placeholder/options. Uses the shared settings stepper and bound behavior.
+- `checkbox`: boolean `value`, no options or placeholder. Uses `LitheSettingsCheckbox`.
+
+Forms may declare `layout: {"columns":12}` (1–12 columns). Each control may
+provide `span` (1–columns); omitted span fills a row. Controls pack in declaration
+order, wrapping before a span would exceed the row. Without layout, the form
+retains its original single-column presentation and must omit span. Layout is
+form-only. Gaps, alignment and breakpoints remain host-owned; plugins cannot
+supply pixels, CSS or gap values. macOS uses a native `Layout`, 12pt gaps,
+top-aligned variable-height rows, and switches to one column below 640pt of
+content width. Reflow preserves the same controls, local values and focus.
+
+Buttons reference an existing non-selection action through `action`, have stable
+`id`, literal `label`, optional `primary`, `enabled` and `info`.
+Text actions reuse the host's shared natural-width button style and 6pt action
+spacing; a narrow action group falls back to vertical stacking. Deprecated
+`buttons[].width` (`content`/`fill`) and `buttons[].span` are accepted for older
+experimental packages, but do not change button width or action-group layout.
+Grid spans continue to apply to value controls. The declaration cannot override
+button colors, fonts, chrome, padding or fixed/max widths.
+
+Input/search editing saves local values without executing plugin code; Return commits.
+Selectors, segmented selectors, steppers and checkboxes commit after a changed value. Omit `onCommit` to keep
+a field local. Commits pass **all** current fields as `params.values` (strings,
+booleans and numbers keyed by stable control ID), together with `selectedID: null`.
+The subsequent form source call also receives `{values}` and returns `{nodes: []}`.
+Disabled fields still contribute their values; they cannot edit or commit.
+A pending call disables all fields. Values use the existing 64 KiB per-plugin,
+per-window, per-workspace state store; removed fields, invalid types and removed
+options are discarded when restoring. Provider replies never overwrite local
+fields. Form declarations and choices are static in this version.
+See [native-form.plugin.json](fixtures/native-form.plugin.json) and
+[host UI acceptance fixture](https://github.com/1lck/Lithe-IDEA/blob/preview/macos/Tests/Fixtures/native-ui-lab/README.md) for acceptance.
+
+An optional `source` names this plugin's `buildSystemID` and a function returning
+`{ nodes: [...] }`. This phase uses the existing provider transport; it adds no
+new backend, provider registry, or process protocol. There must be exactly one
+detected instance of that build system in the workspace; zero or multiple
+matches produce an error instead of silently targeting a different root.
+Static panels omit `source` and declare empty actions and placements.
+
+`actions` declares at most 64 independent handlers with `id`, literal `title`,
+`kind` (`refresh` or `invoke`) and `requiresSelection`. A refresh reloads the
+source and cannot require selection or name a function. An invoke names a
+`function` and receives `{ selectedID: string | null }` (forms also include `values`). Invocations return an
+optional `{ message }`, then the host reloads the source. `toolbar` and
+`contextMenu` contain distinct references to declared action IDs in display
+order. Toolbar actions are icon-only and appear when the pointer enters the whole
+panel, like the host hide control; keyboard and accessibility focus also reveal them.
+An optional `icon: {"host":"search"}` reuses the host icon vocabulary (including
+`reset`); native actions do not load custom package icons. Without an icon, refresh
+uses the refresh icon and invoke uses the generic run icon. The literal title is
+the tooltip and accessibility name. A context-menu action selects its clicked row before running; selecting
+a row alone never starts a provider function. These are panel-local actions;
+this phase does not change API-v2 commands into arbitrary function handlers.
+
+The host allows one operation per panel, disables actions while busy, and
+shows loading, empty, failure and success feedback. A source reply is at most
+1 MiB and follows the same node limits; invalid data preserves the last valid
+rows. Selection and expansion use stable IDs and the existing per-plugin,
+window and workspace state store (at most 64 KiB). Arrow keys move selection,
+expand/collapse nodes and select a parent; hidden/reopened panels restore state.
+Provider calls retain existing consent, scope checks, timeout and cancellation.
+Hiding a native panel cancels its pending operation. Disable, package replacement
+and workspace close synchronously invalidate it through the existing shared
+plugin-page lifecycle; late replies cannot publish. All state is outside the
+installed package and application bundle.
+
+Schema 1 loads the complete node set on refresh. Forms, lazy child data sources,
+multi-instance selectors, global function commands, native renderer factories
+and Windows rendering remain follow-up work under #1209; this subset does not
+claim completion of that whole issue.

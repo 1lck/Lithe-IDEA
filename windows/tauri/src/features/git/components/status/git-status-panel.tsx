@@ -59,11 +59,18 @@ import type { GitFile } from "../../types/git.types";
 import {
   buildGitFolderTree,
   buildGitStatusPresentation,
-  GIT_STATUS_ORDER,
+  orderedGitStatusFiles,
   type GitFolderTree,
   type GitStatusGroup,
 } from "../../utils/git-status-model";
 import { deleteGitStatusPaths } from "../../utils/git-status-deletion";
+import { getWorkingTreeStatusColorClassName } from "../../utils/git-file-status-visuals";
+import {
+  countGitChangedFiles,
+  isBelowUntrackedDirectory,
+  isUntrackedDirectorySummary,
+} from "../../utils/git-untracked-directories";
+import { setUntrackedDirectoryExpanded } from "../../services/git-untracked-directory-expansions";
 import {
   buildGitIgnorePaths,
   getGitFileRepositoryPath,
@@ -374,6 +381,24 @@ const GitStatusPanel = ({
     () => new Map(sections.map((section) => [section.id, section])),
     [sections],
   );
+  // A folder standing for an expanded untracked summary collapses the summary
+  // itself, so it is never hidden by a remembered folder collapse.
+  const untrackedDirectoryAtFolder = (section: StatusSection, folderPath: string) =>
+    sectionById.get(section)?.tree?.untrackedDirectoryByFolderPath.get(folderPath);
+  const isFolderCollapsed = (section: StatusSection, folderPath: string) =>
+    !untrackedDirectoryAtFolder(section, folderPath) &&
+    collapsedFolders.has(`${section}:${folderPath}`);
+  /** Lists or hides a summary's contents; the next status read applies it. */
+  const toggleUntrackedDirectory = async (directory: GitFile, expanded: boolean) => {
+    const directoryRepoPath = getGitFileRepositoryPath(directory, repoPath);
+    if (!directoryRepoPath) return;
+    setUntrackedDirectoryExpanded(
+      directoryRepoPath,
+      getGitFileRepositoryRelativePath(directory),
+      expanded,
+    );
+    await onStagingRefresh();
+  };
   const entryById = useMemo(() => {
     const entries = new Map<string, GitStatusSelectionEntry>();
 
@@ -449,7 +474,7 @@ const GitStatusPanel = ({
         depth,
       });
 
-      if (collapsedFolders.has(`${section}:${branch.path}`)) return;
+      if (isFolderCollapsed(section, branch.path)) return;
       for (const child of branch.children) appendTreeNode(child, depth + 1, section);
     };
 
@@ -469,25 +494,28 @@ const GitStatusPanel = ({
         return;
       }
 
-      for (const status of GIT_STATUS_ORDER) {
-        for (const file of groupedFiles[status]) {
-          rows.push({
-            kind: "file",
-            key: `${section}:${status}:${file.staged ? "staged" : "unstaged"}:${file.path}`,
-            section,
-            file,
-            depth: GIT_STATUS_SECTION_CHILD_DEPTH,
-            showDirectory: true,
-            reserveDisclosureSpace: true,
-          });
-        }
+      for (const file of orderedGitStatusFiles(groupedFiles)) {
+        rows.push({
+          kind: "file",
+          key: `${section}:${file.status}:${file.staged ? "staged" : "unstaged"}:${file.path}`,
+          section,
+          file,
+          depth: GIT_STATUS_SECTION_CHILD_DEPTH,
+          showDirectory: true,
+          reserveDisclosureSpace: true,
+        });
       }
     };
 
     for (const group of repositoryGroups) {
       const key = `repository:${group.repoPath}`;
       if (repositoryCount > 1 || repositoryGroups.length > 1) {
-        rows.push({ kind: "repository", key, repoPath: group.repoPath, count: group.files.length });
+        rows.push({
+          kind: "repository",
+          key,
+          repoPath: group.repoPath,
+          count: countGitChangedFiles(group.files),
+        });
         if (collapsedSections.has(key)) continue;
       }
       for (const section of sections.filter((section) => section.repoPath === group.repoPath)) {
@@ -762,7 +790,11 @@ const GitStatusPanel = ({
             .flatMap((entry) => entry.files)
             .find((candidate) => candidate.path === filePath);
           const fileRepoPath = file ? getGitFileRepositoryPath(file, repoPath) : repoPath;
-          const relativePath = file ? getGitFileRepositoryRelativePath(file) : filePath;
+          // A summarized directory is reported as `dir/`; the file tree names it `dir`.
+          const relativePath = (file ? getGitFileRepositoryRelativePath(file) : filePath).replace(
+            /\/+$/,
+            "",
+          );
           if (!fileRepoPath) throw new Error("Missing Git repository path for delete operation");
           return deleteFile(joinPath(fileRepoPath, relativePath));
         },
@@ -940,6 +972,11 @@ const GitStatusPanel = ({
   };
 
   const toggleFolderCollapsed = (section: StatusSection, folderPath: string) => {
+    const directory = untrackedDirectoryAtFolder(section, folderPath);
+    if (directory) {
+      void toggleUntrackedDirectory(directory, false);
+      return;
+    }
     const key = `${section}:${folderPath}`;
     const next = new Set(collapsedFolders);
     if (next.has(key)) {
@@ -968,7 +1005,7 @@ const GitStatusPanel = ({
         ? t("git.changelists.default")
         : sectionData.list.name;
     const inclusion = getCommitInclusionState(sectionData.files);
-    const count = sectionData.files.length;
+    const count = countGitChangedFiles(sectionData.files);
     const expanded = !collapsedSections.has(section);
     return (
       <SidebarTreeRow
@@ -1086,8 +1123,17 @@ const GitStatusPanel = ({
       targetIndex = findFocusableStatusRow(0, 1);
     } else if (event.key === "End") {
       targetIndex = findFocusableStatusRow(statusRows.length - 1, -1);
+    } else if (
+      event.key === "ArrowRight" &&
+      row.kind === "file" &&
+      isUntrackedDirectorySummary(row.file) &&
+      !hasListedContents(row.file)
+    ) {
+      event.preventDefault();
+      void toggleUntrackedDirectory(row.file, true);
+      return;
     } else if (event.key === "ArrowRight" && row.kind === "folder") {
-      const collapsed = collapsedFolders.has(`${row.section}:${row.branch.path}`);
+      const collapsed = isFolderCollapsed(row.section, row.branch.path);
       if (collapsed) {
         event.preventDefault();
         toggleFolderCollapsed(row.section, row.branch.path);
@@ -1104,7 +1150,7 @@ const GitStatusPanel = ({
         targetIndex = nextIndex;
       }
     } else if (event.key === "ArrowLeft") {
-      if (row.kind === "folder" && !collapsedFolders.has(`${row.section}:${row.branch.path}`)) {
+      if (row.kind === "folder" && !isFolderCollapsed(row.section, row.branch.path)) {
         event.preventDefault();
         toggleFolderCollapsed(row.section, row.branch.path);
         return;
@@ -1153,6 +1199,78 @@ const GitStatusPanel = ({
       setSelectedEntryIds(next.selected);
     }
     focusStatusRow(targetIndex);
+  };
+
+  /** A summary stands for many files and has no diff of its own; its contents do. */
+  const diffablePaths = (paths: readonly string[]) =>
+    paths.filter((path) => {
+      const file = displayFileByPath.get(path);
+      return !file || !isUntrackedDirectorySummary(file);
+    });
+  const hasListedContents = (directory: GitFile) =>
+    visibleFiles.some((file) => isBelowUntrackedDirectory(directory, file));
+
+  const renderUntrackedDirectoryRow = (
+    row: Extract<GitStatusVirtualRow, { kind: "file" }>,
+    entry: GitStatusSelectionEntry,
+  ) => {
+    const directory = row.file;
+    const expanded = hasListedContents(directory);
+    const name = row.showDirectory
+      ? directory.path.replace(/\/+$/, "")
+      : getBaseName(directory.path.replace(/\/+$/, ""), directory.path);
+    const count = directory.untrackedFileCount ?? 0;
+    return (
+      <SidebarTreeRow
+        depth={row.depth}
+        indentSize={fileTreePresentation.indentSize}
+        baseIndent={FILE_TREE_BASE_INDENT}
+        showGuides={fileTreePresentation.showIndentGuides}
+        active={selectedEntryIds.has(entry.id)}
+        expanded={expanded}
+        onToggle={() => void toggleUntrackedDirectory(directory, !expanded)}
+        onClick={(event) => handleSelectEntry(event, entry)}
+        onDoubleClick={() => void toggleUntrackedDirectory(directory, !expanded)}
+        onContextMenu={(event) => handleContextMenu(event, entry)}
+        variant="idea"
+        label={<span className={getWorkingTreeStatusColorClassName(directory.status)}>{name}</span>}
+        description={t("git.diffFileCount", { count, plural: count === 1 ? "" : "s" })}
+        className="h-full py-0.5"
+        style={{ height: fileTreePresentation.rowHeight }}
+        leading={
+          fileTreePresentation.showIcons ? (
+            <ThemedFileIcon
+              fileName={getBaseName(directory.path.replace(/\/+$/, ""), directory.path)}
+              isDir
+              isExpanded={expanded}
+              className="file-tree-node-icon shrink-0 text-subtle-foreground"
+            />
+          ) : null
+        }
+        leadingAction={
+          <Checkbox
+            className={IDEA_CHECKBOX_CLASS_NAME}
+            checked={directory.staged}
+            onCheckedChange={(checked) => handleSetCommitPathsSelected([directory.path], checked)}
+            disabled={
+              isLoading ||
+              stagingDisabled ||
+              directory.canToggleStaging === false ||
+              stagePendingPaths.has(directory.path)
+            }
+            aria-label={
+              directory.staged
+                ? t("git.excludeFolderFromCommit", { name })
+                : t("git.includeFolderInCommit", { name })
+            }
+          />
+        }
+        title={t("git.untrackedDirectorySummary", {
+          path: getGitFileRepositoryRelativePath(directory),
+          count,
+        })}
+      />
+    );
   };
 
   const renderStatusRow = (row: GitStatusVirtualRow) => {
@@ -1210,6 +1328,7 @@ const GitStatusPanel = ({
     if (row.kind === "file") {
       const entry = entryById.get(getFileEntryId(row.file.path));
       if (!entry) return null;
+      if (isUntrackedDirectorySummary(row.file)) return renderUntrackedDirectoryRow(row, entry);
       return (
         <GitFileItem
           file={row.file}
@@ -1247,8 +1366,9 @@ const GitStatusPanel = ({
     const folderState = tree?.folderStateById.get(row.branch.id);
     const entry = entryById.get(getFolderEntryId(row.section, row.branch.path));
     if (!folderState || !entry) return null;
-    const isCollapsed = collapsedFolders.has(`${row.section}:${row.branch.path}`);
+    const isCollapsed = isFolderCollapsed(row.section, row.branch.path);
     const folderInclusion = getCommitInclusionState(entry.files);
+    const folderFileCount = countGitChangedFiles(entry.files);
     const isChecked = folderInclusion.checked;
 
     return (
@@ -1263,7 +1383,7 @@ const GitStatusPanel = ({
         onClick={(event) => {
           handleSelectEntry(event, entry);
           if (!event.ctrlKey && !event.metaKey && !event.shiftKey) {
-            onViewFilesDiff?.(entry.filePaths);
+            onViewFilesDiff?.(diffablePaths(entry.filePaths));
           }
         }}
         onDoubleClick={() => toggleFolderCollapsed(row.section, row.branch.path)}
@@ -1271,8 +1391,8 @@ const GitStatusPanel = ({
         variant="idea"
         label={row.label}
         description={t("git.diffFileCount", {
-          count: entry.files.length,
-          plural: entry.files.length === 1 ? "" : "s",
+          count: folderFileCount,
+          plural: folderFileCount === 1 ? "" : "s",
         })}
         className="h-full py-0.5"
         style={{ height: fileTreePresentation.rowHeight }}
@@ -1727,8 +1847,8 @@ const GitStatusPanel = ({
                   id: "show-selection-diff",
                   label: t("git.showDiff"),
                   icon: <GitDiff />,
-                  disabled: contextMenuFilePaths.length === 0 || isLoading,
-                  onClick: () => onViewFilesDiff?.(contextMenuFilePaths),
+                  disabled: diffablePaths(contextMenuFilePaths).length === 0 || isLoading,
+                  onClick: () => onViewFilesDiff?.(diffablePaths(contextMenuFilePaths)),
                 },
                 {
                   id: "jump-to-source",

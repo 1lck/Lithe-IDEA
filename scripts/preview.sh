@@ -49,6 +49,9 @@ plugin_root=$(scripts/build-official-plugins.sh \
 for plugin_package in "$plugin_root"/*(/N); do
     cp -R "$plugin_package" "$APP_DIR/Contents/Resources/OfficialPlugins/${plugin_package:t}"
 done
+# Read-only remote workspace servers, uploaded to SSH hosts on connect.
+remote_server_root=$(scripts/build-remote-servers.sh)
+cp -R "$remote_server_root" "$APP_DIR/Contents/Resources/RemoteServers"
 # Read-only official marketplace index; refreshed copies go to Caches.
 mkdir -p "$APP_DIR/Contents/Resources/PluginMarketplace"
 cp "$ROOT_DIR/Plugins/marketplace/index.json" "$APP_DIR/Contents/Resources/PluginMarketplace/index.json"
@@ -56,14 +59,6 @@ case "$TRIPLE" in
     arm64-apple-macosx) RUST_TARGET="aarch64-apple-darwin" ;;
     x86_64-apple-macosx) RUST_TARGET="x86_64-apple-darwin" ;;
 esac
-MACOSX_DEPLOYMENT_TARGET=13.0 \
-    CARGO_TARGET_DIR="$ROOT_DIR/rust/target/macos" \
-    cargo build --manifest-path "$ROOT_DIR/rust/Cargo.toml" -p lithe-db-sidecar --target "$RUST_TARGET"
-cp "rust/target/macos/$RUST_TARGET/debug/lithe-db-sidecar" "$APP_DIR/Contents/Helpers/lithe-db-sidecar"
-MACOSX_DEPLOYMENT_TARGET=13.0 \
-    CARGO_TARGET_DIR="$ROOT_DIR/rust/target/macos" \
-    cargo build --manifest-path "$ROOT_DIR/rust/Cargo.toml" -p lithe-db-mcp --target "$RUST_TARGET"
-cp "rust/target/macos/$RUST_TARGET/debug/lithe-db-mcp" "$APP_DIR/Contents/Helpers/lithe-db-mcp"
 MACOSX_DEPLOYMENT_TARGET=13.0 \
     CARGO_TARGET_DIR="$ROOT_DIR/rust/target/macos" \
     cargo build --manifest-path "$ROOT_DIR/rust/Cargo.toml" -p lithe-ide-host --features mcp --bin lithe-mcp --target "$RUST_TARGET"
@@ -74,7 +69,6 @@ zsh "$ROOT_DIR/scripts/embed-sparkle.sh" "$APP_DIR"
 cp macos/Resources/AppIcon.icns "$APP_DIR/Contents/Resources/AppIcon.icns"
 cp -R macos/Resources/IDEAIcons "$APP_DIR/Contents/Resources/IDEAIcons"
 cp -R macos/Resources/GitGraph "$APP_DIR/Contents/Resources/GitGraph"
-cp -R macos/Resources/DatabaseIcons "$APP_DIR/Contents/Resources/DatabaseIcons"
 cp -R macos/Resources/Fonts "$APP_DIR/Contents/Resources/Fonts"
 cp -R "$ROOT_DIR/.artifacts/editor/macos" "$APP_DIR/Contents/Resources/MonacoEditor"
 zsh "$ROOT_DIR/scripts/package-macos-localizations.sh" \

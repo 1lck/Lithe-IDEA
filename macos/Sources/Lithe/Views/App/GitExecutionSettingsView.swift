@@ -8,7 +8,8 @@ import LitheGitModule
 /// repository and chooses whether Git-backed rows write to it or to the
 /// global Git configuration.
 struct GitSettingsPage: View {
-    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var settingsContext: SettingsModelContext
+    private var model: AppModel { settingsContext.model }
     @ObservedObject var settings: AppSettings
     @State private var feature: GitFeatureModel?
 
@@ -134,8 +135,7 @@ private struct GitSettingsLoadedPage: View {
                 LitheInfoTip("Defaults for ordinary Fetch in every project. A repository's own Git configuration above still wins where it is set.")
                 Spacer(minLength: 0)
                 Button("Reset") { settings.gitFetchOptions = GitFetchOptions() }
-                    .buttonStyle(.borderless)
-                    .font(LitheTheme.smallFont)
+                    .buttonStyle(LitheActionButtonStyle())
                     .disabled(settings.gitFetchOptions == GitFetchOptions())
             }) {
                 GitFetchDefaultRows(options: $settings.gitFetchOptions)
@@ -296,7 +296,7 @@ private struct GitRepositoryCard: View {
                 .help(Text("Where the rows below that are backed by Git configuration are written."))
                 HStack(spacing: 12) {
                     Button("Reload Configuration", action: reload)
-                        .buttonStyle(.borderless)
+                        .buttonStyle(LitheActionButtonStyle())
                     if let remoteURL, let browserURL = GitRemoteURLPresentation(remoteURL)?.browserURL {
                         Link("Open Remote ↗", destination: browserURL)
                     }
@@ -359,13 +359,12 @@ private struct GitProgramSection<Extra: View>: View {
             LitheInfoTip("Lithe does not save passwords. Credentials are stored by the Git credential helper you choose.")
         }) {
             LitheSettingsRow("Git executable") {
-                TextField("Use Git from PATH", text: $executable)
-                    .litheSettingsTextField()
+                LitheTextField("Use Git from PATH", text: $executable)
                     .frame(minWidth: 180, maxWidth: 320)
                     .onSubmit(save)
                 if trimmed != settings.gitExecutable {
                     Button("Save", action: save)
-                        .buttonStyle(LithePrimaryButtonStyle(backgroundColor: LitheTheme.settingsPrimaryAction, restingOpacity: 1))
+                        .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                 }
                 Button("Choose…") {
                     let panel = NSOpenPanel()
@@ -376,7 +375,7 @@ private struct GitProgramSection<Extra: View>: View {
                         save()
                     }
                 }
-                .buttonStyle(LitheSecondaryButtonStyle())
+                .buttonStyle(LitheActionButtonStyle())
             } badges: {
                 if let execution {
                     GitExecutableStatus(editor: execution)
@@ -533,13 +532,12 @@ private struct GitIdentityRow: View {
         let shown = configured ?? effective ?? ""
         let isDirty = !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && draft != shown
         LitheSettingsRow(title, isModified: configured != nil) {
-            TextField(title, text: $draft)
-                .litheSettingsTextField()
+            LitheTextField(title, text: $draft)
                 .frame(width: 220)
                 .onSubmit { if isDirty { save(field, false) } }
             if isDirty {
                 Button("Save") { save(field, false) }
-                    .buttonStyle(LithePrimaryButtonStyle(backgroundColor: LitheTheme.settingsPrimaryAction, restingOpacity: 1))
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
             }
         } badges: {
             if let effective, !effective.isEmpty {

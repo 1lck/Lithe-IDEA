@@ -7,12 +7,18 @@
 //! See `.agents/notes/implemented/architecture/2026-09-25-shared-acp-agent-conversation.md`.
 
 pub mod catalog;
+mod claude_desktop;
+mod claude_earlier_history;
+mod claude_subscription;
 pub mod cli_update;
 mod codex_context;
 mod codex_history;
 mod codex_retry;
 pub mod environment;
+pub mod hooks;
 pub mod install;
+pub mod instructions;
+pub mod mcp_probe;
 mod model_calls;
 mod model_proxy;
 mod prompt;
@@ -20,6 +26,7 @@ mod prompt_retry;
 mod session_defaults;
 mod session_restore;
 mod session_routing;
+pub mod skills;
 mod steering;
 mod subagents;
 mod subscription;
@@ -111,15 +118,26 @@ pub struct AgentLaunch {
     /// Exported as [`AGENT_SCOPE_ENVIRONMENT`] to the agent process tree.
     #[serde(default)]
     pub process_scope: Option<String>,
+    /// Claude Code configuration directory of one account, exported as
+    /// `CLAUDE_CONFIG_DIR`. Only the Claude subscription mode accepts it; the
+    /// directory holds the official CLI's own login and Lithe never reads it.
+    #[serde(default)]
+    pub claude_config_dir: Option<PathBuf>,
+    /// Codex home directory of one account, exported as `CODEX_HOME`, including
+    /// to the quota probe. Only the Codex subscription mode accepts it.
+    #[serde(default)]
+    pub codex_home: Option<PathBuf>,
 }
 
-/// Subscription access is explicit and limited to the installed Codex adapter.
+/// Subscription access is explicit: each mode is limited to its own installed adapter.
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum AgentAuthentication {
     #[default]
     ApiKey,
     CodexSubscription,
+    /// The user's signed-in Claude Code CLI pays; see [`claude_subscription`].
+    ClaudeSubscription,
 }
 
 /// User-supplied AI provider endpoint and API key.
@@ -209,6 +227,13 @@ struct ResolvedLaunch {
     secret: String,
     /// The already detected Codex executable; never a separately downloaded runtime.
     subscription_cli: Option<PathBuf>,
+    /// The signed-in Claude Code CLI pays: no route, key or token is injected.
+    claude_subscription: bool,
+    /// Account directory the Codex quota probe must share with the adapter.
+    codex_home: Option<PathBuf>,
+    /// Claude transcript root of the adapter's account, for history that
+    /// compaction hides from `session/load`; None for every other agent.
+    claude_projects: Option<PathBuf>,
 }
 
 #[cfg(test)]
@@ -233,8 +258,12 @@ fn resolve_with(
     launch: AgentLaunch,
     find_cli: &dyn Fn(&str) -> Option<environment::DetectedTool>,
 ) -> Result<ResolvedLaunch, String> {
-    if launch.authentication == AgentAuthentication::CodexSubscription {
-        return subscription::resolve(launch, find_cli);
+    match launch.authentication {
+        AgentAuthentication::CodexSubscription => return subscription::resolve(launch, find_cli),
+        AgentAuthentication::ClaudeSubscription => {
+            return claude_subscription::resolve(launch, find_cli)
+        }
+        AgentAuthentication::ApiKey => {}
     }
     let provider = launch.provider.ok_or("An API provider is required")?;
     if provider.api_key.trim().is_empty() {
@@ -285,6 +314,9 @@ fn resolve_with(
             gateway: Some(gateway(&provider)?),
             secret: provider.api_key,
             subscription_cli: None,
+            claude_subscription: false,
+            codex_home: None,
+            claude_projects: None,
         });
     };
     let agent = catalog::find(&agent_id).ok_or_else(|| format!("Unknown agent `{agent_id}`"))?;
@@ -341,6 +373,11 @@ fn resolve_with(
         gateway,
         secret: provider.api_key,
         subscription_cli: None,
+        claude_subscription: false,
+        codex_home: None,
+        claude_projects: (agent.id == "claude-acp")
+            .then(|| claude_earlier_history::projects_directory(None))
+            .flatten(),
     })
 }
 
@@ -1039,7 +1076,11 @@ async fn run_agent(
         None
     };
     let mut command = std::process::Command::new(&launch.command);
-    if launch
+    if launch.claude_subscription {
+        for name in claude_subscription::INHERITED_OVERRIDES {
+            command.env_remove(name);
+        }
+    } else if launch
         .gateway
         .as_ref()
         .is_some_and(|route| route.protocol == ProviderProtocol::AnthropicMessages)
@@ -1109,7 +1150,10 @@ async fn run_agent(
             }
         }
     });
-    let subscription = launch.subscription_cli.is_some();
+    // Account credentials belong to the CLI in both subscription modes.
+    let subscription = launch.subscription_cli.is_some() || launch.claude_subscription;
+    let claude_subscription = launch.claude_subscription;
+    let claude_projects = launch.claude_projects.clone();
     let secret = launch.secret.clone();
     let transport = ByteStreams::new(stdin.compat_write(), stdout.compat());
     let result = run_connection(
@@ -1117,6 +1161,9 @@ async fn run_agent(
         launch.cwd,
         launch.gateway,
         launch.subscription_cli,
+        launch.codex_home,
+        claude_subscription,
+        claude_projects,
         history,
         context_recovery,
         observe_subagents,
@@ -1140,6 +1187,11 @@ async fn run_agent(
     child_pid.store(0, Ordering::SeqCst);
     let _ = tokio::time::timeout(STOP_TIMEOUT, stderr_task).await;
     result.map_err(|message| {
+        // The protocol error wraps this text as JSON data; return it verbatim so
+        // clients can localize the one actionable sign-in instruction.
+        if claude_subscription && message.contains(claude_subscription::SIGN_IN_REQUIRED) {
+            return claude_subscription::SIGN_IN_REQUIRED.to_owned();
+        }
         let message = redact(&message, &secret);
         // Subscription credentials belong to Codex, so Lithe has no secret to
         // redact. Do not surface arbitrary upstream stderr for this mode.
@@ -1260,6 +1312,9 @@ async fn run_connection<OB, IB>(
     cwd: PathBuf,
     gateway: Option<GatewaySignIn>,
     subscription_cli: Option<PathBuf>,
+    codex_home: Option<PathBuf>,
+    claude_subscription: bool,
+    claude_projects: Option<PathBuf>,
     history: Option<codex_history::CodexHistory>,
     context_recovery: Option<Arc<codex_context::Recovery>>,
     observe_subagents: bool,
@@ -1279,6 +1334,8 @@ where
     let session_meta = session_routing::metadata(gateway.as_ref())?;
     let workspace = Arc::new(workspace_context::WorkspaceContext::new(&cwd)?);
     let update_workspace = workspace.clone();
+    let desktop = Arc::new(Mutex::new(claude_desktop::Presenter::default()));
+    let update_desktop = desktop.clone();
     let restored_meta = session_routing::restored_metadata(gateway.as_ref())?;
     let (auth_tx, mut auth_rx) = tokio::sync::watch::channel(None::<subscription::AuthStatus>);
     let updates = emit.clone();
@@ -1323,30 +1380,33 @@ where
                     let Some(update) = update_workspace.present_update(update) else {
                         return Ok(());
                     };
-                    if update["sessionUpdate"] == "usage_update" {
-                        if let Some(recovery) = &context_updates { recovery.prefer_upstream_report(&session_id); }
-                    }
-                    let mut reconnect = None;
-                    if let Ok(turns) = update_turns.lock() {
-                        if let Some(turn) = owner.as_ref().and_then(|id| turns.get(id)) {
-                            if owner.as_deref() == Some(session_id.as_str()) { turn.steering.observe(&update); }
-                            turn.retry.send_modify(|state| {
-                                if prompt_retry::is_progress(&update) { state.progress(); }
-                                // A child failure is the child's outcome, not a new
-                                // failure or retry of the main Agent's model call.
-                                if owner.as_deref() == Some(session_id.as_str()) {
-                                    state.observe_failure(&update);
-                                    reconnect = state.observe_native_retry(&update);
-                                }
-                            });
+                    let presented = update_desktop.lock().map_err(|_| internal("Replay presentation is unavailable"))?.present(&session_id, update);
+                    for update in presented {
+                        if update["sessionUpdate"] == "usage_update" {
+                            if let Some(recovery) = &context_updates { recovery.prefer_upstream_report(&session_id); }
                         }
-                    }
-                    updates(AgentEvent::Update {
-                        session_id: session_id.clone(),
-                        update,
-                    });
-                    if let Some((turn_id, attempt, max_attempts)) = reconnect {
-                        updates(AgentEvent::TurnRetrying { session_id, turn_id, attempt, max_attempts });
+                        let mut reconnect = None;
+                        if let Ok(turns) = update_turns.lock() {
+                            if let Some(turn) = owner.as_ref().and_then(|id| turns.get(id)) {
+                                if owner.as_deref() == Some(session_id.as_str()) { turn.steering.observe(&update); }
+                                turn.retry.send_modify(|state| {
+                                    if prompt_retry::is_progress(&update) { state.progress(); }
+                                    // A child failure is the child's outcome, not a new
+                                    // failure or retry of the main Agent's model call.
+                                    if owner.as_deref() == Some(session_id.as_str()) {
+                                        state.observe_failure(&update);
+                                        reconnect = state.observe_native_retry(&update);
+                                    }
+                                });
+                            }
+                        }
+                        updates(AgentEvent::Update {
+                            session_id: session_id.clone(),
+                            update,
+                        });
+                        if let Some((turn_id, attempt, max_attempts)) = reconnect {
+                            updates(AgentEvent::TurnRetrying { session_id: session_id.clone(), turn_id, attempt, max_attempts });
+                        }
                     }
                 }
                 Ok(())
@@ -1486,6 +1546,14 @@ where
                 .await
                 .map_err(|_| internal("The Agent did not finish API key sign-in in time"))??;
             }
+            if claude_subscription {
+                let account = claude_subscription::ensure_signed_in(&mut auth_rx)
+                    .await
+                    .map_err(|message| internal(&message))?;
+                if let Some(account) = account {
+                    emit(AgentEvent::Account { account });
+                }
+            }
             let account = if subscription_cli.is_some() {
                 if !initialized.auth_methods.iter().any(|method| method.id().0.as_ref() == "chat-gpt") {
                     return Err(internal("This Codex adapter does not support ChatGPT sign-in"));
@@ -1563,9 +1631,9 @@ where
                         if quota_running.load(Ordering::SeqCst) || last_quota.is_some_and(|time| time.elapsed() < subscription::QUOTA_INTERVAL) { continue; }
                         quota_running.store(true, Ordering::SeqCst);
                         last_quota = Some(tokio::time::Instant::now());
-                        let (cli, cwd, account, emit, running) = (cli.clone(), cwd.clone(), account.clone(), emit.clone(), quota_running.clone());
+                        let (cli, cwd, account, emit, running, home) = (cli.clone(), cwd.clone(), account.clone(), emit.clone(), quota_running.clone(), codex_home.clone());
                         tasks.spawn(async move {
-                            let result = subscription::read_quota(&cli, &cwd, &account).await;
+                            let result = subscription::read_quota(&cli, &cwd, &account, home.as_deref()).await;
                             emit(match result {
                                 Ok(snapshot) => AgentEvent::Quota { snapshot },
                                 Err(code) => AgentEvent::QuotaFailed { code: code.into() },
@@ -1615,7 +1683,27 @@ where
                         let session_meta = restored_meta.clone();
                         let confirm_model = session_meta.is_some();
                         let capture = context_recovery.as_ref().and_then(|recovery| recovery.capture(&session_id));
+                        let earlier = claude_projects.clone();
+                        let desktop = desktop.clone();
                         tasks.spawn(async move {
+                            // Compaction hides earlier segments from the adapter's replay;
+                            // they precede it, so the transcript reads in order.
+                            if let Some(projects) = earlier {
+                                let (workspace, id) = (cwd.clone(), session_id.clone());
+                                let updates = tokio::task::spawn_blocking(move || {
+                                    claude_earlier_history::earlier_updates(&projects, &workspace, &id)
+                                })
+                                .await
+                                .unwrap_or_default();
+                                // Collected first: the guard must not live across `emit`.
+                                let updates: Vec<_> = match desktop.lock() {
+                                    Ok(mut desktop) => updates.into_iter().flat_map(|u| desktop.present(&session_id, u)).collect(),
+                                    Err(_) => updates,
+                                };
+                                for update in updates {
+                                    emit(AgentEvent::Update { session_id: session_id.clone(), update });
+                                }
+                            }
                             let mut request = LoadSessionRequest::new(session_id.clone(), cwd);
                             request.meta = session_meta;
                             let result = request_with_timeout(

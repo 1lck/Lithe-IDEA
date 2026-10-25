@@ -113,12 +113,12 @@ struct GitChangelistDialog: View {
             }
             .disabled(isDisabled)
             if let error { Text(LocalizedStringKey(error)).foregroundStyle(LitheTheme.error) }
-            HStack(spacing: 12) {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()
                 Button("Cancel", action: cancel)
-                    .buttonStyle(LitheCommitDialogButtonStyle()).keyboardShortcut(.cancelAction)
+                    .buttonStyle(LitheActionButtonStyle()).keyboardShortcut(.cancelAction)
                 Button("Save", action: save)
-                    .buttonStyle(LitheCommitDialogButtonStyle(primary: true)).keyboardShortcut(.defaultAction)
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true)).keyboardShortcut(.defaultAction)
                     .disabled(isDisabled || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }

@@ -12,6 +12,38 @@ test.each(["EOF", "CRLF", "LF"])("Core patch adaptation preserves writable safet
 });
 
 describe("git status result adaptation", () => {
+  test("keeps the file count of an untracked directory summary and its listing", () => {
+    const summary = {
+      path: "target/",
+      status: "??",
+      staged: false,
+      worktree: false,
+      untracked: true,
+      canToggleStaging: true,
+      untrackedFileCount: 5_273,
+    };
+    const adapted = {
+      path: "target/",
+      status: "untracked",
+      staged: false,
+      rawStatus: "??",
+      canToggleStaging: true,
+      worktree: false,
+      untrackedFileCount: 5_273,
+    };
+    expect(
+      adaptCoreResult<{ files: unknown[] }>("git_status", { repoPath: "C:/work" }, { changes: [summary] })
+        .files,
+    ).toEqual([adapted]);
+    expect(
+      adaptCoreResult<{ files: unknown[] }>(
+        "git.untrackedDirectory",
+        { repoPath: "C:/work" },
+        { changes: [summary] },
+      ),
+    ).toEqual({ files: [adapted] });
+  });
+
   test("preserves both paths of a renamed file", () => {
     const result = adaptCoreResult(
       "git_status",

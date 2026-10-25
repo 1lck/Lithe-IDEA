@@ -1,19 +1,36 @@
+import { useDeclarativePluginUI } from "@/features/plugins/declarative-plugin-ui";
+import { openDeclarativeWebWindow } from "@/features/plugins/declarative-plugin-launch";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { AgentTrigger } from "@/features/agent/components/agent-trigger";
-import { toggleMavenPane } from "@/features/keymaps/commands/view-command-actions";
+import {
+  toggleMavenPane,
+  toggleTerminalPane,
+} from "@/features/keymaps/commands/view-command-actions";
+import { isBackendCapabilityAvailable } from "@/config/backend-capabilities";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { MavenIcon } from "@/features/maven/components/maven-icon";
 import { useMavenStore } from "@/features/maven/stores/maven.store";
 import { NotificationsTrigger } from "@/features/notifications/components/notifications-trigger";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
-import { PuzzlePieceIcon } from "@/ui/icons";
+import { PuzzlePieceIcon, TerminalWindowIcon } from "@/ui/icons";
+import { useTerminalDock } from "./terminal-dock-layout";
 
 // IntelliJ Islands stripe button: 30px highlight, 12px arc (6px radius), 20px icon.
 const STRIPE_BUTTON_CLASS_NAME = "size-[30px] rounded-[6px]";
 
 export function PluginActivityRail() {
   const { t } = useTranslation();
+  const pluginWindows = useDeclarativePluginUI((state) => state.windows);
+  const terminalDock = useTerminalDock();
+  const terminalEnabled = useSettingsStore((state) => state.settings.coreFeatures.terminal);
+  const terminalHidden = useSettingsStore((state) =>
+    state.settings.hiddenSidebarActivityItems.includes("terminal"),
+  );
+  const isTerminalActive = useUIState(
+    (state) => state.isBottomPaneVisible && state.bottomPaneActiveTab === "terminal",
+  );
   const openExtensionsBuffer = useBufferStore.use.actions().openExtensionsBuffer;
   const closeBuffer = useBufferStore.use.actions().closeBuffer;
   const activeExtensionsBufferId = useBufferStore((state) => {
@@ -62,6 +79,13 @@ export function PluginActivityRail() {
       >
         <PuzzlePieceIcon className="size-5" />
       </Button>
+      {pluginWindows.map((window) => (
+        <Button key={`${window.pluginId}:${window.windowId}`} variant="ghost" size="icon-sm"
+          className={STRIPE_BUTTON_CLASS_NAME} tooltip={window.title} aria-label={window.title}
+          onClick={() => { void openDeclarativeWebWindow(window.pluginId, window.windowId).catch(console.error); }}>
+          <PuzzlePieceIcon className="size-5" />
+        </Button>
+      ))}
       <NotificationsTrigger className={STRIPE_BUTTON_CLASS_NAME} />
       <AgentTrigger className={STRIPE_BUTTON_CLASS_NAME} />
       {isMavenAvailable ? (
@@ -79,6 +103,31 @@ export function PluginActivityRail() {
         >
           <MavenIcon className="size-5" />
         </Button>
+      ) : null}
+      {terminalDock?.activitySide === "right" &&
+      terminalEnabled &&
+      !terminalHidden &&
+      isBackendCapabilityAvailable("terminal") ? (
+        <div className="mt-auto pb-1">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className={`${STRIPE_BUTTON_CLASS_NAME} cursor-grab touch-none`}
+            active={isTerminalActive}
+            aria-pressed={isTerminalActive}
+            aria-label={t("workbench.terminal")}
+            tooltip={t("workbench.terminal")}
+            commandId="workbench.toggleTerminal"
+            tooltipSide="left"
+            data-terminal-dock-activity="right"
+            onPointerDown={(event) => terminalDock.startDrag(event, true)}
+            onClick={(event) => {
+              if (!terminalDock.suppressActivityClick(event.detail === 0)) toggleTerminalPane();
+            }}
+          >
+            <TerminalWindowIcon className="size-5" />
+          </Button>
+        </div>
       ) : null}
     </aside>
   );

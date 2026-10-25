@@ -61,7 +61,6 @@ private enum GitHubMergeChoice: String, Identifiable {
 
 struct GitHubPullRequestsSidebarView: View {
     @EnvironmentObject private var model: AppModel
-    @State private var requestListActive = false
     @State private var searchQuery = ""
 
     var body: some View {
@@ -133,9 +132,7 @@ struct GitHubPullRequestsSidebarView: View {
                 Button("Sign in to GitHub") {
                     Task { await model.connectGitHubWithDeviceFlow() }
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .frame(maxWidth: 220)
+                .buttonStyle(LitheActionButtonStyle(isPrimary: true))
 
                 if message != nil {
                     Text("Unable to sign in. Please try again.")
@@ -198,7 +195,7 @@ struct GitHubPullRequestsSidebarView: View {
                         model.platformUI.open(url)
                     }
                 }
-                Button("Cancel") { Task { await model.disconnectGitHub() } }
+                Button("Cancel") { Task { await model.disconnectGitHub() } }.buttonStyle(LitheActionButtonStyle())
             }
         }
         .padding(20)
@@ -220,7 +217,6 @@ struct GitHubPullRequestsSidebarView: View {
             filters
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             pullRequestList
-                .background(LitheToolWindowActivityTracker(isActive: $requestListActive))
         }
     }
 
@@ -281,8 +277,7 @@ struct GitHubPullRequestsSidebarView: View {
                 Button { model.githubFeature.beginCreatingPullRequest() } label: {
                     Label("Create pull request", systemImage: "plus")
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
+                .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                 .disabled(model.githubFeature.repository == nil)
                 .help("Create pull request")
             }
@@ -334,20 +329,19 @@ struct GitHubPullRequestsSidebarView: View {
                     : "Try another title, author, number, or label."
             )
         } else {
-            ScrollView {
-                LazyVStack(spacing: 2) {
-                    ForEach(filteredPullRequests) { request in
-                        GitHubPullRequestRow(
-                            request: request,
-                            isSelected: model.githubFeature.selectedPullRequest?.number == request.number,
-                            isFocused: requestListActive
-                        ) {
-                            model.githubFeature.clearOperationStatus()
-                            Task { await model.githubFeature.selectPullRequest(number: request.number) }
-                        }
-                    }
-                }
-                .padding(5)
+            LitheTreeList(
+                filteredPullRequests, id: \.number,
+                selection: Binding(
+                    get: { model.githubFeature.selectedPullRequest?.number },
+                    set: { number in
+                        guard let number else { return }
+                        model.githubFeature.clearOperationStatus()
+                        Task { await model.githubFeature.selectPullRequest(number: number) }
+                    }), multiline: true
+            ) { request in
+                GitHubPullRequestRow(
+                    request: request,
+                    isSelected: model.githubFeature.selectedPullRequest?.number == request.number)
             }
             .overlay(alignment: .top) {
                 if isContentLoading {
@@ -737,7 +731,7 @@ struct GitHubPullRequestDetailView: View {
                                 .foregroundStyle(LitheTheme.tertiaryText)
                             Spacer()
                             Button(composerAction.buttonTitle) { submitComposer() }
-                                .buttonStyle(.borderedProminent)
+                                .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                                 .disabled(!canSubmitComposer || isOperationRunning)
                         }
                     }
@@ -824,11 +818,8 @@ struct GitHubFeatureUnavailableView: View {
 private struct GitHubPullRequestRow: View {
     let request: GitHubPullRequest
     let isSelected: Bool
-    let isFocused: Bool
-    let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
             HStack(alignment: .top, spacing: 8) {
                 GitHubStateMark(request: request, compact: true)
                     .padding(.top, 2)
@@ -861,14 +852,10 @@ private struct GitHubPullRequestRow: View {
                     }
                 }
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 8)
+        .padding(.horizontal, LitheTheme.Tree.iconTextGap)
+        .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
-        }
-        .buttonStyle(.litheNoPress)
-        .lithePointer()
-        .litheSelectionRow(isSelected: isSelected, isFocused: isFocused)
     }
 }
 
@@ -1449,8 +1436,7 @@ private struct GitHubCreatePullRequestWorkspaceView: View {
                         Text(model.githubFeature.isPublishingPullRequestBranch ? "Publishing…" : "Publish Branch")
                     }
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
+                .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                 .disabled(
                     publishBranchName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                         || model.githubFeature.isPublishingPullRequestBranch
@@ -1582,12 +1568,12 @@ private struct GitHubCreatePullRequestWorkspaceView: View {
 
                 operationMessage
 
-                HStack {
+                HStack(spacing: LitheTheme.ActionButton.spacing) {
                     Toggle("Create as draft", isOn: $draft)
                         .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                         .toggleStyle(.checkbox)
                     Spacer()
-                    Button("Cancel") { model.githubFeature.cancelCreatingPullRequest() }
+                    Button("Cancel") { model.githubFeature.cancelCreatingPullRequest() }.buttonStyle(LitheActionButtonStyle())
                         .keyboardShortcut(.cancelAction)
                         .disabled(isOperationRunning)
                     Button {
@@ -1600,7 +1586,7 @@ private struct GitHubCreatePullRequestWorkspaceView: View {
                             Text(draft ? "Create Draft" : "Create Pull Request")
                         }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     .keyboardShortcut(.defaultAction)
                     .disabled(isSubmitDisabled)
                 }
@@ -1631,8 +1617,7 @@ private struct GitHubCreatePullRequestWorkspaceView: View {
                         Text(isGeneratingDescription ? "Generating…" : "Generate with AI")
                     }
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .buttonStyle(LitheActionButtonStyle())
                 .disabled(isGenerateDescriptionDisabled)
                 .help("Generate a title and description from the selected branch changes")
             }
@@ -1879,8 +1864,7 @@ private struct GitHubBranchPicker: View {
                     .multilineTextAlignment(.center)
                     .lineLimit(3)
                 Button("Retry", action: retry)
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    .buttonStyle(LitheActionButtonStyle())
             }
             Spacer()
         case .ready:
@@ -2006,14 +1990,14 @@ private struct GitHubPullRequestForm: View {
             .padding(18)
 
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Text("Required fields are marked with *")
                     .font(LitheTheme.uiFont(size: 9.5))
                     .foregroundStyle(LitheTheme.tertiaryText)
                 Spacer()
-                Button("Cancel", action: cancel)
+                Button("Cancel", action: cancel).buttonStyle(LitheActionButtonStyle())
                 Button(LocalizedStringKey(primaryTitle), action: submit)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     .disabled(isPrimaryDisabled)
             }
             .padding(.horizontal, 18)

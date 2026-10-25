@@ -291,6 +291,87 @@ struct GitModuleTests {
     }
 
     @Test
+    func treeStatusTreatsFilesBelowAnUntrackedSummaryAsUntracked() {
+        // Project rows, editor gutters and Show Diff found a per-file record for
+        // these files before status summarized large untracked directories (#1385).
+        let root = URL(fileURLWithPath: "/workspace")
+        let summary = GitChange(repositoryRoot: root, path: "target/", originalPath: nil,
+                                indexStatus: "?", workTreeStatus: "?", untrackedFileCount: 5_273)
+        let projection = GitTreeStatusProjection(changes: [summary])
+
+        let file = projection.change(relativePath: "target/debug/app")
+        #expect(file?.path == "target/debug/app")
+        #expect(file?.isUntracked == true)
+        #expect(file?.isUntrackedDirectory == false)
+        #expect(projection.kind(relativePath: "target", isDirectory: true) == .added)
+        #expect(projection.change(relativePath: "targets/app") == nil)
+        let absolute = GitTreeStatusProjection(changes: [summary], absolutePaths: true)
+        #expect(absolute.change(relativePath: "/workspace/target/a.o")?.path == "target/a.o")
+        #expect(absolute.containingUntrackedDirectory(of: summary) == nil)
+    }
+
+    @Test
+    func untrackedDirectorySummaryListsItsContentsOnDemandAndAcrossRefreshes() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        func untracked(_ path: String, count: Int? = nil) -> GitChange {
+            GitChange(repositoryRoot: root, path: path, originalPath: nil,
+                      indexStatus: "?", workTreeStatus: "?", untrackedFileCount: count)
+        }
+        let source = GitChange(repositoryRoot: root, path: "src/App.swift", originalPath: nil,
+                               indexStatus: " ", workTreeStatus: "M")
+        let target = untracked("target/", count: 5_273)
+        let debug = untracked("target/debug/", count: 5_272)
+        let snapshots = UntrackedDirectorySnapshots(
+            GitSnapshot(repositoryRoot: root, branch: "main", changes: [source, target])
+        )
+        let listing: [String: [GitChange]] = [
+            "target/": [untracked("target/.rustc_info.json"), debug],
+            "target/debug/": [untracked("target/debug/app")]
+        ]
+        let feature = GitFeatureModel(
+            service: GitService(operations: TestGitOperations()),
+            snapshotProvider: { _ in await snapshots.current() },
+            stashesProvider: { _ in [] },
+            operationStateProvider: { _ in nil },
+            repositoryRootsProvider: { _ in [] },
+            diffDocumentProvider: { _, _ in DiffDocument(rows: [], hunks: []) },
+            untrackedDirectoryChildrenProvider: { listing[$0.path] }
+        )
+        defer { feature.reset() }
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+                          notify: { _ in }, onStateRefreshed: {})
+
+        await feature.refreshGit()
+        #expect(feature.gitChanges.map(\.path) == ["src/App.swift", "target/"])
+        #expect(feature.gitChangedFileCount == 5_274)
+
+        // A summary stands for thousands of files and has no diff of its own.
+        await feature.selectChange(target)
+        #expect(feature.selectedChange == nil)
+
+        let expanded = ["src/App.swift", "target/", "target/.rustc_info.json", "target/debug/", "target/debug/app"]
+        await feature.toggleUntrackedDirectory(target)
+        await feature.toggleUntrackedDirectory(debug)
+        #expect(feature.gitChanges.map(\.path) == expanded)
+        #expect(feature.gitChangedFileCount == 5_274)
+
+        // A watcher refresh lists expanded summaries again instead of collapsing them.
+        await feature.refreshGit()
+        #expect(feature.gitChanges.map(\.path) == expanded)
+
+        await feature.toggleUntrackedDirectory(target)
+        #expect(feature.gitChanges.map(\.path) == ["src/App.swift", "target/"])
+        #expect(feature.expandedUntrackedDirectoryIDs.isEmpty)
+
+        // Staging or deleting the directory removes its summary and its expansion.
+        await feature.toggleUntrackedDirectory(target)
+        await snapshots.replace(with: GitSnapshot(repositoryRoot: root, branch: "main", changes: [source]))
+        await feature.refreshGit()
+        #expect(feature.gitChanges.map(\.path) == ["src/App.swift"])
+        #expect(feature.expandedUntrackedDirectoryIDs.isEmpty)
+    }
+
+    @Test
     func lineChangeProjectionMapsAdditionsChangesAndMiddleDeletions() {
         let markers = GitLineChangeProjection.markers(from: [
             DiffRow(oldLine: 1, newLine: 1, left: "same", right: "same", kind: .context, hunkID: "h1"),
@@ -1101,22 +1182,204 @@ struct GitModuleTests {
         #expect(!feature.isCommitting)
     }
 
-    private func workspacePreparation(pathScope: GitWorkspaceCommitPathScope? = nil) throws -> GitWorkspaceCommitPreparation {
+    private nonisolated static func pushPreview(
+        branch: String = "main",
+        remote: String = "origin",
+        remoteBranch: String? = nil,
+        kind: GitPushTargetKind = .tracking,
+        upstream: String? = "origin/main",
+        createsRemoteBranch: Bool = false
+    ) -> GitPushPreview {
+        GitPushPreview(
+            localBranch: branch, localHead: "head-\(branch)", remote: remote, remoteBranch: remoteBranch ?? branch,
+            targetKind: kind, createsRemoteBranch: createsRemoteBranch, remoteTrackingOid: "tracking-\(branch)",
+            upstream: upstream, commits: [GitCommit(hash: "c1", shortHash: "c1", parentHashes: [], authorName: "A",
+                authorEmail: "a@example.com", date: "2026-10-22", subject: "Subject", decorations: "")])
+    }
+
+    @Test
+    func pushReviewReturnsCoreDestinationAndSendsTheReviewedPreviewBack() async {
+        let preview = Self.pushPreview(branch: "feature/topic")
+        let recorder = PushCallRecorder()
+        let feature = workspaceCommitFeature(
+            pushPreview: { _, target, _ in recorder.recordPreview(target); return .success(preview) },
+            pushReviewed: { _, reviewed, target in
+                recorder.recordPush(reviewed, target)
+                return GitProcessResult(output: "pushed", exitCode: 0)
+            })
+        defer { feature.reset() }
+        await feature.refreshGit()
+        let reference = GitReference(fullName: "refs/heads/feature/topic", shortName: "feature/topic", kind: .local,
+            isCurrent: true, upstreamShortName: "origin/feature/topic")
+
+        guard case .success(let resolved) = await feature.previewPush(reference, pushTarget: .upstream) else {
+            Issue.record("The preview should resolve")
+            return
+        }
+        #expect(resolved == preview)
+        #expect(recorder.previewTargets == [.upstream])
+        #expect(await feature.pushReviewed(reference, preview: resolved, pushTarget: .upstream) == nil)
+        #expect(recorder.pushes.map(\.preview) == [preview])
+        #expect(recorder.pushes.map(\.target) == [.upstream])
+        #expect(!feature.isPerformingBranchOperation)
+    }
+
+    @Test
+    func rejectedReviewedPushReportsWhyAndLeavesNoBusyState() async {
+        let preview = Self.pushPreview()
+        let messages = PushMessageRecorder()
+        let feature = workspaceCommitFeature(
+            pushPreview: { _, _, _ in .success(preview) },
+            pushReviewed: { _, _, _ in
+                GitProcessResult(output: "Git push preview is stale; refresh and try again.", exitCode: 1)
+            },
+            notify: { messages.record($0) })
+        defer { feature.reset() }
+        await feature.refreshGit()
+        let reference = GitReference(fullName: "refs/heads/main", shortName: "main", kind: .local,
+            isCurrent: true, upstreamShortName: "origin/main")
+
+        let failure = await feature.pushReviewed(reference, preview: preview, pushTarget: nil)
+
+        #expect(failure?.message == "Git push preview is stale; refresh and try again.")
+        #expect(messages.values.last == "Git push preview is stale; refresh and try again.")
+        #expect(!feature.isPerformingBranchOperation)
+    }
+
+    @Test
+    func commitAndPushReviewsEveryDestinationBeforeAnyStep() async throws {
+        let original = try workspacePreparation()
+        // Core needs no review of its own here; the push alone must still wait.
+        let immediate = GitWorkspaceCommitPreparation(session: original.session, reviewChanged: false, requiresConfirmation: false)
+        let probe = WorkspaceCommitProbe(preparations: [immediate])
+        let recorder = PushCallRecorder()
+        let feature = workspaceCommitFeature(probe: probe, pushPreview: { reference, target, root in
+            recorder.recordPreview(target)
+            return .success(Self.pushPreview(branch: reference.shortName, remote: "origin", upstream: "origin/\(reference.shortName)"))
+        })
+        defer { feature.reset() }
+        await feature.refreshGit()
+
+        #expect(await !feature.commitAndPushStagedChanges(message: "commit", amend: false))
+
+        #expect(probe.stepCount == 0)
+        let plan = try #require(feature.pendingSubmoduleCommitPlan)
+        #expect(plan.pushDestinations.count == 2)
+        #expect(plan.pushDestinations.values.map(\.destination) == ["origin/main", "origin/main"])
+        #expect(recorder.previewTargets == [nil, nil])
+        #expect(!plan.needsPushTargetChoice)
+    }
+
+    @Test
+    func divergentUpstreamBlocksContinueUntilAnsweredAndCarriesTheAnswerToCore() async throws {
+        let question = GitWorkspacePushTargetQuestion(repositoryId: "A", localBranch: "main", remote: "origin",
+            upstream: "origin/release", upstreamBranch: "release")
+        let asking = try workspacePreparation(pushTargetQuestions: [question])
+        let answer = question.confirmation(for: .upstream)
+        let answered = try workspacePreparation(pushTargets: ["A": answer])
+        let probe = WorkspaceCommitProbe(
+            preparations: [asking, asking, answered, answered],
+            steps: [completedWorkspace(answered)])
+        let recorder = PushCallRecorder()
+        let messages = PushMessageRecorder()
+        let feature = workspaceCommitFeature(probe: probe, pushPreview: { reference, _, _ in
+            recorder.recordPreview(nil)
+            return .success(Self.pushPreview(branch: reference.shortName))
+        }, notify: { messages.record($0) })
+        defer { feature.reset() }
+        await feature.refreshGit()
+
+        #expect(await !feature.commitAndPushStagedChanges(message: "commit", amend: false))
+        let pending = try #require(feature.pendingSubmoduleCommitPlan)
+        #expect(pending.needsPushTargetChoice)
+        #expect(pending.pushQuestion(for: URL(fileURLWithPath: "/workspace/A")) == question)
+        // The repository with a pending question is not previewed as if it were settled.
+        #expect(pending.pushDestinations.keys.map(\.path) == ["/workspace/A/B"])
+
+        // Continue is refused while the destination is unanswered, and nothing runs.
+        #expect(await !feature.confirmPendingSubmoduleCommit())
+        #expect(probe.stepCount == 0)
+        #expect(messages.values.contains("Choose which branch to update before pushing."))
+
+        await feature.choosePushTarget(.upstream, for: question)
+        #expect(probe.requests.last?.pushTargets == ["A": answer])
+        let settled = try #require(feature.pendingSubmoduleCommitPlan)
+        #expect(!settled.needsPushTargetChoice)
+        #expect(settled.confirmedPushTarget(for: URL(fileURLWithPath: "/workspace/A")) == answer)
+        // The choice stays changeable after it is answered.
+        #expect(settled.pushQuestion(for: URL(fileURLWithPath: "/workspace/A")) == question)
+
+        #expect(await feature.confirmPendingSubmoduleCommit())
+        #expect(probe.requests.last?.pushTargets == ["A": answer])
+        #expect(probe.stepCount == 1)
+    }
+
+    @Test
+    func staleAnswerIsDroppedWhenCoreAsksTheQuestionAgain() async throws {
+        let question = GitWorkspacePushTargetQuestion(repositoryId: "A", localBranch: "main", remote: "origin",
+            upstream: "origin/release", upstreamBranch: "release")
+        let movedQuestion = GitWorkspacePushTargetQuestion(repositoryId: "A", localBranch: "main", remote: "origin",
+            upstream: "origin/hotfix", upstreamBranch: "hotfix")
+        let asking = try workspacePreparation(pushTargetQuestions: [question])
+        let askingAgain = try workspacePreparation(pushTargetQuestions: [movedQuestion])
+        let probe = WorkspaceCommitProbe(preparations: [asking, askingAgain])
+        let feature = workspaceCommitFeature(probe: probe)
+        defer { feature.reset() }
+        await feature.refreshGit()
+
+        #expect(await !feature.commitAndPushStagedChanges(message: "commit", amend: false))
+        await feature.choosePushTarget(.upstream, for: question)
+
+        let plan = try #require(feature.pendingSubmoduleCommitPlan)
+        #expect(plan.needsPushTargetChoice)
+        #expect(plan.pushQuestion(for: URL(fileURLWithPath: "/workspace/A")) == movedQuestion)
+        #expect(plan.confirmedPushTarget(for: URL(fileURLWithPath: "/workspace/A")) == nil)
+    }
+
+    @Test
+    func confirmedPushTargetsSurviveTheRoundTripThroughCore() throws {
+        let question = GitWorkspacePushTargetQuestion(repositoryId: "A", localBranch: "main", remote: "origin",
+            upstream: "origin/release", upstreamBranch: "release")
+        let preparation = try workspacePreparation(
+            pushTargets: ["A": question.confirmation(for: .publish)], pushTargetQuestions: [question])
+
+        let session = try JSONSerialization.jsonObject(with: JSONEncoder().encode(preparation.session)) as? [String: Any]
+        let plan = try #require(session?["plan"] as? [String: Any])
+        let targets = try #require(plan["pushTargets"] as? [String: [String: String]])
+        #expect(targets == ["A": ["choice": "publish", "remote": "origin", "remoteBranch": "main"]])
+
+        let decoded = try JSONDecoder().decode(GitWorkspaceCommitPreparation.self, from: JSONEncoder().encode(preparation))
+        #expect(decoded.pushTargetQuestions == [question])
+        #expect(decoded.session.plan.pushTargets == preparation.session.plan.pushTargets)
+
+        // Core omits both fields when nothing is pending, so older plans decode unchanged.
+        let routine = try workspacePreparation()
+        let routineJSON = try JSONSerialization.jsonObject(with: JSONEncoder().encode(routine.session)) as? [String: Any]
+        #expect((routineJSON?["plan"] as? [String: Any])?["pushTargets"] == nil)
+        #expect(routine.pushTargetQuestions.isEmpty)
+    }
+
+    private func workspacePreparation(
+        pathScope: GitWorkspaceCommitPathScope? = nil,
+        pushTargets: [String: GitWorkspaceConfirmedPushTarget]? = nil,
+        pushTargetQuestions: [GitWorkspacePushTargetQuestion] = []
+    ) throws -> GitWorkspaceCommitPreparation {
         struct Fixture: Decodable { let preparation: GitWorkspaceCommitPreparation }
         let fixtureURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("shared/fixtures/git/workspace-commit-workflow-v1.json")
         let preparation = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: fixtureURL)).preparation
-        guard let pathScope else { return preparation }
+        guard pathScope != nil || pushTargets != nil || !pushTargetQuestions.isEmpty else { return preparation }
         let current = preparation.session
         var plan = current.plan
-        plan.pathScope = pathScope
+        if let pathScope { plan.pathScope = pathScope }
+        plan.pushTargets = pushTargets
         let session = GitWorkspaceCommitSession(plan: plan, states: current.states, results: current.results,
             blocked: current.blocked, cursor: current.cursor, commandFailed: current.commandFailed,
             finished: current.finished, succeeded: current.succeeded, canRetry: current.canRetry)
         return GitWorkspaceCommitPreparation(session: session, reviewChanged: preparation.reviewChanged,
-            requiresConfirmation: preparation.requiresConfirmation)
+            requiresConfirmation: preparation.requiresConfirmation, pushTargetQuestions: pushTargetQuestions)
     }
 
     private func completedWorkspace(_ preparation: GitWorkspaceCommitPreparation) -> GitWorkspaceCommitSession {
@@ -1130,13 +1393,17 @@ struct GitModuleTests {
 
     private func workspaceCommitFeature(roots: [URL] = [URL(fileURLWithPath: "/workspace/A"), URL(fileURLWithPath: "/workspace/A/B")],
         changes: [GitChange] = [], probe: WorkspaceCommitProbe = WorkspaceCommitProbe(),
-        storage: (any GitChangelistStorage)? = nil, stageRecorder: StageCallRecorder? = nil) -> GitFeatureModel {
+        storage: (any GitChangelistStorage)? = nil, stageRecorder: StageCallRecorder? = nil,
+        pushPreview: (@Sendable (GitReference, GitPushTargetChoice?, URL) -> Result<GitPushPreview, GitPushFailure>)? = nil,
+        pushReviewed: (@Sendable (GitReference, GitPushPreview, GitPushTargetChoice?) -> GitProcessResult?)? = nil,
+        notify: @escaping @Sendable (String) -> Void = { _ in }) -> GitFeatureModel {
         let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
             snapshotsByRoot: Dictionary(uniqueKeysWithValues: roots.map { root in
                 (root.path, GitSnapshot(repositoryRoot: root, branch: "main", changes: changes.filter { $0.repositoryRoot == root }))
-            }), repositoryRoots: roots, stageCallRecorder: stageRecorder, workspaceCommitProbe: probe)), changelistStorage: storage)
+            }), repositoryRoots: roots, stageCallRecorder: stageRecorder, workspaceCommitProbe: probe,
+            pushPreviewHandler: pushPreview, pushReviewedHandler: pushReviewed)), changelistStorage: storage)
         feature.configure(workspaceURLProvider: { URL(fileURLWithPath: "/workspace") }, isGitLogVisibleProvider: { false },
-            notify: { _ in }, onStateRefreshed: {})
+            notify: notify, onStateRefreshed: {})
         return feature
     }
 
@@ -1821,6 +2088,109 @@ struct GitModuleTests {
         #expect(feature.gitConsoleEntries.map(\.arguments) == [["discard", "first.txt"], ["discard", "blocked.txt"]])
         #expect(feature.gitConsoleEntries.map(\.exitCode) == [0, 1])
         #expect(feature.gitConsoleEntries.allSatisfy { $0.state == .unconfirmed })
+    }
+
+    @Test
+    func collapsingASummaryWhileARefreshListsItKeepsItCollapsed() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let source = GitChange(repositoryRoot: root, path: "src/App.swift", originalPath: nil,
+                               indexStatus: " ", workTreeStatus: "M")
+        let target = GitChange(repositoryRoot: root, path: "target/", originalPath: nil,
+                               indexStatus: "?", workTreeStatus: "?", untrackedFileCount: 200)
+        let child = GitChange(repositoryRoot: root, path: "target/a.o", originalPath: nil,
+                              indexStatus: "?", workTreeStatus: "?")
+        let listing = UntrackedDirectoryListing(blockingFromCall: 2)
+        let feature = GitFeatureModel(
+            service: GitService(operations: TestGitOperations()),
+            snapshotProvider: { _ in GitSnapshot(repositoryRoot: root, branch: "main", changes: [source, target]) },
+            stashesProvider: { _ in [] },
+            operationStateProvider: { _ in nil },
+            repositoryRootsProvider: { _ in [] },
+            diffDocumentProvider: { _, _ in DiffDocument(rows: [], hunks: []) },
+            untrackedDirectoryChildrenProvider: { _ in await listing.list([child]) }
+        )
+        defer { feature.reset() }
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+                          notify: { _ in }, onStateRefreshed: {})
+        await feature.refreshGit()
+        await feature.toggleUntrackedDirectory(target)
+        #expect(feature.gitChanges.map(\.path) == ["src/App.swift", "target/", "target/a.o"])
+
+        // The refresh lists `target/` again; the user collapses it meanwhile.
+        let refresh = Task { await feature.refreshGit() }
+        #expect(await listing.started.waitUntilOpen())
+        await feature.toggleUntrackedDirectory(target)
+        listing.release.open()
+        await refresh.value
+
+        #expect(feature.gitChanges.map(\.path) == ["src/App.swift", "target/"])
+        #expect(feature.expandedUntrackedDirectoryIDs.isEmpty)
+        #expect(feature.gitChangedFileCount == 201)
+    }
+
+    @Test
+    func shelvingStopsBeforeCleaningWhenAnUntrackedSummaryCannotBeExported() async {
+        // Shelve cleans `generated/` as a whole after saving, so a directory
+        // patch Git could not export must stop it instead of losing files.
+        let root = URL(fileURLWithPath: "/workspace")
+        let source = GitChange(repositoryRoot: root, path: "src/App.swift", originalPath: nil,
+                               indexStatus: " ", workTreeStatus: "M")
+        let generated = GitChange(repositoryRoot: root, path: "generated/", originalPath: nil,
+                                  indexStatus: "?", workTreeStatus: "?", untrackedFileCount: 101)
+        func shelve(exportingDirectory: Bool) async -> (cleaned: [String], notifications: [String]) {
+            let cleaned = CleanedPaths()
+            let service = GitService(operations: TestGitOperations(
+                snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: [source, generated]),
+                discardAllHandler: { change in
+                    cleaned.append(change.path)
+                    return GitProcessResult(arguments: ["clean", change.path], output: "", exitCode: 0)
+                },
+                diffPatchHandler: { pathspecs, _ in
+                    pathspecs == ["generated/"] && !exportingDirectory ? nil : "patch \(pathspecs)"
+                }
+            ))
+            let feature = GitFeatureModel(service: service,
+                                          shelveService: ShelveService(storage: TestShelfStorage()))
+            var notifications: [String] = []
+            feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+                              notify: { notifications.append($0) }, onStateRefreshed: {})
+            await feature.refreshGit()
+            await feature.shelveWorkingTree(message: "WIP")
+            return (cleaned.paths, notifications)
+        }
+
+        let exported = await shelve(exportingDirectory: true)
+        #expect(exported.cleaned == ["src/App.swift", "generated/"])
+
+        let failed = await shelve(exportingDirectory: false)
+        #expect(failed.cleaned.isEmpty)
+        #expect(failed.notifications == ["Could not create a patch for generated/"])
+    }
+
+    @Test
+    func discardingAnUntrackedSummaryWithItsListedContentsCleansTheDirectoryOnce() async {
+        // Once `target/` is cleaned its listed files are gone, so discarding them
+        // again would fail and stop the batch after the directory was removed.
+        let root = URL(fileURLWithPath: "/workspace")
+        func untracked(_ path: String, count: Int? = nil) -> GitChange {
+            GitChange(repositoryRoot: root, path: path, originalPath: nil,
+                      indexStatus: "?", workTreeStatus: "?", untrackedFileCount: count)
+        }
+        let selection = [untracked("target/", count: 200), untracked("target/a.o"),
+                         untracked("target/debug/", count: 199), untracked("targets.txt")]
+        let service = GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []),
+            discardHandler: { change in
+                GitProcessResult(arguments: ["discard", change.path], output: "", exitCode: 0)
+            }
+        ))
+        let feature = GitFeatureModel(service: service)
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+                          notify: { _ in }, onStateRefreshed: {})
+        await feature.refreshGit()
+        feature.clearGitConsole()
+        await feature.discardChanges(selection)
+        #expect(feature.gitConsoleEntries.map(\.arguments) == [["discard", "target/"], ["discard", "targets.txt"]])
     }
 
     @Test
@@ -3934,6 +4304,45 @@ private func waitForGitCommitFilesOutcome(
     }
 }
 
+private final class CleanedPaths: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [String] = []
+    var paths: [String] { lock.withLock { values } }
+    func append(_ path: String) { lock.withLock { values.append(path) } }
+}
+
+/// Answers directory listings, holding the listing from `blockingFromCall`
+/// on until the test releases it.
+private final class UntrackedDirectoryListing: @unchecked Sendable {
+    let started = GitModuleTestGate()
+    let release = GitModuleTestGate()
+    private let lock = NSLock()
+    private let blockingFromCall: Int
+    private var calls = 0
+
+    init(blockingFromCall: Int) { self.blockingFromCall = blockingFromCall }
+
+    func list(_ children: [GitChange]) async -> [GitChange]? {
+        let call = lock.withLock {
+            calls += 1
+            return calls
+        }
+        guard call >= blockingFromCall else { return children }
+        started.open()
+        guard await release.waitUntilOpen() else { return nil }
+        return children
+    }
+}
+
+private actor UntrackedDirectorySnapshots {
+    private var snapshot: GitSnapshot
+
+    init(_ snapshot: GitSnapshot) { self.snapshot = snapshot }
+
+    func current() -> GitSnapshot { snapshot }
+    func replace(with snapshot: GitSnapshot) { self.snapshot = snapshot }
+}
+
 private func waitForGitTaskCompletion(
     _ task: Task<Void, Never>,
     timeout: Duration = .seconds(2)
@@ -4296,6 +4705,8 @@ private struct TestGitOperations: GitOperations {
     private let historyController: GitHistoryLoadController?
     private let snapshotGate: GitModuleTestGate?
     private let discardHandler: (@Sendable (GitChange) -> GitProcessResult?)?
+    private let discardAllHandler: (@Sendable (GitChange) -> GitProcessResult?)?
+    private let diffPatchHandler: (@Sendable ([String], Bool) -> String?)?
     private let applyPatchHandler: (@Sendable (String, URL, String) -> GitProcessResult?)?
     private let stageResult: GitProcessResult?
     private let commitResult: GitProcessResult?
@@ -4320,6 +4731,8 @@ private struct TestGitOperations: GitOperations {
     private let removeWorktreeResult: GitProcessResult?
     private let fetchPlanValue: GitFetchPlan?
     private let fetchHandler: (@Sendable (GitFetchOptions, String) -> GitProcessResult?)?
+    private let pushPreviewHandler: (@Sendable (GitReference, GitPushTargetChoice?, URL) -> Result<GitPushPreview, GitPushFailure>)?
+    private let pushReviewedHandler: (@Sendable (GitReference, GitPushPreview, GitPushTargetChoice?) -> GitProcessResult?)?
 
     init(
         snapshotValue: GitSnapshot? = nil,
@@ -4343,6 +4756,8 @@ private struct TestGitOperations: GitOperations {
         typedComparisonDiffDocumentValue: DiffDocument? = nil,
         snapshotGate: GitModuleTestGate? = nil,
         discardHandler: (@Sendable (GitChange) -> GitProcessResult?)? = nil,
+        discardAllHandler: (@Sendable (GitChange) -> GitProcessResult?)? = nil,
+        diffPatchHandler: (@Sendable ([String], Bool) -> String?)? = nil,
         applyPatchHandler: (@Sendable (String, URL, String) -> GitProcessResult?)? = nil,
         stageResult: GitProcessResult? = nil,
         commitResult: GitProcessResult? = nil,
@@ -4366,7 +4781,9 @@ private struct TestGitOperations: GitOperations {
         exportPatchHandler: (@Sendable ([String], Bool) -> Result<GitPatchExport, GitPatchFailure>)? = nil,
         removeWorktreeResult: GitProcessResult? = nil,
         fetchPlan: GitFetchPlan? = nil,
-        fetchHandler: (@Sendable (GitFetchOptions, String) -> GitProcessResult?)? = nil
+        fetchHandler: (@Sendable (GitFetchOptions, String) -> GitProcessResult?)? = nil,
+        pushPreviewHandler: (@Sendable (GitReference, GitPushTargetChoice?, URL) -> Result<GitPushPreview, GitPushFailure>)? = nil,
+        pushReviewedHandler: (@Sendable (GitReference, GitPushPreview, GitPushTargetChoice?) -> GitProcessResult?)? = nil
     ) {
         self.snapshotValue = snapshotValue
         self.snapshotsByRoot = snapshotsByRoot
@@ -4389,6 +4806,8 @@ private struct TestGitOperations: GitOperations {
         self.typedComparisonDiffDocumentValue = typedComparisonDiffDocumentValue
         self.snapshotGate = snapshotGate
         self.discardHandler = discardHandler
+        self.discardAllHandler = discardAllHandler
+        self.diffPatchHandler = diffPatchHandler
         self.applyPatchHandler = applyPatchHandler
         self.stageResult = stageResult
         self.commitResult = commitResult
@@ -4413,6 +4832,16 @@ private struct TestGitOperations: GitOperations {
         self.removeWorktreeResult = removeWorktreeResult
         self.fetchPlanValue = fetchPlan
         self.fetchHandler = fetchHandler
+        self.pushPreviewHandler = pushPreviewHandler
+        self.pushReviewedHandler = pushReviewedHandler
+    }
+
+    func pushPreview(_ reference: GitReference, pushTarget: GitPushTargetChoice?, at rootURL: URL) -> Result<GitPushPreview, GitPushFailure> {
+        pushPreviewHandler?(reference, pushTarget, rootURL) ?? .failure(GitPushFailure("Push preview unavailable"))
+    }
+
+    func pushReviewed(_ reference: GitReference, preview: GitPushPreview, pushTarget: GitPushTargetChoice?, at rootURL: URL) -> GitProcessResult? {
+        pushReviewedHandler?(reference, preview, pushTarget)
     }
 
     func exportPatch(at rootURL: URL, source: GitPatchSource, paths: [String], base: String?, target: String?, metadataOnly: Bool) -> Result<GitPatchExport, GitPatchFailure> {
@@ -4452,7 +4881,9 @@ private struct TestGitOperations: GitOperations {
     func diffDocument(at rootURL: URL, pathspecs: [String], staged: Bool, untracked: Bool, whitespace: GitDiffWhitespaceMode) -> DiffDocument? {
         untracked ? untrackedDiffDocumentValue : nil
     }
-    func diffPatch(at rootURL: URL, pathspecs: [String], staged: Bool, untracked: Bool, whitespace: GitDiffWhitespaceMode) -> String? { nil }
+    func diffPatch(at rootURL: URL, pathspecs: [String], staged: Bool, untracked: Bool, whitespace: GitDiffWhitespaceMode) -> String? {
+        diffPatchHandler?(pathspecs, staged)
+    }
     func commitDiffDocument(at rootURL: URL, commit: String, pathspecs: [String], whitespace: GitDiffWhitespaceMode) -> DiffDocument? { nil }
     func comparisonDiffDocument(at rootURL: URL, reference: String, pathspecs: [String], whitespace: GitDiffWhitespaceMode) -> DiffDocument? { comparisonDiffDocumentValue }
     func comparisonDiffDocument(at rootURL: URL, reference: GitReference, targetReference: GitReference?, pathspecs: [String], whitespace: GitDiffWhitespaceMode) -> DiffDocument? { typedComparisonDiffDocumentValue }
@@ -4538,7 +4969,7 @@ private struct TestGitOperations: GitOperations {
     }
     func unstage(_ change: GitChange) -> GitProcessResult? { nil }
     func discard(_ change: GitChange) -> GitProcessResult? { discardHandler?(change) }
-    func discardAll(_ change: GitChange) -> GitProcessResult? { nil }
+    func discardAll(_ change: GitChange) -> GitProcessResult? { discardAllHandler?(change) }
     func prepareWorkspaceCommit(_ request: GitWorkspaceCommitRequest) -> Result<GitWorkspaceCommitPreparation, GitWorkspaceCommitFailure> {
         workspaceCommitProbe.prepare(request)
     }
@@ -4615,7 +5046,7 @@ private struct TestGitOperations: GitOperations {
     func abortOperation(at rootURL: URL) -> GitProcessResult? { nil }
     func skipOperationStep(at rootURL: URL) -> GitProcessResult? { nil }
     func checkoutRevision(_ revision: String, at rootURL: URL) -> GitProcessResult? { nil }
-    func push(_ reference: GitReference, at rootURL: URL) -> GitProcessResult? { GitProcessResult(output: "Pushed", exitCode: 0) }
+    func push(_ reference: GitReference, pushTarget: String?, at rootURL: URL) -> GitProcessResult? { GitProcessResult(output: "Pushed", exitCode: 0) }
     func cloneRepository(from remote: String, to destination: URL) -> GitProcessResult? { nil }
     func stash(message: String, includeUntracked: Bool, at rootURL: URL) -> GitProcessResult? { nil }
     func applyStash(_ stash: GitStash, at rootURL: URL) -> GitProcessResult? { nil }
@@ -4635,6 +5066,25 @@ private struct TestGitOperations: GitOperations {
 /// Synchronous GitOperations test state; the production service reads it on workers.
 /// Scripted Core responses only: ordering, dependencies and retry policy are
 /// exercised in Rust instead of reimplemented in this native test double.
+private final class PushCallRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recordedPreviewTargets: [GitPushTargetChoice?] = []
+    private var recordedPushes: [(preview: GitPushPreview, target: GitPushTargetChoice?)] = []
+    func recordPreview(_ target: GitPushTargetChoice?) { lock.lock(); recordedPreviewTargets.append(target); lock.unlock() }
+    func recordPush(_ preview: GitPushPreview, _ target: GitPushTargetChoice?) {
+        lock.lock(); recordedPushes.append((preview, target)); lock.unlock()
+    }
+    var previewTargets: [GitPushTargetChoice?] { lock.lock(); defer { lock.unlock() }; return recordedPreviewTargets }
+    var pushes: [(preview: GitPushPreview, target: GitPushTargetChoice?)] { lock.lock(); defer { lock.unlock() }; return recordedPushes }
+}
+
+private final class PushMessageRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [String] = []
+    func record(_ message: String) { lock.lock(); recorded.append(message); lock.unlock() }
+    var values: [String] { lock.lock(); defer { lock.unlock() }; return recorded }
+}
+
 private final class WorkspaceCommitProbe: @unchecked Sendable {
     private let lock = NSLock()
     private var preparations: [GitWorkspaceCommitPreparation]

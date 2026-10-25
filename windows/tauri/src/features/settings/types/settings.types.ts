@@ -29,6 +29,8 @@ export type FileTreeSortOrder = "folders-first" | "name";
 // Where a project opens when the ask-first dialog is disabled. The false branch of the
 // retired openFoldersInNewWindow boolean maps to "attach", which was its old behavior.
 export type ProjectOpenDefaultDestination = "this-window" | "new-window" | "attach";
+// Matches Rust Core's `RunServicePolicy` and the macOS setting of the same name.
+export type RunServicesOnExit = "ask" | "terminate";
 export type SettingsSection =
   | "general"
   | "editor"
@@ -110,6 +112,8 @@ export interface Settings {
   footerTrailingItemsOrder: FooterTrailingItemId[];
   askWhereToOpenProjects: boolean;
   projectOpenDefaultDestination: ProjectOpenDefaultDestination;
+  /** Whether closing a window, quitting or updating lists running Run services first. */
+  runServicesOnExit: RunServicesOnExit;
   // AI
   aiProviderId: string;
   aiModelId: string;
@@ -139,6 +143,9 @@ export interface Settings {
   collapsedActivityRailSections: string[];
   sidebarWidth: number;
   rightToolWindowWidth: number;
+  terminalDockPosition: "bottom" | "left" | "right";
+  terminalDockWidth: number;
+  bottomPaneHeight: number;
   showGitHubPullRequests: boolean;
   showGitHubIssues: boolean;
   showGitHubActions: boolean;
@@ -176,7 +183,6 @@ export interface Settings {
     | "theme"
     | "icon-theme"
     | "snippet"
-    | "database"
     | "ai"
     | "integration"
     | "skill"

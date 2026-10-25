@@ -62,7 +62,7 @@ private struct GitPatchDialog: View {
         .padding(.vertical, 10)
         .frame(width: 700)
         .foregroundStyle(LitheTheme.primaryText)
-        .buttonStyle(LitheCommitDialogButtonStyle())
+        .buttonStyle(LitheActionButtonStyle())
         .background(LitheCommitDialogStyle.background)
         .environment(\.lithePointingHandCursorEnabled, false)
         .onExitCommand { if !editor.isBusy { editor.dismiss() } }
@@ -178,7 +178,7 @@ private struct GitPatchDialog: View {
     }
 
     private var footer: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: LitheTheme.ActionButton.spacing) {
             if editor.mode == .export {
                 Button("Refresh Files") { editor.refreshFiles() }
                     .disabled(editor.isBusy)
@@ -190,14 +190,14 @@ private struct GitPatchDialog: View {
             }
             if editor.isBusy { ProgressView().controlSize(.small) }
             Spacer()
-            Button("Close") { editor.dismiss() }.keyboardShortcut(.cancelAction)
+            Button("Close") { editor.dismiss() }.buttonStyle(LitheActionButtonStyle()).keyboardShortcut(.cancelAction)
                 .disabled(editor.isBusy)
             if editor.mode == .export {
                 Button("Save Patch…") { editor.saveExport() }
-                    .buttonStyle(LitheCommitDialogButtonStyle(primary: true)).disabled(!editor.canSave)
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true)).disabled(!editor.canSave)
             } else {
                 Button("Apply Patch") { Task { await editor.confirmApply() } }
-                    .buttonStyle(LitheCommitDialogButtonStyle(primary: true)).disabled(!editor.canApply)
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true)).disabled(!editor.canApply)
             }
         }
     }

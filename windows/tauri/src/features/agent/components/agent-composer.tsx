@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent } from "react";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import {
   AGENT_FILE_DROP_EVENT,
@@ -36,7 +36,11 @@ import {
   type AgentCommandKeyState,
 } from "../services/agent-command-completion";
 import { chooseAgentFiles } from "../services/agent-file-picker";
+import { savePastedImages } from "@/platform/agent-pasted-images";
+import { convertFileSrc } from "@/platform/tauri-core";
+import { readAgentClipboardFiles } from "@/platform/agent-local-files";
 import { agentConnection } from "../stores/agent-connection-service";
+import { useAgentSurfaceStore } from "../stores/agent-surface.store";
 import { agentFileUri } from "../types/agent-file-uri";
 import {
   addFileReferences,
@@ -96,8 +100,10 @@ interface AgentComposerProps {
   onDraftChange: (draft: string) => void;
   files: AgentFileReference[];
   onFilesChange: (files: AgentFileReference[]) => void;
+  onAppendFiles: (files: AgentFileReference[]) => void;
   onOpenSettings: () => void;
   onError: (message: string | null) => void;
+  focusRequest?: number;
 }
 
 /**
@@ -114,8 +120,10 @@ export function AgentComposer({
   onDraftChange,
   files,
   onFilesChange,
+  onAppendFiles,
   onOpenSettings,
   onError,
+  focusRequest,
 }: AgentComposerProps) {
   const { t } = useTranslation();
   const snapshot = useAgentSnapshot();
@@ -137,6 +145,11 @@ export function AgentComposer({
   });
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
 
   const isResponding = conversation?.isResponding === true;
   const isCancelling = conversation?.isCancelling === true;
@@ -149,7 +162,7 @@ export function AgentComposer({
 
   useEffect(() => {
     textareaRef.current?.focus();
-  }, []);
+  }, [focusRequest]);
 
   const attach = useCallback(
     (paths: string[]) => {
@@ -158,7 +171,7 @@ export function AgentComposer({
         // Validate outside the state updater: React may replay an updater while
         // rendering, where a thrown limit error would break the panel instead of
         // reporting the limit.
-        onFilesChange(addFileReferences(files, paths.map(agentFileUri)));
+        onAppendFiles(addFileReferences([], paths.map(agentFileUri)));
         onError(null);
         textareaRef.current?.focus();
       } catch (error) {
@@ -171,8 +184,54 @@ export function AgentComposer({
         onError(error instanceof AgentFileReferenceError ? error.message : String(error));
       }
     },
-    [files, onError, onFilesChange, t],
+    [onError, onAppendFiles, t],
   );
+
+  const handlePaste = useCallback(async (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    const clipboard = event.clipboardData;
+    if (!clipboard) return;
+
+    // Plain text, including an absolute path, remains ordinary editable text.
+    const paths = clipboard.types.includes("text/uri-list") ? extractDroppedFilePaths(clipboard) : [];
+    if (paths.length > 0) {
+      event.preventDefault();
+      attach(paths);
+      return;
+    }
+
+    const images = Array.from(clipboard.items)
+      .filter((item) => item.type.startsWith("image/"))
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => file !== null);
+    if (images.length === 0) {
+      // Explorer's CF_HDROP may expose no web-readable File. Plain text keeps
+      // the browser's normal paste behavior; only file-only payloads use Win32.
+      if (clipboard.types.includes("text/plain")) return;
+      event.preventDefault();
+      try {
+        const nativePaths = await readAgentClipboardFiles();
+        if (mounted.current && nativePaths.length > 0) attach(nativePaths);
+      } catch (error) {
+        if (mounted.current) onError(t(String(error)));
+      }
+      return;
+    }
+
+    event.preventDefault();
+    try {
+      addFileReferences(files, images.map((_, index) => `file:///paste-${index}`));
+      const saved = await savePastedImages(images);
+      if (!mounted.current) { await saved.discard(); return; }
+      try {
+        onAppendFiles(saved.paths.map((path) => ({ uri: agentFileUri(path), name: path.split(/[\\/]/).pop() ?? "image", previewUrl: convertFileSrc(path) })));
+      } catch (error) {
+        await saved.discard();
+        throw error;
+      }
+    } catch (error) {
+      if (mounted.current) onError(error instanceof Error ? t(error.message) : String(error));
+    }
+  }, [attach, files, onAppendFiles, onError, t]);
 
   // OS drops in WebView2 and project-tree drags arrive as this event instead.
   useEffect(() => {
@@ -284,7 +343,10 @@ export function AgentComposer({
     [onDraftChange],
   );
 
-  const options = conversation?.configOptions ?? [];
+  const options = (conversation?.configOptions ?? []).map((option) => ({
+    ...option,
+    currentValue: conversation?.stagedConfig[option.id] ?? option.currentValue,
+  }));
   const usesSubscription = snapshot.usesSubscription;
 
   return (
@@ -323,7 +385,8 @@ export function AgentComposer({
         }}
       >
         <div className="m-px flex h-7 shrink-0 items-center gap-2 rounded-[7px] bg-muted/60 px-2.5 text-subtle-foreground ui-text-caption">
-          <AgentContextUsageView usage={conversation?.contextUsage ?? null} />
+          <AgentContextUsageView usage={conversation?.contextUsage ?? null} onOpenDetails={() => useAgentSurfaceStore.getState().actions.setDetailsOpen(true)} />
+          {Object.keys(conversation?.stagedConfig ?? {}).length > 0 ? <span title={t("agent.configuration.staged")} className="truncate">{t("agent.configuration.staged")}</span> : null}
           <span aria-hidden className="h-3 w-px bg-border" />
           <button
             type="button"
@@ -361,7 +424,11 @@ export function AgentComposer({
                 title={uriPath(file.uri)}
                 className="flex shrink-0 items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-foreground ui-text-caption"
               >
-                <FileTextIcon className="size-3 text-subtle-foreground" />
+                {file.previewUrl ? (
+                  <img src={file.previewUrl} alt="" className="size-5 rounded object-cover" />
+                ) : (
+                  <FileTextIcon className="size-3 text-subtle-foreground" />
+                )}
                 <span className="max-w-40">{middleTruncate(file.name)}</span>
                 <button
                   type="button"
@@ -455,6 +522,7 @@ export function AgentComposer({
             setMention(opened);
             setFileQuery(opened?.query ?? "");
           }}
+          onPaste={(event) => void handlePaste(event)}
           onKeyDown={(event) => {
             if (commandList !== null && !event.nativeEvent.isComposing) {
               const key =
@@ -526,7 +594,8 @@ export function AgentComposer({
                 key={sessionID ?? agentName ?? "none"}
                 options={options}
                 agentName={agentName}
-                isDisabled={!canSend || isResponding || isConfiguring}
+              isDisabled={(!canSend && !isConfiguring) || isCancelling}
+              isConfiguring={isConfiguring}
                 onSelect={(id, value) => agentConnection().setConfigOption(id, value)}
               />
               {isConfiguring ? <Spinner className="size-3" /> : null}

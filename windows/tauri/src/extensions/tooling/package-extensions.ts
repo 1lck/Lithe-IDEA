@@ -19,7 +19,6 @@ import {
 const cdnBaseUrl = requireExtensionsCdnBaseUrl();
 
 function shouldPackage(manifest: Record<string, unknown>) {
-  const hasNativeSidecar = getContributionArray(manifest, "databases").length > 0;
   const isLanguage = getContributionArray(manifest, "languages").length > 0;
   const isPureAssetExtension =
     getContributionArray(manifest, "themes").length > 0 ||
@@ -27,7 +26,7 @@ function shouldPackage(manifest: Record<string, unknown>) {
   const isExecutableIntegration =
     getContributionArray(manifest, "integrations").length > 0 && typeof manifest.main === "string";
 
-  return (isPureAssetExtension || isExecutableIntegration) && !hasNativeSidecar && !isLanguage;
+  return (isPureAssetExtension || isExecutableIntegration) && !isLanguage;
 }
 
 async function sha256(path: string) {

@@ -13,6 +13,9 @@ fn launch(env: Vec<(String, String)>, subscription_cli: Option<PathBuf>) -> Reso
         gateway: None,
         secret: String::new(),
         subscription_cli,
+        claude_subscription: false,
+        codex_home: None,
+        claude_projects: None,
     }
 }
 
@@ -378,6 +381,7 @@ async fn active_and_archived_listing_only_read_official_activity_metadata() {
         executable: fake_app_server(&directory.0, &reply),
         cwd: directory.0.clone(),
         model_provider: SUBSCRIPTION_PROVIDER,
+        codex_home: None,
     };
     let workspace = workspace_context::WorkspaceContext::new(&directory.0).unwrap();
     let emit: Emit = Arc::new(|_| {});
@@ -434,6 +438,7 @@ async fn unarchive_sends_only_the_selected_thread_to_the_users_cli() {
         executable: fake_app_server(&directory.0, "\"result\":{\"thread\":{}}"),
         cwd: directory.0.clone(),
         model_provider: SUBSCRIPTION_PROVIDER,
+        codex_home: None,
     };
     tokio::time::timeout(
         Duration::from_secs(10),
@@ -466,6 +471,7 @@ async fn upstream_errors_never_reach_the_ui() {
         ),
         cwd: directory.0.clone(),
         model_provider: GATEWAY_PROVIDER,
+        codex_home: None,
     };
     let error = tokio::time::timeout(
         Duration::from_secs(10),

@@ -128,6 +128,31 @@ struct MacProcessRunnerTests {
     }
 
     @Test
+    func cancellingWorkerTerminatesItsProcessGroupBeforeTheRequestTimeout() async throws {
+        let fixture = try makeDescendantFixture()
+        defer { fixture.cleanup() }
+        let request = fixture.request(operationID: "runner-cancel", timeoutMilliseconds: 5_000)
+        let worker = Task.detached { MacProcessRunner().run(request) }
+        defer { worker.cancel() }
+
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while (try? fixture.descendantPID()) == nil && clock.now < deadline {
+            // test-stability: allow(swift-real-sleep) reason: OS process startup exposes only a PID file, so poll it with a local deadline.
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        let started = clock.now
+        worker.cancel()
+        let result = await worker.value
+        let descendantPID = try fixture.descendantPID()
+        defer { terminateIfRunning(descendantPID) }
+
+        #expect(result.exitCode == 130)
+        #expect(clock.now - started < .seconds(2))
+        #expect(!processIsRunning(descendantPID))
+    }
+
+    @Test
     func rawSessionTimeoutTerminatesDescendantThatClosesPipesAndIgnoresTermination() async throws {
         let fixture = try makeDescendantFixture()
         defer { fixture.cleanup() }

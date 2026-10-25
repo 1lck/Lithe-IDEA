@@ -81,6 +81,8 @@ async function readRegistry() {
   // are mutable user state, never download artifacts. Runtime profile import is
   // owned by the platform startup adapters; this build reuse route always rejects
   // both original state and migration snapshots and must not gain a validator.
+  // Shared i18n source and generated tables take this same refusal route:
+  // rebuild from the target checkout, never copy another worktree's translations.
   const excludedResources = registry.excludedResources ?? [];
   if (!Array.isArray(excludedResources)) throw new Error("Invalid excluded worktree resources");
   for (const resource of excludedResources) {
@@ -387,7 +389,16 @@ async function main() {
       // Includes agent-ui-test-evidence: fixture screenshots belong to one test
       // revision/theme/viewport, never to a reusable build or runtime resource.
       // Includes plugin-ui-icons: signed runtime packages are never build-cache inputs.
+      // Includes agent-hook-library-state: user commands, native ownership journals and locks have no copy stage.
+      // Includes agent-instruction-library-state: user text and sync locks have no build identity or copy stage.
+      // Includes mcp-tool-probe-state: SDK sessions, native tool exclusions and
+      // retained Codex tool lists and in-memory snapshots belong to one user
+      // profile/page, never build reuse (including after server removal).
+      // Includes mcp-registry-metadata: responses have no copy stage; featured.json
+      // and McpIcons follow Git source, never a downloaded/generated resource validator.
       // Includes plugin-web-state: per-window/workspace user JSON has no build identity or copy stage.
+      // Includes remote-server-artifacts: packaging rebuilds them from this worktree's sources.
+      // Includes remote-connection-state: SSH settings, keychain secrets and placeholder roots are user-owned.
       // Includes plugin-disk-install-state: fileStorage temporary snapshots, install staging
       // and active/previous approvals are runtime-owned. Reject before resolving worktrees
       // or calling validatorArguments; a content digest is neither a build stamp nor consent.
@@ -395,6 +406,7 @@ async function main() {
       // passing runtime preflight never admits marketplace or disk snapshots to a copy stage.
       // Per-launch Codex helpers also own memory-only context replay tickets and
       // loopback capabilities; they stay on this exclusion route, never a copy stage.
+      // Agent edit-and-paste state is user-owned runtime data, without a copy stage.
       if (excludedResources.some((resource) => resource.id === identifier)) {
         const excluded = excludedResources.find((resource) => resource.id === identifier);
         throw new Error(`Resource ${identifier} is isolated (${excluded.locations.join(", ")}): ${excluded.identity}; ${excluded.reason}; it cannot be reused across worktrees`);

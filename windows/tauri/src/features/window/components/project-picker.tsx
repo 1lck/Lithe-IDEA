@@ -662,7 +662,7 @@ const ProjectPicker = memo(
               tooltip={
                 isBackendCapabilityAvailable("remote")
                   ? t("welcome.addRemote")
-                  : BACKEND_UNAVAILABLE_TOOLTIP
+                  : t(BACKEND_UNAVAILABLE_TOOLTIP)
               }
             >
               <Plus />

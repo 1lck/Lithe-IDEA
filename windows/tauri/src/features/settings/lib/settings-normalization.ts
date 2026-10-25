@@ -1,3 +1,4 @@
+import { normalizeDisplayLanguage } from "@/i18n/locale";
 import { getProviderById } from "@/features/ai/types/providers.types";
 import { normalizeCommitAI } from "@/features/git/types/ai-commit";
 import { normalizeOllamaBaseUrl } from "@/features/ai/lib/ollama-endpoint";
@@ -163,6 +164,7 @@ const PROJECT_OPEN_DESTINATIONS = new Set<Settings["projectOpenDefaultDestinatio
   "new-window",
   "attach",
 ]);
+const RUN_SERVICES_ON_EXIT = new Set<Settings["runServicesOnExit"]>(["ask", "terminate"]);
 const EXTERNAL_EDITOR_MODES = new Set<Settings["externalEditor"]>([
   "none",
   "nvim",
@@ -302,6 +304,12 @@ function normalizeFileTreeSortOrder(value: unknown): Settings["fileTreeSortOrder
   return FILE_TREE_SORT_ORDERS.has(value as Settings["fileTreeSortOrder"])
     ? (value as Settings["fileTreeSortOrder"])
     : defaultSettings.fileTreeSortOrder;
+}
+
+function normalizeRunServicesOnExit(value: unknown): Settings["runServicesOnExit"] {
+  return RUN_SERVICES_ON_EXIT.has(value as Settings["runServicesOnExit"])
+    ? (value as Settings["runServicesOnExit"])
+    : defaultSettings.runServicesOnExit;
 }
 
 // Accepts the retired openFoldersInNewWindow boolean from legacy imports so an old export
@@ -480,6 +488,7 @@ function normalizeAISettings(settings: Settings): Settings {
 
 export function normalizeSettings(settings: Settings): Settings {
   const normalizedSettings = normalizeAISettings(settings);
+  normalizedSettings.displayLanguage = normalizeDisplayLanguage(settings.displayLanguage);
   normalizedSettings.aiCommit = normalizeCommitAI(settings.aiCommit);
   normalizedSettings.gitExecutable =
     typeof settings.gitExecutable === "string" ? settings.gitExecutable : "";
@@ -568,6 +577,9 @@ export function normalizeSettings(settings: Settings): Settings {
     (normalizedSettings as { openFoldersInNewWindow?: unknown }).openFoldersInNewWindow,
   );
   delete (normalizedSettings as { openFoldersInNewWindow?: unknown }).openFoldersInNewWindow;
+  normalizedSettings.runServicesOnExit = normalizeRunServicesOnExit(
+    (normalizedSettings as { runServicesOnExit?: unknown }).runServicesOnExit,
+  );
   normalizedSettings.activityRailWidth = normalizeBoundedWidth(
     normalizedSettings.activityRailWidth,
     defaultSettings.activityRailWidth,
@@ -585,6 +597,23 @@ export function normalizeSettings(settings: Settings): Settings {
     defaultSettings.rightToolWindowWidth,
     SIDEBAR_WIDTH_MIN,
     SIDEBAR_WIDTH_MAX,
+  );
+  normalizedSettings.terminalDockPosition =
+    normalizedSettings.terminalDockPosition === "right" ||
+    normalizedSettings.terminalDockPosition === "left"
+      ? normalizedSettings.terminalDockPosition
+      : "bottom";
+  normalizedSettings.terminalDockWidth = normalizeBoundedWidth(
+    normalizedSettings.terminalDockWidth,
+    defaultSettings.terminalDockWidth,
+    SIDEBAR_WIDTH_MIN,
+    SIDEBAR_WIDTH_MAX,
+  );
+  normalizedSettings.bottomPaneHeight = normalizeBoundedWidth(
+    normalizedSettings.bottomPaneHeight,
+    defaultSettings.bottomPaneHeight,
+    200,
+    2000,
   );
   normalizedSettings.externalEditor = normalizeExternalEditor(
     (normalizedSettings as { externalEditor?: unknown }).externalEditor,
@@ -707,6 +736,10 @@ export function normalizeSettingValue<K extends keyof Settings>(
     return normalizeProjectOpenDestination(value, undefined) as Settings[K];
   }
 
+  if (key === "runServicesOnExit") {
+    return normalizeRunServicesOnExit(value) as Settings[K];
+  }
+
   if (key === "activityRailWidth") {
     return normalizeBoundedWidth(
       value,
@@ -716,9 +749,17 @@ export function normalizeSettingValue<K extends keyof Settings>(
     ) as Settings[K];
   }
 
-  if (key === "sidebarWidth" || key === "rightToolWindowWidth") {
+  if (key === "terminalDockPosition") {
+    return (value === "right" || value === "left" ? value : "bottom") as Settings[K];
+  }
+
+  if (key === "bottomPaneHeight") {
+    return normalizeBoundedWidth(value, defaultSettings.bottomPaneHeight, 200, 2000) as Settings[K];
+  }
+
+  if (key === "sidebarWidth" || key === "rightToolWindowWidth" || key === "terminalDockWidth") {
     const fallback =
-      key === "sidebarWidth" ? defaultSettings.sidebarWidth : defaultSettings.rightToolWindowWidth;
+      defaultSettings[key as "sidebarWidth" | "rightToolWindowWidth" | "terminalDockWidth"];
     return normalizeBoundedWidth(
       value,
       fallback,
@@ -741,6 +782,10 @@ export function normalizeSettingValue<K extends keyof Settings>(
 
   if (key === "lastSettingsTab") {
     return normalizeSettingsSection(value) as Settings[K];
+  }
+
+  if (key === "displayLanguage") {
+    return normalizeDisplayLanguage(value) as Settings[K];
   }
 
   if (key === "iconTheme") {

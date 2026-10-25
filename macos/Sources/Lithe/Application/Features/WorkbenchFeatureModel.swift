@@ -34,8 +34,6 @@ final class WorkbenchFeatureModel: ObservableObject {
         static let gitLog = Self(rawValue: "git.log")
         static let terminal = Self(rawValue: "terminal.sessions")
         static let agent = Self(rawValue: "agent.conversation")
-        static let database = Self(rawValue: "database.workspace")
-        static let databaseServices = Self(rawValue: "database.services")
         static let references = Self(rawValue: "language.references")
         static let problems = Self(rawValue: "language.problems")
         static let spring = Self(rawValue: "language.spring")
@@ -43,8 +41,8 @@ final class WorkbenchFeatureModel: ObservableObject {
         static let tests = Self(rawValue: "execution.tests")
         static let debug = Self(rawValue: "debug.session")
         static let buildOutput = Self(rawValue: "execution.build.output")
-        static let allCases: [Self] = [.project, .changes, .pullRequests, .search, .database,
-            .gitLog, .terminal, .agent, .databaseServices, .references, .problems, .spring, .run, .tests, .debug,
+        static let allCases: [Self] = [.project, .changes, .pullRequests, .search,
+            .gitLog, .terminal, .agent, .references, .problems, .spring, .run, .tests, .debug,
             .buildOutput]
         // Docking layouts written before contribution registration used enum case names.
         // Their windows may since have been removed, so the mapping names the
@@ -103,6 +101,11 @@ final class WorkbenchFeatureModel: ObservableObject {
     /// has since navigated away.
     @Published private(set) var settingsCategoryRequest = 0
     @Published var isCloneRepositoryPresented = false
+    @Published var isRemoteConnectionsPresented = false
+    /// The remote workspace whose connection was lost; the Remote Development
+    /// window then reconnects that folder instead of opening a new one.
+    @Published var remoteReconnect: RemoteConnectionLoss?
+    @Published var isNewProjectPresented = false
     var activeToolWindow: ToolWindow? { activeTool(in: .init(anchor: .bottom, group: .primary)) }
     var activeRightToolWindow: ToolWindow? { activeTool(in: .init(anchor: .right, group: .primary)) }
 
@@ -120,12 +123,11 @@ final class WorkbenchFeatureModel: ObservableObject {
     }
 
     /// Tool windows docked beside the editor instead of below it. The Agent
-    /// conversation and the database tree need the editor to stay visible
-    /// while they are open. Contributed windows, such as a build system's,
+    /// conversation needs the editor to stay visible while it is open. Contributed windows, such as a build system's,
     /// dock where their placement says.
     static func isRightDocked(_ toolWindow: ToolWindow) -> Bool {
         switch toolWindow {
-        case .agent, .database: true
+        case .agent: true
         default: false
         }
     }
@@ -393,6 +395,8 @@ final class WorkbenchFeatureModel: ObservableObject {
         isSettingsPresented = false
         requestedSettingsCategory = .general
         isCloneRepositoryPresented = false
+        isNewProjectPresented = false
+        isRemoteConnectionsPresented = false
     }
 
     func loadLayout(for workspaceURL: URL) -> WorkbenchLayout {

@@ -1,9 +1,71 @@
 use crate::execute_json;
 use serde_json::{json, Value};
 
+#[test]
+fn global_instruction_contract_dispatches_and_rejects_unknown_agents_without_file_access() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/agent/agent-instructions-v1.json"
+    ))
+    .unwrap();
+    for key in ["readRequest", "saveRequest"] {
+        let command = fixture[key]["command"].as_str().unwrap();
+        assert!(crate::protocol::CoreCommand::parse(command).is_some());
+        let mut payload = fixture[key]["payload"].clone();
+        payload["agentId"] = json!("unknown-agent");
+        let response = run(command, payload);
+        assert_eq!(response["ok"], false);
+        assert_eq!(response["error"]["code"], "not_supported");
+        assert_eq!(response["error"]["details"], "unsupported_agent");
+    }
+    let response = run(
+        "agent.instructions.save",
+        json!({"agentId":"codex-acp","content":"no guard"}),
+    );
+    assert_eq!(response["error"]["code"], "invalid_request");
+    let response = run(
+        "agent.instructions.read",
+        json!({"agentId":"codex-acp","path":"/untrusted/arbitrary.md"}),
+    );
+    assert_eq!(response["error"]["code"], "invalid_request");
+}
+
+#[test]
+fn shared_instruction_requests_have_strict_typed_dispatch_without_arbitrary_native_paths() {
+    assert!(crate::protocol::CoreCommand::parse("agent.instructions.shared").is_some());
+    for payload in [
+        json!({"dataDirectory":"relative", "action":"read"}),
+        json!({"dataDirectory":"/fixture", "action":"unknown"}),
+        json!({"dataDirectory":"/fixture", "action":"read", "path":"/arbitrary"}),
+        json!({"dataDirectory":"/fixture", "action":"setEnabled", "agentId":"codex-acp", "enabled":true}),
+    ] {
+        let response = run("agent.instructions.shared", payload);
+        assert_eq!(response["ok"], false, "{response}");
+        assert_eq!(response["error"]["code"], "invalid_request");
+    }
+}
+
 fn run(command: &str, payload: Value) -> Value {
     let request = json!({ "id": "agent-test", "command": command, "payload": payload });
     serde_json::from_str(&execute_json(&request.to_string())).expect("core response JSON")
+}
+
+#[test]
+fn hook_contract_dispatch_is_strict_before_accessing_native_files() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/agent/hooks-management-v1.json"
+    ))
+    .unwrap();
+    assert!(crate::protocol::CoreCommand::parse(fixture["command"].as_str().unwrap()).is_some());
+    for payload in [
+        json!({"dataDirectory":"relative", "action":"read"}),
+        json!({"dataDirectory":"/fixture", "action":"unknown"}),
+        json!({"dataDirectory":"/fixture", "action":"read", "path":"/arbitrary"}),
+        json!({"dataDirectory":"/fixture", "action":"save", "hook":fixture["hook"]}),
+    ] {
+        let response = run("agent.hooks", payload);
+        assert_eq!(response["ok"], false, "{response}");
+        assert_eq!(response["error"]["code"], "invalid_request", "{response}");
+    }
 }
 
 fn fixture() -> Value {

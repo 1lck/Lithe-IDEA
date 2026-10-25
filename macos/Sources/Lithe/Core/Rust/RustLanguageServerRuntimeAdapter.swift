@@ -218,6 +218,23 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
             .mapError(Self.runtimeFailure)
     }
 
+    func requestVcsProvider(
+        sessionID: String,
+        vcs: String,
+        operation: String,
+        root: String,
+        tool: String?,
+        arguments: ToolingJSONValue,
+        timeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        lspVcsRequest(
+            sessionID: sessionID, vcs: vcs, operation: operation, root: root, tool: tool,
+            arguments: arguments, timeout: timeout
+        )
+        .map { LanguageServerRuntimeOperation(operationID: $0.operationId) }
+        .mapError(Self.runtimeFailure)
+    }
+
     func startPluginLanguageServer(
         pluginID: String,
         providerID: String,
@@ -267,6 +284,53 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
         ).map {
             LanguageServerRuntimeStart(sessionID: $0.sessionId, state: $0.state, processID: $0.processId)
         }.mapError(Self.runtimeFailure)
+    }
+
+    func startPluginLanguageServer(
+        pluginID: String,
+        providerID: String,
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        rootURL: URL,
+        initializationOptions: ToolingJSONValue?,
+        hostServices: [String],
+        initializeTimeout: TimeInterval,
+        requestTimeout: TimeInterval,
+        shutdownTimeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
+        lspStartServer(
+            providerID: providerID,
+            pluginID: pluginID,
+            executableURL: executableURL,
+            arguments: arguments,
+            environment: environment,
+            rootURL: rootURL,
+            workingDirectoryURL: rootURL,
+            initializationOptions: initializationOptions,
+            hostServices: hostServices,
+            initializeTimeout: initializeTimeout,
+            requestTimeout: requestTimeout,
+            shutdownTimeout: shutdownTimeout
+        ).map {
+            LanguageServerRuntimeStart(sessionID: $0.sessionId, state: $0.state, processID: $0.processId)
+        }.mapError(Self.runtimeFailure)
+    }
+
+    func respondToPluginHostRequest(
+        sessionID: String,
+        hostRequestID: String,
+        outcome: Result<ToolingJSONValue, PluginHostRequestFailure>
+    ) -> Result<Void, LanguageServerRuntimeFailure> {
+        let result: ToolingJSONValue?
+        let failureMessage: String?
+        switch outcome {
+        case .success(let value): result = value; failureMessage = nil
+        case .failure(let failure): result = nil; failureMessage = failure.message
+        }
+        return lspHostResponse(
+            sessionID: sessionID, hostRequestID: hostRequestID, result: result, failureMessage: failureMessage
+        ).mapError(Self.runtimeFailure)
     }
 
     func updateWorkspaceConfiguration(
@@ -324,7 +388,8 @@ extension RustCoreBridge: LanguageServerRuntimeCore {
                 mavenProfileTask: event.mavenProfileTask,
                 mavenProfileProject: event.mavenProfileProject.map {
                     MavenProfileProjectResult(projectURI: $0.projectUri, status: $0.status, errorDetails: $0.errorDetails)
-                }
+                },
+                method: event.method
             )
         }
     }

@@ -1,6 +1,8 @@
 import { createStore } from "zustand/vanilla";
 import type {
   WorkspaceCommitPreparation,
+  WorkspaceCommitPushTarget,
+  WorkspaceCommitPushTargetQuestion,
   WorkspaceCommitRequest,
   WorkspaceCommitSession,
   WorkspaceRepositoryBinding,
@@ -18,10 +20,18 @@ interface Review {
   request: WorkspaceCommitRequest;
   preparation: WorkspaceCommitPreparation;
 }
+/** Pushes Core cannot run until the user picks a destination; nothing is committed yet. */
+interface PushTargetPrompt {
+  request: WorkspaceCommitRequest;
+  questions: WorkspaceCommitPushTargetQuestion[];
+  confirmed: boolean;
+  forceReview: boolean;
+}
 interface WorkflowState {
   busy: boolean;
   session: WorkspaceCommitSession | null;
   review: Review | null;
+  pushTargetPrompt: PushTargetPrompt | null;
   error: string | null;
 }
 
@@ -31,6 +41,7 @@ export function createWorkspaceCommitWorkflow(port: WorkspaceCommitPort) {
     busy: false,
     session: null,
     review: null,
+    pushTargetPrompt: null,
     error: null,
   }));
   let stopped = false;
@@ -64,12 +75,21 @@ export function createWorkspaceCommitWorkflow(port: WorkspaceCommitPort) {
     store.setState({
       busy: true,
       error: null,
+      pushTargetPrompt: null,
       ...(store.getState().session?.succeeded ? { session: null } : {}),
     });
     try {
       const preparation = await invoke((id) => port.prepare(request, id));
       if (stopped) return;
-      if (
+      const questions = preparation.pushTargetQuestions ?? [];
+      if (questions.length > 0) {
+        // Neither review nor execution may start: a commit written now could not be
+        // pushed, and Core would refuse the first step anyway.
+        store.setState({
+          review: null,
+          pushTargetPrompt: { request, questions, confirmed, forceReview },
+        });
+      } else if (
         forceReview ||
         preparation.reviewChanged ||
         (!confirmed && preparation.requiresConfirmation)
@@ -108,11 +128,28 @@ export function createWorkspaceCommitWorkflow(port: WorkspaceCommitPort) {
         true,
       );
     },
+    /**
+     * Answers the pending destination questions and prepares again. Core re-validates
+     * every answer against the repository's current tracking configuration.
+     */
+    answerPushTargets: (answers: Record<string, WorkspaceCommitPushTarget>) => {
+      const pending = store.getState().pushTargetPrompt;
+      if (!pending) return Promise.resolve();
+      return prepare(
+        { ...pending.request, pushTargets: { ...pending.request.pushTargets, ...answers } },
+        pending.confirmed,
+        pending.forceReview,
+      );
+    },
+    cancelPushTargets: () => {
+      if (!store.getState().busy) store.setState({ pushTargetPrompt: null });
+    },
     closeReview: () => {
       if (!store.getState().busy) store.setState({ review: null, error: null });
     },
     dismiss: () => {
-      if (!store.getState().busy) store.setState({ session: null, review: null, error: null });
+      if (!store.getState().busy)
+        store.setState({ session: null, review: null, pushTargetPrompt: null, error: null });
     },
     // User cancellation applies to the current command. Core can continue unrelated roots.
     cancel: () => {
@@ -124,7 +161,7 @@ export function createWorkspaceCommitWorkflow(port: WorkspaceCommitPort) {
     // Leaving the workspace also prevents the adapter from dispatching another step.
     dispose: () => {
       stopped = true;
-      store.setState({ review: null });
+      store.setState({ review: null, pushTargetPrompt: null });
       if (operationId) void port.cancel(operationId).catch(() => {});
     },
   };

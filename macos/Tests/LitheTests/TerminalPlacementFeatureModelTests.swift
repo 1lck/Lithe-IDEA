@@ -120,8 +120,8 @@ struct TerminalPlacementFeatureModelTests {
         await model.shutdownProjectSession()
     }
 
-    @Test(arguments: [false, true])
-    func documentFocusRestoresSelectionAfterTerminalOrDatabase(database: Bool) async throws {
+    @Test
+    func documentFocusRestoresSelectionAfterTerminal() async throws {
         let context = makeTerminalCloseContext()
         let model = context.model
         do {
@@ -132,22 +132,15 @@ struct TerminalPlacementFeatureModelTests {
             model.editorTabOrderFeature.moveToEnd(.terminal(context.session.id))
             #expect(model.editorTabOrderFeature.drop(.terminal(context.session.id), into: group, side: .right))
             model.selectEditorTerminalSession(context.session)
-            if database {
-                model.editorTabOrderFeature.moveToEnd(.database(nil))
-                model.editorTabOrderFeature.databaseSelected = true
-                model.editorTabOrderFeature.focus(.database(nil))
-            }
             #expect(model.activeDocumentID == document.id)
             model.editorDidFocus(document)
             #expect(model.activeEditorTerminalSession == nil)
-            #expect(!model.isDatabaseWorkspaceSelected)
             #expect(model.editorTabOrderFeature.selectedItem(in: group) == .document(document.id))
             model.showFindBar()
             #expect(model.isFindBarVisible)
             #expect(model.requestCloseActiveWorkbenchItem())
             #expect(!model.openDocuments.contains { $0.id == document.id })
             #expect(model.editorTerminalSessions.contains { $0.id == context.session.id })
-            if database { #expect(model.editorTabItems.contains(.database(nil))) }
         } catch { await model.shutdownProjectSession(); throw error }
         await model.shutdownProjectSession()
     }
@@ -250,6 +243,98 @@ struct TerminalPlacementFeatureModelTests {
         #expect(!toolSession.isRunning)
     }
 
+    @Test
+    func shellExitClosesTabAndHidesPanelForLastToolTerminal() async throws {
+        let context = makeTerminalCloseContext()
+        let model = context.model
+        let feature = try #require(model.terminalFeature)
+        defer { feature.stopAllSessions() }
+        await settleFixtureActivation()
+        model.terminalPlacementFeature.moveToTool(context.session.id)
+        model.workbenchFeature.setVisibility(.terminal, isVisible: true)
+        model.configureInteractiveTerminalSession(context.session)
+
+        context.transport.onTermination?(0)
+        await settleFixtureActivation()
+
+        #expect(model.terminalSessions.isEmpty)
+        #expect(!model.workbenchFeature.isVisible(.terminal))
+        #expect(!context.session.isRunning)
+        #expect(context.transport.stopCount == 1)
+    }
+
+    @Test
+    func shellExitKeepsPanelAndSurvivingToolTerminalsRunning() async throws {
+        let context = makeTerminalCloseContext()
+        let model = context.model
+        let feature = try #require(model.terminalFeature)
+        defer { feature.stopAllSessions() }
+        let survivor = feature.createSession(
+            in: URL(fileURLWithPath: "/tmp/lithe-terminal-close-tests"), shellPath: "/bin/zsh"
+        )
+        model.terminalPlacementFeature.registerSession(survivor.id)
+        model.terminalPlacementFeature.moveToTool(context.session.id)
+        model.terminalPlacementFeature.moveToTool(survivor.id)
+        await settleFixtureActivation()
+        model.workbenchFeature.setVisibility(.terminal, isVisible: true)
+        model.configureInteractiveTerminalSession(context.session)
+
+        context.transport.onTermination?(0)
+        await settleFixtureActivation()
+
+        #expect(model.workbenchFeature.isVisible(.terminal))
+        #expect(model.toolTerminalSessions.map(\.id) == [survivor.id])
+        #expect(survivor.isRunning)
+    }
+
+    @Test
+    func shellExitClosesEditorAreaTerminalTab() async throws {
+        let context = makeTerminalCloseContext()
+        let model = context.model
+        let feature = try #require(model.terminalFeature)
+        defer { feature.stopAllSessions() }
+        await settleFixtureActivation()
+        model.configureInteractiveTerminalSession(context.session)
+
+        context.transport.onTermination?(0)
+        await settleFixtureActivation()
+
+        #expect(model.terminalSessions.isEmpty)
+        #expect(model.terminalPlacementFeature.editorSessionIDs.isEmpty)
+        #expect(model.terminalPlacementFeature.toolSessionIDs.isEmpty)
+    }
+
+    @Test
+    func restartAfterShellExitKeepsTheRestartedSession() async throws {
+        let context = makeTerminalCloseContext()
+        let model = context.model
+        let feature = try #require(model.terminalFeature)
+        defer { feature.stopAllSessions() }
+        model.terminalPlacementFeature.moveToTool(context.session.id)
+        await settleFixtureActivation()
+        model.workbenchFeature.setVisibility(.terminal, isVisible: true)
+        model.configureInteractiveTerminalSession(context.session)
+
+        context.transport.onTermination?(0)
+        context.session.restart()
+        await settleFixtureActivation()
+
+        #expect(model.toolTerminalSessions.map(\.id) == [context.session.id])
+        #expect(context.session.isRunning)
+        #expect(model.workbenchFeature.isVisible(.terminal))
+    }
+
+    /// The fixture's deferred workspace-module activation reconciles tool
+    /// window visibility once it lands, so tests that assert visibility must
+    /// let that activation settle first.
+    private func settleFixtureActivation() async {
+        for _ in 0..<3 {
+            await withCheckedContinuation { continuation in
+                DispatchQueue.main.async { continuation.resume() }
+            }
+        }
+    }
+
     @Test(arguments: [ColorScheme.dark, .light])
     func retainedTerminalRestoresFocusAndWallpaperWithoutRecreatingItsSurface(scheme: ColorScheme) async throws {
         let context = makeTerminalCloseContext(), state = RetainedTerminalReviewState()
@@ -259,7 +344,8 @@ struct TerminalPlacementFeatureModelTests {
             let feature = try #require(model.terminalFeature)
             let store = WorkbenchToolContentStore()
             let host = NSHostingView(rootView: RetainedTerminalReviewHost(state: state, store: store,
-                model: model, feature: feature).environment(\.colorScheme, scheme))
+                model: model, feature: feature).environmentObject(model).environmentObject(model.settings)
+                .environment(\.colorScheme, scheme))
             host.sizingOptions = []
             host.frame = NSRect(x: 0, y: 0, width: 480, height: 400)
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 440),
@@ -343,9 +429,9 @@ struct TerminalPlacementFeatureModelTests {
             model.selectTerminalSession(b)
             let store = WorkbenchToolContentStore()
             let host = NSHostingView(rootView: VStack(spacing: 0) {
-                TerminalSurfaceView(session: c).environmentObject(model).frame(height: 160)
+                TerminalSurfaceView(session: c).environmentObject(model).environmentObject(model.settings).frame(height: 160)
                 RetainedTerminalReviewHost(state: state, store: store, model: model, feature: feature)
-            })
+            }.environmentObject(model).environmentObject(model.settings))
             host.sizingOptions = []
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 440),
                                   styleMask: [.borderless], backing: .buffered, defer: false)
@@ -558,7 +644,7 @@ private struct RetainedTerminalReviewHost: View {
             Color(nsColor: NSColor(srgbRed: 0.8, green: 0.1, blue: 0.6, alpha: 1))
             if state.visible {
                 RetainedWorkbenchToolContent(store: store, tool: .terminal,
-                    content: TerminalView(feature: feature).environmentObject(model),
+                    content: TerminalView(feature: feature).environmentObject(model).environmentObject(model.settings),
                     onActivate: { model.activeToolTerminalSession?.focus() })
                     .environment(\.workbenchHasBackgroundImage, state.hasImage)
             }

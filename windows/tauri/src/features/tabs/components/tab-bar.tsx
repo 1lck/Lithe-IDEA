@@ -668,7 +668,6 @@ const TabBar = ({
                                   targetBuffer.name,
                                   content,
                                   targetBuffer.type === "image",
-                                  undefined,
                                   targetBuffer.type === "diff",
                                 );
                               } catch (error) {

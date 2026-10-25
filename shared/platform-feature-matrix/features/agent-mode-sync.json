@@ -25,12 +25,14 @@
       "windows/tauri/src/features/agent/stores/agent-connection.model.ts",
       "windows/tauri/src/features/agent/services/agent-session-selectors.ts",
       "windows/tauri/src/features/agent/types/agent.types.test.ts",
-      "shared/fixtures/agent/acp-events-v1.json"
+      "shared/fixtures/agent/acp-events-v1.json",
+      "rust/lithe-agent-host/src/lib.rs",
+      "windows/tauri/src/features/agent/stores/agent-parity.test.ts"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "owner": "Agent",
-  "verification": "macOS：使用真实 Agent 进入并退出计划模式，确认 current_mode_update 只同步有效模式且不回发请求。Claude 默认 Auto 且模型不支持时，先切 Plan 再首次发送，迟到降级提示不出现；实际降级时显示可关闭通知，成功切模式或模型后清除旧通知，配置失败保留。新降级通知早于配置结果时等待确认，不能被旧 Plan 或新模型确认误删；暂存警告→新错误→配置成功/失败都保留新错误，相反顺序保留最新有效警告，无效或其他会话通知不改变顺序。无本地 token 的原生 /model 按 mode→notice→config 顺序保留本次新通知，转换只保护一份完整配置，后续换模型仍清理旧警告；覆盖后台会话隔离和新轮次清理。确认通知不进入回复、导出或轮次统计，各会话独立；深浅主题和窄宽面板使用共享 Banner。执行 AgentConversationFeatureModelTests、AgentConversationPresentationTests、AgentTranscriptScrollTests、Host notice 握手与转发测试，通知与权限同时出现及关闭时保持长历史滚动。Windows 已处理 `current_mode_update`：只更新 Agent 已列出的 mode 选项，未知 id 不写入、不回发请求，选择器继续显示上游模式名。真实供应商与降级通知验收仍 pending。",
-  "notes": "2026-10-18 Windows：`current_mode_update` 通过 `applyCurrentMode` 只同步 category 为 mode 的已有选项；Agent 未列出的 id 被忽略，不伪造选项。单测覆盖有效切换与未知 id。真机计划模式往返待验收。"
+  "verification": "macOS：使用真实 Agent 进入并退出计划模式，确认 current_mode_update 只同步有效模式且不回发请求。Claude 默认 Auto 且模型不支持时，先切 Plan 再首次发送，迟到降级提示不出现；实际降级时显示可关闭通知，成功切模式或模型后清除旧通知，配置失败保留。新降级通知早于配置结果时等待确认，不能被旧 Plan 或新模型确认误删；暂存警告→新错误→配置成功/失败都保留新错误，相反顺序保留最新有效警告，无效或其他会话通知不改变顺序。无本地 token 的原生 /model 按 mode→notice→config 顺序保留本次新通知，转换只保护一份完整配置，后续换模型仍清理旧警告；覆盖后台会话隔离和新轮次清理。确认通知不进入回复、导出或轮次统计，各会话独立；深浅主题和窄宽面板使用共享 Banner。执行 AgentConversationFeatureModelTests、AgentConversationPresentationTests、AgentTranscriptScrollTests、Host notice 握手与转发测试，通知与权限同时出现及关闭时保持长历史滚动。Windows 已处理 `current_mode_update`：只更新 Agent 已列出的 mode 选项，未知 id 不写入、不回发请求，选择器继续显示上游模式名。真实供应商与降级通知验收仍 pending。 Windows：在真实 Tauri 窗口执行 Windows 消费上游模式变更与结构化降级通知，关联当前会话和配置；确认新配置后清理过期提示。重试次数与静默活动保留真实忙碌状态，不擅自结束轮次。 单元测试不替代运行时验收，未执行的真实服务及平台动作保持 pending。",
+  "notes": "2026-10-22：Windows 消费上游模式变更与结构化降级通知，关联当前会话和配置；确认新配置后清理过期提示。重试次数与静默活动保留真实忙碌状态，不擅自结束轮次。"
 }

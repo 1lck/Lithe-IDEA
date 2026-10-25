@@ -11,6 +11,8 @@ enum ProcessLifecycleContext: String, Codable, Sendable {
     case crashRecovery
     case startupSweep
     case finalSweep
+    /// A project or window closes while Lithe keeps running.
+    case closeWorkspace
 }
 
 enum ProcessRecordKind: String, Codable, Sendable {
@@ -47,6 +49,8 @@ enum ProcessLifecycleAction: String, Codable, Sendable {
     case retain
     case `defer`
     case ignore
+    /// Listed in one question that stops every listed record or cancels the close.
+    case confirmStop
 }
 
 enum TerminalQuitPolicy: String, Codable, CaseIterable, Sendable {
@@ -64,6 +68,13 @@ enum BackgroundResourcePolicy: String, Codable, CaseIterable, Sendable {
     case ask
     case terminate
     case keep
+}
+
+/// Run sessions when their project, window or Lithe closes. A Run session
+/// cannot outlive Lithe, so the only choice is whether to ask first.
+enum RunServiceExitPolicy: String, Codable, CaseIterable, Sendable {
+    case ask
+    case terminate
 }
 
 enum StartupSweepPolicy: String, Codable, CaseIterable, Sendable {
@@ -84,6 +95,7 @@ struct ProcessTerminationSettings: Codable, Equatable, Sendable {
     var confirmTerminalTabClose = true
     var agentTasks: AgentTaskTerminationPolicy = .confirmEach
     var backgroundResources: BackgroundResourcePolicy = .ask
+    var runServicesOnExit: RunServiceExitPolicy = .ask
     /// Choices remembered from the background-resource dialog, by recognizer ID.
     var rememberedChoices: [String: RememberedProcessChoice] = [:]
     var startupSweep: StartupSweepPolicy = .ask
@@ -101,6 +113,8 @@ struct ProcessTerminationSettings: Codable, Equatable, Sendable {
         agentTasks = (try? container.decode(AgentTaskTerminationPolicy.self, forKey: .agentTasks)) ?? defaults.agentTasks
         backgroundResources = (try? container.decode(BackgroundResourcePolicy.self, forKey: .backgroundResources))
             ?? defaults.backgroundResources
+        runServicesOnExit = (try? container.decode(RunServiceExitPolicy.self, forKey: .runServicesOnExit))
+            ?? defaults.runServicesOnExit
         rememberedChoices = (try? container.decode([String: RememberedProcessChoice].self, forKey: .rememberedChoices))
             ?? defaults.rememberedChoices
         startupSweep = (try? container.decode(StartupSweepPolicy.self, forKey: .startupSweep)) ?? defaults.startupSweep

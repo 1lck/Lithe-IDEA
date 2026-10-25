@@ -9,8 +9,6 @@ struct RunView: View {
         get { feature.selectedProjectSessionID }
         nonmutating set { feature.selectedConfigurationID = newValue ?? RunConfiguration.currentFileID }
     }
-    @State private var scopeListActive = false
-    @State private var configurationListActive = false
     @State private var runToolActive = false
     @State private var browser = RunBrowserState()
     @State private var isBatchSelection = false
@@ -65,8 +63,8 @@ struct RunView: View {
             } else {
                 RunServicesSplitView(
                     isScopeCollapsed: isConfigurationListCollapsed,
-                    scopes: scopeList.background(LitheToolWindowActivityTracker(isActive: $scopeListActive)),
-                    configurations: applicationTypeList.background(LitheToolWindowActivityTracker(isActive: $configurationListActive)),
+                    scopes: scopeList,
+                    configurations: applicationTypeList,
                     content: selectedConfigurationContent
                 )
             }
@@ -162,7 +160,7 @@ struct RunView: View {
                         Button("Regenerate") {
                             feature.requestRunConfigurationGeneration()
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     }
                 }
             } else if feature.recoveryAction == .upgradeApplication {
@@ -180,7 +178,7 @@ struct RunView: View {
                         systemImage: "arrow.clockwise"
                     )
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(LitheActionButtonStyle(isPrimary: true))
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -674,57 +672,47 @@ struct RunView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .padding(12)
             } else {
-                ScrollView(.vertical) {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(groups) { group in
-                            applicationGroupHeader(group)
-                            if !browser.collapsedGroupIDs.contains(group.id) {
-                                ForEach(group.configurations) { configuration in
-                                    configurationRow(configuration)
+                LitheTreeList(
+                    nodes: groups.map { group in
+                        LitheTreeListNode(
+                            id: "group:" + group.id, isExpanded: !browser.collapsedGroupIDs.contains(group.id),
+                            isSelectable: false,
+                            onExpansion: { expanded in
+                                if expanded {
+                                    browser.collapsedGroupIDs.remove(group.id)
+                                } else {
+                                    browser.collapsedGroupIDs.insert(group.id)
                                 }
                             }
+                        ) {
+                            HStack(spacing: LitheTheme.Tree.iconTextGap) {
+                                if isBatchSelection { selectionCheckbox(group.configurations, title: group.title) }
+                                RunConfigurationIcon(
+                                    kind: group.iconKind, size: LitheTheme.Tree.iconSize, isGroup: true)
+                                Text(runText(String.LocalizationValue(group.title)))
+                                Spacer(minLength: 0)
+                                Text(String(group.configurations.count)).foregroundStyle(LitheTheme.secondaryText)
+                            }
+                        } children: {
+                            group.configurations.map { configuration in
+                                LitheTreeListNode(
+                                    id: configuration.id,
+                                    onSelect: {
+                                        contentTab = .console
+                                        feature.select(configuration)
+                                    }
+                                ) { configurationRow(configuration) }
+                            }
                         }
-                    }
-                    .padding(.vertical, LitheTheme.Tree.verticalInset)
-                }
+                    }, selection: Binding(get: { selectedSessionID }, set: { selectedSessionID = $0 }))
             }
         }
         .litheWorkbenchSurface(LitheTheme.sidebar)
     }
 
-    private func applicationGroupHeader(_ group: RunBrowserState.ApplicationGroup) -> some View {
-        let isCollapsed = browser.collapsedGroupIDs.contains(group.id)
-        return HStack(spacing: LitheTheme.Tree.iconTextGap) {
-            if isBatchSelection { selectionCheckbox(group.configurations, title: group.title) }
-            Button {
-                if isCollapsed {
-                    browser.collapsedGroupIDs.remove(group.id)
-                } else {
-                    browser.collapsedGroupIDs.insert(group.id)
-                }
-            } label: {
-                HStack(spacing: LitheTheme.Tree.iconTextGap) {
-                    LitheIDEAIcon(resourcePath: isCollapsed ? "expui/general/chevronRight.svg" : "expui/general/chevronDown.svg",
-                                  size: LitheTheme.Tree.iconSize, preservesOriginalColors: true)
-                        .frame(width: LitheTheme.Tree.disclosureSlot)
-                    RunConfigurationIcon(kind: group.iconKind, size: LitheTheme.Tree.iconSize, isGroup: true)
-                    Text(runText(String.LocalizationValue(group.title)))
-                    Spacer(minLength: 0)
-                    Text(String(group.configurations.count)).foregroundStyle(LitheTheme.secondaryText)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.litheNoPress)
-            .help(isCollapsed ? "Expand" : "Collapse")
-            .accessibilityValue(isCollapsed ? "Collapsed" : "Expanded")
-        }
-        .padding(.horizontal, LitheTheme.Tree.horizontalInset)
-        .litheTreeRow()
-    }
-
     private func selectionCheckbox(_ entries: [RunConfiguration], title: String) -> some View {
         let state = browser.checkState(for: entries)
-        return GitChangeInclusionCheckbox(
+        return LitheTreeCheckbox(
             state: state == .checked ? .on : state == .mixed ? .mixed : .off,
             accessibilityTitle: String(format: runText("Select %@"), title)
         ) { browser.toggle(entries) }
@@ -798,8 +786,6 @@ struct RunView: View {
             configurationKind: configuration.kind,
             isRunning: session?.isRunning ?? false,
             exitCode: session?.exitCode,
-            isSelected: selectedSessionID == configuration.id,
-            isFocused: configurationListActive,
             isPinned: isPinned(configuration),
             onPin: { togglePinned(configuration) },
             onEdit: { editInSettings(configuration) },
@@ -911,7 +897,7 @@ struct RunView: View {
                             Text("Edit Configuration…")
                         }
                     }
-                    .buttonStyle(LitheCommitDialogButtonStyle())
+                    .buttonStyle(LitheActionButtonStyle())
                     .disabled(feature.configurationStatus != .ready || feature.isLoadingProject)
                 }
 
@@ -1047,8 +1033,6 @@ struct RunView: View {
         configurationKind: RunConfigurationKind? = nil,
         isRunning: Bool,
         exitCode: Int32?,
-        isSelected: Bool,
-        isFocused: Bool,
         isPinned: Bool = false,
         onPin: (() -> Void)? = nil,
         onEdit: (() -> Void)? = nil,
@@ -1089,11 +1073,6 @@ struct RunView: View {
                 .disabled(feature.configurationStatus != .ready || feature.isLoadingProject)
             }
         }
-        .padding(.leading, LitheTheme.Tree.horizontalInset + LitheTheme.Tree.indent
-                 + LitheTheme.Tree.disclosureSlot + LitheTheme.Tree.iconTextGap)
-        .padding(.trailing, LitheTheme.Tree.horizontalInset)
-        .litheTreeRow(isSelected: isSelected, isFocused: isFocused)
-        .onTapGesture(perform: action)
         .workbenchHoverHelp(Text(verbatim: [title, subtitle, serviceURL?.absoluteString].compactMap { $0 }.joined(separator: "\n")),
                             placement: .trailing)
         .litheContextMenu {

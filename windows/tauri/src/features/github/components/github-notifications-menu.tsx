@@ -66,8 +66,7 @@ export function GitHubNotificationsMenu() {
       state.isCommandPaletteVisible ||
       state.isGlobalSearchVisible ||
       state.isSettingsDialogVisible ||
-      state.isProjectPickerVisible ||
-      state.isDatabaseConnectionVisible,
+      state.isProjectPickerVisible,
   );
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<GitHubNotification[]>([]);
@@ -234,7 +233,7 @@ export function GitHubNotificationsMenu() {
     ? notificationCount
       ? t("github.notificationsCount", { count: notificationCount })
       : t("github.notifications")
-    : BACKEND_UNAVAILABLE_TOOLTIP;
+    : t(BACKEND_UNAVAILABLE_TOOLTIP);
 
   return (
     <>

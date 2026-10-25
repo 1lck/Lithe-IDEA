@@ -1,0 +1,46 @@
+{
+  "id": "vcs-subversion-and-plugin-providers",
+  "area": "版本控制",
+  "group": "统一 VCS",
+  "capability": "统一 VCS 模型与插件 VCS Provider：同一工作区可识别 Git 与 Subversion 等不同 VCS 的根，变更列表、提交、回滚、更新、文件历史、Annotate、项目树文件状态和 gutter 按 Provider 声明的能力工作；Subversion 由独立仓库的社区插件通过系统 svn 命令行接入",
+  "macos": {
+    "evidence": [
+      "shared/contracts/vcs-provider-v1.md",
+      "shared/fixtures/vcs/model-v1.json",
+      "rust/lithe-core/src/vcs",
+      "rust/lithe-core/src/lsp/interface/vcs_provider.rs",
+      "rust/lithe-core/src/tests/vcs.rs",
+      "shared/contracts/plugins/v1/fixtures/vcs-provider.plugin.json",
+      "Plugins/mac/README.md",
+      "macos/Sources/LitheModuleAPI/Catalog/BuiltInModuleCatalog.swift",
+      "macos/Sources/LitheCoreContracts/Vcs/VcsProviderContracts.swift",
+      "macos/Sources/Lithe/Core/Rust/RustVcsOperations.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Vcs",
+      "macos/Sources/Lithe/Application/Features/VcsProvidersFeatureModel.swift",
+      "macos/Sources/Lithe/Models/AppModel/AppModel+VcsProviders.swift",
+      "macos/Sources/Lithe/Views/Vcs",
+      "macos/Sources/Lithe/Views/Workbench/VcsProviderToolWindowRegistration.swift",
+      "macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift",
+      "macos/Sources/LitheModuleAPI/Plugins/PluginTypes.swift",
+      "macos/Tests/LitheTests/VcsProviderHostTests.swift",
+      ".agents/notes/proposed/architecture/2026-10-22-unified-vcs-provider-model.md"
+    ],
+    "implementationStatus": "partial",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "shared/contracts/vcs-provider-v1.md",
+      "shared/fixtures/vcs/model-v1.json",
+      "rust/lithe-core/src/vcs",
+      "rust/lithe-core/src/lsp/interface/vcs_provider.rs",
+      "rust/lithe-core/src/tests/vcs.rs",
+      "shared/contracts/plugins/v1/fixtures/vcs-provider.plugin.json"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "owner": "Git",
+  "verification": "Core 共享层自动化：cargo test -p lithe-core vcs、cargo test -p lithe-core --lib lsp 与 scripts/verify-shared-contracts.sh，覆盖 vcsProviders 清单校验与 git 保留、onVcsRoot 激活、svn 根识别（嵌套、歧义目录与映射、git worktree 文件、工作区位于工作副本内部、剪枝目录、深度上限）、vcs.ownerOf 最深根归属、litheVcs 只向插件会话提供、协商缺必需能力时拒绝、lsp.vcsRequest 按操作生成请求与能力检查、Provider 错误码白名单、vcs.decodeReply 的回复校验用例；Node SDK 的 litheVcs 与示例 Provider 端到端测试在 lithe-plugin-docs 运行（scripts/sdk-e2e.mjs）。Subversion 社区插件：独立源码由 https://github.com/Lithe-IDEA/lithe-plugin-svn 维护；插件 CI 校验固定 SDK 的源码哈希，用 svn 录制的 status/info/log/blame --xml 与错误输出样例覆盖解析和错误码映射，并按 sdk.lock.json 的宿主提交构建 Core 桥接，在 svnadmin create 建立的 file:// 仓库上经 Core 跑通状态（含 changelist 中的路径）、提交、过期提交、更新与冲突、resolve、回滚、移动（未版本化文件不覆盖已有目标）、删除、历史分页、Annotate 和二进制文件；固定宿主基线不代表已验证未来 preview。主仓库只保留通用 VCS 契约回归（清单 fixture 与 Core 测试）。macOS 宿主自动化：VcsProviderHostTests 覆盖根识别与状态着色、每个根单独监听元数据目录（含包住工作区的工作副本）、工作区内新出现的工作副本重新识别、项目树移动两端都归同一个根才交给 Provider、等待归属判断时开始别的操作则退回磁盘移动、找不到 VCS 客户端时报 vcs.tool.unavailable、关闭项目窗口后停止 Provider 且之后的工作区加载不再启动、工具窗口使用通用版本控制图标。宿主验收：从磁盘或 Lithe Store 安装 Subversion 社区插件后，在本地 svnadmin create 建立的 file:// 仓库检出的工作副本上验证根识别、文件状态颜色、gutter、提交、更新、回滚、add/move/delete 跟踪、文件历史、Annotate 和冲突显示；同时打开一个包含 Git 仓库与 SVN 工作副本的工作区，确认文件只归属最深的根，Git 行为不变；运行前后 app bundle 文件清单不变（scripts/verify-runtime-bundle-immutability.sh）。",
+  "notes": "Issue #827。Rust Core 已实现 vcs.detectRoots、vcs.ownerOf、vcs.decodeReply、lsp.vcsRequest 与 litheVcs 协商，Node SDK 的 litheVcs 支持随 SDK 迁到 lithe-plugin-docs（P1）；Subversion 社区插件在独立仓库 Lithe-IDEA/lithe-plugin-svn 实现全部 11 种操作，ID 为 io.github.lithe-idea.svn-support，不需要 Lithe 签名（P2）。macOS 宿主已声明 vcsProviders：打开工作区时识别根并记住歧义目录的选择，插件的左侧工具窗口使用通用版本控制图标，首次读取状态时显示读取中，列出冲突、变更和未版本化文件，行支持辅助功能的选择、打开和勾选操作，支持勾选提交、更新、回滚、标记解决、清理、文件与工作副本历史、与基线比较；项目树按 Provider 状态着色并在右键菜单提供比较，项目树中的重命名和移动在两端都属于同一个根时交给 Provider 跟踪；项目树、搜索和索引像 .git 一样隐藏 .svn，每个根单独监听自己的元数据目录（含工作区位于工作副本内部时的上层 .svn），工作区里新检出的工作副本会被识别；找不到 svn 客户端时提示安装；关闭项目窗口即停止该窗口的 Provider；安装审核显示 Provider 的启动命令、客户端命令和是否联网（P3）。macOS 尚未接入编辑器 gutter 与 Annotate，所以记为部分实现；插件要等带 vcsProviders 能力的 Lithe 版本发布后再在 Lithe Store 上架。Windows 宿主尚未接入。分阶段计划见提议 Note。"
+}

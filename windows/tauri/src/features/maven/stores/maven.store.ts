@@ -1194,6 +1194,7 @@ export const createMavenStore = (
             launchStage = "start-process";
             await dependencies.startMavenProcess({
               sessionId,
+              title,
               executable: resolved.executable,
               arguments: plan.arguments,
               workingDirectory: resolved.workingDirectory,
@@ -1529,6 +1530,9 @@ export const createMavenStore = (
             );
             await dependencies.startMavenProcess({
               sessionId,
+              // Resolving dependencies is Lithe's own work, not a service the
+              // user started, so closing the window ends it without asking.
+              background: true,
               executable: resolved.executable,
               arguments: plan.arguments,
               workingDirectory: resolved.workingDirectory,

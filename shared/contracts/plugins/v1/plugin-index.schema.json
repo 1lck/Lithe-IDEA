@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://lithe.dev/contracts/plugins/v1/plugin-index.schema.json",
+  "$id": "https://raw.githubusercontent.com/Lithe-IDEA/lithe-plugin-docs/main/contract/v1/plugin-index.schema.json",
   "title": "Lithe plugin marketplace index (plugin contract v1)",
   "description": "Shape of a marketplace source index. Semantic rules that JSON Schema cannot express (download URLs inside the entry's own repository, duplicate IDs and versions, the official namespace, platform and API filtering) are defined in README.md and enforced by plugins.marketplace.validateIndex.",
   "type": "object",

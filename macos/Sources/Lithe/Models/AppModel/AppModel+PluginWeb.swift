@@ -30,6 +30,12 @@ extension AppModel: PluginWebBridgeHost {
         await services.pluginWebPages.confirmProcessStart(consent)
     }
 
+    func pluginWebChooseFile(_ request: PluginWebFileRequest) async -> URL? {
+        await services.pluginWebPages.chooseFile(request)
+    }
+
+    var pluginWebBackends: (any PluginBackendRequesting)? { services.pluginWebPages.backends }
+
     /// True while the window's plugin has a new version, a rollback, or an
     /// uninstall waiting for restart: its old page is not shown again.
     func pluginWebPageAwaitsRestart(_ windowID: String) -> Bool {
@@ -43,6 +49,6 @@ extension AppModel: PluginWebBridgeHost {
         let pages = services.pluginWebPages
         guard !pages.openWindowIDs.isEmpty else { return }
         let current = Set(pluginSnapshots.filter { $0.isEnabled && !$0.requiresRestart }.map(\.id.rawValue))
-        pages.closePages(of: Set(pages.windows.values.map(\.pluginID)).subtracting(current))
+        pages.closePages(of: pages.pluginIDs.subtracting(current))
     }
 }

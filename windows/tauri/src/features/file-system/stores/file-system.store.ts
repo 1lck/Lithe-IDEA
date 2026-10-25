@@ -96,7 +96,6 @@ import {
   updateFileInTree,
 } from "../controllers/file-tree-utils";
 import {
-  getDatabaseTypeFromPath,
   getFilenameFromPath,
   isBinaryFile,
   isKnownTextFile,
@@ -1776,14 +1775,13 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
 
           const diffContent = localStorage.getItem(`diff-content-${path}`);
           if (diffContent) {
-            openBuffer(path, displayName, diffContent, false, undefined, true, true);
+            openBuffer(path, displayName, diffContent, false, true, true);
           } else {
             openBuffer(
               path,
               displayName,
               "No diff content available",
               false,
-              undefined,
               true,
               true,
             );
@@ -1793,14 +1791,9 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
         }
 
         // Handle special file types
-        const dbType = getDatabaseTypeFromPath(resolvedPath);
-        if (dbType) {
+        if (isImageFile(resolvedPath)) {
           if (isStaleRequest()) return;
-          openBuffer(path, fileName, "", false, dbType, false, false);
-          fileOpenBenchmark.finish(path, "database-buffer-opened");
-        } else if (isImageFile(resolvedPath)) {
-          if (isStaleRequest()) return;
-          openBuffer(path, fileName, "", true, undefined, false, false);
+          openBuffer(path, fileName, "", true, false, false);
           fileOpenBenchmark.finish(path, "image-buffer-opened");
         } else if (isPdfFile(resolvedPath)) {
           if (isStaleRequest()) return;
@@ -1809,7 +1802,6 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
             fileName,
             "",
             false,
-            undefined,
             false,
             false,
             undefined,
@@ -1828,7 +1820,6 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
             fileName,
             "",
             false,
-            undefined,
             false,
             false,
             undefined,
@@ -1913,7 +1904,6 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
               fileName,
               "",
               false,
-              undefined,
               false,
               false,
               undefined,
@@ -1942,7 +1932,6 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
             fileName,
             content,
             false,
-            undefined,
             false,
             false,
             undefined,
@@ -2195,7 +2184,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
               ? t("files.untitled")
               : t("files.untitledNumber", { number: untitledCount + 1 });
           const path = `untitled:${name}`;
-          bufferStore.getState().actions.openBuffer(path, name, "", false, undefined, false, true);
+          bufferStore.getState().actions.openBuffer(path, name, "", false, false, true);
           return;
         }
 
@@ -3038,7 +3027,13 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
               ? await targetStore.handleOpenRemoteProject(remote.connectionId, name)
               : wsl
                 ? await targetStore.handleOpenWslProject(wsl.distro, wsl.linuxPath)
-                : await targetStore.handleOpenFolderByPath(path);
+                : await targetStore.initializeLocalWorkspace({
+                    workspaceId,
+                    path,
+                    traceLabel: "handleOpenFolderByPath",
+                    treeState: "collapse-all",
+                    restoreUiState: true,
+                  });
 
             targetStore.setIsSwitchingProject(false);
             return initialized;

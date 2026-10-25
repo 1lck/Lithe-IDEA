@@ -1,7 +1,6 @@
 import Combine
 import Foundation
 import LitheGitModule
-import LitheDatabaseModule
 import LitheDebugModule
 import LitheExecutionModule
 import LitheLocalHistoryModule
@@ -22,6 +21,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     /// when the page is first shown.
     lazy var mcpServerLibrary = McpServerLibraryFeatureModel(model: self)
     @Published var isChangingAgentProvider = false
+    /// Token of the lost-remote-connection observer; see `observeRemoteConnectionLoss`.
+    var remoteLossObserver: NSObjectProtocol?
     var workspaceURL: URL? { workspaceSessionCoordinator.workspaceURL }
     var standaloneFileURL: URL? { workspaceSessionCoordinator.standaloneFileURL }
     var searchSessionFeature: SearchSessionFeatureModel { featureGraph.searchSession }
@@ -98,6 +99,9 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         service: services.agentManagement,
         dataDirectory: agentDataDirectory
     )
+    lazy var agentInstructionsFeature = AgentInstructionsFeatureModel(service: services.agentInstructions)
+    lazy var agentHooksFeature = AgentHooksFeatureModel(service: services.agentHooks)
+    lazy var agentSkillsFeature = AgentSkillsFeatureModel(service: services.agentManagement)
     /// Settings › Plugins marketplace and plugin repositories, created when
     /// the page is first shown.
     lazy var pluginMarketplaceFeature = PluginMarketplaceFeatureModel(
@@ -150,6 +154,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     private var requestProjectOpen: ((URL) -> Void)?
     private var requestProjectOpenAtPlacement: ((URL, ProjectOpenPlacement) -> Void)?
     private var didCloseProject: (() -> Void)?
+    /// Asks whether this project's Run services may stop; set by the session manager.
+    private var confirmRunServicesBeforeClose: (@MainActor ([RunServiceExitCandidate]) async -> Bool)?
     var javaTestWorkflowState: JavaTestWorkflowState {
         featureGraph.javaTestWorkflow
     }
@@ -204,7 +210,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         runtime: services.moduleRuntime,
         store: moduleCapabilityStore,
         awaitShutdown: { [weak self] in await self?.awaitModuleRuntimeShutdown() },
-        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay() },
+        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) },
         onError: { [weak self] in self?.showNotification($0) }
     )
     lazy var debugModuleCoordinator = DebugModuleCoordinator(
@@ -214,7 +220,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         configure: { [weak self] in self?.configureDebugHostHandlers($0) },
         openWorkspace: { feature, url in feature.openWorkspace(at: url) },
         onStateChange: { [weak self] in self?.handleDebugSessionStateChange($0) },
-        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay() },
+        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) },
         onError: { [weak self] in self?.showNotification($0) }
     )
     lazy var languageIntelligenceModuleCoordinator = LanguageIntelligenceModuleCoordinator(
@@ -226,12 +232,12 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     lazy var terminalModuleCoordinator = TerminalModuleCoordinator(
         runtime: services.moduleRuntime,
         store: moduleCapabilityStore,
-        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay() }
+        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) }
     )
     lazy var gitModuleCoordinator = GitModuleCoordinator(
         runtime: services.moduleRuntime,
         store: moduleCapabilityStore,
-        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay() },
+        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) },
         onError: { [weak self] in self?.showNotification($0) }
     )
     let javaLanguageServerPreparationCoordinator = JavaLanguageServerPreparationCoordinator()
@@ -250,25 +256,19 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             } ?? []
         },
         notify: { [weak self] in self?.showNotification($0) },
-        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay() }
-    )
-    lazy var databaseModuleCoordinator = DatabaseModuleCoordinator(
-        runtime: services.moduleRuntime,
-        store: moduleCapabilityStore,
-        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay() },
-        onError: { [weak self] in self?.showNotification($0) }
+        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) }
     )
     lazy var searchModuleCoordinator = SearchModuleCoordinator(
         runtime: services.moduleRuntime,
         store: moduleCapabilityStore,
-        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay() },
+        onChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) },
         onError: { [weak self] in self?.showNotification($0) }
     )
     lazy var runWorkflowCoordinator = RunWorkflowCoordinator(
         pluginCatalog: services.pluginCatalog,
         moduleRuntime: services.moduleRuntime,
         notify: { [weak self] in self?.showNotification($0) },
-        onPendingActionChange: { [weak self] in self?.scheduleObjectWillChangeRelay() }
+        onPendingActionChange: { [weak self] in self?.scheduleObjectWillChangeRelay(affectsSettings: false) }
     )
     var languageCapability: LitheLanguageIntelligenceModule.LanguageIntelligenceCapability? {
         cachedModuleCapability(.languageIntelligence)
@@ -292,12 +292,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     var javaFeature: JavaFeatureModel { featureGraph.java }
     var springFeature: SpringFeatureModel { featureGraph.spring }
     var mybatisFeature: MybatisFeatureModel { featureGraph.mybatis }
-    // Views retain this instance in their environment so a final SwiftUI update
-    // remains safe after module shutdown clears the capability cache.
-    var databaseFeatureIfActive: DatabaseFeatureModel? {
-        let capability: LitheDatabaseModule.DatabaseModuleCapability? = cachedModuleCapability(.databaseWorkspace)
-        return capability?.feature
-    }
     var moduleSnapshots: [ModuleSnapshot] { services.moduleRuntime.snapshots() }
     lazy var workbenchUIRegistry: WorkbenchModuleUIRegistry = {
         do { return try WorkbenchModuleUIComposition.registry(for: services.pluginCatalog, iconResources: services.pluginUIIconResources) }
@@ -381,6 +375,18 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     private var springFeatureObservation: AnyCancellable?
     private var mybatisFeatureObservation: AnyCancellable?
     private var isObjectWillChangeRelayScheduled = false
+    /// Whether any change waiting in the scheduled relay can affect a settings page.
+    private var pendingRelayAffectsSettings = false
+    /// Set while the relay republishes only workbench feature changes, so
+    /// `settingsChanges` can skip them.
+    private var isRelayingWorkbenchOnlyChange = false
+    private var settingsChangeObservations: [AnyCancellable] = []
+    /// Fires for `AppModel` changes a settings page can show: its own published
+    /// state, explicit plugin/module notifications, module activation and the
+    /// open workspace. High-frequency workbench feature relays (documents,
+    /// language tooling, Git, search…) are excluded so the settings window does
+    /// not rebuild while the project is busy. See `SettingsModelContext`.
+    let settingsChanges = ObservableObjectPublisher()
     private var languageToolingObservation: AnyCancellable?
     /// Regenerates the Run list once JDT has prepared the project, after a
     /// generation that could only show the previous Java entries.
@@ -449,7 +455,11 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         moduleCapabilityStore.observe(moduleID, observation: observation)
     }
 
-    func scheduleObjectWillChangeRelay() {
+    /// Coalesces change notifications into one `objectWillChange` per turn.
+    /// Pass `affectsSettings: false` for workbench feature changes that no
+    /// settings page reads through `SettingsModelContext`.
+    func scheduleObjectWillChangeRelay(affectsSettings: Bool = true) {
+        if affectsSettings { pendingRelayAffectsSettings = true }
         guard !isObjectWillChangeRelayScheduled else { return }
         isObjectWillChangeRelayScheduled = true
         let signpost = LitheSignpost.begin("appmodel.relay")
@@ -457,7 +467,10 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             defer { LitheSignpost.end("appmodel.relay", signpost) }
             guard let self else { return }
             self.isObjectWillChangeRelayScheduled = false
+            self.isRelayingWorkbenchOnlyChange = !self.pendingRelayAffectsSettings
+            self.pendingRelayAffectsSettings = false
             self.objectWillChange.send()
+            self.isRelayingWorkbenchOnlyChange = false
         }
     }
 
@@ -482,6 +495,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         workbenchFeature.configure { [weak self] destination in
             self?.handleSidebarSelectionChanged(destination)
         }
+        observeRemoteConnectionLoss()
         workspaceSessionCoordinator.configureLifecycle(
             with: WorkspaceSessionCoordinator.LifecycleHandlers(
                 prepareForWorkspaceOpen: { [weak self] url in
@@ -499,6 +513,12 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
                 beginDocumentClose: { [weak self] in
                     self?.documentFeature.beginProjectClose() ?? false
                 },
+                runServicesCloseConfirmation: { [weak self] in
+                    guard let self, let confirm = self.confirmRunServicesBeforeClose else { return nil }
+                    let services = self.runServiceExitCandidates
+                    guard !services.isEmpty else { return nil }
+                    return { await confirm(services) }
+                },
                 restoreDebugBreakpoints: { [weak self] url in
                     await self?.restoreDebugBreakpoints(for: url)
                 },
@@ -514,7 +534,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             self?.languageToolingSessionsIfActive
         }
         featureObservationBinder = AppModelObservationBinder(graph: featureGraph) { [weak self] in
-            self?.scheduleObjectWillChangeRelay()
+            self?.scheduleObjectWillChangeRelay(affectsSettings: false)
         }
         runWorkflowCoordinator.connect(actions: self)
         featureGraph.debugLaunchPreparation.connect(actions: self)
@@ -527,7 +547,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             workbench: workbenchFeature,
             onModuleReleased: { [weak self] moduleID in
                 self?.unregisterModuleLanguageExtensions(for: moduleID)
-                if moduleID == .database { self?.closeDatabaseWorkspace() }
             },
             onChange: { [weak self] in
                 self?.scheduleObjectWillChangeRelay()
@@ -543,10 +562,10 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         documentLanguageCoordinator = DocumentFeatureComposition.configure(model: self)
         springFeatureObservation = springFeature.objectWillChange.sink { [weak self] _ in
             self?.refreshEditorDiagnosticsStore()
-            self?.scheduleObjectWillChangeRelay()
+            self?.scheduleObjectWillChangeRelay(affectsSettings: false)
         }
         mybatisFeatureObservation = mybatisFeature.objectWillChange.sink { [weak self] _ in
-            self?.scheduleObjectWillChangeRelay()
+            self?.scheduleObjectWillChangeRelay(affectsSettings: false)
         }
         fileVisibilityRulesObserverID = settings.addFileVisibilityRulesObserver { [weak self] in
             guard let self else { return }
@@ -556,6 +575,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             guard let self, let root = self.workspaceURL else { return }
             self.searchFeatureIfActive?.invalidateIndex(at: root, visibilityRules: self.settings.searchEverywhereVisibilityRules.searchRules)
         }
+        suggestDatabasePluginIfNeeded()
         detectedAIConfigurations = loadAIConfigurations()
         let activeProviderHasAPIKey = settings.activeCommitMessageProvider
             .flatMap { services.credentialResolver.readAPIKey(for: $0) }
@@ -597,6 +617,17 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         )
         configureMediaViewerRegistry()
         shortcutSessionCoordinator?.setActive(true)
+        settingsChangeObservations = [
+            objectWillChange.sink { [weak self] _ in
+                guard let self, !self.isRelayingWorkbenchOnlyChange else { return }
+                self.settingsChanges.send()
+            },
+            // The workspace session is a relayed feature, but project-scoped
+            // settings pages read the open workspace.
+            workspaceSessionCoordinator.$workspaceURL.removeDuplicates().dropFirst().sink { [weak self] _ in
+                self?.settingsChanges.send()
+            }
+        ]
     }
 
     convenience init(settings: AppSettings, services: AppServices) {
@@ -626,21 +657,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         }
     }
 
-    func activateDatabaseModule(toolWindow: WorkbenchFeatureModel.ToolWindow = .database) async {
-        let workspace = workspaceURL
-        await awaitModuleRuntimeShutdown()
-        guard workspaceURL == workspace, await databaseModuleCoordinator.activate() != nil,
-              workspaceURL == workspace else { return }
-        workbenchFeature.setVisibility(toolWindow, isVisible: true)
-    }
-
-    func sleepDatabaseModule() async {
-        await databaseModuleCoordinator.sleep()
-        workbenchFeature.setVisibility(.database, isVisible: false)
-        closeDatabaseWorkspace()
-    }
-
     deinit {
+        if let remoteLossObserver { NotificationCenter.default.removeObserver(remoteLossObserver) }
         for task in contributionActivationTasks.values { task.cancel() }
         sidebarRefreshTask?.cancel()
     }
@@ -648,11 +666,13 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     func configureProjectSession(
         requestOpen: @escaping (URL) -> Void,
         didClose: @escaping () -> Void,
-        requestOpenAtPlacement: ((URL, ProjectOpenPlacement) -> Void)? = nil
+        requestOpenAtPlacement: ((URL, ProjectOpenPlacement) -> Void)? = nil,
+        confirmRunServicesBeforeClose: (@MainActor ([RunServiceExitCandidate]) async -> Bool)? = nil
     ) {
         requestProjectOpen = requestOpen
         didCloseProject = didClose
         requestProjectOpenAtPlacement = requestOpenAtPlacement
+        self.confirmRunServicesBeforeClose = confirmRunServicesBeforeClose
     }
 
     func setProjectSessionActive(_ isActive: Bool) {
@@ -669,6 +689,9 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         // closing its workspace. Revoke page requests before teardown can yield.
         services.pluginWebPages.closeAll()
         workbenchFeature.endLayoutSession()
+        // VCS providers too: their pending refreshes, or a scan still loading
+        // the workspace, would otherwise start a process for a closed window.
+        vcsProvidersFeature?.shutdown()
         await ideCapabilities.shutdown()
         shortcutSessionCoordinator?.shutdown()
         documentLanguageCoordinator?.stop()
@@ -739,11 +762,10 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     var languageServerStatusMessage: String {
-        let usesChinese = settings.language == .simplifiedChinese
         guard let document = activeDocument,
               let descriptor = languageProviderCatalog.provider(for: document.url),
               descriptor.capabilities.contains(.languageServer) else {
-            return usesChinese ? "打开一个受支持的源码文件" : "Open a supported source file"
+            return settings.language.localizedString("native.inline.openASupportedSourceFile")
         }
 
         let status = LSPControlCenterPresenter.serverStatus(
@@ -752,33 +774,19 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         )
         switch status {
         case .starting:
-            return usesChinese
-                ? "正在启动 \(descriptor.displayName) LSP 进程"
-                : "Starting the \(descriptor.displayName) LSP process"
+            return settings.language.localizedFormat("native.inline.startingTheArg1LspProcess", String(describing: descriptor.displayName))
         case .initializing:
-            return usesChinese
-                ? "正在初始化 \(descriptor.displayName) LSP"
-                : "Initializing \(descriptor.displayName) LSP"
+            return settings.language.localizedFormat("native.inline.initializingArg1Lsp", String(describing: descriptor.displayName))
         case .active:
-            return usesChinese
-                ? "\(descriptor.displayName) 语言服务器已就绪"
-                : "\(descriptor.displayName) language server ready"
+            return settings.language.localizedFormat("native.inline.arg1LanguageServerReady", String(describing: descriptor.displayName))
         case .stopping:
-            return usesChinese
-                ? "正在停止 \(descriptor.displayName) LSP"
-                : "Stopping \(descriptor.displayName) LSP"
+            return settings.language.localizedFormat("native.inline.stoppingArg1Lsp", String(describing: descriptor.displayName))
         case .stopped:
-            return usesChinese
-                ? "\(descriptor.displayName) 已由 catalog 声明，但当前没有运行中的 LSP 会话"
-                : "\(descriptor.displayName) is declared by the catalog, but no LSP session is running"
+            return settings.language.localizedFormat("native.inline.arg1IsDeclaredByTheCatalogButNoLspSessionIsRunning", String(describing: descriptor.displayName))
         case .disabled:
-            return usesChinese
-                ? "\(descriptor.displayName) LSP 已在当前工作区禁用"
-                : "\(descriptor.displayName) LSP is disabled in this workspace"
+            return settings.language.localizedFormat("native.inline.arg1LspIsDisabledInThisWorkspace", String(describing: descriptor.displayName))
         case .error:
-            return usesChinese
-                ? "\(descriptor.displayName) LSP 异常退出"
-                : "\(descriptor.displayName) LSP exited unexpectedly"
+            return settings.language.localizedFormat("native.inline.arg1LspExitedUnexpectedly", String(describing: descriptor.displayName))
         }
     }
 
@@ -791,14 +799,14 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         let didStart = activateCurrentDocumentLanguageServerIfAvailable()
         showNotification(
             didStart
-                ? (settings.language == .simplifiedChinese ? "语言服务器已启动" : "Language server started")
-                : (settings.language == .simplifiedChinese ? "当前没有运行中的 LSP 会话" : "No LSP session is running")
+                ? (settings.language.localizedString("native.inline.languageServerStarted"))
+                : (settings.language.localizedString("native.inline.noLspSessionIsRunning"))
         )
     }
 
     func clearLanguageServerDiagnostics() {
         languageIntelligenceModuleCoordinator.clearDiagnostics(languageToolingSessionsIfActive)
-        showNotification(settings.language == .simplifiedChinese ? "语言服务器诊断已清空" : "Language server diagnostics cleared")
+        showNotification(settings.language.localizedString("native.inline.languageServerDiagnosticsCleared"))
     }
 
     func javaStructure(source: String, declarationSources: [String] = []) async -> JavaStructureResult? {
@@ -914,6 +922,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             tests: languageTestServiceIfActive,
             buildSystems: buildSystemsFeatureIfActive
         )
+        vcsProvidersFeature?.reset(workspaceURL: nil)
         runWorkflowCoordinator.resetPendingAction()
         debugModuleCoordinator.resetFeature(genericDebugFeatureIfActive)
         debugBreakpointPresentation.reset()
@@ -952,6 +961,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     private func finishWorkspaceClose(for workspaceURL: URL) {
+        releaseRemoteWorkspace(at: workspaceURL)
         ideCapabilities.disable()
         documentLanguageCoordinator?.stop()
         cancelJavaLanguageServerPreparation()
@@ -980,6 +990,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             tests: languageTestServiceIfActive,
             buildSystems: buildSystemsFeatureIfActive
         )
+        vcsProvidersFeature?.reset(workspaceURL: nil)
         runWorkflowCoordinator.resetPendingAction()
         debugModuleCoordinator.resetFeature(genericDebugFeatureIfActive)
         debugBreakpointPresentation.reset()
@@ -1044,7 +1055,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         allowsOutsideWorkspace: Bool = false
     ) {
         editorTabOrderFeature.repositoryDiffSelected = false
-        editorTabOrderFeature.databaseSelected = false
         selectedChange = nil
         closeBranchComparison()
         editorNavigationTarget = nil
@@ -1590,9 +1600,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             if let session = terminalSessions.first(where: { $0.id == id }) { selectEditorTerminalSession(session) }
         case .media(let id):
             if let media = openMediaDocuments.first(where: { $0.id == id }) { selectMediaDocument(media) }
-        case .databaseOverview: openDatabaseWorkspace(overview: true)
-        case .database(let profileID): selectDatabaseWorkspace(profileID: profileID)
-        case let .databaseQuery(profileID, queryID): selectDatabaseWorkspace(profileID: profileID, queryID: queryID)
         case .repositoryDiff, nil: break
         }
     }
@@ -1684,11 +1691,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     func checkoutRevision(_ rawRevision: String) async {
         guard let gitFeature = await activateGitModule() else { return }
         await gitFeature.checkoutRevision(rawRevision)
-    }
-
-    func pushBranch(_ reference: GitReference) async {
-        guard let gitFeature = await activateGitModule() else { return }
-        await gitFeature.pushBranch(reference)
     }
 
 }

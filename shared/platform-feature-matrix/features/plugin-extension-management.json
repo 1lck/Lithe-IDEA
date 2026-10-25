@@ -20,11 +20,15 @@
       "windows/tauri/src/extensions",
       "windows/tauri/src/features/settings",
       "windows/tauri/src-tauri/src/language_tools.rs",
-      "windows/tauri/src/extensions/registry/extension-store-lifecycle.test.ts"
+      "windows/tauri/src/extensions/registry/extension-store-lifecycle.test.ts",
+      "windows/tauri/src/features/plugins/declarative-plugins-section.tsx",
+      "windows/tauri/src-tauri/src/plugin_host/install.rs",
+      "windows/tauri/src-tauri/src/plugin_host/lifecycle.rs",
+      "windows/tauri/src/features/plugins/plugin-lifecycle-listener.test.ts"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "owner": "Extensions",
-  "verification": "macOS 全新安装时打开插件页，确认“已安装”标签不再显示 PHP 未安装占位项（改由“插件市场”标签提供安装），齿轮菜单可“从磁盘安装插件”选择已签名的插件包；社区插件在“已安装”中显示来源仓库与社区维护提示，可卸载；安装后可搜索并启用、禁用 PHP，确认状态与重启恢复，且页面不显示无恢复路径的卸载操作；同时打开 Maven 面板确认插件内容不被遮挡。Windows 检查扩展管理入口和持久化。 Windows 缺少 Bun 或语言服务器时更新扩展，确认旧扩展的安装、启用和待更新状态保留，错误给出安装依赖后重试的提示；预检期间禁用或卸载扩展，确认返回后不会继续安装或重新启用；手动将 Marksman 等语言服务器安装到 PATH 后重启，确认能识别并启用。"
+  "verification": "macOS 全新安装时打开插件页，确认“已安装”标签不再显示 PHP 未安装占位项（改由“插件市场”标签提供安装），齿轮菜单可“从磁盘安装插件”选择已签名的插件包；社区插件在“已安装”中显示来源仓库与社区维护提示，可卸载；安装后可搜索并启用、禁用 PHP，确认状态与重启恢复，且页面不显示无恢复路径的卸载操作；同时打开 Maven 面板确认插件内容不被遮挡。Windows 检查扩展管理入口和持久化。契约 v1 插件在设置的独立“声明式插件”页管理（启用/停用/卸载/回滚，与 Worker 扩展分开列出，隔离原因直接展示），管理命令走 plugin_host 的 Tauri 命令。 Windows 缺少 Bun 或语言服务器时更新扩展，确认旧扩展的安装、启用和待更新状态保留，错误给出安装依赖后重试的提示；预检期间禁用或卸载扩展，确认返回后不会继续安装或重新启用；手动将 Marksman 等语言服务器安装到 PATH 后重启，确认能识别并启用。 Windows 契约插件：同时在两个产品窗口启动语言服务/运行任务，在启动尚未返回时分别禁用、卸载、更新和回滚；确认先撤销入口、等待两窗口所有进程和原生探测退出，再改包目录。停止失败、窗口断开或确认超时发生在改包前，文件保留且插件继续阻断；改包后重新扫描失败也必须报错并保持阻断，不能使用旧目录缓存；重试可恢复，不能出现占用可执行文件导致的半删除。 不同插件并发管理时，全盘扫描必须从读取到提交缓存串行，最终缓存包含所有已经成功安装的包；检查 tests.rs 的有序发布回归。"
 }

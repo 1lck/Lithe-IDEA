@@ -314,12 +314,48 @@ struct PluginPackageStoreTests {
             try FileManager.default.createSymbolicLink(atPath: executable.path, withDestinationPath: "/bin/sh")
         }
 
-        let pluginID = PluginID("dev.lithe.fixture.gradle-provider")
+        let pluginID = PluginID("dev.lithe.fixture.build-provider")
         #expect(throws: PluginPackageStoreError.invalidInstalledPlugin(
             pluginID,
             PluginPackageStoreError.buildProviderLaunchMissing(
                 pluginID, buildSystemID: "gradle", path: "provider/bin/provider"
             ).localizedDescription
+        )) {
+            _ = try store.installPackage(from: package)
+        }
+    }
+
+    /// The backend's packaged executable is checked at installation like a
+    /// provider's, so a broken package is refused before a page calls it.
+    @Test(arguments: ["usable", "missing", "notExecutable"])
+    func packagedBackendIsCheckedAtInstallation(_ defect: String) throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = makeStore(root: root)
+        let package = root.appendingPathComponent("sources/backend", isDirectory: true)
+        let fixtureURL = DeclarativePluginTestSupport.repositoryRoot
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/backend.plugin.json")
+        let object = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: fixtureURL)) as? [String: Any])
+        _ = try DeclarativePluginTestSupport.writePackage(at: package, manifest: object)
+        try FileManager.default.createDirectory(at: package.appendingPathComponent("ui"), withIntermediateDirectories: true)
+        try Data("<!doctype html>".utf8).write(to: package.appendingPathComponent("ui/index.html"))
+        let executable = package.appendingPathComponent("bin/backend")
+        try FileManager.default.createDirectory(at: executable.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("#!/bin/sh\n".utf8).write(to: executable)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        switch defect {
+        case "missing": try FileManager.default.removeItem(at: executable)
+        case "notExecutable": try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: executable.path)
+        default: break
+        }
+
+        let pluginID = PluginID("dev.lithe.fixture.backend")
+        guard defect != "usable" else {
+            #expect(try store.installPackage(from: package).descriptor.declaresBackend)
+            return
+        }
+        #expect(throws: PluginPackageStoreError.invalidInstalledPlugin(
+            pluginID, PluginPackageStoreError.backendLaunchMissing(pluginID, path: "bin/backend").localizedDescription
         )) {
             _ = try store.installPackage(from: package)
         }
@@ -521,27 +557,36 @@ struct PluginPackageStoreTests {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let directories = MacPluginStateDirectories(rootURL: root.appendingPathComponent("state", isDirectory: true))
-        let store = makeStore(root: root, stateDirectories: directories)
+        // Backend credentials share the state's lifetime.
+        let credentials = MemoryPluginCredentialStore()
+        let store = makeStore(root: root, stateDirectories: directories, credentials: credentials)
         let version = PluginVersion(major: 0, minor: 3, patch: 0)
         func writeState(for plugin: InstalledPluginPackage) throws -> URL {
             let state = directories.stateDirectory(pluginID: plugin.manifest.id.rawValue, languageID: "fixture")
             try FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
             try Data("index".utf8).write(to: state.appendingPathComponent("index"))
+            try credentials.setSecret("s3cret", pluginID: plugin.manifest.id.rawValue, key: "connection")
             return directories.pluginDirectory(pluginID: plugin.manifest.id.rawValue)
+        }
+        func secret(of plugin: InstalledPluginPackage) throws -> String? {
+            try credentials.secret(pluginID: plugin.manifest.id.rawValue, key: "connection")
         }
 
         let immediate = try store.installPackage(from: makePackage(root: root, name: "one", version: version))
         let immediateState = try writeState(for: immediate)
         try store.uninstall(immediate.manifest.id)
         #expect(!FileManager.default.fileExists(atPath: immediateState.path))
+        #expect(try secret(of: immediate) == nil)
 
         // A staged uninstall keeps the state until the package itself goes.
         let staged = try store.installPackage(from: makePackage(root: root, name: "two", version: version))
         let stagedState = try writeState(for: staged)
         try store.stageUninstall(staged.manifest.id)
         #expect(FileManager.default.fileExists(atPath: stagedState.path))
+        #expect(try secret(of: staged) == "s3cret")
         try store.prepareForLaunch()
         #expect(!FileManager.default.fileExists(atPath: stagedState.path))
+        #expect(try secret(of: staged) == nil)
     }
 
     /// An installed schema-1 native PHP package is reported as needing an
@@ -742,12 +787,14 @@ struct PluginPackageStoreTests {
         root: URL,
         bundledRoot: URL? = nil,
         stateDirectories: MacPluginStateDirectories? = nil,
+        credentials: (any PluginCredentialStoring)? = nil,
         verifier: any PluginPackageSignatureVerifying = TestPluginSignatureVerifier()
     ) -> MacPluginPackageStore {
         MacPluginPackageStore(
             rootURL: installedRoot(root),
             bundledRootURL: bundledRoot,
             stateDirectories: stateDirectories,
+            credentials: credentials,
             validator: DeclarativePluginTestSupport.operations,
             verifier: verifier
         )
@@ -793,7 +840,7 @@ struct PluginPackageStoreTests {
     /// `launch` is given. A packaged launch gets an executable script.
     private func makeProviderPackage(root: URL, launch: [String: Any]?) throws -> URL {
         let fixtureURL = DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/gradle-provider.plugin.json")
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-provider.plugin.json")
         var manifest = try #require(
             try JSONSerialization.jsonObject(with: Data(contentsOf: fixtureURL)) as? [String: Any]
         )

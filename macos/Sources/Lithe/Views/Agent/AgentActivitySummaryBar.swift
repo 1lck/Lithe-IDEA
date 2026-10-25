@@ -58,6 +58,8 @@ struct AgentActivitySummaryBar: View {
     @State private var selectedDiff: AgentFileChange?
     @State private var confirmation: [AgentFileChange]?
     @State private var restoration: Restoration?
+    /// The editor tab reviews edits in its Changes card instead of this row.
+    private let includesEdits: Bool
 
     private struct Restoration {
         let id = UUID()
@@ -67,6 +69,7 @@ struct AgentActivitySummaryBar: View {
     init(messages: [AgentConversationMessage], sessionID: String? = nil, plan: AgentPlan? = nil,
          subagents: [AgentSubagent] = [], reviewed: [String: AgentFileChange] = [:],
          isResponding: Bool = false, isReviewing: Bool = false, reviewError: String? = nil,
+         includesEdits: Bool = true,
          onOpenFile: @escaping (AgentToolDetails.Location) -> Void = { _ in },
          onKeep: @escaping ([AgentFileChange]) -> Void = { _ in },
          onRestore: @escaping ([AgentFileChange]) async -> Void = { _ in }) {
@@ -77,6 +80,7 @@ struct AgentActivitySummaryBar: View {
         self.isResponding = isResponding
         self.isReviewing = isReviewing
         self.reviewError = reviewError
+        self.includesEdits = includesEdits
         self.onOpenFile = onOpenFile
         self.onKeep = onKeep
         self.onRestore = onRestore
@@ -88,7 +92,7 @@ struct AgentActivitySummaryBar: View {
     private var showsTasks: Bool { plan?.entries.isEmpty == false }
     private var showsSubagents: Bool { !subagents.isEmpty }
     private var showsProgress: Bool { showsTasks || showsSubagents }
-    private var showsEdits: Bool { !activity.files.isEmpty || isReviewing || reviewError != nil }
+    private var showsEdits: Bool { includesEdits && (!activity.files.isEmpty || isReviewing || reviewError != nil) }
     private var availablePanels: [Panel] {
         (showsTasks ? [.tasks] : []) + (showsSubagents ? [.subagents] : []) + (showsEdits ? [.edits] : [])
     }
@@ -295,7 +299,7 @@ struct AgentActivityDetailsView: View {
         VStack(alignment: .leading, spacing: 0) {
             if activity.files.isEmpty { emptyState("No file edits") }
             else {
-                HStack(spacing: 8) {
+                HStack(spacing: LitheTheme.ActionButton.spacing) {
                     Spacer(minLength: 0)
                     Button("Roll back all", role: .destructive) { onRequestRestore(activity.files) }
                         .disabled(isResponding || isReviewing || !activity.files.allSatisfy(\.canRevert))
@@ -305,6 +309,7 @@ struct AgentActivityDetailsView: View {
                         .help("The Agent already saved these files. Mark the current changes as reviewed.")
                         .accessibilityIdentifier("agent-edits-keep-all")
                 }
+                .buttonStyle(LitheActionButtonStyle())
                 .font(LitheTheme.uiFont(size: 11))
                 .padding(8)
                 .background(AgentPanelStyle.context)

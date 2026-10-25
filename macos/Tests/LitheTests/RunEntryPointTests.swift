@@ -1,4 +1,6 @@
+import AppKit
 import Foundation
+import SwiftUI
 import LitheCoreContracts
 import Testing
 @testable import Lithe
@@ -10,6 +12,44 @@ import Testing
 @Suite("Run entry points", .serialized)
 @MainActor
 struct RunEntryPointTests {
+    @Test(arguments: [AppLanguage.english, .simplifiedChinese], [false, true])
+    func javaBuildDecisionButtonsStayInsideTheDialog(language: AppLanguage, offersRecovery: Bool) async throws {
+        let model = makeAppModel(workspaceOperations: SequencedWorkspaceOperations.neverScans())
+        defer { model.closeProject() }
+        model.settings.language = language
+        let request = PendingJavaLaunchDecision(
+            id: UUID(), workspaceURL: URL(fileURLWithPath: "/fixture/workspace"),
+            failure: JavaLaunchBuildFailure(code: "javaBuildFailed", message: "Build failed", report: JavaBuildReport(
+                markerScope: .launchTarget, builderFailedEarlier: true, elapsedMilliseconds: 100,
+                recovery: offersRecovery ? .rebuildJavaIndex : .none)))
+        let host = NSHostingView(rootView: JavaLaunchDecisionDialog(request: request)
+            .environmentObject(model).environmentObject(model.settings)
+            .environment(\.locale, language.locale))
+        host.layoutSubtreeIfNeeded()
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: host.fittingSize),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderBack(nil)
+        defer { window.contentView = nil; window.close() }
+        var identifiers = ["java-build-run-anyway", "java-build-always-continue", "java-build-open-logs", "java-build-cancel"]
+        if offersRecovery { identifiers.insert("java-build-rebuild-index", at: 2) }
+        var frames: [NSRect] = []
+        for identifier in identifiers {
+            let frame = try await AgentNativeControlTestSupport.frame(of: identifier, in: host)
+            // Check actual product controls, including the long English label and optional recovery action.
+            #expect(frame.minX >= 19.5 && frame.maxX <= host.bounds.width - 19.5, "\(identifier) overflows horizontally")
+            #expect(frame.minY >= 19.5 && frame.maxY <= host.bounds.height - 19.5, "\(identifier) overflows vertically")
+            #expect(abs(frame.height - 28) < 0.5)
+            #expect(frame.width >= 71.5)
+            #expect(!frames.contains { $0.intersects(frame) }, "Actions must not overlap")
+            frames.append(frame)
+        }
+        if language == .english && offersRecovery {
+            #expect(abs(frames[0].midY - frames[1].midY) >= 33.5, "The recovery row must wrap instead of clipping")
+        }
+    }
+
     @Test
     func debugSelectedTestValidatesItsSourceInsteadOfLaunchingTheUnderlyingMain() throws {
         let workspace = try JavaWorkspaceFixture()

@@ -1,3 +1,4 @@
+import { DEFAULT_DISPLAY_LANGUAGE } from "@/i18n/shared.generated";
 import { normalizeUiFontSize, UI_FONT_SIZE_DEFAULT } from "@/features/settings/lib/ui-font-size";
 import {
   DEFAULT_CODE_FONT_SIZE,
@@ -90,7 +91,7 @@ export const defaultSettings: Settings = {
   // UI
   uiFontFamily: DEFAULT_UI_FONT_FAMILY,
   uiFontSize: UI_FONT_SIZE_DEFAULT,
-  displayLanguage: "zh-CN",
+  displayLanguage: DEFAULT_DISPLAY_LANGUAGE,
   reduceMotion: false,
   showStatusBar: true,
   showTabIcons: true,
@@ -113,6 +114,7 @@ export const defaultSettings: Settings = {
   footerTrailingItemsOrder: [...FOOTER_TRAILING_ITEM_IDS],
   askWhereToOpenProjects: true,
   projectOpenDefaultDestination: "new-window",
+  runServicesOnExit: "ask",
   // AI
   aiProviderId: DEFAULT_AI_PROVIDER_ID,
   aiModelId: DEFAULT_AI_MODEL_ID,
@@ -145,6 +147,9 @@ export const defaultSettings: Settings = {
   collapsedActivityRailSections: [],
   sidebarWidth: 320,
   rightToolWindowWidth: 400,
+  terminalDockPosition: "bottom",
+  terminalDockWidth: 400,
+  bottomPaneHeight: 320,
   showGitHubPullRequests: true,
   showGitHubIssues: true,
   showGitHubActions: true,

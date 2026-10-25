@@ -2,7 +2,6 @@ import SwiftUI
 import LitheGitModule
 
 struct BranchComparisonView: View {
-    @State private var fileListActive = false
     @ObservedObject var feature: GitFeatureModel
     let comparison: GitBranchComparison
     let onRefresh: () async -> Void
@@ -19,7 +18,6 @@ struct BranchComparisonView: View {
 
             HStack(spacing: 0) {
                 filePane
-                    .background(LitheToolWindowActivityTracker(isActive: $fileListActive))
                     .frame(width: 250)
                 Rectangle().fill(LitheTheme.divider).frame(width: 1)
                 reviewPane
@@ -44,8 +42,7 @@ struct BranchComparisonView: View {
             Button("Close") {
                 feature.closeBranchComparison()
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            .buttonStyle(LitheActionButtonStyle())
             .lithePointer()
             .help("Close comparison")
         }
@@ -59,14 +56,13 @@ struct BranchComparisonView: View {
     }
 
     private var comparisonToolbar: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: LitheTheme.ActionButton.spacing) {
             Button {
                 refreshComparison()
             } label: {
                 Label("Refresh", systemImage: "arrow.clockwise")
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            .buttonStyle(LitheActionButtonStyle())
             .lithePointer()
             .disabled(feature.isLoadingBranchComparison)
 
@@ -75,8 +71,7 @@ struct BranchComparisonView: View {
             } label: {
                 Label("Previous File", systemImage: "chevron.up")
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            .buttonStyle(LitheActionButtonStyle())
             .lithePointer()
             .disabled(previousFile == nil || feature.isLoadingBranchComparison)
 
@@ -85,8 +80,7 @@ struct BranchComparisonView: View {
             } label: {
                 Label("Next File", systemImage: "chevron.down")
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            .buttonStyle(LitheActionButtonStyle())
             .lithePointer()
             .disabled(nextFile == nil || feature.isLoadingBranchComparison)
 
@@ -135,47 +129,42 @@ struct BranchComparisonView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 1) {
-                        ForEach(comparison.files) { file in
-                            Button {
+                LitheTreeList(
+                    comparison.files,
+                    selection: Binding(
+                        get: { feature.selectedBranchComparisonFile?.id },
+                        set: { id in
+                            if let file = comparison.files.first(where: { $0.id == id }) {
                                 Task { await feature.selectBranchComparisonFile(file) }
-                            } label: {
-                                HStack(spacing: 7) {
-                                    Text(file.status)
-                                        .font(LitheTheme.uiFont(size: 10, weight: .bold, design: .monospaced))
-                                        .foregroundStyle(statusColor(file.status))
-                                        .frame(width: 20)
-                                    LitheSystemIcon(systemImage: "doc.text")
-                                        .font(LitheTheme.uiFont(size: 11))
-                                        .foregroundStyle(LitheTheme.accent)
-                                    VStack(alignment: .leading, spacing: 1) {
-                                        Text((file.path as NSString).lastPathComponent)
-                                            .font(LitheTheme.uiFont(size: 12, weight: .medium))
-                                            .foregroundStyle(LitheTheme.primaryText)
-                                            .lineLimit(1)
-                                        let directory = (file.path as NSString).deletingLastPathComponent
-                                        if !directory.isEmpty {
-                                            Text(directory)
-                                                .font(LitheTheme.uiFont(size: 9.5))
-                                                .foregroundStyle(LitheTheme.secondaryText)
-                                                .lineLimit(1)
-                                        }
-                                    }
-                                    Spacer(minLength: 6)
-                                }
-                                .padding(.horizontal, 8)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .frame(height: 39)
-                                .litheSelectionRow(isSelected: feature.selectedBranchComparisonFile?.id == file.id,
-                                                   isFocused: fileListActive)
-                                .contentShape(Rectangle())
                             }
-                            .buttonStyle(.litheNoPress)
-                            .lithePointer()
+                        }), multiline: true
+                ) { file in
+                    HStack(spacing: 7) {
+                        Text(file.status)
+                            .font(LitheTheme.uiFont(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundStyle(statusColor(file.status))
+                            .frame(width: 20)
+                        LitheSystemIcon(systemImage: "doc.text")
+                            .font(LitheTheme.uiFont(size: 11))
+                            .foregroundStyle(LitheTheme.accent)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text((file.path as NSString).lastPathComponent)
+                                .font(LitheTheme.uiFont(size: 12, weight: .medium))
+                                .foregroundStyle(LitheTheme.primaryText)
+                                .lineLimit(1)
+                            let directory = (file.path as NSString).deletingLastPathComponent
+                            if !directory.isEmpty {
+                                Text(directory)
+                                    .font(LitheTheme.uiFont(size: 9.5))
+                                    .foregroundStyle(LitheTheme.secondaryText)
+                                    .lineLimit(1)
+                            }
                         }
+                        Spacer(minLength: 6)
                     }
-                    .padding(.vertical, 5)
+                    .padding(.horizontal, LitheTheme.Tree.iconTextGap)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(height: 39)
                 }
             }
         }

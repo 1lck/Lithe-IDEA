@@ -36,6 +36,7 @@ test("resolves workspace A Maven context while workspace B is active", async () 
       resolveJavaLspLaunch,
       mavenLaunchContextForWorkspace,
       ensureWorkspaceGitBootstrap: async () => "skipped",
+      resolveDeclarativePluginLaunch: async () => null,
     },
   );
 
@@ -70,6 +71,7 @@ test("forwards the declared Gradle import context to the launch", async () => {
       })),
       mavenLaunchContextForWorkspace,
       ensureWorkspaceGitBootstrap: async () => "skipped",
+      resolveDeclarativePluginLaunch: async () => null,
     },
   );
 
@@ -84,8 +86,61 @@ test("omits the Gradle import context for a workspace without one", async () => 
       resolveJavaLspLaunch,
       mavenLaunchContextForWorkspace,
       ensureWorkspaceGitBootstrap: async () => "skipped",
+      resolveDeclarativePluginLaunch: async () => null,
     },
   );
 
   expect(launch?.javaGradle).toBeNull();
+});
+
+test("falls back to a declarative plugin launch when the registry has no server", async () => {
+  const resolveDeclarativePluginLaunch = mock(async () => ({
+    pluginId: "dev.lithe.plugin.php-support",
+    languageId: "php",
+    serverPath: "C:/Users/example/AppData/Local/Lithe/plugins/dev.lithe.plugin.php-support/1.0.0/language-server/bin/intelephense.js",
+    serverArgs: ["--stdio"],
+    initializationOptions: { memory: 4096 },
+    workspaceConfiguration: { php: { format: true } },
+    environment: { LITHE_NODE_PATH: "C:/Lithe/tools/node/node.exe" },
+  }));
+  const launch = await resolveEditorLspLaunch(
+    "D:/work/src/Index.php",
+    { workspaceId: "workspace-a", root: "D:/work" },
+    {
+      resolveJavaLspLaunch,
+      mavenLaunchContextForWorkspace,
+      ensureWorkspaceGitBootstrap: async () => "skipped",
+      resolveDeclarativePluginLaunch,
+    },
+  );
+
+  expect(resolveDeclarativePluginLaunch).toHaveBeenCalledWith(
+    "D:/work/src/Index.php",
+    "D:/work",
+  );
+  expect(launch).toEqual({
+    providerId: "dev.lithe.plugin.php-support",
+    pluginId: "dev.lithe.plugin.php-support",
+    languageId: "php",
+    serverPath: "C:/Users/example/AppData/Local/Lithe/plugins/dev.lithe.plugin.php-support/1.0.0/language-server/bin/intelephense.js",
+    serverArgs: ["--stdio"],
+    initializationOptions: { memory: 4096 },
+    workspaceConfiguration: { php: { format: true } },
+    environment: { LITHE_NODE_PATH: "C:/Lithe/tools/node/node.exe" },
+  });
+});
+
+test("returns null when neither the registry nor a declarative plugin owns the file", async () => {
+  const launch = await resolveEditorLspLaunch(
+    "D:/work/src/notes.txt",
+    { workspaceId: "workspace-a", root: "D:/work" },
+    {
+      resolveJavaLspLaunch,
+      mavenLaunchContextForWorkspace,
+      ensureWorkspaceGitBootstrap: async () => "skipped",
+      resolveDeclarativePluginLaunch: async () => null,
+    },
+  );
+
+  expect(launch).toBeNull();
 });

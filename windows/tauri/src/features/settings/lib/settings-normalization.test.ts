@@ -10,6 +10,34 @@ import {
 import type { Settings } from "@/features/settings/types/settings.types";
 
 describe("default settings", () => {
+  test("restores terminal docking defaults for older or malformed settings", () => {
+    const old = getDefaultSettingsSnapshot();
+    for (const key of ["terminalDockPosition", "terminalDockWidth", "bottomPaneHeight"] as const) {
+      Reflect.deleteProperty(old, key);
+    }
+    const restored = normalizeSettings(old);
+    expect(restored.terminalDockPosition).toBe("bottom");
+    expect(restored.terminalDockWidth).toBe(400);
+    expect(restored.bottomPaneHeight).toBe(320);
+    expect(normalizeSettingValue("terminalDockPosition", "unknown" as never)).toBe("bottom");
+    expect(normalizeSettingValue("terminalDockWidth", Number.NaN)).toBe(400);
+    expect(normalizeSettingValue("bottomPaneHeight", -20)).toBe(200);
+    const saved = normalizeSettings({
+      ...restored,
+      terminalDockPosition: "right",
+      terminalDockWidth: 540,
+      bottomPaneHeight: 410,
+    });
+    expect([saved.terminalDockPosition, saved.terminalDockWidth, saved.bottomPaneHeight]).toEqual([
+      "right",
+      540,
+      410,
+    ]);
+    expect(normalizeSettings({ ...saved, terminalDockPosition: "left" }).terminalDockPosition).toBe(
+      "left",
+    );
+    expect(normalizeSettingValue("terminalDockPosition", "left")).toBe("left");
+  });
   test("enables auto-save unless the user turns it off", () => {
     expect(getDefaultSettingsSnapshot().autoSave).toBe(true);
   });
@@ -107,6 +135,22 @@ describe("editor tab layout mode normalization", () => {
     expect(
       normalizeSettingValue("editorTabLayoutMode", "wrap" as Settings["editorTabLayoutMode"]),
     ).toBe("singleLine");
+  });
+});
+
+describe("running services on exit normalization", () => {
+  test("asks by default, like macOS", () => {
+    expect(defaultSettings.runServicesOnExit).toBe("ask");
+  });
+
+  test("keeps a supported policy and asks for unknown or missing values", () => {
+    expect(normalizeSettingValue("runServicesOnExit", "terminate")).toBe("terminate");
+    expect(
+      normalizeSettingValue("runServicesOnExit", "keep" as Settings["runServicesOnExit"]),
+    ).toBe("ask");
+    const settings = getDefaultSettingsSnapshot();
+    (settings as { runServicesOnExit?: unknown }).runServicesOnExit = undefined;
+    expect(normalizeSettings(settings).runServicesOnExit).toBe("ask");
   });
 });
 

@@ -19,6 +19,7 @@ struct ReleaseNotesWebView: NSViewRepresentable {
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator
+        webView.uiDelegate = WebMediaCaptureDenier.shared
         webView.allowsBackForwardNavigationGestures = false
         webView.underPageBackgroundColor = LitheTheme.nsColor(.popupBackground, isDark: isDark)
         context.coordinator.update(document, in: webView)

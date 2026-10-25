@@ -11,8 +11,9 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "reac
 import { useWorkspaceCommitStore } from "../stores/git-workspace-commit.store";
 import { commitDiffWritePending } from "../runtime/commit-diff-write-state";
 import { workspaceCommitBindings } from "../utils/git-workspace-commit-bindings";
+import { GitPushTargetPrompt } from "./git-push-target-prompt";
 import { GitWorkspaceCommitReview } from "./git-workspace-commit-review";
-import { workspaceCommitEnglish } from "@/i18n/git-workspace-commit";
+import { getLocaleCatalog } from "@/i18n/locale";
 import type { TranslationKey } from "@/i18n/locale";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useTranslation } from "@/i18n/locale-provider";
@@ -201,6 +202,7 @@ const GitCommitPanel = ({
       commitDiffWritePending() ||
       batch.busy ||
       batch.review ||
+      batch.pushTargetPrompt ||
       (batch.session && !batch.session.succeeded)
     )
       return;
@@ -254,6 +256,7 @@ const GitCommitPanel = ({
     !isCurrentWorkspace ||
     isStaging ||
     Boolean(batch.review) ||
+    Boolean(batch.pushTargetPrompt) ||
     Boolean(batch.session && !batch.session.succeeded) ||
     isCommitting ||
     isGenerating;
@@ -298,7 +301,7 @@ const GitCommitPanel = ({
               aria-label={t("git.amend") + t("git.amendLastCommit")}
               checked={amend}
               onCheckedChange={setAmend}
-              disabled={isCommitting || Boolean(batch.review)}
+              disabled={isCommitting || Boolean(batch.review) || Boolean(batch.pushTargetPrompt)}
             />
             <span>
               {t("git.amend")}
@@ -373,7 +376,7 @@ const GitCommitPanel = ({
             {Object.entries(batch.session.results).map(([id, result]) => {
               const key = `git.workspaceCommit.${result.status}`;
               const label =
-                key in workspaceCommitEnglish
+                Object.prototype.hasOwnProperty.call(getLocaleCatalog("en-US"), key)
                   ? (key as TranslationKey)
                   : "git.workspaceCommit.attention";
               return (
@@ -405,6 +408,13 @@ const GitCommitPanel = ({
           <Button size="xs" onClick={workflow.cancel}>
             {t("git.workspaceCommit.stop")}
           </Button>
+        )}
+        {batch.pushTargetPrompt && isCurrentWorkspace && (
+          <GitPushTargetPrompt
+            questions={batch.pushTargetPrompt.questions}
+            onConfirm={(answers) => void workflow.answerPushTargets(answers)}
+            onCancel={workflow.cancelPushTargets}
+          />
         )}
         {batch.review && isCurrentWorkspace && (
           <GitWorkspaceCommitReview

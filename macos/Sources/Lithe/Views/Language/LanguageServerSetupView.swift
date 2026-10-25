@@ -208,7 +208,7 @@ struct LanguageServerSetupView: View {
                 Button(copy.savePath) {
                     savePath()
                 }
-                .buttonStyle(LitheSecondaryButtonStyle())
+                .buttonStyle(LitheActionButtonStyle())
                 .disabled(executablePathDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
 
@@ -226,7 +226,7 @@ struct LanguageServerSetupView: View {
                 .font(LitheTheme.uiFont(size: 10.5))
                 .foregroundStyle(LitheTheme.secondaryText)
 
-            HStack(spacing: 8) {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Button {
                     installWithHomebrew()
                 } label: {
@@ -240,7 +240,7 @@ struct LanguageServerSetupView: View {
                     }
                     .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(LithePrimaryButtonStyle())
+                .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                 .disabled(!canInstallWithHomebrew)
 
                 Button {
@@ -250,7 +250,7 @@ struct LanguageServerSetupView: View {
                     Label(copy.officialDownload, systemImage: "arrow.up.right.square")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(LitheSecondaryButtonStyle())
+                .buttonStyle(LitheActionButtonStyle())
                 .disabled(installPlan?.officialDownloadURL == nil)
             }
 
@@ -378,62 +378,59 @@ struct LanguageServerSetupView: View {
 private struct LanguageServerSetupCopy {
     let language: AppLanguage
 
-    private var usesChinese: Bool { language == .simplifiedChinese }
 
-    var title: String { usesChinese ? "语言服务器工具" : "Language Server Tools" }
-    var subtitle: String { usesChinese ? "安装、探测并指定 LSP 可执行文件" : "Install, detect, and select LSP executables" }
-    var languageServer: String { usesChinese ? "语言服务器" : "Language server" }
-    var detectedExecutable: String { usesChinese ? "当前解析结果" : "Resolved executable" }
+    var title: String { language.localizedString("native.inline.languageServerTools") }
+    var subtitle: String { language.localizedString("native.inline.installDetectAndSelectLspExecutables") }
+    var languageServer: String { language.localizedString("native.inline.languageServer") }
+    var detectedExecutable: String { language.localizedString("native.inline.resolvedExecutable") }
     var executableFoundUnverified: String {
-        usesChinese ? "已找到可执行文件（未验证）" : "Executable found (not verified)"
+        language.localizedString("native.inline.executableFoundNotVerified")
     }
     var executableVerified: String {
-        usesChinese ? "可执行文件已验证" : "Executable verified"
+        language.localizedString("native.inline.executableVerified")
     }
-    var notFound: String { usesChinese ? "未找到可执行文件" : "Executable not found" }
-    var executablePath: String { usesChinese ? "自定义路径" : "Custom path" }
-    var useAutomatic: String { usesChinese ? "恢复自动探测" : "Use automatic detection" }
-    var pathPlaceholder: String { usesChinese ? "选择或输入绝对路径" : "Choose or enter an absolute path" }
-    var chooseExecutable: String { usesChinese ? "选择可执行文件" : "Choose executable" }
-    var savePath: String { usesChinese ? "保存" : "Save" }
-    var pathHint: String { usesChinese ? "保存后，下一次启动该 LSP 时使用此路径。" : "The next LSP session will use this path." }
-    var installation: String { usesChinese ? "安装" : "Installation" }
+    var notFound: String { language.localizedString("native.inline.executableNotFound") }
+    var executablePath: String { language.localizedString("native.inline.customPath") }
+    var useAutomatic: String { language.localizedString("native.inline.useAutomaticDetection") }
+    var pathPlaceholder: String { language.localizedString("native.inline.chooseOrEnterAnAbsolutePath") }
+    var chooseExecutable: String { language.localizedString("native.inline.chooseExecutable") }
+    var savePath: String { language.localizedString("native.inline.save") }
+    var pathHint: String { language.localizedString("native.inline.theNextLspSessionWillUseThisPath") }
+    var installation: String { language.localizedString("native.inline.installation") }
     var installationHint: String {
-        usesChinese
-            ? "优先使用 Homebrew；没有可用 formula 或 Homebrew 时，从官方页面下载安装。"
-            : "Homebrew is preferred. Use the official download when Homebrew or a formula is unavailable."
+        language.localizedString("native.inline.homebrewIsPreferredUseTheOfficialDownloadWhenHomebrewOrAFormulaIsUnavailabl")
     }
-    var officialDownload: String { usesChinese ? "官方下载" : "Official download" }
-    var homebrewUnavailable: String { usesChinese ? "未找到 Homebrew，请使用官方下载或手动指定路径。" : "Homebrew was not found. Use the official download or choose an executable." }
-    var installing: String { usesChinese ? "Homebrew 正在安装…" : "Installing with Homebrew..." }
-    var noHomebrewFormula: String { usesChinese ? "无 Brew formula" : "No Brew formula" }
-    var noLaunchCommand: String { usesChinese ? "Provider 未配置启动命令" : "No launch command is configured" }
+    var officialDownload: String { language.localizedString("native.inline.officialDownload") }
+    var homebrewUnavailable: String { language.localizedString("native.inline.homebrewWasNotFoundUseTheOfficialDownloadOrChooseAnExecutable") }
+    var installing: String { language.localizedString("native.inline.installingWithHomebrew") }
+    var noHomebrewFormula: String { language.localizedString("native.inline.noBrewFormula") }
+    var noLaunchCommand: String { language.localizedString("native.inline.noLaunchCommandIsConfigured") }
 
     func expectedCommands(_ commands: String) -> String {
-        usesChinese ? "等待探测：\(commands)" : "Expected: \(commands)"
+        language.localizedFormat("native.inline.expectedArg1", String(describing: commands))
     }
 
     func installWithHomebrew(_ formula: String) -> String {
-        usesChinese ? "Brew 安装 \(formula)" : "Install \(formula)"
+        language.localizedFormat("native.inline.installArg1", String(describing: formula))
     }
 
     func installComplete(_ output: String) -> String {
         let firstLine = output.split(separator: "\n", maxSplits: 1).first.map(String.init) ?? output
-        return usesChinese ? "安装完成：\(firstLine)" : "Installed: \(firstLine)"
+        return language.localizedFormat("native.inline.installedArg1", String(describing: firstLine))
     }
 
     func message(for error: LanguageServerToolConfigurationError) -> String {
         switch error {
         case .executableRequired:
-            usesChinese ? "请选择语言服务器可执行文件。" : error.localizedDescription
+            language.localizedString("native.inline.executableRequired")
         case .executableInvalid(let path):
-            usesChinese ? "该路径不是可执行文件：\(path)" : error.localizedDescription
+            language.localizedFormat("native.inline.executableInvalid", path)
         case .executableValidationFailed(let path, let message):
-            usesChinese ? "语言服务器无法运行：\(path)\n\(message)" : error.localizedDescription
+            language.localizedFormat("native.inline.executableValidationFailed", path, message)
         case .homebrewUnavailable:
-            usesChinese ? "Lithe 无法找到 Homebrew。" : error.localizedDescription
+            language.localizedString("native.inline.homebrewUnavailable")
         case .homebrewUnsupported(let provider):
-            usesChinese ? "\(provider) 没有已验证的 Homebrew formula。" : error.localizedDescription
+            language.localizedFormat("native.inline.homebrewUnsupported", provider)
         }
     }
 }

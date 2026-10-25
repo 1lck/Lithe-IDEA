@@ -9,6 +9,7 @@ mod process;
 mod scripted;
 mod transport;
 mod types;
+mod vcs_provider;
 
 pub(crate) use client::*;
 pub(crate) use engine::*;

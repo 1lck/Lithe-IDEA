@@ -5,7 +5,6 @@ import { parseWslPath } from "@/features/wsl/utils/wsl-path";
 import { readFileContent } from "./file-operations";
 import { isLocalDocumentPath, readDocumentFileDetails, type FileEncoding } from "@/platform/document-files";
 import {
-  getDatabaseTypeFromPath,
   getFilenameFromPath,
   isBinaryFile,
   isImageFile,
@@ -25,7 +24,7 @@ import {
 /** Maximum number of files restored concurrently in the background. */
 export const SESSION_RESTORE_CONCURRENCY = 2;
 
-export type LoadedFileKind = "text" | "image" | "pdf" | "binary" | "database";
+export type LoadedFileKind = "text" | "image" | "pdf" | "binary";
 
 export interface LoadedFileContent {
   kind: LoadedFileKind;
@@ -50,7 +49,6 @@ async function classifyLoadedText(value: LoadedFileContent): Promise<LoadedFileC
  * Cancellation/stale-result checks belong to the caller that owns the tab.
  */
 export async function loadFileContent(path: string, encoding?: FileEncoding): Promise<LoadedFileContent> {
-  if (getDatabaseTypeFromPath(path)) return { kind: "database" };
   if (isImageFile(path)) return { kind: "image" };
   if (isPdfFile(path)) return { kind: "pdf" };
   if (isBinaryFile(path)) return { kind: "binary" };

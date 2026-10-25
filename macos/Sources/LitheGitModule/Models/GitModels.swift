@@ -837,7 +837,11 @@ package struct GitChange: Identifiable, Hashable, Sendable {
     package let workTreeStatus: Character
     package let submodule: GitSubmoduleStatus?
     package let canToggleStaging: Bool
-    package init(repositoryRoot: URL, path: String, originalPath: String?, indexStatus: Character, workTreeStatus: Character, submodule: GitSubmoduleStatus? = nil, canToggleStaging: Bool = true) { self.canToggleStaging = canToggleStaging; self.submodule = submodule; self.repositoryRoot = repositoryRoot; self.path = path; self.originalPath = originalPath; self.indexStatus = indexStatus; self.workTreeStatus = workTreeStatus }
+    /// Set only on a Core summary of a wholly untracked directory (`path` ends
+    /// with `/`): the number of files it stands for. Its contents are listed on
+    /// demand instead of arriving as one change per file.
+    package let untrackedFileCount: Int?
+    package init(repositoryRoot: URL, path: String, originalPath: String?, indexStatus: Character, workTreeStatus: Character, submodule: GitSubmoduleStatus? = nil, canToggleStaging: Bool = true, untrackedFileCount: Int? = nil) { self.canToggleStaging = canToggleStaging; self.submodule = submodule; self.repositoryRoot = repositoryRoot; self.path = path; self.originalPath = originalPath; self.indexStatus = indexStatus; self.workTreeStatus = workTreeStatus; self.untrackedFileCount = untrackedFileCount }
 
     package var id: String {
         "\(repositoryRoot.standardizedFileURL.path):\(originalPath ?? "")->\(path)"
@@ -846,6 +850,17 @@ package struct GitChange: Identifiable, Hashable, Sendable {
     package var isStaged: Bool { indexStatus != " " && indexStatus != "?" }
     package var hasWorkingTreeChange: Bool { workTreeStatus != " " }
     package var isUntracked: Bool { indexStatus == "?" && workTreeStatus == "?" }
+    package var isUntrackedDirectory: Bool { untrackedFileCount != nil }
+    /// Files this row stands for in change counts.
+    package var fileCount: Int { untrackedFileCount ?? 1 }
+
+    /// True when `other` lies below this untracked directory summary.
+    package func containsUntrackedDescendant(_ other: GitChange) -> Bool {
+        isUntrackedDirectory
+            && other.path != path
+            && other.path.hasPrefix(path)
+            && other.repositoryRoot.standardizedFileURL == repositoryRoot.standardizedFileURL
+    }
 
     /// True while a merge, rebase, cherry-pick, or revert has left this file
     /// unmerged. Git marks these with a `U` on either side, plus the `AA` and `DD`
@@ -913,25 +928,63 @@ package enum GitChangeKind: String, Sendable {
 
 /// Projects repository-relative Git changes onto file and directory rows.
 /// Each node uses its own status; descendant changes do not recolor ancestors.
+/// Rows below an untracked directory summary are untracked themselves, as
+/// they were when status listed every file.
 package struct GitTreeStatusProjection: Equatable, Sendable {
     private let changesByPath: [String: GitChange]
+    private let untrackedDirectories: [String: GitChange]
+    private let absolutePaths: Bool
 
     package init(changes: [GitChange], absolutePaths: Bool = false) {
         var changesByPath: [String: GitChange] = [:]
+        var untrackedDirectories: [String: GitChange] = [:]
         for change in changes {
             let path = Self.normalized(absolutePaths ? change.url.standardizedFileURL.path : change.path)
             if changesByPath[path] == nil { changesByPath[path] = change }
+            if change.isUntrackedDirectory { untrackedDirectories[path] = change }
         }
         self.changesByPath = changesByPath
+        self.untrackedDirectories = untrackedDirectories
+        self.absolutePaths = absolutePaths
     }
 
     package func change(relativePath: String) -> GitChange? {
-        changesByPath[Self.normalized(relativePath)]
+        let path = Self.normalized(relativePath)
+        return changesByPath[path] ?? untrackedDescendant(path)
     }
 
     package func kind(relativePath: String, isDirectory: Bool) -> GitChangeKind? {
         // Project nodes use their own status, not the highest-priority descendant's status.
-        changesByPath[Self.normalized(relativePath)]?.kind
+        change(relativePath: relativePath)?.kind
+    }
+
+    /// The summary below which `change` lies; set only while its contents are listed.
+    package func containingUntrackedDirectory(of change: GitChange) -> GitChange? {
+        ancestorDirectory(of: Self.normalized(absolutePaths ? change.url.standardizedFileURL.path : change.path))?
+            .directory
+    }
+
+    /// The file-level change status would have reported for `path` below a summary.
+    private func untrackedDescendant(_ path: String) -> GitChange? {
+        guard let (directory, key) = ancestorDirectory(of: path) else { return nil }
+        return GitChange(
+            repositoryRoot: directory.repositoryRoot,
+            path: directory.path + path.dropFirst(key.count + 1),
+            originalPath: nil,
+            indexStatus: "?",
+            workTreeStatus: "?"
+        )
+    }
+
+    /// The nearest summary strictly above normalized `path`, with its key.
+    private func ancestorDirectory(of path: String) -> (directory: GitChange, key: Substring)? {
+        guard !untrackedDirectories.isEmpty else { return nil }
+        var ancestor = Substring(path)
+        while let separator = ancestor.lastIndex(of: "/") {
+            ancestor = ancestor[..<separator]
+            if let directory = untrackedDirectories[String(ancestor)] { return (directory, ancestor) }
+        }
+        return nil
     }
 
     private static func normalized(_ path: String) -> String {

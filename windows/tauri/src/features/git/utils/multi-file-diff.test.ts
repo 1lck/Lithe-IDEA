@@ -35,9 +35,10 @@ describe("commit diff buffers", () => {
 
     expect(buffer.virtualPath).toBe("diff://commit/1234567890abcdef/all-files");
     expect(buffer.displayName.endsWith(".diff")).toBe(false);
-    expect(buffer.diffData.files).toBe(diffs);
-    expect(buffer.diffData.initiallyExpandedFileKey).toBe("src/feature.ts:1");
-    expect(buffer.diffData.initiallySelectedFileKey).toBe("src/feature.ts:1");
+    // Commit previews follow the Git Log commit-files tree order.
+    expect(buffer.diffData.files).toEqual([diffs[1], diffs[0]]);
+    expect(buffer.diffData.initiallyExpandedFileKey).toBe("src/feature.ts:0");
+    expect(buffer.diffData.initiallySelectedFileKey).toBe("src/feature.ts:0");
     expect(buffer.diffData.totalAdditions).toBe(6);
     expect(buffer.diffData.totalDeletions).toBe(4);
   });

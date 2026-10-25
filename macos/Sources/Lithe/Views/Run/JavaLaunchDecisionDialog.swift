@@ -6,13 +6,12 @@ struct JavaLaunchDecisionDialog: View {
     @EnvironmentObject private var settings: AppSettings
     let request: PendingJavaLaunchDecision
 
-    private var chinese: Bool { settings.language == .simplifiedChinese }
     private var report: JavaBuildReport? { request.failure.report }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Label(
-                chinese ? "Java 构建未成功" : "Java build did not succeed",
+                settings.language.localizedString("native.inline.javaBuildDidNotSucceed"),
                 systemImage: "exclamationmark.triangle.fill"
             )
             .font(LitheTheme.uiFont(.headline))
@@ -27,13 +26,13 @@ struct JavaLaunchDecisionDialog: View {
             if let report {
                 VStack(alignment: .leading, spacing: 5) {
                     evidenceRow(
-                        chinese ? "错误范围" : "Marker scope",
+                        settings.language.localizedString("native.inline.markerScope"),
                         value: report.markerScope == .workspace
-                            ? (chinese ? "整个工作区（可能包含无关模块）" : "Workspace (may include unrelated modules)")
-                            : (chinese ? "请求的启动目标及其依赖" : "Requested launch target and dependencies")
+                            ? (settings.language.localizedString("native.inline.workspaceMayIncludeUnrelatedModules"))
+                            : (settings.language.localizedString("native.inline.requestedLaunchTargetAndDependencies"))
                     )
                     evidenceRow(
-                        chinese ? "构建耗时" : "Build elapsed",
+                        settings.language.localizedString("native.inline.buildElapsed"),
                         value: "\(report.elapsedMilliseconds) ms"
                     )
                 }
@@ -42,55 +41,60 @@ struct JavaLaunchDecisionDialog: View {
                 .clipShape(RoundedRectangle(cornerRadius: 6))
             }
 
-            Text(chinese
-                ? "“仍然运行”会使用已经解析出的产物继续本次启动，不会再次构建。"
-                : "Run Anyway continues this launch with the resolved output and does not build again.")
+            Text(settings.language.localizedString("native.inline.runAnywayContinuesThisLaunchWithTheResolvedOutputAndDoesNotBuildAgain"))
                 .font(LitheTheme.uiFont(size: 12))
                 .foregroundStyle(LitheTheme.secondaryText)
 
-            HStack(spacing: 8) {
-                Button(chinese ? "仍然运行" : "Run Anyway") {
-                    model.completeJavaLaunchDecision(.runOnce, requestID: request.id)
-                }
-                .buttonStyle(.borderedProminent)
-
-                Button(chinese ? "对此工作区始终继续" : "Always Continue in This Workspace") {
-                    model.completeJavaLaunchDecision(.alwaysContinue, requestID: request.id)
-                }
-
-                if report?.recovery == .rebuildJavaIndex {
-                    Button(chinese ? "重建 Java 索引" : "Rebuild Java Index") {
-                        model.completeJavaLaunchDecision(.rebuildIndex, requestID: request.id)
-                    }
-                }
-
-                Spacer(minLength: 8)
-
-                Button(chinese ? "查看日志" : "Open Logs") {
-                    model.completeJavaLaunchDecision(.cancel, requestID: request.id)
-                    model.showSettings(category: .diagnostics)
-                }
-                Button(chinese ? "取消" : "Cancel", role: .cancel) {
-                    model.completeJavaLaunchDecision(.cancel, requestID: request.id)
-                }
-                .keyboardShortcut(.cancelAction)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: LitheTheme.ActionButton.spacing) { actionButtons }
+                VStack(alignment: .leading, spacing: LitheTheme.ActionButton.spacing) { actionButtons }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .buttonStyle(LitheActionButtonStyle())
         .padding(20)
         .frame(width: 590)
         .interactiveDismissDisabled()
     }
 
+    @ViewBuilder
+    private var actionButtons: some View {
+        Button(settings.language.localizedString("native.inline.runAnyway")) {
+            model.completeJavaLaunchDecision(.runOnce, requestID: request.id)
+        }
+        .buttonStyle(LitheActionButtonStyle(isPrimary: true))
+        .accessibilityIdentifier("java-build-run-anyway")
+
+        Button(settings.language.localizedString("native.inline.alwaysContinueInThisWorkspace")) {
+            model.completeJavaLaunchDecision(.alwaysContinue, requestID: request.id)
+        }
+        .accessibilityIdentifier("java-build-always-continue")
+
+        if report?.recovery == .rebuildJavaIndex {
+            Button(settings.language.localizedString("native.inline.rebuildJavaIndex")) {
+                model.completeJavaLaunchDecision(.rebuildIndex, requestID: request.id)
+            }
+            .accessibilityIdentifier("java-build-rebuild-index")
+        }
+
+        Button(settings.language.localizedString("native.inline.openLogs")) {
+            model.completeJavaLaunchDecision(.cancel, requestID: request.id)
+            model.showSettings(category: .diagnostics)
+        }
+        .accessibilityIdentifier("java-build-open-logs")
+        Button(settings.language.localizedString("native.inline.cancel"), role: .cancel) {
+            model.completeJavaLaunchDecision(.cancel, requestID: request.id)
+        }
+        .keyboardShortcut(.cancelAction)
+        .accessibilityIdentifier("java-build-cancel")
+    }
+
     private var explanation: String {
         if request.failure.code == "javaBuildFailed"
             || report?.builderFailedEarlier == true {
-            return chinese
-                ? "Java 语言服务的构建器在本次会话中发生过崩溃，当前错误标记可能是残留。你仍可运行已有产物，或重建索引恢复可信状态。"
-                : "The Java language-service builder failed in this session, so these error markers may be stale. You can run the existing output or rebuild the index."
+            return settings.language.localizedString("native.inline.theJavaLanguageServiceBuilderFailedInThisSessionSoTheseErrorMarkersMayBeSta")
         }
-        return chinese
-            ? "Java 语言服务报告了编译错误，但错误也可能来自依赖工程或工作区中的其他模块。"
-            : "The Java language service reported compilation errors, which may come from dependencies or other workspace modules."
+        return settings.language.localizedString("native.inline.theJavaLanguageServiceReportedCompilationErrorsWhichMayComeFromDependencies")
     }
 
     private func evidenceRow(_ label: String, value: String) -> some View {

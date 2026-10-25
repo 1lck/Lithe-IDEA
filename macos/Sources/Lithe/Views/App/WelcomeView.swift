@@ -36,7 +36,7 @@ struct WelcomeView: View {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Return to Stable").font(LitheTheme.uiFont(.headline))
                 StableRollbackControl()
-                Button("Close") { showingStableRollback = false }
+                Button("Close") { showingStableRollback = false }.buttonStyle(LitheActionButtonStyle())
             }
             .padding(20)
             .frame(width: 420)
@@ -101,36 +101,33 @@ struct WelcomeView: View {
     private var projectsContent: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                HStack(spacing: 8) {
-                    LitheIDEAIcon(
-                        resourcePath: "expui/general/search.svg",
-                        size: 16,
-                        preservesOriginalColors: true
-                    )
-                    LitheSearchTextField("Search projects", text: $projectFilter)
-                        .focused($searchFocused)
-                }
-                .foregroundStyle(textColor)
-                .padding(.horizontal, 8)
+                LitheSearchField("Search projects", text: $projectFilter, focus: $searchFocused)
                 .frame(maxWidth: 220)
 
                 Spacer()
 
-                HStack(spacing: 6) {
+                HStack(spacing: LitheTheme.ActionButton.spacing) {
                     Button("New Project") {
-                        model.chooseProject(title: "New Project", prompt: "Choose Folder")
+                        model.showNewProject()
                     }
-                    .buttonStyle(LitheActionButtonStyle(borderInset: 0))
+                    .buttonStyle(LitheActionButtonStyle())
 
                     Button("Open") {
                         model.chooseProject()
                     }
-                    .buttonStyle(LitheActionButtonStyle(borderInset: 0))
+                    .buttonStyle(LitheActionButtonStyle())
 
                     Button("Clone Repository") {
                         model.showCloneRepository()
                     }
-                    .buttonStyle(LitheActionButtonStyle(borderInset: 0))
+                    .buttonStyle(LitheActionButtonStyle())
+
+                    if model.canManageRemoteConnections {
+                        Button("Remote Development") {
+                            model.showRemoteConnections()
+                        }
+                        .buttonStyle(LitheActionButtonStyle())
+                    }
                 }
             }
             .padding(.horizontal, 14)

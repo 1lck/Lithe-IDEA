@@ -370,6 +370,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
+name = "base64"
+version = "0.23.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
+
+[[package]]
 name = "base64ct"
 version = "1.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2855,21 +2861,28 @@ dependencies = [
  "agent-client-protocol",
  "bytes",
  "flate2",
+ "fs2",
  "futures",
+ "http",
  "http-body-util",
  "hyper",
  "hyper-util",
  "kill_tree",
  "libc",
  "reqwest 0.12.28",
+ "rmcp",
  "semver",
  "serde",
  "serde_json",
+ "serde_yaml_ng",
+ "sha2",
+ "sse-stream",
  "tokio",
  "tokio-util",
  "tungstenite",
  "url",
  "uuid",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2893,6 +2906,7 @@ dependencies = [
  "serde_yaml_ng",
  "sha1",
  "sha2",
+ "shell-words",
  "toml 1.1.4+spec-1.1.0",
  "toml_edit 0.25.13+spec-1.1.0",
  "tree-sitter",
@@ -2937,6 +2951,7 @@ dependencies = [
  "notify-debouncer-mini",
  "serde",
  "sha2",
+ "windows 0.61.3",
  "windows-sys 0.61.2",
 ]
 
@@ -2961,6 +2976,7 @@ version = "0.3.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
+ "http",
  "keyring",
  "lithe-agent-host",
  "lithe-core",
@@ -2992,6 +3008,7 @@ dependencies = [
  "tokio",
  "url",
  "webbrowser",
+ "webview2-com",
  "windows 0.61.3",
  "windows-sys 0.61.2",
  "zip 2.4.2",
@@ -4493,6 +4510,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "rmcp"
+version = "3.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fae7019994ae0fe4ada40b732f798f3ff26f0f04facb1477f1bf37eb4f18a2d3"
+dependencies = [
+ "base64 0.23.1",
+ "bytes",
+ "chrono",
+ "futures",
+ "http",
+ "indexmap 2.14.0",
+ "pin-project-lite",
+ "serde",
+ "serde_json",
+ "sse-stream",
+ "thiserror 2.0.20",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
 name = "rsa"
 version = "0.9.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5227,6 +5267,19 @@ checksum = "d91ed6c858b01f942cd56b37a94b3e0a1798290327d1236e4d9cf4eaca44d29d"
 dependencies = [
  "base64ct",
  "der",
+]
+
+[[package]]
+name = "sse-stream"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c25ac7aff0abd1dbc474536e40416e1102c7dd9bfba0b9861c6d357f835dcfb4"
+dependencies = [
+ "bytes",
+ "futures-util",
+ "http-body",
+ "http-body-util",
+ "pin-project-lite",
 ]
 
 [[package]]
@@ -6144,6 +6197,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1729aa945f29d91ba541258c8df89027d5792d85a8841fb65e8bf0f4ede4ef61"
 dependencies = [
  "rustls",
+ "tokio",
+]
+
+[[package]]
+name = "tokio-stream"
+version = "0.1.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a3d06f0b082ba57c26b79407372e57cf2a1e28124f78e9479fe80322cf53420b"
+dependencies = [
+ "futures-core",
+ "pin-project-lite",
  "tokio",
 ]
 

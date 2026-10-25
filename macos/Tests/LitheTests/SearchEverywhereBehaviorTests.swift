@@ -268,7 +268,15 @@ struct SearchEverywhereBehaviorTests {
         try await WorkbenchTestScope.withCleanup({ await model.shutdownProjectSession() }) { scope in
             model.openProjectDirectly(root)
             try #require(await loaded.waitUntilOpen())
+            // Project inventory can arrive before the module teardown started
+            // by opening the workspace finishes. Join that boundary before
+            // injecting the Safe Mode capability, or a late shutdown removes
+            // it between queries and all later results become empty.
+            try await scope.run("initial workspace module teardown", timeout: .seconds(5)) {
+                await model.awaitModuleRuntimeShutdown()
+            }
             model.cacheModuleCapability(SearchModuleCapability(feature: feature), id: .searchWorkspace, moduleID: .search)
+            try #require(model.searchFeatureIfActive === feature)
             var bare: [AgentFileMention] = [], named: [AgentFileMention] = []
             try await scope.run("bare and named agent mentions", timeout: .seconds(5)) {
                 bare = await model.agentFileMentions(matching: "")
@@ -445,7 +453,7 @@ struct SearchEverywhereBehaviorTests {
     func filterRowsAndBulkButtonsKeepTheirCheckedState(scheme: ColorScheme) async throws {
         let session = SearchSessionFeatureModel()
         let host = NSHostingView(rootView: ProviderFilterHarness(session: session).environment(\.colorScheme, scheme))
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 236, height: 200),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 238, height: 200),
             styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
@@ -455,7 +463,7 @@ struct SearchEverywhereBehaviorTests {
         window.orderFront(nil)
         defer { window.contentView = nil; window.close() }
         host.layoutSubtreeIfNeeded()
-        #expect(host.fittingSize == NSSize(width: 236, height: 200))
+        #expect(host.fittingSize == NSSize(width: 238, height: 200))
         let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: bitmap)
         let scale = CGFloat(bitmap.pixelsWide) / host.bounds.width
@@ -714,6 +722,8 @@ struct SearchEverywhereBehaviorTests {
         session.enabledEverywhereProviders = [.files, .actions] // Exclusion edits below exercise a workspace source.
         func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
         func click(_ window: NSWindow, point: NSPoint) throws {
+            // A reopened hosting view can be attached before its hit-test frames are laid out.
+            window.contentView?.layoutSubtreeIfNeeded()
             for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
                 NSApp.sendEvent(try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
                     timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)))
@@ -731,10 +741,10 @@ struct SearchEverywhereBehaviorTests {
                 point = NSPoint(x: window.frame.width - LitheDropdownMetrics.popupPadding - 11,
                     y: window.frame.height - LitheDropdownMetrics.popupPadding - 12)
             default:
-                let buttonWidth = LitheTheme.Commit.buttonMinimumWidth + 2 * LitheTheme.Commit.buttonBorderInset
+                let buttonWidth = LitheTheme.ActionButton.minimumWidth
                 point = NSPoint(x: window.frame.width - 17 - buttonWidth / 2
-                    - (identifier == "search-exclusions-cancel" ? buttonWidth : 0),
-                    y: 12 + LitheTheme.Commit.buttonBorderInset + LitheTheme.Commit.buttonHeight / 2)
+                    - (identifier == "search-exclusions-cancel" ? buttonWidth + LitheTheme.ActionButton.spacing : 0),
+                    y: 12 + LitheTheme.ActionButton.height / 2)
             }
             try click(window, point: point)
         }

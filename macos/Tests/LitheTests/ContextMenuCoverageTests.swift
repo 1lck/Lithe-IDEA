@@ -936,17 +936,26 @@ struct ContextMenuCoverageTests {
 
     @Test
     func contextMenusCannotSilentlyBypassSharedStyle() throws {
+        // Compile once and pass UTF-16 ranges directly. String.range's regex
+        // bridge repeated across every source file exceeded CI's test budget.
+        let menu = try NSRegularExpression(pattern: #"\b(?:SwiftUI\.)?Menu\s*[({]"#)
+        let popover = try NSRegularExpression(pattern: #"\.popover\s*\("#)
+        let valueDropdown = try NSRegularExpression(pattern: #"\bNSPopUpButton\s*\("#)
+        let contextMenu = try NSRegularExpression(pattern: #"\.contextMenu\s*[({]"#)
+        let caretPickers = try NSRegularExpression(pattern: #"(?ms)^    func presentLanguage(?:Completions|CodeActions)\(.*?^    \}"#)
+        let nativeMenu = try NSRegularExpression(pattern: #"\bNSMenu\s*\("#)
         let sources = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Sources")
         let files = try #require(FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil))
         for case let file as URL in files where file.pathExtension == "swift" {
             let source = try String(contentsOf: file, encoding: .utf8)
-            #expect(source.range(of: #"\b(?:SwiftUI\.)?Menu\s*[({]"#, options: .regularExpression) == nil,
+            let range = NSRange(source.startIndex..., in: source)
+            #expect(menu.firstMatch(in: source, range: range) == nil,
                     "Product dropdowns must use LitheMenu in \(file.lastPathComponent)")
-            #expect(source.range(of: #"\.popover\s*\("#, options: .regularExpression) == nil,
+            #expect(popover.firstMatch(in: source, range: range) == nil,
                     "Product popups must use litheDropdown in \(file.lastPathComponent)")
-            #expect(source.range(of: #"\bNSPopUpButton\s*\("#, options: .regularExpression) == nil,
+            #expect(valueDropdown.firstMatch(in: source, range: range) == nil,
                     "Value dropdowns must use LitheSettingsSelect in \(file.lastPathComponent)")
             if source.contains("Picker") {
                 let pickers = source.matches(of: /\bPicker\s*\(/).count
@@ -954,15 +963,13 @@ struct ContextMenuCoverageTests {
                 #expect(pickers == segmented,
                         "Only segmented Pickers remain native in \(file.lastPathComponent); use LitheSettingsSelect for dropdowns")
             }
-            #expect(source.range(of: #"\.contextMenu\s*[({]"#, options: .regularExpression) == nil,
+            #expect(contextMenu.firstMatch(in: source, range: range) == nil,
                     "Use the shared context menu in \(file.lastPathComponent)")
             // Completion and source-action pickers are caret popups, not right-click menus.
             // All other AppKit menu construction must use the shared presenter.
-            let withoutCaretPickers = source.replacingOccurrences(
-                of: #"(?ms)^    func presentLanguage(?:Completions|CodeActions)\(.*?^    \}"#,
-                with: "", options: .regularExpression
-            )
-            #expect(withoutCaretPickers.range(of: #"\bNSMenu\s*\("#, options: .regularExpression) == nil,
+            let withoutCaretPickers = caretPickers.stringByReplacingMatches(in: source, range: range, withTemplate: "")
+            #expect(nativeMenu.firstMatch(in: withoutCaretPickers,
+                    range: NSRange(withoutCaretPickers.startIndex..., in: withoutCaretPickers)) == nil,
                     "Audit the native menu entry in \(file.lastPathComponent)")
         }
     }

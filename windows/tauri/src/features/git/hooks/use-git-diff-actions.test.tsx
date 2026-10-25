@@ -33,21 +33,22 @@ const spies: Array<{ mockRestore(): void }> = [];
 const pending = new Map<string, () => void>();
 const requests: Promise<void>[] = [];
 
-function Harness({ repo, files = [], previewScope = null }: { repo: string; files?: GitFile[]; previewScope?: string | null }) {
+function Harness({ repo, files = [], orderedFiles, previewScope = null }: { repo: string; files?: GitFile[]; orderedFiles?: GitFile[]; previewScope?: string | null }) {
   actions = useGitDiffActions({
     activeRepoPath: repo,
     commitPreviewScope: previewScope,
     commitByHash: commits,
     gitFileByPath: new Map(files.map(file => [file.path, file])),
+    orderedWorkingTreeFiles: orderedFiles,
     workingTreeDiffEntriesByScope: { all: files.map(file => [`unstaged:${file.path}`, file]), staged: [], unstaged: [] },
   });
   return null;
 }
-async function render(repo = "C:/repo-a", files: GitFile[] = []) {
+async function render(repo = "C:/repo-a", files: GitFile[] = [], orderedFiles?: GitFile[]) {
   await act(async () => {
     root.render(
       <LocaleProvider language="en-US">
-        <Harness repo={repo} files={files} />
+        <Harness repo={repo} files={files} orderedFiles={orderedFiles} />
       </LocaleProvider>,
     );
   });
@@ -119,18 +120,18 @@ test("opens the selected commit diff with its loaded message", async () => {
   await start("first");
   await finish("first");
   expect(openBuffer).toHaveBeenCalledTimes(1);
-  expect(openBuffer.mock.calls[0]?.[7]).toMatchObject({
+  expect(openBuffer.mock.calls[0]?.[6]).toMatchObject({
     commitDescription: "Body first",
     repoPath: "C:/repo-a",
   });
   expect(actions.isLoadingCommitDiff).toBe(false);
-  expect(openBuffer.mock.calls[0]?.[7]).not.toHaveProperty("preserveFocus");
+  expect(openBuffer.mock.calls[0]?.[6]).not.toHaveProperty("preserveFocus");
 });
 
 test("Automatic commit preview opens its first file without requesting editor focus", async () => {
   await act(async () => root.render(<LocaleProvider language="en-US"><Harness repo="C:/repo-a" previewScope="commit:first" /></LocaleProvider>));
   await act(async () => { await actions.previewCommitFileDiff({ kind: "commit", commit: commit("first") }, "file.txt"); });
-  expect(openBuffer.mock.calls[0]?.[7]).toMatchObject({ commitFilePreview: true, preserveFocus: true });
+  expect(openBuffer.mock.calls[0]?.[6]).toMatchObject({ commitFilePreview: true, preserveFocus: true });
 });
 test("late message cannot open an old diff or clear the newer loading state", async () => {
   await render();
@@ -141,7 +142,7 @@ test("late message cannot open an old diff or clear the newer loading state", as
   expect(actions.isLoadingCommitDiff).toBe(true);
   await finish("second");
   expect(openBuffer).toHaveBeenCalledTimes(1);
-  expect(openBuffer.mock.calls[0]?.[7]).toMatchObject({ commitDescription: "Body second" });
+  expect(openBuffer.mock.calls[0]?.[6]).toMatchObject({ commitDescription: "Body second" });
 });
 test("switching repositories invalidates a pending message even when returning to the original", async () => {
   await render();
@@ -172,7 +173,7 @@ test("a file absent from the status mapping still opens an owned HEAD-to-worktre
   await render();
   await act(async () => { await actions.viewFileDiff("nested/file.txt", false); });
   expect(worktree).toHaveBeenCalledWith(resolved.repoPath, resolved.filePath, false, undefined, true);
-  expect(openBuffer.mock.calls[0]?.[7]).toMatchObject({
+  expect(openBuffer.mock.calls[0]?.[6]).toMatchObject({
     repoPath: resolved.repoPath, commitPreview: true,
     workingTreeTargets: { "unstaged:nested/file.txt": { ...resolved, untracked: false } },
   });
@@ -188,8 +189,25 @@ test("Commit file click captures the file order without eagerly reading other co
   await act(async () => { await actions.viewFileDiff("a.txt"); });
   expect(worktree).toHaveBeenCalledTimes(1);
   expect(worktree.mock.calls[0][1]).toBe("a.txt");
-  expect(openBuffer.mock.calls[0][7]).toMatchObject({ workingTreeFileOrder: [
+  expect(openBuffer.mock.calls[0][6]).toMatchObject({ workingTreeFileOrder: [
     { fileKey: "unstaged:a.txt", target: { repoPath: "C:/repo-a", filePath: "a.txt", untracked: false } },
     { fileKey: "unstaged:b.txt", target: { repoPath: "C:/repo-a", filePath: "b.txt", untracked: true } },
+  ] });
+});
+
+test("Commit file navigation keeps the panel order instead of status order", async () => {
+  const worktree = spyOn(diffApi, "getWorkingTreePathDiff").mockResolvedValue(null);
+  spies.push(worktree);
+  const statusOrder: GitFile[] = [
+    { path: "a.md", status: "untracked", staged: false, worktree: true },
+    { path: "a/b.txt", status: "modified", staged: false, worktree: true },
+  ];
+  // Folder view lists the a/ directory before the a.md file.
+  const panelOrder = [statusOrder[1], statusOrder[0]];
+  await render("C:/repo-a", statusOrder, panelOrder);
+  await act(async () => { await actions.viewFileDiff("a/b.txt"); });
+  expect(openBuffer.mock.calls[0][6]).toMatchObject({ workingTreeFileOrder: [
+    { fileKey: "unstaged:a/b.txt" },
+    { fileKey: "unstaged:a.md" },
   ] });
 });

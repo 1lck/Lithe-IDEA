@@ -71,6 +71,8 @@ import { useGitBlameStore } from "../stores/git-blame.store";
 import { useRepositoryStore } from "../stores/git-repository.store";
 import { useGitStore } from "../stores/git.store";
 import { buildVisibleGitFiles } from "../utils/git-status-model";
+import { orderGitStatusFilesForDisplay } from "../utils/git-status-display-order";
+import { isUntrackedDirectorySummary } from "../utils/git-untracked-directories";
 import {
   type WorkingTreeDiffEntry,
   type WorkingTreeDiffScope,
@@ -201,6 +203,8 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
     const seenDiffableFileKeys = new Set<string>();
 
     for (const file of visible.files) {
+      // A summary stands for many files; its listed contents are diffed instead.
+      if (isUntrackedDirectorySummary(file)) continue;
       const fileKey = `${file.staged ? "staged" : "unstaged"}:${file.path}`;
 
       if (seenDiffableFileKeys.has(fileKey)) {
@@ -228,6 +232,16 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
   const changelistWorkspace = repoPath ?? activeRepoPath ?? "";
   const changelists = useGitChangelistsStore((state) =>
     workspaceChangelists(state, changelistWorkspace),
+  );
+  const gitChangesFolderView = useSettingsStore((state) => state.settings.gitChangesFolderView);
+  // Diff file navigation follows the rows the Commit panel actually shows.
+  const orderedWorkingTreeFiles = useMemo(
+    () => orderGitStatusFilesForDisplay(visibleGitFiles, {
+      repoPath: activeRepoPath ?? undefined,
+      changelists,
+      folderView: gitChangesFolderView,
+    }),
+    [visibleGitFiles, activeRepoPath, changelists, gitChangesFolderView],
   );
   useEffect(() => {
     const reload = () => useGitChangelistsStore.getState().loadWorkspace(changelistWorkspace);
@@ -315,6 +329,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
     onFileSelect,
     gitFileByPath,
     workingTreeDiffEntriesByScope,
+    orderedWorkingTreeFiles,
     commitByHash,
     currentBranch: gitStatus?.branch,
     onBranchDiffOpened: handleBranchDiffOpened,

@@ -60,320 +60,253 @@ struct DependencySidebarView: View {
     }
 }
 
+/// Owns per-service loading across one shared tree viewport.
 private struct RunServiceDependencySidebarContent: View {
-    @ObservedObject var feature: RunFeatureModel
-    let refreshRevision: Int
-
-    var body: some View {
-        if feature.isLoadingProject {
-            VStack(spacing: 8) {
-                ProgressView().controlSize(.small)
-                Text("Loading dependencies...")
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if feature.dependencyServices.isEmpty {
-            VStack(spacing: 8) {
-                Image(systemName: "shippingbox")
-                    .font(LitheTheme.uiFont(size: 20, weight: .medium))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                Text("No language dependency sources registered")
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            GeometryReader { geometry in
-                ScrollView(.vertical) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(feature.dependencyServices) { service in
-                            DependencyServiceSection(
-                                feature: feature,
-                                service: service,
-                                refreshRevision: refreshRevision
-                            )
-                        }
-                    }
-                    .padding(.vertical, LitheTheme.Metrics.projectTreeContentVerticalInset)
-                    .frame(width: geometry.size.width, alignment: .topLeading)
-                    .frame(minHeight: geometry.size.height, alignment: .topLeading)
-                }
-                .scrollContentBackground(.hidden)
-                .litheScrollViewChrome(usesCompactScrollers: true)
-            }
-        }
-    }
-}
-
-private struct DependencyServiceSection: View {
     @EnvironmentObject private var model: AppModel
     @ObservedObject var feature: RunFeatureModel
-    let service: DependencyServiceDescriptor
     let refreshRevision: Int
-    @State private var graph: DependencyGraph?
-    @State private var expandedNodeIDs: Set<String> = []
-    @State private var isExpanded = false
-    @State private var isResolving = false
-    @State private var resolutionError: String?
-    @State private var isConfigurationPresented = false
-    @State private var resolutionTask: Task<Void, Never>?
+    @StateObject private var presentation = DependencyTreePresentation()
+    @State private var configurationServiceID: String?
+    @State private var selectedNodeID: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            serviceRow
-            if isExpanded { serviceContent }
+        Group {
+            if feature.isLoadingProject {
+                VStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Loading dependencies...").font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
+                }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if feature.dependencyServices.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "shippingbox").font(LitheTheme.uiFont(size: 20, weight: .medium))
+                    Text("No language dependency sources registered").font(LitheTheme.smallFont)
+                }.foregroundStyle(LitheTheme.secondaryText).frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                LitheTreeList(
+                    nodes: feature.dependencyServices.map(serviceNode), selection: $selectedNodeID, multiline: true)
+            }
         }
+        .onAppear {
+            for service in feature.dependencyServices
+            where presentation.state(for: service.id).expanded
+                && presentation.state(for: service.id).graph == nil
+            { loadDependencies(service) }
+        }
+        .onChange(of: feature.dependencyServices.map(\.id)) { presentation.retainServices(Set($0)) }
         .onChange(of: feature.dependencyRevision) { _ in invalidateAndReload() }
         .onChange(of: refreshRevision) { _ in invalidateAndReload() }
-        .onDisappear {
-            resolutionTask?.cancel()
-            resolutionTask = nil
-        }
+        .onDisappear { presentation.close() }
     }
 
-    private var serviceRow: some View {
-        HStack(spacing: 0) {
-            Button {
-                isExpanded.toggle()
-                if isExpanded, graph == nil { loadDependencies() }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(LitheTheme.uiFont(size: 8, weight: .bold))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                        .frame(width: 10)
-                    LitheSystemIcon(systemImage: service.systemImage)
-                        .font(LitheTheme.uiFont(size: 12))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                        .frame(width: 16)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(service.displayName)
-                            .font(LitheTheme.uiFont(size: LitheTheme.Metrics.treeFontSize, weight: .semibold))
-                            .foregroundStyle(LitheTheme.primaryText)
-                        Text(hasCustomConfiguration ? String(localized: "Configured") : service.providerDisplayName)
-                            .font(LitheTheme.uiFont(size: 9.5))
-                            .foregroundStyle(LitheTheme.secondaryText)
-                            .lineLimit(1)
-                    }
-                    Spacer(minLength: 4)
-                }
-                .padding(.leading, 8)
-                .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
-                .contentShape(Rectangle())
+    private func serviceNode(_ service: DependencyServiceDescriptor) -> LitheTreeListNode {
+        let state = presentation.state(for: service.id)
+        return LitheTreeListNode(
+            id: service.id, isExpanded: state.expanded, isSelectable: false,
+            onExpansion: { expanded in
+                presentation.update(service.id) { $0.expanded = expanded }
+                if expanded, state.graph == nil { loadDependencies(service) }
             }
-            .buttonStyle(.litheNoPress)
-            .lithePointer()
-
-            Button {
-                isConfigurationPresented = true
-            } label: {
-                LitheSystemIcon(systemImage: "gearshape")
-                    .font(LitheTheme.uiFont(size: 11))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .frame(width: 28, height: 28)
-            }
-            .buttonStyle(.litheNoPress)
-            .lithePointer()
-            .help("Configure dependency search paths")
-            .accessibilityIdentifier("dependency-path-settings-\(service.id)")
-            .litheDropdown(isPresented: $isConfigurationPresented) {
-                DependencyPathConfigurationEditor(
-                    serviceName: service.displayName,
-                    workspaceURL: model.workspaceURL,
-                    configuration: feature.dependencyPaths(for: service.id),
-                    saveError: feature.dependencyConfigurationSaveError,
-                    onDismiss: { isConfigurationPresented = false }
-                ) {
-                    feature.updateDependencyPaths($0, serviceID: service.id)
-                }
-            }
-            .padding(.trailing, 4)
-        }
-        .frame(maxWidth: .infinity)
-        .accessibilityIdentifier("dependency-service-\(service.id)")
-    }
-
-    @ViewBuilder
-    private var serviceContent: some View {
-        if isResolving {
-            HStack(spacing: 6) {
-                ProgressView().controlSize(.mini)
-                Text("Resolving service paths...")
-                    .font(LitheTheme.uiFont(size: 11.5))
-                    .foregroundStyle(LitheTheme.secondaryText)
-            }
-            .padding(.leading, 28)
-            .frame(minHeight: 28)
-        } else if let resolutionError {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Could not load service dependencies")
-                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
-                    .foregroundStyle(LitheTheme.primaryText)
-                Text(resolutionError)
-                    .font(LitheTheme.uiFont(size: 10.5))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .lineLimit(3)
-                Button("Retry") { loadDependencies() }
-                    .buttonStyle(.litheNoPress)
-                    .foregroundStyle(LitheTheme.accent)
-                    .lithePointer()
-            }
-            .padding(.leading, 28)
-            .padding(.vertical, 5)
-        } else if let root = graph?.roots.first, root.children.contains(where: { !$0.children.isEmpty }) {
-            ForEach(root.children.filter { !$0.children.isEmpty }) { node in
-                DependencyTreeNodeView(
-                    node: node,
-                    depth: 1,
-                    expandedNodeIDs: $expandedNodeIDs
-                ) { path in
-                    feature.excludeDependencyPath(path, serviceID: service.id)
-                } onOpenVirtual: { uri in
-                    model.navigate(
-                        to: EditorNavigationLocation(
-                            url: uri,
-                            line: 0,
-                            utf16Column: 0,
-                            isReadOnly: true,
-                            virtualProviderID: service.providerID
-                        ),
-                        recordsHistory: true
+        ) {
+            HStack(spacing: LitheTheme.Tree.iconTextGap) {
+                LitheSystemIcon(systemImage: service.systemImage).frame(width: LitheTheme.Tree.iconSize)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(service.displayName).font(
+                        LitheTheme.uiFont(size: LitheTheme.Metrics.treeFontSize, weight: .semibold))
+                    Text(
+                        hasCustomConfiguration(service) ? String(localized: "Configured") : service.providerDisplayName
                     )
+                    .font(LitheTheme.uiFont(size: 9.5)).foregroundStyle(LitheTheme.secondaryText).lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                Button {
+                    configurationServiceID = service.id
+                } label: {
+                    LitheSystemIcon(systemImage: "gearshape")
+                }
+                .litheToolbarIconButton()
+                .help("Configure dependency search paths")
+                .accessibilityIdentifier("dependency-path-settings-\(service.id)")
+                .litheDropdown(
+                    isPresented: Binding(
+                        get: { configurationServiceID == service.id },
+                        set: { configurationServiceID = $0 ? service.id : nil })
+                ) {
+                    DependencyPathConfigurationEditor(
+                        serviceName: service.displayName,
+                        workspaceURL: model.workspaceURL,
+                        configuration: feature.dependencyPaths(for: service.id),
+                        saveError: feature.dependencyConfigurationSaveError,
+                        onDismiss: { configurationServiceID = nil }
+                    ) {
+                        feature.updateDependencyPaths($0, serviceID: service.id)
+                    }
                 }
             }
-        } else {
-            Text("No dependencies resolved")
-                .font(LitheTheme.uiFont(size: 11.5))
-                .foregroundStyle(LitheTheme.secondaryText)
-                .padding(.leading, 28)
-                .frame(minHeight: 28)
+            .frame(minHeight: 30)
+            .accessibilityIdentifier("dependency-service-\(service.id)")
+        } children: {
+            serviceChildren(service)
         }
     }
 
-    private var hasCustomConfiguration: Bool {
+    @LitheTreeListNodesBuilder
+    private func serviceChildren(_ service: DependencyServiceDescriptor) -> [LitheTreeListNode] {
+        let state = presentation.state(for: service.id)
+        if state.resolving {
+            LitheTreeListNode(id: service.id + ":loading", isSelectable: false) {
+                HStack {
+                    ProgressView().controlSize(.mini); Text("Resolving service paths...")
+                }
+            }
+        } else if let error = state.error {
+            LitheTreeListNode(id: service.id + ":error", isSelectable: false) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Could not load service dependencies").foregroundStyle(LitheTheme.primaryText)
+                    Text(error).font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText).lineLimit(3)
+                    Button("Retry") { loadDependencies(service) }.buttonStyle(.litheNoPress)
+                }.padding(.vertical, 5)
+            }
+        } else if let root = state.graph?.roots.first, root.children.contains(where: { !$0.children.isEmpty }) {
+            for node in root.children.filter({ !$0.children.isEmpty }) { dependencyNode(node, service: service) }
+        } else {
+            LitheTreeListNode(id: service.id + ":empty", isSelectable: false) {
+                Text("No dependencies resolved").foregroundStyle(LitheTheme.secondaryText)
+            }
+        }
+    }
+
+    private func dependencyNode(_ node: DependencyNode, service: DependencyServiceDescriptor) -> LitheTreeListNode {
+        let state = presentation.state(for: service.id)
+        let open: () -> Void = {
+            if case .virtualDocument(let uri) = node.source {
+                model.navigate(
+                    to: EditorNavigationLocation(
+                        url: uri, line: 0, utf16Column: 0,
+                        isReadOnly: true, virtualProviderID: service.providerID), recordsHistory: true)
+            }
+        }
+        return LitheTreeListNode(
+            id: service.id + ":node:" + node.id,
+            isExpanded: node.kind == .group ? state.expandedNodeIDs.contains(node.id) : nil,
+            onExpansion: { expanded in
+                presentation.update(service.id) {
+                    if expanded { $0.expandedNodeIDs.insert(node.id) } else { $0.expandedNodeIDs.remove(node.id) }
+                }
+            }, onActivate: open, onClick: node.kind == .group ? nil : open
+        ) {
+            if node.kind == .group {
+                HStack(spacing: LitheTheme.Tree.iconTextGap) {
+                    LitheSystemIcon(systemImage: node.title == "Dependencies" ? "shippingbox" : "folder")
+                        .frame(width: LitheTheme.Tree.iconSize)
+                    Text(LocalizedStringKey(node.title == "Dependencies" ? "Dependency Paths" : node.title)).lineLimit(
+                        1)
+                }
+            } else {
+                DependencyTreeNodeView(node: node) { feature.excludeDependencyPath($0, serviceID: service.id) }
+            }
+        } children: {
+            if node.children.isEmpty {
+                return [
+                    LitheTreeListNode(id: service.id + ":node:" + node.id + ":empty", isSelectable: false) {
+                        Text("No paths")
+                    }
+                ]
+            }
+            return node.children.map { dependencyNode($0, service: service) }
+        }
+    }
+
+    private func hasCustomConfiguration(_ service: DependencyServiceDescriptor) -> Bool {
         let paths = feature.dependencyPaths(for: service.id)
-        return !paths.sourcePaths.isEmpty
-            || !paths.binaryPaths.isEmpty
-            || !paths.dependencyPaths.isEmpty
-            || !paths.additionalSearchPaths.isEmpty
-            || !paths.excludedPaths.isEmpty
+        return !paths.sourcePaths.isEmpty || !paths.binaryPaths.isEmpty || !paths.dependencyPaths.isEmpty
+            || !paths.additionalSearchPaths.isEmpty || !paths.excludedPaths.isEmpty
     }
 
     private func invalidateAndReload() {
-        resolutionTask?.cancel()
-        resolutionTask = nil
-        graph = nil
-        resolutionError = nil
-        isResolving = false
-        if isExpanded { loadDependencies() }
+        let expanded = feature.dependencyServices.filter { presentation.state(for: $0.id).expanded }
+        presentation.invalidate()
+        for service in expanded { loadDependencies(service) }
     }
 
-    private func loadDependencies() {
-        guard !isResolving else { return }
-        resolutionTask?.cancel()
-        isResolving = true
-        resolutionError = nil
-        resolutionTask = Task { @MainActor in
-            defer {
-                isResolving = false
-                resolutionTask = nil
-            }
+    private func loadDependencies(_ service: DependencyServiceDescriptor) {
+        guard !presentation.state(for: service.id).resolving else { return }
+        let generation = presentation.begin(service.id)
+        let revision = feature.dependencyRevision
+        let task = Task { @MainActor in
             do {
-                let expectedRevision = feature.dependencyRevision
-                let resolved = try await feature.resolveDependencies(serviceID: service.id)
+                let graph = try await feature.resolveDependencies(serviceID: service.id)
                 try Task.checkCancellation()
-                guard expectedRevision == feature.dependencyRevision else { return }
-                graph = resolved
-            } catch is CancellationError {
-                return
-            } catch {
-                resolutionError = error.localizedDescription
+                guard revision == feature.dependencyRevision else { return }
+                presentation.finish(service.id, generation: generation, graph: graph, error: nil)
+            } catch is CancellationError { return } catch {
+                presentation.finish(service.id, generation: generation, graph: nil, error: error.localizedDescription)
             }
+        }
+        presentation.retain(task, for: service.id)
+    }
+}
+
+@MainActor
+final class DependencyTreePresentation: ObservableObject {
+    struct ServiceState {
+        var graph: DependencyGraph?
+        var expandedNodeIDs: Set<String> = []
+        var expanded = false
+        var resolving = false
+        var error: String?
+        var generation = UUID()
+    }
+    @Published private var states: [String: ServiceState] = [:]
+    private var tasks: [String: Task<Void, Never>] = [:]
+
+    func state(for id: String) -> ServiceState { states[id] ?? .init() }
+    func update(_ id: String, _ change: (inout ServiceState) -> Void) { change(&states[id, default: .init()]) }
+    func begin(_ id: String) -> UUID {
+        tasks.removeValue(forKey: id)?.cancel()
+        let generation = UUID()
+        update(id) {
+            $0.resolving = true; $0.error = nil; $0.generation = generation
+        }
+        return generation
+    }
+    func retain(_ task: Task<Void, Never>, for id: String) { tasks[id] = task }
+    func finish(_ id: String, generation: UUID, graph: DependencyGraph?, error: String?) {
+        guard states[id]?.generation == generation else { return }
+        update(id) {
+            $0.graph = graph; $0.error = error; $0.resolving = false
+        }
+        tasks[id] = nil
+    }
+    func close() {
+        tasks.values.forEach { $0.cancel() }
+        tasks.removeAll()
+        for id in Array(states.keys) {
+            update(id) {
+                $0.generation = UUID(); $0.resolving = false
+            }
+        }
+    }
+    func invalidate() {
+        close()
+        for id in Array(states.keys) {
+            update(id) {
+                $0.graph = nil; $0.error = nil
+            }
+        }
+    }
+    func retainServices(_ ids: Set<String>) {
+        for id in Array(states.keys) where !ids.contains(id) {
+            tasks.removeValue(forKey: id)?.cancel()
+            states[id] = nil
         }
     }
 }
 
 private struct DependencyTreeNodeView: View {
     let node: DependencyNode
-    let depth: Int
-    @Binding var expandedNodeIDs: Set<String>
     let onExclude: (String) -> Void
-    let onOpenVirtual: (URL) -> Void
 
-    private var isExpanded: Bool { expandedNodeIDs.contains(node.id) }
-
-    var body: some View {
-        if node.kind == .group {
-            VStack(alignment: .leading, spacing: 0) {
-                Button {
-                    if isExpanded {
-                        expandedNodeIDs.remove(node.id)
-                    } else {
-                        expandedNodeIDs.insert(node.id)
-                    }
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                            .font(LitheTheme.uiFont(size: 8, weight: .bold))
-                            .foregroundStyle(LitheTheme.secondaryText)
-                            .frame(width: 10)
-                        LitheSystemIcon(systemImage: node.title == "Dependencies" ? "shippingbox" : "folder")
-                            .font(LitheTheme.uiFont(size: 11))
-                            .foregroundStyle(LitheTheme.secondaryText)
-                            .frame(width: 16)
-                        Text(LocalizedStringKey(node.title == "Dependencies" ? "Dependency Paths" : node.title))
-                            .font(LitheTheme.uiFont(size: LitheTheme.Metrics.treeFontSize))
-                            .foregroundStyle(LitheTheme.primaryText)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .layoutPriority(1)
-                        Spacer(minLength: 4)
-                    }
-                    .padding(.leading, CGFloat(8 + depth * 14))
-                    .padding(.trailing, 8)
-                    .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.litheNoPress)
-                .lithePointer()
-
-                if isExpanded {
-                    if node.children.isEmpty {
-                        Text("No paths")
-                            .font(LitheTheme.uiFont(size: 10.5))
-                            .foregroundStyle(LitheTheme.secondaryText)
-                            .padding(.leading, CGFloat(42 + depth * 14))
-                            .frame(minHeight: 26)
-                    } else {
-                        ForEach(node.children) { child in
-                            DependencyTreeNodeView(
-                                node: child,
-                                depth: depth + 1,
-                                expandedNodeIDs: $expandedNodeIDs,
-                                onExclude: onExclude,
-                                onOpenVirtual: onOpenVirtual
-                            )
-                        }
-                    }
-                }
-            }
-        } else {
-            pathRow
-        }
-    }
-
-    private var pathRow: some View {
-        Group {
-            if case .virtualDocument(let uri) = node.source {
-                Button { onOpenVirtual(uri) } label: { pathRowContent }
-                    .buttonStyle(.litheNoPress)
-                    .lithePointer()
-            } else {
-                pathRowContent
-            }
-        }
-    }
+    var body: some View { pathRowContent }
 
     private var pathRowContent: some View {
         HStack(spacing: 6) {
@@ -399,8 +332,7 @@ private struct DependencyTreeNodeView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             Spacer(minLength: 4)
         }
-        .padding(.leading, CGFloat(22 + depth * 14))
-        .padding(.trailing, 8)
+        .padding(.vertical, 2)
         .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
         .contentShape(Rectangle())
         .help(node.subtitle ?? node.title)
@@ -555,9 +487,9 @@ private struct DependencyPathConfigurationEditor: View {
                     .lineLimit(2)
             }
 
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer(minLength: 0)
-                Button("Cancel") { onDismiss() }
+                Button("Cancel") { onDismiss() }.buttonStyle(LitheActionButtonStyle())
                     .keyboardShortcut(.cancelAction)
                 Button("Save") {
                     onSave(DependencyPathConfiguration(
@@ -568,7 +500,7 @@ private struct DependencyPathConfigurationEditor: View {
                         excludedPaths: excludedPaths
                     ))
                     onDismiss()
-                }
+                }.buttonStyle(LitheActionButtonStyle(isPrimary: true))
                 .keyboardShortcut(.defaultAction)
             }
         }
@@ -590,7 +522,7 @@ private struct DependencyPathConfigurationEditor: View {
                 } label: {
                     Label("Browse", systemImage: "folder.badge.plus")
                 }
-                .controlSize(.small)
+                .buttonStyle(LitheActionButtonStyle())
                 .disabled(workspaceURL == nil)
             }
             if paths.isEmpty {
@@ -758,7 +690,7 @@ private struct DependencyFolderBrowser: View {
                     .font(LitheTheme.uiFont(size: 14, weight: .semibold))
                 Spacer(minLength: 0)
                 Button("Open Folder...") { openFolder() }
-                    .controlSize(.small)
+                    .buttonStyle(LitheActionButtonStyle())
             }
 
             HStack(spacing: 6) {
@@ -814,14 +746,14 @@ private struct DependencyFolderBrowser: View {
                     .stroke(LitheTheme.divider, lineWidth: 1)
             }
 
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Text("\(selectedURLs.count) selected")
                     .font(LitheTheme.uiFont(size: 11))
                     .foregroundStyle(LitheTheme.secondaryText)
                 Spacer(minLength: 0)
-                Button("Cancel", action: onCancel)
+                Button("Cancel", action: onCancel).buttonStyle(LitheActionButtonStyle())
                     .keyboardShortcut(.cancelAction)
-                Button("Add Selected") { onAdd(Array(selectedURLs)) }
+                Button("Add Selected") { onAdd(Array(selectedURLs)) }.buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     .keyboardShortcut(.defaultAction)
                     .disabled(selectedURLs.isEmpty)
             }

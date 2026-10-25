@@ -4,6 +4,21 @@ import Foundation
 public enum AgentAuthentication: String, Codable, Equatable, Sendable {
     case apiKey
     case codexSubscription
+    /// The user's signed-in Claude Code CLI pays. Lithe passes no key or route
+    /// and never reads the CLI's credentials.
+    case claudeSubscription
+
+    public var isSubscription: Bool { self != .apiKey }
+
+    /// The account subscription a built-in Agent can use, if any. Each
+    /// subscription belongs to exactly one adapter.
+    public static func subscription(for agentID: String) -> AgentAuthentication? {
+        switch agentID {
+        case "codex-acp": .codexSubscription
+        case "claude-acp": .claudeSubscription
+        default: nil
+        }
+    }
 }
 
 /// Settings required to launch one ACP agent for a workspace.
@@ -29,6 +44,10 @@ public struct AgentLaunchConfiguration: Equatable, Sendable {
     /// Route API-key provider traffic through the Host's loopback proxy to
     /// observe individual model calls. Subscription connections ignore it.
     public let observesModelCalls: Bool
+    /// Configuration directory of the chosen subscription account, exported as
+    /// `CLAUDE_CONFIG_DIR` or `CODEX_HOME`. `nil` keeps the CLI's default
+    /// account. It only holds the official CLI's own login; Lithe never reads it.
+    public let accountDirectory: URL?
 
     public init(
         agentID: String?,
@@ -43,7 +62,8 @@ public struct AgentLaunchConfiguration: Equatable, Sendable {
         model: String,
         allowsInsecureHTTP: Bool,
         authentication: AgentAuthentication = .apiKey,
-        observesModelCalls: Bool = false
+        observesModelCalls: Bool = false,
+        accountDirectory: URL? = nil
     ) {
         self.authentication = authentication
         self.agentID = agentID
@@ -58,6 +78,7 @@ public struct AgentLaunchConfiguration: Equatable, Sendable {
         self.model = model
         self.allowsInsecureHTTP = allowsInsecureHTTP
         self.observesModelCalls = observesModelCalls
+        self.accountDirectory = accountDirectory
     }
 }
 

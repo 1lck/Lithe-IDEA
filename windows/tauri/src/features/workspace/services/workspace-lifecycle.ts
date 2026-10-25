@@ -1,4 +1,5 @@
 import { extensionProcessOwner } from "@/extensions/run/extension-process-owner";
+import { declarativePluginProcessOwner } from "@/features/plugins/declarative-plugin-process-owner";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import type { WorkspaceRuntimeDescriptor } from "@/features/workspace/types/workspace-runtime.types";
@@ -486,6 +487,9 @@ async function closeWorkspaceRuntimeOnce(
   const { disableMcp } = await import("@/features/host-api/mcp-connection");
   await disableMcp(workspaceId);
   await extensionProcessOwner.stop(workspaceId);
+  await declarativePluginProcessOwner.stop(workspaceId);
+  const { invoke: invokePluginHost } = await import("@/platform/tauri-core");
+  await invokePluginHost("declarative_plugins_close_workspace_pages", { workspaceId });
   await dispose?.(path);
 
   // Defensive: nothing can reactivate a closing project, but never leave the registry

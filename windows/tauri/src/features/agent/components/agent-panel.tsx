@@ -40,10 +40,10 @@ import {
 } from "../stores/agent-connection-service";
 import {
   EMPTY_AGENT_DRAFT,
-  NEW_AGENT_DRAFT_KEY,
+  agentDraftKey,
   useAgentSurfaceStore,
 } from "../stores/agent-surface.store";
-import { CODEX_AGENT_ID, CLAUDE_AGENT_ID } from "../types/agent-settings.types";
+import { CODEX_AGENT_ID, CLAUDE_AGENT_ID, selectAgentConfiguration } from "../types/agent-settings.types";
 import {
   currentPermission,
   type AgentConversation,
@@ -62,6 +62,7 @@ import {
 import { AgentSettingsSection } from "./agent-settings-section";
 import { AgentHero, AgentActivitySummaryBar, AgentTranscript } from "./agent-transcript";
 import { AgentContextUsageView } from "./agent-usage-panel";
+import { AgentContextComposition, AgentObservedStatistics } from "./agent-observed-statistics";
 
 /** How often a visible subscription panel asks the host for fresh quota. */
 const QUOTA_REFRESH_MILLISECONDS = 60_000;
@@ -113,6 +114,7 @@ export function AgentPanel({
   const isEditorPlacement = placement === "editor";
   const detailsOpen = useAgentSurfaceStore((state) => state.detailsOpen);
   const surfaceActions = useAgentSurfaceStore.use.actions();
+  const navigationRequest = useAgentSurfaceStore((state) => state.navigationRequest);
   const snapshot = useAgentSnapshot();
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath ?? null);
   const handleFileSelect = useFileSystemStore((state) => state.handleFileSelect);
@@ -145,7 +147,8 @@ export function AgentPanel({
   // Drafts belong to the conversation key, not to whichever surface happens
   // to be mounted. Moving the conversation therefore keeps unsent text and
   // attachments, and two surfaces never fight over the same composer.
-  const draftKey = selected ?? NEW_AGENT_DRAFT_KEY;
+  const activeAgentId = boundAgentID ?? settings.agentId;
+  const draftKey = agentDraftKey(activeAgentId, selected);
   const draftEntry = useAgentSurfaceStore((state) => state.drafts[draftKey]);
   const draft = draftEntry?.text ?? EMPTY_AGENT_DRAFT.text;
   const files = draftEntry?.files ?? EMPTY_AGENT_DRAFT.files;
@@ -157,21 +160,16 @@ export function AgentPanel({
     (next: AgentFileReference[]) => surfaceActions.setDraftFiles(draftKey, next),
     [draftKey, surfaceActions],
   );
+  const appendFiles = useCallback(
+    (next: AgentFileReference[]) => surfaceActions.appendDraftReferences(draftKey, next),
+    [draftKey, surfaceActions],
+  );
 
-  // A session can be created while the user is already typing under the
-  // "new conversation" key. Move that draft onto the real session instead of
-  // making the text disappear when the key changes.
-  const previousSelected = useRef<string | null>(selected);
   useEffect(() => {
-    const previous = previousSelected.current;
-    previousSelected.current = selected;
-    if (previous !== null || selected === null) return;
-    const pending = useAgentSurfaceStore.getState().drafts[NEW_AGENT_DRAFT_KEY];
-    if (pending === undefined) return;
-    surfaceActions.setDraft(selected, pending);
-    surfaceActions.clearDraft(NEW_AGENT_DRAFT_KEY);
-  }, [selected, surfaceActions]);
-  const activeAgentId = boundAgentID ?? settings.agentId;
+    if (navigationRequest?.agentID !== activeAgentId || navigationRequest.placement !== placement) return;
+    if (isEditorPlacement && navigationRequest.sessionID !== sessionID) return;
+    setPage(navigationRequest.page);
+  }, [navigationRequest, activeAgentId, placement, isEditorPlacement, sessionID]);
   const agentName = AGENT_NAMES[activeAgentId] ?? snapshot.agentName;
   const isConfigured = settings.enabled && rootFolderPath !== null;
   // macOS refuses to change a provider while a connection could lose work.
@@ -183,6 +181,7 @@ export function AgentPanel({
         conversation.isResponding ||
         conversation.isLoading ||
         conversation.pendingConfigToken !== null ||
+        conversation.pendingSteeringToken !== null ||
         conversation.pendingPermissions.length > 0,
     );
 
@@ -206,8 +205,9 @@ export function AgentPanel({
   const switchToBoundAgent = useCallback(() => {
     if (boundAgentID === null) return;
     const current = useSettingsStore.getState().settings.agentPanel;
-    void updateSetting("agentPanel", { ...current, agentId: boundAgentID });
-  }, [boundAgentID, updateSetting]);
+    if (!canChangeAuthentication) return;
+    void updateSetting("agentPanel", selectAgentConfiguration(current, boundAgentID));
+  }, [boundAgentID, updateSetting, canChangeAuthentication]);
 
   useEffect(() => {
     void agentDataDirectory()
@@ -390,7 +390,14 @@ export function AgentPanel({
 
   const openSettings = useCallback(() => setPage("settings"), []);
 
+  useEffect(() => {
+    if (status !== "ready" || isForeignAgent) return;
+    agentConnection().refreshSessions();
+    agentConnection().refreshArchivedSessions();
+  }, [page, status, isForeignAgent]);
+
   const historyList = (onSelect: (sessionID: string) => void) => (
+    <>
     <AgentHistoryList
       sessions={snapshot.sessions}
       metadata={history.metadata}
@@ -398,7 +405,19 @@ export function AgentPanel({
       isRefreshing={snapshot.isRefreshingSessions}
       error={snapshot.historyError ?? history.error ?? exportError}
       canRefresh={snapshot.canLoadSessions && status === "ready"}
-      onRefresh={() => agentConnection().refreshSessions()}
+      onRefresh={() => { agentConnection().refreshSessions(true); agentConnection().refreshArchivedSessions(true); }}
+      archive={{
+        supported: snapshot.canListArchivedSessions,
+        sessions: snapshot.archivedSessions,
+        loading: snapshot.isRefreshingArchivedSessions,
+        complete: snapshot.archivedHistoryComplete,
+        error: snapshot.archivedHistoryError,
+        restoringIDs: snapshot.unarchivingSessionIDs,
+        canRefresh: snapshot.canListArchivedSessions && status === "ready",
+        onRefresh: () => agentConnection().refreshArchivedSessions(true),
+        onRestore: (sessionID) => agentConnection().getSnapshot().archivedSessions === snapshot.archivedSessions
+          ? agentConnection().unarchiveSession(sessionID) : Promise.resolve(false),
+      }}
       onSelect={onSelect}
       onRename={history.rename}
       onSetFavorite={(sessionIDs, favorite) => void history.setFavorite(sessionIDs, favorite)}
@@ -407,6 +426,7 @@ export function AgentPanel({
       onExport={(sessionIDs) => void exportSessions(sessionIDs)}
       canExportSession={(sessionID) => agentConnection().canExportTranscript(sessionID)}
     />
+    </>
   );
 
   if (isForeignAgent && boundAgentID !== null) {
@@ -463,6 +483,7 @@ export function AgentPanel({
         </div>
         <div className="min-h-0 flex-1 overflow-auto">
           <AgentSettingsSection
+            key={settings.agentId}
             settings={settings}
             management={management}
             onChange={(next) => void updateSetting("agentPanel", next)}
@@ -501,7 +522,7 @@ export function AgentPanel({
   // While an editor tab owns the conversation, the tool window becomes the
   // history manager. Selecting a row focuses that session's existing tab or
   // opens one for a session that is not placed yet.
-  if (!isEditorPlacement && editorSessionIDs.length > 0) {
+  if (!isEditorPlacement && selected !== null && editorSessionIDs.includes(selected)) {
     const focusSessionID = editorSessionIDs[editorSessionIDs.length - 1] ?? null;
     return (
       <PanelFrame placement={placement}>
@@ -798,12 +819,16 @@ export function AgentPanel({
         composerPane={
           <div className={cn("h-full", isEditorPlacement && "mx-auto w-full max-w-[700px]")}>
             <AgentComposer
+              key={draftKey}
+              focusRequest={navigationRequest?.agentID === activeAgentId && navigationRequest.placement === placement &&
+                (!isEditorPlacement || (navigationRequest.sessionID === sessionID && isActive)) ? navigationRequest.serial : undefined}
               conversation={isConfigured ? conversation : null}
               agentName={agentName}
               draft={draft}
               onDraftChange={setDraft}
               files={files}
               onFilesChange={setFiles}
+              onAppendFiles={appendFiles}
               canSend={canSend}
               onOpenSettings={openSettings}
               onError={setLocalError}
@@ -922,8 +947,10 @@ function AgentSessionDetails({
           />
           <DetailRow
             label={t("agent.details.turns")}
-            value={String(conversation?.completedTurns.length ?? 0)}
+            value={String((conversation?.statistics.turnCount ?? 0) + (conversation?.activeTurn ? 1 : 0))}
           />
+          <DetailRow label={t("agent.stats.toolCalls")} value={String((conversation?.statistics.toolCallCount ?? 0) + (conversation?.activeTurn ? conversation.toolActivity?.ids.length ?? 0 : 0))} />
+          <DetailRow label={t("agent.stats.toolTime")} value={`${((conversation?.statistics.toolDurationMs ?? 0) / 1000).toFixed(1)} s`} />
         </DetailSection>
         <DetailSection title={t("agent.details.context")}>
           <div className="flex items-center justify-between py-0.5">
@@ -949,9 +976,12 @@ function AgentSessionDetails({
             })
           )}
         </DetailSection>
-        <p className="text-subtle-foreground ui-text-caption">
-          {t("agent.details.unavailable")}
-        </p>
+        <DetailSection title={t("agent.details.context")}>
+          <AgentContextComposition calls={conversation?.modelCalls ?? []} />
+        </DetailSection>
+        <DetailSection title={t("agent.stats.observe")}>
+          <AgentObservedStatistics calls={conversation?.modelCalls ?? []} totals={conversation?.statistics.calls} />
+        </DetailSection>
       </div>
     </aside>
   );

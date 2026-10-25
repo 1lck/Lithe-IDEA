@@ -7,24 +7,31 @@ import Testing
 @Suite("Agent selector names")
 struct AgentSessionSelectorPresentationTests {
     @Test
-    func approvalMenuAndCurrentValueKeepAgentNamesDespiteChineseTranslationCollisions() throws {
-        let chinese = try localizationBundle("zh-Hans")
-        // The unrelated app translation must remain available while Agent names bypass it.
-        #expect(AgentSessionSelectorPresentation.localized("Plan", bundle: chinese) == "计划")
-        let names = ["Manual", "Accept edits", "Plan", "Auto", "Bypass permissions", "Future mode"]
-        let ids = ["manual", "acceptEdits", "plan", "auto", "bypassPermissions", "future"]
-        var option = AgentSessionConfigOption(
-            id: "mode", name: "Mode", category: "mode", currentValue: "plan",
-            choices: zip(ids, names).map { .init(id: $0.0, name: $0.1) }
-        )
-        for language in ["zh-Hans", "en"] {
+    func knownApprovalModesFollowTheInterfaceLanguageAndUnknownModesKeepAgentNames() throws {
+        // Claude Agent and Codex modes are translated only when both the upstream
+        // id and its English name match; anything else keeps the Agent's name.
+        let claude = [("default", "Manual"), ("acceptEdits", "Accept edits"), ("plan", "Plan"), ("auto", "Auto"),
+                      ("bypassPermissions", "Bypass permissions"), ("future", "Future mode")]
+        let codex = [("read-only", "Ask for approval"), ("agent", "Approve for me"), ("agent-full-access", "Full access")]
+        let other = [("default", "Default"), ("plan", "Planning")]
+        let expected: [String: [[String]]] = [
+            "zh-Hans": [["手动", "接受编辑", "计划", "自动", "跳过权限确认", "Future mode"],
+                        ["请求批准", "替我审批", "完全访问"], ["Default", "Planning"]],
+            "en": [claude.map(\.1), codex.map(\.1), other.map(\.1)],
+        ]
+        for (language, titles) in expected {
             let bundle = try localizationBundle(language)
-            #expect(option.choices.map {
-                AgentSessionSelectorPresentation.choiceTitle($0, in: option, bundle: bundle)
-            } == names)
-            for choice in option.choices {
-                option.currentValue = choice.id
-                #expect(AgentSessionSelectorPresentation.currentTitle(option, bundle: bundle) == choice.name)
+            for (choices, titles) in zip([claude, codex, other], titles) {
+                var option = AgentSessionConfigOption(
+                    id: "mode", name: "Mode", category: "mode", currentValue: choices[0].0,
+                    choices: choices.map { .init(id: $0.0, name: $0.1) })
+                #expect(option.choices.map {
+                    AgentSessionSelectorPresentation.choiceTitle($0, in: option, bundle: bundle)
+                } == titles, "\(language)")
+                for (choice, title) in zip(option.choices, titles) {
+                    option.currentValue = choice.id
+                    #expect(AgentSessionSelectorPresentation.currentTitle(option, bundle: bundle) == title)
+                }
             }
         }
     }

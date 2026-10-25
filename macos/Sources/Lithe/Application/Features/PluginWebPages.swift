@@ -16,8 +16,12 @@ final class PluginWebPages {
     /// By tool-window contribution ID.
     let windows: [String: PluginWebWindow]
     let stateStore: any PluginWebStateStoring
+    /// The application's plugin backends, shared with every project window.
+    let backends: (any PluginBackendRequesting)?
     private let prompt: @MainActor (PluginWebProcessConsent) async -> Bool
+    let chooseFile: @MainActor (PluginWebFileRequest) async -> URL?
     private var pages: [String: any PluginWebPageHandle] = [:]
+    private var nativeOwners: [String: String] = [:]
     private var unavailablePluginIDs: Set<String> = []
     /// Plugin and workspace pairs the user let start build tools in this session.
     private var allowed: Set<String> = []
@@ -26,11 +30,15 @@ final class PluginWebPages {
     init(
         windows: [PluginWebWindow] = [],
         stateStore: (any PluginWebStateStoring)? = nil,
-        prompt: @escaping @MainActor (PluginWebProcessConsent) async -> Bool = { _ in false }
+        backends: (any PluginBackendRequesting)? = nil,
+        prompt: @escaping @MainActor (PluginWebProcessConsent) async -> Bool = { _ in false },
+        chooseFile: @escaping @MainActor (PluginWebFileRequest) async -> URL? = { _ in nil }
     ) {
         self.windows = Dictionary(windows.map { ($0.windowID, $0) }, uniquingKeysWith: { first, _ in first })
         self.stateStore = stateStore ?? MemoryPluginWebStateStore()
+        self.backends = backends
         self.prompt = prompt
+        self.chooseFile = chooseFile
     }
 
     /// The open page of a window, created by `make` on first use.
@@ -42,14 +50,37 @@ final class PluginWebPages {
         return page
     }
 
+    /// Native renderers share the same cross-project disable/update/close boundary.
+    func registerNative(_ page: any PluginWebPageHandle, windowID: String, pluginID: String) -> Bool {
+        guard !unavailablePluginIDs.contains(pluginID),
+              pages[windowID] == nil || nativeOwners[windowID] == pluginID else { return false }
+        // Split-layout changes mount the replacement before the previous view
+        // disappears. Transfer this window atomically; a stale release checks identity.
+        let previous = pages[windowID]
+        nativeOwners[windowID] = pluginID
+        pages[windowID] = page
+        if previous !== page { previous?.close() }
+        return true
+    }
+
+    func releaseNative(_ page: any PluginWebPageHandle, windowID: String) {
+        guard pages[windowID] === page else { return }
+        pages.removeValue(forKey: windowID)
+        nativeOwners.removeValue(forKey: windowID)
+        page.close()
+    }
+
+    var pluginIDs: Set<String> { Set(windows.values.map(\.pluginID)).union(nativeOwners.values) }
+
     var openWindowIDs: Set<String> { Set(pages.keys) }
 
     /// Closes the pages of these plugins and forgets the build-tool answers
     /// given to them, so a re-enabled or updated plugin asks again.
     func closePages(of pluginIDs: Set<String>) {
         unavailablePluginIDs.formUnion(pluginIDs)
-        for (id, page) in pages where windows[id].map({ pluginIDs.contains($0.pluginID) }) == true {
+        for (id, page) in pages where (windows[id]?.pluginID ?? nativeOwners[id]).map({ pluginIDs.contains($0) }) == true {
             pages.removeValue(forKey: id)
+            nativeOwners.removeValue(forKey: id)
             page.close()
         }
         allowed = allowed.filter { key in !pluginIDs.contains { key.hasPrefix($0 + "\n") } }
@@ -67,6 +98,7 @@ final class PluginWebPages {
     func closeAll() {
         let open = pages.values
         pages.removeAll()
+        nativeOwners.removeAll()
         open.forEach { $0.close() }
         allowed.removeAll()
         prompts.values.forEach { $0.cancel() }

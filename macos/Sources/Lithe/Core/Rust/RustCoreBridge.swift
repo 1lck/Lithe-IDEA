@@ -1413,6 +1413,25 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let untracked: Bool
         let submodule: GitSubmoduleStatus?
         let canToggleStaging: Bool?
+        let untrackedFileCount: Int?
+
+        func makeChange(repositoryRoot: URL) -> GitChange {
+            let status = Array(status)
+            return GitChange(
+                repositoryRoot: repositoryRoot,
+                path: path,
+                originalPath: originalPath,
+                indexStatus: status.first ?? " ",
+                workTreeStatus: status.dropFirst().first ?? " ",
+                submodule: submodule,
+                canToggleStaging: canToggleStaging ?? true,
+                untrackedFileCount: untrackedFileCount
+            )
+        }
+    }
+
+    struct GitUntrackedDirectoryPayload: Decodable, Sendable {
+        let changes: [GitChangePayload]
     }
 
     struct GitStatusPayload: Decodable, Sendable {
@@ -1428,18 +1447,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             return GitSnapshot(
                 repositoryRoot: root.standardizedFileURL,
                 branch: branch ?? "detached",
-                changes: changes.map { change in
-                    let status = Array(change.status)
-                    return GitChange(
-                        repositoryRoot: root.standardizedFileURL,
-                        path: change.path,
-                        originalPath: change.originalPath,
-                        indexStatus: status.first ?? " ",
-                        workTreeStatus: status.dropFirst().first ?? " ",
-                        submodule: change.submodule,
-                        canToggleStaging: change.canToggleStaging ?? true
-                    )
-                }
+                changes: changes.map { $0.makeChange(repositoryRoot: root.standardizedFileURL) }
             )
         }
     }
@@ -1883,6 +1891,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let workingDirectory: String
         let initializationOptions: ToolingJSONValue?
         let workspaceConfiguration: ToolingJSONValue?
+        /// Host services a plugin backend may request; omitted when none.
+        let hostServices: [String]?
         let runtimeExecutablePath: String?
         let jdtlsLaunchResources: LspJdtlsLaunchResourcesRequest?
         let cacheDirectory: String?
@@ -2026,6 +2036,16 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let timeoutMilliseconds: Int
     }
 
+    private struct LspVcsRequest: Encodable {
+        let sessionId: String
+        let vcs: String
+        let operation: String
+        let root: String
+        let tool: String?
+        let arguments: ToolingJSONValue
+        let timeoutMilliseconds: Int
+    }
+
     private struct LspFunctionRequest: Encodable {
         struct Reference: Encodable {
             let pluginID: String
@@ -2036,6 +2056,17 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let function: Reference
         let params: ToolingJSONValue
         let timeoutMilliseconds: Int
+    }
+
+    private struct LspHostResponseRequest: Encodable {
+        struct Failure: Encodable {
+            let message: String
+        }
+
+        let sessionId: String
+        let hostRequestID: String
+        let result: ToolingJSONValue?
+        let error: Failure?
     }
 
     private struct LspCancelOperationRequest: Encodable {
@@ -2222,6 +2253,13 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let repositoryRoots: [String]
         let root: String
         let includeIndexOnlyChanges = true
+        var summarizeUntrackedDirectories = false
+    }
+
+    private struct GitUntrackedDirectoryRequest: Encodable {
+        let root: String
+        let directory: String
+        let repositoryRoots: [String]
     }
 
     private struct WorkspaceRepositoriesRequest: Encodable {
@@ -2273,6 +2311,9 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let amend: Bool
         let force: Bool
         let autoStash: Bool
+        /// Destination confirmed for a divergent upstream; omitted so routine
+        /// pushes keep their existing behaviour.
+        let pushTarget: String?
     }
 
     private struct GitDiffRequest: Encodable {
@@ -2997,10 +3038,33 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         )
     }
 
-    func gitStatus(at rootURL: URL, repositoryRoots: [URL] = []) -> GitStatusPayload? {
+    func gitStatus(
+        at rootURL: URL,
+        repositoryRoots: [URL] = [],
+        summarizeUntrackedDirectories: Bool = false
+    ) -> GitStatusPayload? {
         execute(
             command: "git.status",
-            payload: GitStatusRequest(repositoryRoots: repositoryRoots.map { $0.standardizedFileURL.path }, root: rootURL.standardizedFileURL.path)
+            payload: GitStatusRequest(
+                repositoryRoots: repositoryRoots.map { $0.standardizedFileURL.path },
+                root: rootURL.standardizedFileURL.path,
+                summarizeUntrackedDirectories: summarizeUntrackedDirectories
+            )
+        )
+    }
+
+    func gitUntrackedDirectory(
+        at repositoryRoot: URL,
+        directory: String,
+        repositoryRoots: [URL]
+    ) -> GitUntrackedDirectoryPayload? {
+        execute(
+            command: "git.untrackedDirectory",
+            payload: GitUntrackedDirectoryRequest(
+                root: repositoryRoot.standardizedFileURL.path,
+                directory: directory,
+                repositoryRoots: repositoryRoots.map { $0.standardizedFileURL.path }
+            )
         )
     }
 
@@ -3091,7 +3155,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         checkout: Bool = false,
         amend: Bool = false,
         force: Bool = false,
-        autoStash: Bool = false
+        autoStash: Bool = false,
+        pushTarget: String? = nil
     ) -> GitCommandPayload? {
         execute(
             command: "git.write",
@@ -3112,7 +3177,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 checkout: checkout,
                 amend: amend,
                 force: force,
-                autoStash: autoStash
+                autoStash: autoStash,
+                pushTarget: pushTarget
             )
         )
     }
@@ -3188,7 +3254,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         checkout: Bool = false,
         amend: Bool = false,
         force: Bool = false,
-        autoStash: Bool = false
+        autoStash: Bool = false,
+        pushTarget: String? = nil
     ) -> Result<GitCommandPayload, CoreCallError> {
         executeResult(
             command: "git.write",
@@ -3209,7 +3276,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 checkout: checkout,
                 amend: amend,
                 force: force,
-                autoStash: autoStash
+                autoStash: autoStash,
+                pushTarget: pushTarget
             )
         )
     }
@@ -3601,6 +3669,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         workingDirectoryURL: URL,
         initializationOptions: ToolingJSONValue? = nil,
         workspaceConfiguration: ToolingJSONValue? = nil,
+        hostServices: [String] = [],
         runtimeExecutableURL: URL? = nil,
         jdtlsLaunchResources: JDTLSLaunchResources? = nil,
         cacheDirectoryURL: URL? = nil,
@@ -3623,6 +3692,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 workingDirectory: workingDirectoryURL.standardizedFileURL.path,
                 initializationOptions: initializationOptions,
                 workspaceConfiguration: workspaceConfiguration,
+                hostServices: hostServices.isEmpty ? nil : hostServices,
                 runtimeExecutablePath: runtimeExecutableURL?.standardizedFileURL.path,
                 jdtlsLaunchResources: jdtlsLaunchResources.map {
                     LspJdtlsLaunchResourcesRequest(
@@ -3878,6 +3948,32 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         )
     }
 
+    /// Sends one VCS-provider operation. Core plans the method and params
+    /// and refuses the request unless the session negotiated a provider of
+    /// `vcs` with the operation's capability.
+    func lspVcsRequest(
+        sessionID: String,
+        vcs: String,
+        operation: String,
+        root: String,
+        tool: String?,
+        arguments: ToolingJSONValue,
+        timeout: TimeInterval
+    ) -> Result<LspOperationPayload, CoreCallError> {
+        executeResult(
+            command: "lsp.vcsRequest",
+            payload: LspVcsRequest(
+                sessionId: sessionID,
+                vcs: vcs,
+                operation: operation,
+                root: root,
+                tool: tool,
+                arguments: arguments,
+                timeoutMilliseconds: max(1, Self.milliseconds(timeout))
+            )
+        )
+    }
+
     /// Invokes a plugin function. Core refuses it unless the session belongs
     /// to `pluginID` and registered the function.
     func lspFunctionRequest(
@@ -3894,6 +3990,24 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 function: .init(pluginID: pluginID, functionID: functionID),
                 params: params,
                 timeoutMilliseconds: max(1, Self.milliseconds(timeout))
+            )
+        )
+    }
+
+    /// Answers one `hostRequest` event of a plugin backend.
+    func lspHostResponse(
+        sessionID: String,
+        hostRequestID: String,
+        result: ToolingJSONValue?,
+        failureMessage: String?
+    ) -> Result<Void, CoreCallError> {
+        executeVoid(
+            command: "lsp.hostResponse",
+            payload: LspHostResponseRequest(
+                sessionId: sessionID,
+                hostRequestID: hostRequestID,
+                result: failureMessage == nil ? (result ?? .null) : nil,
+                error: failureMessage.map { .init(message: $0) }
             )
         )
     }

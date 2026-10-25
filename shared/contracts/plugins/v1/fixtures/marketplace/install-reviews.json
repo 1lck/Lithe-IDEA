@@ -4,8 +4,8 @@
   "cases": [
     {
       "name": "first installation lists every program",
-      "base": "php-support.plugin.json",
-      "expectedID": "dev.lithe.fixture.php-support",
+      "base": "language-packaged-server.plugin.json",
+      "expectedID": "dev.lithe.fixture.language-packaged-server",
       "expectedVersion": "0.1.0",
       "expected": {
         "permissions": [
@@ -67,7 +67,7 @@
     },
     {
       "name": "unchanged update needs no new approval",
-      "base": "php-support.plugin.json",
+      "base": "language-packaged-server.plugin.json",
       "edits": [
         {
           "op": "set",
@@ -75,14 +75,14 @@
           "value": "0.2.0"
         }
       ],
-      "approvedFrom": "php-support.plugin.json",
+      "approvedFrom": "language-packaged-server.plugin.json",
       "expected": {
         "newProgramCount": 0
       }
     },
     {
       "name": "changed language server arguments need approval",
-      "base": "php-support.plugin.json",
+      "base": "language-packaged-server.plugin.json",
       "edits": [
         {
           "op": "set",
@@ -93,7 +93,7 @@
           ]
         }
       ],
-      "approvedFrom": "php-support.plugin.json",
+      "approvedFrom": "language-packaged-server.plugin.json",
       "expected": {
         "newPrograms": [
           {
@@ -112,7 +112,7 @@
     },
     {
       "name": "changed run arguments with the same executable need approval",
-      "base": "php-support.plugin.json",
+      "base": "language-packaged-server.plugin.json",
       "edits": [
         {
           "op": "set",
@@ -123,7 +123,7 @@
           ]
         }
       ],
-      "approvedFrom": "php-support.plugin.json",
+      "approvedFrom": "language-packaged-server.plugin.json",
       "expected": {
         "newPrograms": [
           {
@@ -143,7 +143,7 @@
     },
     {
       "name": "changed test arguments with the same executable need approval",
-      "base": "php-support.plugin.json",
+      "base": "language-packaged-server.plugin.json",
       "edits": [
         {
           "op": "set",
@@ -153,14 +153,14 @@
           ]
         }
       ],
-      "approvedFrom": "php-support.plugin.json",
+      "approvedFrom": "language-packaged-server.plugin.json",
       "expected": {
         "newProgramCount": 1
       }
     },
     {
       "name": "changed language server validation probe needs approval",
-      "base": "php-support.plugin.json",
+      "base": "language-packaged-server.plugin.json",
       "edits": [
         {
           "op": "set",
@@ -170,21 +170,21 @@
           ]
         }
       ],
-      "approvedFrom": "php-support.plugin.json",
+      "approvedFrom": "language-packaged-server.plugin.json",
       "expected": {
         "newProgramCount": 1
       }
     },
     {
       "name": "package does not match the index entry",
-      "base": "php-support.plugin.json",
-      "expectedID": "dev.lithe.fixture.php-support",
+      "base": "language-packaged-server.plugin.json",
+      "expectedID": "dev.lithe.fixture.language-packaged-server",
       "expectedVersion": "9.9.9",
       "expectedCode": "plugin.package.mismatch"
     },
     {
       "name": "unsigned package in the official namespace",
-      "base": "go-support.plugin.json",
+      "base": "language-system-command.plugin.json",
       "edits": [
         {
           "op": "set",
@@ -196,7 +196,7 @@
     },
     {
       "name": "unsigned community package",
-      "base": "go-support.plugin.json",
+      "base": "language-system-command.plugin.json",
       "edits": [
         {
           "op": "set",
@@ -271,19 +271,19 @@
     },
     {
       "name": "template build review does not require buildProviders",
-      "base": "cargo-build.plugin.json",
+      "base": "build-static-file.plugin.json",
       "hostCapabilities": {
         "buildSystems": [
           1
         ]
       },
       "expected": {
-        "id": "dev.lithe.fixture.cargo-build"
+        "id": "dev.lithe.fixture.build-static-file"
       }
     },
     {
       "name": "gradle provider review requires buildProviders even with buildSystems",
-      "base": "gradle-provider.plugin.json",
+      "base": "build-provider.plugin.json",
       "hostCapabilities": {
         "buildSystems": [
           1
@@ -306,7 +306,7 @@
     },
     {
       "name": "gradle provider review rejects unsupported buildProviders version",
-      "base": "gradle-provider.plugin.json",
+      "base": "build-provider.plugin.json",
       "hostCapabilities": {
         "buildProviders": [
           2
@@ -332,14 +332,14 @@
     },
     {
       "name": "gradle provider review without a host table uses Core capabilities",
-      "base": "gradle-provider.plugin.json",
+      "base": "build-provider.plugin.json",
       "expected": {
-        "id": "dev.lithe.fixture.gradle-provider"
+        "id": "dev.lithe.fixture.build-provider"
       }
     },
     {
       "name": "mix provider review requires buildProviders even with buildSystems",
-      "base": "mix-provider.plugin.json",
+      "base": "build-provider-language-server.plugin.json",
       "hostCapabilities": {
         "buildSystems": [
           1
@@ -362,7 +362,7 @@
     },
     {
       "name": "mix provider review rejects unsupported buildProviders version",
-      "base": "mix-provider.plugin.json",
+      "base": "build-provider-language-server.plugin.json",
       "hostCapabilities": {
         "buildProviders": [
           2
@@ -388,14 +388,14 @@
     },
     {
       "name": "mix provider review without a host table uses Core capabilities",
-      "base": "mix-provider.plugin.json",
+      "base": "build-provider-language-server.plugin.json",
       "expected": {
-        "id": "dev.lithe.fixture.mix-provider"
+        "id": "dev.lithe.fixture.build-provider-language-server"
       }
     },
     {
       "name": "own provider review accepts implemented buildProviders",
-      "base": "gradle-provider.plugin.json",
+      "base": "build-provider.plugin.json",
       "hostCapabilities": {
         "buildProviders": [
           1
@@ -411,21 +411,21 @@
         ]
       },
       "expected": {
-        "id": "dev.lithe.fixture.gradle-provider"
+        "id": "dev.lithe.fixture.build-provider"
       }
     },
     {
       "name": "host without build systems refuses a build plugin",
-      "base": "mix-provider.plugin.json",
+      "base": "build-provider-language-server.plugin.json",
       "hostCapabilities": { "languages": [1], "languageServers": [1], "serverProcess": [1] },
       "expectedCode": "plugin.api.unsupported"
     },
     {
       "name": "host with every required capability reviews a build plugin",
-      "base": "mix-provider.plugin.json",
+      "base": "build-provider-language-server.plugin.json",
       "hostCapabilities": { "buildProviders": [1], "buildSystems": [1], "languages": [1], "languageServers": [1], "serverProcess": [1] },
       "expected": {
-        "id": "dev.lithe.fixture.mix-provider",
+        "id": "dev.lithe.fixture.build-provider-language-server",
         "permissions": ["languageServer.launch", "process.build"],
         "newProgramCount": 2
       }

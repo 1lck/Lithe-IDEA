@@ -33,6 +33,12 @@ enum SettingsSearchVocabulary {
             ["AI & Commit", "Commit message", "Pull request"]
         case .agents:
             ["Agents", "Agent conversation", "Codex", "Claude", "ACP adapter", "Preflight", "Providers"]
+        case .instructions:
+            ["Instructions", "Global instructions", "AGENTS.md", "AGENTS.override.md", "CLAUDE.md", "Codex", "Claude"]
+        case .skills:
+            ["Skills", "Agent skills", "SKILL.md", "Global skills", "Project skills", "Import skill", "New skill", "Codex", "Claude"]
+        case .hooks:
+            ["Hooks", "Hook", "When to run", "Command", "Timeout (seconds)", "Codex", "Claude Code"]
         case .providers:
             ["AI Providers", "AI provider", "Model", "API key", "Endpoint", "Responses", "Anthropic"]
         case .git:
@@ -40,7 +46,7 @@ enum SettingsSearchVocabulary {
         case .updates:
             ["Updates", "Application version", "Update status", "Check for Updates", "Update channel", "Stable (Recommended)", "AutoBuild Rolling"]
         case .processTermination:
-            ["Process Termination Policy", "Process", "Quit", "Terminals with running programs", "Agent tasks", "Background services", "Closing a terminal tab", "After Lithe closes unexpectedly", "Time to exit", "Remembered choices", "Daemon"]
+            ["Process Termination Policy", "Process", "Quit", "Run services", "Terminals with running programs", "Agent tasks", "Background services", "Closing a terminal tab", "After Lithe closes unexpectedly", "Time to exit", "Remembered choices", "Daemon"]
         case .diagnostics:
             ["Logs and Diagnostics", "Logs", "Log directory", "Log timeline", "Diagnostics", "Diagnostic bundle", "Export logs", "Bug report", "Detailed diagnostics", "Module", "Session", "Minimum level", "Filter log messages", "From (UTC ISO 8601)", "Until (UTC ISO 8601)", "Retention and cleanup"]
         case .plugins:

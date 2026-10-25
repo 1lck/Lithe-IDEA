@@ -1,3 +1,4 @@
+import { LANGUAGE_OPTIONS, type DisplayLanguage } from "@/i18n/locale";
 import { UpdateChannelSelector } from "./update-channel-selector";
 import { getInstalledVersionLabel } from "../lib/update-channel";
 import SettingsSelect from "@/ui/settings-select";
@@ -7,6 +8,8 @@ import { buildFontFamilyStack } from "../lib/font-family-resolution";
 import { DEFAULT_MONO_FONT_FAMILY } from "../config/typography-defaults";
 import { AiCommitSettingsPanel } from "./ai-commit-settings-panel";
 import { AISettings } from "./tabs/ai-settings";
+import { AgentSettingsPanel } from "./tabs/agent-settings-panel";
+import { AgentHooksSettings } from "./tabs/agent-hooks-settings";
 import { getVersion } from "@tauri-apps/api/app";
 import { lazy, Suspense, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { themeRegistry } from "@/extensions/themes/theme-registry";
@@ -57,10 +60,13 @@ export type SettingsCategory =
   | "editor"
   | "keyboard"
   | "plugins"
+  | "declarative-plugins"
   | "terminal"
   | "lsp"
   | "maven"
   | "ai"
+  | "agents"
+  | "hooks"
   | "ai-commit"
   | "logs"
   | "updates";
@@ -69,6 +75,12 @@ const PluginsPanel = lazy(() =>
   import("@/extensions/ui/components/extensions-sidebar").then(({ ExtensionsSidebar }) => ({
     default: ExtensionsSidebar,
   })),
+);
+
+const DeclarativePluginsPanel = lazy(() =>
+  import("@/features/plugins/declarative-plugins-section").then(
+    ({ DeclarativePluginsSection }) => ({ default: DeclarativePluginsSection }),
+  ),
 );
 
 function GeneralPanel() {
@@ -188,12 +200,9 @@ function GeneralPanel() {
             className="w-40"
             value={settings.displayLanguage}
             onChange={(selectedValue) =>
-              void updateSetting("displayLanguage", selectedValue as "en-US" | "zh-CN")
+              void updateSetting("displayLanguage", selectedValue as DisplayLanguage)
             }
-            options={[
-              { value: "en-US", label: "English" },
-              { value: "zh-CN", label: "简体中文" },
-            ]}
+            options={LANGUAGE_OPTIONS.map((option) => ({ ...option }))}
           />
         </SettingsRow>
       </SettingsGroup>
@@ -614,6 +623,12 @@ export function SettingsPanel({
           <PluginsPanel presentation="settings" />
         </Suspense>
       );
+    case "declarative-plugins":
+      return (
+        <Suspense fallback={null}>
+          <DeclarativePluginsPanel />
+        </Suspense>
+      );
     case "terminal":
       return <TerminalPanel />;
     case "lsp":
@@ -622,6 +637,10 @@ export function SettingsPanel({
       return <MavenSettingsPanel />;
     case "ai":
       return <AISettings />;
+    case "agents":
+      return <AgentSettingsPanel />;
+    case "hooks":
+      return <AgentHooksSettings />;
     case "ai-commit":
       return <AiCommitSettingsPanel />;
     case "logs":

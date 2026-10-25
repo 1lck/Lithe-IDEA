@@ -15,6 +15,11 @@ export interface GitFile {
   rawStatus?: string;
   /** Whether the worktree differs from the index for this path. */
   worktree?: boolean;
+  /**
+   * Set when this entry summarizes a wholly untracked directory: `path` ends
+   * with `/` and the entry stands for this many files.
+   */
+  untrackedFileCount?: number;
 }
 
 export interface GitStatus {
@@ -62,11 +67,22 @@ export interface GitHistorySnapshot {
 
 export type GitPushTagScope = "none" | "all" | "reachable";
 
+/**
+ * How the resolved push destination relates to the local branch upstream.
+ * `divergent` means pushing would update a differently named branch, so the
+ * destination has to be confirmed explicitly before pushing.
+ */
+export type GitPushTargetKind = "publish" | "tracking" | "divergent";
+
+/** Destination choice a user explicitly confirmed for a divergent branch. */
+export type GitPushTargetChoice = "publish" | "upstream";
+
 export interface GitPushExpectation {
   localBranch: string;
   localHead: string;
   remote: string;
   remoteBranch: string;
+  targetKind?: GitPushTargetKind;
   remoteTrackingOid: string | null;
   tags: GitPushTagSnapshot[];
 }
@@ -83,6 +99,9 @@ export interface GitOperationWarning {
 }
 
 export interface GitPushPreview extends GitPushExpectation {
+  targetKind: GitPushTargetKind;
+  /** Whether `remoteBranch` does not exist on the remote yet. */
+  createsRemoteBranch: boolean;
   upstream: string | null;
   commits: GitCommit[];
   hasMore: boolean;

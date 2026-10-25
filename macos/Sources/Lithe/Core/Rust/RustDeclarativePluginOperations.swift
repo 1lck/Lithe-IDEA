@@ -9,6 +9,13 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
     DeclarativeLanguageServerLaunchPlanning, DeclarativePluginSettingsResolving, LanguageServerRuntimeVersionChecking {
     let core: RustCoreBridge
 
+    func validateNativeNodes(ui: PluginNativeUI, data: ToolingJSONValue) throws -> [PluginNativeUI.Node] {
+        struct Payload: Encodable { let ui: PluginNativeUI; let data: ToolingJSONValue }
+        struct Nodes: Decodable { let nodes: [PluginNativeUI.Node] }
+        let outcome: Outcome<Nodes> = try execute("plugins.nativeUI.validateData", payload: Payload(ui: ui, data: data))
+        return outcome.value.nodes
+    }
+
     func validate(manifest: Data) throws -> DeclarativePluginDescriptor {
         let outcome: Outcome<ValidatedPlugin> = try execute(
             "plugins.declarative.validate",
@@ -122,6 +129,33 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
         ))
     }
 
+    func vcsProviderLaunchPlan(
+        manifest: Data,
+        vcs: String,
+        request: DeclarativeLanguageServerLaunchRequest
+    ) throws -> DeclarativeLanguageServerLaunchPlan {
+        try launchPlan(LaunchPlanPayload(
+            manifest: try Self.json(manifest),
+            languageID: nil,
+            buildSystemID: nil,
+            vcsProviderID: vcs,
+            request: LaunchRequest(request)
+        ))
+    }
+
+    func backendLaunchPlan(
+        manifest: Data,
+        request: DeclarativeLanguageServerLaunchRequest
+    ) throws -> DeclarativeLanguageServerLaunchPlan {
+        try launchPlan(LaunchPlanPayload(
+            manifest: try Self.json(manifest),
+            languageID: nil,
+            buildSystemID: nil,
+            backend: true,
+            request: LaunchRequest(request)
+        ))
+    }
+
     private func launchPlan(_ payload: LaunchPlanPayload) throws -> DeclarativeLanguageServerLaunchPlan {
         let outcome: Outcome<LaunchPlanResult> = try execute(
             "plugins.declarative.languageServerLaunchPlan",
@@ -162,6 +196,15 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
             }
         )
         result.workspaceConfiguration = plan.workspaceConfiguration
+        result.vcsProvider = plan.vcsProvider.map {
+            .init(
+                vcs: $0.vcs,
+                toolCommands: $0.tool?.commands ?? [],
+                toolValidationArguments: $0.tool?.validationArguments ?? [],
+                mayUseNetwork: $0.mayUseNetwork ?? false
+            )
+        }
+        result.backend = plan.backend.map { .init(hostServices: $0.hostServices) }
         return result
     }
 
@@ -291,7 +334,8 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
     private struct LaunchRequest: Encodable {
         let pluginDirectory: String
         let stateDirectory: String
-        let workspaceStateDirectory: String
+        /// Omitted for a process bound to no workspace.
+        let workspaceStateDirectory: String?
         let architecture: String
         let settings: [String: ToolingJSONValue]
         let projectSettings: [String: ToolingJSONValue]
@@ -299,7 +343,7 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
         init(_ request: DeclarativeLanguageServerLaunchRequest) {
             pluginDirectory = request.pluginDirectory.path
             stateDirectory = request.stateDirectory.path
-            workspaceStateDirectory = request.workspaceStateDirectory.path
+            workspaceStateDirectory = request.workspaceStateDirectory?.path
             architecture = request.architecture
             settings = request.settings
             projectSettings = request.projectSettings
@@ -370,6 +414,23 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
         let requiredDirectories: [String]
         let requiredPackagePaths: [String]
         let buildProvider: BuildProvider?
+        let vcsProvider: VcsProvider?
+        let backend: Backend?
+
+        struct Backend: Decodable {
+            let hostServices: [String]
+        }
+
+        struct VcsProvider: Decodable {
+            struct Tool: Decodable {
+                let commands: [String]
+                let validationArguments: [String]?
+            }
+
+            let vcs: String
+            let tool: Tool?
+            let mayUseNetwork: Bool?
+        }
 
         struct BuildProvider: Decodable {
             let buildSystemID: String
@@ -405,6 +466,9 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
         let manifest: ToolingJSONValue
         let languageID: String?
         let buildSystemID: String?
+        var vcsProviderID: String? = nil
+        /// Selects the plugin backend; omitted for every other process.
+        var backend: Bool? = nil
         let request: LaunchRequest
     }
 

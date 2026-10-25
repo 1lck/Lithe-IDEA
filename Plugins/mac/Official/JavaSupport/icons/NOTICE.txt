@@ -1,0 +1,6 @@
+java.svg, java_dark.svg, maven.svg, and maven_dark.svg are copied from the
+JetBrains IntelliJ Platform Community repository
+(https://github.com/JetBrains/intellij-community), platform/icons/src/fileTypes
+and plugins/maven resources, under the Apache License 2.0 in
+LICENSE-APACHE-2.0.txt. spring-boot.svg and spring-boot_dark.svg are original
+Lithe artwork.

@@ -40,8 +40,10 @@ final class AppSettings: ObservableObject {
         static let terminalShell = "settings.terminalShell"
         static let terminalScrollbackLines = "settings.terminalScrollbackLines"
         static let terminalShellPathOverride = "settings.terminalShellPathOverride"
-        static let hiddenDirectories = "settings.hiddenDirectories"
-        static let hiddenFilePatterns = "settings.hiddenFilePatterns"
+        static let hiddenPathPatterns = "settings.hiddenPathPatterns"
+        /// Older versions kept folder names and file globs in two lists.
+        static let legacyHiddenDirectories = "settings.hiddenDirectories"
+        static let legacyHiddenFilePatterns = "settings.hiddenFilePatterns"
         static let searchExcludedPathPatterns = "settings.searchExcludedPathPatterns"
         static let searchExclusionsEnabled = "settings.searchExclusionsEnabled"
         static let gitExecutable = "settings.gitExecutable"
@@ -53,6 +55,9 @@ final class AppSettings: ObservableObject {
         static let agentCommand = "settings.agentCommand"
         static let agentArguments = "settings.agentArguments"
         static let agentConfigurations = "settings.agentConfigurations"
+        static let agentAccounts = "settings.agentAccounts"
+        static let preferredAgentAccountIDs = "settings.preferredAgentAccountIDs"
+        static let agentAccountSnapshots = "settings.agentAccountSnapshots"
         static let agentModelCallStatistics = "settings.agentModelCallStatistics"
         static let keyboardShortcutOverrides = "settings.keyboardShortcutOverrides"
         static let keyboardShortcutPreset = "settings.keyboardShortcutPreset"
@@ -128,15 +133,12 @@ final class AppSettings: ObservableObject {
             defaults.set(terminalScrollbackLines, forKey: Key.terminalScrollbackLines)
         }
     }
-    @Published var hiddenDirectoryNames: [String] {
+    /// The user's own Hidden paths patterns, one glob per entry. The built-in
+    /// rules are not stored here: `FileVisibilityRules` always adds them, so
+    /// they stay in force whatever this list holds.
+    @Published var hiddenPathPatterns: [String] {
         didSet {
-            defaults.set(hiddenDirectoryNames, forKey: Key.hiddenDirectories)
-            notifyFileVisibilityRulesObservers()
-        }
-    }
-    @Published var hiddenFilePatterns: [String] {
-        didSet {
-            defaults.set(hiddenFilePatterns, forKey: Key.hiddenFilePatterns)
+            defaults.set(hiddenPathPatterns, forKey: Key.hiddenPathPatterns)
             notifyFileVisibilityRulesObservers()
         }
     }
@@ -209,6 +211,31 @@ final class AppSettings: ObservableObject {
             }
         }
     }
+    /// Extra subscription accounts per Agent, each an isolated CLI configuration
+    /// directory. Holds names and paths only; the official CLI owns every credential.
+    @Published var agentAccounts: [AgentAccountProfile] {
+        didSet {
+            if let data = try? JSONEncoder().encode(agentAccounts) {
+                defaults.set(data, forKey: Key.agentAccounts)
+            }
+        }
+    }
+    /// Account new connections use, by Agent id; a missing entry is the CLI's default account.
+    @Published var preferredAgentAccountIDs: [String: UUID] {
+        didSet {
+            if let data = try? JSONEncoder().encode(preferredAgentAccountIDs) {
+                defaults.set(data, forKey: Key.preferredAgentAccountIDs)
+            }
+        }
+    }
+    /// Last email, plan and usage windows the adapter reported per account key.
+    @Published var agentAccountSnapshots: [String: AgentAccountSnapshot] {
+        didSet {
+            if let data = try? JSONEncoder().encode(agentAccountSnapshots) {
+                defaults.set(data, forKey: Key.agentAccountSnapshots)
+            }
+        }
+    }
     @Published private(set) var keyboardShortcutOverrides: [String: [KeyboardShortcutBinding]]
     @Published private(set) var keyboardShortcutPreset: KeyboardShortcutPreset
     private var keyboardShortcutOverridesByPreset: [String: [String: [KeyboardShortcutBinding]]]
@@ -243,7 +270,7 @@ final class AppSettings: ObservableObject {
         themePreference = AppThemePreference(
             rawValue: defaults.string(forKey: Key.themePreference) ?? ""
         ) ?? .dark
-        language = AppLanguage(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .english
+        language = AppLanguage(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .defaultLanguage
         editorFontSize = defaults.object(forKey: Key.editorFontSize) as? Double ?? 13
         editorFontFamily = EditorFontResolution.normalizedFamily(
             defaults.string(forKey: Key.editorFontFamily)
@@ -263,10 +290,8 @@ final class AppSettings: ObservableObject {
         terminalScrollbackLines = Self.normalizedTerminalScrollbackLines(
             defaults.object(forKey: Key.terminalScrollbackLines) as? Int ?? Self.defaultTerminalScrollbackLines
         )
-        hiddenDirectoryNames = defaults.stringArray(forKey: Key.hiddenDirectories)
-            ?? FileVisibilityRules.default.hiddenDirectoryNames
-        hiddenFilePatterns = defaults.stringArray(forKey: Key.hiddenFilePatterns)
-            ?? FileVisibilityRules.default.hiddenFilePatterns
+        hiddenPathPatterns = defaults.stringArray(forKey: Key.hiddenPathPatterns)
+            ?? Self.migratedHiddenPathPatterns(from: defaults)
         searchExcludedPathPatterns = defaults.stringArray(forKey: Key.searchExcludedPathPatterns) ?? []
         // Existing saved exclusions stay active when upgrading from the inline editor.
         searchExclusionsEnabled = defaults.object(forKey: Key.searchExclusionsEnabled) as? Bool ?? true
@@ -310,6 +335,12 @@ final class AppSettings: ObservableObject {
         agentModelCallStatistics = defaults.object(forKey: Key.agentModelCallStatistics) as? Bool ?? true
         agentConfigurations = defaults.data(forKey: Key.agentConfigurations)
             .flatMap { try? JSONDecoder().decode([String: AgentConfiguration].self, from: $0) } ?? [:]
+        agentAccounts = defaults.data(forKey: Key.agentAccounts)
+            .flatMap { try? JSONDecoder().decode([AgentAccountProfile].self, from: $0) } ?? []
+        preferredAgentAccountIDs = defaults.data(forKey: Key.preferredAgentAccountIDs)
+            .flatMap { try? JSONDecoder().decode([String: UUID].self, from: $0) } ?? [:]
+        agentAccountSnapshots = defaults.data(forKey: Key.agentAccountSnapshots)
+            .flatMap { try? JSONDecoder().decode([String: AgentAccountSnapshot].self, from: $0) } ?? [:]
         if let data = defaults.data(forKey: Key.javaBuildFailurePolicies),
            let saved = try? JSONDecoder().decode([String: JavaBuildFailurePolicy].self, from: data) {
             javaBuildFailurePolicies = saved
@@ -402,20 +433,16 @@ final class AppSettings: ObservableObject {
     /// Search Everywhere globs never change other search clients or project visibility.
     var searchEverywhereVisibilityRules: FileVisibilityRules {
         guard searchExclusionsEnabled else { return fileVisibilityRules }
-        let patterns = searchExcludedPathPatterns.flatMap { value -> [String] in
-            let pattern = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !pattern.isEmpty else { return [] }
-            return pattern.hasPrefix("**/") ? [pattern, String(pattern.dropFirst(3))] : [pattern]
-        }
-        return FileVisibilityRules(hiddenDirectoryNames: hiddenDirectoryNames,
-            hiddenFilePatterns: hiddenFilePatterns + patterns)
+        // A leading `**/` already matches zero or more folders in the rules.
+        let patterns = searchExcludedPathPatterns
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return FileVisibilityRules(hiddenDirectoryNames: [],
+            hiddenFilePatterns: hiddenPathPatterns + patterns)
     }
 
     var fileVisibilityRules: FileVisibilityRules {
-        FileVisibilityRules(
-            hiddenDirectoryNames: hiddenDirectoryNames,
-            hiddenFilePatterns: hiddenFilePatterns
-        )
+        FileVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: hiddenPathPatterns)
     }
 
     @discardableResult
@@ -438,7 +465,7 @@ final class AppSettings: ObservableObject {
     func restoreDefaults() {
         colorTheme = .lithe
         themePreference = .dark
-        language = .english
+        language = .defaultLanguage
         editorFontSize = 13
         editorFontFamily = EditorFontDefaults.monospacedFamily
         editorSoftWrapEnabled = false
@@ -452,8 +479,7 @@ final class AppSettings: ObservableObject {
         terminalShell = .system
         terminalScrollbackLines = Self.defaultTerminalScrollbackLines
         terminalShellPathOverride = ""
-        hiddenDirectoryNames = FileVisibilityRules.default.hiddenDirectoryNames
-        hiddenFilePatterns = FileVisibilityRules.default.hiddenFilePatterns
+        hiddenPathPatterns = []
         searchExcludedPathPatterns = []
         searchExclusionsEnabled = true
         gitFetchOptions = GitFetchOptions()
@@ -466,6 +492,9 @@ final class AppSettings: ObservableObject {
         agentArguments = ""
         agentModelCallStatistics = true
         agentConfigurations = [:]
+        agentAccounts = []
+        preferredAgentAccountIDs = [:]
+        agentAccountSnapshots = [:]
         setCustomLogDirectory(nil)
         clearWorkbenchBackground()
         workbenchBackgroundOpacity = 0.22
@@ -690,6 +719,27 @@ final class AppSettings: ObservableObject {
         guard let data = try? JSONEncoder().encode(payload) else { return }
         defaults.set(data, forKey: Key.keyboardShortcutPresets)
         defaults.set(nil, forKey: Key.keyboardShortcutOverrides)
+    }
+
+    /// Folds the two lists older versions saved into one pattern list. A custom
+    /// folder name `x` becomes `**/x/`, which hides it at any depth as before.
+    /// Built-in entries are dropped because `FileVisibilityRules` always adds
+    /// them. The legacy keys are left untouched and stop being read once the
+    /// new key is saved.
+    static func migratedHiddenPathPatterns(from defaults: any KeyValueStore) -> [String] {
+        let builtIn = FileVisibilityRules.default
+        let directories = (defaults.stringArray(forKey: Key.legacyHiddenDirectories) ?? [])
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && !builtIn.isHiddenDirectoryName($0) }
+            .map { "**/\($0)/" }
+        let files = (defaults.stringArray(forKey: Key.legacyHiddenFilePatterns) ?? [])
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { pattern in
+                !pattern.isEmpty && !builtIn.hiddenFilePatterns.contains {
+                    $0.caseInsensitiveCompare(pattern) == .orderedSame
+                }
+            }
+        return directories + files
     }
 
     private static func loadKeyboardShortcutPresets(
@@ -967,29 +1017,6 @@ enum ProjectOpenBehavior: String, CaseIterable, Identifiable {
     }
 }
 
-enum AppLanguage: String, CaseIterable, Identifiable {
-    case english = "en"
-    case simplifiedChinese = "zh-Hans"
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .english: "English"
-        case .simplifiedChinese: "简体中文"
-        }
-    }
-
-    func localizedString(_ key: String, bundle: Bundle = .main) -> String {
-        (bundle.url(forResource: rawValue, withExtension: "lproj").flatMap(Bundle.init(url:)) ?? bundle)
-            .localizedString(forKey: key, value: key, table: nil)
-    }
-
-    var locale: Locale {
-        Locale(identifier: rawValue)
-    }
-}
-
 enum TerminalShell: String, CaseIterable, Identifiable {
     case system
     case zsh
@@ -1024,7 +1051,7 @@ struct AgentConfiguration: Codable, Equatable {
     var name: String
     var providerID: UUID?
     var authentication: AgentAuthentication
-    var isConfigured: Bool { authentication == .codexSubscription || providerID != nil }
+    var isConfigured: Bool { authentication.isSubscription || providerID != nil }
 
     init(name: String, providerID: UUID?, authentication: AgentAuthentication = .apiKey) {
         self.name = name
@@ -1039,7 +1066,7 @@ struct AgentConfiguration: Codable, Equatable {
         name = try values.decode(String.self, forKey: .name)
         providerID = try values.decodeIfPresent(UUID.self, forKey: .providerID)
         authentication = try values.decodeIfPresent(AgentAuthentication.self, forKey: .authentication) ?? .apiKey
-        if authentication == .codexSubscription { providerID = nil }
+        if authentication.isSubscription { providerID = nil }
     }
 
 }

@@ -160,6 +160,8 @@ fn run_with(
         observe_model_calls,
         observe_subagents: false,
         process_scope: None,
+        claude_config_dir: None,
+        codex_home: None,
         provider: Some(ProviderCredentials {
             protocol: ProviderProtocol::Responses,
             base_url: format!("http://{}/v1", listener.local_addr().unwrap()),

@@ -28,10 +28,10 @@ private struct GitAuthenticationView: View {
             else if challenge.secret { SecureField("Password or passphrase", text: $answer).textFieldStyle(.roundedBorder) }
             else { TextField("Response", text: $answer).textFieldStyle(.roundedBorder) }
             Text("This response is sent only to the running Git operation.").font(LitheTheme.uiFont(.caption)).foregroundStyle(.secondary)
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()
-                Button("Cancel") { submit(nil) }.keyboardShortcut(.cancelAction)
-                Button(challenge.retry ? "Retry" : "Continue") { submit(challenge.retry ? "retry" : answer) }.keyboardShortcut(.defaultAction)
+                Button("Cancel") { submit(nil) }.buttonStyle(LitheActionButtonStyle()).keyboardShortcut(.cancelAction)
+                Button(challenge.retry ? "Retry" : "Continue") { submit(challenge.retry ? "retry" : answer) }.buttonStyle(LitheActionButtonStyle(isPrimary: true)).keyboardShortcut(.defaultAction)
             }.disabled(submitted)
         }.padding(24).frame(width: 500)
     }

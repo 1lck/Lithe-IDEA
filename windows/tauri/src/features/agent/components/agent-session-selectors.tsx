@@ -11,12 +11,12 @@ import {
   SlidersHorizontalIcon,
 } from "@/ui/icons";
 import { Popover, PopoverContent, PopoverTrigger } from "@/ui/popover";
+import { Slider } from "@/ui/slider";
 import { cn } from "@/utils/cn";
 import {
   choiceTitle,
   currentChoiceDescription,
   currentChoiceTitle,
-  filteredChoices,
   localizedAgentLabel,
   modelSummary,
   optionTitle,
@@ -88,41 +88,60 @@ function selectorTrigger(content: ReactNode) {
   );
 }
 
+function EffortControl({ option, disabled, onSelect }: {
+  option: AgentSessionConfigOption;
+  disabled: boolean;
+  onSelect: (id: string, value: string) => void;
+}) {
+  const confirmed = Math.max(0, option.choices.findIndex((choice) => choice.id === option.currentValue));
+  const [preview, setPreview] = useState<number | null>(null);
+  useEffect(() => setPreview(null), [option.currentValue, option.choices, disabled]);
+  const index = preview ?? confirmed;
+  return (
+    <div className="flex min-h-9 items-center gap-3 px-3 py-2">
+      <span className="shrink-0 whitespace-nowrap ui-text-sm">Effort ({option.choices[index]?.name ?? option.currentValue})</span>
+      <Slider
+        className="min-w-24 flex-1"
+        min={0}
+        max={Math.max(1, option.choices.length - 1)}
+        step={1}
+        value={[index]}
+        disabled={disabled || option.choices.length < 2}
+        aria-label="Effort"
+        aria-valuetext={option.choices[index]?.name ?? option.currentValue}
+        onValueChange={(value) => setPreview(Array.isArray(value) ? value[0] : value)}
+        onValueCommitted={(value) => {
+          setPreview(null);
+          const choice = option.choices[Array.isArray(value) ? value[0] : value];
+          if (!disabled && choice !== undefined && choice.id !== option.currentValue) onSelect(option.id, choice.id);
+        }}
+      />
+    </div>
+  );
+}
+
 function ModelPopover({
   option,
   settings,
   agentName,
+  isConfiguring,
   onSelect,
 }: {
   option: AgentSessionConfigOption;
   settings: AgentSessionConfigOption[];
   agentName: string | null;
+  isConfiguring: boolean;
   onSelect: (id: string, value: string) => void;
 }) {
   const { t } = useTranslation();
   const labels = useSelectorLabels();
-  const [query, setQuery] = useState("");
   const [openSettingID, setOpenSettingID] = useState<string | null>(null);
-  const choices = filteredChoices(option, query);
+  const choices = option.choices;
   const openSetting = settings.find((setting) => setting.id === openSettingID) ?? null;
 
   return (
     <div className="flex items-end">
-      <div className="w-[330px] pb-1">
-        <div className="p-2">
-          <input
-            autoFocus
-            value={query}
-            placeholder={t("agent.selector.searchModels")}
-            aria-label={t("agent.selector.searchModels")}
-            className="h-7 w-full rounded border border-border bg-background px-2 text-foreground outline-none ui-text-sm focus:border-primary"
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && choices[0] !== undefined)
-                onSelect(option.id, choices[0].id);
-            }}
-          />
-        </div>
+      <div className="w-max min-w-[300px] max-w-[min(440px,calc(100vw-2rem))] pb-1">
         {choices.length === 0 ? (
           <div className="flex min-h-9 items-center justify-center text-subtle-foreground ui-text-sm">
             {t("agent.selector.noModels")}
@@ -149,7 +168,9 @@ function ModelPopover({
         {settings.length === 0 ? null : (
           <>
             <div className="my-1 h-px bg-border" />
-            {settings.map((setting) => (
+            {settings.map((setting) => setting.category === "thought_level" ? (
+              <EffortControl key={setting.id} option={setting} disabled={isConfiguring} onSelect={onSelect} />
+            ) : (
               <button
                 key={setting.id}
                 type="button"
@@ -198,11 +219,12 @@ interface AgentSessionSelectorsProps {
   options: AgentSessionConfigOption[];
   agentName: string | null;
   isDisabled: boolean;
+  isConfiguring?: boolean;
   onSelect: (id: string, value: string) => void;
 }
 
 /**
- * Approval mode and a searchable model panel in the composer toolbar, as
+ * Approval mode and the complete upstream model catalog in the composer toolbar, as
  * `AgentSessionSelectors` on macOS. Popovers close as soon as the selectors
  * become disabled, so a stale choice cannot be sent mid-turn.
  */
@@ -210,6 +232,7 @@ export function AgentSessionSelectors({
   options,
   agentName,
   isDisabled,
+  isConfiguring = false,
   onSelect,
 }: AgentSessionSelectorsProps) {
   const { t } = useTranslation();
@@ -227,8 +250,8 @@ export function AgentSessionSelectors({
   }, [isDisabled]);
 
   const select = (id: string, value: string) => {
-    if (isDisabled) return;
-    setShowsModels(false);
+    if (isDisabled || isConfiguring) return;
+    if (options.find((option) => option.id === id)?.category !== "thought_level") setShowsModels(false);
     setShowsModes(false);
     setShowsMore(false);
     onSelect(id, value);
@@ -292,6 +315,7 @@ export function AgentSessionSelectors({
               option={model}
               settings={settings}
               agentName={agentName}
+              isConfiguring={isConfiguring}
               onSelect={select}
             />
           </PopoverContent>
@@ -309,7 +333,9 @@ export function AgentSessionSelectors({
             </span>
           </PopoverTrigger>
           <PopoverContent side="top" align="start" className="w-60 gap-1 p-1">
-            {settings.map((setting) => (
+            {settings.map((setting) => setting.category === "thought_level" ? (
+              <EffortControl key={setting.id} option={setting} disabled={isConfiguring} onSelect={select} />
+            ) : (
               <div key={setting.id}>
                 <div className="px-3 py-1 text-subtle-foreground ui-text-caption">
                   {optionTitle(setting, labels)}

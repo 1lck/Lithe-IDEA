@@ -29,14 +29,16 @@
 - 用内容安全策略（CSP，浏览器拦截哪些资源的规则）禁止联网、远程资源、iframe、内联脚本和 `eval`；禁止跳出插件包、弹窗和下载。
 - 网页存储不持久，状态通过桥接对象保存在宿主里。这样运行时不会往插件包或 app bundle 写东西，符合运行时只读规则。
 - 窗口第一次显示时创建页面，隐藏时可以销毁，禁用、更新或卸载插件时一定销毁。页面要能从保存的状态恢复。
+- 摄像头和麦克风默认没有权限：页面调用 `getUserMedia` 时由宿主弹窗确认，问题写明这是插件并附插件 ID，每个到达宿主的请求都重新询问，宿主什么也不记，只有明确点“Allow”才授权。只响应本插件的主框架；页面不在窗口里（窗口被隐藏而页面还保留着）时直接拒绝，页面使用设备期间窗口被隐藏就结束采集，点“Allow”之后页面才被隐藏时才启动的设备也会被立即停掉。统一的门和实测见[HTML 预览笔记](../feature/2026-10-22-html-preview-embedded-browser.md)的“摄像头和麦克风”。
 
 ### 桥接对象
 
-宿主在页面脚本执行前注入 `window.lithe`（第 1 版）：`context`、`request(method, params)` 和 `on(event, listener)`。方法和事件的全集写在 `shared/contracts/plugins/v1/README.md` 的 “Web content (`ui` 2)” 一节，这里只记录边界：
+宿主在页面脚本执行前注入 `window.lithe`（当前第 2 版，`lithe.version` 给出版本号）：`context`、`request(method, params)` 和 `on(event, listener)`。方法和事件的全集写在 `shared/contracts/plugins/v1/README.md` 的 “Web content (`ui` 2)” 一节，这里只记录边界：
 
 - 页面只能操作本插件声明的构建系统和当前工作区，越界返回 `plugin.web.forbidden`。
 - 凡是会启动进程的请求（刷新模型、跑任务、跑测试），都要经过与宿主自身按钮相同的信任和同意流程，输出进入宿主的 Build Output。页面不能提交或修改进程 argv，也不能自己拼命令；模型保留 Core 返回的声明运行项 `run` 和任务 `category` 供展示，执行入口仍只有宿主校验过的任务与测试。
 - 选项写入沿用 `build.resolveOptions` 和宿主的选项存储，因此构建选项转交给 JDT 的方式与宿主自己的选项列表一致。
+- 第 2 版只多了文件对话框 `dialog.openFile` / `dialog.saveFile`，供数据库这类带后端的插件导入导出文件。对话框由宿主弹出，说明里写明是哪个插件在请求；同一页面同时只能开一个；页面只拿到用户选中的绝对路径，真正的读写交给插件后端，页面本身仍然碰不到文件。页面在对话框打开期间被关闭，就拿不到选择结果。旧宿主没有这两个方法（返回 `plugin.web.unknownMethod`），所以页面先看 `lithe.version` 再决定是否提供导入导出。之所以加桥接方法而不是让后端自己弹窗，是因为后端是无界面的子进程，弹窗必须由宿主窗口负责，也只有宿主能把插件身份写进对话框，防止页面冒充 Lithe。
 
 ### 正确做法
 
@@ -48,6 +50,7 @@
 - 页面里自己实现停靠、标签栏或窗口开关，或者要求宿主按插件 ID 打开特殊窗口。
 - 为了让页面联网而放宽 CSP；需要网络的数据应该由构建命令或 Provider 获取，再经 Core 解码。
 - 把宿主的 Swift 视图移进插件包，或者为一个插件在宿主里写 `if pluginID == …`。
+- 让某个插件免于摄像头 / 麦克风确认，或者绕过 `WebMediaCapture.decide` 直接授权；插件名只用在提问文字里，不影响是否询问。
 
 ### macOS 的落点
 
@@ -57,7 +60,7 @@
 - `Application/Features/PluginWebPages.swift`：每个项目窗口一份页面登记表（按工具窗口 ID）。第一次显示时创建，隐藏时只把视图摘下、页面保留；每个容器把登记表弱引用登记到进程共享的 `PluginWebPageLifecycle`；插件管理器在停用、替换包、更新、回滚或卸载之前同步通知所有项目窗口，工作区关闭也释放页面。关闭不依赖窗口当前可见，因此隐藏页面不会继续从被替换的包读取资源。安装和回滚在候选包、签名、入口与版本校验后、实际修改安装记录或包字节前通知；校验失败保留旧页面，开始修改后发生 I/O 失败则保持关闭，防止恢复不完整的包重新加载。登记表同时禁止旧视图在停用中重建页面；关闭工作区保留停用和更新记录，成功重新启用原包才解除停用记录；更新、回滚和卸载使用独立的“直到进程重启”记录，防止另一项目窗口持有的旧管理器误解除。后注册的窗口继承当前记录，弱引用不会让关闭的项目窗口继续存活。
 - 原生项目窗口直接关闭也必须释放页面：`AppModel.shutdownProjectSession()` 在第一次 `await` 前同步调用登记表的 `closeAll()`，关闭隐藏页面、拒绝待处理和后续桥接请求，并清除本会话的进程许可。设置窗口可能继续强持有这个项目的 `AppModel`，而直接关闭窗口不会先清空工作区 URL；因此不能只靠工作区切换入口或 `deinit` 清理，否则旧页面仍可通过工作区身份检查，甚至重新激活已经退出的构建模块。正确做法是在会话退出入口立即撤销页面权限；不要等异步模块退出结束或模型释放后再关闭页面。
 - 构建服务的任务和测试启动方法返回本次创建的运行 ID，未启动返回空值。页面只登记这个 ID，不能通过读取共享的“当前运行”认领宿主或其他页面的任务；`build.cancel` 也只能停止本页实际启动且仍在运行的任务。`build.runTask` 与 `build.runTests` 在确认返回后、真正调用同步启动方法之前，必须在同一主线程 actor 中检查 `currentRunID` 为空；忙时返回 `plugin.build.unavailable`，保留现有运行和 Build Output。不能只在弹确认前检查，因为等待确认时原生按钮或另一页面可以开始新运行；也不能直接复用构建服务“替换当前运行”的语义，否则会未经许可取消其他调用者的任务并清输出。
-- `Platform/MacOS/Plugins/Web/`：`lithe-plugin://<pluginID>/<path>` 自定义 scheme 只读取已安装包内的普通文件（拒绝空段、`.`、`..`、编码分隔符、符号链接和越出包根的路径，单文件不超过 16 MiB），每个响应都带 CSP、`nosniff` 和 `no-store`；WKWebView 使用 `nonPersistent()` 数据存储，用户脚本在文档开始时定义冻结的 `window.lithe`，只接受主框架、本插件源的消息；跳出本插件源的导航、弹窗、无法显示的 MIME（会变成下载）一律取消。只有本地开发包可以打开 Web Inspector。
+- `Platform/MacOS/Plugins/Web/`：`lithe-plugin://<pluginID>/<path>` 自定义 scheme 只读取已安装包内的普通文件（拒绝空段、`.`、`..`、编码分隔符、符号链接和越出包根的路径，单文件不超过 16 MiB），每个响应都带 CSP、`nosniff` 和 `no-store`；WKWebView 使用 `nonPersistent()` 数据存储，用户脚本在文档开始时定义冻结的 `window.lithe`，只接受主框架、本插件源的消息；跳出本插件源的导航、弹窗、无法显示的 MIME（会变成下载）一律取消。只有本地开发包可以打开 Web Inspector。摄像头 / 麦克风请求经 `WebMediaCapture.decide` 逐次确认，只认本插件主框架（scheme、host 等于插件 ID、端口 0），回答时页面必须仍在窗口里；视图离开窗口时 `MacPluginWebView.viewDidMoveToWindow` 触发结束采集，页面不在窗口里时设备变成使用中（`cameraCaptureState` / `microphoneCaptureState` 的 KVO）也立即停掉。
 - `ui.setState` 由 `MacPluginWebStateStore` 写到平台 adapter 解析的 `Application Support/Lithe/PluginState/<plugin>/web-state/<window>/<工作区摘要>.json`，单窗口/工作区上限 64 KiB，随插件状态目录卸载清理。它是用户可变状态，没有可复用的构建身份；`worktree-resources.json` 的 `plugin-web-state` 明确禁止任何阶段跨工作树复制。包内网页和脚本始终只读，不改变签名或 Sparkle delta 的源基线。
 - 安装校验（`MacPluginPackageStore.validatePackage`）要求每个 `web.entry` 是包内存在的 `.html` 普通文件。
 

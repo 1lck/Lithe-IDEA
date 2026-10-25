@@ -8,7 +8,6 @@ struct LocalHistoryView: View {
     /// so the sheet keeps rendering without a required `AppSettings` environment
     /// object; the presenting root view passes the configured family explicitly.
     var fontFamily: String = EditorFontDefaults.monospacedFamily
-    @State private var historyListActive = false
     @State private var isRestoreConfirmationPresented = false
 
     var body: some View {
@@ -17,7 +16,6 @@ struct LocalHistoryView: View {
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             HStack(spacing: 0) {
                 historyList
-                    .background(LitheToolWindowActivityTracker(isActive: $historyListActive))
                     .frame(width: 290)
                 Rectangle().fill(LitheTheme.divider).frame(width: 1)
                 comparison
@@ -62,10 +60,9 @@ struct LocalHistoryView: View {
             Button("Restore") {
                 isRestoreConfirmationPresented = true
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(LitheActionButtonStyle(isPrimary: true))
             .lithePointer()
             .tint(LitheTheme.accent)
-            .controlSize(.small)
             .disabled(model.selectedLocalHistoryEntry == nil)
             Button {
                 model.localHistoryRequest = nil
@@ -110,34 +107,30 @@ struct LocalHistoryView: View {
                 .foregroundStyle(LitheTheme.secondaryText)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(model.localHistoryEntries) { entry in
-                            Button {
+                LitheTreeList(
+                    model.localHistoryEntries,
+                    selection: Binding(
+                        get: { model.selectedLocalHistoryEntry?.id },
+                        set: { id in
+                            if let entry = model.localHistoryEntries.first(where: { $0.id == id }) {
                                 model.selectLocalHistoryEntry(entry)
-                            } label: {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(LocalizedStringKey(entry.reason.title))
-                                        .font(LitheTheme.uiFont(size: 12, weight: .medium))
-                                        .foregroundStyle(LitheTheme.primaryText)
-                                        .lineLimit(1)
-                                    HStack(spacing: 6) {
-                                        Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened))
-                                        Text(ByteCountFormatter.string(fromByteCount: Int64(entry.byteCount), countStyle: .file))
-                                    }
-                                    .font(LitheTheme.uiFont(size: 10.5))
-                                    .foregroundStyle(LitheTheme.secondaryText)
-                                }
-                                .padding(.horizontal, 12)
-                                .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
-                                .litheSelectionRow(isSelected: model.selectedLocalHistoryEntry?.id == entry.id,
-                                                   isFocused: historyListActive)
-                                .contentShape(Rectangle())
                             }
-                            .buttonStyle(.litheNoPress)
-                            .lithePointer()
+                        }), multiline: true
+                ) { entry in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(LocalizedStringKey(entry.reason.title))
+                            .font(LitheTheme.uiFont(size: 12, weight: .medium))
+                            .foregroundStyle(LitheTheme.primaryText)
+                            .lineLimit(1)
+                        HStack(spacing: 6) {
+                            Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened))
+                            Text(ByteCountFormatter.string(fromByteCount: Int64(entry.byteCount), countStyle: .file))
                         }
+                        .font(LitheTheme.uiFont(size: 10.5))
+                        .foregroundStyle(LitheTheme.secondaryText)
                     }
+                    .padding(.horizontal, LitheTheme.Tree.iconTextGap)
+                    .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
                 }
             }
         }

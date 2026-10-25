@@ -38,6 +38,16 @@ pub enum CoreCommand {
     Ping,
     /// Detects Node.js and npm and lists catalog agent installs (`agent.status`).
     AgentStatus,
+    /// Reads the effective native global instruction file (`agent.instructions.read`).
+    AgentInstructionsRead,
+    /// Saves a guarded native global instruction draft (`agent.instructions.save`).
+    AgentInstructionsSave,
+    /// Synchronizes a marked shared block in native user files (`agent.instructions.shared`).
+    AgentInstructionsShared,
+    /// Lists native skills or creates/imports one explicitly (`agent.skills`).
+    AgentSkills,
+    /// Manages a user Hook library and native Agent configuration (`agent.hooks`).
+    AgentHooks,
     /// Installs a catalog ACP adapter with the user's npm (`agent.install`).
     AgentInstall,
     /// Removes a Lithe-managed ACP adapter install (`agent.uninstall`).
@@ -48,10 +58,22 @@ pub enum CoreCommand {
     AgentParseProviderConfiguration,
     /// Parses one Agent MCP configuration file into normalized servers (`mcp.parseConfiguration`).
     McpParseConfiguration,
+    /// Normalizes a public Registry response into discoverable server drafts (`mcp.parseRegistry`).
+    McpParseRegistry,
+    /// Returns the bundled, offline discovery catalog (`mcp.featuredRegistry`).
+    McpFeaturedRegistry,
     /// Plans a format-preserving MCP entry write or removal (`mcp.planWrite`).
     McpPlanWrite,
+    /// Probes an explicitly selected server without calling its tools.
+    McpProbe,
+    /// Reads or plans native per-tool exclusion lists.
+    McpToolPolicy,
+    /// Round-trips a quoted command line into exact argv boundaries.
+    McpCommandLine,
     /// Validates and normalizes a declarative plugin manifest (`plugins.declarative.validate`).
     PluginsDeclarativeValidate,
+    /// Validates native plugin UI data with declaration identity and node budgets.
+    PluginsNativeUIValidateData,
     /// Expands a declarative plugin's run template (`plugins.declarative.runPlan`).
     PluginsDeclarativeRunPlan,
     /// Lists a declarative plugin's workspace and file tests (`plugins.declarative.discoverTests`).
@@ -94,6 +116,22 @@ pub enum CoreCommand {
     BuildSyncFingerprint,
     /// Maps build options to the Java language server's project import (`build.languageImport`).
     BuildLanguageImport,
+    /// Detects VCS roots and registered providers of a workspace (`vcs.detectRoots`).
+    VcsDetectRoots,
+    /// Assigns workspace paths to detected VCS roots (`vcs.ownerOf`).
+    VcsOwnerOf,
+    /// Validates and normalizes a VCS provider's reply (`vcs.decodeReply`).
+    VcsDecodeReply,
+    /// Lists plugin project generators and who provides their requirements (`project.generatorCatalog`).
+    ProjectGeneratorCatalog,
+    /// Derives a generator form's defaults, visibility, and field errors (`project.generatorForm`).
+    ProjectGeneratorForm,
+    /// Expands a generator's steps into files, argv, and URLs (`project.generationPlan`).
+    ProjectGenerationPlan,
+    /// Validates a new project's name against its parent directory (`project.checkName`).
+    ProjectCheckName,
+    /// Extracts a downloaded archive inside a bounded staging directory (`project.extractArchive`).
+    ProjectExtractArchive,
     /// Validates and filters a marketplace index (`plugins.marketplace.validateIndex`).
     PluginsMarketplaceValidateIndex,
     /// Resolves a user-entered marketplace source URL (`plugins.marketplace.resolveSource`).
@@ -258,8 +296,12 @@ pub enum CoreCommand {
     LspRequest,
     /// Queues one build-provider request (`lsp.buildRequest`).
     LspBuildRequest,
+    /// Queues one VCS-provider request (`lsp.vcsRequest`).
+    LspVcsRequest,
     /// Invokes one plugin function (`lsp.functionRequest`).
     LspFunctionRequest,
+    /// Answers a plugin backend's host-service request (`lsp.hostResponse`).
+    LspHostResponse,
     /// Queues shared Java gutter marker resolution (`java.navigationMarkers`).
     JavaNavigationMarkers,
     /// Queues click-time Java navigation resolution (`java.resolveNavigation`).
@@ -304,6 +346,8 @@ pub enum CoreCommand {
     MybatisIndex,
     /// Reads normalized repository and working-tree state (`git.status`).
     GitStatus,
+    /// Lists one level of a summarized untracked directory (`git.untrackedDirectory`).
+    GitUntrackedDirectory,
     /// Reads HEAD and index preconditions for workspace commits (`git.commitState`).
     GitCommitState,
     /// Builds a reviewed multi-repository plan (`git.workspaceCommitPrepare`).
@@ -336,6 +380,22 @@ pub enum CoreCommand {
     GitExecutionConfigure,
     /// Answers a currently owned authentication prompt (`git.authRespond`).
     GitAuthRespond,
+    /// Checks that an SSH connection reaches a supported host (`remote.probe`).
+    RemoteProbe,
+    /// Answers a prompt relayed by a running `remote.probe` (`remote.authRespond`).
+    RemoteAuthRespond,
+    /// Opens a remote connection, installing the server when needed (`remote.connect`).
+    RemoteConnect,
+    /// Lists a directory over an open remote connection (`remote.readDir`).
+    RemoteReadDir,
+    /// Closes a remote connection (`remote.disconnect`).
+    RemoteDisconnect,
+    /// Closes every open remote connection at application exit (`remote.closeAll`).
+    RemoteCloseAll,
+    /// Reads a file over an open remote connection (`remote.readFile`).
+    RemoteReadFile,
+    /// Saves a file over an open remote connection (`remote.writeFile`).
+    RemoteWriteFile,
     /// Inspects repository initialization and scoped commit identity.
     GitRepositorySetup,
     /// Initializes an existing folder outside any repository.
@@ -418,13 +478,24 @@ impl CoreCommand {
             "core.ping" => Some(Self::Ping),
             "ideHost.control" => Some(Self::IdeHostControl),
             "agent.status" => Some(Self::AgentStatus),
+            "agent.instructions.read" => Some(Self::AgentInstructionsRead),
+            "agent.instructions.save" => Some(Self::AgentInstructionsSave),
+            "agent.instructions.shared" => Some(Self::AgentInstructionsShared),
+            "agent.skills" => Some(Self::AgentSkills),
+            "agent.hooks" => Some(Self::AgentHooks),
             "agent.install" => Some(Self::AgentInstall),
             "agent.uninstall" => Some(Self::AgentUninstall),
             "agent.installCli" => Some(Self::AgentInstallCli),
             "agent.parseProviderConfiguration" => Some(Self::AgentParseProviderConfiguration),
             "mcp.parseConfiguration" => Some(Self::McpParseConfiguration),
+            "mcp.parseRegistry" => Some(Self::McpParseRegistry),
+            "mcp.featuredRegistry" => Some(Self::McpFeaturedRegistry),
             "mcp.planWrite" => Some(Self::McpPlanWrite),
+            "mcp.probe" => Some(Self::McpProbe),
+            "mcp.toolPolicy" => Some(Self::McpToolPolicy),
+            "mcp.commandLine" => Some(Self::McpCommandLine),
             "plugins.declarative.validate" => Some(Self::PluginsDeclarativeValidate),
+            "plugins.nativeUI.validateData" => Some(Self::PluginsNativeUIValidateData),
             "plugins.declarative.runPlan" => Some(Self::PluginsDeclarativeRunPlan),
             "plugins.declarative.discoverTests" => Some(Self::PluginsDeclarativeDiscoverTests),
             "plugins.declarative.testPlan" => Some(Self::PluginsDeclarativeTestPlan),
@@ -452,6 +523,14 @@ impl CoreCommand {
             "build.decodeDependencies" => Some(Self::BuildDecodeDependencies),
             "build.syncFingerprint" => Some(Self::BuildSyncFingerprint),
             "build.languageImport" => Some(Self::BuildLanguageImport),
+            "vcs.detectRoots" => Some(Self::VcsDetectRoots),
+            "vcs.ownerOf" => Some(Self::VcsOwnerOf),
+            "vcs.decodeReply" => Some(Self::VcsDecodeReply),
+            "project.generatorCatalog" => Some(Self::ProjectGeneratorCatalog),
+            "project.generatorForm" => Some(Self::ProjectGeneratorForm),
+            "project.generationPlan" => Some(Self::ProjectGenerationPlan),
+            "project.checkName" => Some(Self::ProjectCheckName),
+            "project.extractArchive" => Some(Self::ProjectExtractArchive),
             "plugins.marketplace.validateIndex" => Some(Self::PluginsMarketplaceValidateIndex),
             "plugins.marketplace.resolveSource" => Some(Self::PluginsMarketplaceResolveSource),
             "plugins.marketplace.installReview" => Some(Self::PluginsMarketplaceInstallReview),
@@ -532,7 +611,9 @@ impl CoreCommand {
             "lsp.closeDocument" => Some(Self::LspCloseDocument),
             "lsp.request" => Some(Self::LspRequest),
             "lsp.buildRequest" => Some(Self::LspBuildRequest),
+            "lsp.vcsRequest" => Some(Self::LspVcsRequest),
             "lsp.functionRequest" => Some(Self::LspFunctionRequest),
+            "lsp.hostResponse" => Some(Self::LspHostResponse),
             "java.resolveNavigation" => Some(Self::JavaResolveNavigation),
             "lsp.cancelOperation" => Some(Self::LspCancelOperation),
             "lsp.pollEvents" => Some(Self::LspPollEvents),
@@ -555,6 +636,7 @@ impl CoreCommand {
             "spring.index" => Some(Self::SpringIndex),
             "mybatis.index" => Some(Self::MybatisIndex),
             "git.status" => Some(Self::GitStatus),
+            "git.untrackedDirectory" => Some(Self::GitUntrackedDirectory),
             "git.commitState" => Some(Self::GitCommitState),
             "git.workspaceCommitPrepare" => Some(Self::GitWorkspaceCommitPrepare),
             "git.workspaceCommitStep" => Some(Self::GitWorkspaceCommitStep),
@@ -571,6 +653,14 @@ impl CoreCommand {
             "git.executionInspect" => Some(Self::GitExecutionInspect),
             "git.executionConfigure" => Some(Self::GitExecutionConfigure),
             "git.authRespond" => Some(Self::GitAuthRespond),
+            "remote.probe" => Some(Self::RemoteProbe),
+            "remote.authRespond" => Some(Self::RemoteAuthRespond),
+            "remote.connect" => Some(Self::RemoteConnect),
+            "remote.readDir" => Some(Self::RemoteReadDir),
+            "remote.disconnect" => Some(Self::RemoteDisconnect),
+            "remote.closeAll" => Some(Self::RemoteCloseAll),
+            "remote.readFile" => Some(Self::RemoteReadFile),
+            "remote.writeFile" => Some(Self::RemoteWriteFile),
             "git.historyRewritePreview" => Some(Self::GitHistoryRewritePreview),
             "git.rebasePreview" => Some(Self::GitRebasePreview),
             "git.repositorySetup" => Some(Self::GitRepositorySetup),
@@ -628,7 +718,9 @@ mod tests {
             "lsp.closeDocument",
             "lsp.request",
             "lsp.buildRequest",
+            "lsp.vcsRequest",
             "lsp.functionRequest",
+            "lsp.hostResponse",
             "lsp.cancelOperation",
             "lsp.pollEvents",
             "lsp.waitEvents",

@@ -1,4 +1,5 @@
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
+import { openFocusedFile } from "../hooks/use-file-open-target";
 import {
   openGlobalSearchSidebar,
   toggleDiagnosticsPane,
@@ -57,6 +58,7 @@ import {
   moveActiveEditorLineUp,
   pasteIntoActiveEditor,
   redoActiveEditor,
+  redoActiveEditorCursor,
   removeActiveEditorBrackets,
   removeActiveEditorSecondaryCursors,
   runQuickFixForActiveEditor,
@@ -74,6 +76,7 @@ import {
   triggerActiveEditorSuggest,
   unfoldAllActiveEditor,
   undoActiveEditor,
+  undoActiveEditorCursor,
 } from "./editor-command-actions";
 import {
   goBack,
@@ -250,6 +253,13 @@ const fileCommands: Command[] = [
     execute: openQuickOpen,
   },
   {
+    id: "file.openSelected",
+    title: "Open Selected File",
+    category: "File",
+    keybinding: "F4",
+    execute: openFocusedFile,
+  },
+  {
     id: "file.localHistory",
     title: "Show Local History",
     category: "File",
@@ -368,6 +378,22 @@ const editCommands: Command[] = [
     category: "Edit",
     keybinding: "cmd+shift+z",
     execute: redoActiveEditor,
+  },
+  {
+    id: "editor.cursorUndo",
+    title: "Cursor Undo",
+    description: "Restore the previous cursor and selection without changing text",
+    category: "Edit",
+    keybinding: "cmd+u",
+    execute: undoActiveEditorCursor,
+  },
+  {
+    id: "editor.cursorRedo",
+    title: "Cursor Redo",
+    description: "Restore the next cursor and selection without changing text",
+    category: "Edit",
+    keybinding: "cmd+shift+u",
+    execute: redoActiveEditorCursor,
   },
   {
     id: "editor.copy",
@@ -1074,17 +1100,6 @@ const paneCommands: Command[] = [
   },
 ];
 
-const databaseCommands: Command[] = [
-  {
-    id: "database.connect",
-    title: "Show Databases",
-    category: "Database",
-    execute: () => {
-      useUIState.getState().openCommandPaletteView("databases");
-    },
-  },
-];
-
 const windowCommands: Command[] = [
   {
     id: "workbench.openSettings",
@@ -1160,7 +1175,6 @@ const allCommands: Command[] = [
   ...viewCommands,
   ...navigationCommands,
   ...paneCommands,
-  ...databaseCommands,
   ...windowCommands,
 ];
 

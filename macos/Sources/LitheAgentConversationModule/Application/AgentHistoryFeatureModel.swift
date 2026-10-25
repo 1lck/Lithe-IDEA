@@ -10,20 +10,29 @@ public final class AgentHistoryFeatureModel: ObservableObject {
     @Published public private(set) var isExporting = false
     private let connection: AgentConnectionModel
     private let workspaceURL: URL?
-    private let agentID: String
+    /// Preference identity, evaluated on every access so an account switch moves
+    /// annotations without recreating the model.
+    private let identity: () -> String
     private let persistence: (any AgentHistoryPersisting)?
     private let exporter: (any AgentHistoryExporting)?
     private var exportTask: Task<Void, Never>?
 
     public init(connection: AgentConnectionModel, workspaceURL: URL?, agentID: String,
+                identity: (() -> String)? = nil,
                 persistence: (any AgentHistoryPersisting)? = nil, exporter: (any AgentHistoryExporting)? = nil) {
         self.connection = connection
         self.workspaceURL = workspaceURL
-        self.agentID = agentID
+        self.identity = identity ?? { agentID }
         self.persistence = persistence
         self.exporter = exporter
         do { metadata = try readMetadata() }
         catch { errorMessage = error.localizedDescription }
+    }
+
+    /// Re-read annotations after the identity changed, e.g. another account was chosen.
+    public func reloadMetadata() {
+        do { metadata = try readMetadata(); errorMessage = nil }
+        catch { metadata = [:]; errorMessage = error.localizedDescription }
     }
 
     public func title(for session: AgentSessionSummary) -> String? {
@@ -51,6 +60,14 @@ public final class AgentHistoryFeatureModel: ObservableObject {
         let known = Set(connection.sessions.map(\.id))
         return !ids.isEmpty && !isExporting && exporter != nil
             && ids.allSatisfy { known.contains($0) && connection.canExportTranscript($0) }
+    }
+
+    /// Per-row form of `canExport` for list rendering. The known-session set is
+    /// built once instead of once per row, which made long history lists quadratic.
+    public func exportableIDs(_ ids: [String]) -> Set<String> {
+        guard !isExporting, exporter != nil else { return [] }
+        let known = Set(connection.sessions.map(\.id))
+        return Set(ids.filter { known.contains($0) && connection.canExportTranscript($0) })
     }
 
     /// Loads unopened sessions sequentially, without changing the active tab.
@@ -92,7 +109,7 @@ public final class AgentHistoryFeatureModel: ObservableObject {
 
     private func readMetadata() throws -> [String: AgentHistoryMetadata] {
         guard let workspaceURL, let persistence else { return metadata }
-        return try persistence.load(workspaceURL: workspaceURL, agentID: agentID)
+        return try persistence.load(workspaceURL: workspaceURL, agentID: identity())
     }
 
     private func change(_ ids: [String], mutation: (inout AgentHistoryMetadata) -> Void) -> Bool {
@@ -103,7 +120,7 @@ public final class AgentHistoryFeatureModel: ObservableObject {
             var updated = try readMetadata()
             for id in validIDs { mutation(&updated[id, default: AgentHistoryMetadata()]) }
             if let workspaceURL, let persistence {
-                try persistence.save(updated, workspaceURL: workspaceURL, agentID: agentID)
+                try persistence.save(updated, workspaceURL: workspaceURL, agentID: identity())
             }
             metadata = updated
             errorMessage = nil
@@ -141,9 +158,14 @@ public struct AgentHistoryDocument: Sendable {
                 case .tool: role = String(localized: "Tool")
                 }
                 // Reasoning is exported as a quote so it stays distinct from the reply.
-                let body = message.role == .thought
-                    ? message.text.components(separatedBy: .newlines).map { "> " + $0 }.joined(separator: "\n")
-                    : message.text
+                // A replayed plan snapshot is exported as a task list.
+                let body = if let plan = message.plan {
+                    plan.entries.map { "- [\($0.status == .completed ? "x" : " ")] \($0.content)" }.joined(separator: "\n")
+                } else if message.role == .thought {
+                    message.text.components(separatedBy: .newlines).map { "> " + $0 }.joined(separator: "\n")
+                } else {
+                    message.text
+                }
                 var content = "## \(role)\n\n\(body)"
                 if let status = message.toolStatus { content += "\n\nStatus: \(status.rawValue)" }
                 for detail in [message.toolDetails.input, message.toolDetails.output].compactMap({ $0 }) {

@@ -11,6 +11,7 @@ use serde_json::{json, Value};
 use tokio::io::{AsyncBufRead, AsyncWrite, AsyncWriteExt, BufReader};
 
 const PROBE_TIMEOUT: Duration = Duration::from_secs(30);
+const CANCEL_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const PAGE_SIZE: u32 = 50;
 
 /// Source kinds codex-acp lists, so archived and active history share a scope.
@@ -34,9 +35,89 @@ pub(crate) struct CodexHistory {
     executable: PathBuf,
     cwd: PathBuf,
     model_provider: &'static str,
+    /// Account directory, so archived history belongs to the selected account.
+    codex_home: Option<PathBuf>,
 }
 
 impl CodexHistory {
+    /// Validate the selected path against native discovery before changing its
+    /// configuration, then return freshly reported state from the same server.
+    pub(crate) async fn set_skill_enabled(
+        executable: PathBuf,
+        cwd: PathBuf,
+        path: PathBuf,
+        enabled: bool,
+        codex_home: Option<PathBuf>,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Value, &'static str> {
+        let probe = Self {
+            executable,
+            cwd: cwd.clone(),
+            model_provider: SUBSCRIPTION_PROVIDER,
+            codex_home,
+        };
+        probe
+            .exchange_cancellable(
+                |mut input, mut output| async move {
+                    let params = json!({"cwds": [cwd], "forceReload": true});
+                    let before = subscription::request(
+                        &mut input,
+                        &mut output,
+                        2,
+                        "skills/list",
+                        params.clone(),
+                    )
+                    .await?;
+                    let path = crate::skills::codex_skill_path(&before, &cwd, &path)
+                        .ok_or("unknown skill")?;
+                    if cancelled() {
+                        return Err("cancelled");
+                    }
+                    subscription::request(
+                        &mut input,
+                        &mut output,
+                        3,
+                        "skills/config/write",
+                        json!({"path":path,"enabled":enabled}),
+                    )
+                    .await?;
+                    subscription::request(&mut input, &mut output, 4, "skills/list", params).await
+                },
+                cancelled,
+            )
+            .await
+    }
+
+    /// Reuse the bounded, credential-free App Server lifecycle for native skill discovery.
+    pub(crate) async fn skills(
+        executable: PathBuf,
+        cwd: PathBuf,
+        codex_home: Option<PathBuf>,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Result<Value, &'static str> {
+        let probe = Self {
+            executable,
+            cwd: cwd.clone(),
+            model_provider: SUBSCRIPTION_PROVIDER,
+            codex_home,
+        };
+        probe
+            .exchange_cancellable(
+                |mut input, mut output| async move {
+                    subscription::request(
+                        &mut input,
+                        &mut output,
+                        2,
+                        "skills/list",
+                        json!({"cwds": [cwd], "forceReload": true}),
+                    )
+                    .await
+                },
+                cancelled,
+            )
+            .await
+    }
+
     /// Only Codex connections have archived history; other Agents return None.
     pub(crate) fn for_launch(launch: &ResolvedLaunch) -> Option<Self> {
         let (executable, model_provider) = match &launch.subscription_cli {
@@ -54,6 +135,7 @@ impl CodexHistory {
             executable,
             cwd: launch.cwd.clone(),
             model_provider,
+            codex_home: launch.codex_home.clone(),
         })
     }
 
@@ -143,9 +225,27 @@ impl CodexHistory {
         F: FnOnce(tokio::process::ChildStdin, BufReader<tokio::process::ChildStdout>) -> Fut,
         Fut: std::future::Future<Output = Result<T, &'static str>>,
     {
+        self.exchange_cancellable(operation, || false).await
+    }
+
+    /// Cancellation participates in the exchange so cleanup is awaited before
+    /// a short-lived caller drops its Tokio runtime, including during initialization.
+    async fn exchange_cancellable<T, F, Fut, C>(
+        &self,
+        operation: F,
+        cancelled: C,
+    ) -> Result<T, &'static str>
+    where
+        F: FnOnce(tokio::process::ChildStdin, BufReader<tokio::process::ChildStdout>) -> Fut,
+        Fut: std::future::Future<Output = Result<T, &'static str>>,
+        C: Fn() -> bool,
+    {
         let mut process = std::process::Command::new(&self.executable);
         // History needs no credentials; never hand API overrides to this process.
         subscription::isolate_environment(&mut process);
+        if let Some(home) = &self.codex_home {
+            process.env(subscription::CODEX_HOME_ENVIRONMENT, home);
+        }
         process
             .arg("app-server")
             .current_dir(&self.cwd)
@@ -167,15 +267,25 @@ impl CodexHistory {
         }
         process.kill_on_drop(true);
         let mut child = subscription::ProbeProcess(process.spawn().map_err(|_| "unavailable")?);
-        let result = async {
-            let mut input = child.0.stdin.take().ok_or("unavailable")?;
-            let mut output = BufReader::new(child.0.stdout.take().ok_or("unavailable")?);
-            initialize(&mut input, &mut output).await?;
-            operation(input, output).await
+        let result = {
+            let exchange = async {
+                let mut input = child.0.stdin.take().ok_or("unavailable")?;
+                let mut output = BufReader::new(child.0.stdout.take().ok_or("unavailable")?);
+                initialize(&mut input, &mut output).await?;
+                operation(input, output).await
+            };
+            let bounded = tokio::time::timeout(PROBE_TIMEOUT, exchange);
+            tokio::pin!(bounded);
+            loop {
+                if cancelled() {
+                    break Err("cancelled");
+                }
+                tokio::select! {
+                    result = &mut bounded => break result.unwrap_or(Err("timeout")),
+                    _ = tokio::time::sleep(CANCEL_POLL_INTERVAL) => {}
+                }
+            }
         };
-        let result = tokio::time::timeout(PROBE_TIMEOUT, result)
-            .await
-            .unwrap_or(Err("timeout"));
         terminate_tree(&mut child.0).await;
         result
     }

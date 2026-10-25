@@ -14,6 +14,8 @@ import {
   type AgentTurnStatistics,
   type AgentTurnUsage,
 } from "./agent-turn-statistics";
+import type { AgentModelCall, AgentNotice, AgentSubagent } from "./agent-observations";
+import { emptySessionStatistics } from "./agent-session-statistics";
 
 /** Agent-owned context occupancy, distinct from cumulative billing tokens. */
 export interface AgentContextUsage {
@@ -82,6 +84,14 @@ export interface AgentToolContent {
   text: string;
 }
 
+export interface AgentToolDiff {
+  path: string;
+  oldText: string | null;
+  newText: string;
+  operation: string | null;
+  incomplete: boolean;
+}
+
 /** Bounded presentation of ACP tool evidence; partial updates replace present fields only. */
 export interface AgentToolDetails {
   kind: string | null;
@@ -89,6 +99,7 @@ export interface AgentToolDetails {
   output: string | null;
   locations: AgentToolLocation[];
   content: AgentToolContent[];
+  diffs?: AgentToolDiff[];
 }
 
 /** Only supplementary input has a request-scoped delivery acknowledgement. */
@@ -114,6 +125,7 @@ export interface AgentPermissionChoice {
 
 export interface AgentPermissionPrompt {
   id: string;
+  sessionID?: string;
   title: string;
   choices: AgentPermissionChoice[];
   details: AgentToolDetails;
@@ -127,6 +139,18 @@ export interface AgentSessionSummary {
 
 /** Display state of one conversation session. */
 export interface AgentConversation {
+  /** Live tool intervals use a monotonic clock; overlapping tools count time once. */
+  toolActivity?: { ids: string[]; activeSince: number | null; durationMs: number };
+  statistics: import("./agent-session-statistics").AgentSessionStatistics;
+  /** Exact tool evidence acknowledged locally, retained only while this tab is open. */
+  reviewedEdits?: Record<string, string[]>;
+  subagents: AgentSubagent[];
+  notices: AgentNotice[];
+  modelCalls: AgentModelCall[];
+  quiet: boolean;
+  retry: { turnID: string; attempt: number; maxAttempts: number | null } | null;
+  /** User intent for the next turn, separate from confirmed upstream values. */
+  stagedConfig: Record<string, string>;
   messages: AgentConversationMessage[];
   contextUsage: AgentContextUsage | null;
   /** Replaced as a whole on every ACP plan update; empty means no plan. */
@@ -163,6 +187,8 @@ export interface AgentConversation {
 export interface AgentFileReference {
   uri: string;
   name: string;
+  /** Platform image URL used only for an in-memory composer thumbnail. */
+  previewUrl?: string;
 }
 
 export interface AgentPrompt {
@@ -207,11 +233,14 @@ export function emptyToolDetails(): AgentToolDetails {
 
 export function createConversation(): AgentConversation {
   return {
+    statistics: emptySessionStatistics(),
+    subagents: [], notices: [], modelCalls: [], quiet: false, retry: null, stagedConfig: {},
     messages: [],
     contextUsage: null,
     plan: [],
     availableCommands: [],
     activeTurn: null,
+    toolActivity: undefined,
     completedTurns: [],
     isResponding: false,
     isLoading: false,
@@ -429,6 +458,16 @@ export function mergeToolDetails(details: AgentToolDetails, update: Record<strin
     });
   }
   if (Array.isArray(update.content)) {
+    const content = update.content;
+    merged.diffs = content.slice(0, TOOL_CONTENT_LIMIT).flatMap((entry): AgentToolDiff[] => {
+      if (!isRecord(entry) || entry.type !== "diff" || typeof entry.path !== "string") return [];
+      const oldText = asString(entry.oldText);
+      const newText = asString(entry.newText);
+      return [{ path: entry.path, oldText: oldText === null ? null : bounded(oldText),
+        newText: bounded(newText ?? ""), operation: isRecord(entry._meta) ? asString(entry._meta.kind) : null,
+        incomplete: newText === null || entry.isTruncated === true || content.length > TOOL_CONTENT_LIMIT ||
+          (oldText?.length ?? 0) > AGENT_TOOL_TEXT_LIMIT || (newText?.length ?? 0) > AGENT_TOOL_TEXT_LIMIT }];
+    });
     merged.content = update.content.slice(0, TOOL_CONTENT_LIMIT).flatMap((entry): AgentToolContent[] => {
       if (!isRecord(entry)) return [];
       if (entry.type === "content") {
@@ -448,6 +487,19 @@ export function mergeToolDetails(details: AgentToolDetails, update: Record<strin
       }
       return [];
     });
+  }
+  // The pinned Claude adapter exposes complete Write output through public SDK
+  // metadata. A null old excerpt alone must never be mistaken for file creation.
+  const metadata = isRecord(update._meta) ? update._meta : null;
+  const claude = metadata && isRecord(metadata.claudeCode) ? metadata.claudeCode : null;
+  const response = claude && isRecord(claude.toolResponse) ? claude.toolResponse : null;
+  if (claude?.toolName === "Write" && response && typeof response.filePath === "string" && response.filePath &&
+      typeof response.content === "string" && (response.type === "create" ||
+      (response.type === "update" && typeof response.originalFile === "string"))) {
+    const oldText = response.type === "create" ? null : asString(response.originalFile);
+    merged.diffs = [{ path: response.filePath, oldText: oldText === null ? null : bounded(oldText),
+      newText: bounded(response.content), operation: response.type === "create" ? "add" : "update",
+      incomplete: response.content.length > AGENT_TOOL_TEXT_LIMIT || (oldText?.length ?? 0) > AGENT_TOOL_TEXT_LIMIT }];
   }
   return merged;
 }
@@ -544,7 +596,13 @@ export function finishActiveTurn(
   return {
     ...conversation,
     activeTurn: null,
+    toolActivity: undefined,
     completedTurns: [...conversation.completedTurns, finishTurn(turn, now, ending, usage)],
+    statistics: { ...conversation.statistics, turnCount: conversation.statistics.turnCount + 1,
+      toolCallCount: conversation.statistics.toolCallCount + (conversation.toolActivity?.ids.length ?? 0),
+      toolDurationMs: conversation.statistics.toolDurationMs + (conversation.toolActivity?.durationMs ?? 0) +
+        (conversation.toolActivity?.activeSince == null ? 0 : Math.max(0, now - conversation.toolActivity.activeSince)),
+      latestUsage: usage ?? conversation.statistics.latestUsage },
   };
 }
 
@@ -603,6 +661,7 @@ export function permissionPrompt(
   }
   return {
     id: requestID,
+    sessionID: asString(record.sessionId) ?? undefined,
     title: (tool !== null ? asString(tool.title) : null) ?? "Allow the Agent to continue?",
     choices,
     details,

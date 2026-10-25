@@ -321,7 +321,7 @@ export const TitleBar = ({
 
   const workbenchActions = (
     <ChromeGroup gap="tight" className="pointer-events-auto">
-      <Tooltip content={BACKEND_UNAVAILABLE_TOOLTIP} side="bottom">
+      <Tooltip content={t(BACKEND_UNAVAILABLE_TOOLTIP)} side="bottom">
         <span>
           <Button
             type="button"

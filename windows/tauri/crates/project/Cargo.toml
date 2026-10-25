@@ -15,3 +15,4 @@ serde = { version = "1.0", features = ["derive"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
+windows = { version = "=0.61.3", features = ["Win32_System_Com", "Win32_UI_Shell"] }

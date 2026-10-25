@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-request"
+description = "Allows the plugin-private bridge request; native code authorizes the page identity, origin and method."
+commands.allow = ["request"]

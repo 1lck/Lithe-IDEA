@@ -47,10 +47,6 @@ export interface ExtensionManifest {
   // Language support
   languages?: LanguageContribution[];
 
-  // Database provider sidecars
-  databases?: DatabaseProviderContribution[];
-  databaseProviders?: DatabaseProviderContribution[];
-
   // ACP agent contributions
   agents?: AgentContribution[];
 
@@ -132,7 +128,6 @@ export interface ExtensionManifest {
 
 export type ExtensionCategory =
   | "Language"
-  | "Database"
   | "AI"
   | "Integration"
   | "Agent"
@@ -184,26 +179,6 @@ export interface LspConfiguration {
 
   // Server capabilities override
   capabilities?: Record<string, any>;
-}
-
-interface PlatformArchExecutable {
-  "darwin-arm64"?: string;
-  "darwin-x64"?: string;
-  "linux-x64"?: string;
-  "linux-arm64"?: string;
-  "win32-x64"?: string;
-}
-
-export type DatabaseProviderId = "sqlite" | "duckdb" | "postgres" | "mysql" | "mongodb" | "redis";
-
-export interface DatabaseProviderContribution {
-  id: DatabaseProviderId;
-  label: string;
-  isFileBased: boolean;
-  protocolVersion: number;
-  defaultPort?: number;
-  fileExtensions?: string[];
-  sidecar: PlatformArchExecutable;
 }
 
 interface AgentContribution {
@@ -479,8 +454,6 @@ export interface PlatformPackage {
 
 export interface UIContributions {
   languages?: LanguageContribution[];
-  databases?: DatabaseProviderContribution[];
-  databaseProviders?: DatabaseProviderContribution[];
   agents?: AgentContribution[];
   aiProviders?: AIProviderContribution[];
   integrations?: IntegrationContribution[];

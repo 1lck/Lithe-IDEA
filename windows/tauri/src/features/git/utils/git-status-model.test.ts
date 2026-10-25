@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { GitFile } from "../types/git.types";
-import { buildGitStatusPresentation, buildVisibleGitFiles } from "./git-status-model";
+import {
+  buildGitFolderTree,
+  buildGitStatusPresentation,
+  buildVisibleGitFiles,
+} from "./git-status-model";
 
 const files: GitFile[] = [
   { path: "src/tracked.ts", status: "modified", staged: false },
@@ -48,5 +52,49 @@ describe("Git status model", () => {
       },
     ]);
     expect(buildGitStatusPresentation(splitStatus).visibleFiles).toEqual(visible.files);
+  });
+});
+
+describe("Git folder tree with untracked directory summaries", () => {
+  const untracked = (path: string, untrackedFileCount?: number): GitFile => ({
+    path,
+    status: "untracked",
+    staged: false,
+    ...(untrackedFileCount === undefined ? {} : { untrackedFileCount }),
+  });
+  const names = (tree: ReturnType<typeof buildGitFolderTree>) => {
+    const visit = (nodes: typeof tree.nodes): string[] =>
+      nodes.flatMap((node) => [
+        `${node.type}:${node.path}`,
+        ...(node.type === "branch" ? visit(node.children) : []),
+      ]);
+    return visit(tree.nodes);
+  };
+
+  test("keeps a collapsed summary as one row", () => {
+    const tree = buildGitFolderTree([untracked("rust/target/", 5_273)]);
+    expect(names(tree)).toEqual(["branch:rust", "leaf:rust/target/"]);
+    expect(tree.untrackedDirectoryByFolderPath.size).toBe(0);
+  });
+
+  test("lets the folder built from an expanded summary stand for it", () => {
+    const summary = untracked("rust/target/", 5_273);
+    const tree = buildGitFolderTree([
+      summary,
+      untracked("rust/target/.rustc_info.json"),
+      untracked("rust/target/debug/", 5_272),
+    ]);
+    // The summary row would otherwise sit beside a folder of the same name.
+    expect(names(tree)).toEqual([
+      "branch:rust",
+      "branch:rust/target",
+      "leaf:rust/target/debug/",
+      "leaf:rust/target/.rustc_info.json",
+    ]);
+    expect(tree.untrackedDirectoryByFolderPath.get("rust/target")).toBe(summary);
+    expect(tree.folderStateById.get("branch:rust/target")?.descendantFilePaths).toEqual([
+      "rust/target/debug/",
+      "rust/target/.rustc_info.json",
+    ]);
   });
 });

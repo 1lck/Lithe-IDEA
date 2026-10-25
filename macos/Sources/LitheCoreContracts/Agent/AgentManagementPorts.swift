@@ -157,6 +157,11 @@ public struct AgentCliUpdateResult: Decodable, Equatable, Sendable {
 /// Detects the user's runtime and installs ACP adapters with the user's npm.
 /// Node.js remains user-managed; CLI updates follow their verified installation owners.
 public protocol AgentManagementService: Sendable {
+    func skillDirectories(agentID: String, workspace: URL?) async throws -> [String: String]
+    func readSkill(at url: URL, agentID: String) async throws -> String
+    func listSkills(agentID: String, workspace: URL?) async throws -> AgentSkillListing
+    func writeSkill(_ request: AgentSkillWrite) async throws -> URL
+    func setSkillEnabled(_ request: AgentSkillEnablement) async throws -> AgentSkillListing
     func status(dataDirectory: URL) async throws -> AgentManagementStatus
     /// Installs the pinned adapter version; returns the installed version.
     func install(agentID: String, dataDirectory: URL) async throws -> String
@@ -171,6 +176,16 @@ public protocol AgentManagementService: Sendable {
 }
 
 public extension AgentManagementService {
+    func setSkillEnabled(_ request: AgentSkillEnablement) async throws -> AgentSkillListing { throw CocoaError(.featureUnsupported) }
+    func skillDirectories(agentID: String, workspace: URL?) async throws -> [String: String] { [:] }
+    func readSkill(at url: URL, agentID: String) async throws -> String { throw CocoaError(.featureUnsupported) }
+    func listSkills(agentID: String, workspace: URL?) async throws -> AgentSkillListing {
+        throw CocoaError(.featureUnsupported)
+    }
+    func writeSkill(_ request: AgentSkillWrite) async throws -> URL {
+        throw CocoaError(.featureUnsupported)
+    }
+
     func install(agentID: String, dataDirectory: URL,
                  onProgress: @escaping @Sendable (AgentInstallProgress) -> Void) async throws -> String {
         try await install(agentID: agentID, dataDirectory: dataDirectory)

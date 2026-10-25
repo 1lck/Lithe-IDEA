@@ -87,7 +87,6 @@ struct GitWorktreesView: View {
     @State private var showsCreateSheet = false
     @State private var worktreeConfirmation: WorktreeConfirmation?
     @State private var worktreeActionNotice: WorktreeActionNotice?
-    @State private var listActive = false
     @State private var detailActive = false
     @FocusState private var searchFocused: Bool
     @FocusState private var historySearchFocused: Bool
@@ -173,7 +172,7 @@ struct GitWorktreesView: View {
             let worktrees = feature.gitWorktrees
             let query = searchText
             let inspection = feature.gitWorktreeInspection
-            let currentChangeCount = feature.gitChanges.count
+            let currentChangeCount = feature.gitChangedFileCount
             let projection = await Task.detached(priority: .userInitiated) {
                 GitWorktreeListProjection.items(
                     worktrees: worktrees,
@@ -355,19 +354,7 @@ struct GitWorktreesView: View {
             .padding(.horizontal, 12)
             .frame(height: LitheTheme.Commit.toolbarHeight)
 
-            HStack(spacing: 2) {
-                LitheIDEAIcon(resourcePath: "expui/general/search", size: 16, preservesOriginalColors: true)
-                LitheSearchTextField("Search worktree or path", text: $searchText)
-                    .focused($searchFocused)
-                if !searchText.isEmpty {
-                    Button { searchText = "" } label: {
-                        LitheIDEAIcon(resourcePath: "expui/general/closeSmall", size: 16, preservesOriginalColors: true)
-                    }
-                    .buttonStyle(LitheIconButtonStyle(size: 20, cornerRadius: 4))
-                    .accessibilityLabel("Clear search")
-                }
-            }
-            .litheSearchField(isFocused: searchFocused)
+            LitheSearchField("Search worktree or path", text: $searchText, focus: $searchFocused)
             .padding(.horizontal, 8)
             .padding(.bottom, 4)
 
@@ -376,10 +363,10 @@ struct GitWorktreesView: View {
             if filteredWorktrees.isEmpty {
                 listEmptyState
             } else {
-                GitWorktreeListScrollView(
-                    items: projectedWorktrees,
+                LitheTreeList(
+                    native: GitWorktreeListScrollView(
+                        items: projectedWorktrees,
                     selectedWorktreeID: selectedWorktreeID,
-                    isFocused: listActive && controlActiveState == .key,
                     isPerformingWorktreeOperation: feature.isPerformingWorktreeOperation,
                     onSelect: { worktreeID in
                         selectedWorktreeID = worktreeID
@@ -388,8 +375,7 @@ struct GitWorktreesView: View {
                     onContextMenuAction: { action, item in
                         handleWorktreeContextMenuAction(action, for: item.worktree)
                     }
-                )
-                .background(LitheToolWindowActivityTracker(isActive: $listActive))
+                    ))
             }
         }
         .background(background.hasImage ? Color.clear : LitheTheme.sidebar)
@@ -627,19 +613,7 @@ struct GitWorktreesView: View {
                     let query = historySearchText.trimmingCharacters(in: .whitespacesAndNewlines)
                     let snapshot = projectedHistorySnapshot
                     VStack(alignment: .leading, spacing: 10) {
-                        HStack(spacing: 2) {
-                            LitheIDEAIcon(resourcePath: "expui/general/search", size: 16, preservesOriginalColors: true)
-                            LitheSearchTextField("Search commits", text: $historySearchText)
-                                .focused($historySearchFocused)
-                            if !historySearchText.isEmpty {
-                                Button { historySearchText = "" } label: {
-                                    LitheIDEAIcon(resourcePath: "expui/general/closeSmall", size: 16, preservesOriginalColors: true)
-                                }
-                                .buttonStyle(LitheIconButtonStyle(size: 20, cornerRadius: 4))
-                                .accessibilityLabel("Clear search")
-                            }
-                        }
-                        .litheSearchField(isFocused: historySearchFocused)
+                        LitheSearchField("Search commits", text: $historySearchText, focus: $historySearchFocused)
                         if snapshot.rows.isEmpty {
                             Text("No matching commits in the loaded history.")
                                 .font(Visual.metadata)
@@ -668,8 +642,7 @@ struct GitWorktreesView: View {
                                     Spacer()
                                 }
                             }
-                            .buttonStyle(LitheCommitDialogButtonStyle())
-                            .controlSize(.small)
+                            .buttonStyle(LitheActionButtonStyle())
                             .disabled(isLoadingMoreHistory)
                         }
                     }
@@ -774,7 +747,7 @@ struct GitWorktreesView: View {
                 .foregroundStyle(destructive ? LitheTheme.error : LitheTheme.primaryText)
                 .frame(maxWidth: .infinity)
         }
-        .buttonStyle(LitheCommitDialogButtonStyle())
+        .buttonStyle(LitheActionButtonStyle())
         .disabled(feature.isPerformingWorktreeOperation)
     }
 
@@ -864,7 +837,7 @@ struct GitWorktreesView: View {
         WorktreeListProjectionIdentity(
             worktreesVersion: feature.gitWorktreesVersion,
             inspectionVersion: feature.gitWorktreeInspectionVersion,
-            currentChangeCount: feature.gitChanges.count,
+            currentChangeCount: feature.gitChangedFileCount,
             query: searchText
         )
     }
@@ -929,9 +902,9 @@ struct GitWorktreesView: View {
     private func localChangesDescription(for worktree: GitWorktree) -> String {
         let count: Int
         if let inspection = matchingInspection(for: worktree) {
-            count = inspection.changes.count
+            count = inspection.changes.reduce(0) { $0 + $1.fileCount }
         } else if worktree.isCurrent {
-            count = feature.gitChanges.count
+            count = feature.gitChangedFileCount
         } else {
             return gitLocalizedFormat("Loading…", locale: locale)
         }

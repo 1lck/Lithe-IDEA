@@ -51,6 +51,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
     weak var projectSessions: ProjectSessionManager? {
         didSet {
             guard let projectSessions else { return }
+            configureRunServiceCloseConfirmation(projectSessions)
             let pendingURLs = pendingFileURLs
             pendingFileURLs.removeAll()
             pendingURLs.forEach { projectSessions.openStandaloneFile($0) }
@@ -379,6 +380,7 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
         let services = MacProcessInstance.current.map { MacProcessInventoryReader().backgroundServices(instance: $0) } ?? []
         let (outcome, updatedSettings) = await processExitCoordinator.confirmQuit(
             settings: settings.processTermination,
+            runServices: projectSessions.sessions.flatMap(\.runServiceExitCandidates),
             terminals: terminals,
             agentTasks: agentTasks.map(\.candidate),
             resources: services.map(\.candidate)
@@ -423,6 +425,16 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
         guard let instance = MacProcessInstance.current else { return }
         instance.retain(keptBackgroundProcesses)
         instance.finalSweep(gracePeriod: finalSweepGracePeriod)
+    }
+
+    private func configureRunServiceCloseConfirmation(_ projectSessions: ProjectSessionManager) {
+        let coordinator = processExitCoordinator
+        projectSessions.confirmRunServicesOnClose = { [weak self] services in
+            await coordinator.confirmCloseProject(
+                settings: self?.settings?.processTermination ?? ProcessTerminationSettings(),
+                runServices: services
+            )
+        }
     }
 
     private func configureAgentDisconnectConfirmation() {
@@ -929,7 +941,9 @@ private struct SettingsWindowHost: View {
 }
 
 private struct SettingsWindow: View {
-    @ObservedObject var model: AppModel
+    /// Not observed: the whole settings tree would rebuild on every relayed
+    /// workbench change. Pages observe `SettingsModelContext` instead.
+    let model: AppModel
     @ObservedObject var settings: AppSettings
     let projectSessions: ProjectSessionManager
     /// Binding of the opening that created this view; close callbacks from an
@@ -937,6 +951,9 @@ private struct SettingsWindow: View {
     let bindingID: UUID
     @StateObject private var windowReference = SettingsWindowReference()
     @StateObject private var viewState: SettingsViewState
+    @StateObject private var settingsContext: SettingsModelContext
+    @State private var requestedCategory: SettingsCategory
+    @State private var categoryRequest: Int
     let onDisappear: () -> Void
 
     init(
@@ -954,6 +971,9 @@ private struct SettingsWindow: View {
         _viewState = StateObject(wrappedValue: SettingsViewState(
             initialCategory: model.requestedSettingsCategory
         ))
+        _settingsContext = StateObject(wrappedValue: SettingsModelContext(model: model))
+        _requestedCategory = State(initialValue: model.requestedSettingsCategory)
+        _categoryRequest = State(initialValue: model.settingsCategoryRequest)
     }
 
     var body: some View {
@@ -961,11 +981,20 @@ private struct SettingsWindow: View {
             SettingsView(
                 settings: settings,
                 viewState: viewState,
-                initialCategory: model.requestedSettingsCategory,
-                categoryRequest: model.settingsCategoryRequest,
+                initialCategory: requestedCategory,
+                categoryRequest: categoryRequest,
+                skillProjects: projectSessions.openProjects.compactMap(\.workspaceURL),
                 onDismiss: close
             )
+            .environmentObject(settingsContext)
+            // Leaf views that show live workbench state still observe the model.
             .environmentObject(model)
+        }
+        .onReceive(model.workbenchFeature.$requestedSettingsCategory.removeDuplicates()) {
+            requestedCategory = $0
+        }
+        .onReceive(model.workbenchFeature.$settingsCategoryRequest.removeDuplicates()) {
+            categoryRequest = $0
         }
         .environment(\.lithePointingHandCursorEnabled, false)
         .background(
@@ -1021,8 +1050,19 @@ final class SettingsTitlebarBackgroundView: NSView {
 }
 
 private final class SettingsWindowProbe: NSView {
+    struct Configuration: Equatable {
+        let window: ObjectIdentifier
+        let title: String
+        let themePreference: AppThemePreference
+        let closeEnabled: Bool
+    }
+
     var onEffectiveAppearanceChange: (() -> Void)?
     var onWindowChange: (() -> Void)?
+    /// Last chrome applied to the window. SwiftUI updates the accessor on
+    /// unrelated settings changes; reassigning the style mask and repainting
+    /// every titlebar layer each time makes the window stutter.
+    var appliedConfiguration: Configuration?
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
@@ -1052,19 +1092,28 @@ private struct SettingsWindowAccessor: NSViewRepresentable {
     func updateNSView(_ view: SettingsWindowProbe, context: Context) {
         bindAppearanceUpdates(to: view)
         bindWindowUpdates(to: view)
-        configureWindow(for: view)
+        configureWindow(for: view, force: false)
     }
 
     private func bindAppearanceUpdates(to view: SettingsWindowProbe) {
         view.onEffectiveAppearanceChange = { [weak view] in
             guard let view else { return }
+            // The settings surface color depends on the effective appearance.
             configureWindow(for: view)
         }
     }
 
-    private func configureWindow(for view: NSView) {
+    private func configureWindow(for view: SettingsWindowProbe, force: Bool = true) {
         DispatchQueue.main.async {
             guard let window = view.window else { return }
+            let configuration = SettingsWindowProbe.Configuration(
+                window: ObjectIdentifier(window),
+                title: title,
+                themePreference: themePreference,
+                closeEnabled: closeEnabled
+            )
+            guard force || view.appliedConfiguration != configuration else { return }
+            view.appliedConfiguration = configuration
             reference.window = window
             SettingsWindowChrome.configure(
                 window,
@@ -1087,6 +1136,9 @@ private struct SettingsWindowAccessor: NSViewRepresentable {
 enum SettingsWindowChrome {
     static weak var ownerWindow: NSWindow?
     static weak var settingsWindow: NSWindow?
+    /// Owner the settings window was detached from for the current titlebar drag.
+    private static weak var dragDetachedOwner: NSWindow?
+    private static var titlebarDragMonitor: Any?
 
     static func configure(
         _ window: NSWindow,
@@ -1097,9 +1149,9 @@ enum SettingsWindowChrome {
         settingsWindow = window
         window.title = title
         window.level = .normal
-        if let ownerWindow, ownerWindow !== window, window.parent !== ownerWindow {
-            window.parent?.removeChildWindow(window)
-            ownerWindow.addChildWindow(window, ordered: .above)
+        installTitlebarDragMonitor()
+        if dragDetachedOwner == nil {
+            attach(window)
         }
         let windowAppearance = themePreference.windowAppearance
         if window.appearance?.name != windowAppearance?.name {
@@ -1108,11 +1160,15 @@ enum SettingsWindowChrome {
         if window.contentView?.appearance?.name != windowAppearance?.name {
             window.contentView?.appearance = windowAppearance
         }
-        window.styleMask.insert(.fullSizeContentView)
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility = .visible
-        window.titlebarSeparatorStyle = .none
-        window.isOpaque = true
+        // Assigning the style mask retiles the window frame even when the
+        // value is unchanged, so write it only when needed.
+        if !window.styleMask.contains(.fullSizeContentView) {
+            window.styleMask.insert(.fullSizeContentView)
+        }
+        if !window.titlebarAppearsTransparent { window.titlebarAppearsTransparent = true }
+        if window.titleVisibility != .visible { window.titleVisibility = .visible }
+        if window.titlebarSeparatorStyle != .none { window.titlebarSeparatorStyle = .none }
+        if !window.isOpaque { window.isOpaque = true }
         let settingsSurface = LitheTheme.settingsSurfaceNSColor(for: window.effectiveAppearance)
         window.backgroundColor = settingsSurface
         applySettingsSurface(toTitlebarOf: window, color: settingsSurface)
@@ -1121,6 +1177,71 @@ enum SettingsWindowChrome {
         if let closeEnabled {
             window.standardWindowButton(.closeButton)?.isEnabled = closeEnabled
         }
+    }
+
+    private static func attach(_ window: NSWindow) {
+        if let ownerWindow, ownerWindow !== window, window.parent !== ownerWindow {
+            window.parent?.removeChildWindow(window)
+            ownerWindow.addChildWindow(window, ordered: .above)
+        }
+    }
+
+    /// AppKit moves a child window itself, one mouse event at a time on the
+    /// main thread, so dragging the settings window stutters whenever the
+    /// workbench is busy. A top-level window is moved by the window server
+    /// instead. The settings window therefore leaves its owner when a
+    /// titlebar press begins and rejoins it when the press ends, keeping the
+    /// owner-following behavior everywhere else.
+    private static func installTitlebarDragMonitor() {
+        guard titlebarDragMonitor == nil else { return }
+        titlebarDragMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .leftMouseUp]
+        ) { event in
+            handleTitlebarMouseEvent(event)
+            return event
+        }
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification, object: nil, queue: .main
+        ) { notification in
+            // The window server may end a drag without delivering mouse-up
+            // to the app; rejoin once no button is held any more.
+            MainActor.assumeIsolated {
+                guard (notification.object as? NSWindow) === settingsWindow,
+                      NSEvent.pressedMouseButtons & 1 == 0 else { return }
+                reattachAfterTitlebarDrag()
+            }
+        }
+    }
+
+    /// Detaches on a titlebar press and rejoins on release; called by the
+    /// local event monitor before AppKit starts the window drag.
+    static func handleTitlebarMouseEvent(_ event: NSEvent) {
+        switch event.type {
+        case .leftMouseDown:
+            if let window = settingsWindow, event.window === window,
+               isTitlebarPress(event, in: window),
+               let owner = window.parent {
+                owner.removeChildWindow(window)
+                dragDetachedOwner = owner
+            }
+        case .leftMouseUp:
+            reattachAfterTitlebarDrag()
+        default:
+            break
+        }
+    }
+
+    private static func isTitlebarPress(_ event: NSEvent, in window: NSWindow) -> Bool {
+        event.locationInWindow.y >= window.contentLayoutRect.maxY
+    }
+
+    private static func reattachAfterTitlebarDrag() {
+        guard let owner = dragDetachedOwner else { return }
+        dragDetachedOwner = nil
+        guard let window = settingsWindow, window.isVisible,
+              ownerWindow === owner || ownerWindow == nil else { return }
+        if ownerWindow == nil { ownerWindow = owner }
+        attach(window)
     }
 
     private static func applySettingsSurface(toTitlebarOf window: NSWindow, color: NSColor) {
@@ -1182,6 +1303,15 @@ extension AppThemePreference {
         case .system: nil
         case .light: NSAppearance(named: .aqua)
         case .dark: NSAppearance(named: .darkAqua)
+        }
+    }
+
+    /// Light/dark the app theme pins while a view is outside any window; nil follows the system appearance.
+    var preferredIsDark: Bool? {
+        switch self {
+        case .system: nil
+        case .light: false
+        case .dark: true
         }
     }
 

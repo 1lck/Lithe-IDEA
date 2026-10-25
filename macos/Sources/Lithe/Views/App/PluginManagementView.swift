@@ -17,7 +17,8 @@ struct PluginManagementView: View {
     /// bound is a constant rather than read from live window geometry.
     static let listMaximumWidth: CGFloat = 520
     static let detailMinimumWidth: CGFloat = 160
-    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var settingsContext: SettingsModelContext
+    private var model: AppModel { settingsContext.model }
     @ObservedObject var settingsState: SettingsViewState
 
     var body: some View {
@@ -31,7 +32,8 @@ struct PluginManagementView: View {
 private struct PluginManagementPage: View {
     typealias Tab = PluginManagementView.Tab
 
-    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var settingsContext: SettingsModelContext
+    private var model: AppModel { settingsContext.model }
     @ObservedObject var settingsState: SettingsViewState
     @ObservedObject var feature: PluginMarketplaceFeatureModel
     @AppStorage("lithe.settings.pluginTab") private var tab = Tab.installed
@@ -156,12 +158,12 @@ private struct PluginManagementPage: View {
 /// Installed tab: enable, disable, update, reinstall, and uninstall.
 private struct InstalledPluginsView: View {
     @Environment(\.locale) private var locale
-    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var settingsContext: SettingsModelContext
+    private var model: AppModel { settingsContext.model }
     @ObservedObject var settingsState: SettingsViewState
     @ObservedObject var feature: PluginMarketplaceFeatureModel
     @State private var searchText = ""
     @State private var selectedPluginID: PluginID?
-    @State private var hoveredPluginID: PluginID?
     @State private var isManagingPackage = false
     @State private var confirmingUninstall: PluginManagementSnapshot?
     @State private var confirmingRollback: PluginManagementSnapshot?
@@ -190,14 +192,6 @@ private struct InstalledPluginsView: View {
                 hasUpdate: feature.availableUpdate(for: plugin.id) != nil
             ) && PluginListFilter.matches(plugin, query: query)
         }
-    }
-
-    private var enabledPlugins: [PluginManagementSnapshot] {
-        filteredPlugins.filter { effectiveEnabledState(for: $0) }
-    }
-
-    private var disabledPlugins: [PluginManagementSnapshot] {
-        filteredPlugins.filter { !effectiveEnabledState(for: $0) }
     }
 
     private var selectedPlugin: PluginManagementSnapshot? {
@@ -292,7 +286,7 @@ private struct InstalledPluginsView: View {
     private var sidebar: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 8) {
-                LitheSettingsSearchField("Type / to see options", text: $searchText)
+                LitheSearchField("Type / to see options", text: $searchText)
                 filterChips
             }
             .padding(.horizontal, 8)
@@ -312,33 +306,20 @@ private struct InstalledPluginsView: View {
                 Spacer()
             }
             .padding(.horizontal, 14).frame(height: 38).background(LitheTheme.settingsListSurface)
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    if !enabledPlugins.isEmpty {
-                        groupHeader("Enabled")
-                        ForEach(enabledPlugins) { plugin in
-                            pluginRow(plugin)
-                        }
-                    }
-                    if !disabledPlugins.isEmpty {
-                        groupHeader("Disabled")
-                        ForEach(disabledPlugins) { plugin in
-                            pluginRow(plugin)
-                        }
-                    }
-                    if filteredPlugins.isEmpty {
-                        Text(LocalizedStringKey("No matching plugins"))
-                            .font(LitheTheme.smallFont)
-                            .foregroundStyle(LitheTheme.secondaryText)
-                            .padding(.vertical, 24)
-                    }
-                    if filter == .all {
-                        ForEach(brokenPluginIssues) { issue in
+            // Filter and sort once per render; rows only receive their own state.
+            let plugins = filteredPlugins
+            let selectedID = (plugins.first { $0.id == selectedPluginID } ?? plugins.first)?.id
+            let enabled = plugins.filter { effectiveEnabledState(for: $0) }
+            let disabled = plugins.filter { !effectiveEnabledState(for: $0) }
+            LitheTreeList(nodes:
+                pluginNodes(enabled, title: "Enabled") + pluginNodes(disabled, title: "Disabled")
+                    + (filter == .all ? brokenPluginIssues.map { issue in
+                        LitheTreeListNode(id: "issue:" + String(describing: issue.id), isSelectable: false) {
                             brokenPluginRow(issue)
                         }
-                    }
-                }
-            }
+                    } : []),
+                selection: Binding(get: { selectedID.map { "plugin:" + $0.rawValue } }, set: { _ in }), multiline: true)
+
         }
         .frame(maxWidth: .infinity)
         .background(LitheTheme.settingsListSurface)
@@ -347,7 +328,7 @@ private struct InstalledPluginsView: View {
     private var filterChips: some View {
         // Wraps instead of scrolling so every filter stays visible in a
         // narrow list.
-        PluginFilterChipLayout(spacing: 5) {
+        LitheChipFlowLayout(spacing: 5) {
             ForEach(PluginListFilter.allCases, id: \.self) { value in
                 let isSelected = filter == value
                 Button {
@@ -411,50 +392,26 @@ private struct InstalledPluginsView: View {
             .padding(.bottom, 4)
     }
 
+    private func pluginNodes(_ plugins: [PluginManagementSnapshot], title: String) -> [LitheTreeListNode] {
+        guard !plugins.isEmpty else { return [] }
+        return [LitheTreeListNode(id: "group:" + (plugins.first?.id.rawValue ?? ""), isSelectable: false) {
+            groupHeader(title)
+        }] + plugins.map { plugin in
+            LitheTreeListNode(id: "plugin:" + plugin.id.rawValue, onSelect: { selectedPluginID = plugin.id }) {
+                pluginRow(plugin)
+            }
+        }
+    }
+
     private func pluginRow(_ plugin: PluginManagementSnapshot) -> some View {
-        let isSelected = selectedPlugin?.id == plugin.id
-        let isHovered = hoveredPluginID == plugin.id
-        return HStack(spacing: 10) {
+        InstalledPluginRow(
+            displayName: plugin.manifest.displayName,
+            subtitle: rowSubtitle(plugin),
+            hasUpdate: feature.availableUpdate(for: plugin.id) != nil,
+            isEnabled: effectiveEnabledState(for: plugin)
+        ) {
             pluginIcon(plugin, size: 32)
-                .scaleEffect(isHovered && !isSelected ? 1.06 : 1)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(LocalizedStringKey(plugin.manifest.displayName)).lineLimit(1)
-                    .font(LitheTheme.uiFont(size: 13, weight: .semibold))
-                Text(verbatim: rowSubtitle(plugin))
-                    .font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
-                    .lineLimit(1)
-            }
-            Spacer()
-            if feature.availableUpdate(for: plugin.id) != nil {
-                Image(systemName: "arrow.up.circle.fill")
-                    .foregroundStyle(LitheTheme.accent)
-                    .help("Update available")
-            }
-            Image(systemName: effectiveEnabledState(for: plugin) ? "checkmark.square.fill" : "square")
-                .foregroundStyle(effectiveEnabledState(for: plugin) ? LitheTheme.accent : LitheTheme.secondaryText)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            isSelected
-                ? LitheTheme.settingsSelection
-                : (isHovered ? LitheTheme.hoverBackground : Color.clear)
-        )
-        .contentShape(Rectangle())
-        .onTapGesture(count: 1) {
-            selectedPluginID = plugin.id
-        }
-        .onHover { hovering in
-            if hovering {
-                hoveredPluginID = plugin.id
-            } else if hoveredPluginID == plugin.id {
-                hoveredPluginID = nil
-            }
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction { selectedPluginID = plugin.id }
     }
 
     /// A plugin whose package was refused. It can only be uninstalled or
@@ -476,7 +433,7 @@ private struct InstalledPluginsView: View {
                     Button(LocalizedStringKey("Uninstall")) {
                         performPackageAction { await model.uninstallPlugin(pluginID) }
                     }
-                    .controlSize(.small)
+                    .buttonStyle(LitheActionButtonStyle())
                     .disabled(isManagingPackage)
                 }
             }
@@ -556,7 +513,7 @@ private struct InstalledPluginsView: View {
     }
 
     private var footer: some View {
-        HStack {
+        HStack(spacing: LitheTheme.ActionButton.spacing) {
             Spacer()
             Text(LocalizedStringKey("Pending plugin changes: \(pendingEnabledStates.count)"))
                 .font(LitheTheme.smallFont)
@@ -564,7 +521,7 @@ private struct InstalledPluginsView: View {
             Button(LocalizedStringKey("Cancel")) {
                 settingsState.pendingPluginEnabledStates.removeAll()
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(LitheActionButtonStyle())
             .disabled(isApplyingChanges)
             Button {
                 Task { @MainActor in
@@ -577,8 +534,7 @@ private struct InstalledPluginsView: View {
                     Text(LocalizedStringKey("Confirm"))
                 }
             }
-            .buttonStyle(.borderedProminent)
-            .tint(LitheTheme.accent)
+            .buttonStyle(LitheActionButtonStyle(isPrimary: true))
             .disabled(isApplyingChanges)
         }
         .padding(.horizontal, 14)
@@ -746,51 +702,37 @@ struct PluginManagementListContent {
     }
 }
 
-/// Lays the filter chips out in rows, wrapping when the list is narrow.
-private struct PluginFilterChipLayout: Layout {
-    let spacing: CGFloat
+/// Installed plugin content; the shared tree owns focus, selection, hover and activation.
+private struct InstalledPluginRow<Icon: View>: View {
+    let displayName: String
+    let subtitle: String
+    let hasUpdate: Bool
+    let isEnabled: Bool
+    @ViewBuilder let icon: () -> Icon
 
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let rows = rows(width: proposal.width ?? .infinity, subviews: subviews)
-        let width = rows.map(\.width).max() ?? 0
-        let height = rows.map(\.height).reduce(0, +) + spacing * CGFloat(max(rows.count - 1, 0))
-        return CGSize(width: proposal.width ?? width, height: height)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        var y = bounds.minY
-        for row in rows(width: bounds.width, subviews: subviews) {
-            var x = bounds.minX
-            for index in row.indices {
-                let size = subviews[index].sizeThatFits(.unspecified)
-                subviews[index].place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
-                x += size.width + spacing
+    var body: some View {
+        HStack(spacing: 10) {
+            icon()
+            VStack(alignment: .leading, spacing: 3) {
+                Text(LocalizedStringKey(displayName)).lineLimit(1)
+                    .font(LitheTheme.uiFont(size: 13, weight: .semibold))
+                Text(verbatim: subtitle)
+                    .font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
+                    .lineLimit(1)
             }
-            y += row.height + spacing
-        }
-    }
-
-    private struct Row {
-        var indices: [Int] = []
-        var width: CGFloat = 0
-        var height: CGFloat = 0
-    }
-
-    private func rows(width: CGFloat, subviews: Subviews) -> [Row] {
-        var rows: [Row] = []
-        var current = Row()
-        for index in subviews.indices {
-            let size = subviews[index].sizeThatFits(.unspecified)
-            let proposed = current.indices.isEmpty ? size.width : current.width + spacing + size.width
-            if !current.indices.isEmpty, proposed > width {
-                rows.append(current)
-                current = Row()
+            Spacer()
+            if hasUpdate {
+                Image(systemName: "arrow.up.circle.fill")
+                    .foregroundStyle(LitheTheme.accent)
+                    .help("Update available")
             }
-            current.width = current.indices.isEmpty ? size.width : current.width + spacing + size.width
-            current.height = max(current.height, size.height)
-            current.indices.append(index)
+            Image(systemName: isEnabled ? "checkmark.square.fill" : "square")
+                .foregroundStyle(isEnabled ? LitheTheme.accent : LitheTheme.secondaryText)
         }
-        if !current.indices.isEmpty { rows.append(current) }
-        return rows
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+
     }
 }

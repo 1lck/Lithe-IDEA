@@ -196,7 +196,7 @@ struct MediaViewerView: View {
                         .font(LitheTheme.uiFont(size: 11, weight: .medium))
                         .monospacedDigit()
                 }
-                .buttonStyle(MediaZoomPercentageButtonStyle())
+                .buttonStyle(ZoomPercentageButtonStyle())
                 .help("Reset to actual size (100%)")
                 .accessibilityLabel("Image zoom")
                 .accessibilityValue("\(imageZoomPercentage) percent")
@@ -213,7 +213,7 @@ struct MediaViewerView: View {
                 Button("Open in Default App") {
                     model.openMediaInDefaultApplication(media)
                 }
-                .buttonStyle(LitheSecondaryButtonStyle())
+                .buttonStyle(LitheActionButtonStyle())
                 Button {
                     model.revealProjectItemInFinder(media.url)
                 } label: {
@@ -509,7 +509,7 @@ private final class ImageDocumentView: NSView {
     }
 }
 
-private struct MediaZoomPercentageButtonStyle: ButtonStyle {
+struct ZoomPercentageButtonStyle: ButtonStyle {
     @State private var isHovering = false
 
     func makeBody(configuration: Configuration) -> some View {

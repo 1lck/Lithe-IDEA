@@ -1,8 +1,11 @@
 //! Plugin manifest parsing, compatibility checks, and deterministic catalog merging.
 
+pub(crate) mod backend;
 pub mod capabilities;
 pub mod declarative;
+pub(crate) mod executables;
 pub mod marketplace;
+pub(crate) mod native_ui;
 pub(crate) mod settings;
 
 use serde::Deserialize;

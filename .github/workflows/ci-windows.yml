@@ -290,6 +290,20 @@ jobs:
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-notifications.json -- src/features/notifications
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Test declarative plugin lifecycle and UI
+        shell: pwsh
+        timeout-minutes: 9
+        run: |
+          $runner = ".agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs"
+          # Native/event and presentation mocks must not leak between suites.
+          $pluginSuites = @('declarative-plugin-lifecycle', 'declarative-plugin-run', 'declarative-plugin-ui', 'plugin-lifecycle-listener', 'plugin-web-open-file', 'plugin-web-appearance')
+          foreach ($suite in $pluginSuites) {
+            node $runner --suite-timeout-ms 60000 --report ".artifacts/test-stability/windows-$suite.json" -- "src/features/plugins/$suite.test.ts"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-plugin-lsp-launch.json -- src/features/editor/lsp/resolve-editor-lsp-launch.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Test Agent panel and capability gate
         shell: pwsh
         run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-agent.json -- src/features/agent src/features/editor/stores/buffer-agent-conversation.test.ts src/utils/markdown-links.test.ts src/config/backend-capabilities.test.ts src/i18n src/features/file-system/utils/file-system-drop-controller.test.ts src/ui/icons.test.tsx
@@ -297,6 +311,16 @@ jobs:
       - name: Test Agent connection service ownership in isolation
         shell: pwsh
         run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-agent-connection-service.json -- ./tests/agent-connection-service.test.ts
+
+      - name: Test Agent native adapters and settings in isolation
+        shell: pwsh
+        run: |
+          $suites = @('agent-linked-launch', 'agent-pasted-images', 'agent-provider-editor', 'agent-edit-review-buffer', 'agent-settings-persistence', 'agent-file-context-menu')
+          foreach ($suite in $suites) {
+            $path = Get-ChildItem "windows/tauri/tests/$suite.test.*" | Select-Object -ExpandProperty FullName
+            node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report ".artifacts/test-stability/windows-$suite.json" -- $path
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
 
       - name: Test Java debug session ownership and cleanup
         shell: pwsh
@@ -339,6 +363,11 @@ jobs:
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-project-tree.json -- src/features/file-explorer/hooks/use-file-explorer-drag-drop.test.tsx src/features/file-explorer/components/file-explorer-selection.test.tsx src/features/file-explorer/components/file-explorer-reveal.test.tsx src/features/file-explorer/stores/directory-marks.test.ts src/features/sidebar/utils/tree-selection.test.ts src/utils/path-helpers.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Test F4 focused file navigation
+        shell: pwsh
+        timeout-minutes: 2
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-f4-file-navigation.json -- src/features/global-search/components/f4-file-navigation.integration.test.tsx
+
       - name: Test workspace open, replace, and close lifecycle
         shell: pwsh
         run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-workspace-lifecycle.json -- src/features/workspace/services/workspace-lifecycle.test.ts src/features/window/services/project-window-router.test.ts
@@ -357,9 +386,24 @@ jobs:
           node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-title-focus.json -- src/features/window/services/window-title-focus.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Test Run services confirmation before close, quit and update
+        shell: pwsh
+        timeout-minutes: 2
+        run: |
+          $runner = ".agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs"
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-run-services-exit.json -- src/features/window/services/run-services-exit.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-settings-normalization.json -- src/features/settings/lib/settings-normalization.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Test Git gutter changes and inline review lifecycle
         shell: pwsh
         run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-gutter.json -- src/features/git/utils/git-gutter-changes.test.ts src/features/editor/engines/monaco/git-gutter-peek-session.test.ts src/features/git/api/git-line-history-api.test.ts src/features/git/utils/line-history-selection.test.ts src/features/git/components/git-line-history-popup.test.tsx
+
+      - name: Test cursor-aware undo and keyboard routing
+        shell: pwsh
+        timeout-minutes: 2
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-cursor-undo.json -- src/features/editor/engines/monaco/cursor-aware-undo.test.ts src/features/keymaps/hooks/use-keymaps.integration.test.tsx
 
       - name: Test editor tab scrolling and lifecycle
         shell: pwsh
@@ -515,7 +559,7 @@ jobs:
         shell: pwsh
         run: |
           $runner = ".agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs"
-          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-workspace-commit.json -- git-workspace-commit git-status-api.test.ts git-status-model.test.ts ai-commit-context.test.ts working-tree-diff-refresh.test.ts file-context-menu-git-file-items.test.ts
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-workspace-commit.json -- git-workspace-commit git-status-api.test.ts git-status-model.test.ts git-untracked-director ai-commit-context.test.ts working-tree-diff-refresh.test.ts file-context-menu-git-file-items.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-workspace-status.json -- git-workspace-status-panel.test.tsx
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -759,15 +803,18 @@ jobs:
             --package lithe-core `
             --warn-ms 1000 `
             --max-ms 15000 `
+            --test-budget git_paths_roundtrip_=60000 `
             --test-budget lsp::interface::engine::real_jdt_tests::real_jdtls_discovers_builds_and_launches_java_25_entrypoints=600000 `
             --test-budget tests::git_history_rewrite::=30000 `
             --test-budget tests::git_history_rewrite::native_rebase_skip_omits_conflicted_message_from_later_squash=45000 `
             --test-budget tests::git_remote_checkout::=30000 `
             --test-budget tests::git_workspace_commit::git_workspace_commit_push_checks_submodule_publication_before_updating_the_remote=30000 `
+            --test-budget tests::git_workspace_commit::git_workspace_commit_push_confirms_each_repository_separately=60000 `
             --test-budget tests::git::git_write_squashes_=30000 `
             --test-budget tests::git::git_write_deletes_a_local_commit_=30000 `
             --test-budget tests::git::git_write_edits_a_local_commit_message_=30000 `
             --test-budget tests::git::git_write_updates_a_noncurrent_branch_without_switching_head=30000 `
+            --test-budget tests::git::git_write_executes_checkout_preflight_clone_and_validation=30000 `
             --test-budget tests::git_patch_exchange::patch_exchange_detects_index_flags_and_hidden_destination_edits=30000 `
             --test-budget tests::git_patch_exchange::patch_exchange_rejects_stale_preview_and_forward_conflicts_without_writing=30000 `
             --test-budget tests::git_patch_exchange::patch_exchange_roundtrips_renames_deletes_and_platform_file_modes=30000 `

@@ -4,11 +4,9 @@ import LitheGitModule
 /// SavedPatchesUi: records above, changed files and restore actions below.
 struct GitSavedChangesView: View {
     @ObservedObject var feature: GitFeatureModel
-    let isActive: Bool
     let openDiff: (GitSavedChangesSnapshot, String, GitCommitFile) -> Void
     let dropStash: (GitStash) -> Void
     let dropShelf: (GitShelfEntry) -> Void
-    @Environment(\.controlActiveState) private var controlActiveState
     @Environment(\.locale) private var locale
     @State private var stash: GitStash?
     @State private var shelf: GitShelfEntry?
@@ -68,63 +66,87 @@ struct GitSavedChangesView: View {
     }
 
     private var records: some View {
-        ScrollView {
-            LazyVStack(spacing: 0) {
-                if !feature.gitShelves.isEmpty {
-                    section("Lithe Shelves")
-                    ForEach(feature.gitShelves) { entry in
-                        record(title: entry.message, detail: "\(entry.paths.count) files", date: entry.createdAt.formatted(), branch: false,
-                               selected: shelf?.id == entry.id, menu: [
-                                .action("Restore") { Task { await feature.applyShelf(entry) } },
-                                .action("Drop", role: .destructive) { dropShelf(entry) }
-                               ]) { shelf = entry; stash = nil }
-                        .help(entry.createdAt.formatted())
-                    }
-                    section("Git Stashes")
+        LitheTreeList(
+            nodes: recordNodes,
+            selection: Binding(
+                get: { shelf.map { "shelf:" + $0.id.uuidString } ?? stash.map { "stash:" + $0.reference } },
+                set: { _ in }))
+    }
+
+    private var recordNodes: [LitheTreeListNode] {
+        var nodes: [LitheTreeListNode] = []
+        if !feature.gitShelves.isEmpty {
+            nodes.append(LitheTreeListNode(id: "shelves:", isSelectable: false) { section("Lithe Shelves") })
+            nodes += feature.gitShelves.map { entry in
+                let select = {
+                    shelf = entry; stash = nil
                 }
-                ForEach(feature.gitStashes) { entry in
-                    record(title: entry.message.isEmpty ? entry.reference : entry.message,
-                           detail: entry.branch ?? "", date: entry.date, branch: true, selected: stash == entry, menu: [
-                            .action("Apply") { Task { await feature.applyStash(entry) } },
-                            .action("Pop") { Task { await feature.applyStash(entry, pop: true) } },
-                            .separator,
-                            .action("Drop", role: .destructive) { dropStash(entry) }
-                           ]) { stash = entry; shelf = nil }
-                    .help("\(entry.reference) · \(entry.date)")
+                let menu: [LitheContextMenuItem] = [
+                    .action("Restore") { Task { await feature.applyShelf(entry) } },
+                    .action("Drop", role: .destructive) { dropShelf(entry) },
+                ]
+                return LitheTreeListNode(id: "shelf:" + entry.id.uuidString, onSelect: select, menu: { menu }) {
+                    record(
+                        title: entry.message, detail: "\(entry.paths.count) files", date: entry.createdAt.formatted(),
+                        branch: false, menu: menu, action: select
+                    ).help(entry.createdAt.formatted())
                 }
-                if feature.gitShelves.isEmpty && feature.gitStashes.isEmpty {
-                    Text("No saved changes").foregroundStyle(LitheTheme.secondaryText).padding(12)
-                }
-            }.padding(.horizontal, 8).padding(.vertical, 4)
-        }.litheScrollViewChrome()
+            }
+            nodes.append(LitheTreeListNode(id: "stashes:", isSelectable: false) { section("Git Stashes") })
+        }
+        nodes += feature.gitStashes.map { entry in
+            let select = {
+                stash = entry; shelf = nil
+            }
+            let menu: [LitheContextMenuItem] = [
+                .action("Apply") { Task { await feature.applyStash(entry) } },
+                .action("Pop") { Task { await feature.applyStash(entry, pop: true) } }, .separator,
+                .action("Drop", role: .destructive) { dropStash(entry) },
+            ]
+            return LitheTreeListNode(id: "stash:" + entry.reference, onSelect: select, menu: { menu }) {
+                record(
+                    title: entry.message.isEmpty ? entry.reference : entry.message, detail: entry.branch ?? "",
+                    date: entry.date, branch: true, menu: menu, action: select
+                ).help("\(entry.reference) · \(entry.date)")
+            }
+        }
+        if nodes.isEmpty {
+            nodes.append(
+                LitheTreeListNode(id: "empty:", isSelectable: false) {
+                    Text("No saved changes").foregroundStyle(LitheTheme.secondaryText)
+                })
+        }
+        return nodes
     }
 
     private func section(_ title: String) -> some View {
         Text(LocalizedStringKey(title)).font(LitheTheme.uiFont(size: 12))
-            .foregroundStyle(LitheTheme.secondaryText).frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 6)
+            .foregroundStyle(LitheTheme.secondaryText).padding(.vertical, 6)
     }
 
-    private func record(title: String, detail: String, date: String, branch: Bool, selected: Bool, menu: [LitheContextMenuItem], action: @escaping () -> Void) -> some View {
-        let content: [AnyHashable] = [branch, detail == feature.currentBranch, selected, isActive, controlActiveState == .key]
-        return GitSavedChangesRow(accessibilityTitle: "\(title), \(date), \(detail)", contentKey: content,
-                                  onPress: action, menu: menu) { expanded, hovered in
-            HStack(spacing: 4) {
+    private func record(
+        title: String, detail: String, date: String, branch: Bool,
+        menu: [LitheContextMenuItem], action: @escaping () -> Void
+    ) -> some View {
+        LitheTreeListOverflowRow(
+            accessibilityTitle: "\(title), \(date), \(detail)",
+            contentKey: [branch, detail == feature.currentBranch], onPress: action, menu: menu
+        ) { expanded, _ in
+            HStack(spacing: LitheTheme.Tree.iconTextGap) {
                 Text(title).foregroundStyle(LitheTheme.primaryText).lineLimit(1)
                 if expanded { Text(date).foregroundStyle(LitheTheme.secondaryText).fixedSize() }
                 if branch && !detail.isEmpty {
-                    LitheIDEAIcon(resourcePath: "dvcs/branchLabel", size: 16)
-                        .foregroundStyle(detail == feature.currentBranch ? LitheTheme.Commit.savedHeadIcon : LitheTheme.Commit.savedBranchIcon)
+                    LitheIDEAIcon(resourcePath: "dvcs/branchLabel", size: LitheTheme.Tree.iconSize)
+                        .foregroundStyle(
+                            detail == feature.currentBranch
+                                ? LitheTheme.Commit.savedHeadIcon : LitheTheme.Commit.savedBranchIcon)
                 }
-                Text(detail).foregroundStyle(selected && isActive ? LitheTheme.primaryText : LitheTheme.secondaryText).lineLimit(1)
+                Text(detail).foregroundStyle(LitheTheme.secondaryText).lineLimit(1)
                 if !expanded { Spacer(minLength: 0) }
             }
-            .font(LitheTheme.uiFont(size: 13)).padding(.horizontal, 4)
+            .font(LitheTheme.uiFont(size: 13)).padding(.horizontal, LitheTheme.Tree.iconTextGap)
             .frame(height: LitheTheme.Tree.rowHeight).fixedSize(horizontal: expanded, vertical: true)
-            .background(selected ? (isActive && controlActiveState == .key ? LitheTheme.Tree.focusedSelection : LitheTheme.Tree.inactiveSelection) : (hovered ? LitheTheme.Tree.hover : .clear))
-            .litheWorkbenchSurface(LitheTheme.sidebar)
         }
-        .frame(height: LitheTheme.Tree.rowHeight)
     }
 
     private var toolbar: some View {
@@ -163,29 +185,33 @@ struct GitSavedChangesView: View {
         else if let failure {
             VStack(spacing: 8) {
                 Text(failure).foregroundStyle(LitheTheme.warning)
-                Button("Retry") { retry += 1 }.buttonStyle(LitheCommitDialogButtonStyle())
+                Button("Retry") { retry += 1 }.buttonStyle(LitheActionButtonStyle())
             }.padding(12).frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if files.isEmpty {
             Text(snapshot == nil ? "Select saved changes" : "No changed files")
                 .font(LitheTheme.uiFont(size: 13)).foregroundStyle(LitheTheme.secondaryText)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            GitCommitFileTreeScrollView(items: GitCommitFileTreeItem.visibleItems(tree, collapsed: collapsed),
-                selectedFileID: selectedFile?.id, rootSubtitle: nil, collapsedFolderIDs: collapsed,
+            LitheTreeList(
+                native: GitCommitFileTreeScrollView(
+                    items: GitCommitFileTreeItem.visibleItems(tree, collapsed: collapsed),
+                    selectedFileID: selectedFile?.id, rootSubtitle: nil, collapsedFolderIDs: collapsed,
                 onToggleFolder: { if !collapsed.insert($0).inserted { collapsed.remove($0) } },
-                onSelectFile: { selectedFile = $0; showDiff() })
+                    onSelectFile: {
+                        selectedFile = $0; showDiff()
+                    }))
         }
     }
 
     private var actions: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: LitheTheme.ActionButton.spacing) {
             Button(shelf == nil ? "Apply" : "Restore") {
                 if let stash { Task { await feature.applyStash(stash) } }
                 if let shelf { Task { await feature.applyShelf(shelf) } }
-            }.buttonStyle(LitheCommitDialogButtonStyle(primary: true)).disabled(busy || (stash == nil && shelf == nil))
+            }.buttonStyle(LitheActionButtonStyle(isPrimary: true)).disabled(busy || (stash == nil && shelf == nil))
             if shelf == nil {
                 Button("Pop") { if let stash { Task { await feature.applyStash(stash, pop: true) } } }
-                    .buttonStyle(LitheCommitDialogButtonStyle()).disabled(busy || stash == nil)
+                    .buttonStyle(LitheActionButtonStyle()).disabled(busy || stash == nil)
             }
             Spacer()
             if busy { ProgressView().controlSize(.small) }
@@ -247,42 +273,14 @@ private struct GitSaveChangesDialog: View {
                     .onSubmit(save)
             }
             if !shelf { Toggle("Untracked", isOn: $includeUntracked).toggleStyle(.checkbox) }
-            HStack(spacing: 8) {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()
-                Button("Cancel", action: cancel).buttonStyle(LitheCommitDialogButtonStyle()).keyboardShortcut(.cancelAction)
+                Button("Cancel", action: cancel).buttonStyle(LitheActionButtonStyle()).keyboardShortcut(.cancelAction)
                 Button(shelf ? "Shelf" : "Stash", action: save)
-                    .buttonStyle(LitheCommitDialogButtonStyle(primary: true)).keyboardShortcut(.defaultAction)
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true)).keyboardShortcut(.defaultAction)
             }
         }.font(LitheTheme.uiFont(size: 13)).padding(12).frame(width: 360)
             .background(LitheCommitDialogStyle.background).disabled(busy)
             .task { focused = true }
-    }
-}
-
-/// Reuses the branch popup's bounded, clickable hover expansion lifecycle with tree-row styling.
-struct GitSavedChangesRow<Label: View>: View {
-    @Environment(\.locale) private var locale
-    @Environment(\.isEnabled) private var isEnabled
-    @Environment(\.isLithePaneResizing) private var resizing
-    @State private var isHovered = false
-    let accessibilityTitle: String
-    /// Label inputs that the accessibility title does not already describe.
-    var contentKey: AnyHashable = 0
-    let onPress: () -> Void
-    var menu: [LitheContextMenuItem] = []
-    @ViewBuilder let label: (Bool, Bool) -> Label
-
-    var body: some View {
-        label(false, isHovered)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-            .overlay(BranchPopupRowTracker(isPresented: false, isEnabled: isEnabled && !resizing,
-                                           accessibilityTitle: accessibilityTitle, contentKey: contentKey,
-                                           onPress: onPress, onSecondaryPress: { [menu, locale] view, point in
-                LitheContextMenuPresenter.shared.show(items: menu, at: point, appearance: view.effectiveAppearance,
-                                                      locale: locale, parentWindow: view.window)
-            }, onHoverChange: { isHovered = $0 }) {
-                label(true, true)
-            })
     }
 }

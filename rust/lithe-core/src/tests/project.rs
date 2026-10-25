@@ -559,6 +559,84 @@ fn list_directories_returns_one_visible_level_per_requested_directory() {
 }
 
 #[test]
+fn folder_patterns_hide_folders_without_reading_them() {
+    // `name/`, `name/*` and `name/**` hide a folder from the project root, and a
+    // leading `**/` hides it at any depth, so the tree must not enumerate it. A
+    // plain name stays a file pattern.
+    let root = temporary_root("folder-patterns");
+    write_fixture_file(&root.join("src/App.java"), "class App {}");
+    write_fixture_file(&root.join(".lithe/dependencies/index.json"), "{}");
+    write_fixture_file(&root.join("generated/Out.java"), "class Out {}");
+    write_fixture_file(&root.join("docs/api/index.html"), "<html></html>");
+    write_fixture_file(&root.join("modules/.lithe/config.json"), "{}");
+    write_fixture_file(&root.join("notes/todo.md"), "kept");
+    write_fixture_file(&root.join("tmp/scratch.txt"), "root copy");
+    write_fixture_file(&root.join("modules/tmp/scratch.txt"), "nested copy");
+    write_fixture_file(&root.join("modules/keep.txt"), "kept");
+    let patterns = [".lithe/*", "generated/", "docs/**", "notes", "**/tmp/"];
+    let rules = serde_json::json!({"root": root, "hiddenFilePatterns": patterns});
+
+    crate::project::files::DIRECTORY_VISITS.with_borrow_mut(|visits| *visits = Some(Vec::new()));
+    let snapshot = core_data(
+        "folder-patterns-snapshot",
+        "workspace.snapshot",
+        rules.clone(),
+    );
+    let root_listing = core_data(
+        "folder-patterns-listing",
+        "workspace.listDirectories",
+        serde_json::json!({
+            "root": root,
+            "paths": ["", ".lithe", "generated", "docs", "tmp", "modules", "modules/tmp"],
+            "hiddenFilePatterns": patterns
+        }),
+    );
+    let visits = crate::project::files::DIRECTORY_VISITS
+        .with_borrow_mut(Option::take)
+        .expect("visit trace should be installed");
+
+    let mut snapshot_files = snapshot["files"]
+        .as_array()
+        .expect("files should be an array")
+        .iter()
+        .map(|file| file.as_str().unwrap_or_default())
+        .collect::<Vec<_>>();
+    snapshot_files.sort_unstable();
+    assert_eq!(
+        snapshot_files,
+        [
+            "modules/.lithe/config.json",
+            "modules/keep.txt",
+            "notes/todo.md",
+            "src/App.java"
+        ]
+    );
+    let listed = root_listing["directories"]
+        .as_array()
+        .expect("directories should be an array")
+        .iter()
+        .map(|directory| directory["path"].as_str().unwrap_or_default())
+        .collect::<Vec<_>>();
+    assert_eq!(listed, ["", "modules"]);
+    let root_children = root_listing["directories"][0]["children"]
+        .as_array()
+        .expect("children should be an array")
+        .iter()
+        .map(|child| child["name"].as_str().unwrap_or_default())
+        .collect::<Vec<_>>();
+    assert_eq!(root_children, ["modules", "notes", "src"]);
+    for hidden in [".lithe", "generated", "docs", "tmp", "modules/tmp"] {
+        assert!(
+            visits
+                .iter()
+                .all(|path| !path.starts_with(root.join(hidden))),
+            "hidden folder {hidden} must not be enumerated: {visits:?}"
+        );
+    }
+    fs::remove_dir_all(root).expect("temporary fixture should be removable");
+}
+
+#[test]
 fn workspace_snapshot_keeps_worktrees_outside_their_main_checkout() {
     // Opening a folder that holds a main checkout beside one of its linked
     // worktrees shows both: neither duplicates the other's directory.
@@ -1163,6 +1241,60 @@ fn local_history_records_deduplicates_lists_and_relocates() {
     );
     assert_eq!(traversal["ok"], false);
     assert_eq!(traversal["error"]["code"], "invalid_request");
+    fs::remove_dir_all(root).expect("history workspace should be removable");
+}
+
+#[test]
+fn local_history_honors_the_unified_hidden_path_patterns() {
+    let root = temporary_root("history-patterns");
+    fs::create_dir_all(&root).expect("history workspace should be creatable");
+    let storage = root.join("history-storage");
+    let patterns = serde_json::json!(["**/generated/", ".lithe/*", "*.log", "secret.txt"]);
+
+    let record = |path: &str| -> Value {
+        let request = serde_json::json!({
+            "id": "record",
+            "command": "history.record",
+            "payload": {
+                "workspaceRoot": root,
+                "storageRoot": storage,
+                "path": path,
+                "reason": "saved",
+                "content": "text\n",
+                "hiddenDirectoryNames": [],
+                "hiddenFilePatterns": patterns
+            }
+        });
+        serde_json::from_str(&execute_json(
+            &serde_json::to_string(&request).expect("history request should encode"),
+        ))
+        .expect("history response should be JSON")
+    };
+
+    // Folder rules stop snapshots below the folder at any depth (`**/`) or only
+    // at the project root, and file rules match by glob or exact name.
+    for hidden in [
+        "generated/Out.java",
+        "modules/a/generated/Out.java",
+        ".lithe/project.json",
+        "build.log",
+        "src/secret.txt",
+    ] {
+        let response = record(hidden);
+        assert_eq!(response["ok"], true, "{hidden}: {response}");
+        assert!(
+            response["data"].is_null(),
+            "{hidden} should not be recorded"
+        );
+    }
+    for visible in ["src/Main.java", "modules/.lithe/project.json"] {
+        let response = record(visible);
+        assert_eq!(response["ok"], true, "{visible}: {response}");
+        assert!(
+            response["data"]["id"].as_str().is_some(),
+            "{visible} should be recorded"
+        );
+    }
     fs::remove_dir_all(root).expect("history workspace should be removable");
 }
 

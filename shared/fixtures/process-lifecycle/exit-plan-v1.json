@@ -243,6 +243,83 @@
           {"id": "remembered-service", "kind": "daemon", "policy": "askOnExit", "action": "retain", "reason": "rememberedChoice"}
         ]
       }
+    },
+    {
+      "name": "quit asks before stopping the run sessions the host tracks",
+      "request": {
+        "context": "quit",
+        "records": [
+          {"id": "api", "kind": "run", "ownership": "launched"},
+          {"id": "run:other", "kind": "run", "ownership": "scopeToken"},
+          {"id": "jdtls", "kind": "languageServer", "ownership": "launched"}
+        ]
+      },
+      "expected": {
+        "gracefulStopMilliseconds": 5000,
+        "decisions": [
+          {"id": "api", "kind": "run", "policy": "terminate", "action": "confirmStop", "reason": "runServicesSetting"},
+          {"id": "run:other", "kind": "run", "policy": "terminate", "action": "terminate", "reason": "defaultTerminate"},
+          {"id": "jdtls", "kind": "languageServer", "policy": "terminate", "action": "terminate", "reason": "defaultTerminate"}
+        ]
+      }
+    },
+    {
+      "name": "quit stops run sessions without asking when told to",
+      "request": {
+        "context": "quit",
+        "settings": {"runServicesOnExit": "terminate"},
+        "records": [
+          {"id": "api", "kind": "run", "ownership": "launched"}
+        ]
+      },
+      "expected": {
+        "gracefulStopMilliseconds": 5000,
+        "decisions": [
+          {"id": "api", "kind": "run", "policy": "terminate", "action": "terminate", "reason": "runServicesSetting"}
+        ]
+      }
+    },
+    {
+      "name": "closing a workspace decides only its own run sessions",
+      "request": {
+        "context": "closeWorkspace",
+        "records": [
+          {"id": "api", "kind": "run", "ownership": "launched"},
+          {"id": "kept-api", "kind": "run", "ownership": "launched", "retained": true},
+          {"id": "spring", "kind": "terminal", "ownership": "launched"},
+          {"id": "migration", "kind": "agentTask", "ownership": "scopeToken"},
+          {"id": "daemon", "kind": "daemon", "ownership": "scopeToken", "detached": true},
+          {"id": "jdtls", "kind": "languageServer", "ownership": "launched"},
+          {"id": "outside", "kind": "container", "ownership": "unproven"}
+        ]
+      },
+      "expected": {
+        "gracefulStopMilliseconds": 5000,
+        "decisions": [
+          {"id": "api", "kind": "run", "policy": "terminate", "action": "confirmStop", "reason": "runServicesSetting"},
+          {"id": "kept-api", "kind": "run", "policy": "terminate", "action": "retain", "reason": "retainedByUser"},
+          {"id": "spring", "kind": "terminal", "policy": "confirmEach", "action": "defer", "reason": "decidedOnQuit"},
+          {"id": "migration", "kind": "agentTask", "policy": "confirmEach", "action": "defer", "reason": "decidedOnQuit"},
+          {"id": "daemon", "kind": "daemon", "policy": "askOnExit", "action": "defer", "reason": "decidedOnQuit"},
+          {"id": "jdtls", "kind": "languageServer", "policy": "terminate", "action": "terminate", "reason": "defaultTerminate"},
+          {"id": "outside", "kind": "container", "policy": "external", "action": "ignore", "reason": "ownershipUnproven"}
+        ]
+      }
+    },
+    {
+      "name": "run sessions end without a question after a crash",
+      "request": {
+        "context": "crashRecovery",
+        "records": [
+          {"id": "api", "kind": "run", "ownership": "launched"}
+        ]
+      },
+      "expected": {
+        "gracefulStopMilliseconds": 5000,
+        "decisions": [
+          {"id": "api", "kind": "run", "policy": "terminate", "action": "terminate", "reason": "defaultTerminate"}
+        ]
+      }
     }
   ]
 }

@@ -12,7 +12,7 @@ struct RustBuildSystemOperationsTests {
 
     @Test
     func descriptorDeclaresBuildSystemsAndTheirModule() throws {
-        let descriptor = try Self.descriptor("cargo-build")
+        let descriptor = try Self.descriptor("build-static-file")
         let cargo = try #require(descriptor.buildSystems.first)
 
         #expect(cargo.id == "cargo")
@@ -26,7 +26,7 @@ struct RustBuildSystemOperationsTests {
         #expect(descriptor.pluginManifest.modules.map(\.manifest.id)
             .contains(.buildSystemsExtension(descriptor.id.rawValue)))
 
-        let maven = try #require(Self.descriptor("maven-build").buildSystems.first)
+        let maven = try #require(Self.descriptor("build-host-integration").buildSystems.first)
         #expect(maven.modelSource == .hostIntegration)
         // A host-integration dependency source declares no scopes of its own.
         #expect(maven.dependencyScopes == [.workspace, .project])
@@ -36,7 +36,7 @@ struct RustBuildSystemOperationsTests {
     func detectionReadsStaticModelAndResolvesOptions() throws {
         let workspace = try Self.cargoWorkspace()
         defer { try? FileManager.default.removeItem(at: workspace) }
-        let source = try Self.source("cargo-build")
+        let source = try Self.source("build-static-file")
 
         let detection = try operations.detect(
             workspaceURL: workspace,
@@ -69,8 +69,16 @@ struct RustBuildSystemOperationsTests {
     }
 
     @Test
+    func invocationUsesTheGlobalExecutableSetting() throws {
+        let target = try Self.target("build-tool-path", "fixture")
+        let custom = try operations.invocationPlan(target, root: ".", settings: ["toolPath": .string("/opt/custom tools/build")])
+        #expect(custom.executables.first == .setting(id: "toolPath", path: "/opt/custom tools/build"))
+        #expect(try operations.invocationPlan(target, root: ".").executables.first == .setting(id: "toolPath", path: nil))
+    }
+
+    @Test
     func invocationAndVersionProbe() throws {
-        let target = try Self.target("cargo-build", "cargo")
+        let target = try Self.target("build-static-file", "cargo")
 
         let invocation = try operations.invocationPlan(target, root: ".")
         #expect(invocation.executables == [.command("cargo")])
@@ -82,7 +90,7 @@ struct RustBuildSystemOperationsTests {
         let old = try operations.checkToolVersion(target, runtime: nil, output: "cargo 1.60.0 (d1fd9fe 2022-03-01)\n")
         #expect(old.satisfied == false)
 
-        let go = try Self.target("go-build", "go")
+        let go = try Self.target("build-command-stdout", "go")
         let goInvocation = try operations.invocationPlan(go, root: ".")
         #expect(goInvocation.executables == [.runtime("go")])
         #expect(goInvocation.runtimeDependencies.first?.hostManaged == true)
@@ -93,7 +101,7 @@ struct RustBuildSystemOperationsTests {
 
     @Test
     func taskAndTestPlansCarryOptionsAndSelection() throws {
-        let target = try Self.target("cargo-build", "cargo")
+        let target = try Self.target("build-static-file", "cargo")
         let project = BuildModel.Project(id: "cargo:demo", path: "crates/demo", name: "demo")
         let context = BuildPlanContext(root: "crates/demo", options: ["release": .bool(true)])
 
@@ -134,7 +142,7 @@ struct RustBuildSystemOperationsTests {
     /// `refresh` and `tool` fields Core copies into the provider params.
     @Test
     func providerPlansCarryTheReloadReasonAndTheResolvedTool() throws {
-        let target = try Self.target("gradle-provider", "gradle")
+        let target = try Self.target("build-provider", "gradle")
         let context = BuildPlanContext(root: ".", options: [:])
         let executable = URL(fileURLWithPath: "/opt/tools/gradle/bin/gradle")
 
@@ -159,7 +167,7 @@ struct RustBuildSystemOperationsTests {
 
     @Test
     func commandModelPlansAndDecodesStandardOutput() throws {
-        let target = try Self.target("go-build", "go")
+        let target = try Self.target("build-command-stdout", "go")
         let workspace = URL(fileURLWithPath: "/tmp/lithe-go-workspace")
 
         let plan = try operations.modelPlan(
@@ -189,7 +197,7 @@ struct RustBuildSystemOperationsTests {
     func diagnosticsAndSyncFingerprint() throws {
         let workspace = try Self.cargoWorkspace()
         defer { try? FileManager.default.removeItem(at: workspace) }
-        let target = try Self.target("cargo-build", "cargo")
+        let target = try Self.target("build-static-file", "cargo")
 
         let diagnostics = try operations.decodeDiagnostics(
             target,
@@ -223,7 +231,7 @@ struct RustBuildSystemOperationsTests {
             to: workspace.appendingPathComponent("gradle/wrapper/gradle-wrapper.properties")
         )
         for kind in ["maven", "gradle"] {
-            var manifest = try #require(JSONSerialization.jsonObject(with: Self.fixtureData("maven-build")) as? [String: Any])
+            var manifest = try #require(JSONSerialization.jsonObject(with: Self.fixtureData("build-host-integration")) as? [String: Any])
             var systems = try #require(manifest["buildSystems"] as? [[String: Any]])
             systems[0]["languageImport"] = kind == "maven"
                 ? ["kind": kind, "options": ["profiles": "profiles", "settingsFile": "settingsFile", "localRepository": "localRepository"]]
@@ -251,7 +259,7 @@ struct RustBuildSystemOperationsTests {
             }
         }
         #expect(try operations.languageImport(
-            Self.target("cargo-build", "cargo"), workspaceURL: workspace, root: ".", options: [:], executableURL: nil
+            Self.target("build-static-file", "cargo"), workspaceURL: workspace, root: ".", options: [:], executableURL: nil
         ) == nil)
     }
 

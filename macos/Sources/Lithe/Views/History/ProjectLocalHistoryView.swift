@@ -8,7 +8,6 @@ struct ProjectLocalHistoryView: View {
     /// so the sheet keeps rendering without a required `AppSettings` environment
     /// object; the presenting root view passes the configured family explicitly.
     var fontFamily: String = EditorFontDefaults.monospacedFamily
-    @State private var historyListActive = false
     @State private var isRestoreConfirmationPresented = false
 
     var body: some View {
@@ -17,7 +16,6 @@ struct ProjectLocalHistoryView: View {
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             HStack(spacing: 0) {
                 historyList
-                    .background(LitheToolWindowActivityTracker(isActive: $historyListActive))
                     .frame(width: 350)
                 Rectangle().fill(LitheTheme.divider).frame(width: 1)
                 comparison
@@ -62,10 +60,9 @@ struct ProjectLocalHistoryView: View {
             Button("Restore") {
                 isRestoreConfirmationPresented = true
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(LitheActionButtonStyle(isPrimary: true))
             .lithePointer()
             .tint(LitheTheme.accent)
-            .controlSize(.small)
             .disabled(model.selectedProjectLocalHistoryEntry == nil)
             Button {
                 model.projectLocalHistoryRequest = nil
@@ -110,37 +107,33 @@ struct ProjectLocalHistoryView: View {
                 .foregroundStyle(LitheTheme.secondaryText)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(model.projectLocalHistoryEntries) { entry in
-                            Button {
+                LitheTreeList(
+                    model.projectLocalHistoryEntries,
+                    selection: Binding(
+                        get: { model.selectedProjectLocalHistoryEntry?.id },
+                        set: { id in
+                            if let entry = model.projectLocalHistoryEntries.first(where: { $0.id == id }) {
                                 model.selectProjectLocalHistoryEntry(entry)
-                            } label: {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(entry.relativePath)
-                                        .font(LitheTheme.uiFont(size: 12, weight: .medium))
-                                        .foregroundStyle(LitheTheme.primaryText)
-                                        .lineLimit(1)
-                                        .truncationMode(.middle)
-                                    HStack(spacing: 6) {
-                                        Text(LocalizedStringKey(entry.reason.title))
-                                        Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened))
-                                        Text(ByteCountFormatter.string(fromByteCount: Int64(entry.byteCount), countStyle: .file))
-                                    }
-                                    .font(LitheTheme.uiFont(size: 10.5))
-                                    .foregroundStyle(LitheTheme.secondaryText)
-                                    .lineLimit(1)
-                                }
-                                .padding(.horizontal, 12)
-                                .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
-                                .litheSelectionRow(isSelected: model.selectedProjectLocalHistoryEntry?.id == entry.id,
-                                                   isFocused: historyListActive)
-                                .contentShape(Rectangle())
                             }
-                            .buttonStyle(.litheNoPress)
-                            .lithePointer()
+                        }), multiline: true
+                ) { entry in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(entry.relativePath)
+                            .font(LitheTheme.uiFont(size: 12, weight: .medium))
+                            .foregroundStyle(LitheTheme.primaryText)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        HStack(spacing: 6) {
+                            Text(LocalizedStringKey(entry.reason.title))
+                            Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened))
+                            Text(ByteCountFormatter.string(fromByteCount: Int64(entry.byteCount), countStyle: .file))
                         }
+                        .font(LitheTheme.uiFont(size: 10.5))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                        .lineLimit(1)
                     }
+                    .padding(.horizontal, LitheTheme.Tree.iconTextGap)
+                    .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
                 }
             }
         }

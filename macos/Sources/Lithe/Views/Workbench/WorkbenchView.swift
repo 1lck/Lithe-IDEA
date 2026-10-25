@@ -67,6 +67,65 @@ private enum WorkbenchTopBarMetrics {
     static let projectAvatarCenterX = leadingInset + projectAvatarLeadingInset + projectAvatarSize / 2
 }
 
+/// Reports whether the hosting window is in native fullscreen. macOS hides
+/// the traffic-light controls there, so the workbench toolbar must not
+/// reserve their leading space. The window update pass drives the binding,
+/// which keeps the transition deterministic without polling.
+struct WindowFullScreenStateReader: NSViewRepresentable {
+    @Binding var isFullScreen: Bool
+
+    func makeNSView(context: Context) -> ReaderView {
+        let view = ReaderView()
+        view.onRefresh = { value in
+            if isFullScreen != value { isFullScreen = value }
+        }
+        return view
+    }
+
+    func updateNSView(_ view: ReaderView, context: Context) {
+        view.onRefresh = { value in
+            if isFullScreen != value { isFullScreen = value }
+        }
+        view.refresh()
+    }
+
+    final class ReaderView: NSView {
+        var onRefresh: ((Bool) -> Void)?
+        /// Injectable so tests can drive fullscreen state without starting a
+        /// real transition: writing the style mask directly throws outside
+        /// AppKit's own fullscreen flow.
+        var isFullScreen: (NSWindow) -> Bool = { $0.styleMask.contains(.fullScreen) }
+
+        override func viewDidMoveToWindow() {
+            NotificationCenter.default.removeObserver(
+                self,
+                name: NSWindow.didUpdateNotification,
+                object: nil
+            )
+            guard window != nil else { return }
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(windowDidUpdate(_:)),
+                name: NSWindow.didUpdateNotification,
+                object: window
+            )
+            refresh()
+        }
+
+        @objc private func windowDidUpdate(_ notification: Notification) {
+            refresh()
+        }
+
+        deinit {
+            NotificationCenter.default.removeObserver(self)
+        }
+
+        func refresh() {
+            onRefresh?(window.map(isFullScreen) ?? false)
+        }
+    }
+}
+
 enum WorkbenchFrameGradient {
     static let coordinateSpace = "workbenchFrame"
     static let width: CGFloat = 600
@@ -242,6 +301,7 @@ struct WorkbenchView: View {
     @State private var isBackgroundPickerPresented = false
     @State private var isRunConfigurationPickerPresented = false
     @State private var isSettingsMenuPresented = false
+    @State private var isWindowFullScreen = false
 
     var body: some View {
         let encodingRequest = model.pendingEncodingReopen
@@ -478,13 +538,9 @@ struct WorkbenchView: View {
             Text(model.pendingDiscardHunk?.change.path ?? "This action cannot be undone by Lithe.")
         }
         .sheet(item: $pendingTopBarPushReference) { reference in
-            GitPushDialog(
-                projectName: model.projectName,
-                reference: reference,
-                onPush: {
-                    Task { await model.pushBranch(reference) }
-                }
-            )
+            if let feature = model.gitFeatureIfActive {
+                GitPushDialog(feature: feature, projectName: model.projectName, reference: reference)
+            }
         }
         .confirmationDialog(
             "Delete branch?",
@@ -520,7 +576,9 @@ struct WorkbenchView: View {
                             messageArguments: notification.arguments,
                             collapsedCount: notification.collapsedCount,
                             occurrenceCount: notification.occurrenceCount,
-                            showHistory: { isNotificationCenterPresented = true }) {
+                            showHistory: { isNotificationCenterPresented = true },
+                            actionTitle: notification.action?.title,
+                            performAction: { model.performNotificationAction(notification.id) }) {
                             model.dismissNotification(notification.id)
                         }
                         .onHover { model.setNotificationHovered(notification.id, isHovered: $0) }
@@ -798,7 +856,7 @@ struct WorkbenchView: View {
                 settingsMenuButton
             }
         }
-        .padding(.leading, WorkbenchTopBarMetrics.leadingInset)
+        .padding(.leading, isWindowFullScreen ? 0 : WorkbenchTopBarMetrics.leadingInset)
         .frame(height: LitheTheme.Metrics.toolbarHeight)
         .background {
             frameChromeBackground
@@ -808,6 +866,7 @@ struct WorkbenchView: View {
                         .toggleWorkspaceZoom()
                 }
         }
+        .background(WindowFullScreenStateReader(isFullScreen: $isWindowFullScreen))
     }
 
     private func registeredToolbarButton(_ contribution: ModuleContribution) -> some View {
@@ -838,7 +897,7 @@ struct WorkbenchView: View {
                     isPresented: instantProjectSwitcherPresentation,
                     onNewProject: {
                         updateSwitcherPresentation(project: false)
-                        model.chooseProject(title: "New Project", prompt: "Choose Folder")
+                        model.showNewProject()
                     },
                     onOpenProject: {
                         updateSwitcherPresentation(project: false)
@@ -1789,7 +1848,7 @@ struct WorkbenchView: View {
             if model.workbenchFeature.isVisible(.references) {
                 Label("\(model.languageNavigationResults.count) usages", systemImage: "scope")
             }
-            Text(model.gitChanges.isEmpty ? "No changes" : "\(model.gitChanges.count) changes")
+            Text(model.gitChanges.isEmpty ? "No changes" : "\(model.gitChangedFileCount) changes")
             Image(systemName: "checkmark.circle.fill")
                 .foregroundStyle(LitheTheme.success)
         }
@@ -1902,6 +1961,15 @@ private struct WorkbenchNotificationCenterView: View {
                                         .font(LitheTheme.uiFont(size: 12))
                                         .foregroundStyle(LitheTheme.primaryText)
                                         .fixedSize(horizontal: false, vertical: true)
+
+                                    if let action = notification.action {
+                                        Button(LocalizedStringKey(action.title)) {
+                                            model.performNotificationAction(notification.id)
+                                        }
+                                        .buttonStyle(.litheNoPress)
+                                        .font(LitheTheme.uiFont(size: 12))
+                                        .foregroundStyle(LitheTheme.accent)
+                                    }
 
                                     Text(notification.updatedAt.formatted(date: .omitted, time: .shortened))
                                         .font(LitheTheme.uiFont(size: 10.5))
@@ -2471,7 +2539,7 @@ struct WorkbenchBackgroundPicker: View {
                 Button("Choose Image…") {
                     model.workbenchBackgroundFeature.chooseCustomImage()
                 }
-                .buttonStyle(LitheSecondaryButtonStyle())
+                .buttonStyle(LitheActionButtonStyle())
 
                 if settings.hasConfiguredWorkbenchBackground {
                     Button("Remove") {

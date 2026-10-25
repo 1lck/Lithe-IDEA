@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "defaultLocale": "en-US",
+  "platformDefaults": {
+    "macos": "en-US",
+    "windows": "zh-CN"
+  },
+  "locales": [
+    {
+      "id": "en-US",
+      "title": "English",
+      "macos": "en",
+      "swiftCase": "english",
+      "fallback": null,
+      "coverage": "complete"
+    },
+    {
+      "id": "zh-CN",
+      "title": "简体中文",
+      "macos": "zh-Hans",
+      "swiftCase": "simplifiedChinese",
+      "fallback": "en-US",
+      "coverage": "complete"
+    }
+  ]
+}

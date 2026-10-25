@@ -43,8 +43,7 @@ struct CloneRepositoryView: View {
                         Button("Choose…") {
                             chooseParentFolder()
                         }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
+                        .buttonStyle(LitheActionButtonStyle())
                         .lithePointer()
                     }
                 }
@@ -55,7 +54,7 @@ struct CloneRepositoryView: View {
                         .focused($focusedField, equals: .folder)
                 }
 
-                Text("Lithe will clone the repository into (destinationDescription).")
+                Text("Lithe will clone the repository into \(destinationDescription).")
                     .font(LitheTheme.uiFont(size: 11.5))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .lineLimit(2)
@@ -110,12 +109,12 @@ struct CloneRepositoryView: View {
     }
 
     private var footer: some View {
-        HStack {
+        HStack(spacing: LitheTheme.ActionButton.spacing) {
             Spacer()
             Button("Cancel") {
                 dismiss()
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(LitheActionButtonStyle())
             .lithePointer()
             .disabled(model.isCloningRepository)
 
@@ -137,8 +136,7 @@ struct CloneRepositoryView: View {
                     Text("Clone")
                 }
             }
-            .buttonStyle(.borderedProminent)
-            .tint(LitheTheme.accent)
+            .buttonStyle(LitheActionButtonStyle(isPrimary: true))
             .lithePointer()
             .disabled(model.isCloningRepository || !canClone)
         }
@@ -178,13 +176,9 @@ struct CloneRepositoryView: View {
     }
 
     private func chooseParentFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Choose"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        parentFolder = url.path
+        if let path = LitheDirectoryPicker.choose(startingAt: parentFolder) {
+            parentFolder = path
+        }
     }
 
     private func defaultFolderName(from value: String) -> String {

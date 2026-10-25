@@ -16,7 +16,7 @@ struct UpdateControl: View {
             Group {
                 switch updateChecker.status {
                 case .available, .waitingForTermination:
-                    statusContent.buttonStyle(LitheSecondaryButtonStyle())
+                    statusContent.buttonStyle(LitheActionButtonStyle())
                 default:
                     statusContent.buttonStyle(.litheNoPress)
                 }
@@ -243,32 +243,32 @@ struct UpdateDetailsView: View {
                 Button("Open Release Page") {
                     updateChecker.openRelease(updateChecker.updateInfo?.releaseURL)
                 }
-                .buttonStyle(LitheSecondaryButtonStyle())
+                .buttonStyle(LitheActionButtonStyle())
 
-                HStack(spacing: 10) {
+                HStack(spacing: LitheTheme.ActionButton.spacing) {
                     Spacer()
                     if case .available = updateChecker.status {
                         Button("Later") {
                             updateChecker.remindLater()
                             dismiss()
                         }
-                        .buttonStyle(LitheSecondaryButtonStyle())
+                        .buttonStyle(LitheActionButtonStyle())
                         Button(LocalizedStringKey(updateChecker.isPreview ? "Skip Build" : "Skip Version")) {
                             updateChecker.skipVersion()
                             dismiss()
                         }
-                        .buttonStyle(LitheSecondaryButtonStyle())
+                        .buttonStyle(LitheActionButtonStyle())
                         Button(LocalizedStringKey(updateChecker.isPreview ? "Install AutoBuild" : "Install")) {
                             dismiss()
                             Task { await updateChecker.installAvailableUpdate() }
                         }
-                        .buttonStyle(LithePrimaryButtonStyle())
+                        .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     } else if case .failed = updateChecker.status {
                         Button("Retry") {
                             dismiss()
                             Task { await updateChecker.retryInstallation() }
                         }
-                        .buttonStyle(LithePrimaryButtonStyle())
+                        .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     }
                 }
             }
@@ -304,7 +304,7 @@ struct UpdateDetailsView: View {
                 dismiss()
                 Task { await updateChecker.retryInstallation() }
             }
-            .buttonStyle(LitheSecondaryButtonStyle())
+            .buttonStyle(LitheActionButtonStyle())
         case .installing:
             HStack(spacing: 6) {
                 ProgressView()

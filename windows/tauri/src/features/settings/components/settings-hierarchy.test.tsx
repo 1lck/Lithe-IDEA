@@ -71,14 +71,23 @@ test("every settings page belongs to exactly one group or is a top-level page, i
     ["build", ["project", "run", "maven"]],
     ["languages", ["lsp"]],
     ["tools", ["terminal", "logs"]],
-    ["ai", ["mcp", "ai-commit", "ai"]],
+    ["ai", ["mcp", "ai-commit", "ai", "agents", "hooks"]],
   ]);
   expect(
     settingsSidebarLayout.flatMap((entry) => (entry.type === "page" ? [entry.id] : [])),
-  ).toEqual(["plugins"]);
+  ).toEqual(["plugins", "declarative-plugins"]);
   expect(
     settingsSidebarLayout.map((entry) => (entry.type === "group" ? entry.group.id : entry.id)),
-  ).toEqual(["appearance", "plugins", "version-control", "build", "languages", "tools", "ai"]);
+  ).toEqual([
+    "appearance",
+    "plugins",
+    "declarative-plugins",
+    "version-control",
+    "build",
+    "languages",
+    "tools",
+    "ai",
+  ]);
   for (const language of ["en-US", "zh-CN"] as const) {
     const t = createTranslator(language);
     expect(settingsGroups.map(({ labelKey }) => t(labelKey))).toEqual(

@@ -35,20 +35,6 @@
       "required": false
     },
     {
-      "id": "dev.lithe.database",
-      "displayName": "Database",
-      "scope": "workspace",
-      "defaultState": "disabled",
-      "activationPolicy": "onDemand",
-      "sleepPolicy": { "kind": "whenIdle", "afterSeconds": 600 },
-      "dependencies": ["dev.lithe.workspace"],
-      "capabilities": ["dev.lithe.capability.database-workspace"],
-      "contributions": [
-        { "id": "database.workspace", "kind": "toolWindow" }
-      ],
-      "required": false
-    },
-    {
       "id": "dev.lithe.debug",
       "displayName": "Debug",
       "scope": "workspace",

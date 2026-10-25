@@ -434,7 +434,7 @@ They must not derive these counters from context occupancy or subscription quota
 `acp-events-v1.json` covers completion both with and without usage.
 
 The launch JSON's optional `observeSubagents` (default `false`) negotiates the
-pinned adapters' AIR v1 `nativeSubagentSessions` capability. macOS enables it;
+pinned adapters' AIR v1 `nativeSubagentSessions` capability. macOS and Windows enable it;
 consumers without child-session UI omit it. Native execution and history remain
 upstream-owned. `update` preserves the immediate parent `sessionId` and the
 adapter's `subagent_spawned` payload (`subagentSessionId`, `name`, `task`,
@@ -603,6 +603,80 @@ stable error code and a user-facing message:
 
 ### MCP configuration
 
+`mcp.probe` accepts a user-reviewed connection `{transport, command?, args?, env?,
+url?, headers?}` with only those fields. Agent Host uses the pinned official
+rmcp SDK for initialization, session handling and paginated `tools/list`; it
+never sends `tools/call`. Results are `{tools:[{name,description}]}`, sorted by
+name, deduplicated, bounded to 1000 tools/20 pages/2 MiB of metadata. stdio input
+and each HTTP response body are bounded before decoding. A probe has a
+30-second request budget plus bounded cleanup, cancellation is cooperative,
+and stdio children and their process groups are reaped on completion or cancel.
+HTTP accepts HTTPS and loopback HTTP, rejects credential-bearing URLs and
+redirects, preserves TLS verification and explicit headers, and uses no cookie
+store. It does not inherit another Agent's OAuth session or unmapped native
+configuration options. Legacy `sse` remains a configurable transport but this
+SDK probe returns `not_supported` rather than inventing a healthy status.
+The host must require an explicit detection action; launching local code or
+package runners also requires the product's execution confirmation.
+
+`mcp.toolPolicy` is a pure text operation with `{source,content,server,tools,
+owned?,tool?,enabled?}`. `source` is `codex` or `claude`; omission of `tool` and
+`enabled` reads current policy. It returns `{content,changed,owned,tools,
+hasRestrictions}`. The returned tools contain `{name,enabled,editable}`.
+Codex uses entry-local `disabled_tools`, preserving `enabled_tools`; Claude's
+input is its user `settings.json`, editing only `permissions.deny` with exact
+`mcp__<normalized-server>__<normalized-tool>` rules. Unknown settings/formatting
+outside the targeted value survive. Existing unowned denies, broad wildcard
+rules, allow-list exclusions and ambiguous normalized names are not relaxed.
+Hosts retain the exact added tool names by native path/server, validate full
+file snapshots before atomic writes, and never treat a read as ownership.
+Policies describe the user configuration; project/managed settings and live
+Agent sessions may differ. Claude server renames are refused while user MCP
+restrictions exist, to avoid re-enabling tools under a new name.
+
+`mcp.commandLine` accepts `{action:"format",command,args}` to return `{line}`,
+or `{action:"parse",line}` to return `{command,args}`. POSIX shell-style quoting
+is only a lossless text projection: hosts pass argv directly, never evaluate a
+shell, substitutions, pipes or redirects. Blank and embedded-newline arguments
+are preserved; malformed quoting is rejected. These operations and probe
+results use `shared/fixtures/mcp/tools-v1.json` as a synthetic contract fixture.
+
+`mcp.parseRegistry` accepts `{ content: string }` (at most 1 MiB UTF-8) and
+normalizes an official MCP Registry v0.1 response into `{ entries, nextCursor }`.
+Each entry has `id`, `title`, `summary`, `version`, nullable `publisher`,
+`source: "registry"`, nullable HTTPS `website` and
+nullable `draft: McpServer`. At most 100 input entries are accepted. Inactive
+records are skipped, pagination cursors remain opaque, and links containing
+credentials or unresolved variables are not offered. Only static HTTPS remote
+endpoints without header/variable inputs, or versioned npm/PyPI stdio packages
+without additional runtime/package/environment inputs, using the public default
+registry and runner, produce drafts. npm versions must be complete releases;
+mutable tags and major/minor ranges remain documentation-only. Other
+records remain documentation-only. This operation never fetches, installs or
+executes anything. Hosts own cancellable directory requests and require the
+user to review and save a draft before modifying Agent configurations.
+`shared/contracts/mcp-registry-page.json` is a portable synthetic response.
+
+`mcp.featuredRegistry` accepts `{}` and returns the same page shape with
+`source: "featured"` from the Git-owned, compile-time catalog at
+`rust/lithe-core/src/mcp/featured.json`. It performs no network, filesystem,
+package resolution or execution. Catalog package versions are pinned; remote
+requirements remain subject to the publisher's documentation. Hosts show this
+page without contacting the Registry, extend matching entries on explicit
+search, and retain available results when a directory request fails.
+The release catalog includes Context7, Playwright, Chrome DevTools, Microsoft
+Learn, GitHub, DeepWiki, Exa, Filesystem, Fetch and Memory. A featured entry may
+add `setup: "bearer-token" | "allowed-directories"`: its draft is an incomplete
+template, requiring an Authorization bearer value or at least one absolute
+directory argument after the fixed Filesystem package argument. Hosts must
+collect and validate these inputs before saving and must not select Agents by
+default. Public Registry parsing never copies `setup`, even when input uses a
+featured-looking ID. `shared/fixtures/mcp/featured-setup-v1.json` illustrates the
+optional field; ordinary entries omit it. Brand marks are platform-owned,
+read-only bundled assets, selected only for known featured IDs; public entries
+keep the transport fallback. No response can select arbitrary resources or
+cause remote image fetching.
+
 `mcp.parseConfiguration` accepts `{ source: "codex" | "claude", scope:
 "global" | "project", content: string, projectPath?: string }` and returns
 `{ servers: McpServer[] }`. Claude project scope requires `projectPath` and reads
@@ -628,11 +702,21 @@ lowercase SHA-256 hashes with separate purposes:
 
 `mcp.planWrite` accepts `{ source, scope, projectPath?, content?: string | null,
 operation: "set" | "remove", server?: McpServer, name?: string,
-previousName?: string, expectedHash?: string, owned?: OwnedEntry[] }`. `set`
+previousName?: string, expectedHash?: string, owned?: OwnedEntry[],
+toolFilters?: {enabledTools?: string[], disabledTools?: string[]} }`. `set`
 requires `server`, `remove` requires `name`, and project scope requires
 `projectPath`. `previousName` identifies the original of a rename. Each owned
 entry is `{ name, definitionHash, sourceHash?: string }`; hosts must record the
 hashes returned from the actual write plan rather than hashes from the draft.
+
+Successful Codex removals also return `toolFilters` when native `enabled_tools`
+or `disabled_tools` exists. These lists contain tool names only; an empty
+allow-list stays empty and malformed lists reject removal. Hosts retain them
+by native path/server only after the complete write batch succeeds, separately
+from live source ownership. A later `set` applies retained filters only when
+inserting a new Codex entry; existing/renamed native policy always takes
+precedence. Returned hashes cover the restored policy. Claude's user deny
+rules remain in its separate settings file during server removal.
 
 Automatic replacement/removal, including unchanged set plans used for repeated
 registration, requires an owned record whose name, `definitionHash` and
@@ -654,11 +738,11 @@ it is not owned. For rename, it refers to `previousName`, and cannot authorize
 an unrelated existing destination; destination ownership checks still apply.
 
 The response is `{ content, changed, action, conflict, definitionHash?,
-sourceHash? }`. Actions are `inserted`, `updated`, `unchanged`, `removed`, `absent`,
+sourceHash?, toolFilters? }`. Actions are `inserted`, `updated`, `unchanged`, `removed`, `absent`,
 or `conflict`; conflicts leave the input unchanged. Successful set plans return
 both hashes computed by parsing the actual output entry, including preserved
 unknown fields. Unchanged set plans also return the current entry's hashes;
-removal/absence normally has no entry hashes. Hashes sent on the draft server
+removal can return the old definition hash for filter retention; absence has no entry hashes. Hashes sent on the draft server
 are never trusted as write output or persisted into Agent configuration.
 
 ### Agent adapters
@@ -682,6 +766,89 @@ host-owned and may return an empty key only in this draft mode. Malformed text
 and the 64 KiB limit still fail with redacted errors. Omitting this flag keeps
 the existing parser behavior; saving still requires all fields, a compatible
 protocol and explicit consent for HTTP.
+
+`agent.instructions.read` takes `{agentId}` (`codex-acp` or `claude-acp`) and
+returns `{agentId, path, content, exists, revision}`. It does not create files.
+`agent.instructions.save` takes `{agentId, content, expectedPath, expectedRevision}`.
+The host resolves the native user profile again and rejects a changed effective
+path or byte revision before replacing the file. The result is a fresh effective
+snapshot: clearing a Codex override may return the base `AGENTS.md` instead.
+No prompt injection, account settings, repository files, or native history are
+modified. Files must be regular UTF-8 files at most 1 MiB; terminal symlinks are
+rejected. Read-only files cannot be overwritten. Existing file permissions are
+preserved; Unix new files use `0600` and new directories use `0700`.
+Save staging is a sibling temporary file removed on completion/failure.
+Other Lithe saves are serialized by a non-waiting lock; external writers do not
+share it, so revision checks are optimistic rather than an OS-wide transaction.
+Errors use the existing envelope codes with stable `details` reasons including
+`unsupported_agent`, `file_access`, `unsafe_file`, `file_changed`, `file_too_large`,
+`invalid_utf8`, `profile_missing`, `profile_relative`, and `busy`.
+The fixture is `shared/fixtures/agent/agent-instructions-v1.json`.
+
+`agent.instructions.shared` takes a platform-selected absolute `dataDirectory`
+from the writable application-support adapter plus one tagged action:
+
+- `read`: returns `{file, agents}` without creating files. `file` is the shared
+  `Shared.md` snapshot; each Agent reports `{agentId, file, enabled, needsSync,
+  ownLineCount, issue}`. A native read or marker failure sets `enabled: null` and
+  an actionable issue rather than claiming disabled.
+- `save`: takes `content`, `expectedRevision` for Shared.md and `files` guards
+  (`{agentId,path,revision}`) for targets. It saves the shared source, then updates
+  already-enabled native targets. A failed target retains its bytes and an issue;
+  other targets continue. `needsSync` compares the actual block with the saved source.
+- `setEnabled`: takes `agentId`, `enabled`, the shared `expectedRevision` and one
+  `file` guard. It inserts/replaces or removes only the Lithe-delimited block in the
+  effective native file; it never disables the Agent or removes its own instructions.
+
+Marker tokens are `<!-- LITHE:SHARED-INSTRUCTIONS:BEGIN -->` and
+`<!-- LITHE:SHARED-INSTRUCTIONS:END -->`. The owned range includes its separator
+newlines, so disabling restores the original bytes. Duplicate, incomplete or edited
+markers are rejected; shared content may not contain the marker tokens. Native
+source selection, size, permission, symlink and optimistic revision guards remain
+those of `agent.instructions.save`. A nonblocking OS file lock in `.sync.lock`
+serializes shared writes across app processes. Shared.md uses the same 1 MiB bound,
+private Unix modes and atomic replacement; source/target commits are individually
+atomic and partial success is explicit. Cancellation stops remaining targets and the
+next page read reconciles actual state. None of these files is a build cache or
+installed resource. The fixture is `fixtures/agent/shared-instructions-v1.json`.
+
+`agent.hooks` manages a platform-owned writable Hook library. Requests take
+`dataDirectory` and a strict `action`: `read`, `save`, `remove`, or `sync`.
+Mutations require `expectedRevision` and native `files` guards containing
+`agentId`, `path`, and `revision`. Guard paths never select write destinations:
+Agent Host resolves `CODEX_HOME/hooks.json` and `CLAUDE_CONFIG_DIR/settings.json`
+using native profile defaults when environment overrides are absent.
+
+`save` also takes `hook`: a UUID `id`, unique ASCII `name` (1–80 letters,
+digits, hyphens or underscores), `description` (at most 200 Unicode scalars),
+`event` (`turn-end`, `after-tool`, `before-tool`, `prompt`, `session-start`),
+`matcher` (`all`, `shell`, `edit`), nonempty UTF-8 `command` (at most 32768 bytes),
+nullable `timeoutSeconds` (1–86400, null inherits the native default), selected
+`agents` (`codex-acp`, `claude-acp`), `enabled`, and `pendingRemoval: false`.
+Only tool events accept a non-`all` matcher. `remove` takes `id`; `sync` retries
+the existing desired state. Neither configuration management nor reading the
+library executes commands or grants native trust.
+
+The result contains source `revision`, flattened `hooks` with actual
+`configuredAgents` and `needsSync`, plus `targets` containing `agentId`, nullable
+`file` guard, nullable `issue`, and `disabled` (Claude's `disableAllHooks`).
+Native configuration contents, which can include secrets, are never returned.
+Desired state is committed before target writes; target failures remain visible
+and removal failures retain a `pendingRemoval` row. A nonblocking OS file lock
+coordinates library writers. Each bounded UTF-8 file replacement is guarded and
+atomic; cross-file synchronization is explicitly partial, with write-ahead
+ownership records permitting recovery after interruption. Native duplicate JSON
+keys, malformed JSON, symlinks, nonregular files and changed snapshots are rejected.
+Existing unknown JSON values survive writes, while formatting is normalized.
+
+Only exact recorded placements can be retired. Native groups are cleared to
+`{"hooks":[]}` instead of compacted, preserving Codex's index-based trust keys.
+Unchanged commands keep their original positions; edited commands do not inherit
+trust. A matching user-owned entry is never claimed or duplicated. Codex still
+requires native Hook enablement and approval in `/hooks`; `configuredAgents`
+does not claim execution. Source, ownership journal, lock and temporary siblings
+are user state outside installed resources and cannot be reused across worktrees.
+The shared fixture is `shared/fixtures/agent/hooks-management-v1.json`.
 
 `agent.status`, `agent.install`, `agent.uninstall`, and `agent.installCli` manage ACP adapters in
 `<dataDirectory>/agents/<agentId>`, using the Node.js and npm the user installed.
@@ -773,8 +940,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `community.discourse.search` | Search normalized topics and sanitized posts |
 | `editor.lineEdit` | Apply a deterministic line-level text transform and return the replacement plus selection to restore |
 | `editor.lineCommentToken` | Resolve the line comment token for a file extension or language id |
-| `workspace.snapshot` | Enumerate visible workspace nodes and relative file paths; `nestedWorktrees` lists linked worktrees checked out inside their own repository, which are left out of the tree, files, and search index ; `includeTree: false` returns only `files` and a childless `root` |
-| `workspace.listDirectories` | Return one visible level of children for each requested workspace-relative directory (`""` is the root); missing, hidden, symlinked, or nested-worktree paths are omitted, and each listing reports the nested worktrees it left out. Child directories have `children: []` only when a shallow probe proves them visibly empty; otherwise children remain omitted (unloaded), with no recursive tree allocation |
+| `workspace.snapshot` | Enumerate visible workspace nodes and relative file paths; `nestedWorktrees` lists linked worktrees checked out inside their own repository, which are left out of the tree, files, and search index ; `includeTree: false` returns only `files` and a childless `root`; `files` (and the tree, when included) keep the lowercase traversal order that bounded consumers such as Windows Quick Open rely on, not the natural display order of `workspace.listDirectories` |
+| `workspace.listDirectories` | Return one visible level of children for each requested workspace-relative directory (`""` is the root); missing, hidden, symlinked, or nested-worktree paths are omitted, and each listing reports the nested worktrees it left out. Child directories have `children: []` only when a shallow probe proves them visibly empty; otherwise children remain omitted (unloaded), with no recursive tree allocation. Children list directories first, then names in IDEA's natural file-name order (digit runs compare by value, case-insensitive, `-` next to `_`; fixture `shared/fixtures/workspace/file-name-order-v1.json`) |
 | `workspace.repositories` | Discover deterministic Git repository roots for an opened workspace |
 | `workspace.search` | Search visible file names and UTF-8 text files |
 | `workspace.searchEverywhere` | Search visible file names, Java types/methods, and UTF-8 text files |
@@ -836,6 +1003,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `lsp.request` | Submit a typed semantic request and return an opaque operation ID |
 | `lsp.buildRequest` | Forward one planned `lithe/build/*` request to a session that negotiated the build-provider protocol |
 | `lsp.functionRequest` | Invoke one registered plugin function on a session its plugin started |
+| `lsp.hostResponse` | Answer one host-service request a plugin backend sent |
+| `lsp.vcsRequest` | Send one VCS operation, planned by Core, to a session that negotiated the VCS-provider protocol |
 | `java.navigationMarkers` | Resolve versioned Java gutter markers from bounded JDT LS semantic requests |
 | `java.resolveNavigation` | Resolve one Java gutter marker to normalized parent or implementation locations |
 | `lsp.cancelOperation` | Cancel one pending semantic operation |
@@ -863,6 +1032,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.initialize` | Initialize a directory outside existing repositories without staging or committing |
 | `git.configureIdentity` | Save or clear one local/global `user.name` or `user.email` override |
 | `git.status` | Resolve the repository, current branch, and working-tree changes |
+| `git.untrackedDirectory` | List one level of a summarized untracked directory: its files and subdirectory summaries |
 | `git.commitState` | Read exact HEAD, symbolic branch and index preconditions for a workspace commit |
 | `git.watchContext` | Resolve the repository and absolute Git metadata roots needed by native file watchers |
 | `git.worktrees` | Return deterministic registered-worktree metadata without scanning each checkout |
@@ -876,6 +1046,12 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.executionInspect` | Inspect executable capabilities, configuration provenance and effective Fetch preferences |
 | `git.executionConfigure` | Explicitly save or clear one allowlisted value in a selected config scope |
 | `git.authRespond` | Answer or cancel a live authentication challenge once |
+| `remote.probe` | Check that an SSH connection reaches a supported host |
+| `remote.authRespond` | Answer or cancel a prompt relayed by `remote.probe` or `remote.connect` once |
+| `remote.connect` | Open a connection, installing the shipped server when needed |
+| `remote.readDir` / `remote.readFile` / `remote.writeFile` | List, read or save over an open connection |
+| `remote.disconnect` | Close an open connection and its OpenSSH process tree |
+| `remote.closeAll` | Close every open connection; the host calls it at application exit |
 | `git.historyRewritePreview` | Review undo, message edit, squash, or drop with complete messages, eligibility, and an immutable checkout expectation |
 | `git.rebasePreview` | Resolve the complete local linear range strictly after a selected unchanged base |
 | `git.rebaseStart` | Start a reviewed native interactive rebase with persisted messages and recovery identity |
@@ -910,7 +1086,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `plugins.declarative.runPlan` | Expand a declarative plugin's run template for one workspace file |
 | `plugins.declarative.discoverTests` | List a declarative plugin's workspace and file test items |
 | `plugins.declarative.testPlan` | Expand a declarative plugin's test template for a workspace, file, or test case |
-| `plugins.declarative.languageServerLaunchPlan` | Expand a declarative plugin's language-server or build-provider launch with host directories and architecture |
+| `plugins.declarative.languageServerLaunchPlan` | Expand a declarative plugin's language-server, build-provider, or VCS-provider launch with host directories and architecture |
 | `plugins.declarative.resolveSettings` | Merge a plugin's stored global and project setting layers into effective values with their source |
 | `plugins.declarative.workspaceConfiguration` | Expand a language server's `workspaceConfiguration` with the merged setting values |
 | `plugins.declarative.checkRuntimeVersion` | Decide whether a launch runtime's version output meets the declared minimum version |
@@ -928,6 +1104,14 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `build.decodeDependencies` | Decode dependency output or a provider result into one project's bounded tree |
 | `build.syncFingerprint` | Digest the files a build model depends on, to tell whether it is stale |
 | `build.languageImport` | Map a build system's options to the Java language server's Maven or Gradle project import |
+| `vcs.detectRoots` | Find the VCS roots of a workspace from static markers, with registered providers, ambiguous directories, and applied mappings |
+| `vcs.ownerOf` | Assign workspace paths to the detected root that owns each |
+| `vcs.decodeReply` | Validate a VCS provider's reply and return the normalized result |
+| `project.generatorCatalog` | List the project generators of the given plugins, with the plugins that provide each requirement |
+| `project.generatorForm` | Evaluate a generator's form: derived defaults, visibility, problems, and active requirements |
+| `project.generationPlan` | Expand a filled-in form into the files, commands, and archive downloads that create a project |
+| `project.checkName` | Check that a name can be a new project's directory name |
+| `project.extractArchive` | Extract a downloaded project archive into the staging directory, refusing unsafe entries |
 | `plugins.marketplace.validateIndex` | Validate a marketplace index and report each plugin's availability for one platform |
 | `plugins.marketplace.resolveSource` | Resolve a user-entered marketplace source to the index URL to fetch |
 | `plugins.marketplace.installReview` | List a package's permissions and programs, and those not yet approved |
@@ -1400,24 +1584,50 @@ an upstream. If the push fails, the local branch is intentionally retained so
 the user can fix credentials or connectivity and retry without losing commits.
 
 `git.pushPreview` accepts `root`, an optional complete local `gitReference` or
-legacy `reference`, an optional bounded `limit`, and `pushTags`. It returns `localBranch`,
-`localHead`, `remote`, `remoteBranch`, nullable `remoteTrackingOid`, nullable
-`upstream`, exact reviewed `tags`, `commits`, and `hasMore` using
-`shared/fixtures/git/push-preview-v1.json`. The push destination follows
+legacy `reference`, an optional bounded `limit`, `pushTags`, and an optional
+`pushTarget`. It returns `localBranch`,
+`localHead`, `remote`, `remoteBranch`, `targetKind`, `createsRemoteBranch`,
+nullable `remoteTrackingOid`, nullable `upstream`, exact reviewed `tags`,
+`commits`, and `hasMore` using `shared/fixtures/git/push-preview-v1.json`.
+`targetKind` describes how `remoteBranch` relates to the local branch:
+`tracking` when both names match, `publish` when the branch has no upstream on the
+selected remote and will be published under its own name, and `divergent` when the
+upstream branch has a different name. `createsRemoteBranch` reports whether
+`remoteBranch` is still absent on the remote. The push destination follows
 `branch.<name>.pushRemote`, then `remote.pushDefault`, the configured upstream
 remote, `branch.<name>.remote`, and finally `origin` or the first configured
-remote. A destination without a fetched tracking reference previews commits not
-reachable from that remote. A reviewed `push` mutation sends these resolved fields
-back as `expectedPush`; Core rejects a stale local tip, destination, or tracking OID
-before starting Git. `force` binds `--force-with-lease` to the reviewed destination
-OID when `expectedPush` is present, and Core also validates the reviewed tag
-identities; `pushTags` accepts `none`, `all`, or `reachable`
-and maps to no tag option, `--tags`, or `--follow-tags` respectively. Legacy push
-callers may omit `expectedPush`. A reviewed push uses the preview's immutable
-`localHead` OID as the refspec source, so a repository change after validation
-cannot add unreviewed commits to the operation. Because Git cannot infer an
-upstream from an OID source, Core explicitly configures the reviewed local
-branch after a successful first push.
+remote. An upstream only names the destination when it lives on the selected
+remote, so a `pushRemote` or `remote.pushDefault` override falls back to the
+same-named branch on that remote. A destination without a fetched tracking
+reference previews commits not reachable from that remote. A reviewed `push`
+mutation sends these resolved fields back as `expectedPush`; Core rejects a stale
+local tip, destination, or tracking OID before starting Git. An optional
+`expectedPush.targetKind` is compared only when the caller supplies it, so a
+caller that predates target kinds keeps its previous behaviour instead of being
+rejected as stale.
+
+A `divergent` destination is never pushed implicitly. `pushTarget` accepts
+`publish` (send the branch to its same-named remote branch and repoint the upstream
+there after a successful push) or `upstream` (keep the differently named upstream
+branch, which is the only case allowed to update it, and leave the tracking
+configuration untouched). `git.pushPreview` and `push` resolve the destination
+through the same function with the same `pushTarget`, so the preview describes the
+branch, tracking OID and commits that choice would update, and a reviewed push is
+validated against exactly that destination. A client therefore previews with the
+choice, shows the result, and pushes with the same `pushTarget` and the
+`expectedPush` taken from that preview; a tracking configuration that moves in
+between is rejected as stale. Without `pushTarget`, a `divergent` preview reports
+the same-named destination and `push` rejects the request with `invalid_request`.
+`pushTarget` is ignored for branches that are not `divergent`.
+`force` binds
+`--force-with-lease` to the reviewed destination OID when `expectedPush` is
+present, and Core also validates the reviewed tag identities; `pushTags` accepts
+`none`, `all`, or `reachable` and maps to no tag option, `--tags`, or
+`--follow-tags` respectively. Legacy push callers may omit `expectedPush`. A
+reviewed push uses the preview's immutable `localHead` OID as the refspec source,
+so a repository change after validation cannot add unreviewed commits to the
+operation. Because Git cannot infer an upstream from an OID source, Core
+explicitly configures the reviewed local branch after a successful first push.
 
 New reference-based workflows send `gitReference` as `{ "fullName": string,
 "shortName": string, "kind": "local" | "remote" | "tag" }`. Core verifies
@@ -1742,8 +1952,16 @@ Agent completion, or workspace tree visibility. The existing
 case-insensitive `*`/`?` matcher applies to a basename or root-relative path (`*`
 can span `/`). A trailing `/` explicitly marks a root-relative directory glob:
 match it before descending into a directory and against ancestors of directly
-reported file updates. The UI adds the root form for leading `**/`; ordinary
-file globs retain their file-only semantics. Empty user exclusions preserve the
+reported file updates. A leading `**/` stands for zero or more folders in the
+matcher itself, so `**/dist/` covers a root-level `dist` as well as nested ones
+(no client has to add the root form). An entry ending in
+`/*` or `/**` is the same folder rule as one ending in `/`, so `.lithe/*` hides the
+folder and everything below it rather than leaving an empty folder; ordinary file globs
+and plain names (such as `.lithe`) retain their file-only semantics. The macOS file
+watcher is the one place that does not follow the hiding rules for the workspace-root `.lithe`
+folder: hiding it removes it from the tree and listings, but its file events are still
+delivered (except built-in noise such as `.lithe/run/local.json`) because editing its JSON
+files reloads project services. Empty user exclusions preserve the
 normal visibility rules. Search settings changes invalidate only the search
 cache, not the workspace tree. Each root retains at most one content and one
 names-only rule variant; superseded allocations are released when active
@@ -2052,7 +2270,9 @@ provider ID, selected executable/arguments/environment, root URI, working
 directory, initialization options, optional runtime executable,
 `jdtlsLaunchResources`, cache directory, `workspaceFingerprint`, and the
 optional `pluginId` of the plugin that owns the process, its optional
-`workspaceConfiguration` (an object, plugin-owned sessions only), plus
+`workspaceConfiguration` (an object, plugin-owned sessions only), its
+optional `hostServices` (the launch plan's `backend.hostServices`;
+plugin-owned sessions only, and only services Core defines), plus
 initialize, post-initialize readiness, request, Java project build
 (`javaBuildTimeoutMilliseconds`), and shutdown deadlines.
 Java callers may also provide the versioned `mavenContext` accepted by
@@ -2315,6 +2535,23 @@ event carries the provider's reply unchanged as `result.value`, which the host
 passes to `build.decodeModel` or `build.decodeDependencies` as `result`;
 cancellation and late results follow `lsp.cancelOperation`.
 
+`lsp.vcsRequest` accepts `{ sessionId, operationId?, vcs, operation, root,
+tool?, arguments?, timeoutMilliseconds? }` and returns `{ operationId }`.
+`operation` is a [VCS provider contract](vcs-provider-v1.md#lspvcsrequest)
+operation name, never a method; Core checks `arguments`, adds the absolute
+`root` and `tool` paths, and writes the operation's `lithe/vcs/*` request.
+Only plugin-owned sessions offer `capabilities.experimental.litheVcs:
+{ versions: [1] }`; a session whose process did not answer with a VCS ID and
+every required capability, or answered another VCS than `vcs`, refuses the
+request with `not_supported` and details `vcs.provider.unavailable`, and an
+operation whose capability was not negotiated is `not_supported` with details
+`vcs.capability.unsupported`. A successful negotiation emits a `vcsProvider`
+runtime event whose `result` is `{ vcs, capabilities }`. The
+`requestCompleted` event carries the provider's reply as `result.value`, which
+the host passes to `vcs.decodeReply`; a failed request carries a `vcs.*`
+`error.code` (the provider's own code only when the contract lists it).
+Timeout, cancellation, and late results follow `lsp.buildRequest`.
+
 A plugin-owned session started with `workspaceConfiguration` answers each
 `workspace/configuration` item from it by `section` (an exact key wins over
 a dotted path; no section returns the whole object, a missing one `null`) and
@@ -2329,8 +2566,8 @@ sessions refuse it with `invalid_request`.
 functionID }, params?, timeoutMilliseconds? }` and returns `{ operationId }`.
 It sends `lithe/function/invoke` to a session started with
 `lsp.startServer.pluginId` equal to `function.pluginID` that negotiated
-`capabilities.experimental.litheFunctions` version 1 and registered the
-function. `params` must be a JSON object and defaults to `{}`. Refusals are
+`capabilities.experimental.litheFunctions` version 1 or 2 and registered
+the function. `params` must be a JSON object and defaults to `{}`. Refusals are
 `invalid_request`, `not_supported`, or `permission_denied` with a
 `plugin.function.*` code in `details`, in the order the
 [plugin contract](plugins/v1/README.md#plugin-functions) defines. The
@@ -2357,6 +2594,18 @@ unregister requests publish
 is `pluginFunctions` in the session's client state. Sessions without
 `lsp.startServer.pluginId` neither offer nor accept `litheFunctions`, retain no
 registry, and publish no function-discovery events.
+
+A session that negotiated `litheFunctions` version 2 may send the
+[host-service requests](plugins/v1/README.md#host-services-protocol-version-2)
+its `hostServices` grant. Core checks method, grant, and params, then
+publishes the runtime event `hostRequest` with `method` and `result: {
+hostRequestID, service, params }`; refusals go back to the backend without an
+event. `lsp.hostResponse` accepts `{ sessionId, hostRequestID, result? }` or
+`{ sessionId, hostRequestID, error: { message } }`, returns `{}`, and sends
+`result` (default `null`) or `-32603` with `data.code: "plugin.host.failed"`
+to the backend. An unknown or already answered `hostRequestID` is
+`invalid_request`. At most 16 host requests are unanswered per session; more
+are refused with `plugin.host.failed`.
 
 `lsp.request` accepts a semantic `operation` plus
 the operation-specific URI, position, range, diagnostics, item, action, or
@@ -2452,7 +2701,7 @@ channel until events are queued or the timeout elapses, then drains the same
 typed events. Hosts should use `waitEvents` so idle sessions do not poll.
 Event types
 include `stateChanged`, `featuresChanged`, `diagnostics`,
-`requestCompleted`, `requestProgress`, `functionsChanged`,
+`requestCompleted`, `requestProgress`, `functionsChanged`, `hostRequest`,
 `serverInfoChanged`, and `log`. Every request completes at
 most once with either `result` or a structured runtime error containing
 provider/session, stage, optional method/document/request, stable code, and
@@ -2471,7 +2720,10 @@ metadata never stores an absolute workspace or storage path. `history.record`
 accepts `workspaceRoot`, a relative `path`, a `reason`, and optional UTF-8
 `content`; when content is omitted the core reads the workspace file. Records
 are versioned, de-duplicated against the latest snapshot, capped at 100 entries
-per file, and pruned after 30 days. Invalid metadata and missing snapshot files
+per file, and pruned after 30 days. `history.record` and `history.entries` apply
+the same `hiddenDirectoryNames` / `hiddenFilePatterns` matcher as the workspace
+tree, so a hidden path (including folder patterns such as `**/generated/` or
+`.lithe/*`) is neither recorded nor listed. Invalid metadata and missing snapshot files
 are ignored. `history.entries` returns Unix-second timestamps and relative
 `contentPath` values. `history.content` rejects traversal,
 `history.relocate` updates metadata and storage paths, and `history.rename` and
@@ -3051,6 +3303,14 @@ selections the declaration does not allow are `plugin.build.invalidSelection`,
 output that does not fit its decoder is `plugin.build.invalidOutput`, and a
 malformed payload is an `invalid_request` failure.
 
+Executable candidates are normalized by the shared plugin executable-resolution
+mechanism before platform filtering. A `setting` candidate emits
+`{kind: "setting", settingID, path: absolutePath | null}` in the same `executables`
+list; null skips, invalid stored values reject the plan, and native validation
+failure is terminal. There is no separate `configuredExecutable` result.
+See the plugin contract's **Shared executable candidates** section for ordering,
+capability negotiation and the compatibility adapter for published v2 previews.
+
 Host-managed runtime probes use `java -version` (including Java 8),
 `node --version`, and `go version`. Hosts execute the returned arguments and
 pass combined stdout and stderr as `build.checkToolVersion.request.output`:
@@ -3090,6 +3350,116 @@ inside `workspaceRoot` (and the given `outputFile`); none of the commands
 writes anything or starts a process. `shared/contracts/plugins/v1/fixtures/build-plans.json`
 holds the golden plans and decoded outputs.
 
+### VCS providers
+
+The `vcs.*` commands implement API level 3 `vcsProviders` of
+[`plugins/v1`](plugins/v1/README.md) and the
+[VCS provider contract](vcs-provider-v1.md). Results use the
+`plugins.declarative.*` envelope; a malformed payload, a relative
+`workspaceRoot`, or an unknown operation is an `invalid_request` failure.
+
+| Command | Request | Result |
+| --- | --- | --- |
+| `vcs.detectRoots` | `{ workspaceRoot, plugins: [{ manifest }], mappings?: [{ id, vcs }] }` | `detection`: `{ providers, roots: [{ id, vcs, path, mapped }], ambiguous: [{ id, vcs }], unusedMappings, truncated, rejected: [{ index, error }], conflicts: [{ pluginID, vcs, by }] }` |
+| `vcs.ownerOf` | `{ roots: [id], ambiguous?: [id], paths: [path] }` | `owners`: `[{ path, root }]` in request order; `root` is `null` outside every root or inside an unmapped ambiguous directory |
+| `vcs.decodeReply` | `{ operation, capabilities, request?, reply }` | `result`: the normalized reply, or `plugin.vcs.invalidOutput` |
+
+`vcs.detectRoots` reads directory entries below `workspaceRoot` (at most eight
+levels and 20,000 directories) and the marker names in its ancestors; it never
+reads file contents, writes anything, or starts a process. The other two
+commands touch no file. `shared/fixtures/vcs/model-v1.json` holds the
+detection cases, decoded snapshots, and reply validation cases.
+### Project generators
+
+The `project.*` commands back the New Project window. Payloads, results, and
+problem codes are specified in the plugin contract's
+[Project generators](plugins/v1/README.md#project-generators) section, and
+`shared/contracts/plugins/v1/fixtures/project-plans.json` holds the golden
+answers. Results use the `plugins.declarative.*` envelope: `catalog`, `form`,
+`plan`, `name`, and `extracted`. Commands that take a manifest revalidate it
+and answer `plugin.project.unavailable` for an undeclared generator.
+
+`project.generationPlan` reads template files below `packagePath` (bounded,
+no symbolic links). `project.extractArchive` is the only command that writes:
+it extracts into an existing staging directory the host created and never
+replaces a file. Neither starts a process or downloads anything; the host
+runs command steps, downloads archives, and moves the finished project into
+place.
+
+### Remote connections
+
+`remote.probe` checks a saved SSH connection before a remote workspace is
+opened. The request is `{ connection: { host, port?, user?, authentication?,
+identityFile?, connectTimeoutSeconds?, keepAliveSeconds? } }`; unknown fields,
+including any password, are rejected. `authentication` is `auto` (default),
+`agent`, `privateKey` (requires `identityFile`), or `password`. `host` is a
+name, address, or SSH configuration alias without a user.
+
+Core runs the system `ssh` with the probe of
+[`remote-workspace-protocol-v1`](remote-workspace-protocol-v1.md)'s bootstrap
+and relays every OpenSSH question through the same AskPass transport as Git.
+Each question is an `authentication` event with `requestId`, `prompt`,
+`secret`, and `attempt` on the request's event channel; the host answers it
+once with `remote.authRespond` (`{ requestId, answer: string | null }`,
+returning `{ accepted }`, with the bounds of `git.authRespond`). Null cancels
+the prompt. Core never stores or emits an answer.
+
+The result is `{ status, host, diagnostics }`:
+
+| `status` | Meaning |
+| --- | --- |
+| `connected` | The shell ran and a server build exists; `host` is set |
+| `unsupportedPlatform` | The shell ran, but no server build exists; `host` is set |
+| `authenticationFailed` | Every offered credential was rejected |
+| `hostKeyRejected` | The host key was declined or has changed |
+| `unreachable` | The name did not resolve or the host could not be reached |
+| `failed` | Another failure; see `diagnostics` |
+
+`host` is `{ system, machine, homeDirectory, serverTarget }` from `uname -s`,
+`uname -m` and `$HOME`; `serverTarget` is the server's Rust target or `null`.
+`diagnostics` is the redacted end of OpenSSH's standard error (at most
+4 KiB). A malformed connection is `invalid_request`, a missing `ssh` is
+`runtime_missing`, and cancellation or the five-minute bound are `cancelled`
+and `timed_out`.
+
+`host.details` carries display facts read by the same shell, each nullable:
+`hostName`, `operatingSystem`, `kernel`, `cpuCount`, `memoryBytes`,
+`diskTotalBytes` and `diskAvailableBytes` (the file system holding `$HOME`),
+and `uptimeSeconds`.
+
+#### Remote connections that stay open
+
+`remote.connect` takes `{ connection, servers: [{ target, path }],
+serverVersion, installRoot? }`. `servers` are the read-only server builds the
+host ships, by Rust target; `installRoot` defaults to `$HOME/.lithe-server`.
+One OpenSSH process probes the host, keeps an installed server whose
+`--identity` reports the same SHA-256 or uploads the matching build through
+the same stream, and starts it, so the user authenticates once. Prompts are
+relayed as for `remote.probe`. The result is `{ status, session, host,
+diagnostics }`; `session` is `{ id, uploaded, hostName, userName,
+homeDirectory }` and is set only for `connected`. A host without a matching
+build is `unsupportedPlatform` and nothing is uploaded.
+
+Core keeps an open connection until `remote.disconnect` (`{ sessionId }`,
+returning `{ closed }`) or until the host process exits; ending it terminates
+the OpenSSH process tree. `remote.closeAll` (no payload, returning
+`{ closed }` with the number of connections) ends all of them; the host calls
+it while quitting because exiting without it can leave the OpenSSH tree and
+the remote server running. Requests over it take `sessionId`:
+
+| Command | Request | Result |
+| --- | --- | --- |
+| `remote.readDir` | `{ sessionId, path }` | the remote protocol's `fs.readDir` result |
+| `remote.readFile` | `{ sessionId, path }` | `{ data (base64), size, modifiedMs }`; files over 16 MiB are `not_supported` |
+| `remote.writeFile` | `{ sessionId, path, data, expected? }` | `{ status: "saved", size, modifiedMs }` or `{ status: "conflict" }` |
+
+`remote.writeFile` replaces the file atomically on the host. With
+`expected` (`{ size, modifiedMs }` from the read) a changed file is a
+`conflict`; without it the file must not exist yet. A missing path is
+`workspace_not_found`, a denied one `permission_denied`. A broken connection
+fails with `connection_closed` and is forgotten, so the host reconnects; an
+unknown or closed `sessionId` is also `connection_closed`.
+
 ### Git patch discovery and rebase amendment preconditions
 
 `git.patchExport` accepts optional `metadataOnly` (default false). In metadata
@@ -3119,6 +3489,16 @@ than being inserted as literal source text. The initialize handshake advertises
 `labelDetails` so language servers attach typed class/namespace labels on
 incomplete items. Core forwards `labelDetails` and omits null `data` so
 `completionItem/resolve` can still produce import `use`/`import` edits.
+
+The shared JDT adapter sends `java.completion.guessMethodArguments: "off"`
+through initialization, configuration notifications and section queries on both
+platforms. JDT LS therefore leaves constructor and method argument lists empty
+while preserving the snippet cursor inside the parentheses. Other completion
+settings declared in the provider's initialization options are retained for the
+session in initialize, didChangeConfiguration, and parent/leaf section pulls
+(including favoriteStaticMembers and filteredTypes). This does not disable snippet
+support or strip parameter text from arbitrary completion items; the shared
+configuration fixture is `shared/fixtures/lsp/java-completion-v1.json`.
 
 ### Java preparation snapshot
 
@@ -3178,6 +3558,20 @@ repositories). Untracked paths owned by a nested root are excluded from the
 parent list. Each change returns `canToggleStaging`; platforms render that
 eligibility instead of reinterpreting submodule dirt.
 
+`git.status` accepts optional `summarizeUntrackedDirectories`. When true, Core
+reads Git's collapsed untracked view and reports a wholly untracked directory
+holding more than 100 non-ignored files as one change whose `path` ends with `/`
+and which carries `untrackedFileCount`. Smaller directories keep one change per
+file. A directory containing a nested repository is never summarized; it is
+split until each summary is free of nested repositories, so staging (`stage`),
+discarding (`discard`/`discardAll`) or diffing (`git.diff` with `untracked`) the
+summary path acts on exactly the counted files. Omission preserves the
+file-level projection. `git.untrackedDirectory` accepts `{ root, directory,
+repositoryRoots? }`, where `directory` is a summary path ending with `/`, and
+returns `{ changes }`: the directory's immediate untracked files plus each
+subdirectory as a summary, using the same change shape and nested-root
+exclusion as `git.status`.
+
 `git.workspaceCommitPrepare` owns the complete multi-repository policy. It accepts
 `repositories: [{ id, root }]`, `message`, `amend`, `push`,
 `includeParentReferences`, optional `previous` session for retry, and optional
@@ -3190,6 +3584,22 @@ execution binding, never a portable identity. The response is
 finds real gitlink relationships, includes clean parents when requested, orders
 children first, and adds push-only child work where needed. Cycles fail closed.
 A changed reviewed plan must be displayed and confirmed again before any step.
+
+When `push` is set, Core also checks whether any repository's branch tracks a
+differently named remote branch (a `divergent` push destination, see
+`git.pushPreview`). Those repositories are returned as `pushTargetQuestions: [{
+repositoryId, localBranch, remote, upstream, upstreamBranch }]` (omitted when
+empty) and the session must not be stepped: when a step reaches such a repository,
+Core refuses it before writing that repository's commit instead of committing
+something it cannot push. Clients answer by preparing again
+with `pushTargets: { <repository-id>: { choice, remote, remoteBranch } }`, where
+`choice` is `publish` (`remoteBranch` is `localBranch`) or `upstream`
+(`remoteBranch` is `upstreamBranch`). The answer names the remote and branch that
+were shown; if the tracking configuration moves before the push, the answer no
+longer matches and Core asks again. Each repository is answered and checked
+separately, answers are stored in `plan.pushTargets`, and a retry restores and
+re-validates them from `previous` without the client forwarding them. Routine
+pushes (`tracking` or `publish` destinations) never produce a question.
 
 An optional `pathScope: { include, paths: { <repository-id>: [<relative-path>] } }`
 restricts local changelist commits. With `include: true`, only the listed literal
@@ -3260,15 +3670,28 @@ bridge exposes the same lifetime and result contract. Fixtures live in
 `processLifecycle.resolve` accepts `{ context, settings, records }` and returns
 `{ gracefulStopMilliseconds, decisions }` with exactly one decision per record,
 in request order. `context` is `quit`, `closeTerminalTab`, `agentDisconnect`,
-`crashRecovery`, `startupSweep`, or `finalSweep`. Each record carries a host-chosen `id`, a
+`crashRecovery`, `startupSweep`, `finalSweep`, or `closeWorkspace` (a project or
+window closes while Lithe keeps running). Each record carries a host-chosen `id`, a
 `kind` (`run`, `terminal`, `agentTask`, `languageServer`, `debugAdapter`,
 `pluginTool`, `sidecar`, `daemon`, `container`, `oneShot`), the `ownership` proof
 (`launched`, `scopeToken`, `instanceLabel`, `unproven`), and optionally
 `declaredPolicy`, `recognizerId`, `recognizedPolicy`, `detached`, `idle`, and
 `retained`, and `terminationApproved` (default `false`). Omitted settings take the documented defaults: busy terminals and
 Agent tasks are confirmed one by one, closing a busy terminal tab asks,
-daemons and containers are asked about, startup leftovers are asked about, and
+daemons and containers are asked about, startup leftovers are asked about, Run
+sessions are listed before they are stopped (`runServicesOnExit: ask`), and
 ordinary processes get five seconds to stop (clamped to 1–60).
+
+A `run` record with `launched` ownership is a Run session the host tracks
+itself. During `quit` and `closeWorkspace` its action is `confirmStop` with
+`runServicesOnExit: ask` and `terminate` with `runServicesOnExit: terminate`
+(reason `runServicesSetting`). Hosts show every `confirmStop` record in one
+confirmation whose only choices are stopping all of them or cancelling the
+close; a Run session cannot be kept, because its process tree and output pipes
+belong to Lithe. Other `run` records, such as inventory items found only by
+their scope token, keep the default `terminate`. During `closeWorkspace`,
+records that would need any other question (`confirmEach`, `askOnExit`)
+`defer` with reason `decidedOnQuit`.
 
 `finalSweep` runs after confirmation and without dialogs. Owned Agent tasks need
 `terminationApproved: true` to terminate; otherwise their action is `defer` and
@@ -3285,7 +3708,8 @@ only through ancestry proved in the same snapshot.
 
 A decision reports the pre-setting `policy` (`terminate`, `confirmEach`,
 `askOnExit`, `external`), the `action` the host performs (`terminate`,
-`confirm`, `ask`, `retain`, `defer`, `ignore`), and a stable `reason` for logs.
+`confirm`, `ask`, `retain`, `defer`, `ignore`, `confirmStop`), and a stable
+`reason` for logs.
 Unproven ownership is always `ignore`; a record the user kept is `retain`.
 Agent tasks are never ended during `crashRecovery` and are always confirmed
 during `startupSweep`, whatever the settings say. Hosts own discovery,
@@ -3338,7 +3762,8 @@ scope-token ownership. Fixtures live in
 `recognizerId`. `answers` maps IDs to `terminate` or `keep`. It returns
 `{ terminate, keep, settings }`:
 
-- `terminate` records end and `retain` records are kept.
+- `terminate` and `confirmStop` records end and `retain` records are kept.
+  Hosts settle a `confirmStop` record only after the user approved stopping.
 - `confirm` and `ask` records follow their answer, and an unanswered one is
   kept.
 - `defer` and `ignore` appear in neither list.
@@ -3394,3 +3819,70 @@ Core resolves its current stash position under the existing writer lease and rej
 an identity that is no longer present. Legacy positional references remain accepted.
 See `shared/fixtures/git/saved-stash-v1.json`. Native Shelf persistence is platform-owned;
 raw patch bytes are kept separately for index and working-tree versions.
+
+### Native plugin UI data
+
+`plugins.nativeUI.validateData` accepts `{ ui, data }`, where `ui` is the
+validated native schema-1 declaration and `data` is a provider's `{ nodes }`
+reply. It returns `{ status: "ok", nodes }` or
+`{ status: "rejected", error: { code: "plugin.ui.invalidData", message } }`.
+Malformed envelopes remain Core `invalid_request` failures. The operation uses
+the same identity, literal label, nesting and node budgets as manifest validation
+and rejects data above 1 MiB. Form declarations validate bounded input/select/checkbox
+controls (including search/editor/segmented/stepper), typed scalar defaults, choices,
+info, button action references/width policies and onCommit references; form source replies
+require empty nodes. Hosts inject this typed operation into their
+presentation feature; views never call the C ABI. Windows can reuse validation
+when it later adds a native renderer; Core support does not advertise ui 3 on
+that platform.
+
+### Agent skill management
+
+`agent.skills` accepts explicit `action` values `list`, `directories`, `read`,
+`create`, `import`, and `setEnabled`, with `agentId` (`codex-acp` or `claude-acp`) and optional
+absolute `workspace`. These management operations never create an Agent session,
+send a prompt or stop a running conversation. Only an explicit `setEnabled` action changes native visibility settings.
+The shared fixture is `shared/fixtures/agent/skills-management-v1.json`.
+
+`list` returns `skills`, `source`, `issues`, and native `directories` (`user`,
+plus `repo` when a workspace is present). Each row has `name`, `description`,
+absolute `path`, native `scope` (`user`, `repo`, `system`, `admin`), optional
+`enabled` and optional `pluginId`. Paths are transient platform file-operation
+metadata, not portable persisted identifiers. Rows are sorted by lowercased name
+and path. Native Codex discovery uses the installed CLI's official `skills/list`
+with the selected cwd and `forceReload: true`, reusing the bounded App Server
+probe and process-tree cleanup. Unknown enablement remains null. Missing or
+malformed native results fail explicitly; refresh failure retains previous rows
+only within the same workspace and Agent.
+
+Claude `source: directory` is an explicitly partial inventory of
+`CLAUDE_CONFIG_DIR/skills` (default `~/.claude/skills`) and the selected workspace's
+`.claude/skills`. It does not emulate inherited-directory, plugin, policy or
+session discovery. Its `enabled` reports configured visibility: user rows read user settings; repo rows merge user, project shared and project-local settings. Absent overrides mean on, off means false, name-only/user-invocable-only mean true. Invalid or unreadable configuration leaves the affected state null. This is not effective managed policy or evidence of session availability. Codex `source: agent` is native discovery. Platform UI
+uses Global/Project as the main categories and Agent provenance as a filter.
+
+`setEnabled` requires an absolute discovered `source` path and boolean `enabled`; Claude also requires matching `scope`. It returns a fresh listing using the same shape as `list`. Codex validates the path with `skills/list`, calls official `skills/config/write`, then forces native readback and verifies the desired state. Its setting is global by path even for a project skill. Claude merges only the named `skillOverrides` on/off value into user `settings.json` for global skills, or project `.claude/settings.local.json` for project skills; it preserves unrelated JSON values and permissions, refuses malformed, linked or over-1-MiB files, uses a nonblocking cross-process lock and same-directory atomic replacement with a pre-publish snapshot check. Claude settings are by name, so same-named skills share a setting; project/managed settings can override user settings. Plugin skills are not managed through this operation. Existing session contents cannot be withdrawn: clients advise reconnecting, and never automatically interrupt a running conversation. No skill file is renamed or edited by toggling.
+
+`directories` returns only the native destination map and needs no installed
+CLI. `read` takes the selected absolute `source` path to a `SKILL.md`, reads at
+most 128 KiB of regular UTF-8 text and returns `content`. It never interprets or
+executes instructions, scripts or dynamic content in the document.
+
+`create` requires `scope` (`user` or `repo`), portable `name` (1–64 lowercase
+letters/digits separated by single hyphens), `description`, and `instructions`.
+`import` requires `scope` and an absolute, user-selected `source` (`SKILL.md` or
+its package directory). Writes return the resulting `path`. Codex targets
+`~/.agents/skills` or `<workspace>/.agents/skills`; Claude targets its native
+configuration directory or `<workspace>/.claude/skills`. Project writes require
+an opened workspace. Imports preserve package contents and file permissions,
+reject special files and symbolic links, and enforce 2,000 entries, 20 nested
+levels, 128 KiB per SKILL.md, 8 MiB per resource file and 32 MiB total. Hidden staging is removed on failure or
+cancellation; publication atomically refuses an existing target, including an
+empty directory. Existing skills and import sources are never overwritten.
+These are explicit user-owned documents, not downloaded/build/cache resources;
+no app bundle, installation resource or shared worktree cache is writable.
+
+The macOS settings surface offers search, refresh, file details, native open and
+reveal, creation and import. It keeps native loading separate from management
+and rejects stale results after project changes. Windows can use the same Core
+operations; the settings UI and Windows runtime validation remain pending.

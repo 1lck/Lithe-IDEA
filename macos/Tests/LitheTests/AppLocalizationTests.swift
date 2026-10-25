@@ -275,6 +275,82 @@ struct AppLocalizationTests {
         }
     }
 
+    @Test
+    func simplifiedChineseResourcesCoverHTMLPreviewBrowser() throws {
+        let translations = try simplifiedChineseTranslations()
+        let requiredKeys = [
+            "Back", "Forward", "Reload", "Stop Loading", "Enter address",
+            "Open HTML in Browser", "Developer Tools", "This page",
+            "“%@” says", "This address cannot be opened here.", "OK", "Cancel",
+            "Zoom In", "Zoom Out", "Reset Page Zoom (100%)", "Page Zoom",
+            // Find in page.
+            "Find in page", "Previous Match", "Next Match", "Close Find", "No matches",
+            // Print and PDF.
+            "Print…", "Export as PDF…",
+            // Camera and microphone.
+            "Allow", "Don’t Allow",
+            "“%@” wants to use your camera.",
+            "“%@” wants to use your microphone.",
+            "“%@” wants to use your camera and microphone.",
+            "The plugin “%@” wants to use your camera.",
+            "The plugin “%@” wants to use your microphone.",
+            "The plugin “%@” wants to use your camera and microphone.",
+            "You can mute or stop the device from the address bar while the page is using it.",
+            "Plugin ID: %@. It can keep using the device until you close or hide its window.",
+            "Lithe can’t give pages access to the camera or microphone in this version.",
+            "Camera in use", "Microphone in use", "Camera and microphone in use",
+            "Mute Camera", "Unmute Camera", "Stop Camera",
+            "Mute Microphone", "Unmute Microphone", "Stop Microphone"
+        ]
+
+        for key in requiredKeys {
+            #expect(translations[key] != nil, "Missing HTML preview browser translation: \(key)")
+        }
+        #expect(translations["Developer Tools"] == "开发者工具")
+    }
+
+    @Test
+    func simplifiedChineseResourcesCoverPluginVcsProviders() throws {
+        let translations = try simplifiedChineseTranslations()
+        let requiredKeys = [
+            // Install review.
+            "%@ provider (inside the plugin)", "%@ provider (installed on this Mac)",
+            "%1$@ provider (runs with %2$@)", "Client: %@", "May connect to the repository server",
+            // Tool window.
+            "Conflicts", "Changes", "Unversioned Files", "History", "Update Project", "Roll Back…",
+            "Show Diff", "Mark as Resolved", "Clean Up Working Copy", "More Actions", "Working copy",
+            "%@ holds the metadata of several version control systems. Choose the one that manages it.",
+            "Detecting working copies…", "No %@ working copy was detected in this workspace.", "Detect Again",
+            "Moved from %@", "Tree conflict", "Locked in this working copy", "Locked by another user",
+            "%lld files selected", "Committed revision %@.", "Updated to revision %@.", "%lld files have conflicts.",
+            "Roll back the selected changes?", "Local edits to these files are lost.", "History of %@",
+            "Restart Lithe to use %@.",
+            // Diff and history.
+            "Show %@ Diff", "Base revision", "Binary files cannot be compared.",
+            "The file is too large to compare.", "No revisions", "More paths changed than are shown.",
+            // Provider failures.
+            "Wait for the running version control action to finish.",
+            "The working copy is out of date. Update it, then commit again.",
+            "The working copy is locked by an interrupted action. Run Cleanup, then try again.",
+            "Authentication failed. Lithe cannot ask for credentials yet: sign in once with the command-line client so it stores them, then try again.",
+            "%1$@ does not provide %2$@ because %3$@ already does."
+        ]
+
+        for key in requiredKeys {
+            let value = translations[key]
+            #expect(value != nil, "Missing VCS provider translation: \(key)")
+            // A translation must keep every placeholder, or String(format:) misreads its arguments.
+            #expect(value.map(Self.placeholders) == Self.placeholders(key), "Placeholders differ: \(key)")
+        }
+        #expect(translations["Base revision"] == "基线版本")
+        #expect(translations["Mark as Resolved"] == "标记为已解决")
+    }
+
+    private static func placeholders(_ format: String) -> [String] {
+        let regex = /%(?:\d+\$)?(?:@|lld)/
+        return format.matches(of: regex).map { String($0.output) }.sorted()
+    }
+
     private func simplifiedChineseTranslations() throws -> [String: String] {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -395,18 +471,28 @@ struct GitLocalizationTests {
     @Test(arguments: ["en", "zh-Hans"])
     func pushDestinationUsesTheRequestedLanguage(language: String) throws {
         let bundle = try resourceBundle(language)
-        for upstream in [nil, "origin/Today"] as [String?] {
-            let reference = GitReference(fullName: "refs/heads/Today", shortName: "Today", kind: .local,
-                                         isCurrent: true, upstreamShortName: upstream)
-            let presentation = GitPushDialogPresentation(reference: reference, locale: Locale(identifier: language), bundle: bundle)
-            let expected: String
-            if upstream != nil {
-                expected = language == "en" ? "Tracking origin/Today" : "跟踪 origin/Today"
-            } else {
-                expected = language == "en" ? "Publish Today (Core selects default remote)" : "发布 Today（自动选择默认远程仓库）"
-            }
-            #expect(presentation.destination == expected)
+        let locale = Locale(identifier: language)
+        func preview(createsRemoteBranch: Bool) -> GitPushPreview {
+            GitPushPreview(
+                localBranch: "Today", localHead: "head", remote: "origin", remoteBranch: "Today",
+                targetKind: .publish, createsRemoteBranch: createsRemoteBranch, remoteTrackingOid: nil,
+                upstream: nil, commits: []
+            )
         }
+
+        let created = GitPushDialogPresentation(preview: preview(createsRemoteBranch: true), locale: locale, bundle: bundle)
+        let upstream = GitPushDialogPresentation(preview: preview(createsRemoteBranch: false), locale: locale, bundle: bundle)
+
+        #expect(created.destination == "origin/Today")
+        #expect(created.note == (language == "en" ? "Creates a new branch on origin" : "将在 origin 上创建新分支"))
+        #expect(upstream.note == (language == "en" ? "Sets origin/Today as the upstream" : "将 origin/Today 设为上游分支"))
+        let question = gitLocalizedFormat(
+            "Branch '%@' tracks '%@', which has a different name. Choose which branch to update.",
+            "Today", "origin/main", locale: locale, bundle: bundle
+        )
+        #expect(question == (language == "en"
+            ? "Branch 'Today' tracks 'origin/main', which has a different name. Choose which branch to update."
+            : "分支“Today”跟踪的是名称不同的“origin/main”。请选择要更新哪个分支。"))
     }
 
     @Test @MainActor

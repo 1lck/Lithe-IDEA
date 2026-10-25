@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT_DIR="${0:A:h:h}"
 cd "$ROOT_DIR"
 
+node scripts/generate-i18n.mjs --check
+
 for fixture in shared/fixtures/**/*.json; do
     /usr/bin/ruby -rjson -e 'JSON.parse(File.read(ARGV.fetch(0)))' "$fixture"
 done
@@ -93,7 +95,6 @@ fi
   abort "AI must be disabled by default" unless modules.find { |m| m.fetch("id") == "dev.lithe.ai-assistance" }.fetch("defaultState") == "disabled"
   agent = modules.find { |m| m.fetch("id") == "dev.lithe.agent-conversation" }
   abort "Agent must be disabled and on demand" unless agent.fetch("defaultState") == "disabled" && agent.fetch("activationPolicy") == "onDemand"
-  abort "Database must be disabled by default" unless modules.find { |m| m.fetch("id") == "dev.lithe.database" }.fetch("defaultState") == "disabled"
   allowed_states = ["enabled", "disabled"]
   allowed_scopes = ["application", "workspace"]
   allowed_policies = ["eager", "onDemand", "manual"]
@@ -151,15 +152,27 @@ fi
 # Declarative plugin contract v1. Semantics are executed by the Rust Core
 # tests against these files; this gate keeps the contract self-consistent.
 declarative_plugin_contract="shared/contracts/plugins/v1"
+# Plugin developers read this contract from the public lithe-plugin-docs
+# repository, which mirrors this directory byte for byte under contract/v1.
+published_plugin_schema_base="https://raw.githubusercontent.com/Lithe-IDEA/lithe-plugin-docs/main/contract/v1"
 for contract_file in "$declarative_plugin_contract"/**/*.json; do
     /usr/bin/ruby -rjson -e 'JSON.parse(File.read(ARGV.fetch(0)))' "$contract_file"
 done
 /usr/bin/ruby -rjson -e '
   root = ARGV.fetch(0)
+  published_base = ARGV.fetch(1)
   schema = JSON.parse(File.read(File.join(root, "plugin-manifest.schema.json")))
-  abort "plugin manifest schema ID mismatch" unless schema.fetch("$id").end_with?("/plugins/v1/plugin-manifest.schema.json")
+  abort "plugin manifest schema ID mismatch" unless schema.fetch("$id") == "#{published_base}/plugin-manifest.schema.json"
+  native_schema = JSON.parse(File.read(File.join(root, "native-ui.schema.json")))
+  abort "native UI schema ID mismatch" unless native_schema.fetch("$id") == "#{published_base}/native-ui.schema.json"
   abort "declarative manifests must use schemaVersion 2" unless schema.fetch("properties").fetch("schemaVersion").fetch("const") == 2
   readme = File.read(File.join(root, "README.md"), encoding: "UTF-8")
+  # The mirror only holds this directory, so a relative link must resolve here.
+  readme.scan(/\]\(([^)\s]+)\)/).flatten.each do |target|
+    next if target.start_with?("#") || target.match?(%r{\A[a-z][a-z0-9+.-]*:}i)
+    path = File.expand_path(target.split("#").first, root)
+    abort "contract README link #{target} must be absolute or stay inside #{root}" unless path.start_with?("#{File.expand_path(root)}/") && File.exist?(path)
+  end
   documented = readme.scan(/`(plugin\.[a-zA-Z.]+)`/).flatten
   manifests = Dir[File.join(root, "fixtures", "*.plugin.json")]
   abort "declarative plugin fixtures are missing" if manifests.empty?
@@ -204,7 +217,7 @@ done
   functions = JSON.parse(File.read(File.join(root, "fixtures", "function-protocol.json")))
   abort "function protocol fixture schema must be 1" unless functions.fetch("schemaVersion") == 1
   abort "function protocol fixture must describe litheFunctions" unless functions.fetch("protocol") == "litheFunctions"
-  function_sections = %w[negotiation registration invocations outcomes progress backendRequests]
+  function_sections = %w[negotiation registration invocations outcomes progress backendRequests hostRequests]
   function_names = function_sections.flat_map { |section| functions.fetch(section).map { |item| item.fetch("name") } }
   abort "function protocol case names must be unique" unless function_names.uniq.length == function_names.length
   function_codes = []
@@ -215,12 +228,13 @@ done
   functions.fetch("invocations").each { |item| function_codes << item.fetch("expected")["code"] }
   functions.fetch("outcomes").each { |item| function_codes << item.fetch("expected").fetch("error", {})["code"] }
   functions.fetch("backendRequests").each { |item| function_codes << item.fetch("expected")["code"] }
+  functions.fetch("hostRequests").each { |item| function_codes << item.fetch("expected")["code"] }
   function_codes.compact.uniq.each do |code|
     abort "function protocol fixture uses an undocumented code #{code}" unless documented.include?(code)
   end
   abort "function protocol fixture contains a machine path" if JSON.generate(functions).match?(%r{/(?:Users|home|var/folders|private/var)/|[A-Za-z]:\\\\})
   index_schema = JSON.parse(File.read(File.join(root, "plugin-index.schema.json")))
-  abort "plugin index schema ID mismatch" unless index_schema.fetch("$id").end_with?("/plugins/v1/plugin-index.schema.json")
+  abort "plugin index schema ID mismatch" unless index_schema.fetch("$id") == "#{published_base}/plugin-index.schema.json"
   abort "plugin indexes must use schemaVersion 1" unless index_schema.fetch("properties").fetch("schemaVersion").fetch("const") == 1
   marketplace = File.join(root, "fixtures", "marketplace")
   index = JSON.parse(File.read(File.join(marketplace, "index.json")))
@@ -246,7 +260,7 @@ done
     code = item["expectedCode"]
     abort "install review case #{item.fetch("name")} uses an undocumented code" if code && !documented.include?(code)
   end
-' "$declarative_plugin_contract"
+' "$declarative_plugin_contract" "$published_plugin_schema_base"
 
 /usr/bin/ruby -rjson -e '
   data = JSON.parse(File.read(ARGV.fetch(0)))

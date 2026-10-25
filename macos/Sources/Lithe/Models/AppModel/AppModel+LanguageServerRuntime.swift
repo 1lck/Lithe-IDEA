@@ -5,10 +5,8 @@ import LitheCoreContracts
 extension AppModel {
     func chooseLanguageServerExecutable(providerName: String) -> URL? {
         platformUI.chooseFile(
-            title: settings.language == .simplifiedChinese
-                ? "选择 \(providerName) 语言服务器"
-                : "Choose \(providerName) language server",
-            prompt: settings.language == .simplifiedChinese ? "选择" : "Choose"
+            title: settings.language.localizedFormat("native.inline.chooseArg1LanguageServer", String(describing: providerName)),
+            prompt: settings.language.localizedString("native.inline.choose")
         )
     }
 
@@ -201,6 +199,7 @@ extension AppModel {
         guard let workspaceURL else { return }
         runFeatureIfActive?.markDependencyFilesChanged(changes)
         handleBuildSystemFileChanges(changes)
+        handleVcsProviderFileChanges(changes)
         let maven = mavenFeatureIfActive
         let forwarded = changes.filter { change in
             if Self.isWorkspaceDependencyMetadata(

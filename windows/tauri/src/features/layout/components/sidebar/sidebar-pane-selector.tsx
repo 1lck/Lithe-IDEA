@@ -25,6 +25,7 @@ import {
 import Tooltip from "@/ui/tooltip";
 import { cn } from "@/utils/cn";
 import type { SidebarView } from "../../utils/sidebar-pane-utils";
+import { useTerminalDock } from "../terminal-dock-layout";
 
 const STRIPE_ICON_CONTEXT = { large: true } as const;
 
@@ -97,6 +98,7 @@ export const SidebarPaneSelector = ({
   orientation = "horizontal",
 }: SidebarPaneSelectorProps) => {
   const { t } = useTranslation();
+  const terminalDock = useTerminalDock();
   const isVertical = orientation === "vertical";
   const tooltipSide = isVertical ? "right" : "bottom";
   // IntelliJ Islands tool window stripe icons are 20px (StripeToolbar.Button.iconSize).
@@ -191,7 +193,7 @@ export const SidebarPaneSelector = ({
               tooltip: {
                 content: isBackendCapabilityAvailable("terminal")
                   ? t("workbench.terminal")
-                  : BACKEND_UNAVAILABLE_TOOLTIP,
+                  : t(BACKEND_UNAVAILABLE_TOOLTIP),
                 shortcut: isBackendCapabilityAvailable("terminal") ? "Mod+J" : undefined,
                 side: tooltipSide,
               },
@@ -269,7 +271,11 @@ export const SidebarPaneSelector = ({
   );
 
   const orderedItems = orderItems(items, orderedIds);
-  const visibleItems = orderedItems.filter((item) => !hiddenSidebarActivityItems.includes(item.id));
+  const visibleItems = orderedItems.filter(
+    (item) =>
+      !hiddenSidebarActivityItems.includes(item.id) &&
+      !(isVertical && item.id === "terminal" && terminalDock?.activitySide === "right"),
+  );
   const topItems = visibleItems.filter(
     (item) =>
       !SIDEBAR_BOTTOM_ACTIVITY_ITEM_IDS.includes(
@@ -287,7 +293,14 @@ export const SidebarPaneSelector = ({
         active={!!item.isActive}
         leading={item.icon}
         iconOnly={!showLabels}
-        onClick={item.onClick}
+        onPointerDown={
+          item.id === "terminal" ? (event) => terminalDock?.startDrag(event, true) : undefined
+        }
+        onClick={(event) => {
+          if (item.id !== "terminal" || !terminalDock?.suppressActivityClick(event.detail === 0))
+            item.onClick?.();
+        }}
+        data-terminal-dock-activity={item.id === "terminal" ? "left" : undefined}
         disabled={item.disabled}
         aria-label={item.ariaLabel}
         aria-current={item.isActive ? "page" : undefined}
@@ -296,8 +309,11 @@ export const SidebarPaneSelector = ({
             ? "ui-text-sm min-h-6 py-1"
             : // IntelliJ Islands stripe button: a 30x30 highlight with a 12px arc (6px radius).
               "ui-text-sm mx-auto size-[30px] min-h-[30px] shrink-0 rounded-[6px] p-0",
-          item.isActive && !item.disabled &&
-            (item.id === "files" || item.id === "git" ||
+          item.id === "terminal" && "cursor-grab touch-none",
+          item.isActive &&
+            !item.disabled &&
+            (item.id === "files" ||
+              item.id === "git" ||
               SIDEBAR_BOTTOM_ACTIVITY_ITEM_IDS.some((id) => id === item.id)) &&
             "lithe-left-activity-selected",
         )}

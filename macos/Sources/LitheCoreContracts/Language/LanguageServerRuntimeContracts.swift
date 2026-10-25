@@ -295,6 +295,8 @@ package struct LanguageServerRuntimeEvent: Equatable, Sendable {
     package let level: String?
     package let message: String?
     package let detail: String?
+    /// The protocol method the event belongs to, when Core names one.
+    package var method: String?
 
     package init(
         type: String,
@@ -310,8 +312,10 @@ package struct LanguageServerRuntimeEvent: Equatable, Sendable {
         message: String? = nil,
         detail: String? = nil,
         mavenProfileTask: String? = nil,
-        mavenProfileProject: MavenProfileProjectResult? = nil
+        mavenProfileProject: MavenProfileProjectResult? = nil,
+        method: String? = nil
     ) {
+        self.method = method
         self.mavenProfileTask = mavenProfileTask
         self.mavenProfileProject = mavenProfileProject
         self.type = type
@@ -461,6 +465,18 @@ package protocol LanguageServerRuntimeCore: Sendable {
         params: ToolingJSONValue,
         timeout: TimeInterval
     ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
+    /// Sends one operation of the negotiated VCS-provider protocol. Its
+    /// completion arrives as a `requestCompleted` event with the reply under
+    /// `result.value`; a failure carries a `vcs.*` code.
+    func requestVcsProvider(
+        sessionID: String,
+        vcs: String,
+        operation: String,
+        root: String,
+        tool: String?,
+        arguments: ToolingJSONValue,
+        timeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
     /// Starts a process a plugin owns. Only such a session negotiates plugin
     /// functions, and Core lets it serve that plugin's functions alone.
     func startPluginLanguageServer(
@@ -490,6 +506,29 @@ package protocol LanguageServerRuntimeCore: Sendable {
         requestTimeout: TimeInterval,
         shutdownTimeout: TimeInterval
     ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure>
+    /// Starts a plugin backend that may request the host services named in
+    /// `hostServices` (function protocol 2). Core checks every request
+    /// against them before publishing a `hostRequest` event.
+    func startPluginLanguageServer(
+        pluginID: String,
+        providerID: String,
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        rootURL: URL,
+        initializationOptions: ToolingJSONValue?,
+        hostServices: [String],
+        initializeTimeout: TimeInterval,
+        requestTimeout: TimeInterval,
+        shutdownTimeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure>
+    /// Answers one `hostRequest` event; Core sends the result, or the
+    /// failure as `plugin.host.failed`, to the backend.
+    func respondToPluginHostRequest(
+        sessionID: String,
+        hostRequestID: String,
+        outcome: Result<ToolingJSONValue, PluginHostRequestFailure>
+    ) -> Result<Void, LanguageServerRuntimeFailure>
     /// Replaces the configuration a running plugin server reads and tells it
     /// through `workspace/didChangeConfiguration`.
     func updateWorkspaceConfiguration(
@@ -625,6 +664,21 @@ package extension LanguageServerRuntimeCore {
         ))
     }
 
+    func requestVcsProvider(
+        sessionID _: String,
+        vcs _: String,
+        operation _: String,
+        root _: String,
+        tool _: String?,
+        arguments _: ToolingJSONValue,
+        timeout _: TimeInterval
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        .failure(LanguageServerRuntimeFailure(
+            code: "not_supported",
+            message: "VCS-provider requests are not supported by this runtime."
+        ))
+    }
+
     /// Runtimes without plugin ownership start a host-owned session, which
     /// serves no plugin functions.
     func startPluginLanguageServer(
@@ -669,6 +723,45 @@ package extension LanguageServerRuntimeCore {
         )
     }
 
+    /// Runtimes without host services start the backend only when it
+    /// needs none.
+    func startPluginLanguageServer(
+        pluginID: String,
+        providerID: String,
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String],
+        rootURL: URL,
+        initializationOptions: ToolingJSONValue?,
+        hostServices: [String],
+        initializeTimeout: TimeInterval,
+        requestTimeout: TimeInterval,
+        shutdownTimeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
+        guard hostServices.isEmpty else {
+            return .failure(LanguageServerRuntimeFailure(
+                code: "not_supported",
+                message: "Plugin host services are not supported by this runtime."
+            ))
+        }
+        return startPluginLanguageServer(
+            pluginID: pluginID, providerID: providerID, executableURL: executableURL, arguments: arguments,
+            environment: environment, rootURL: rootURL, initializationOptions: initializationOptions,
+            initializeTimeout: initializeTimeout, requestTimeout: requestTimeout, shutdownTimeout: shutdownTimeout
+        )
+    }
+
+    func respondToPluginHostRequest(
+        sessionID _: String,
+        hostRequestID _: String,
+        outcome _: Result<ToolingJSONValue, PluginHostRequestFailure>
+    ) -> Result<Void, LanguageServerRuntimeFailure> {
+        .failure(LanguageServerRuntimeFailure(
+            code: "not_supported",
+            message: "Plugin host services are not supported by this runtime."
+        ))
+    }
+
     func updateWorkspaceConfiguration(
         sessionID _: String,
         configuration _: ToolingJSONValue
@@ -690,6 +783,34 @@ package extension LanguageServerRuntimeCore {
             code: "not_supported",
             message: "Plugin functions are not supported by this runtime."
         ))
+    }
+}
+
+/// A host-service request a plugin backend sent, after Core checked its
+/// method, grant, and params (function protocol 2).
+package struct PluginHostRequest: Equatable, Sendable {
+    /// Core's ID for `lsp.hostResponse`.
+    package let id: String
+    package let method: String
+    /// The granted service the method belongs to, such as `credentials`.
+    package let service: String
+    package let params: ToolingJSONValue
+
+    package init(id: String, method: String, service: String, params: ToolingJSONValue) {
+        self.id = id
+        self.method = method
+        self.service = service
+        self.params = params
+    }
+}
+
+/// The host could not complete a host-service request. The message reaches
+/// the backend; never put a secret in it.
+package struct PluginHostRequestFailure: Error, Equatable, Sendable {
+    package let message: String
+
+    package init(message: String) {
+        self.message = message
     }
 }
 

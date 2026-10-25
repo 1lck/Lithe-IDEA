@@ -15,7 +15,7 @@ const commonBindings = {
 const workflows = [
   {
     id: 'macos',
-    selected: ['swift', 'swift_database', 'rust_core', 'macos_release'],
+    selected: ['swift', 'rust_core', 'macos_release'],
     lanes: [
       { lane: 'swift', job: 'swift-tests', run: 'run_swift' },
       { lane: 'rust', job: 'rust-core-tests', run: 'run_rust' },
@@ -29,7 +29,7 @@ const workflows = [
       RUN_SWIFT: 'needs.changes.outputs.run_swift',
       RUN_RUST: 'needs.changes.outputs.run_rust',
       RUN_RELEASE: 'needs.changes.outputs.run_release',
-      SWIFT_SELECTED: "needs.changes.outputs.swift == 'true' || needs.changes.outputs.swift_database == 'true' || needs.changes.outputs.rust_core == 'true'",
+      SWIFT_SELECTED: "needs.changes.outputs.swift == 'true' || needs.changes.outputs.rust_core == 'true'",
       RUST_CORE_SELECTED: 'needs.changes.outputs.rust_core',
       RELEASE_SELECTED: 'needs.changes.outputs.macos_release',
     },
@@ -69,13 +69,13 @@ const workflows = [
     },
   },
   {
-    id: 'database',
-    selected: ['rust_database'],
-    lanes: [{ lane: 'database', job: 'rust-database-tests' }],
+    id: 'remote',
+    selected: ['rust_remote'],
+    lanes: [{ lane: 'remote', job: 'rust-remote-tests' }],
     bindings: {
       CHANGES_RESULT: 'needs.changes.result',
-      RUST_DATABASE_SELECTED: 'needs.changes.outputs.rust_database',
-      RUST_DATABASE_RESULT: 'needs.rust-database-tests.result',
+      RUST_REMOTE_SELECTED: 'needs.changes.outputs.rust_remote',
+      RUST_REMOTE_RESULT: 'needs.rust-remote-tests.result',
     },
   },
 ];
@@ -281,7 +281,8 @@ for (const workflow of workflows) {
     }
   }
 
-  if (workflow.id === 'database') continue;
+  // Lanes without a run output cannot be reused from an earlier revision.
+  if (!workflow.lanes.some((lane) => lane.run)) continue;
   test(`${workflow.id}: reuse checkout and verifier preserve their conditions, credentials and deadline`, testOptions, () => {
     const checkout = block(workflow.gate, '- name: Check out the reused-result verifier', 6);
     const verifier = block(workflow.gate, '- name: Verify reused lane results', 6);

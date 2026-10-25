@@ -59,14 +59,11 @@ struct PluginDetailView<Icon: View>: View {
             notices
             tabBar
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            ScrollView {
-                tabContent
-                    .padding(22)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .litheScrollViewChrome()
+            PluginDetailContent(scrollsHorizontally: tab == .settings, content: tabContent)
         }
+        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
         .background(LitheTheme.settingsSurface)
+        .clipped()
     }
 
     // MARK: Header
@@ -86,6 +83,7 @@ struct PluginDetailView<Icon: View>: View {
         .padding(.horizontal, 22)
         .padding(.top, 20)
         .padding(.bottom, 12)
+        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
     }
 
     private var identity: some View {
@@ -117,7 +115,6 @@ struct PluginDetailView<Icon: View>: View {
                 }
             }
         }
-        .fixedSize(horizontal: true, vertical: false)
     }
 
     private var statusPill: some View {
@@ -138,42 +135,56 @@ struct PluginDetailView<Icon: View>: View {
     }
 
     private var actionButtons: some View {
-        HStack(spacing: 8) {
-            Button(LocalizedStringKey(isEnabled ? "Disable" : "Enable"), action: actions.toggleEnabled)
-                .buttonStyle(.borderedProminent)
-                .tint(LitheTheme.accent)
-                .disabled(isApplyingChanges || isBusy || plugin.isRequired)
-            if let update = actions.update, let updateVersion {
-                Button(String(
-                    format: PluginMarketplacePresentation.localized("Update to %@", locale: locale),
-                    updateVersion
-                ), action: update)
-                .buttonStyle(.bordered)
-                .disabled(isApplyingChanges || isBusy)
-            }
-            if let reinstall = actions.reinstall {
-                Button(LocalizedStringKey("Reinstall"), action: reinstall)
-                    .buttonStyle(.bordered)
-                    .disabled(isApplyingChanges || isBusy)
-            }
-            if let restore = actions.restore {
-                Button(LocalizedStringKey("Restore"), action: restore)
-                    .buttonStyle(.bordered)
-                    .disabled(isApplyingChanges || isBusy)
-            } else if let uninstall = actions.uninstall {
-                Button(LocalizedStringKey("Uninstall"), action: uninstall)
-                    .buttonStyle(.bordered)
-                    .disabled(isApplyingChanges || isBusy || plugin.isRequired)
-            }
-            if plugin.hasChangesPendingRestart {
-                RestartLitheButton(prominent: false)
-            }
-            if isBusy {
-                ProgressView().controlSize(.small)
-            }
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: LitheTheme.ActionButton.spacing) { actionButtonContent }
+                .fixedSize()
+            VStack(alignment: .leading, spacing: LitheTheme.ActionButton.spacing) { actionButtonContent }
         }
         .controlSize(.small)
-        .fixedSize()
+    }
+
+    @ViewBuilder private var actionButtonContent: some View {
+        Button(LocalizedStringKey(isEnabled ? "Disable" : "Enable"), action: actions.toggleEnabled)
+            .buttonStyle(LitheActionButtonStyle(isPrimary: true))
+            .disabled(isApplyingChanges || isBusy || plugin.isRequired)
+            .accessibilityIdentifier("plugin-detail-toggle")
+        if let update = actions.update, let updateVersion {
+            let title = String(
+                format: PluginMarketplacePresentation.localized("Update to %@", locale: locale), updateVersion
+            )
+            // Keep the full version when it fits; a single long version must not
+            // defeat the vertical fallback in the 160pt detail pane.
+            ViewThatFits(in: .horizontal) {
+                Button(title, action: update).buttonStyle(LitheActionButtonStyle())
+                Button("Update", action: update).buttonStyle(LitheActionButtonStyle())
+            }
+            .help(title)
+            .accessibilityValue(updateVersion)
+            .accessibilityIdentifier("plugin-detail-update")
+            .disabled(isApplyingChanges || isBusy)
+        }
+        if let reinstall = actions.reinstall {
+            Button(LocalizedStringKey("Reinstall"), action: reinstall)
+                .buttonStyle(LitheActionButtonStyle())
+                .disabled(isApplyingChanges || isBusy)
+                .accessibilityIdentifier("plugin-detail-reinstall")
+        }
+        if let restore = actions.restore {
+            Button(LocalizedStringKey("Restore"), action: restore)
+                .buttonStyle(LitheActionButtonStyle())
+                .disabled(isApplyingChanges || isBusy)
+                .accessibilityIdentifier("plugin-detail-remove")
+        } else if let uninstall = actions.uninstall {
+            Button(LocalizedStringKey("Uninstall"), action: uninstall)
+                .buttonStyle(LitheActionButtonStyle())
+                .disabled(isApplyingChanges || isBusy || plugin.isRequired)
+                .accessibilityIdentifier("plugin-detail-remove")
+        }
+        if plugin.hasChangesPendingRestart {
+            RestartLitheButton(prominent: false)
+                .accessibilityIdentifier("plugin-detail-restart")
+        }
+        if isBusy { ProgressView().controlSize(.small) }
     }
 
     // MARK: Notices
@@ -510,6 +521,7 @@ struct PluginDetailView<Icon: View>: View {
         case .test: "Test"
         case .debug: "Debugger"
         case .buildSystem: "Build System"
+        case .projectGenerator: "Project Template"
         case .toolWindow: "Tool Window"
         case .command: "Command"
         }
@@ -703,5 +715,27 @@ struct PluginDetailView<Icon: View>: View {
 
     private func localized(_ key: String) -> String {
         PluginMarketplacePresentation.localized(key, locale: locale)
+    }
+}
+
+/// Keep resize measurement local: the plugin's content is built before entering
+/// this reader. A native settings row retains its controls and can scroll when
+/// the detail pane is narrower than the complete form.
+private struct PluginDetailContent<Content: View>: View {
+    let scrollsHorizontally: Bool
+    let content: Content
+    private let inset: CGFloat = 22
+
+    var body: some View {
+        GeometryReader { geometry in
+            ScrollView(scrollsHorizontally ? [.horizontal, .vertical] : .vertical) {
+                content
+                    .frame(minWidth: max(0, geometry.size.width - 2 * inset),
+                           maxWidth: scrollsHorizontally ? nil : .infinity,
+                           minHeight: max(0, geometry.size.height - 2 * inset), alignment: .topLeading)
+                    .padding(inset)
+            }
+            .litheScrollViewChrome()
+        }
     }
 }

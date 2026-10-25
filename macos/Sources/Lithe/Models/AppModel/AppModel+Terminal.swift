@@ -61,9 +61,10 @@ extension AppModel {
         let session = feature.createSession(
             in: workspaceURL,
             shellPath: shellPath ?? settings.terminalShellPath,
-            preferredToolTabTitle: shellPath.map { URL(fileURLWithPath: $0).lastPathComponent }
+            preferredToolTabTitle: shellPath.map { URL(fileURLWithPath: $0).lastPathComponent },
+            showsWorkbenchBackground: workbenchBackgroundFeature.hasImage
         )
-        configureTerminalSession(session)
+        configureInteractiveTerminalSession(session)
         terminalPlacementFeature.registerSession(session.id)
         showToolWindow(.terminal)
         return session
@@ -73,6 +74,24 @@ extension AppModel {
         let sessionID = session.id
         session.onLink = { [weak self] link, params in
             self?.openTerminalLink(link, params: params, sessionID: sessionID)
+        }
+    }
+
+    /// Wires an interactive terminal session's host callbacks, including closing its tab when the shell exits on its own.
+    func configureInteractiveTerminalSession(_ session: TerminalSession) {
+        configureTerminalSession(session)
+        session.onEnded = { [weak self] ended in
+            self?.handleTerminalSessionEnded(ended)
+        }
+    }
+
+    /// Closes a terminal whose shell exited on its own, hiding the terminal panel with the last one.
+    /// A restart replaces the process of the same session, so a queued close is dropped when the launch that exited is no longer current.
+    private func handleTerminalSessionEnded(_ session: TerminalSession) {
+        let exitedLaunchStartedAt = session.startedAt
+        Task { @MainActor [weak self] in
+            guard session.startedAt == exitedLaunchStartedAt else { return }
+            self?.closeTerminalSession(session)
         }
     }
 
@@ -131,7 +150,10 @@ extension AppModel {
                 TerminalEnvironmentChange(name: $0.name, value: $0.value)
             }
         )
-        let created = try feature.createProcessSession(launch) { [weak self] output in
+        let created = try feature.createProcessSession(
+            launch,
+            showsWorkbenchBackground: workbenchBackgroundFeature.hasImage
+        ) { [weak self] output in
             self?.genericDebugFeatureIfActive?.appendDebuggeeOutput(output)
         }
         configureTerminalSession(created.session)
@@ -237,7 +259,6 @@ extension AppModel {
         guard terminalPlacementFeature.editorSessionIDs.contains(session.id),
               terminalFeature?.selectSession(session) == true else { return }
         editorTabOrderFeature.repositoryDiffSelected = false
-        editorTabOrderFeature.databaseSelected = false
         mediaFeature.deactivate()
         terminalPlacementFeature.activateEditorSession(session.id)
     }
@@ -250,7 +271,6 @@ extension AppModel {
     func moveTerminalToEditor(_ sessionID: UUID) {
         guard let session = terminalSessions.first(where: { $0.id == sessionID }) else { return }
         editorTabOrderFeature.repositoryDiffSelected = false
-        editorTabOrderFeature.databaseSelected = false
         terminalPlacementFeature.moveToEditor(sessionID)
         editorTabOrderFeature.moveToEnd(.terminal(sessionID))
         terminalPlacementFeature.reorderEditorSessions(

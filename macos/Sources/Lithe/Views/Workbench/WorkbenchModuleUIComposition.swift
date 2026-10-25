@@ -1,7 +1,6 @@
 import SwiftUI
 import LitheModuleAPI
 import LitheApplicationKernel
-import LitheDatabaseModule
 import LitheDebugModule
 import LitheExecutionModule
 import LitheGitModule
@@ -70,20 +69,25 @@ enum WorkbenchModuleUIComposition {
 
     static var registrations: [WorkbenchModuleUIRegistry.Registration] {
         [workspaceRegistration, searchRegistration, terminalRegistration, agentRegistration, gitRegistration, languageRegistration,
-         executionRegistration, databaseRegistration, debugRegistration,
+         executionRegistration, debugRegistration,
          .init(contributions: WorkbenchFeatureModel.shellContributions, actions: applicationActions)]
     }
 
     static func registry(for catalog: ValidatedPluginCatalog, iconResources: [String: PluginUIIconResources] = [:]) throws -> WorkbenchModuleUIRegistry {
         let plugins = catalog.manifests.filter { $0.entrypoint.kind == .declarative }
         let declarations = plugins.flatMap(\.modules).filter { !$0.contributions.isEmpty }
-        // Build-system windows are derived from the declaration, not
-        // declared by the plugin, and share one host view.
+        // Build-system and VCS windows are derived from the declaration,
+        // not declared by the plugin, and each kind shares one host view.
         let buildSystemModules = Set(plugins.map { ModuleID.buildSystemsExtension($0.id.rawValue) })
+        let vcsProviderModules = Set(plugins.map { ModuleID.vcsProvidersExtension($0.id.rawValue) })
         var registry = try WorkbenchModuleUIRegistry(registrations: registrations + declarations.map {
-            buildSystemModules.contains($0.manifest.id)
-                ? WorkbenchModuleUIRegistry.buildSystemRegistration($0, iconResources: iconResources)
-                : WorkbenchModuleUIRegistry.declarativeRegistration($0, iconResources: iconResources)
+            if buildSystemModules.contains($0.manifest.id) {
+                return WorkbenchModuleUIRegistry.buildSystemRegistration($0, iconResources: iconResources)
+            }
+            if vcsProviderModules.contains($0.manifest.id) {
+                return WorkbenchModuleUIRegistry.vcsProviderRegistration($0)
+            }
+            return WorkbenchModuleUIRegistry.declarativeRegistration($0, iconResources: iconResources)
         })
         registry.registerIcons(declarations.flatMap(\.contributions), resources: iconResources)
         return registry
@@ -337,50 +341,6 @@ enum WorkbenchModuleUIComposition {
                     return AnyView(LanguageTestsView(service: service))
                 },
                 contentIdentity: { WorkbenchModuleUIRegistry.Renderer.featureIdentity($0.languageTestServiceIfActive) }
-            )
-        ]
-    )
-
-    private static let databaseRegistration = WorkbenchModuleUIRegistry.Registration(
-        contributions: DatabaseModule.moduleContributions,
-        actions: [
-            .init(id: "database.services.toggle", perform: { model in
-                if model.workbenchFeature.isVisible(.databaseServices) {
-                    model.workbenchFeature.setVisibility(.databaseServices, isVisible: false)
-                } else {
-                    Task { await model.activateDatabaseModule(toolWindow: .databaseServices) }
-                }
-            }, activateOwner: { await $0.databaseModuleCoordinator.activate() != nil }),
-            .init(id: "database.toggle", perform: { model in
-                if model.workbenchFeature.isVisible(.database) {
-                    model.workbenchFeature.setVisibility(.database, isVisible: false)
-                } else {
-                    Task { await model.activateDatabaseModule() }
-                }
-            }, activateOwner: { await $0.databaseModuleCoordinator.activate() != nil })
-        ],
-        renderers: [
-            .init(id: "database.services", ideaAssetPath: "expui/toolwindows/services@20x20.svg",
-                isVisible: { $0.databaseFeatureIfActive != nil },
-                isSelected: { $0.workbenchFeature.isVisible(.databaseServices) },
-                content: { model in
-                    guard let feature = model.databaseFeatureIfActive else { return AnyView(WorkbenchModuleUIRegistry.moduleLoadingView) }
-                    return AnyView(DatabaseServicesView().environmentObject(feature))
-                },
-                contentIdentity: { WorkbenchModuleUIRegistry.Renderer.featureIdentity($0.databaseFeatureIfActive) }),
-            .init(
-                id: "database.workspace",
-                ideaAssetPath: "database/expui/dbms@20x20.svg",
-                isVisible: { _ in true },
-                isSelected: { $0.workbenchFeature.isVisible(.database) },
-                content: { model in
-                    guard let feature = model.databaseFeatureIfActive else {
-                        return AnyView(WorkbenchModuleUIRegistry.moduleLoadingView)
-                    }
-                    return AnyView(DatabaseSidebarView().environmentObject(feature))
-                },
-                contentIdentity: { WorkbenchModuleUIRegistry.Renderer.featureIdentity($0.databaseFeatureIfActive) },
-                rightSidebarBehavior: .docked
             )
         ]
     )

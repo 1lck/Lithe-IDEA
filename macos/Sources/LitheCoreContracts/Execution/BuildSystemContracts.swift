@@ -427,16 +427,7 @@ package struct BuildModel: Equatable, Sendable, Decodable {
 
 /// The executables of one build system on this platform, in Core's order.
 package struct BuildInvocation: Equatable, Sendable {
-    package enum Executable: Equatable, Sendable {
-        /// A wrapper script inside the project. Always runs project code.
-        case projectFile(path: String, requires: [String])
-        /// A path below the directory one environment variable names.
-        case environment(variable: String, path: String)
-        /// A bare command name the host's tool discovery resolves.
-        case command(String)
-        /// The executable of a declared runtime dependency.
-        case runtime(String)
-    }
+    package typealias Executable = ExecutableCandidate
 
     package struct RuntimeDependency: Equatable, Sendable {
         package let id: String
@@ -463,6 +454,16 @@ package struct BuildInvocation: Equatable, Sendable {
     package let runtimeDependencies: [RuntimeDependency]
     package let versionArguments: [String]?
     package let minimumVersion: String?
+
+    /// After resolution fails, a provider must not discard a configured tool
+    /// or runtime by doing its own lookup. Check this only on failure: an
+    /// earlier successful candidate still wins over a later setting.
+    package var hasExplicitExecutableSelection: Bool {
+        (executables + runtimeDependencies.flatMap(\.executables)).contains {
+            if case .setting(_, let path) = $0 { return path.map { !$0.isEmpty } ?? false }
+            return false
+        }
+    }
 
     package init(
         executables: [Executable], environmentInputs: [String] = [],
@@ -501,7 +502,8 @@ package struct ResolvedBuildTool: Equatable, Sendable {
 /// No candidate of a build system, or one of its runtimes, was usable.
 package struct BuildToolResolutionError: LocalizedError, Equatable, Sendable {
     package let message: String
-    package init(_ message: String) { self.message = message }
+    package let terminal: Bool
+    package init(_ message: String, terminal: Bool = false) { self.message = message; self.terminal = terminal }
     package var errorDescription: String? { message }
 }
 
@@ -929,7 +931,9 @@ package protocol BuildSystemPlanning: Sendable {
         options: [String: ToolingJSONValue],
         executableURL: URL?
     ) throws -> BuildLanguageImport?
-    func invocationPlan(_ target: BuildSystemTarget, root: String) throws -> BuildInvocation
+    func invocationPlan(
+        _ target: BuildSystemTarget, root: String, settings: [String: ToolingJSONValue]
+    ) throws -> BuildInvocation
     func checkToolVersion(_ target: BuildSystemTarget, runtime: String?, output: String) throws -> BuildVersionCheck
     func resolveOptions(
         _ target: BuildSystemTarget,

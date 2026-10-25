@@ -1,4 +1,5 @@
 import Foundation
+import LitheCoreContracts
 
 /// macOS fallback used when Rust cannot provide a workspace snapshot.
 struct FileSystemWorkspaceSnapshotBuilder {
@@ -33,17 +34,18 @@ struct FileSystemWorkspaceSnapshotBuilder {
                       includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
                       options: []
                   ) else { continue }
-            let entries = childURLs.compactMap { url -> ProjectDirectoryEntry? in
-                guard let isDirectory = visibleEntry(url, rootURL: rootURL, visibilityRules: visibilityRules) else { return nil }
-                return ProjectDirectoryEntry(
-                    url: directory.appendingPathComponent(url.lastPathComponent),
-                    isDirectory: isDirectory,
-                    isEmptyDirectory: isDirectory && isVisiblyEmpty(url, rootURL: rootURL, visibilityRules: visibilityRules)
-                )
-            }.sorted {
-                if $0.isDirectory != $1.isDirectory { return $0.isDirectory }
-                return $0.url.lastPathComponent.localizedCaseInsensitiveCompare($1.url.lastPathComponent) == .orderedAscending
-            }
+            let entries = NaturalNameOrder.sortedAsProjectTreeSiblings(
+                childURLs.compactMap { url -> ProjectDirectoryEntry? in
+                    guard let isDirectory = visibleEntry(url, rootURL: rootURL, visibilityRules: visibilityRules) else { return nil }
+                    return ProjectDirectoryEntry(
+                        url: directory.appendingPathComponent(url.lastPathComponent),
+                        isDirectory: isDirectory,
+                        isEmptyDirectory: isDirectory && isVisiblyEmpty(url, rootURL: rootURL, visibilityRules: visibilityRules)
+                    )
+                },
+                isDirectory: \.isDirectory,
+                name: { $0.url.lastPathComponent }
+            )
             result[directory.standardizedFileURL.path] = entries
         }
         return result
@@ -83,10 +85,11 @@ struct FileSystemWorkspaceSnapshotBuilder {
             return nil
         }
         let childURLs = (try? fileManager.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey], options: [])) ?? []
-        let children = childURLs.compactMap { scan($0, rootURL: rootURL, visibilityRules: visibilityRules, nestedWorktrees: &nestedWorktrees) }.sorted {
-            if $0.isDirectory != $1.isDirectory { return $0.isDirectory }
-            return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
-        }
+        let children = NaturalNameOrder.sortedAsProjectTreeSiblings(
+            childURLs.compactMap { scan($0, rootURL: rootURL, visibilityRules: visibilityRules, nestedWorktrees: &nestedWorktrees) },
+            isDirectory: \.isDirectory,
+            name: \.name
+        )
         return FileNode(url: url, isDirectory: true, children: children)
     }
 

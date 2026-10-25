@@ -14,9 +14,9 @@ use crate::git::{
     GitOperationStateRequest, GitPullPreflightRequest, GitPullRequestContextRequest,
     GitPushPreviewRequest, GitRebaseControlRequest, GitRebasePreviewRequest,
     GitRebaseSessionRequest, GitRebaseStartRequest, GitReferencesRequest, GitRepositoryRootRequest,
-    GitStashesRequest, GitStatusRequest, GitWatchContextRequest, GitWorktreesRequest,
-    GitWriteRequest, PatchApplyRequest, PatchExportRequest, PatchPreviewRequest,
-    WorkspaceRepositoriesRequest,
+    GitStashesRequest, GitStatusRequest, GitUntrackedDirectoryRequest, GitWatchContextRequest,
+    GitWorktreesRequest, GitWriteRequest, PatchApplyRequest, PatchExportRequest,
+    PatchPreviewRequest, WorkspaceRepositoriesRequest,
 };
 use crate::github::{NormalizeResponseRequest, ParseRemoteRequest, RequestPlanRequest};
 use crate::languages::{
@@ -139,6 +139,17 @@ fn execute(request: &str) -> CoreResponse {
             }),
         ),
         CoreCommand::AgentStatus => agent_response(id, parsed.payload, crate::agent::status),
+        CoreCommand::AgentInstructionsRead => {
+            agent_response(id, parsed.payload, crate::agent::instructions::read)
+        }
+        CoreCommand::AgentInstructionsSave => {
+            agent_response(id, parsed.payload, crate::agent::instructions::save)
+        }
+        CoreCommand::AgentInstructionsShared => {
+            agent_response(id, parsed.payload, crate::agent::instructions::shared)
+        }
+        CoreCommand::AgentSkills => agent_response(id, parsed.payload, crate::agent::skills),
+        CoreCommand::AgentHooks => agent_response(id, parsed.payload, crate::agent::hooks::execute),
         CoreCommand::AgentParseProviderConfiguration => {
             match crate::ai::parse_provider_configuration(parsed.payload) {
                 Ok(data) => CoreResponse::success(id, data),
@@ -151,10 +162,32 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::McpParseRegistry => match crate::mcp::parse_registry(parsed.payload) {
+            Ok(data) => CoreResponse::success(id, data),
+            Err(error) => CoreResponse::failure(id, error),
+        },
+        CoreCommand::McpFeaturedRegistry => match crate::mcp::featured_registry() {
+            Ok(data) => CoreResponse::success(id, data),
+            Err(error) => CoreResponse::failure(id, error),
+        },
+        CoreCommand::McpProbe => agent_response(id, parsed.payload, crate::mcp::probe),
+        CoreCommand::McpToolPolicy => match crate::mcp::tool_policy(parsed.payload) {
+            Ok(data) => CoreResponse::success(id, data),
+            Err(error) => CoreResponse::failure(id, error),
+        },
+        CoreCommand::McpCommandLine => match crate::mcp::command_line(parsed.payload) {
+            Ok(data) => CoreResponse::success(id, data),
+            Err(error) => CoreResponse::failure(id, error),
+        },
         CoreCommand::McpPlanWrite => match crate::mcp::plan_write(parsed.payload) {
             Ok(data) => CoreResponse::success(id, data),
             Err(error) => CoreResponse::failure(id, error),
         },
+        CoreCommand::PluginsNativeUIValidateData => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::native_ui::validate_data_command,
+        ),
         CoreCommand::PluginsDeclarativeValidate => plugin_response(
             id,
             parsed.payload,
@@ -254,6 +287,40 @@ fn execute(request: &str) -> CoreResponse {
             id,
             parsed.payload,
             crate::build::build_language_import_command,
+        ),
+        CoreCommand::VcsDetectRoots => {
+            plugin_response(id, parsed.payload, crate::vcs::vcs_detect_roots_command)
+        }
+        CoreCommand::VcsOwnerOf => {
+            plugin_response(id, parsed.payload, crate::vcs::vcs_owner_of_command)
+        }
+        CoreCommand::VcsDecodeReply => {
+            plugin_response(id, parsed.payload, crate::vcs::vcs_decode_reply_command)
+        }
+        CoreCommand::ProjectGeneratorCatalog => plugin_response(
+            id,
+            parsed.payload,
+            crate::project_generators::project_generator_catalog_command,
+        ),
+        CoreCommand::ProjectGeneratorForm => plugin_response(
+            id,
+            parsed.payload,
+            crate::project_generators::project_generator_form_command,
+        ),
+        CoreCommand::ProjectGenerationPlan => plugin_response(
+            id,
+            parsed.payload,
+            crate::project_generators::project_generation_plan_command,
+        ),
+        CoreCommand::ProjectCheckName => plugin_response(
+            id,
+            parsed.payload,
+            crate::project_generators::project_check_name_command,
+        ),
+        CoreCommand::ProjectExtractArchive => plugin_response(
+            id,
+            parsed.payload,
+            crate::project_generators::project_extract_archive_command,
         ),
         CoreCommand::PluginsMarketplaceValidateIndex => plugin_response(
             id,
@@ -1584,6 +1651,21 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::LspVcsRequest => {
+            match serde_json::from_value::<crate::lsp::VcsProviderRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid VCS-provider request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::vcs_provider_request)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("VCS-provider response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::LspFunctionRequest => {
             match serde_json::from_value::<crate::lsp::PluginFunctionRequest>(parsed.payload)
                 .map_err(|error| {
@@ -1634,6 +1716,18 @@ fn execute(request: &str) -> CoreResponse {
                     serde_json::to_value(data)
                         .expect("Java navigation resolution operation should encode"),
                 ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::LspHostResponse => {
+            match serde_json::from_value::<crate::lsp::PluginHostResponse>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid host-service response")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::plugin_host_response)
+            {
+                Ok(()) => CoreResponse::success(id, json!({})),
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
@@ -1999,6 +2093,24 @@ fn execute(request: &str) -> CoreResponse {
             ),
             Err(error) => CoreResponse::failure(id, error),
         },
+        CoreCommand::GitUntrackedDirectory => {
+            match serde_json::from_value::<GitUntrackedDirectoryRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Git untracked directory request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(git::untracked_directory)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Git untracked directory should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::GitWatchContext => {
             match serde_json::from_value::<GitWatchContextRequest>(parsed.payload)
                 .map_err(|error| {
@@ -2292,6 +2404,128 @@ fn execute(request: &str) -> CoreResponse {
         }
         CoreCommand::GitExecutable => {
             CoreResponse::success(id, git::configuration::locate_executable())
+        }
+        CoreCommand::RemoteProbe => {
+            match serde_json::from_value::<crate::remote::ProbeRequest>(parsed.payload) {
+                Ok(request) => match crate::remote::probe(request) {
+                    Ok(result) => CoreResponse::success(
+                        id,
+                        serde_json::to_value(result).expect("remote probe result should encode"),
+                    ),
+                    Err(error) => CoreResponse::failure(id, error),
+                },
+                Err(error) => CoreResponse::failure(
+                    id,
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid remote probe request")
+                        .with_details(error.to_string()),
+                ),
+            }
+        }
+        CoreCommand::RemoteConnect => {
+            match serde_json::from_value::<crate::remote::sessions::ConnectRequest>(parsed.payload)
+            {
+                Ok(request) => match crate::remote::sessions::connect(request) {
+                    Ok(result) => CoreResponse::success(
+                        id,
+                        serde_json::to_value(result).expect("remote connect result should encode"),
+                    ),
+                    Err(error) => CoreResponse::failure(id, error),
+                },
+                Err(error) => CoreResponse::failure(
+                    id,
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid remote connect request")
+                        .with_details(error.to_string()),
+                ),
+            }
+        }
+        CoreCommand::RemoteReadDir => {
+            match serde_json::from_value::<crate::remote::sessions::ReadDirRequest>(parsed.payload)
+            {
+                Ok(request) => match crate::remote::sessions::read_dir(request) {
+                    Ok(result) => CoreResponse::success(id, result),
+                    Err(error) => CoreResponse::failure(id, error),
+                },
+                Err(error) => CoreResponse::failure(
+                    id,
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid remote directory request",
+                    )
+                    .with_details(error.to_string()),
+                ),
+            }
+        }
+        CoreCommand::RemoteReadFile => {
+            match serde_json::from_value::<crate::remote::sessions::ReadFileRequest>(parsed.payload)
+            {
+                Ok(request) => match crate::remote::sessions::read_file(request) {
+                    Ok(result) => CoreResponse::success(id, result),
+                    Err(error) => CoreResponse::failure(id, error),
+                },
+                Err(error) => CoreResponse::failure(
+                    id,
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid remote file request")
+                        .with_details(error.to_string()),
+                ),
+            }
+        }
+        CoreCommand::RemoteWriteFile => {
+            match serde_json::from_value::<crate::remote::sessions::WriteFileRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => match crate::remote::sessions::write_file(request) {
+                    Ok(result) => CoreResponse::success(id, result),
+                    Err(error) => CoreResponse::failure(id, error),
+                },
+                Err(error) => CoreResponse::failure(
+                    id,
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid remote file request")
+                        .with_details(error.to_string()),
+                ),
+            }
+        }
+        CoreCommand::RemoteDisconnect => {
+            match serde_json::from_value::<crate::remote::sessions::DisconnectRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    json!({ "closed": crate::remote::sessions::disconnect(request) }),
+                ),
+                Err(error) => CoreResponse::failure(
+                    id,
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid remote disconnect request",
+                    )
+                    .with_details(error.to_string()),
+                ),
+            }
+        }
+        CoreCommand::RemoteCloseAll => CoreResponse::success(
+            id,
+            json!({ "closed": crate::remote::sessions::close_all() }),
+        ),
+        CoreCommand::RemoteAuthRespond => {
+            #[derive(serde::Deserialize)]
+            #[serde(rename_all = "camelCase", deny_unknown_fields)]
+            struct Reply {
+                request_id: String,
+                answer: Option<String>,
+            }
+            match serde_json::from_value::<Reply>(parsed.payload) {
+                Ok(reply) => CoreResponse::success(
+                    id,
+                    json!({ "accepted": crate::remote::respond(&reply.request_id, reply.answer) }),
+                ),
+                Err(_) => CoreResponse::failure(
+                    id,
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid remote authentication response",
+                    ),
+                ),
+            }
         }
         CoreCommand::GitExecutionInspect | CoreCommand::GitExecutionConfigure => {
             match git::configuration::dispatch(

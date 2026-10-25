@@ -345,6 +345,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         // allow that surface through when a background image is configured.
         view.setValue(false, forKey: "drawsBackground")
         view.navigationDelegate = self
+        view.uiDelegate = WebMediaCaptureDenier.shared
         webView = view
         loadingInterval = LitheSignpost.begin("monaco.webview.load")
         view.load(URLRequest(url: URL(string: "lithe-editor://app/index.html")!))
@@ -353,7 +354,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
 
     private func isActiveDocument(_ id: UUID, model: AppModel) -> Bool {
         model.activeDocumentID == id && model.activeEditorTerminalSession == nil
-            && model.activeMediaDocument == nil && !model.isDatabaseWorkspaceSelected && !model.isRepositoryDiffSelected
+            && model.activeMediaDocument == nil && !model.isRepositoryDiffSelected
             && model.editorTabOrderFeature.groupLayout.groups.contains {
                 model.editorTabOrderFeature.selectedItem(in: $0) == .document(id)
             }

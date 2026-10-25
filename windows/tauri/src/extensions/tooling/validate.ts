@@ -150,7 +150,6 @@ async function validateInstallPackage(
       }
     | undefined;
   const requiresPackage =
-    getContributionArray(manifest, "databases").length > 0 ||
     getContributionArray(manifest, "themes").length > 0 ||
     getContributionArray(manifest, "icons").length > 0 ||
     getContributionArray(manifest, "integrations").length > 0;
@@ -273,7 +272,6 @@ async function validateExtension(folder: string): Promise<void> {
 
   const contributionCount =
     getContributionArray(manifest, "languages").length +
-    getContributionArray(manifest, "databases").length +
     getContributionArray(manifest, "agents").length +
     getContributionArray(manifest, "themes").length +
     getContributionArray(manifest, "icons").length +
@@ -294,16 +292,6 @@ async function validateExtension(folder: string): Promise<void> {
         folder,
         `Language '${lang.id}' missing one of 'extensions', 'filenames', or 'filenamePatterns'`,
       );
-    }
-  }
-
-  for (const provider of getContributionArray(manifest, "databases")) {
-    if (!provider.id) error(folder, "Database entry missing 'id'");
-    if (!provider.protocolVersion) {
-      error(folder, `Database '${provider.id}' missing 'protocolVersion'`);
-    }
-    if (!provider.sidecar || typeof provider.sidecar !== "object") {
-      error(folder, `Database '${provider.id}' missing 'sidecar' map`);
     }
   }
 

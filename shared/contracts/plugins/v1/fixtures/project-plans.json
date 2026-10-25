@@ -1,0 +1,360 @@
+{
+  "schemaVersion": 1,
+  "description": "Golden answers of the project.* commands for project-generator.plugin.json. generationPlan cases read templates with the fixtures directory as the package path.",
+  "cases": [
+    {
+      "name": "form defaults",
+      "operation": "generatorForm",
+      "generatorID": "app",
+      "form": {
+        "projectName": "demo"
+      },
+      "expected": {
+        "status": "ok",
+        "form": {
+          "projectName": {
+            "problem": null
+          },
+          "fields": [
+            {
+              "id": "buildSystem",
+              "visible": true,
+              "value": "none"
+            },
+            {
+              "id": "jdk",
+              "visible": true,
+              "value": "",
+              "problem": "required"
+            },
+            {
+              "id": "sample",
+              "visible": true,
+              "value": true
+            },
+            {
+              "id": "groupId",
+              "visible": false,
+              "value": "com.example"
+            }
+          ],
+          "activeRequirements": [
+            0
+          ],
+          "valid": false
+        }
+      }
+    },
+    {
+      "name": "form shows maven fields and requirements",
+      "operation": "generatorForm",
+      "generatorID": "app",
+      "form": {
+        "projectName": "demo",
+        "values": {
+          "buildSystem": "maven",
+          "groupId": "Bad Group"
+        },
+        "edited": [
+          "groupId"
+        ],
+        "runtimes": {
+          "jdk": {
+            "home": "/opt/jdk-21",
+            "version": "21.0.4"
+          }
+        }
+      },
+      "expected": {
+        "status": "ok",
+        "form": {
+          "projectName": {
+            "problem": null
+          },
+          "fields": [
+            {
+              "id": "buildSystem",
+              "visible": true,
+              "value": "maven"
+            },
+            {
+              "id": "jdk",
+              "visible": true,
+              "value": "/opt/jdk-21"
+            },
+            {
+              "id": "sample",
+              "visible": true,
+              "value": true
+            },
+            {
+              "id": "groupId",
+              "visible": true,
+              "value": "Bad Group",
+              "problem": "invalidFormat"
+            }
+          ],
+          "activeRequirements": [
+            0,
+            1
+          ],
+          "valid": false
+        }
+      }
+    },
+    {
+      "name": "form derives a default from the project name",
+      "operation": "generatorForm",
+      "generatorID": "archetype",
+      "form": {
+        "projectName": "My-App",
+        "runtimes": {
+          "jdk": {
+            "home": "/opt/jdk-21",
+            "version": "21.0.4"
+          }
+        }
+      },
+      "expected": {
+        "status": "ok",
+        "form": {
+          "projectName": {
+            "problem": null
+          },
+          "fields": [
+            {
+              "id": "jdk",
+              "visible": true,
+              "value": "/opt/jdk-21"
+            },
+            {
+              "id": "artifactId",
+              "visible": true,
+              "value": "my-app"
+            },
+            {
+              "id": "version",
+              "visible": true,
+              "value": ""
+            }
+          ],
+          "activeRequirements": [],
+          "valid": true
+        }
+      }
+    },
+    {
+      "name": "plan writes templates",
+      "operation": "generationPlan",
+      "generatorID": "app",
+      "form": {
+        "projectName": "demo",
+        "values": {
+          "buildSystem": "maven"
+        },
+        "runtimes": {
+          "jdk": {
+            "home": "/opt/jdk-21",
+            "version": "21.0.4"
+          }
+        }
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "projectName": "demo",
+          "steps": [
+            {
+              "kind": "writeFiles",
+              "files": [
+                {
+                  "path": "README.md",
+                  "contents": "# demo\n\nBuild files keep ${placeholders} and {{other}} text unchanged.\n",
+                  "executable": false
+                },
+                {
+                  "path": ".gitignore",
+                  "contents": "",
+                  "executable": false
+                }
+              ]
+            },
+            {
+              "kind": "writeFiles",
+              "files": [
+                {
+                  "path": "src/com/example/Main.java",
+                  "contents": "package com.example;\n\nclass Main {}\n",
+                  "executable": false
+                }
+              ]
+            }
+          ],
+          "openFiles": [
+            "src/com/example/Main.java"
+          ],
+          "runtimes": [
+            {
+              "field": "jdk",
+              "runtime": "java",
+              "home": "/opt/jdk-21",
+              "version": "21.0.4"
+            }
+          ],
+          "usesNetwork": false
+        }
+      }
+    },
+    {
+      "name": "plan rejects an old runtime",
+      "operation": "generationPlan",
+      "generatorID": "app",
+      "form": {
+        "projectName": "demo",
+        "runtimes": {
+          "jdk": {
+            "home": "/opt/jdk-11",
+            "version": "11.0.2"
+          }
+        }
+      },
+      "expected": {
+        "status": "rejected",
+        "error": {
+          "code": "plugin.project.invalidInput",
+          "message": "The value of jdk is not accepted (runtimeTooOld).",
+          "field": "values.jdk"
+        }
+      }
+    },
+    {
+      "name": "plan runs a scaffolding command",
+      "operation": "generationPlan",
+      "generatorID": "archetype",
+      "form": {
+        "projectName": "My-App",
+        "values": {
+          "version": "1.5"
+        },
+        "edited": [
+          "version"
+        ],
+        "runtimes": {
+          "jdk": {
+            "home": "/opt/jdk-21",
+            "version": "21.0.4"
+          }
+        }
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "projectName": "My-App",
+          "steps": [
+            {
+              "kind": "command",
+              "command": "mvn",
+              "arguments": [
+                "-B",
+                "archetype:generate",
+                "-DartifactId=my-app",
+                "-DarchetypeVersion=1.5"
+              ],
+              "environment": {
+                "JAVA_HOME": "/opt/jdk-21"
+              },
+              "collect": "my-app",
+              "mayUseNetwork": true,
+              "timeoutSeconds": 600
+            }
+          ],
+          "openFiles": [],
+          "runtimes": [
+            {
+              "field": "jdk",
+              "runtime": "java",
+              "home": "/opt/jdk-21",
+              "version": "21.0.4"
+            }
+          ],
+          "usesNetwork": true
+        }
+      }
+    },
+    {
+      "name": "plan downloads an archive",
+      "operation": "generationPlan",
+      "generatorID": "initializr",
+      "form": {
+        "projectName": "my app",
+        "values": {
+          "dependencies": [
+            "jpa",
+            "web"
+          ]
+        }
+      },
+      "expected": {
+        "status": "ok",
+        "plan": {
+          "projectName": "my app",
+          "steps": [
+            {
+              "kind": "archive",
+              "url": "https://start.example.com/starter.zip?name=my+app&dependencies=web%2Cjpa",
+              "host": "start.example.com",
+              "format": "zip"
+            }
+          ],
+          "openFiles": [],
+          "runtimes": [],
+          "usesNetwork": true
+        }
+      }
+    },
+    {
+      "name": "plan refuses a non-HTTPS server",
+      "operation": "generationPlan",
+      "generatorID": "initializr",
+      "form": {
+        "projectName": "demo",
+        "values": {
+          "serverUrl": "http://start.example.com"
+        },
+        "edited": [
+          "serverUrl"
+        ]
+      },
+      "expected": {
+        "status": "rejected",
+        "error": {
+          "code": "plugin.project.invalidURL",
+          "message": "http://start.example.com/starter.zip is not an HTTPS address of a project archive.",
+          "field": "projectGenerators.initializr.steps[0]"
+        }
+      }
+    },
+    {
+      "name": "name accepted",
+      "operation": "checkName",
+      "projectName": "demo-app",
+      "expected": {
+        "status": "ok",
+        "name": {
+          "problem": null
+        }
+      }
+    },
+    {
+      "name": "name with a slash",
+      "operation": "checkName",
+      "projectName": "a/b",
+      "expected": {
+        "status": "ok",
+        "name": {
+          "problem": "invalidFormat"
+        }
+      }
+    }
+  ]
+}

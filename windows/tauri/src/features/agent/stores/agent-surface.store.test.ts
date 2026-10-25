@@ -1,11 +1,44 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { NEW_AGENT_DRAFT_KEY, useAgentSurfaceStore } from "./agent-surface.store";
+import { agentDraftKey, NEW_AGENT_DRAFT_KEY, useAgentSurfaceStore } from "./agent-surface.store";
 
 beforeEach(() => {
   useAgentSurfaceStore.getState().actions.reset();
 });
 
 describe("agent surface placement", () => {
+  test("a shared session id never shares drafts between Agents", () => {
+    const { setDraftText } = useAgentSurfaceStore.getState().actions;
+    setDraftText(agentDraftKey("codex-acp", "same-id"), "Codex draft");
+    setDraftText(agentDraftKey("claude-acp", "same-id"), "Claude draft");
+    expect(useAgentSurfaceStore.getState().drafts[agentDraftKey("codex-acp", "same-id")]?.text).toBe("Codex draft");
+    expect(useAgentSurfaceStore.getState().drafts[agentDraftKey("claude-acp", "same-id")]?.text).toBe("Claude draft");
+  });
+
+  test("session creation migrates the draft and preserves an occupied destination", () => {
+    const { setDraft, setDraftText, moveDraft } = useAgentSurfaceStore.getState().actions;
+    const source = agentDraftKey("codex-acp", null);
+    const target = agentDraftKey("codex-acp", "created");
+    const draft = { text: "unsent text", files: [{ uri: "file:///C:/notes.txt", name: "notes.txt" }] };
+    setDraft(source, draft);
+    moveDraft(source, target);
+    expect(useAgentSurfaceStore.getState().drafts[source]).toBeUndefined();
+    expect(useAgentSurfaceStore.getState().drafts[target]).toEqual(draft);
+    setDraftText(source, "another draft");
+    moveDraft(source, target);
+    expect(useAgentSurfaceStore.getState().drafts[target]).toEqual(draft);
+    expect(useAgentSurfaceStore.getState().drafts[source]?.text).toBe("another draft");
+  });
+
+  test("attachment overflow fails atomically without changing draft text or files", () => {
+    const { setDraftText, appendDraftFiles } = useAgentSurfaceStore.getState().actions;
+    const key = agentDraftKey("codex-acp", null);
+    setDraftText(key, "keep this");
+    appendDraftFiles(key, Array.from({ length: 32 }, (_, index) => `file:///C:/file-${index}.txt`));
+    const before = useAgentSurfaceStore.getState().drafts[key];
+    expect(() => appendDraftFiles(key, ["file:///C:/overflow.txt"])).toThrow();
+    expect(useAgentSurfaceStore.getState().drafts[key]).toBe(before);
+  });
+
   test("keeps unsent drafts separate per conversation across surfaces", () => {
     const { setDraft } = useAgentSurfaceStore.getState().actions;
 

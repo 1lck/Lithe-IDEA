@@ -532,6 +532,38 @@ pub(super) fn client_apply_server_message_for_plugin(
                     responses.push(json_rpc_result(id, Value::Null)?);
                 }
             }
+            _ if plugin_owned && request_id.is_some() && method.starts_with("lithe/host/") => {
+                let id = request_id.expect("guarded above");
+                match plugin_function::host_request(
+                    method,
+                    message.get("params"),
+                    state.plugin_function_version.unwrap_or(0),
+                    &state.host_services,
+                ) {
+                    // The engine answers once the host has; the request
+                    // carries the backend's own ID back to it.
+                    Ok(service) => events.push(LspClientEvent {
+                        kind: "hostRequest".to_string(),
+                        request_id: None,
+                        method: Some(method.to_string()),
+                        uri: None,
+                        version: None,
+                        diagnostics: None,
+                        result: Some(json!({
+                            "id": id,
+                            "service": service,
+                            "params": message.get("params").cloned().unwrap_or(Value::Null),
+                        })),
+                        error: None,
+                    }),
+                    Err(refusal) => responses.push(json_rpc_error_with_code(
+                        id,
+                        refusal.rpc_code,
+                        refusal.message,
+                        refusal.code,
+                    )?),
+                }
+            }
             _ => {
                 if let Some(id) = request_id {
                     responses.push(match plugin_function::refused_backend_request(method) {
@@ -575,8 +607,9 @@ pub(super) fn client_apply_server_message_for_plugin(
                         )
                     })
                     .flatten();
-                if let Some(functions) = functions {
+                if let Some((version, functions)) = functions {
                     state.plugin_functions = functions;
+                    state.plugin_function_version = Some(version);
                     events.push(LspClientEvent {
                         kind: "functionsChanged".to_string(),
                         request_id: None,
@@ -589,9 +622,34 @@ pub(super) fn client_apply_server_message_for_plugin(
                     });
                 } else {
                     state.plugin_functions.clear();
+                    state.plugin_function_version = None;
                     state
                         .server_capabilities
                         .retain(|feature| feature != plugin_function::FUNCTIONS_FEATURE);
+                }
+                // Only a plugin's own process may act as a VCS provider; a
+                // host-owned server that happens to answer is ignored.
+                state.vcs_provider = plugin_owned
+                    .then(|| {
+                        super::vcs_provider::negotiate(
+                            result.get("capabilities").unwrap_or(&Value::Null),
+                        )
+                    })
+                    .flatten();
+                match &state.vcs_provider {
+                    Some(negotiation) => events.push(LspClientEvent {
+                        kind: super::vcs_provider::NEGOTIATED_EVENT.to_string(),
+                        request_id: None,
+                        method: Some("initialize".to_string()),
+                        uri: None,
+                        version: None,
+                        diagnostics: None,
+                        result: Some(json!(negotiation)),
+                        error: None,
+                    }),
+                    None => state
+                        .server_capabilities
+                        .retain(|feature| feature != super::vcs_provider::VCS_PROVIDER_FEATURE),
                 }
                 state.text_document_sync =
                     text_document_sync_kind(result.get("capabilities").unwrap_or(&Value::Null));
@@ -619,6 +677,8 @@ pub(super) fn client_apply_server_message_for_plugin(
             state.diagnostics.clear();
             state.diagnostic_versions.clear();
             state.plugin_functions.clear();
+            state.plugin_function_version = None;
+            state.vcs_provider = None;
             responses.push(json_rpc_message_without_params(None, "exit")?);
         }
         let result = if pending.as_deref() == Some("textDocument/semanticTokens/full") {
@@ -709,7 +769,7 @@ fn json_rpc_message_without_params(id: Option<&str>, method: &str) -> Result<Str
     encode_json_rpc(message)
 }
 
-fn json_rpc_result(id: &Value, result: Value) -> Result<String, CoreError> {
+pub(super) fn json_rpc_result(id: &Value, result: Value) -> Result<String, CoreError> {
     encode_json_rpc(json!({
         "jsonrpc": "2.0",
         "id": id,
@@ -724,12 +784,14 @@ fn experimental_capabilities(plugin_owned: bool) -> Value {
     if plugin_owned {
         let (functions_key, functions_offer) = plugin_function::client_experimental_capabilities();
         experimental[functions_key] = functions_offer;
+        let (vcs_key, vcs_offer) = super::vcs_provider::client_experimental_capabilities();
+        experimental[vcs_key] = vcs_offer;
     }
     experimental
 }
 
 /// A JSON-RPC error whose `data.code` carries a stable plugin-contract code.
-fn json_rpc_error_with_code(
+pub(super) fn json_rpc_error_with_code(
     id: &Value,
     code: i64,
     message: &str,
@@ -1670,6 +1732,9 @@ fn feature_names_from_capabilities(capabilities: &Value) -> Vec<String> {
     }
     if plugin_function::negotiate(capabilities).is_some() {
         insert_unique(&mut values, plugin_function::FUNCTIONS_FEATURE);
+    }
+    if super::vcs_provider::negotiate(capabilities).is_some() {
+        insert_unique(&mut values, super::vcs_provider::VCS_PROVIDER_FEATURE);
     }
     values
 }

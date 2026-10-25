@@ -5,7 +5,6 @@ struct LSPControlCenterView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var settings: AppSettings
 
-    private var usesChinese: Bool { settings.language == .simplifiedChinese }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -41,9 +40,7 @@ struct LSPControlCenterView: View {
             Text(model.projectName)
                 .font(LitheTheme.uiFont(size: 14, weight: .semibold))
                 .foregroundStyle(LitheTheme.primaryText)
-            Text(usesChinese
-                ? "仅显示当前项目使用的语言。开关状态会自动为此项目保存，关闭后会停止语言服务器并释放资源，下次打开仍保持关闭。"
-                : "Only languages used by this project are shown. Changes are saved automatically for this project. Turning a language off stops its server, releases its resources, and keeps it off when you reopen the project.")
+            Text(settings.language.localizedString("native.inline.onlyLanguagesUsedByThisProjectAreShownChangesAreSavedAutomaticallyForThisPr"))
                 .font(LitheTheme.uiFont(size: 11.5))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
@@ -80,19 +77,16 @@ struct LSPControlCenterView: View {
                         get: { isEnabled },
                         set: { model.setLanguageServerEnabled($0, providerID: descriptor.id) }
                     ),
-                    accessibilityLabel: LocalizedStringKey(usesChinese
-                        ? "启用 \(descriptor.displayName) 语言服务器"
-                        : "Enable \(descriptor.displayName) language server")
+                    accessibilityLabel: LocalizedStringKey(settings.language.localizedFormat("native.inline.enableArg1LanguageServer", String(describing: descriptor.displayName)))
                 )
             }
             if descriptor.id == "java", case .partiallyFailed = mavenState,
                let sessions = model.languageToolingSessionsIfActive
             {
-                Button(usesChinese ? "重试 Maven 配置" : "Retry Maven configuration") {
+                Button(settings.language.localizedString("native.inline.retryMavenConfiguration")) {
                     sessions.retryMavenProfiles(providerID: descriptor.id)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .buttonStyle(LitheActionButtonStyle())
             }
 
         }
@@ -109,12 +103,10 @@ struct LSPControlCenterView: View {
 
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(usesChinese ? "当前项目没有可配置的语言服务器" : "No configurable language servers")
+            Text(settings.language.localizedString("native.inline.noConfigurableLanguageServers"))
                 .font(LitheTheme.uiFont(size: 13, weight: .semibold))
                 .foregroundStyle(LitheTheme.primaryText)
-            Text(usesChinese
-                ? "识别到支持的源码语言后，会在这里显示对应设置。"
-                : "Settings appear here when supported source languages are detected.")
+            Text(settings.language.localizedString("native.inline.settingsAppearHereWhenSupportedSourceLanguagesAreDetected"))
                 .font(LitheTheme.uiFont(size: 11.5))
                 .foregroundStyle(LitheTheme.secondaryText)
         }
@@ -123,7 +115,7 @@ struct LSPControlCenterView: View {
 
     private var degradedCatalogNotice: some View {
         LitheBanner(status: .warning) {
-            Text(usesChinese ? "语言服务器配置加载异常，当前正在使用兼容配置。" : "Language server configuration is degraded; compatibility settings are in use.")
+            Text(settings.language.localizedString("native.inline.languageServerConfigurationIsDegradedCompatibilitySettingsAreInUse"))
         }
     }
 
@@ -179,63 +171,43 @@ struct LSPControlCenterView: View {
         let language = entry.languageDisplayName
         if let retired = pluginSnapshot(entry) {
             if retired.installationStatus == .uninstallPending {
-                return usesChinese
-                    ? "重启 Lithe 以完成旧版 \(name) 的卸载，然后在插件市场的 Lithe Store 中安装社区版 \(name)。"
-                    : "Restart Lithe to finish uninstalling the old \(name), then install the community \(name) from Lithe Store in the Marketplace."
+                return settings.language.localizedFormat("native.inline.restartLitheToFinishUninstallingTheOldArg1ThenInstallTheCommunityArg2FromLi", String(describing: name), String(describing: name))
             }
-            return usesChinese
-                ? "\(name) 已迁移为 Lithe Store 社区插件，旧官方版不再更新。请在插件管理中卸载旧版并重启 Lithe，再安装社区版。"
-                : "\(name) moved to Lithe Store as a community plugin, and the old official version gets no updates. Uninstall it from Plugin Management, restart Lithe, then install the community version."
+            return settings.language.localizedFormat("native.inline.arg1MovedToLitheStoreAsACommunityPluginAndTheOldOfficialVersionGetsNoUpdate", String(describing: name))
         }
         guard let community = model.pluginSnapshots.first(where: { $0.id == replacementID }) else {
-            return usesChinese
-                ? "检测到 \(language) 项目，请在插件管理的插件市场中，从 Lithe Store 安装 \(name)。"
-                : "This \(language) project needs \(name). Install it from Lithe Store in the Plugin Management Marketplace."
+            return settings.language.localizedFormat("native.inline.thisArg1ProjectNeedsArg2InstallItFromLitheStoreInThePluginManagementMarketp", String(describing: language), String(describing: name))
         }
         if community.requiresRestart {
-            return usesChinese
-                ? "\(name) 已安装，重启 Lithe 后才能在这里控制语言服务器。"
-                : "\(name) is installed. Restart Lithe before controlling its language server here."
+            return settings.language.localizedFormat("native.inline.arg1IsInstalledRestartLitheBeforeControllingItsLanguageServerHere", String(describing: name))
         }
         guard !community.isEnabled else { return nil }
-        return usesChinese
-            ? "\(name) 插件已禁用，请先在插件管理中启用。"
-            : "\(name) is disabled. Enable it from Plugin Management first."
+        return settings.language.localizedFormat("native.inline.arg1IsDisabledEnableItFromPluginManagementFirst", String(describing: name))
     }
 
     private func pluginNotice(_ entry: OfficialPluginCatalog.Entry) -> String {
         let name = entry.displayName
         let language = entry.languageDisplayName
         guard let snapshot = pluginSnapshot(entry) else {
-            return usesChinese
-                ? "检测到 \(language) 项目，请先在插件管理中下载并安装 \(name)。"
-                : "This \(language) project needs \(name). Download and install it from Plugin Management."
+            return settings.language.localizedFormat("native.inline.thisArg1ProjectNeedsArg2DownloadAndInstallItFromPluginManagement", String(describing: language), String(describing: name))
         }
         if snapshot.installationStatus == .removed {
-            return usesChinese
-                ? "检测到 \(language) 项目，但 \(name) 已被移除。请在插件管理中恢复它，然后重启 Lithe。"
-                : "This \(language) project needs \(name), which was removed. Restore it from Plugin Management, then restart Lithe."
+            return settings.language.localizedFormat("native.inline.thisArg1ProjectNeedsArg2WhichWasRemovedRestoreItFromPluginManagementThenRes", String(describing: language), String(describing: name))
         }
         if snapshot.requiresRestart {
-            return usesChinese
-                ? "\(name) 已安装，重启 Lithe 后才能在这里控制语言服务器。"
-                : "\(name) is installed. Restart Lithe before controlling its language server here."
+            return settings.language.localizedFormat("native.inline.arg1IsInstalledRestartLitheBeforeControllingItsLanguageServerHere", String(describing: name))
         }
         if snapshot.isQuarantined {
-            return usesChinese
-                ? "\(name) 因上次启动异常被隔离，请先在插件管理中重新启用。"
-                : "\(name) was quarantined after its previous session. Re-enable it from Plugin Management."
+            return settings.language.localizedFormat("native.inline.arg1WasQuarantinedAfterItsPreviousSessionReEnableItFromPluginManagement", String(describing: name))
         }
-        return usesChinese
-            ? "\(name) 插件已禁用，请先在插件管理中启用。"
-            : "\(name) is disabled. Enable it from Plugin Management first."
+        return settings.language.localizedFormat("native.inline.arg1IsDisabledEnableItFromPluginManagementFirst", String(describing: name))
     }
 
     private func phpPluginNotice(_ message: String) -> some View {
         LitheBanner(status: .info) {
             Text(message).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
-                Button(usesChinese ? "打开插件管理" : "Open Plugin Management") {
+                Button(settings.language.localizedString("native.inline.openPluginManagement")) {
                     model.showSettings(category: .plugins)
                 }
                 if model.pluginSnapshots.contains(where: \.hasChangesPendingRestart) {
@@ -262,32 +234,26 @@ struct LSPControlCenterView: View {
             )
             switch mavenState {
             case .applying:
-                return usesChinese ? "语言服务已连接，Maven 配置应用中" : "Language service connected; applying Maven configuration"
+                return settings.language.localizedString("native.inline.languageServiceConnectedApplyingMavenConfiguration")
             case .partiallyFailed(let failed, let total):
-                return usesChinese
-                    ? "部分模块失败（\(failed)/\(total)），语言服务仍可用"
-                    : "Some modules failed (\(failed)/\(total)); language service remains available"
+                return settings.language.localizedFormat("native.inline.someModulesFailedArg1Arg2LanguageServiceRemainsAvailable", String(describing: failed), String(describing: total))
             case .idle, .complete:
                 break
             }
         }
         switch status {
-        case .starting: return usesChinese ? "正在启动" : "Starting"
-        case .initializing: return usesChinese ? "正在初始化项目索引" : "Initializing project index"
-        case .active: return usesChinese ? "运行中" : "Running"
-        case .stopping: return usesChinese ? "正在停止" : "Stopping"
-        case .disabled: return usesChinese ? "已关闭" : "Off"
+        case .starting: return settings.language.localizedString("native.inline.starting")
+        case .initializing: return settings.language.localizedString("native.inline.initializingProjectIndex")
+        case .active: return settings.language.localizedString("native.inline.running")
+        case .stopping: return settings.language.localizedString("native.inline.stopping")
+        case .disabled: return settings.language.localizedString("native.inline.off")
         case .stopped:
-            return usesChinese ? "按需启动，打开对应文件时运行" : "Starts on demand when a matching file is opened"
+            return settings.language.localizedString("native.inline.startsOnDemandWhenAMatchingFileIsOpened")
         case .error:
             if descriptor.id == "java" {
-                return usesChinese
-                    ? "启动失败，请检查 LSP 运行 JDK"
-                    : "Failed to start; check the LSP runtime JDK"
+                return settings.language.localizedString("native.inline.failedToStartCheckTheLspRuntimeJdk")
             }
-            return usesChinese
-                ? "启动失败，请检查语言服务器配置"
-                : "Failed to start; check the language server configuration"
+            return settings.language.localizedString("native.inline.failedToStartCheckTheLanguageServerConfiguration")
         }
     }
 

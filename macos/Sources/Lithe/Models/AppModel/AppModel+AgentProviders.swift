@@ -70,13 +70,22 @@ extension AppModel {
     }
 
     func useCodexSubscription() async throws {
+        try await useAgentSubscription(agentID: "codex-acp", name: "Codex")
+    }
+
+    /// Bind a built-in Agent to its own account subscription. API providers stay
+    /// saved; switching back is the existing provider choice.
+    func useAgentSubscription(agentID: String, name: String) async throws {
+        guard let authentication = AgentAuthentication.subscription(for: agentID) else {
+            throw AgentProviderConfigurationError.unavailable
+        }
         try beginAgentProviderChange()
         defer { finishAgentProviderChange() }
-        try await stopAgentsForProviderChange(["codex-acp"])
-        settings.agentConfigurations["codex-acp"] = AgentConfiguration(name: "Codex", providerID: nil,
-                                                                      authentication: .codexSubscription)
+        try await stopAgentsForProviderChange([agentID])
+        settings.agentConfigurations[agentID] = AgentConfiguration(name: name, providerID: nil,
+                                                                   authentication: authentication)
         agentConversationFeatureIfActive?.setAgents(configuredAgentOptions)
-        selectAgentConversationAgent("codex-acp")
+        selectAgentConversationAgent(agentID)
     }
 
     func useLocalAgentProvider(source: AIConfigurationSourceKind, agentID: String, name: String) async throws {
@@ -94,7 +103,7 @@ extension AppModel {
         }
     }
 
-    private func stopAgentsForProviderChange(_ agentIDs: [String]) async throws {
+    func stopAgentsForProviderChange(_ agentIDs: [String]) async throws {
         try Task.checkCancellation()
         guard let feature = agentConversationFeatureIfActive else { return }
         let connections = agentIDs.sorted().map { feature.connection(for: $0) }
@@ -108,13 +117,13 @@ extension AppModel {
         try Task.checkCancellation()
     }
 
-    private func beginAgentProviderChange() throws {
+    func beginAgentProviderChange() throws {
         try Task.checkCancellation()
         guard !isChangingAgentProvider else { throw AgentProviderConfigurationError.busy }
         isChangingAgentProvider = true
     }
 
-    private func finishAgentProviderChange() {
+    func finishAgentProviderChange() {
         isChangingAgentProvider = false
         // Restore the old profile after a storage failure, or connect using the saved selection.
         connectAgentConversation()

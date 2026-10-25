@@ -279,11 +279,11 @@ struct WorkbenchContributionHostTests {
         let model = WorkbenchFeatureModel()
         model.reconcileContributions([owner: [declaration]])
         model.setVisibility(.terminal, isVisible: true)
-        model.setVisibility(.database, isVisible: true)
+        model.setVisibility(.agent, isVisible: true)
         model.setVisibility(window, isVisible: true)
         #expect(model.activeLeftToolWindow == window)
         #expect(model.activeToolWindow == .terminal)
-        #expect(model.activeRightToolWindow == .database)
+        #expect(model.activeRightToolWindow == .agent)
         model.customizeContribution(id, placement: .rightSidebar)
         #expect(model.activeLeftToolWindow == nil)
         #expect(model.activeRightToolWindow == window)
@@ -655,29 +655,34 @@ struct WorkbenchContributionHostTests {
         let store = WorkbenchLayoutStore(store: MacUserDefaultsStore(defaults: defaults))
         let workspace = URL(fileURLWithPath: "/fixture/workspace")
         let workbench = WorkbenchFeatureModel(layoutStore: store)
-        let windows = BuiltInModuleCatalog.contributions(for: .database)
-        workbench.reconcileContributions([.database: windows])
+        let owner = ModuleID("org.example.ui")
+        let windows = [
+            ModuleContribution(id: "org.example.sidebar", kind: .toolWindow, title: "Sidebar", placement: .rightSidebar),
+            ModuleContribution(id: "org.example.services", kind: .toolWindow, title: "Services")
+        ]
+        let sidebar = WorkbenchFeatureModel.ToolWindow(rawValue: "org.example.sidebar")
+        workbench.reconcileContributions([owner: windows])
         _ = workbench.loadLayout(for: workspace)
-        workbench.setVisibility(.database, isVisible: true)
-        workbench.customizeContribution("database.workspace", placement: .activityBar)
+        workbench.setVisibility(sidebar, isVisible: true)
+        workbench.customizeContribution(sidebar.rawValue, placement: .activityBar)
         #expect(workbench.activeRightToolWindow == nil)
-        #expect(workbench.activeToolWindow == .database)
-        #expect(workbench.contributions(windows, at: .activityBar).contains { $0.id == "database.workspace" })
+        #expect(workbench.activeToolWindow == sidebar)
+        #expect(workbench.contributions(windows, at: .activityBar).contains { $0.id == sidebar.rawValue })
         store.save(WorkbenchLayout(sidebarWidth: 444, topPaneHeight: 555), for: workspace)
         let restored = WorkbenchFeatureModel(layoutStore: store)
-        restored.reconcileContributions([.database: windows])
+        restored.reconcileContributions([owner: windows])
         let layout = restored.loadLayout(for: workspace)
         #expect(layout.sidebarWidth == 444)
-        #expect(layout.visibleToolWindowIDs == ["database.workspace"])
-        #expect(restored.contributionPreferences["database.workspace"]?.placement == .activityBar)
-        restored.setVisibility(.database, isVisible: true)
-        restored.customizeContribution("database.workspace", isHidden: true)
-        #expect(!restored.isVisible(.database))
-        #expect(restored.contributions(windows, at: .activityBar).map(\.id) == ["database.services"])
+        #expect(layout.visibleToolWindowIDs == [sidebar.rawValue])
+        #expect(restored.contributionPreferences[sidebar.rawValue]?.placement == .activityBar)
+        restored.setVisibility(sidebar, isVisible: true)
+        restored.customizeContribution(sidebar.rawValue, isHidden: true)
+        #expect(!restored.isVisible(sidebar))
+        #expect(restored.contributions(windows, at: .activityBar).map(\.id) == ["org.example.services"])
         restored.reconcileContributions([:])
-        restored.reconcileContributions([.database: windows])
-        #expect(restored.contributionPreferences["database.workspace"]?.isHidden == true)
-        restored.customizeContribution("database.workspace", isHidden: false)
+        restored.reconcileContributions([owner: windows])
+        #expect(restored.contributionPreferences[sidebar.rawValue]?.isHidden == true)
+        restored.customizeContribution(sidebar.rawValue, isHidden: false)
         #expect(restored.contributions(windows, at: .activityBar).count == 2)
     }
 
@@ -862,46 +867,6 @@ struct WorkbenchContributionHostTests {
         }
     }
 
-    @Test(arguments: [false, true])
-    func savedServicesWindowActivatesItsOwnerWithoutAnotherEntry(useShow: Bool) async throws {
-        let suite = "lithe-services-restore-" + UUID().uuidString
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let store = MacUserDefaultsStore(defaults: defaults), settings = AppSettings(store: store)
-        let workspace = URL(fileURLWithPath: "/fixture/services-restore")
-        let firstContainer = MacServiceContainer(store: store, settings: settings)
-        defer { firstContainer.moduleLifecycleCoordinator.stop() }
-        let first = AppModel(settings: settings, services: firstContainer.services)
-        try await WorkbenchTestScope.withCleanup({ await first.shutdownProjectSession() }) { scope in
-            first.workspaceSessionCoordinator.beginWorkspace(at: workspace)
-            _ = first.loadWorkbenchLayout(for: workspace)
-            try await scope.run("initial Services activation") {
-                await first.activateDatabaseModule(toolWindow: .databaseServices)
-            }
-            #expect(first.databaseFeatureIfActive != nil)
-            #expect(first.workbenchFeature.isVisible(.databaseServices))
-        }
-        let container = MacServiceContainer(store: store, settings: settings)
-        defer { container.moduleLifecycleCoordinator.stop() }
-        let restored = AppModel(settings: settings, services: container.services)
-        try await WorkbenchTestScope.withCleanup({ await restored.shutdownProjectSession() }) { scope in
-            restored.workspaceSessionCoordinator.beginWorkspace(at: workspace)
-            let layout = restored.loadWorkbenchLayout(for: workspace)
-            let services = try #require(restored.workbenchContributions.first { $0.id == "database.services" })
-            #expect(restored.workbenchFeature.isVisible(.databaseServices))
-            #expect(restored.databaseFeatureIfActive == nil)
-            if useShow { restored.showContributionEntry(services) }
-            else { restored.restoreRegisteredToolWindows(layout.toolWindows?.filter(\.isVisible).map(\.id) ?? []) }
-            let activation = try #require(restored.contributionActivationTasks[services.id])
-            try await scope.run("restored Services activation") { await activation.value }
-            #expect(restored.databaseFeatureIfActive != nil)
-            #expect(restored.workbenchFeature.isVisible(.databaseServices))
-            #expect(!restored.workbenchFeature.isVisible(.database))
-            #expect(restored.workbenchUIRegistry.isContentVisible(for: services, model: restored))
-            #expect(try container.services.moduleRuntime.snapshot(for: .database).isInstantiated)
-        }
-    }
-
     @Test func rebuildJavaIndexIsEnabledOnlyWithAWorkspace() throws {
         let suite = "lithe-rebuild-index-" + UUID().uuidString
         let defaults = try #require(UserDefaults(suiteName: suite))
@@ -1014,45 +979,17 @@ struct WorkbenchContributionHostTests {
         let workbench = WorkbenchFeatureModel()
         let build = DeclarativeBuildSystem(id: "make", displayName: "Make", modelSource: nil, tasks: [], testScopes: [], dependencyScopes: [])
         workbench.reconcileContributions([
-            .database: BuiltInModuleCatalog.contributions(for: .database),
             .agentConversation: BuiltInModuleCatalog.contributions(for: .agentConversation),
             .buildSystemsExtension("org.example.make"): build.contributions(pluginID: "org.example.make", order: 0)])
         let position = DockPosition(anchor: .right, group: .primary)
         let window = WorkbenchFeatureModel.ToolWindow(
             rawValue: DeclarativeBuildSystem.toolWindowID(pluginID: "org.example.make", buildSystemID: "make"))
         // A build system's window docks on the right like the Maven window it replaces.
-        #expect(workbench.tools(in: position) == [.database, .agent, window])
+        #expect(workbench.tools(in: position) == [.agent, window])
         workbench.moveContribution(window.rawValue, earlier: true)
-        #expect(workbench.tools(in: position) == [.database, window, .agent])
+        #expect(workbench.tools(in: position) == [window, .agent])
         workbench.moveContribution(window.rawValue, earlier: false)
-        #expect(workbench.tools(in: position) == [.database, .agent, window])
-    }
-
-    @Test func servicesCommandActivatesDatabaseWithoutOpeningItsSidebar() async throws {
-        let suite = "lithe-ui-services-" + UUID().uuidString
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let store = MacUserDefaultsStore(defaults: defaults)
-        let settings = AppSettings(store: store)
-        let container = MacServiceContainer(store: store, settings: settings)
-        defer { container.moduleLifecycleCoordinator.stop() }
-        let model = AppModel(settings: settings, services: container.services)
-        try await WorkbenchTestScope.withCleanup({ await model.shutdownProjectSession() }) { _ in
-            model.workspaceSessionCoordinator.beginWorkspace(at: URL(fileURLWithPath: "/fixture/workspace"))
-            #expect(model.databaseFeatureIfActive == nil)
-            let services = try #require(model.workbenchContributions.first { $0.id == "database.services" })
-            let opened = TestGate()
-            let observation = model.workbenchFeature.$toolWindowStates.sink { states in
-                if states.contains(where: { $0.id == WorkbenchFeatureModel.ToolWindow.databaseServices.rawValue && $0.isVisible }) { opened.open() }
-            }
-            defer { observation.cancel(); opened.open() }
-            model.workbenchUIRegistry.perform(services, model: model)
-            #expect(await opened.waitUntilOpen(), "Services never completed database activation")
-            #expect(model.databaseFeatureIfActive != nil)
-            #expect(model.workbenchFeature.isVisible(.databaseServices))
-            #expect(!model.workbenchFeature.isVisible(.database))
-            #expect(model.workbenchUIRegistry.selectedToolContent(from: model.activityBarContributions, model: model).rendererID == "database.services")
-        }
+        #expect(workbench.tools(in: position) == [.agent, window])
     }
 
     @Test func duplicateIDsFailBeforeRenderingOrChangingTheRuntime() throws {

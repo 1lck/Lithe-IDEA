@@ -21,8 +21,11 @@ mod progress;
 mod rebase_session;
 mod rewrite;
 mod setup;
+mod untracked_directories;
 
 pub use fetch::{plan as fetch_plan, GitFetchOptions, GitFetchPlanRequest};
+pub(crate) use untracked_directories::UNTRACKED_DIRECTORY_SUMMARY_THRESHOLD;
+pub use untracked_directories::{untracked_directory, GitUntrackedDirectoryRequest};
 
 pub use setup::{
     configure_identity, initialize as initialize_repository, inspect as repository_setup,
@@ -54,10 +57,10 @@ use crate::protocol::{
     GitDiffHunkResponse, GitDiffResponse, GitDiffRowResponse, GitFileResponse, GitFilesResponse,
     GitIntegrationPreflightResponse, GitLineHistoryCommit, GitLineHistoryRange,
     GitLineHistoryResponse, GitLineHistoryUnmappedLine, GitOperationStateResponse,
-    GitPullPreflightResponse, GitPushPreviewResponse, GitPushTagResponse, GitReferenceResponse,
-    GitStashResponse, GitStashesResponse, GitStatusResponse, GitWatchContextResponse,
-    GitWorktreeResponse, GitWorktreesResponse, WorkspaceRepositoriesResponse,
-    WorkspaceRepositoryResponse,
+    GitPullPreflightResponse, GitPushPreviewResponse, GitPushTagResponse, GitPushTargetKind,
+    GitReferenceResponse, GitStashResponse, GitStashesResponse, GitStatusResponse,
+    GitWatchContextResponse, GitWorktreeResponse, GitWorktreesResponse,
+    WorkspaceRepositoriesResponse, WorkspaceRepositoryResponse,
 };
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
@@ -118,6 +121,11 @@ pub struct GitStatusRequest {
     /// Discovered native root bindings used to exclude independently owned untracked paths.
     #[serde(default)]
     pub repository_roots: Vec<String>,
+    /// Report large wholly untracked directories as one entry with
+    /// `untrackedFileCount` instead of one entry per file. Omission preserves
+    /// the file-level `--untracked-files=all` projection.
+    #[serde(default)]
+    pub summarize_untracked_directories: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -425,6 +433,10 @@ pub struct GitPushExpectationRequest {
     pub remote: String,
     /// Destination branch name on the resolved remote.
     pub remote_branch: String,
+    /// Destination relationship recorded by the preview. Optional so an older
+    /// caller that predates target kinds keeps its previous behaviour.
+    #[serde(default)]
+    pub target_kind: Option<GitPushTargetKind>,
     /// Locally observed destination OID, or `None` when the remote branch was absent.
     #[serde(default)]
     pub remote_tracking_oid: Option<String>,
@@ -515,6 +527,10 @@ pub struct GitWriteRequest {
     /// Verify submodule commits are published before a workspace branch push.
     #[serde(default)]
     pub check_submodules: bool,
+    /// Destination the user explicitly confirmed. Required only when the branch
+    /// tracks a divergent upstream; every other destination stays implicit.
+    #[serde(default)]
+    pub push_target: Option<PushTargetChoiceRequest>,
     #[serde(default)]
     pub auto_stash: bool,
     /// Mandatory immutable preview for undo, reword, squash, and drop.
@@ -658,6 +674,11 @@ pub struct GitPushPreviewRequest {
     /// Tag scope to resolve into an immutable preview: `none`, `all`, or `reachable`.
     #[serde(default)]
     pub push_tags: Option<String>,
+    /// Destination the user picked for a divergent upstream. The preview then
+    /// describes that exact remote branch, so a reviewed push can be bound to it.
+    /// Ignored when the branch is not divergent.
+    #[serde(default)]
+    pub push_target: Option<PushTargetChoiceRequest>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1171,10 +1192,24 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
         "createBranch" => {
             let name = validated_branch_name(&root, request.name.as_deref())?;
             let reference = write_request_reference(&root, &request)?;
+            // Creating a branch is not "checking out a remote branch": it must not
+            // inherit an upstream. With Git's default `branch.autoSetupMerge`, a
+            // branch started at `origin/main` would otherwise track `refs/heads/main`,
+            // and the next push would carry the explicit `refs/heads/<name>:refs/heads/main`
+            // refspec straight over the remote main branch (issue #1272). Freezing the
+            // result with `--no-track` keeps it independent of user Git preferences,
+            // matching the worktree creation path. Deliberate upstream setup stays
+            // available through `setUpstream` and the `checkout` path.
             arguments = if request.checkout {
-                vec!["switch".into(), "-c".into(), name, reference]
+                vec![
+                    "switch".into(),
+                    "-c".into(),
+                    name,
+                    "--no-track".into(),
+                    reference,
+                ]
             } else {
-                vec!["branch".into(), name, reference]
+                vec!["branch".into(), "--no-track".into(), name, reference]
             };
         }
         "publishBranch" => {
@@ -1434,6 +1469,7 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
                 request.push_tags.as_deref(),
                 request.expected_push.as_ref(),
                 request.check_submodules,
+                request.push_target,
             );
         }
         "checkout" => return checkout(&root, request),
@@ -1974,6 +2010,13 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
     }
 
     let include_untracked_with_reference = reference.is_some() && request.untracked;
+    // `diff --no-index` compares one file with another, so an untracked
+    // directory summary is diffed as the untracked files below it.
+    let expands_untracked_directories = reference.is_none()
+        && request.commit.is_none()
+        && request.untracked
+        && request.pathspecs.iter().any(|path| path.ends_with('/'));
+    let lists_untracked_paths = include_untracked_with_reference || expands_untracked_directories;
     let mut arguments = if let Some(commit) = request.commit {
         validate_revision(&commit)?;
         vec![
@@ -2019,8 +2062,16 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
     arguments.extend(request.pathspecs.clone());
 
     let root = validate_root(&request.root)?;
-    let mut output = capture_git_with_options(&root, &arguments, None, true)?;
-    if include_untracked_with_reference {
+    let mut output = if expands_untracked_directories {
+        GitProcessOutput {
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+            exit_code: 0,
+        }
+    } else {
+        capture_git_with_options(&root, &arguments, None, true)?
+    };
+    if lists_untracked_paths {
         let untracked_paths = readonly_command(GitCommandRequest {
             root: root.clone(),
             arguments: vec![
@@ -2043,7 +2094,19 @@ pub fn diff(request: GitDiffRequest) -> Result<GitDiffResponse, CoreError> {
             .with_details(untracked_paths.output));
         }
         for path in untracked_paths.stdout.split('\0') {
-            if path.is_empty() || !is_safe_pathspec(path) {
+            if path.is_empty() {
+                continue;
+            }
+            if !is_safe_pathspec(path) {
+                // Shelve cleans a whole summarized directory after saving this
+                // patch, so a file it cannot export must fail the diff rather
+                // than be dropped from the patch and then deleted.
+                if expands_untracked_directories {
+                    return Err(CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Git diff cannot export an untracked file with an unsupported name",
+                    ));
+                }
                 continue;
             }
             let mut untracked_arguments = vec![
@@ -5539,7 +5602,13 @@ fn discard_all(root: &str, paths: &[String]) -> Result<GitCommandResponse, CoreE
         .filter_map(|record| record.strip_prefix("?? "))
         .collect::<HashSet<_>>();
     for path in paths {
-        if untracked_paths.contains(path.as_str()) {
+        // A summarized untracked directory (`dir/`) is reported file by file.
+        let is_untracked = untracked_paths.contains(path.as_str())
+            || (path.ends_with('/')
+                && untracked_paths
+                    .iter()
+                    .any(|untracked| untracked.starts_with(path.as_str())));
+        if is_untracked {
             untracked.push(path.clone());
         } else {
             tracked.push(path.clone());
@@ -5804,8 +5873,18 @@ fn find_stash_reference(root: &str, message: &str) -> Result<Option<String>, Cor
 struct PushTarget {
     local_branch: String,
     remote: String,
+    /// Remote branch the push updates. For a divergent upstream this follows the
+    /// confirmed choice, so previews, expectation checks, leases and refspecs all
+    /// describe the same branch.
     remote_branch: String,
+    /// Relationship between the local branch and its upstream; independent of the
+    /// confirmed choice.
+    target_kind: PushTargetKind,
+    /// Whether the destination branch does not exist on the remote yet.
+    creates_remote_branch: bool,
     upstream: Option<String>,
+    /// Branch name of a divergent upstream on `remote`; `None` for every other kind.
+    divergent_upstream_branch: Option<String>,
     comparison_reference: Option<String>,
 }
 
@@ -5828,7 +5907,7 @@ pub fn push_preview(request: GitPushPreviewRequest) -> Result<GitPushPreviewResp
             .map(|reference| validated_reference(Some(reference)))
             .transpose()?
     };
-    let target = resolve_push_target(&root, reference.as_deref())?;
+    let target = resolve_push_target(&root, reference.as_deref(), request.push_target)?;
     let limit = request.limit.clamp(1, 5_000);
     let local_reference = format!("refs/heads/{}", target.local_branch);
     let local_head = resolve_commit_revision(&root, &local_reference)?;
@@ -5861,12 +5940,45 @@ pub fn push_preview(request: GitPushPreviewRequest) -> Result<GitPushPreviewResp
         local_head,
         remote: target.remote,
         remote_branch: target.remote_branch,
+        target_kind: target.target_kind.as_contract(),
+        creates_remote_branch: target.creates_remote_branch,
         remote_tracking_oid,
         upstream: target.upstream,
         tags,
         commits,
         has_more,
     })
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Destination the user explicitly confirmed for a push.
+///
+/// Only a divergent upstream requires this: the usual same-named destination stays
+/// implicit so routine pushes keep their current interaction cost.
+pub enum PushTargetChoiceRequest {
+    /// Publish the local branch to the same-named remote branch.
+    Publish,
+    /// Keep using the existing upstream branch, even though its name differs.
+    Upstream,
+}
+
+/// Rejection for a divergent upstream that no caller confirmed. The message names
+/// the command that unblocks a client without a destination picker, because the
+/// native macOS push does not offer one yet.
+fn push_destination_needs_confirmation(
+    local_branch: &str,
+    remote: &str,
+    upstream: &str,
+) -> CoreError {
+    CoreError::new(
+        ErrorCode::InvalidRequest,
+        format!(
+            "Push destination needs confirmation: '{local_branch}' tracks '{upstream}', which has a different name. \
+             Run `git push -u {remote} {local_branch}` to publish it under its own name, \
+             or confirm the destination in a client that offers the choice."
+        ),
+    )
 }
 
 fn push(
@@ -5876,6 +5988,7 @@ fn push(
     push_tags: Option<&str>,
     expected_push: Option<&GitPushExpectationRequest>,
     check_submodules: bool,
+    push_target: Option<PushTargetChoiceRequest>,
 ) -> Result<GitCommandResponse, CoreError> {
     let tag_scope = push_tags.unwrap_or("none");
     let tag_argument = match tag_scope {
@@ -5889,11 +6002,28 @@ fn push(
             ))
         }
     };
-    let target = resolve_push_target(root, reference)?;
-    let should_set_upstream = target.upstream.is_none();
+    // Issue #1272: the effective destination is resolved once, with the caller's
+    // confirmed choice, by the same function the preview uses. A reviewed push is
+    // therefore compared against exactly the branch the user was shown.
+    let target = resolve_push_target(root, reference, push_target)?;
+    if target.target_kind == PushTargetKind::Divergent && push_target.is_none() {
+        return Err(push_destination_needs_confirmation(
+            &target.local_branch,
+            &target.remote,
+            target.upstream.as_deref().unwrap_or_default(),
+        ));
+    }
     if let Some(expected_push) = expected_push {
         validate_push_expectation(root, &target, tag_scope, expected_push)?;
     }
+    // Only an upstream that was missing or deliberately replaced is repointed after
+    // a successful push. Confirming "upstream" keeps the foreign branch name and
+    // leaves the user's tracking configuration untouched.
+    let should_set_upstream = match target.target_kind {
+        PushTargetKind::Tracking => false,
+        PushTargetKind::Publish => target.upstream.is_none(),
+        PushTargetKind::Divergent => push_target == Some(PushTargetChoiceRequest::Publish),
+    };
     let mut arguments = vec!["push".to_string()];
     if check_submodules {
         arguments.push("--recurse-submodules=check".into());
@@ -6375,11 +6505,21 @@ fn validate_push_expectation(
         .iter()
         .map(|tag| (&tag.full_name, &tag.object_id))
         .collect::<Vec<_>>();
+    // A reviewed push records the destination relationship too, so a branch that
+    // started tracking `main` after the preview cannot slip through the check.
+    // `targetKind` is compared only when the caller supplied it: a caller that
+    // predates target kinds keeps its previous behaviour instead of being rejected
+    // as stale.
+    let target_kind_changed = expected
+        .target_kind
+        .as_ref()
+        .is_some_and(|kind| *kind != target.target_kind.as_contract());
     if expected.local_branch != target.local_branch
         || expected.local_head != local_head
         || expected.remote != target.remote
         || expected.remote_branch != target.remote_branch
         || expected.remote_tracking_oid != remote_tracking_oid
+        || target_kind_changed
         || expected_tags != actual_tags
     {
         return Err(CoreError::new(
@@ -6463,7 +6603,16 @@ fn resolve_push_tags(
     Ok(tags)
 }
 
-fn resolve_push_target(root: &str, reference: Option<&str>) -> Result<PushTarget, CoreError> {
+/// Resolves the single destination used by both `pushPreview` and `push`.
+///
+/// `choice` only matters for a divergent upstream. Keeping the preview and the push
+/// on this one function is what lets a reviewed push compare the exact remote
+/// branch, tracking OID and lease the user was shown.
+fn resolve_push_target(
+    root: &str,
+    reference: Option<&str>,
+    choice: Option<PushTargetChoiceRequest>,
+) -> Result<PushTarget, CoreError> {
     let local_branch = match reference {
         Some(reference) => local_branch_name(&validated_reference(Some(reference))?)?,
         None => current_branch(root)?,
@@ -6503,11 +6652,28 @@ fn resolve_push_target(root: &str, reference: Option<&str>) -> Result<PushTarget
         .unwrap_or_else(|| default_push_remote_name(root))?;
     validate_push_component(&remote)?;
 
-    let remote_branch = upstream_components
+    // The upstream only identifies a destination when it lives on the remote this
+    // push actually targets. A `pushRemote`/`remote.pushDefault` override therefore
+    // falls back to the same-named branch on the selected remote.
+    let upstream_branch = upstream_components
         .as_ref()
         .filter(|(upstream_remote, _)| upstream_remote == &remote)
-        .map(|(_, branch)| branch.clone())
-        .unwrap_or_else(|| local_branch.clone());
+        .map(|(_, branch)| branch.clone());
+    let (target_kind, remote_branch, divergent_upstream_branch) = match upstream_branch {
+        // Issue #1272: a divergent upstream means pushing would update a different
+        // branch, so it is never the implicit destination. The same-named branch is
+        // reported while the choice is pending only so a client can describe it;
+        // `push` refuses to use it until a choice is confirmed.
+        Some(branch) if branch != local_branch => {
+            let remote_branch = match choice {
+                Some(PushTargetChoiceRequest::Upstream) => branch.clone(),
+                Some(PushTargetChoiceRequest::Publish) | None => local_branch.clone(),
+            };
+            (PushTargetKind::Divergent, remote_branch, Some(branch))
+        }
+        Some(branch) => (PushTargetKind::Tracking, branch, None),
+        None => (PushTargetKind::Publish, local_branch.clone(), None),
+    };
     let target_reference = format!("refs/remotes/{remote}/{remote_branch}");
     let comparison_reference = if reference_exists(root, &target_reference)? {
         Some(target_reference)
@@ -6519,9 +6685,85 @@ fn resolve_push_target(root: &str, reference: Option<&str>) -> Result<PushTarget
         local_branch,
         remote,
         remote_branch,
+        target_kind,
+        creates_remote_branch: comparison_reference.is_none(),
         upstream,
+        divergent_upstream_branch,
         comparison_reference,
     })
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// A branch whose upstream has a different name and therefore needs the user's
+/// choice before anything is pushed.
+pub struct DivergentPushDestination {
+    /// Short name of the local branch being pushed.
+    pub local_branch: String,
+    /// Remote that both choices target; the upstream lives on it.
+    pub remote: String,
+    /// Upstream short name such as `origin/release`.
+    pub upstream: String,
+    /// Branch name of the upstream on `remote`, which may itself contain slashes.
+    pub upstream_branch: String,
+}
+
+impl DivergentPushDestination {
+    /// Remote branch that a confirmed `choice` updates.
+    pub(crate) fn remote_branch_for(&self, choice: PushTargetChoiceRequest) -> &str {
+        match choice {
+            PushTargetChoiceRequest::Publish => &self.local_branch,
+            PushTargetChoiceRequest::Upstream => &self.upstream_branch,
+        }
+    }
+}
+
+/// Reports whether pushing `reference` needs a destination choice, using the same
+/// resolution as `push` so a plan can ask before it commits anything.
+pub(crate) fn divergent_push_destination(
+    root: &str,
+    reference: &str,
+) -> Result<Option<DivergentPushDestination>, CoreError> {
+    let target = resolve_push_target(root, Some(reference), None)?;
+    Ok(
+        match (
+            target.target_kind,
+            target.upstream,
+            target.divergent_upstream_branch,
+        ) {
+            (PushTargetKind::Divergent, Some(upstream), Some(upstream_branch)) => {
+                Some(DivergentPushDestination {
+                    local_branch: target.local_branch,
+                    remote: target.remote,
+                    upstream,
+                    upstream_branch,
+                })
+            }
+            _ => None,
+        },
+    )
+}
+
+/// Push destination relationship, mirroring [`GitPushTargetKind`] inside Core.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PushTargetKind {
+    /// No upstream on the selected remote; publish to the same-named branch.
+    Publish,
+    /// Upstream and local branch share a name.
+    Tracking,
+    /// Upstream branch name differs from the local branch name.
+    Divergent,
+}
+
+impl PushTargetKind {
+    /// Contract representation returned to callers.
+    fn as_contract(self) -> GitPushTargetKind {
+        match self {
+            Self::Publish => GitPushTargetKind::Publish,
+            Self::Tracking => GitPushTargetKind::Tracking,
+            Self::Divergent => GitPushTargetKind::Divergent,
+        }
+    }
 }
 
 fn read_git_config_value(root: &str, key: &str) -> Result<Option<String>, CoreError> {
@@ -7642,6 +7884,14 @@ pub fn status(request: GitStatusRequest) -> Result<GitStatusResponse, CoreError>
         .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
         .filter(|branch| !branch.is_empty())
         .or_else(|| Some("detached".to_string()));
+    // `normal` lets Git stop at each wholly untracked directory instead of
+    // enumerating every file below it; the projection below restores file
+    // entries for directories that are small or contain nested repositories.
+    let untracked_files = if request.summarize_untracked_directories {
+        "--untracked-files=normal"
+    } else {
+        "--untracked-files=all"
+    };
     let status_output = run_git(
         &repository_root,
         &[
@@ -7651,7 +7901,7 @@ pub fn status(request: GitStatusRequest) -> Result<GitStatusResponse, CoreError>
             "--porcelain=v2",
             "--ignore-submodules=none",
             "-z",
-            "--untracked-files=all",
+            untracked_files,
         ],
     )?;
     if !status_output.status.success() {
@@ -7661,23 +7911,14 @@ pub fn status(request: GitStatusRequest) -> Result<GitStatusResponse, CoreError>
         );
     }
     let mut changes = parse_status(&status_output.stdout, request.include_index_only_changes);
-    // Native bindings may use macOS /var aliases or Windows short/verbatim
-    // paths. Compare the same canonical identity as Git's reported root.
-    let known_roots = request
-        .repository_roots
-        .iter()
-        .map(|root| canonicalize_or_original(Path::new(root)).map_err(git_path_error))
-        .collect::<Result<Vec<_>, _>>()?;
-    // An embedded independent repository must not become a gitlink through a
-    // parent Stage All. Gitlinks already tracked by the parent remain visible.
-    changes.retain(|change| {
-        !change.untracked
-            || !known_roots.iter().any(|other| {
-                other != &repository_root
-                    && other.starts_with(&repository_root)
-                    && repository_root.join(&change.path).starts_with(other)
-            })
-    });
+    if request.summarize_untracked_directories {
+        changes = untracked_directories::expand_collapsed_directories(&repository_root, changes)?;
+    }
+    untracked_directories::retain_outside_known_roots(
+        &mut changes,
+        &repository_root,
+        &request.repository_roots,
+    )?;
     let (ahead, behind) = tracking_counts(&repository_root);
     Ok(GitStatusResponse {
         repository_root: Some(relative_or_absolute(&repository_root, &root)),
@@ -7883,6 +8124,7 @@ fn parse_status(output: &[u8], include_index_only_changes: bool) -> Vec<GitChang
             worktree: y != ' ' && y != '?',
             untracked: x == '?' && y == '?',
             submodule,
+            untracked_file_count: None,
         });
     }
     changes.sort_by(|left, right| left.path.cmp(&right.path));
@@ -7912,8 +8154,8 @@ mod tests {
     };
     use crate::protocol::{
         CoreError, ErrorCode, GitCommitLookupResponse, GitCommitResponse, GitHistoryPageResponse,
-        GitHistoryResponse, GitPushPreviewResponse, GitPushTagResponse, GitReferenceResponse,
-        GitReferencesResponse,
+        GitHistoryResponse, GitPushPreviewResponse, GitPushTagResponse, GitPushTargetKind,
+        GitReferenceResponse, GitReferencesResponse,
     };
     use serde_json::Value;
     use std::path::PathBuf;
@@ -8628,6 +8870,8 @@ mod tests {
             local_head: "2222222222222222222222222222222222222222".into(),
             remote: "origin".into(),
             remote_branch: "feature/core".into(),
+            target_kind: GitPushTargetKind::Tracking,
+            creates_remote_branch: false,
             remote_tracking_oid: Some("1111111111111111111111111111111111111111".into()),
             upstream: Some("origin/feature/core".into()),
             tags: vec![GitPushTagResponse {

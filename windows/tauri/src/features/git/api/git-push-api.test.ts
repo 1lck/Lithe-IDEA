@@ -9,6 +9,8 @@ const invoke = mock(async (command: string): Promise<unknown> => {
       localHead: "2222222222222222222222222222222222222222",
       remote: "origin",
       remoteBranch: "feature/push",
+      targetKind: "tracking",
+      createsRemoteBranch: false,
       remoteTrackingOid: "1111111111111111111111111111111111111111",
       tags: [],
       upstream: "origin/feature/push",
@@ -95,6 +97,71 @@ describe("Git push API", () => {
       repoPath: "C:/repo",
       scopes: ["history", "refs", "remotes"],
       source: "force-push",
+    });
+  });
+
+  test("previews the destination that a divergent choice would update", async () => {
+    await getGitPushPreview("C:/repo", "feature/topic", "none", "upstream");
+
+    expect(invoke).toHaveBeenCalledWith("git.pushPreview", {
+      repoPath: "C:/repo",
+      reference: "refs/heads/feature/topic",
+      pushTags: "none",
+      pushTarget: "upstream",
+    });
+  });
+
+  test("omits pushTarget for a routine same-named push", async () => {
+    await executeGitPush("C:/repo", {
+      reference: "feature/push",
+      expectedPush: {
+        localBranch: "feature/push",
+        localHead: "2222222222222222222222222222222222222222",
+        remote: "origin",
+        remoteBranch: "feature/push",
+        targetKind: "tracking",
+        remoteTrackingOid: "1111111111111111111111111111111111111111",
+        tags: [],
+      },
+    });
+
+    const calls = invoke.mock.calls as unknown as [string, Record<string, unknown>][];
+    const payload = calls[calls.length - 1][1];
+    expect(payload).not.toHaveProperty("pushTarget");
+    expect(payload.operation).toBe("push");
+  });
+
+  test("forwards the confirmed destination for a divergent branch", async () => {
+    await executeGitPush("C:/repo", {
+      reference: "feature/topic",
+      expectedPush: {
+        localBranch: "feature/topic",
+        localHead: "2222222222222222222222222222222222222222",
+        remote: "origin",
+        remoteBranch: "feature/topic",
+        targetKind: "divergent",
+        remoteTrackingOid: "1111111111111111111111111111111111111111",
+        tags: [],
+      },
+      pushTarget: "publish",
+    });
+
+    expect(invoke).toHaveBeenCalledWith("git.write", {
+      repoPath: "C:/repo",
+      operation: "push",
+      reference: "refs/heads/feature/topic",
+      pushTarget: "publish",
+      expectedPush: {
+        localBranch: "feature/topic",
+        localHead: "2222222222222222222222222222222222222222",
+        remote: "origin",
+        remoteBranch: "feature/topic",
+        targetKind: "divergent",
+        remoteTrackingOid: "1111111111111111111111111111111111111111",
+        tags: [],
+      },
+      force: false,
+      pushTags: "none",
     });
   });
 });

@@ -25,6 +25,25 @@ function normalizeStatus(status: string, untracked: boolean): string {
   return "modified";
 }
 
+/** Projects one Core status change into the Windows file shape. */
+function adaptStatusChange(change: JsonRecord) {
+  return {
+    path: change.path,
+    ...(typeof change.originalPath === "string" ? { originalPath: change.originalPath } : {}),
+    status: normalizeStatus(String(change.status ?? ""), Boolean(change.untracked)),
+    staged: Boolean(change.staged),
+    rawStatus: String(change.status ?? ""),
+    ...(typeof change.canToggleStaging === "boolean"
+      ? { canToggleStaging: change.canToggleStaging }
+      : {}),
+    ...(change.submodule ? { submodule: change.submodule } : {}),
+    worktree: Boolean(change.worktree),
+    ...(typeof change.untrackedFileCount === "number"
+      ? { untrackedFileCount: change.untrackedFileCount }
+      : {}),
+  };
+}
+
 function adaptStructuredSplitHunks(value: unknown): GitDiffSplitRow[][] {
   if (!Array.isArray(value)) return [];
 
@@ -151,21 +170,12 @@ export function adaptCoreResult<T>(
                 (change: JsonRecord) =>
                   args?.includeIndexOnlyChanges || String(change.status ?? "") !== "AD",
               )
-              .map((change: JsonRecord) => ({
-                path: change.path,
-                ...(typeof change.originalPath === "string"
-                  ? { originalPath: change.originalPath }
-                  : {}),
-                status: normalizeStatus(String(change.status ?? ""), Boolean(change.untracked)),
-                staged: Boolean(change.staged),
-                rawStatus: String(change.status ?? ""),
-                ...(typeof change.canToggleStaging === "boolean"
-                  ? { canToggleStaging: change.canToggleStaging }
-                  : {}),
-                ...(change.submodule ? { submodule: change.submodule } : {}),
-                worktree: Boolean(change.worktree),
-              }))
+              .map(adaptStatusChange)
           : [],
+      } as T;
+    case "git.untrackedDirectory":
+      return {
+        files: Array.isArray(data.changes) ? data.changes.map(adaptStatusChange) : [],
       } as T;
     case "git_log":
       return {

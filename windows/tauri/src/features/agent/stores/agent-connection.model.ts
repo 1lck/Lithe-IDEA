@@ -40,6 +40,8 @@ import {
   type AgentSubscriptionQuota,
 } from "../types/agent.types";
 import { parseTurnUsage, startTurn } from "../types/agent-turn-statistics";
+import { addModelCall, childSubtree, finishChildren, parseModelCall, parseNotice, retainSubagentHistory, terminalChild, updateChild, type AgentNotice } from "../types/agent-observations";
+import { contextModels, type AgentStatisticsStore } from "../types/agent-session-statistics";
 import type {
   AgentLaunchConfiguration,
   AgentTransport,
@@ -107,6 +109,12 @@ export interface AgentConnectionSnapshot {
   agentName: string | null;
   agentVersion: string | null;
   sessions: AgentSessionSummary[];
+  archivedSessions: AgentSessionSummary[];
+  canListArchivedSessions: boolean;
+  isRefreshingArchivedSessions: boolean;
+  archivedHistoryComplete: boolean;
+  archivedHistoryError: string | null;
+  unarchivingSessionIDs: string[];
   selectedSessionID: string | null;
   conversations: Record<string, AgentConversation>;
   openSessionIDs: string[];
@@ -136,6 +144,12 @@ function emptySnapshot(): AgentConnectionSnapshot {
     agentName: null,
     agentVersion: null,
     sessions: [],
+    archivedSessions: [],
+    canListArchivedSessions: false,
+    isRefreshingArchivedSessions: false,
+    archivedHistoryComplete: true,
+    archivedHistoryError: null,
+    unarchivingSessionIDs: [],
     selectedSessionID: null,
     conversations: {},
     openSessionIDs: [],
@@ -161,6 +175,11 @@ export class AgentConnectionModel {
   private connectPromise: Promise<void> | null = null;
   private canListSessions = false;
   private nextToken = 0;
+  private retryTurnIDs = new Map<string, Set<string>>();
+  private retiredTurnIDs = new Set<string>();
+  private isClaude = false;
+  private pendingModeNotices = new Map<string, AgentNotice>();
+  private fallbackTransitions = new Map<string, string | null>();
   /** Prompts waiting for a session: keyed by new-session token or session id. */
   private queuedPrompts = new Map<string, AgentPrompt>();
   /** Supplementary input keyed by session, awaiting the host acknowledgement. */
@@ -188,6 +207,14 @@ export class AgentConnectionModel {
    */
   private unpromptedSessionIDs = new Set<string>();
   private historyRefreshToken: string | null = null;
+  private archivedRefreshToken: string | null = null;
+  private historyFreshAt: number | null = null;
+  private archivedFreshAt: number | null = null;
+  private historyActivityRevision = 0;
+  private historyRequestRevision = 0;
+  private listedSessions: AgentSessionSummary[] = [];
+  private unarchiveTokens = new Map<string, string>();
+  private unarchiveWaiters = new Map<string, (restored: boolean) => void>();
   private stale = false;
   private snapshot: AgentConnectionSnapshot;
 
@@ -198,6 +225,8 @@ export class AgentConnectionModel {
     transport: AgentTransport,
     scheduler: AgentFlushScheduler = defaultScheduler(),
     now: () => number = () => performance.now(),
+    private readonly onSessionCreated?: (sessionID: string) => void,
+    private readonly statisticsStore?: AgentStatisticsStore,
   ) {
     this.transport = transport;
     this.scheduler = scheduler;
@@ -225,6 +254,17 @@ export class AgentConnectionModel {
     this.loadBackups.clear();
     this.unpromptedSessionIDs.clear();
     this.historyRefreshToken = null;
+    this.archivedRefreshToken = null;
+    this.historyFreshAt = null;
+    this.archivedFreshAt = null;
+    this.unarchiveTokens.clear();
+    this.listedSessions = [];
+    for (const resolve of this.unarchiveWaiters.values()) resolve(false);
+    this.unarchiveWaiters.clear();
+    this.retryTurnIDs.clear();
+    this.retiredTurnIDs.clear();
+    this.pendingModeNotices.clear();
+    this.fallbackTransitions.clear();
     this.stale = false;
     this.update(emptySnapshot());
   }
@@ -261,6 +301,11 @@ export class AgentConnectionModel {
         pendingConfigToken: null,
         pendingSteeringToken: null,
         pendingPermissions: [],
+        quiet: false,
+        retry: null,
+        stagedConfig: {},
+        notices: [],
+        subagents: finishChildren(conversation.subagents),
         messages: conversation.messages.map((message) =>
           message.delivery === "sending"
             ? { ...message, delivery: { failed: "The Agent connection closed." } }
@@ -268,12 +313,16 @@ export class AgentConnectionModel {
         ),
       };
     }
+    this.listedSessions = [...snapshot.sessions];
     this.update({
       ...snapshot,
       conversations,
       connectionState: { status: "idle" },
       errorMessage: null,
       canLoadSessions: false,
+      canListArchivedSessions: false,
+      isRefreshingArchivedSessions: false,
+      unarchivingSessionIDs: [],
       isRefreshingSessions: false,
       isCreatingSession: false,
       pendingNewConversationPrompt: null,
@@ -304,7 +353,37 @@ export class AgentConnectionModel {
   }
 
   private setConversation(sessionID: string, conversation: AgentConversation): void {
+    if (conversation.activeTurn !== null && !conversation.isLoading) {
+      const previous = conversation.toolActivity ?? { ids: [], activeSince: null, durationMs: 0 };
+      const busy = conversation.pendingPermissions.length > 0 || conversation.messages.some((message) =>
+        message.role === "tool" && (message.toolStatus === "pending" || message.toolStatus === "in_progress"));
+      const now = this.now();
+      conversation = { ...conversation, toolActivity: { ...previous,
+        activeSince: busy ? previous.activeSince ?? now : null,
+        durationMs: previous.durationMs + (!busy && previous.activeSince !== null ? Math.max(0, now - previous.activeSince) : 0),
+      } };
+    }
+    if (!conversation.isLoading) {
+      if (conversation.isAttached) conversation = { ...conversation, statistics: {
+        ...conversation.statistics, contextUsage: conversation.contextUsage,
+        contextModels: contextModels(conversation.configOptions),
+      } };
+      this.statisticsStore?.write(sessionID, conversation.statistics);
+    }
     this.update({ conversations: { ...this.snapshot.conversations, [sessionID]: conversation } });
+  }
+
+  private freshConversation(sessionID: string): AgentConversation {
+    const conversation = createConversation();
+    conversation.statistics = this.statisticsStore?.read(sessionID) ?? conversation.statistics;
+    return conversation;
+  }
+
+  acknowledgeEdits(sessionID: string, path: string, versions: string[]): void {
+    if (!this.snapshot.conversations[sessionID]) return;
+    this.editConversation(sessionID, (conversation) => ({ ...conversation,
+      reviewedEdits: { ...conversation.reviewedEdits, [path]: versions },
+    }));
   }
 
   /** Mutate one conversation, creating it when the agent reports it first. */
@@ -312,7 +391,7 @@ export class AgentConnectionModel {
     sessionID: string,
     edit: (conversation: AgentConversation) => AgentConversation,
   ): void {
-    this.setConversation(sessionID, edit(this.snapshot.conversations[sessionID] ?? createConversation()));
+    this.setConversation(sessionID, edit(this.snapshot.conversations[sessionID] ?? this.freshConversation(sessionID)));
   }
 
   private makeToken(): string {
@@ -328,6 +407,7 @@ export class AgentConnectionModel {
     if (this.closePromise !== null) {
       throw new AgentConnectionBusyError("The Agent session is still stopping.");
     }
+    this.isClaude = configuration.agentId === "claude-acp";
     const pending = this.openConnection(configuration).finally(() => {
       if (this.connectPromise === pending) this.connectPromise = null;
     });
@@ -421,15 +501,41 @@ export class AgentConnectionModel {
     return this.canListSessions && this.snapshot.connectionState.status === "ready";
   }
 
-  refreshSessions(): void {
+  refreshSessions(force = false): void {
     if (!this.canRefreshSessions || this.snapshot.isRefreshingSessions) return;
+    if (!force && this.historyFreshAt !== null && this.now() - this.historyFreshAt < 30_000) return;
     const token = this.makeToken();
     this.historyRefreshToken = token;
+    this.historyRequestRevision = this.historyActivityRevision;
+    this.historyFreshAt = null;
     this.update({ isRefreshingSessions: true, historyError: null });
     if (!this.sendCommand({ kind: "listSessions", token })) {
       this.historyRefreshToken = null;
       this.update({ isRefreshingSessions: false, historyError: this.snapshot.errorMessage });
     }
+  }
+
+  refreshArchivedSessions(force = false): void {
+    if (!this.snapshot.canListArchivedSessions || this.snapshot.connectionState.status !== "ready" || this.archivedRefreshToken !== null) return;
+    if (!force && this.archivedFreshAt !== null && this.now() - this.archivedFreshAt < 30_000) return;
+    const token = this.makeToken();
+    this.archivedRefreshToken = token;
+    this.archivedFreshAt = null;
+    this.update({ isRefreshingArchivedSessions: true, archivedHistoryError: null });
+    if (!this.sendCommand({ kind: "listArchivedSessions", token })) {
+      this.archivedRefreshToken = null;
+      this.update({ isRefreshingArchivedSessions: false, archivedHistoryError: this.snapshot.errorMessage });
+    }
+  }
+
+  unarchiveSession(sessionID: string): Promise<boolean> {
+    if (!this.snapshot.canListArchivedSessions || this.snapshot.connectionState.status !== "ready" || !this.snapshot.archivedSessions.some((session) => session.id === sessionID) || this.snapshot.unarchivingSessionIDs.includes(sessionID)) return Promise.resolve(false);
+    const token = this.makeToken();
+    const result = new Promise<boolean>((resolve) => this.unarchiveWaiters.set(token, resolve));
+    this.unarchiveTokens.set(token, sessionID);
+    this.update({ unarchivingSessionIDs: [...this.unarchiveTokens.values()], archivedHistoryError: null });
+    if (!this.sendCommand({ kind: "unarchiveSession", token, sessionId: sessionID })) this.requestFailed(token, sessionID, this.snapshot.errorMessage ?? "Could not restore the conversation.");
+    return result;
   }
 
   /**
@@ -702,6 +808,11 @@ export class AgentConnectionModel {
     this.sendCommand({ kind: "permission", requestId: permission.id, optionId: optionID });
   }
 
+  dismissNotice(sessionID: string, noticeID: string): void {
+    if (this.snapshot.conversations[sessionID] === undefined) return;
+    this.editConversation(sessionID, (current) => ({ ...current, notices: current.notices.filter((notice) => notice.id !== noticeID) }));
+  }
+
   setConfigOption(id: string, value: string): void {
     const sessionID = this.snapshot.selectedSessionID;
     if (sessionID === null) return;
@@ -710,15 +821,22 @@ export class AgentConnectionModel {
     const option = conversation.configOptions.find((entry) => entry.id === id);
     if (
       !conversation.isAttached ||
-      conversation.isResponding ||
       conversation.isLoading ||
+      conversation.isCancelling ||
       conversation.pendingConfigToken !== null ||
       option === undefined ||
-      option.currentValue === value ||
       !option.choices.some((choice) => choice.id === value)
     ) {
       return;
     }
+    if (conversation.isResponding) {
+      const stagedConfig = { ...conversation.stagedConfig };
+      if (option.currentValue === value) delete stagedConfig[id];
+      else stagedConfig[id] = value;
+      this.editConversation(sessionID, (current) => ({ ...current, stagedConfig, configurationError: null }));
+      return;
+    }
+    if (option.currentValue === value) return;
     const token = this.makeToken();
     this.editConversation(sessionID, (current) => ({
       ...current,
@@ -746,6 +864,33 @@ export class AgentConnectionModel {
     const sessionID = asString(event.sessionId);
     const token = asString(event.token);
     switch (kind) {
+      case "turnRetrying": {
+        if (sessionID === null || typeof event.turnId !== "string" || this.retiredTurnIDs.has(event.turnId)) return;
+        const current = this.snapshot.conversations[sessionID];
+        if (!current?.isResponding || current.isCancelling || typeof event.attempt !== "number" || !Number.isInteger(event.attempt) || event.attempt < 2) return;
+        const ids = this.retryTurnIDs.get(sessionID) ?? new Set<string>();
+        ids.add(event.turnId);
+        this.retryTurnIDs.set(sessionID, ids);
+        this.editConversation(sessionID, (view) => ({ ...view, retry: { turnID: event.turnId as string, attempt: event.attempt as number, maxAttempts: typeof event.maxAttempts === "number" && event.maxAttempts >= (event.attempt as number) ? event.maxAttempts : null } }));
+        return;
+      }
+      case "turnActivity":
+        if (sessionID !== null && this.snapshot.conversations[sessionID]?.isResponding && typeof event.quiet === "boolean") {
+          this.editConversation(sessionID, (current) => ({ ...current, quiet: event.quiet as boolean }));
+        }
+        return;
+      case "modelCall": {
+        if (sessionID === null) return;
+        const current = this.snapshot.conversations[sessionID];
+        const call = parseModelCall(event.call);
+        if (current === undefined || current.isLoading || call === null) return;
+        this.editConversation(sessionID, (view) => ({ ...view,
+          statistics: { ...view.statistics, calls: addModelCall(view.statistics.calls, call) },
+          modelCalls: [...view.modelCalls, call],
+          activeTurn: event.afterTurnFinished === true || view.activeTurn === null ? view.activeTurn : { ...view.activeTurn, modelCalls: [...view.activeTurn.modelCalls, call] },
+        }));
+        return;
+      }
       case "authenticationRequired":
         if (!this.snapshot.usesSubscription) return;
         this.update({ connectionState: { status: "authenticationRequired" } });
@@ -793,8 +938,10 @@ export class AgentConnectionModel {
           agentVersion: asString(event.agentVersion),
           canLoadSessions: event.canLoadSessions === true,
           canSteer: event.canSteer === true,
+          canListArchivedSessions: event.canListArchivedSessions === true,
         });
         this.refreshSessions();
+        this.refreshArchivedSessions();
         return;
       case "steeringResult": {
         if (sessionID === null || token === null) return;
@@ -829,11 +976,47 @@ export class AgentConnectionModel {
             return;
         }
       }
+      case "sessionsPage":
       case "sessions": {
         if (!this.snapshot.isRefreshingSessions || token !== this.historyRefreshToken) return;
-        this.mergeSessions(Array.isArray(event.sessions) ? event.sessions : []);
+        this.mergeSessions(Array.isArray(event.sessions) ? event.sessions : [], kind === "sessionsPage");
+        if (kind === "sessionsPage") return;
         this.historyRefreshToken = null;
+        // A scan crossing a completed turn cannot certify the new recency order.
+        this.historyFreshAt = this.historyRequestRevision === this.historyActivityRevision ? this.now() : null;
         this.update({ isRefreshingSessions: false });
+        return;
+      }
+      case "archivedSessions": {
+        if (token === null || token !== this.archivedRefreshToken) return;
+        const archivedSessions = this.parseSessions(Array.isArray(event.sessions) ? event.sessions : []);
+        this.archivedRefreshToken = null;
+        this.archivedFreshAt = event.complete !== false ? this.now() : null;
+        this.update({ archivedSessions, isRefreshingArchivedSessions: false, archivedHistoryComplete: event.complete !== false });
+        this.reconcileSessions();
+        return;
+      }
+      case "sessionUnarchived": {
+        if (token === null || sessionID === null || this.unarchiveTokens.get(token) !== sessionID) return;
+        const restored = this.snapshot.archivedSessions.find((session) => session.id === sessionID);
+        this.unarchiveTokens.delete(token);
+        this.update({ archivedSessions: this.snapshot.archivedSessions.filter((session) => session.id !== sessionID), unarchivingSessionIDs: [...this.unarchiveTokens.values()] });
+        if (restored !== undefined) {
+          this.listedSessions = [...this.listedSessions.filter((session) => session.id !== sessionID), restored];
+          this.reconcileSessions();
+        }
+        // Supersede scans that started before the restore, so their late
+        // snapshots cannot put the restored row back in the archive.
+        this.historyRefreshToken = null;
+        this.archivedRefreshToken = null;
+        this.historyFreshAt = null;
+        this.archivedFreshAt = null;
+        this.update({ isRefreshingSessions: false, isRefreshingArchivedSessions: false });
+        this.refreshSessions();
+        this.refreshArchivedSessions();
+        this.selectSession(sessionID);
+        this.unarchiveWaiters.get(token)?.(true);
+        this.unarchiveWaiters.delete(token);
         return;
       }
       case "sessionCreated": {
@@ -842,6 +1025,7 @@ export class AgentConnectionModel {
         this.editConversation(sessionID, (current) => ({
           ...current,
           configOptions: parseSessionConfigOptions(event.configOptions),
+          contextUsage: current.contextUsage ?? (current.statistics.contextModels === contextModels(parseSessionConfigOptions(event.configOptions)) ? current.statistics.contextUsage : null),
         }));
         this.sessionCreated(sessionID, token);
         return;
@@ -857,6 +1041,22 @@ export class AgentConnectionModel {
           isAttached: true,
           hasCompleteHistory: true,
           configOptions: parseSessionConfigOptions(event.configOptions),
+          contextUsage: current.contextUsage ?? (current.statistics.contextModels === contextModels(parseSessionConfigOptions(event.configOptions)) ? current.statistics.contextUsage : null),
+        }));
+        const backup = this.loadBackups.get(sessionID);
+        if (backup !== undefined) this.editConversation(sessionID, (current) => ({
+          ...current,
+          completedTurns: backup.completedTurns.flatMap((turn) => {
+            const first = backup.messages.findIndex((message) => message.id === turn.id);
+            const last = backup.messages.findIndex((message) => message.id === turn.endingMessageID);
+            if (first < 0 || last < first || last >= current.messages.length) return [];
+            const same = backup.messages.slice(first, last + 1).every((message, offset) => {
+              const { id: _oldID, ...old } = message;
+              const { id: _newID, ...replayed } = current.messages[first + offset];
+              return JSON.stringify(old) === JSON.stringify(replayed);
+            });
+            return same ? [{ ...turn, id: current.messages[first].id, endingMessageID: current.messages[last].id }] : [];
+          }),
         }));
         this.loadBackups.delete(sessionID);
         // An export load collected the transcript without adding a tab.
@@ -870,11 +1070,13 @@ export class AgentConnectionModel {
         return;
       }
       case "sessionConfigured": {
-        if (sessionID === null) return;
+        if (sessionID === null || token === null) return;
         const conversation = this.snapshot.conversations[sessionID];
         if (conversation === undefined || conversation.pendingConfigToken !== token) return;
         this.applyConfiguration(event.configOptions, sessionID);
         this.editConversation(sessionID, (current) => ({ ...current, pendingConfigToken: null }));
+        this.applyPendingNotice(sessionID);
+        this.applyStagedConfiguration(sessionID);
         return;
       }
       case "turnCancelling":
@@ -892,25 +1094,33 @@ export class AgentConnectionModel {
         if (conversation?.isCancelling === true) return;
         const requestID = asString(event.requestId);
         if (requestID === null) return;
-        const prompt = permissionPrompt(conversation ?? createConversation(), requestID, event.request);
+        const ownerID = isRecord(event.request) ? asString(event.request.sessionId) : null;
+        const child = conversation?.subagents.find((entry) => entry.id === ownerID);
+        if (ownerID !== null && ownerID !== sessionID && (child === undefined || terminalChild(child))) return;
+        const prompt = permissionPrompt(child === undefined ? conversation ?? createConversation() : { ...createConversation(), messages: child.messages }, requestID, event.request);
         this.editConversation(sessionID, (current) => enqueuePermission(current, prompt));
         return;
       }
       case "turnFinished": {
         this.refreshQuota();
         if (sessionID === null) return;
+        this.historyActivityRevision += 1;
+        this.historyFreshAt = null;
         const stopReason = asString(event.stopReason);
         if (stopReason === "cancelled") this.cancelContinuation(sessionID);
         this.flushPendingText();
+        this.retireRetries(sessionID);
         const usage = parseTurnUsage(event.usage);
         this.editConversation(sessionID, (current) => ({
           ...interruptPendingTools(finishActiveTurn(current, this.now(), usage)),
           isResponding: false,
           isCancelling: false,
           pendingPermissions: [],
+          quiet: false, retry: null,
+          subagents: finishChildren(current.subagents),
           errorMessage: stopReasonMessage(stopReason),
         }));
-        this.resumeContinuation(sessionID);
+        this.applyStagedConfiguration(sessionID);
         return;
       }
       case "requestFailed":
@@ -947,6 +1157,8 @@ export class AgentConnectionModel {
     }));
     this.unpromptedSessionIDs.add(sessionID);
     this.openTab(sessionID);
+    // Notify before selection changes so every surface reads the migrated draft.
+    this.onSessionCreated?.(sessionID);
     this.update({
       pendingNewConversationPrompt: null,
       pendingNewConversationStartedAt: null,
@@ -957,6 +1169,14 @@ export class AgentConnectionModel {
   }
   /** Route a failure to the request it belongs to, identified by its token. */
   private requestFailed(token: string | null, sessionID: string | null, message: string): void {
+    if (token !== null && (token === this.archivedRefreshToken || this.unarchiveTokens.has(token))) {
+      if (token === this.archivedRefreshToken) this.archivedRefreshToken = null;
+      this.unarchiveTokens.delete(token);
+      this.unarchiveWaiters.get(token)?.(false);
+      this.unarchiveWaiters.delete(token);
+      this.update({ isRefreshingArchivedSessions: this.archivedRefreshToken !== null, unarchivingSessionIDs: [...this.unarchiveTokens.values()], archivedHistoryError: message });
+      return;
+    }
     if (token !== null && token === this.historyRefreshToken) {
       this.historyRefreshToken = null;
       this.update({ isRefreshingSessions: false, historyError: message });
@@ -971,7 +1191,10 @@ export class AgentConnectionModel {
         ...current,
         pendingConfigToken: null,
         configurationError: message,
+        stagedConfig: {},
       }));
+      this.resumeContinuation(sessionID);
+      this.applyPendingNotice(sessionID);
       return;
     }
     if (sessionID !== null && token !== null) {
@@ -1015,8 +1238,12 @@ export class AgentConnectionModel {
       this.failTranscript(token);
       return;
     }
+    // A token belongs to a specific request. A late response from an already
+    // completed request must never finish a newer prompt in the same session.
+    if (token !== null) return;
     if (sessionID !== null && this.snapshot.conversations[sessionID] !== undefined) {
       this.flushPendingText();
+      this.retireRetries(sessionID);
       // The original turn can no longer consume a deferred supplement. Release
       // it with the same failure instead of leaving the composer blocked.
       const continuation = this.continuations.get(sessionID);
@@ -1029,6 +1256,7 @@ export class AgentConnectionModel {
         isResponding: false,
         isCancelling: false,
         pendingPermissions: [],
+        quiet: false, retry: null, stagedConfig: {}, subagents: finishChildren(current.subagents),
         errorMessage: message,
       }));
       return;
@@ -1036,11 +1264,13 @@ export class AgentConnectionModel {
     this.update({ errorMessage: message });
   }
 
-  private mergeSessions(entries: unknown[]): void {
-    const listed: AgentSessionSummary[] = entries.flatMap((entry) => {
+  private parseSessions(entries: unknown[]): AgentSessionSummary[] {
+    const seen = new Set<string>();
+    return entries.flatMap((entry) => {
       if (!isRecord(entry)) return [];
       const id = asString(entry.sessionId);
-      if (id === null) return [];
+      if (id === null || seen.has(id)) return [];
+      seen.add(id);
       const local = this.snapshot.sessions.find((session) => session.id === id);
       return [
         {
@@ -1050,18 +1280,118 @@ export class AgentConnectionModel {
         },
       ];
     });
+  }
+
+  private mergeSessions(entries: unknown[], additive = false): void {
+    const listed = this.parseSessions(entries);
     const listedIDs = new Set(listed.map((session) => session.id));
+    this.listedSessions = additive
+      ? [...this.listedSessions.filter((session) => !listedIDs.has(session.id)), ...listed]
+      : listed;
     // A listed session is owned by upstream history even if the transcript is empty.
     for (const id of listedIDs) this.unpromptedSessionIDs.delete(id);
+    this.reconcileSessions();
+  }
+
+  /** Archive ownership wins regardless of which history scan finishes first. */
+  private reconcileSessions(): void {
+    const archivedIDs = new Set(this.snapshot.archivedSessions.map((session) => session.id));
+    const listed = this.listedSessions.filter((session) => !archivedIDs.has(session.id));
+    const listedIDs = new Set(listed.map((session) => session.id));
     // Sessions created in this run may not be persisted by the agent yet.
     const localOnly = this.snapshot.sessions.filter(
       (session) =>
-        !listedIDs.has(session.id) && this.snapshot.conversations[session.id] !== undefined,
+        !archivedIDs.has(session.id) && !listedIDs.has(session.id) && this.snapshot.conversations[session.id] !== undefined,
     );
     this.update({ sessions: [...localOnly, ...listed] });
   }
 
+  /** Child events are routed only through the announced ownership tree. */
+  private applySubagent(update: Record<string, unknown>, parentID: string): boolean {
+    const lifecycle = update.sessionUpdate === "subagent_spawned" || update.sessionUpdate === "subagent_state_update";
+    const owner = Object.entries(this.snapshot.conversations).find(([, view]) => view.subagents.some((child) => child.id === parentID));
+    if (!lifecycle && owner === undefined) return false;
+    const rootID = owner?.[0] ?? parentID;
+    const root = this.snapshot.conversations[rootID];
+    if (root === undefined) return true;
+    const parent = root.subagents.find((child) => child.id === parentID);
+    if (parent !== undefined && terminalChild(parent)) return true;
+    if (lifecycle) {
+      const id = asString(update.subagentSessionId);
+      if (!id || id === rootID || this.snapshot.conversations[id] !== undefined || this.snapshot.sessions.some((session) => session.id === id)) return true;
+      const existing = root.subagents.find((child) => child.id === id);
+      if (update.sessionUpdate === "subagent_spawned") {
+        if (existing !== undefined || (!root.isResponding && !root.isLoading)) return true;
+        if (Object.values(this.snapshot.conversations).some((view) => view.subagents.some((child) => child.id === id))) return true;
+        this.editConversation(rootID, (current) => ({ ...current, quiet: false, retry: null,
+          subagents: retainSubagentHistory([...current.subagents, { id, parentID, name: asString(update.name) ?? id, task: asString(update.task) ?? "", state: "running", messages: [], plan: [], contextUsage: null }]),
+        }));
+      } else {
+        if (existing === undefined || existing.parentID !== parentID || terminalChild(existing)) return true;
+        const state = update.state;
+        if (!["running", "completed", "failed", "cancelled", "disconnected"].includes(String(state))) return true;
+        const subtree = childSubtree(root.subagents, id);
+        const terminal = state !== "running";
+        this.editConversation(rootID, (current) => ({ ...current, quiet: false, retry: null,
+          subagents: (terminal ? finishChildren(current.subagents, id) : current.subagents).map((child) => child.id === id ? { ...child, state: state as typeof child.state } : child),
+          pendingPermissions: terminal ? current.pendingPermissions.filter((prompt) => !subtree.has(prompt.sessionID ?? rootID)) : current.pendingPermissions,
+        }));
+      }
+    } else {
+      this.editConversation(rootID, (current) => ({ ...current, quiet: false, retry: null,
+        subagents: current.subagents.map((child) => child.id === parentID ? updateChild(child, update) : child),
+      }));
+    }
+    return true;
+  }
+
+  private retireRetries(sessionID: string): void {
+    for (const id of this.retryTurnIDs.get(sessionID) ?? []) this.retiredTurnIDs.add(id);
+    this.retryTurnIDs.delete(sessionID);
+    // This is only a stale-event guard for a live process, not native history.
+    if (this.retiredTurnIDs.size > 1024) this.retiredTurnIDs = new Set([...this.retiredTurnIDs].slice(-512));
+  }
+
+  /** Apply one confirmed option at a time; model changes can replace the catalog. */
+  private applyStagedConfiguration(sessionID: string): void {
+    const view = this.snapshot.conversations[sessionID];
+    if (view === undefined || view.isResponding || view.pendingConfigToken !== null) return;
+    const entries = Object.entries(view.stagedConfig).sort(([left], [right]) =>
+      Number(view.configOptions.find((option) => option.id === right)?.category === "model") - Number(view.configOptions.find((option) => option.id === left)?.category === "model"));
+    const entry = entries[0];
+    if (entry === undefined) { this.resumeContinuation(sessionID); return; }
+    const [id, value] = entry;
+    const option = view.configOptions.find((option) => option.id === id);
+    const stagedConfig = { ...view.stagedConfig };
+    delete stagedConfig[id];
+    if (!view.isAttached || option === undefined || !option.choices.some((choice) => choice.id === value)) {
+      this.editConversation(sessionID, (current) => ({ ...current, stagedConfig: {}, configurationError: "The Agent no longer offers the selected configuration. Select it again." }));
+      this.resumeContinuation(sessionID);
+      return;
+    }
+    this.editConversation(sessionID, (current) => ({ ...current, stagedConfig }));
+    if (option.currentValue === value) { this.applyStagedConfiguration(sessionID); return; }
+    const token = this.makeToken();
+    this.editConversation(sessionID, (current) => ({ ...current, pendingConfigToken: token, configurationError: null }));
+    if (!this.sendCommand({ kind: "setConfigOption", token, sessionId: sessionID, configId: id, value })) this.requestFailed(token, sessionID, "The Agent is not connected.");
+  }
+
   private apply(update: Record<string, unknown>, sessionID: string): void {
+    if (this.applySubagent(update, sessionID)) return;
+    // Session creation and load establish root ownership before replay starts.
+    // Unannounced child traffic must never create a root conversation.
+    if (this.snapshot.conversations[sessionID] === undefined) return;
+    const notice = parseNotice(update);
+    if (notice !== null && this.snapshot.connectionState.status === "ready") {
+      const instance = update.sessionUpdate === "notice" ? { ...notice, id: this.makeToken() } : notice;
+      if (this.isFallback(instance) && this.snapshot.conversations[sessionID].pendingConfigToken !== null) this.pendingModeNotices.set(sessionID, instance);
+      else this.applyNotice(instance, sessionID);
+    }
+    if (["plan", "agent_message_chunk", "agent_thought_chunk", "tool_call", "tool_call_update"].includes(String(update.sessionUpdate))) {
+      const valid = update.sessionUpdate === "plan" ? parsePlan(update) !== null
+        : String(update.sessionUpdate).startsWith("tool_") ? typeof update.toolCallId === "string" : updateText(update) !== null;
+      if (valid) this.editConversation(sessionID, (current) => ({ ...current, quiet: false, retry: null }));
+    }
     switch (asString(update.sessionUpdate)) {
       case "usage_update":
         if (this.snapshot.connectionState.status !== "ready") return;
@@ -1076,9 +1406,13 @@ export class AgentConnectionModel {
       case "current_mode_update": {
         const modeID = asString(update.currentModeId);
         if (modeID === null || modeID.length === 0) return;
-        this.editConversation(sessionID, (current) =>
-          applyCurrentMode(current, modeID),
-        );
+        const previous = this.snapshot.conversations[sessionID].configOptions.find((option) => option.category === "mode")?.currentValue;
+        if (this.isClaude && previous !== modeID) {
+          if (previous === "auto" && modeID === "acceptEdits") this.fallbackTransitions.set(sessionID, this.snapshot.conversations[sessionID].notices.find((notice) => this.isFallback(notice))?.id ?? null);
+          else this.fallbackTransitions.delete(sessionID);
+        }
+        this.editConversation(sessionID, (current) => applyCurrentMode(current, modeID));
+        this.reconcileNotice(sessionID);
         return;
       }
       case "plan": {
@@ -1126,7 +1460,12 @@ export class AgentConnectionModel {
         const toolCallID = asString(update.toolCallId);
         if (toolCallID === null) return;
         this.flushPendingText();
-        this.editConversation(sessionID, (current) => upsertToolMessage(current, toolCallID, update));
+        this.editConversation(sessionID, (current) => {
+          const next = upsertToolMessage(current, toolCallID, update);
+          if (current.activeTurn === null || current.isLoading) return next;
+          const activity = current.toolActivity ?? { ids: [], activeSince: null, durationMs: 0 };
+          return { ...next, toolActivity: { ...activity, ids: [...new Set([...activity.ids, toolCallID])] } };
+        });
         return;
       }
       case "session_info_update": {
@@ -1161,11 +1500,45 @@ export class AgentConnectionModel {
     const changed =
       oldModels.map((option) => option.currentValue).join("\u0000") !==
       newModels.map((option) => option.currentValue).join("\u0000");
+    const transition = this.fallbackTransitions.get(sessionID);
+    this.fallbackTransitions.delete(sessionID);
     this.editConversation(sessionID, (current) => ({
       ...current,
       configOptions: options,
       contextUsage: changed ? null : current.contextUsage,
+      notices: changed && oldModels.length > 0
+        ? current.notices.filter((notice) => !this.isFallback(notice) || (transition !== undefined && transition !== notice.id))
+        : current.notices,
     }));
+    this.reconcileNotice(sessionID);
+  }
+
+  private isFallback(notice: AgentNotice): boolean {
+    return this.isClaude && notice.title === "Auto mode unavailable";
+  }
+
+  private reconcileNotice(sessionID: string): void {
+    const current = this.snapshot.conversations[sessionID];
+    const mode = current?.configOptions.find((option) => option.category === "mode");
+    if (mode !== undefined && mode.currentValue !== "acceptEdits" && current.notices.some((notice) => this.isFallback(notice))) {
+      this.editConversation(sessionID, (view) => ({ ...view, notices: view.notices.filter((notice) => !this.isFallback(notice)) }));
+    }
+  }
+
+  private applyNotice(notice: AgentNotice, sessionID: string): void {
+    const current = this.snapshot.conversations[sessionID];
+    const mode = current.configOptions.find((option) => option.category === "mode");
+    if (this.isFallback(notice) && mode !== undefined && mode.currentValue !== "acceptEdits") return;
+    const previous = current.notices.find((item) => item.id === notice.id);
+    if (previous?.id === notice.id && previous.revision > notice.revision) return;
+    this.pendingModeNotices.delete(sessionID);
+    this.editConversation(sessionID, (view) => ({ ...view, notices: [...view.notices.filter((item) => item.id !== notice.id), notice].slice(-32) }));
+  }
+
+  private applyPendingNotice(sessionID: string): void {
+    const notice = this.pendingModeNotices.get(sessionID);
+    this.pendingModeNotices.delete(sessionID);
+    if (notice !== undefined) this.applyNotice(notice, sessionID);
   }
 
   private flushPendingText(): void {
@@ -1187,8 +1560,10 @@ export class AgentConnectionModel {
     if (prompt.files.length > 0) command.files = prompt.files;
     if (!this.sendCommand(command)) return false;
     this.unpromptedSessionIDs.delete(sessionID);
+    this.pendingModeNotices.delete(sessionID);
+    this.fallbackTransitions.delete(sessionID);
     this.editConversation(sessionID, (current) => {
-      const base = { ...current, isResponding: true, errorMessage: null };
+      const base = { ...current, isResponding: true, errorMessage: null, quiet: false, retry: null, notices: [] };
       const supplement = messageID === undefined
         ? undefined
         : current.messages.find((message) => message.id === messageID);
@@ -1202,12 +1577,12 @@ export class AgentConnectionModel {
             ...current.messages.filter((message) => message.id !== supplement.id),
             { ...supplement, delivery: "received" as const },
           ],
-          activeTurn: startTurn(supplement.id, prompt.submittedAt),
+          activeTurn: startTurn(supplement.id, prompt.submittedAt), toolActivity: undefined,
         };
       }
       const next = appendMessage(base, "user", promptDisplayText(prompt));
       const message = next.messages[next.messages.length - 1];
-      return { ...next, activeTurn: startTurn(message.id, prompt.submittedAt) };
+      return { ...next, activeTurn: startTurn(message.id, prompt.submittedAt), toolActivity: undefined };
     });
     return true;
   }
@@ -1278,7 +1653,13 @@ export class AgentConnectionModel {
     this.loadBackups.set(sessionID, this.snapshot.conversations[sessionID] ?? createConversation());
     this.pendingText.delete(sessionID);
     // The agent replays the whole history, so rebuild it from scratch.
-    this.setConversation(sessionID, { ...createConversation(), isLoading: true });
+    const previous = this.snapshot.conversations[sessionID];
+    const fresh = this.freshConversation(sessionID);
+    this.setConversation(sessionID, { ...fresh, isLoading: true,
+      statistics: previous?.statistics ?? fresh.statistics,
+      reviewedEdits: previous?.reviewedEdits,
+      modelCalls: previous?.modelCalls ?? [],
+    });
     if (!this.sendCommand({ kind: "loadSession", token, sessionId: sessionID })) {
       this.requestFailed(token, sessionID, this.snapshot.errorMessage ?? "The Agent request failed.");
       return null;
@@ -1301,7 +1682,7 @@ export class AgentConnectionModel {
     // The host orders commands per connection, so the outcome arrives through
     // the event stream (`requestFailed`) rather than this promise.
     void connection.send(command).catch((error: unknown) => {
-      this.update({ errorMessage: messageOf(error) });
+      if (this.connection === connection) this.requestFailed(asString(command.token), asString(command.sessionId), messageOf(error));
     });
     return true;
   }
@@ -1314,10 +1695,21 @@ export class AgentConnectionModel {
     this.scheduler.cancel();
     // Events still buffered for the old connection must not be applied.
     this.stale = true;
+    this.pendingModeNotices.clear();
+    this.fallbackTransitions.clear();
     const old = this.connection;
     this.connection = null;
     this.canListSessions = false;
     this.historyRefreshToken = null;
+    this.archivedRefreshToken = null;
+    this.historyFreshAt = null;
+    this.archivedFreshAt = null;
+    this.listedSessions = [];
+    this.unarchiveTokens.clear();
+    for (const resolve of this.unarchiveWaiters.values()) resolve(false);
+    this.unarchiveWaiters.clear();
+    this.retryTurnIDs.clear();
+    this.retiredTurnIDs.clear();
     this.queuedPrompts.clear();
     this.loadTokens.clear();
     this.failTranscripts();
@@ -1342,10 +1734,12 @@ export class AgentConnectionModel {
     this.unpromptedSessionIDs.clear();
     const now = this.now();
     for (const id of Object.keys(conversations)) {
+      const finished = finishActiveTurn(conversations[id], now);
+      this.statisticsStore?.write(id, finished.statistics);
       // The next process must attach the session again, and nothing may keep
       // looking busy or wait for a confirmation that died with the old one.
       conversations[id] = {
-        ...interruptPendingTools(finishActiveTurn(conversations[id], now)),
+        ...interruptPendingTools(finished),
         availableCommands: [],
         contextUsage: null,
         isAttached: false,
@@ -1355,6 +1749,7 @@ export class AgentConnectionModel {
         pendingSteeringToken: null,
         pendingConfigToken: null,
         pendingPermissions: [],
+        notices: [], quiet: false, retry: null, stagedConfig: {}, subagents: finishChildren(conversations[id].subagents),
       };
     }
     this.createToken = null;
@@ -1367,6 +1762,12 @@ export class AgentConnectionModel {
       subscriptionPlan: null,
       quotaFailure: null,
       canLoadSessions: false,
+      canListArchivedSessions: false,
+      archivedSessions: [],
+      archivedHistoryComplete: true,
+      archivedHistoryError: null,
+      isRefreshingArchivedSessions: false,
+      unarchivingSessionIDs: [],
       isRefreshingSessions: false,
       pendingNewConversationPrompt: null,
       pendingNewConversationStartedAt: null,

@@ -11,7 +11,7 @@
   },
   "app": {
     "security": {
-      "capabilities": ["main-capability"],
+      "capabilities": ["main-capability", "plugin-web-capability"],
       "assetProtocol": {
         "enable": true,
         "scope": ["**"]
@@ -23,6 +23,7 @@
     "targets": ["nsis", "msi"],
     "resources": {
       "../src/extensions/bundled/**/*": "extensions/bundled/",
+      "../../../Plugins/win/Official/PhpSupportContract/**/*": "OfficialPlugins/PhpSupportContract/",
       "helpers/": "helpers/"
     },
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.ico"]

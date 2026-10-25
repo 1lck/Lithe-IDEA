@@ -4,7 +4,10 @@
 mod path_scope;
 pub use path_scope::PathScope;
 
-use super::{commit_state, GitCommitGitlink, GitCommitState, GitWriteRequest};
+use super::{
+    commit_state, DivergentPushDestination, GitCommitGitlink, GitCommitState, GitWriteRequest,
+    PushTargetChoiceRequest,
+};
 use crate::protocol::{CoreError, ErrorCode};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -33,12 +36,52 @@ pub struct Relation {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+/// A divergent push destination the user confirmed for one repository.
+///
+/// The confirmation names the exact remote branch the user was shown, so a tracking
+/// configuration that changes before the push is detected instead of followed.
+pub struct ConfirmedPushTarget {
+    /// Which of the two offered destinations the user picked.
+    pub choice: PushTargetChoiceRequest,
+    /// Remote the destination lives on.
+    pub remote: String,
+    /// Remote branch the push is allowed to update.
+    pub remote_branch: String,
+}
+
+impl ConfirmedPushTarget {
+    /// Whether this confirmation still describes what `destination` would push to now.
+    fn matches(&self, destination: &DivergentPushDestination) -> bool {
+        self.remote == destination.remote
+            && self.remote_branch == destination.remote_branch_for(self.choice)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// A repository in the plan whose branch tracks a differently named remote branch
+/// and has no still-valid confirmation. Clients answer with a [`ConfirmedPushTarget`].
+pub struct PushTargetQuestion {
+    /// Workspace-relative repository identity, matching [`RepositoryBinding::id`].
+    pub repository_id: String,
+    /// The two destinations on offer.
+    #[serde(flatten)]
+    pub destination: DivergentPushDestination,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 /// Exact repositories, options, and Git state presented for review.
 pub struct Plan {
     pub repositories: Vec<RepositoryBinding>,
     pub message: String,
     pub amend: bool,
     pub push: bool,
+    /// Confirmed destinations by repository ID, only for branches whose upstream has
+    /// a different name. Each repository is guarded separately because two
+    /// repositories in one batch can track unrelated branches.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub push_targets: BTreeMap<String, ConfirmedPushTarget>,
     pub include_parent_references: bool,
     /// Optional local selection guard; omitted by clients without changelists.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -92,6 +135,10 @@ pub struct PrepareRequest {
     pub amend: bool,
     #[serde(default)]
     pub push: bool,
+    /// Destinations the user confirmed by repository ID, answering earlier
+    /// [`PushTargetQuestion`]s. A retry also inherits the previous plan's entries.
+    #[serde(default)]
+    pub push_targets: BTreeMap<String, ConfirmedPushTarget>,
     pub include_parent_references: bool,
     /// Restricts commits without rewriting the user's index.
     #[serde(default)]
@@ -109,6 +156,13 @@ pub struct Preparation {
     pub session: Session,
     pub review_changed: bool,
     pub requires_confirmation: bool,
+    /// Pushes that still need a destination choice. While this is non-empty the
+    /// session must not be stepped: committing first would leave the push unable to
+    /// proceed. Core also refuses the step of an unanswered repository, so a client
+    /// that ignores this field fails before it writes that repository's commit. Omitted when empty so routine
+    /// workflows keep the exact wire shape older clients already decode.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub push_target_questions: Vec<PushTargetQuestion>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -156,12 +210,17 @@ pub fn prepare(mut request: PrepareRequest) -> Result<Preparation, CoreError> {
             commit_state::inspect_root(&binding.root)?,
         );
     }
-    build_plan(request, states)
+    build_plan_with(request, states, &super::divergent_push_destination)
 }
 
-fn build_plan(
+/// Looks up whether pushing `(root, branch reference)` needs a destination choice.
+type DestinationResolver<'a> =
+    &'a dyn Fn(&str, &str) -> Result<Option<DivergentPushDestination>, CoreError>;
+
+fn build_plan_with(
     request: PrepareRequest,
     states: BTreeMap<String, GitCommitState>,
+    resolve_destination: DestinationResolver<'_>,
 ) -> Result<Preparation, CoreError> {
     let message = request.message.trim().to_string();
     if message.is_empty() {
@@ -313,11 +372,25 @@ fn build_plan(
             .collect(),
         &dependencies,
     )?;
+    let (push_targets, push_target_questions) = if request.push {
+        settle_push_targets(
+            &request,
+            previous,
+            &order,
+            &states,
+            &pending_push,
+            &results,
+            resolve_destination,
+        )?
+    } else {
+        Default::default()
+    };
     let plan = Plan {
         repositories: request.repositories,
         message,
         amend: request.amend,
         push: request.push,
+        push_targets,
         include_parent_references: request.include_parent_references,
         path_scope,
         is_retry: previous.is_some(),
@@ -363,7 +436,65 @@ fn build_plan(
         },
         review_changed,
         requires_confirmation,
+        push_target_questions,
     })
+}
+
+/// Splits the repositories that will push into confirmed destinations and open
+/// questions. A confirmation is reused only while it still names the branch the
+/// repository would push to, so a retry after the upstream moved asks again.
+fn settle_push_targets(
+    request: &PrepareRequest,
+    previous: Option<&Session>,
+    order: &[String],
+    states: &BTreeMap<String, GitCommitState>,
+    pending_push: &BTreeSet<String>,
+    results: &BTreeMap<String, RepositoryResult>,
+    resolve_destination: DestinationResolver<'_>,
+) -> Result<
+    (
+        BTreeMap<String, ConfirmedPushTarget>,
+        Vec<PushTargetQuestion>,
+    ),
+    CoreError,
+> {
+    let mut confirmed = BTreeMap::new();
+    let mut questions = Vec::new();
+    for id in order {
+        let already_pushed =
+            results.get(id).is_some_and(|r| r.pushed) && !pending_push.contains(id);
+        let Some(branch) = states.get(id).and_then(|state| state.branch.as_deref()) else {
+            // A detached HEAD cannot push; the push step reports that on its own.
+            continue;
+        };
+        let Some(binding) = request.repositories.iter().find(|b| &b.id == id) else {
+            continue;
+        };
+        if already_pushed {
+            continue;
+        }
+        // A destination that cannot be resolved (for example a repository without any
+        // remote) is not a question for the user. The push step reports that failure
+        // with Git's own context, and `push` still refuses an unconfirmed divergent
+        // destination if resolution recovers in between.
+        let Ok(Some(destination)) = resolve_destination(&binding.root, branch) else {
+            continue;
+        };
+        let answer = request
+            .push_targets
+            .get(id)
+            .or_else(|| previous.and_then(|s| s.plan.push_targets.get(id)));
+        match answer.filter(|answer| answer.matches(&destination)) {
+            Some(answer) => {
+                confirmed.insert(id.clone(), answer.clone());
+            }
+            None => questions.push(PushTargetQuestion {
+                repository_id: id.clone(),
+                destination,
+            }),
+        }
+    }
+    Ok((confirmed, questions))
 }
 
 fn relations(
@@ -599,6 +730,14 @@ fn prepare_step(
         expected_commit_state: Some(expected.clone()),
         ..Default::default()
     };
+    // Checked before the commit as well as before the push: a plan that cannot push
+    // must not write a commit it then leaves behind. This also protects clients
+    // that never learned to answer `pushTargetQuestions`.
+    let confirmed_push_target = if session.plan.push {
+        confirmed_push_choice(session, id, root)?
+    } else {
+        None
+    };
     if !session.results[id].committed {
         if !expected.conflicted_paths.is_empty() {
             return Err(invalid("Resolve conflicts before committing"));
@@ -643,10 +782,40 @@ fn prepare_step(
             invalid("Committed; branch changed or detached. Review and retry push.")
         })?);
         request.check_submodules = true;
+        request.push_target = confirmed_push_target;
     } else {
         return Ok(None);
     }
     Ok(Some(request))
+}
+
+/// Returns the confirmed destination choice for a divergent branch, `None` when the
+/// branch needs no choice, and an error when the choice is missing or no longer
+/// describes the branch that would be updated.
+fn confirmed_push_choice(
+    session: &Session,
+    id: &str,
+    root: &str,
+) -> Result<Option<PushTargetChoiceRequest>, CoreError> {
+    let Some(branch) = session.states[id].branch.as_deref() else {
+        return Ok(None);
+    };
+    // Unresolvable destinations are reported by the push step itself; see
+    // `settle_push_targets`.
+    let Ok(Some(destination)) = super::divergent_push_destination(root, branch) else {
+        return Ok(None);
+    };
+    match session.plan.push_targets.get(id) {
+        Some(confirmed) if confirmed.matches(&destination) => Ok(Some(confirmed.choice)),
+        Some(_) => Err(invalid(
+            "The push destination changed after it was confirmed; review and retry",
+        )),
+        None => Err(super::push_destination_needs_confirmation(
+            &destination.local_branch,
+            &destination.remote,
+            &destination.upstream,
+        )),
+    }
 }
 
 #[cfg(test)]

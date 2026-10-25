@@ -1,7 +1,11 @@
 import AppKit
+import Combine
 import Foundation
 import LitheCoreContracts
 import WebKit
+
+// Note: 插件网页内容与宿主窗口的分工见 .agents/notes/implemented/architecture/2026-10-18-plugin-web-content-in-host-windows.md
+// Note: 插件网页的摄像头和麦克风默认拒绝、每次确认，见 .agents/notes/implemented/feature/2026-10-22-html-preview-embedded-browser.md
 
 /// `data-theme` and the `--lithe-*` variables a page styles itself with.
 struct MacPluginWebTheme: Equatable {
@@ -52,12 +56,30 @@ final class MacPluginWebPage: NSObject, PluginWebPageHandle, WKNavigationDelegat
     let bridge: PluginWebBridge
     private(set) var isClosed = false
     private var theme: MacPluginWebTheme
-    private var view: WKWebView?
+    private var view: MacPluginWebView?
+    private var captureGuards = Set<AnyCancellable>()
     private var reloadCount = 0
+    /// The app's Info.plist entries, read when the page asks for the camera or microphone.
+    private let mediaUsageDescriptions: () -> [String: Any]?
+    private let mediaConfirmer: any WebMediaCaptureConfirming
+    private let configure: (WKWebViewConfiguration) -> Void
 
-    init(window: PluginWebWindow, host: any PluginWebBridgeHost, stateStore: any PluginWebStateStoring, theme: MacPluginWebTheme) {
+    /// `configure` adjusts the web view's configuration last; tests use it to give the
+    /// page mock cameras and microphones, which the app never does.
+    init(
+        window: PluginWebWindow,
+        host: any PluginWebBridgeHost,
+        stateStore: any PluginWebStateStoring,
+        theme: MacPluginWebTheme,
+        mediaUsageDescriptions: @escaping () -> [String: Any]? = { Bundle.main.infoDictionary },
+        mediaConfirmer: (any WebMediaCaptureConfirming)? = nil,
+        configure: @escaping (WKWebViewConfiguration) -> Void = { _ in }
+    ) {
         self.window = window
         self.theme = theme
+        self.mediaUsageDescriptions = mediaUsageDescriptions
+        self.mediaConfirmer = mediaConfirmer ?? AppKitWebMediaCaptureConfirmer()
+        self.configure = configure
         bridge = PluginWebBridge(window: window, host: host, stateStore: stateStore)
         super.init()
         bridge.emit = { [weak self] event, payload in self?.dispatch(event, payload) }
@@ -81,7 +103,8 @@ final class MacPluginWebPage: NSObject, PluginWebPageHandle, WKNavigationDelegat
             MacPluginWebMessages(self), contentWorld: .page, name: Self.messageHandlerName
         )
         configuration.userContentController.addUserScript(userScript())
-        let view = WKWebView(frame: .zero, configuration: configuration)
+        configure(configuration)
+        let view = MacPluginWebView(frame: .zero, configuration: configuration)
         // A page without its own background shows the workbench's.
         view.setValue(false, forKey: "drawsBackground")
         view.allowsBackForwardNavigationGestures = false
@@ -90,6 +113,18 @@ final class MacPluginWebPage: NSObject, PluginWebPageHandle, WKNavigationDelegat
         if #available(macOS 13.3, *) { view.isInspectable = window.isInspectable }
         view.navigationDelegate = self
         view.uiDelegate = self
+        view.onWindowChange = { [weak self] newWindow in
+            if newWindow == nil { self?.stopCapture() }
+        }
+        // WebKit starts a device after the answer, so the page can leave its window in between
+        // and find nothing to stop: a device that comes up while nobody is looking is stopped.
+        for state in [view.publisher(for: \.cameraCaptureState), view.publisher(for: \.microphoneCaptureState)] {
+            state.receive(on: DispatchQueue.main)
+                .sink { [weak self] state in
+                    if state != .none, self?.onScreenWindow == nil { self?.stopCapture() }
+                }
+                .store(in: &captureGuards)
+        }
         view.setAccessibilityIdentifier("plugin-web-" + window.windowID)
         self.view = view
         view.load(URLRequest(url: entryURL))
@@ -117,15 +152,14 @@ final class MacPluginWebPage: NSObject, PluginWebPageHandle, WKNavigationDelegat
         view.configuration.userContentController.removeAllScriptMessageHandlers()
         view.configuration.userContentController.removeAllUserScripts()
         view.removeFromSuperview()
+        captureGuards.removeAll()
         self.view = nil
     }
 
     // MARK: Messages
 
     fileprivate func receive(_ message: WKScriptMessage, reply: @escaping (Any?, String?) -> Void) {
-        let origin = message.frameInfo.securityOrigin
-        guard !isClosed, message.webView === view, message.frameInfo.isMainFrame,
-              origin.protocol == MacPluginWebContent.scheme, origin.host == window.pluginID, origin.port == 0,
+        guard !isClosed, message.webView === view, isOwnMainFrame(message.frameInfo),
               let body = message.body as? String else {
             reply(nil, "plugin.web.forbidden")
             return
@@ -162,7 +196,7 @@ final class MacPluginWebPage: NSObject, PluginWebPageHandle, WKNavigationDelegat
         return WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page)
     }
 
-    /// Bridge version 1. The handler reference is taken before any page
+    /// Bridge version 2, which adds file dialogs to version 1. The handler reference is taken before any page
     /// script runs, and `window.lithe` cannot be replaced or extended.
     private static let bridgeScript = #"""
     (() => {
@@ -187,7 +221,7 @@ final class MacPluginWebPage: NSObject, PluginWebPageHandle, WKNavigationDelegat
         }
       };
       const lithe = freeze({
-        version: 1,
+        version: 2,
         context: freeze({
           pluginID: initial.pluginID, windowID: initial.windowID, platform: initial.platform, locale: initial.locale,
           get theme() { return theme.theme; }
@@ -267,6 +301,72 @@ final class MacPluginWebPage: NSObject, PluginWebPageHandle, WKNavigationDelegat
         for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
         nil
+    }
+
+    // MARK: Camera and microphone
+
+    /// The plugin's own page, loaded from its package: the only frame whose messages
+    /// and requests are the plugin's.
+    private func isOwnMainFrame(_ frame: WKFrameInfo) -> Bool {
+        let origin = frame.securityOrigin
+        return frame.isMainFrame && origin.protocol == MacPluginWebContent.scheme
+            && origin.host == window.pluginID && origin.port == 0
+    }
+
+    /// The page asked for the camera and/or microphone (`getUserMedia`).
+    func webView(
+        _ webView: WKWebView,
+        requestMediaCapturePermissionFor origin: WKSecurityOrigin,
+        initiatedByFrame frame: WKFrameInfo,
+        type: WKMediaCaptureType,
+        decisionHandler: @escaping @MainActor (WKPermissionDecision) -> Void
+    ) {
+        requestMediaCapture(devices: WebMediaDevices(type), fromOwnPage: isOwnMainFrame(frame), decide: decisionHandler)
+    }
+
+    /// The whole decision, free of the WebKit types a test cannot build. Only the
+    /// plugin's own page, while it is on screen, may ask; the user is asked every
+    /// time and the answer is no unless they say yes.
+    func requestMediaCapture(
+        devices: WebMediaDevices,
+        fromOwnPage: Bool,
+        decide: @escaping @MainActor (WKPermissionDecision) -> Void
+    ) {
+        guard fromOwnPage, let hostWindow = onScreenWindow else { return decide(.deny) }
+        WebMediaCapture.decide(
+            devices: devices,
+            requester: .plugin(name: window.pluginName, id: window.pluginID),
+            in: hostWindow,
+            usageDescriptions: mediaUsageDescriptions(),
+            confirmer: mediaConfirmer
+        ) { [weak self] decision in
+            // The question stays open while the user decides, and the page can be hidden or
+            // closed meanwhile: a yes then belongs to a page nobody is looking at.
+            decide(self?.onScreenWindow == nil ? .deny : decision)
+        }
+    }
+
+    /// The window that shows the page; nil once the page is closed or its tool window hidden.
+    private var onScreenWindow: NSWindow? {
+        isClosed ? nil : view?.window
+    }
+
+    /// A page without a control of its own keeps a device only while it is on screen.
+    private func stopCapture() {
+        guard let view else { return }
+        if view.cameraCaptureState != .none { view.setCameraCaptureState(.none, completionHandler: nil) }
+        if view.microphoneCaptureState != .none { view.setMicrophoneCaptureState(.none, completionHandler: nil) }
+    }
+}
+
+/// Reports when the page's view leaves or joins a window, which hiding the tool
+/// window does while the page stays loaded.
+private final class MacPluginWebView: WKWebView {
+    var onWindowChange: ((NSWindow?) -> Void)?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        onWindowChange?(window)
     }
 }
 

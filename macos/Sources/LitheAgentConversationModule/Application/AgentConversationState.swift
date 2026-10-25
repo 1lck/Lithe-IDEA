@@ -33,8 +33,12 @@ public struct AgentConversationMessage: Identifiable, Equatable, Sendable {
     public var delivery: Delivery?
     public var toolStatus: ToolStatus?
     public var toolDetails = AgentToolDetails()
+    /// Pictures carried by a replayed user message; live attachments are parsed from its text.
+    public var images: [AgentImage] = []
     /// Child output is retained with its owner, separate from the parent's reply.
     public var subagentSessionID: String?
+    /// Plan snapshot recorded in a replayed history; such an Agent entry has no text.
+    public var plan: AgentPlan?
 
     public init(id: String = UUID().uuidString, role: Role, text: String, toolStatus: ToolStatus? = nil) {
         self.id = id

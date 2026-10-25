@@ -130,6 +130,7 @@ private final class MonacoDiffSession: NSObject, ObservableObject, WKNavigationD
         configuration.userContentController.addScriptMessageHandler(MonacoDiffMessages(self), contentWorld: .page, name: "litheEditor")
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = self
+        webView.uiDelegate = WebMediaCaptureDenier.shared
         view = webView
         webView.load(URLRequest(url: URL(string: "lithe-editor://app/index.html")!))
         loadingDeadline = Task { [weak self] in

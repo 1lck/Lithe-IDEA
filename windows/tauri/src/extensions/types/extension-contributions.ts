@@ -1,6 +1,5 @@
 import type {
   CommandContribution,
-  DatabaseProviderContribution,
   ExtensionManifest,
   AIProviderContribution,
   IconThemeContribution,
@@ -64,17 +63,6 @@ export function getManifestCommandContributions(
 
 function getManifestSnippetContributions(manifest: ExtensionManifest): SnippetContribution[] {
   return [...(manifest.snippets || []), ...(manifest.contributes?.snippets || [])];
-}
-
-export function getManifestDatabaseContributions(
-  manifest: ExtensionManifest,
-): DatabaseProviderContribution[] {
-  return [
-    ...(manifest.databases || []),
-    ...(manifest.databaseProviders || []),
-    ...(manifest.contributes?.databases || []),
-    ...(manifest.contributes?.databaseProviders || []),
-  ];
 }
 
 export function getManifestAIProviderContributions(

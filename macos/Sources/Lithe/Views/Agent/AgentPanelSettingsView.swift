@@ -53,6 +53,8 @@ private struct AgentsManagementPage: View {
             statisticsRow
         }
         agentPicker
+        Button("Manage Skills…") { model.showSettings(category: .skills) }
+            .buttonStyle(LitheActionButtonStyle())
         checkFeedback
         switch selectedEntry {
         case .agent(let id):
@@ -162,6 +164,7 @@ private struct AgentDetailView: View {
         let bundle = Bundle.main.url(forResource: settings.language.rawValue, withExtension: "lproj")
             .flatMap(Bundle.init(url:)) ?? .main
         return AgentSetupDiagnostics.preflight(for: agent, environment: environment, hasProvider: hasProvider,
+                                               authentication: settings.agentConfigurations[agent.id]?.authentication ?? .apiKey,
                                                bundle: bundle)
     }
 
@@ -212,7 +215,7 @@ private struct AgentDetailView: View {
 
     private var versionCard: some View {
         LitheSettingsSection("Version status") {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: LitheTheme.ActionButton.spacing) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(String(format: AgentLocalization.string("Current version: %@ · Verified target: %@", locale: locale),
                                 agent.installedVersion ?? AgentLocalization.string("Not installed", locale: locale), agent.version))
@@ -229,13 +232,12 @@ private struct AgentDetailView: View {
                 if !isBusy {
                     if !agent.isInstalled || (feature.phase == .ready && agent.needsUpdate) {
                         Button(agent.isInstalled ? "Update" : "Install") { feature.install(agent.id) }
-                            .buttonStyle(LithePrimaryButtonStyle(backgroundColor: LitheTheme.settingsPrimaryAction, restingOpacity: 1))
-                            .controlSize(.small)
+                            .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                             .disabled(!AgentSetupDiagnostics.canInstallAdapter(checks) || feature.busyAgentID != nil)
                     }
                     if agent.isInstalled {
                         Button("Uninstall") { feature.uninstall(agent.id) }
-                            .buttonStyle(LitheSecondaryButtonStyle())
+                            .buttonStyle(LitheActionButtonStyle())
                             .disabled(feature.busyAgentID != nil)
                     }
                 }
@@ -378,21 +380,21 @@ private struct AgentDetailView: View {
         switch fix {
         case .install:
             Button("Install") { feature.install(agent.id) }
-                .buttonStyle(LitheSecondaryButtonStyle())
+                .buttonStyle(LitheActionButtonStyle())
                 .disabled(feature.busyAgentID != nil)
         case .update:
             Button("Update") { feature.install(agent.id) }
-                .buttonStyle(LitheSecondaryButtonStyle())
+                .buttonStyle(LitheActionButtonStyle())
                 .disabled(feature.busyAgentID != nil)
         case .installCli:
             Button("Install") { feature.installCli(agent.id) }
-                .buttonStyle(LitheSecondaryButtonStyle())
+                .buttonStyle(LitheActionButtonStyle())
                 .disabled(feature.busyAgentID != nil)
                 .help(agent.cli?.installation?.updateHint ?? agent.cli?.installHint ?? "")
         case .updateCli:
             Button("Update") { feature.installCli(agent.id) }
                 .accessibilityIdentifier("agent-cli-update-\(agent.id)")
-                .buttonStyle(LitheSecondaryButtonStyle())
+                .buttonStyle(LitheActionButtonStyle())
                 .disabled(feature.busyAgentID != nil)
                 .help(agent.cli?.installation?.updateHint ?? agent.cli?.installHint ?? "")
         case .fetchLocalConfiguration:
@@ -400,7 +402,7 @@ private struct AgentDetailView: View {
                 Button("Fetch local configuration") {
                     model.importLocalConfiguration(for: agent.id, source: source, name: agent.name)
                 }
-                .buttonStyle(LitheSecondaryButtonStyle())
+                .buttonStyle(LitheActionButtonStyle())
             }
         }
     }
@@ -464,16 +466,13 @@ private struct CustomAgentDetailView: View {
                 Text("Agent executable")
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.secondaryText)
-                TextField("Agent executable", text: $settings.agentCommand)
-                    .litheSettingsTextField()
+                LitheTextField("Agent executable", text: $settings.agentCommand)
             }
             VStack(alignment: .leading, spacing: 4) {
                 Text("Arguments (one per line)")
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.secondaryText)
-                TextEditor(text: $settings.agentArguments)
-                    .font(LitheTheme.uiFont(size: 12, design: .monospaced))
-                    .litheSettingsTextEditor(height: 52)
+                LitheTextEditor(text: $settings.agentArguments, height: 52)
             }
         }
         AgentProviderConfigurationView(
@@ -541,7 +540,7 @@ private struct AgentInstallProgressView: View {
                     ProgressView().controlSize(.small)
                     Text(title)
                     Spacer()
-                    Button("Cancel") { feature.cancelOperation() }
+                    Button("Cancel") { feature.cancelOperation() }.buttonStyle(LitheActionButtonStyle())
                         .disabled(feature.isCancelling)
                 }
                 if let progress = feature.installProgress, progress.downloadedBytes > 0 {

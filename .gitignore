@@ -1,6 +1,8 @@
 .DS_Store
 .build/
 rust/target/
+rust/*/target/
+/.worktrees/
 .swiftpm/
 .idea/
 DerivedData/
@@ -8,7 +10,6 @@ DerivedData/
 dist/
 .artifacts/
 shared/fixtures/projects/**/target/
-sdk/java/**/target/
 *.xcuserstate
 *.xcuserdata/
 design-qa-artifacts/

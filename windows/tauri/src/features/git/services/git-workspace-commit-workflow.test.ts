@@ -190,4 +190,102 @@ describe("workspace commit native continuation adapter", () => {
     expect(workflow.getState().review).toBeNull();
     expect(step).not.toHaveBeenCalled();
   }, 1000);
+
+  describe("divergent push destinations", () => {
+    const question = (repositoryId: string) => ({
+      repositoryId,
+      localBranch: "feature/topic",
+      remote: "origin",
+      upstream: "origin/main",
+      upstreamBranch: "main",
+    });
+    const asking = (...ids: string[]): WorkspaceCommitPreparation => ({
+      ...preparation(),
+      pushTargetQuestions: ids.map(question),
+    });
+    const publish = { choice: "publish", remote: "origin", remoteBranch: "feature/topic" } as const;
+    const upstream = { choice: "upstream", remote: "origin", remoteBranch: "main" } as const;
+
+    test("asks before anything is reviewed or committed", async () => {
+      const { workflow, prepare, step } = setup();
+      prepare.mockResolvedValueOnce(asking("A"));
+      await workflow.prepare(fixture.request);
+      const state = workflow.getState();
+      expect(state.pushTargetPrompt?.questions).toEqual([question("A")]);
+      expect(state.review).toBeNull();
+      expect(state.session).toBeNull();
+      expect(step).not.toHaveBeenCalled();
+    });
+
+    test("an answer prepares again with the confirmed target and still honours review", async () => {
+      const { workflow, prepare, step } = setup();
+      prepare.mockResolvedValueOnce(asking("A"));
+      await workflow.prepare(fixture.request);
+      await workflow.answerPushTargets({ A: upstream });
+      expect(prepare.mock.calls[1]![0]).toEqual({
+        ...fixture.request,
+        pushTargets: { A: upstream },
+      });
+      expect(workflow.getState().pushTargetPrompt).toBeNull();
+      // The fixture still asks for review; answering must not skip that step.
+      expect(workflow.getState().review).not.toBeNull();
+      expect(step).not.toHaveBeenCalled();
+      await workflow.confirm(fixture.request.repositories);
+      expect(prepare.mock.calls[2]![0].pushTargets).toEqual({ A: upstream });
+      expect(step).toHaveBeenCalledTimes(1);
+    });
+
+    test("a routine commit-and-push never sees a question and still reaches execution", async () => {
+      const { workflow, prepare, step } = setup();
+      const routine = preparation();
+      routine.requiresConfirmation = false;
+      prepare.mockResolvedValueOnce(routine);
+      await workflow.prepare({ ...fixture.request, push: true });
+      expect(workflow.getState().pushTargetPrompt).toBeNull();
+      expect(prepare.mock.calls[0]![0].pushTargets).toBeUndefined();
+      expect(step).toHaveBeenCalledTimes(1);
+      expect(workflow.getState().session?.succeeded).toBe(true);
+    });
+
+    test("cancelling the question writes nothing and allows starting over", async () => {
+      const { workflow, prepare, step } = setup();
+      prepare.mockResolvedValueOnce(asking("A"));
+      await workflow.prepare(fixture.request);
+      workflow.cancelPushTargets();
+      expect(workflow.getState().pushTargetPrompt).toBeNull();
+      expect(step).not.toHaveBeenCalled();
+      expect(workflow.getState().busy).toBe(false);
+      await workflow.prepare(fixture.request);
+      expect(prepare).toHaveBeenCalledTimes(2);
+    });
+
+    test("answers for several repositories accumulate across rounds", async () => {
+      const { workflow, prepare } = setup();
+      prepare.mockResolvedValueOnce(asking("A", "A/B")).mockResolvedValueOnce(asking("A/B"));
+      await workflow.prepare(fixture.request);
+      expect(workflow.getState().pushTargetPrompt?.questions.map((q) => q.repositoryId)).toEqual([
+        "A",
+        "A/B",
+      ]);
+      await workflow.answerPushTargets({ A: publish });
+      expect(workflow.getState().pushTargetPrompt?.questions.map((q) => q.repositoryId)).toEqual([
+        "A/B",
+      ]);
+      await workflow.answerPushTargets({ "A/B": upstream });
+      expect(prepare.mock.calls[2]![0].pushTargets).toEqual({ A: publish, "A/B": upstream });
+    });
+
+    test("a question raised while confirming keeps the reviewed plan for the next round", async () => {
+      const { workflow, prepare, step } = setup();
+      await workflow.prepare(fixture.request);
+      prepare.mockResolvedValueOnce(asking("A"));
+      await workflow.confirm(fixture.request.repositories);
+      expect(workflow.getState().review).toBeNull();
+      expect(workflow.getState().pushTargetPrompt?.confirmed).toBe(true);
+      expect(step).not.toHaveBeenCalled();
+      await workflow.answerPushTargets({ A: publish });
+      expect(prepare.mock.calls[2]![0].reviewed).toEqual(fixture.preparation.session.plan);
+      expect(prepare.mock.calls[2]![0].pushTargets).toEqual({ A: publish });
+    });
+  });
 });

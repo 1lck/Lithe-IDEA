@@ -15,6 +15,9 @@ const CHATGPT_BASE_URL: &str = "https://chatgpt.com/backend-api/";
 /// after the proxy capability prefix, not appended to this upstream twice.
 pub(super) const INFERENCE_ORIGIN: &str = "https://chatgpt.com";
 
+/// Codex's own switch for selecting an isolated account directory.
+pub(super) const CODEX_HOME_ENVIRONMENT: &str = "CODEX_HOME";
+
 const PROBE_TIMEOUT: Duration = Duration::from_secs(20);
 const MAX_REPLY_BYTES: u64 = 1024 * 1024;
 pub(super) const LOGIN_TIMEOUT: Duration = Duration::from_secs(300);
@@ -155,6 +158,12 @@ pub(super) fn resolve(
         return Err(issue);
     }
     let executable = detected.ok_or("Codex CLI is unavailable")?.path;
+    let codex_home = launch.codex_home;
+    if codex_home.as_ref().is_some_and(|home| !home.is_absolute()) {
+        // A relative path would resolve against the adapter's working directory
+        // and silently select a different account than the one the user chose.
+        return Err("The Codex account directory must be an absolute path".into());
+    }
     let mut config = codex_session_config(None);
     config["model_provider"] = json!("openai");
     // Empty disables a saved openai_base_url override in Codex.
@@ -173,10 +182,21 @@ pub(super) fn resolve(
             ),
             ("MODEL_PROVIDER".into(), "openai".into()),
             ("CODEX_CONFIG".into(), config.to_string()),
-        ],
+        ]
+        .into_iter()
+        .chain(codex_home.as_ref().map(|home| {
+            (
+                CODEX_HOME_ENVIRONMENT.into(),
+                home.to_string_lossy().into_owned(),
+            )
+        }))
+        .collect(),
         gateway: None,
         secret: String::new(),
         subscription_cli: Some(executable),
+        claude_subscription: false,
+        codex_home,
+        claude_projects: None,
     })
 }
 
@@ -230,9 +250,14 @@ pub(super) async fn read_quota(
     command: &Path,
     cwd: &Path,
     account: &Account,
+    codex_home: Option<&Path>,
 ) -> Result<QuotaSnapshot, &'static str> {
     let mut process = std::process::Command::new(command);
     isolate_environment(&mut process);
+    if let Some(home) = codex_home {
+        // The probe must read the same account the adapter is signed in to.
+        process.env(CODEX_HOME_ENVIRONMENT, home);
+    }
     process
         .args([
             "-c",

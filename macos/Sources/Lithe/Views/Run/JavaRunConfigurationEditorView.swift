@@ -53,7 +53,7 @@ struct RunConfigurationEditorView: View {
             }
 
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            HStack(spacing: 10) {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Button("Reset") {
                     options = RunOptions()
                     environmentText = ""
@@ -73,7 +73,7 @@ struct RunConfigurationEditorView: View {
                     .frame(maxWidth: 280, alignment: .trailing)
                 }
                 Button("Cancel", action: onClose)
-                    .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 12, height: 28))
+                    .buttonStyle(LitheActionButtonStyle())
                 Button("Save") {
                     options.environment = Self.environment(from: environmentText)
                     guard let scopedOptions = scopedOptionsForSave() else { return }
@@ -90,7 +90,7 @@ struct RunConfigurationEditorView: View {
                         saveError = feature.configurationSaveError
                     }
                 }
-                    .buttonStyle(LithePrimaryButtonStyle(horizontalPadding: 14, height: 28))
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     .keyboardShortcut("s", modifiers: .command)
             }
             .padding(.horizontal, 16)
@@ -372,8 +372,7 @@ struct RunConfigurationEditorView: View {
 
     private var environmentSection: some View {
         section(title: "Environment", info: "One NAME=value entry per line") {
-            TextEditor(text: $environmentText)
-                .litheSettingsTextEditor(height: 88)
+            LitheTextEditor(text: $environmentText, height: 88)
         }
     }
 
@@ -454,8 +453,7 @@ struct RunConfigurationEditorView: View {
             Text(LocalizedStringKey(title))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .frame(width: 120, alignment: .leading)
-            TextField(LocalizedStringKey(placeholder), text: text)
-                .litheSettingsTextField()
+            LitheTextField(LocalizedStringKey(placeholder), text: text)
             Button(action: chooseDirectory) {
                 LitheSystemIcon(systemImage: "folder")
             }
@@ -474,8 +472,7 @@ struct RunConfigurationEditorView: View {
             Text(LocalizedStringKey(title))
                 .font(LitheTheme.uiFont(size: 11.5))
                 .foregroundStyle(LitheTheme.secondaryText)
-            TextField(LocalizedStringKey(placeholder), text: text)
-                .litheSettingsTextField()
+            LitheTextField(LocalizedStringKey(placeholder), text: text)
         }
     }
 

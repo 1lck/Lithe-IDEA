@@ -10,7 +10,7 @@ function gate() {
 
 const opened: AgentLaunchConfiguration[] = [];
 const closed: string[] = [];
-const pending: Promise<void>[] = [];
+const pending: Promise<unknown>[] = [];
 let started = gate();
 let release = gate();
 let holdFirst = true;
@@ -24,6 +24,7 @@ mock.module("@/platform/app-data-directory", () => ({
 mock.module("@/i18n/locale", () => ({ createTranslator: () => (key: string) => key }));
 mock.module("../src/features/agent/services/agent-launch", () => ({
   AgentLaunchError: class extends Error {},
+  settingsWithLinkedAgentProvider: (settings: typeof DEFAULT_AGENT_PANEL_SETTINGS) => settings,
   loadAgentLaunch: async ({ workspacePath, settings, dataDirectory }: {
     workspacePath: string;
     settings: typeof DEFAULT_AGENT_PANEL_SETTINGS;

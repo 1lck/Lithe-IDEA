@@ -54,7 +54,6 @@ extension AppModel {
         selectedChange = nil
         closeBranchComparison()
         editorTabOrderFeature.repositoryDiffSelected = false
-        editorTabOrderFeature.databaseSelected = false
         editorTabOrderFeature.focus(.agentConversation)
         workbenchFeature.setVisibility(.agent, isVisible: true)
     }
@@ -221,7 +220,11 @@ extension AppModel {
             }
             .map { id, configuration -> AgentOption in
                 let provider = settings.agentProvider(for: id)
-                let model = configuration.authentication == .codexSubscription ? "Codex subscription" : (provider?.model.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
+                let model = switch configuration.authentication {
+                case .codexSubscription: "Codex subscription"
+                case .claudeSubscription: "Claude subscription"
+                case .apiKey: provider?.model.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                }
                 return AgentOption(id: id, name: configuration.name, modelName: model.isEmpty ? provider?.name : model)
             }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
@@ -236,6 +239,7 @@ extension AppModel {
         feature.onAttentionChanged = { [weak self] needsAttention in
             self?.agentConversationNeedsAttention = needsAttention
         }
+        feature.historyIdentity = { [weak self] agentID in self?.agentHistoryIdentity(agentID) ?? agentID }
         feature.setAgents(configuredAgentOptions)
         guard feature.agents.contains(where: { $0.id == selectedAgentConversationID }) else { return }
         feature.selectAgent(selectedAgentConversationID)
@@ -246,6 +250,9 @@ extension AppModel {
             // Refresh the displayed fallback even when credential validation fails.
             defer { feature.setAgents(configuredAgentOptions) }
             let configuration = try agentLaunchConfiguration(agentID: agentID)
+            connection.onAccountObserved = { [weak self] directory, email, plan, quota in
+                self?.settings.recordAgentAccount(agentID: agentID, directory: directory, email: email, plan: plan, quota: quota)
+            }
             try connection.connect(configuration: configuration)
         } catch {
             // The panel shows the reason and offers a retry.

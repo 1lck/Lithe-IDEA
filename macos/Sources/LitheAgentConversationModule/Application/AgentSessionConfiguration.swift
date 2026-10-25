@@ -79,7 +79,11 @@ public struct AgentToolDetails: Equatable, Sendable {
     public var locations: [Location] = []
     public var content: [Content] = []
     public var diffs: [Diff] = []
-    public var isEmpty: Bool { input == nil && output == nil && locations.isEmpty && content.isEmpty }
+    /// Pictures the tool returned or read, in the order the agent reported them.
+    public var images: [AgentImage] = []
+    /// Set when the host recognised a Claude Desktop mechanism in this call.
+    public var desktopCard: AgentDesktopCard?
+    public var isEmpty: Bool { input == nil && output == nil && locations.isEmpty && content.isEmpty && images.isEmpty }
     static let textLimit = 32_768
 
     mutating func merge(_ update: [String: Any]) {
@@ -108,10 +112,21 @@ public struct AgentToolDetails: Equatable, Sendable {
                             additions: validStats ? (stats?["added"] as? Int).flatMap { $0 >= 0 ? $0 : nil } : nil,
                             deletions: validStats ? (stats?["removed"] as? Int).flatMap { $0 >= 0 ? $0 : nil } : nil)
             }
-            self.content = content.prefix(100).compactMap { item in
+            // Parse each picture once; an `image` block no decoder accepts falls back to a text entry.
+            var parsedIndices = Set<Int>()
+            let reported = content.prefix(100).enumerated().compactMap { index, item -> AgentImage? in
+                guard item["type"] as? String == "content", let block = item["content"] as? [String: Any],
+                      let image = AgentImage.parse(block: block) else { return nil }
+                parsedIndices.insert(index)
+                return image
+            }.uniquedByID
+            // An update without pictures must not erase ones an earlier update delivered.
+            if !reported.isEmpty { images = Array(reported.prefix(AgentImage.maximumPerMessage)) }
+            self.content = content.prefix(100).enumerated().compactMap { index, item in
                 switch item["type"] as? String {
                 case "content":
                     guard let block = item["content"] as? [String: Any] else { return nil }
+                    if parsedIndices.contains(index) { return nil }
                     if let text = block["text"] as? String {
                         return Content(title: "Output", text: Self.bounded(text))
                     }
@@ -127,6 +142,12 @@ public struct AgentToolDetails: Equatable, Sendable {
                 default: return nil
                 }
             }
+        }
+        titleImages()
+        // A later update restates the card in full, such as a task the user started.
+        if let metadata = update["_meta"] as? [String: Any], let lithe = metadata["lithe"] as? [String: Any],
+           let card = AgentDesktopCard(lithe["claudeDesktop"]) {
+            desktopCard = card
         }
         // The pinned Claude adapter forwards the SDK's public FileWriteOutput
         // in tool metadata. Prefer its complete text over newline-less hunks;
@@ -147,6 +168,21 @@ public struct AgentToolDetails: Equatable, Sendable {
                     additions: completeStats ? reported.additions : nil, deletions: completeStats ? reported.deletions : nil)]
             }
         }
+    }
+
+    /// Reading an image file often reports only the path; show that file itself.
+    /// Untitled pictures borrow the file name or the tool's own caption.
+    private mutating func titleImages() {
+        if images.isEmpty, kind == "read" {
+            // Only files that exist: a failed or stale read must not leave a blank thumbnail.
+            images = locations.lazy.map(\.path).filter { AgentImage.isImageFile($0) && FileManager.default.fileExists(atPath: $0) }
+                .map { AgentImage(filePath: $0) }.uniquedByID.prefix(AgentImage.maximumPerMessage).map { $0 }
+        }
+        guard images.contains(where: { $0.title == nil }) else { return }
+        let caption = locations.first.map { ($0.path as NSString).lastPathComponent }
+            ?? content.first { $0.title == "Output" }?.text.split(whereSeparator: \.isNewline).first.map { String($0.prefix(80)) }
+        guard let caption else { return }
+        for index in images.indices where images[index].title == nil { images[index].title = caption }
     }
 
     private static func display(_ value: Any) -> String? {

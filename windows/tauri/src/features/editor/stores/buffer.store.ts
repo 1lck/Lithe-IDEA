@@ -7,7 +7,6 @@ import {
 } from "@/platform/document-lifecycle";
 import { immer } from "zustand/middleware/immer";
 import { createStore } from "zustand/vanilla";
-import type { DatabaseType } from "@/features/database/types/provider.types";
 import { EDITOR_CONSTANTS } from "@/features/editor/config/constants";
 import { evictLeastRecentAutoClosableBuffer } from "@/features/editor/stores/buffer-eviction";
 import {
@@ -132,7 +131,6 @@ interface BufferActions {
     name: string,
     content: string,
     isImage?: boolean,
-    databaseType?: DatabaseType,
     isDiff?: boolean,
     isVirtual?: boolean,
     diffData?: GitDiff | MultiFileDiff,
@@ -143,13 +141,6 @@ interface BufferActions {
     isPreview?: boolean,
     isPdf?: boolean,
     isBinary?: boolean,
-    connectionId?: string,
-  ) => string;
-  openDatabaseBuffer: (
-    path: string,
-    name: string,
-    databaseType: DatabaseType,
-    connectionId?: string,
   ) => string;
   convertPreviewToDefinite: (bufferId: string) => void;
   openExternalEditorBuffer: (path: string, name: string, terminalConnectionId: string) => string;
@@ -1149,7 +1140,6 @@ const createBufferStore = (workspaceId: string) => {
             case "image":
             case "pdf":
             case "binary":
-            case "database":
             case "markdownPreview":
             case "htmlPreview":
             case "csvPreview": {
@@ -1194,7 +1184,6 @@ const createBufferStore = (workspaceId: string) => {
           name: string,
           content: string,
           isImage = false,
-          databaseType?: DatabaseType,
           isDiff = false,
           isVirtual = false,
           diffData?: GitDiff | MultiFileDiff,
@@ -1205,7 +1194,6 @@ const createBufferStore = (workspaceId: string) => {
           isPreview = false,
           isPdf = false,
           isBinary = false,
-          connectionId?: string,
         ) => {
           // Map the old boolean-flag API to the new OpenContentSpec
           if (isImage) {
@@ -1216,15 +1204,6 @@ const createBufferStore = (workspaceId: string) => {
           }
           if (isBinary) {
             return get().actions.openContent({ type: "binary", path, name });
-          }
-          if (databaseType) {
-            return get().actions.openContent({
-              type: "database",
-              path,
-              name,
-              databaseType,
-              connectionId,
-            });
           }
           if (isDiff) {
             return get().actions.openContent({
@@ -1587,7 +1566,7 @@ const createBufferStore = (workspaceId: string) => {
             name = t("files.untitledNumber", { number });
           }
           const path = `untitled:${name}`;
-          get().actions.openBuffer(path, name, "", false, undefined, false, true);
+          get().actions.openBuffer(path, name, "", false, false, true);
         },
 
         updateBufferContent: (
@@ -1847,21 +1826,6 @@ const createBufferStore = (workspaceId: string) => {
 
           paneStore.getState().actions.setBufferPinnedEverywhere(bufferId, isPinned);
           saveWorkspaceSession(get().buffers, get().activeBufferId);
-        },
-
-        openDatabaseBuffer: (
-          path: string,
-          name: string,
-          databaseType: DatabaseType,
-          connectionId?: string,
-        ) => {
-          return get().actions.openContent({
-            type: "database",
-            path,
-            name,
-            databaseType,
-            connectionId,
-          });
         },
 
         convertPreviewToDefinite: (bufferId: string) => {

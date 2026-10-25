@@ -139,6 +139,18 @@ pub struct LspClientState {
     /// negotiated; empty otherwise.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub plugin_functions: BTreeSet<String>,
+    /// The `litheFunctions` version the backend chose; `None` when the
+    /// protocol was not negotiated. Version 2 adds host services.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin_function_version: Option<u64>,
+    /// Host services the plugin's permissions grant this session, from
+    /// `lsp.startServer.hostServices`. Empty for host-owned sessions.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub host_services: BTreeSet<String>,
+    /// The VCS and capabilities a plugin process answered under
+    /// `litheVcs`; `None` when the protocol was not negotiated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vcs_provider: Option<super::vcs_provider::VcsNegotiation>,
 }
 
 impl Default for LspClientState {
@@ -156,6 +168,9 @@ impl Default for LspClientState {
             diagnostics: BTreeMap::new(),
             diagnostic_versions: BTreeMap::new(),
             plugin_functions: BTreeSet::new(),
+            plugin_function_version: None,
+            host_services: BTreeSet::new(),
+            vcs_provider: None,
         }
     }
 }

@@ -3,6 +3,7 @@ import { getCommitDiff } from "@/features/git/api/git-diff-api";
 import type { GitDiff } from "@/features/git/types/git.types";
 import type { MultiFileDiff } from "@/features/git/types/git-diff.types";
 import { countDiffStats } from "@/features/git/utils/git-diff-helpers";
+import { orderGitDiffsForTree } from "@/features/git/utils/git-file-tree-order";
 import { createCommitFileDiffPreview } from "@/features/git/utils/multi-file-diff";
 import { invoke as tauriInvoke } from "@/platform/tauri-core";
 import { resolveRepositoryPath } from "@/features/git/api/git-repo-api";
@@ -92,7 +93,6 @@ export const openCommitDiffBuffer = async ({
         preview.displayName,
         "",
         false,
-        undefined,
         true,
         true,
         preview.diffData,
@@ -114,7 +114,7 @@ export const openCommitDiffBuffer = async ({
     commitDescription: description,
     commitAuthor: author,
     commitDate: date,
-    files: diffs,
+    files: orderGitDiffsForTree(diffs),
     totalFiles: diffs.length,
     totalAdditions: additions,
     totalDeletions: deletions,
@@ -125,5 +125,5 @@ export const openCommitDiffBuffer = async ({
 
   return useBufferStore
     .getState()
-    .actions.openBuffer(virtualPath, displayName, "", false, undefined, true, true, multiDiff);
+    .actions.openBuffer(virtualPath, displayName, "", false, true, true, multiDiff);
 };

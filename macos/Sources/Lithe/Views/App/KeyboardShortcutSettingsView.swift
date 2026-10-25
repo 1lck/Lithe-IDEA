@@ -3,7 +3,6 @@ import SwiftUI
 struct KeyboardShortcutSettingsView: View {
     @ObservedObject var feature: KeyboardShortcutFeatureModel
     let language: AppLanguage
-    @State private var commandListActive = false
     @State private var query = ""
     @State private var expandedGroups: Set<LitheActionGroup> = []
     @State private var selectedCommandID: String?
@@ -25,21 +24,32 @@ struct KeyboardShortcutSettingsView: View {
         VStack(alignment: .leading, spacing: 0) {
             header
             toolbar
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    if sections.isEmpty {
-                        emptyState
-                    } else {
-                        ForEach(sections) { section in
-                            commandSection(section)
+            if sections.isEmpty {
+                emptyState
+                Spacer(minLength: 0)
+            } else {
+                LitheTreeList(
+                    commandRows, selection: $selectedCommandID, hierarchy: { $0.hierarchy },
+                    onExpansion: { row, expanded in
+                        guard let group = row.group, query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        else { return }
+                        if expanded {
+                            expandedGroups.insert(group)
+                        } else {
+                            expandedGroups.remove(group); cancelEditing()
+                        }
+                    }, multiline: true
+                ) { row in
+                    if let command = row.command {
+                        commandRow(command)
+                    } else if let group = row.group {
+                        HStack(spacing: LitheTheme.Tree.iconTextGap) {
+                            LitheIcon(kind: .folder, size: LitheTheme.Tree.iconSize)
+                            Text(LocalizedStringKey(group.rawValue))
                         }
                     }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 4)
+                    }
             }
-            .litheScrollViewChrome(alwaysShowVertical: true, usesCompactScrollers: true)
-            .background(LitheToolWindowActivityTracker(isActive: $commandListActive))
         }
         .background(LitheTheme.settingsSurface)
     }
@@ -146,10 +156,10 @@ struct KeyboardShortcutSettingsView: View {
             .accessibilityLabel("Edit Shortcuts")
 
             Spacer(minLength: 12)
-            LitheSettingsSearchField("", text: $query) { _ in
+            LitheSearchField("", text: $query, onTextChanged: { _ in
                 cancelEditing()
                 selectedCommandID = nil
-            }
+            })
             .frame(width: 244)
             .accessibilityLabel("Search actions or shortcuts")
         }
@@ -162,37 +172,24 @@ struct KeyboardShortcutSettingsView: View {
         .background(alignment: .bottom) { Rectangle().fill(LitheTheme.divider).frame(height: 1) }
     }
 
-    private func commandSection(_ section: KeyboardShortcutCommandSection) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button {
-                if expandedGroups.contains(section.group) {
-                    expandedGroups.remove(section.group)
-                    cancelEditing()
-                } else {
-                    expandedGroups.insert(section.group)
-                }
-            } label: {
-                HStack(spacing: 7) {
-                    LitheIDEAIcon(resourcePath: "expui/general/chevronRight.svg", size: 16, fallbackSystemImage: "chevron.right", preservesOriginalColors: true)
-                        .rotationEffect(.degrees(isExpanded(section.group) ? 90 : 0))
-                    LitheIcon(kind: .folder, size: 16)
-                    Text(LocalizedStringKey(section.group.rawValue))
-                        .font(LitheTheme.uiFont(size: 12.5))
-                    Spacer()
-                }
-                .foregroundStyle(LitheTheme.primaryText)
-                .padding(.horizontal, 8)
-                .frame(height: 24)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.litheNoPress)
-            .disabled(!query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    private struct CommandRow: Identifiable {
+        let id: String
+        var group: LitheActionGroup?
+        var command: LitheCommandDefinition?
+        var hierarchy: LitheTreeListHierarchy
+    }
 
-            if isExpanded(section.group) {
-                ForEach(section.commands) { command in
-                    commandRow(command)
-                }
-            }
+    private var commandRows: [CommandRow] {
+        sections.flatMap { section in
+            [
+                CommandRow(
+                    id: "group:" + section.group.rawValue, group: section.group,
+                    hierarchy: .init(isBranch: true, isExpanded: isExpanded(section.group), isSelectable: false))
+            ]
+                + (isExpanded(section.group)
+                    ? section.commands.map {
+                        CommandRow(id: $0.id, command: $0, hierarchy: .init(depth: 1))
+                    } : [])
         }
     }
 
@@ -219,11 +216,7 @@ struct KeyboardShortcutSettingsView: View {
                 shortcutControls(for: command)
             }
             .foregroundStyle(selectedCommandID == command.id ? LitheTheme.settingsSelectionText : LitheTheme.primaryText)
-            .padding(.leading, 36)
-            .padding(.trailing, 6)
             .frame(height: 24)
-            .litheSelectionRow(isSelected: selectedCommandID == command.id, isFocused: commandListActive)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
             .litheContextMenu {
                 var items: [LitheContextMenuItem] = [
                     .action("Add Shortcut") {

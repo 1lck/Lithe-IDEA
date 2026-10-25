@@ -96,6 +96,31 @@ Diff 的纵向同步依据 Community `SyncScrollSupport.ScrollHelper` 和
 有效范围。记录的组件布局与截图耗时只是本地诊断数据，不能替代整机连续拖动的
 帧延迟，也不能把 `split.drag` 手势持续时间当成帧性能。
 
+### 设置窗口只观察设置相关的变化
+
+设置窗口不能整体订阅 `AppModel`。`AppModel` 会把文档、语言服务、Git、搜索、
+运行等十几个功能模块的变化合并转发出去；整体订阅时，主窗口里编辑代码、索引或
+刷新 Git 状态，都会让整个设置页（包括插件列表和详情）重新计算，设置窗口还会
+重新配置一次标题栏。工程越忙，设置页越卡。IDEA 的设置对话框也不随工程事件重绘。
+
+正确做法是：设置页根视图通过 `SettingsModelContext` 读取同一个 `AppModel`，只订阅
+`AppModel.settingsChanges`。这条通道包含模型自身的发布属性、插件和模块的直接通知、
+模块激活与释放，以及当前工作区变化；功能模块的高频转发调用
+`scheduleObjectWillChangeRelay(affectsSettings: false)`，不进入设置窗口。新增的转发
+如果会改变设置页显示的内容，保持默认的 `affectsSettings: true`。
+
+需要实时状态的页面自己订阅对应功能模型，或者在一个小的叶子视图里订阅 `AppModel`，
+例如语言服务状态和项目运行时页面。模块按需激活的页面要把激活结果存进本地状态，
+不能指望后续的整体刷新把新功能显示出来；但本地状态只能作为能力缓存填好前的过渡，统一用 `ModuleFeatureSelection`：激活任务以当前能力身份为 key，模块休眠后立即丢弃旧实例并重新激活，页面不能继续读写已释放的功能实例。窗口外观（标题栏、样式掩码）只在标题、
+主题、关闭按钮状态或外观真的变化时才重新应用。插件列表在一次渲染里只排序、
+过滤一次，行的悬停状态留在行内部。
+
+设置窗口是项目窗口的子窗口，用来跟随项目窗口移动。但 AppKit 拖动子窗口时由应用
+主线程逐个鼠标事件移动，工程忙时拖动会一格一格地跳，不跟手。因此
+`SettingsWindowChrome` 在标题栏按下鼠标时临时解除父子关系，交给窗口服务器拖动，
+松手（或移动结束且鼠标已松开）后再挂回原项目窗口。不要为了跟随而在拖动期间保持
+子窗口关系，也不要用定时器手动同步位置。
+
 ### 正确做法
 
 ```text
@@ -164,6 +189,13 @@ IDEA 的 [BranchesTreeComponent](https://github.com/JetBrains/intellij-community
   `cd windows/tauri && bun test src/features/tabs/hooks/use-tab-wheel-scroll.test.tsx`
   Windows CI 显式运行整个 `src/features/tabs` 测试目录，并生成逐项计时报告。
 - 代码审查时确认拖动不会导致高频整页重绘
+- `AppModelSettingsChangesTests` 验证只影响工作台的转发不会进入
+  `settingsChanges`，直接通知和设置相关的转发仍然会进入，并且合并后的一次转发
+  只要包含设置相关变化就会通知设置窗口。
+- `ModuleFeatureSelectionTests` 验证设置页保持打开时，模块休眠后会丢弃已释放的
+  实例，重新激活后显示新实例。`SettingsAppearanceContainerTests` 用原生鼠标事件
+  验证：按下标题栏会解除子窗口关系，拖动中重新配置不会提前挂回，松手后挂回，
+  关闭后重新打开也会挂回。
 - `GitGraphInteractionTests.splitPaneBounds` 在两种方向、两种位置及折叠状态
   验证原生子视图身份、可见尺寸和传入的确定尺寸，防止恢复为堆栈尺寸探测。
 - `LitheSplitPaneCollapseTests.outerDragSuspendsRowChrome` 使用原生分隔条

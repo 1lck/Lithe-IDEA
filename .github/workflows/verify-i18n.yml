@@ -1,0 +1,86 @@
+name: Verify Shared i18n
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - ".gitattributes"
+      - "shared/i18n/**"
+      - "shared/fixtures/i18n/**"
+      - "scripts/*i18n*"
+      - "scripts/package-macos-localizations.sh"
+      - "macos/Resources/*.lproj/**"
+      - "macos/Sources/Lithe/Models/Settings/AppLanguage.generated.swift"
+      - "windows/tauri/src/i18n/**"
+      - ".github/workflows/verify-i18n.yml"
+  push:
+    branches: [preview]
+    paths:
+      - ".gitattributes"
+      - "shared/i18n/**"
+      - "shared/fixtures/i18n/**"
+      - "scripts/*i18n*"
+      - "scripts/package-macos-localizations.sh"
+      - "macos/Resources/*.lproj/**"
+      - "macos/Sources/Lithe/Models/Settings/AppLanguage.generated.swift"
+      - "windows/tauri/src/i18n/**"
+      - ".github/workflows/verify-i18n.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-shared-i18n-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Shared i18n (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # Drafts retain the Linux contract check; ready PRs validate all hosts.
+        os: >-
+          ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.draft == true
+            && '["ubuntu-latest"]' || '["ubuntu-latest","macos-latest","windows-latest"]') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - name: Check generated translations
+        run: node scripts/generate-i18n.mjs --check
+      - name: Test contracts, fallback, migration and packaging
+        timeout-minutes: 2
+        run: |
+          mkdir -p .artifacts/test-stability
+          # Node 22 also applies this timeout to the whole file. Each case keeps
+          # its explicit 15s (or lower) bound in test-i18n.mjs.
+          node --test --test-timeout=60000 --test-reporter=spec --test-reporter-destination=stdout \
+            --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/i18n-node.junit.xml \
+            scripts/test-i18n.mjs
+      - name: Generate per-test timing report
+        if: always()
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { parseJUnitCases } from './.agents/skills/write-stable-tests/scripts/parse-junit-cases.mjs';
+          import { writeTestReportArtifacts } from './.agents/skills/write-stable-tests/scripts/generate-test-report.mjs';
+          const stem = '.artifacts/test-stability/i18n-node';
+          const tests = parseJUnitCases(fs.readFileSync(`${stem}.junit.xml`, 'utf8'));
+          if (!tests.length) throw new Error('Missing i18n test durations');
+          fs.writeFileSync(`${stem}.json`, JSON.stringify({ runner: 'node', warnMs: 1000, maxMs: 15000, tests }));
+          writeTestReportArtifacts(`${stem}.json`);
+          NODE
+      - name: Upload timing report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shared-i18n-${{ matrix.os }}
+          path: .artifacts/test-stability/

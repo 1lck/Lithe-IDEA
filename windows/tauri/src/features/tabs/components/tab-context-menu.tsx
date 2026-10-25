@@ -20,6 +20,9 @@ import {
   ContextMenuItem,
   ContextMenuSeparator,
   ContextMenuShortcut,
+  ContextMenuSub,
+  ContextMenuSubTrigger,
+  ContextMenuSubContent,
 } from "@/ui/context-menu";
 import type { MenuItem } from "@/ui/dropdown";
 import { writeClipboardText } from "@/utils/clipboard";
@@ -27,6 +30,7 @@ import { getBaseName, getDirName } from "@/utils/path-helpers";
 import Keybinding from "@/features/keymaps/components/keybinding";
 import { useTranslation } from "@/i18n/locale-provider";
 import { IS_MAC } from "@/utils/platform";
+import { useAgentFileContextMenu } from "@/features/agent/hooks/use-agent-file-context-menu";
 
 interface TabContextMenuProps {
   buffer: PaneContent;
@@ -68,8 +72,10 @@ const TabContextMenu = ({
   onTogglePaneLocked,
 }: TabContextMenuProps) => {
   const { t } = useTranslation();
+  const agentFileMenu = useAgentFileContextMenu();
   const closeKeys = [IS_MAC ? "Cmd" : "Ctrl", "W"];
   const items: MenuItem[] = [
+    ...(!isVirtualContent(buffer) && !buffer.path.includes("://") ? agentFileMenu([buffer.path]) : []),
     {
       id: "close",
       label: t("tabs.close"),
@@ -210,19 +216,21 @@ const TabContextMenu = ({
 
   return (
     <ContextMenuContent>
-      {items.map((item) =>
-        item.separator ? (
-          <ContextMenuSeparator key={item.id} />
-        ) : (
-          <ContextMenuItem key={item.id} disabled={item.disabled} onClick={item.onClick}>
-            {item.icon}
-            {item.label}
-            {item.keybinding && <ContextMenuShortcut>{item.keybinding}</ContextMenuShortcut>}
-          </ContextMenuItem>
-        ),
-      )}
+      {items.map(renderMenuItem)}
     </ContextMenuContent>
   );
 };
+
+function renderMenuItem(item: MenuItem) {
+  if (item.separator) return <ContextMenuSeparator key={item.id} />;
+  if (item.children) return <ContextMenuSub key={item.id}>
+    <ContextMenuSubTrigger disabled={item.disabled}>{item.icon}{item.label}</ContextMenuSubTrigger>
+    <ContextMenuSubContent>{item.children.map(renderMenuItem)}</ContextMenuSubContent>
+  </ContextMenuSub>;
+  return <ContextMenuItem key={item.id} disabled={item.disabled} onClick={item.onClick}>
+    {item.icon}{item.label}
+    {item.keybinding && <ContextMenuShortcut>{item.keybinding}</ContextMenuShortcut>}
+  </ContextMenuItem>;
+}
 
 export default TabContextMenu;

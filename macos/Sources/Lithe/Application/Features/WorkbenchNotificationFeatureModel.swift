@@ -38,6 +38,10 @@ final class WorkbenchNotificationFeatureModel: ObservableObject {
     func show(_ message: String) { show(message, arguments: []) }
 
     func show(_ message: String, arguments: [String]) {
+        show(message, arguments: arguments, action: nil)
+    }
+
+    func show(_ message: String, arguments: [String], action: WorkbenchNotification.Action?) {
         // Only an identical key and its arguments merge into the row they own: the entry
         // stays in place, only its occurrence count grows. Without this, a
         // message repeated by a background workflow floods the center.
@@ -51,7 +55,7 @@ final class WorkbenchNotificationFeatureModel: ObservableObject {
             return
         }
 
-        let notification = WorkbenchNotification(message: message, arguments: arguments)
+        let notification = WorkbenchNotification(message: message, arguments: arguments, action: action)
         notifications.insert(notification, at: 0)
         if notifications.count > WorkbenchNotificationTiming.maximumHistoryCount {
             notifications.removeLast(
@@ -130,6 +134,14 @@ final class WorkbenchNotificationFeatureModel: ObservableObject {
         scheduleDismissal(for: notification, after: remaining)
     }
 
+    /// Runs the notification's action and closes its balloon.
+    func perform(_ id: UUID) {
+        guard let action = notifications.first(where: { $0.id == id })?.action else { return }
+        if let index = notifications.firstIndex(where: { $0.id == id }) { notifications[index].isRead = true }
+        dismiss(id)
+        action.perform()
+    }
+
     func dismiss(_ id: UUID) {
         guard activeNotifications.contains(where: { $0.id == id }) else { return }
         activeNotifications.removeAll { $0.id == id }
@@ -162,6 +174,8 @@ final class WorkbenchNotificationFeatureModel: ObservableObject {
         after duration: Duration
     ) {
         dismissalTasks[notification.id]?.cancel()
+        // An action is easy to miss in ten seconds; it waits for the user.
+        guard notification.action == nil else { return }
         guard isApplicationActive, !hoveredIDs.contains(notification.id) else {
             remainingDurations[notification.id] = duration
             return

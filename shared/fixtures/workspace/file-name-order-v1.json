@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "description": "Sibling names in ascending project-tree order, following IntelliJ IDEA's FileNameComparator (NaturalComparator, ignoreCase and likeFileNames). Every name must sort strictly before each name after it within its group; directories-first ranking is applied by the tree, not by this comparator.",
+  "orderedGroups": [
+    {
+      "id": "release-notes",
+      "names": [
+        "TEMPLATE.md",
+        "v0.1.4.md",
+        "v0.1.5.md",
+        "v0.1.8.md",
+        "v0.1.12.md",
+        "v0.1.13.md",
+        "v0.1.14.md",
+        "v0.2.0.md",
+        "v0.2.1.md",
+        "v0.2.2.md",
+        "v0.3.1.md",
+        "v0.3.3.md"
+      ]
+    },
+    {
+      "id": "digit-runs-compare-by-value",
+      "names": ["file1.txt", "file2.txt", "file10.txt", "file20.txt", "file100.txt"]
+    },
+    {
+      "id": "leading-zeros-sort-after-the-plain-number",
+      "names": ["a1", "a01", "a001", "a2"]
+    },
+    {
+      "id": "case-is-ignored-before-it-breaks-ties",
+      "names": ["A.txt", "a.txt", "B.txt", "b.txt", "c.txt"]
+    },
+    {
+      "id": "dash-ranks-next-to-underscore",
+      "names": ["foo", "foo.bar", "foo-bar", "foo_bar", "fooa"]
+    },
+    {
+      "id": "spaces-inside-numbers",
+      "names": ["Test1 2.txt", "Test1 12.txt", "Test2.txt"]
+    },
+    {
+      "id": "non-ascii-names-follow-code-units",
+      "names": ["notes", "笔记"]
+    }
+  ]
+}

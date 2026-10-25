@@ -163,8 +163,11 @@ final class MacDirectoryWatcher: DirectoryChangeSource, @unchecked Sendable {
             if configuration.containsRepositoryPath(url) {
                 batch.gitStateMayHaveChanged = true
             }
+            // `.lithe` may be hidden from the tree, yet its JSON files still
+            // reload project services, so its events are not filtered out.
             if configuration.containsWorkspacePath(url),
-               !visibilityRules.isHiddenPath(url, relativeTo: configuration.workspaceRoot) {
+               !visibilityRules.isHiddenPath(url, relativeTo: configuration.workspaceRoot)
+                || visibilityRules.isWatchedDespiteHiding(url, relativeTo: configuration.workspaceRoot) {
                 workspacePaths.insert(url.path)
             }
         }

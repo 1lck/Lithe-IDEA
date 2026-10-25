@@ -1,10 +1,9 @@
 import type { SettingsTab } from "@/features/window/stores/ui-state.store";
 import type { SettingsCategory } from "../components/settings-panels";
 import { matchesSearchQuery } from "@/utils/search-match";
-import { createTranslator } from "@/i18n/locale";
+import { createTranslator, DISPLAY_LANGUAGES } from "@/i18n/locale";
 
-const englishLabel = createTranslator("en-US");
-const chineseLabel = createTranslator("zh-CN");
+const registeredLabels = DISPLAY_LANGUAGES.map(createTranslator);
 
 /**
  * 分组与页面的归属只在这里声明；侧栏、面包屑和展开逻辑都从它推导。
@@ -38,7 +37,7 @@ const toolsGroup = {
 const aiGroup = {
   id: "ai",
   labelKey: "settings.groups.ai",
-  categories: ["mcp", "ai-commit", "ai"],
+  categories: ["mcp", "ai-commit", "ai", "agents", "hooks"],
 } as const;
 
 export const settingsGroups = [
@@ -61,6 +60,7 @@ export const settingsSidebarLayout: ReadonlyArray<
 > = [
   { type: "group", group: appearanceGroup },
   { type: "page", id: "plugins" },
+  { type: "page", id: "declarative-plugins" },
   { type: "group", group: versionControlGroup },
   { type: "group", group: buildGroup },
   { type: "group", group: languagesGroup },
@@ -73,6 +73,7 @@ export const settingsCategories: Array<{
   labelKey: string;
   terms: string[];
 }> = [
+  { id: "hooks", labelKey: "settings.tabs.hooks", terms: ["Hooks", "Hook", "hooks.name", "hooks.command", "hooks.when", "hooks.timeout", "Codex", "Claude Code"] },
   {
     id: "general",
     labelKey: "settings.tabs.general",
@@ -139,6 +140,18 @@ export const settingsCategories: Array<{
       "settings.editor.showMinimap",
       "settings.mac.editorTabs",
       "settings.mac.layout",
+    ],
+  },
+  {
+    id: "declarative-plugins",
+    labelKey: "settings.declarativePlugins.title",
+    terms: [
+      "Declarative plugins",
+      "Contract v1",
+      "插件包",
+      "声明式插件",
+      "settings.declarativePlugins.title",
+      "settings.declarativePlugins.import",
     ],
   },
   {
@@ -253,6 +266,10 @@ export const settingsCategories: Array<{
       "run.jdkHome",
       "run.mavenExecutable",
       "run.mavenJdkHome",
+      "Quit",
+      "Stop services",
+      "runningServices.settingsGroup",
+      "runningServices.setting",
     ],
   },
   {
@@ -357,6 +374,11 @@ export const settingsCategories: Array<{
     ],
   },
   {
+    id: "agents",
+    labelKey: "settings.tabs.agents",
+    terms: ["Agent", "Codex", "Claude", "ACP", "Provider", "API key", "代理", "智能体"],
+  },
+  {
     id: "logs",
     labelKey: "settings.tabs.logs",
     terms: [
@@ -396,7 +418,7 @@ export function settingsGroupForCategory(category: SettingsCategory) {
   return settingsGroups.find((group) => (group.categories as readonly string[]).includes(category));
 }
 
-/** Index the current panels' labels in both languages without mounting hidden pages. */
+/** Index the current panels' labels in every registered language without mounting hidden pages. */
 export function filterSettingsCategories(query: string, translate: (key: string) => string) {
   return settingsCategories.filter((category) => {
     const group = settingsGroupForCategory(category.id);
@@ -405,7 +427,7 @@ export function filterSettingsCategories(query: string, translate: (key: string)
       query,
       terms.flatMap((term) =>
         term.includes(".") && !term.endsWith(".xml")
-          ? [translate(term), englishLabel(term), chineseLabel(term)]
+          ? [translate(term), ...registeredLabels.map(label => label(term))]
           : [term],
       ),
     );

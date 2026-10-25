@@ -131,6 +131,30 @@ macOS 槽位约十分钟。只改 Rust 时 Swift 测试 job 仍会启动，但�
 桥接验证，不跑完整单元测试。本地 `scripts/verify-rust-core.sh` 依次运行两半，
 入口不变。
 
+纯 Rust 通道的 Agent Host（Agent 进程和协议宿主）使用计时 runner 默认的
+20 分钟总预算，包含冷编译、测试枚举和执行。运行 `39939156503` 在持续编译
+Agent Host 及 ACP/MCP 协议依赖时，触发了原先的两分钟总限额，测试尚未开始。
+因此不再把轻量 Git Host 的两分钟预算套给 Agent Host；Git Host 仍保留原预算。
+每项 Agent Host 测试仍受 15 秒看门狗约束，整个 CI job 仍限制为 30 分钟。
+代价是异常冷编译可以占用更长时间，不能据此放宽单测试或重试失败断言。
+验证时使用空 Cargo target 目录，并检查报告中的编译耗时和每项测试预算，
+不能用本机暖缓存的快速通过代替冷编译证据。
+
+插件通道的冷编译与测试执行分别计时。运行 `39741361768` 中，Rust Core 和 Swift
+测试编译共用的 20 分钟步骤到期时，Swift 仍在持续编译完整 Lithe 目标，尚未开始
+测试；后续 PR 运行复用了这一进行中的任务，因此源任务超时也使后续插件门禁失败。
+插件通道现在给编译步骤 40 分钟、整个 job 75 分钟，为测试与插件包验证保留空间。
+插件测试仍使用 960 秒总执行预算、17 分钟外层步骤和原有单测试、无输出看门狗。
+没有提高测试执行预算，也不把源任务失败或未生成测试报告当成通过。代价是异常
+冷编译最多占用更久的 runner；不能用整个 job 的超时替代单测试的有界等待。
+
+Swift 测试通道使用同样的分离方式。运行 `39943871840` 中，`scripts/test-macos.sh list`
+在 20 分钟上限到期时仍停在 1406/1456 个编译任务；被复用的失败任务又使 macOS 门禁
+失败。`swift-tests` 的编译步骤现为 40 分钟、整个 job 80 分钟，与插件通道一致；
+单元、插件和数据库测试仍使用 960 秒执行预算和 17 分钟外层步骤。构建失败时跳过合并
+报告生成，避免把同一个构建失败重复计成“未生成测试报告”；构建成功后报告缺失仍然
+使该步骤失败，不能用跳过报告掩盖测试执行问题。
+
 此前在旧 runner 上通过 Swiftly 安装独立工具链失败，测试未能启动。因此继续
 使用完整 Xcode，让 Swift、链接器和 SDK 保持匹配。Xcode 27/SDK 27 只作为
 开发者本机的兼容路径，不进入 CI 基线；`MacOS13SDKCompatibility.h` 仅在
@@ -156,10 +180,14 @@ macOS runner（GitHub 托管的 Mac 构建机）按组织共享，Free 计划同
 5 个 macOS job，超出的 job 只能排队。排队不是配额耗尽，也不是滥用信号，
 但会拖慢所有 PR 的反馈。因此：
 
-- 主 Swift 测试和数据库 Swift 测试共用 macOS CI 的 **Swift tests** job，只执行
+- 主 Swift 测试和 Rust Core 桥接检查共用 macOS CI 的 **Swift tests** job，只执行
   一次 `./scripts/test-macos.sh list` 编译，再按分类结果运行各自的过滤测试。
-  过去数据库 job 单独编译约 10 分钟，只为运行十几秒测试。Database CI 只保留
-  Linux 上的 Rust 数据库测试和 gate。
+  过去独立的数据库 job 单独编译约 10 分钟，只为运行十几秒测试；数据库改为插件
+  后，这条 lane 和 Database CI 已一起删除。
+- 远程工作区的三个 crate（`lithe-remote-*`）走独立的 Remote Workspace CI，只在
+  Linux 上运行。Linux runner 能执行服务的 Linux 适配器，同时交叉检查 macOS 目标，
+  所以不需要为它申请 macOS runner；这些 crate 暂未被产品链接，改动它们也不会触发
+  macOS 或 Windows lane。
 - 插件测试保留在独立的 macOS Plugin CI，只有分类器选中插件 lane 时才申请
   macOS runner。多数 PR 不改插件，独立 job 时整条 lane 直接跳过；合进共用
   job 则需要为少数插件 PR 额外拉长主 Swift job，收益更小。
@@ -181,6 +209,9 @@ macOS runner（GitHub 托管的 Mac 构建机）按组织共享，Free 计划同
   Windows lane，只保留 Linux 上的分类、diff、Rust 数据库、注释和元数据检查；
   PR 标记为 ready for review 时，macOS CI、Windows CI 和 macOS Plugin CI 重新
   触发完整分类。
+- 独立共享 i18n 校验同样遵循 Draft 限制：Draft 只展开 Linux 生成器检查，
+  ready PR、preview 推送和手动运行展开三系统矩阵。工作流监听
+  `ready_for_review`，并取消同一 PR 的旧 i18n 校验，避免重复占用 runner。
 
 正确做法：新增 Swift 专项测试时，在共用 **Swift tests** job 里加一个按分类
 结果执行的过滤步骤。不要这样做：新建一个 macOS job 再跑一遍
@@ -209,6 +240,16 @@ runner 上可能出现断言都通过、计时工具仍因超过十秒而失败�
 这类原生启动使用独立的 5 秒就绪期限，并在失败时报告 PID 和运行状态；fork、
 持久化观察和退出信号仍保持原有短期限，单测试仍受 15 秒计时上限约束。
 正确做法是等待明确的就绪事件，不通过固定睡眠同步，也不修改产品进程行为。
+
+Windows 的真实 Git 集成测试按实测成本设置单例预算，普通用例仍为 15 秒。
+双仓库分别确认推送目标的用例会初始化两个工作仓库与两个裸远端，先检查
+三种确认状态，再提交并推送两个仓库；同一提交在真实 JDT 任务中用时 12.3 秒，
+在 SharedRust 任务中触发了 15 秒进程期限。本机跟踪 287 次 Git 进程全部退出，
+没有单次 Git 内部操作超过 0.6 秒，但完整测试耗时 49.9 秒，30 秒预算也不足。
+两个任务都仅给这个用例 60 秒，
+保留每次 Git 请求的期限、进程树清理和整套测试期限。正确做法是给已测量的
+外部进程成本配置精确用例预算；不要统一放宽所有测试或用清缓存重编译掩盖
+测试超时。具体预算与证据维护在 `write-stable-tests` 的 Windows/Rust 指引中。
 
 CI 缓存 Cargo fingerprints、build script outputs 和依赖 outputs，不缓存
 最终可执行文件。缓存覆盖 `rust/target/macos` 的 Rust Core 和 `rust/target`
@@ -315,11 +356,11 @@ macOS CI 失败来修复。
 插件过滤测试和官方插件打包验证串进主 Swift job，延长包含插件改动的 PR 的
 主反馈路径，因此插件 CI 保持独立并依赖分类器跳过。
 
-### 用 workflow 的 `paths` 过滤跳过插件或数据库 CI
+### 用 workflow 的 `paths` 过滤跳过插件 CI
 
-`Plugin CI gate` 和 `Database CI gate` 是 `preview` ruleset 的必需检查。
-workflow 被 `paths` 过滤掉后不会上报状态，PR 会一直等待这个检查，因此继续
-使用“Linux 分类 job + gate”的方式：未选中时 gate 在 Linux 上几秒内通过。
+gate 检查一旦被设为 `preview` ruleset 的必需检查，workflow 被 `paths` 过滤掉后
+就不会上报状态，PR 会一直等待这个检查，因此继续使用“Linux 分类 job + gate”的
+方式：未选中时 gate 在 Linux 上几秒内通过。
 
 ### 为所有 CI 任务强制上传完整安装包
 
@@ -362,7 +403,7 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 
 ## 验证
 
-- `actionlint .github/workflows/ci-macos.yml .github/workflows/ci-windows.yml .github/workflows/ci-database.yml .github/workflows/ci-plugins.yml`
+- `actionlint .github/workflows/ci-macos.yml .github/workflows/ci-windows.yml .github/workflows/ci-plugins.yml .github/workflows/ci-remote.yml`
 - `./scripts/test-classify-ci-changes.sh`：包含 Draft PR 关闭 runner lane、保留 Linux lane，以及 macOS Java 不触发 real-JDT、共享引擎和 Windows Java 仍触发的正反例。
 - `node --test scripts/ci-workflow-gates.test.mjs scripts/plan-ci-lane-reuse.test.mjs scripts/verify-reused-ci-jobs.test.mjs`：从实际工作流执行 gate shell，验证取消条件、分类/测试失败、lane 覆盖及复用来源的失败传播。
 - `node --test scripts/cancel-closed-pr-runs.test.mjs`：用离线 GitHub CLI 替身执行关闭清理，验证分页历史运行、来源隔离、关闭时间、取消竞争和 API 失败传播。
@@ -388,7 +429,7 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 - `docs/ci-builds.md`
 - `.github/workflows/ci-macos.yml`
 - `.github/workflows/ci-windows.yml`
-- `.github/workflows/ci-database.yml`
+- `.github/workflows/ci-remote.yml`
 - `.github/workflows/ci-plugins.yml`
 - `scripts/classify-ci-changes.sh`
 - `scripts/install-windows-frontend-dependencies.ps1`

@@ -14,7 +14,11 @@ struct AgentProviderConfigurationView: View {
     @State private var errorMessage: String?
     @State private var actionTask: Task<Void, Never>?
 
-    private var usesSubscription: Bool { settings.agentConfigurations[agentID]?.authentication == .codexSubscription }
+    /// The account subscription this Agent can use, if any.
+    private var subscription: AgentAuthentication? { AgentAuthentication.subscription(for: agentID) }
+    private var usesSubscription: Bool {
+        subscription != nil && settings.agentConfigurations[agentID]?.authentication == subscription
+    }
     private var selected: AIProviderProfile? { settings.agentProvider(for: agentID) }
     private var sources: [AIConfigurationSourceKind] { source.map { [$0] } ?? AIConfigurationSourceKind.allCases }
     private var providers: [AIProviderProfile] {
@@ -27,16 +31,23 @@ struct AgentProviderConfigurationView: View {
     }
 
     var body: some View {
+        providersSection
+        if usesSubscription {
+            AgentAccountsSection(agentID: agentID, model: model, settings: settings)
+        }
+    }
+
+    private var providersSection: some View {
         LitheSettingsSection(title: "Providers", accessory: {
             LitheInfoTip("Local configuration follows your CLI files. Custom providers are saved in Lithe and do not change those files. Switching restarts this project's Agent connection; open history again to continue a saved conversation.")
         }) {
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Text("Use local configuration or add your own provider.")
                     .font(LitheTheme.uiFont(size: 12)).foregroundStyle(LitheTheme.secondaryText)
                 Spacer(minLength: 8)
                 if let source {
                     Button { openEditor(source: source) } label: { Label("Add", systemImage: "plus") }
-                        .buttonStyle(LitheSecondaryButtonStyle())
+                        .buttonStyle(LitheActionButtonStyle())
                 } else {
                     LitheMenu {
                         for kind in sources {
@@ -45,10 +56,10 @@ struct AgentProviderConfigurationView: View {
                     } label: {
                         Label("Add", systemImage: "plus")
                     }
-                    .buttonStyle(LitheSecondaryButtonStyle())
+                    .buttonStyle(LitheActionButtonStyle())
                 }
             }
-            if agentID == "codex-acp" { subscriptionRow }
+            if let subscription { subscriptionRow(subscription) }
             ForEach(sources) { kind in
                 localRow(kind)
             }
@@ -66,7 +77,7 @@ struct AgentProviderConfigurationView: View {
                 Button("Unlink") {
                     perform { try await model.useAgentProvider(nil, agentID: agentID, name: name) }
                 }
-                .buttonStyle(LitheSecondaryButtonStyle())
+                .buttonStyle(LitheActionButtonStyle())
             }
             if let errorMessage {
                 AgentSettingsIssue(errorMessage)
@@ -89,19 +100,24 @@ struct AgentProviderConfigurationView: View {
         .onDisappear { actionTask?.cancel() }
     }
 
-    private var subscriptionRow: some View {
+    private func subscriptionRow(_ subscription: AgentAuthentication) -> some View {
         HStack(spacing: 8) {
             Image(systemName: usesSubscription ? "checkmark.circle.fill" : "person.crop.circle")
                 .foregroundStyle(usesSubscription ? LitheTheme.accent : LitheTheme.secondaryText)
             HStack(spacing: 4) {
-                Text("Codex subscription").font(LitheTheme.uiFont(size: 12, weight: .medium))
-                LitheInfoTip("Use your local ChatGPT account. No API key or URL is needed.")
+                if subscription == .claudeSubscription {
+                    Text("Claude subscription").font(LitheTheme.uiFont(size: 12, weight: .medium))
+                    LitheInfoTip("Use the claude.ai account you signed in to with Claude Code. No API key or URL is needed; Lithe never reads its credentials.")
+                } else {
+                    Text("Codex subscription").font(LitheTheme.uiFont(size: 12, weight: .medium))
+                    LitheInfoTip("Use your local ChatGPT account. No API key or URL is needed.")
+                }
             }
             Spacer(minLength: 8)
             Button(usesSubscription ? "Enabled" : "Enable") {
-                perform { try await model.useCodexSubscription() }
+                perform { try await model.useAgentSubscription(agentID: agentID, name: name) }
             }
-            .buttonStyle(LitheSecondaryButtonStyle())
+            .buttonStyle(LitheActionButtonStyle())
             .disabled(usesSubscription)
         }
         .padding(.vertical, 6)
@@ -119,7 +135,7 @@ struct AgentProviderConfigurationView: View {
                 Button(active ? "Refresh" : "Use") {
                     perform { try await model.useLocalAgentProvider(source: kind, agentID: agentID, name: name) }
                 }
-                .buttonStyle(LitheSecondaryButtonStyle())
+                .buttonStyle(LitheActionButtonStyle())
             }
             if active, let selected {
                 metadata(selected)
@@ -151,7 +167,7 @@ struct AgentProviderConfigurationView: View {
                 Button(active ? "Enabled" : "Enable") {
                     perform { try await model.useAgentProvider(provider, agentID: agentID, name: name) }
                 }
-                .buttonStyle(LitheSecondaryButtonStyle())
+                .buttonStyle(LitheActionButtonStyle())
                 .disabled(active)
                 Button { openEditor(source: provider.apiProtocol == .responses ? .codex : .claude, provider: provider) } label: {
                     Image(systemName: "pencil")
@@ -203,7 +219,7 @@ private struct AgentProviderEditorView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     requiredField("Provider name") {
-                        TextField("Provider name", text: $draft.name).litheSettingsTextField()
+                        LitheTextField("Provider name", text: $draft.name)
                             .accessibilityLabel("Provider name")
                     }
                     if draft.isEditingConfigurationText {
@@ -223,7 +239,7 @@ private struct AgentProviderEditorView: View {
                             errorMessage = nil
                         } catch { errorMessage = error.localizedDescription }
                     }
-                    .buttonStyle(LitheSecondaryButtonStyle())
+                    .buttonStyle(LitheActionButtonStyle())
                     if draft.isEditingConfigurationText {
                         AgentSettingsHint("Only the API URL, model and API key are saved. Other CLI options continue to use your local configuration. The key is stored separately from settings. Editing shows a template of these saved fields.")
                     } else {
@@ -235,13 +251,13 @@ private struct AgentProviderEditorView: View {
             if let errorMessage {
                 AgentSettingsIssue(errorMessage)
             }
-            HStack {
+            HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()
                 if saveTask != nil { ProgressView().controlSize(.small) }
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                    .buttonStyle(LitheSecondaryButtonStyle())
+                    .buttonStyle(LitheActionButtonStyle())
                 Button("Save") { save() }.keyboardShortcut(.defaultAction)
-                    .buttonStyle(LithePrimaryButtonStyle(backgroundColor: LitheTheme.settingsPrimaryAction, restingOpacity: 1))
+                    .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                     .disabled(draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
                         (!draft.isEditingConfigurationText && [draft.endpoint, draft.model, draft.apiKey].contains {
                             $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -259,29 +275,21 @@ private struct AgentProviderEditorView: View {
         Group {
             requiredField("API Key") {
                 HStack(spacing: 8) {
-                    Group {
-                        if showsAPIKey {
-                            TextField("Enter API key", text: $draft.apiKey)
-                        } else {
-                            SecureField("Enter API key", text: $draft.apiKey)
-                        }
-                    }
-                    .litheSettingsTextField()
+                    LitheTextField("Enter API key", text: $draft.apiKey, secure: !showsAPIKey)
                     .accessibilityLabel("API Key")
                     Button(showsAPIKey ? "Hide API key" : "Show API key") { showsAPIKey.toggle() }
-                        .buttonStyle(LitheSecondaryButtonStyle())
+                        .buttonStyle(LitheActionButtonStyle())
                 }
             }
             requiredField("API request URL") {
-                TextField(draft.source == .codex ? "https://api.example.com/v1" : "https://api.example.com", text: $draft.endpoint)
-                    .litheSettingsTextField()
+                LitheTextField(draft.source == .codex ? "https://api.example.com/v1" : "https://api.example.com", text: $draft.endpoint)
                     .accessibilityLabel("API request URL")
                 AgentSettingsHint(draft.source == .codex
                     ? "Base URL for a service compatible with the OpenAI Responses API."
                     : "Base URL for an Anthropic Messages API service.")
             }
             requiredField("Model") {
-                TextField("Enter model ID", text: $draft.model).litheSettingsTextField()
+                LitheTextField("Enter model ID", text: $draft.model)
                     .accessibilityLabel("Model")
                 AgentSettingsHint("Use a model ID supported by your provider.")
             }
@@ -311,7 +319,7 @@ private struct AgentProviderEditorView: View {
                             text.wrappedValue = String(decoding: data, as: UTF8.self)
                             errorMessage = nil
                         } catch { errorMessage = "Invalid JSON. Check the configuration format." }
-                    }.buttonStyle(LitheSecondaryButtonStyle())
+                    }.buttonStyle(LitheActionButtonStyle())
                 }
             }
             MacConfigurationTextEditor(text: text, label: title)

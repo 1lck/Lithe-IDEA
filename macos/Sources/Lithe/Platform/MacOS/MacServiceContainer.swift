@@ -3,7 +3,6 @@ import LitheAIAssistanceModule
 import LitheAgentConversationModule
 import LitheApplicationKernel
 import LitheCoreContracts
-import LitheDatabaseModule
 import LitheDebugModule
 import LitheExecutionModule
 import LitheGitModule
@@ -111,13 +110,21 @@ final class MacServiceContainer {
         self.runConfigurationStore = runConfigurationStore
         let debugBreakpointStore = MacDebugBreakpointStore(store: store)
         let debugSteppingFilterStore = MacDebugSteppingFilterStore(store: store)
-        let fileOperations = MacWorkspaceFileOperations()
+        // Remote workspaces open under an empty placeholder root; both file
+        // ports route every URL below such a root to the connected host.
+        let remoteWorkspaces = RemoteWorkspaceRegistry()
+        let remoteOperations = RustRemoteConnectionOperations(core: rustCore)
+        // Core owns the OpenSSH trees; closing them at exit also stops the
+        // remote servers they carry.
+        MacLiveProcessGroups.application.setExitAction("remote-connections") {
+            remoteOperations.closeAllBlocking()
+        }
+        let remoteTransport = ConnectionWatchingTransport(base: remoteOperations, registry: remoteWorkspaces)
+        let fileOperations = RemoteRoutingFileOperations(
+            local: MacWorkspaceFileOperations(), registry: remoteWorkspaces, transport: remoteTransport
+        )
         let processRunner = MacProcessRunner(logging: applicationLogging)
         let secureStore = MacLocalSecretStore()
-        let databaseSecureStore = MacKeychainSecureStore(
-            service: fileStorage.identity.keychainService("database"),
-            legacyStore: secureStore
-        )
         let githubService = GitHubService(
             core: RustGitHubCore(bridge: rustCore),
             transport: MacGitHubHTTPTransport(),
@@ -145,13 +152,7 @@ final class MacServiceContainer {
         )
         let ideCapabilityRegistry = IdeCapabilityRegistry()
         let languageExecutionHost = MacLanguageExecutionHost(processRegistry: processRegistry)
-        let databaseSidecarURL = MacDatabaseSidecarLocator(fileStorage: fileStorage).executableURL()
         let moduleStore = providedModuleStore ?? MacModuleConfigurationStore(store: store)
-        // Database is now an internal on-demand workspace feature, so an old
-        // plugin-market preference must not leave the workspace inaccessible.
-        if moduleStore.enabledState(for: .database) == false {
-            moduleStore.setEnabledState(true, for: .database)
-        }
         let moduleRuntime = ModuleRuntime(
             configurationStore: moduleStore,
             recoveryStore: moduleStore,
@@ -159,9 +160,13 @@ final class MacServiceContainer {
         )
         moduleLifecycleCoordinator = ModuleLifecycleCoordinator(runtime: moduleRuntime)
         let declarativePluginOperations = RustDeclarativePluginOperations(core: rustCore)
+        let pluginCredentials = MacPluginCredentialStore(
+            servicePrefix: fileStorage.identity.keychainService("plugin-credentials")
+        )
         let pluginPackageStore = MacPluginPackageStore(
             fileStorage: fileStorage,
-            validator: declarativePluginOperations
+            validator: declarativePluginOperations,
+            credentials: pluginCredentials
         )
         let pluginSettings = MacPluginSettingsStore(store: store)
         let pluginLaunchResolver = MacPluginLanguageServerLaunchResolver(
@@ -207,22 +212,14 @@ final class MacServiceContainer {
                     statisticsPersistence: MacAgentSessionStatisticsPersistence(store: store)
                 )
             })
-            try moduleRegistry.register(ModuleFactory(manifest: DatabaseModule.moduleManifest, contributions: DatabaseModule.moduleContributions) {
-                DatabaseModule(
-                    processRunner: processRunner,
-                    executableURL: databaseSidecarURL,
-                    preferenceStore: MacDatabasePreferenceStore(store: store),
-                    secureStore: MacKeychainSecureStore(
-                        service: fileStorage.identity.keychainService("database"),
-                        legacyStore: MacLocalSecretStore()
-                    ),
-                    recoveryStore: MacDatabaseRecoveryStore(fileStorage: fileStorage),
-                    fileStorage: fileStorage
-                )
-            })
             try moduleRegistry.register(ModuleFactory(manifest: TerminalModule.moduleManifest, contributions: TerminalModule.moduleContributions) {
                 TerminalModule(
-                    terminalFactory: { MacTerminalTransport(scrollbackLines: settings.terminalScrollbackLines) },
+                    terminalFactory: {
+                        MacTerminalTransport(
+                            scrollbackLines: settings.terminalScrollbackLines,
+                            preferredAppearanceIsDark: { settings.themePreference.preferredIsDark }
+                        )
+                    },
                     shellDiscovery: { MacTerminalTransport.availableShells() }
                 )
             })
@@ -264,6 +261,50 @@ final class MacServiceContainer {
             core: rustCore,
             processRegistry: processRegistry
         )
+        // Provider processes of plugin VCS providers, one per plugin, VCS,
+        // and workspace; one starts on the first request for a detected root.
+        let vcsProviderSessions = MacVcsProviderSessions(
+            launchResolver: pluginLaunchResolver,
+            tools: MacBuildToolResolver(runtime: runtimeService, processRunner: processRunner, fileStorage: fileStorage),
+            versionChecker: declarativePluginOperations,
+            runtime: runtimeService,
+            core: rustCore,
+            processRegistry: processRegistry
+        )
+        // Plugin backends, one per plugin for the whole application: the
+        // first project window creates them, and every window registers the
+        // same startup snapshot. Nothing starts until a page calls one.
+        let pluginBackends = MacPluginBackendSessions.shared {
+            // The former built-in database module's connections and
+            // passwords move into the Database plugin from Lithe Store
+            // before its backend first starts; the old data is read, never
+            // changed.
+            let databaseKeychain = MacKeychainSecureStore(service: fileStorage.identity.keychainService("database"))
+            let databaseMigration = MacDatabasePluginMigration(
+                preferences: store,
+                legacyPassword: { [secureStore] key in databaseKeychain.read(key: key) ?? secureStore.read(key: key) },
+                credentials: pluginCredentials,
+                log: { [applicationLogging] message in
+                    applicationLogging?.record(level: "warn", scope: "plugins.migration", message: message, fields: [:])
+                }
+            )
+            return MacPluginBackendSessions(
+                launchResolver: pluginLaunchResolver,
+                tools: MacBuildToolResolver(runtime: runtimeService, processRunner: processRunner, fileStorage: fileStorage),
+                versionChecker: declarativePluginOperations,
+                runtime: runtimeService,
+                core: rustCore,
+                processRegistry: processRegistry,
+                credentials: pluginCredentials,
+                prepareState: { [applicationLogging] installation, stateDirectory in
+                    if case let .migrated(profiles, passwords) = databaseMigration.prepare(installation: installation, stateDirectory: stateDirectory) {
+                        applicationLogging?.record(level: "info", scope: "plugins.migration", message: "database connections moved into the plugin",
+                            fields: ["profiles": String(profiles), "passwords": String(passwords)])
+                    }
+                }
+            )
+        }
+        pluginBackends.register(pluginStartup.registeredPlugins)
         let rustLanguageProviderCatalogSource = RustLanguageProviderCatalogSource(core: rustCore)
         // Installation owns the process-backed language boundary even when a
         // package is disabled, quarantined, or failed to load. Only the active
@@ -404,6 +445,7 @@ final class MacServiceContainer {
                         ),
                         runner: MacBuildCommandRunner(processRegistry: processRegistry),
                         providers: buildProviderSessions,
+                        settings: { pluginSettings.values(forPlugin: $0) },
                         sources: {
                             // Enablement is read on every detection, so turning a
                             // plugin off takes its build systems away at once.
@@ -580,7 +622,11 @@ final class MacServiceContainer {
         }
         let gitOperations = RustGitOperations(core: rustCore)
         let defaultWorkspaceOperations = RustWorkspaceOperations(core: rustCore)
-        let workspaceOperations: any WorkspaceOperations = providedWorkspaceOperations ?? defaultWorkspaceOperations
+        let workspaceOperations: any WorkspaceOperations = RemoteRoutingWorkspaceOperations(
+            local: providedWorkspaceOperations ?? defaultWorkspaceOperations,
+            registry: remoteWorkspaces,
+            transport: remoteTransport
+        )
         let searchOperations: any SearchOperations =
             (providedWorkspaceOperations as? any SearchOperations) ?? defaultWorkspaceOperations
         let gitWatchContextProvider: any GitWatchContextProviding =
@@ -650,7 +696,9 @@ final class MacServiceContainer {
                 directories: MacPluginStateDirectories(fileStorage: fileStorage),
                 fileStorage: fileStorage
             ),
-            prompt: MacPluginWebConsentPrompt.confirm
+            backends: pluginBackends,
+            prompt: MacPluginWebConsentPrompt.confirm,
+            chooseFile: MacPluginWebFileDialog.choose
         )
         pluginWebPageLifecycle.register(pluginWebPages)
         let pluginMarketplaceEvaluator = RustPluginMarketplaceOperations(core: rustCore)
@@ -662,14 +710,22 @@ final class MacServiceContainer {
             launchMode: moduleLaunchMode,
             startup: pluginStartup,
             managedBuiltInPlugins: bundledLanguageManifests,
-            invalidateWebPages: { id in pluginWebPageLifecycle.disable(id.rawValue) },
-            enableWebPages: { id in pluginWebPageLifecycle.enable(id.rawValue) },
+            invalidateWebPages: { id in
+                pluginWebPageLifecycle.disable(id.rawValue)
+                pluginBackends.disable(id.rawValue)
+            },
+            enableWebPages: { id in
+                pluginBackends.enable(id.rawValue)
+                pluginWebPageLifecycle.enable(id.rawValue)
+            },
             beforePackageReplacement: { id in
                 pluginWebPageLifecycle.packageWillChange(id.rawValue)
+                pluginBackends.packageWillChange(id.rawValue)
                 // The running provider still executes the old files; the
                 // build systems' plugin list is a startup snapshot and does
                 // not see the replacement.
                 buildProviderSessions.stopProviders(ofPlugin: id.rawValue)
+                vcsProviderSessions.stopProviders(ofPlugin: id.rawValue)
             },
             reviewPrograms: { [pluginMarketplaceEvaluator] manifest, id, version in
                 try pluginMarketplaceEvaluator.installReview(
@@ -724,6 +780,7 @@ final class MacServiceContainer {
             pluginCatalog: pluginCatalog,
             pluginUIIconResources: pluginStartup.iconResources,
             pluginWebPages: pluginWebPages,
+            validatePluginNativeUI: declarativePluginOperations.validateNativeNodes,
             languageProviderCatalogSource: languageProviderCatalogSource,
             workspaceLanguageServerPreferences: workspaceLanguageServerPreferences,
             languageProviderCatalogSnapshot: languageProviderCatalogSnapshot,
@@ -752,13 +809,19 @@ final class MacServiceContainer {
             gitWatchContextProvider: gitWatchContextProvider,
             githubService: githubService,
             secureStore: secureStore,
-            databaseSecureStore: databaseSecureStore,
             diagnosticsExportService: diagnosticsExportService,
             credentialResolver: credentialResolver,
-            agentManagement: RustAgentManagementService(core: rustCore),
+            agentManagement: RustAgentManagementService(core: rustCore, accountDirectory: { agentID in
+                await MainActor.run { settings.preferredAgentAccountDirectory(for: agentID) }
+            }),
+            agentInstructions: RustAgentInstructionsService(core: rustCore,
+                sharedDirectory: fileStorage.applicationSupportDirectory().appendingPathComponent("Lithe/AgentInstructions", isDirectory: true)),
+            agentHooks: RustAgentHooksService(core: rustCore,
+                directory: fileStorage.applicationSupportDirectory().appendingPathComponent("Lithe/AgentHooks", isDirectory: true)),
+            agentAccountSignIn: MacAgentAccountSignIn(runner: processRunner),
             agentProviderConfigurationParser: MacAgentProviderConfigurationParser(core: rustCore),
             aiConfigurationSources: aiConfigurationSources,
-            recentProjectsStore: RecentProjectsStore(store: store),
+            recentProjectsStore: RecentProjectsStore(store: store, excludes: { remoteWorkspaces.contains($0) }),
             recentProjectBranchReader: MacRecentProjectBranchReader(storage: fileStorage),
             workspaceSessionStore: WorkspaceSessionStore(store: store),
             directoryMarkStore: directoryMarkStore,
@@ -775,13 +838,95 @@ final class MacServiceContainer {
         services.mcpConfigurationStore = MacAgentMcpConfigurationStore(
             core: rustCore, storage: fileStorage
         )
+        services.mcpRegistry = MacMcpRegistry(core: rustCore)
+        if let configuration = services.mcpConfigurationStore {
+            services.mcpTools = MacMcpTools(core: rustCore, store: configuration, ledger: services.store, storage: fileStorage)
+        }
         services.connectBuildProviderLanguageSessions = { sessions in
             buildProviderSessions.languageSessions = sessions
+        }
+        let vcsProviderPlugins = pluginStartup.registeredPlugins.filter { !$0.descriptor.vcsProviders.isEmpty }
+        if !vcsProviderPlugins.isEmpty {
+            services.vcsProviders = VcsProvidersFeatureModel(
+                planner: RustVcsOperations(core: rustCore),
+                providers: vcsProviderSessions,
+                mappingStore: MacVcsRootMappingStore(store: store),
+                readFile: { url in try? fileStorage.readData(from: url, options: .mappedIfSafe) },
+                fileExists: { url in fileStorage.fileExists(at: url) },
+                metadataWatcherFactory: MacDirectoryWatcherFactory(),
+                sources: {
+                    // Enablement is read on every detection, so turning a
+                    // plugin off takes its roots away at once.
+                    vcsProviderPlugins.compactMap { plugin -> VcsProviderPluginSource? in
+                        let id = plugin.descriptor.id.rawValue
+                        guard let snapshot = try? moduleRuntime.snapshot(for: .vcsProvidersExtension(id)),
+                              snapshot.state != .disabled,
+                              !snapshot.isQuarantined,
+                              !snapshot.isSuppressedBySafeMode else { return nil }
+                        return VcsProviderPluginSource(
+                            pluginID: id,
+                            manifest: plugin.descriptor.normalizedManifest,
+                            packageURL: plugin.packageURL,
+                            providers: plugin.descriptor.vcsProviders
+                        )
+                    }
+                }
+            )
         }
         services.processExitCoordinator = ProcessExitCoordinator(
             core: RustProcessLifecycleDecider(core: rustCore),
             presenter: MacProcessExitConfirmationPresenter.shared
         )
+        // Remote Development window. Passwords and key passphrases use their
+        // own keychain service so they never mix with Git or database secrets.
+        services.remoteConnections = RemoteConnectionServices(
+            store: RemoteConnectionStore(
+                store: store,
+                secureStore: MacKeychainSecureStore(service: fileStorage.identity.keychainService("remote"))
+            ),
+            prober: remoteOperations,
+            sessions: remoteOperations,
+            locator: MacRemoteHostLocator(),
+            workspaces: remoteWorkspaces,
+            prepareWorkspaceRoot: { connectionID, remotePath in
+                try MacRemoteWorkspaceRoots.prepare(
+                    in: fileStorage.applicationSupportDirectory(), connection: connectionID, remotePath: remotePath
+                )
+            },
+            servers: MacRemoteServerBundleLocator.locate()
+        )
+        // New Project window. Plugin packages are read-only; projects are
+        // written into a staging directory inside the folder the user chose.
+        services.projectGeneration = ProjectGenerationService(
+            planner: RustProjectGeneratorOperations(core: rustCore),
+            platform: MacProjectGenerationPlatform(
+                runtime: runtimeService,
+                runner: MacBuildCommandRunner(processRegistry: processRegistry)
+            ),
+            initializeGitRepository: { root in
+                switch gitOperations.initializeRepository(at: root) {
+                case .success: nil
+                case .failure(let failure): failure.message
+                }
+            },
+            recordJavaHome: { root, home in
+                await runtimeService.presetJavaHome(home, for: root)
+            }
+        )
+        let installedPlugins = pluginStartup.registeredPlugins
+        services.projectGeneratorSources = { [pluginManager] in
+            // Enablement is read on every call, so a plugin enabled from the
+            // window shows its entries and satisfies requirements at once.
+            let enabled = Set(pluginManager.snapshots.filter(\.isEnabled).map(\.id))
+            return installedPlugins.map { plugin in
+                ProjectGeneratorPluginSource(
+                    pluginID: plugin.descriptor.id,
+                    manifest: plugin.descriptor.normalizedManifest,
+                    packageURL: plugin.packageURL,
+                    isEnabled: enabled.contains(plugin.descriptor.id)
+                )
+            }
+        }
         moduleLifecycleCoordinator.start()
         Task {
             do {
@@ -867,10 +1012,14 @@ final class MacServiceContainer {
                     )
                 }
             }
-            // The build-systems module also carries the enabled state; the
-            // execution module reads it before handing the plugin to Rust Core.
+            // The build-systems, VCS-providers, and project-generators
+            // modules also carry the enabled state; the host reads it before
+            // handing the plugin to Rust Core or the New Project window.
             let workbench = descriptor.pluginManifest.modules.filter {
-                !$0.contributions.isEmpty || $0.manifest.id == .buildSystemsExtension(descriptor.id.rawValue)
+                !$0.contributions.isEmpty
+                    || $0.manifest.id == .buildSystemsExtension(descriptor.id.rawValue)
+                    || $0.manifest.id == .vcsProvidersExtension(descriptor.id.rawValue)
+                    || $0.manifest.id == .projectGeneratorsExtension(descriptor.id.rawValue)
             }.map { declaration in
                 ModuleFactory(manifest: declaration.manifest, contributions: declaration.contributions) {
                     DeclarativeWorkbenchModule(declaration: declaration)

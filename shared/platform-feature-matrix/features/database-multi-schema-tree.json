@@ -1,0 +1,28 @@
+{
+  "id": "database-multi-schema-tree",
+  "area": "数据库",
+  "group": "数据库工作区",
+  "capability": "连接下多数据库独立展开与显示范围选择（由社区插件提供）",
+  "macos": {
+    "evidence": [
+      "macos/Sources/LitheModuleAPI/Catalog/BuiltInModuleCatalog.swift",
+      "macos/Sources/Lithe/Application/Features/PluginMarketplace.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginBackendSessions.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginCredentialStore.swift",
+      "rust/lithe-core/src/plugins/backend.rs",
+      "macos/Tests/LitheTests/PluginWebBridgeTests.swift",
+      ".agents/notes/implemented/architecture/2026-10-24-database-provider-plugin.md"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "shared/contracts/plugins/v1/README.md"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "owner": "Database（社区插件 Lithe-IDEA/lithe-plugin-database，Lithe Store 上架）",
+  "verification": "macOS 从插件市场的 Lithe Store 安装社区插件 io.github.lithe-idea.database，打开 Database 工具窗口：展开 MySQL/MariaDB 连接后同时展开多个数据库，各自折叠、刷新和失败重试；用“Databases Shown…”只显示选中的库，选择随连接保存；表、视图、例程、触发器、序列分组按需加载。 Windows：插件宿主和插件市场就绪前不提供数据库功能，主程序不再包含数据库入口。"
+}

@@ -28,6 +28,8 @@ PR #37 是第一阶段 UI Contribution（插件声明的界面入口）基础设
 
 公共 Extension Contract（插件和宿主交换能力声明及调用结果的协议）覆盖 Language/LSP、BuildSystem/Task、RunConfiguration/Test、DebugAdapter 和 ServiceProvider。Provider 提供业务行为、进程协议或数据，宿主负责发现、调度、权限、展示、取消、超时、失效结果和资源生命周期。下一版契约允许纯 Build/Debug/Services 等没有 UI、没有语言的插件；不能为了通过校验要求插件造空语言或空窗口。
 
+版本控制（VCS）也作为领域扩展点接入，内置 Git 与插件 VCS 共用同一统一模型，见[统一 VCS 模型与 Provider 接入](2026-10-22-unified-vcs-provider-model.md)。
+
 内置模块和插件尽量实现相同领域 Provider 契约。Build/Run/Test/Debug 等采用类型化 Registry（按能力类型登记和查询实现的目录），组合根负责装配通用适配器，不按新增插件名追加分支。先盘点并复用已有语言服务器、构建工具、运行/测试和 DAP（调试适配器协议）链路；上游拥有的项目、任务和依赖事实仍由原工具提供，避免再造一套解释器、工程模型或调试 UI。
 
 ### 通用 Services 与资源所有权
@@ -80,7 +82,6 @@ Services 接入容器、Spring Boot、数据库和本地服务。后续统一设
 - `macos/Sources/LitheApplicationKernel/`
 - `macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift`
 - `macos/Sources/Lithe/Views/Workbench/`
-- `macos/Sources/Lithe/Views/Database/`
 - `windows/`
 
 ## 跟踪任务
