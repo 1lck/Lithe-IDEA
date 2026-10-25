@@ -153,17 +153,6 @@ enum AgentHistoryPresentation {
             .compactMap { group in buckets[group].map { AgentHistorySection(group: group, sessions: $0) } }
     }
 
-    static func popupSessions(_ sessions: [AgentSessionSummary], openSessionIDs: [String],
-                              metadata: [String: AgentHistoryMetadata], selectedSessionID: String? = nil, locale: Locale = .current) -> [AgentSessionSummary] {
-        let listed = Self.sessions(sessions, metadata: metadata, query: "", filter: .all)
-        let knownIDs = Set(sessions.map(\.id))
-        let pending = openSessionIDs.reversed().filter {
-            !knownIDs.contains($0) && metadata[$0]?.isHidden != true
-        }.map { AgentSessionSummary(id: $0, title: AgentLocalization.string("New Chat", locale: locale)) }
-        let rows = pending + listed
-        return rows.filter { $0.id == selectedSessionID } + rows.filter { $0.id != selectedSessionID }
-    }
-
     /// The original management page also includes open chats that the Agent has
     /// not listed yet. Titles are derived for display without changing its history.
     static func managementSessions(_ sessions: [AgentSessionSummary], openSessionIDs: [String],
