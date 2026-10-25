@@ -342,8 +342,13 @@ final class RemoteConnectionsFeatureModel: ObservableObject {
     /// Opens the browsed folder as a workspace. The open session passes to the
     /// workspace, so it is not disconnected here.
     func openBrowsedFolder() {
-        guard let browser, !browser.isLoading,
-              let connection = connections.first(where: { $0.id == browser.connectionID }) else { return }
+        guard let browser, !browser.isLoading else { return }
+        guard let connection = connections.first(where: { $0.id == browser.connectionID }) else {
+            self.browser?.error = String(
+                format: L10n.string("Could not open the remote folder: %@"), L10n.string("The connection failed.")
+            )
+            return
+        }
         do {
             try openWorkspace(connection, browser.path, browser.session)
             browseTask?.cancel()

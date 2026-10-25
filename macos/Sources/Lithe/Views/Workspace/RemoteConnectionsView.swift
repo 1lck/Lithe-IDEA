@@ -536,7 +536,9 @@ enum ParentWindowFit {
     private static let margin: CGFloat = 24
 
     static func size(preferred: CGSize, minimum: CGSize) -> CGSize {
-        guard let parent = NSApp.keyWindow?.contentLayoutRect.size else { return preferred }
+        // The window the sheet opens from; a sheet that is already key reports its parent.
+        let window = NSApp.keyWindow.map { $0.sheetParent ?? $0 }
+        guard let parent = window?.contentLayoutRect.size else { return preferred }
         return CGSize(
             width: min(preferred.width, max(minimum.width, parent.width - margin)),
             height: min(preferred.height, max(minimum.height, parent.height - margin))
@@ -631,6 +633,13 @@ struct FolderListing: View {
                     .buttonStyle(LitheActionButtonStyle())
             }
             listing
+                .overlay {
+                    if entries.isEmpty, !isLoading, error == nil {
+                        Text(LocalizedStringKey("This folder is empty"))
+                            .font(LitheTheme.uiFont(size: 12))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                    }
+                }
             if let error {
                 HStack(alignment: .top, spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(LitheTheme.warning)
@@ -699,6 +708,8 @@ struct FolderListing: View {
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Text(verbatim: entry.modified?.formatted(Date.FormatStyle(date: .numeric, time: .shortened)) ?? "")
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
                     .frame(width: Self.modifiedWidth, alignment: .leading)
                 Text(verbatim: entry.byteCount.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? "")
                     .frame(width: Self.sizeWidth, alignment: .trailing)

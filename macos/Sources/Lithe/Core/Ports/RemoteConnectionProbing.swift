@@ -170,6 +170,13 @@ struct RemoteDirectoryEntry: Decodable, Equatable, Identifiable, Sendable {
         let size: Int64?
         /// Modification time in milliseconds since the Unix epoch.
         let modifiedMs: Int64?
+
+        init(kind: String, symlinkTargetKind: String? = nil, size: Int64? = nil, modifiedMs: Int64? = nil) {
+            self.kind = kind
+            self.symlinkTargetKind = symlinkTargetKind
+            self.size = size
+            self.modifiedMs = modifiedMs
+        }
     }
 
     let name: String

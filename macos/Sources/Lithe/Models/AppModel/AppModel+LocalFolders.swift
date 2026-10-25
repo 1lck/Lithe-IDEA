@@ -1,7 +1,7 @@
 import Foundation
 
 /// One row of the Open panel's folder list.
-struct FolderListingEntry: Identifiable, Equatable {
+struct FolderListingEntry: Identifiable, Equatable, Sendable {
     let name: String
     let isDirectory: Bool
     /// Bytes of a file; `nil` for folders and when unknown.
@@ -16,9 +16,16 @@ extension AppModel {
     var localHomeFolderPath: String { services.fileStorage.homeDirectory().path }
 
     /// The visible entries of a local folder, folders first; `nil` when `path`
-    /// is not a readable folder.
-    func localFolderEntries(at path: String) -> [FolderListingEntry]? {
+    /// is not a readable folder. Large or slow folders are read off the main
+    /// actor, so the panel keeps responding while they load.
+    func localFolderEntries(at path: String) async -> [FolderListingEntry]? {
         let storage = services.fileStorage
+        return await Task.detached(priority: .userInitiated) {
+            Self.readLocalFolder(at: path, storage: storage)
+        }.value
+    }
+
+    private nonisolated static func readLocalFolder(at path: String, storage: any FileStorage) -> [FolderListingEntry]? {
         let url = URL(fileURLWithPath: path, isDirectory: true)
         guard storage.metadata(for: url)?.isDirectory == true else { return nil }
         return storage.listDirectory(at: url)

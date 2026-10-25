@@ -3877,6 +3877,8 @@
 "This file is outside the current project." = "此文件不在当前项目中。";
 "This file was deleted outside Lithe. Your editor content is preserved." = "该文件已被外部删除，编辑器内容已保留。";
 "This folder already belongs to a Git repository" = "此目录已属于一个 Git 仓库。";
+"This folder cannot be read." = "无法读取此文件夹。";
+"This folder is empty" = "此文件夹为空";
 "This page" = "此页面";
 "This panel needs exactly one matching plugin instance in the workspace." = "此面板要求工作区中恰好有一个匹配的插件实例。";
 "This permanently deletes uncommitted and untracked files in '%@'. The branch itself is kept." = "这会永久删除“%@”中的未提交文件和未跟踪文件，但会保留对应分支。";
@@ -8278,6 +8280,8 @@
 "native.thisFileWasDeletedOutsideLitheYourEditorContentIsPreserved" = "该文件已被外部删除，编辑器内容已保留。";
 "native.thisFolder" = "此文件夹";
 "native.thisFolderAlreadyBelongsToAGitRepository" = "此目录已属于一个 Git 仓库。";
+"native.thisFolderCannotBeRead" = "无法读取此文件夹。";
+"native.thisFolderIsEmpty" = "此文件夹为空";
 "native.thisHookNoLongerExistsReloadTheLibrary" = "该 Hook 已不存在，请重新加载资源库。";
 "native.thisMac" = "本机";
 "native.thisMacOnly" = "仅本机";

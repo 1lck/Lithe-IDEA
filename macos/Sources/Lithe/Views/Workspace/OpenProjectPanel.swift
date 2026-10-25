@@ -27,6 +27,8 @@ struct OpenProjectPanel: View {
     @State private var localPath = ""
     @State private var localEntries: [FolderListingEntry] = []
     @State private var localError: String?
+    @State private var localIsLoading = false
+    @State private var localTask: Task<Void, Never>?
 
     private static let sidebarWidth: CGFloat = 168
     private static let localID = "local"
@@ -63,7 +65,10 @@ struct OpenProjectPanel: View {
             feature.cancelTest()
             if id != nil { feature.browseRemoteFolder() }
         }
-        .onDisappear { feature.close() }
+        .onDisappear {
+            localTask?.cancel()
+            feature.close()
+        }
     }
 
     // MARK: Sidebar
@@ -100,7 +105,7 @@ struct OpenProjectPanel: View {
         if feature.selection == nil {
             FolderListing(
                 path: localPath, parentPath: localPath == "/" ? nil : (localPath as NSString).deletingLastPathComponent,
-                entries: localEntries, isLoading: false, error: localError,
+                entries: localEntries, isLoading: localIsLoading, error: localError,
                 go: { listLocal(($0 as NSString).expandingTildeInPath) },
                 enter: { listLocal((localPath as NSString).appendingPathComponent($0)) }
             )
@@ -132,6 +137,8 @@ struct OpenProjectPanel: View {
     private var footer: some View {
         HStack(spacing: LitheTheme.ActionButton.spacing) {
             Button(LocalizedStringKey("Remote Development")) {
+                // End this panel's connection before the management window opens.
+                feature.close()
                 dismiss()
                 DispatchQueue.main.async { model.showRemoteConnections() }
             }
@@ -152,16 +159,27 @@ struct OpenProjectPanel: View {
     }
 
     /// Lists `path` on this Mac; a path that cannot be read keeps the previous
-    /// listing and shows why.
+    /// listing and shows why. A newer request replaces one still loading.
     private func listLocal(_ path: String) {
-        let normalized = URL(fileURLWithPath: path).standardizedFileURL.path
-        guard let entries = model.localFolderEntries(at: normalized) else {
+        guard path.hasPrefix("/") else {
             localError = L10n.string("Enter an absolute path that starts with /.")
             return
         }
-        localPath = normalized
-        localEntries = entries
+        let normalized = URL(fileURLWithPath: path).standardizedFileURL.path
+        localTask?.cancel()
+        localIsLoading = true
         localError = nil
+        localTask = Task {
+            let entries = await model.localFolderEntries(at: normalized)
+            guard !Task.isCancelled else { return }
+            localIsLoading = false
+            guard let entries else {
+                localError = L10n.string("This folder cannot be read.")
+                return
+            }
+            localPath = normalized
+            localEntries = entries
+        }
     }
 
     private func openLocalFolder() {

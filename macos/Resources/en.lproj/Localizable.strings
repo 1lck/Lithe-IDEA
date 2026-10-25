@@ -3877,6 +3877,8 @@
 "This file is outside the current project." = "This file is outside the current project.";
 "This file was deleted outside Lithe. Your editor content is preserved." = "This file was deleted outside Lithe. Your editor content is preserved.";
 "This folder already belongs to a Git repository" = "This folder already belongs to a Git repository";
+"This folder cannot be read." = "This folder cannot be read.";
+"This folder is empty" = "This folder is empty";
 "This page" = "This page";
 "This panel needs exactly one matching plugin instance in the workspace." = "This panel needs exactly one matching plugin instance in the workspace.";
 "This permanently deletes uncommitted and untracked files in '%@'. The branch itself is kept." = "This permanently deletes uncommitted and untracked files in '%@'. The branch itself is kept.";
@@ -8278,6 +8280,8 @@
 "native.thisFileWasDeletedOutsideLitheYourEditorContentIsPreserved" = "This file was deleted outside Lithe. Your editor content is preserved.";
 "native.thisFolder" = "This Folder";
 "native.thisFolderAlreadyBelongsToAGitRepository" = "This folder already belongs to a Git repository";
+"native.thisFolderCannotBeRead" = "This folder cannot be read.";
+"native.thisFolderIsEmpty" = "This folder is empty";
 "native.thisHookNoLongerExistsReloadTheLibrary" = "This Hook no longer exists. Reload the library.";
 "native.thisMac" = "This Mac";
 "native.thisMacOnly" = "This Mac only";

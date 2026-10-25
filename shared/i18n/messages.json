@@ -88380,6 +88380,28 @@
         "key": "Size",
         "arguments": []
       }
+    },
+    {
+      "id": "native.thisFolderCannotBeRead",
+      "description": "Native UI: This folder cannot be read.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This folder cannot be read.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thisFolderIsEmpty",
+      "description": "Native UI: This folder is empty",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This folder is empty",
+        "arguments": []
+      }
     }
   ]
 }

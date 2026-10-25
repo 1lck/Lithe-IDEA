@@ -9314,7 +9314,9 @@
     "native.resetToActualSize100": "重置为实际大小（100%）",
     "native.oneUsage": "1 处使用",
     "native.openLocalFolder": "本地文件夹",
-    "native.size": "大小"
+    "native.size": "大小",
+    "native.thisFolderCannotBeRead": "无法读取此文件夹。",
+    "native.thisFolderIsEmpty": "此文件夹为空"
   },
   "overrides": {
     "macos": {
