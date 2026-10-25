@@ -257,9 +257,16 @@ function checkEvidence(path, evidence, field, repoRoot, push, required) {
   }
 }
 
+// Fixture-set drift is the failure CI cannot fix by rerunning; point the
+// person reading a red check at the one file that resolves it.
+const FIXTURE_SET_PROBLEMS = new Set(['unknown-fixture', 'missing-fixture', 'duplicate-entry', 'unsorted-entry']);
+
 function printReport(result) {
   const { problems, summary } = result;
   for (const problem of problems) console.error(`${problem.kind}: ${problem.detail}`);
+  if (problems.some((problem) => FIXTURE_SET_PROBLEMS.has(problem.kind))) {
+    console.error('hint: register or clean up fixtures in scripts/plugin-fixture-coverage.json; the maintenance rules are section 6 of docs/development/windows-plugin-fixture-coverage.md');
+  }
   if (summary) {
     const stages = Object.entries(summary.gapStages)
       .sort(comparePaths)

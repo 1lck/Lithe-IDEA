@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -356,4 +357,48 @@ test('the Linux changes lane wires the detector and its tests into CI', () => {
   assert.ok(workflow.includes('scripts/check-plugin-fixture-coverage.test.mjs'), 'test invocation missing');
   assert.ok(workflow.includes('--test-timeout=15000'), 'per-test deadline missing');
   assert.ok(workflow.includes('plugin-fixture-coverage.junit.xml'), 'junit timing evidence missing');
+});
+
+// CI runs the CLI, not the library function, so the executable boundary
+// itself gets covered: exit codes, the summary line, and the registration
+// hint on fixture-set drift. Every invocation has a hard deadline.
+const cliPath = fileURLToPath(new URL('./check-plugin-fixture-coverage.mjs', import.meta.url));
+
+function runCli(arguments_, { cwd } = {}) {
+  try {
+    return {
+      status: 0,
+      stdout: execFileSync(process.execPath, [cliPath, ...arguments_], { encoding: 'utf8', timeout: 10000, cwd }),
+    };
+  } catch (error) {
+    return { status: error.status ?? 1, stdout: error.stdout ?? '', stderr: error.stderr ?? '' };
+  }
+}
+
+test('the CLI exits zero with a summary on a clean tree', (t) => {
+  const repo = tempRepo(t);
+  repo.writeFixture('a.json');
+  repo.writeManifest([entry('a.json')]);
+  const run = runCli([
+    '--repo-root', repo.root,
+    '--manifest', join(repo.root, 'scripts', 'plugin-fixture-coverage.json'),
+    '--fixtures-dir', repo.fixturesDir,
+  ]);
+  assert.equal(run.status, 0, run.stderr);
+  assert.match(run.stdout, /fixtures=1 onDisk=1 wired=1 knownGaps=0/);
+});
+
+test('the CLI exits nonzero, names the problem, and points at the manifest', (t) => {
+  const repo = tempRepo(t);
+  repo.writeFixture('a.json');
+  repo.writeFixture('unregistered.json');
+  repo.writeManifest([entry('a.json')]);
+  const run = runCli([
+    '--repo-root', repo.root,
+    '--manifest', join(repo.root, 'scripts', 'plugin-fixture-coverage.json'),
+    '--fixtures-dir', repo.fixturesDir,
+  ]);
+  assert.equal(run.status, 1);
+  assert.match(run.stderr, /unknown-fixture: unregistered\.json/);
+  assert.match(run.stderr, /hint: register or clean up fixtures in scripts\/plugin-fixture-coverage\.json/);
 });
