@@ -942,6 +942,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         springFeature.reset()
         mybatisFeature.reset()
         workspaceSessionCoordinator.resetWorkspaceFeature()
+        // The popup belongs to the old project; an activation it started may never finish.
+        dismissSearchEverywhere()
         searchModuleCoordinator.resetFeature(searchFeatureIfActive)
         workbenchFeature.hideAllToolWindows()
         editorChrome.reset()

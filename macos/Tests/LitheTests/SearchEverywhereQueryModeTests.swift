@@ -88,6 +88,37 @@ struct SearchEverywhereQueryModeTests {
         }
     }
 
+    @Test @MainActor
+    func switchingProjectsClosesSearchEverywhereSoFindActionReactivates() async throws {
+        let base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-find-action-switch-\(UUID().uuidString)")
+        let first = base.appendingPathComponent("first")
+        let second = base.appendingPathComponent("second")
+        try FileManager.default.createDirectory(at: first, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: second, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let suite = "lithe-find-action-switch-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = MacUserDefaultsStore(defaults: defaults)
+        let settings = AppSettings(store: store)
+        let container = MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .normal)
+        defer { container.moduleLifecycleCoordinator.stop() }
+        let model = AppModel(settings: settings, services: container.services)
+        try await WorkbenchTestScope.withCleanup({ await model.shutdownProjectSession() }) { _ in
+            model.openProjectDirectly(first)
+            model.performShortcutCommand(id: "find-action")
+            #expect(model.isSearchEverywhereVisible)
+            // Switch before the first project's activation task runs.
+            model.openProjectDirectly(second)
+            #expect(!model.isSearchEverywhereVisible)
+            model.performShortcutCommand(id: "find-action")
+            #expect(model.isSearchEverywhereVisible)
+            #expect(model.searchSessionFeature.everywhereQuery == "/")
+            model.dismissSearchEverywhere()
+        }
+    }
+
     @Test
     func ordinaryTextSearchesTheWorkspaceWithoutEnteringCommandMode() {
         let mode = SearchEverywhereQueryMode(query: "l")
