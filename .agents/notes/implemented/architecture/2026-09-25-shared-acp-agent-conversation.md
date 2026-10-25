@@ -239,6 +239,8 @@ Host 发出 `turnCancelling` 时已经拒绝该会话的待处理权限。macOS 
 
 - **Agent 上下文长度与自动压缩阈值（2026-10-25）**：设置 › AI › Agents 的每个 Agent 有“上下文”卡片，两项都可留空（沿用 Agent 默认值）。Codex 把它们作为 `model_context_window` 和 `model_auto_compact_token_limit` 写进 `CODEX_CONFIG`（Codex 自己取窗口的 95% 上报）；Claude Code 只有一个官方开关，所以阈值（没有阈值才用上下文长度）作为 `CLAUDE_CODE_AUTO_COMPACT_WINDOW` 传入，模型本身的窗口仍由模型别名决定。实测 Claude 会在回合内先报配置值、结束时又报回模型值（200000 → 1000000），因此圆环的分母由 Lithe 按配置封顶（`AgentContextUsage.capped`），只会缩小、不会放大 Agent 的上报值；Claude 以阈值为满，Codex 以上下文长度为满，阈值比它小时在圆环弹窗多显示一行“自动压缩阈值”。输入框的占位值是 Agent 在没有配置限制时自己上报的大小（`agentContextDefaults`），不读 CLI 配置文件、不读凭据。修改后需重新连接才生效，设置页会提示。不要把上报值直接当圆环分母，也不要把配置写进 `AgentConfiguration`（它在多处整体重建，会丢字段）。
 
+  上下文限制是 Lithe 当前连接的显式覆盖，不是编辑上游 CLI 原生文件。表单记录所属 Agent、草稿对应的配置快照和重置标识；同一 Agent 的外部更新会重新加载草稿，其他 Agent 的更新不影响当前输入。恢复默认值还会更换重置标识，因此原配置已为空、仅输入了未保存草稿时也会清空输入。每次提交前再次核对快照与重置标识，不能只依赖界面变化通知：恢复默认后立即失焦或离页时，通知可能还没执行，旧草稿仍不得写回。自己的保存同步推进快照，保留正常编辑和非法输入校验。`AgentContextLimitsSettingsTests` 通过原生输入框覆盖保存、重置、立即失焦、切页/关闭、重开及外部更新，不用测试专用生产接口。工具原生配置编辑的通用规则见 [设置读取真实来源并确认写回](2026-10-25-settings-native-configuration-editing.md)。
+
 ## 考虑过的备选方案
 
 ### 始终展示详细统计和重复的 Agent 标题

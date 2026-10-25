@@ -141,7 +141,7 @@ Swift 里没有公开 `WKMenuItemIdentifier…` 这些常量，所以 `HTMLPrevi
 **原则：谁都没有默认权限。** Lithe 里每个能显示网页的地方都必须回答 `requestMediaCapturePermissionFor`：没人回答时 WebKit 会退回它自己的提示框，而不是拒绝。回答只有两种方式，而且把请求变成授权的只有一个地方，`WebMediaCapture.decide`（`WebMediaCapture.swift`）：
 
 - **询问**（HTML 预览、插件页）：`decide` 先检查请求点名了设备、应用有对应的 Info.plist 用途说明，都满足才把问题交给 `WebMediaCaptureConfirming`。使用者明确点“Allow”才得到 `.grant`；点“Don’t Allow”、没有窗口可弹、缺用途说明、没有点名设备，一律 `.deny`，回调恰好执行一次。每个到达委托的请求都重新询问，Lithe 自己什么也不记。
-- **不问直接拒绝**（Lithe 自己的页面：Markdown 预览、Monaco 编辑器和 diff、发行说明）：它们把 `WebMediaCaptureDenier.shared` 设为 `uiDelegate`，没有任何理由使用设备。
+- **不问直接拒绝**（Lithe 自己的页面：Markdown 预览、Monaco 编辑器和 diff、发行说明、Agent 可视化卡片）：它们把 `WebMediaCaptureDenier.shared` 设为 `uiDelegate`，没有任何理由使用设备。
 - `WebMediaCaptureCoverageTests` 扫描 `macos/Sources`：每个创建 `WKWebView`（或其子类）的文件都要登记由谁回答，并且 `.grant` 只能出现在 `WebMediaCapture.swift`。新增网页入口时在这个测试里登记，不要绕过。
 
 HTML 预览里，`WKUIDelegate` 的 `requestMediaCapturePermissionFor` 把请求交给 `HTMLPreviewBrowserController.requestMediaCapture`，它再调用 `decide`：

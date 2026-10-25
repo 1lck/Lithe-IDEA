@@ -53,7 +53,9 @@ struct AgentContextLimitsSettings: View {
 
     @State private var windowDraft = ""
     @State private var compactDraft = ""
-    @State private var didLoad = false
+    @State private var draftAgentID: String?
+    @State private var draftLimits = AgentContextLimits()
+    @State private var draftResetID: UUID?
     @FocusState private var windowFocused: Bool
     @FocusState private var compactFocused: Bool
 
@@ -111,7 +113,10 @@ struct AgentContextLimitsSettings: View {
                     .font(LitheTheme.smallFont).foregroundStyle(LitheTheme.warning)
             }
         }
-        .onAppear { loadDrafts() }
+        .onAppear { synchronizeDrafts() }
+        .onChange(of: limits) { _ in synchronizeDrafts() }
+        .onChange(of: settings.agentContextLimitsResetID) { _ in synchronizeDrafts() }
+        .onChange(of: agentID) { _ in synchronizeDrafts() }
         .onChange(of: windowFocused) { focused in if !focused { commit() } }
         .onChange(of: compactFocused) { focused in if !focused { commit() } }
         .onDisappear { commit() }
@@ -141,16 +146,24 @@ struct AgentContextLimitsSettings: View {
         }
     }
 
-    private func loadDrafts() {
-        guard !didLoad else { return }
-        didLoad = true
+    private func synchronizeDrafts() {
+        guard draftAgentID != agentID || draftLimits != limits
+                || draftResetID != settings.agentContextLimitsResetID else { return }
+        draftAgentID = agentID
+        draftLimits = limits
+        draftResetID = settings.agentContextLimitsResetID
         windowDraft = limits.windowTokens.map { AgentContextTokenText.format($0) } ?? ""
         compactDraft = limits.autoCompactTokens.map { AgentContextTokenText.format($0) } ?? ""
     }
 
     /// Saves what parses; an empty field clears its limit and an invalid one keeps the last good value.
     private func commit() {
-        guard didLoad else { return }
+        // External resets win even if focus loss arrives before SwiftUI observes the change.
+        guard draftAgentID == agentID, draftLimits == limits,
+              draftResetID == settings.agentContextLimitsResetID else {
+            synchronizeDrafts()
+            return
+        }
         var next = limits
         switch AgentContextTokenText.parse(windowDraft) {
         case .cleared: next.windowTokens = nil
@@ -164,6 +177,7 @@ struct AgentContextLimitsSettings: View {
         }
         if let window = next.windowTokens, let compact = next.autoCompactTokens, compact > window { return }
         guard next != limits else { return }
+        draftLimits = next
         if next.isEmpty { settings.agentContextLimits[agentID] = nil } else { settings.agentContextLimits[agentID] = next }
     }
 }

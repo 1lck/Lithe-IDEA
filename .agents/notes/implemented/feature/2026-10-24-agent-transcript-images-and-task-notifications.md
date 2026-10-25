@@ -113,6 +113,11 @@ Desktop 的其他机制同样在宿主里识别，结果分两层交给客户端
 颜色来自当前主题。依赖 CDN 脚本的图表（例如 Chart.js）因此不会渲染，这是有意的取舍：
 不让 Agent 写的页面从会话里向外发请求。
 
+可视化网页还必须把 `WebMediaCaptureDenier.shared` 设为 `uiDelegate`，直接拒绝摄像头和麦克风，
+不能只靠禁网策略或当前应用没有设备用途说明来保证安全。未设置委托时 WebKit 可以走自己的授权提示，
+不等于默认拒绝。`WebMediaCaptureCoverageTests` 登记此入口，`AgentDesktopCardTests` 检查实际创建的
+网页已安装拒绝委托；测试不访问真实设备，也不改 Info.plist 或系统隐私授权。
+
 用户消息里的 `<ci-monitor-event>`（可带属性）和 `[Cross-session idle notice]` 等 Desktop 通知
 作为折叠的上下文块显示，不当成用户说的话。
 

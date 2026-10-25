@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
+import WebKit
 @testable import Lithe
 @testable import LitheAgentConversationModule
 
@@ -100,6 +101,33 @@ struct AgentDesktopCardTests {
         #expect(policy != nil && code != nil && policy!.lowerBound < code!.lowerBound, "The policy must precede the agent's markup")
         #expect(page.contains("--text-primary:") && page.contains("--surface-1:") && page.contains("color-scheme:dark"))
         #expect(!page.contains("connect-src"))
+    }
+
+    @Test
+    func widgetPageUsesSharedMediaCaptureDenier() throws {
+        let host = NSHostingView(rootView: AnyView(AgentDesktopWidgetWebView(
+            code: "<svg></svg>", isDark: false, height: .constant(160), onPrompt: { _ in })
+            .frame(width: 300, height: 160)))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 160),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer {
+            host.rootView = AnyView(EmptyView())
+            host.layoutSubtreeIfNeeded()
+            window.contentView = nil
+            window.close()
+        }
+        host.layoutSubtreeIfNeeded()
+        func findWebView(_ view: NSView) -> WKWebView? {
+            if let webView = view as? WKWebView { return webView }
+            return view.subviews.lazy.compactMap(findWebView).first
+        }
+        let webView = try #require(findWebView(host))
+        defer { webView.stopLoading() }
+        #expect(webView.uiDelegate === WebMediaCaptureDenier.shared)
+        let selector = NSSelectorFromString("webView:requestMediaCapturePermissionForOrigin:initiatedByFrame:type:decisionHandler:")
+        #expect(webView.uiDelegate?.responds(to: selector) == true)
     }
 
     @Test

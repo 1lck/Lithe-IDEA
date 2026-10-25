@@ -213,6 +213,8 @@ final class AppSettings: ObservableObject {
             }
         }
     }
+    /// Invalidates open drafts even when Restore Defaults clears an already-empty override.
+    @Published private(set) var agentContextLimitsResetID = UUID()
     /// Context length and auto-compact threshold per Agent, keyed like `agentConfigurations`.
     /// An Agent without an entry keeps its own defaults. Applies after reconnecting.
     @Published var agentContextLimits: [String: AgentContextLimits] {
@@ -522,6 +524,7 @@ final class AppSettings: ObservableObject {
         agentArguments = ""
         agentModelCallStatistics = true
         agentConfigurations = [:]
+        agentContextLimitsResetID = UUID()
         agentContextLimits = [:]
         agentContextDefaults = [:]
         agentAccounts = []
