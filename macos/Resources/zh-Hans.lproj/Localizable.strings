@@ -1797,7 +1797,7 @@
 "Keep-alive interval" = "保活间隔";
 "Kept editor version" = "已保留编辑器版本";
 "Kernel" = "内核";
-"Keychain error %d: %@" = "钥匙串错误 %d：%@";
+"Keychain error %@: %@" = "钥匙串错误 %@：%@";
 "Keymap" = "快捷键";
 "Keymap…" = "快捷键…";
 "Korean characters" = "韩文字符";
@@ -2582,7 +2582,7 @@
 "Plugins…" = "插件…";
 "Pop" = "弹出";
 "Port" = "端口";
-"Port %lld is already in use. Stop the process using it or change server.port in the Run configuration." = "端口 %lld 已被占用。请停止占用它的进程，或在运行配置中修改 server.port。";
+"Port %@ is already in use. Stop the process using it or change server.port in the Run configuration." = "端口 %@ 已被占用。请停止占用它的进程，或在运行配置中修改 server.port。";
 "Posting comment…" = "正在发表评论…";
 "PowerShell Support" = "PowerShell 支持";
 "Preferred" = "首选";
@@ -3714,7 +3714,7 @@
 "The official plugin signing key is unavailable." = "官方插件签名密钥不可用。";
 "The patch changes the base commit's tree into the target commit's tree." = "补丁将基准提交的文件内容变为目标提交的文件内容。";
 "The plugin archive expands beyond the allowed size: %@" = "插件压缩包解压后超出允许的大小：%@";
-"The plugin archive is larger than %lld MB." = "插件压缩包超过 %lld MB。";
+"The plugin archive is larger than %@ MB." = "插件压缩包超过 %@ MB。";
 "The plugin backend failed to start." = "插件后端启动失败。";
 "The plugin backend stopped before it was ready." = "插件后端在就绪前已停止。";
 "The plugin download address is invalid." = "插件下载地址无效。";
@@ -3733,7 +3733,7 @@
 "The plugin package signature is invalid." = "插件包签名无效。";
 "The plugin package's %@ is not an executable file. Reinstall the plugin." = "插件包中的 %@ 不是可执行文件。请重新安装该插件。";
 "The plugin repository %@ has already been added." = "插件仓库 %@ 已添加。";
-"The plugin server returned HTTP %lld." = "插件服务器返回了 HTTP %lld。";
+"The plugin server returned HTTP %@." = "插件服务器返回了 HTTP %@。";
 "The plugin will be removed after restarting Lithe." = "插件将在重启 Lithe 后移除。";
 "The plugin “%@” wants to use your camera and microphone." = "插件“%@”想使用你的摄像头和麦克风。";
 "The plugin “%@” wants to use your camera." = "插件“%@”想使用你的摄像头。";
@@ -4285,7 +4285,7 @@
 "conflict -> %@" = "版本冲突 → %@";
 "debugger.continue" = "继续";
 "detected on this Mac" = "本机检测到";
-"ditto exited with code %d: %@" = "ditto 以代码 %d 退出：%@";
+"ditto exited with code %@: %@" = "ditto 以代码 %@ 退出：%@";
 "duplicate omitted" = "重复依赖已省略";
 "extensions.reinstall" = "重新安装";
 "extensions.uninstall" = "卸载";
@@ -5370,7 +5370,7 @@
 "native.dismissRebaseResult" = "关闭变基结果";
 "native.dismissResults" = "清除结果";
 "native.display" = "显示";
-"native.dittoExitedWithCodeLld" = "ditto 以代码 %1$d 退出：%2$@";
+"native.dittoExitedWithCodeLld" = "ditto 以代码 %1$@ 退出：%2$@";
 "native.doNotFetch" = "不获取";
 "native.doNotFetchSubmodules" = "不获取子模块";
 "native.doNotFetchTags" = "不获取标签";
@@ -6126,7 +6126,7 @@
 "native.keepsNoWorkspaceStateThatLitheCanReset" = "%1$@ 没有 Lithe 可以重置的工作区状态。";
 "native.keptEditorVersion" = "已保留编辑器版本";
 "native.kernel" = "内核";
-"native.keychainErrorLld" = "钥匙串错误 %1$d：%2$@";
+"native.keychainErrorLld" = "钥匙串错误 %1$@：%2$@";
 "native.keymap" = "快捷键…";
 "native.koreanCharacters" = "韩文字符";
 "native.kotlinSupport" = "Kotlin 支持";
@@ -6993,7 +6993,7 @@
 "native.plugins" = "插件…";
 "native.pop" = "弹出";
 "native.port" = "端口";
-"native.portLldIsAlreadyInUseStopThe" = "端口 %1$lld 已被占用。请停止占用它的进程，或在运行配置中修改 server.port。";
+"native.portLldIsAlreadyInUseStopThe" = "端口 %1$@ 已被占用。请停止占用它的进程，或在运行配置中修改 server.port。";
 "native.ports" = "端口 %1$@";
 "native.postingComment" = "正在发表评论…";
 "native.powershellSupport" = "PowerShell 支持";
@@ -8116,7 +8116,7 @@
 "native.theOfficialPluginSigningKeyIsUnavailable" = "官方插件签名密钥不可用。";
 "native.thePatchChangesTheBaseCommitSTreeIntoTheTargetCommitSTree" = "补丁将基准提交的文件内容变为目标提交的文件内容。";
 "native.thePluginArchiveExpandsBeyondTheAllowedSize" = "插件压缩包解压后超出允许的大小：%1$@";
-"native.thePluginArchiveIsLargerThanLldMb" = "插件压缩包超过 %1$lld MB。";
+"native.thePluginArchiveIsLargerThanLldMb" = "插件压缩包超过 %1$@ MB。";
 "native.thePluginBackendFailedToStart" = "插件后端启动失败。";
 "native.thePluginBackendStoppedBeforeItWasReady" = "插件后端在就绪前已停止。";
 "native.thePluginDownloadAddressIsInvalid" = "插件下载地址无效。";
@@ -8136,7 +8136,7 @@
 "native.thePluginPackageSignatureIsInvalid" = "插件包签名无效。";
 "native.thePluginRepositoryHasAlreadyBeenAdded" = "插件仓库 %1$@ 已添加。";
 "native.thePluginSPageAsksToRunThemIn" = "插件页面请求在 %1$@ 中运行它们。";
-"native.thePluginServerReturnedHttpLld" = "插件服务器返回了 HTTP %1$lld。";
+"native.thePluginServerReturnedHttpLld" = "插件服务器返回了 HTTP %1$@。";
 "native.thePluginWantsToUseYourCamera" = "插件“%1$@”想使用你的摄像头。";
 "native.thePluginWantsToUseYourCameraAndMicrophone" = "插件“%1$@”想使用你的摄像头和麦克风。";
 "native.thePluginWantsToUseYourMicrophone" = "插件“%1$@”想使用你的麦克风。";

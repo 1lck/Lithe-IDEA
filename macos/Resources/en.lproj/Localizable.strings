@@ -1797,7 +1797,7 @@
 "Keep-alive interval" = "Keep-alive interval";
 "Kept editor version" = "Kept editor version";
 "Kernel" = "Kernel";
-"Keychain error %d: %@" = "Keychain error %d: %@";
+"Keychain error %@: %@" = "Keychain error %@: %@";
 "Keymap" = "Keymap";
 "Keymap…" = "Keymap…";
 "Korean characters" = "Korean characters";
@@ -2582,7 +2582,7 @@
 "Plugins…" = "Plugins…";
 "Pop" = "Pop";
 "Port" = "Port";
-"Port %lld is already in use. Stop the process using it or change server.port in the Run configuration." = "Port %lld is already in use. Stop the process using it or change server.port in the Run configuration.";
+"Port %@ is already in use. Stop the process using it or change server.port in the Run configuration." = "Port %@ is already in use. Stop the process using it or change server.port in the Run configuration.";
 "Posting comment…" = "Posting comment…";
 "PowerShell Support" = "PowerShell Support";
 "Preferred" = "Preferred";
@@ -3714,7 +3714,7 @@
 "The official plugin signing key is unavailable." = "The official plugin signing key is unavailable.";
 "The patch changes the base commit's tree into the target commit's tree." = "The patch changes the base commit's tree into the target commit's tree.";
 "The plugin archive expands beyond the allowed size: %@" = "The plugin archive expands beyond the allowed size: %@";
-"The plugin archive is larger than %lld MB." = "The plugin archive is larger than %lld MB.";
+"The plugin archive is larger than %@ MB." = "The plugin archive is larger than %@ MB.";
 "The plugin backend failed to start." = "The plugin backend failed to start.";
 "The plugin backend stopped before it was ready." = "The plugin backend stopped before it was ready.";
 "The plugin download address is invalid." = "The plugin download address is invalid.";
@@ -3733,7 +3733,7 @@
 "The plugin package signature is invalid." = "The plugin package signature is invalid.";
 "The plugin package's %@ is not an executable file. Reinstall the plugin." = "The plugin package's %@ is not an executable file. Reinstall the plugin.";
 "The plugin repository %@ has already been added." = "The plugin repository %@ has already been added.";
-"The plugin server returned HTTP %lld." = "The plugin server returned HTTP %lld.";
+"The plugin server returned HTTP %@." = "The plugin server returned HTTP %@.";
 "The plugin will be removed after restarting Lithe." = "The plugin will be removed after restarting Lithe.";
 "The plugin “%@” wants to use your camera and microphone." = "The plugin “%@” wants to use your camera and microphone.";
 "The plugin “%@” wants to use your camera." = "The plugin “%@” wants to use your camera.";
@@ -4285,7 +4285,7 @@
 "conflict -> %@" = "conflict -> %@";
 "debugger.continue" = "Continue";
 "detected on this Mac" = "detected on this Mac";
-"ditto exited with code %d: %@" = "ditto exited with code %d: %@";
+"ditto exited with code %@: %@" = "ditto exited with code %@: %@";
 "duplicate omitted" = "duplicate omitted";
 "extensions.reinstall" = "Reinstall";
 "extensions.uninstall" = "Uninstall";
@@ -5370,7 +5370,7 @@
 "native.dismissRebaseResult" = "Dismiss rebase result";
 "native.dismissResults" = "Dismiss Results";
 "native.display" = "Display";
-"native.dittoExitedWithCodeLld" = "ditto exited with code %1$d: %2$@";
+"native.dittoExitedWithCodeLld" = "ditto exited with code %1$@: %2$@";
 "native.doNotFetch" = "Do not fetch";
 "native.doNotFetchSubmodules" = "Do not fetch submodules";
 "native.doNotFetchTags" = "Do not fetch tags";
@@ -6126,7 +6126,7 @@
 "native.keepsNoWorkspaceStateThatLitheCanReset" = "%1$@ keeps no workspace state that Lithe can reset.";
 "native.keptEditorVersion" = "Kept editor version";
 "native.kernel" = "Kernel";
-"native.keychainErrorLld" = "Keychain error %1$d: %2$@";
+"native.keychainErrorLld" = "Keychain error %1$@: %2$@";
 "native.keymap" = "Keymap…";
 "native.koreanCharacters" = "Korean characters";
 "native.kotlinSupport" = "Kotlin Support";
@@ -6993,7 +6993,7 @@
 "native.plugins" = "Plugins…";
 "native.pop" = "Pop";
 "native.port" = "Port";
-"native.portLldIsAlreadyInUseStopThe" = "Port %1$lld is already in use. Stop the process using it or change server.port in the Run configuration.";
+"native.portLldIsAlreadyInUseStopThe" = "Port %1$@ is already in use. Stop the process using it or change server.port in the Run configuration.";
 "native.ports" = "ports %1$@";
 "native.postingComment" = "Posting comment…";
 "native.powershellSupport" = "PowerShell Support";
@@ -8116,7 +8116,7 @@
 "native.theOfficialPluginSigningKeyIsUnavailable" = "The official plugin signing key is unavailable.";
 "native.thePatchChangesTheBaseCommitSTreeIntoTheTargetCommitSTree" = "The patch changes the base commit's tree into the target commit's tree.";
 "native.thePluginArchiveExpandsBeyondTheAllowedSize" = "The plugin archive expands beyond the allowed size: %1$@";
-"native.thePluginArchiveIsLargerThanLldMb" = "The plugin archive is larger than %1$lld MB.";
+"native.thePluginArchiveIsLargerThanLldMb" = "The plugin archive is larger than %1$@ MB.";
 "native.thePluginBackendFailedToStart" = "The plugin backend failed to start.";
 "native.thePluginBackendStoppedBeforeItWasReady" = "The plugin backend stopped before it was ready.";
 "native.thePluginDownloadAddressIsInvalid" = "The plugin download address is invalid.";
@@ -8136,7 +8136,7 @@
 "native.thePluginPackageSignatureIsInvalid" = "The plugin package signature is invalid.";
 "native.thePluginRepositoryHasAlreadyBeenAdded" = "The plugin repository %1$@ has already been added.";
 "native.thePluginSPageAsksToRunThemIn" = "The plugin’s page asks to run them in %1$@.";
-"native.thePluginServerReturnedHttpLld" = "The plugin server returned HTTP %1$lld.";
+"native.thePluginServerReturnedHttpLld" = "The plugin server returned HTTP %1$@.";
 "native.thePluginWantsToUseYourCamera" = "The plugin “%1$@” wants to use your camera.";
 "native.thePluginWantsToUseYourCameraAndMicrophone" = "The plugin “%1$@” wants to use your camera and microphone.";
 "native.thePluginWantsToUseYourMicrophone" = "The plugin “%1$@” wants to use your microphone.";

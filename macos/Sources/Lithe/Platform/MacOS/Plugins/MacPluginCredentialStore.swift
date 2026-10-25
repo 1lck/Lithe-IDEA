@@ -18,7 +18,7 @@ final class MacPluginCredentialStore: PluginCredentialStoring, @unchecked Sendab
             switch self {
             case .unexpectedStatus(let status):
                 let message = SecCopyErrorMessageString(status, nil) as String? ?? L10n.string("Unknown Keychain error")
-                return L10n.string("Keychain error \(status): \(message)")
+                return L10n.string("Keychain error \(String(status)): \(message)")
             }
         }
     }

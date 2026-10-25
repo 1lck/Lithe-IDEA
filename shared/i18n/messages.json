@@ -83595,18 +83595,18 @@
     },
     {
       "id": "native.portLldIsAlreadyInUseStopThe",
-      "description": "Native UI: Port %lld is already in use. Stop the process using it or change server.port in the Run configuration.",
+      "description": "Native UI: Port %@ is already in use. Stop the process using it or change server.port in the Run configuration.",
       "platforms": [
         "macos"
       ],
       "macos": {
-        "key": "Port %lld is already in use. Stop the process using it or change server.port in the Run configuration.",
+        "key": "Port %@ is already in use. Stop the process using it or change server.port in the Run configuration.",
         "arguments": [
           "arg1"
         ]
       },
       "parameters": {
-        "arg1": "integer"
+        "arg1": "string"
       }
     },
     {
@@ -84043,22 +84043,19 @@
     },
     {
       "id": "native.dittoExitedWithCodeLld",
-      "description": "Native UI: ditto exited with code %d: %@",
+      "description": "Native UI: ditto exited with code %@: %@",
       "platforms": [
         "macos"
       ],
       "macos": {
-        "key": "ditto exited with code %d: %@",
+        "key": "ditto exited with code %@: %@",
         "arguments": [
           "arg1",
           "arg2"
-        ],
-        "formats": {
-          "arg1": "d"
-        }
+        ]
       },
       "parameters": {
-        "arg1": "integer",
+        "arg1": "string",
         "arg2": "string"
       }
     },
@@ -84097,22 +84094,19 @@
     },
     {
       "id": "native.keychainErrorLld",
-      "description": "Native UI: Keychain error %d: %@",
+      "description": "Native UI: Keychain error %@: %@",
       "platforms": [
         "macos"
       ],
       "macos": {
-        "key": "Keychain error %d: %@",
+        "key": "Keychain error %@: %@",
         "arguments": [
           "arg1",
           "arg2"
-        ],
-        "formats": {
-          "arg1": "d"
-        }
+        ]
       },
       "parameters": {
-        "arg1": "integer",
+        "arg1": "string",
         "arg2": "string"
       }
     },
@@ -84587,34 +84581,34 @@
     },
     {
       "id": "native.thePluginServerReturnedHttpLld",
-      "description": "Native UI: The plugin server returned HTTP %lld.",
+      "description": "Native UI: The plugin server returned HTTP %@.",
       "platforms": [
         "macos"
       ],
       "macos": {
-        "key": "The plugin server returned HTTP %lld.",
+        "key": "The plugin server returned HTTP %@.",
         "arguments": [
           "arg1"
         ]
       },
       "parameters": {
-        "arg1": "integer"
+        "arg1": "string"
       }
     },
     {
       "id": "native.thePluginArchiveIsLargerThanLldMb",
-      "description": "Native UI: The plugin archive is larger than %lld MB.",
+      "description": "Native UI: The plugin archive is larger than %@ MB.",
       "platforms": [
         "macos"
       ],
       "macos": {
-        "key": "The plugin archive is larger than %lld MB.",
+        "key": "The plugin archive is larger than %@ MB.",
         "arguments": [
           "arg1"
         ]
       },
       "parameters": {
-        "arg1": "integer"
+        "arg1": "string"
       }
     },
     {

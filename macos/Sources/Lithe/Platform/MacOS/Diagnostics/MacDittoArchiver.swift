@@ -45,7 +45,7 @@ enum DiagnosticsArchivingError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .dittoFailed(let exitCode, let output):
-            return L10n.string("ditto exited with code \(exitCode): \(output)")
+            return L10n.string("ditto exited with code \(String(exitCode)): \(output)")
         }
     }
 }

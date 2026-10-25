@@ -14,7 +14,7 @@ final class MacKeychainSecureStore: SecureStore, @unchecked Sendable {
             switch self {
             case let .unexpectedStatus(status):
                 let message = SecCopyErrorMessageString(status, nil) as String? ?? L10n.string("Unknown Keychain error")
-                return L10n.string("Keychain error \(status): \(message)")
+                return L10n.string("Keychain error \(String(status)): \(message)")
             }
         }
     }
