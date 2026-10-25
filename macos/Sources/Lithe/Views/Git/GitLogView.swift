@@ -2898,8 +2898,8 @@ func gitLocalizedFormat(_ key: String, _ arguments: CVarArg..., locale: Locale, 
     return String(format: format, locale: locale, arguments: arguments)
 }
 
-/// IDEA FilterComponent: 2pt border + 2pt inner inset; hover changes only the name foreground.
-private struct GitLogFilterLabel: View {
+/// Git Log filter trigger with IDEA's 4pt inset and separate name/value colors.
+struct GitLogFilterLabel: View {
     let title: LocalizedStringKey
     let selection: String?
     let localizeSelection: Bool
@@ -2907,14 +2907,9 @@ private struct GitLogFilterLabel: View {
 
     var body: some View {
         HStack(spacing: 3) {
-            HStack(spacing: 0) {
-                (Text(title) + Text(selection == nil ? "" : ": "))
-                    .foregroundStyle(isHovered ? Color.white : LitheTheme.searchFieldPlaceholder)
-                if let selection {
-                    let value = localizeSelection ? Text(LocalizedStringKey(selection)) : Text(verbatim: selection)
-                    value.foregroundStyle(isHovered ? Color.white : LitheTheme.searchFieldText)
-                }
-            }
+            labelText
+                .lineLimit(1)
+                .truncationMode(.tail)
             if selection == nil {
                 LitheIDEAIcon(resourcePath: "expui/general/chevronDown.svg", size: 16,
                               fallbackSystemImage: "chevron.down", preservesOriginalColors: true)
@@ -2924,5 +2919,17 @@ private struct GitLogFilterLabel: View {
         .padding(4)
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
+    }
+
+    private var labelText: Text {
+        let nameColor = isHovered ? Color.white : LitheTheme.searchFieldPlaceholder
+        let name = Text(title).foregroundColor(nameColor)
+        guard let selection else { return name }
+        let value = localizeSelection ? Text(LocalizedStringKey(selection)) : Text(verbatim: selection)
+        let separator = Text(verbatim: ": ").foregroundColor(nameColor)
+        let selectedValue = value.foregroundColor(isHovered ? .white : LitheTheme.searchFieldText)
+        // One text layout truncates the complete label instead of letting the
+        // name and value compress independently and paint over one another.
+        return Text("\(name)\(separator)\(selectedValue)")
     }
 }
