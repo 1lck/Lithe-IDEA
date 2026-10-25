@@ -1,6 +1,6 @@
 # Windows 插件 fixture 覆盖审计（M0）
 
-状态：M0 交付。证据在基线 commit `1e78b59b6385fca6a881639b42048bf3bc587f4a`（#1424 合入后的 preview 起点）上逐一核对，行号为该基线时点。
+状态：M0 交付。证据在基线 commit `1e78b59b6385fca6a881639b42048bf3bc587f4a`（#1424 合入后的 preview 起点）上逐一核对，并已同步 preview `83017afa`（插件后端能力 `8471b998`/#1470 合入后的契约状态，新增 `backend.plugin.json`）；行号为对应时点。
 
 本文回答路线图
 [Windows 插件功能对齐计划](windows-plugin-parity-plan.md) M0 的要求：`shared/contracts/plugins/v1/fixtures` 的每个文件，是否有 Core 契约验证、是否有 Windows 产品宿主的**真实接线**测试，缺什么、归哪个阶段。机器可读清单是
@@ -11,10 +11,10 @@
 
 ## 1. 结论摘要
 
-- fixtures 目录共 34 个文件：19 个合法清单（含原生 UI 3 个、项目生成 1 个、VCS 1 个，分类时单列）、1 个非法修改案例集、5 个金样/计划文件（command-plans、build-plans、runtime-versions、function-protocol、project-plans）、5 个市场用例、4 个项目生成模板。另有 `README.md` 与两个 schema 在契约根目录，不在 fixtures 内。
-- Core 侧：34 个文件全部有至少一个 Core 测试引用（模板目录经 `plan.rs` 的 `collect_files` 生产代码递归读取，被 golden 测试间接触发）。
-- Windows 侧：**3 个 wired**（有产品路径测试）、**10 个 validated-only**（仅清单验收/能力门控）、**10 个 indirect-core**（Windows 经 Core 命令消费、无直接读取）、**11 个 unwired**（Windows 零引用）。
-- 最严重的真实缺口：`build-tool-path`、`build-provider-language-server`、`native-panel`、`native-form`、`native-controls`、`project-generator`、`vcs-provider` 在 Windows 侧零引用；全部 5 个市场用例和 5 个跨平台金样在 Windows 没有直接消费测试。
+- fixtures 目录共 35 个文件：20 个合法清单（含原生 UI 3 个、项目生成 1 个、VCS 1 个，分类时单列；backend 为冻结路线图后新增）、1 个非法修改案例集、5 个金样/计划文件（command-plans、build-plans、runtime-versions、function-protocol、project-plans）、5 个市场用例、4 个项目生成模板。另有 `README.md` 与两个 schema 在契约根目录，不在 fixtures 内。
+- Core 侧：35 个文件全部有至少一个 Core 测试引用（模板目录经 `plan.rs` 的 `collect_files` 生产代码递归读取，被 golden 测试间接触发）。
+- Windows 侧：**3 个 wired**（有产品路径测试）、**10 个 validated-only**（仅清单验收/能力门控）、**10 个 indirect-core**（Windows 经 Core 命令消费、无直接读取）、**12 个 unwired**（Windows 零引用）。
+- 最严重的真实缺口：`build-tool-path`、`build-provider-language-server`、`native-panel`、`native-form`、`native-controls`、`project-generator`、`vcs-provider`、`backend` 在 Windows 侧零引用；全部 5 个市场用例和 5 个跨平台金样在 Windows 没有直接消费测试。
 - 顺带发现（只记录，不修改，归属见 §5）：`tests.rs:149` 的门控注释已过时；`lithe-plugin-docs` 的 `contract.lock.json` 落后于主仓库契约；macOS `BuildSystemToolWindowTests` 用本地 fixture 副本，共享 fixture 的改动不会反映到它。
 
 ## 2. 检测工具与运行方式
@@ -50,11 +50,15 @@ node --test scripts/check-plugin-fixture-coverage.test.mjs
 | | indirect-core | Windows 通过 Core 命令消费其内容，宿主测试不直接读取该文件 |
 | | unwired | Windows 零直接引用（或仅作为 invalid-manifests 基底间接读取，单独说明） |
 
-非 wired 的每条都带 `gapStage`（路线图里程碑 M0–M10）与 `gapDetail`。`gapStage` 表示**计划中该能力接入的阶段**，不是承诺日期；提前实现时以真实测试关闭并更新清单。
+非 wired 的每条都带 `gapStage` 与 `gapDetail`。`gapStage` 表示**计划中该能力接入的阶段**，不是承诺日期；取值为路线图里程碑 M0–M10，或冻结路线图之后落地的新能力用的 `followup`（按计划 §6 单列后续阶段，暂无编号）。提前实现时以真实测试关闭并更新清单。
 
 ## 4. 分类明细
 
-### 4.1 合法清单（14 个 valid-manifest）
+### 4.1 合法清单（15 个 valid-manifest；原生 UI、项目生成、VCS 三类单列见 §4.4）
+
+| Fixture | 结果 | Core 入口（节选） | Windows 入口 | Windows 状态 / 缺口 |
+| --- | --- | --- | --- | --- |
+| backend.plugin.json | success | `declarative_plugins.rs:32/615` 后端计划与宿主服务（8471b998） | 无 | **unwired** → followup：冻结路线图（M0–M10）之后的新能力，macOS 宿主已声明 `backend:[1]`，Windows 接入按计划 §6 单列后续阶段 |
 
 | Fixture | 结果 | Core 入口（节选） | Windows 入口 | Windows 状态 / 缺口 |
 | --- | --- | --- | --- | --- |
@@ -77,11 +81,11 @@ node --test scripts/check-plugin-fixture-coverage.test.mjs
 
 | Fixture | 结果 | Core 入口 | Windows 入口 | Windows 状态 / 缺口 |
 | --- | --- | --- | --- | --- |
-| invalid-manifests.json（154 用例，12 个基底） | rejection | `declarative_plugins.rs:130` | `tests.rs:80` 全量循环，宿主校验路径断言同码 | **wired**（校验路径一致性；宿主行为仍以各清单的 wired/validated-only 行为准） |
+| invalid-manifests.json（163 用例，13 个基底，含 backend） | rejection | `declarative_plugins.rs:133` | `tests.rs:80` 全量循环，宿主校验路径断言同码 | **wired**（校验路径一致性；宿主行为仍以各清单的 wired/validated-only 行为准） |
 | command-plans.json | success | `declarative_plugins.rs:212` golden 展开 | 无；`tests.rs:433` 的 PHP 契约包端到端实测了 runPlan/testPlan 展开但不用本 golden | indirect-core → M5 |
 | build-plans.json | success | `build_systems.rs:143` | 无 | indirect-core → M4 |
 | runtime-versions.json | success | `declarative_plugins.rs:312` | 无（`launch.rs` 用 node/java/go 真实输出自测解析，不读本 golden） | indirect-core → M10：建议接入宿主探测路径时用本 fixture 对齐 |
-| function-protocol.json | success | `plugin_function.rs:441` 起 7 组协议测试 | 无；网页桥 v0 对 `functions.*` 返回 `plugin.web.unknownMethod` | indirect-core → M6 |
+| function-protocol.json | success | `plugin_function.rs:558` 起 8 组协议测试（v2 新增 hostRequests） | 无；网页桥 v0 对 `functions.*` 返回 `plugin.web.unknownMethod` | indirect-core → M6 |
 | project-plans.json | success | `project_generators.rs:65` | 无 | indirect-core → M8 |
 
 ### 4.3 市场用例（5 个 marketplace/）
@@ -109,6 +113,7 @@ node --test scripts/check-plugin-fixture-coverage.test.mjs
 3. **macOS 本地副本**：`macos/Tests/LitheTests/Fixtures/BuildSystems/` 下的 `build-command-output-file`、`build-host-integration` 等是共享 fixture 的本地副本，`BuildSystemToolWindowTests` 经 `Bundle.module` 加载副本。共享 fixture 语义变更不会自动反映到这批测试，属已知重复面，不在本轮收敛。
 4. **非法清单循环的边界**：Windows `invalid-manifests` 循环（154 用例）与 macOS 同名测试是契约一致性回归；它们不能替代宿主行为测试，也不能作为"Windows 已支持某能力"的证据——被门控清单（如 build 组）的全量拒绝恰恰说明能力未开放。
 5. **fixtur 目录枚举现状**：Core 测试全部用 `include_str!`/显式 const 清单，Windows 测试用 `read_fixture(name)` 显式点名；唯一对 fixtures 树的运行时递归读取是 `plan.rs` 的模板收集。这就是"新增 fixture 会静默漏掉"的结构性原因，也是本检测器存在的理由。`scripts/verify-shared-contracts.sh` 的语义校验（schemaVersion、ID 前缀、拒绝码文档化等）与本检测器互补，不互相替代。
+6. **过时的宿主能力描述**：`shared/contracts/plugins/v1/README.md` 能力一节（preview 上仍在 §456 附近）称 macOS 不声明 buildProviders/vcsProviders；基线与 preview 的 `PluginTypes.swift` `PluginManifest.hostCapabilities`（preview 为 `:492-504`）实际声明 `buildProviders:[1]、buildSystems:[1,2]、executableResolution:[1]、executionProviders:[1]、projectGenerators:[1]、ui:[1,2,3]、vcsProviders:[1]`（preview 另加 `backend:[1]`），Core `capabilities.rs` 的 `SUPPORTED_CAPABILITIES` 支持同一组（含 `buildSystems:2`）。功能矩阵佐证：`build-provider-refresh-and-tool` 与 `cargo-build-plugin` 记 macOS implemented/验证 pending。README 落后于代码，能力事实以 Core 与功能矩阵为准，不能以旧 README 推断安装可用性。
 
 ## 6. 维护规则
 
@@ -116,4 +121,5 @@ node --test scripts/check-plugin-fixture-coverage.test.mjs
 - 删除/重命名 fixture：同 PR 清理清单，否则 `missing-fixture` 失败。
 - 移动/删除被引用的测试文件：更新证据条目，否则 `evidence-path` 失败。
 - 关闭 gap：以真实 Windows 测试为证据更新 `windowsStatus`/`windowsEvidence` 并清空 gap 字段；检测器会拒绝"没有证据的 wired"。
+- M1 交接（#1476，截至 2026-10-25 仍为 OPEN Draft）：其 `fixtures/signature-vectors.json` 未登记时，Linux 门禁会以 `unknown-fixture` 让该 PR 失败——这是门禁设计行为。`signature-vectors` 类别已在检测器预置，且是该类别唯一允许 `coreEvidence` 为空的例外（签名向量由双端宿主签名测试消费，无 Core 校验面；其他类别仍强制 Core 证据）。#1476 合入 preview 后按最小补丁登记：`category: "signature-vectors"`、`coreEvidence: []`、Windows 证据 `windows/tauri/src-tauri/src/plugin_host/signature.rs:663 shared_fixture_verifies_end_to_end`（macOS 侧对照为 `PluginSignatureVectorTests.swift` 四组 @Test），`windowsStatus` 按其 PR 实际证据标注。`backend.plugin.json` 已由本 PR 随 preview 同步登记，M1 worktree 的组合检测现在只剩 `signature-vectors.json` 一个 unknown。合并顺序优先 #1474 先合；若 #1476 先合，它需要先带上上述登记条目才能通过门禁。
 - 本文是审计快照；实时约束以清单 + 检测器为准。行号漂移不需要修本文，但证据文件消失必须处理。

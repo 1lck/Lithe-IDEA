@@ -34,6 +34,11 @@ export const CATEGORY_VALUES = [
   'project-plans',
   'project-generation',
   'marketplace',
+  // Shared acceptance data for publisher-signature verification (M1); the
+  // fixture lands with PR #1476 and is registered once it reaches preview.
+  // Both hosts consume it in their own signature tests, so there is no Core
+  // validation surface and coreEvidence is optional for this category.
+  'signature-vectors',
   'native-ui',
   'vcs-provider',
   'template-assets',
@@ -43,7 +48,10 @@ export const OUTCOME_VALUES = ['success', 'rejection', 'partial-support'];
 
 export const WINDOWS_STATUS_VALUES = ['wired', 'validated-only', 'indirect-core', 'unwired'];
 
-const GAP_STAGE_PATTERN = /^M(10|[1-9])$/;
+// Roadmap stages M0-M10, plus `followup` for capabilities that landed after
+// the roadmap froze: the plan routes those into separately numbered later
+// stages (section 6) that do not exist yet, so no M-number may be invented.
+export const GAP_STAGE_PATTERN = /^(M(10|[0-9])|followup)$/;
 
 export function defaultRepoRoot() {
   return join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -196,8 +204,8 @@ function validateEntry(entry, repoRoot, push) {
   if (!WINDOWS_STATUS_VALUES.includes(entry.windowsStatus)) {
     push('invalid-entry', `${path ?? '<missing path>'}: unknown windowsStatus ${JSON.stringify(entry.windowsStatus)}`);
   }
-  checkEvidence(entry.path, entry.coreEvidence, 'coreEvidence', repoRoot, push);
-  checkEvidence(entry.path, entry.windowsEvidence, 'windowsEvidence', repoRoot, push);
+  checkEvidence(entry.path, entry.coreEvidence, 'coreEvidence', repoRoot, push, entry.category !== 'signature-vectors');
+  checkEvidence(entry.path, entry.windowsEvidence, 'windowsEvidence', repoRoot, push, true);
 
   const wired = entry.windowsStatus === 'wired';
   if (wired) {
@@ -220,16 +228,16 @@ function validateEntry(entry, repoRoot, push) {
   }
 }
 
-function checkEvidence(path, evidence, field, repoRoot, push) {
+function checkEvidence(path, evidence, field, repoRoot, push, required) {
   if (evidence === undefined) {
-    if (field === 'coreEvidence') push('invalid-entry', `${path ?? '<missing path>'}: coreEvidence is required`);
+    if (required) push('invalid-entry', `${path ?? '<missing path>'}: ${field} is required`);
     return;
   }
   if (!Array.isArray(evidence)) {
     push('invalid-entry', `${path ?? '<missing path>'}: ${field} must be an array of strings`);
     return;
   }
-  if (field === 'coreEvidence' && evidence.length === 0) {
+  if (required && field === 'coreEvidence' && evidence.length === 0) {
     push('invalid-entry', `${path}: coreEvidence must name at least one Core-side reference`);
     return;
   }

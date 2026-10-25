@@ -1,8 +1,21 @@
 {
   "schemaVersion": 1,
-  "description": "Explicit classification of every file under shared/contracts/plugins/v1/fixtures. Checked by scripts/check-plugin-fixture-coverage.mjs: the directory enumeration and this list must match exactly. windowsStatus: wired = a product-path Windows test exercises this fixture; validated-only = only manifest validation/gating; indirect-core = Windows consumes it through Core commands without reading the file; unwired = no Windows list or test names it. A non-wired status is a known gap and must keep gapStage/gapDetail until a real test closes it. Evidence strings are '<repo path>[:<line>] <test name>'; the checker verifies the file exists, lines are documentation as of base commit 1e78b59b6385fca6a881639b42048bf3bc587f4a.",
+  "description": "Explicit classification of every file under shared/contracts/plugins/v1/fixtures. Checked by scripts/check-plugin-fixture-coverage.mjs (wired into the ci-macos.yml changes job on Linux): the directory enumeration and this list must match exactly. windowsStatus: wired = a product-path Windows test exercises this fixture; validated-only = only manifest validation/gating; indirect-core = Windows consumes it through Core commands without reading the file; unwired = no Windows list or test names it. A non-wired status is a known gap and must keep gapStage/gapDetail until a real test closes it; gapStage is a roadmap stage M0-M10 or 'followup' for capabilities that landed after the roadmap froze. Evidence strings are '<repo path>[:<line>] <test name>'; the checker verifies the file exists, lines are documentation as of base commit 1e78b59b6385fca6a881639b42048bf3bc587f4a synced with preview 83017afa851c83f119f40268bf9eb04b26aefc91 (backend capability).",
   "fixturesDirectory": "shared/contracts/plugins/v1/fixtures",
   "fixtures": [
+    {
+      "path": "backend.plugin.json",
+      "category": "valid-manifest",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/declarative_plugins.rs:32 BACKEND_FIXTURE",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:615 plugin_backend_is_planned_without_a_workspace_and_names_its_host_services"
+      ],
+      "windowsEvidence": [],
+      "windowsStatus": "unwired",
+      "gapStage": "followup",
+      "gapDetail": "Windows 侧零引用。插件后端（backend:1）与函数协议 v2 是冻结路线图（2026-10-24 版 M0–M10）之后的新能力（preview 8471b998/#1470），macOS 宿主已声明 backend:[1]（PluginTypes.swift:493）；Windows 接入按计划 §6 单列后续阶段，暂无编号。"
+    },
     {
       "path": "build-command-output-file.plugin.json",
       "category": "valid-manifest",
@@ -161,8 +174,9 @@
       "category": "function-protocol",
       "outcome": "success",
       "coreEvidence": [
-        "rust/lithe-core/src/lsp/interface/plugin_function.rs:441 the_offer_matches_the_fixture",
-        "rust/lithe-core/src/lsp/interface/plugin_function.rs:528 outcomes_follow_the_fixture"
+        "rust/lithe-core/src/lsp/interface/plugin_function.rs:558 the_offer_matches_the_fixture",
+        "rust/lithe-core/src/lsp/interface/plugin_function.rs:648 outcomes_follow_the_fixture",
+        "rust/lithe-core/src/lsp/interface/plugin_function.rs:703 host_requests_follow_the_fixture (protocol v2)"
       ],
       "windowsEvidence": [],
       "windowsStatus": "indirect-core",
@@ -499,7 +513,7 @@
       "windowsEvidence": [],
       "windowsStatus": "unwired",
       "gapStage": "M9",
-      "gapDetail": "Windows 侧零引用；VCS Provider 会话、根识别与宿主入口未接入（macOS 也未声明 vcsProviders）。"
+      "gapDetail": "Windows 侧零引用；VCS Provider 会话、根识别与宿主入口未接入。macOS 宿主已声明 vcsProviders:[1]（PluginTypes.swift:502）且矩阵 vcs-subversion-and-plugin-providers 记 macOS partial/验证 pending（VcsProviderHostTests 覆盖根识别、监听与生命周期自动化）；对齐 macOS 已有子能力属 M9。"
     },
     {
       "path": "web-panel.plugin.json",

@@ -9,6 +9,7 @@ import {
   defaultRepoRoot,
   enumerateFixtureFiles,
   evidenceFilePath,
+  GAP_STAGE_PATTERN,
   runCoverageCheck,
 } from './check-plugin-fixture-coverage.mjs';
 
@@ -28,6 +29,10 @@ function tempRepo(t) {
     writeFixture(relativePath) {
       mkdirSync(dirname(join(fixturesDir, ...relativePath.split('/'))), { recursive: true });
       writeFileSync(join(fixturesDir, ...relativePath.split('/')), '{}\n');
+    },
+    writeFile(relativePath, text) {
+      mkdirSync(dirname(join(root, ...relativePath.split('/'))), { recursive: true });
+      writeFileSync(join(root, ...relativePath.split('/')), text);
     },
     writeManifest(entries, extra = {}) {
       const manifestPath = join(root, 'scripts', 'plugin-fixture-coverage.json');
@@ -239,9 +244,10 @@ test('evidence parsing keeps the file part and drops the line number', () => {
 });
 
 // The enforcement test: the real manifest must match the real fixtures
-// directory right now, and its known gaps must stay explicit. When this test
-// fails, classify the new fixture or clean the stale entry - never weaken
-// this assertion to make a change pass.
+// directory right now, and every non-wired entry must keep an honest gap
+// classification. Completeness is never asserted here - the day every
+// fixture is genuinely wired on Windows this test must still pass; the
+// all-wired positive case below proves that path exists.
 test('the real fixture directory and classification list agree', () => {
   const repoRoot = defaultRepoRoot();
   const manifest = JSON.parse(readFileSync(defaultManifestPath(), 'utf8'));
@@ -249,11 +255,105 @@ test('the real fixture directory and classification list agree', () => {
   const result = runCoverageCheck({ repoRoot, fixturesDir, manifest });
   assert.equal(result.ok, true, result.problems.map((problem) => `${problem.kind}: ${problem.detail}`).join('\n'));
   assert.ok(result.summary.fixtures >= 30, `expected the full fixture set, got ${result.summary.fixtures}`);
-  assert.ok(result.summary.knownGaps > 0, 'the audit documents real gaps; a zero-gap manifest means the statuses were flattened');
   for (const fixture of manifest.fixtures) {
     if (fixture.windowsStatus !== 'wired') {
-      assert.match(fixture.gapStage, /^M(10|[1-9])$/, `${fixture.path} gap stage`);
+      assert.match(fixture.gapStage, GAP_STAGE_PATTERN, `${fixture.path} gap stage`);
       assert.ok(fixture.gapDetail.trim().length > 0, `${fixture.path} gap detail`);
     }
   }
+});
+
+// The anti-forgery stance is honesty, not permanent partiality: a manifest
+// that wires every fixture with real evidence must pass with zero known
+// gaps, so the gate can never be satisfied by keeping statuses partial.
+test('a fully wired manifest with valid evidence passes with zero known gaps', (t) => {
+  const repo = tempRepo(t);
+  repo.writeFixture('a.json');
+  repo.writeFixture('b.json');
+  repo.writeManifest([entry('a.json'), entry('b.json')]);
+  const result = repo.check();
+  assert.equal(result.ok, true, result.problems.map((problem) => `${problem.kind}: ${problem.detail}`).join('\n'));
+  assert.equal(result.summary.knownGaps, 0);
+  assert.equal(result.summary.wired, 2);
+});
+
+test('M0 and followup are legal gap stages, signature-vectors a legal category, M11 is not', (t) => {
+  const repo = tempRepo(t);
+  repo.writeFixture('a.json');
+  repo.writeFixture('b.json');
+  repo.writeFixture('c.json');
+  repo.writeManifest([
+    entry('a.json', {
+      category: 'signature-vectors',
+      windowsStatus: 'validated-only',
+      gapStage: 'M0',
+      gapDetail: 'baseline problem owned by an M0 focused fix PR',
+      windowsEvidence: [],
+    }),
+    entry('b.json', { windowsStatus: 'unwired', gapStage: 'M0', gapDetail: 'also owned by M0', windowsEvidence: [] }),
+    entry('c.json', {
+      windowsStatus: 'unwired',
+      gapStage: 'followup',
+      gapDetail: 'capability landed after the roadmap froze; awaiting its numbered stage',
+      windowsEvidence: [],
+    }),
+  ]);
+  const result = repo.check();
+  assert.equal(result.ok, true, result.problems.map((problem) => `${problem.kind}: ${problem.detail}`).join('\n'));
+  assert.equal(result.summary.gapStages.M0, 2);
+  assert.equal(result.summary.gapStages.followup, 1);
+
+  repo.writeManifest([
+    entry('a.json', { windowsStatus: 'unwired', gapStage: 'M11', gapDetail: 'beyond the roadmap', windowsEvidence: [] }),
+  ]);
+  const rejected = repo.check();
+  assert.equal(rejected.ok, false);
+  assert.ok(rejected.problems.some((problem) => /must name a roadmap stage/.test(problem.detail)));
+});
+
+// Signature vectors are shared acceptance data consumed by each host's own
+// signature tests; there is no Core validation surface, so coreEvidence may
+// be empty as long as the Windows side carries real evidence.
+test('signature-vectors entries may carry host-side evidence only', (t) => {
+  const repo = tempRepo(t);
+  repo.writeFixture('signature-vectors.json');
+  // The Windows signature test file the evidence points at must exist in the
+  // throwaway repository, mirroring the real M1 tree.
+  repo.writeFile('windows/tauri/src-tauri/src/plugin_host/signature.rs', 'mod tests {}');
+  repo.writeManifest([
+    entry('signature-vectors.json', {
+      category: 'signature-vectors',
+      outcome: 'success',
+      coreEvidence: [],
+      windowsEvidence: ['windows/tauri/src-tauri/src/plugin_host/signature.rs:663 shared_fixture_verifies_end_to_end'],
+    }),
+  ]);
+  const result = repo.check();
+  assert.equal(result.ok, true, result.problems.map((problem) => `${problem.kind}: ${problem.detail}`).join('\n'));
+
+  // The exemption must not become a hole: other categories still require
+  // Core-side evidence even when Windows evidence is present.
+  repo.writeFixture('plain.json');
+  repo.writeManifest([
+    entry('signature-vectors.json', {
+      category: 'signature-vectors',
+      coreEvidence: [],
+      windowsEvidence: ['windows/tauri/src-tauri/src/plugin_host/signature.rs:663 shared_fixture_verifies_end_to_end'],
+    }),
+    entry('plain.json', { coreEvidence: [], windowsEvidence: [fixtureEvidence('plain.json')] }),
+  ]);
+  const rejected = repo.check();
+  assert.equal(rejected.ok, false);
+  assert.ok(rejected.problems.some((problem) => /plain\.json: coreEvidence must name/.test(problem.detail)));
+});
+
+// CI wiring guard: the Linux changes lane must invoke both the detector CLI
+// and this test file. If the workflow stops calling them, a new fixture can
+// land unregistered without any real pull request check failing.
+test('the Linux changes lane wires the detector and its tests into CI', () => {
+  const workflow = readFileSync(join(defaultRepoRoot(), '.github', 'workflows', 'ci-macos.yml'), 'utf8');
+  assert.ok(workflow.includes('run: node scripts/check-plugin-fixture-coverage.mjs'), 'detector CLI gate step missing');
+  assert.ok(workflow.includes('scripts/check-plugin-fixture-coverage.test.mjs'), 'test invocation missing');
+  assert.ok(workflow.includes('--test-timeout=15000'), 'per-test deadline missing');
+  assert.ok(workflow.includes('plugin-fixture-coverage.junit.xml'), 'junit timing evidence missing');
 });
