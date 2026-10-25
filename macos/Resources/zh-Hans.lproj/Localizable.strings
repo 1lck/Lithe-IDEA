@@ -1559,6 +1559,7 @@
 "Install ACP adapters, check the runtime, and manage local or custom providers." = "安装 ACP 适配器、检查运行环境，管理本机配置或自定义供应商。";
 "Install AutoBuild" = "安装 AutoBuild";
 "Install Codex CLI to discover its skills." = "请先安装 Codex CLI，再查看它发现的技能。";
+"Install Java Support for Java, Maven and Spring templates…" = "安装 Java Support，获取 Java、Maven 和 Spring 项目模板…";
 "Install Node.js and npm before installing the adapter." = "请先安装 Node.js 和 npm，再安装适配器。";
 "Install PHP Support Plugin" = "安装 PHP Support 插件";
 "Install PHP Support from a signed plugin package." = "请从已签名的插件包安装 PHP Support。";
@@ -1621,6 +1622,7 @@
 "Japanese characters" = "日文字符";
 "Java Application" = "Java 应用";
 "Java SDK" = "Java SDK";
+"Java Support is installed separately. Install it from the Marketplace, or use Install from Disk for an offline package. Your Java settings are kept." = "Java Support 现已独立安装。请从插件市场安装，或使用“从磁盘安装”导入离线包。原有 Java 设置会保留。";
 "Java entries appear after the Java language service lists runnable classes." = "Java 语言服务列出可运行的类之后，Java 入口才会出现。";
 "Java entries could not be refreshed" = "无法刷新 Java 入口";
 "Java navigation is available for .java files" = "Java 导航仅适用于 .java 文件";
@@ -7837,6 +7839,8 @@
 "npm was not found. It is normally installed with Node.js." = "未找到 npm。它通常随 Node.js 一起安装。";
 "or" = "或";
 "outline.expandAll" = "全部展开";
+"plugins.java.installNotice" = "Java Support 现已独立安装。请从插件市场安装，或使用“从磁盘安装”导入离线包。原有 Java 设置会保留。";
+"plugins.java.installTemplates" = "安装 Java Support，获取 Java、Maven 和 Spring 项目模板…";
 "plugins.title" = "插件";
 "ports %@" = "端口 %@";
 "project Maven Wrapper" = "项目 Maven Wrapper";

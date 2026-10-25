@@ -8882,7 +8882,9 @@
     "native.turnedOnAutoMerge": "已开启自动合并",
     "native.visualization": "可视化",
     "native.showVisualization": "显示可视化",
-    "native.hideVisualization": "隐藏可视化"
+    "native.hideVisualization": "隐藏可视化",
+    "plugins.java.installNotice": "Java Support 现已独立安装。请从插件市场安装，或使用“从磁盘安装”导入离线包。原有 Java 设置会保留。",
+    "plugins.java.installTemplates": "安装 Java Support，获取 Java、Maven 和 Spring 项目模板…"
   },
   "overrides": {
     "macos": {

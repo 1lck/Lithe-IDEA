@@ -129,10 +129,11 @@
         "dist/packages/<arch>/<plugin-id>/",
         "dist/verify/<arch>/<plugin-id>/",
         "dist/Lithe-Java-Support-<version>-darwin-<arch>.zip",
-        ".artifacts/java-plugin-distribution/"
+        ".artifacts/java-plugin-distribution/",
+        "<test-temp>/lithe-package-verification.*/published-index.fixture.json"
       ],
       "identity": "Assembled plugin packages carry build-time downloads (JDT LS, its extensions and one JDK per target architecture for Java Support) and an optional publisher signature; no reliable worktree identity stamp. Plugin state directories are mutable language-server state of one installation. Independent release archives bind plugin version, darwin architecture, upstream input hashes, API/requires and final publisher signature; host-sealed bundled copies are a different origin, never a reusable package",
-      "reason": "Assemble each official declarative plugin independently in every worktree and validate it with LitheOfficialPluginVerifier; do not copy or symlink it across worktrees. Java Support is assembled from the reusable jdtls and jdk download caches by Plugins/mac/Official/JavaSupport/assemble-package.sh, so reuse those caches rather than the package. Never copy or share plugin state at any stage. Release verification extracts a separate copy and checks its publisher signature; delete per-run dist/verify and local integration output when no longer needed. Never transfer a sealed-origin exception to user-installed copies. Runtime installation versions stay read-only, preserving app signatures and Sparkle delta baselines."
+      "reason": "Assemble each official declarative plugin independently in every worktree and validate it with LitheOfficialPluginVerifier; do not copy or symlink it across worktrees. Java Support is assembled from the reusable jdtls and jdk download caches by Plugins/mac/Official/JavaSupport/assemble-package.sh, so reuse those caches rather than the package. Never copy or share plugin state at any stage. Release verification extracts a separate copy and checks its publisher signature; delete per-run dist/verify and local integration output when no longer needed. Never transfer a sealed-origin exception to user-installed copies. Runtime installation versions stay read-only, preserving app signatures and Sparkle delta baselines. Distribution decisions read the current checkout index or explicit LITHE_OFFICIAL_PLUGIN_INDEX/--marketplace-index build input; synthetic packaging indexes are per-test fixtures, never reusable or publishable source indexes."
     },
     {
       "id": "language-tools",

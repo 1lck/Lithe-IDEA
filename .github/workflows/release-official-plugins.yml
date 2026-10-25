@@ -15,6 +15,8 @@ on:
       - "Plugins/marketplace/**"
       - "scripts/official-plugin-releases.mjs"
       - "scripts/official-plugin-releases.test.mjs"
+      - "scripts/official-plugin-distribution.mjs"
+      - "scripts/test-official-plugin-distribution.mjs"
       - "scripts/build-official-plugins.sh"
       - "scripts/prepare-jdtls.sh"
       - "scripts/prepare-jdk.sh"
@@ -57,7 +59,7 @@ jobs:
           fetch-tags: true
 
       - name: Test release planning
-        run: node --test scripts/official-plugin-releases.test.mjs
+        run: node --test scripts/official-plugin-releases.test.mjs scripts/test-official-plugin-distribution.mjs
 
       - name: Require a new version for changed plugins
         run: node scripts/official-plugin-releases.mjs check

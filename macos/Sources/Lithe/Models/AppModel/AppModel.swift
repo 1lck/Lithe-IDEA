@@ -13,6 +13,7 @@ import LitheCoreContracts
 @MainActor
 final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     let id = UUID()
+    var hasSuggestedJavaPlugin = false
     lazy var debugPerformanceFeature = DebugPerformanceFeatureModel(sampler: services.debugPerformanceSampler)
     lazy var testPerformanceFeature = TestJVMPerformanceFeatureModel(
         sampler: services.debugPerformanceSampler, provider: services.testJVMPerformance)
@@ -1054,6 +1055,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         displayPath: String? = nil,
         allowsOutsideWorkspace: Bool = false
     ) {
+        suggestJavaPluginIfNeeded(files: [url])
         editorTabOrderFeature.repositoryDiffSelected = false
         selectedChange = nil
         closeBranchComparison()
@@ -1071,6 +1073,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     func openStandaloneFile(_ url: URL) {
+        suggestJavaPluginIfNeeded(files: [url])
         workspaceSessionCoordinator.openStandaloneFile(at: url)
     }
 

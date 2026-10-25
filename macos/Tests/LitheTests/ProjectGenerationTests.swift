@@ -251,6 +251,18 @@ struct ProjectGenerationTests {
     // MARK: Window state
 
     @Test
+    func missingJavaTemplatesOfferAnInstallationEntry() throws {
+        let missing = NewProjectFeatureModel(environment: try Self.environment(plugins: PluginStates(enabled: []), sources: []))
+        missing.reloadCatalog()
+        #expect(missing.isJavaSupportMissing)
+        let installed = NewProjectFeatureModel(environment: try Self.environment(
+            plugins: PluginStates(enabled: []), sources: [try Self.source(Self.javaSupportDirectory, enabled: false)]
+        ))
+        installed.reloadCatalog()
+        #expect(!installed.isJavaSupportMissing)
+    }
+
+    @Test
     func offersToEnableDisabledProvidersAndFindsMissingOnes() async throws {
         let plugins = PluginStates(enabled: [Self.templatesPluginID])
         let feature = NewProjectFeatureModel(environment: try Self.environment(plugins: plugins))

@@ -200,6 +200,12 @@ final class MacPluginPackageStore {
         // The server of a bundled plugin removed last session has stopped by
         // now, so its state can go without pulling files from under it.
         for pluginID in removedBundledPluginIDs() {
+            // A confirmed installation may replace a previously removed sealed
+            // copy. The removal marker still suppresses that fallback, but it
+            // must never erase the installed version's state or credentials.
+            let directory = rootURL.appendingPathComponent(pluginID.rawValue, isDirectory: true)
+            if let record = try? installationRecord(at: directory),
+               record.status == .installed || record.status == .updateStaged { continue }
             removeState(of: pluginID)
         }
     }

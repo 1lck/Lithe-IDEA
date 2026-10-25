@@ -245,6 +245,8 @@ try {
     assert.ok(packages.locations.includes("dist/packages/<arch>/<plugin-id>/"));
     assert.ok(packages.locations.includes("dist/verify/<arch>/<plugin-id>/"));
     assert.ok(packages.locations.includes(".artifacts/java-plugin-distribution/"));
+    assert.ok(packages.locations.includes("<test-temp>/lithe-package-verification.*/published-index.fixture.json"));
+    assert.match(packages.reason, /LITHE_OFFICIAL_PLUGIN_INDEX/);
     const refused = reuse(["--resource", packages.id]);
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /official-plugin-packages is isolated.*cannot be reused/);

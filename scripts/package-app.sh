@@ -13,6 +13,7 @@ DIST_ROOT="${LITHE_DIST_ROOT:-$ROOT_DIR/dist}"
 SIGNING_IDENTITY="${LITHE_CODESIGN_IDENTITY:--}"
 ARM64_TRIPLE="arm64-apple-macosx"
 X86_64_TRIPLE="x86_64-apple-macosx"
+MARKETPLACE_INDEX="${LITHE_OFFICIAL_PLUGIN_INDEX:-$ROOT_DIR/Plugins/marketplace/index.json}"
 
 case "$ARCH" in
     universal) APP_DIR="$DIST_ROOT/Lithe.app" ;;
@@ -24,19 +25,22 @@ cd "$ROOT_DIR"
 # Java Support assembles JDT LS and its JDK into its own plugin package later
 # in this script. They are prepared here first so a missing or invalid
 # download fails before the application is compiled.
-LITHE_ARCH="$ARCH" "$ROOT_DIR/scripts/prepare-jdtls.sh" > /dev/null
-if [[ "$ARCH" == "universal" ]]; then
-    if [[ -n "${LITHE_JDK_ROOT:-}" ]]; then
-        print -u2 -- \
-            "Universal packaging requires LITHE_JDK_ARM64_ROOT and LITHE_JDK_X86_64_ROOT instead of LITHE_JDK_ROOT"
-        exit 1
+bundle_java=$(node "$ROOT_DIR/scripts/official-plugin-distribution.mjs" dev.lithe.plugin.java-support "$MARKETPLACE_INDEX")
+if [[ "$bundle_java" == true ]]; then
+    LITHE_ARCH="$ARCH" "$ROOT_DIR/scripts/prepare-jdtls.sh" > /dev/null
+    if [[ "$ARCH" == "universal" ]]; then
+        if [[ -n "${LITHE_JDK_ROOT:-}" ]]; then
+            print -u2 -- \
+                "Universal packaging requires LITHE_JDK_ARM64_ROOT and LITHE_JDK_X86_64_ROOT instead of LITHE_JDK_ROOT"
+            exit 1
+        fi
+        LITHE_JDK_ROOT="${LITHE_JDK_ARM64_ROOT:-}" LITHE_JDK_TARGET_ARCH="arm64" \
+            "$ROOT_DIR/scripts/prepare-jdk.sh" > /dev/null
+        LITHE_JDK_ROOT="${LITHE_JDK_X86_64_ROOT:-}" LITHE_JDK_TARGET_ARCH="x86_64" \
+            "$ROOT_DIR/scripts/prepare-jdk.sh" > /dev/null
+    else
+        LITHE_JDK_TARGET_ARCH="$ARCH" "$ROOT_DIR/scripts/prepare-jdk.sh" > /dev/null
     fi
-    LITHE_JDK_ROOT="${LITHE_JDK_ARM64_ROOT:-}" LITHE_JDK_TARGET_ARCH="arm64" \
-        "$ROOT_DIR/scripts/prepare-jdk.sh" > /dev/null
-    LITHE_JDK_ROOT="${LITHE_JDK_X86_64_ROOT:-}" LITHE_JDK_TARGET_ARCH="x86_64" \
-        "$ROOT_DIR/scripts/prepare-jdk.sh" > /dev/null
-else
-    LITHE_JDK_TARGET_ARCH="$ARCH" "$ROOT_DIR/scripts/prepare-jdk.sh" > /dev/null
 fi
 if [[ "$ARCH" == "universal" ]]; then
     scripts/build-macos.sh --configuration release --triple "$ARM64_TRIPLE"
@@ -94,6 +98,7 @@ else
     plugin_triple="$ARCH-apple-macosx"
 fi
 plugin_root=$(scripts/build-official-plugins.sh --bundled-only \
+    --marketplace-index "$MARKETPLACE_INDEX" \
     --configuration release \
     --arch "$ARCH" \
     --triple "$plugin_triple")
@@ -109,7 +114,7 @@ cp -R "$remote_server_root" "$APP_DIR/Contents/Resources/RemoteServers"
 # The official marketplace index ships read-only so the catalog works
 # offline; refreshed copies are written to the user's Caches at runtime.
 mkdir -p "$APP_DIR/Contents/Resources/PluginMarketplace"
-cp "$ROOT_DIR/Plugins/marketplace/index.json" "$APP_DIR/Contents/Resources/PluginMarketplace/index.json"
+cp "$MARKETPLACE_INDEX" "$APP_DIR/Contents/Resources/PluginMarketplace/index.json"
 
 cp "$INFO_PLIST" "$APP_DIR/Contents/Info.plist"
 zsh "$ROOT_DIR/scripts/embed-sparkle.sh" "$APP_DIR"

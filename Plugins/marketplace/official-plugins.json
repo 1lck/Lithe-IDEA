@@ -5,6 +5,7 @@
     {
       "id": "dev.lithe.plugin.java-support",
       "releaseEnabled": false,
+      "bundledUntilPublishedVersion": "1.1.0",
       "tagPrefix": "plugin-java-support-v",
       "packageDirectory": "Plugins/mac/Official/JavaSupport",
       "inputPaths": ["third_party/jdtls/manifest.json", "third_party/jdk/manifest.json", "scripts/prepare-jdtls.sh", "scripts/prepare-jdk.sh", "scripts/build-official-plugins.sh"],

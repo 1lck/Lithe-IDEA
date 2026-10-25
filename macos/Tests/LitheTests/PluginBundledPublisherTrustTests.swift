@@ -2,13 +2,142 @@ import CryptoKit
 import Foundation
 @testable import Lithe
 import LitheCoreContracts
+import LitheApplicationKernel
 import LitheModuleAPI
 import LithePluginPackageSigning
 import Testing
 
 /// Runs production validation, signature verification and package storage.
 /// No fixture process executes, and all files belong to this test's root.
+@MainActor
 struct PluginBundledPublisherTrustTests {
+    @Test(arguments: [true, false])
+    func installingOverBundledCopyPreservesDefaultOrDisabledChoice(enabled: Bool) throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let preferences = MigrationPreferences()
+        let configuration = MacModuleConfigurationStore(store: preferences)
+        let store = fixture.store()
+        let initial = try store.scanInstalledPlugins().packages
+        let moduleID = try #require(initial.first?.manifest.modules.first?.manifest.id)
+        if !enabled { configuration.setEnabledState(false, for: moduleID) }
+        let settings = InMemoryPluginSettings([OfficialPluginCatalog.javaPluginID.rawValue: ["saved": .string("retained")]])
+        let manager = fixture.manager(store: store, configuration: configuration, packages: initial, settings: settings)
+        let original = try fixture.digest(of: fixture.bundled)
+        try fixture.sign(fixture.download)
+
+        try manager.installPackage(at: fixture.download)
+
+        #expect(configuration.enabledState(for: moduleID) == enabled)
+        #expect(manager.snapshots.first?.isEnabled == enabled)
+        #expect(manager.snapshots.first?.requiresRestart == true)
+        #expect(settings.values(forPlugin: OfficialPluginCatalog.javaPluginID.rawValue)["saved"] == .string("retained"))
+        try store.prepareForLaunch()
+        let restarted = try store.scanInstalledPlugins()
+        #expect(restarted.packages.count == 1)
+        #expect(restarted.packages.first?.installation.origin == .marketplace)
+        #expect(restarted.packages.first?.installation.status == .installed)
+        #expect(try fixture.digest(of: fixture.bundled) == original)
+    }
+
+    @Test
+    func migrationDoesNotEnableModulesThePreviousPackageDidNotOwn() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let store = fixture.store()
+        try store.setBundledPluginRemoved(OfficialPluginCatalog.javaPluginID, removed: true)
+        let configuration = MacModuleConfigurationStore(store: MigrationPreferences())
+        let manager = fixture.manager(store: store, configuration: configuration, packages: try store.scanInstalledPlugins().packages)
+        var object = fixture.manifest
+        var languages = try #require(object["languages"] as? [[String: Any]])
+        languages.append(["id": "future", "displayName": "Future", "fileExtensions": ["future"]])
+        object["languages"] = languages
+        object["activationEvents"] = ["onLanguage:fixture", "onLanguage:future"]
+        var servers = try #require(object["languageServers"] as? [[String: Any]])
+        var added = try #require(servers.first)
+        added["languageID"] = "future"
+        servers.append(added)
+        object["languageServers"] = servers
+        try JSONSerialization.data(withJSONObject: object).write(to: fixture.download.appendingPathComponent("plugin.json"))
+        try fixture.sign(fixture.download)
+
+        try manager.installPackage(at: fixture.download)
+
+        #expect(configuration.enabledState(for: .languageServerExtension("fixture")) == true)
+        #expect(configuration.enabledState(for: .languageServerExtension("future")) == nil)
+    }
+
+    @Test
+    func directUpgradeWithoutBundledCopyKeepsDisabledPreferenceAndRemovedState() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let store = fixture.store(includeBundled: false)
+        try store.setBundledPluginRemoved(OfficialPluginCatalog.javaPluginID, removed: true)
+        try store.prepareForLaunch()
+        #expect(try store.scanInstalledPlugins().packages.isEmpty)
+        let configuration = MacModuleConfigurationStore(store: MigrationPreferences())
+        let moduleID = try #require(DeclarativePluginTestSupport.operations.validate(
+            manifest: Data(contentsOf: fixture.download.appendingPathComponent("plugin.json"))
+        ).pluginManifest.modules.first?.manifest.id)
+        configuration.setEnabledState(false, for: moduleID)
+        let manager = fixture.manager(store: store, configuration: configuration, packages: [])
+        try fixture.sign(fixture.download)
+        try manager.installPackage(at: fixture.download)
+        // An explicit disk install is allowed, but does not turn a disabled
+        // module back on or let the old removal marker delete its state.
+        let state = fixture.stateDirectories.pluginDirectory(pluginID: OfficialPluginCatalog.javaPluginID.rawValue)
+        try FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
+        let saved = state.appendingPathComponent("saved.json")
+        try Data("user state".utf8).write(to: saved)
+        try store.prepareForLaunch()
+        #expect(configuration.enabledState(for: moduleID) == false)
+        #expect(try Data(contentsOf: saved) == Data("user state".utf8))
+        #expect(try store.scanInstalledPlugins().packages.count == 1)
+    }
+
+    @Test
+    func uninstallingInstalledUpdateDoesNotResurrectBundledJava() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let store = fixture.store()
+        try fixture.sign(fixture.download)
+        _ = try store.installPackage(from: fixture.download)
+        let configuration = MacModuleConfigurationStore(store: MigrationPreferences())
+        let manager = fixture.manager(store: store, configuration: configuration, packages: try store.scanInstalledPlugins().packages)
+        try await manager.uninstall(OfficialPluginCatalog.javaPluginID)
+        try store.prepareForLaunch()
+        let packages = try store.scanInstalledPlugins().packages
+        #expect(packages.count == 1)
+        #expect(packages.first?.installation.origin == .bundled)
+        #expect(packages.first?.installation.status == .removed)
+    }
+
+    @Test
+    func failedInstallPreservesBundledEnablementAndImmutableResources() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let configuration = MacModuleConfigurationStore(store: MigrationPreferences())
+        let store = fixture.store()
+        let packages = try store.scanInstalledPlugins().packages
+        let manager = fixture.manager(store: store, configuration: configuration, packages: packages)
+        let moduleID = try #require(packages.first?.manifest.modules.first?.manifest.id)
+        let before = try fixture.digest(of: fixture.bundled)
+        #expect(throws: (any Error).self) { try manager.installPackage(at: fixture.download) }
+        #expect(configuration.enabledState(for: moduleID) == nil)
+        #expect(manager.snapshots.first?.isEnabled == true)
+        #expect(manager.snapshots.first?.requiresRestart == false)
+        #expect(try fixture.digest(of: fixture.bundled) == before)
+    }
+
+    @Test
+    func missingJavaIsSuggestedOnlyWhenNeededAndNoPackageExists() {
+        for name in ["Main.java", "pom.xml", "build.gradle", "build.gradle.kts"] {
+            let files = [URL(fileURLWithPath: "/fixture/\(name)")]
+            #expect(JavaPluginTransition.shouldSuggest(files: files, installedPluginIDs: []))
+            #expect(!JavaPluginTransition.shouldSuggest(files: files, installedPluginIDs: [OfficialPluginCatalog.javaPluginID]))
+        }
+        #expect(!JavaPluginTransition.shouldSuggest(files: [URL(fileURLWithPath: "/fixture/README.md")], installedPluginIDs: []))
+    }
     @Test
     func hostSealedCopyAndSignedInstalledUpdateUseOnePluginIdentity() throws {
         let fixture = try Fixture()
@@ -133,16 +262,37 @@ struct PluginBundledPublisherTrustTests {
             }
         }
 
-        func store() -> MacPluginPackageStore {
+        var stateDirectories: MacPluginStateDirectories { MacPluginStateDirectories(rootURL: root.appendingPathComponent("state")) }
+
+        func store(includeBundled: Bool = true) -> MacPluginPackageStore {
             MacPluginPackageStore(
                 rootURL: root.appendingPathComponent("installed"),
-                bundledRootURL: bundled.deletingLastPathComponent(),
+                bundledRootURL: includeBundled ? bundled.deletingLastPathComponent() : nil,
+                stateDirectories: stateDirectories,
                 validator: DeclarativePluginTestSupport.operations,
                 verifier: MacOfficialPluginSignatureVerifier(
                     trustedPublisherKeys: [PluginPackageSignature.keyID: privateKey.publicKey],
                     allowsLocalDevelopmentPackages: false,
                     hostBundleURL: host
                 )
+            )
+        }
+
+        @MainActor
+        func manager(
+            store: MacPluginPackageStore,
+            configuration: MacModuleConfigurationStore,
+            packages: [InstalledPluginPackage],
+            settings: any PluginSettingsStoring = InMemoryPluginSettings()
+        ) -> MacPluginManager {
+            MacPluginManager(
+                packageStore: store,
+                moduleRuntime: ModuleRuntime(configurationStore: configuration, recoveryStore: configuration),
+                configurationStore: configuration,
+                settings: settings,
+                launchMode: .normal,
+                startup: MacPluginStartupResult(installedPlugins: packages, registeredPlugins: [], issues: []),
+                allowsLocalDevelopmentPackages: false
             )
         }
 
@@ -163,4 +313,13 @@ struct PluginBundledPublisherTrustTests {
 
         func remove() { try? FileManager.default.removeItem(at: root) }
     }
+}
+
+private final class MigrationPreferences: KeyValueStore, @unchecked Sendable {
+    private var values: [String: Any] = [:]
+    func data(forKey key: String) -> Data? { values[key] as? Data }
+    func object(forKey key: String) -> Any? { values[key] }
+    func string(forKey key: String) -> String? { values[key] as? String }
+    func stringArray(forKey key: String) -> [String]? { values[key] as? [String] }
+    func set(_ value: Any?, forKey key: String) { values[key] = value }
 }

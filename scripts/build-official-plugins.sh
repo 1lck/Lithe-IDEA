@@ -15,6 +15,7 @@ TRIPLE=""
 OUTPUT_DIR=""
 PLUGIN_ID=""
 BUNDLED_ONLY=false
+MARKETPLACE_INDEX="$ROOT_DIR/Plugins/marketplace/index.json"
 # Architectures a package's own runtime is assembled for: arm64, x86_64, or
 # universal. Defaults to the architecture of --triple.
 RUNTIME_ARCH=""
@@ -29,10 +30,11 @@ while [[ $# -gt 0 ]]; do
         --triple) TRIPLE="$2"; shift 2 ;;
         --output) OUTPUT_DIR="$2"; shift 2 ;;
         --bundled-only) BUNDLED_ONLY=true; shift ;;
+        --marketplace-index) MARKETPLACE_INDEX="$2"; shift 2 ;;
         --plugin-id) PLUGIN_ID="$2"; shift 2 ;;
         --arch) RUNTIME_ARCH="$2"; shift 2 ;;
         --development-unsigned) DEVELOPMENT_UNSIGNED=true; shift ;;
-        *) print -u2 -- "Usage: $0 --triple triple [--configuration debug|release] [--output directory] [--plugin-id id] [--arch arm64|x86_64|universal] [--bundled-only] [--development-unsigned]"; exit 2 ;;
+        *) print -u2 -- "Usage: $0 --triple triple [--configuration debug|release] [--output directory] [--plugin-id id] [--arch arm64|x86_64|universal] [--bundled-only] [--marketplace-index path] [--development-unsigned]"; exit 2 ;;
     esac
 done
 
@@ -82,8 +84,9 @@ for plugin_source in "$ROOT_DIR"/Plugins/mac/Official/*(/N); do
     if [[ -n "$PLUGIN_ID" && "$package_id" != "$PLUGIN_ID" ]]; then
         continue
     fi
-    if [[ "$BUNDLED_ONLY" == true ]] && ! node "$ROOT_DIR/scripts/official-plugin-distribution.mjs" "$package_id"; then
-        continue
+    if [[ "$BUNDLED_ONLY" == true ]]; then
+        bundled=$(node "$ROOT_DIR/scripts/official-plugin-distribution.mjs" "$package_id" "$MARKETPLACE_INDEX")
+        [[ "$bundled" == true ]] || continue
     fi
     schema_version=$(/usr/bin/plutil -extract schemaVersion raw "$manifest")
     if [[ "$schema_version" != "2" ]]; then

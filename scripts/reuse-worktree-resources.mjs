@@ -390,7 +390,8 @@ async function main() {
       // revision/theme/viewport, never to a reusable build or runtime resource.
       // Includes plugin-ui-icons: signed runtime packages are never build-cache inputs.
       // official-plugin-packages also rejects dist/packages, dist/verify, per-architecture
-      // release ZIPs and java-plugin-distribution probes; origin trust is not transferable.
+      // release ZIPs, synthetic published-index.fixture.json and java-plugin-distribution probes;
+      // origin trust and build-index ownership are not transferable.
       // Includes agent-hook-library-state: user commands, native ownership journals and locks have no copy stage.
       // Includes agent-instruction-library-state: user text and sync locks have no build identity or copy stage.
       // Includes mcp-tool-probe-state: SDK sessions, native tool exclusions and

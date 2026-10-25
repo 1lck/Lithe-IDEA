@@ -11,7 +11,7 @@ does not need to be rebuilt for each Lithe release; compatibility is decided by
 
 | Package | Distribution | Language server |
 | --- | --- | --- |
-| `JavaSupport` | Bundled in Lithe.app, same Team ID as the host | JDT LS packaged with Lithe; New Project entries for Java, Maven Archetype, and Spring Boot ([project generators](../../shared/contracts/plugins/v1/README.md#project-generators)) |
+| `JavaSupport` | Publisher-signed download; sealed transition copy until both architectures are listed | JDT LS packaged with Lithe; New Project entries for Java, Maven Archetype, and Spring Boot ([project generators](../../shared/contracts/plugins/v1/README.md#project-generators)) |
 
 ## Go and PHP moved to Lithe Store
 
@@ -105,3 +105,13 @@ require a publisher signature, while the explicitly pinned bundled copy can
 rely on the host application's seal. `--bundled-only` selects that application
 build; an ordinary standalone release build must carry the publisher signature.
 Existing hosts without this capability refuse the new version before download.
+
+Java publication remains paused (`releaseEnabled: false`). App assembly retains
+the transition copy until the checked-in official index lists a compatible
+release at or above `bundledUntilPublishedVersion` with both architecture
+archives. Then `--bundled-only` omits Java and app packaging skips its downloads.
+The same index is embedded in the app. `LITHE_OFFICIAL_PLUGIN_INDEX` (app build)
+and `--marketplace-index` (plugin build) select an explicit read-only build input;
+test fixture indexes must never be published. Installation preserves saved
+choices and settings; missing Java support has Marketplace and offline disk
+installation entry points.

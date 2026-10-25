@@ -8882,7 +8882,9 @@
     "native.turnedOnAutoMerge": "Turned on auto-merge",
     "native.visualization": "Visualization",
     "native.showVisualization": "Show visualization",
-    "native.hideVisualization": "Hide visualization"
+    "native.hideVisualization": "Hide visualization",
+    "plugins.java.installNotice": "Java Support is installed separately. Install it from the Marketplace, or use Install from Disk for an offline package. Your Java settings are kept.",
+    "plugins.java.installTemplates": "Install Java Support for Java, Maven and Spring templates…"
   },
   "overrides": {
     "windows": {

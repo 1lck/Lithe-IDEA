@@ -244,7 +244,7 @@ public enum OfficialPluginCatalog {
             displayName: "Java Support",
             signatureRequirement: .publisherPackage,
             bundledSignatureRequirement: .sameTeamAsHost,
-            distribution: .bundled,
+            distribution: .download,
             languageID: "java",
             languageDisplayName: "Java",
             fileExtensions: ["java"],

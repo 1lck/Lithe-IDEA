@@ -60,6 +60,20 @@ struct NewProjectView: View {
                 get: { if case .generator(let id) = feature.selection { return "generator:" + id }; return "empty" },
                 set: { _ in }))
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            if feature.isJavaSupportMissing {
+                Button {
+                    feature.openMarketplace(searching: "Java Support")
+                } label: {
+                    Text("Install Java Support for Java, Maven and Spring templates…")
+                        .font(LitheTheme.uiFont(size: 12))
+                        .foregroundStyle(LitheTheme.link)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.litheNoPress)
+                .lithePointer()
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+            }
             Button {
                 feature.openMarketplace(searching: "")
             } label: {
