@@ -201,15 +201,20 @@ struct LitheSettingsPill: View {
 
     private let text: Text
     private let kind: Kind
+    /// A long value shrinks and ends in an ellipsis instead of keeping its
+    /// full width, so it cannot push the row past its container.
+    private let truncates: Bool
 
     init(_ title: LocalizedStringKey, kind: Kind = .neutral) {
         self.text = Text(title)
         self.kind = kind
+        self.truncates = false
     }
 
-    init(verbatim title: String, kind: Kind = .neutral) {
+    init(verbatim title: String, kind: Kind = .neutral, truncates: Bool = false) {
         self.text = Text(verbatim: title)
         self.kind = kind
+        self.truncates = truncates
     }
 
     var body: some View {
@@ -222,7 +227,8 @@ struct LitheSettingsPill: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
             .background(Capsule().fill(background))
-            .fixedSize()
+            .truncationMode(.tail)
+            .modifier(PillSizing(truncates: truncates))
     }
 
     private var foreground: Color {
@@ -240,6 +246,18 @@ struct LitheSettingsPill: View {
         case .project: LitheTheme.settingsProjectPill
         case .effect: LitheTheme.settingsEffectPill
         case .value: LitheTheme.settingsValuePill
+        }
+    }
+}
+
+private struct PillSizing: ViewModifier {
+    let truncates: Bool
+
+    func body(content: Content) -> some View {
+        if truncates {
+            content
+        } else {
+            content.fixedSize()
         }
     }
 }

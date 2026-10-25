@@ -333,7 +333,8 @@ struct RemoteConnectionsView: View {
                     LitheSettingsRow("Address", info: "Looking up the location sends this address to ipinfo.io. Lithe does this only when you click Look Up.") {
                         Text(verbatim: address).font(LitheTheme.uiFont(size: 12.5, design: .monospaced)).textSelection(.enabled)
                         if let location = host.location {
-                            LitheSettingsPill(verbatim: Self.place(of: location), kind: .neutral)
+                            LitheSettingsPill(verbatim: Self.place(of: location), kind: .neutral, truncates: true)
+                                .help(Text(verbatim: Self.place(of: location)))
                         }
                     } badges: {
                         if feature.isLocating {
