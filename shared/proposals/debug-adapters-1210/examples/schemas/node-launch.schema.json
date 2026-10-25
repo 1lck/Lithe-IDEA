@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Illustrative js-debug parameters, not the complete upstream schema",
+  "type": "object",
+  "properties": {
+    "args": { "type": "array", "items": { "type": "string" } },
+    "sourceMaps": { "type": "boolean" },
+    "stopOnEntry": { "type": "boolean" }
+  },
+  "additionalProperties": true
+}

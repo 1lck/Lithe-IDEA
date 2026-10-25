@@ -1,0 +1,87 @@
+{
+  "draftVersion": "1210-3",
+  "pluginID": "example.java-support",
+  "pluginDependencies": {
+    "java": {
+      "pluginID": "example.java-runtime",
+      "minimumVersion": "1.0.0",
+      "maximumVersionExclusive": "2.0.0"
+    }
+  },
+  "debugAdapters": [
+    {
+      "id": "java-debug",
+      "displayName": "Java (JDT)",
+      "adapterID": "java",
+      "configurationTypes": [
+        "java"
+      ],
+      "selectors": [
+        {
+          "targetKinds": [
+            "file",
+            "runTarget"
+          ],
+          "languageIDs": [
+            "java"
+          ]
+        }
+      ],
+      "requests": {
+        "launch": {
+          "parametersSchema": "schemas/java-launch.schema.json"
+        }
+      },
+      "capabilities": {
+        "sourceBreakpoints": {
+          "source": "dap"
+        },
+        "conditionalBreakpoints": {
+          "source": "dap"
+        },
+        "logPoints": {
+          "source": "dap"
+        },
+        "exceptionInfo": {
+          "source": "dap"
+        },
+        "setVariable": {
+          "source": "dap"
+        },
+        "hotCodeReplace": {
+          "source": "function",
+          "invoke": {
+            "use": {
+              "dependency": "java",
+              "export": "hotCodeReplace",
+              "contractVersion": 1
+            },
+            "with": {
+              "contextToken": {
+                "$value": "/context/contextToken"
+              },
+              "sessionID": {
+                "$value": "/input/sessionID"
+              }
+            }
+          }
+        }
+      },
+      "session": {
+        "use": {
+          "dependency": "java",
+          "export": "debugSession",
+          "contractVersion": 1
+        },
+        "with": {
+          "contextToken": {
+            "$value": "/context/contextToken"
+          },
+          "configuration": {
+            "$value": "/input/configuration"
+          }
+        }
+      }
+    }
+  ]
+}

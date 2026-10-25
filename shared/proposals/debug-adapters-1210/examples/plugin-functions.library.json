@@ -1,0 +1,26 @@
+{
+  "draftVersion": "1210-3",
+  "pluginID": "example.custom-debug-runtime",
+  "backends": {
+    "resolver": {
+      "kind": "process",
+      "protocol": "pluginFunctions",
+      "lifetime": "workspace",
+      "process": {
+        "launch": { "kind": "runtime", "tool": "node", "entry": "backend/debug.mjs" }
+      }
+    }
+  },
+  "exports": {
+    "debugSession": {
+      "contract": { "id": "debug.session.resolve", "version": 1 },
+      "implementation": {
+        "use": { "backendRef": "resolver", "functionID": "debug.resolve" },
+        "with": {
+          "contextToken": { "$value": "/context/contextToken" },
+          "configuration": { "$value": "/input/configuration" }
+        }
+      }
+    }
+  }
+}

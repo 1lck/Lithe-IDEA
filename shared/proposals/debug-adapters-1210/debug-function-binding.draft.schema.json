@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lithe.invalid/proposals/1210/debug-function-binding.draft.schema.json",
+  "title": "Debug contracts on the existing plugin-function transport review draft",
+  "description": "Versioned domain payloads bound by exports and decoded by Core. Reuses lithe/function/invoke, never a new Debug RPC transport. Dependency routing is a proposed host feature; private function protocol versions 1/2 remain unchanged.",
+  "$defs": {
+    "resolveInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contextToken", "configuration"],
+      "properties": {
+        "contextToken": { "type": "string", "minLength": 1 },
+        "configuration": { "$ref": "debug-configuration.draft.schema.json" }
+      }
+    },
+    "resolveResult": { "$ref": "debug-start-plan.draft.schema.json" },
+    "hotCodeReplaceInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contextToken", "sessionID"],
+      "properties": {
+        "contextToken": { "type": "string", "minLength": 1 },
+        "sessionID": { "type": "string", "minLength": 1 }
+      }
+    },
+    "hotCodeReplaceResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["classes"],
+      "properties": {
+        "classes": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+      }
+    }
+  },
+  "$ref": "#/$defs/resolveInput"
+}

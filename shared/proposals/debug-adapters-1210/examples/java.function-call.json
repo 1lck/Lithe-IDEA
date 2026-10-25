@@ -1,0 +1,18 @@
+{
+  "method": "lithe/function/invoke",
+  "params": {
+    "functionID": "debug.resolve",
+    "operationID": "example-core-backend-operation",
+    "params": {
+      "contextToken": "example-host-authorized-context",
+      "configuration": {
+        "draftVersion": "1210-3",
+        "id": "example-run-java-main",
+        "name": "Java main",
+        "request": "launch",
+        "target": { "kind": "runTarget", "configurationID": "example-run-java-main", "languageID": "java" },
+        "parameters": {}
+      }
+    }
+  }
+}

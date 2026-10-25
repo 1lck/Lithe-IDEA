@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lithe.invalid/proposals/1210/debug-start-plan.draft.schema.json",
+  "title": "Debug start plan review draft",
+  "description": "A result from the declarative resolver or a dynamic Provider. The host validates ownership, trust, references and freshness before execution.",
+  "type": "object",
+  "required": ["draftVersion", "operationID", "contextToken", "outcome"],
+  "properties": {
+    "draftVersion": { "const": "1210-3" },
+    "operationID": { "type": "string", "minLength": 1 },
+    "contextToken": {
+      "description": "Host-issued reference binding workspace, configuration snapshot, plugin version and activation generation. Not authority granted by the Provider.",
+      "type": "string",
+      "minLength": 1
+    },
+    "outcome": { "enum": ["prepare", "ready", "failed"] }
+  },
+  "oneOf": [
+    {
+      "required": ["preparation"],
+      "properties": {
+        "outcome": { "const": "prepare" },
+        "preparation": {
+          "description": "Ordered references to approved existing Build/Run preparation actions. Resolve again after successful completion; never reuse pre-build paths.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    {
+      "required": ["transport", "configuration"],
+      "properties": {
+        "outcome": { "const": "ready" },
+        "transport": {
+          "oneOf": [
+            { "$ref": "debug-adapter-registration.draft.schema.json#/$defs/stdioTransport" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "endpointRef"],
+              "properties": {
+                "kind": { "const": "tcp" },
+                "endpointRef": {
+                  "description": "Host-issued lease for an authorized DAP endpoint, including cleanup ownership. A Provider cannot substitute an arbitrary address.",
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          ]
+        },
+        "configuration": {
+          "description": "Existing DebugLaunchConfiguration shape. adapterID comes from the registration, never from executable-name inference.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "request", "arguments"],
+          "properties": {
+            "name": { "type": "string", "minLength": 1 },
+            "request": { "enum": ["launch", "attach"] },
+            "arguments": { "type": "object" },
+            "steppingFilters": { "$ref": "debug-configuration.draft.schema.json#/$defs/steppingFilters" }
+          }
+        }
+      }
+    },
+    {
+      "required": ["error"],
+      "properties": {
+        "outcome": { "const": "failed" },
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "message"],
+          "properties": {
+            "code": {
+              "enum": ["invalid_request", "permission_denied", "not_supported", "runtime_missing", "process_start_failed", "process_failed", "cancelled", "timed_out", "unknown"]
+            },
+            "message": { "type": "string", "minLength": 1 },
+            "details": { "type": "object" }
+          }
+        }
+      }
+    }
+  ],
+  "unevaluatedProperties": false
+}

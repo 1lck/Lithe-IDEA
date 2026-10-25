@@ -1,0 +1,15 @@
+{
+  "draftVersion": "1210-3",
+  "id": "example-run-native-attach",
+  "name": "Attach native process",
+  "provider": {
+    "pluginID": "example.native-debug",
+    "id": "lldb"
+  },
+  "request": "attach",
+  "target": {
+    "kind": "process",
+    "processRef": "example-host-process-lease"
+  },
+  "parameters": {}
+}

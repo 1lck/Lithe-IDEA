@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Illustrative Java launch parameters resolved by the JDT integration",
+  "type": "object",
+  "properties": {
+    "args": { "type": "string" },
+    "vmArgs": { "type": "string" },
+    "stopOnEntry": { "type": "boolean" },
+    "console": { "enum": ["internalConsole", "integratedTerminal", "externalTerminal"] }
+  },
+  "additionalProperties": true
+}

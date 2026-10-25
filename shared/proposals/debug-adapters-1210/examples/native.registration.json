@@ -1,0 +1,115 @@
+{
+  "draftVersion": "1210-3",
+  "pluginID": "example.native-debug",
+  "pluginDependencies": {
+    "dap": {
+      "pluginID": "example.dap-runtime",
+      "minimumVersion": "1.0.0",
+      "maximumVersionExclusive": "2.0.0"
+    }
+  },
+  "backends": {
+    "adapter": {
+      "kind": "process",
+      "protocol": "dap",
+      "lifetime": "session",
+      "process": {
+        "launch": {
+          "kind": "systemCommand",
+          "commands": [
+            "lldb-dap"
+          ]
+        },
+        "arguments": []
+      }
+    }
+  },
+  "debugAdapters": [
+    {
+      "id": "lldb",
+      "displayName": "Native (LLDB DAP)",
+      "adapterID": "lldb-dap",
+      "configurationTypes": [
+        "lldb-dap"
+      ],
+      "selectors": [
+        {
+          "targetKinds": [
+            "executable",
+            "runTarget"
+          ],
+          "languageIDs": [
+            "c",
+            "cpp",
+            "rust",
+            "asm"
+          ]
+        },
+        {
+          "targetKinds": [
+            "executable",
+            "process"
+          ]
+        }
+      ],
+      "requests": {
+        "launch": {
+          "parametersSchema": "schemas/native-launch.schema.json",
+          "targetBindings": {
+            "program": "target.path"
+          }
+        },
+        "attach": {
+          "parametersSchema": "schemas/native-attach.schema.json",
+          "targetBindings": {
+            "pid": "target.processID"
+          }
+        }
+      },
+      "capabilities": {
+        "sourceBreakpoints": {
+          "source": "dap"
+        },
+        "conditionalBreakpoints": {
+          "source": "dap"
+        },
+        "functionBreakpoints": {
+          "source": "dap"
+        },
+        "dataBreakpoints": {
+          "source": "dap"
+        },
+        "readMemory": {
+          "source": "dap"
+        },
+        "disassemble": {
+          "source": "dap"
+        },
+        "instructionBreakpoints": {
+          "source": "dap"
+        },
+        "instructionStepping": {
+          "source": "dap"
+        },
+        "writeMemory": {
+          "source": "disabled"
+        }
+      },
+      "session": {
+        "use": {
+          "dependency": "dap",
+          "export": "stdioSession",
+          "contractVersion": 1
+        },
+        "with": {
+          "adapter": {
+            "backendRef": "adapter"
+          },
+          "configuration": {
+            "$value": "/input/configuration"
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "draftVersion": "1210-3",
+  "id": "example-run-java-main",
+  "name": "Java main",
+  "provider": {
+    "pluginID": "example.java-support",
+    "id": "java-debug"
+  },
+  "request": "launch",
+  "target": {
+    "kind": "runTarget",
+    "configurationID": "example-run-java-main",
+    "languageID": "java"
+  },
+  "parameters": {
+    "args": "--verbose",
+    "stopOnEntry": false
+  }
+}

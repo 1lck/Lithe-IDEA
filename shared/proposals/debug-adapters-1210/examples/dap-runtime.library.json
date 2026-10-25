@@ -1,0 +1,57 @@
+{
+  "draftVersion": "1210-3",
+  "pluginID": "example.dap-runtime",
+  "exports": {
+    "stdioSession": {
+      "contract": { "id": "debug.session.stdio", "version": 1 },
+      "implementation": {
+        "steps": [
+          {
+            "id": "adapter",
+            "use": { "host": "debug.process.acquire", "version": 1 },
+            "with": { "adapter": { "$value": "/input/adapter" } }
+          },
+          {
+            "id": "plan",
+            "use": { "host": "debug.session.plan", "version": 1 },
+            "with": {
+              "configuration": { "$value": "/input/configuration" },
+              "transport": {
+                "kind": "stdio",
+                "processRef": { "$value": "/steps/adapter/processRef" }
+              }
+            }
+          }
+        ],
+        "result": { "$value": "/steps/plan" }
+      }
+    },
+    "announcedTcpSession": {
+      "contract": { "id": "debug.session.announced-tcp", "version": 1 },
+      "implementation": {
+        "steps": [
+          {
+            "id": "endpoint",
+            "use": { "host": "debug.process.acquireTcp", "version": 1 },
+            "with": {
+              "adapter": { "$value": "/input/adapter" },
+              "endpointFormat": { "$value": "/input/endpointFormat" }
+            }
+          },
+          {
+            "id": "plan",
+            "use": { "host": "debug.session.plan", "version": 1 },
+            "with": {
+              "configuration": { "$value": "/input/configuration" },
+              "transport": {
+                "kind": "tcp",
+                "endpointRef": { "$value": "/steps/endpoint/endpointRef" }
+              }
+            }
+          }
+        ],
+        "result": { "$value": "/steps/plan" }
+      }
+    }
+  }
+}
