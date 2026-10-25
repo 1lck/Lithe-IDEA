@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import LitheCoreContracts
 
@@ -12,17 +13,17 @@ public enum DebugAdapterProtocolError: LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .notReady:
-            "The Debug Adapter is not ready."
+            L10n.string("The Debug Adapter is not ready.")
         case .stopped:
-            "The Debug Adapter stopped."
+            L10n.string("The Debug Adapter stopped.")
         case .invalidResponse(let command):
-            "The Debug Adapter returned an invalid \(command) response."
+            L10n.string("The Debug Adapter returned an invalid \(command) response.")
         case .requestFailed(let command, let message):
-            "\(command) failed: \(message)"
+            L10n.string("\(command) failed: \(message)")
         case .cancelled(let command):
-            "\(command) was cancelled."
+            L10n.string("\(command) was cancelled.")
         case .timedOut(let command):
-            "\(command) timed out."
+            L10n.string("\(command) timed out.")
         }
     }
 }

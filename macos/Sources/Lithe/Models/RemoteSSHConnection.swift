@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 
 /// One SSH connection the user saved for remote development. Secrets are
 /// not part of it; `RemoteConnectionStore` keeps them in the keychain.
@@ -122,11 +123,11 @@ struct RemoteSSHConnection: Codable, Equatable, Identifiable, Sendable {
 
         var message: String {
             switch self {
-            case .missingHost: String(localized: "Enter a host.")
-            case .invalidHost: String(localized: "Enter the host without a user name or spaces; put the user in User name.")
-            case .invalidPort: String(localized: "The port must be between 1 and 65535.")
-            case .invalidUser: String(localized: "The user name cannot contain @, : or spaces.")
-            case .missingIdentityFile: String(localized: "Choose a private key file.")
+            case .missingHost: L10n.string("Enter a host.")
+            case .invalidHost: L10n.string("Enter the host without a user name or spaces; put the user in User name.")
+            case .invalidPort: L10n.string("The port must be between 1 and 65535.")
+            case .invalidUser: L10n.string("The user name cannot contain @, : or spaces.")
+            case .missingIdentityFile: L10n.string("Choose a private key file.")
             }
         }
     }

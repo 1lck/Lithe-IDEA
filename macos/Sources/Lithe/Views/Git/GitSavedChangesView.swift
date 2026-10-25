@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import SwiftUI
 import LitheGitModule
 
@@ -59,7 +60,7 @@ struct GitSavedChangesView: View {
             if let shelf, !values.contains(where: { $0.id == shelf.id }) { self.shelf = nil }
         }
         .background(LitheCenteredPopup(isPresented: $creating, allowsDismiss: !busy,
-            dialogTitle: String(localized: creatingShelf ? "Shelve Changes" : "Stash Changes", locale: locale)) {
+            dialogTitle: L10n.string(creatingShelf ? "Shelve Changes" : "Stash Changes", locale: locale)) {
             GitSaveChangesDialog(message: $message, includeUntracked: $includeUntracked,
                 shelf: creatingShelf, busy: busy, cancel: { creating = false }, save: save)
         }.frame(width: 0, height: 0).allowsHitTesting(false))

@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import LitheCoreContracts
 
@@ -153,5 +154,5 @@ final class DebugVariableJSONRequest {
 
 private enum DebugVariableJSONError: LocalizedError {
     case timedOut
-    var errorDescription: String? { "The debugger did not return object fields in time." }
+    var errorDescription: String? { L10n.string("The debugger did not return object fields in time.") }
 }

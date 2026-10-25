@@ -19,9 +19,11 @@ struct AgentLaunchConfigurationResolver {
                 workspaceURL: workspaceURL, dataDirectory: dataDirectory,
                 providerProtocol: "", providerEndpoint: "", apiKey: "", providerName: "", model: "",
                 allowsInsecureHTTP: false, authentication: authentication,
-                // Only the Codex account route has an observable inference endpoint.
-                observesModelCalls: authentication == .codexSubscription && settings.agentModelCallStatistics,
-                accountDirectory: settings.preferredAgentAccountDirectory(for: agentID))
+                // Both subscription routes are observed by forwarding the CLI's own
+                // requests unchanged to the official endpoint; no credential is read.
+                observesModelCalls: settings.agentModelCallStatistics,
+                accountDirectory: settings.preferredAgentAccountDirectory(for: agentID),
+                contextLimits: settings.agentContextLimits[agentID] ?? AgentContextLimits())
         }
         guard var provider = settings.agentProvider(for: agentID) else {
             throw AgentConversationError.missingProvider
@@ -58,6 +60,7 @@ struct AgentLaunchConfigurationResolver {
             providerProtocol: provider.apiProtocol.rawValue, providerEndpoint: provider.endpoint,
             apiKey: apiKey, providerName: provider.name, model: provider.model,
             allowsInsecureHTTP: provider.allowsInsecureHTTP,
-            observesModelCalls: settings.agentModelCallStatistics)
+            observesModelCalls: settings.agentModelCallStatistics,
+            contextLimits: settings.agentContextLimits[agentID] ?? AgentContextLimits())
     }
 }

@@ -91,7 +91,7 @@ enum MacPluginUIIconLoader {
 
     struct InvalidIcon: LocalizedError {
         let path: String
-        var errorDescription: String? { "Invalid plugin icon resource: \(path)" }
+        var errorDescription: String? { L10n.string("Invalid plugin icon resource: \(path)") }
     }
 }
 

@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import AppKit
 import SwiftUI
 import LitheGitModule
@@ -592,7 +593,7 @@ struct GitLogView: View {
                             guard let currentReference else { return }
                             Task { await feature.updateCurrentBranch(currentReference) }
                         }
-                        branchStripeButton("expui/general/delete.svg", fallback: "trash", help: "Delete Selected Branch",
+                        branchStripeButton("expui/general/delete.svg", fallback: "trash", help: L10n.string("Delete Selected Branch"),
                                            isEnabled: checkoutReference != nil && !feature.isPerformingBranchOperation) {
                             guard let reference = checkoutReference else { return }
                             pendingBranchOperation = GitBranchOperationRequest(kind: .delete, reference: reference)
@@ -603,14 +604,14 @@ struct GitLogView: View {
                                            isEnabled: currentReference != nil && !feature.isLoadingBranchComparison) {
                             showPrimaryComparison()
                         }
-                        branchStripeButton("expui/general/search.svg", fallback: "magnifyingglass", help: "Find Branch") {
+                        branchStripeButton("expui/general/search.svg", fallback: "magnifyingglass", help: L10n.string("Find Branch")) {
                             branchSearchFocused = true
                         }
                         branchStripeButton("expui/vcs/fetch.svg", fallback: "arrow.down.circle", help: "Fetch",
                                            isEnabled: !feature.isPerformingBranchOperation) {
                             Task { await feature.fetchGit() }
                         }
-                        branchStripeButton("expui/general/locate.svg", fallback: "scope", help: "Navigate Log to Selected Branch",
+                        branchStripeButton("expui/general/locate.svg", fallback: "scope", help: L10n.string("Navigate Log to Selected Branch"),
                                            isEnabled: feature.selectedGitReference != nil && !feature.isLoadingGitHistory
                                                && !graphPresentation.rows.isEmpty) {
                             guard let commit = graphPresentation.rows.first?.commit else { return }
@@ -618,17 +619,17 @@ struct GitLogView: View {
                         }
                         Rectangle().fill(LitheTheme.divider).frame(width: 22, height: 1)
                             .padding(.vertical, 3)
-                        branchStripeButton("expui/general/settings.svg", fallback: "gearshape", help: "Branches Pane Settings") {
+                        branchStripeButton("expui/general/settings.svg", fallback: "gearshape", help: L10n.string("Branches Pane Settings")) {
                             showBranchesSettingsMenu()
                         }
-                        branchStripeButton("expui/general/expandAll.svg", fallback: "arrow.down.right.and.arrow.up.left", help: "Expand All Branches") {
+                        branchStripeButton("expui/general/expandAll.svg", fallback: "arrow.down.right.and.arrow.up.left", help: L10n.string("Expand All Branches")) {
                             localExpanded = true
                             remoteExpanded = true
                             tagsExpanded = true
                             collapsedReferenceGroups.removeAll()
                             collapsedRepositoryGroups.removeAll()
                         }
-                        branchStripeButton("expui/general/collapseAll.svg", fallback: "arrow.up.left.and.arrow.down.right", help: "Collapse All Branches") {
+                        branchStripeButton("expui/general/collapseAll.svg", fallback: "arrow.up.left.and.arrow.down.right", help: L10n.string("Collapse All Branches")) {
                             localExpanded = false
                             remoteExpanded = false
                             tagsExpanded = false

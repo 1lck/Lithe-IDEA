@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import AppKit
 import SwiftUI
 import LitheGitModule
@@ -3988,13 +3989,13 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
     @objc private func renameSymbolFromMenu() {
         let position = languageServerPosition(at: selectedRange().location)
         let alert = NSAlert()
-        alert.messageText = "Rename Symbol"
-        alert.informativeText = "Enter the new symbol name."
+        alert.messageText = L10n.string("Rename Symbol")
+        alert.informativeText = L10n.string("Enter the new symbol name.")
         let field = NSTextField(string: "")
         field.frame = NSRect(x: 0, y: 0, width: 300, height: 24)
         alert.accessoryView = field
-        alert.addButton(withTitle: "Rename")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: L10n.string("Rename"))
+        alert.addButton(withTitle: L10n.string("Cancel"))
         guard alert.runModal() == .alertFirstButtonReturn,
               !field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         onRenameRequested?(position.line, position.utf16Column, field.stringValue)
@@ -4016,7 +4017,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         guard !items.isEmpty, window != nil else { return }
         completionItemsByID = [:]
         for item in items.prefix(200) { completionItemsByID[item.id] = item }
-        let menu = NSMenu(title: "Completions")
+        let menu = NSMenu(title: L10n.string("Completions"))
         for item in items.prefix(200) {
             let title = item.detail.map { "\(item.label)  —  \($0)" } ?? item.label
             let entry = NSMenuItem(
@@ -4036,7 +4037,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         onSelect: @escaping (LanguageServerCodeAction) -> Void
     ) {
         guard !actions.isEmpty, window != nil else { return }
-        let menu = NSMenu(title: "Source Actions")
+        let menu = NSMenu(title: L10n.string("Source Actions"))
         for action in actions.prefix(50) {
             let item = NSMenuItem(title: action.title, action: #selector(selectLanguageCodeAction(_:)), keyEquivalent: "")
             item.target = self
@@ -5504,7 +5505,7 @@ final class CodeVisionOverlayController {
             var items: [NSButton] = []
             if hint.usageCount > 0 {
                 let usageButton = makeButton(
-                    title: "\(hint.usageCount) usage\(hint.usageCount == 1 ? "" : "s")",
+                    title: hint.usageCount == 1 ? L10n.string("1 usage") : L10n.string("\(hint.usageCount) usages"),
                     hoverUnderlineStyle: .afterFirstSpace
                 ) {
                     onUsages(hint)

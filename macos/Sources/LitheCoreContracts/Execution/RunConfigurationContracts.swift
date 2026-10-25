@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 
 package enum ProjectRunConfigurationStatus: Equatable, Sendable {
@@ -218,11 +219,11 @@ package struct RunConfigurationEditorSaveFailure: LocalizedError, Sendable {
     package var errorDescription: String? {
         switch stage {
         case .prepare:
-            "Could not prepare the run configuration: \(message)"
+            L10n.string("Could not prepare the run configuration: \(message)")
         case .write:
-            "Could not write the run configuration: \(message)"
+            L10n.string("Could not write the run configuration: \(message)")
         case .reload:
-            "Changes were saved, but Lithe could not reload them: \(message)"
+            L10n.string("Changes were saved, but Lithe could not reload them: \(message)")
         }
     }
 }

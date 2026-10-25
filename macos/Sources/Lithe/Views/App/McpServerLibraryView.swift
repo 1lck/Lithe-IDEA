@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import SwiftUI
 
 /// Settings › AI › MCP: the discovered server library plus the project grant.
@@ -250,7 +251,7 @@ struct McpServerRowView: View {
                         .help("Another global entry uses this name with a different definition.")
                 }
             }
-            Text(row.summary.isEmpty ? String(localized: "No command") : row.summary)
+            Text(row.summary.isEmpty ? L10n.string("No command") : row.summary)
                 .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .lineLimit(1)
@@ -370,12 +371,12 @@ struct McpServerEditorView: View {
         .onAppear {
             guard draft.transport == .stdio else { return }
             do { commandLine = try feature.tools.commandLine(draft) }
-            catch { commandError = String(localized: "Could not read the command line.") }
+            catch { commandError = L10n.string("Could not read the command line.") }
         }
         .onChange(of: draft.transport) { value in
             if value == .stdio {
                 do { commandLine = try feature.tools.commandLine(draft); commandError = nil }
-                catch { commandError = String(localized: "Could not read the command line.") }
+                catch { commandError = L10n.string("Could not read the command line.") }
             }
         }
     }
@@ -384,7 +385,7 @@ struct McpServerEditorView: View {
         HStack(spacing: 8) {
             McpBrandIcon(entry: feature.catalogEntry(for: definition) ?? McpRegistryEntry(
                 id: draft.name, title: draft.name, summary: "", version: "", website: nil, draft: definition))
-            Text(draft.name.isEmpty ? String(localized: "New MCP server") : draft.name)
+            Text(draft.name.isEmpty ? L10n.string("New MCP server") : draft.name)
                 .font(LitheTheme.uiFont(size: 16, weight: .semibold))
             Spacer(minLength: 8)
 
@@ -411,7 +412,7 @@ struct McpServerEditorView: View {
                         .lineLimit(1...3)
                         .onChange(of: commandLine) { line in
                             do { try feature.tools.updateCommandLine(line, draft: &draft); commandError = nil }
-                            catch { commandError = String(localized: "Check command-line quotes before saving.") }
+                            catch { commandError = L10n.string("Check command-line quotes before saving.") }
                         }
                 }
             } else {

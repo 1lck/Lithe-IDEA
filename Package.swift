@@ -87,6 +87,7 @@ let package = Package(
         .target(name: "LitheWorkspaceModule", dependencies: ["LitheModuleAPI", "LitheCoreContracts"], path: "macos/Sources/LitheWorkspaceModule", swiftSettings: [.swiftLanguageMode(.v6)]),
         .target(
             name: "LithePluginPackageSigning",
+            dependencies: ["LitheModuleAPI"],
             path: "macos/Sources/LithePluginPackageSigning",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),

@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import SwiftUI
 import LitheAgentConversationModule
 import LitheCoreContracts
@@ -30,7 +31,7 @@ enum AgentFileAttachmentMenu {
         var items: [LitheContextMenuItem] = []
         if let current = agents.first(where: { $0.id == currentAgentID }) {
             let destination = currentSessionID.map(AgentFileAttachmentDestination.session) ?? .current
-            items.append(.action(String(format: String(localized: "Add to Current Conversation · %@"), current.name),
+            items.append(.action(String(format: L10n.string("Add to Current Conversation · %@"), current.name),
                                  localizesTitle: false) { attach(current.id, destination) })
         }
         var choices: [LitheContextMenuItem] = []
@@ -44,7 +45,7 @@ enum AgentFileAttachmentMenu {
             if !history.isEmpty {
                 choices += history.map { session in
                     .action(session.title?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-                            ?? String(localized: "Untitled conversation"), localizesTitle: false,
+                            ?? L10n.string("Untitled conversation"), localizesTitle: false,
                             description: String(session.id.prefix(8)),
                             checked: currentAgentID == agent.id && currentSessionID == session.id) {
                         attach(agent.id, .session(session.id))

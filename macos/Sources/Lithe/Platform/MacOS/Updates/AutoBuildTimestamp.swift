@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 
 // Note: .agents/notes/implemented/process/2026-09-13-macos-update-signing-and-release-strategy.md
 // UTC time is both the rolling identity and its user-visible label. Keep date
@@ -14,7 +15,7 @@ enum AutoBuildTimestamp {
 
     static func label(timestamp: String? = nil, build: String? = nil) -> String {
         guard let time = display(timestamp: timestamp) ?? display(build: build) else { return "AutoBuild" }
-        return String(format: String(localized: "AutoBuild — Built at %@"), time)
+        return String(format: L10n.string("AutoBuild — Built at %@"), time)
     }
 
     private static func display(_ value: String, format: String) -> String? {

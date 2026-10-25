@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import SwiftUI
 
 /// Public directory search is separate from local Agent configuration. Adding
@@ -156,11 +157,11 @@ private struct McpRegistryCard: View {
 
     private var transportLabel: String? {
         guard let draft = entry.draft else { return nil }
-        guard draft.transport == .stdio else { return String(localized: "Remote") }
+        guard draft.transport == .stdio else { return L10n.string("Remote") }
         switch draft.command {
         case "npx": return "npx"
         case "uvx": return "uvx"
-        default: return String(localized: "Command")
+        default: return L10n.string("Command")
         }
     }
 }
@@ -204,7 +205,7 @@ struct McpJsonImportView: View {
                     .keyboardShortcut(.cancelAction)
                 Button("Preview import") {
                     do { drafts = try feature.importedDrafts(json); error = nil }
-                    catch { self.error = String(localized: "Could not import MCP JSON. Check the mcpServers object and try again.") }
+                    catch { self.error = L10n.string("Could not import MCP JSON. Check the mcpServers object and try again.") }
                 }.buttonStyle(LitheActionButtonStyle(isPrimary: true))
             }
         }

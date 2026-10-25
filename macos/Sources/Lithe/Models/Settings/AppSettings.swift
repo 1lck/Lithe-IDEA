@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import LitheModuleAPI
 import LitheCoreContracts
 import LitheGitModule
 
@@ -55,6 +56,8 @@ final class AppSettings: ObservableObject {
         static let agentCommand = "settings.agentCommand"
         static let agentArguments = "settings.agentArguments"
         static let agentConfigurations = "settings.agentConfigurations"
+        static let agentContextLimits = "settings.agentContextLimits"
+        static let agentContextDefaults = "settings.agentContextDefaults"
         static let agentAccounts = "settings.agentAccounts"
         static let preferredAgentAccountIDs = "settings.preferredAgentAccountIDs"
         static let agentAccountSnapshots = "settings.agentAccountSnapshots"
@@ -94,7 +97,12 @@ final class AppSettings: ObservableObject {
     @Published var themePreference: AppThemePreference {
         didSet { defaults.set(themePreference.rawValue, forKey: Key.themePreference) }
     }
-    @Published var language: AppLanguage { didSet { defaults.set(language.rawValue, forKey: Key.language) } }
+    @Published var language: AppLanguage {
+        didSet {
+            defaults.set(language.rawValue, forKey: Key.language)
+            InterfaceLanguage.select(language.rawValue)
+        }
+    }
     @Published var editorFontSize: Double { didSet { defaults.set(editorFontSize, forKey: Key.editorFontSize) } }
     /// 代码编辑器编程字体族。默认是随包分发的 JetBrains Mono，只有在用户
     /// 显式选择系统字体后才偏离打包字体；终端、Output 工具窗和提交信息
@@ -211,6 +219,32 @@ final class AppSettings: ObservableObject {
             }
         }
     }
+    /// Invalidates open drafts even when Restore Defaults clears an already-empty override.
+    @Published private(set) var agentContextLimitsResetID = UUID()
+    /// Context length and auto-compact threshold per Agent, keyed like `agentConfigurations`.
+    /// An Agent without an entry keeps its own defaults. Applies after reconnecting.
+    @Published var agentContextLimits: [String: AgentContextLimits] {
+        didSet {
+            if let data = try? JSONEncoder().encode(agentContextLimits) {
+                defaults.set(data, forKey: Key.agentContextLimits)
+            }
+        }
+    }
+    /// The context length each Agent last reported while no limit was set: what
+    /// "default" means for it, shown as the placeholder in Settings › Agents.
+    @Published var agentContextDefaults: [String: UInt64] {
+        didSet {
+            if let data = try? JSONEncoder().encode(agentContextDefaults) {
+                defaults.set(data, forKey: Key.agentContextDefaults)
+            }
+        }
+    }
+    /// Remembers what an Agent reports as its context length when no limit is set.
+    func recordAgentContextDefault(agentID: String, tokens: UInt64) {
+        guard tokens > 0, agentContextDefaults[agentID] != tokens else { return }
+        agentContextDefaults[agentID] = tokens
+    }
+
     /// Extra subscription accounts per Agent, each an isolated CLI configuration
     /// directory. Holds names and paths only; the official CLI owns every credential.
     @Published var agentAccounts: [AgentAccountProfile] {
@@ -270,7 +304,9 @@ final class AppSettings: ObservableObject {
         themePreference = AppThemePreference(
             rawValue: defaults.string(forKey: Key.themePreference) ?? ""
         ) ?? .dark
-        language = AppLanguage(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .defaultLanguage
+        let storedLanguage = AppLanguage(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .defaultLanguage
+        language = storedLanguage
+        InterfaceLanguage.select(storedLanguage.rawValue)
         editorFontSize = defaults.object(forKey: Key.editorFontSize) as? Double ?? 13
         editorFontFamily = EditorFontResolution.normalizedFamily(
             defaults.string(forKey: Key.editorFontFamily)
@@ -335,6 +371,10 @@ final class AppSettings: ObservableObject {
         agentModelCallStatistics = defaults.object(forKey: Key.agentModelCallStatistics) as? Bool ?? true
         agentConfigurations = defaults.data(forKey: Key.agentConfigurations)
             .flatMap { try? JSONDecoder().decode([String: AgentConfiguration].self, from: $0) } ?? [:]
+        agentContextLimits = defaults.data(forKey: Key.agentContextLimits)
+            .flatMap { try? JSONDecoder().decode([String: AgentContextLimits].self, from: $0) } ?? [:]
+        agentContextDefaults = defaults.data(forKey: Key.agentContextDefaults)
+            .flatMap { try? JSONDecoder().decode([String: UInt64].self, from: $0) } ?? [:]
         agentAccounts = defaults.data(forKey: Key.agentAccounts)
             .flatMap { try? JSONDecoder().decode([AgentAccountProfile].self, from: $0) } ?? []
         preferredAgentAccountIDs = defaults.data(forKey: Key.preferredAgentAccountIDs)
@@ -492,6 +532,9 @@ final class AppSettings: ObservableObject {
         agentArguments = ""
         agentModelCallStatistics = true
         agentConfigurations = [:]
+        agentContextLimitsResetID = UUID()
+        agentContextLimits = [:]
+        agentContextDefaults = [:]
         agentAccounts = []
         preferredAgentAccountIDs = [:]
         agentAccountSnapshots = [:]

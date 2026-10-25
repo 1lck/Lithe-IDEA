@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import LitheModuleAPI
 import LitheCoreContracts
 import LitheExecutionModule
 
@@ -37,7 +38,7 @@ struct PluginWebBridgeFailure: Error, Equatable {
     static func forbidden(_ message: String) -> Self { .init(code: "plugin.web.forbidden", message: message) }
     static func invalidRequest(_ message: String) -> Self { .init(code: "plugin.web.invalidRequest", message: message) }
     static func unknownMethod(_ method: String) -> Self {
-        .init(code: "plugin.web.unknownMethod", message: "The host has no bridge method \(method).")
+        .init(code: "plugin.web.unknownMethod", message: L10n.string("The host has no bridge method \(method)."))
     }
     static func invalidSelection(_ message: String) -> Self { .init(code: "plugin.build.invalidSelection", message: message) }
     static func unavailable(_ message: String) -> Self { .init(code: "plugin.build.unavailable", message: message) }
@@ -289,7 +290,7 @@ final class PluginWebBridge {
             let (build, entry) = try await entry(params)
             // Only a static model is read without starting a process.
             if let source = entry.instance.modelSource, source != .static {
-                try await consent(String(localized: "Load the \(entry.instance.displayName) model"), workspaceURL: workspaceURL)
+                try await consent(L10n.string("Load the \(entry.instance.displayName) model"), workspaceURL: workspaceURL)
             }
             // The documented meaning is a reload; a provider must not answer
             // it from its own snapshot.
@@ -412,7 +413,7 @@ final class PluginWebBridge {
             testCase: try params.optionalString("case", limit: 1024),
             projects: entry.model?.projects.map(\.path) ?? []
         )
-        let title = Self.title(String(localized: "Tests"), entry: entry, project: project, target: target)
+        let title = Self.title(L10n.string("Tests"), entry: entry, project: project, target: target)
         try await consent(title, workspaceURL: workspaceURL)
         return try start(build, entry: entry) { build.runTests(entry.id, request: request, title: title) }
     }
@@ -448,7 +449,7 @@ final class PluginWebBridge {
         if case .loaded(let tree)? = entry.dependencies[key] { return Self.json(tree) }
         if entry.dependencies[key] != .loading {
             let name = project.map { $0.displayName ?? $0.name } ?? entry.instance.displayName
-            try await consent(String(localized: "Load the dependencies of \(name)"), workspaceURL: workspaceURL)
+            try await consent(L10n.string("Load the dependencies of \(name)"), workspaceURL: workspaceURL)
             build.loadDependencies(entry.id, project: project, reason: .initial)
         }
         let entryID = entry.id
@@ -539,7 +540,7 @@ final class PluginWebBridge {
             return .object(["functions": .array(functions.map(ToolingJSONValue.string))])
         }
         let (build, entry) = try await entry(params)
-        try await consent(String(localized: "Start the \(entry.instance.displayName) provider"), workspaceURL: workspaceURL)
+        try await consent(L10n.string("Start the \(entry.instance.displayName) provider"), workspaceURL: workspaceURL)
         let functions = try await functionOutcome { try await build.pluginFunctions(entry.id) }
         _ = try currentWorkspace()
         return .object(["functions": .array(functions.map(ToolingJSONValue.string))])
@@ -575,10 +576,10 @@ final class PluginWebBridge {
         // The install review covered the backend; a build provider asks
         // the same consent as the host's own provider requests.
         if case .instance(_, let entry) = target {
-            try await consent(String(localized: "Run \(functionID) of \(entry.instance.displayName)"), workspaceURL: workspaceURL)
+            try await consent(L10n.string("Run \(functionID) of \(entry.instance.displayName)"), workspaceURL: workspaceURL)
         }
         guard !reservation.isCancelled else {
-            throw PluginWebBridgeFailure(code: "requestCancelled", message: "The function call was cancelled.")
+            throw PluginWebBridgeFailure(code: "requestCancelled", message: L10n.string("The function call was cancelled."))
         }
         let timeout = requestTimeout
         let pluginID = window.pluginID
@@ -636,7 +637,7 @@ final class PluginWebBridge {
         } catch let failure as PluginFunctionFailure {
             throw PluginWebBridgeFailure(code: failure.code, message: failure.message, pluginErrorCode: failure.pluginErrorCode)
         } catch is CancellationError {
-            throw PluginWebBridgeFailure(code: "requestCancelled", message: "The function call was cancelled.")
+            throw PluginWebBridgeFailure(code: "requestCancelled", message: L10n.string("The function call was cancelled."))
         } catch let failure as PluginWebBridgeFailure {
             throw failure
         } catch {

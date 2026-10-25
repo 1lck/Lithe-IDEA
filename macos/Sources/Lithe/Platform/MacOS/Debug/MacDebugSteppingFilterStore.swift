@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import LitheCoreContracts
 import LitheDebugModule
@@ -8,7 +9,7 @@ enum MacDebugSteppingFilterStoreError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidData:
-            "Saved debugger stepping filters could not be read."
+            L10n.string("Saved debugger stepping filters could not be read.")
         }
     }
 }

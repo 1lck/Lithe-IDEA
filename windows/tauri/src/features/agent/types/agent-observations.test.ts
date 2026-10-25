@@ -28,4 +28,14 @@ describe("Agent observations", () => {
       durationMs: 910, latencyCount: 1, latencyMs: 100, generatingMs: 800, streamingOutput: 10, nonStreaming: 1 });
     expect(parseModelCall({ api: "responses", status: 200, durationMs: Infinity })).toBeNull();
   });
+
+  test("auxiliary requests spend tokens but are not steps or latency samples", () => {
+    const title = parseModelCall({ api: "anthropicMessages", status: 200, durationMs: 2000, streaming: true, firstTokenMs: 1900,
+      auxiliary: true, usage: { inputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0, outputTokens: 16 } })!;
+    const step = parseModelCall({ api: "anthropicMessages", status: 200, durationMs: 1000, streaming: true, firstTokenMs: 100,
+      usage: { inputTokens: 20, cacheReadTokens: 0, cacheWriteTokens: 0, outputTokens: 4 } })!;
+    expect(title.auxiliary).toBe(true);
+    expect(modelCallTotals([title, step])).toMatchObject({ calls: 1, input: 30, output: 20, durationMs: 1000,
+      latencyCount: 1, latencyMs: 100, generatingMs: 900, streamingOutput: 4 });
+  });
 });

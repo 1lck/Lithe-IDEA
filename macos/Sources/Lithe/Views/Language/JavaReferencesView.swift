@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import SwiftUI
 
 struct LanguageReferencesView: View {
@@ -18,7 +19,7 @@ struct LanguageReferencesView: View {
     private var toolbar: some View {
         LitheToolWindowHeader(
             title: model.languageNavigationKind.title,
-            subtitle: "\(model.languageNavigationResults.count) results",
+            subtitle: L10n.string("\(model.languageNavigationResults.count) results"),
             onMinimize: { model.closeLanguageNavigationResults() }
         ) {
             Text(LocalizedStringKey(model.languageServerStatusMessage))
@@ -81,7 +82,7 @@ struct LanguageImplementationChooserView: View {
         VStack(spacing: 0) {
             LitheToolWindowHeader(
                 title: "Choose Implementation",
-                subtitle: "\(filteredLocations.count) found",
+                subtitle: L10n.string("\(filteredLocations.count) found"),
                 onMinimize: { model.closeLanguageNavigationResults() }
             )
 

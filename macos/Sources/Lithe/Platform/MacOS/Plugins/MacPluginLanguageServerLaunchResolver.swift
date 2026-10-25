@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import CryptoKit
 import Foundation
 import LitheCoreContracts
@@ -94,11 +95,11 @@ struct MacPluginLanguageServerLaunchResolver {
         var errorDescription: String? {
             switch self {
             case .missingPackagePath(let path):
-                "The plugin package is missing \(path). Reinstall the plugin."
+                L10n.string("The plugin package is missing \(path). Reinstall the plugin.")
             case .packagePathOutsidePackage(let path):
-                "The plugin launch refers to \(path), which is not a file inside its package."
+                L10n.string("The plugin launch refers to \(path), which is not a file inside its package.")
             case .packagedExecutableNotRunnable(let path):
-                "The plugin package's \(path) is not an executable file. Reinstall the plugin."
+                L10n.string("The plugin package's \(path) is not an executable file. Reinstall the plugin.")
             }
         }
     }

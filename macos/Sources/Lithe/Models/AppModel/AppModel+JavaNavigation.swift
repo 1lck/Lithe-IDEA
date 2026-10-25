@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 
 extension AppModel {
@@ -15,7 +16,7 @@ extension AppModel {
             sessions.recordLanguageServerLog(
                 providerID: "java",
                 level: .warning,
-                message: "Java navigation marker synchronization failed",
+                message: L10n.string("Java navigation marker synchronization failed"),
                 detail: error.localizedDescription
             )
             return []
@@ -30,7 +31,7 @@ extension AppModel {
                         sessions.recordLanguageServerLog(
                             providerID: "java",
                             level: .warning,
-                            message: "Java navigation marker request failed",
+                            message: L10n.string("Java navigation marker request failed"),
                             detail: error.localizedDescription
                         )
                         continuation.resume(returning: [])
@@ -40,7 +41,7 @@ extension AppModel {
                 sessions.recordLanguageServerLog(
                     providerID: "java",
                     level: .warning,
-                    message: "Java navigation marker request failed",
+                    message: L10n.string("Java navigation marker request failed"),
                     detail: error.localizedDescription
                 )
                 continuation.resume(returning: [])

@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import LitheCoreContracts
 import LitheGitModule
 import AppKit
@@ -527,7 +528,7 @@ private final class ProjectTreeActions: @unchecked Sendable {
     func vcsDiffMenuItem(_ url: URL) -> LitheContextMenuItem? {
         guard let feature = model.vcsProvidersFeature, let (root, change) = feature.change(at: url),
               root.comparesWithBase(change) else { return nil }
-        return .action(String(format: String(localized: "Show %@ Diff"), root.displayName), localizesTitle: false) {
+        return .action(String(format: L10n.string("Show %@ Diff"), root.displayName), localizesTitle: false) {
             feature.showDiff(change, in: root.id)
         }
     }

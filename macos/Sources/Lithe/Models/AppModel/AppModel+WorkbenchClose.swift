@@ -16,8 +16,8 @@ extension AppModel {
             closeLanguageNavigationResults()
             return true
         }
-        if isAgentEditorSelected {
-            showAgentChatsInToolWindow()
+        if let tab = focusedAgentEditorTab {
+            closeAgentEditorTab(tab)
             return true
         }
         if branchComparison != nil {
@@ -42,7 +42,7 @@ extension AppModel {
         }
         guard let item = editorTabItems.last else { return false }
         switch item {
-        case .agentConversation: showAgentChatsInToolWindow()
+        case .agentConversation(let tab): closeAgentEditorTab(tab)
         case .repositoryDiff:
             closeGitCommitDiff()
         case .document(let documentID):

@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import AppKit
 
 // Note: .agents/notes/implemented/bug-fix/2026-10-21-background-service-exit-selection.md
@@ -11,11 +12,11 @@ final class BackgroundResourceSelectionView: NSView {
 
     let resources: [BackgroundResourceCandidate]
     let scrollView = NSScrollView()
-    let selectAllButton = NSButton(title: String(localized: "Select All"), target: nil, action: nil)
-    let deselectAllButton = NSButton(title: String(localized: "Deselect All"), target: nil, action: nil)
+    let selectAllButton = NSButton(title: L10n.string("Select All"), target: nil, action: nil)
+    let deselectAllButton = NSButton(title: L10n.string("Deselect All"), target: nil, action: nil)
     let selectionLabel = NSTextField(labelWithString: "")
     let rememberCheckbox = NSButton(
-        checkboxWithTitle: String(localized: "Remember my choice for these kinds of services"),
+        checkboxWithTitle: L10n.string("Remember my choice for these kinds of services"),
         target: nil, action: nil
     )
     private var checkboxes: [NSButton] = []
@@ -48,9 +49,9 @@ final class BackgroundResourceSelectionView: NSView {
                 document.addSubview(detail)
                 height += 4 + detail.frame.height
             }
-            var metadata = resource.listeningPorts.isEmpty ? [] : [String(format: String(localized: "ports %@"), resource.listeningPorts.map(String.init).joined(separator: ", "))]
+            var metadata = resource.listeningPorts.isEmpty ? [] : [String(format: L10n.string("ports %@"), resource.listeningPorts.map(String.init).joined(separator: ", "))]
             if resource.processIDs.count > 1 {
-                metadata.append(String(format: String(localized: "%lld processes"), resource.processIDs.count))
+                metadata.append(String(format: L10n.string("%lld processes"), resource.processIDs.count))
             }
             if !metadata.isEmpty {
                 let label = Self.label(metadata.joined(separator: " · "), width: textWidth, font: LitheTheme.uiNSFont(size: 11))
@@ -70,7 +71,7 @@ final class BackgroundResourceSelectionView: NSView {
         scrollView.autohidesScrollers = true
         scrollView.borderType = .bezelBorder
         scrollView.documentView = document
-        scrollView.setAccessibilityLabel(String(localized: "Background Services"))
+        scrollView.setAccessibilityLabel(L10n.string("Background Services"))
 
         selectAllButton.target = self
         selectAllButton.action = #selector(selectAllResources)
@@ -117,7 +118,7 @@ final class BackgroundResourceSelectionView: NSView {
 
     @objc private func selectionChanged() {
         let selected = selectedIDs.count
-        selectionLabel.stringValue = String(format: String(localized: "%lld of %lld services selected"), selected, resources.count)
+        selectionLabel.stringValue = String(format: L10n.string("%lld of %lld services selected"), selected, resources.count)
         selectAllButton.isEnabled = selected < resources.count
         deselectAllButton.isEnabled = selected > 0
     }

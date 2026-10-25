@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import SwiftUI
 import LitheGitModule
 
@@ -258,7 +259,7 @@ struct RepositoryDiffView: View {
     private func versionLabel(_ hash: String, path: String?) -> some View {
         HStack(spacing: 0) {
             LitheIDEAIcon(resourcePath: "expui/general/locked", size: LitheTheme.Diff.titleIconSize, preservesOriginalColors: true)
-            Text(change == nil ? hash : String(localized: String.LocalizationValue(hash))).font(LitheTheme.uiFont(size: 13, weight: .regular)).foregroundStyle(LitheTheme.Diff.titleForeground)
+            Text(change == nil ? hash : L10n.string(String.LocalizationValue(hash))).font(LitheTheme.uiFont(size: 13, weight: .regular)).foregroundStyle(LitheTheme.Diff.titleForeground)
                 .fixedSize()
             if let path {
                 Text(path).font(LitheTheme.uiFont(size: 13, weight: .regular)).foregroundStyle(LitheTheme.Diff.pathForeground)

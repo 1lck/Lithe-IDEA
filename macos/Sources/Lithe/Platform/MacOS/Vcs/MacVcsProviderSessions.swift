@@ -90,7 +90,7 @@ final class MacVcsProviderSessions: VcsProviderRequesting {
         guard started.negotiation.supports(operation.capability) else {
             throw VcsProviderFailure(
                 code: "vcs.capability.unsupported",
-                message: String(localized: "This version control provider does not support this action.")
+                message: L10n.string("This version control provider does not support this action.")
             )
         }
         do {
@@ -256,11 +256,11 @@ final class MacVcsProviderSessions: VcsProviderRequesting {
                     finish(.success(()))
                 case .failed(let failure):
                     finish(.failure(UnavailableError(
-                        message: failure.message ?? String(localized: "The version control provider failed to start.")
+                        message: failure.message ?? L10n.string("The version control provider failed to start.")
                     )))
                 case .stopped:
                     finish(.failure(UnavailableError(
-                        message: String(localized: "The version control provider stopped before it was ready.")
+                        message: L10n.string("The version control provider stopped before it was ready.")
                     )))
                 case .startingProcess, .initializing, .stopping:
                     break
@@ -306,7 +306,7 @@ final class MacVcsProviderSessions: VcsProviderRequesting {
         let versionChecker = versionChecker
         let resolved = try await tools.resolve(
             invocation,
-            displayName: String(localized: "Version control provider"),
+            displayName: L10n.string("Version control provider"),
             workspaceURL: workspaceURL,
             checkVersion: { [requirement] _, output in
                 guard let requirement else { return BuildVersionCheck(satisfied: true, version: nil) }

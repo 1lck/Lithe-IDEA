@@ -227,6 +227,7 @@ struct WebMediaCaptureCoverageTests {
         "Lithe/Platform/MacOS/MonacoDiffEditor.swift": ("MonacoDiffEditor.swift", "WebMediaCaptureDenier.shared"),
         "Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift": ("MonacoWorkbenchEditor.swift", "WebMediaCaptureDenier.shared"),
         "Lithe/Platform/MacOS/Updates/ReleaseNotesWebView.swift": ("ReleaseNotesWebView.swift", "WebMediaCaptureDenier.shared"),
+        "Lithe/Views/Agent/AgentDesktopCardView.swift": ("AgentDesktopCardView.swift", "WebMediaCaptureDenier.shared"),
         "Lithe/Platform/MacOS/HTMLPreviewZoom.swift": ("HTMLPreviewMediaCapture.swift", "WebMediaCapture.decide("),
         "Lithe/Platform/MacOS/Plugins/Web/MacPluginWebPage.swift": ("MacPluginWebPage.swift", "WebMediaCapture.decide(")
     ]

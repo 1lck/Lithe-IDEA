@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import AppKit
 import Combine
 import SwiftUI
@@ -156,7 +157,7 @@ extension HTMLPreviewBrowserController {
         guard case let .unavailable(missing) = outcome, !missing.isEmpty else { return }
         let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Lithe"
         dialogs.presentAlert(
-            message: String(localized: "Lithe can’t give pages access to the camera or microphone in this version."),
+            message: L10n.string("Lithe can’t give pages access to the camera or microphone in this version."),
             source: appName,
             in: webView.window,
             completion: {}

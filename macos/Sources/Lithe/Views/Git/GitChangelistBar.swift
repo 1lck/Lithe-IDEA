@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import SwiftUI
 import LitheGitModule
 
@@ -20,7 +21,7 @@ struct GitChangelistBar: View {
                     accessibilityLabel: "ChangeList",
                     title: { id in
                         id == GitLocalChangelists.defaultID
-                            ? String(localized: "Default ChangeList", locale: locale)
+                            ? L10n.string("Default ChangeList", locale: locale)
                             : feature.changelists.lists.first { $0.id == id }?.name ?? ""
                     },
                     localizesTitles: false,

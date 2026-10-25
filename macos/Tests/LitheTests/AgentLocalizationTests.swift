@@ -27,7 +27,7 @@ struct AgentLocalizationTests {
             ("%@ · %@ / %@ context used", "%@ · %@ / %@ 上下文已使用"),
             ("Context usage", "上下文用量"),
             ("Breakdown unavailable", "分项暂不可用"),
-            ("Turn on Model call statistics, reconnect and send a message to see the breakdown.", "开启“模型调用统计”，重新连接并发送消息后可查看分项。")
+            ("The breakdown needs Model call statistics (on by default). After turning it on, reconnect and send a message.", "分项需要开启“模型调用统计”（默认开启）。开启后请重新连接并发送消息。")
         ] {
             #expect(AgentLocalization.string(String.LocalizationValue(key), locale: Locale(identifier: "en"), bundle: bundle) == key)
             #expect(AgentLocalization.string(String.LocalizationValue(key), locale: Locale(identifier: "en-US"), bundle: bundle) == key)

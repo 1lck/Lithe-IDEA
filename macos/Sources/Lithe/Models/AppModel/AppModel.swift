@@ -850,7 +850,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     func chooseProject() {
-        chooseProject(title: "Open a project", prompt: "Open")
+        chooseProject(title: L10n.string("Open a project"), prompt: "Open")
     }
 
     func chooseProject(title: String, prompt: String) {
@@ -1336,8 +1336,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             languageToolingSessionsIfActive?.recordLanguageServerLog(
                 providerID: descriptor.id,
                 level: .info,
-                message: "Language server activation skipped",
-                detail: "Disabled in this workspace"
+                message: L10n.string("Language server activation skipped"),
+                detail: L10n.string("Disabled in this workspace")
             )
             return false
         }
@@ -1593,7 +1593,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         guard wasSelected else { return }
         let target = previous.flatMap { editorTabItems.contains($0) ? $0 : nil } ?? editorTabItems.last
         switch target {
-        case .agentConversation: showAgentChatsInEditor()
+        case .agentConversation(let tab): showAgentChatsInEditor(tab: tab)
         case .document(let id):
             if let document = openDocuments.first(where: { $0.id == id }) { selectEditorDocument(document) }
         case .terminal(let id):

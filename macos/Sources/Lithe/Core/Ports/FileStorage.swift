@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 
 struct FileMetadata: Sendable {
     let byteCount: Int?
@@ -27,7 +28,7 @@ struct FileStorageRetainedCopyError: LocalizedError, Equatable, Sendable {
 
     var errorDescription: String? {
         String(
-            format: String(localized: "Could not write %@. The previous contents were kept in %@."),
+            format: L10n.string("Could not write %@. The previous contents were kept in %@."),
             destinationPath,
             retainedPath
         )

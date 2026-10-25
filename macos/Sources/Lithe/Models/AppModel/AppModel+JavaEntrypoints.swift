@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import LitheModuleAPI
 import LitheCoreContracts
 import LitheExecutionModule
 import LitheLanguageIntelligenceModule
@@ -56,7 +57,7 @@ extension AppModel {
         }
         if preparation.blocksRun {
             return preparation.status == "failed"
-                ? (.failed(String(localized: "The Java language service failed to prepare the project.")), sessions)
+                ? (.failed(L10n.string("The Java language service failed to prepare the project.")), sessions)
                 : (.pending, sessions)
         }
         do {
@@ -135,7 +136,7 @@ extension AppModel {
             sessions.recordLanguageServerLog(
                 providerID: "java",
                 level: .warning,
-                message: "Java entry-point freshness check failed",
+                message: L10n.string("Java entry-point freshness check failed"),
                 detail: error.localizedDescription
             )
             return

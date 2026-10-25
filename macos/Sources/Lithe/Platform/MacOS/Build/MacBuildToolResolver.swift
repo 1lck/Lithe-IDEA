@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 import LitheCoreContracts
 
 // Note: 构建系统插件契约见 .agents/notes/implemented/architecture/2026-10-17-build-system-plugin-contract.md
@@ -190,13 +191,13 @@ final class MacBuildToolResolver: BuildToolResolving {
 
     private static func tooOldMessage(_ path: String, found: String?, minimum: String) -> String {
         if let found {
-            return String(localized: "\(path) is version \(found); \(minimum) or newer is required.")
+            return L10n.string("\(path) is version \(found); \(minimum) or newer is required.")
         }
-        return String(localized: "\(path) did not report a version; \(minimum) or newer is required.")
+        return L10n.string("\(path) did not report a version; \(minimum) or newer is required.")
     }
 
     private static func unavailableMessage(_ name: String, problems: [String]) -> String {
-        let summary = String(localized: "\(name) is not available.")
+        let summary = L10n.string("\(name) is not available.")
         return ([summary] + problems).joined(separator: " ")
     }
 }

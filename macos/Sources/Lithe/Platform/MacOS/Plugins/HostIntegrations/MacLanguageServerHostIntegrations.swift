@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import LitheCoreContracts
 
@@ -48,7 +49,7 @@ struct MacLanguageServerHostIntegrations {
         var errorDescription: String? {
             switch self {
             case .notDeclared(let displayName):
-                "\(displayName) keeps no workspace state that Lithe can reset."
+                L10n.string("\(displayName) keeps no workspace state that Lithe can reset.")
             }
         }
     }

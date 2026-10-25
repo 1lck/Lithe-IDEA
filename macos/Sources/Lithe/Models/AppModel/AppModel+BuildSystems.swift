@@ -61,7 +61,7 @@ extension AppModel {
             guard let feature = buildSystemsFeatureIfActive,
                   feature.workspaceURL == rootURL.standardizedFileURL,
                   let configuration = feature.languageImport else {
-                throw RunConfigurationOperationFailure(message: String(localized: "Build-system language import is still preparing. Retry when project loading completes."))
+                throw RunConfigurationOperationFailure(message: L10n.string("Build-system language import is still preparing. Retry when project loading completes."))
             }
             pluginImport = configuration
         } else {

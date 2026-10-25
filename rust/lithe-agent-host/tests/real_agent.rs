@@ -160,6 +160,7 @@ fn open(workspace: &std::path::Path) -> Session {
         observe_subagents: false,
         process_scope: None,
         claude_config_dir: None,
+        context_limits: Default::default(),
         codex_home: None,
         provider: Some(ProviderCredentials {
             protocol,

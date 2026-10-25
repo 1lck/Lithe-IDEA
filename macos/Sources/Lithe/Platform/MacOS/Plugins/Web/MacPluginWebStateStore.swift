@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import LitheModuleAPI
 import UniformTypeIdentifiers
 
 /// `ui.setState` values in Application Support, beside the plugin's other
@@ -53,19 +54,19 @@ enum MacPluginWebConsentPrompt {
     static func confirm(_ consent: PluginWebProcessConsent) async -> Bool {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = String(format: String(localized: "Allow “%@” to run build tools?"), consent.pluginName)
+        alert.messageText = String(format: L10n.string("Allow “%@” to run build tools?"), consent.pluginName)
         var details = [
             consent.action,
-            String(format: String(localized: "The plugin’s page asks to run them in %@."), consent.workspaceURL.lastPathComponent)
+            String(format: L10n.string("The plugin’s page asks to run them in %@."), consent.workspaceURL.lastPathComponent)
         ]
         if consent.userArguments.isEmpty {
-            details.append(String(localized: "Lithe asks again after the plugin is disabled, updated, or Lithe restarts."))
+            details.append(L10n.string("Lithe asks again after the plugin is disabled, updated, or Lithe restarts."))
         } else {
-            details.append(String(localized: "Arguments from the page:") + "\n" + consent.userArguments.joined(separator: " "))
+            details.append(L10n.string("Arguments from the page:") + "\n" + consent.userArguments.joined(separator: " "))
         }
         alert.informativeText = details.joined(separator: "\n\n")
-        alert.addButton(withTitle: String(localized: "Allow"))
-        alert.addButton(withTitle: String(localized: "Don’t Allow"))
+        alert.addButton(withTitle: L10n.string("Allow"))
+        alert.addButton(withTitle: L10n.string("Don’t Allow"))
         return alert.runModal() == .alertFirstButtonReturn
     }
 }
@@ -89,7 +90,7 @@ enum MacPluginWebFileDialog {
             if let name = request.suggestedName { panel.nameFieldStringValue = name }
         }
         if let title = request.title { panel.title = title }
-        panel.message = String(format: String(localized: "Requested by the plugin “%@”."), request.pluginName)
+        panel.message = String(format: L10n.string("Requested by the plugin “%@”."), request.pluginName)
         let types = request.allowedExtensions.compactMap { UTType(filenameExtension: $0) }
         if !types.isEmpty { panel.allowedContentTypes = types }
         return panel.runModal() == .OK ? panel.url : nil

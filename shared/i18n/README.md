@@ -42,6 +42,13 @@ node --test --test-timeout=60000 scripts/test-i18n.mjs
 macOS 生成器同时输出语义 key 和旧英文兼容别名，所以 `Text("Save")`、
 `String(localized: "Save")` 与新语义 key 读取同一张表。需要明确选择语言时，通过
 `AppLanguage.localizedString` 或 `localizedFormat` 读取已打包的原生资源。
+视图之外构造的文案（错误、弹窗、状态、通知）统一用 `L10n.string("…")`
+（`LitheModuleAPI`，语言由设置驱动）；运行时才确定的格式键用 `L10n.string(key:)`。
+直接调用 `String(localized:)` 或 `NSLocalizedString` 会按系统语言选语言包，`locale:`
+只影响数字和日期格式。`scripts/verify-app-language-localization.mjs`（由
+`verify-service-boundaries.sh` 调用）会拒绝这类调用，调用方显式注入自己的语言包时除外；它还要求每个 `L10n.string` 的字面 key
+都已在 `shared/i18n` 里声明，并拒绝 `errorDescription`、`NSAlert` 文本、按钮标题和
+`NSLocalizedDescriptionKey` 里的裸英文字面量（模块与插件清单的注册一致性诊断除外）。
 上游诊断、用户代码、字体覆盖样本、开发基准场景、搜索关键词和 AI 提交的目标输出语言属于各自的数据，
 不要把这些内容当作界面翻译改写；已知的 Agent 选项说明在呈现处通过共享词条翻译。
 

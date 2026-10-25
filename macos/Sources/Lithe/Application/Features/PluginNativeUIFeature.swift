@@ -69,14 +69,14 @@ final class PluginNativeUIFeature: ObservableObject, PluginWebPageHandle {
         guard !isClosed, !isBusy, control.enabled != false,
               declaration.controls?.contains(control) == true else { return false }
         guard control.accepts(value) else {
-            error = String(localized: "The field value does not match its declaration or exceeds its size limit.")
+            error = L10n.string("The field value does not match its declaration or exceeds its size limit.")
             return false
         }
         guard value != self.value(for: control) else { return false }
         var updated = state
         updated.values = (updated.values ?? [:]).merging([control.id: value]) { _, new in new }
         guard let encoded = try? JSONEncoder().encode(updated), encoded.count <= PluginWebBridge.stateLimit else {
-            error = String(localized: "The native panel state exceeds 64 KiB.")
+            error = L10n.string("The native panel state exceeds 64 KiB.")
             return false
         }
         state = updated
@@ -178,7 +178,7 @@ final class PluginNativeUIFeature: ObservableObject, PluginWebPageHandle {
                 // ponytail: one detected instance per native window in schema 1;
                 // add an explicit instance selector before supporting multi-root actions.
                 guard matches.count == 1, let instance = matches.first else {
-                    throw PluginWebBridgeFailure.unavailable(String(localized: "This panel needs exactly one matching plugin instance in the workspace."))
+                    throw PluginWebBridgeFailure.unavailable(L10n.string("This panel needs exactly one matching plugin instance in the workspace."))
                 }
                 try Task.checkCancellation()
                 if let action, let function = action.function {

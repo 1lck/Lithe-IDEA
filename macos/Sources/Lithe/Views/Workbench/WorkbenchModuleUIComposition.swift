@@ -250,7 +250,7 @@ enum WorkbenchModuleUIComposition {
                             copyPath: { [weak model] in model?.copyProjectItemPath($0, relative: false) },
                             chooseParentDirectory: { [weak model] in
                                 model?.platformUI.chooseDirectory(
-                                    title: "Choose Worktree Parent", prompt: "Choose"
+                                    title: L10n.string("Choose Worktree Parent"), prompt: "Choose"
                                 )
                             },
                             openProjectInCurrentWindow: { [weak model] in model?.openProject($0, placement: .thisWindow) },

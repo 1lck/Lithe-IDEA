@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import LitheCoreContracts
 
@@ -20,9 +21,9 @@ final class LanguageWorkspaceEditService {
         var errorDescription: String? {
             switch self {
             case .outsideWorkspace:
-                return "Language edit targets a file outside the workspace."
+                return L10n.string("Language edit targets a file outside the workspace.")
             case .unreadableFile:
-                return "Language edit targets an unreadable file."
+                return L10n.string("Language edit targets an unreadable file.")
             }
         }
     }

@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import LitheCoreContracts
 import WebKit
@@ -130,7 +131,7 @@ enum MacPluginWebContent {
 
     struct InvalidEntry: LocalizedError {
         let path: String
-        var errorDescription: String? { "Invalid plugin web entry: \(path)" }
+        var errorDescription: String? { L10n.string("Invalid plugin web entry: \(path)") }
     }
 }
 

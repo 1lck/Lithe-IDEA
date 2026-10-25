@@ -718,6 +718,8 @@ private struct AgentHistoryList: View, Equatable {
     }
 
     var body: some View {
+        // Without an archive group no row is a branch, so the tree must not
+        // reserve a disclosure column on every row (an empty left gutter).
         let visible = items + (archived.isEmpty ? [] : [.archiveHeader]
             + (isArchivedExpanded ? archived.map(AgentHistoryListItem.archivedRow) : []))
         LitheTreeList(visible, id: \.id, selection: Binding<Set<String>>(
@@ -732,7 +734,7 @@ private struct AgentHistoryList: View, Equatable {
                 case .row: .init(isSelectable: isSelecting)
                 case .archivedRow: .init(depth: 1, isSelectable: false)
                 }
-            }, onExpansion: { item, expanded in
+            }, onExpansion: archived.isEmpty ? nil : { item, expanded in
                 if case .archiveHeader = item, expanded != isArchivedExpanded { actions.toggleArchived() }
             }, multiline: true
         ) { item in

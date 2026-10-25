@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import LitheModuleAPI
 import LitheCoreContracts
 
 // Note: 统一 VCS 模型见 .agents/notes/proposed/architecture/2026-10-22-unified-vcs-provider-model.md
@@ -341,7 +342,7 @@ final class VcsProvidersFeatureModel: ObservableObject {
             return "\(pluginID): \(rejected.error.message)"
         } + (detection?.conflicts ?? []).map { conflict in
             String(
-                format: String(localized: "%1$@ does not provide %2$@ because %3$@ already does."),
+                format: L10n.string("%1$@ does not provide %2$@ because %3$@ already does."),
                 conflict.pluginID, vcsNames[conflict.vcs] ?? conflict.vcs, conflict.by
             )
         }
@@ -588,27 +589,27 @@ final class VcsProvidersFeatureModel: ObservableObject {
     /// unversioned files and removes missing ones as part of the check-in.
     func checkin(_ paths: [String], message: String, in rootID: String) async -> VcsCheckinResult? {
         await perform(.checkin(paths: paths, message: message), in: rootID,
-                      title: String(localized: "Committing…"), as: VcsCheckinResult.self)
+                      title: L10n.string("Committing…"), as: VcsCheckinResult.self)
     }
 
     func rollback(_ paths: [String], in rootID: String) async -> Bool {
         await perform(.rollback(paths: paths), in: rootID,
-                      title: String(localized: "Rolling back…"), as: VcsEmptyResult.self) != nil
+                      title: L10n.string("Rolling back…"), as: VcsEmptyResult.self) != nil
     }
 
     func update(_ rootID: String) async -> VcsUpdateResult? {
         await perform(.update(revision: nil), in: rootID,
-                      title: String(localized: "Updating…"), as: VcsUpdateResult.self)
+                      title: L10n.string("Updating…"), as: VcsUpdateResult.self)
     }
 
     func resolve(_ paths: [String], in rootID: String) async -> Bool {
         await perform(.resolve(paths: paths), in: rootID,
-                      title: String(localized: "Marking as resolved…"), as: VcsEmptyResult.self) != nil
+                      title: L10n.string("Marking as resolved…"), as: VcsEmptyResult.self) != nil
     }
 
     func cleanup(_ rootID: String) async -> Bool {
         await perform(.cleanup, in: rootID,
-                      title: String(localized: "Cleaning up…"), as: VcsEmptyResult.self) != nil
+                      title: L10n.string("Cleaning up…"), as: VcsEmptyResult.self) != nil
     }
 
     func baseContent(_ path: String, in rootID: String) async throws -> VcsBaseContent {
@@ -706,7 +707,7 @@ final class VcsProvidersFeatureModel: ObservableObject {
         guard self.generation == generation, runningOperation == nil,
               let owners, owners == [root.id, root.id] else { return false }
         return await perform(.move(from: from, to: to), in: root.id,
-                             title: String(localized: "Moving…"), as: VcsEmptyResult.self) != nil
+                             title: L10n.string("Moving…"), as: VcsEmptyResult.self) != nil
     }
 
     func dismissFailure() {
@@ -726,7 +727,7 @@ final class VcsProvidersFeatureModel: ObservableObject {
         as type: Value.Type
     ) async -> Value? {
         guard runningOperation == nil else {
-            report(String(localized: "Wait for the running version control action to finish."), rootID: rootID)
+            report(L10n.string("Wait for the running version control action to finish."), rootID: rootID)
             return nil
         }
         runningOperation = RunningOperation(rootID: rootID, title: title)
@@ -759,7 +760,7 @@ final class VcsProvidersFeatureModel: ObservableObject {
         guard let state = root(rootID), let target = target(for: state) else {
             throw VcsProviderFailure(
                 code: "vcs.provider.unavailable",
-                message: String(localized: "This working copy is no longer available. Refresh and try again.")
+                message: L10n.string("This working copy is no longer available. Refresh and try again.")
             )
         }
         let generation = generation
@@ -842,17 +843,17 @@ final class VcsProvidersFeatureModel: ObservableObject {
         guard let failure = error as? VcsProviderFailure else { return error.localizedDescription }
         let hint: String? = switch failure.code {
         case "vcs.authentication.failed":
-            String(localized: "Authentication failed. Lithe cannot ask for credentials yet: sign in once with the command-line client so it stores them, then try again.")
+            L10n.string("Authentication failed. Lithe cannot ask for credentials yet: sign in once with the command-line client so it stores them, then try again.")
         case "vcs.outOfDate":
-            String(localized: "The working copy is out of date. Update it, then commit again.")
+            L10n.string("The working copy is out of date. Update it, then commit again.")
         case "vcs.conflict":
-            String(localized: "The action stopped on conflicted files. Resolve them, then try again.")
+            L10n.string("The action stopped on conflicted files. Resolve them, then try again.")
         case "vcs.workingCopy.locked":
-            String(localized: "The working copy is locked by an interrupted action. Run Cleanup, then try again.")
+            L10n.string("The working copy is locked by an interrupted action. Run Cleanup, then try again.")
         case "vcs.workingCopy.unsupported":
-            String(localized: "This working copy format is not supported. Upgrade it with the command-line client.")
+            L10n.string("This working copy format is not supported. Upgrade it with the command-line client.")
         case "vcs.tool.unavailable":
-            String(localized: "The version control client could not be run. Check that it is installed.")
+            L10n.string("The version control client could not be run. Check that it is installed.")
         default:
             nil
         }

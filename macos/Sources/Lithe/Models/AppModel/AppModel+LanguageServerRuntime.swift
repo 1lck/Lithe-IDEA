@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import LitheCoreContracts
 
@@ -141,7 +142,7 @@ extension AppModel {
                 providerID: "java",
                 operationID: owner.operationID,
                 level: .warning,
-                message: "Java workspace preparation cancelled",
+                message: L10n.string("Java workspace preparation cancelled"),
                 detail: nil
             )
             javaFeature.cancelLanguageServerPreparation()

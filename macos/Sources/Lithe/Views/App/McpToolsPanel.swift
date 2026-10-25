@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import SwiftUI
 
 struct McpToolStatusBadge: View {
@@ -8,7 +9,7 @@ struct McpToolStatusBadge: View {
         if state.isReady || state.isLoading {
             HStack(spacing: 4) {
                 Circle().fill(state.isReady ? LitheTheme.success : LitheTheme.secondaryText).frame(width: 5, height: 5)
-                Text(state.isLoading ? String(localized: "Detecting…") : String(format: String(localized: "%d tools"), state.tools.count))
+                Text(state.isLoading ? L10n.string("Detecting…") : String(format: L10n.string("%d tools"), state.tools.count))
                     .font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
             }
         }
@@ -30,7 +31,7 @@ struct McpToolsPanel: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 6) {
                 Circle().fill(state.isReady ? LitheTheme.success : LitheTheme.secondaryText.opacity(0.5)).frame(width: 6, height: 6)
-                Text(state.isLoading ? String(localized: "Detecting…") : (state.isReady ? String(format: String(localized: "%d tools"), state.tools.count) : String(localized: "Not detected")))
+                Text(state.isLoading ? L10n.string("Detecting…") : (state.isReady ? String(format: L10n.string("%d tools"), state.tools.count) : L10n.string("Not detected")))
                     .font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
                 LitheInfoTip("Detection connects to this server and lists tool metadata without calling any tool. Local commands may run code or download packages. Results describe this check, not the availability of an existing Agent session. Tool switches apply to the selected Agent's user configuration; project and managed policies can still restrict access. Start a new Agent session after changes.")
                 Spacer()

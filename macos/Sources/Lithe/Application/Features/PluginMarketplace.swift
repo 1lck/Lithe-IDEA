@@ -751,13 +751,13 @@ enum PluginMarketplaceFeatureError: Error, Equatable, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .sourceAlreadyAdded(let name):
-            "The plugin repository \(name) has already been added."
+            L10n.string("The plugin repository \(name) has already been added.")
         case .officialSourceCannotBeRemoved:
-            "The official Lithe plugin repository cannot be removed. Disable it instead."
+            L10n.string("The official Lithe plugin repository cannot be removed. Disable it instead.")
         case .installationInProgress:
-            "This plugin already has an installation in progress. Try again after it finishes."
+            L10n.string("This plugin already has an installation in progress. Try again after it finishes.")
         case .notListed(let id):
-            "Plugin \(id) is not listed by the plugin repository it was installed from. Refresh the repository and try again."
+            L10n.string("Plugin \(id) is not listed by the plugin repository it was installed from. Refresh the repository and try again.")
         }
     }
 }

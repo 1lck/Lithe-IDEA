@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import LitheModuleAPI
 
 // Note: SSH 连接配置与测试连接见 .agents/notes/implemented/feature/2026-10-24-remote-ssh-connections.md
 
@@ -23,14 +24,14 @@ struct MacRemoteHostLocator: RemoteHostLocating {
         }
         guard let encoded = address.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
               let url = URL(string: "https://ipinfo.io/\(encoded)/json") else {
-            return .failure(RemoteProbeFailure(code: "invalidAddress", message: String(localized: "The address is invalid.")))
+            return .failure(RemoteProbeFailure(code: "invalidAddress", message: L10n.string("The address is invalid.")))
         }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: Self.lookupTimeout)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard (response as? HTTPURLResponse)?.statusCode == 200 else {
-                return .failure(RemoteProbeFailure(code: "lookupFailed", message: String(localized: "The location service did not answer.")))
+                return .failure(RemoteProbeFailure(code: "lookupFailed", message: L10n.string("The location service did not answer.")))
             }
             struct Answer: Decodable {
                 let city: String?

@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 
 /// Native policy snapshots use the same guarded writer and backups as server
 /// settings. SDK inventory and argv parsing are shared Core/Host operations.
@@ -134,7 +135,7 @@ final class MacMcpTools: McpToolsManaging {
     private enum RenameError: LocalizedError {
         case restricted
         var errorDescription: String? {
-            String(localized: "Claude Code has MCP tool restrictions. Update its native rules before renaming a server so disabled tools do not become available under a new name.")
+            L10n.string("Claude Code has MCP tool restrictions. Update its native rules before renaming a server so disabled tools do not become available under a new name.")
         }
     }
 

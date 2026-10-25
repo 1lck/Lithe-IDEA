@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
@@ -155,7 +156,7 @@ final class MarkdownPreviewAssetSchemeHandler: NSObject, WKURLSchemeHandler, @un
     }
 
     private static func error(_ code: CocoaError.Code) -> CocoaError {
-        CocoaError(code, userInfo: [NSLocalizedDescriptionKey: "The Markdown asset is unavailable"])
+        CocoaError(code, userInfo: [NSLocalizedDescriptionKey: L10n.string("The Markdown asset is unavailable")])
     }
 }
 

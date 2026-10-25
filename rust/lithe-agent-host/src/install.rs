@@ -708,13 +708,13 @@ mod tests {
         let old = cli_tool("0.142.5");
         let log = "Download failed; retry completed";
         let result = finish_cli_update(cli, Some(&old), false, Ok((false, log.into())), || {
-            Ok(Some(cli_tool("0.157.1")))
+            Ok(Some(cli_tool("0.161.1")))
         })
         .unwrap();
-        assert_eq!(result.cli_version, "0.157.1");
+        assert_eq!(result.cli_version, "0.161.1");
         assert_eq!(result.updater_warning.as_deref(), Some(log));
         let fresh = finish_cli_update(cli, None, true, Ok((false, log.into())), || {
-            Ok(Some(cli_tool("0.157.1")))
+            Ok(Some(cli_tool("0.161.1")))
         })
         .unwrap();
         assert_eq!(fresh.updater_warning.as_deref(), Some(log));
@@ -726,9 +726,9 @@ mod tests {
         // Already usable, numerically equivalent, older, absent, and still-too-old
         // versions must not turn an updater failure into success.
         for (before, after) in [
-            ("0.157.1", Some("0.157.1")),
-            ("0.157.1", Some("v0.157.1")),
-            ("0.157.1", Some("0.156.1")),
+            ("0.161.1", Some("0.161.1")),
+            ("0.161.1", Some("v0.161.1")),
+            ("0.161.1", Some("0.160.1")),
             ("0.142.5", Some("0.150.0")),
             ("0.142.5", None),
         ] {
@@ -758,7 +758,7 @@ mod tests {
             None,
             false,
             Ok((false, "installer failure".into())),
-            || Ok(Some(cli_tool("0.157.1")))
+            || Ok(Some(cli_tool("0.161.1")))
         )
         .is_err());
     }
@@ -766,13 +766,13 @@ mod tests {
     #[test]
     fn cli_update_clean_exit_still_verifies_path_without_a_warning() {
         let cli = codex().cli.as_ref().unwrap();
-        let old = cli_tool("0.157.1");
+        let old = cli_tool("0.161.1");
         let result = finish_cli_update(
             cli,
             Some(&old),
             false,
             Ok((true, "already current".into())),
-            || Ok(Some(cli_tool("0.157.1"))),
+            || Ok(Some(cli_tool("0.161.1"))),
         )
         .unwrap();
         assert_eq!(result.updater_warning, None);
@@ -820,7 +820,7 @@ mod tests {
             None,
             true,
             Ok((false, "界".repeat(OUTPUT_TAIL + 100))),
-            || Ok(Some(cli_tool("0.157.1"))),
+            || Ok(Some(cli_tool("0.161.1"))),
         )
         .unwrap();
         assert_eq!(result.updater_warning.unwrap().chars().count(), OUTPUT_TAIL);
@@ -871,8 +871,8 @@ mod tests {
             "an old CLI earlier in PATH cannot become success"
         );
         assert_eq!(
-            verify_updated_cli(cli, detected("0.156.1")).unwrap(),
-            "0.156.1"
+            verify_updated_cli(cli, detected("0.160.1")).unwrap(),
+            "0.160.1"
         );
         assert!(verify_updated_cli(cli, None).is_err());
         let cancelled = std::cell::Cell::new(false);

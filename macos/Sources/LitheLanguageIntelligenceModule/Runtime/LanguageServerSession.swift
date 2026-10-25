@@ -1347,23 +1347,23 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         var errorDescription: String? {
             switch self {
             case .notReady:
-                "Language server is not ready."
+                L10n.string("Language server is not ready.")
             case .startFailed(let message):
-                "Language server failed to start: \(message)"
+                L10n.string("Language server failed to start: \(message)")
             case .documentSyncFailed(let message):
-                "Language server document sync failed: \(message)"
+                L10n.string("Language server document sync failed: \(message)")
             case .documentNotSynchronized:
-                "The document is not synchronized with the language server."
+                L10n.string("The document is not synchronized with the language server.")
             case .requestRejected(let message):
-                "Language server request was rejected: \(message)"
+                L10n.string("Language server request was rejected: \(message)")
             case .unsupportedNavigation(let method):
-                "Language server navigation \(method) is not supported."
+                L10n.string("Language server navigation \(method) is not supported.")
             case .missingResult:
-                "Language server response did not include a result."
+                L10n.string("Language server response did not include a result.")
             case .sessionStopped:
-                "Language server session stopped before the request completed."
+                L10n.string("Language server session stopped before the request completed.")
             case .staleDocument:
-                "The document changed before Java navigation completed."
+                L10n.string("The document changed before Java navigation completed.")
             }
         }
     }

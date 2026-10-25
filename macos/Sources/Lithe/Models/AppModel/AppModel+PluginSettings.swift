@@ -67,7 +67,7 @@ extension AppModel {
                     case .applied, .superseded:
                         continue
                     case .failed:
-                        self?.showNotification(String(localized: "The language server could not apply this setting. Restart it to use the new value."))
+                        self?.showNotification(L10n.string("The language server could not apply this setting. Restart it to use the new value."))
                         return
                     }
                 }
@@ -139,7 +139,7 @@ extension AppModel {
             runAction: { [weak self] action in await self?.runPluginSettingAction(action, of: pluginID) },
             choosePath: { [weak self] directory in
                 guard let self else { return nil }
-                let title = String(localized: "Choose")
+                let title = L10n.string("Choose")
                 return directory
                     ? self.platformUI.chooseDirectory(title: title, prompt: title)
                     : self.platformUI.chooseFile(title: title, prompt: title)

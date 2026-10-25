@@ -116,6 +116,7 @@ const SearchExcerptLine = memo(function SearchExcerptLine({
       type="button"
       className="flex w-full min-w-0 text-left hover:bg-accent/25 focus-visible:bg-accent/35 focus-visible:outline-none"
       onClick={handleClick}
+      data-search-excerpt-line-index={lineIndex}
       aria-label={`Open line ${mappedLine}`}
     >
       {content}
