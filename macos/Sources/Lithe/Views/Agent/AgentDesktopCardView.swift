@@ -219,14 +219,24 @@ private struct AgentDesktopWidgetCard: View {
 
 /// Renders agent-written HTML or SVG offline: the page cannot load anything,
 /// keeps no storage, and cannot navigate. Inline scripts run so interactive
-/// explainers work; `sendPrompt` only fills the composer.
+/// explainers work; `sendPrompt` only fills the composer, and only right after
+/// the user clicked or typed in the page, since the page's script is agent-written
+/// and must not replace a draft or take focus on its own.
 struct AgentDesktopWidgetWebView: NSViewRepresentable {
     static let messageName = "litheWidgetPrompt"
     static let heightRange: ClosedRange<CGFloat> = 80...720
+    /// How long after a click or key press in the page a `sendPrompt` still counts as the user's.
+    static let gestureWindow: TimeInterval = 2
     let code: String
     let isDark: Bool
     @Binding var height: CGFloat
     let onPrompt: (String) -> Void
+
+    /// A prompt is honoured only shortly after the user's own click or key press in the page.
+    static func isFollowingUserGesture(_ lastGesture: TimeInterval?, now: TimeInterval) -> Bool {
+        guard let lastGesture else { return false }
+        return (0...gestureWindow).contains(now - lastGesture)
+    }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -244,6 +254,7 @@ struct AgentDesktopWidgetWebView: NSViewRepresentable {
         webView.setValue(false, forKey: "drawsBackground")
         webView.loadHTMLString(Self.document(code: code, isDark: isDark), baseURL: nil)
         context.coordinator.loadedDark = isDark
+        context.coordinator.trackUserGestures(in: webView)
         return webView
     }
 
@@ -258,6 +269,7 @@ struct AgentDesktopWidgetWebView: NSViewRepresentable {
     static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
         webView.configuration.userContentController.removeAllScriptMessageHandlers()
         webView.navigationDelegate = nil
+        coordinator.stopTrackingUserGestures()
     }
 
     /// The agent's code inside a page whose policy forbids every network load,
@@ -303,8 +315,33 @@ struct AgentDesktopWidgetWebView: NSViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var parent: AgentDesktopWidgetWebView
         var loadedDark = false
+        private var gestureMonitor: Any?
+        /// `NSEvent.timestamp` of the user's latest click or key press inside the page.
+        private var lastGesture: TimeInterval?
 
         init(_ parent: AgentDesktopWidgetWebView) { self.parent = parent }
+
+        deinit { stopTrackingUserGestures() }
+
+        /// WebKit gives the page no trustworthy user-gesture signal, so the host watches
+        /// the real input events delivered to this view.
+        func trackUserGestures(in webView: WKWebView) {
+            stopTrackingUserGestures()
+            gestureMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .keyDown]) {
+                [weak self, weak webView] event in
+                guard let webView, let window = webView.window, event.window === window else { return event }
+                let isInside = event.type == .keyDown
+                    ? window.firstResponder.map { ($0 as? NSView)?.isDescendant(of: webView) == true } ?? false
+                    : webView.bounds.contains(webView.convert(event.locationInWindow, from: nil))
+                if isInside { self?.lastGesture = event.timestamp }
+                return event
+            }
+        }
+
+        func stopTrackingUserGestures() {
+            if let gestureMonitor { NSEvent.removeMonitor(gestureMonitor) }
+            gestureMonitor = nil
+        }
 
         func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
                      decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
@@ -330,8 +367,10 @@ struct AgentDesktopWidgetWebView: NSViewRepresentable {
         }
 
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-            guard let text = message.body as? String,
-                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            guard message.frameInfo.isMainFrame, let text = message.body as? String,
+                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  AgentDesktopWidgetWebView.isFollowingUserGesture(lastGesture, now: ProcessInfo.processInfo.systemUptime)
+            else { return }
             parent.onPrompt(String(text.prefix(16_384)))
         }
     }

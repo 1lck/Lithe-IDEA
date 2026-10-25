@@ -137,4 +137,14 @@ struct AgentDesktopCardTests {
             }
         }
     }
+
+    @Test
+    func widgetPromptsCountOnlyRightAfterAUserGesture() {
+        typealias Widget = AgentDesktopWidgetWebView
+        #expect(!Widget.isFollowingUserGesture(nil, now: 100), "A page that runs on its own never fills the composer")
+        #expect(Widget.isFollowingUserGesture(99.5, now: 100))
+        #expect(Widget.isFollowingUserGesture(100, now: 100))
+        #expect(!Widget.isFollowingUserGesture(100 - Widget.gestureWindow - 0.1, now: 100), "A stale gesture is not the user's")
+        #expect(!Widget.isFollowingUserGesture(101, now: 100), "A gesture cannot come from the future")
+    }
 }
