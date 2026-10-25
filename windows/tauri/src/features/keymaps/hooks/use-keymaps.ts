@@ -15,6 +15,7 @@ import { isTerminalAltTextInput } from "@/features/terminal/utils/terminal-keybo
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { IS_LINUX } from "@/utils/platform";
 import { useKeymapStore } from "../stores/keymaps.store";
+import { resolveFocusedFileOpenTarget } from "./use-file-open-target";
 import { getEffectiveKeybindings } from "../utils/effective-keymaps";
 import { isEditorKeyboardTarget } from "../utils/editor-keyboard-target";
 import { resolveEffectiveKeymapContexts } from "../utils/effective-contexts";
@@ -35,7 +36,11 @@ const CHORD_TIMEOUT = 1000; // 1 second to complete chord
 const CLOSE_TAB_CLOSE_REQUEST_WINDOW_MS = 1000;
 const closeTabShortcut = parseKeybinding("cmd+w").parts[0];
 const closeWindowShortcut = parseKeybinding("cmd+shift+w").parts[0];
-const INPUT_ALLOWED_COMMANDS = new Set(["file.quickOpen", "workbench.commandPalette"]);
+const INPUT_ALLOWED_COMMANDS = new Set([
+  "file.quickOpen",
+  "file.openSelected",
+  "workbench.commandPalette",
+]);
 
 function isCloseTabShortcut(event: KeyboardEvent) {
   return keysMatch(eventToKey(event), closeTabShortcut);
@@ -152,6 +157,7 @@ export function useKeymaps() {
         isEditorTarget,
         isTerminalTarget,
       });
+      effectiveContexts.fileOpenTargetFocus = !!resolveFocusedFileOpenTarget();
 
       // Prevent modifier-shortcut floods when key is held down (e.g. Cmd+R auto-repeat)
       if (e.repeat && (e.metaKey || e.ctrlKey || e.altKey)) {
@@ -212,7 +218,12 @@ export function useKeymaps() {
       // Vim mode bypass - let vim handle keys without modifiers
       const hasModifiers = e.metaKey || e.ctrlKey || e.altKey;
 
-      if (settings.vimMode && !hasModifiers && !e.shiftKey) {
+      if (
+        settings.vimMode &&
+        !hasModifiers &&
+        !e.shiftKey &&
+        !effectiveContexts.fileOpenTargetFocus
+      ) {
         return;
       }
 
@@ -238,28 +249,13 @@ export function useKeymaps() {
       }
 
       const isNativeTextInput = isNativeTextInputTarget(e.target, document.activeElement);
-      if (isNativeTextInput && !isEditorTextarea && !isTerminalTextarea) {
-        for (const keybinding of allKeybindings) {
-          if (!INPUT_ALLOWED_COMMANDS.has(keybinding.command)) continue;
-          if (!keybinding.enabled && keybinding.enabled !== undefined) continue;
-          if (keybinding.when && !evaluateWhenClause(keybinding.when, effectiveContexts)) continue;
+      const restrictToInputCommands = isNativeTextInput && !isEditorTextarea && !isTerminalTextarea;
 
-          if (matchKeybinding(e, keybinding.key, chordState).matched) {
-            e.preventDefault();
-            e.stopPropagation();
-            keymapRegistry.executeCommand(keybinding.command, keybinding.args);
-            logger.debug(
-              "Keymaps",
-              `Executed from input: ${keybinding.key} -> ${keybinding.command}`,
-            );
-            return;
-          }
-        }
-        return;
-      }
-
-      // Try to match against registered keybindings
+      // Inputs share chord completion/reset semantics, while retaining their command allowlist.
       for (const keybinding of allKeybindings) {
+        if (restrictToInputCommands && !INPUT_ALLOWED_COMMANDS.has(keybinding.command)) continue;
+        if (keybinding.command === "file.openSelected" && !effectiveContexts.fileOpenTargetFocus)
+          continue;
         if (!keybinding.enabled && keybinding.enabled !== undefined) {
           continue;
         }
@@ -328,11 +324,18 @@ export function useKeymaps() {
 
     return () => {
       window.removeEventListener("keydown", handleKeyDown, true);
-      if (chordTimeoutRef.current) {
-        clearTimeout(chordTimeoutRef.current);
-      }
     };
   }, [contexts, chordState]);
+
+  // Listener replacement after the first chord key must not cancel its deadline.
+  useEffect(() => {
+    return () => {
+      if (chordTimeoutRef.current) {
+        clearTimeout(chordTimeoutRef.current);
+        chordTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   return {
     chordState,

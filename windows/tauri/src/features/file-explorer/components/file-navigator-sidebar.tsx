@@ -12,6 +12,7 @@ import {
 } from "react";
 import { cva } from "class-variance-authority";
 import { fuzzyScore } from "@/features/quick-open/utils/fuzzy-search";
+import { useFileOpenTarget } from "@/features/keymaps/hooks/use-file-open-target";
 import { useTranslation } from "@/i18n/locale-provider";
 import { EmptyState } from "@/ui/empty";
 import {
@@ -61,6 +62,7 @@ interface FileNavigatorSidebarProps {
   items: FileNavigatorItem[];
   selectedKey: string | null;
   onSelect: (key: string) => void;
+  onOpen?: (key: string) => void;
   className?: string;
   ariaLabel?: string;
   viewMode?: FileNavigatorViewMode;
@@ -148,6 +150,7 @@ const FileNavigatorFlatRow = memo(function FileNavigatorFlatRow({
 
   return (
     <SidebarListItem
+      data-file-navigator-key={item.key}
       onClick={() => onSelect(item.key)}
       aria-current={isSelected ? "true" : undefined}
       title={title}
@@ -233,6 +236,7 @@ const FileNavigatorNodeRow = memo(function FileNavigatorNodeRow({
   return (
     <SidebarTreeRow
       depth={depth}
+      data-file-navigator-key={item.key}
       onClick={() => onSelect(item.key)}
       active={isSelected}
       title={item.path}
@@ -255,6 +259,7 @@ export const FileNavigatorSidebar = memo(function FileNavigatorSidebar({
   items,
   selectedKey,
   onSelect,
+  onOpen,
   className,
   ariaLabel = "",
   viewMode = "tree",
@@ -268,6 +273,13 @@ export const FileNavigatorSidebar = memo(function FileNavigatorSidebar({
   const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState("");
   const navigatorRef = useRef<HTMLElement>(null);
+  useFileOpenTarget(navigatorRef, (target) => {
+    const key = target
+      .closest("[data-file-navigator-key]")
+      ?.getAttribute("data-file-navigator-key");
+    if (!onOpen || !key || !items.some((item) => item.key === key)) return;
+    return () => onOpen(key);
+  });
   const [preferredWidth, setPreferredWidth] = useState(DEFAULT_FILE_NAVIGATOR_WIDTH);
   const [parentWidth, setParentWidth] = useState<number>();
   const [isResizing, setIsResizing] = useState(false);

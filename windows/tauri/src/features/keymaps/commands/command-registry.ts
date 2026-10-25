@@ -1,4 +1,5 @@
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
+import { openFocusedFile } from "../hooks/use-file-open-target";
 import {
   openGlobalSearchSidebar,
   toggleDiagnosticsPane,
@@ -250,6 +251,13 @@ const fileCommands: Command[] = [
     category: "File",
     keybinding: "cmd+p",
     execute: openQuickOpen,
+  },
+  {
+    id: "file.openSelected",
+    title: "Open Selected File",
+    category: "File",
+    keybinding: "F4",
+    execute: openFocusedFile,
   },
   {
     id: "file.localHistory",

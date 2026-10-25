@@ -3028,6 +3028,7 @@
     "keybindings.commands.file.localHistory.title": "Show Local History",
     "keybindings.commands.file.new.title": "New File",
     "keybindings.commands.file.open.title": "Open Project",
+    "keybindings.commands.file.openSelected.title": "Open Selected File",
     "keybindings.commands.file.quickOpen.title": "Quick Open",
     "keybindings.commands.file.reopenClosed.title": "Reopen Closed Tab",
     "keybindings.commands.file.revert.title": "Revert File",
