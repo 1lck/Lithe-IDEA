@@ -22,6 +22,10 @@ const MAX_TRANSCRIPT_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_UPDATES: usize = 30_000;
 /// Per-field text limit, in characters, for tool output and tool input values.
 const TEXT_LIMIT: usize = 4_000;
+/// Longest base64 image replayed, in bytes: the client's 10 MB decoded limit
+/// (`AgentImage.maximumBytes`) inflated by a third. A larger screenshot would only
+/// be dropped on arrival, so it is not sent.
+const IMAGE_DATA_LIMIT: usize = 10_000_000 / 3 * 4;
 
 /// Projects directory of the account the adapter runs under: the explicit
 /// account directory, then `CLAUDE_CONFIG_DIR`, then `~/.claude`.
@@ -195,7 +199,7 @@ impl Converter {
         else {
             return;
         };
-        if data.is_empty() {
+        if data.is_empty() || data.len() > IMAGE_DATA_LIMIT {
             return;
         }
         self.last = Some(Chunk::User);
@@ -459,11 +463,12 @@ mod tests {
                 {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": "/9j/4A=="}},
                 {"type": "image", "source": {"type": "url", "url": "https://example.test/a.png"}},
                 {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": ""}},
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "A".repeat(IMAGE_DATA_LIMIT + 4)}},
             ]}}),
             boundary(),
         ]);
         let updates = earlier_updates(dir.path(), &cwd, "abc-1");
-        assert_eq!(updates.len(), 2, "only the inline base64 image is replayed");
+        assert_eq!(updates.len(), 2, "only the inline base64 image within the limit is replayed");
         assert_eq!(updates[1]["sessionUpdate"], "user_message_chunk");
         assert_eq!(updates[1]["content"]["type"], "image");
         assert_eq!(updates[1]["content"]["data"], "/9j/4A==");
