@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 import LitheCoreContracts
 
 // Note: 新建项目向导与项目生成器见 .agents/notes/implemented/feature/2026-10-23-plugin-project-generators.md
@@ -148,7 +149,7 @@ final class MacProjectGenerationPlatform: ProjectGenerationPlatform, @unchecked 
             .appendingPathComponent("lithe-project-\(UUID().uuidString).zip")
         guard fileManager.createFile(atPath: destination.path, contents: nil) else {
             bytes.task.cancel()
-            throw ProjectGenerationError(message: String(localized: "Lithe could not create a temporary download file."))
+            throw ProjectGenerationError(message: L10n.string("Lithe could not create a temporary download file."))
         }
         do {
             let handle = try FileHandle(forWritingTo: destination)

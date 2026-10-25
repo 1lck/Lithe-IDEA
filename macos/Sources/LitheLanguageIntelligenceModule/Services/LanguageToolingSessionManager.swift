@@ -14,17 +14,17 @@ package enum LanguageToolingSessionError: LocalizedError, Equatable, Sendable {
     package var errorDescription: String? {
         switch self {
         case .noProvider(let fileExtension):
-            return "No language provider handles .\(fileExtension) files."
+            return L10n.string("No language provider handles .\(fileExtension) files.")
         case .providerNotInstalled(let provider):
-            return "The \(provider) language provider is not installed."
+            return L10n.string("The \(provider) language provider is not installed.")
         case .providerDisabled(let provider):
-            return "The \(provider) language server is disabled in this workspace. Enable it in Settings > LSP."
+            return L10n.string("The \(provider) language server is disabled in this workspace. Enable it in Settings > LSP.")
         case .toolingUnavailable(let message):
             return message
         case .capabilityUnavailable(let provider, let capability):
-            return "The \(provider) provider does not support \(capability)."
+            return L10n.string("The \(provider) provider does not support \(capability).")
         case .invalidJavaDebugServerPort:
-            return "The Java Debug Server returned an invalid TCP port."
+            return L10n.string("The Java Debug Server returned an invalid TCP port.")
         }
     }
 }

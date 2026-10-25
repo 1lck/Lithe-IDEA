@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 import LitheCoreContracts
 
 // Note: 新建项目向导与项目生成器见 .agents/notes/implemented/feature/2026-10-23-plugin-project-generators.md
@@ -146,12 +147,12 @@ final class ProjectGenerationService: Sendable {
 
     static func message(for problem: ProjectFieldProblem) -> String {
         switch problem {
-        case .required: String(localized: "Enter a value.")
-        case .tooLong: String(localized: "The value is too long.")
-        case .invalidFormat: String(localized: "The value is not in the expected format.")
-        case .unsupportedValue: String(localized: "Choose one of the offered values.")
-        case .runtimeTooOld: String(localized: "This runtime is older than the generator requires.")
-        case .versionTooHigh: String(localized: "This version is newer than the selected runtime supports.")
+        case .required: L10n.string("Enter a value.")
+        case .tooLong: L10n.string("The value is too long.")
+        case .invalidFormat: L10n.string("The value is not in the expected format.")
+        case .unsupportedValue: L10n.string("Choose one of the offered values.")
+        case .runtimeTooOld: L10n.string("This runtime is older than the generator requires.")
+        case .versionTooHigh: L10n.string("This version is newer than the selected runtime supports.")
         }
     }
 }

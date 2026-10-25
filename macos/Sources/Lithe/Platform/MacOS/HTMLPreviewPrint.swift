@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import AppKit
 import WebKit
 
@@ -97,10 +98,10 @@ extension HTMLPreviewBrowserController {
 
     /// Adjusts the context menu WebKit built for a right-click, before it appears.
     func customizeContextMenu(_ menu: NSMenu, for event: NSEvent?) {
-        let print = NSMenuItem(title: String(localized: "Print…"), action: #selector(printPageFromMenu(_:)), keyEquivalent: "")
+        let print = NSMenuItem(title: L10n.string("Print…"), action: #selector(printPageFromMenu(_:)), keyEquivalent: "")
         print.identifier = HTMLPreviewContextMenu.printIdentifier
         print.target = self
-        let export = NSMenuItem(title: String(localized: "Export as PDF…"), action: #selector(exportPDFFromMenu(_:)), keyEquivalent: "")
+        let export = NSMenuItem(title: L10n.string("Export as PDF…"), action: #selector(exportPDFFromMenu(_:)), keyEquivalent: "")
         export.identifier = HTMLPreviewContextMenu.exportPDFIdentifier
         export.target = self
         HTMLPreviewContextMenu.customize(menu, pageActions: [print, export])

@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import LitheModuleAPI
 import LitheCoreContracts
 import LitheGitModule
 
@@ -96,7 +97,12 @@ final class AppSettings: ObservableObject {
     @Published var themePreference: AppThemePreference {
         didSet { defaults.set(themePreference.rawValue, forKey: Key.themePreference) }
     }
-    @Published var language: AppLanguage { didSet { defaults.set(language.rawValue, forKey: Key.language) } }
+    @Published var language: AppLanguage {
+        didSet {
+            defaults.set(language.rawValue, forKey: Key.language)
+            InterfaceLanguage.select(language.rawValue)
+        }
+    }
     @Published var editorFontSize: Double { didSet { defaults.set(editorFontSize, forKey: Key.editorFontSize) } }
     /// 代码编辑器编程字体族。默认是随包分发的 JetBrains Mono，只有在用户
     /// 显式选择系统字体后才偏离打包字体；终端、Output 工具窗和提交信息
@@ -298,7 +304,9 @@ final class AppSettings: ObservableObject {
         themePreference = AppThemePreference(
             rawValue: defaults.string(forKey: Key.themePreference) ?? ""
         ) ?? .dark
-        language = AppLanguage(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .defaultLanguage
+        let storedLanguage = AppLanguage(rawValue: defaults.string(forKey: Key.language) ?? "") ?? .defaultLanguage
+        language = storedLanguage
+        InterfaceLanguage.select(storedLanguage.rawValue)
         editorFontSize = defaults.object(forKey: Key.editorFontSize) as? Double ?? 13
         editorFontFamily = EditorFontResolution.normalizedFamily(
             defaults.string(forKey: Key.editorFontFamily)

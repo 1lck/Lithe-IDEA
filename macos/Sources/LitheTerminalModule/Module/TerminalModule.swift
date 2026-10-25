@@ -65,7 +65,7 @@ public final class TerminalModule: LitheModule {
 
 public enum TerminalModuleSleepError: LocalizedError, Sendable {
     case runningSession
-    public var errorDescription: String? { "A terminal session is still running." }
+    public var errorDescription: String? { L10n.string("A terminal session is still running.") }
 }
 
 @MainActor

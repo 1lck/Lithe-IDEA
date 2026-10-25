@@ -2598,7 +2598,7 @@ package final class GitFeatureModel: ObservableObject {
         guard let gitRepositoryRoot, !isPerformingWorktreeOperation else { return }
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else {
-            notify?(String(localized: "Enter a branch name", bundle: .main))
+            notify?(L10n.string("Enter a branch name"))
             return
         }
         isPerformingWorktreeOperation = true
@@ -2614,7 +2614,7 @@ package final class GitFeatureModel: ObservableObject {
         isPerformingWorktreeOperation = false
         if result.succeeded {
             notify?(String(
-                format: String(localized: "Created worktree for %@", bundle: .main),
+                format: L10n.string("Created worktree for %@"),
                 name
             ))
             await refreshWorktrees()
@@ -2650,7 +2650,7 @@ package final class GitFeatureModel: ObservableObject {
         isPerformingWorktreeOperation = false
         notify?(result.succeeded
             ? String(
-                format: String(localized: "Removed %@", bundle: .main),
+                format: L10n.string("Removed %@"),
                 worktree.displayName
             )
             : trimmedMessage(result))
@@ -2703,7 +2703,7 @@ package final class GitFeatureModel: ObservableObject {
         let result = await withGitOperation { await service.pruneWorktrees(at: gitRepositoryRoot) }
         isPerformingWorktreeOperation = false
         notify?(result.succeeded
-            ? String(localized: "Pruned stale worktree records", bundle: .main)
+            ? L10n.string("Pruned stale worktree records")
             : trimmedMessage(result))
         await refreshWorktrees()
     }
@@ -2714,7 +2714,7 @@ package final class GitFeatureModel: ObservableObject {
         let result = await withGitOperation { await service.repairWorktrees(at: gitRepositoryRoot) }
         isPerformingWorktreeOperation = false
         notify?(result.succeeded
-            ? String(localized: "Repaired worktree records", bundle: .main)
+            ? L10n.string("Repaired worktree records")
             : trimmedMessage(result))
         await refreshWorktrees()
     }

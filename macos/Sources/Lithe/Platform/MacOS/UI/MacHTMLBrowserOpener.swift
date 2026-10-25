@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import AppKit
 import Foundation
 
@@ -24,9 +25,7 @@ struct MacHTMLBrowserOpener {
         guard let probe = URL(string: "https://example.invalid"),
               let browser = applicationForURL(probe) else {
             throw CocoaError(.serviceApplicationNotFound, userInfo: [
-                NSLocalizedDescriptionKey: NSLocalizedString(
-                    "Choose a default web browser in System Settings, then retry.", comment: ""
-                )
+                NSLocalizedDescriptionKey: L10n.string(key: "Choose a default web browser in System Settings, then retry.")
             ])
         }
         try await openURLs([url], browser)

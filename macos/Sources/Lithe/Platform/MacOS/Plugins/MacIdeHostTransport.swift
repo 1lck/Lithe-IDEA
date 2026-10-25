@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import LitheCoreContracts
 
@@ -23,11 +24,11 @@ final class MacIdeHostTransport: IdeHostTransport {
 
     func control(_ action: String, arguments: [String: Any]) throws -> [String: Any] {
         guard let payload = ToolingJSONValue.fromFoundation(["action": action, "arguments": arguments]) else {
-            throw NSError(domain: "IdeHost", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid IDE API request"])
+            throw NSError(domain: "IdeHost", code: 1, userInfo: [NSLocalizedDescriptionKey: L10n.string("Invalid IDE API request")])
         }
         let result: Result<ToolingJSONValue, RustCoreBridge.CoreCallError> = core.executeResult(command: "ideHost.control", payload: payload)
         guard let object = try result.get().foundationObject as? [String: Any] else {
-            throw NSError(domain: "IdeHost", code: 2, userInfo: [NSLocalizedDescriptionKey: "Invalid IDE API response"])
+            throw NSError(domain: "IdeHost", code: 2, userInfo: [NSLocalizedDescriptionKey: L10n.string("Invalid IDE API response")])
         }
         return object
     }

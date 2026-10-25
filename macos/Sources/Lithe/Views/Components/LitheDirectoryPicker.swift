@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import AppKit
 
 /// The folder chooser of windows that create something on disk (Clone
@@ -12,7 +13,7 @@ enum LitheDirectoryPicker {
         panel.canChooseFiles = false
         panel.canCreateDirectories = true
         panel.allowsMultipleSelection = false
-        panel.prompt = String(localized: "Choose")
+        panel.prompt = L10n.string("Choose")
         if let path {
             let expanded = (path as NSString).expandingTildeInPath
             var isDirectory: ObjCBool = false

@@ -53,7 +53,7 @@ public final class SearchModule: LitheModule {
 
 public enum SearchModuleSleepError: LocalizedError, Sendable {
     case activeSearch
-    public var errorDescription: String? { "Search or replacement work is still active." }
+    public var errorDescription: String? { L10n.string("Search or replacement work is still active.") }
 }
 
 @MainActor

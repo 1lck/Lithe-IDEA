@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 import LitheCoreContracts
 
 enum LitheActionGroup: String, CaseIterable, Sendable {
@@ -122,7 +123,7 @@ enum LitheActionRegistry {
             // plugin's display name, so only the verb is localized.
             let isBuildSystemWindow = contribution.visibility[DeclarativeBuildSystem.buildSystemIDKey] != nil
             let title = isBuildSystemWindow
-                ? String(format: String(localized: "Toggle %@"), contribution.title) : contribution.title
+                ? String(format: L10n.string("Toggle %@"), contribution.title) : contribution.title
             return LitheAction(id: contribution.actionID ?? contribution.id, title: title,
                         subtitle: definition?.subtitle ?? "", group: definition?.group ?? .window,
                         keyEquivalent: definition.flatMap { model.keyboardShortcutFeature.displayText(for: $0.id) },

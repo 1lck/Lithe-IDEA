@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 
 /// macOS filesystem adapter for JDT LS workspace fingerprints and cached state.
@@ -389,23 +390,23 @@ private enum MacJdtWorkspaceStateError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .workspaceFingerprintUnavailable:
-            "Rust Core workspace-fingerprint resolution is unavailable."
+            L10n.string("Rust Core workspace-fingerprint resolution is unavailable.")
         case .invalidBuildFileMetadata(let path):
-            "Could not read Java build-file metadata for \(path)."
+            L10n.string("Could not read Java build-file metadata for \(path).")
         case .invalidLanguageServerManifest(let path):
-            "The bundled JDT LS manifest is invalid at \(path)."
+            L10n.string("The bundled JDT LS manifest is invalid at \(path).")
         case .languageServerVersionUnavailable:
-            "The bundled JDT LS version could not be determined."
+            L10n.string("The bundled JDT LS version could not be determined.")
         case .languageServerInstallationUnavailable:
-            "The bundled JDT LS installation could not be determined."
+            L10n.string("The bundled JDT LS installation could not be determined.")
         case .invalidWorkspaceKey:
-            "Rust Core returned an invalid Java workspace key."
+            L10n.string("Rust Core returned an invalid Java workspace key.")
         case .cacheRetentionUnavailable:
-            "Rust Core cache-retention planning is unavailable."
+            L10n.string("Rust Core cache-retention planning is unavailable.")
         case .invalidRetentionPlan:
-            "Rust Core returned a Java cache-retention key that was not observed."
+            L10n.string("Rust Core returned a Java cache-retention key that was not observed.")
         case .invalidRetentionTarget:
-            "A Java cache-retention target is not a removable directory."
+            L10n.string("A Java cache-retention target is not a removable directory.")
         }
     }
 }

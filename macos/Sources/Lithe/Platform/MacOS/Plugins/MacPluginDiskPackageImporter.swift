@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Darwin
 import Foundation
 
@@ -23,11 +24,11 @@ enum MacPluginDiskPackageImportError: Error, Equatable, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unsupportedSource:
-            "Choose a ZIP archive or an unpacked plugin directory."
+            L10n.string("Choose a ZIP archive or an unpacked plugin directory.")
         case .unsafeEntry:
-            "Plugin packages cannot contain aliases, symbolic links or special files."
+            L10n.string("Plugin packages cannot contain aliases, symbolic links or special files.")
         case .sourceChanged:
-            "The plugin package changed while it was being copied. Choose it again."
+            L10n.string("The plugin package changed while it was being copied. Choose it again.")
         }
     }
 }

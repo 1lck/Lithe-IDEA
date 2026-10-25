@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import CryptoKit
 import Foundation
 
@@ -64,25 +65,25 @@ public enum PluginPackageSignature {
         public var errorDescription: String? {
             switch self {
             case .invalidPackageRoot:
-                return "The plugin package root is invalid."
+                return L10n.string("The plugin package root is invalid.")
             case .missingManifest:
-                return "The plugin package manifest is missing."
+                return L10n.string("The plugin package manifest is missing.")
             case .invalidManifest:
-                return "The plugin package manifest is invalid."
+                return L10n.string("The plugin package manifest is invalid.")
             case .unsupportedFile(let path):
-                return "The plugin package contains an unsupported file: \(path)."
+                return L10n.string("The plugin package contains an unsupported file: \(path).")
             case .fileListMismatch:
-                return "The plugin package file list does not match its signature."
+                return L10n.string("The plugin package file list does not match its signature.")
             case .fileDigestMismatch(let path):
-                return "The plugin package file was changed after signing: \(path)."
+                return L10n.string("The plugin package file was changed after signing: \(path).")
             case .invalidDocument:
-                return "The plugin package signature document is invalid."
+                return L10n.string("The plugin package signature document is invalid.")
             case .invalidSignature:
-                return "The plugin package signature is invalid."
+                return L10n.string("The plugin package signature is invalid.")
             case .publicKeyUnavailable:
-                return "The official plugin signing key is unavailable."
+                return L10n.string("The official plugin signing key is unavailable.")
             case .untrustedKey(let keyID):
-                return "The plugin package is signed by key \(keyID), which this version of Lithe does not trust."
+                return L10n.string("The plugin package is signed by key \(keyID), which this version of Lithe does not trust.")
             }
         }
     }

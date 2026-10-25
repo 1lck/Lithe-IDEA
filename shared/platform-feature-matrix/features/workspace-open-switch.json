@@ -13,7 +13,9 @@
       "macos/Tests/LitheTests/ProjectSwitcherBranchTests.swift",
       "macos/Tests/LitheTests/ContextMenuCoverageTests.swift",
       "macos/Sources/Lithe/Views/Workspace/OpenProjectLocationDialog.swift",
-      "macos/Sources/Lithe/Views/Components/LitheActionButtonStyle.swift"
+      "macos/Sources/Lithe/Views/Components/LitheActionButtonStyle.swift",
+      "macos/Sources/Lithe/Views/Workspace/OpenProjectPanel.swift",
+      "macos/Sources/Lithe/Models/AppModel/AppModel+LocalFolders.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -27,5 +29,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Workspace",
-  "verification": "打开多个项目并在项目之间切换，确认当前项目、文件树和编辑器状态正确；macOS 重启并恢复上次在 Search 等其他侧栏打开的工作区时，默认显示 Project 侧栏，打开的编辑器文件仍恢复。 macOS 欢迎页应用名、Projects、普通项目名及 New Project/Open/Clone Repository 按钮使用 Inter Regular 常规字重，与 IDEA WelcomeScreenComponentFactory 的 Font.PLAIN 和项目默认标签一致；搜索提示与项目路径保持常规字重。 打开多个项目并在项目之间切换，确认当前项目、文件树和编辑器状态正确。Windows 端询问弹窗提供 This Window（替换当前项目）/ New Window / Attach / Cancel 四个选项，勾选\"不再询问\"后记住所选目的地（设置项 projectOpenDefaultDestination），替换前对未保存缓冲区只弹一次确认，确认后原项目即锁定为关闭中（不可切回编辑），新项目打开失败时回滚保留原项目；关闭项目时若后继项目切换失败则中止关闭并保留原项目。 macOS 项目切换菜单按名称、路径和当前分支内容测量宽度，仅受屏幕可见区域限制；打开项目和最近项目中的 Git 仓库在路径下显示分支图标与名称，普通目录不显示该行。外部切换分支后重新打开菜单读取最新名称，元数据读取不覆盖 Git 身份草稿；检查明暗主题和长路径。 macOS 项目打开位置提示使用带标题的 LitheCenteredPopup、共享勾选框和统一按钮；在明暗主题及中英文验证长项目名换行、统一悬停底色、默认动作 Return、取消 Escape/关闭窗口、不再询问持久化、新窗口和此窗口打开。仅请求所属窗口显示，旧请求取消不得影响新请求，父窗口输入在提示期间被阻止。 Windows 端点击路径已不存在（或已不是文件夹）的最近项目时，弹出“Recent Project Unavailable”确认框，选择“Remove From List”会把该项从最近项目移除，取消则保留并标记为缺失；标题栏项目菜单的最近项目行悬浮显示移除按钮（聚焦行按 Delete/Backspace 同样移除），缺失项目头像和文字灰显且移除按钮常驻，点击移除不会打开项目也不会关闭菜单。"
+  "verification": "打开多个项目并在项目之间切换，确认当前项目、文件树和编辑器状态正确；macOS 重启并恢复上次在 Search 等其他侧栏打开的工作区时，默认显示 Project 侧栏，打开的编辑器文件仍恢复。 macOS 欢迎页应用名、Projects、普通项目名及 New Project/Open/Clone Repository 按钮使用 Inter Regular 常规字重，与 IDEA WelcomeScreenComponentFactory 的 Font.PLAIN 和项目默认标签一致；搜索提示与项目路径保持常规字重。 打开多个项目并在项目之间切换，确认当前项目、文件树和编辑器状态正确。Windows 端询问弹窗提供 This Window（替换当前项目）/ New Window / Attach / Cancel 四个选项，勾选\"不再询问\"后记住所选目的地（设置项 projectOpenDefaultDestination），替换前对未保存缓冲区只弹一次确认，确认后原项目即锁定为关闭中（不可切回编辑），新项目打开失败时回滚保留原项目；关闭项目时若后继项目切换失败则中止关闭并保留原项目。 macOS 项目切换菜单按名称、路径和当前分支内容测量宽度，仅受屏幕可见区域限制；打开项目和最近项目中的 Git 仓库在路径下显示分支图标与名称，普通目录不显示该行。外部切换分支后重新打开菜单读取最新名称，元数据读取不覆盖 Git 身份草稿；检查明暗主题和长路径。 macOS 项目打开位置提示使用带标题的 LitheCenteredPopup、共享勾选框和统一按钮；在明暗主题及中英文验证长项目名换行、统一悬停底色、默认动作 Return、取消 Escape/关闭窗口、不再询问持久化、新窗口和此窗口打开。仅请求所属窗口显示，旧请求取消不得影响新请求，父窗口输入在提示期间被阻止。 Windows 端点击路径已不存在（或已不是文件夹）的最近项目时，弹出“Recent Project Unavailable”确认框，选择“Remove From List”会把该项从最近项目移除，取消则保留并标记为缺失；标题栏项目菜单的最近项目行悬浮显示移除按钮（聚焦行按 Delete/Backspace 同样移除），缺失项目头像和文字灰显且移除按钮常驻，点击移除不会打开项目也不会关闭菜单。 macOS 已保存 SSH 连接时，Open（欢迎页、菜单 Open Project…、项目切换器）弹出统一选择面板：左侧「本地文件夹」与各 SSH 连接，右侧在面板内浏览目录并显示修改时间与大小，选 SSH 主机时自动连接并浏览远程目录，点 Open 在当前窗口打开所选目录；没有保存连接时直接弹系统选择面板。在 800×650 的小窗口和大窗口验证面板完整显示、连续点击后尺寸不变，进入桌面等受保护文件夹时系统授权弹窗出现一次，Esc 取消，左下角“远程开发”进入连接管理。"
 }

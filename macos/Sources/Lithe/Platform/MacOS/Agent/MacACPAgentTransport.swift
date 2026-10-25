@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import LitheCoreContracts
 import LitheRustCore
@@ -160,8 +161,8 @@ private enum MacACPAgentError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .invalidConfiguration: "The Agent configuration is invalid. Check the executable, API endpoint, and key."
-        case .rejected: "The Agent did not accept the request. It may have stopped."
+        case .invalidConfiguration: L10n.string("The Agent configuration is invalid. Check the executable, API endpoint, and key.")
+        case .rejected: L10n.string("The Agent did not accept the request. It may have stopped.")
         }
     }
 }

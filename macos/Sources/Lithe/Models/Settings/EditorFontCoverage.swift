@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 
 /// Character group used to describe a programming font's coverage.
 ///
@@ -34,13 +35,13 @@ enum EditorFontScript: String, CaseIterable {
     /// Name shown by the coverage hint in settings.
     var localizedName: String {
         switch self {
-        case .latin: String(localized: "basic Latin letters")
-        case .symbols: String(localized: "punctuation and symbols")
-        case .chinese: String(localized: "Chinese characters")
-        case .japanese: String(localized: "Japanese characters")
-        case .korean: String(localized: "Korean characters")
-        case .greek: String(localized: "Greek letters")
-        case .cyrillic: String(localized: "Cyrillic letters")
+        case .latin: L10n.string("basic Latin letters")
+        case .symbols: L10n.string("punctuation and symbols")
+        case .chinese: L10n.string("Chinese characters")
+        case .japanese: L10n.string("Japanese characters")
+        case .korean: L10n.string("Korean characters")
+        case .greek: L10n.string("Greek letters")
+        case .cyrillic: L10n.string("Cyrillic letters")
         }
     }
 }
@@ -78,7 +79,7 @@ struct EditorFontCoverage {
         switch missingScripts.count {
         case 0: nil
         case 1: missingScripts[0].localizedName
-        default: String(localized: "characters used by the interface and your files")
+        default: L10n.string("characters used by the interface and your files")
         }
     }
 }

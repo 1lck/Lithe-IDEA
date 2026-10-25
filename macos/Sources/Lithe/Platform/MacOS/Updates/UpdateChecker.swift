@@ -1,6 +1,7 @@
 import AppKit
 import Sparkle
 import Foundation
+import LitheModuleAPI
 import Combine
 
 struct UpdateNotice: Identifiable {
@@ -226,8 +227,8 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
         guard !stableRollback.state.isActive, !rollbackRequested, pendingChannel == nil else { return }
         if needsChannelInstallation {
             guard manual else { return }
-            notice = UpdateNotice(title: String(localized: "Install the selected channel"),
-                message: String(localized: "Changing channels requires a full installation and may install an older version. Open the selected release page to download its installer. Your channel selection is saved for future updates."),
+            notice = UpdateNotice(title: L10n.string("Install the selected channel"),
+                message: L10n.string("Changing channels requires a full installation and may install an older version. Open the selected release page to download its installer. Your channel selection is saved for future updates."),
                 action: .open(selectedReleaseURL))
             return
         }
@@ -339,18 +340,18 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
               Data(base64Encoded: key)?.count == 32 else {
             throw NSError(domain: "app.lithe.updates", code: 1,
                 userInfo: [NSLocalizedDescriptionKey:
-                    "This build does not have a configured update feed and signing key. Download a published version from GitHub Releases."])
+                    L10n.string("This build does not have a configured update feed and signing key. Download a published version from GitHub Releases.")])
         }
     }
 
     func updater(_ updater: SPUUpdater, mayPerform updateCheck: SPUUpdateCheck) throws {
         guard !needsChannelInstallation, pendingChannel == nil else {
             throw NSError(domain: "app.lithe.updates", code: 3,
-                userInfo: [NSLocalizedDescriptionKey: String(localized: "Install the selected channel")])
+                userInfo: [NSLocalizedDescriptionKey: L10n.string("Install the selected channel")])
         }
         guard !stableRollback.state.isActive, !rollbackRequested else {
             throw NSError(domain: "app.lithe.updates", code: 2,
-                userInfo: [NSLocalizedDescriptionKey: String(localized: "A stable release installation is already in progress.")])
+                userInfo: [NSLocalizedDescriptionKey: L10n.string("A stable release installation is already in progress.")])
         }
         isChecking = true
         status = .checking

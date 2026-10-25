@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import AppKit
 import Combine
 import LitheLocalHistoryModule
@@ -168,7 +169,7 @@ struct RootView: View {
                     set: { if !$0 && scopedPendingProjectOpen.wrappedValue?.id == request.id {
                         projectSessions.cancelPendingOpen()
                     } }
-                ), dialogTitle: String(localized: "Open Project", locale: locale)) {
+                ), dialogTitle: L10n.string("Open Project", locale: locale)) {
                     OpenProjectLocationDialog(request: request, onResolve: { placement, doNotAskAgain in
                         projectSessions.resolvePendingOpen(
                             request,
@@ -322,11 +323,20 @@ private struct ActiveSessionChrome: View {
                 }
             }
             .sheet(isPresented: Binding(
+                get: { session.workbenchFeature.isOpenTargetChooserPresented },
+                set: { session.workbenchFeature.isOpenTargetChooserPresented = $0 }
+            )) {
+                if session.canManageRemoteConnections {
+                    OpenProjectPanelSheet(feature: session.makeRemoteConnectionsFeature()!)
+                        .environmentObject(session)
+                }
+            }
+            .sheet(isPresented: Binding(
                 get: { session.workbenchFeature.isRemoteConnectionsPresented },
                 set: { session.workbenchFeature.isRemoteConnectionsPresented = $0 }
             )) {
-                if let feature = session.makeRemoteConnectionsFeature() {
-                    RemoteConnectionsSheet(feature: feature)
+                if session.canManageRemoteConnections {
+                    RemoteConnectionsSheet(feature: session.makeRemoteConnectionsFeature()!)
                 }
             }
             .sheet(isPresented: Binding(

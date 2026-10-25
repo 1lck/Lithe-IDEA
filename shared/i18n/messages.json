@@ -83084,6 +83084,5326 @@
       }
     },
     {
+      "id": "native.saveAll",
+      "description": "Native UI: Save All",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Save All",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.donTSave",
+      "description": "Native UI: Don't Save",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Don't Save",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.renameSymbol",
+      "description": "Native UI: Rename Symbol",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Rename Symbol",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.enterTheNewSymbolName",
+      "description": "Native UI: Enter the new symbol name.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Enter the new symbol name.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theMarkdownAssetIsUnavailable",
+      "description": "Native UI: The Markdown asset is unavailable",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The Markdown asset is unavailable",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.invalidIdeApiRequest",
+      "description": "Native UI: Invalid IDE API request",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Invalid IDE API request",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.invalidIdeApiResponse",
+      "description": "Native UI: Invalid IDE API response",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Invalid IDE API response",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thisAdapterDoesNotSupportHotCodeReplacement",
+      "description": "Native UI: This adapter does not support hot code replacement.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This adapter does not support hot code replacement.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.languageEditTargetsAFileOutsideTheWorkspace",
+      "description": "Native UI: Language edit targets a file outside the workspace.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Language edit targets a file outside the workspace.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.languageEditTargetsAnUnreadableFile",
+      "description": "Native UI: Language edit targets an unreadable file.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Language edit targets an unreadable file.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thisPluginAlreadyHasAnInstallationInProgress",
+      "description": "Native UI: This plugin already has an installation in progress. Try again after it finishes.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This plugin already has an installation in progress. Try again after it finishes.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theOfficialLithePluginRepositoryCannotBeRemoved",
+      "description": "Native UI: The official Lithe plugin repository cannot be removed. Disable it instead.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The official Lithe plugin repository cannot be removed. Disable it instead.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theNativePanelStateExceeds64Kib",
+      "description": "Native UI: The native panel state exceeds 64 KiB.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The native panel state exceeds 64 KiB.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.startTheProvider",
+      "description": "Native UI: Start the %@ provider",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Start the %@ provider",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.runOf",
+      "description": "Native UI: Run %@ of %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Run %@ of %@",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string"
+      }
+    },
+    {
+      "id": "native.couldNotRead.variant2",
+      "description": "Native UI: Could not read %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not read %@.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.thisConfigurationIsLargerThan1MibAnd",
+      "description": "Native UI: This configuration is larger than 1 MiB and is not edited by Lithe.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This configuration is larger than 1 MiB and is not edited by Lithe.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theConfigurationChangedOnDiskRefreshAndTry",
+      "description": "Native UI: The configuration changed on disk. Refresh and try again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The configuration changed on disk. Refresh and try again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.couldNotWrite",
+      "description": "Native UI: Could not write %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not write %@.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.noResolverIsRegisteredForToolchain",
+      "description": "Native UI: No resolver is registered for toolchain %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No resolver is registered for toolchain %@.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.noGradleWrapperOrGradleExecutableWasFound",
+      "description": "Native UI: No Gradle wrapper or Gradle executable was found.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No Gradle wrapper or Gradle executable was found.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noJavaRuntimeWasFoundSetJavaHome",
+      "description": "Native UI: No Java runtime was found. Set JAVA_HOME or install a JDK.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No Java runtime was found. Set JAVA_HOME or install a JDK.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noMavenExecutableWasFoundEditThisService",
+      "description": "Native UI: No Maven executable was found. Edit this service configuration.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No Maven executable was found. Edit this service configuration.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.buildSystemLanguageImportIsStillPreparingRetry",
+      "description": "Native UI: Build-system language import is still preparing. Retry when project loading completes.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Build-system language import is still preparing. Retry when project loading completes.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theLanguageServerCouldNotApplyThisSetting",
+      "description": "Native UI: The language server could not apply this setting. Restart it to use the new value.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The language server could not apply this setting. Restart it to use the new value.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thisBuildSystemSProviderRunsInA",
+      "description": "Native UI: This build system's provider runs in a shared language server, which serves no plugin functions.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This build system's provider runs in a shared language server, which serves no plugin functions.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theBuildProviderFailedToStart",
+      "description": "Native UI: The build provider failed to start.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The build provider failed to start.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theBuildProviderStoppedBeforeItWasReady",
+      "description": "Native UI: The build provider stopped before it was ready.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The build provider stopped before it was ready.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.buildProvider",
+      "description": "Native UI: Build provider",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Build provider",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thisPluginHasNoBackendThatCanRun",
+      "description": "Native UI: This plugin has no backend that can run now.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This plugin has no backend that can run now.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thePluginBackendFailedToStart",
+      "description": "Native UI: The plugin backend failed to start.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin backend failed to start.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thePluginBackendStoppedBeforeItWasReady",
+      "description": "Native UI: The plugin backend stopped before it was ready.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin backend stopped before it was ready.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.pluginBackend",
+      "description": "Native UI: Plugin backend",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Plugin backend",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.requestedByThePlugin",
+      "description": "Native UI: Requested by the plugin “%@”.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Requested by the plugin “%@”.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.litheCouldNotCreateATemporaryDownloadFile",
+      "description": "Native UI: Lithe could not create a temporary download file.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Lithe could not create a temporary download file.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.openGitPatch",
+      "description": "Native UI: Open Git Patch",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Open Git Patch",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.saveGitPatch",
+      "description": "Native UI: Save Git Patch",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Save Git Patch",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thisFolder",
+      "description": "Native UI: This Folder",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This Folder",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.buildSystemLanguageImportPreparationTimedOutRetry",
+      "description": "Native UI: Build-system language import preparation timed out. Retry project loading.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Build-system language import preparation timed out. Retry project loading.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theBuildSystemInstanceIsNoLongerDetected",
+      "description": "Native UI: The build-system instance is no longer detected.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The build-system instance is no longer detected.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theProviderLooksUpTheBuildToolItself",
+      "description": "Native UI: The provider looks up the build tool itself: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The provider looks up the build tool itself: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.thisBuildSystemAnswersThroughAProviderProcess",
+      "description": "Native UI: This build system answers through a provider process, which this build of Lithe cannot start.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This build system answers through a provider process, which this build of Lithe cannot start.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.openASourceFileBeforeRunningCurrentFile",
+      "description": "Native UI: Open a source file before running Current File.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Open a source file before running Current File.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.portLldIsAlreadyInUseStopThe",
+      "description": "Native UI: Port %@ is already in use. Stop the process using it or change server.port in the Run configuration.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Port %@ is already in use. Stop the process using it or change server.port in the Run configuration.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.thePluginRepositoryHasAlreadyBeenAdded",
+      "description": "Native UI: The plugin repository %@ has already been added.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin repository %@ has already been added.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.pluginIsNotListedByThePluginRepository",
+      "description": "Native UI: Plugin %@ is not listed by the plugin repository it was installed from. Refresh the repository and try again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Plugin %@ is not listed by the plugin repository it was installed from. Refresh the repository and try again.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.openTheMarkdownFileInsideAWorkspaceBefore",
+      "description": "Native UI: Open the Markdown file inside a workspace before pasting an image",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Open the Markdown file inside a workspace before pasting an image",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thisMarkdownDocumentIsReadOnly",
+      "description": "Native UI: This Markdown document is read-only",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This Markdown document is read-only",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.imagesCanOnlyBePastedIntoMarkdownDocuments",
+      "description": "Native UI: Images can only be pasted into Markdown documents",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Images can only be pasted into Markdown documents",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theImageDestinationIsOutsideTheCurrentWorkspace",
+      "description": "Native UI: The image destination is outside the current workspace",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The image destination is outside the current workspace",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theMarkdownAssetsPathIsNotAWritable",
+      "description": "Native UI: The Markdown assets path is not a writable directory",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The Markdown assets path is not a writable directory",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theClipboardImageIsEmpty",
+      "description": "Native UI: The clipboard image is empty",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The clipboard image is empty",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theClipboardImageIsLargerThan100Mb",
+      "description": "Native UI: The clipboard image is larger than 100 MB",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The clipboard image is larger than 100 MB",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theClipboardImageCouldNotBeRead",
+      "description": "Native UI: The clipboard image could not be read",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The clipboard image could not be read",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.aUniqueFilenameCouldNotBeCreatedFor",
+      "description": "Native UI: A unique filename could not be created for the image",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "A unique filename could not be created for the image",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theProcessIsNotRunning",
+      "description": "Native UI: The process is not running.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The process is not running.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theProcessDoesNotHaveAnOpenStandard",
+      "description": "Native UI: The process does not have an open standard-input pipe.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The process does not have an open standard-input pipe.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theApplicationClosedBeforeTheDebugTerminalCould",
+      "description": "Native UI: The application closed before the debug terminal could start.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The application closed before the debug terminal could start.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thisDebugSessionRequiresAnExternalTerminalWhich",
+      "description": "Native UI: This debug session requires an external terminal, which is not supported.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This debug session requires an external terminal, which is not supported.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thisDebugSessionRequiresShellInterpretedTerminalArguments",
+      "description": "Native UI: This debug session requires shell-interpreted terminal arguments.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This debug session requires shell-interpreted terminal arguments.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theDebugAdapterDidNotProvideATerminal",
+      "description": "Native UI: The debug adapter did not provide a terminal executable.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The debug adapter did not provide a terminal executable.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.openAProjectBeforeStartingADebugTerminal",
+      "description": "Native UI: Open a project before starting a debug terminal.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Open a project before starting a debug terminal.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theIntegratedTerminalIsUnavailable",
+      "description": "Native UI: The integrated terminal is unavailable.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The integrated terminal is unavailable.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theDebugAdapterProvidedAnInvalidTerminalWorking",
+      "description": "Native UI: The debug adapter provided an invalid terminal working directory.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The debug adapter provided an invalid terminal working directory.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.waitForTheEditorToSynchronizeBeforeSaving",
+      "description": "Native UI: Wait for the editor to synchronize before saving",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Wait for the editor to synchronize before saving",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theAiServiceReturnedAnInvalidHttpResponse",
+      "description": "Native UI: The AI service returned an invalid HTTP response.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The AI service returned an invalid HTTP response.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.httpRequestsAreDisabledForThisAiProvider",
+      "description": "Native UI: HTTP requests are disabled for this AI provider.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "HTTP requests are disabled for this AI provider.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theAiServiceConnectionFailed",
+      "description": "Native UI: The AI service connection failed.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The AI service connection failed.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theAiServiceRequestTimedOut",
+      "description": "Native UI: The AI service request timed out.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The AI service request timed out.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theAiServiceReturnedAMalformedHttpResponse",
+      "description": "Native UI: The AI service returned a malformed HTTP response.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The AI service returned a malformed HTTP response.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theAgentConfigurationIsInvalidCheckTheExecutable",
+      "description": "Native UI: The Agent configuration is invalid. Check the executable, API endpoint, and key.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The Agent configuration is invalid. Check the executable, API endpoint, and key.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theAgentDidNotAcceptTheRequestIt",
+      "description": "Native UI: The Agent did not accept the request. It may have stopped.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The Agent did not accept the request. It may have stopped.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.savedBreakpointsCouldNotBeRead",
+      "description": "Native UI: Saved breakpoints could not be read.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Saved breakpoints could not be read.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.savedDebuggerSteppingFiltersCouldNotBeRead",
+      "description": "Native UI: Saved debugger stepping filters could not be read.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Saved debugger stepping filters could not be read.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theJavaLanguageServiceIsUnavailable",
+      "description": "Native UI: The Java language service is unavailable.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The Java language service is unavailable.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.couldNotConnectToTheJavaDebugServer",
+      "description": "Native UI: Could not connect to the Java Debug Server: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not connect to the Java Debug Server: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theJavaDebugServerConnectionIsStopped",
+      "description": "Native UI: The Java Debug Server connection is stopped.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The Java Debug Server connection is stopped.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.couldNotStartTheJavaTestResultListener",
+      "description": "Native UI: Could not start the Java test result listener: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not start the Java test result listener: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theJavaTestResultListenerDidNotBecome",
+      "description": "Native UI: The Java test result listener did not become ready in time.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The Java test result listener did not become ready in time.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.nodeJsDebuggingRequiresTheOfficialVscodeJs",
+      "description": "Native UI: Node.js debugging requires the official vscode-js-debug standalone DAP bundle. Set LITHE_JS_DEBUG_PATH to its dapDebugServer.js file or unpack it under .lithe/toolchains/js-debug.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Node.js debugging requires the official vscode-js-debug standalone DAP bundle. Set LITHE_JS_DEBUG_PATH to its dapDebugServer.js file or unpack it under .lithe/toolchains/js-debug.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.couldNotConnectToTheDebugAdapter",
+      "description": "Native UI: Could not connect to the Debug Adapter: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not connect to the Debug Adapter: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.dittoExitedWithCodeLld",
+      "description": "Native UI: ditto exited with code %@: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "ditto exited with code %@: %@",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string"
+      }
+    },
+    {
+      "id": "native.githubProducedAnInvalidRequest",
+      "description": "Native UI: GitHub produced an invalid request",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "GitHub produced an invalid request",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.githubReturnedAnInvalidHttpResponse",
+      "description": "Native UI: GitHub returned an invalid HTTP response",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "GitHub returned an invalid HTTP response",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.unknownKeychainError",
+      "description": "Native UI: Unknown Keychain error",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Unknown Keychain error",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.keychainErrorLld",
+      "description": "Native UI: Keychain error %@: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Keychain error %@: %@",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string"
+      }
+    },
+    {
+      "id": "native.theMavenConfigurationInIsInvalid",
+      "description": "Native UI: The Maven configuration in %@ is invalid.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The Maven configuration in %@ is invalid.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theMavenConfigurationWasCreatedByAnUnsupported",
+      "description": "Native UI: The Maven configuration was created by an unsupported version of Lithe.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The Maven configuration was created by an unsupported version of Lithe.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.unableToSaveMavenConfiguration",
+      "description": "Native UI: Unable to save Maven configuration: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Unable to save Maven configuration: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theWorkspaceDependencyConfigurationInIsInvalid",
+      "description": "Native UI: The workspace dependency configuration in %@ is invalid.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The workspace dependency configuration in %@ is invalid.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theWorkspaceDependencyConfigurationUsesAnUnsupportedVersion",
+      "description": "Native UI: The workspace dependency configuration uses an unsupported version.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The workspace dependency configuration uses an unsupported version.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.unableToSaveWorkspaceDependencyConfiguration",
+      "description": "Native UI: Unable to save workspace dependency configuration: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Unable to save workspace dependency configuration: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theJavaSupportPluginDoesNotProvideReinstall",
+      "description": "Native UI: The Java Support plugin does not provide %@. Reinstall the plugin.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The Java Support plugin does not provide %@. Reinstall the plugin.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.rustCoreWorkspaceFingerprintResolutionIsUnavailable",
+      "description": "Native UI: Rust Core workspace-fingerprint resolution is unavailable.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Rust Core workspace-fingerprint resolution is unavailable.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.couldNotReadJavaBuildFileMetadataFor",
+      "description": "Native UI: Could not read Java build-file metadata for %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not read Java build-file metadata for %@.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theBundledJdtLsManifestIsInvalidAt",
+      "description": "Native UI: The bundled JDT LS manifest is invalid at %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The bundled JDT LS manifest is invalid at %@.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theBundledJdtLsVersionCouldNotBe",
+      "description": "Native UI: The bundled JDT LS version could not be determined.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The bundled JDT LS version could not be determined.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theBundledJdtLsInstallationCouldNotBe",
+      "description": "Native UI: The bundled JDT LS installation could not be determined.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The bundled JDT LS installation could not be determined.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.rustCoreReturnedAnInvalidJavaWorkspaceKey",
+      "description": "Native UI: Rust Core returned an invalid Java workspace key.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Rust Core returned an invalid Java workspace key.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.rustCoreCacheRetentionPlanningIsUnavailable",
+      "description": "Native UI: Rust Core cache-retention planning is unavailable.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Rust Core cache-retention planning is unavailable.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.rustCoreReturnedAJavaCacheRetentionKey",
+      "description": "Native UI: Rust Core returned a Java cache-retention key that was not observed.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Rust Core returned a Java cache-retention key that was not observed.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.aJavaCacheRetentionTargetIsNotA",
+      "description": "Native UI: A Java cache-retention target is not a removable directory.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "A Java cache-retention target is not a removable directory.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.keepsNoWorkspaceStateThatLitheCanReset",
+      "description": "Native UI: %@ keeps no workspace state that Lithe can reset.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ keeps no workspace state that Lithe can reset.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.chooseAZipArchiveOrAnUnpackedPlugin",
+      "description": "Native UI: Choose a ZIP archive or an unpacked plugin directory.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Choose a ZIP archive or an unpacked plugin directory.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.pluginPackagesCannotContainAliasesSymbolicLinksOr",
+      "description": "Native UI: Plugin packages cannot contain aliases, symbolic links or special files.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Plugin packages cannot contain aliases, symbolic links or special files.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thePluginPackageChangedWhileItWasBeing",
+      "description": "Native UI: The plugin package changed while it was being copied. Choose it again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin package changed while it was being copied. Choose it again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thePluginPackageIsMissingReinstallThePlugin",
+      "description": "Native UI: The plugin package is missing %@. Reinstall the plugin.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin package is missing %@. Reinstall the plugin.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.thePluginLaunchRefersToWhichIsNot",
+      "description": "Native UI: The plugin launch refers to %@, which is not a file inside its package.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin launch refers to %@, which is not a file inside its package.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.thePluginPackageSIsNotAnExecutable",
+      "description": "Native UI: The plugin package's %@ is not an executable file. Reinstall the plugin.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin package's %@ is not an executable file. Reinstall the plugin.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.pluginIsNotInstalled",
+      "description": "Native UI: Plugin %@ is not installed.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Plugin %@ is not installed.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.marketplacePackagesCannotBeInstalledAs",
+      "description": "Native UI: Marketplace packages cannot be installed as %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Marketplace packages cannot be installed as %@.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.requiredPluginCannotBeDisabled",
+      "description": "Native UI: Required plugin %@ cannot be disabled.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Required plugin %@ cannot be disabled.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.requiredPluginCannotBeUninstalled",
+      "description": "Native UI: Required plugin %@ cannot be uninstalled.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Required plugin %@ cannot be uninstalled.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.pluginHasNoSetting",
+      "description": "Native UI: Plugin %@ has no setting %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Plugin %@ has no setting %@.",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string"
+      }
+    },
+    {
+      "id": "native.theValueIsNotAllowedForSettingOf",
+      "description": "Native UI: The value is not allowed for setting %@ of plugin %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The value is not allowed for setting %@ of plugin %@.",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string"
+      }
+    },
+    {
+      "id": "native.settingOfPluginCannotBeSetForThis",
+      "description": "Native UI: Setting %@ of plugin %@ cannot be set for this project.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Setting %@ of plugin %@ cannot be set for this project.",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string"
+      }
+    },
+    {
+      "id": "native.pluginFromTheOfficialRepositoryIsNotSigned",
+      "description": "Native UI: Plugin %@ from the official repository is not signed by Lithe, so it was not installed.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Plugin %@ from the official repository is not signed by Lithe, so it was not installed.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.communityPluginMustDeclareSignaturerequirementNoneOnlyLithe",
+      "description": "Native UI: Community plugin %@ must declare \"signatureRequirement\": \"none\"; only Lithe can publish signed plugins.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Community plugin %@ must declare \"signatureRequirement\": \"none\"; only Lithe can publish signed plugins.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.thePluginDownloadAddressIsInvalid",
+      "description": "Native UI: The plugin download address is invalid.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin download address is invalid.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thePluginServerReturnedHttpLld",
+      "description": "Native UI: The plugin server returned HTTP %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin server returned HTTP %@.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.thePluginArchiveIsLargerThanLldMb",
+      "description": "Native UI: The plugin archive is larger than %@ MB.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin archive is larger than %@ MB.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theDownloadedPluginArchiveDoesNotMatchThe",
+      "description": "Native UI: The downloaded plugin archive does not match the plugin repository (SHA-256 %@, expected %@).",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The downloaded plugin archive does not match the plugin repository (SHA-256 %@, expected %@).",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string"
+      }
+    },
+    {
+      "id": "native.theDownloadedPluginArchiveDoesNotContainA",
+      "description": "Native UI: The downloaded plugin archive does not contain a valid plugin package.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The downloaded plugin archive does not contain a valid plugin package.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theDownloadedPluginArchiveCouldNotBeExtracted",
+      "description": "Native UI: The downloaded plugin archive could not be extracted: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The downloaded plugin archive could not be extracted: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.thePluginArchiveExpandsBeyondTheAllowedSize",
+      "description": "Native UI: The plugin archive expands beyond the allowed size: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin archive expands beyond the allowed size: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.thePluginPackageDirectoryIsInvalid",
+      "description": "Native UI: The plugin package directory is invalid.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin package directory is invalid.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.pluginPackageIdentifierIsUnsafe",
+      "description": "Native UI: Plugin package identifier is unsafe: %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Plugin package identifier is unsafe: %@.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.pluginManifestDoesNotMatchItsInstallationRecord",
+      "description": "Native UI: Plugin manifest does not match its installation record.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Plugin manifest does not match its installation record.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.pluginVersionIsAlreadyInstalled",
+      "description": "Native UI: Plugin version %@ is already installed.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Plugin version %@ is already installed.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.pluginHasNoPreviousVersionToRestore",
+      "description": "Native UI: Plugin %@ has no previous version to restore.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Plugin %@ has no previous version to restore.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theOfficialPluginPackageSignatureIsMissing",
+      "description": "Native UI: The official plugin package signature is missing.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The official plugin package signature is missing.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theOfficialPluginPackageSignatureIsInvalid",
+      "description": "Native UI: The official plugin package signature is invalid: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The official plugin package signature is invalid: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.officialPluginDeclaresASignaturePolicyThatDoes",
+      "description": "Native UI: Official plugin %@ declares a signature policy that does not match the host trust policy.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Official plugin %@ declares a signature policy that does not match the host trust policy.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.pluginHasBeenRemovedFromLitheUninstallThe",
+      "description": "Native UI: Plugin %@ has been removed from Lithe. Uninstall the old package.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Plugin %@ has been removed from Lithe. Uninstall the old package.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.pluginIsAnUnsignedDevelopmentPackageOnlyDevelopment",
+      "description": "Native UI: Plugin %@ is an unsigned development package. Only development builds of Lithe can load it.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Plugin %@ is an unsigned development package. Only development builds of Lithe can load it.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.pluginIsARetiredNativePackageAndIs",
+      "description": "Native UI: Plugin %@ %@ is a retired native package and is no longer loaded. Reinstall it from Plugin Management to update.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Plugin %@ %@ is a retired native package and is no longer loaded. Reinstall it from Plugin Management to update.",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string"
+      }
+    },
+    {
+      "id": "native.pluginIsMissingItsLanguageServerOrIt",
+      "description": "Native UI: Plugin %@ is missing its language server or it is not executable: %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Plugin %@ is missing its language server or it is not executable: %@.",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string"
+      }
+    },
+    {
+      "id": "native.pluginIsMissingTheBuildProviderSFile",
+      "description": "Native UI: Plugin %@ is missing the %@ build provider's file or it is not usable: %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Plugin %@ is missing the %@ build provider's file or it is not usable: %@.",
+        "arguments": [
+          "arg1",
+          "arg2",
+          "arg3"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string",
+        "arg3": "string"
+      }
+    },
+    {
+      "id": "native.pluginIsMissingItsBackendSFileOr",
+      "description": "Native UI: Plugin %@ is missing its backend's file or it is not usable: %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Plugin %@ is missing its backend's file or it is not usable: %@.",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string"
+      }
+    },
+    {
+      "id": "native.pluginCanOnlyBeTrustedWhenItShips",
+      "description": "Native UI: Plugin %@ can only be trusted when it ships inside Lithe.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Plugin %@ can only be trusted when it ships inside Lithe.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.pluginHasNoLitheSignatureCommunityPluginsRequire",
+      "description": "Native UI: Plugin %@ has no Lithe signature. Community plugins require confirmation before installation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Plugin %@ has no Lithe signature. Community plugins require confirmation before installation.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.communityPluginDiffersFromItsApprovedContentsSelect",
+      "description": "Native UI: Community plugin %@ differs from its approved contents. Select the package again or reinstall it from its plugin repository.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Community plugin %@ differs from its approved contents. Select the package again or reinstall it from its plugin repository.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.installedPluginIsInvalid",
+      "description": "Native UI: Installed plugin %@ is invalid: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Installed plugin %@ is invalid: %@",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string"
+      }
+    },
+    {
+      "id": "native.anInstalledPluginIsInvalid",
+      "description": "Native UI: An installed plugin is invalid: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "An installed plugin is invalid: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.invalidPluginIconResource",
+      "description": "Native UI: Invalid plugin icon resource: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Invalid plugin icon resource: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.invalidPluginWebEntry",
+      "description": "Native UI: Invalid plugin web entry: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Invalid plugin web entry: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.rustCoreReturnedAnIncompleteJavaArgumentFile",
+      "description": "Native UI: Rust Core returned an incomplete Java argument-file plan.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Rust Core returned an incomplete Java argument-file plan.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theJavaArgumentFileCouldNotBeEncoded",
+      "description": "Native UI: The Java argument file could not be encoded as UTF-8.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The Java argument file could not be encoded as UTF-8.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.couldNotWriteJavaLaunchArgumentFileAt",
+      "description": "Native UI: Could not write Java launch argument file at %@: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not write Java launch argument file at %@: %@",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string"
+      }
+    },
+    {
+      "id": "native.theProjectDirectoryIsUnavailable",
+      "description": "Native UI: The project directory is unavailable.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The project directory is unavailable.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.projectIdentificationDidNotProduceARunConfiguration",
+      "description": "Native UI: Project identification did not produce a run configuration.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Project identification did not produce a run configuration.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.couldNotWriteProjectRunConfiguration",
+      "description": "Native UI: Could not write project run configuration: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not write project run configuration: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theDebugAdapterIsNotInstalledYet",
+      "description": "Native UI: The %@ Debug Adapter is not installed yet.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The %@ Debug Adapter is not installed yet.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theJavaLanguageServiceCouldNotResolveA",
+      "description": "Native UI: The Java language service could not resolve a main class for this file.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The Java language service could not resolve a main class for this file.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.enterTheHostNameOfTheRunningJvm",
+      "description": "Native UI: Enter the host name of the running JVM.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Enter the host name of the running JVM.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.enterAJvmDebugPortBetween1And",
+      "description": "Native UI: Enter a JVM debug port between 1 and 65535.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Enter a JVM debug port between 1 and 65535.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noCargoBinaryRunConfigurationMatchesThisRust",
+      "description": "Native UI: No Cargo binary run configuration matches this Rust file.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No Cargo binary run configuration matches this Rust file.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.buildTheRustBinaryFirstWithCargoBuild",
+      "description": "Native UI: Build the Rust binary first with `cargo build --bin %@`. Expected executable: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Build the Rust binary first with `cargo build --bin %@`. Expected executable: %@",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string"
+      }
+    },
+    {
+      "id": "native.githubAuthorizationFailed.variant2",
+      "description": "Native UI: GitHub authorization failed: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "GitHub authorization failed: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.languageServerReturnedAnInvalidTextRange",
+      "description": "Native UI: Language server returned an invalid text range.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Language server returned an invalid text range.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.languageServerReturnedOverlappingTextEdits",
+      "description": "Native UI: Language server returned overlapping text edits.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Language server returned overlapping text edits.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theActiveDebugAdapterDoesNotSupport",
+      "description": "Native UI: The active debug adapter does not support %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The active debug adapter does not support %@.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.noDebugProviderHandlesFiles",
+      "description": "Native UI: No debug provider handles .%@ files.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No debug provider handles .%@ files.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.debugAdapterIsUnavailable",
+      "description": "Native UI: %@ debug adapter is unavailable.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ debug adapter is unavailable.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theDebugProviderDoesNotSupport",
+      "description": "Native UI: The %@ debug provider does not support %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The %@ debug provider does not support %@.",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string"
+      }
+    },
+    {
+      "id": "native.noLanguageRunProviderHandlesFiles",
+      "description": "Native UI: No language run provider handles .%@ files.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No language run provider handles .%@ files.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theCurrentFileIsOutsideTheWorkspace",
+      "description": "Native UI: The current file is outside the workspace: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The current file is outside the workspace: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.doesNotSupportRunningTheCurrentFileDirectly",
+      "description": "Native UI: %@ does not support running the current file directly. Use a project run configuration.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ does not support running the current file directly. Use a project run configuration.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.couldNotPrepareTheRunConfiguration",
+      "description": "Native UI: Could not prepare the run configuration: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not prepare the run configuration: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.couldNotWriteTheRunConfiguration",
+      "description": "Native UI: Could not write the run configuration: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not write the run configuration: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.changesWereSavedButLitheCouldNotReload",
+      "description": "Native UI: Changes were saved, but Lithe could not reload them: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Changes were saved, but Lithe could not reload them: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theHostCannotProvideAnExecutionSessionFor",
+      "description": "Native UI: The host cannot provide an execution session for %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The host cannot provide an execution session for %@.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.returnedAnInvalidLanguageServerProvider",
+      "description": "Native UI: %@ returned an invalid language-server provider.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ returned an invalid language-server provider.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theSelectedFileMustBeInsideTheCurrent",
+      "description": "Native UI: The selected file must be inside the current workspace.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The selected file must be inside the current workspace.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.aTestPathMustStayInsideTheCurrent",
+      "description": "Native UI: A test path must stay inside the current workspace.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "A test path must stay inside the current workspace.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theSelectedTestIdentifierIsInvalid",
+      "description": "Native UI: The selected test identifier is invalid.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The selected test identifier is invalid.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theWorkspaceIsNotASupportedTestProject",
+      "description": "Native UI: The workspace is not a supported %@ test project.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The workspace is not a supported %@ test project.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.languageServerFailedToStart",
+      "description": "Native UI: Language server failed to start.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Language server failed to start.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.javaNavigationIsNotSupportedByThisLanguage",
+      "description": "Native UI: Java navigation is not supported by this language server.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Java navigation is not supported by this language server.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.javaTestDiscoveryIsNotSupportedByThis",
+      "description": "Native UI: Java test discovery is not supported by this language server.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Java test discovery is not supported by this language server.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.javaMainMethodDiscoveryIsNotSupportedBy",
+      "description": "Native UI: Java main-method discovery is not supported by this language server.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Java main-method discovery is not supported by this language server.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theDebuggerDidNotReturnObjectFieldsIn",
+      "description": "Native UI: The debugger did not return object fields in time.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The debugger did not return object fields in time.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theDebugAdapterIsNotReady",
+      "description": "Native UI: The Debug Adapter is not ready.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The Debug Adapter is not ready.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theDebugAdapterStopped",
+      "description": "Native UI: The Debug Adapter stopped.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The Debug Adapter stopped.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theDebugAdapterReturnedAnInvalidResponse",
+      "description": "Native UI: The Debug Adapter returned an invalid %@ response.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The Debug Adapter returned an invalid %@ response.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.failed.variant3",
+      "description": "Native UI: %@ failed: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ failed: %@",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string"
+      }
+    },
+    {
+      "id": "native.wasCancelled",
+      "description": "Native UI: %@ was cancelled.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ was cancelled.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.noTestRunnerIsConfiguredFor",
+      "description": "Native UI: No test runner is configured for %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No test runner is configured for %@.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.testingExtensionIsNotActive",
+      "description": "Native UI: %@ testing extension is not active.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ testing extension is not active.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theTestFileIsOutsideTheCurrentWorkspace",
+      "description": "Native UI: The test file is outside the current workspace: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The test file is outside the current workspace: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.gitWorkIsStillActive",
+      "description": "Native UI: Git work is still active.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Git work is still active.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.languageServerIsNotReady",
+      "description": "Native UI: Language server is not ready.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Language server is not ready.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.languageServerFailedToStart.variant2",
+      "description": "Native UI: Language server failed to start: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Language server failed to start: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.languageServerDocumentSyncFailed",
+      "description": "Native UI: Language server document sync failed: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Language server document sync failed: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theDocumentIsNotSynchronizedWithTheLanguage",
+      "description": "Native UI: The document is not synchronized with the language server.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The document is not synchronized with the language server.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.languageServerRequestWasRejected",
+      "description": "Native UI: Language server request was rejected: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Language server request was rejected: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.languageServerNavigationIsNotSupported",
+      "description": "Native UI: Language server navigation %@ is not supported.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Language server navigation %@ is not supported.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.languageServerResponseDidNotIncludeAResult",
+      "description": "Native UI: Language server response did not include a result.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Language server response did not include a result.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.languageServerSessionStoppedBeforeTheRequestCompleted",
+      "description": "Native UI: Language server session stopped before the request completed.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Language server session stopped before the request completed.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theDocumentChangedBeforeJavaNavigationCompleted",
+      "description": "Native UI: The document changed before Java navigation completed.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The document changed before Java navigation completed.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.chooseALanguageServerExecutable",
+      "description": "Native UI: Choose a language-server executable.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Choose a language-server executable.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theSelectedLanguageServerPathIsNotExecutable",
+      "description": "Native UI: The selected language-server path is not executable: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The selected language-server path is not executable: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theSelectedLanguageServerCouldNotRun",
+      "description": "Native UI: The selected language server could not run: %@\n%@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The selected language server could not run: %@\n%@",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string"
+      }
+    },
+    {
+      "id": "native.homebrewIsNotInstalledOrIsNotAvailable",
+      "description": "Native UI: Homebrew is not installed or is not available to Lithe.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Homebrew is not installed or is not available to Lithe.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noVerifiedHomebrewFormulaIsConfiguredFor",
+      "description": "Native UI: No verified Homebrew formula is configured for %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No verified Homebrew formula is configured for %@.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.noLanguageProviderHandlesFiles",
+      "description": "Native UI: No language provider handles .%@ files.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No language provider handles .%@ files.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theLanguageProviderIsNotInstalled",
+      "description": "Native UI: The %@ language provider is not installed.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The %@ language provider is not installed.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theLanguageServerIsDisabledInThisWorkspace",
+      "description": "Native UI: The %@ language server is disabled in this workspace. Enable it in Settings > LSP.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The %@ language server is disabled in this workspace. Enable it in Settings > LSP.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theProviderDoesNotSupport",
+      "description": "Native UI: The %@ provider does not support %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The %@ provider does not support %@.",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string"
+      }
+    },
+    {
+      "id": "native.theJavaDebugServerReturnedAnInvalidTcp",
+      "description": "Native UI: The Java Debug Server returned an invalid TCP port.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The Java Debug Server returned an invalid TCP port.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.localHistoryWorkIsStillActive",
+      "description": "Native UI: Local history work is still active.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Local history work is still active.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thePluginPackageRootIsInvalid",
+      "description": "Native UI: The plugin package root is invalid.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin package root is invalid.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thePluginPackageManifestIsMissing",
+      "description": "Native UI: The plugin package manifest is missing.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin package manifest is missing.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thePluginPackageManifestIsInvalid",
+      "description": "Native UI: The plugin package manifest is invalid.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin package manifest is invalid.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thePluginPackageContainsAnUnsupportedFile",
+      "description": "Native UI: The plugin package contains an unsupported file: %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin package contains an unsupported file: %@.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.thePluginPackageFileListDoesNotMatch",
+      "description": "Native UI: The plugin package file list does not match its signature.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin package file list does not match its signature.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thePluginPackageFileWasChangedAfterSigning",
+      "description": "Native UI: The plugin package file was changed after signing: %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin package file was changed after signing: %@.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.thePluginPackageSignatureDocumentIsInvalid",
+      "description": "Native UI: The plugin package signature document is invalid.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin package signature document is invalid.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thePluginPackageSignatureIsInvalid",
+      "description": "Native UI: The plugin package signature is invalid.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin package signature is invalid.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theOfficialPluginSigningKeyIsUnavailable",
+      "description": "Native UI: The official plugin signing key is unavailable.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The official plugin signing key is unavailable.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thePluginPackageIsSignedByKeyWhich",
+      "description": "Native UI: The plugin package is signed by key %@, which this version of Lithe does not trust.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin package is signed by key %@, which this version of Lithe does not trust.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.searchOrReplacementWorkIsStillActive",
+      "description": "Native UI: Search or replacement work is still active.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Search or replacement work is still active.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.aTerminalSessionIsStillRunning",
+      "description": "Native UI: A terminal session is still running.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "A terminal session is still running.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thisBuildDoesNotHaveAConfiguredUpdateFeed",
+      "description": "Native UI: This build does not have a configured update feed and signing key. Download a published version from GitHub Releases.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This build does not have a configured update feed and signing key. Download a published version from GitHub Releases.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.closeFile",
+      "description": "Native UI: Close File",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Close File",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.findInFiles.variant2",
+      "description": "Native UI: Find in Files…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Find in Files…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.replaceInFiles.variant2",
+      "description": "Native UI: Replace in Files…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Replace in Files…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thisProjectWindowIsNoLongerAvailable",
+      "description": "Native UI: This project window is no longer available.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This project window is no longer available.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.itsSessionWasClosedOrCouldNotBe",
+      "description": "Native UI: Its session was closed or could not be restored.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Its session was closed or could not be restored.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.closeWindow",
+      "description": "Native UI: Close Window",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Close Window",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editorResourcesAreMissingRebuildOrReinstallLithe",
+      "description": "Native UI: Editor resources are missing. Rebuild or reinstall Lithe.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Editor resources are missing. Rebuild or reinstall Lithe.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.showConversation",
+      "description": "Native UI: Show conversation",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Show conversation",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.apiKey.variant2",
+      "description": "Native UI: API Key",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "API Key",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.import",
+      "description": "Native UI: Import",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Import",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editShortcuts",
+      "description": "Native UI: Edit Shortcuts",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Edit Shortcuts",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editShortcut",
+      "description": "Native UI: Edit Shortcut",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Edit Shortcut",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.in",
+      "description": "Native UI: %@ in %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ in %@",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string"
+      }
+    },
+    {
+      "id": "native.useAutomaticValue",
+      "description": "Native UI: Use automatic value",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Use automatic value",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.choosePath",
+      "description": "Native UI: Choose path",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Choose path",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.preparing",
+      "description": "Native UI: Preparing…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Preparing…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.litheIsUpToDateAtVersion.variant2",
+      "description": "Native UI: Lithe is up to date at version %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Lithe is up to date at version %@.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.cancelling",
+      "description": "Native UI: Cancelling…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Cancelling…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.downloading",
+      "description": "Native UI: Downloading %@…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Downloading %@…",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.released",
+      "description": "Native UI: Released %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Released %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.releaseNotes",
+      "description": "Native UI: Release notes",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Release notes",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.releaseNotesAreNotIncludedWithThisUpdate",
+      "description": "Native UI: Release notes are not included with this update.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Release notes are not included with this update.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.downloadingUpdate.variant2",
+      "description": "Native UI: Downloading update… %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Downloading update… %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.installingUpdate.variant2",
+      "description": "Native UI: Installing update…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Installing update…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.releaseNotesCouldNotBeDisplayedOpenThe",
+      "description": "Native UI: Release notes could not be displayed. Open the release page to read them.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Release notes could not be displayed. Open the release page to read them.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.textEditor",
+      "description": "Native UI: Text editor",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Text editor",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.hideToolWindow",
+      "description": "Native UI: Hide %@ tool window",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Hide %@ tool window",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.closeTab",
+      "description": "Native UI: Close tab",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Close tab",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.stopDebugSession",
+      "description": "Native UI: Stop debug session",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Stop debug session",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.debugSessions",
+      "description": "Native UI: Debug sessions",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Debug sessions",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.applyCodeChangesToThisService",
+      "description": "Native UI: Apply code changes to this service",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Apply code changes to this service",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.applyCodeChanges",
+      "description": "Native UI: Apply code changes",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Apply code changes",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.restartService",
+      "description": "Native UI: Restart service",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Restart service",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.moreDebugActions",
+      "description": "Native UI: More Debug actions",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "More Debug actions",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.collapseFilteredFrames",
+      "description": "Native UI: Collapse filtered frames",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Collapse filtered frames",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.lldHiddenFrames",
+      "description": "Native UI: %lld hidden frames",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%lld hidden frames",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "integer"
+      }
+    },
+    {
+      "id": "native.showJdkProxyAndFrameworkFrames",
+      "description": "Native UI: Show JDK, proxy, and framework frames",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Show JDK, proxy, and framework frames",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.debuggerThread",
+      "description": "Native UI: Debugger thread",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Debugger thread",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.variables",
+      "description": "Native UI: Variables",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Variables",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.variableScope",
+      "description": "Native UI: Variable scope",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Variable scope",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.addWatch",
+      "description": "Native UI: Add watch",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Add watch",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.watches",
+      "description": "Native UI: Watches",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Watches",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.refreshWatches",
+      "description": "Native UI: Refresh watches",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Refresh watches",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.retryDebug",
+      "description": "Native UI: Retry Debug",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Retry Debug",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.openRunConfiguration",
+      "description": "Native UI: Open Run Configuration",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Open Run Configuration",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.lldRemaining",
+      "description": "Native UI: %lld remaining",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%lld remaining",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "integer"
+      }
+    },
+    {
+      "id": "native.connectToRunningJvm",
+      "description": "Native UI: Connect to Running JVM",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Connect to Running JVM",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.javaSteppingFilters",
+      "description": "Native UI: Java Stepping Filters",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Java Stepping Filters",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.controlsWhereStepIntoStopsChangesApplyTo",
+      "description": "Native UI: Controls where Step Into stops. Changes apply to the next Java debug session.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Controls where Step Into stops. Changes apply to the next Java debug session.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.skipJdkAndReflectionCode",
+      "description": "Native UI: Skip JDK and reflection code",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Skip JDK and reflection code",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.skipThirdPartyLibraries",
+      "description": "Native UI: Skip third-party libraries",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Skip third-party libraries",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.skipSyntheticMethods",
+      "description": "Native UI: Skip synthetic methods",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Skip synthetic methods",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.skipStaticInitializers",
+      "description": "Native UI: Skip static initializers",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Skip static initializers",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.skipConstructors",
+      "description": "Native UI: Skip constructors",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Skip constructors",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.collapseMatchingStackFrames",
+      "description": "Native UI: Collapse matching stack frames",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Collapse matching stack frames",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.additionalClassPatterns",
+      "description": "Native UI: Additional class patterns",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Additional class patterns",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.onePatternPerLineForExampleOrgMockito",
+      "description": "Native UI: One pattern per line, for example org.mockito.* or com.example.generated.*",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "One pattern per line, for example org.mockito.* or com.example.generated.*",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.resetDefaults",
+      "description": "Native UI: Reset Defaults",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Reset Defaults",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.breakpoint",
+      "description": "Native UI: Breakpoint",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Breakpoint",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.fieldBreakpoint",
+      "description": "Native UI: Field Breakpoint",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Field Breakpoint",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.access",
+      "description": "Native UI: Access",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Access",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.setVariableValue",
+      "description": "Native UI: Set Variable Value",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Set Variable Value",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.set",
+      "description": "Native UI: Set",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Set",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.lldUnchangedLines",
+      "description": "Native UI: %lld unchanged lines",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%lld unchanged lines",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "integer"
+      }
+    },
+    {
+      "id": "native.expandTheseLines",
+      "description": "Native UI: Expand these lines",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Expand these lines",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.openInEditor.variant2",
+      "description": "Native UI: Open in editor",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Open in editor",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.previousFile.variant2",
+      "description": "Native UI: Previous file",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Previous file",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.nextFile.variant2",
+      "description": "Native UI: Next file",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Next file",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.collapseUnchangedFragments",
+      "description": "Native UI: Collapse unchanged fragments",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Collapse unchanged fragments",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.diffSettings",
+      "description": "Native UI: Diff settings",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Diff settings",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.selectAChangedFileInGitLog",
+      "description": "Native UI: Select a changed file in Git Log",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Select a changed file in Git Log",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.closeFind.variant2",
+      "description": "Native UI: Close find",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Close find",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.replaceCurrentMatchReturn",
+      "description": "Native UI: Replace current match (Return)",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Replace current match (Return)",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.replaceAll",
+      "description": "Native UI: Replace All",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Replace All",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.replaceAllMatchesShiftReturn",
+      "description": "Native UI: Replace all matches (Shift+Return)",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Replace all matches (Shift+Return)",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.previewUnavailable",
+      "description": "Native UI: Preview unavailable",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Preview unavailable",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.couldNotLoadThisImage",
+      "description": "Native UI: Could not load this image",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not load this image",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.zoomOut.variant2",
+      "description": "Native UI: Zoom out",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Zoom out",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.imageZoom",
+      "description": "Native UI: Image zoom",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Image zoom",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.lldPercent",
+      "description": "Native UI: %lld percent",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%lld percent",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "integer"
+      }
+    },
+    {
+      "id": "native.resetToActualSize",
+      "description": "Native UI: Reset to actual size",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Reset to actual size",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.zoomIn.variant2",
+      "description": "Native UI: Zoom in",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Zoom in",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.openInDefaultApp",
+      "description": "Native UI: Open in Default App",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Open in Default App",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.fileEncoding",
+      "description": "Native UI: File encoding",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "File encoding",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.svgViewMode",
+      "description": "Native UI: SVG view mode",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "SVG view mode",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.htmlViewMode",
+      "description": "Native UI: HTML view mode",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "HTML view mode",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.log.variant2",
+      "description": "Native UI: Log",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Log",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.showBranches",
+      "description": "Native UI: Show Branches",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Show Branches",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.hideBranches",
+      "description": "Native UI: Hide Branches",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Hide Branches",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noMatchingBranchesOrTags",
+      "description": "Native UI: No matching branches or tags",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No matching branches or tags",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noNavigationResults",
+      "description": "Native UI: No navigation results",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No navigation results",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.moreTestActions",
+      "description": "Native UI: More Test actions",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "More Test actions",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.closeTestRun",
+      "description": "Native UI: Close test run",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Close test run",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.stopTestRun",
+      "description": "Native UI: Stop test run",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Stop test run",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.debugSelectedTest",
+      "description": "Native UI: Debug selected test",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Debug selected test",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.refreshDiscoveredTests",
+      "description": "Native UI: Refresh discovered tests",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Refresh discovered tests",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.clearTestOutput",
+      "description": "Native UI: Clear test output",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Clear test output",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.showTestList",
+      "description": "Native UI: Show test list",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Show test list",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.hideDetails",
+      "description": "Native UI: Hide Details",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Hide Details",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.scope",
+      "description": "Native UI: Scope",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Scope",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.projectOptions",
+      "description": "Native UI: Project options",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Project options",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.moreRunActions",
+      "description": "Native UI: More Run actions",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "More Run actions",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.compileChangesForSpringBootDevtoolsTheApplication",
+      "description": "Native UI: Compile changes for Spring Boot DevTools. The application context may restart.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Compile changes for Spring Boot DevTools. The application context may restart.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.updateRunningService",
+      "description": "Native UI: Update running service",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Update running service",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.openServiceInBrowser",
+      "description": "Native UI: Open service in browser",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Open service in browser",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.filterRouteControllerOrMethod",
+      "description": "Native UI: Filter route, controller, or method",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Filter route, controller, or method",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noSpringMvcEndpointsFound",
+      "description": "Native UI: No Spring MVC endpoints found",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No Spring MVC endpoints found",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.dragToMove",
+      "description": "Native UI: Drag to move",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Drag to move",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.moveReplaceInFilesDialog",
+      "description": "Native UI: Move Replace in Files dialog",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Move Replace in Files dialog",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.dragCornerToResize",
+      "description": "Native UI: Drag corner to resize",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Drag corner to resize",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.resizeDialog",
+      "description": "Native UI: Resize dialog, %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Resize dialog, %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.fileMask",
+      "description": "Native UI: File mask:",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "File mask:",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.commaSeparatedGlobPatternsEGJavaKt",
+      "description": "Native UI: Comma-separated glob patterns, e.g. *.java, *.kt",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Comma-separated glob patterns, e.g. *.java, *.kt",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.fileChangedRunPreviewAgainToRefreshResults",
+      "description": "Native UI: File changed. Run Preview again to refresh results.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "File changed. Run Preview again to refresh results.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.lineLld",
+      "description": "Native UI: %@, Line %lld, %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@, Line %lld, %@",
+        "arguments": [
+          "arg1",
+          "arg2",
+          "arg3"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "integer",
+        "arg3": "string"
+      }
+    },
+    {
+      "id": "native.lldFilesLldMatches",
+      "description": "Native UI: %lld files, %lld matches",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%lld files, %lld matches",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ]
+      },
+      "parameters": {
+        "arg1": "integer",
+        "arg2": "integer"
+      }
+    },
+    {
+      "id": "native.commaSeparatedGlobPatternsEmptySearchesEveryFile",
+      "description": "Native UI: Comma-separated glob patterns. Empty searches every file.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Comma-separated glob patterns. Empty searches every file.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.unableToStartTerminal",
+      "description": "Native UI: Unable to start terminal",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Unable to start terminal",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.detectInstalledShellsAndChooseAShellFrom",
+      "description": "Native UI: Detect installed shells and choose a shell from the New Terminal menu.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Detect installed shells and choose a shell from the New Terminal menu.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.detectShellsAndCreateANewTerminal",
+      "description": "Native UI: Detect shells and create a new terminal",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Detect shells and create a new terminal",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.newTerminalWithShell",
+      "description": "Native UI: New terminal with shell",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "New terminal with shell",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.terminalActions",
+      "description": "Native UI: Terminal actions",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Terminal actions",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.close",
+      "description": "Native UI: Close %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Close %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.startingModule",
+      "description": "Native UI: Starting module...",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Starting module...",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.total.variant2",
+      "description": "Native UI: Total %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Total %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.framesRenderedPerSecond",
+      "description": "Native UI: Frames rendered per second",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Frames rendered per second",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.lldFramesPerSecond",
+      "description": "Native UI: %lld frames per second",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%lld frames per second",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "integer"
+      }
+    },
+    {
+      "id": "native.discardAndRetry",
+      "description": "Native UI: Discard and Retry",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Discard and Retry",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thisDiscardsTheFileSStagedAndWorking",
+      "description": "Native UI: This discards the file's staged and working-tree changes, then retries the blocked Git operation.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This discards the file's staged and working-tree changes, then retries the blocked Git operation.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.stopActiveExecution",
+      "description": "Native UI: Stop active execution",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Stop active execution",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.selectRunConfigurationForRunOrDebug",
+      "description": "Native UI: Select run configuration for Run or Debug",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Select run configuration for Run or Debug",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.lldSpaces",
+      "description": "Native UI: %lld spaces",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%lld spaces",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "integer"
+      }
+    },
+    {
+      "id": "native.lldUsages",
+      "description": "Native UI: %lld usages",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%lld usages",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "integer"
+      }
+    },
+    {
+      "id": "native.noLanguageDependencySourcesRegistered",
+      "description": "Native UI: No language dependency sources registered",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No language dependency sources registered",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noDependenciesResolved",
+      "description": "Native UI: No dependencies resolved",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No dependencies resolved",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editPathsAsText",
+      "description": "Native UI: Edit Paths as Text",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Edit Paths as Text",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.browse.variant2",
+      "description": "Native UI: Browse",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Browse",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noAdditionalPaths",
+      "description": "Native UI: No additional paths",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No additional paths",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.removePath",
+      "description": "Native UI: Remove path",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Remove path",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.openFolder",
+      "description": "Native UI: Open Folder...",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Open Folder...",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.parentFolder",
+      "description": "Native UI: Parent folder",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Parent folder",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.workspaceFolder",
+      "description": "Native UI: Workspace folder",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Workspace folder",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noSelectableItems",
+      "description": "Native UI: No selectable items",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No selectable items",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.addSelected",
+      "description": "Native UI: Add Selected",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Add Selected",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.openFolder.variant2",
+      "description": "Native UI: Open folder",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Open folder",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.revealActiveFileInProjectTree",
+      "description": "Native UI: Reveal Active File in Project Tree",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Reveal Active File in Project Tree",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.languageServerDisabledInThisWorkspace",
+      "description": "Native UI: Language server disabled in this workspace",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Language server disabled in this workspace",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.manualStop",
+      "description": "Native UI: Manual stop",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Manual stop",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.languageServerToolConfigurationChanged",
+      "description": "Native UI: Language server tool configuration changed",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Language server tool configuration changed",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.workspaceLanguageServerPreferencePreserved",
+      "description": "Native UI: Workspace language server preference preserved",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Workspace language server preference preserved",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.languageServerActivationFailed",
+      "description": "Native UI: Language server activation failed",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Language server activation failed",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theHostDoesNotServe",
+      "description": "Native UI: The host does not serve %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The host does not serve %@.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theRequestHasNoSecret",
+      "description": "Native UI: The request has no secret.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The request has no secret.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theCredentialStoreFailed",
+      "description": "Native UI: The credential store failed: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The credential store failed: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theHostHasNoBridgeMethod",
+      "description": "Native UI: The host has no bridge method %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The host has no bridge method %@.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theFunctionCallWasCancelled",
+      "description": "Native UI: The function call was cancelled.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The function call was cancelled.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.javaEntryPointFreshnessCheckFailed",
+      "description": "Native UI: Java entry-point freshness check failed",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Java entry-point freshness check failed",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.javaNavigationMarkerSynchronizationFailed",
+      "description": "Native UI: Java navigation marker synchronization failed",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Java navigation marker synchronization failed",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.javaNavigationMarkerRequestFailed",
+      "description": "Native UI: Java navigation marker request failed",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Java navigation marker request failed",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.javaRunMarkerRequestFailed",
+      "description": "Native UI: Java Run marker request failed",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Java Run marker request failed",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.javaWorkspacePreparationCancelled",
+      "description": "Native UI: Java workspace preparation cancelled",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Java workspace preparation cancelled",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.chooseFolder",
+      "description": "Native UI: Choose Folder",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Choose Folder",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theJavaSourceForCouldNotBeResolved",
+      "description": "Native UI: The Java source for %@ could not be resolved.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The Java source for %@ could not be resolved.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.openAProject",
+      "description": "Native UI: Open a project",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Open a project",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.languageServerActivationSkipped",
+      "description": "Native UI: Language server activation skipped",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Language server activation skipped",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.disabledInThisWorkspace",
+      "description": "Native UI: Disabled in this workspace",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Disabled in this workspace",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theSelectedBuiltInBackgroundIsUnavailableIn",
+      "description": "Native UI: The selected built-in background is unavailable in this build.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The selected built-in background is unavailable in this build.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.couldNotReadTheSelectedBuiltInBackground",
+      "description": "Native UI: Could not read the selected built-in background.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not read the selected built-in background.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theSelectedBackgroundImageAuthorizationIsInvalid",
+      "description": "Native UI: The selected background image authorization is invalid.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The selected background image authorization is invalid.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theSelectedBackgroundImageIsTemporarilyUnavailable",
+      "description": "Native UI: The selected background image is temporarily unavailable.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The selected background image is temporarily unavailable.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theSelectedBackgroundImageCouldNotBeDecoded",
+      "description": "Native UI: The selected background image could not be decoded.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The selected background image could not be decoded.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.chooseJdkDirectory",
+      "description": "Native UI: Choose JDK directory",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Choose JDK directory",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.chooseMavenJdk",
+      "description": "Native UI: Choose Maven JDK",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Choose Maven JDK",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.localRepository",
+      "description": "Native UI: Local Repository",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Local Repository",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theActiveDebugAdapterDoesNotSupportConditional",
+      "description": "Native UI: The active debug adapter does not support conditional breakpoints.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The active debug adapter does not support conditional breakpoints.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theActiveDebugAdapterDoesNotSupportHit",
+      "description": "Native UI: The active debug adapter does not support hit-count breakpoints.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The active debug adapter does not support hit-count breakpoints.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theActiveDebugAdapterDoesNotSupportLogpoints",
+      "description": "Native UI: The active debug adapter does not support logpoints.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The active debug adapter does not support logpoints.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.completions",
+      "description": "Native UI: Completions",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Completions",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.sourceActions",
+      "description": "Native UI: Source Actions",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Source Actions",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.rebaseAction",
+      "description": "Native UI: Rebase action",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Rebase action",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.deleteSelectedBranch",
+      "description": "Native UI: Delete Selected Branch",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Delete Selected Branch",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.findBranch",
+      "description": "Native UI: Find Branch",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Find Branch",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.navigateLogToSelectedBranch",
+      "description": "Native UI: Navigate Log to Selected Branch",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Navigate Log to Selected Branch",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.branchesPaneSettings",
+      "description": "Native UI: Branches Pane Settings",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Branches Pane Settings",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.expandAllBranches",
+      "description": "Native UI: Expand All Branches",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Expand All Branches",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.collapseAllBranches",
+      "description": "Native UI: Collapse All Branches",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Collapse All Branches",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.lldResults",
+      "description": "Native UI: %lld results",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%lld results",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "integer"
+      }
+    },
+    {
+      "id": "native.lldFound",
+      "description": "Native UI: %lld found",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%lld found",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "integer"
+      }
+    },
+    {
+      "id": "native.lldRoutes",
+      "description": "Native UI: %lld routes",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%lld routes",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "integer"
+      }
+    },
+    {
+      "id": "native.chooseWorktreeParent",
+      "description": "Native UI: Choose Worktree Parent",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Choose Worktree Parent",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.couldNotLoadDependencies",
+      "description": "Native UI: Could not load dependencies",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not load dependencies",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.open.variant2",
+      "description": "Native UI: Open…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Open…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.lastCommitSuffix",
+      "description": "Native UI:  last commit",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": " last commit",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.headValue",
+      "description": "Native UI: HEAD: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "HEAD: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.resetToActualSize100",
+      "description": "Native UI: Reset to actual size (100%)",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Reset to actual size (100%)",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.oneUsage",
+      "description": "Native UI: 1 usage",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "1 usage",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.openLocalFolder",
+      "description": "Native UI: Local Folder",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Local Folder",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.size",
+      "description": "Native UI: Size",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Size",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thisFolderCannotBeRead",
+      "description": "Native UI: This folder cannot be read.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This folder cannot be read.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thisFolderIsEmpty",
+      "description": "Native UI: This folder is empty",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This folder is empty",
+        "arguments": []
+      }
+    },
+    {
       "id": "buildOutput.clearLabel",
       "description": "Windows build output clear control label",
       "platforms": [

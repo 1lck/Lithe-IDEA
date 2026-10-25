@@ -1758,7 +1758,7 @@ private struct WorkbenchBackgroundImageError: View {
 }
 
 /// The chosen file name, or the placeholder. A `Text` literal follows the app
-/// language through the environment locale; `String(localized:)` follows the system's.
+/// language through the environment locale; `L10n.string` follows the application language.
 func workbenchBackgroundNameText(_ name: String?) -> Text {
     name.map { Text(verbatim: $0) } ?? Text("No background image selected")
 }

@@ -849,8 +849,19 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         gitReferences.first(where: \.isCurrent)
     }
 
+    /// The Open action. With saved SSH connections it first asks whether the
+    /// folder is on this Mac or on a remote host; otherwise it goes straight
+    /// to the local folder chooser.
     func chooseProject() {
-        chooseProject(title: "Open a project", prompt: "Open")
+        if hasSavedRemoteConnections {
+            workbenchFeature.isOpenTargetChooserPresented = true
+        } else {
+            chooseLocalProject()
+        }
+    }
+
+    func chooseLocalProject() {
+        chooseProject(title: L10n.string("Open a project"), prompt: "Open")
     }
 
     func chooseProject(title: String, prompt: String) {
@@ -1336,8 +1347,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             languageToolingSessionsIfActive?.recordLanguageServerLog(
                 providerID: descriptor.id,
                 level: .info,
-                message: "Language server activation skipped",
-                detail: "Disabled in this workspace"
+                message: L10n.string("Language server activation skipped"),
+                detail: L10n.string("Disabled in this workspace")
             )
             return false
         }

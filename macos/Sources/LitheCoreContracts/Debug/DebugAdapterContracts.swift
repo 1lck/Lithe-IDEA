@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 
 @MainActor
@@ -766,7 +767,7 @@ public protocol DebugAdapterControllingSession: DebugAdapterSession {
 
 public extension DebugAdapterControllingSession {
     func redefineClasses(_ completion: @escaping (Result<[String], Error>) -> Void) {
-        completion(.failure(NSError(domain: "Lithe.Debug", code: 1, userInfo: [NSLocalizedDescriptionKey: "This adapter does not support hot code replacement."])))
+        completion(.failure(NSError(domain: "Lithe.Debug", code: 1, userInfo: [NSLocalizedDescriptionKey: L10n.string("This adapter does not support hot code replacement.")])))
     }
     var capabilities: DebugAdapterCapabilities { .unknown }
     func setExceptionBreakpoints(_: [DebugExceptionBreakpoint]) {}
@@ -837,7 +838,7 @@ public enum DebugAdapterCapabilityError: LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
         case let .unsupported(feature):
-            "The active debug adapter does not support \(feature)."
+            L10n.string("The active debug adapter does not support \(feature).")
         }
     }
 }

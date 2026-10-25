@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 import LitheAgentConversationModule
 
 /// Native adapters own workspace path checks, encoding, guarded writes and Trash.
@@ -11,11 +12,11 @@ enum AgentEditRestoreError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .unavailable: String(localized: "Agent change rollback is unavailable.")
-        case .outsideWorkspace: String(localized: "This file is outside the current project.")
-        case .changed: String(localized: "The file has changed since the Agent edit. Open the diff and review it manually.")
-        case .dirtyBuffer: String(localized: "This file has unsaved editor changes. Save or discard them before rolling back the Agent edit.")
-        case .incomplete: String(localized: "The Agent did not provide enough original content to safely roll back this file.")
+        case .unavailable: L10n.string("Agent change rollback is unavailable.")
+        case .outsideWorkspace: L10n.string("This file is outside the current project.")
+        case .changed: L10n.string("The file has changed since the Agent edit. Open the diff and review it manually.")
+        case .dirtyBuffer: L10n.string("This file has unsaved editor changes. Save or discard them before rolling back the Agent edit.")
+        case .incomplete: L10n.string("The Agent did not provide enough original content to safely roll back this file.")
         }
     }
 }

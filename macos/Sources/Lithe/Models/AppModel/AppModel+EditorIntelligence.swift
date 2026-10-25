@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 
 struct LanguageSessionChromeSignature: Equatable {
     var features: [String: LanguageServerFeatureSet]
@@ -46,7 +47,7 @@ extension AppModel {
               let first = problems.first else { return }
         announcedMavenResolutionProblems = signature
         showNotification(String(
-            format: String(localized: "Maven could not resolve this project (%lld problems): %@"),
+            format: L10n.string("Maven could not resolve this project (%lld problems): %@"),
             problems.count,
             first.message
         ))

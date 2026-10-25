@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 import Darwin
 
 /// Note: 首次复制与后续隔离见 .agents/notes/implemented/process/2026-09-13-macos-update-signing-and-release-strategy.md
@@ -124,7 +125,7 @@ struct MacDevelopmentProfileMigration {
     private enum MigrationError: LocalizedError {
         case invalidSnapshot, preferencesUnavailable, unsupportedFile, destinationChanged
         var errorDescription: String? {
-            String(localized: "The Stable profile could not be copied safely. Its original data has been preserved.")
+            L10n.string("The Stable profile could not be copied safely. Its original data has been preserved.")
         }
     }
 }

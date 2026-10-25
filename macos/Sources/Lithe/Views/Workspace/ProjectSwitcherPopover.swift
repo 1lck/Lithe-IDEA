@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import SwiftUI
 
 @MainActor
@@ -56,7 +57,7 @@ struct ProjectSwitcherPopover: View {
             VStack(alignment: .leading, spacing: 0) {
                 VStack(spacing: 0) {
                     actionRow(icon: "expui/general/add.svg", title: "New Project…", action: onNewProject)
-                    actionRow(icon: "expui/general/open.svg", title: "Open…", action: onOpenProject)
+                    actionRow(icon: "expui/general/open.svg", title: L10n.string("Open…"), action: onOpenProject)
                     actionRow(
                         icon: "expui/general/vcs.svg",
                         title: "Clone Repository…",
