@@ -290,6 +290,7 @@ struct AgentConfiguredConversationView: View {
                 isEditorLayout: isEditorLayout
             )
             .id(agentID)
+            .onChange(of: feature.selectedAgentID) { _ in onSessionChanged?() }
         } else {
             AgentUnconfiguredConversationView(setupError: setupError, onOpenSettings: onOpenSettings,
                                               onHide: onHide, agents: availableAgents ?? AgentWelcomeVisit.builtInAgents,
@@ -905,8 +906,9 @@ struct AgentEditorTabTitle: View {
 
     var body: some View {
         if let feature = model.agentConversationFeatureIfActive,
-           let connection = feature.selectedConnection, let id = feature.selectedAgentID {
-            AgentEditorConnectionTitle(connection: connection, history: feature.history(for: id),
+           let id = order.agentConversation(of: tab)?.agentID ?? feature.selectedAgentID,
+           feature.agents.contains(where: { $0.id == id }) {
+            AgentEditorConnectionTitle(connection: feature.connection(for: id), history: feature.history(for: id),
                                        sessionID: order.agentSession(of: tab))
         } else { Text("AI Chat").font(LitheTheme.uiFont(size: 13)) }
     }

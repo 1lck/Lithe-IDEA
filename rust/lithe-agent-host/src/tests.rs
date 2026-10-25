@@ -3541,13 +3541,23 @@ async fn selected_files_reach_the_agent_as_acp_resource_links() {
         let files = fixture["commands"][name]["files"].as_array().unwrap();
         let offset = usize::from(name == "promptWithFiles");
         // A percent-encoded path is repeated once, in readable form, after the links.
-        let encoded = files
+        let decoded_paths: Vec<_> = files
             .iter()
-            .any(|file| file["uri"].as_str().is_some_and(|uri| uri.contains('%')));
+            .filter_map(|file| url::Url::parse(file["uri"].as_str()?).ok())
+            .filter(|uri| uri.path().contains('%'))
+            .filter_map(|uri| uri.to_file_path().ok())
+            .map(|path| format!("📎 {}", path.display()))
+            .collect();
         assert_eq!(
             content.len(),
-            files.len() + offset + 1 + usize::from(encoded)
+            files.len() + offset + 1 + usize::from(!decoded_paths.is_empty())
         );
+        if !decoded_paths.is_empty() {
+            assert_eq!(
+                content[offset + files.len()]["text"],
+                decoded_paths.join("\n")
+            );
+        }
         if offset == 1 {
             assert_eq!(
                 content[0],

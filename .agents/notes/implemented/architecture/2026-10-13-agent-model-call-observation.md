@@ -99,6 +99,8 @@ Claude 订阅（用户本机 Claude Code 登录）原先不接代理，上下文
 
 Claude Code 会在会话开始时自己发一次“起标题”请求（系统提示含 “naming a coding session”）。它花的是真实 Token，但不是对话的一步，也不代表生成速度，所以 `modelCall` 带 `auxiliary: true`：macOS 只把它的用量计入 Token 合计，不计步数、模型用时、首字延迟、输出速度和上下文构成。识别靠系统提示中的固定短语，措辞变化只会让它重新被算作一步，不影响转发。
 
+用量是否完整必须按全部观察到的请求计数，包含普通请求和起标题请求；对话步数继续单独计数。例如一条普通请求没有 usage、一条标题请求有 usage，合计仍有一次请求缺失用量，必须显示下界提示。不能用“对话步数减有用量的请求数”判断完整性，否则标题请求会抵消缺失，甚至得到负数。只有标题请求时仍显示和保存真实 Token；持久化记录保留全部请求数，重载后继续累加。旧记录没有该字段时，用已有步数与有用量请求数的较大者恢复已知计数；无法从旧汇总反推出的历史辅助请求不编造。
+
 正确：订阅模式的统计和 API Key 模式用同一个代理；不要为订阅模式读 `~/.claude` 下的会话日志（备选方案 2 的结论不变）。
 
 ## 考虑过的备选方案
@@ -130,7 +132,7 @@ Claude Code 会在会话开始时自己发一次“起标题”请求（系统�
 ## 验证
 
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-agent-host model_`：压缩/分片与字节级透传、预热不计数、完整/增量上下文、未知前序降级、超限及连接清理；三种协议的 SSE/非流式解析、格式漂移降级、上下文分配、代理透传（含 API Key 头与响应字节不变）、令牌路径隔离、上游不可达，以及会话归属与 `modelCall` 事件形状。
-- `./scripts/test-macos.sh --filter "AgentConversationFeatureModelTests|AgentConversationPresentationTests|AgentSessionSelectorLayoutTests|WorkbenchHoverTooltipTests"`：模型调用聚合、未归属事件丢弃、工具与授权用时只计一次、重新加载后按已保存合计继续累加且不重复计数、损坏文档与 200 条上限、ACP 用量的缓存口径判断，以及悬停卡片布局。
+- `./scripts/test-macos.sh --filter "AgentConversationFeatureModelTests|AgentConversationPresentationTests|AgentSessionSelectorLayoutTests|WorkbenchHoverTooltipTests"`：模型调用聚合、未归属事件丢弃、工具与授权用时只计一次、重新加载后按已保存合计继续累加且不重复计数、辅助请求不抵消缺失 usage、只有辅助请求时的 Token 显示与持久化、旧统计文档兼容、损坏文档与 200 条上限、ACP 用量的缓存口径判断，以及悬停卡片布局。
 - `node --test scripts/test-codex-config-relay.mjs`：订阅路由证明、未知/受限/失败/迟到账户结果不得开启观察，账户变更关闭连接。
 - 原生订阅集成测试（显式设置 LITHE_CODEX_OBSERVATION_CLI 后运行忽略测试）：隔离 CODEX_HOME、假凭据、本地假账户与模型服务，经过真实原生中继完成两轮 WebSocket 请求，确认预热排除、用量与上下文构成；不调用真实模型。
 - `./scripts/verify-runtime-bundle-immutability.sh`：代理不向安装目录写入任何内容。

@@ -1,6 +1,11 @@
 import Combine
 import Foundation
 
+struct AgentEditorConversation: Equatable {
+    let agentID: String
+    let sessionID: String?
+}
+
 /// Owns only the mixed presentation order of document and terminal tabs, and
 /// which Agent session each Agent tab presents. Resource lifecycle and active
 /// selection remain with their existing features.
@@ -17,9 +22,9 @@ final class EditorTabOrderFeatureModel: ObservableObject {
     }
     @Published private(set) var groupLayout: EditorGroupLayout = .group(UUID())
     @Published private(set) var groupSelections: [UUID: EditorTabItem] = [:]
-    /// Session shown by each Agent tab; a tab without an entry is a new, empty
-    /// conversation. Entries disappear with their tab.
-    @Published private(set) var agentSessionByTab: [UUID: String] = [:]
+    /// Agent identity also belongs to an empty tab; session IDs are only unique
+    /// within their Agent. Entries disappear with their tab.
+    @Published private(set) var agentSessionByTab: [UUID: AgentEditorConversation] = [:]
     private var placements: [EditorTabItem: UUID] = [:]
     private var focusedGroup: UUID?
     var groupDropRequestID = UUID()
@@ -54,19 +59,30 @@ final class EditorTabOrderFeatureModel: ObservableObject {
         return id
     }
 
-    func agentSession(of tab: UUID) -> String? { agentSessionByTab[tab] }
+    func agentConversation(of tab: UUID) -> AgentEditorConversation? { agentSessionByTab[tab] }
+    func agentSession(of tab: UUID) -> String? { agentConversation(of: tab)?.sessionID }
 
-    func agentTab(showing session: String) -> UUID? {
-        agentTabIDs.first { agentSessionByTab[$0] == session }
+    func agentTab(showing session: String, agentID: String) -> UUID? {
+        agentTabIDs.first { agentSessionByTab[$0] == AgentEditorConversation(agentID: agentID, sessionID: session) }
     }
 
-    /// Points a tab at a session. A session is shown by at most one tab, so an
-    /// earlier binding of the same session is released first.
-    func bindAgentTab(_ tab: UUID, to session: String) {
+    /// Points a tab at an Agent's session. An earlier binding of the same pair
+    /// is released first; another Agent can use the same session ID.
+    func bindAgentTab(_ tab: UUID, to session: String?, agentID: String) {
         guard agentTabIDs.contains(tab) else { return }
-        var next = agentSessionByTab.filter { $0.value != session || $0.key == tab }
-        next[tab] = session
+        let binding = AgentEditorConversation(agentID: agentID, sessionID: session)
+        var next = agentSessionByTab.filter { session == nil || $0.value != binding || $0.key == tab }
+        next[tab] = binding
         if next != agentSessionByTab { agentSessionByTab = next }
+    }
+
+    func discardAgentSessions(_ sessions: Set<String>, agentID: String) {
+        for tab in agentTabIDs {
+            guard let binding = agentConversation(of: tab), binding.agentID == agentID,
+                  let session = binding.sessionID, sessions.contains(session) else { continue }
+            if focusedAgentTab == tab { bindAgentTab(tab, to: nil, agentID: agentID) }
+            else { remove(.agentConversation(tab)) }
+        }
     }
 
     func selectedItem(in group: UUID) -> EditorTabItem? { groupSelections[group] }

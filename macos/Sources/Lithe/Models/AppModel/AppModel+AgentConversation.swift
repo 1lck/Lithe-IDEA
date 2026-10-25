@@ -66,13 +66,15 @@ extension AppModel {
         }
         let selected = selectedAgentSessionID
         let tab: UUID
-        if let selected, let owner = order.agentTab(showing: selected) {
+        let agentID = agentConversationFeatureIfActive?.selectedAgentID
+        if let selected, let agentID, let owner = order.agentTab(showing: selected, agentID: agentID) {
             tab = owner
         } else if let unbound = ([order.focusedAgentTab].compactMap { $0 } + order.agentTabIDs.reversed())
-            .first(where: { order.agentSession(of: $0) == nil }) {
+            .first(where: { order.agentSession(of: $0) == nil &&
+                (order.agentConversation(of: $0)?.agentID == nil || order.agentConversation(of: $0)?.agentID == agentID) }) {
             // An empty tab is reused rather than piling up new ones.
             tab = unbound
-            if let selected { order.bindAgentTab(unbound, to: selected) }
+            if let agentID { order.bindAgentTab(unbound, to: selected, agentID: agentID) }
         } else {
             tab = openAgentEditorTab(session: selected)
         }
@@ -83,11 +85,14 @@ extension AppModel {
     /// was created, or one was picked from history): keep tabs and session in step.
     func reconcileAgentEditorTabs() {
         let order = editorTabOrderFeature
-        guard let focused = order.focusedAgentTab, let selected = selectedAgentSessionID else { return }
-        if let owner = order.agentTab(showing: selected) {
+        guard let focused = order.focusedAgentTab,
+              let agentID = agentConversationFeatureIfActive?.selectedAgentID else { return }
+        let selected = selectedAgentSessionID
+        if let selected, let owner = order.agentTab(showing: selected, agentID: agentID) {
             if owner != focused { focusAgentEditorTab(owner) }
-        } else if order.agentSession(of: focused) == nil {
-            order.bindAgentTab(focused, to: selected)
+        } else if order.agentSession(of: focused) == nil,
+                  order.agentConversation(of: focused)?.agentID == nil || order.agentConversation(of: focused)?.agentID == agentID {
+            order.bindAgentTab(focused, to: selected, agentID: agentID)
         } else {
             focusAgentEditorTab(openAgentEditorTab(session: selected))
         }
@@ -98,7 +103,19 @@ extension AppModel {
     /// reused.
     func openNewAgentEditorTab() {
         let order = editorTabOrderFeature
-        if let focused = order.focusedAgentTab, order.agentSession(of: focused) == nil { return }
+        if let focused = order.focusedAgentTab {
+            let binding = order.agentConversation(of: focused)
+            let feature = agentConversationFeatureIfActive
+            if binding == nil || binding?.agentID == feature?.selectedAgentID {
+                if binding?.sessionID == nil { return }
+                if let session = binding?.sessionID,
+                   feature?.selectedConnection?.canReuseForNewConversation(session) == true,
+                   let agentID = binding?.agentID {
+                    order.bindAgentTab(focused, to: nil, agentID: agentID)
+                    return
+                }
+            }
+        }
         focusAgentEditorTab(openAgentEditorTab(session: nil))
     }
 
@@ -125,7 +142,9 @@ extension AppModel {
     private func openAgentEditorTab(session: String?) -> UUID {
         let tab = UUID()
         editorTabOrderFeature.moveToEnd(.agentConversation(tab))
-        if let session { editorTabOrderFeature.bindAgentTab(tab, to: session) }
+        if let agentID = agentConversationFeatureIfActive?.selectedAgentID {
+            editorTabOrderFeature.bindAgentTab(tab, to: session, agentID: agentID)
+        }
         return tab
     }
 
@@ -140,7 +159,12 @@ extension AppModel {
     /// The Agent shows whichever session the focused tab presents; an empty tab
     /// shows a new conversation.
     private func followAgentEditorTab(_ tab: UUID) {
-        guard let feature = agentConversationFeatureIfActive, let connection = feature.selectedConnection else { return }
+        guard let feature = agentConversationFeatureIfActive else { return }
+        if let binding = editorTabOrderFeature.agentConversation(of: tab) {
+            guard feature.agents.contains(where: { $0.id == binding.agentID }) else { return }
+            selectAgentConversationAgent(binding.agentID)
+        }
+        guard let connection = feature.selectedConnection else { return }
         if let session = editorTabOrderFeature.agentSession(of: tab) {
             if connection.selectedSessionID != session { connection.selectSession(session) }
         } else if connection.selectedSessionID != nil {
@@ -328,6 +352,9 @@ extension AppModel {
         feature.selectAgent(selectedAgentConversationID)
         guard let agentID = feature.selectedAgentID else { return }
         let connection = feature.connection(for: agentID)
+        connection.onSessionsDiscarded = { [weak self] sessions in
+            self?.editorTabOrderFeature.discardAgentSessions(sessions, agentID: agentID)
+        }
         guard !connection.hasActiveConnection else { return }
         do {
             // Refresh the displayed fallback even when credential validation fails.

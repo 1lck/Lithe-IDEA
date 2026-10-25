@@ -122,24 +122,30 @@ mod tests {
             "file:///example/project/README.md?secret",
             "file:///example/project/README.md#section",
         ] {
-            assert!(content(
-                String::new(),
-                vec![PromptFile {
-                    uri: uri.into(),
-                    name: "README.md".into(),
-                }]
-            )
-            .is_err());
+            assert!(
+                content(
+                    String::new(),
+                    vec![PromptFile {
+                        uri: uri.into(),
+                        name: "README.md".into(),
+                    }]
+                )
+                .is_err()
+            );
         }
     }
 
     #[test]
     fn encoded_paths_are_repeated_in_readable_form_for_the_model() {
+        let path = std::env::temp_dir()
+            .join("lithe-prompt-test")
+            .join("Pasted image 1.png");
+        let uri = url::Url::from_file_path(&path).expect("absolute native path");
         let content = content(
             "see this".into(),
             vec![
                 PromptFile {
-                    uri: "file:///example/Pasted%20image%201.png".into(),
+                    uri: uri.into(),
                     name: "Pasted image 1.png".into(),
                 },
                 PromptFile {
@@ -153,16 +159,21 @@ mod tests {
             panic!("the readable paths follow the links as text");
         };
         // Only the encoded path needs repeating; a plain path is already readable.
-        assert_eq!(text.text, "📎 /example/Pasted image 1.png");
+        assert_eq!(text.text, format!("📎 {}", path.display()));
         assert_eq!(content.len(), 4);
     }
 
     #[test]
     fn native_slash_commands_are_never_followed_by_extra_text() {
+        let path = std::env::temp_dir()
+            .join("lithe-prompt-test")
+            .join("Pasted image.png");
         let content = content(
             "/status".into(),
             vec![PromptFile {
-                uri: "file:///example/Pasted%20image.png".into(),
+                uri: url::Url::from_file_path(path)
+                    .expect("absolute native path")
+                    .into(),
                 name: "Pasted image.png".into(),
             }],
         )

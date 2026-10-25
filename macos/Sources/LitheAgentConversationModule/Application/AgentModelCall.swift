@@ -52,6 +52,11 @@ public struct AgentModelCall: Decodable, Equatable, Sendable {
 
 /// Bounded aggregate of observed model calls for a turn or a session.
 public struct AgentModelCallTotals: Codable, Equatable, Sendable {
+    /// Counts main and auxiliary requests separately from conversation steps.
+    /// Old documents omit it; their counters only provide a known lower bound.
+    private var observedCallCount: Int?
+    public var requestCount: Int { observedCallCount ?? max(callCount, callsWithUsage) }
+    public var callsMissingUsage: Int { max(0, requestCount - callsWithUsage) }
     public private(set) var callCount = 0
     public private(set) var failedCount = 0
     public private(set) var nonStreamingCount = 0
@@ -91,6 +96,7 @@ public struct AgentModelCallTotals: Codable, Equatable, Sendable {
     /// Adds a later period's totals, e.g. this connection's calls onto the
     /// persisted history of the session. The later composition wins.
     mutating func add(_ later: AgentModelCallTotals) {
+        observedCallCount = requestCount + later.requestCount
         callCount += later.callCount
         failedCount += later.failedCount
         nonStreamingCount += later.nonStreamingCount
@@ -120,6 +126,7 @@ public struct AgentModelCallTotals: Codable, Equatable, Sendable {
     }
 
     mutating func record(_ call: AgentModelCall) {
+        observedCallCount = requestCount + 1
         if call.isAuxiliary {
             // The tokens were really spent, but a title request is neither a step
             // of the conversation nor a measure of its latency or generation speed.

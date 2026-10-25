@@ -96,6 +96,8 @@ public final class AgentConnectionModel: ObservableObject {
     /// Called when any conversation starts or stops waiting for a permission
     /// decision, so a background project can signal it.
     public var onAttentionChanged: ((Bool) -> Void)?
+    /// Prepared sessions discarded by the connection cannot remain editor targets.
+    public var onSessionsDiscarded: ((Set<String>) -> Void)?
     /// Persisted session totals; `nil` keeps statistics per connection only.
     var statisticsStore: AgentSessionStatisticsStore?
 
@@ -377,6 +379,12 @@ public final class AgentConnectionModel: ObservableObject {
 
     // MARK: Conversations
 
+    public func canReuseForNewConversation(_ sessionID: String) -> Bool {
+        let draft = sessionID == selectedSessionID ? Draft(text: draftText, files: draftFiles) : sessionDrafts[sessionID] ?? Draft()
+        return unpromptedSessionIDs.contains(sessionID)
+            && conversations[sessionID]?.messages.isEmpty == true && draft.isEmpty
+    }
+
     public func startNewConversation() {
         guard !isCreatingSession else { return }
         saveDraft()
@@ -403,6 +411,7 @@ public final class AgentConnectionModel: ObservableObject {
                 sessionDrafts[sessionID] = nil
                 unpromptedSessionIDs.remove(sessionID)
                 selectedSessionID = nil
+                onSessionsDiscarded?([sessionID])
             } else {
                 if conversations[sessionID]?.isAttached != true { selectSession(sessionID) }
                 return
@@ -1553,10 +1562,7 @@ public final class AgentConnectionModel: ObservableObject {
     }
 
     private func discardUnpersistedEmptySessions() {
-        let discarded = unpromptedSessionIDs.filter {
-            let draft = $0 == selectedSessionID ? Draft(text: draftText, files: draftFiles) : sessionDrafts[$0] ?? Draft()
-            return conversations[$0]?.messages.isEmpty == true && draft.isEmpty
-        }
+        let discarded = unpromptedSessionIDs.filter { canReuseForNewConversation($0) }
         unpromptedSessionIDs.subtract(discarded)
         // Never infer this from an empty transcript alone: unloaded history must survive.
         for id in discarded { conversations[id] = nil; sessionDrafts[id] = nil }
@@ -1565,6 +1571,7 @@ public final class AgentConnectionModel: ObservableObject {
         if let selectedSessionID, discarded.contains(selectedSessionID) {
             self.selectedSessionID = nil
         }
+        if !discarded.isEmpty { onSessionsDiscarded?(discarded) }
     }
 
     private func openTab(_ sessionID: String) {

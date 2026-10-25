@@ -1863,6 +1863,8 @@ struct AgentConversationFeatureModelTests {
     @Test
     func providerReconnectRecreatesUnpromptedSessionsAndKeepsHistoryTabs() async throws {
         try await withReconnectableFeature { feature, transport in
+            var discarded: [Set<String>] = []
+            feature.onSessionsDiscarded = { discarded.append($0) }
             feature.selectSession("session-2")
             try feature.receive(event("sessionLoaded", ["token": transport.connections[0].commands.last?["token"] as Any,
                 "sessionId": "session-2"]))
@@ -1874,7 +1876,9 @@ struct AgentConversationFeatureModelTests {
             #expect(feature.conversations["empty-1"] == nil, "New Chat immediately drops the preceding unprompted session")
             #expect(!feature.sessions.contains { $0.id == "empty-1" })
             #expect(feature.openSessionIDs == ["session-2", "empty-2"])
+            #expect(discarded == [["empty-1"]])
             await feature.stop()
+            #expect(discarded == [["empty-1"], ["empty-2"]])
             #expect(feature.selectedSessionID == nil)
             #expect(feature.openSessionIDs == ["session-2"])
             #expect(feature.conversations["empty-1"] == nil && feature.conversations["empty-2"] == nil)
@@ -1895,6 +1899,29 @@ struct AgentConversationFeatureModelTests {
             #expect(prompts.count == 1)
             #expect(prompts.first?["sessionId"] as? String == "replacement")
             #expect((prompts.first?["files"] as? [[String: String]])?.first?["uri"] == file.id)
+        }
+    }
+
+    @Test
+    func precreatedSessionsAreReusableOnlyWithoutMessagesOrDrafts() async throws {
+        try await withReconnectableFeature { feature, transport in
+            feature.prepareConversation()
+            try feature.receive(event("sessionCreated", ["token": transport.connections[0].commands.last?["token"] as Any]))
+            #expect(feature.canReuseForNewConversation("session-1"))
+            feature.draftText = "Keep this draft"
+            #expect(!feature.canReuseForNewConversation("session-1"))
+            feature.draftText = ""
+            feature.draftFiles = [try AgentFileReference(url: URL(fileURLWithPath: "/example/notes.txt"))]
+            #expect(!feature.canReuseForNewConversation("session-1"))
+            feature.startNewConversation()
+            #expect(feature.conversations["session-1"] != nil, "An attachment-only draft retains its session")
+            #expect(!feature.canReuseForNewConversation("session-1"), "Saved background drafts also prevent reuse")
+            try feature.receive(event("sessionCreated", ["token": transport.connections[0].commands.last?["token"] as Any,
+                "sessionId": "session-2"]))
+            #expect(feature.canReuseForNewConversation("session-2"))
+            try feature.send("A real prompt")
+            #expect(!feature.canReuseForNewConversation("session-2"))
+            #expect(!feature.canReuseForNewConversation("unknown-history"))
         }
     }
 
@@ -2442,10 +2469,74 @@ struct AgentConversationFeatureModelTests {
         #expect(totals.latestContext == nil)
         #expect(totals.outputTokens == 16)
         #expect(totals.callsWithUsage == 1)
+        #expect(totals.requestCount == 1)
+        #expect(totals.callsMissingUsage == 0)
         totals.record(try modelCall(usage: usage, context: context(messages: 4000, tools: 11)))
         #expect(totals.callCount == 1)
         #expect(totals.outputTokens == 32)
         #expect(totals.latestContext?.toolCount == 11)
+        #expect(totals.requestCount == 2)
+        #expect(totals.callsMissingUsage == 0)
+    }
+
+    @Test(arguments: [false, true])
+    func auxiliaryCallsCannotHideRequestsWithoutUsage(missingAuxiliary: Bool) throws {
+        var conversation = AgentConversation()
+        let usage: [String: Any] = ["inputTokens": 10, "cacheReadTokens": 0, "cacheWriteTokens": 0, "outputTokens": 16]
+        conversation.recordModelCall(try modelCall(usage: usage, auxiliary: true))
+        conversation.recordModelCall(try modelCall(usage: nil, auxiliary: missingAuxiliary))
+        let tokens = try #require(conversation.sessionStatistics.tokens)
+        #expect(tokens.totalTokens == 26)
+        #expect(tokens.callsMissingUsage == 1)
+        #expect(conversation.modelCalls.requestCount == 2)
+        #expect(conversation.modelCalls.callCount == (missingAuxiliary ? 0 : 1))
+    }
+
+    @Test
+    func auxiliaryOnlyUsagePersistsAndMergesWithoutBecomingAConversationStep() throws {
+        let persistence = InMemoryStatisticsPersistence()
+        let workspace = URL(fileURLWithPath: "/example/statistics-workspace")
+        let store = AgentSessionStatisticsStore(persistence: persistence, agentID: "claude", workspaceURL: { workspace })
+        var conversation = AgentConversation()
+        let usage: [String: Any] = ["inputTokens": 10, "cacheReadTokens": 0, "cacheWriteTokens": 0, "outputTokens": 16]
+        conversation.recordModelCall(try modelCall(usage: usage, auxiliary: true))
+        #expect(conversation.sessionStatistics.modelCalls?.callCount == 0)
+        #expect(conversation.sessionStatistics.tokens?.totalTokens == 26)
+        #expect(conversation.sessionStatistics.tokens?.callsMissingUsage == 0)
+        store.save(conversation, sessionID: "session-1")
+        #expect(persistence.saves == 1)
+        let reopened = AgentSessionStatisticsStore(persistence: persistence, agentID: "claude", workspaceURL: { workspace })
+        var continued = AgentConversation()
+        continued.statisticsBaseline = try #require(reopened.record(for: "session-1"))
+        continued.recordModelCall(try modelCall(usage: nil))
+        let record = continued.statisticsRecord(at: Date(timeIntervalSince1970: 0))
+        let roundTrip = try JSONDecoder().decode(AgentSessionStatisticsRecord.self, from: JSONEncoder().encode(record))
+        #expect(roundTrip.modelCalls.requestCount == 2)
+        #expect(roundTrip.modelCalls.callCount == 1)
+        #expect(roundTrip.modelCalls.callsMissingUsage == 1)
+        #expect(continued.sessionStatistics.tokens?.callsMissingUsage == 1)
+    }
+
+    @Test
+    func statisticsWrittenBeforeRequestCountsRemainReadable() throws {
+        var totals = AgentModelCallTotals()
+        totals.record(try modelCall(usage: nil))
+        var legacy = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(totals)) as? [String: Any])
+        legacy.removeValue(forKey: "observedCallCount")
+        let decoded = try JSONDecoder().decode(AgentModelCallTotals.self, from: JSONSerialization.data(withJSONObject: legacy))
+        #expect(decoded.requestCount == 1)
+        #expect(decoded.callsMissingUsage == 1)
+        var continued = decoded
+        let usage: [String: Any] = ["inputTokens": 10, "cacheReadTokens": 0, "cacheWriteTokens": 0, "outputTokens": 16]
+        continued.record(try modelCall(usage: usage, auxiliary: true))
+        #expect(continued.requestCount == 2)
+        #expect(continued.callsMissingUsage == 1)
+        // Old auxiliary-only documents had usage but no conversation steps.
+        legacy["callCount"] = 0
+        legacy["callsWithUsage"] = 1
+        let auxiliary = try JSONDecoder().decode(AgentModelCallTotals.self, from: JSONSerialization.data(withJSONObject: legacy))
+        #expect(auxiliary.requestCount == 1)
+        #expect(auxiliary.callsMissingUsage == 0)
     }
 
     private func modelCall(usage: [String: Any]? = nil, context: [String: Any]? = nil,
