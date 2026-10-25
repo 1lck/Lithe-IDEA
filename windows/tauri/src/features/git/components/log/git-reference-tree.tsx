@@ -67,13 +67,8 @@ import {
   GIT_REPOSITORY_COLOR_PALETTE,
   buildGitRepositoryColorMap,
 } from "../../utils/git-repository-colors";
-import { MavenIcon } from "@/features/maven/components/maven-icon";
 import { GitTrackingCounts } from "../git-tracking-counts";
 import { GitFetchIcon, GitUpdateIcon, LocateHeadIcon } from "./git-reference-toolbar-icons";
-
-// macOS draws the repository row with the original toolWindowMaven.svg fill in
-// both themes, so the glyph keeps this color instead of following the text color.
-const REPOSITORY_ROW_ICON_COLOR = "#CED0D6";
 
 const SECTION_KEYS: Array<{ kind: GitReferenceKind; titleKey: string }> = [
   { kind: "local", titleKey: "git.log.local" },
@@ -1121,10 +1116,7 @@ export function GitReferenceTree({
                       ) : (
                         <CaretDownIcon className="size-3" />
                       )}
-                      <MavenIcon
-                        className="size-4 shrink-0"
-                        style={{ color: REPOSITORY_ROW_ICON_COLOR }}
-                      />
+                      <FolderIcon className="size-3.5 shrink-0 text-subtle-foreground" />
                       {/* Same as macOS: the repository color is only a small dot, never a tinted card. */}
                       <span
                         data-testid="git-repository-color-dot"

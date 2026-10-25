@@ -44,6 +44,7 @@ macOS 与 Windows 都提供原生列表界面，提交范围的检查由同一�
 当前列表提交前，用户需要取消其它列表的暂存勾选；Lithe 不自动整理索引。列表删除后，原文件归入默认列表，确认提示明确告知其可能被默认列表的批量暂存包含。
 Windows 元数据存于现有 WebView 用户数据中以 `git-local-changelists-workspace-v1:` 开头的工作区键，旧的 `git-local-changelists-v1` 整表只作为迁移读取来源；macOS 通过 `MacGitChangelistStorage` 保存到用户偏好的 `lithe.git.local-changelists.v1:` 工作区键，由 Git 模块通过接口读写；生命周期跨重启，仅保存在本机，不写入仓库、app bundle 或安装目录，不影响签名和 Sparkle delta。
 本次不新增下载、解压、构建缓存或可复用资源目录；这些可变用户偏好不能作为 worktree 构建资源复制或共享。
+Windows 提供两个独立的 Git 设置：`showGitChangelists` 和 `showGitParentReferences`，默认都开启，只出现在 Windows，macOS 没有对应设置。关闭 `showGitChangelists` 会隐藏 ChangeList 选择器、新建/重命名/删除按钮和变更树里的列表分组节点，并把所有变更视为默认列表：当前列表、“其它列表已暂存”的提交保护和 `pathScope` 都按空分配计算，因此不再缩小提交范围。已保存的分配不会被删除，重新开启后继续生效；关闭期间存储不可用的提示也不再阻止提交。关闭 `showGitParentReferences` 只隐藏栏里的“更新父仓库引用”勾选，提交时按默认值开启处理，不会因为看不到选项而让引用更新悄悄关闭。提交确认面板里的父仓库引用开关不受这两个设置影响。
 未传 `pathScope` 的旧客户端保留原提交行为。两端目标系统上的原生界面、构建及安装包验收仍待运行验证；代码存在不等于功能矩阵的 verified。
 
 ## 验证
@@ -78,6 +79,8 @@ Windows 元数据存于现有 WebView 用户数据中以 `git-local-changelists-
 - `windows/tauri/src/features/git/components/git-changelist-bar.tsx`
 - `windows/tauri/src/features/git/components/status/git-status-panel.tsx`
 - `windows/tauri/src/features/git/components/git-commit-panel.tsx`
+- `windows/tauri/src/features/settings/components/tabs/git-settings.tsx`
+- `windows/tauri/src/features/git/components/git-view.tsx`
 - `rust/lithe-core/src/git/workspace_commit/path_scope.rs`
 - `rust/lithe-core/src/git/commit_state.rs`
 - `shared/contracts/rust-core-api.md`

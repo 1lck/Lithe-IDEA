@@ -65,9 +65,10 @@ beforeEach(async () => {
     />
   )) as typeof input.default);
   const picker = spyOn(select, "default").mockImplementation(
-    ({ value, options, onChange, disabled, "aria-label": label }) => (
+    ({ value, options, onChange, disabled, className, "aria-label": label }) => (
       <select
         aria-label={label}
+        data-select-class={className}
         value={value}
         disabled={disabled}
         onInput={(event) => onChange(event.currentTarget.value)}
@@ -209,4 +210,63 @@ test("parent-reference option is controlled by the shared owner and respects wor
   );
   await act(async () => (checkbox().closest("label") as HTMLElement).click());
   expect(checkbox().getAttribute("aria-checked")).toBe("false");
+});
+
+test("the selector keeps a fixed width with the actions pushed right, and the option text uses the caption size", async () => {
+  await act(async () =>
+    root.render(
+      <LocaleProvider language="en-US">
+        <GitChangelistBar
+          workspace={workspace}
+          disabled={false}
+          includeParentReferences
+          onIncludeParentReferencesChange={() => {}}
+        />
+      </LocaleProvider>,
+    ),
+  );
+  const selectClass =
+    container.querySelector<HTMLElement>('[aria-label="Active changelist"]')?.dataset.selectClass ??
+    "";
+  expect(selectClass).toContain("w-39");
+  expect(selectClass).toContain("shrink-0");
+  expect(selectClass).not.toContain("flex-1");
+  const label = container.querySelector<HTMLElement>('[role="checkbox"]')!.closest("label")!;
+  expect(label.className).toContain("ui-text-caption");
+});
+
+const renderBar = (props: { showChangelists?: boolean; showParentReferences?: boolean }) =>
+  act(async () =>
+    root.render(
+      <LocaleProvider language="en-US">
+        <GitChangelistBar
+          workspace={workspace}
+          disabled={false}
+          includeParentReferences
+          onIncludeParentReferencesChange={() => {}}
+          {...props}
+        />
+      </LocaleProvider>,
+    ),
+  );
+
+test("hiding ChangeLists keeps only the parent-reference option", async () => {
+  await renderBar({ showChangelists: false });
+  expect(container.querySelector('[aria-label="Active changelist"]')).toBeNull();
+  expect(container.querySelector('[aria-label="New changelist"]')).toBeNull();
+  expect(container.querySelector('[role="checkbox"]')).not.toBeNull();
+});
+
+test("hiding the parent-reference option keeps only the ChangeList controls", async () => {
+  await renderBar({ showParentReferences: false });
+  expect(container.querySelector('[aria-label="Active changelist"]')).not.toBeNull();
+  expect(container.querySelector('[role="checkbox"]')).toBeNull();
+});
+
+test("hiding both removes the whole bar, and both are visible by default", async () => {
+  await renderBar({ showChangelists: false, showParentReferences: false });
+  expect(container.children).toHaveLength(0);
+  const { getDefaultSetting } = await import("@/features/settings/stores/settings.store");
+  expect(getDefaultSetting("showGitChangelists")).toBe(true);
+  expect(getDefaultSetting("showGitParentReferences")).toBe(true);
 });
