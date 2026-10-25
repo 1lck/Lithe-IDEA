@@ -331,19 +331,25 @@ struct RemoteConnectionsView: View {
                 }
                 if let address = host.address {
                     LitheSettingsRow("Address", info: "Looking up the location sends this address to ipinfo.io. Lithe does this only when you click Look Up.") {
-                        Text(verbatim: address).font(LitheTheme.uiFont(size: 12.5, design: .monospaced)).textSelection(.enabled)
-                        if let location = host.location {
-                            LitheSettingsPill(verbatim: Self.place(of: location), kind: .neutral, truncates: true)
-                                .help(Text(verbatim: Self.place(of: location)))
-                        }
-                    } badges: {
-                        if feature.isLocating {
-                            ProgressView().controlSize(.small)
-                        } else {
-                            Button(LocalizedStringKey(host.location == nil ? "Look Up Location" : "Look Up Again")) {
-                                feature.locateSelectedHost()
+                        // The place can be long, so it wraps under the address and button.
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(spacing: 8) {
+                                Text(verbatim: address)
+                                    .font(LitheTheme.uiFont(size: 12.5, design: .monospaced))
+                                    .textSelection(.enabled)
+                                Spacer(minLength: 0)
+                                if feature.isLocating {
+                                    ProgressView().controlSize(.small)
+                                } else {
+                                    Button(LocalizedStringKey(host.location == nil ? "Look Up Location" : "Look Up Again")) {
+                                        feature.locateSelectedHost()
+                                    }
+                                    .buttonStyle(LitheActionButtonStyle())
+                                }
                             }
-                            .buttonStyle(LitheActionButtonStyle())
+                            if let location = host.location {
+                                LitheSettingsPill(verbatim: Self.place(of: location), kind: .neutral, wraps: true)
+                            }
                         }
                     }
                 }

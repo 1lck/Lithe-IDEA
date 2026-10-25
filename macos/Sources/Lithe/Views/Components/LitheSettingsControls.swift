@@ -201,20 +201,20 @@ struct LitheSettingsPill: View {
 
     private let text: Text
     private let kind: Kind
-    /// A long value shrinks and ends in an ellipsis instead of keeping its
-    /// full width, so it cannot push the row past its container.
-    private let truncates: Bool
+    /// A long value wraps onto more lines instead of keeping its full width,
+    /// so it cannot push the row past its container.
+    private let wraps: Bool
 
     init(_ title: LocalizedStringKey, kind: Kind = .neutral) {
         self.text = Text(title)
         self.kind = kind
-        self.truncates = false
+        self.wraps = false
     }
 
-    init(verbatim title: String, kind: Kind = .neutral, truncates: Bool = false) {
+    init(verbatim title: String, kind: Kind = .neutral, wraps: Bool = false) {
         self.text = Text(verbatim: title)
         self.kind = kind
-        self.truncates = truncates
+        self.wraps = wraps
     }
 
     var body: some View {
@@ -222,13 +222,15 @@ struct LitheSettingsPill: View {
             .font(kind == .value
                   ? LitheTheme.uiFont(size: 10.5, design: .monospaced)
                   : LitheTheme.uiFont(size: 10.5))
-            .lineLimit(1)
+            .lineLimit(wraps ? nil : 1)
+            .multilineTextAlignment(.leading)
             .foregroundStyle(foreground)
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
-            .background(Capsule().fill(background))
-            .truncationMode(.tail)
-            .modifier(PillSizing(truncates: truncates))
+            .background(
+                RoundedRectangle(cornerRadius: wraps ? 10 : 100, style: .continuous).fill(background)
+            )
+            .modifier(PillSizing(wraps: wraps))
     }
 
     private var foreground: Color {
@@ -251,11 +253,11 @@ struct LitheSettingsPill: View {
 }
 
 private struct PillSizing: ViewModifier {
-    let truncates: Bool
+    let wraps: Bool
 
     func body(content: Content) -> some View {
-        if truncates {
-            content
+        if wraps {
+            content.fixedSize(horizontal: false, vertical: true)
         } else {
             content.fixedSize()
         }
