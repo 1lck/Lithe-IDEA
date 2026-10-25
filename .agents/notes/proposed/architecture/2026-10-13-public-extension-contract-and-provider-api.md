@@ -32,7 +32,7 @@ PR #37 是第一阶段 UI Contribution（插件声明的界面入口）基础设
 
 内置模块和插件尽量实现相同领域 Provider 契约。Build/Run/Test/Debug 等采用类型化 Registry（按能力类型登记和查询实现的目录），组合根负责装配通用适配器，不按新增插件名追加分支。先盘点并复用已有语言服务器、构建工具、运行/测试和 DAP（调试适配器协议）链路；上游拥有的项目、任务和依赖事实仍由原工具提供，避免再造一套解释器、工程模型或调试 UI。
 
-Debug 的最小声明、现有链路盘点、API 兼容性及 P1–P3 验收见[调试适配器 Registry 与第三方 DAP 接入](2026-10-25-debug-adapter-provider-and-declarative-registration.md)，跟踪当前仓库的 [#1210](https://github.com/1lck/Lithe-IDEA/issues/1210)。插件依赖与导出另见[平台级独立提案](2026-10-25-plugin-dependencies-and-exports.md)，原生指令和内存展示另见[后续投影提案](2026-10-25-native-debug-projections.md)；两者不作为 #1210 的前置条件。这些提案没有开放新字段，也不改变其他领域 Provider 的设计。
+Debug 的统一内核、三层能力、插件声明与迁移验收见[统一调试内核与调试适配器 Registry](2026-10-25-unified-debug-engine-and-adapter-registry.md)，跟踪当前仓库的 [#1210](https://github.com/1lck/Lithe-IDEA/issues/1210)。寄存器、内存、反汇编等可选能力另见[可选调试扩展](2026-10-25-optional-debug-extensions.md)，插件依赖与导出另见[平台级独立提案](2026-10-25-plugin-dependencies-and-exports.md)；两者都不作为 #1210 的前置条件。这些提案没有开放新字段，也不改变其他领域 Provider 的设计。
 
 ### 通用 Services 与资源所有权
 

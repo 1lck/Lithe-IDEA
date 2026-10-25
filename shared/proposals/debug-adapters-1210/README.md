@@ -1,16 +1,25 @@
-# DebugAdapter Registry 评审草案（#1210）
+# 调试适配器声明评审草案（#1210）
 
-本目录只评审两件事：**内置与第三方共用 Registry（按身份查找适配器的目录），第三方 DAP 进入现有 Debug UI**。声明放在现有 `plugin.json.debugAdapters`，不是独立注册文件。没有 `draftVersion`，没有新的配置文件格式，也没有插件示例或开发教程。
+本目录评审 #1210 中两份**跨端契约草案**：
+
+1. 插件怎么声明调试适配器：放在现有 `plugin.json.debugAdapters`，不是独立注册文件；
+2. 统一调试内核交给两个平台的会话投影 v2。
+
+调试内核本身怎么重写、能力怎么分层，以 Agent Note 为准；本目录不重复这部分内容。
 
 当前宿主不接受这些新增字段。本 PR 只提交计划，不改变正式契约或产品行为。
 
 ## 评审材料
 
-- [能力块 schema](debug-adapters.draft.schema.json)：唯一一份新增 schema，只校验从完整清单提取的 `debugAdapters` 段。
+- [统一调试内核与调试适配器 Registry](../../../.agents/notes/proposed/architecture/2026-10-25-unified-debug-engine-and-adapter-registry.md)：内核重写、必选 / 推荐 / 可选三层能力、P0–P5 迁移与验收。
+- [可选调试扩展](../../../.agents/notes/proposed/architecture/2026-10-25-optional-debug-extensions.md)：寄存器、内存、反汇编、反编译源码、子会话等，各自单独验收。
+- [能力块 schema](debug-adapters.draft.schema.json)：只校验从完整清单提取的 `debugAdapters` 段。
 - [拒绝 fixtures](semantic-rejections.draft.json)：合成的契约验收输入，不是可安装插件；区分 schema 能拒绝和待 Core 实现的语义拒绝。
-- [Debug 架构与 P1–P3 验收](../../../.agents/notes/proposed/architecture/2026-10-25-debug-adapter-provider-and-declarative-registration.md)。
+- [会话投影 v2 schema](debug-session-projection.draft.schema.json) 与[样例](projection-v2-examples.draft.json)：可选的源码位置、字符串地址、`presentationHint` 透传、暂停代次与能力快照。
 
-插件依赖、导出与跨包授权移到[独立平台提案](../../../.agents/notes/proposed/architecture/2026-10-25-plugin-dependencies-and-exports.md)；原生指令、反汇编和内存投影移到[独立后续提案](../../../.agents/notes/proposed/architecture/2026-10-25-native-debug-projections.md)。两者都不是 #1210 的依赖或关闭条件。
+插件依赖、导出与跨包授权移到[独立平台提案](../../../.agents/notes/proposed/architecture/2026-10-25-plugin-dependencies-and-exports.md)，不是 #1210 的依赖或关闭条件。
+
+插件声明只描述“怎么启动调试器”。断点、调用栈、变量等标准能力由新内核与适配器通过 DAP 协商，清单不逐项声明；寄存器、内存等扩展是宿主内核模块，不出现在清单里。
 
 ## 版本与清单位置
 
@@ -81,7 +90,7 @@ debugpy、lldb-dap 可以走 stdio，Delve/js-debug 可按真实启动方式选�
 
 本包私有 resolver 比跨插件调用范围小，但仍改变了“领域结果不走插件函数”的已落地决策。它是独立的后续 `debugAdapters` 版本：先修订函数决策、定义固定的 Debug 输入/结果及本包授权，再复用 `lithe/function/invoke`。旧 `backend: 1` 仍是全局、网页触发的进程，不能为了 Debug 改成工作区后端或要求空网页。
 
-如需重新准备，后续结果只能引用宿主已解析的 Build/Run action 身份及版本，不接受任意字符串、脚本或再次进入 Registry 的命令。宿主执行成功后最多重入解析一次，第二次要求准备即拒绝；项目事实随后重新从拥有它的引擎读取。这个后续门槛不阻塞固定声明的 P1–P3。
+如需重新准备，后续结果只能引用宿主已解析的 Build/Run action 身份及版本，不接受任意字符串、脚本或再次进入 Registry 的命令。宿主执行成功后最多重入解析一次，第二次要求准备即拒绝；项目事实随后重新从拥有它的引擎读取。这个后续门槛不阻塞固定声明的 P3–P4（见主 Note 的分阶段交付）。
 
 ## Schema 与 Core 校验分界
 
