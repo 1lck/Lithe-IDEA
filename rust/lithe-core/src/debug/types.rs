@@ -28,6 +28,10 @@ pub struct CreateSessionRequest {
     /// Whether the native host can launch adapter-requested processes in a terminal.
     #[serde(default)]
     pub supports_run_in_terminal_request: bool,
+    /// Whether the native host can open a child debug session for an adapter
+    /// `startDebugging` reverse request (for example Node worker or child processes).
+    #[serde(default)]
+    pub supports_start_debugging_request: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -471,9 +475,31 @@ pub struct DebugRunInTerminalRequest {
     pub args_can_be_interpreted_by_shell: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Normalized adapter request to start a child debug session.
+pub struct DebugStartDebuggingRequest {
+    /// Whether the child session launches or attaches to its debuggee.
+    pub request: DebugRequestKind,
+    /// Adapter-provided child configuration with the `request` key removed.
+    /// It is passed through verbatim so adapter-specific fields survive.
+    pub configuration: serde_json::Map<String, serde_json::Value>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-/// Completes one pending `runInTerminal` reverse request from the native host.
+/// Completes one pending `startDebugging` reverse request from the native host.
+pub struct DebugStartDebuggingResponseRequest {
+    pub session_id: String,
+    pub request_id: String,
+    pub success: bool,
+    #[serde(default)]
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Completes one pending `runInTerminal' reverse request from the native host.
 pub struct DebugRunInTerminalResponseRequest {
     pub session_id: String,
     pub request_id: String,
@@ -578,6 +604,11 @@ pub enum DebugEventBody {
     RunInTerminalRequested {
         request_id: String,
         request: DebugRunInTerminalRequest,
+    },
+    /// The adapter asks the host to open a child debug session.
+    StartDebuggingRequested {
+        request_id: String,
+        request: DebugStartDebuggingRequest,
     },
     OperationCompleted {
         operation_id: String,

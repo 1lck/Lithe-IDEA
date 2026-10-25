@@ -3,6 +3,7 @@
 mod breakpoint_relocation;
 mod engine;
 mod java_test;
+mod projection_v2;
 mod protocol;
 mod types;
 

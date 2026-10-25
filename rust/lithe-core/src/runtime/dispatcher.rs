@@ -1240,6 +1240,27 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::DebugStartDebuggingResponse => {
+            match serde_json::from_value::<crate::debug::DebugStartDebuggingResponseRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid debug start-debugging response",
+                )
+                .with_details(error.to_string())
+            })
+            .and_then(crate::debug::start_debugging_response)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("Debug start-debugging response update should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::DebugDisconnect => {
             match serde_json::from_value::<crate::debug::SessionRequest>(parsed.payload)
                 .map_err(|error| {

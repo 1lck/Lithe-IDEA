@@ -70,7 +70,7 @@ TCP 启动期限只约束端口发现与连接，不限制整个调试会话。�
 
 已有 `${pluginDir}` 等启动模板保持原规则；此处永远指**声明该进程的当前包**。路径字段、模板展开及参数数组仍由共享解析器处理。`configuration.arguments` 是普通 JSON，不把其中的 `backendRef`、`$lease` 等同名字段解释为资源。此版没有资源引用输入、跨包租约或用户 JSON 中的隐藏句柄。
 
-debugpy、lldb-dap 可以走 stdio，Delve/js-debug 可按真实启动方式选择 TCP；是否能完整调试仍要核对后端版本、端口输出和目标参数。Java 先由内置 Provider 接入 Registry，继续使用已有 JDT 集成，不把宿主服务暴露为第三方 JSON 字段。一个模型统一接入方式，不保证所有后端功能相同。
+debugpy、lldb-dap 可以走 stdio，Delve、js-debug 这类适配器可按真实启动方式选择 TCP（宿主已不再内置 Go、Node 调试，由对应语言插件提供）；是否能完整调试仍要核对后端版本、端口输出和目标参数。Java 先由内置 Provider 接入 Registry，继续使用已有 JDT 集成，不把宿主服务暴露为第三方 JSON 字段。一个模型统一接入方式，不保证所有后端功能相同。
 
 ## 配置与能力
 

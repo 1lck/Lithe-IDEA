@@ -32,6 +32,8 @@ struct DebugSession {
     data_breakpoints: Vec<DataBreakpoint>,
     supports_run_in_terminal_request: bool,
     pending_run_in_terminal_requests: BTreeMap<String, i64>,
+    supports_start_debugging_request: bool,
+    pending_start_debugging_requests: BTreeMap<String, i64>,
     did_receive_initialized: bool,
     supports_configuration_done: bool,
     capabilities: DebugCapabilities,
@@ -112,6 +114,8 @@ pub(crate) fn create_session(
         data_breakpoints: Vec::new(),
         supports_run_in_terminal_request: request.supports_run_in_terminal_request,
         pending_run_in_terminal_requests: BTreeMap::new(),
+        supports_start_debugging_request: request.supports_start_debugging_request,
+        pending_start_debugging_requests: BTreeMap::new(),
         did_receive_initialized: false,
         supports_configuration_done: false,
         capabilities: DebugCapabilities::default(),
@@ -134,6 +138,7 @@ pub(crate) fn create_session(
             "supportsVariableType": true,
             "supportsVariablePaging": true,
             "supportsRunInTerminalRequest": session.supports_run_in_terminal_request,
+            "supportsStartDebuggingRequest": session.supports_start_debugging_request,
             "supportsMemoryReferences": false,
             "supportsProgressReporting": false,
             "supportsInvalidatedEvent": true
@@ -740,6 +745,31 @@ pub(crate) fn run_in_terminal_response(
     })
 }
 
+/// Completes one adapter-originated child session start and emits its DAP response.
+pub(crate) fn start_debugging_response(
+    request: DebugStartDebuggingResponseRequest,
+) -> Result<DebugSessionUpdate, CoreError> {
+    validate_identifier(&request.request_id, "requestId")?;
+    with_session(&request.session_id, |session| {
+        let Some(request_sequence) = session
+            .pending_start_debugging_requests
+            .remove(&request.request_id)
+        else {
+            // The child start is asynchronous, so a reply can race shutdown or a
+            // previous completion and must not answer a later adapter request.
+            return Ok(session.take_update());
+        };
+        if request.success {
+            session.send_response(request_sequence, "startDebugging", true, None)?;
+        } else {
+            let message = normalize_optional_text(request.message)
+                .unwrap_or_else(|| "Lithe could not start the child debug session.".to_string());
+            session.send_response(request_sequence, "startDebugging", false, Some(&message))?;
+        }
+        Ok(session.take_update())
+    })
+}
+
 /// Begins a graceful DAP disconnect while the host keeps transport ownership.
 pub(crate) fn disconnect(request: SessionRequest) -> Result<DebugSessionUpdate, CoreError> {
     with_session(&request.session_id, |session| {
@@ -751,6 +781,9 @@ pub(crate) fn disconnect(request: SessionRequest) -> Result<DebugSessionUpdate, 
         }
         session.fail_pending_run_in_terminal_requests(
             "The debug session stopped before the terminal could start.",
+        )?;
+        session.fail_pending_start_debugging_requests(
+            "The debug session stopped before the child session could start.",
         )?;
         // An attach session does not own the remote JVM, so disconnect must
         // never terminate it. A launch session owns the local debuggee.
@@ -1334,12 +1367,46 @@ impl DebugSession {
                 }
             }
         }
+        if command == "startDebugging" && self.supports_start_debugging_request {
+            let arguments = message.get("arguments").unwrap_or(&Value::Null);
+            return match parse_start_debugging_request(arguments) {
+                Ok(request) => {
+                    let request_id = format!("startDebugging-{request_sequence}");
+                    if self
+                        .pending_start_debugging_requests
+                        .contains_key(&request_id)
+                    {
+                        // A DAP sequence has one response; a duplicate must not
+                        // open a second child session.
+                        return Ok(());
+                    }
+                    self.pending_start_debugging_requests
+                        .insert(request_id.clone(), request_sequence);
+                    self.emit(DebugEventBody::StartDebuggingRequested {
+                        request_id,
+                        request,
+                    });
+                    Ok(())
+                }
+                Err(error) => {
+                    self.send_response(request_sequence, command, false, Some(&error.message))
+                }
+            };
+        }
         self.send_response(
             request_sequence,
             command,
             false,
             Some("This debug adapter request is not supported by Lithe."),
         )
+    }
+
+    fn fail_pending_start_debugging_requests(&mut self, message: &str) -> Result<(), CoreError> {
+        let pending = std::mem::take(&mut self.pending_start_debugging_requests);
+        for request_sequence in pending.into_values() {
+            self.send_response(request_sequence, "startDebugging", false, Some(message))?;
+        }
+        Ok(())
     }
 
     fn fail_pending_run_in_terminal_requests(&mut self, message: &str) -> Result<(), CoreError> {
@@ -2057,6 +2124,37 @@ fn sessions_lock(
         .map_err(|_| CoreError::new(ErrorCode::Unknown, "Debug session state is unavailable."))
 }
 
+fn parse_start_debugging_request(value: &Value) -> Result<DebugStartDebuggingRequest, CoreError> {
+    let arguments = value
+        .as_object()
+        .ok_or_else(|| invalid_request("Debug startDebugging arguments must be a JSON object."))?;
+    let mut configuration = arguments
+        .get("configuration")
+        .and_then(Value::as_object)
+        .cloned()
+        .ok_or_else(|| invalid_request("Debug startDebugging configuration must be an object."))?;
+    // DAP names the kind on the envelope; the configuration keeps the same word
+    // for adapters that read it, but Lithe routes on the typed field.
+    let kind = arguments
+        .get("request")
+        .or_else(|| configuration.get("request"))
+        .and_then(Value::as_str);
+    let request = match kind {
+        Some("launch") => DebugRequestKind::Launch,
+        Some("attach") => DebugRequestKind::Attach,
+        _ => {
+            return Err(invalid_request(
+                "Debug startDebugging request must be launch or attach.",
+            ))
+        }
+    };
+    configuration.remove("request");
+    Ok(DebugStartDebuggingRequest {
+        request,
+        configuration,
+    })
+}
+
 fn parse_run_in_terminal_request(value: &Value) -> Result<DebugRunInTerminalRequest, CoreError> {
     const MAX_ARGUMENT_COUNT: usize = 4_096;
     const MAX_ENVIRONMENT_COUNT: usize = 4_096;
@@ -2348,6 +2446,7 @@ mod tests {
                 adapter_id: adapter.into(),
                 root_path: "/workspace".into(),
                 supports_run_in_terminal_request: false,
+                supports_start_debugging_request: false,
             })
             .unwrap();
             // The guard always removes the process-free session, including on assertion failure.
@@ -2506,6 +2605,7 @@ mod tests {
                 adapter_id: "java".to_string(),
                 root_path: "/workspace".to_string(),
                 supports_run_in_terminal_request: false,
+                supports_start_debugging_request: false,
             })
             .unwrap();
 
@@ -2687,6 +2787,7 @@ mod tests {
             adapter_id: "java".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
+            supports_start_debugging_request: false,
         })
         .unwrap();
         launch(LaunchRequest {
@@ -2822,6 +2923,7 @@ mod tests {
             adapter_id: "java".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
+            supports_start_debugging_request: false,
         })
         .unwrap();
         assert_eq!(created.state, DebugSessionState::Initializing);
@@ -3104,6 +3206,7 @@ mod tests {
             adapter_id: "java".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
+            supports_start_debugging_request: false,
         })
         .unwrap();
         // This reducer owns no processes; always destroy its registry entry below.
@@ -3182,6 +3285,268 @@ mod tests {
     }
 
     #[test]
+    fn start_debugging_request_is_normalized_completed_and_stale_safe() {
+        let fixture: Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/fixtures/debug/start-debugging-v1.json"
+        )))
+        .unwrap();
+        let session_id = "debug-start-debugging";
+        create_session(CreateSessionRequest {
+            session_id: session_id.to_string(),
+            adapter_id: "node".to_string(),
+            root_path: "/workspace".to_string(),
+            supports_run_in_terminal_request: false,
+            supports_start_debugging_request: true,
+        })
+        .unwrap();
+        // This reducer owns no processes; always destroy its registry entry below.
+        let requested = receive_messages(session_id, vec![fixture["adapterRequest"].clone()]);
+        let request_id = requested
+            .events
+            .iter()
+            .find_map(|event| match &event.body {
+                DebugEventBody::StartDebuggingRequested {
+                    request_id,
+                    request,
+                } => {
+                    assert_eq!(
+                        serde_json::to_value(request).unwrap(),
+                        fixture["expectedRequest"]
+                    );
+                    Some(request_id.clone())
+                }
+                _ => None,
+            })
+            .unwrap();
+
+        let duplicate = receive_messages(session_id, vec![fixture["adapterRequest"].clone()]);
+        assert!(duplicate.outbound_frames.is_empty() && duplicate.events.is_empty());
+
+        let success = start_debugging_response(DebugStartDebuggingResponseRequest {
+            session_id: session_id.to_string(),
+            request_id: request_id.clone(),
+            success: true,
+            message: None,
+        })
+        .unwrap();
+        let response = decode_frame(&success.outbound_frames[0]);
+        assert_eq!(response["request_seq"], fixture["adapterRequest"]["seq"]);
+        assert_eq!(response["command"], "startDebugging");
+        assert_eq!(response["success"], true);
+
+        let stale = start_debugging_response(DebugStartDebuggingResponseRequest {
+            session_id: session_id.to_string(),
+            request_id,
+            success: false,
+            message: Some(fixture["failureMessage"].as_str().unwrap().to_string()),
+        })
+        .unwrap();
+        assert!(stale.outbound_frames.is_empty());
+        destroy_session(SessionRequest {
+            session_id: session_id.to_string(),
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn start_debugging_failure_and_unsupported_hosts_answer_the_adapter() {
+        let fixture: Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/fixtures/debug/start-debugging-v1.json"
+        )))
+        .unwrap();
+        for (session_id, supported) in [
+            ("debug-start-debugging-unsupported", false),
+            ("debug-start-debugging-failure", true),
+        ] {
+            create_session(CreateSessionRequest {
+                session_id: session_id.to_string(),
+                adapter_id: "node".to_string(),
+                root_path: "/workspace".to_string(),
+                supports_run_in_terminal_request: false,
+                supports_start_debugging_request: supported,
+            })
+            .unwrap();
+            let update = receive_messages(session_id, vec![fixture["adapterRequest"].clone()]);
+            if supported {
+                let request_id = update
+                    .events
+                    .iter()
+                    .find_map(|event| match &event.body {
+                        DebugEventBody::StartDebuggingRequested { request_id, .. } => {
+                            Some(request_id.clone())
+                        }
+                        _ => None,
+                    })
+                    .unwrap();
+                let failed = start_debugging_response(DebugStartDebuggingResponseRequest {
+                    session_id: session_id.to_string(),
+                    request_id,
+                    success: false,
+                    message: Some(fixture["failureMessage"].as_str().unwrap().to_string()),
+                })
+                .unwrap();
+                let response = decode_frame(&failed.outbound_frames[0]);
+                assert_eq!(response["success"], false);
+                assert_eq!(response["message"], fixture["failureMessage"]);
+            } else {
+                let response = decode_frame(&update.outbound_frames[0]);
+                assert_eq!(response["success"], false);
+                assert!(update.events.is_empty());
+            }
+            destroy_session(SessionRequest {
+                session_id: session_id.to_string(),
+            })
+            .unwrap();
+        }
+    }
+
+    #[test]
+    fn disconnect_fails_a_pending_start_debugging_request() {
+        let fixture: Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/fixtures/debug/start-debugging-v1.json"
+        )))
+        .unwrap();
+        let session_id = "debug-start-debugging-disconnect";
+        create_session(CreateSessionRequest {
+            session_id: session_id.to_string(),
+            adapter_id: "node".to_string(),
+            root_path: "/workspace".to_string(),
+            supports_run_in_terminal_request: false,
+            supports_start_debugging_request: true,
+        })
+        .unwrap();
+        receive_messages(session_id, vec![fixture["adapterRequest"].clone()]);
+        let update = disconnect(SessionRequest {
+            session_id: session_id.to_string(),
+        })
+        .unwrap();
+        let response = decode_frame(&update.outbound_frames[0]);
+        assert_eq!(response["command"], "startDebugging");
+        assert_eq!(response["success"], false);
+        destroy_session(SessionRequest {
+            session_id: session_id.to_string(),
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn node_source_mapped_locations_pass_through_unchanged() {
+        let fixture: Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/fixtures/debug/node-source-map-v1.json"
+        )))
+        .unwrap();
+        let session_id = "debug-node-source-map";
+        let source = fixture["sourcePath"].as_str().unwrap();
+        create_session(CreateSessionRequest {
+            session_id: session_id.to_string(),
+            adapter_id: "node".to_string(),
+            root_path: "/workspace".to_string(),
+            supports_run_in_terminal_request: false,
+            supports_start_debugging_request: false,
+        })
+        .unwrap();
+        // This reducer owns no processes; always destroy its registry entry below.
+        receive_messages(
+            session_id,
+            vec![response_message(1, "initialize", json!({}))],
+        );
+        receive_messages(
+            session_id,
+            vec![json!({"type":"event", "event":"initialized"})],
+        );
+        let sent = set_breakpoints(SetBreakpointsRequest {
+            session_id: session_id.to_string(),
+            source_path: source.to_string(),
+            breakpoints: vec![SourceBreakpoint {
+                line: fixture["requestedLine"].as_i64().unwrap(),
+                column: None,
+                enabled: true,
+                condition: None,
+                hit_condition: None,
+                log_message: None,
+            }],
+        })
+        .unwrap();
+        let request = decode_frame(&sent.outbound_frames[0]);
+        // Core never rewrites TypeScript to the generated file; the adapter owns mapping.
+        assert_eq!(request["arguments"]["source"]["path"], source);
+        let answered = receive_messages(
+            session_id,
+            vec![response_message(
+                request["seq"].as_i64().unwrap(),
+                "setBreakpoints",
+                json!({"breakpoints":[fixture["response"].clone()]}),
+            )],
+        );
+        let breakpoint = answered
+            .events
+            .iter()
+            .find_map(|event| match &event.body {
+                DebugEventBody::Breakpoint { breakpoint } => {
+                    Some(serde_json::to_value(breakpoint).unwrap())
+                }
+                _ => None,
+            })
+            .unwrap();
+        for key in ["sourcePath", "requestedLine", "line", "verified"] {
+            assert_eq!(breakpoint[key], fixture["expectedBreakpoint"][key], "{key}");
+        }
+
+        receive_messages(
+            session_id,
+            vec![json!({"seq": 103, "type": "event", "event": "stopped",
+                "body": {"reason": "breakpoint", "threadId": 1}})],
+        );
+        inspect(InspectRequest {
+            session_id: session_id.to_string(),
+            operation_id: "stack".to_string(),
+            kind: DebugInspectKind::StackTrace,
+            thread_id: Some(1),
+            frame_id: None,
+            variables_reference: None,
+            variable_filter: None,
+            start: None,
+            count: None,
+            expression: None,
+            source_path: None,
+            line: None,
+            column: None,
+        })
+        .unwrap();
+        let stack_sequence = 4;
+        let stack = receive_messages(
+            session_id,
+            vec![response_message(
+                stack_sequence,
+                "stackTrace",
+                json!({"stackFrames": fixture["stackFrames"].clone()}),
+            )],
+        );
+        let frame = stack
+            .events
+            .iter()
+            .find_map(|event| match &event.body {
+                DebugEventBody::OperationCompleted {
+                    result: DebugOperationResult::StackTrace { stack_frames },
+                    ..
+                } => Some(serde_json::to_value(&stack_frames[0]).unwrap()),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(frame["sourcePath"], fixture["expectedFrame"]["sourcePath"]);
+        assert_eq!(frame["line"], fixture["expectedFrame"]["line"]);
+        assert_eq!(frame["column"], fixture["expectedFrame"]["column"]);
+        destroy_session(SessionRequest {
+            session_id: session_id.to_string(),
+        })
+        .unwrap();
+    }
+
+    #[test]
     fn data_breakpoint_identity_and_verification_are_correlated() {
         let session_id = "debug-data-breakpoint";
         create_session(CreateSessionRequest {
@@ -3189,6 +3554,7 @@ mod tests {
             adapter_id: "java".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
+            supports_start_debugging_request: false,
         })
         .unwrap();
         set_data_breakpoints(SetDataBreakpointsRequest {
@@ -3310,6 +3676,7 @@ mod tests {
             adapter_id: "java".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
+            supports_start_debugging_request: false,
         })
         .unwrap();
         launch(LaunchRequest {
@@ -3396,6 +3763,7 @@ mod tests {
             adapter_id: "java".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
+            supports_start_debugging_request: false,
         })
         .unwrap();
         launch(LaunchRequest {
@@ -3517,6 +3885,7 @@ mod tests {
             adapter_id: "java".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
+            supports_start_debugging_request: false,
         })
         .unwrap();
         launch(LaunchRequest {
@@ -3614,6 +3983,7 @@ mod tests {
             adapter_id: "java".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
+            supports_start_debugging_request: false,
         })
         .unwrap();
         launch(LaunchRequest {
@@ -3785,6 +4155,7 @@ mod tests {
             adapter_id: "java".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
+            supports_start_debugging_request: false,
         })
         .unwrap();
         launch(LaunchRequest {
@@ -3888,6 +4259,7 @@ mod tests {
             adapter_id: "java".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
+            supports_start_debugging_request: false,
         })
         .unwrap();
         launch(LaunchRequest {
@@ -3978,6 +4350,7 @@ mod tests {
             adapter_id: "java".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
+            supports_start_debugging_request: false,
         })
         .unwrap();
         launch(LaunchRequest {
@@ -4042,6 +4415,7 @@ mod tests {
             adapter_id: "java".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: true,
+            supports_start_debugging_request: false,
         })
         .unwrap();
         assert_eq!(
@@ -4122,6 +4496,7 @@ mod tests {
             adapter_id: "java".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: true,
+            supports_start_debugging_request: false,
         })
         .unwrap();
 
@@ -4155,6 +4530,7 @@ mod tests {
             adapter_id: "java".to_string(),
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
+            supports_start_debugging_request: false,
         })
         .unwrap();
 

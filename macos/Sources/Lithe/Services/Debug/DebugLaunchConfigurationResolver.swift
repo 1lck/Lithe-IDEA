@@ -167,21 +167,6 @@ struct DebugLaunchConfigurationResolver {
                 selectedConfiguration: selectedConfiguration,
                 options: options
             )
-        case "go":
-            return goConfiguration(
-                documentURL: documentURL,
-                workspaceURL: workspaceURL,
-                configurations: configurations,
-                selectedConfiguration: selectedConfiguration
-            )
-        case "node":
-            return nodeConfiguration(
-                documentURL: documentURL,
-                workspaceURL: workspaceURL,
-                configurations: configurations,
-                selectedConfiguration: selectedConfiguration,
-                options: options
-            )
         default:
             throw DebugLaunchConfigurationResolutionError.unsupportedProvider(provider.displayName)
         }
@@ -270,95 +255,6 @@ struct DebugLaunchConfigurationResolver {
             name: configuration?.name ?? documentURL.lastPathComponent,
             request: .launch,
             arguments: arguments
-        )
-    }
-
-    private func nodeConfiguration(
-        documentURL: URL,
-        workspaceURL: URL,
-        configurations: [RunConfiguration],
-        selectedConfiguration: RunConfiguration?,
-        options: (RunConfiguration) -> RunOptions
-    ) -> DebugLaunchConfiguration {
-        let nodeConfigurations = configurations.filter {
-            $0.kind.providerID == "npm"
-        }
-        let configuration: RunConfiguration?
-        if let selectedConfiguration, selectedConfiguration.kind.providerID == "npm" {
-            configuration = selectedConfiguration
-        } else {
-            configuration = nodeConfigurations
-                .filter { contains(documentURL, inModule: $0.modulePath, workspaceURL: workspaceURL) }
-                .max { moduleDepth($0.modulePath) < moduleDepth($1.modulePath) }
-        }
-        let moduleURL = workspaceURL
-            .appendingPathComponent(configuration?.modulePath ?? "", isDirectory: true)
-            .standardizedFileURL
-        var arguments: [String: ToolingJSONValue] = [
-            "type": .string("pwa-node"),
-            "cwd": .string(moduleURL.path),
-            "console": .string("internalConsole"),
-            "skipFiles": .array([.string("<node_internals>/**")])
-        ]
-        if let configuration {
-            let runOptions = options(configuration)
-            arguments["runtimeExecutable"] = .string("npm")
-            arguments["runtimeArgs"] = .array([
-                .string("run"),
-                .string(configuration.name)
-            ])
-            let programArguments = RunArgumentParser.parse(runOptions.arguments)
-            if !programArguments.isEmpty {
-                arguments["args"] = .array(programArguments.map(ToolingJSONValue.string))
-            }
-            if !runOptions.environment.isEmpty {
-                arguments["env"] = .object(runOptions.environment.mapValues(ToolingJSONValue.string))
-            }
-        } else {
-            arguments["program"] = .string(documentURL.standardizedFileURL.path)
-        }
-        return DebugLaunchConfiguration(
-            name: configuration?.name ?? documentURL.lastPathComponent,
-            request: .launch,
-            arguments: arguments
-        )
-    }
-
-    private func goConfiguration(
-        documentURL: URL,
-        workspaceURL: URL,
-        configurations: [RunConfiguration],
-        selectedConfiguration: RunConfiguration?
-    ) -> DebugLaunchConfiguration {
-        let goConfigurations = configurations.filter {
-            $0.kind.providerID == "go" && $0.execution == .application
-        }
-        let configuration: RunConfiguration?
-        if let selectedConfiguration,
-           selectedConfiguration.kind.providerID == "go",
-           selectedConfiguration.execution == .application {
-            configuration = selectedConfiguration
-        } else {
-            configuration = goConfigurations
-                .filter { contains(documentURL, inModule: $0.modulePath, workspaceURL: workspaceURL) }
-                .max { moduleDepth($0.modulePath) < moduleDepth($1.modulePath) }
-        }
-        let programURL: URL
-        if let modulePath = configuration?.modulePath, !modulePath.isEmpty {
-            programURL = workspaceURL.appendingPathComponent(modulePath, isDirectory: true)
-        } else {
-            programURL = documentURL.deletingLastPathComponent()
-        }
-        let normalizedProgram = programURL.standardizedFileURL
-        return DebugLaunchConfiguration(
-            name: configuration?.name ?? documentURL.lastPathComponent,
-            request: .launch,
-            arguments: [
-                "mode": .string("debug"),
-                "program": .string(normalizedProgram.path),
-                "cwd": .string(normalizedProgram.path),
-                "stopOnEntry": .bool(false)
-            ]
         )
     }
 
