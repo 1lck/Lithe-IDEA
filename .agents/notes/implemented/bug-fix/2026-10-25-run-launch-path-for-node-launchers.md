@@ -45,21 +45,24 @@ Node 版本管理器目录的额外探测；这份探测结果从来没有进入
 - 组合点放在 `RunExecutableResolver.resolve`：`.toolchain` 和 `.command` 两条
   分支都会经过它。只补运行启动环境，不改 `ProjectRuntimeService.processEnvironment`
   本身，避免终端、调试适配器、语言服务器被顺带改掉。
-- 目录顺序：`node` 目录在最前，其次是被解析出的可执行文件目录，之后才是原有
-  `PATH`。这样 `env node` 拿到的是 Lithe 实际选中的解释器；按小写比较去重，因为
-  默认的 APFS 卷大小写不敏感。
+- 目录顺序：原有 `PATH` 条目保持原位置和优先级，`node` 目录与被解析出的可执行
+  文件目录补在后面，按小写比较去重（默认的 APFS 卷大小写不敏感）。运行配置允许
+  用户显式设置 `PATH` 来固定自己的工具链，追加而不是前置才能尊重这份配置；从
+  Finder 启动时 `PATH` 里本来没有 `node`，追加同样能被 `env` 找到。
 - 安全边界：`RuntimeToolCandidate.source == .project` 的 `node` 不注入；可执行
   文件位于项目根内时（例如 `mvnw`、`gradlew`），它所在的目录也不注入。仓库内容
   不可信，把项目根放到 `PATH` 前部会让仓库里的同名文件劫持脚本后续调用的系统
   命令。这与语言服务器侧 `languageToolProcessEnvironment` 的既有规则一致。
-- Windows 的运行入口 `prepend_runtime_paths` 早就在做“运行时目录 + 可执行文件
-  目录前置”。macOS 这次补上同类行为，两个产品的启动环境语义对齐。
+- Windows 的运行入口 `prepend_runtime_paths` 早就在把“运行时目录 + 可执行文件
+  目录”加进 `PATH`（Windows 是前置）。macOS 这次补上同类能力，但使用追加顺序，
+  因为当前实现里没有和 Windows 运行时映射等价的可信来源，追加更不容易覆盖用户
+  的显式配置。
 
 正确做法：
 
 ```text
-pnpm 在 /opt/homebrew/bin，node 在 fnm 的 multishell 目录
-子进程 PATH = <fnm 的 node 目录>:<pnpm 目录>:<原有 PATH>
+pnpm 在 /opt/homebrew/bin，node 在 fnm 的默认别名目录
+子进程 PATH = <原有 PATH>:<fnm 的 node 目录>:<pnpm 目录>
 ```
 
 不要这样做：
@@ -86,19 +89,24 @@ pnpm 在 /opt/homebrew/bin，node 在 fnm 的 multishell 目录
 ## 后果
 
 - 收益：从 Finder 启动也能运行 `pnpm` / `npm` / `yarn` / `tsx` 等脚本；脚本内部
-  再调用 `node` / `npm` 也能解析到同一套工具；与 Windows 行为一致。
+  再调用 `node` / `npm` 也能解析到同一套工具；与 Windows 的启动环境方向一致。
 - 代价：每次运行解析多一次 `node` 候选发现（PATH 和各版本管理器目录的只读
-  探测），单次毫秒级；子进程 `PATH` 的内容和顺序与 0.6.2 不同。
+  探测），单次毫秒级；子进程 `PATH` 的内容和顺序与 0.6.2 不同。macOS 与 Windows
+  的排序不同：Windows 前置，macOS 追加；macOS 还会排除项目内的 wrapper 目录，
+  Windows 不排除。
 - 例外：系统里完全没有 `node` 时不注入任何目录，失败表现与修复前相同；项目里
-  只有自带 `node` 时也不注入，仍然按系统环境处理。
+  只有自带 `node` 时也不注入，仍然按系统环境处理。只能覆盖 Lithe 发现器已知的
+  安装位置（PATH、Homebrew、volta、fnm 默认别名、nvm 版本目录）；fnm 为单个
+  shell 创建的临时 multishell 目录不在发现范围内，用户没有默认别名时仍会缺
+  `node`。
 
 ## 验证
 
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter RunLaunchEnvironmentTests`
-  覆盖六个场景：GUI 最小 PATH 下补齐 node 与启动器目录、项目内 node 被排除、
-  项目 wrapper 不把仓库根放进 PATH、已有目录去重且保持顺序、缺失 PATH 时新建、
-  resolver 对 `.command` 的实际接线。
+  覆盖八个场景：GUI 最小 PATH 下补齐 node 与启动器目录、项目内 node 被排除、
+  项目 wrapper 不把仓库根放进 PATH、已有目录去重且保持顺序、显式 PATH 保持优先级、
+  缺失 PATH 时新建、resolver 对 `.command` 与 `.toolchain("project-node")` 的接线。
 - `./scripts/verify-service-boundaries.sh`
 - 失败形态的手工复现：`env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin /usr/bin/env node --version`
   返回 `env: node: No such file or directory`；把 node 目录加进 `PATH` 后恢复。

@@ -19,14 +19,14 @@ struct RunLaunchEnvironmentTests {
             nodeCandidates: [
                 RuntimeToolCandidate(
                     command: "node",
-                    executableURL: URL(fileURLWithPath: "/Users/fixture/.local/state/fnm_multishells/1/bin/node"),
+                    executableURL: URL(fileURLWithPath: "/Users/fixture/.local/share/fnm/aliases/default/bin/node"),
                     source: .environment
                 )
             ],
             projectURL: projectURL
         )
 
-        #expect(environment["PATH"] == "/Users/fixture/.local/state/fnm_multishells/1/bin:/opt/homebrew/bin:/usr/bin:/bin")
+        #expect(environment["PATH"] == "/usr/bin:/bin:/Users/fixture/.local/share/fnm/aliases/default/bin:/opt/homebrew/bin")
     }
 
     @Test
@@ -55,8 +55,8 @@ struct RunLaunchEnvironmentTests {
             projectURL: projectURL
         )
 
-        #expect(withFallback["PATH"] == "/opt/homebrew/bin:/usr/bin:/bin")
-        #expect(projectNodeOnly["PATH"] == "/opt/homebrew/bin:/usr/bin:/bin")
+        #expect(withFallback["PATH"] == "/usr/bin:/bin:/opt/homebrew/bin")
+        #expect(projectNodeOnly["PATH"] == "/usr/bin:/bin:/opt/homebrew/bin")
     }
 
     @Test
@@ -87,6 +87,24 @@ struct RunLaunchEnvironmentTests {
         )
 
         #expect(environment["PATH"] == "/opt/homebrew/bin:/usr/bin:/bin")
+    }
+
+    @Test
+    func explicitPathEntriesKeepTheirPriority() {
+        let environment = RunLaunchEnvironment.augmenting(
+            ["PATH": "/custom/node/bin:/usr/bin:/bin"],
+            executableURL: URL(fileURLWithPath: "/opt/homebrew/bin/pnpm"),
+            nodeCandidates: [
+                RuntimeToolCandidate(
+                    command: "node",
+                    executableURL: URL(fileURLWithPath: "/fixture-node/bin/node"),
+                    source: .environment
+                )
+            ],
+            projectURL: projectURL
+        )
+
+        #expect(environment["PATH"] == "/custom/node/bin:/usr/bin:/bin:/fixture-node/bin:/opt/homebrew/bin")
     }
 
     @Test
@@ -135,7 +153,31 @@ struct RunLaunchEnvironmentTests {
             .resolve(plan, projectURL: project, options: RunOptions())
 
         #expect(resolved.executableURL == pnpm)
-        #expect(resolved.environment["PATH"] == "/fixture-node/bin:\(tools.path):/usr/bin:/bin")
+        #expect(resolved.environment["PATH"] == "\(tools.path):/usr/bin:/bin:/fixture-node/bin")
+    }
+
+    @Test
+    @MainActor
+    func resolverAppliesTheInterpreterDirectoryToNodeToolchains() throws {
+        let service = ProjectRuntimeService(
+            runtimeLocator: RunLaunchPathRuntimeLocator(
+                environmentValues: ["PATH": "/usr/bin:/bin"],
+                executablePath: "/unused"
+            ),
+            store: RunLaunchPathStore(),
+            toolDiscovery: RunLaunchPathToolDiscovery(node: URL(fileURLWithPath: "/fixture-node/bin/node"))
+        )
+        let plan = SharedLaunchPlan(
+            executable: .toolchain("project-node"),
+            arguments: ["script.js"],
+            workingDirectory: "."
+        )
+
+        let resolved = try RunExecutableResolver(runtimeService: service)
+            .resolve(plan, projectURL: projectURL, options: RunOptions())
+
+        #expect(resolved.executableURL.path == "/fixture-node/bin/node")
+        #expect(resolved.environment["PATH"] == "/usr/bin:/bin:/fixture-node/bin")
     }
 }
 

@@ -17,10 +17,13 @@ import LitheCoreContracts
 /// executable's directory in `windows/tauri/src-tauri/src/run.rs`; this keeps
 /// both products' launch environments equivalent.
 enum RunLaunchEnvironment {
-    /// Prepends the discovered interpreter directory and the resolved
-    /// executable's directory, keeping the remaining entries in their original
-    /// order. Entries are deduplicated case-insensitively because the default
-    /// macOS volume is case-insensitive.
+    /// Appends the discovered interpreter directory and the resolved
+    /// executable's directory to the existing entries, which keep their
+    /// priority: a run configuration that sets `PATH` may pin its own
+    /// toolchain, and the default Finder environment contains no `node`, so
+    /// the appended directories are reached in both cases. Entries are
+    /// deduplicated case-insensitively because the default macOS volume is
+    /// case-insensitive.
     ///
     /// Project-owned interpreters and launchers are never promoted: an
     /// untrusted repository must not capture the interpreter of every script
@@ -32,23 +35,23 @@ enum RunLaunchEnvironment {
         nodeCandidates: [RuntimeToolCandidate],
         projectURL: URL
     ) -> [String: String] {
-        var leadingDirectories: [String] = []
+        var resolvedDirectories: [String] = []
         if let node = nodeCandidates.first(where: {
             $0.source != .project && !isInsideProject($0.executableURL, projectURL: projectURL)
         }) {
-            leadingDirectories.append(node.executableURL.deletingLastPathComponent().path)
+            resolvedDirectories.append(node.executableURL.deletingLastPathComponent().path)
         }
         if !isInsideProject(executableURL, projectURL: projectURL) {
-            leadingDirectories.append(executableURL.deletingLastPathComponent().path)
+            resolvedDirectories.append(executableURL.deletingLastPathComponent().path)
         }
-        guard !leadingDirectories.isEmpty else { return environment }
+        guard !resolvedDirectories.isEmpty else { return environment }
 
         let existingDirectories = (environment["PATH"] ?? "")
             .split(separator: ":")
             .map(String.init)
             .filter { !$0.isEmpty }
         var seen = Set<String>()
-        let directories = (leadingDirectories + existingDirectories).filter {
+        let directories = (existingDirectories + resolvedDirectories).filter {
             seen.insert($0.lowercased()).inserted
         }
 
