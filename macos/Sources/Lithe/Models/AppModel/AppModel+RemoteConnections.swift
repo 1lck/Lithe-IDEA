@@ -20,6 +20,11 @@ struct RemoteConnectionServices {
 extension AppModel {
     var canManageRemoteConnections: Bool { services.remoteConnections != nil }
 
+    var hasSavedRemoteConnections: Bool {
+        guard let services = services.remoteConnections else { return false }
+        return !services.store.load().isEmpty
+    }
+
     func showRemoteConnections() {
         guard canManageRemoteConnections else { return }
         workbenchFeature.remoteReconnect = nil
@@ -83,6 +88,7 @@ extension AppModel {
             root: root, remoteRoot: folder, sessionID: session.id, connectionID: connection.id
         ))
         workbenchFeature.isRemoteConnectionsPresented = false
+        workbenchFeature.isOpenTargetChooserPresented = false
         workbenchFeature.remoteReconnect = nil
         openProject(root)
     }

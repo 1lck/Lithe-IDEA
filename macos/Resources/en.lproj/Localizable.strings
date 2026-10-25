@@ -1933,6 +1933,7 @@
 "Local" = "Local";
 "Local %@ configuration" = "Local %@ configuration";
 "Local Changes" = "Local Changes";
+"Local Folder" = "Local Folder";
 "Local History" = "Local History";
 "Local History is available for text files" = "Local History is available for text files";
 "Local History…" = "Local History…";
@@ -3335,6 +3336,7 @@
 "Signed in through the ACP gateway with this provider's API key." = "Signed in through the ACP gateway with this provider's API key.";
 "Single file" = "Single file";
 "Single row" = "Single row";
+"Size" = "Size";
 "Skill actions" = "Skill actions";
 "Skill files" = "Skill files";
 "Skill imports cannot contain symbolic links or special files." = "Skill imports cannot contain symbolic links or special files.";
@@ -3875,6 +3877,8 @@
 "This file is outside the current project." = "This file is outside the current project.";
 "This file was deleted outside Lithe. Your editor content is preserved." = "This file was deleted outside Lithe. Your editor content is preserved.";
 "This folder already belongs to a Git repository" = "This folder already belongs to a Git repository";
+"This folder cannot be read." = "This folder cannot be read.";
+"This folder is empty" = "This folder is empty";
 "This page" = "This page";
 "This panel needs exactly one matching plugin instance in the workspace." = "This panel needs exactly one matching plugin instance in the workspace.";
 "This permanently deletes uncommitted and untracked files in '%@'. The branch itself is kept." = "This permanently deletes uncommitted and untracked files in '%@'. The branch itself is kept.";
@@ -6829,6 +6833,7 @@
 "native.openInLithe" = "Open in Lithe";
 "native.openInNewWindow" = "Open in New Window";
 "native.openInRightSplit" = "Open in Right Split";
+"native.openLocalFolder" = "Local Folder";
 "native.openLogDirectory" = "Open Log Directory";
 "native.openMarketplace" = "Open Marketplace";
 "native.openModulePomXml" = "Open module pom.xml";
@@ -7706,6 +7711,7 @@
 "native.signedInThroughTheACPGatewayWithThisProviderSAPIKey" = "Signed in through the ACP gateway with this provider's API key.";
 "native.singleFile" = "Single file";
 "native.singleRow" = "Single row";
+"native.size" = "Size";
 "native.skillActions" = "Skill actions";
 "native.skillFiles" = "Skill files";
 "native.skillImportsCannotContainSymbolicLinksOrSpecialFiles" = "Skill imports cannot contain symbolic links or special files.";
@@ -8251,6 +8257,8 @@
 "native.thisFileWasDeletedOutsideLitheYourEditorContentIsPreserved" = "This file was deleted outside Lithe. Your editor content is preserved.";
 "native.thisFolder" = "This Folder";
 "native.thisFolderAlreadyBelongsToAGitRepository" = "This folder already belongs to a Git repository";
+"native.thisFolderCannotBeRead" = "This folder cannot be read.";
+"native.thisFolderIsEmpty" = "This folder is empty";
 "native.thisHookNoLongerExistsReloadTheLibrary" = "This Hook no longer exists. Reload the library.";
 "native.thisMac" = "This Mac";
 "native.thisMacOnly" = "This Mac only";
