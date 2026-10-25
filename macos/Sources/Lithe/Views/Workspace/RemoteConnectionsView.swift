@@ -27,9 +27,11 @@ struct RemoteConnectionsView: View {
     private static let sidebarWidth: CGFloat = 240
     private static let labelWidth: CGFloat = 120
     private static let fieldWidth: CGFloat = 360
-    private var sheetSize: CGSize {
-        ParentWindowFit.size(preferred: CGSize(width: 880, height: 620), minimum: CGSize(width: 640, height: 420))
-    }
+    /// Fixed when the window opens: measuring again later would measure the
+    /// sheet itself once it is the key window, and it would shrink on every redraw.
+    @State private var sheetSize = ParentWindowFit.size(
+        preferred: CGSize(width: 880, height: 620), minimum: CGSize(width: 640, height: 420)
+    )
 
     var body: some View {
         VStack(spacing: 0) {
@@ -524,7 +526,7 @@ struct RemoteConnectionsView: View {
 /// Shrinks a sheet's preferred size to fit inside the window presenting it.
 enum ParentWindowFit {
     /// Space kept around the sheet so it never reaches past its parent window.
-    private static let margin: CGFloat = 40
+    private static let margin: CGFloat = 24
 
     static func size(preferred: CGSize, minimum: CGSize) -> CGSize {
         guard let parent = NSApp.keyWindow?.contentLayoutRect.size else { return preferred }
@@ -582,7 +584,13 @@ struct RemoteFolderListing: View {
     var body: some View {
         FolderListing(
             path: browser.path, parentPath: browser.parentPath,
-            entries: browser.sortedEntries.map { FolderListingEntry(name: $0.name, isDirectory: $0.isDirectory) },
+            entries: browser.sortedEntries.map { entry in
+                FolderListingEntry(
+                    name: entry.name, isDirectory: entry.isDirectory,
+                    byteCount: entry.isDirectory ? nil : entry.metadata.size,
+                    modified: entry.metadata.modifiedMs.map { Date(timeIntervalSince1970: Double($0) / 1000) }
+                )
+            },
             isLoading: browser.isLoading, error: browser.error,
             go: { feature.openBrowserPath($0) },
             enter: { name in
@@ -629,16 +637,20 @@ struct FolderListing: View {
     }
 
     private var listing: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                if let parentPath {
-                    entryRow(name: "..", isDirectory: true) { go(parentPath) }
+        VStack(spacing: 0) {
+            columnHeader
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            ScrollView {
+                VStack(spacing: 0) {
+                    if let parentPath {
+                        entryRow(FolderListingEntry(name: "..", isDirectory: true)) { go(parentPath) }
+                    }
+                    ForEach(entries) { entry in
+                        entryRow(entry) { enter(entry.name) }
+                    }
                 }
-                ForEach(entries) { entry in
-                    entryRow(name: entry.name, isDirectory: entry.isDirectory) { enter(entry.name) }
-                }
+                .padding(4)
             }
-            .padding(4)
         }
         .litheScrollViewChrome(alwaysShowVertical: false, usesCompactScrollers: true)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -650,20 +662,42 @@ struct FolderListing: View {
         }
     }
 
-    private func entryRow(name: String, isDirectory: Bool, open: @escaping () -> Void) -> some View {
-        Button(action: open) {
+    private static let modifiedWidth: CGFloat = 112
+    private static let sizeWidth: CGFloat = 64
+
+    private var columnHeader: some View {
+        HStack(spacing: 8) {
+            Text(LocalizedStringKey("Name")).frame(maxWidth: .infinity, alignment: .leading)
+            Text(LocalizedStringKey("Modified")).frame(width: Self.modifiedWidth, alignment: .leading)
+            Text(LocalizedStringKey("Size")).frame(width: Self.sizeWidth, alignment: .trailing)
+        }
+        .font(LitheTheme.uiFont(size: 11, weight: .medium))
+        .foregroundStyle(LitheTheme.secondaryText)
+        .padding(.horizontal, 12)
+        .frame(height: 24)
+    }
+
+    private func entryRow(_ entry: FolderListingEntry, open: @escaping () -> Void) -> some View {
+        let isDirectory = entry.isDirectory
+        return Button(action: open) {
             HStack(spacing: 8) {
                 LitheIDEAIcon(
                     resourcePath: isDirectory ? "expui/nodes/folder.svg" : "fileTypes/text.svg",
                     size: 16,
                     fallbackSystemImage: isDirectory ? "folder" : "doc"
                 )
-                Text(verbatim: name)
+                Text(verbatim: entry.name)
                     .font(LitheTheme.uiFont(size: 12.5))
                     .foregroundStyle(isDirectory ? LitheTheme.primaryText : LitheTheme.secondaryText)
                     .lineLimit(1)
-                Spacer(minLength: 0)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text(verbatim: entry.modified?.formatted(Date.FormatStyle(date: .numeric, time: .shortened)) ?? "")
+                    .frame(width: Self.modifiedWidth, alignment: .leading)
+                Text(verbatim: entry.byteCount.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? "")
+                    .frame(width: Self.sizeWidth, alignment: .trailing)
             }
+            .font(LitheTheme.uiFont(size: 11.5))
+            .foregroundStyle(LitheTheme.secondaryText)
             .padding(.horizontal, 8)
             .frame(height: 26)
             .contentShape(Rectangle())

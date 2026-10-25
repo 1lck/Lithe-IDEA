@@ -167,6 +167,9 @@ struct RemoteDirectoryEntry: Decodable, Equatable, Identifiable, Sendable {
         /// Kind of a symbolic link's target; `nil` for other entries and
         /// for dangling links.
         let symlinkTargetKind: String?
+        let size: Int64?
+        /// Modification time in milliseconds since the Unix epoch.
+        let modifiedMs: Int64?
     }
 
     let name: String

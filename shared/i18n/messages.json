@@ -88369,6 +88369,17 @@
         "key": "Local Folder",
         "arguments": []
       }
+    },
+    {
+      "id": "native.size",
+      "description": "Native UI: Size",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Size",
+        "arguments": []
+      }
     }
   ]
 }

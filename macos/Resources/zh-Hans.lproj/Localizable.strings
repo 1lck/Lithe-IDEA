@@ -3336,6 +3336,7 @@
 "Signed in through the ACP gateway with this provider's API key." = "使用该服务商的 API 密钥通过 ACP 网关登录。";
 "Single file" = "单文件";
 "Single row" = "单行";
+"Size" = "大小";
 "Skill actions" = "技能操作";
 "Skill files" = "技能文件";
 "Skill imports cannot contain symbolic links or special files." = "导入的技能不能包含符号链接或特殊文件。";
@@ -7731,6 +7732,7 @@
 "native.signedInThroughTheACPGatewayWithThisProviderSAPIKey" = "使用该服务商的 API 密钥通过 ACP 网关登录。";
 "native.singleFile" = "单文件";
 "native.singleRow" = "单行";
+"native.size" = "大小";
 "native.skillActions" = "技能操作";
 "native.skillFiles" = "技能文件";
 "native.skillImportsCannotContainSymbolicLinksOrSpecialFiles" = "导入的技能不能包含符号链接或特殊文件。";

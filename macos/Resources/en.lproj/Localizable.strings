@@ -3336,6 +3336,7 @@
 "Signed in through the ACP gateway with this provider's API key." = "Signed in through the ACP gateway with this provider's API key.";
 "Single file" = "Single file";
 "Single row" = "Single row";
+"Size" = "Size";
 "Skill actions" = "Skill actions";
 "Skill files" = "Skill files";
 "Skill imports cannot contain symbolic links or special files." = "Skill imports cannot contain symbolic links or special files.";
@@ -7731,6 +7732,7 @@
 "native.signedInThroughTheACPGatewayWithThisProviderSAPIKey" = "Signed in through the ACP gateway with this provider's API key.";
 "native.singleFile" = "Single file";
 "native.singleRow" = "Single row";
+"native.size" = "Size";
 "native.skillActions" = "Skill actions";
 "native.skillFiles" = "Skill files";
 "native.skillImportsCannotContainSymbolicLinksOrSpecialFiles" = "Skill imports cannot contain symbolic links or special files.";

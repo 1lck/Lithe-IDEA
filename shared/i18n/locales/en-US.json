@@ -9313,7 +9313,8 @@
     "native.headValue": "HEAD: {arg1}",
     "native.resetToActualSize100": "Reset to actual size (100%)",
     "native.oneUsage": "1 usage",
-    "native.openLocalFolder": "Local Folder"
+    "native.openLocalFolder": "Local Folder",
+    "native.size": "Size"
   },
   "overrides": {
     "windows": {

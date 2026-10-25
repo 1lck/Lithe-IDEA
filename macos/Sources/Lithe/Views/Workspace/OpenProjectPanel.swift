@@ -28,12 +28,13 @@ struct OpenProjectPanel: View {
     @State private var localEntries: [FolderListingEntry] = []
     @State private var localError: String?
 
-    private static let sidebarWidth: CGFloat = 200
+    private static let sidebarWidth: CGFloat = 168
     private static let localID = "local"
 
-    private var size: CGSize {
-        ParentWindowFit.size(preferred: CGSize(width: 760, height: 520), minimum: CGSize(width: 520, height: 360))
-    }
+    /// Fixed when the panel opens; see `RemoteConnectionsView.sheetSize`.
+    @State private var size = ParentWindowFit.size(
+        preferred: CGSize(width: 920, height: 600), minimum: CGSize(width: 560, height: 380)
+    )
 
     var body: some View {
         VStack(spacing: 0) {

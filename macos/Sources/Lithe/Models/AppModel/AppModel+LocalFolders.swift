@@ -4,6 +4,9 @@ import Foundation
 struct FolderListingEntry: Identifiable, Equatable {
     let name: String
     let isDirectory: Bool
+    /// Bytes of a file; `nil` for folders and when unknown.
+    var byteCount: Int64?
+    var modified: Date?
     var id: String { name }
 }
 
@@ -19,7 +22,15 @@ extension AppModel {
         let url = URL(fileURLWithPath: path, isDirectory: true)
         guard storage.metadata(for: url)?.isDirectory == true else { return nil }
         return storage.listDirectory(at: url)
-            .map { FolderListingEntry(name: $0.lastPathComponent, isDirectory: storage.metadata(for: $0)?.isDirectory == true) }
+            .map { url in
+                let metadata = storage.metadata(for: url)
+                let isDirectory = metadata?.isDirectory == true
+                return FolderListingEntry(
+                    name: url.lastPathComponent, isDirectory: isDirectory,
+                    byteCount: isDirectory ? nil : metadata?.byteCount.map(Int64.init),
+                    modified: metadata?.modificationDate
+                )
+            }
             .sorted { left, right in
                 if left.isDirectory != right.isDirectory { return left.isDirectory }
                 return left.name.localizedStandardCompare(right.name) == .orderedAscending
