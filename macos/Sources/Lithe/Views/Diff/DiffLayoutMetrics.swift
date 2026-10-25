@@ -18,7 +18,7 @@ enum DiffLayoutMetrics {
     static func lineNumberGutterWidth(
         maximumLine: Int, family: String = EditorFontDefaults.monospacedFamily
     ) -> CGFloat {
-        // EditorGutterLayout New UI: empty annotations 4, pre-number gap 4,
+        // Community New UI gutter: empty annotations 4, pre-number gap 4,
         // number area (at least the 16pt breakpoint slot), post-number gap 4,
         // folding anchor 9 + 2, extra painter 8 + separator 1. Diff gutters
         // share the maximum source-number width; no action icon area is reserved.

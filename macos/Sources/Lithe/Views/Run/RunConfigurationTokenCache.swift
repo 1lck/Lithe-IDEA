@@ -8,7 +8,7 @@ import Foundation
 /// list once per configuration. Caching on the raw value turns that O(n·m) back
 /// into O(m) while keeping `@AppStorage` the source of truth.
 ///
-/// Held as a reference box in `@State` (like `EditorViewportStore`) so caching
+/// Held as a reference box in `@State` so caching
 /// never invalidates the view that reads it.
 @MainActor
 final class RunConfigurationTokenCache {

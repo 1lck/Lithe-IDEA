@@ -235,53 +235,6 @@ struct SplitHandleViewTests {
 
     @MainActor
     @Test
-    func editorExitDoesNotOverwriteEitherResizeCursor() throws {
-        let previousCursor = NSCursor.current
-        defer { previousCursor.set() }
-        let editor = CodeTextView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
-        let exit = try #require(NSEvent.enterExitEvent(
-            with: .mouseExited, location: NSPoint(x: 105, y: 50), modifierFlags: [],
-            timestamp: 0, windowNumber: 0, context: nil,
-            eventNumber: 0, trackingNumber: 0, userData: nil
-        ))
-        let region = SplitHandleInteractionView()
-        for cursor in [NSCursor.resizeLeftRight, NSCursor.resizeUpDown] {
-            region.axis = cursor === NSCursor.resizeLeftRight ? .horizontal : .vertical
-            // AppKit may deliver the old view's exit after the new view's entry.
-            region.mouseEntered(with: exit)
-            editor.mouseExited(with: exit)
-            #expect(NSCursor.current === cursor)
-        }
-    }
-
-    @MainActor
-    @Test
-    func editorIgnoresLatePointerEventsOutsideItsHitTarget() throws {
-        let previousCursor = NSCursor.current
-        defer { previousCursor.set() }
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 200, height: 200),
-            styleMask: [.borderless], backing: .buffered, defer: false
-        )
-        window.isReleasedWhenClosed = false
-        defer { window.close() }
-        let editor = CodeTextView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
-        try #require(window.contentView).addSubview(editor)
-        let event = try #require(NSEvent.mouseEvent(
-            with: .mouseMoved, location: NSPoint(x: 150, y: 50), modifierFlags: [],
-            timestamp: 0, windowNumber: window.windowNumber, context: nil,
-            eventNumber: 0, clickCount: 0, pressure: 0
-        ))
-        for cursor in [NSCursor.resizeLeftRight, NSCursor.resizeUpDown] {
-            cursor.set()
-            editor.mouseMoved(with: event)
-            editor.cursorUpdate(with: event)
-            #expect(NSCursor.current === cursor)
-        }
-    }
-
-    @MainActor
-    @Test
     func nativeDragKeepsScreenTranslationWhenTheHandleMoves() throws {
         let previousCursor = NSCursor.current
         defer { previousCursor.set() }
@@ -406,7 +359,7 @@ struct SplitHandleViewTests {
 private struct SplitHandleEditorFixture: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
-        scrollView.documentView = CodeTextView(frame: NSRect(x: 0, y: 0, width: 300, height: 300))
+        scrollView.documentView = NSTextView(frame: NSRect(x: 0, y: 0, width: 300, height: 300))
         return scrollView
     }
 

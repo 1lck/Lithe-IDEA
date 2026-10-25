@@ -739,8 +739,8 @@ struct AgentConversationSelectionTests {
         #expect(transport.connections.allSatisfy { $0.closeCount == 1 })
     }
 
-    @Test(arguments: [false, true])
-    func historyPopupLoadsTheChosenSessionThroughTheExistingConnection(useKeyboard: Bool) async throws {
+    @Test
+    func historyPageLoadsTheChosenSessionThroughTheExistingConnection() async throws {
         let transport = SelectionTransport()
         let panel = AgentConversationFeatureModel(transport: transport)
         panel.setAgents([.init(id: "codex-acp", name: "Codex")])
@@ -748,65 +748,29 @@ struct AgentConversationSelectionTests {
             let feature = try prepare(panel, transport: transport, agentID: "codex-acp", model: "Model")
             feature.receive(try json(["kind": "ready", "agentName": "Codex", "canLoadSessions": true, "canListSessions": true]))
             let native = try #require(transport.connections.last)
-            let listToken = try #require(native.commands.last?["token"] as? String)
-            feature.receive(try json(["kind": "sessions", "token": listToken, "sessions": [
-                ["sessionId": "earlier", "title": "Earlier conversation", "updatedAt": "2026-09-26T10:00:00Z"]]]))
-            let presenter = LitheContextMenuPresenter()
-            var dismissals = 0
-            let controller = LitheDropdownHostingController(rootView: AnyView(AgentHistoryPopover(feature: feature,
+            let host = NSHostingView(rootView: AgentHistoryView(feature: feature,
                 history: panel.history(for: "codex-acp"), agentName: "Codex",
-                onSelect: { id in presenter.dismiss(); feature.selectSession(id) }, onManage: {}, onSearch: {}, onDismiss: {})
-                .litheContextMenuSurface()))
+                onBack: {}, onCopySessionID: { _ in }, onSelect: { feature.selectSession($0) }, onReconnect: {})
+                .environment(\.locale, Locale(identifier: "en_US")))
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 640),
                                   styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
-            defer { presenter.dismiss(); window.close() }
+            window.contentView = host
             window.makeKeyAndOrderFront(nil)
-            presenter.show(contentController: controller, at: NSPoint(x: 80, y: 600), appearance: nil,
-                           parentWindow: window, onDismiss: { dismissals += 1 })
-            let host = controller.view
-            let popup = try #require(host.window)
-            host.layoutSubtreeIfNeeded()
-            #expect(AgentHistoryPresentation.popupSessions(feature.sessions, openSessionIDs: feature.openSessionIDs,
-                metadata: [:], selectedSessionID: feature.selectedSessionID).map(\.id) == ["codex-acp", "earlier"])
-            if useKeyboard {
-                popup.makeKeyAndOrderFront(nil)
-                host.layoutSubtreeIfNeeded()
-                for (code, characters) in [(UInt16(125), "\u{F701}"), (UInt16(36), "\r")] {
-                    let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
-                        timestamp: 0, windowNumber: popup.windowNumber, context: nil, characters: characters,
-                        charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code))
-                    NSApplication.shared.sendEvent(event)
-                    host.layoutSubtreeIfNeeded()
-                }
-            } else {
-                try clickNativeView(host, at: NSPoint(x: 100,
-                    y: LitheDropdownMetrics.popupPadding + LitheDropdownMetrics.rowHeight * 1.5))
-            }
+            defer { window.contentView = nil; window.close() }
+            #expect(await waitForLayout(host) {
+                native.commands.last?["kind"] as? String == "listSessions"
+            }, "The current history page must request sessions")
+            let listToken = try #require(native.commands.last?["token"] as? String)
+            feature.receive(try json(["kind": "sessions", "token": listToken, "sessions": [
+                ["sessionId": "earlier", "title": "Earlier conversation", "updatedAt": "2026-09-26T10:00:00Z"]]]))
+            let button = try await AgentNativeControlTestSupport.frame(of: "agent-history-open-earlier", in: host)
+            try clickNativeView(host, at: NSPoint(x: button.midX, y: button.midY))
             #expect(await awaitChange(on: feature) { feature.selectedSessionID == "earlier" })
             #expect(native.commands.last?["kind"] as? String == "loadSession")
             #expect(native.commands.last?["sessionId"] as? String == "earlier")
             #expect(feature.selectedConversation?.isLoading == true)
-            #expect(dismissals == 1 && !popup.isVisible, "Selecting a row closes the popup")
-            presenter.show(contentController: controller, at: NSPoint(x: 80, y: 600), appearance: nil,
-                           parentWindow: window, onDismiss: { dismissals += 1 })
-            let reopened = try #require(host.window)
-            let escape = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
-                timestamp: 0, windowNumber: reopened.windowNumber, context: nil, characters: "\u{1B}",
-                charactersIgnoringModifiers: "\u{1B}", isARepeat: false, keyCode: 53))
-            NSApplication.shared.sendEvent(escape)
-            #expect(dismissals == 2 && !reopened.isVisible)
-            presenter.show(contentController: controller, at: NSPoint(x: 80, y: 600), appearance: nil,
-                           parentWindow: window, onDismiss: { dismissals += 1 })
-            let outsidePopup = try #require(host.window)
-            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-                let event = try #require(NSEvent.mouseEvent(with: type, location: NSPoint(x: 470, y: 620),
-                    modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
-                    eventNumber: 0, clickCount: 1, pressure: 1))
-                NSApplication.shared.sendEvent(event)
-            }
-            #expect(dismissals == 3 && !outsidePopup.isVisible)
-
+            #expect(transport.connections.count == 1, "Opening history must reuse the current connection")
         } catch {
             await panel.stop()
             throw error
