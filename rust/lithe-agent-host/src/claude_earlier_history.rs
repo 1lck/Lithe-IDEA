@@ -16,6 +16,8 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 
+use crate::claude_desktop;
+
 /// Larger transcripts are skipped rather than read: the recap alone is shown.
 const MAX_TRANSCRIPT_BYTES: u64 = 128 * 1024 * 1024;
 /// Upper bound on emitted updates, keeping the replay event queue bounded.
@@ -255,7 +257,12 @@ impl Converter {
             "title": title(name, input),
             "kind": kind(name),
             "status": "completed",
-            "rawInput": bounded(input),
+            // A card, plan or reply is built from this input, so it is not cut to a preview.
+            "rawInput": if claude_desktop::carries_card_input(name) {
+                bounded(input, claude_desktop::CARD_INPUT_LIMIT)
+            } else {
+                bounded(input, TEXT_LIMIT)
+            },
         }));
     }
 
@@ -322,15 +329,15 @@ fn title(name: &str, input: &Value) -> String {
     }
 }
 
-/// Copy of `value` whose strings are cut to [`TEXT_LIMIT`], so a whole-file
+/// Copy of `value` whose strings are cut to `limit` characters, so a whole-file
 /// `Write` input does not travel through the replay queue.
-fn bounded(value: &Value) -> Value {
+fn bounded(value: &Value, limit: usize) -> Value {
     match value {
-        Value::String(text) => Value::String(truncate(text)),
-        Value::Array(items) => Value::Array(items.iter().map(bounded).collect()),
-        Value::Object(map) => {
-            Value::Object(map.iter().map(|(k, v)| (k.clone(), bounded(v))).collect())
-        }
+        Value::String(text) => Value::String(truncate_to(text, limit)),
+        Value::Array(items) => Value::Array(items.iter().map(|item| bounded(item, limit)).collect()),
+        Value::Object(map) => Value::Object(
+            map.iter().map(|(k, v)| (k.clone(), bounded(v, limit))).collect(),
+        ),
         other => other.clone(),
     }
 }
@@ -453,6 +460,26 @@ mod tests {
         assert_eq!(updates[1]["sessionUpdate"], "user_message_chunk");
         assert_eq!(updates[1]["content"]["text"], "go faster");
         assert_eq!(updates[1]["messageId"], "q1");
+    }
+
+    #[test]
+    fn card_inputs_survive_the_replay_whole_while_other_tool_inputs_are_cut() {
+        let widget = format!("<svg>{}</svg>", "x".repeat(TEXT_LIMIT * 2));
+        let (dir, cwd) = transcript(&[
+            json!({"type": "assistant", "message": {"content": [
+                {"type": "tool_use", "id": "v", "name": "mcp__visualize__show_widget",
+                 "input": {"title": "chart", "widget_code": widget}},
+                {"type": "tool_use", "id": "w", "name": "Write",
+                 "input": {"file_path": "/a/b.rs", "content": "y".repeat(TEXT_LIMIT * 2)}},
+            ]}}),
+            boundary(),
+        ]);
+        let updates = earlier_updates(dir.path(), &cwd, "abc-1");
+        let mut presenter = claude_desktop::Presenter::default();
+        let shown = presenter.present("s", updates[0].clone());
+        assert_eq!(shown[0]["_meta"]["lithe"]["claudeDesktop"]["code"], widget.as_str());
+        let write = updates[1]["rawInput"]["content"].as_str().unwrap();
+        assert_eq!(write.chars().count(), TEXT_LIMIT + 1, "Ordinary inputs stay previews");
     }
 
     #[test]

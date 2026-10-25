@@ -1380,33 +1380,33 @@ where
                     let Some(update) = update_workspace.present_update(update) else {
                         return Ok(());
                     };
-                    let Some(update) = update_desktop.lock().map_err(|_| internal("Replay presentation is unavailable"))?.present(&session_id, update) else {
-                        return Ok(());
-                    };
-                    if update["sessionUpdate"] == "usage_update" {
-                        if let Some(recovery) = &context_updates { recovery.prefer_upstream_report(&session_id); }
-                    }
-                    let mut reconnect = None;
-                    if let Ok(turns) = update_turns.lock() {
-                        if let Some(turn) = owner.as_ref().and_then(|id| turns.get(id)) {
-                            if owner.as_deref() == Some(session_id.as_str()) { turn.steering.observe(&update); }
-                            turn.retry.send_modify(|state| {
-                                if prompt_retry::is_progress(&update) { state.progress(); }
-                                // A child failure is the child's outcome, not a new
-                                // failure or retry of the main Agent's model call.
-                                if owner.as_deref() == Some(session_id.as_str()) {
-                                    state.observe_failure(&update);
-                                    reconnect = state.observe_native_retry(&update);
-                                }
-                            });
+                    let presented = update_desktop.lock().map_err(|_| internal("Replay presentation is unavailable"))?.present(&session_id, update);
+                    for update in presented {
+                        if update["sessionUpdate"] == "usage_update" {
+                            if let Some(recovery) = &context_updates { recovery.prefer_upstream_report(&session_id); }
                         }
-                    }
-                    updates(AgentEvent::Update {
-                        session_id: session_id.clone(),
-                        update,
-                    });
-                    if let Some((turn_id, attempt, max_attempts)) = reconnect {
-                        updates(AgentEvent::TurnRetrying { session_id, turn_id, attempt, max_attempts });
+                        let mut reconnect = None;
+                        if let Ok(turns) = update_turns.lock() {
+                            if let Some(turn) = owner.as_ref().and_then(|id| turns.get(id)) {
+                                if owner.as_deref() == Some(session_id.as_str()) { turn.steering.observe(&update); }
+                                turn.retry.send_modify(|state| {
+                                    if prompt_retry::is_progress(&update) { state.progress(); }
+                                    // A child failure is the child's outcome, not a new
+                                    // failure or retry of the main Agent's model call.
+                                    if owner.as_deref() == Some(session_id.as_str()) {
+                                        state.observe_failure(&update);
+                                        reconnect = state.observe_native_retry(&update);
+                                    }
+                                });
+                            }
+                        }
+                        updates(AgentEvent::Update {
+                            session_id: session_id.clone(),
+                            update,
+                        });
+                        if let Some((turn_id, attempt, max_attempts)) = reconnect {
+                            updates(AgentEvent::TurnRetrying { session_id: session_id.clone(), turn_id, attempt, max_attempts });
+                        }
                     }
                 }
                 Ok(())
@@ -1697,7 +1697,7 @@ where
                                 .unwrap_or_default();
                                 // Collected first: the guard must not live across `emit`.
                                 let updates: Vec<_> = match desktop.lock() {
-                                    Ok(mut desktop) => updates.into_iter().filter_map(|u| desktop.present(&session_id, u)).collect(),
+                                    Ok(mut desktop) => updates.into_iter().flat_map(|u| desktop.present(&session_id, u)).collect(),
                                     Err(_) => updates,
                                 };
                                 for update in updates {

@@ -331,6 +331,7 @@
 "Ask questions about public GitHub repositories and read their generated documentation." = "Ask questions about public GitHub repositories and read their generated documentation.";
 "Ask the Agent about this workspace" = "Ask the Agent about this workspace";
 "Ask the Agent, Enter to send, Shift-Enter for a new line" = "Ask the Agent, Enter to send, Shift-Enter for a new line";
+"Asked for access to %@" = "Asked for access to %@";
 "Assignees" = "Assignees";
 "Astro Support" = "Astro Support";
 "Attach" = "Attach";
@@ -461,6 +462,7 @@
 "ChangeList storage is unavailable. Restore the saved data and reopen the workspace." = "ChangeList storage is unavailable. Restore the saved data and reopen the workspace.";
 "Changed" = "Changed";
 "Changed Files" = "Changed Files";
+"Changed the working directory to %@" = "Changed the working directory to %@";
 "Changes" = "Changes";
 "Changes apply to the next turn." = "Changes apply to the next turn.";
 "Changes are written to" = "Changes are written to";
@@ -469,6 +471,7 @@
 "Changes requested" = "Changes requested";
 "Changing channels requires a full installation and may install an older version. On its first launch, Lithe-Dev copies Stable settings and workspaces if it has no user data. The apps then save settings and caches separately. Some accounts may need sign-in again. Your project files stay in their current locations." = "Changing channels requires a full installation and may install an older version. On its first launch, Lithe-Dev copies Stable settings and workspaces if it has no user data. The apps then save settings and caches separately. Some accounts may need sign-in again. Your project files stay in their current locations.";
 "Changing channels requires a full installation and may install an older version. Open the selected release page to download its installer. Your channel selection is saved for future updates." = "Changing channels requires a full installation and may install an older version. Open the selected release page to download its installer. Your channel selection is saved for future updates.";
+"Chapter: %@" = "Chapter: %@";
 "Chat Completions" = "Chat Completions";
 "Chat History" = "Chat History";
 "Chat options" = "Chat options";
@@ -1445,6 +1448,7 @@
 "HTTP is blocked until you explicitly allow it for this provider." = "HTTP is blocked until you explicitly allow it for this provider.";
 "HTTP is disabled for this provider. Enable the insecure HTTP option or use HTTPS." = "HTTP is disabled for this provider. Enable the insecure HTTP option or use HTTPS.";
 "HTTP sends the API credential without encryption. Use only a trusted endpoint." = "HTTP sends the API credential without encryption. Use only a trusted endpoint.";
+"Handed off" = "Handed off";
 "Hard Reset (Discard Changes)" = "Hard Reset (Discard Changes)";
 "Haskell Support" = "Haskell Support";
 "Head branch" = "Head branch";
@@ -1471,6 +1475,7 @@
 "Hide plan" = "Hide plan";
 "Hide thinking" = "Hide thinking";
 "Hide tool details" = "Hide tool details";
+"Hide visualization" = "Hide visualization";
 "Hide worktree repositories" = "Hide worktree repositories";
 "High" = "High";
 "Highlight words" = "Highlight words";
@@ -1683,6 +1688,7 @@
 "Line breakpoint actions" = "Line breakpoint actions";
 "Linear" = "Linear";
 "Lines kept for scrolling back in new terminal sessions." = "Lines kept for scrolling back in new terminal sessions.";
+"Linked this conversation to a pull request" = "Linked this conversation to a pull request";
 "Linked worktree" = "Linked worktree";
 "Listed in" = "Listed in";
 "Lithe" = "Lithe";
@@ -3026,6 +3032,7 @@
 "Show thinking" = "Show thinking";
 "Show tool details" = "Show tool details";
 "Show usages and Git author" = "Show usages and Git author";
+"Show visualization" = "Show visualization";
 "Show worktree repositories" = "Show worktree repositories";
 "Showing available matches." = "Showing available matches.";
 "Showing the previous Java entries while the Java language service prepares the project." = "Showing the previous Java entries while the Java language service prepares the project.";
@@ -3123,11 +3130,13 @@
 "Start debugging" = "Start debugging";
 "Start debugging the current Java file" = "Start debugging the current Java file";
 "Start from" = "Start from";
+"Start in new conversation" = "Start in new conversation";
 "Start service" = "Start service";
 "Start the discussion or submit the first review." = "Start the discussion or submit the first review.";
 "Start the session by sending a message" = "Start the session by sending a message";
 "Start this configuration to see its output here." = "Start this configuration to see its output here.";
 "Start with an action verb, without a type prefix" = "Start with an action verb, without a type prefix";
+"Started in Claude Desktop" = "Started in Claude Desktop";
 "Starting" = "Starting";
 "Starting Interactive Rebase" = "Starting Interactive Rebase";
 "Starting Java language server..." = "Starting Java language server...";
@@ -3188,6 +3197,8 @@
 "Submitting review…" = "Submitting review…";
 "Subscription accounts" = "Subscription accounts";
 "Succeeded" = "Succeeded";
+"Suggested" = "Suggested";
+"Suggested replies" = "Suggested replies";
 "Supplementary message cancelled." = "Supplementary message cancelled.";
 "Supported placeholders: {summary}, {changes}, {testing}, {risks}." = "Supported placeholders: {summary}, {changes}, {testing}, {risks}.";
 "Svelte Support" = "Svelte Support";
@@ -3545,6 +3556,8 @@
 "Turn on Model call statistics in Agent settings and reconnect to see the system prompt, tool definitions and messages." = "Turn on Model call statistics in Agent settings and reconnect to see the system prompt, tool definitions and messages.";
 "Turn on Model call statistics, reconnect and send a message to see the breakdown." = "Turn on Model call statistics, reconnect and send a message to see the breakdown.";
 "Turn usage" = "Turn usage";
+"Turned off auto-merge" = "Turned off auto-merge";
+"Turned on auto-merge" = "Turned on auto-merge";
 "Turning this off stops every Agent process." = "Turning this off stops every Agent process.";
 "Turns" = "Turns";
 "Type" = "Type";
@@ -3583,6 +3596,7 @@
 "Unknown error" = "Unknown error";
 "Unknown source" = "Unknown source";
 "Unlink" = "Unlink";
+"Unlinked the pull request" = "Unlinked the pull request";
 "Unlock Worktree" = "Unlock Worktree";
 "Unlock the worktree before removing it." = "Unlock the worktree before removing it.";
 "Unlocked" = "Unlocked";
@@ -3729,6 +3743,7 @@
 "View breakpoints" = "View breakpoints";
 "View breakpoints (⌘⇧F8)" = "View breakpoints (⌘⇧F8)";
 "View skill" = "View skill";
+"Visualization" = "Visualization";
 "Vue Support" = "Vue Support";
 "WIP" = "WIP";
 "WORKING TREE" = "WORKING TREE";
@@ -3756,6 +3771,8 @@
 "Waiting to quit to complete the update." = "Waiting to quit to complete the update.";
 "Warning" = "Warning";
 "Warnings" = "Warnings";
+"Watching pull request checks" = "Watching pull request checks";
+"Watching pull request checks and fixing failures" = "Watching pull request checks and fixing failures";
 "Welcome to Lithe" = "Welcome to Lithe";
 "Welcome to Lithe Agent" = "Welcome to Lithe Agent";
 "What Fetch removes or downloads before you start working." = "What Fetch removes or downloads before you start working.";
@@ -3774,6 +3791,7 @@
 "Whitespace comparison" = "Whitespace comparison";
 "Whole Words" = "Whole Words";
 "Window" = "Window";
+"Withdrawn" = "Withdrawn";
 "Without Remember in Keychain, Lithe asks every time it connects. A remembered secret is answered only the first time the server asks for it; if it is rejected, Lithe asks you." = "Without Remember in Keychain, Lithe asks every time it connects. A remembered secret is answered only the first time the server asks for it; if it is rejected, Lithe asks you.";
 "Without it, Lithe asks every time it connects. A remembered secret is answered only the first time the server asks for it; if it is rejected, Lithe asks you." = "Without it, Lithe asks every time it connects. A remembered secret is answered only the first time the server asks for it; if it is rejected, Lithe asks you.";
 "Work with GitHub repositories, issues, pull requests and Actions. A personal access token is required." = "Work with GitHub repositories, issues, pull requests and Actions. A personal access token is required.";
@@ -4106,6 +4124,7 @@
 "native.askQuestionsAboutPublicGithubRepositoriesAndReadTheirGeneratedDocumentation" = "Ask questions about public GitHub repositories and read their generated documentation.";
 "native.askTheAgentAboutThisWorkspace" = "Ask the Agent about this workspace";
 "native.askTheAgentEnterToSendShiftEnterForANewLine" = "Ask the Agent, Enter to send, Shift-Enter for a new line";
+"native.askedForAccessTo" = "Asked for access to %1$@";
 "native.assignees" = "Assignees";
 "native.astroSupport" = "Astro Support";
 "native.attach" = "Attach";
@@ -4229,6 +4248,7 @@
 "native.changed" = "Changed";
 "native.changedFiles" = "Changed Files";
 "native.changedOutsideLitheRefreshAndTryAgain" = "“%1$@” changed outside Lithe. Refresh and try again.";
+"native.changedTheWorkingDirectoryTo" = "Changed the working directory to %1$@";
 "native.changelist" = "ChangeList";
 "native.changelistEditingIsUnavailable" = "ChangeList editing is unavailable.";
 "native.changelistName" = "ChangeList name";
@@ -4241,6 +4261,7 @@
 "native.changesRequested" = "Changes requested";
 "native.changingChannelsRequiresAFullInstallationAndMayInstallAnOlderVersionOnItsFirste8ccfd1e52" = "Changing channels requires a full installation and may install an older version. On its first launch, Lithe-Dev copies Stable settings and workspaces if it has no user data. The apps then save settings and caches separately. Some accounts may need sign-in again. Your project files stay in their current locations.";
 "native.changingChannelsRequiresAFullInstallationAndMayInstallAnOlderVersionOpenTheSelda3c463026" = "Changing channels requires a full installation and may install an older version. Open the selected release page to download its installer. Your channel selection is saved for future updates.";
+"native.chapter" = "Chapter: %1$@";
 "native.charactersUsedByTheInterfaceAndYourFiles" = "characters used by the interface and your files";
 "native.chars" = "chars";
 "native.chatCompletions" = "Chat Completions";
@@ -5230,6 +5251,7 @@
 "native.groovySupport" = "Groovy Support";
 "native.group" = "Group";
 "native.groups" = "Groups";
+"native.handedOff" = "Handed off";
 "native.hardResetDiscardChanges" = "Hard Reset (Discard Changes)";
 "native.haskellSupport" = "Haskell Support";
 "native.head" = "HEAD";
@@ -5260,6 +5282,7 @@
 "native.hideTerminalToolWindow" = "Hide Terminal tool window";
 "native.hideThinking" = "Hide thinking";
 "native.hideToolDetails" = "Hide tool details";
+"native.hideVisualization" = "Hide visualization";
 "native.hideWorktreeRepositories" = "Hide worktree repositories";
 "native.high" = "High";
 "native.highlightWords" = "Highlight words";
@@ -5581,6 +5604,7 @@
 "native.lineColumn" = "[Line] [:column]:";
 "native.linear" = "Linear";
 "native.linesKeptForScrollingBackInNewTerminalSessions" = "Lines kept for scrolling back in new terminal sessions.";
+"native.linkedThisConversationToAPullRequest" = "Linked this conversation to a pull request";
 "native.linkedWorktree" = "Linked worktree";
 "native.listedIn" = "Listed in";
 "native.lithe" = "Lithe";
@@ -6975,6 +6999,7 @@
 "native.showToolDetails" = "Show tool details";
 "native.showToolbar" = "Show Toolbar";
 "native.showUsagesAndGitAuthor" = "Show usages and Git author";
+"native.showVisualization" = "Show visualization";
 "native.showWorktreeRepositories" = "Show worktree repositories";
 "native.showingAvailableMatches" = "Showing available matches.";
 "native.showingThePreviousJavaEntriesWhileTheJavaLanguageServicePreparesTheProject" = "Showing the previous Java entries while the Java language service prepares the project.";
@@ -7076,6 +7101,7 @@
 "native.startDebugging.variant2" = "Start debugging";
 "native.startDebuggingTheCurrentJavaFile" = "Start debugging the current Java file";
 "native.startFrom" = "Start from";
+"native.startInNewConversation" = "Start in new conversation";
 "native.startRebase" = "Start Rebase";
 "native.startRecording" = "Start Recording";
 "native.startService" = "Start service";
@@ -7084,6 +7110,7 @@
 "native.startThisConfigurationToSeeItsOutputHere" = "Start this configuration to see its output here.";
 "native.startWithAnActionVerbWithoutATypePrefix" = "Start with an action verb, without a type prefix";
 "native.startedATaskThatIsStillRunning" = "%1$@ started a task that is still running";
+"native.startedInClaudeDesktop" = "Started in Claude Desktop";
 "native.starting" = "Starting";
 "native.startingCommitOptional" = "Starting commit (optional)";
 "native.startingInteractiveRebase" = "Starting Interactive Rebase";
@@ -7143,6 +7170,8 @@
 "native.subjectMaximumLength" = "Subject maximum length";
 "native.submittingReview" = "Submitting review…";
 "native.succeeded" = "Succeeded";
+"native.suggested" = "Suggested";
+"native.suggestedReplies" = "Suggested replies";
 "native.supplementaryMessageCancelled" = "Supplementary message cancelled.";
 "native.supportedPlaceholdersSummaryChangesTestingRisks" = "Supported placeholders: {summary}, {changes}, {testing}, {risks}.";
 "native.svelteSupport" = "Svelte Support";
@@ -7506,6 +7535,8 @@
 "native.turnOnModelCallStatisticsInAgentSettingsAndReconnectToSeeTheSystemPromptToolDeffd4968e05" = "Turn on Model call statistics in Agent settings and reconnect to see the system prompt, tool definitions and messages.";
 "native.turnOnModelCallStatisticsReconnectAndSendAMessageToSeeTheBreakdown" = "Turn on Model call statistics, reconnect and send a message to see the breakdown.";
 "native.turnUsage" = "Turn usage";
+"native.turnedOffAutoMerge" = "Turned off auto-merge";
+"native.turnedOnAutoMerge" = "Turned on auto-merge";
 "native.turningThisOffStopsEveryAgentProcess" = "Turning this off stops every Agent process.";
 "native.turns" = "Turns";
 "native.type" = "Type";
@@ -7542,6 +7573,7 @@
 "native.unknownError" = "Unknown error";
 "native.unknownSource" = "Unknown source";
 "native.unlink" = "Unlink";
+"native.unlinkedThePullRequest" = "Unlinked the pull request";
 "native.unlockTheWorktreeBeforeRemovingIt" = "Unlock the worktree before removing it.";
 "native.unlockWorktree" = "Unlock Worktree";
 "native.unlocked" = "Unlocked";
@@ -7699,6 +7731,7 @@
 "native.viewOptions" = "View Options";
 "native.viewSavedChanges" = "View Saved Changes";
 "native.viewSkill" = "View skill";
+"native.visualization" = "Visualization";
 "native.vmArguments" = "VM arguments";
 "native.vmOptions" = "VM options";
 "native.vueSupport" = "Vue Support";
@@ -7730,6 +7763,8 @@
 "native.warnings" = "Warnings";
 "native.wasCreatedOutsideLitheTakeOwnershipBeforeChangingIt" = "“%1$@” was created outside Lithe. Take ownership before changing it.";
 "native.wasNotFoundInstallItForExampleThenCheckAgain" = "%1$@ was not found. Install it (for example `%2$@`), then check again.";
+"native.watchingPullRequestChecks" = "Watching pull request checks";
+"native.watchingPullRequestChecksAndFixingFailures" = "Watching pull request checks and fixing failures";
 "native.welcomeToLithe" = "Welcome to Lithe";
 "native.welcomeToLitheAgent" = "Welcome to Lithe Agent";
 "native.whatDoesThisPullRequestChange" = "What does this pull request change?";
@@ -7749,6 +7784,7 @@
 "native.wholeWords" = "Whole Words";
 "native.window" = "Window";
 "native.wip" = "WIP";
+"native.withdrawn" = "Withdrawn";
 "native.withoutItLitheAsksEveryTimeItConnectsARememberedSecretIsAnsweredOnlyTheFirstTimeTheServerA" = "Without it, Lithe asks every time it connects. A remembered secret is answered only the first time the server asks for it; if it is rejected, Lithe asks you.";
 "native.withoutRememberInKeychainLitheAsksEveryTimeItConnectsARememberedSecretIsAnsweredOnlyTheFir" = "Without Remember in Keychain, Lithe asks every time it connects. A remembered secret is answered only the first time the server asks for it; if it is rejected, Lithe asks you.";
 "native.workWithGithubRepositoriesIssuesPullRequestsAndActionsAPersonalAccessTokenIsRequired" = "Work with GitHub repositories, issues, pull requests and Actions. A personal access token is required.";

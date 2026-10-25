@@ -8864,7 +8864,25 @@
     "settings.declarativePlugins.settingEffect.reload": "takes effect when the plugin model reloads",
     "settings.declarativePlugins.settingEffect.nextRun": "takes effect on the next run",
     "native.databaseIsNowAPluginInstallItFromTheMarketplace": "Database is now a plugin. Install it from the Marketplace, and your saved connections and passwords move into it.",
-    "native.openMarketplace": "Open Marketplace"
+    "native.openMarketplace": "Open Marketplace",
+    "native.suggestedReplies": "Suggested replies",
+    "native.changedTheWorkingDirectoryTo": "Changed the working directory to {arg1}",
+    "native.askedForAccessTo": "Asked for access to {arg1}",
+    "native.chapter": "Chapter: {arg1}",
+    "native.startInNewConversation": "Start in new conversation",
+    "native.suggested": "Suggested",
+    "native.withdrawn": "Withdrawn",
+    "native.startedInClaudeDesktop": "Started in Claude Desktop",
+    "native.handedOff": "Handed off",
+    "native.linkedThisConversationToAPullRequest": "Linked this conversation to a pull request",
+    "native.unlinkedThePullRequest": "Unlinked the pull request",
+    "native.watchingPullRequestChecksAndFixingFailures": "Watching pull request checks and fixing failures",
+    "native.watchingPullRequestChecks": "Watching pull request checks",
+    "native.turnedOffAutoMerge": "Turned off auto-merge",
+    "native.turnedOnAutoMerge": "Turned on auto-merge",
+    "native.visualization": "Visualization",
+    "native.showVisualization": "Show visualization",
+    "native.hideVisualization": "Hide visualization"
   },
   "overrides": {
     "windows": {
