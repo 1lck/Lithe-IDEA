@@ -67,8 +67,13 @@ import {
   GIT_REPOSITORY_COLOR_PALETTE,
   buildGitRepositoryColorMap,
 } from "../../utils/git-repository-colors";
+import { MavenIcon } from "@/features/maven/components/maven-icon";
 import { GitTrackingCounts } from "../git-tracking-counts";
 import { GitFetchIcon, GitUpdateIcon, LocateHeadIcon } from "./git-reference-toolbar-icons";
+
+// macOS draws the repository row with the original toolWindowMaven.svg fill in
+// both themes, so the glyph keeps this color instead of following the text color.
+const REPOSITORY_ROW_ICON_COLOR = "#CED0D6";
 
 const SECTION_KEYS: Array<{ kind: GitReferenceKind; titleKey: string }> = [
   { kind: "local", titleKey: "git.log.local" },
@@ -1100,14 +1105,7 @@ export function GitReferenceTree({
                   ? undefined
                   : referenceErrorsByRepository?.get(group.repositoryKey);
                 return (
-                  <div
-                    key={group.repositoryKey}
-                    className="mb-1 rounded-sm border-l-2"
-                    style={{
-                      borderColor: repositoryColor,
-                      backgroundColor: `${repositoryColor}14`,
-                    }}
-                  >
+                  <div key={group.repositoryKey}>
                     <button
                       type="button"
                       onClick={() => toggleReferenceGroup(repositoryCollapseId)}
@@ -1116,20 +1114,24 @@ export function GitReferenceTree({
                         { name: repositoryName },
                       )}
                       title={`${t("git.log.repository")}: ${group.repositoryPath}`}
-                      className="flex h-6 w-full items-center gap-1.5 rounded px-1.5 text-left font-medium hover:bg-accent/80"
+                      className="flex h-6 w-full items-center gap-1.5 rounded px-1.5 text-left hover:bg-accent/80"
                     >
                       {repositoryCollapsed ? (
                         <CaretRightIcon className="size-3" />
                       ) : (
                         <CaretDownIcon className="size-3" />
                       )}
-                      <FolderIcon
-                        className="size-3.5 shrink-0"
-                        style={{ color: repositoryColor }}
+                      <MavenIcon
+                        className="size-4 shrink-0"
+                        style={{ color: REPOSITORY_ROW_ICON_COLOR }}
                       />
-                      <span className="truncate" style={{ color: repositoryColor }}>
-                        {repositoryName}
-                      </span>
+                      {/* Same as macOS: the repository color is only a small dot, never a tinted card. */}
+                      <span
+                        data-testid="git-repository-color-dot"
+                        className="size-2 shrink-0 rounded-full"
+                        style={{ backgroundColor: repositoryColor }}
+                      />
+                      <span className="truncate">{repositoryName}</span>
                       {repositoryError ? null : (
                         <span className="ml-auto text-subtle-foreground tabular-nums">
                           {group.visibleReferences.length}
