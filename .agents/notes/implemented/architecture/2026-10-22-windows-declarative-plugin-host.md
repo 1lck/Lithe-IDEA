@@ -31,7 +31,8 @@ Windows 新增一套契约 v1 声明式插件宿主，与现有 Worker 扩展模
 - 安装根为 `app_local_data_dir()/plugins/<pluginID>/<version>/`，`installation.json` 记录版本与启用状态；记录缺失或损坏的包隔离展示，绝不静默加载。
 - bundled 包从 `resource_dir()/OfficialPlugins` 只读加载，多版本目录取最高版本；运行时不写安装目录与资源目录，遵守发行基线只读边界。
 - 每个插件的语言服务器状态目录在 `app_local_data_dir()/plugin-state/<pluginID>/<workspace 哈希>`，由宿主注入启动计划请求。
-- 信任模型 v0：官方 ID 防冒用由 Core 校验兜底；bundled 包随安装器分发；磁盘导入（已落地）与市场下载（M3+）一律走 `plugins.marketplace.installReview` 全量审批（权限 + 完整程序清单），审批界面明示"未认证发布者"。publisher Ed25519 验签明确延后，这是 v0 的已知缺口，Windows 验签方案（Authenticode 还是包内 Ed25519）单独立项评估。
+- 信任模型 v1（Windows 插件对齐路线图 M1，见 `docs/development/windows-plugin-parity-plan.md`）：发布者 Ed25519 验签已接入 `plugin_host/signature.rs`，与 macOS `PluginPackageSignature` 字节兼容（canonical payload、UTF-8 base64url token、按原始路径排序、每文件 SHA-256 与 contentDigest），采用成熟的 `ed25519-dalek`，固定官方公钥 `lithe-official-plugins-v2`；生产私钥不进入仓库。官方 ID 的信任策略由宿主固定（`php/java-support=sameTeamAsHost`、`go-support=publisherPackage`），覆盖包自声明；`sameTeamAsHost` 只信任宿主安装资源内的 bundled 包，磁盘/市场包不能凭目录名获得该身份。签名文档存在即必须验证，坏签名不会被忽略。磁盘导入与市场下载（M2+）仍走 `plugins.marketplace.installReview` 全量审批（权限 + 完整程序清单），审批界面明示"未认证发布者"。
+- 安装记录 schema 2 是安装事务的一部分：`origin`、marketplace/disk provenance（全包内容摘要与批准程序的 canonical JSON）、上一版本的 provenance 都随版本发布一起写入；安装确认、staging 发布前、启动扫描、运行/测试计划入口与回滚都会重新校验完整文件集合和摘要。schema 1 旧记录没有 provenance，扫描直接隔离（`plugin.trust.provenanceMissing`）并要求重新安装，绝不凭 `enabled` 或清单摘要补造发布者身份和已批准字节。
 - 磁盘导入的私有快照、staging 重验、内容摘要复查与回滚语义照抄 macOS 侧规则（见声明式语言插件 Note 的磁盘安装节），Windows 不另造审查语义。
 
 ### 启动接线（M1 落地形状）
@@ -83,14 +84,14 @@ WebView2 的 NavigationStarting 可以阻止外站文档提交，但实测外站
 
 ### 实施切分
 
-M1 包存储 + 启动校验 + 语言注册 + LSP 启动（已落地）；M2 磁盘安装链路 + 管理界面 v1 + 死链处置（已落地）；M3 声明式设置 + 运行/测试计划 + PHP 契约包（已落地，Worker 版保留见上文）；M4 Web 工具窗口（已落地，桥 v0 只含 state/openFile/主题，build.* 与 functions.* 等 Windows 构建系统能力接入后开放）。每个里程碑独立 PR，矩阵条目随代码同 PR 更新。总体方向遵循[公共扩展契约与 Provider 接入方向](../../proposed/architecture/2026-10-13-public-extension-contract-and-provider-api.md)，本 Note 只落地其中 Windows 契约宿主的第一阶段。
+M1 包存储 + 启动校验 + 语言注册 + LSP 启动（已落地）；M2 磁盘安装链路 + 管理界面 v1 + 死链处置（已落地）；M3 声明式设置 + 运行/测试计划 + PHP 契约包（已落地，Worker 版保留见上文）；M4 Web 工具窗口（已落地，桥 v0 只含 state/openFile/主题，build.* 与 functions.* 等 Windows 构建系统能力接入后开放）。路线图 M1（发布者签名 + 全包完整性 + 安装记录事务，`signature.rs` 与 schema 2 安装记录）已落地；本 Note 早期的 M1–M4 编号是宿主 PR 的内部切分，与路线图的 M0–M10 不是同一序列。每个里程碑独立 PR，矩阵条目随代码同 PR 更新。总体方向遵循[公共扩展契约与 Provider 接入方向](../../proposed/architecture/2026-10-13-public-extension-contract-and-provider-api.md)，本 Note 只落地其中 Windows 契约宿主的第一阶段。
 
 ## 考虑过的备选方案
 
 - 把 Worker 扩展模型整体改造成契约宿主：契约没有主题、AI provider 这些概念，改造成本高且无收益，不采用。
 - 在 Tauri 侧另写一套清单校验：违反"校验只在 Core 实现一次"，共享 fixtures 无法复用，双端语义必然漂移，不采用。
 - 把 Worker RPC 桥接成 litheFunctions：两者协议语义不同，会同时存在两套函数协议，等有真实插件需求时再按[插件函数契约](2026-10-20-plugin-function-contract.md)接入。
-- 信任模型一步到位 publisher 签名：Windows 验签载体需要单独评估，v0 以 bundled 加全量审批兜底，签名延后是显式记录的缺口而不是遗漏。
+- 信任模型一步到位 publisher 签名：v0 曾以 bundled 加全量审批兜底，签名延后是当时显式记录的缺口；路线图 M1 已选择与 macOS 相同的包内 Ed25519 文档签名（而非 Authenticode），因为它跨平台字节兼容、验证在安装事务内完成，且不依赖系统证书存储。
 - 在 `lsp_start` 一类原生命令里拉起插件服务器：现有 LSP 会话全部由 Core 统一管理（会话、取消、事件泵都在 Core），前端只解析可执行路径与参数；另建原生拉起路径会分裂会话所有权，不采用。
 
 ## 后果
@@ -111,6 +112,7 @@ M1 包存储 + 启动校验 + 语言注册 + LSP 启动（已落地）；M2 磁�
 - 网页隔离与上下文回归：`web.rs` 覆盖同包和外站 URL 的导航/桥接共用检查、真实路径与内部/外部目录链接；Windows 用无需提权的 junction，Unix 用目录符号链接。`plugin-web-appearance.test.ts` 执行原生宿主桥脚本，验证语言、主题、根变量、主题事件与外站不暴露桥；前端文件测试验证原生真实目标传递与拒绝传播。
 - 版本探测回归：`runtime_probe_collects_output_and_rejects_overflow`、`runtime_probe_reclaims_inherited_pipes_after_parent_exit` 使用当前测试二进制作为固定夹具；后者让父进程退出、后代保留管道，断言调用有界结束且后代已退出。测试环境变量仅附加到子进程，不改测试运行器的全局环境。运行 WindowsRust 与 Frontend 计时 harness，检查 `.artifacts/test-stability/index.html`；真实 WebView2 验证还要由本机 HTTP 计数器确认外站 GET 为零，同时检查导航、弹窗/下载、动态主题、包文件和发行目录哈希不变；单凭页面 URL 没变不能证明请求未外发。
 
+- 路线图 M1 信任链：`plugin_host/signature.rs` 用 RFC 8032 测试密钥锚定 Ed25519 原语；共享公开向量 `shared/contracts/plugins/v1/fixtures/signature-vectors.json`（含非 ASCII 文件名、canonical payload 字节、确定性签名与 contentDigest）由 `shared_fixture_verifies_end_to_end` 断言，Swift 端 `PluginSignatureVectorTests` 消费同一文件（macOS 实机运行待 CI）。`install_tests` 覆盖 staged 字节绑定批准摘要、同版本替换拒绝改动字节、staging 失败保留现行版本、回滚候选按其自身 provenance 验证；`tests.rs` 覆盖重启扫描隔离篡改/增删文件、官方 ID 拒绝无签名社区安装、社区包中存在的签名文档必须验证。`declarative_plugins_confirm_disk_install` 与回滚保持 #1424 的逐窗口停止屏障，失败时旧版本与旧记录保持可用。
 - M4 Web 工具窗口：`plugin_host/web.rs` 测试覆盖包路径规范化（`..`、编码分隔符、空段拒绝）、CSP 内容断言（default-src none、无 wasm-unsafe-eval、frame-ancestors none）、桥脚本冻结与作用域、状态键隔离；web-panel fixture 随 `ui:[1,2]` 声明提升转为被宿主接受（能力门控测试同步）。桥 v0 的 build.*/functions.* 返回 `plugin.web.unknownMethod`，等构建系统能力接入。
 
 
@@ -142,6 +144,8 @@ M1 包存储 + 启动校验 + 语言注册 + LSP 启动（已落地）；M2 磁�
 - `windows/tauri/src/features/plugins/declarative-plugin-settings-editor.tsx`（设置编辑）
 - `windows/tauri/src/features/plugins/declarative-plugin-run.ts`（契约插件运行入口）
 - `windows/tauri/src-tauri/src/plugin_host/web.rs`（Web 工具窗口 scheme、桥与状态）
+- `windows/tauri/src-tauri/src/plugin_host/signature.rs`（发布者验签、contentDigest、官方 ID 固定信任策略；依赖 `ed25519-dalek`）
+- `shared/contracts/plugins/v1/fixtures/signature-vectors.json`（双端共享签名测试向量；macOS 消费方为 `macos/Tests/LitheTests/PluginSignatureVectorTests.swift`）
 - `Plugins/win/Official/PhpSupportContract/`（契约版 PHP bundled 包）
 - `windows/tauri/src/features/plugins/declarative-plugins-section.tsx`（设置内管理页）
 - `windows/tauri/src/features/editor/lsp/resolve-editor-lsp-launch.ts`（契约插件回落来源）
