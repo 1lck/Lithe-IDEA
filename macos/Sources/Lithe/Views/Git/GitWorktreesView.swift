@@ -542,42 +542,52 @@ struct GitWorktreesView: View {
 
     private func actionCard(_ worktree: GitWorktree) -> some View {
         worktreeCard(title: "Actions") {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 10)], spacing: 10) {
-                worktreeAction("Open in Current Window") {
-                    (actions.openProjectInCurrentWindow ?? actions.openProject)(worktree.url)
+            VStack(alignment: .leading, spacing: LitheTheme.ActionButton.spacing) {
+                LitheChipFlowLayout(spacing: LitheTheme.ActionButton.spacing) {
+                    worktreeAction("Open in Current Window") {
+                        (actions.openProjectInCurrentWindow ?? actions.openProject)(worktree.url)
+                    }
+                    .disabled(worktree.isPrunable)
+                    .help(pathActionHelp(for: worktree))
+                    worktreeAction("Open in New Window") {
+                        actions.openProjectInNewWindow?(worktree.url)
+                    }
+                    .disabled(worktree.isPrunable || actions.openProjectInNewWindow == nil)
+                    .help(pathActionHelp(for: worktree))
                 }
-                .disabled(worktree.isPrunable)
-                .help(pathActionHelp(for: worktree))
-                worktreeAction("Open in New Window") {
-                    actions.openProjectInNewWindow?(worktree.url)
-                }
-                .disabled(worktree.isPrunable || actions.openProjectInNewWindow == nil)
-                .help(pathActionHelp(for: worktree))
-                worktreeAction("Show in Finder") {
-                    actions.reveal(worktree.url)
-                }
-                .disabled(worktree.isPrunable)
-                .help(pathActionHelp(for: worktree))
-                worktreeAction("Copy Path") {
-                    actions.copyPath(worktree.url)
-                }
-                worktreeAction(worktree.isLocked ? "Unlock Worktree" : "Lock Worktree") {
-                    toggleLock(for: worktree)
-                }
-                .help(lockHelp(for: worktree))
-                worktreeAction("Remove Worktree…", destructive: true) {
-                    requestRemoval(for: worktree)
-                }
-                .help(removalHelp(for: worktree))
-                if worktree.isPrunable {
-                    worktreeAction("Repair Worktree Records") {
-                        Task { await feature.repairWorktrees() }
+                LitheChipFlowLayout(spacing: LitheTheme.ActionButton.spacing) {
+                    worktreeAction("Show in Finder") {
+                        actions.reveal(worktree.url)
+                    }
+                    .disabled(worktree.isPrunable)
+                    .help(pathActionHelp(for: worktree))
+                    worktreeAction("Copy Path") {
+                        actions.copyPath(worktree.url)
                     }
                 }
-                worktreeAction("Prune Stale Records", destructive: worktree.isPrunable) {
-                    worktreeConfirmation = .prune
+                LitheChipFlowLayout(spacing: LitheTheme.ActionButton.spacing) {
+                    worktreeAction(worktree.isLocked ? "Unlock Worktree" : "Lock Worktree") {
+                        toggleLock(for: worktree)
+                    }
+                    .disabled(worktree.isPrimary || worktree.isPrunable)
+                    .help(lockHelp(for: worktree))
+                    worktreeAction("Remove Worktree…", destructive: true) {
+                        requestRemoval(for: worktree)
+                    }
+                    .disabled(worktree.isPrimary || worktree.isCurrent || worktree.isLocked || worktree.isPrunable)
+                    .help(removalHelp(for: worktree))
                 }
-                .disabled(!feature.gitWorktrees.contains(where: \.isPrunable))
+                LitheChipFlowLayout(spacing: LitheTheme.ActionButton.spacing) {
+                    if worktree.isPrunable {
+                        worktreeAction("Repair Worktree Records") {
+                            Task { await feature.repairWorktrees() }
+                        }
+                    }
+                    worktreeAction("Prune Stale Records", destructive: worktree.isPrunable) {
+                        worktreeConfirmation = .prune
+                    }
+                    .disabled(!feature.gitWorktrees.contains(where: \.isPrunable))
+                }
             }
         }
     }
@@ -656,11 +666,21 @@ struct GitWorktreesView: View {
     private func settingsSection(_ worktree: GitWorktree) -> some View {
         VStack(spacing: 12) {
             worktreeCard(title: "Worktree Settings") {
-                informationRow("Protection", value: worktree.isLocked ? "Locked" : "Unlocked")
-                worktreeAction(worktree.isLocked ? "Unlock Worktree" : "Lock Worktree") {
-                    toggleLock(for: worktree)
+                HStack(alignment: .center, spacing: LitheTheme.ActionButton.spacing) {
+                    worktreeAction(worktree.isLocked ? "Unlock Worktree" : "Lock Worktree") {
+                        toggleLock(for: worktree)
+                    }
+                    .disabled(worktree.isPrimary || worktree.isPrunable)
+                    .help(lockHelp(for: worktree))
+                    Text(worktree.isLocked ? "Locked" : "Unlocked")
+                        .font(Visual.body)
+                        .foregroundStyle(worktree.isLocked ? LitheTheme.warning : LitheTheme.success)
+                        .fixedSize()
+                    Spacer(minLength: LitheTheme.ActionButton.spacing)
+                    Text("Protection")
+                        .font(Visual.metadata)
+                        .foregroundStyle(LitheTheme.secondaryText)
                 }
-                .help(lockHelp(for: worktree))
             }
             worktreeCard(title: "Maintenance") {
                 if worktree.isPrunable {
@@ -677,6 +697,7 @@ struct GitWorktreesView: View {
                 worktreeAction("Remove Worktree…", destructive: true) {
                     requestRemoval(for: worktree)
                 }
+                .disabled(worktree.isPrimary || worktree.isCurrent || worktree.isLocked || worktree.isPrunable)
                 .help(removalHelp(for: worktree))
             }
         }
@@ -741,13 +762,12 @@ struct GitWorktreesView: View {
         destructive: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
+        Button(role: destructive ? .destructive : nil, action: action) {
             Text(LocalizedStringKey(title))
                 .lineLimit(1)
-                .foregroundStyle(destructive ? LitheTheme.error : LitheTheme.primaryText)
-                .frame(maxWidth: .infinity)
         }
         .buttonStyle(LitheActionButtonStyle())
+        .accessibilityIdentifier("worktree-action-\(title)")
         .disabled(feature.isPerformingWorktreeOperation)
     }
 
