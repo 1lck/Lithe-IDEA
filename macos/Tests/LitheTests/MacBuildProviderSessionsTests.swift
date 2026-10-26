@@ -9,6 +9,39 @@ import Testing
 /// process a request reuses, and when the host stops or restarts it.
 @MainActor
 struct MacBuildProviderSessionsTests {
+    /// Native execution and model requests share the same process; no page
+    /// or plugin-function negotiation participates.
+    @Test
+    func nativeExecutionReusesTheWorkspaceProviderAndDeliversProgress() async throws {
+        let fixture = try ProviderFixture()
+        defer { fixture.remove() }
+        let packageBefore = try fixture.packageSnapshot()
+        _ = try await fixture.load()
+        let received = BuildProgressRecorder()
+        let result = try await fixture.sessions.execute(BuildProviderRequest(
+            method: "lithe/build/execute", params: .object([:]), optionFingerprint: "",
+            executesProjectCode: true, mayUseNetwork: true
+        ), on: fixture.target, timeout: .seconds(5)) { received.values.append($0) }
+        #expect(result == BuildProviderExecutionResult(exitCode: 0, output: "built"))
+        #expect(received.values == [BuildProviderProgress(percentage: 50, output: "building")])
+        #expect(fixture.core.startCalls.count == 1)
+        #expect(fixture.core.buildRequests == ["lithe/build/model", "lithe/build/execute"])
+        let otherRoot = fixture.root.appendingPathComponent("other-workspace")
+        try FileManager.default.createDirectory(at: otherRoot, withIntermediateDirectories: true)
+        let other = BuildProviderTarget(
+            pluginID: ProviderFixture.pluginID, manifest: fixture.manifest, packageURL: fixture.packageURL,
+            buildSystemID: "gradle", workspaceURL: otherRoot
+        )
+        _ = try await fixture.sessions.execute(BuildProviderRequest(
+            method: "lithe/build/execute", params: .object([:]), optionFingerprint: "",
+            executesProjectCode: true, mayUseNetwork: true
+        ), on: other, timeout: .seconds(5)) { _ in }
+        #expect(fixture.core.startCalls.count == 2)
+        #expect(try fixture.packageSnapshot() == packageBefore)
+        fixture.sessions.stopProviders(ofPlugin: ProviderFixture.pluginID)
+        #expect(fixture.core.stopCalls.count == 2)
+    }
+
     /// A second request reuses the process; stopping the plugin's providers,
     /// which the plugin manager does before replacing its package, ends it
     /// and the next request starts a new one.
@@ -421,6 +454,28 @@ private struct ProviderFixture {
         )
     }
 
+    /// Compare both the complete listing and bytes, including added empty
+    /// directories; runtime state must not appear next to packaged inputs.
+    func packageSnapshot() throws -> [String: Data] {
+        let keys: Set<URLResourceKey> = [.isDirectoryKey, .isSymbolicLinkKey]
+        let files = try #require(FileManager.default.enumerator(
+            at: packageURL, includingPropertiesForKeys: Array(keys)
+        ))
+        var snapshot: [String: Data] = [:]
+        for case let url as URL in files {
+            let relative = String(url.path.dropFirst(packageURL.path.count))
+            let values = try url.resourceValues(forKeys: keys)
+            if values.isSymbolicLink == true {
+                snapshot["link:" + relative] = Data(try FileManager.default.destinationOfSymbolicLink(atPath: url.path).utf8)
+            } else if values.isDirectory == true {
+                snapshot["directory:" + relative] = Data()
+            } else {
+                snapshot["file:" + relative] = try Data(contentsOf: url)
+            }
+        }
+        return snapshot
+    }
+
     func remove() {
         sessions.retainProviders { _ in false }
         try? FileManager.default.removeItem(at: root)
@@ -617,10 +672,18 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
             _buildRequests.append(method)
             _buildParams.append(params)
             let operationID = "\(sessionID)-\(_buildRequests.count)"
+            if method == "lithe/build/execute" {
+                events[sessionID, default: []].append(LanguageServerRuntimeEvent(
+                    type: "requestProgress", operationID: operationID,
+                    result: .object(["percentage": .integer(50), "output": .string("building")])
+                ))
+            }
+            let value: ToolingJSONValue = method == "lithe/build/execute"
+                ? .object(["exitCode": .integer(0), "output": .string("built")])
+                : .object(["session": .string(sessionID)])
             events[sessionID, default: []].append(LanguageServerRuntimeEvent(
-                type: "requestCompleted",
-                operationID: operationID,
-                result: .object(["value": .object(["session": .string(sessionID)])])
+                type: "requestCompleted", operationID: operationID,
+                result: .object(["value": value])
             ))
             return .success(LanguageServerRuntimeOperation(operationID: operationID))
         }
@@ -681,3 +744,6 @@ private final class EmptyToolRuntime: LanguageToolRuntimePort {
     func languageToolProcessEnvironment(runtimeTools _: [String]) -> [String: String] { [:] }
     func missingLanguageToolMessage(_ name: String) -> String { name }
 }
+
+@MainActor
+private final class BuildProgressRecorder { var values: [BuildProviderProgress] = [] }

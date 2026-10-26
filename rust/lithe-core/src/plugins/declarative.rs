@@ -975,6 +975,7 @@ impl DeclarativePluginManifest {
             &crate::build::DeclarationContext {
                 plugin_api_version: self.plugin_api_version,
                 build_systems_version: self.requires.get("buildSystems").copied().unwrap_or(1),
+                build_providers_version: self.requires.get("buildProviders").copied().unwrap_or(1),
                 official: is_official_namespace(&self.id),
                 declared_settings: &declared_settings,
                 language_servers: &server_languages,

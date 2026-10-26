@@ -50,7 +50,9 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
 
     private var sessionID: String?
     private var pendingOperations: [String: PendingOperation] = [:]
-    /// Progress listeners of running plugin functions, by operation ID.
+    /// Progress listeners of running provider tasks, by operation ID.
+    private var buildProgress: [String: @MainActor @Sendable (BuildProviderProgress) -> Void] = [:]
+    /// Progress listeners of plugin-private calls remain a separate contract.
     private var functionProgress: [String: @MainActor @Sendable (PluginFunctionProgress) -> Void] = [:]
     private var documentVersions: [URL: Int] = [:]
     private var pollTask: Task<Void, Never>?
@@ -572,7 +574,8 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     package func buildRequest(
         method: String,
         params: ToolingJSONValue,
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        progress: @escaping @MainActor @Sendable (BuildProviderProgress) -> Void = { _ in }
     ) async throws -> ToolingJSONValue {
         guard let sessionID, state == .ready else {
             throw LanguageServerRuntimeSessionError.notReady
@@ -587,12 +590,14 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             try Task.checkCancellation()
             throw LanguageServerRuntimeSessionError.requestRejected(error.userMessage)
         }
+        buildProgress[operation.operationID] = progress
         // Registration happens before this actor can run the cancellation
         // below, so a cancelled request always finds its pending entry and
         // ends with the cancellation event Core publishes.
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                registerPendingOperation(operation, name: method) { result in
+                registerPendingOperation(operation, name: method) { [weak self] result in
+                    self?.buildProgress[operation.operationID] = nil
                     continuation.resume(with: result.flatMap { event in
                         guard case .object(let object)? = event.result, let value = object["value"] else {
                             return .failure(LanguageServerRuntimeSessionError.missingResult)
@@ -1065,6 +1070,14 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             onFunctionsChange?(updated)
             return false
         case "requestProgress":
+            if let operationID = event.operationID, let listener = buildProgress[operationID],
+               case .object(let object)? = event.result {
+                let message: String? = if case .string(let text)? = object["message"] { text } else { nil }
+                let output: String? = if case .string(let text)? = object["output"] { text } else { nil }
+                let percentage: Int? = if case .integer(let number)? = object["percentage"] { number } else { nil }
+                listener(BuildProviderProgress(message: message, percentage: percentage, output: output))
+                return false
+            }
             guard let operationID = event.operationID, let listener = functionProgress[operationID],
                   case .object(let object)? = event.result else {
                 return false
@@ -1147,6 +1160,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         pollTask = nil
         stopWatchdog?.disarm()
         stopWatchdog = nil
+        buildProgress = [:]
         functionProgress = [:]
         failPendingOperations(with: LanguageServerRuntimeSessionError.sessionStopped)
         if let sessionID {

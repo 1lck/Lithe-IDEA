@@ -3700,6 +3700,7 @@
 "The interface language changes immediately. English is the default." = "The interface language changes immediately. English is the default.";
 "The item can be recovered from the macOS Trash." = "The item can be recovered from the macOS Trash.";
 "The language server could not apply this setting. Restart it to use the new value." = "The language server could not apply this setting. Restart it to use the new value.";
+"The language server this build system uses is not available. Open a file of the language and try again." = "The language server this build system uses is not available. Open a file of the language and try again.";
 "The latest stable release will be downloaded in full and replace this AutoBuild after you confirm installation. Projects and settings are kept, but AutoBuild-only settings may not work in the stable release." = "The latest stable release will be downloaded in full and replace this AutoBuild after you confirm installation. Projects and settings are kept, but AutoBuild-only settings may not work in the stable release.";
 "The latest stable release will be downloaded in full and replace this preview after you confirm installation. Projects and settings are kept, but preview-only settings may not work in the stable release." = "The latest stable release will be downloaded in full and replace this preview after you confirm installation. Projects and settings are kept, but preview-only settings may not work in the stable release.";
 "The local Codex account changed. Reconnect to refresh quota." = "The local Codex account changed. Reconnect to refresh quota.";
@@ -8075,6 +8076,7 @@
 "native.theLanguageProviderIsNotInstalled" = "The %1$@ language provider is not installed.";
 "native.theLanguageServerCouldNotApplyThisSetting" = "The language server could not apply this setting. Restart it to use the new value.";
 "native.theLanguageServerIsDisabledInThisWorkspace" = "The %1$@ language server is disabled in this workspace. Enable it in Settings > LSP.";
+"native.theLanguageServerThisBuildSystemUsesIsNotAvailable" = "The language server this build system uses is not available. Open a file of the language and try again.";
 "native.theLatestStableReleaseWillBeDownloadedInFullAndReplaceThisAutoBuildAfterYouConbfd63f6a8e" = "The latest stable release will be downloaded in full and replace this AutoBuild after you confirm installation. Projects and settings are kept, but AutoBuild-only settings may not work in the stable release.";
 "native.theLatestStableReleaseWillBeDownloadedInFullAndReplaceThisPreviewAfterYouConfic01b41840e" = "The latest stable release will be downloaded in full and replace this preview after you confirm installation. Projects and settings are kept, but preview-only settings may not work in the stable release.";
 "native.theLitheServerWasInstalledOnThisHost" = "The Lithe server was installed on this host.";

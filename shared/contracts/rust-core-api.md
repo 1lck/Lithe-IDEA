@@ -2539,17 +2539,22 @@ and virtual-location representation as ordinary navigation.
 
 `lsp.buildRequest` accepts `{ sessionId, operationId?, method, params,
 timeoutMilliseconds? }` and returns `{ operationId }`. `method` and `params`
-are the `provider` field of a `build.modelPlan` or `build.dependencyPlan`
-result; only `lithe/build/model` and `lithe/build/dependencies` are accepted,
-and anything else is `invalid_request`. Every session offers
-`capabilities.experimental.litheBuild: { versions: [1] }` in `initialize`; a
+are the `provider` field of a `build.modelPlan`, `build.dependencyPlan` or
+provider-sourced `build.taskPlan` result. Version 1 accepts `lithe/build/model`
+and `lithe/build/dependencies`; version 2 also accepts `lithe/build/execute`.
+Other methods are `invalid_request`; execution on version 1 is `not_supported`.
+Every session offers
+`capabilities.experimental.litheBuild: { versions: [2, 1] }` in `initialize`; a
 session whose process did not answer one of those versions rejects the request
 with `not_supported`, so a shared provider that does not speak the protocol
 still serves its language. `timeoutMilliseconds` replaces the session's request
 timeout for this request and is capped at one hour. The `requestCompleted`
 event carries the provider's reply unchanged as `result.value`, which the host
 passes to `build.decodeModel` or `build.decodeDependencies` as `result`;
-cancellation and late results follow `lsp.cancelOperation`.
+cancellation and late results follow `lsp.cancelOperation`. Execution replies
+are validated as `{exitCode: Int32, output: string}` and progress is mapped
+from a Core-owned wire request ID to `requestProgress` for the still-pending
+operation. See the [provider execution contract](plugins/v1/README.md#provider-task-execution-buildproviders-2).
 
 `lsp.vcsRequest` accepts `{ sessionId, operationId?, vcs, operation, root,
 tool?, arguments?, timeoutMilliseconds? }` and returns `{ operationId }`.
@@ -3305,11 +3310,11 @@ has one build workflow and never branches on a build-system ID: Core plans
 each process, the host runs it with the discovered executable, and Core
 decodes what it printed or wrote.
 
-A build system with a `provider` also requires `buildProviders: 1`. Core supports
-validation and planning for that capability; a host advertises it only after
-implementing Provider lifecycle and requests. macOS does not yet advertise it,
-so its marketplace and install review reject Provider plugins while accepting
-compatible declarative build systems.
+A build system with a `provider` requires `buildProviders: 1`, or version 2
+when a task uses `source: "provider"`. Core validates and plans both versions;
+a host advertises each only after implementing its lifecycle and requests.
+macOS advertises both and routes provider tasks through the existing workspace
+session. Windows does not yet advertise Provider lifecycle support.
 
 Except `build.detect`, every command accepts
 `{ manifest, buildSystemID, request }`, revalidates the manifest, and answers
@@ -3348,7 +3353,7 @@ and the directories are absolute host paths used only as substitution text.
 | `build.checkToolVersion` | `{ runtime?, output }` | `version`: `{ satisfied, version? }`; `runtime` checks that runtime dependency instead of the tool |
 | `build.resolveOptions` | `{ options, modelValues? }` | `options`: `{ options: [{ id, displayName, kind, value, source, choices, allowCustom }], dropped, fingerprint }` |
 | `build.modelPlan`, `build.dependencyPlan` | plan fields plus `project?` (dependencies), `outputFile?`, and for provider sources `refresh?` (boolean) and `tool?: { executable }` (absolute path) | `plan`: `{ buildSystemID, root, arguments, environment, workingDirectory, execution, optionFingerprint, output, decoder, executesProjectCode, mayUseNetwork }`; for a `provider` source `{ buildSystemID, root, provider: { method, params }, decoder, executesProjectCode, mayUseNetwork, optionFingerprint }`, where `method` is `lithe/build/model` or `lithe/build/dependencies` and `params` is `{ buildSystemID, root, options, optionArguments, environment, project?, refresh?, tool? }`; `refresh` appears only when `true` and `tool` only when the host sent it |
-| `build.taskPlan` | plan fields plus `task`, `project?`, `target?`, `modelTask?`, `userArguments?` | `plan` with `arguments`, `environment`, `workingDirectory`, `execution`, and `optionFingerprint` |
+| `build.taskPlan` | plan fields plus `task`, `project?`, `target?`, `modelTask?`, `userArguments?` | command `plan` with `arguments`, `environment`, `workingDirectory`, `execution`, and `optionFingerprint`; a provider task instead returns `provider: {method: "lithe/build/execute", params}` with effective options, selected task/entities, user arguments and effect metadata |
 | `build.testPlan` | plan fields plus `project?`, `target?`, `suite?`, `case?`, `userArguments?`, `projects?` (the model's project directories) | `plan` with the task-plan fields and `results`: `null`, `{ decoder, reports }` with workspace-relative globs (for the selected project, or for the root and every listed project when none is selected), or `{ decoder: "hostIntegration" }`. A `suite` or `case` the templates cannot place on the command line under this selection, such as a case without its suite when the tool only addresses `Suite#case`, is `plugin.build.invalidSelection` rather than a wider run |
 | `build.decodeModel` | `{ workspaceRoot, root, output?, outputFile?, result?, options? }`; `result` is the provider's JSON answer | `model`: `{ projects, targets, tasks, contentRoots, optionValues, run }`; `run` entries carry `buildSystem: { id, root, projectID, targetID?, optionFingerprint }` |
 | `build.decodeTestResults` | `{ workspaceRoot, root, project?, projects?, output, notBeforeMillis?, suite? }`; without `project` the reports of the root and every listed model project are read | `results`: `{ tests: [{ suite, case, status, message?, durationMillis?, path?, line?, invocations }], summary: { total, passed, failed, errors, skipped }, success }`; repeated invocations of one case merge into the most severe status |

@@ -12,8 +12,8 @@ use super::decode::{self, join_relative};
 use super::integrations;
 use super::manifest::{
     BuildExecution, BuildSystemDeclaration, DependenciesSource, ExecutableCandidate, ModelSource,
-    OutputChannel, ProviderDeclaration, RunDeclaration, Scope, TestFilter, TestResultsSource,
-    WorkingDirectory,
+    OutputChannel, ProviderDeclaration, RunDeclaration, Scope, TaskSource, TestFilter,
+    TestResultsSource, WorkingDirectory,
 };
 use super::model::{entry_id, BuildModel, ModelProject};
 use super::options::{self, OptionContribution};
@@ -463,7 +463,20 @@ pub(crate) fn task_plan(
             build_system.display_name, request.task
         ))
     })?;
-    check_user_arguments(&request.user_arguments, &declaration.arguments)?;
+    if declaration.source == TaskSource::Provider {
+        if request.user_arguments.len() > MAX_USER_ARGUMENTS
+            || request
+                .user_arguments
+                .iter()
+                .any(|argument| argument.contains('\0') || argument.len() > MAX_USER_ARGUMENT)
+        {
+            return Err(invalid_selection(
+                "The extra arguments are too long or contain NUL.",
+            ));
+        }
+    } else {
+        check_user_arguments(&request.user_arguments, &declaration.arguments)?;
+    }
     let project = request
         .project
         .as_ref()
@@ -523,6 +536,39 @@ pub(crate) fn task_plan(
     values.project = project.as_ref().map(Selection::selected);
     values.target = target.as_ref().map(Selection::selected);
     values.task = task.as_ref().map(Selection::selected);
+    if declaration.source == TaskSource::Provider {
+        // A model may override the template execution; do not turn an
+        // unbounded application/service into a single bounded RPC task.
+        if execution != BuildExecution::Task {
+            return Err(invalid_selection(
+                "A provider task supports task execution only.",
+            ));
+        }
+        let mut params = Map::new();
+        params.insert("task".to_string(), json!(request.task));
+        params.insert("userArguments".to_string(), json!(request.user_arguments));
+        for (name, selected) in [
+            ("project", &project),
+            ("target", &target),
+            ("modelTask", &task),
+        ] {
+            if let Some(selected) = selected {
+                params.insert(
+                    name.to_string(),
+                    json!({
+                        "name": selected.name, "path": selected.path,
+                        "tags": selected.tags, "properties": selected.properties
+                    }),
+                );
+            }
+        }
+        return Ok(context.provider_plan(
+            declared_provider(build_system)?,
+            "lithe/build/execute",
+            "execution",
+            params,
+        ));
+    }
     context.plan(&declaration.arguments, &values, execution, Map::new())
 }
 

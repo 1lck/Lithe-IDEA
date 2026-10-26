@@ -469,6 +469,26 @@ pub(super) fn client_apply_server_message_for_plugin(
                     }
                 }
             }
+            super::build_provider::PROGRESS_METHOD
+                if !state.shutdown_requested
+                    && state
+                        .server_capabilities
+                        .iter()
+                        .any(|feature| feature == super::build_provider::EXECUTION_FEATURE) =>
+            {
+                if let Some(result) = super::build_provider::progress(message.get("params")) {
+                    events.push(LspClientEvent {
+                        kind: "buildProgress".to_string(),
+                        request_id: None,
+                        method: Some(method.to_string()),
+                        uri: None,
+                        version: None,
+                        diagnostics: None,
+                        result: Some(result),
+                        error: None,
+                    });
+                }
+            }
             plugin_function::PROGRESS_METHOD
                 if plugin_owned
                     && !state.shutdown_requested
@@ -1729,6 +1749,9 @@ fn feature_names_from_capabilities(capabilities: &Value) -> Vec<String> {
     }
     if super::build_provider::negotiated(capabilities) {
         insert_unique(&mut values, super::build_provider::BUILD_PROVIDER_FEATURE);
+    }
+    if super::build_provider::execution_negotiated(capabilities) {
+        insert_unique(&mut values, super::build_provider::EXECUTION_FEATURE);
     }
     if plugin_function::negotiate(capabilities).is_some() {
         insert_unique(&mut values, plugin_function::FUNCTIONS_FEATURE);

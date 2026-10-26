@@ -1343,6 +1343,111 @@ struct BuildSystemServiceTests {
         })
     }
 
+    @Test(arguments: [Int32(0), Int32(7)])
+    func providerTaskRunsWithoutPageOrHostCommand(exitCode: Int32) async throws {
+        let planner = FakeBuildPlanner()
+        planner.fingerprint = "o"
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "provider")])
+        planner.providerRequest = Self.providerRequest(method: "lithe/build/execute")
+        let providers = FakeBuildProviders()
+        providers.executionResult = BuildProviderExecutionResult(exitCode: exitCode, output: "completed")
+        let runner = FakeBuildRunner()
+        let harness = Harness(planner: planner, runner: runner, providers: providers)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        try #require(harness.service.runTask(Self.instanceID, request: BuildTaskRequest(task: "build"), title: "Build") != nil)
+        try #require(await harness.waitForRunState { $0 != .running })
+        #expect(providers.sent.map(\.request.method) == ["lithe/build/execute"])
+        #expect(providers.sent.first?.target.workspaceURL == Self.workspace)
+        #expect(runner.requests.isEmpty)
+        #expect(harness.service.output.contains("completed"))
+        if exitCode == 0 { #expect(harness.service.runState == .succeeded) }
+        else { if case .failed = harness.service.runState {} else { Issue.record("Expected tool failure") } }
+    }
+
+    @Test(arguments: ["early\n", "a"])
+    func providerTaskAppendsFinalSuffixAndDecodesTheCompleteOutput(prefix: String) async throws {
+        let planner = FakeBuildPlanner()
+        planner.fingerprint = "o"
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "provider")])
+        planner.providerRequest = Self.providerRequest(method: "lithe/build/execute")
+        let providers = FakeBuildProviders()
+        // A progress chunk may end before a combining scalar in the next
+        // chunk; compare byte prefixes rather than normalized Characters.
+        let final = prefix == "a" ? "a\u{301}" : "early\nfinal\n"
+        providers.executionResult = BuildProviderExecutionResult(exitCode: 0, output: final)
+        let release = BuildTestGate()
+        providers.replyGate = release
+        let harness = Harness(planner: planner, providers: providers)
+        defer { release.open(); harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        harness.service.runTask(Self.instanceID, request: BuildTaskRequest(task: "build"), title: "Build")
+        try #require(await providers.requestStarted.waitUntilOpen())
+        providers.executionProgress?(BuildProviderProgress(output: prefix))
+        release.open()
+        try #require(await harness.waitForRunState { $0 == .succeeded })
+        #expect(Array(harness.service.output.utf8) == Array(final.utf8))
+        #expect(planner.diagnosticOutputs == [final])
+    }
+
+    /// Configuration may change while the final decode is off the main actor.
+    @Test
+    func providerTaskOptionsCancelDuringDiagnosticDecode() async throws {
+        let planner = FakeBuildPlanner()
+        planner.fingerprint = "o"
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "provider")])
+        planner.providerRequest = Self.providerRequest(method: "lithe/build/execute")
+        let gate = GatedBuildDecode()
+        planner.diagnosticsGate = gate
+        let providers = FakeBuildProviders()
+        let harness = Harness(planner: planner, providers: providers)
+        defer { gate.releaseDecode(); harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        harness.service.runTask(Self.instanceID, request: BuildTaskRequest(task: "build"), title: "Build")
+        try #require(await gate.entered.waitUntilOpen())
+        harness.service.setOption(Self.instanceID, optionID: "release", value: .bool(true))
+        #expect(harness.service.runState == .cancelled)
+        gate.releaseDecode()
+        try #require(await gate.finished.waitUntilOpen())
+        #expect(harness.service.diagnostics.isEmpty)
+    }
+
+    /// A backend may drain after cancellation; no output or result may reach
+    /// the replacement workspace or the new effective configuration.
+    @Test(arguments: ["stop", "workspace", "options", "disable"])
+    func providerTaskLateOutputCannotCrossItsOwner(change: String) async throws {
+        let planner = FakeBuildPlanner()
+        planner.fingerprint = "o"
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "provider")])
+        planner.providerRequest = Self.providerRequest(method: "lithe/build/execute")
+        let providers = FakeBuildProviders()
+        let release = BuildTestGate()
+        providers.replyGate = release
+        let harness = Harness(planner: planner, providers: providers)
+        defer { release.open(); harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        harness.service.runTask(Self.instanceID, request: BuildTaskRequest(task: "build"), title: "Build")
+        try #require(await providers.requestStarted.waitUntilOpen())
+        providers.executionProgress?(BuildProviderProgress(output: "early"))
+        #expect(harness.service.output.contains("early"))
+        switch change {
+        case "workspace": harness.service.reset(workspaceURL: URL(fileURLWithPath: "/workspace/next"))
+        case "options": harness.service.setOption(Self.instanceID, optionID: "release", value: .bool(true))
+        case "disable": harness.sources = []; harness.service.pluginsChanged()
+        default: harness.service.stopRun()
+        }
+        providers.executionProgress?(BuildProviderProgress(output: "late"))
+        release.open()
+        try #require(await providers.requestFinished.waitUntilOpen())
+        #expect(!harness.service.output.contains("late"))
+        #expect(!harness.service.output.contains("completed"))
+        #expect(harness.service.runState != .succeeded)
+    }
+
     // MARK: Provider
 
     @Test
@@ -2115,9 +2220,10 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
     }
 
     func taskPlan(_ target: BuildSystemTarget, context: BuildPlanContext, request: BuildTaskRequest) throws
-        -> BuildProcessPlan {
+        -> BuildOutputPlan {
         access { $0.taskPlanContexts.append(context) }
-        return plan([request.task, "with space"], output: nil)
+        if let request = providerRequest { return .provider(request) }
+        return .process(plan([request.task, "with space"], output: nil))
     }
 
     func testPlan(_ target: BuildSystemTarget, context: BuildPlanContext, request: BuildTestRequest) throws
@@ -2459,6 +2565,18 @@ private final class FakeBuildProviders: BuildProviderRequesting {
         if let replyGate, !(await replyGate.waitUntilOpen()) { throw CancellationError() }
         if let failure { throw failure }
         return reply
+    }
+
+    var executionResult = BuildProviderExecutionResult(exitCode: 0, output: "completed")
+    var executionProgress: (@MainActor @Sendable (BuildProviderProgress) -> Void)?
+
+    func execute(
+        _ request: BuildProviderRequest, on target: BuildProviderTarget, timeout: Duration,
+        progress: @escaping @MainActor @Sendable (BuildProviderProgress) -> Void
+    ) async throws -> BuildProviderExecutionResult {
+        executionProgress = progress
+        _ = try await send(request, to: target, timeout: timeout)
+        return executionResult
     }
 
     func retainProviders(_ keep: (BuildProviderTarget) -> Bool) {

@@ -3700,6 +3700,7 @@
 "The interface language changes immediately. English is the default." = "界面语言会立即生效。默认语言为英文。";
 "The item can be recovered from the macOS Trash." = "可以从 macOS 废纸篓中恢复此项目。";
 "The language server could not apply this setting. Restart it to use the new value." = "语言服务器无法应用此设置。请重启它以使用新值。";
+"The language server this build system uses is not available. Open a file of the language and try again." = "此构建系统使用的语言服务器不可用。请打开该语言的文件后重试。";
 "The latest stable release will be downloaded in full and replace this AutoBuild after you confirm installation. Projects and settings are kept, but AutoBuild-only settings may not work in the stable release." = "将全量下载最新正式版，在你确认安装后替换当前 AutoBuild。项目和设置会保留，但 AutoBuild 专有的设置可能无法在正式版中使用。";
 "The latest stable release will be downloaded in full and replace this preview after you confirm installation. Projects and settings are kept, but preview-only settings may not work in the stable release." = "将全量下载最新正式版，在你确认安装后替换当前预览版。项目和设置会保留，但预览版专有的设置可能无法在正式版中使用。";
 "The local Codex account changed. Reconnect to refresh quota." = "本机 Codex 账号已变更，请重新连接以刷新额度。";
@@ -8075,6 +8076,7 @@
 "native.theLanguageProviderIsNotInstalled" = "%1$@ 语言 Provider 尚未安装。";
 "native.theLanguageServerCouldNotApplyThisSetting" = "语言服务器无法应用此设置。请重启它以使用新值。";
 "native.theLanguageServerIsDisabledInThisWorkspace" = "此工作区已停用 %1$@ 语言服务器。请在“设置 > LSP”中启用它。";
+"native.theLanguageServerThisBuildSystemUsesIsNotAvailable" = "此构建系统使用的语言服务器不可用。请打开该语言的文件后重试。";
 "native.theLatestStableReleaseWillBeDownloadedInFullAndReplaceThisAutoBuildAfterYouConbfd63f6a8e" = "将全量下载最新正式版，在你确认安装后替换当前 AutoBuild。项目和设置会保留，但 AutoBuild 专有的设置可能无法在正式版中使用。";
 "native.theLatestStableReleaseWillBeDownloadedInFullAndReplaceThisPreviewAfterYouConfic01b41840e" = "将全量下载最新正式版，在你确认安装后替换当前预览版。项目和设置会保留，但预览版专有的设置可能无法在正式版中使用。";
 "native.theLitheServerWasInstalledOnThisHost" = "已在这台主机上安装 Lithe 远端服务。";

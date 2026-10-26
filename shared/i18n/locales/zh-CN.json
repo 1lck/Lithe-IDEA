@@ -9295,7 +9295,8 @@
     "native.openLocalFolder": "本地文件夹",
     "native.size": "大小",
     "native.thisFolderCannotBeRead": "无法读取此文件夹。",
-    "native.thisFolderIsEmpty": "此文件夹为空"
+    "native.thisFolderIsEmpty": "此文件夹为空",
+    "native.theLanguageServerThisBuildSystemUsesIsNotAvailable": "此构建系统使用的语言服务器不可用。请打开该语言的文件后重试。"
   },
   "overrides": {
     "macos": {

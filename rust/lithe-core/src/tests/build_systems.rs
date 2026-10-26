@@ -1096,7 +1096,8 @@ fn option_arguments_may_repeat_under_opposite_conditions() {
         { "value": "${target.name}", "when": "targetSelected" },
         { "value": "${optionArguments}", "when": "noTargetSelected" }
     ]);
-    assert_eq!(validate(manifest.clone())["status"], "ok");
+    let validated = validate(manifest.clone());
+    assert_eq!(validated["status"], "ok", "{validated}");
 
     manifest["buildSystems"][0]["test"]["arguments"][4] =
         json!({ "value": "${optionArguments:release}", "when": "caseSelected" });
@@ -1599,7 +1600,8 @@ fn task_categories_and_option_placements_are_display_only() {
 fn explicit_build_tool_path_requires_supported_global_file_setting() {
     let manifest: Value =
         serde_json::from_str(contract_file!("fixtures/build-tool-path.plugin.json")).unwrap();
-    assert_eq!(validate(manifest.clone())["status"], "ok");
+    let validated = validate(manifest.clone());
+    assert_eq!(validated["status"], "ok", "{validated}");
     let invoke = |settings: Value| {
         call(
             "invocationPlan",
@@ -1783,4 +1785,68 @@ fn executable_resolution_is_opt_in_and_custom_runtimes_share_the_same_plan() {
     manifest["buildSystems"][0]["invocation"]["runtimeDependencies"][0]["executables"][0]["id"] =
         json!("runtime-only");
     assert_eq!(validate(manifest)["status"], "rejected");
+}
+
+/// A provider-only task is admitted only with the host capability and never
+/// becomes argv. Selection boundaries and effectful admission remain shared.
+#[test]
+fn provider_execution_tasks_are_typed_and_version_gated() {
+    let manifest: Value = serde_json::from_str(contract_file!(
+        "fixtures/build-provider-execution.plugin.json"
+    ))
+    .unwrap();
+    let validated = validate(manifest.clone());
+    assert_eq!(validated["status"], "ok", "{validated}");
+    let mut old = manifest.clone();
+    old["requires"]["buildProviders"] = json!(1);
+    assert_eq!(validate(old)["status"], "rejected");
+    let mut command = manifest.clone();
+    command["buildSystems"][0]["tasks"][0]["arguments"] = json!(["build"]);
+    assert_eq!(validate(command)["status"], "rejected");
+    // An older host must refuse admission, not try a command fallback.
+    let refused = validate_command(json!({
+        "manifest": manifest, "hostCapabilities": {
+            "buildProviders":[1], "buildSystems":[1], "serverProcess":[1], "settings":[1]
+        }
+    }))
+    .unwrap();
+    assert_eq!(refused["status"], "rejected");
+    assert_eq!(refused["error"]["field"], "requires.buildProviders");
+
+    let mut run = manifest.clone();
+    run["buildSystems"][0]["tasks"][0]["fromModel"] = json!(true);
+    run["buildSystems"][0]["tasks"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("scopes");
+    run["buildSystems"][0]["run"] = json!([{"id":"run", "fromTasks":{"templates":["build"]}}]);
+    assert_eq!(validate(run)["status"], "rejected");
+    let escape = build_task_plan_command(json!({
+        "manifest":manifest, "buildSystemID":"gradle",
+        "request":{"root":"app","task":"build","project":{"name":"escape","path":"../escape"}}
+    }))
+    .unwrap();
+    assert_eq!(escape["status"], "rejected");
+    let oversized = build_task_plan_command(json!({
+        "manifest":manifest, "buildSystemID":"gradle",
+        "request":{"root":".","task":"custom","userArguments":vec!["arg";65]}
+    }))
+    .unwrap();
+    assert_eq!(oversized["status"], "rejected");
+    let result = build_task_plan_command(json!({
+        "manifest": manifest, "buildSystemID":"gradle", "request": {"root":".", "task":"build",
+        "project": {"name":"app","path":"app"}, "options":{"offline":true}}
+    }))
+    .unwrap();
+    assert_eq!(result["status"], "ok", "{result}");
+    assert!(result["plan"].get("arguments").is_none(), "{result}");
+    assert_eq!(result["plan"]["provider"]["method"], "lithe/build/execute");
+    assert_eq!(
+        result["plan"]["provider"]["params"]["project"]["path"],
+        "app"
+    );
+    assert_eq!(
+        result["plan"]["provider"]["params"]["options"]["offline"],
+        true
+    );
 }

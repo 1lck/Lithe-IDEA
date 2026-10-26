@@ -747,7 +747,7 @@ package struct BuildProviderHints: Equatable, Sendable {
     }
 }
 
-/// A model or dependency plan: a command, or a request for the plugin's
+/// A task, model or dependency plan: a command, or a request for the plugin's
 /// Provider process.
 package enum BuildOutputPlan: Equatable, Sendable {
     case process(BuildProcessPlan)
@@ -947,7 +947,7 @@ package protocol BuildSystemPlanning: Sendable {
         providerHints: BuildProviderHints
     ) throws -> BuildOutputPlan
     func taskPlan(_ target: BuildSystemTarget, context: BuildPlanContext, request: BuildTaskRequest) throws
-        -> BuildProcessPlan
+        -> BuildOutputPlan
     func testPlan(_ target: BuildSystemTarget, context: BuildPlanContext, request: BuildTestRequest) throws
         -> BuildTestPlan
     func dependencyPlan(
@@ -983,6 +983,25 @@ package protocol BuildSystemPlanning: Sendable {
     ) throws -> BuildSyncState
 }
 
+/// Bounded execution progress of one provider request, independent of pages.
+package struct BuildProviderProgress: Equatable, Sendable {
+    package let message: String?
+    package let percentage: Int?
+    package let output: String?
+
+    package init(message: String? = nil, percentage: Int? = nil, output: String? = nil) {
+        self.message = message; self.percentage = percentage; self.output = output
+    }
+}
+
+/// The completed tool outcome; nonzero is a build failure, not a transport failure.
+package struct BuildProviderExecutionResult: Codable, Equatable, Sendable {
+    package let exitCode: Int32
+    package let output: String
+
+    package init(exitCode: Int32, output: String) { self.exitCode = exitCode; self.output = output }
+}
+
 // MARK: Provider processes
 
 /// The Provider process of one build system of one plugin in one workspace.
@@ -1016,6 +1035,11 @@ package protocol BuildProviderRequesting: AnyObject {
         to target: BuildProviderTarget,
         timeout: Duration
     ) async throws -> ToolingJSONValue
+    /// Runs a typed provider task in the same workspace session.
+    func execute(
+        _ request: BuildProviderRequest, on target: BuildProviderTarget, timeout: Duration,
+        progress: @escaping @MainActor @Sendable (BuildProviderProgress) -> Void
+    ) async throws -> BuildProviderExecutionResult
     /// Stops every process whose target `keep` rejects.
     func retainProviders(_ keep: (BuildProviderTarget) -> Bool)
     /// The plugin functions the target's process registers now, sorted.

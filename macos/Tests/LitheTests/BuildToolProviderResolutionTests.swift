@@ -136,6 +136,14 @@ private final class ProviderRequestRecorder: BuildProviderRequesting {
         return .object(["format": .string("litheBuildModel"), "version": .integer(1),
                         "projects": .array([.object(["path": .string("."), "name": .string("fixture")])])])
     }
+    func execute(
+        _ request: BuildProviderRequest, on target: BuildProviderTarget, timeout: Duration,
+        progress: @escaping @MainActor @Sendable (BuildProviderProgress) -> Void
+    ) async throws -> BuildProviderExecutionResult {
+        _ = try await send(request, to: target, timeout: timeout)
+        return BuildProviderExecutionResult(exitCode: 0, output: "")
+    }
+
     func retainProviders(_ keep: (BuildProviderTarget) -> Bool) {}
 }
 

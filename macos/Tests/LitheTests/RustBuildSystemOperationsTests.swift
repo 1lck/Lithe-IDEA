@@ -100,6 +100,27 @@ struct RustBuildSystemOperationsTests {
     }
 
     @Test
+    func providerTaskPlanCarriesSelectionWithoutHostArguments() throws {
+        let target = try Self.target("build-provider-execution", "gradle")
+        let plan = try operations.taskPlan(
+            target, context: BuildPlanContext(root: ".", options: ["offline": .bool(true)]),
+            request: BuildTaskRequest(task: "build", project: BuildSelection(name: "app", path: "app"))
+        )
+        guard case .provider(let request) = plan, case .object(let params) = request.params else {
+            Issue.record("Expected a typed provider execution plan")
+            return
+        }
+        #expect(request.method == "lithe/build/execute")
+        #expect(params["task"] == .string("build"))
+        #expect(params["project"] == .object([
+            "name": .string("app"), "path": .string("app"), "tags": .array([]), "properties": .object([:])
+        ]))
+        #expect(params["options"] == .object(["offline": .bool(true)]))
+        #expect(request.executesProjectCode)
+        #expect(request.mayUseNetwork)
+    }
+
+    @Test
     func taskAndTestPlansCarryOptionsAndSelection() throws {
         let target = try Self.target("build-static-file", "cargo")
         let project = BuildModel.Project(id: "cargo:demo", path: "crates/demo", name: "demo")
@@ -110,6 +131,7 @@ struct RustBuildSystemOperationsTests {
             context: context,
             request: BuildTaskRequest(task: "build", project: BuildSelection(project: project))
         )
+        guard case .process(let build) = build else { Issue.record("Expected a command plan"); return }
         #expect(build.arguments == ["build", "--message-format=short", "--release"])
         #expect(build.workingDirectory == "crates/demo")
         #expect(build.output == nil)

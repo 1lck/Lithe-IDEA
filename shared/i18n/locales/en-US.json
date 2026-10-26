@@ -9295,7 +9295,8 @@
     "native.openLocalFolder": "Local Folder",
     "native.size": "Size",
     "native.thisFolderCannotBeRead": "This folder cannot be read.",
-    "native.thisFolderIsEmpty": "This folder is empty"
+    "native.thisFolderIsEmpty": "This folder is empty",
+    "native.theLanguageServerThisBuildSystemUsesIsNotAvailable": "The language server this build system uses is not available. Open a file of the language and try again."
   },
   "overrides": {
     "windows": {

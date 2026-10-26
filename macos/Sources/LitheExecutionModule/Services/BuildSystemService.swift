@@ -136,6 +136,8 @@ package final class BuildSystemService: ObservableObject {
     /// Bumped when a watched workspace file changes, so a load that started
     /// before the change can tell its result is based on older files.
     private var fileRevision = 0
+    private var providerConfigurationRevision = 0
+    private var providerRunID: UUID?
     private var detectionTask: Task<Void, Never>?
     private var redetectTask: Task<Void, Never>?
     private var runTask: Task<Void, Never>?
@@ -403,6 +405,8 @@ package final class BuildSystemService: ObservableObject {
             entry.sync?.watch.contains(where: changed.contains) == true
         }
         guard affected else { return }
+        providerConfigurationRevision += 1
+        if providerRunID != nil { stopRun() }
         // Reject the old input immediately; consumers wait for the coalesced
         // detection instead of starting Java with pre-save import settings.
         detectionTask?.cancel(); detectionTask = nil
@@ -650,13 +654,31 @@ package final class BuildSystemService: ObservableObject {
         return startRun(entryID, title: title) { service, run in
             let context = try service.planContext(entry, workspaceURL: workspaceURL)
             let plan = try service.planner.taskPlan(entry.target, context: context, request: request)
-            let collected = try await service.runStreamedCommand(
-                plan, entry: entry, workspaceURL: workspaceURL, owner: .run(run)
-            )
+            let configurationRevision = service.providerConfigurationRevision
+            let launchSettings = service.settings(entry.source.pluginID)
+            defer { if service.providerRunID == run.id { service.providerRunID = nil } }
+            let collected: CollectedOutput
+            switch plan {
+            case .process(let process):
+                collected = try await service.runStreamedCommand(
+                    process, entry: entry, workspaceURL: workspaceURL, owner: .run(run)
+                )
+            case .provider(let request):
+                collected = try await service.runProviderTask(
+                    request, entry: entry, workspaceURL: workspaceURL, run: run
+                )
+            }
             let diagnostics = await service.decodeDiagnostics(entry, workspaceURL: workspaceURL, output: collected.text)
             // The decode runs after the command; a stop, replacement, or
             // workspace switch in between must not publish into the new state.
             guard service.isCurrent(run) else { throw CancellationError() }
+            if case .provider(let request) = plan {
+                guard service.providerConfigurationRevision == configurationRevision,
+                      service.settings(entry.source.pluginID) == launchSettings,
+                      let current = service.entry(entry.id),
+                      service.optionFingerprint(current, workspaceURL: workspaceURL) == request.optionFingerprint
+                else { throw CancellationError() }
+            }
             service.diagnostics = diagnostics
             return collected.exitCode
         }
@@ -726,6 +748,7 @@ package final class BuildSystemService: ObservableObject {
         }
         runTask?.cancel()
         runTask = nil
+        providerRunID = nil
         runID = nil
         runEntryID = nil
         if runState == .running {
@@ -991,6 +1014,9 @@ package final class BuildSystemService: ObservableObject {
     package func setOption(_ entryID: String, optionID: String, value: ToolingJSONValue?) {
         guard let workspaceURL, let entry = entry(entryID) else { return }
         let buildSystemID = entry.instance.buildSystemID
+        if providerRunID != nil, let runEntryID, self.entry(runEntryID)?.instance.buildSystemID == buildSystemID {
+            stopRun()
+        }
         var stored = optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
         stored[optionID] = value
         var empty = optionsStore.emptyMultiSelectOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
@@ -1019,6 +1045,9 @@ package final class BuildSystemService: ObservableObject {
             return
         }
         let buildSystemID = entry.instance.buildSystemID
+        if providerRunID != nil, let runEntryID, self.entry(runEntryID)?.instance.buildSystemID == buildSystemID {
+            stopRun()
+        }
         var stored = optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
         let values: [ToolingJSONValue]
         if case .array(let items)? = stored[optionID] { values = items } else { values = [] }
@@ -1248,6 +1277,56 @@ package final class BuildSystemService: ObservableObject {
         case .timedOut: nil
         }
         return CollectedOutput(text: collector.text, exitCode: exitCode)
+    }
+
+    /// Provider tasks share model/dependency sessions, not plugin page sessions.
+    /// Progress/results are bound to this run and its effective configuration.
+    private func runProviderTask(
+        _ request: BuildProviderRequest, entry: BuildSystemEntry, workspaceURL: URL, run: RunIdentity
+    ) async throws -> CollectedOutput {
+        guard let providers else { throw BuildSystemServiceError(Self.providerUnsupportedMessage) }
+        providerRunID = run.id
+        let revision = providerConfigurationRevision
+        let fingerprint = request.optionFingerprint
+        let launchSettings = settings(entry.source.pluginID)
+        let isValid: @MainActor @Sendable () -> Bool = { [weak self] in
+            guard let self, self.isCurrent(run), self.providerConfigurationRevision == revision,
+                  self.settings(entry.source.pluginID) == launchSettings,
+                  let current = self.entry(entry.id) else { return false }
+            return self.optionFingerprint(current, workspaceURL: workspaceURL) == fingerprint
+        }
+        let tool = try await providerTool(entry, workspaceURL: workspaceURL, owner: .run(run))
+        guard isValid() else { throw CancellationError() }
+        var params = request.params
+        if let tool, case .object(var object) = params {
+            object["tool"] = .object(["executable": .string(tool.path)])
+            params = .object(object)
+        }
+        let planned = BuildProviderRequest(
+            method: request.method, params: params, optionFingerprint: fingerprint,
+            executesProjectCode: request.executesProjectCode, mayUseNetwork: request.mayUseNetwork
+        )
+        let directory = outputDirectory(entry)
+        let streamed = OutputCollector(limit: Self.decodedOutputLimit)
+        let result = try await providers.execute(
+            planned, on: Self.providerTarget(entry, workspaceURL: workspaceURL), timeout: .seconds(3600)
+        ) { [weak self] progress in
+            guard let self, isValid() else { return }
+            if let text = progress.output {
+                streamed.append(text)
+                self.appendOutput(text, in: directory)
+            } else if let message = progress.message {
+                self.appendOutput(message + "\n", in: directory)
+            }
+        }
+        guard isValid() else { throw CancellationError() }
+        if result.output.utf8.starts(with: streamed.text.utf8) {
+            appendOutput(String(decoding: result.output.utf8.dropFirst(streamed.text.utf8.count), as: UTF8.self), in: directory)
+        } else {
+            // A malformed stream must not hide the final diagnostic output.
+            appendOutput(result.output, in: directory)
+        }
+        return CollectedOutput(text: result.output, exitCode: result.exitCode)
     }
 
     /// Plans a model or dependency load. A provider request also carries the

@@ -12,6 +12,10 @@ Rust Core 负责校验声明、识别工程、展开每一条命令行，并把�
 
 目前落地的是 Core、共享契约和 macOS 宿主（第 10 节）。macOS 为每个启用的构建系统各开一个工具窗口，向 Core 声明 `buildSystems: [1]` 和 `buildProviders: [1]`，并在用户点击加载模型或依赖时启动 Provider、发送 `lithe/build/*`；Windows 宿主还没有接入。API 3 的清单按能力分版本，声明式构建系统使用 `buildSystems`，两种写法的 Provider 都额外使用 `buildProviders: 1`；插件市场只在宿主声明支持对应能力时才列出 API 3 的版本，见[声明式插件按能力分版本](2026-10-17-plugin-capability-versions.md)。宿主接入和 Maven 迁移的计划见[构建系统 Provider 提案](../../proposed/architecture/2026-10-17-build-system-provider-api.md)。
 
+### Provider 任务执行补充（2026-10-26）
+
+当前增加 `buildProviders: 2` 与 `litheBuild` 协议 2：原生 Build 任务可通过类型化执行请求进入同一个工作区 Provider，不要求网页，不使用插件私有函数。本文关于版本 1 仅有模型/依赖的说明仍适用于版本 1；具体边界、取消与删除条件见[Build Provider 原生任务执行](2026-10-26-build-provider-task-execution.md)。这项能力不代表 Maven/Java 的旧生产消费者已完成迁移。
+
 ## 问题
 
 在这次改动之前，构建工具的知识分散在三处：

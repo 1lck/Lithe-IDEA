@@ -89,13 +89,13 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
     }
 
     func taskPlan(_ target: BuildSystemTarget, context: BuildPlanContext, request: BuildTaskRequest) throws
-        -> BuildProcessPlan {
+        -> BuildOutputPlan {
         let outcome: Outcome<PlanResult> = try execute(
             "build.taskPlan",
             target: target,
             request: TaskRequest(context: context, request: request)
         )
-        return try outcome.value.plan.processPlan()
+        return try outcome.value.plan.outputPlan()
     }
 
     func testPlan(_ target: BuildSystemTarget, context: BuildPlanContext, request: BuildTestRequest) throws

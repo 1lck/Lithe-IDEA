@@ -88259,6 +88259,17 @@
         "key": "This folder is empty",
         "arguments": []
       }
+    },
+    {
+      "id": "native.theLanguageServerThisBuildSystemUsesIsNotAvailable",
+      "description": "Native UI: The language server this build system uses is not available. Open a file of the language and try again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The language server this build system uses is not available. Open a file of the language and try again.",
+        "arguments": []
+      }
     }
   ]
 }

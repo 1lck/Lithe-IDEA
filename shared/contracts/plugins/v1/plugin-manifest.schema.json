@@ -28,7 +28,7 @@
       "additionalProperties": false,
       "properties": {
         "backend": { "description": "Required exactly when backend is present: the plugin's own process serving its web pages.", "enum": [1] },
-        "buildProviders": { "description": "Required exactly when any buildSystems[].provider is present, including own-process and shared language-server providers. Declares host support for Provider orchestration, independent of declarative buildSystems and serverProcess launch support.", "enum": [1] },
+        "buildProviders": { "description": "Required exactly when any buildSystems[].provider is present, including own-process and shared language-server providers. Declares host support for Provider orchestration, independent of declarative buildSystems and serverProcess launch support.", "enum": [1, 2] },
         "buildSystems": { "description": "Declarative build detection, models, and command plans; does not imply buildProviders support.", "enum": [1, 2] },
         "debugAdapters": { "description": "Required exactly when debugAdapters is non-empty. The DAP session itself is negotiated by the adapter in initialize.", "enum": [1] },
         "executableResolution": { "enum": [1], "description": "Shared executable candidate ordering and strict selection." },
@@ -2242,6 +2242,10 @@
                   "pattern": "^[a-z0-9-]+$",
                   "maxLength": 64
                 }
+              },
+              "source": {
+                "description": "Omitted expands argv in Core; provider sends lithe/build/execute. Provider tasks require buildProviders 2, empty arguments, and task execution.",
+                "enum": ["provider"]
               },
               "requiresUserArguments": {
                 "type": "boolean"

@@ -406,7 +406,7 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 | `settings` | `settings[]` and `settingActions[]` | `1`, `2` (adds [placement, scope, effect, page buttons](#settings-v2-placement-scope-effect-and-page-buttons)) |
 | `ui` | `ui` | `1`, `2` (adds [web content](#web-content-ui-2)) |
 | `buildSystems` | Declarative build detection, models, and command plans | `1` |
-| `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers | `1` |
+| `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers; version 2 adds provider task execution | `1`, `2` |
 | `vcsProviders` | `vcsProviders[]` | `1` |
 | `debugAdapters` | [`debugAdapters[]`](#api-level-4-debug-adapters) | `1` |
 | `projectGenerators` | [`projectGenerators[]`](#project-generators): entries of the New Project window | `1` |
@@ -886,6 +886,66 @@ Canonical formats let a plugin's own script print the shape Core expects:
 Unknown fields in canonical documents are ignored so newer scripts work with
 older hosts. Output that does not fit its decoder is `plugin.build.invalidOutput`.
 
+### Provider task execution (buildProviders 2)
+
+A task with `source: "provider"` requires `requires.buildProviders: 2`.
+It keeps the ordinary task ID, scopes, target tags and model selection, but
+`arguments` must be `[]` and `execution` must be `task`. Application/service
+launch and test discovery are separate capabilities. Provider model-task
+templates cannot be referenced by `run[].fromTasks`; they need a typed Run
+capability rather than an empty command plan. A provider task never
+falls back to a host command or a plugin-private function. Command tasks
+retain their current shape and omit `source`.
+
+`build.taskPlan` returns a `provider` request instead of argv for this source.
+`lithe/build/execute` receives the effective `buildSystemID`, workspace-relative
+`root`, `options`, `optionArguments`, option `environment`, `task` declaration ID,
+bounded `userArguments`, and optional `project`, `target`, `modelTask` selections
+(`name`, workspace-relative `path`, `tags`, `properties`). Scope/path validation
+is identical to command tasks. The provider owns build semantics; options
+are not a second host-generated command. As with model/dependency requests,
+the host may add `tool: { executable: <resolved absolute path> }` from the
+same invocation resolver; explicit invalid tool/runtime selection is a failure,
+never permission for independent discovery. It must reject stale project facts
+rather than guess a target.
+
+The host offers `litheBuild.versions: [2, 1]`. Version 2 adds only execution
+and its progress notification to the two version 1 methods. A process that
+chooses version 1 cannot receive execution; unsupported negotiation fails
+explicitly. A plugin that needs this behavior declares capability version 2
+so unsupported hosts refuse installation. The two version numbers serve
+different purposes: installation admission and per-process negotiation.
+
+Core sets `params.operationID` to the unique JSON-RPC request ID (as a string);
+callers cannot choose it. `lithe/build/progress` notifications echo that ID and
+may include `message` (up to 4 KiB UTF-8), integer `percentage` (0–100), and
+`output` (up to 64 KiB UTF-8 per notification). Malformed reports and reports
+for ended, cancelled, timed-out or other requests are dropped. Core maps the
+wire ID back to the host operation ID; reused host IDs cannot accept old
+progress. No plugin-function negotiation is needed.
+
+The reply is `{ "exitCode": <signed 32-bit integer>, "output": <string> }`.
+`output` is the complete bounded diagnostic text (at most 32 MiB UTF-8),
+including text streamed in progress; the host displays progress output and
+uses final output for the existing diagnostic decoder without duplicating it
+in the console. Nonzero exit codes are completed tool failures, not protocol
+errors. Malformed replies end with `plugin.build.invalidResult`; JSON-RPC
+errors end with `plugin.build.failed`. Timeout and cancellation use the
+existing request codes and `$/cancelRequest`. Request completion occurs once;
+late replies/progress do not revive it.
+
+The host binds each call to the plugin package, build-system/workspace
+session, current run, effective option fingerprint and watched configuration revision.
+Settings, package replacement, disable, workspace close/reopen, cancellation
+and backend failure invalidate or stop the owning operation. The existing
+Provider session owns children and writable workspace state; no page,
+additional runtime, directory or cross-plugin private cache is required.
+Only public typed results may cross domain boundaries.
+
+Canonical examples: `fixtures/build-provider-execution.plugin.json` and
+`fixtures/build-execution-protocol.json`. Protocol v2 is a construction
+primitive for #1495; it does not by itself migrate Maven or Java consumers.
+
 ### Build providers
 
 Some tools expose their model only through their own API (the Gradle Tooling
@@ -936,11 +996,12 @@ another format is `plugin.build.invalidOutput`.
 
 The manifest only says how to start the provider and which sources use it.
 Everything else is negotiated in the LSP `initialize` exchange, so a provider
-can grow without a new manifest field or capability version:
+can add optional data within a negotiated protocol version:
 
-- The host sends `capabilities.experimental.litheBuild: { "versions": [1] }`,
+- The host sends `capabilities.experimental.litheBuild: { "versions": [2, 1] }`,
   the build-provider protocol versions it speaks. Version 1 is the two
-  requests above with the params and result formats of this section.
+  requests above with the params and result formats of this section;
+  version 2 adds the typed execution described above.
 - The provider answers `capabilities.experimental.litheBuild: { "version": 1 }`
   with the version it chose from that list. A provider that answers no
   version, or one the host did not offer, is not used for build requests; a

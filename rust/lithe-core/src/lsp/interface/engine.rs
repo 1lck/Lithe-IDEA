@@ -2101,14 +2101,39 @@ impl RuntimeSession {
                 )
                 .with_details(super::build_provider::BUILD_PROVIDER_FEATURE));
             }
+            if request.method == super::build_provider::EXECUTE_METHOD
+                && !state
+                    .client
+                    .server_capabilities
+                    .iter()
+                    .any(|feature| feature == super::build_provider::EXECUTION_FEATURE)
+            {
+                return Err(CoreError::new(
+                    ErrorCode::NotSupported,
+                    "The provider did not negotiate build execution.",
+                )
+                .with_details("plugin.build.unavailable"));
+            }
+            let mut params = request.params;
+            if request.method == super::build_provider::EXECUTE_METHOD {
+                let object = params.as_object_mut().ok_or_else(|| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Build task parameters must be an object.",
+                    )
+                })?;
+                object.insert(
+                    "operationID".to_string(),
+                    json!(state.client.next_request_id.to_string()),
+                );
+            }
             let timeout = request
                 .timeout_milliseconds
                 .map(|milliseconds| {
                     Duration::from_millis(milliseconds.clamp(1, MAX_BUILD_PROVIDER_TIMEOUT_MS))
                 })
                 .unwrap_or(state.request_timeout);
-            let response =
-                allocate_raw_request(state.client.clone(), &request.method, request.params)?;
+            let response = allocate_raw_request(state.client.clone(), &request.method, params)?;
             let request_id = (response.state.next_request_id - 1).to_string();
             let now = Instant::now();
             state.client = response.state;
@@ -3124,6 +3149,41 @@ impl RuntimeSession {
                     }
                 }
                 Some(PendingKind::Feature)
+                    if pending_before.as_ref().is_some_and(|pending| {
+                        pending.method == super::build_provider::EXECUTE_METHOD
+                    }) =>
+                {
+                    if let Some(pending) = pending_before.as_ref() {
+                        if let Some(operation_id) = &pending.operation_id {
+                            let (result, error) =
+                                match super::build_provider::execution_outcome(&value) {
+                                    Ok(result) => (Some(result), None),
+                                    Err((code, message)) => (
+                                        None,
+                                        Some(runtime_error(
+                                            self,
+                                            code,
+                                            "request",
+                                            Some(&pending.method),
+                                            None,
+                                            &message,
+                                            None,
+                                            None,
+                                        )),
+                                    ),
+                                };
+                            push_request_event(
+                                self,
+                                &mut state,
+                                operation_id,
+                                &pending.method,
+                                result,
+                                error,
+                            );
+                        }
+                    }
+                }
+                Some(PendingKind::Feature)
                     if pending_before
                         .as_ref()
                         .is_some_and(|pending| crate::vcs::is_vcs_method(&pending.method)) =>
@@ -3779,6 +3839,8 @@ impl RuntimeSession {
                     push_functions_event(self, &mut state, result);
                 } else if event.kind == "functionProgress" {
                     push_function_progress_locked(self, &mut state, event.result);
+                } else if event.kind == "buildProgress" {
+                    push_build_progress_locked(self, &mut state, event.result);
                 } else if event.kind == "hostRequest" {
                     outbound.extend(forward_host_request_locked(
                         self,
@@ -5493,6 +5555,57 @@ fn revoke_function_calls_locked(
         );
     }
     cancellations
+}
+
+/// A wire request ID identifies one exact build operation in this session.
+/// Cancellation/completion removes it from pending, so late progress is inert.
+fn push_build_progress_locked(
+    session: &RuntimeSession,
+    state: &mut SessionState,
+    progress: Option<Value>,
+) {
+    let Some(mut progress) = progress else {
+        return;
+    };
+    let Some(id) = progress.get("operationID").and_then(Value::as_str) else {
+        return;
+    };
+    let Some(pending) = state.pending.get(id) else {
+        return;
+    };
+    if pending.method != super::build_provider::EXECUTE_METHOD {
+        return;
+    }
+    let Some(operation_id) = pending.operation_id.clone() else {
+        return;
+    };
+    progress["operationID"] = json!(operation_id);
+    let sequence = take_sequence(state);
+    enqueue_runtime_event(
+        session,
+        state,
+        LspRuntimeEvent {
+            kind: "requestProgress".to_string(),
+            sequence,
+            provider_id: session.provider_id.clone(),
+            session_id: session.id.clone(),
+            state: None,
+            operation_id: Some(operation_id),
+            method: Some(super::build_provider::EXECUTE_METHOD.to_string()),
+            uri: None,
+            version: None,
+            diagnostics: None,
+            result: Some(progress),
+            error: None,
+            capabilities: None,
+            server_info: None,
+            level: None,
+            message: None,
+            detail: None,
+            maven_profile_project: None,
+            maven_profile_task: None,
+        },
+    );
 }
 
 /// Publishes a progress report of a call that is still running. Reports for
@@ -11101,6 +11214,203 @@ public class Main {
         assert!(harness.snapshot().pending_operation_ids.is_empty());
     }
 
+    /// Execution must not reach a model-only provider.
+    #[test]
+    fn provider_execution_requires_version_two() {
+        let harness = negotiated_build_provider();
+        let error = build_request(&harness, "lithe/build/execute", json!({}), None).unwrap_err();
+        assert!(matches!(error.code, ErrorCode::NotSupported));
+        assert!(harness
+            .server
+            .messages()
+            .iter()
+            .all(|message| message["method"] != "lithe/build/execute"));
+    }
+
+    /// Ordered messages use a completed round trip as a barrier: old progress
+    /// and replies are drained before checking that cancellation stayed final.
+    #[test]
+    fn provider_execution_progress_cancel_and_late_results_are_isolated() {
+        let mut harness = Harness::start(|_| {});
+        harness
+            .server
+            .complete_initialize(json!({"experimental":{"litheBuild":{"version":2}}}));
+        harness.await_state(LspLifecycleState::Ready);
+        let operation = build_request(
+            &harness,
+            "lithe/build/execute",
+            json!({"operationID":"spoof"}),
+            None,
+        )
+        .unwrap();
+        let id = harness.server.await_request("lithe/build/execute").unwrap();
+        assert_eq!(harness.written_request(&id)["params"]["operationID"], id);
+        harness
+            .server
+            .send(json!({"jsonrpc":"2.0","method":"lithe/build/progress",
+            "params":{"operationID":id,"output":"first","percentage":20}}));
+        let progress = harness
+            .await_event(|event| event.kind == "requestProgress")
+            .clone();
+        assert_eq!(progress.operation_id.as_deref(), Some(operation.as_str()));
+        assert_eq!(progress.result.unwrap()["output"], "first");
+        harness.session().cancel_operation(&operation).unwrap();
+        let ended = harness
+            .await_event(|event| {
+                event.kind == "requestCompleted"
+                    && event.operation_id.as_deref() == Some(operation.as_str())
+            })
+            .clone();
+        assert_eq!(ended.error.unwrap().code, "requestCancelled");
+        harness
+            .server
+            .send(json!({"jsonrpc":"2.0","method":"lithe/build/progress",
+            "params":{"operationID":id,"output":"late"}}));
+        harness
+            .server
+            .send(json!({"jsonrpc":"2.0","id":id,"result":{"exitCode":0,"output":"late"}}));
+        let barrier = build_request(&harness, "lithe/build/model", json!({}), None).unwrap();
+        let barrier_id = harness.server.await_request("lithe/build/model").unwrap();
+        harness
+            .server
+            .send(json!({"jsonrpc":"2.0","id":barrier_id,"result":{}}));
+        harness.await_event(|event| {
+            event.kind == "requestCompleted"
+                && event.operation_id.as_deref() == Some(barrier.as_str())
+        });
+        assert_eq!(
+            harness
+                .events
+                .iter()
+                .filter(|event| event.kind == "requestProgress")
+                .count(),
+            1
+        );
+        assert_eq!(
+            harness
+                .events
+                .iter()
+                .filter(|event| event.kind == "requestCompleted"
+                    && event.operation_id.as_deref() == Some(operation.as_str()))
+                .count(),
+            1
+        );
+    }
+
+    /// Host operation IDs may be reused; only the current wire request ID
+    /// may contribute progress to that new call.
+    #[test]
+    fn provider_execution_reused_host_ids_reject_old_wire_progress() {
+        let mut harness = plugin_backend(json!({"litheBuild":{"version":2}}));
+        let operation = "reused-build".to_string();
+        let send = |harness: &Harness| {
+            harness
+                .session()
+                .build_request(
+                    BuildProviderRequest {
+                        session_id: harness.session_id.clone(),
+                        operation_id: Some(operation.clone()),
+                        method: "lithe/build/execute".to_string(),
+                        params: json!({}),
+                        timeout_milliseconds: None,
+                    },
+                    operation.clone(),
+                )
+                .unwrap()
+        };
+        send(&harness);
+        let old = harness.server.await_request("lithe/build/execute").unwrap();
+        harness.session().cancel_operation(&operation).unwrap();
+        harness.await_event(|event| {
+            event.kind == "requestCompleted"
+                && event.operation_id.as_deref() == Some(operation.as_str())
+        });
+        send(&harness);
+        let current = harness
+            .server
+            .await_request_at("lithe/build/execute", 1)
+            .unwrap();
+        assert_ne!(old, current);
+        for (id, output) in [(old, "old"), (current, "current")] {
+            harness
+                .server
+                .send(json!({"jsonrpc":"2.0","method":"lithe/build/progress",
+                "params":{"operationID":id,"output":output}}));
+        }
+        harness.await_event(|event| {
+            event.kind == "requestProgress"
+                && event
+                    .result
+                    .as_ref()
+                    .is_some_and(|result| result["output"] == "current")
+        });
+        assert!(harness
+            .events
+            .iter()
+            .filter(|event| event.kind == "requestProgress")
+            .all(|event| event.result.as_ref().unwrap()["output"] != "old"));
+        harness.session().cancel_operation(&operation).unwrap();
+    }
+
+    #[test]
+    fn provider_execution_validates_results_and_expires_without_sleeping() {
+        let mut harness = Harness::start(|_| {});
+        harness
+            .server
+            .complete_initialize(json!({"experimental":{"litheBuild":{"version":2}}}));
+        harness.await_state(LspLifecycleState::Ready);
+        for (index, (reply, code)) in [
+            (json!({"exitCode":7,"output":"failed build"}), None),
+            (
+                json!({"exitCode":"bad"}),
+                Some("plugin.build.invalidResult"),
+            ),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let operation =
+                build_request(&harness, "lithe/build/execute", json!({}), None).unwrap();
+            let id = harness
+                .server
+                .await_request_at("lithe/build/execute", index)
+                .unwrap();
+            harness
+                .server
+                .send(json!({"jsonrpc":"2.0","id":id,"result":reply}));
+            let ended = harness
+                .await_event(|event| {
+                    event.kind == "requestCompleted"
+                        && event.operation_id.as_deref() == Some(operation.as_str())
+                })
+                .clone();
+            assert_eq!(ended.error.as_ref().map(|error| error.code.as_str()), code);
+            if code.is_none() {
+                assert_eq!(ended.result.unwrap()["value"], reply);
+            }
+        }
+        let operation =
+            build_request(&harness, "lithe/build/execute", json!({}), Some(1000)).unwrap();
+        harness
+            .server
+            .await_request_at("lithe/build/execute", 2)
+            .unwrap();
+        harness
+            .session()
+            .expire_deadlines_at(Instant::now() + Duration::from_secs(2));
+        assert_eq!(
+            harness
+                .await_event(|event| event.kind == "requestCompleted"
+                    && event.operation_id.as_deref() == Some(operation.as_str()))
+                .error
+                .as_ref()
+                .unwrap()
+                .code,
+            "requestTimeout"
+        );
+        assert!(harness.snapshot().pending_operation_ids.is_empty());
+    }
+
     /// A process that answered build-provider protocol version 1.
     fn negotiated_build_provider() -> Harness {
         let mut harness = Harness::start(|_| {});
@@ -11147,7 +11457,7 @@ public class Main {
             .expect("initialize should have been written");
         assert_eq!(
             initialize["params"]["capabilities"]["experimental"]["litheBuild"],
-            json!({ "versions": [1] })
+            json!({ "versions": [2, 1] })
         );
 
         let error = build_request(&harness, "lithe/build/model", json!({}), None)
@@ -11200,11 +11510,7 @@ public class Main {
     #[test]
     fn build_requests_accept_only_the_protocol_methods() {
         let harness = negotiated_build_provider();
-        for method in [
-            "workspace/executeCommand",
-            "lithe/build/execute",
-            "shutdown",
-        ] {
+        for method in ["workspace/executeCommand", "shutdown"] {
             let error = build_request(&harness, method, json!({}), None)
                 .expect_err("only protocol methods are build requests");
             assert!(matches!(error.code, ErrorCode::InvalidRequest), "{method}");
@@ -11658,7 +11964,7 @@ public class Main {
         assert_eq!(
             initialize["params"]["capabilities"]["experimental"],
             json!({
-                "litheBuild": { "versions": [1] },
+                "litheBuild": { "versions": [2, 1] },
                 "litheFunctions": { "versions": [1, 2] },
                 "litheVcs": { "versions": [1] }
             })
