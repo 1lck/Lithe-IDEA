@@ -164,6 +164,71 @@ struct PluginLiveActivationTests {
         #expect(adapters["java"] == nil)
     }
 
+    /// The Debug button launches the open file, so an adapter that only
+    /// attaches is never chosen for it, yet its language is still recognised
+    /// as one the plugin has a debugger for and not as a competing owner.
+    @Test
+    func anAttachOnlyAdapterIsNotChosenToLaunchAFile() throws {
+        let fixture = try LiveFixture()
+        defer { fixture.cleanUp() }
+        let package = try fixture.package(Self.debugManifest(requests: ["attach"]))
+
+        fixture.registry.apply([package])
+
+        let snapshot = fixture.registry.snapshot
+        #expect(snapshot.debugAdapters["rust"] == nil)
+        #expect(snapshot.languageSupports.map(\.id) == ["rust"])
+        #expect(snapshot.languageSupports.allSatisfy { $0.isDebugOnly })
+    }
+
+    @Test(arguments: [["process"], ["executable", "runTarget"], ["connection"]])
+    func anAdapterWhoseSelectorSkipsFileTargetsIsNotChosenToLaunchAFile(_ targetKinds: [String]) throws {
+        let fixture = try LiveFixture()
+        defer { fixture.cleanUp() }
+        let package = try fixture.package(Self.debugManifest(targetKinds: targetKinds))
+
+        fixture.registry.apply([package])
+
+        let snapshot = fixture.registry.snapshot
+        #expect(snapshot.debugAdapters["rust"] == nil)
+        #expect(snapshot.languageSupports.allSatisfy { $0.isDebugOnly })
+    }
+
+    @Test
+    func anAdapterThatServesLaunchAndAttachIsStillChosenToLaunchAFile() throws {
+        let fixture = try LiveFixture()
+        defer { fixture.cleanUp() }
+        let package = try fixture.package(Self.debugManifest(requests: ["launch", "attach"]))
+
+        fixture.registry.apply([package])
+
+        #expect(fixture.registry.snapshot.debugAdapters["rust"]?.adapter.id == "lldb")
+    }
+
+    @Test
+    func theCapabilitiesAManifestDisablesReachTheAdapterEntry() throws {
+        let fixture = try LiveFixture()
+        defer { fixture.cleanUp() }
+        let package = try fixture.package(Self.debugManifest(
+            disabledCapabilities: ["supportsStepBack", "exceptionBreakpointFilters"]
+        ))
+
+        fixture.registry.apply([package])
+
+        let adapter = fixture.registry.snapshot.debugAdapters["rust"]?.adapter
+        #expect(Set(adapter?.disabledCapabilities ?? []) == ["supportsStepBack", "exceptionBreakpointFilters"])
+    }
+
+    @Test
+    func anAdapterThatDisablesNothingReportsNoDisabledCapabilities() throws {
+        let fixture = try LiveFixture()
+        defer { fixture.cleanUp() }
+
+        fixture.registry.apply([try fixture.package(Self.debugManifest())])
+
+        #expect(fixture.registry.snapshot.debugAdapters["rust"]?.adapter.disabledCapabilities == [])
+    }
+
     @Test
     func replacedRemovedAndDisabledPackagesAreWithdrawn() throws {
         let fixture = try LiveFixture()
@@ -382,9 +447,30 @@ struct PluginLiveActivationTests {
         id: String = pluginID.rawValue,
         version: PluginVersion = PluginVersion(major: 0, minor: 1, patch: 0),
         adapterID: String = "lldb",
-        languageIDs: [String] = ["rust"]
+        languageIDs: [String] = ["rust"],
+        requests: [String] = ["launch"],
+        targetKinds: [String] = ["file"],
+        disabledCapabilities: [String] = []
     ) -> [String: Any] {
-        [
+        var adapter: [String: Any] = [
+            "id": adapterID,
+            "displayName": "Example",
+            "adapterID": "example-dap",
+            "requests": requests,
+            "selectors": [["targetKinds": targetKinds, "languageIDs": languageIDs]],
+            "configurationTypes": [adapterID],
+            "launch": [
+                "process": ["launch": ["kind": "systemCommand", "commands": ["example-dap"]]],
+                "transport": "stdio"
+            ]
+        ]
+        if requests.contains("launch") {
+            adapter["configurations"] = ["launch": ["arguments": ["stopOnEntry": false]]]
+        }
+        if !disabledCapabilities.isEmpty {
+            adapter["capabilities"] = ["disabled": disabledCapabilities]
+        }
+        return [
             "schemaVersion": 2,
             "id": id,
             "displayName": "Example Debugger",
@@ -396,24 +482,12 @@ struct PluginLiveActivationTests {
                 "displayName": "Example",
                 "signatureRequirement": PluginSignatureRequirement.publisherPackage.rawValue
             ],
-            "permissions": ["debug.launch"],
+            "permissions": requests.contains("attach") ? ["debug.launch", "debug.attach"] : ["debug.launch"],
             "activationEvents": ["onDebug:\(adapterID)"],
             "languages": languageIDs.map {
                 ["id": $0, "displayName": $0.capitalized, "fileExtensions": [$0]] as [String: Any]
             },
-            "debugAdapters": [[
-                "id": adapterID,
-                "displayName": "Example",
-                "adapterID": "example-dap",
-                "requests": ["launch"],
-                "selectors": [["targetKinds": ["file"], "languageIDs": languageIDs]],
-                "configurationTypes": [adapterID],
-                "configurations": ["launch": ["arguments": ["stopOnEntry": false]]],
-                "launch": [
-                    "process": ["launch": ["kind": "systemCommand", "commands": ["example-dap"]]],
-                    "transport": "stdio"
-                ]
-            ] as [String: Any]]
+            "debugAdapters": [adapter]
         ]
     }
 }

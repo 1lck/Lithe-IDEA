@@ -284,7 +284,8 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
                 displayName: $0.displayName,
                 adapterID: $0.adapterID,
                 requests: $0.requests,
-                languageIDs: $0.selectors.flatMap { $0.languageIDs ?? [] }
+                languageIDs: $0.selectors.flatMap { $0.languageIDs ?? [] },
+                transport: $0.transport
             )
         }
         return result
@@ -511,6 +512,7 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
             let adapterID: String
             let requests: [String]
             let selectors: [Selector]
+            let transport: String
 
             init(from decoder: Decoder) throws {
                 let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -520,10 +522,13 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
                 adapterID = try values.decode(String.self, forKey: .adapterID)
                 requests = try values.decode([String].self, forKey: .requests)
                 selectors = try values.decodeIfPresent([Selector].self, forKey: .selectors) ?? []
+                // Stdio when a plan carries none, which is the only transport
+                // the host speaks.
+                transport = try values.decodeIfPresent(String.self, forKey: .transport) ?? "stdio"
             }
 
             private enum CodingKeys: String, CodingKey {
-                case id, providerID, displayName, adapterID, requests, selectors
+                case id, providerID, displayName, adapterID, requests, selectors, transport
             }
         }
 

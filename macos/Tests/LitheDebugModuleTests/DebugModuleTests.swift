@@ -69,6 +69,37 @@ struct DebugModuleTests {
         #expect(feature.sessionSummaries.count == 2)
     }
 
+    /// A plugin that goes away ends its own sessions. Another plugin's session
+    /// of the same language, which a language-keyed stop would also end, keeps
+    /// running.
+    @Test
+    func stoppingSessionsByOwnerLeavesOtherSessionsOfTheSameLanguageRunning() throws {
+        let descriptor = DebugProviderDescriptor(id: "zig", displayName: "Zig", fileExtensions: ["zig"])
+        var createdSessions: [DeferredInspectionDebugSession] = []
+        let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in
+            let session = DeferredInspectionDebugSession()
+            createdSessions.append(session)
+            return session
+        }
+        let feature = GenericDebugFeatureModel(sessions: manager)
+        defer { feature.reset() }
+        let root = URL(fileURLWithPath: "/workspace/owned-sessions", isDirectory: true)
+        let source = root.appendingPathComponent("src/main.zig")
+        let configuration = DebugLaunchConfiguration(name: "main", request: .launch, arguments: [:])
+        #expect(feature.start(fileURL: source, rootURL: root, configuration: configuration))
+        #expect(feature.startAdditional(fileURL: source, rootURL: root, configuration: configuration))
+        #expect(createdSessions.count == 2)
+        #expect(createdSessions[0].isRunning)
+        #expect(createdSessions[1].isRunning)
+        let withdrawn = createdSessions[0]
+
+        manager.stopSessions { $0 === withdrawn }
+
+        #expect(!withdrawn.isRunning)
+        #expect(createdSessions[1].isRunning)
+        #expect(feature.sessionSummaries.count == 1)
+    }
+
     @Test
     func hotUpdateBuildFailureNeverTouchesRunningClasses() async {
         let session = DeferredInspectionDebugSession()
@@ -613,6 +644,25 @@ struct DebugModuleTests {
         #expect(second.isRunning == false)
 
         feature.stop()
+    }
+
+    @Test
+    func coreProtocolSessionReportsTheCapabilitiesAPluginDisabled() throws {
+        let transport = RecordingTransport()
+        let core = RecordingDebugProtocolCore()
+        let session = CoreDebugAdapterProtocolSession(
+            adapterID: "lldb",
+            disabledCapabilities: ["supportsStepBack", "supportsRestartRequest"],
+            transport: transport,
+            core: core,
+            sessionID: "lldb-session",
+            deadlineScheduler: RecordingDebugDeadlineScheduler()
+        )
+        defer { session.stop() }
+
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/lldb-core", isDirectory: true))
+
+        #expect(core.lastDisabledCapabilities == ["supportsStepBack", "supportsRestartRequest"])
     }
 
     @Test
@@ -3615,6 +3665,7 @@ private final class RecordingDebugProtocolCore: DebugProtocolCore {
     private(set) var lastSupportsRunInTerminalRequest: Bool?
     private(set) var lastSupportsStartDebuggingRequest: Bool?
     private(set) var lastParentSessionID: String?
+    private(set) var lastDisabledCapabilities: [String] = []
     private(set) var startDebuggingResults: [(requestID: String, succeeded: Bool)] = []
     private(set) var runInTerminalCompletions: [RecordingRunInTerminalCompletion] = []
     let defaultSteppingFilters = DebugSteppingFilters(
@@ -3638,8 +3689,10 @@ private final class RecordingDebugProtocolCore: DebugProtocolCore {
         rootPath _: String,
         supportsRunInTerminalRequest: Bool,
         supportsStartDebuggingRequest: Bool,
+        disabledCapabilities: [String],
         parentSessionID: String?
     ) throws -> DebugCoreUpdate {
+        lastDisabledCapabilities = disabledCapabilities
         lastParentSessionID = parentSessionID
         lastSupportsRunInTerminalRequest = supportsRunInTerminalRequest
         lastSupportsStartDebuggingRequest = supportsStartDebuggingRequest

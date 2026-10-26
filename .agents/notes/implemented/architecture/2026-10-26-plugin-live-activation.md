@@ -47,10 +47,14 @@
 - 目录校验（`ValidatedPluginCatalog`）按插件 id 排序遍历，所以 debug-only 声明先收集、最后才登记：插件 id 排在语言包之前（例如 `com.example.*` 排在 `dev.lithe.*` 前面）时，它也不会先占住语言、让后面的语言包被判成重复声明。没有任何其他插件拥有该语言时，按 id 顺序第一个调试插件暂代所有者。
 - `languageIDs(requiringExtensionFor:)` 跳过 debug-only 声明，所以“这个语言缺少扩展”的宿主功能提示不会因为只装了调试器而消失或出现。
 - 同一个语言有多个调试插件时，按插件 id 排序取第一个；`java` 永远保留给宿主自带的适配器（`PluginDebugAdapterEntry.index(of:)` 跳过它）。
+- “把语言归给调试插件”和“选哪个适配器去启动文件”是两件事，用两份语言集合表示（`DeclarativeDebugAdapter`）：`languageIDs` 是所有 `selectors` 的并集，只用来给语言挂 `debugModuleID`、判断 `isDebugOnly`；`fileLaunchLanguageIDs` 只收“支持 launch 请求、且 `targetKinds` 覆盖 `file`（省略视为全部）”的 selector，是文件启动的唯一依据。选择器之间是“或”，同一个选择器内是“且”。只声明 `attach` 的适配器，或 `targetKinds` 只有 `process` 的适配器，仍然会让语言出现在语言目录里，但不会被选来启动当前文件。
+- 宿主目前只能拉起 `stdio` 传输的适配器。声明 `tcpPort` / `tcpAnnounced` 的适配器会通过 Core 的校验（契约允许），但 `MacPluginLanguageServerLaunchResolver.resolveDebugAdapter` 在启动进程之前就以 `plugin.launch.unsupportedTransport` 拒绝，并给出本地化说明。这样不会先起进程、再因为没人连接而挂起。启动计划里的 `transport` 字段由 Core 给出，宿主不自己解析清单。
 
 ### 4. 运行中的会话和语言服务器怎么处理
 
-- 插件包要被替换、移除，或被停用时，注册表在文件改变之前先调用 `willReplacePackage(of:)`，回调 `didWithdraw`，由 `debugAdapterSessionsBox.stopSessions(ofPlugin:)` 停掉该插件适配器服务的调试会话。
+- 插件包要被替换、移除，或被停用时，注册表在文件改变之前先调用 `willReplacePackage(of:)`，回调 `didWithdraw`，由 `debugAdapterSessionsBox.stopSessions(ofPlugin:)` 停掉该插件拥有的调试会话。会话在创建时记录所属插件 id（`DebugAdapterSessionsBox`），停止按所有者过滤（`DebugAdapterSessionManager.stopSessions(where:)`），不按语言 id，所以同一语言下别的插件的会话不受影响。
+- 用户在模块设置里关掉这个插件的调试模块时，没有包文件变化，注册表也不会撤回；`MacServiceContainer` 通过 `moduleRuntime.observeEvents` 观察模块状态，模块变为不可用时同样停掉该插件的会话。这样“停用”和“卸载”的结果一致。
+- 适配器清单里的 `capabilities.disabled` 随 `debug.createSession` 的 `disabled_capabilities` 传给 Core（Core 侧该字段 `#[serde(default)]`，旧宿主不传也能工作），由 Core 在会话能力里把这些能力关掉，宿主不自己过滤。
 - 语言目录变化时，`LanguageToolingSessionManager.updateCatalog` 只在 `withoutDebugAdapter` 版本的描述变了才停语言服务器。也就是说，装一个调试器不会重启用户正在用的 rust-analyzer。
 - 启用状态翻转同样触发 `didWithdraw`（没有运行中的会话时没有任何效果）。
 
@@ -91,7 +95,7 @@
 3. 其他项目窗口里的插件管理列表不会实时刷新（这是原有行为）；它们的注册表会靠通知重新扫描，调试器和语言目录是对的。
 4. 回退到一个不满足谓词的旧版本会设置“需要重启”标记。
 5. 传给 Core 的 `registrationGeneration` 是准备调试适配器时注册表的 `generation`，Core 只比较是否相等，不解释数值。
-6. `stopSessions(ofPlugin:)` 按适配器声明的语言 id（跳过 `java`）停会话；如果同一个语言还有别的插件的调试器在跑，也会被停掉。这个情况很少见，接受。
+6. `stopSessions(ofPlugin:)` 只停该插件拥有的会话。会话记录的所有者是创建时选中的插件；同一个语言下另一个插件的会话继续运行。
 7. debug-only 声明里的文件扩展名会并入语言；扩展名集合变化会让该语言的服务器按原有规则重启。
 8. 目前仍然需要重启的贡献：语言服务器、运行/测试、构建系统、VCS、项目生成器、界面贡献、`backend`、网页窗口。后续阶段按“先有运行期登记和撤回，再放进谓词”的顺序逐类加入，每类单独验证。
 

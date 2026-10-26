@@ -342,8 +342,8 @@ struct MacPluginLanguageServerLaunchResolver {
     }
 
     /// Expands the launch of one debug adapter for one workspace. A packaged
-    /// executable or a system command is supported; the adapter never writes
-    /// into the package.
+    /// executable or a system command over stdio is supported; the adapter
+    /// never writes into the package.
     func resolveDebugAdapter(
         pluginID: String,
         adapterID: String,
@@ -367,7 +367,18 @@ struct MacPluginLanguageServerLaunchResolver {
         guard let adapter = plan.debugAdapter, adapter.id == adapterID else {
             throw DeclarativePluginRejection(
                 code: "plugin.launch.unavailable",
-                message: "Rust Core returned no debug adapter for \(adapterID)."
+                message: L10n.string("The plugin does not provide the debug adapter \(adapterID).")
+            )
+        }
+        // The transport speaks stdio only. A TCP adapter would be started and
+        // then never reached, so refuse before the process exists.
+        guard adapter.transport == "stdio" else {
+            throw DeclarativePluginRejection(
+                code: "plugin.launch.unsupportedTransport",
+                message: L10n.string(
+                    "The debug adapter \(adapterID) uses the \(adapter.transport) transport, which Lithe cannot start yet. Only stdio adapters are supported."
+                ),
+                field: "debugAdapters.launch.transport"
             )
         }
         switch plan.executable {
@@ -375,7 +386,7 @@ struct MacPluginLanguageServerLaunchResolver {
         default:
             throw DeclarativePluginRejection(
                 code: "plugin.launch.unavailable",
-                message: "The debug adapter \(adapterID) must launch a packaged executable or a system command."
+                message: L10n.string("The debug adapter \(adapterID) must launch a packaged executable or a system command.")
             )
         }
         let process = try providerProcess(

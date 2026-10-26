@@ -3724,8 +3724,10 @@
 "The current file is outside the workspace: %@" = "The current file is outside the workspace: %@";
 "The current file will be saved to Local History before it is replaced." = "The current file will be saved to Local History before it is replaced.";
 "The current worktree cannot be removed here." = "The current worktree cannot be removed here.";
+"The debug adapter %@ must launch a packaged executable or a system command." = "The debug adapter %@ must launch a packaged executable or a system command.";
 "The debug adapter %@ must launch an executable from its plugin package." = "The debug adapter %@ must launch an executable from its plugin package.";
 "The debug adapter %@ needs %@, which was not found. Install it, then try again." = "The debug adapter %@ needs %@, which was not found. Install it, then try again.";
+"The debug adapter %@ uses the %@ transport, which Lithe cannot start yet. Only stdio adapters are supported." = "The debug adapter %@ uses the %@ transport, which Lithe cannot start yet. Only stdio adapters are supported.";
 "The debug adapter did not provide a terminal executable." = "The debug adapter did not provide a terminal executable.";
 "The debug adapter provided an invalid terminal working directory." = "The debug adapter provided an invalid terminal working directory.";
 "The debugger did not return object fields in time." = "The debugger did not return object fields in time.";
@@ -3785,6 +3787,7 @@
 "The plugin archive is larger than %@ MB." = "The plugin archive is larger than %@ MB.";
 "The plugin backend failed to start." = "The plugin backend failed to start.";
 "The plugin backend stopped before it was ready." = "The plugin backend stopped before it was ready.";
+"The plugin does not provide the debug adapter %@." = "The plugin does not provide the debug adapter %@.";
 "The plugin download address is invalid." = "The plugin download address is invalid.";
 "The plugin launch refers to %@, which is not a file inside its package." = "The plugin launch refers to %@, which is not a file inside its package.";
 "The plugin package changed while it was being copied. Choose it again." = "The plugin package changed while it was being copied. Choose it again.";
@@ -8148,12 +8151,14 @@
 "native.theDebugAdapterDidNotProvideATerminal" = "The debug adapter did not provide a terminal executable.";
 "native.theDebugAdapterIsNotInstalledYet" = "The %1$@ Debug Adapter is not installed yet.";
 "native.theDebugAdapterIsNotReady" = "The Debug Adapter is not ready.";
+"native.theDebugAdapterMustLaunchAPackagedExecutableOrASystemCommand" = "The debug adapter %1$@ must launch a packaged executable or a system command.";
 "native.theDebugAdapterMustLaunchAnExecutableFromItsPluginPackage" = "The debug adapter %1$@ must launch an executable from its plugin package.";
 "native.theDebugAdapterNeedsWhichWasNotFoundInstall" = "The debug adapter %1$@ needs %2$@, which was not found. Install it, then try again.";
 "native.theDebugAdapterProvidedAnInvalidTerminalWorking" = "The debug adapter provided an invalid terminal working directory.";
 "native.theDebugAdapterRejectedTheRequest" = "The Debug Adapter rejected the request.";
 "native.theDebugAdapterReturnedAnInvalidResponse" = "The Debug Adapter returned an invalid %1$@ response.";
 "native.theDebugAdapterStopped" = "The Debug Adapter stopped.";
+"native.theDebugAdapterUsesTheTransportWhichLitheCannotStartYet" = "The debug adapter %1$@ uses the %2$@ transport, which Lithe cannot start yet. Only stdio adapters are supported.";
 "native.theDebugProviderDoesNotSupport" = "The %1$@ debug provider does not support %2$@.";
 "native.theDebuggerDidNotReturnObjectFieldsIn" = "The debugger did not return object fields in time.";
 "native.theDefaultChangeListCannotBeRenamed" = "The default ChangeList cannot be renamed.";
@@ -8244,6 +8249,7 @@
 "native.thePluginArchiveIsLargerThanLldMb" = "The plugin archive is larger than %1$@ MB.";
 "native.thePluginBackendFailedToStart" = "The plugin backend failed to start.";
 "native.thePluginBackendStoppedBeforeItWasReady" = "The plugin backend stopped before it was ready.";
+"native.thePluginDoesNotProvideTheDebugAdapter" = "The plugin does not provide the debug adapter %1$@.";
 "native.thePluginDownloadAddressIsInvalid" = "The plugin download address is invalid.";
 "native.thePluginLaunchRefersToWhichIsNot" = "The plugin launch refers to %1$@, which is not a file inside its package.";
 "native.thePluginPackageChangedWhileItWasBeing" = "The plugin package changed while it was being copied. Choose it again.";

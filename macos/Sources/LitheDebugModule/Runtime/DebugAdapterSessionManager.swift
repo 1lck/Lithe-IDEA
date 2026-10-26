@@ -368,6 +368,17 @@ public final class DebugAdapterSessionManager: ObservableObject {
         stopOne(sessionID)
     }
 
+    /// Stops every session `isOwned` accepts, each with its child tree. A host
+    /// that knows which registration a session was built from uses this to end
+    /// exactly the sessions of a registration that went away, not every session
+    /// that happens to debug the same language.
+    public func stopSessions(where isOwned: (any DebugAdapterSession) -> Bool) {
+        for sessionID in sessionOrder {
+            guard let managed = sessions[sessionID], isOwned(managed.session) else { continue }
+            stop(sessionID: sessionID)
+        }
+    }
+
     /// IDs of every descendant of `sessionID`, parents before their children.
     public func childSessionIDs(of sessionID: DebugSessionID) -> [DebugSessionID] {
         var result: [DebugSessionID] = []

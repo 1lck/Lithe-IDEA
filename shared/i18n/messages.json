@@ -89105,6 +89105,56 @@
         "key": "No place to look yet. Open the file you want to debug, or choose the program yourself.",
         "arguments": []
       }
+    },
+    {
+      "id": "native.thePluginDoesNotProvideTheDebugAdapter",
+      "description": "Native UI: The plugin does not provide the debug adapter %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin does not provide the debug adapter %@.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theDebugAdapterUsesTheTransportWhichLitheCannotStartYet",
+      "description": "Native UI: The debug adapter %@ uses the %@ transport, which Lithe cannot start yet. Only stdio adapters are supported.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The debug adapter %@ uses the %@ transport, which Lithe cannot start yet. Only stdio adapters are supported.",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string"
+      }
+    },
+    {
+      "id": "native.theDebugAdapterMustLaunchAPackagedExecutableOrASystemCommand",
+      "description": "Native UI: The debug adapter %@ must launch a packaged executable or a system command.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The debug adapter %@ must launch a packaged executable or a system command.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
     }
   ]
 }

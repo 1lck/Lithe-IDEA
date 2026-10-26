@@ -462,10 +462,14 @@ public struct DeclarativeLanguageServerLaunchPlan: Equatable, Sendable {
         public let adapterID: String
         public let requests: [String]
         public let languageIDs: [String]
+        /// How the host reaches the adapter process: `stdio`, `tcpAnnounced` or
+        /// `tcpPort`. A host that only speaks stdio refuses the others before it
+        /// starts the process.
+        public let transport: String
 
         public init(
             id: String, providerID: String, displayName: String, adapterID: String,
-            requests: [String], languageIDs: [String]
+            requests: [String], languageIDs: [String], transport: String = "stdio"
         ) {
             self.id = id
             self.providerID = providerID
@@ -473,6 +477,7 @@ public struct DeclarativeLanguageServerLaunchPlan: Equatable, Sendable {
             self.adapterID = adapterID
             self.requests = requests
             self.languageIDs = languageIDs
+            self.transport = transport
         }
     }
 
@@ -674,10 +679,12 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 id: $0.id,
                 displayName: $0.displayName,
                 adapterID: $0.adapterID ?? $0.id,
-                languageIDs: $0.selectors.flatMap(\.languageIDs),
+                languageIDs: $0.languageIDs,
+                fileLaunchLanguageIDs: $0.fileLaunchLanguageIDs,
                 consoleCommands: $0.consoleCommands,
                 consoleCommandPrefix: $0.consoleCommandPrefix,
-                launchExecutableSettingID: $0.launchExecutableSettingID
+                launchExecutableSettingID: $0.launchExecutableSettingID,
+                disabledCapabilities: $0.disabledCapabilities
             )
         }
         projectGenerators = decoded.projectGenerators.map {
@@ -1063,13 +1070,27 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
         struct DebugAdapter: Decodable {
             struct Selector: Decodable {
                 let languageIDs: [String]
+                /// Empty means every target kind.
+                let targetKinds: [String]
 
                 init(from decoder: Decoder) throws {
                     let values = try decoder.container(keyedBy: CodingKeys.self)
                     languageIDs = try values.decodeIfPresent([String].self, forKey: .languageIDs) ?? []
+                    targetKinds = try values.decodeIfPresent([String].self, forKey: .targetKinds) ?? []
                 }
 
-                private enum CodingKeys: String, CodingKey { case languageIDs }
+                private enum CodingKeys: String, CodingKey { case languageIDs, targetKinds }
+            }
+
+            struct Capabilities: Decodable {
+                let disabled: [String]
+
+                init(from decoder: Decoder) throws {
+                    let values = try decoder.container(keyedBy: CodingKeys.self)
+                    disabled = try values.decodeIfPresent([String].self, forKey: .disabled) ?? []
+                }
+
+                private enum CodingKeys: String, CodingKey { case disabled }
             }
 
             struct Console: Decodable {
@@ -1103,9 +1124,35 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             let id: String
             let displayName: String
             let adapterID: String?
+            let requests: [String]
             let selectors: [Selector]
+            let capabilities: Capabilities?
             let console: Console?
             let configurations: Configurations?
+
+            /// Every language any selector names; it classifies the plugin as
+            /// having a debugger for them.
+            var languageIDs: [String] {
+                var seen = Set<String>()
+                return selectors.flatMap(\.languageIDs).filter { seen.insert($0).inserted }
+            }
+
+            /// Languages whose files this adapter starts a debug session for.
+            /// A selector reaches a file only when it names the `file` target
+            /// kind (or none), and a language belongs here only when the adapter
+            /// serves `launch`: the Debug button starts a launch of the open
+            /// file, so an attach-only adapter or one that debugs executables
+            /// must not be chosen for it.
+            var fileLaunchLanguageIDs: [String] {
+                guard requests.contains("launch") else { return [] }
+                var seen = Set<String>()
+                return selectors
+                    .filter { $0.targetKinds.isEmpty || $0.targetKinds.contains("file") }
+                    .flatMap(\.languageIDs)
+                    .filter { seen.insert($0).inserted }
+            }
+
+            var disabledCapabilities: [String] { capabilities?.disabled ?? [] }
 
             var launchExecutableSettingID: String? { configurations?.launch?.executable?.setting }
 
@@ -1120,13 +1167,17 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 id = try values.decode(String.self, forKey: .id)
                 displayName = try values.decode(String.self, forKey: .displayName)
                 adapterID = try values.decodeIfPresent(String.self, forKey: .adapterID)
+                // Rust Core fills in `launch` when the manifest omits `requests`;
+                // the same default keeps a hand-built descriptor consistent.
+                requests = try values.decodeIfPresent([String].self, forKey: .requests) ?? ["launch"]
                 selectors = try values.decodeIfPresent([Selector].self, forKey: .selectors) ?? []
+                capabilities = try values.decodeIfPresent(Capabilities.self, forKey: .capabilities)
                 console = try values.decodeIfPresent(Console.self, forKey: .console)
                 configurations = try values.decodeIfPresent(Configurations.self, forKey: .configurations)
             }
 
             private enum CodingKeys: String, CodingKey {
-                case id, displayName, adapterID, selectors, console, configurations
+                case id, displayName, adapterID, requests, selectors, capabilities, console, configurations
             }
         }
 
@@ -1301,8 +1352,16 @@ public struct DeclarativeDebugAdapter: Equatable, Sendable {
     public let displayName: String
     /// The `adapterID` of the DAP `initialize` request.
     public let adapterID: String
-    /// Languages whose files the adapter debugs.
+    /// Every language a selector of the adapter names, whatever the request or
+    /// target kind. It says which languages the plugin has a debugger for, so a
+    /// debug-only declaration is recognised; it does not choose the adapter for
+    /// a file (see `fileLaunchLanguageIDs`).
     public let languageIDs: [String]
+    /// Languages whose open file the Debug button starts a launch session for:
+    /// the adapter serves `launch` and a selector reaches the `file` target
+    /// kind. An attach-only adapter, or one that debugs executables and
+    /// processes, names none.
+    public let fileLaunchLanguageIDs: [String]
     /// Debugger commands the Debug Console offers as completions.
     public let consoleCommands: [DebugConsoleCommand]
     /// Text the adapter's console reads as "a debugger command follows"; the Debug
@@ -1311,23 +1370,31 @@ public struct DeclarativeDebugAdapter: Equatable, Sendable {
     /// The `file` setting that names the program a launch debugs, when the
     /// adapter has the host look the program up.
     public let launchExecutableSettingID: String?
+    /// DAP capabilities the manifest turns off (`capabilities.disabled`). The
+    /// session reports them to Rust Core, which removes them from what the
+    /// adapter advertises so the UI never offers a feature the plugin vetoed.
+    public let disabledCapabilities: [String]
 
     public init(
         id: String,
         displayName: String,
         adapterID: String,
         languageIDs: [String],
+        fileLaunchLanguageIDs: [String]? = nil,
         consoleCommands: [DebugConsoleCommand] = [],
         consoleCommandPrefix: String? = nil,
-        launchExecutableSettingID: String? = nil
+        launchExecutableSettingID: String? = nil,
+        disabledCapabilities: [String] = []
     ) {
         self.id = id
         self.displayName = displayName
         self.adapterID = adapterID
         self.languageIDs = languageIDs
+        self.fileLaunchLanguageIDs = fileLaunchLanguageIDs ?? languageIDs
         self.consoleCommands = consoleCommands
         self.consoleCommandPrefix = consoleCommandPrefix
         self.launchExecutableSettingID = launchExecutableSettingID
+        self.disabledCapabilities = disabledCapabilities
     }
 }
 

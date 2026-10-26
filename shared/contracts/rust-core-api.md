@@ -2091,7 +2091,10 @@ Platforms own adapter discovery, JDT LS activation, sockets or process pipes,
 native process termination, persistence, and UI rendering.
 
 `debug.createSession` accepts `{ sessionId, adapterId, rootPath,
-supportsRunInTerminalRequest }`. It does not
+supportsRunInTerminalRequest, disabledCapabilities? }`.
+`disabledCapabilities` carries the plugin adapter's `capabilities.disabled`
+from the launch plan; Core forces those DAP capabilities off in the session's
+published capabilities, and a host that omits the field disables nothing. It does not
 open a socket or launch a process. It returns a session update in
 `initializing` state with an ordered `outboundFrames` array. Each frame is a
 complete Content-Length-framed byte sequence encoded as base64. Every Debug
@@ -3297,7 +3300,10 @@ A `debugAdapterID` selects a `debugAdapters[]` entry with a `serverProcess`
 failure); the plan adds `debugAdapter: { id, providerID, displayName,
 adapterID, requests, selectors, configurationTypes, transport, endpoint?,
 disabledCapabilities }`. An adapter that starts on the selected runtime is
-refused with `plugin.launch.unavailable`.
+refused with `plugin.launch.unavailable`. Core validates every declared
+`transport`, but a host starts only the transports it implements: the macOS host
+runs `stdio` and refuses `tcpPort` and `tcpAnnounced` before starting the
+process, with `plugin.launch.unsupportedTransport`.
 
 `debug.adapters.startArguments` accepts `{ manifest, adapterID, request:
 "launch" | "attach", facts: { registration: { generation, currentGeneration },

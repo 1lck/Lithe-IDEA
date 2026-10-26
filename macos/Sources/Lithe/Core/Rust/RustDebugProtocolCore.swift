@@ -48,6 +48,7 @@ extension RustCoreBridge: DebugProtocolCore {
         rootPath: String,
         supportsRunInTerminalRequest: Bool,
         supportsStartDebuggingRequest: Bool,
+        disabledCapabilities: [String],
         parentSessionID: String?
     ) throws -> DebugCoreUpdate {
         try executeResult(
@@ -58,6 +59,7 @@ extension RustCoreBridge: DebugProtocolCore {
                 rootPath: rootPath,
                 supportsRunInTerminalRequest: supportsRunInTerminalRequest,
                 supportsStartDebuggingRequest: supportsStartDebuggingRequest,
+                disabledCapabilities: disabledCapabilities,
                 parentSessionID: parentSessionID
             )
         ).get()
@@ -378,13 +380,14 @@ private struct DebugCreateSessionPayload: Encodable {
     let rootPath: String
     let supportsRunInTerminalRequest: Bool
     let supportsStartDebuggingRequest: Bool
+    let disabledCapabilities: [String]
     let parentSessionID: String?
 
     private enum CodingKeys: String, CodingKey {
         case sessionID = "sessionId"
         case adapterID = "adapterId"
         case parentSessionID = "parentSessionId"
-        case rootPath, supportsRunInTerminalRequest, supportsStartDebuggingRequest
+        case rootPath, supportsRunInTerminalRequest, supportsStartDebuggingRequest, disabledCapabilities
     }
 }
 

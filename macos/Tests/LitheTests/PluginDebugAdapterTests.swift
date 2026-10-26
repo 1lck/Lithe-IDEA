@@ -50,6 +50,70 @@ struct PluginDebugAdapterTests {
         }
     }
 
+    // MARK: - Launch transport
+
+    /// Resolves the fixture's `native` adapter, declared over `transport`.
+    private func resolveNativeAdapter(
+        transport: String,
+        endpoint: [String: Any]? = nil
+    ) throws -> MacPluginLanguageServerLaunchResolver.DebugAdapterProcess {
+        let url = DeclarativePluginTestSupport.repositoryRoot
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/debug-adapter.plugin.json")
+        var manifest = try #require(
+            try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]
+        )
+        var adapters = try #require(manifest["debugAdapters"] as? [[String: Any]])
+        let index = try #require(adapters.firstIndex { $0["id"] as? String == "native" })
+        var launch = try #require(adapters[index]["launch"] as? [String: Any])
+        launch["transport"] = transport
+        launch["endpoint"] = endpoint
+        adapters[index]["launch"] = launch
+        manifest["debugAdapters"] = adapters
+
+        let operations = DeclarativePluginTestSupport.operations
+        let descriptor = try operations.validate(manifest: JSONSerialization.data(withJSONObject: manifest))
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-debug-transport-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let resolver = MacPluginLanguageServerLaunchResolver(
+            planner: operations,
+            directories: MacPluginStateDirectories(rootURL: root.appendingPathComponent("state", isDirectory: true)),
+            settings: InMemoryPluginSettings()
+        )
+        return try resolver.resolveDebugAdapter(
+            pluginID: descriptor.id.rawValue,
+            adapterID: "native",
+            manifest: descriptor.normalizedManifest,
+            packageURL: root.appendingPathComponent("package", isDirectory: true),
+            workspaceRootURL: root.appendingPathComponent("workspace", isDirectory: true)
+        )
+    }
+
+    @Test
+    func aStdioAdapterResolvesToItsLaunch() throws {
+        let resolved = try resolveNativeAdapter(transport: "stdio")
+        #expect(resolved.adapter.transport == "stdio")
+    }
+
+    /// The host only speaks stdio, so a TCP adapter would be started and never
+    /// reached; it is refused before any process exists.
+    @Test(arguments: ["tcpPort", "tcpAnnounced"])
+    func aTCPAdapterIsRefusedBeforeItsProcessIsStarted(_ transport: String) {
+        let endpoint: [String: Any] = transport == "tcpPort"
+            ? ["port": 4711]
+            : ["stream": "stdout", "prefix": "listening on ", "value": "port"]
+        do {
+            _ = try resolveNativeAdapter(transport: transport, endpoint: endpoint)
+            Issue.record("A \(transport) adapter must not resolve to a process.")
+        } catch let rejection as DeclarativePluginRejection {
+            #expect(rejection.code == "plugin.launch.unsupportedTransport")
+            #expect(rejection.field == "debugAdapters.launch.transport")
+            #expect(rejection.message.contains(transport))
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
     @Test
     func unknownProvidersFallBackToThePluginLaunch() throws {
         let document = URL(fileURLWithPath: "/tmp/workspace/src/main.zig")

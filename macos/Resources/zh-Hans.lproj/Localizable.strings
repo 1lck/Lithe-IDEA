@@ -3724,8 +3724,10 @@
 "The current file is outside the workspace: %@" = "当前文件在工作区之外：%@";
 "The current file will be saved to Local History before it is replaced." = "替换当前文件前，会将其保存到本地历史。";
 "The current worktree cannot be removed here." = "不能在这里删除当前工作树。";
+"The debug adapter %@ must launch a packaged executable or a system command." = "调试适配器 %@ 必须启动插件包内的可执行文件或系统命令。";
 "The debug adapter %@ must launch an executable from its plugin package." = "调试适配器 %@ 必须启动其插件包内的可执行文件。";
 "The debug adapter %@ needs %@, which was not found. Install it, then try again." = "调试适配器 %@ 需要 %@，但未找到。请先安装，然后重试。";
+"The debug adapter %@ uses the %@ transport, which Lithe cannot start yet. Only stdio adapters are supported." = "调试适配器 %@ 使用 %@ 传输方式，Lithe 暂时无法启动。目前只支持 stdio 适配器。";
 "The debug adapter did not provide a terminal executable." = "调试适配器没有提供终端可执行文件。";
 "The debug adapter provided an invalid terminal working directory." = "调试适配器提供的终端工作目录无效。";
 "The debugger did not return object fields in time." = "调试器未能及时返回对象字段。";
@@ -3785,6 +3787,7 @@
 "The plugin archive is larger than %@ MB." = "插件压缩包超过 %@ MB。";
 "The plugin backend failed to start." = "插件后端启动失败。";
 "The plugin backend stopped before it was ready." = "插件后端在就绪前已停止。";
+"The plugin does not provide the debug adapter %@." = "插件没有提供调试适配器 %@。";
 "The plugin download address is invalid." = "插件下载地址无效。";
 "The plugin launch refers to %@, which is not a file inside its package." = "插件启动项引用了 %@，它不是插件包内的文件。";
 "The plugin package changed while it was being copied. Choose it again." = "插件包在复制过程中发生了变化。请重新选择。";
@@ -8148,12 +8151,14 @@
 "native.theDebugAdapterDidNotProvideATerminal" = "调试适配器没有提供终端可执行文件。";
 "native.theDebugAdapterIsNotInstalledYet" = "%1$@ 调试适配器尚未安装。";
 "native.theDebugAdapterIsNotReady" = "调试适配器未就绪。";
+"native.theDebugAdapterMustLaunchAPackagedExecutableOrASystemCommand" = "调试适配器 %1$@ 必须启动插件包内的可执行文件或系统命令。";
 "native.theDebugAdapterMustLaunchAnExecutableFromItsPluginPackage" = "调试适配器 %1$@ 必须启动其插件包内的可执行文件。";
 "native.theDebugAdapterNeedsWhichWasNotFoundInstall" = "调试适配器 %1$@ 需要 %2$@，但未找到。请先安装，然后重试。";
 "native.theDebugAdapterProvidedAnInvalidTerminalWorking" = "调试适配器提供的终端工作目录无效。";
 "native.theDebugAdapterRejectedTheRequest" = "调试适配器拒绝了该请求。";
 "native.theDebugAdapterReturnedAnInvalidResponse" = "调试适配器返回了无效的 %1$@ 响应。";
 "native.theDebugAdapterStopped" = "调试适配器已停止。";
+"native.theDebugAdapterUsesTheTransportWhichLitheCannotStartYet" = "调试适配器 %1$@ 使用 %2$@ 传输方式，Lithe 暂时无法启动。目前只支持 stdio 适配器。";
 "native.theDebugProviderDoesNotSupport" = "%1$@ 调试 Provider 不支持 %2$@。";
 "native.theDebuggerDidNotReturnObjectFieldsIn" = "调试器未能及时返回对象字段。";
 "native.theDefaultChangeListCannotBeRenamed" = "默认更改列表不能重命名。";
@@ -8244,6 +8249,7 @@
 "native.thePluginArchiveIsLargerThanLldMb" = "插件压缩包超过 %1$@ MB。";
 "native.thePluginBackendFailedToStart" = "插件后端启动失败。";
 "native.thePluginBackendStoppedBeforeItWasReady" = "插件后端在就绪前已停止。";
+"native.thePluginDoesNotProvideTheDebugAdapter" = "插件没有提供调试适配器 %1$@。";
 "native.thePluginDownloadAddressIsInvalid" = "插件下载地址无效。";
 "native.thePluginLaunchRefersToWhichIsNot" = "插件启动项引用了 %1$@，它不是插件包内的文件。";
 "native.thePluginPackageChangedWhileItWasBeing" = "插件包在复制过程中发生了变化。请重新选择。";
