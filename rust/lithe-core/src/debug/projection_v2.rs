@@ -171,6 +171,7 @@ pub(crate) struct CapabilityState {
 }
 
 /// Decodes and validates one v2 projection from JSON text.
+#[cfg(test)]
 pub(crate) fn decode_projection(json: &str) -> Result<SessionProjection, CoreError> {
     let projection: SessionProjection = serde_json::from_str(json).map_err(|error| {
         CoreError::new(ErrorCode::ParseFailed, "Invalid debug projection.")
