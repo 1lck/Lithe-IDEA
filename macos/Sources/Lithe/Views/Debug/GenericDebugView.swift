@@ -120,10 +120,7 @@ struct GenericDebugView: View {
                 .foregroundStyle(LitheTheme.primaryText)
                 .padding(.trailing, 16)
             if !feature.showsEmptyState {
-                if feature.sessionSummaries.count > 1 {
-                    sessionTabStrip
-                    sessionPicker
-                } else if let sessionTitle = debugSessionTitle {
+                if let sessionTitle = debugSessionTitle {
                     debugSessionTab(sessionTitle).padding(.horizontal, 4)
                 }
             }
@@ -192,55 +189,6 @@ struct GenericDebugView: View {
         return ordered
     }
 
-    private var sessionTabStrip: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 2) {
-                ForEach(orderedSessionSummaries) { summary in
-                    sessionTab(summary)
-                }
-            }
-            .padding(.horizontal, 4)
-        }
-        .frame(maxWidth: 520)
-        .fixedSize(horizontal: true, vertical: false)
-    }
-
-    private func sessionTab(_ summary: DebugSessionSummary) -> some View {
-        let isSelected = summary.id == feature.activeSessionID
-        return HStack(spacing: 0) {
-            Button {
-                _ = feature.selectSession(summary.id)
-            } label: {
-                HStack(spacing: 6) {
-                    if summary.parentID != nil {
-                        Text(verbatim: "↳")
-                            .font(LitheTheme.uiFont(size: 13))
-                            .foregroundStyle(LitheTheme.secondaryText)
-                    }
-                    Circle()
-                        .fill(sessionStateColor(summary.state))
-                        .frame(width: 7, height: 7)
-                    Text(summary.targetTitle?.isEmpty == false
-                        ? summary.targetTitle! : summary.providerDisplayName)
-                        .font(LitheTheme.uiFont(size: 13))
-                        .lineLimit(1)
-                }
-                .padding(.leading, 8)
-                .padding(.trailing, summary.isRunning ? 3 : 8)
-            }
-            .buttonStyle(.litheNoPress)
-            .help(sessionLabel(summary) + " · " + summary.state.title)
-            .accessibilityLabel(sessionLabel(summary) + " · " + summary.state.title)
-            if summary.isRunning {
-                LitheToolWindowTabCloseButton { feature.stopSession(summary.id) }
-                    .help("Stop debug session")
-                    .accessibilityLabel("Stop debug session")
-            }
-        }
-        .foregroundStyle(LitheTheme.primaryText)
-        .modifier(LitheToolWindowTabStyle(isSelected: isSelected, isActive: debugToolActive))
-    }
-
     private func sessionStateColor(_ state: DebugAdapterState) -> Color {
         switch state {
         case .paused: .orange
@@ -248,44 +196,6 @@ struct GenericDebugView: View {
         case .failed: .red
         case .idle, .terminated: .gray
         }
-    }
-
-    private var sessionPicker: some View {
-        LitheMenu {
-            LitheContextMenuItem.heading("Sessions")
-
-            for summary in feature.sessionSummaries {
-                LitheContextMenuItem.action(
-                    sessionLabel(summary) + " · " + summary.state.title,
-                    systemImage: summary.id == feature.activeSessionID
-                        ? "checkmark.circle.fill" : "circle"
-                ) {
-                    _ = feature.selectSession(summary.id)
-                }
-            }
-
-            if feature.sessionSummaries.count > 1 {
-                LitheContextMenuItem.separator
-                LitheContextMenuItem.heading("Close other sessions")
-
-                for summary in (feature.sessionSummaries.filter { $0.id != feature.activeSessionID }) {
-                    LitheContextMenuItem.action("Stop \(sessionLabel(summary))", role: .destructive) {
-                        feature.stopSession(summary.id)
-                    }
-                }
-
-            }
-        } label: {
-            LitheIDEAIcon(
-                resourcePath: "debugger/threads.svg",
-                size: 14,
-                fallbackSystemImage: "square.stack.3d.up",
-                preservesOriginalColors: true
-            )
-        }
-        .litheIconButton()
-        .help("Debug sessions")
-        .accessibilityLabel("Debug sessions")
     }
 
     private func sessionLabel(_ summary: DebugSessionSummary) -> String {
@@ -699,6 +609,21 @@ struct GenericDebugView: View {
 
     private var threadPicker: some View {
         LitheMenu {
+            if feature.sessionSummaries.count > 1 {
+                LitheContextMenuItem.heading("Sessions")
+                for summary in orderedSessionSummaries {
+                    LitheContextMenuItem.action(
+                        (summary.parentID != nil ? "↳ " : "") + sessionLabel(summary)
+                            + " · " + summary.state.title,
+                        systemImage: summary.id == feature.activeSessionID
+                            ? "checkmark.circle.fill" : "circle"
+                    ) {
+                        _ = feature.selectSession(summary.id)
+                    }
+                }
+                LitheContextMenuItem.separator
+                LitheContextMenuItem.heading("Threads")
+            }
             if feature.threads.isEmpty {
                 LitheContextMenuItem.action("Load threads") { feature.inspectThreads() }
             } else {
@@ -719,6 +644,16 @@ struct GenericDebugView: View {
             }
         } label: {
             HStack(spacing: 7) {
+                if feature.sessionSummaries.count > 1, let active = activeSessionSummary {
+                    Circle()
+                        .fill(sessionStateColor(active.state))
+                        .frame(width: 7, height: 7)
+                    Text(active.targetTitle?.isEmpty == false
+                        ? active.targetTitle! : active.providerDisplayName)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Text(verbatim: "·").foregroundStyle(LitheTheme.secondaryText)
+                }
                 if let thread = selectedThread {
                     Text(thread.name)
                         .lineLimit(1)
@@ -745,6 +680,13 @@ struct GenericDebugView: View {
         .accessibilityLabel("Debugger thread")
         .litheContextMenu {
             var items: [LitheContextMenuItem] = []
+            if feature.sessionSummaries.count > 1 {
+                for summary in orderedSessionSummaries where summary.isRunning {
+                    items.append(.action("Stop \(sessionLabel(summary))", role: .destructive) {
+                        feature.stopSession(summary.id)
+                    })
+                }
+            }
             if let thread = selectedThread {
                 items.append(.action("Copy Thread Name", action: { copyToPasteboard(thread.name) }))
                 if feature.capabilities.supportsSingleThreadExecutionRequests {
@@ -758,6 +700,10 @@ struct GenericDebugView: View {
             }
             return items
         }
+    }
+
+    private var activeSessionSummary: DebugSessionSummary? {
+        feature.sessionSummaries.first { $0.id == feature.activeSessionID }
     }
 
     private var selectedThread: DebugThread? {
