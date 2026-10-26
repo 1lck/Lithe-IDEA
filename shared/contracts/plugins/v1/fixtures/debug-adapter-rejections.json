@@ -198,6 +198,24 @@
       "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].launch.process.launch.path"}
     },
     {
+      "id": "adapter-executable-link-is-dangling",
+      "layer": "coreInstall",
+      "edits": [{"op": "set", "path": "/context/packageResources", "value": [{"path": "bin/synthetic", "kind": "symlink", "target": "real/missing"}]}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].launch.process.launch.path"}
+    },
+    {
+      "id": "adapter-executable-link-targets-directory",
+      "layer": "coreInstall",
+      "edits": [{"op": "set", "path": "/context/packageResources", "value": [{"path": "bin/synthetic", "kind": "symlink", "target": "real"}, {"path": "bin/real", "kind": "directory"}]}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].launch.process.launch.path"}
+    },
+    {
+      "id": "adapter-executable-link-loop",
+      "layer": "coreInstall",
+      "edits": [{"op": "set", "path": "/context/packageResources", "value": [{"path": "bin/synthetic", "kind": "symlink", "target": "again"}, {"path": "bin/again", "kind": "symlink", "target": "synthetic"}]}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].launch.process.launch.path"}
+    },
+    {
       "id": "stale-registration",
       "layer": "corePlan",
       "edits": [{"op": "set", "path": "/context/registration/currentGeneration", "value": 2}],

@@ -717,8 +717,12 @@ pub(crate) fn check_package_resources(
     Ok(())
 }
 
-/// One packaged path: present, not a directory, and a link only when it stays
-/// inside the package. `what` starts the message.
+/// Links followed before a chain counts as a loop.
+const MAX_LINK_HOPS: usize = 8;
+
+/// One packaged path: present, and a regular file once its links are
+/// followed. Every link on the way must stay inside the package. `what`
+/// starts the message.
 #[cfg_attr(not(test), allow(dead_code))]
 fn check_resource(
     resources: &[PackageResource],
@@ -726,49 +730,54 @@ fn check_resource(
     field: String,
     what: &str,
 ) -> Validation<()> {
-    let Some(resource) = resources.iter().find(|resource| resource.path == path) else {
-        return Err(invalid(field, format!("{what} is not in the package.")));
-    };
-    match resource.kind {
-        PackageResourceKind::File => Ok(()),
-        PackageResourceKind::Directory => Err(invalid(field, format!("{what} is a directory."))),
-        PackageResourceKind::Symlink => {
-            if link_stays_inside(&resource.path, resource.target.as_deref()) {
-                Ok(())
-            } else {
-                Err(invalid(
-                    field,
-                    format!("{what} links outside the plugin package."),
-                ))
+    let mut current = path.to_string();
+    for _ in 0..=MAX_LINK_HOPS {
+        let Some(resource) = resources.iter().find(|resource| resource.path == current) else {
+            return Err(invalid(field, format!("{what} is not in the package.")));
+        };
+        match resource.kind {
+            PackageResourceKind::File => return Ok(()),
+            PackageResourceKind::Directory => {
+                return Err(invalid(field, format!("{what} is a directory.")));
+            }
+            PackageResourceKind::Symlink => {
+                let Some(next) = resolve_link(&resource.path, resource.target.as_deref()) else {
+                    return Err(invalid(
+                        field,
+                        format!("{what} links outside the plugin package."),
+                    ));
+                };
+                current = next;
             }
         }
     }
+    Err(invalid(field, format!("{what} is behind too many links.")))
 }
 
-/// Resolves a symlink target lexically from the link's directory. A target
-/// that climbs above the package root, or is absolute, escapes.
+/// Resolves a symlink target lexically from the link's directory to a
+/// package-relative path. A target that climbs above the package root, is
+/// absolute, or resolves to the root itself has no such path.
 #[cfg_attr(not(test), allow(dead_code))]
-fn link_stays_inside(link: &str, target: Option<&str>) -> bool {
-    let Some(target) = target else {
-        return false;
-    };
+fn resolve_link(link: &str, target: Option<&str>) -> Option<String> {
+    let target = target?;
     if target.is_empty() || target.starts_with('/') || target.contains(['\\', '\0']) {
-        return false;
+        return None;
     }
-    let mut depth = link.split('/').count().saturating_sub(1);
+    let mut parts: Vec<&str> = link.split('/').collect();
+    parts.pop();
     for component in target.split('/') {
         match component {
             "" | "." => {}
             ".." => {
-                if depth == 0 {
-                    return false;
-                }
-                depth -= 1;
+                parts.pop()?;
             }
-            _ => depth += 1,
+            name => parts.push(name),
         }
     }
-    true
+    if parts.is_empty() {
+        return None;
+    }
+    Some(parts.join("/"))
 }
 
 /// Facts of one debug start that the manifest cannot know.

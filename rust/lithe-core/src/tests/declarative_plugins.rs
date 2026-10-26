@@ -1156,10 +1156,16 @@ fn debug_rejection(baseline: &Value, case: &Value) -> (String, String) {
                 &resources,
             )
         }
-        other => panic!("{}: layer {other} accepted the manifest: {outcome}", case["id"]),
+        other => panic!(
+            "{}: layer {other} accepted the manifest: {outcome}",
+            case["id"]
+        ),
     };
     let rejection = rejection.expect_err("the case must be rejected");
-    (rejection.code().into(), rejection.field().unwrap_or_default().into())
+    (
+        rejection.code().into(),
+        rejection.field().unwrap_or_default().into(),
+    )
 }
 
 #[test]
@@ -1173,6 +1179,24 @@ fn debug_adapter_rejection_fixtures_report_their_code_and_field() {
             assert_eq!(field, case["expected"]["field"], "{}", case["id"]);
         }
     }
+}
+
+#[test]
+fn debug_adapter_executable_may_be_a_link_to_a_file_inside_the_package() {
+    use crate::debug::adapters::{
+        check_package_resources, DebugAdapterDeclaration, PackageResource,
+    };
+    let outcome = validate(fixture("debug-adapter.plugin.json"));
+    let adapters: Vec<DebugAdapterDeclaration> =
+        serde_json::from_value(outcome["plugin"]["debugAdapters"].clone()).unwrap();
+    let resources: Vec<PackageResource> = serde_json::from_value(json!([
+        {"path": "bin/example-dap", "kind": "symlink", "target": "../libexec/dap"},
+        {"path": "libexec/dap", "kind": "file"},
+        {"path": "schemas/launch.json", "kind": "file"},
+    ]))
+    .unwrap();
+    check_package_resources(&adapters, &resources)
+        .expect("a link to a packaged file is installable");
 }
 
 #[test]
