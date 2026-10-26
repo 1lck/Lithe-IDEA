@@ -76,6 +76,7 @@ public struct ValidatedPluginCatalog: Sendable {
         var pluginIDs: Set<PluginID> = []
         var modules: [ModuleID: PluginModuleOwnership] = [:]
         var languageSupports: [String: PluginLanguageSupportOwnership] = [:]
+        var debugOnlySupports: [(PluginID, LanguageSupportDeclaration)] = []
         for plugin in manifests.sorted(by: { $0.id < $1.id }) {
             guard pluginIDs.insert(plugin.id).inserted else {
                 throw PluginCatalogError.duplicatePlugin(plugin.id)
@@ -164,7 +165,12 @@ public struct ValidatedPluginCatalog: Sendable {
             for support in plugin.languageSupports ?? [] {
                 // A debug-only declaration adds a debugger to a language that
                 // another package owns; it never takes that ownership over.
-                if languageSupports[support.id] != nil, support.isDebugOnly { continue }
+                // Plugins are visited in ID order, so it waits until every
+                // owning declaration is in, whichever ID sorts first.
+                if support.isDebugOnly {
+                    debugOnlySupports.append((plugin.id, support))
+                    continue
+                }
                 if let existing = languageSupports[support.id] {
                     throw PluginCatalogError.duplicateLanguageSupport(
                         languageID: support.id,
@@ -176,6 +182,14 @@ public struct ValidatedPluginCatalog: Sendable {
                     declaration: support
                 )
             }
+        }
+        // With no owner at all, the first debugger in ID order stands in as
+        // the owner, and later ones add to it.
+        for (pluginID, support) in debugOnlySupports where languageSupports[support.id] == nil {
+            languageSupports[support.id] = PluginLanguageSupportOwnership(
+                pluginID: pluginID,
+                declaration: support
+            )
         }
         self.manifests = manifests.sorted { $0.id < $1.id }
         self.modules = modules

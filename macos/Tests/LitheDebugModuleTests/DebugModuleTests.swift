@@ -23,6 +23,24 @@ struct DebugModuleTests {
         #expect(feature.canUpdateJavaService)
     }
 
+    /// A host that registers debug adapters while it runs hands back its current
+    /// set on each lookup, so a debugger installed later is found without
+    /// rebuilding the manager.
+    @Test
+    func providerLookupFollowsTheProvidersSourceAtEveryCall() {
+        var providers: [DebugProviderDescriptor] = []
+        let manager = DebugAdapterSessionManager(providersSource: { providers }) { _, _ in nil }
+        let source = URL(fileURLWithPath: "/workspace/main.c")
+
+        #expect(manager.provider(for: source) == nil)
+
+        providers = [DebugProviderDescriptor(id: "clangd", displayName: "C/C++", fileExtensions: ["c"])]
+        #expect(manager.provider(for: source)?.id == "clangd")
+
+        providers = []
+        #expect(manager.provider(for: source) == nil)
+    }
+
     @Test
     func hotUpdateRestartKeepsOtherDebugSessionsAlive() async throws {
         let descriptor = DebugProviderDescriptor(id: "java", displayName: "Java", fileExtensions: ["java"])

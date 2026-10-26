@@ -344,8 +344,11 @@ public extension Sequence where Element == LanguageSupportDeclaration {
     /// Languages for which only a plugin module may provide `capability`.
     /// The host must not run its built-in implementation for them, even when
     /// that module is missing or disabled.
+    ///
+    /// A debug-only declaration adds a debugger to a language another owner
+    /// serves, so it never takes the host's run or test features away.
     func languageIDs(requiringExtensionFor capability: LanguageHostCapability) -> Set<String> {
-        Set(lazy.filter { !$0.hostCapabilities.contains(capability) }.map(\.id))
+        Set(lazy.filter { !$0.isDebugOnly && !$0.hostCapabilities.contains(capability) }.map(\.id))
     }
 }
 

@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import LitheApplicationKernel
 import LitheCoreContracts
@@ -32,6 +33,9 @@ final class AppServices {
     var connectBuildProviderLanguageSessions: ((@escaping @MainActor () -> LanguageToolingSessionManager?) -> Void)?
     /// Plugin VCS providers; `nil` when no installed plugin declares one.
     var vcsProviders: VcsProvidersFeatureModel?
+    /// Fires after plugins that take effect without a restart were installed,
+    /// updated, removed, enabled or disabled; `nil` when the platform has none.
+    var pluginRegistrationChanges: AnyPublisher<Void, Never>?
     let moduleRuntime: ModuleRuntime
     let pluginManager: any PluginManaging
     let pluginMarketplace: any PluginMarketplaceServicing

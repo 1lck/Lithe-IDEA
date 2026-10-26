@@ -829,6 +829,19 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
         )
     }
 
+    /// Whether the plugin can take effect in a running session. That holds when
+    /// debug adapters are its only contribution: the host reads them on demand
+    /// when a debug session starts, so the module graph, the language-server and
+    /// run/test modules, backend processes and UI composition built at launch do
+    /// not change. Anything else waits for the next launch.
+    public var canActivateWithoutRestart: Bool {
+        let modules = pluginManifest.modules
+        return !debugAdapters.isEmpty
+            && !declaresBackend
+            && modules.map(\.manifest.id) == [.debugAdaptersExtension(id.rawValue)]
+            && modules.allSatisfy { $0.contributions.isEmpty }
+    }
+
     private static func launch(_ launch: NormalizedManifest.Launch) -> DeclarativeLanguageServer.Launch {
         switch launch.kind {
         case "packaged":

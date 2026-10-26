@@ -110,7 +110,9 @@ public final class DebugAdapterSessionManager: ObservableObject {
         }
     }
 
-    private let providers: [DebugProviderDescriptor]
+    /// Read at every lookup: a host that registers debug adapters while it
+    /// runs hands back the current set instead of the one it started with.
+    private let providersSource: @MainActor () -> [DebugProviderDescriptor]
     private let makeSession: @MainActor (
         DebugProviderDescriptor,
         URL
@@ -135,14 +137,24 @@ public final class DebugAdapterSessionManager: ObservableObject {
     private var requestedFunctionBreakpoints: [String: [DebugFunctionBreakpoint]] = [:]
     private var requestedDataBreakpoints: [String: [DebugDataBreakpoint]] = [:]
 
-    public init(
+    public convenience init(
         providers: [DebugProviderDescriptor],
         makeSession: @escaping @MainActor (
             DebugProviderDescriptor,
             URL
         ) -> (any DebugAdapterSession)?
     ) {
-        self.providers = providers
+        self.init(providersSource: { providers }, makeSession: makeSession)
+    }
+
+    public init(
+        providersSource: @escaping @MainActor () -> [DebugProviderDescriptor],
+        makeSession: @escaping @MainActor (
+            DebugProviderDescriptor,
+            URL
+        ) -> (any DebugAdapterSession)?
+    ) {
+        self.providersSource = providersSource
         self.makeSession = makeSession
     }
 
@@ -153,7 +165,7 @@ public final class DebugAdapterSessionManager: ObservableObject {
     public var activeSessionIDs: Set<DebugSessionID> { Set(sessions.keys) }
 
     public func provider(for fileURL: URL) -> DebugProviderDescriptor? {
-        providers.first { $0.matches(fileURL) }
+        providersSource().first { $0.matches(fileURL) }
     }
 
     @discardableResult

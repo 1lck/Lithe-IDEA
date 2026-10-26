@@ -15,6 +15,10 @@ final class MacPluginManager: PluginManaging {
     /// enablement changes apply immediately; anything installed later needs
     /// a restart to join the module graph.
     private let registeredPluginIDs: Set<PluginID>
+    /// Plugins the host applies at runtime, without a restart. A plugin lives
+    /// there only when every contribution has a runtime backend
+    /// (`canActivateWithoutRestart`) and the module graph never held it.
+    private let livePlugins: MacLivePluginRegistry?
     private let hostVersion: PluginVersion
     private let allowsLocalDevelopmentPackages: Bool
     /// Release pages before their package is replaced or their owner is disabled.
@@ -57,8 +61,10 @@ final class MacPluginManager: PluginManaging {
         beforePackageReplacement: ((PluginID) -> Void)? = nil,
         reviewPrograms: @escaping (_ manifest: Data, _ id: PluginID, _ version: PluginVersion) throws -> [PluginProgram] = { _, _, _ in [] },
         expandWorkspaceConfiguration: @escaping WorkspaceConfigurationExpansion = { _, _, _, _ in nil },
-        lookUpDebugExecutable: @escaping DebugExecutableLookupHandler = { _, _, _, _ in nil }
+        lookUpDebugExecutable: @escaping DebugExecutableLookupHandler = { _, _, _, _ in nil },
+        livePlugins: MacLivePluginRegistry? = nil
     ) {
+        self.livePlugins = livePlugins
         self.reviewPrograms = reviewPrograms
         self.lookUpDebugExecutable = lookUpDebugExecutable
         self.expandWorkspaceConfiguration = expandWorkspaceConfiguration
@@ -154,11 +160,13 @@ final class MacPluginManager: PluginManaging {
         }
 
         // Declarative plugins run no code in this process, so a registered
-        // plugin is enabled or disabled live. Only a plugin installed after
-        // launch waits for the next module graph.
-        if manifest.entrypoint.kind == .declarative, !registeredPluginIDs.contains(pluginID) {
+        // plugin is enabled or disabled live. A plugin installed after launch
+        // waits for the next module graph unless the host applies it at runtime.
+        let isLive = installedPlugins[pluginID].map { appliesLive($0.descriptor) } ?? false
+        if manifest.entrypoint.kind == .declarative, !registeredPluginIDs.contains(pluginID), !isLive {
             restartRequiredPluginIDs.insert(pluginID)
         }
+        if isLive { livePlugins?.enablementDidChange() }
         if enabled && !restartRequiredPluginIDs.contains(pluginID) { enableWebPages(pluginID) }
     }
 
@@ -170,33 +178,31 @@ final class MacPluginManager: PluginManaging {
         guard origin == .marketplace || origin == .community else {
             throw PluginManagerError.unsupportedInstallationOrigin(origin)
         }
-        let installed = try packageStore.installPackage(
-            from: packageURL,
-            deferActivationUntilRestart: true,
-            // Reinstalling the active version repairs a damaged or retired
-            // package; a new version is installed beside the current one.
-            replaceExisting: true,
-            origin: origin,
-            marketplace: provenance,
-            beforeReplacingPackage: beforePackageReplacement
-        )
-        enableFirstInstallation(of: installed.manifest)
-        restartRequiredPluginIDs.insert(installed.manifest.id)
-        try refreshInstalledPlugins()
+        try install(candidate: packageURL) { [packageStore, beforePackageReplacement] deferActivation in
+            try packageStore.installPackage(
+                from: packageURL,
+                deferActivationUntilRestart: deferActivation,
+                // Reinstalling the active version repairs a damaged or retired
+                // package; a new version is installed beside the current one.
+                replaceExisting: true,
+                origin: origin,
+                marketplace: provenance,
+                beforeReplacingPackage: beforePackageReplacement
+            )
+        }
     }
 
     func installDiskPackage(at packageURL: URL, provenance: PluginDiskProvenance) throws {
-        let installed = try packageStore.installPackage(
-            from: packageURL,
-            deferActivationUntilRestart: true,
-            replaceExisting: true,
-            origin: .community,
-            disk: provenance,
-            beforeReplacingPackage: beforePackageReplacement
-        )
-        enableFirstInstallation(of: installed.manifest)
-        restartRequiredPluginIDs.insert(installed.manifest.id)
-        try refreshInstalledPlugins()
+        try install(candidate: packageURL) { [packageStore, beforePackageReplacement] deferActivation in
+            try packageStore.installPackage(
+                from: packageURL,
+                deferActivationUntilRestart: deferActivation,
+                replaceExisting: true,
+                origin: .community,
+                disk: provenance,
+                beforeReplacingPackage: beforePackageReplacement
+            )
+        }
     }
 
     func installPackage(at packageURL: URL) throws {
@@ -209,23 +215,42 @@ final class MacPluginManager: PluginManaging {
                 at: packageURL,
                 manifest: manifest
             )
-        let installed = try packageStore.installPackage(
-            from: packageURL,
-            deferActivationUntilRestart: true,
-            replaceExisting: isDevelopmentPackage,
-            origin: isDevelopmentPackage ? .localDevelopment : .marketplace,
-            beforeReplacingPackage: beforePackageReplacement
-        )
+        try install(candidate: packageURL) { [packageStore, beforePackageReplacement] deferActivation in
+            try packageStore.installPackage(
+                from: packageURL,
+                deferActivationUntilRestart: deferActivation,
+                replaceExisting: isDevelopmentPackage,
+                origin: isDevelopmentPackage ? .localDevelopment : .marketplace,
+                beforeReplacingPackage: beforePackageReplacement
+            )
+        }
+    }
+
+    /// Installs a package that passed its own checks. A package the host can
+    /// apply at runtime is active as soon as it is installed; any other waits
+    /// for the next launch, so its files must not be read as active before.
+    private func install(
+        candidate packageURL: URL,
+        _ perform: (_ deferActivationUntilRestart: Bool) throws -> InstalledPluginPackage
+    ) throws {
+        let isLive = appliesLive(try packageStore.inspectPackage(at: packageURL))
+        let installed = try perform(!isLive)
+        defer { rescanLivePlugins(for: installed.manifest.id, appliesLive: isLive) }
         enableFirstInstallation(of: installed.manifest)
-        restartRequiredPluginIDs.insert(installed.manifest.id)
+        if !isLive { restartRequiredPluginIDs.insert(installed.manifest.id) }
         try refreshInstalledPlugins()
     }
 
     func rollback(_ pluginID: PluginID) throws {
-        _ = try packageStore.rollback(
-            pluginID, deferActivationUntilRestart: true, beforeReplacingPackage: beforePackageReplacement
+        // The version being restored is only known once it is read, so a live
+        // plugin rolls back in place and the result decides about a restart.
+        let wasLive = livePlugins?.snapshot.entries[pluginID] != nil
+        let restored = try packageStore.rollback(
+            pluginID, deferActivationUntilRestart: !wasLive, beforeReplacingPackage: beforePackageReplacement
         )
-        restartRequiredPluginIDs.insert(pluginID)
+        let isLive = wasLive && appliesLive(restored.descriptor)
+        defer { rescanLivePlugins(for: pluginID, appliesLive: isLive) }
+        if !isLive { restartRequiredPluginIDs.insert(pluginID) }
         try refreshInstalledPlugins()
     }
 
@@ -246,6 +271,10 @@ final class MacPluginManager: PluginManaging {
         }
         guard !installed.manifest.modules.contains(where: { $0.manifest.isRequired }) else {
             throw PluginManagerError.requiredPluginCannotBeUninstalled(pluginID)
+        }
+        if appliesLive(installed.descriptor) {
+            try uninstallLivePlugin(installed)
+            return
         }
         if registeredPluginIDs.contains(pluginID) {
             // Stopping the modules is not the user turning them off. Language
@@ -270,15 +299,53 @@ final class MacPluginManager: PluginManaging {
         try refreshInstalledPlugins()
     }
 
+    /// A live plugin has no module in the running graph and nothing keeps its
+    /// files in use, so removal happens now instead of at the next launch.
+    private func uninstallLivePlugin(_ installed: InstalledPluginPackage) throws {
+        let pluginID = installed.manifest.id
+        // As for any removed plugin, only an explicit "off" outlives it.
+        for declaration in installed.manifest.modules
+        where configurationStore.enabledState(for: declaration.manifest.id) != false {
+            configurationStore.clearEnabledState(for: declaration.manifest.id)
+        }
+        invalidateWebPages(pluginID)
+        beforePackageReplacement(pluginID)
+        defer { rescanLivePlugins(for: pluginID, appliesLive: true) }
+        if installed.installation.origin == .bundled {
+            try packageStore.setBundledPluginRemoved(pluginID, removed: true)
+        } else {
+            try packageStore.uninstall(pluginID)
+        }
+        try refreshInstalledPlugins()
+    }
+
     func restore(_ pluginID: PluginID) throws {
         guard let installed = installedPlugins[pluginID],
               installed.installation.status == .removed else {
             throw PluginManagerError.unknownPlugin(pluginID)
         }
         try packageStore.setBundledPluginRemoved(pluginID, removed: false)
-        // Its modules join the module graph at the next launch.
-        restartRequiredPluginIDs.insert(pluginID)
+        // A live plugin is registered again right away; any other plugin's
+        // modules join the module graph at the next launch.
+        let isLive = appliesLive(installed.descriptor)
+        defer { rescanLivePlugins(for: pluginID, appliesLive: isLive) }
+        if !isLive { restartRequiredPluginIDs.insert(pluginID) }
         try refreshInstalledPlugins()
+    }
+
+    /// Whether a change to this package takes effect without a restart.
+    private func appliesLive(_ descriptor: DeclarativePluginDescriptor) -> Bool {
+        livePlugins != nil
+            && descriptor.canActivateWithoutRestart
+            && !registeredPluginIDs.contains(descriptor.id)
+    }
+
+    /// The registry follows the packages on disk, so a change to a plugin it
+    /// holds, or may now hold, needs a rescan, which also reaches the other
+    /// windows.
+    private func rescanLivePlugins(for pluginID: PluginID, appliesLive: Bool) {
+        guard let livePlugins, appliesLive || livePlugins.snapshot.entries[pluginID] != nil else { return }
+        livePlugins.packagesDidChange()
     }
 
     /// The user confirmed this installation, so its modules start enabled at

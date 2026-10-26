@@ -240,9 +240,11 @@ package final class LanguageToolingSessionManager: ObservableObject,
         let updatedDescriptors = Dictionary(
             uniqueKeysWithValues: catalog.descriptors.map { ($0.id, $0) }
         )
+        // Adding or removing a debugger does not change how a server runs, so it
+        // must not restart the server a plugin installation happened to touch.
         let changedProviderIDs = Set(previousDescriptors.keys)
             .union(updatedDescriptors.keys)
-            .filter { previousDescriptors[$0] != updatedDescriptors[$0] }
+            .filter { previousDescriptors[$0]?.withoutDebugAdapter != updatedDescriptors[$0]?.withoutDebugAdapter }
 
         self.catalog = catalog
         let validProviderIDs = Set(catalog.descriptors.map(\.id))
