@@ -5,10 +5,19 @@
   "capability": "远程连接与远程路径工作区",
   "macos": {
     "evidence": [
-      "macos/Sources/Lithe/Services"
+      "macos/Sources/Lithe/Services/Remote/RemoteWorkspaceRouting.swift",
+      "macos/Sources/Lithe/Views/Workspace/RemoteConnectionsView.swift",
+      "macos/Tests/LitheTests/RemoteConnectionsTests.swift",
+      "macos/Sources/Lithe/Services/Remote/RemoteDirectoryObservation.swift",
+      "macos/Tests/LitheTests/RemoteDirectoryObservationTests.swift",
+      "macos/Tests/LitheTests/RemoteBuildExecutionTests.swift",
+      "macos/Tests/LitheTests/RemotePluginDeploymentTests.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Remote/MacRemoteBuildCommandRunner.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Remote/MacRemotePluginPackageDeployer.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Remote/MacRemotePluginLaunchPreparer.swift"
     ],
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable"
+    "implementationStatus": "partial",
+    "verificationStatus": "pending"
   },
   "windows": {
     "evidence": [
@@ -19,5 +28,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Remote",
-  "verification": "Windows 验证连接、密码提示、远程路径、断线和重连；macOS 需要补充产品入口或明确不支持。"
+  "verification": "Windows 验证连接、密码提示、远程路径、断线和重连；macOS 从欢迎页远程开发入口连接 Linux SSH 主机，验证文件树、编辑保存冲突、断线通知与重连。macOS 路由与断线 fixture 已有自动测试，真实 SSH 流程仍待验收；完整远程开发进度见 remote-development-workspace。 文件树新建、目录、复制、重命名与主机废纸篓已接入，14 项 Swift 路由/监听 fixture 通过；真实 SSH 验证外部创建、编辑、移动、删除、溢出重扫和 watcher 取消后无资源残留。 构建与插件接入进度同步至 remote-development-workspace；本行保持 partial/pending，不能以本机 fixture 替代真实 SSH 验收。"
 }

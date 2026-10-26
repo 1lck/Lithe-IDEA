@@ -33,6 +33,7 @@ mod session;
 mod spawner;
 mod terminal;
 mod tunnel;
+mod upload;
 mod walk;
 mod watch;
 

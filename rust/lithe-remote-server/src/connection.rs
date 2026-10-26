@@ -17,6 +17,7 @@ use lithe_remote_protocol::methods::{
 use lithe_remote_protocol::{ErrorCode, Message, RemoteError, PREAMBLE, PROTOCOL_VERSION};
 use serde_json::{json, Value};
 use std::io::{self, Read, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::sync::Arc;
 use std::thread;
@@ -39,6 +40,7 @@ pub(crate) struct Context {
     pub(crate) session: Arc<Session>,
     /// Owner of connection-bound resources such as tunnels.
     pub(crate) connection: u64,
+    pub(crate) closed: Arc<AtomicBool>,
 }
 
 pub(crate) fn serve(
@@ -57,6 +59,7 @@ pub(crate) fn serve(
     let context = Context {
         session: Arc::clone(session),
         connection: session.next_connection_id(),
+        closed: Arc::new(AtomicBool::new(false)),
     };
     let mut input = io::BufReader::new(input);
     let mut handshaken = false;
@@ -136,6 +139,7 @@ pub(crate) fn serve(
         }
     }
 
+    context.closed.store(true, Ordering::Release);
     session.link.detach(context.connection);
     session.release_connection_resources(context.connection);
     let _ = sender.send(Outgoing::Close);
@@ -220,6 +224,9 @@ fn handle(context: &Context, method: &str, params: Value) -> Result<Value, Remot
             let params: AckParams = parse(params)?;
             session.link.acknowledge(params.seq);
             Ok(Value::Null)
+        }
+        method if method.starts_with("fs.upload") => {
+            session.uploads.handle(context, method, params)
         }
         method if method.starts_with("fs.") => fs::handle(method, params),
         method if method.starts_with("walk.") => session.walks.handle(context, method, params),

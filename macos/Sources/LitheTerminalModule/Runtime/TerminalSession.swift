@@ -27,6 +27,8 @@ public final class TerminalSession: ObservableObject, Identifiable {
     private var workspaceURL: URL?
     private var selectedShellPath: String?
     private var outputDecoder = StreamingUTF8Decoder()
+    private var launchTask: Task<Void, Never>?
+    private var launchGeneration = UUID()
 
     public init(transport: any TerminalTransport, preferredToolTabTitle: String? = nil) {
         self.transport = transport
@@ -76,6 +78,23 @@ public final class TerminalSession: ObservableObject, Identifiable {
         selectedShellPath = shell
         shellName = URL(fileURLWithPath: shell).lastPathComponent
         let environment = terminalEnvironment()
+        if transport.requiresAsyncStart {
+            let generation = UUID()
+            launchGeneration = generation
+            launchTask = Task { [weak self] in
+                guard let self, !Task.isCancelled, launchGeneration == generation else { return }
+                do {
+                    try await transport.startShell(workingDirectory: workspaceURL.path, shellPath: shell, environment: environment)
+                    guard !Task.isCancelled, launchGeneration == generation else { return }
+                    isRunning = transport.isRunning; isReady = isRunning
+                } catch {
+                    guard !Task.isCancelled, launchGeneration == generation else { return }
+                    launchError = error.localizedDescription
+                    isRunning = false; isReady = false; startedAt = nil; endedAt = Date()
+                }
+            }
+            return
+        }
         do {
             try transport.start(workingDirectory: workspaceURL.path, shellPath: shell, environment: environment)
             isRunning = transport.isRunning; isReady = isRunning
@@ -87,6 +106,44 @@ public final class TerminalSession: ObservableObject, Identifiable {
 
     @discardableResult
     public func startProcess(_ launch: TerminalProcessLaunch) throws -> Int32 {
+        prepareProcess(launch)
+        do {
+            let processID = try transport.startProcess(
+                launch,
+                environment: terminalEnvironment(applying: launch.environmentChanges)
+            )
+            isRunning = transport.isRunning
+            isReady = isRunning
+            return processID
+        } catch {
+            failProcessStart(error)
+            throw error
+        }
+    }
+
+    @discardableResult
+    public func startProcessAsync(_ launch: TerminalProcessLaunch) async throws -> Int32 {
+        prepareProcess(launch)
+        let generation = launchGeneration
+        do {
+            let processID = try await transport.startProcessAsync(
+                launch,
+                environment: terminalEnvironment(applying: launch.environmentChanges)
+            )
+            guard !Task.isCancelled, launchGeneration == generation else { throw CancellationError() }
+            isRunning = transport.isRunning
+            isReady = isRunning
+            return processID
+        } catch {
+            if launchGeneration == generation {
+                transport.stop()
+                failProcessStart(error)
+            }
+            throw error
+        }
+    }
+
+    private func prepareProcess(_ launch: TerminalProcessLaunch) {
         stop()
         let workingDirectory = URL(
             fileURLWithPath: launch.workingDirectory,
@@ -103,23 +160,14 @@ public final class TerminalSession: ObservableObject, Identifiable {
         startedAt = Date()
         endedAt = nil
         shellName = URL(fileURLWithPath: launch.executablePath).lastPathComponent
+    }
 
-        do {
-            let processID = try transport.startProcess(
-                launch,
-                environment: terminalEnvironment(applying: launch.environmentChanges)
-            )
-            isRunning = transport.isRunning
-            isReady = isRunning
-            return processID
-        } catch {
-            launchError = error.localizedDescription
-            isRunning = false
-            isReady = false
-            startedAt = nil
-            endedAt = Date()
-            throw error
-        }
+    private func failProcessStart(_ error: Error) {
+        launchError = error.localizedDescription
+        isRunning = false
+        isReady = false
+        startedAt = nil
+        endedAt = Date()
     }
 
     public func restart() {
@@ -139,13 +187,21 @@ public final class TerminalSession: ObservableObject, Identifiable {
     public func clear() { transport.clear() }
     public func focus() { transport.focus() }
     public func stop() {
+        launchGeneration = UUID()
+        launchTask?.cancel()
+        launchTask = nil
         transport.stop()
         finishStop()
     }
 
     /// Stops the whole terminal session and waits for its processes to exit.
     public func stopAndWait() async {
+        launchGeneration = UUID()
+        let launch = launchTask
+        launchTask = nil
+        launch?.cancel()
         await transport.stopAndWait()
+        await launch?.value
         finishStop()
     }
 

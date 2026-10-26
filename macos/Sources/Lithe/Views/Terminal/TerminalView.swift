@@ -24,6 +24,7 @@ struct TerminalView: View {
         )
         .litheWorkbenchSurface(LitheTheme.editor)
         .background(LitheToolWindowActivityTracker(isActive: $terminalToolActive))
+        .task(id: model.workspaceURL) { feature.setShellWorkspace(model.workspaceURL) }
         .onAppear {
             terminalToolActive = (model.activeToolTerminalSession?.nativeView as? LitheTerminalView)?.hasFocus == true
         }
@@ -240,8 +241,11 @@ struct TerminalView: View {
         }
         items += [
             .separator,
-            .action("Detect Installed Shells") { feature.refreshAvailableShells() }
+            .action("Detect Installed Shells", isEnabled: !feature.isDiscoveringShells) { feature.refreshAvailableShells() }
         ]
+        if let error = feature.shellDiscoveryError {
+            items.append(.action(error, localizesTitle: false, isEnabled: false, action: {}))
+        }
         return items
     }
 

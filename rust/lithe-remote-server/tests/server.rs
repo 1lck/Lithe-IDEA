@@ -14,6 +14,7 @@ use lithe_remote_protocol::methods::{
 };
 use lithe_remote_protocol::{ErrorCode, Message};
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use std::io::BufReader;
 use std::process::{Command, Stdio};
 use support::{connect, connect_command, options, TempDir, SERVER, STEP_TIMEOUT};
@@ -23,6 +24,221 @@ fn code<T: std::fmt::Debug>(result: Result<T, ClientError>) -> ErrorCode {
         Err(ClientError::Remote(error)) => error.code,
         other => panic!("expected a remote error, got {other:?}"),
     }
+}
+
+#[test]
+fn staged_upload_checks_order_digest_and_atomic_no_replace_publication() {
+    let root = TempDir::new("staged-upload");
+    let (session, _events) = connect();
+    let request = |method: &str, params| session.request_value(method, params, STEP_TIMEOUT);
+    let content = vec![b'p'; methods::MAX_UPLOAD_CHUNK_BYTES + 7];
+    let digest = format!("{:x}", Sha256::digest(&content));
+    let start = |name: &str, digest: &str| {
+        request(methods::FS_UPLOAD_START,
+        json!({"path": root.join(name), "size": content.len(), "sha256": digest, "mode": 0o755})).unwrap()["uploadId"].as_u64().unwrap()
+    };
+    let id = start("package", &digest);
+    assert_eq!(
+        code(request(
+            methods::FS_UPLOAD_CHUNK,
+            json!({"uploadId": id, "offset": 0,
+        "data": encode_bytes(&vec![b'x'; methods::MAX_UPLOAD_CHUNK_BYTES + 1])})
+        )),
+        ErrorCode::InvalidRequest
+    );
+    assert_eq!(
+        code(request(
+            methods::FS_UPLOAD_CHUNK,
+            json!({"uploadId": id, "offset": 1, "data": encode_bytes(b"x")})
+        )),
+        ErrorCode::Conflict
+    );
+    for (index, chunk) in content.chunks(methods::MAX_UPLOAD_CHUNK_BYTES).enumerate() {
+        let offset = index * methods::MAX_UPLOAD_CHUNK_BYTES;
+        let received = request(
+            methods::FS_UPLOAD_CHUNK,
+            json!({"uploadId": id, "offset": offset, "data": encode_bytes(chunk)}),
+        )
+        .unwrap();
+        assert_eq!(received["offset"], offset + chunk.len());
+        assert!(
+            !std::path::Path::new(&root.join("package")).exists(),
+            "uncommitted bytes stay private"
+        );
+    }
+    let result = request(methods::FS_UPLOAD_COMMIT, json!({"uploadId": id})).unwrap();
+    assert_eq!(result["sha256"], digest);
+    assert_eq!(std::fs::read(root.join("package")).unwrap(), content);
+    use std::os::unix::fs::PermissionsExt;
+    assert_eq!(
+        std::fs::metadata(root.join("package"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o755
+    );
+    let bad = start("bad-digest", &"0".repeat(64));
+    for (index, chunk) in content.chunks(methods::MAX_UPLOAD_CHUNK_BYTES).enumerate() {
+        request(
+            methods::FS_UPLOAD_CHUNK,
+            json!({"uploadId": bad, "offset": index * methods::MAX_UPLOAD_CHUNK_BYTES,
+            "data": encode_bytes(chunk)}),
+        )
+        .unwrap();
+    }
+    assert_eq!(
+        code(request(methods::FS_UPLOAD_COMMIT, json!({"uploadId": bad}))),
+        ErrorCode::Conflict
+    );
+    assert!(!std::path::Path::new(&root.join("bad-digest")).exists());
+    let collision = start("package", &digest);
+    for (index, chunk) in content.chunks(methods::MAX_UPLOAD_CHUNK_BYTES).enumerate() {
+        request(methods::FS_UPLOAD_CHUNK, json!({"uploadId": collision, "offset": index * methods::MAX_UPLOAD_CHUNK_BYTES, "data": encode_bytes(chunk)})).unwrap();
+    }
+    assert_eq!(
+        code(request(
+            methods::FS_UPLOAD_COMMIT,
+            json!({"uploadId": collision})
+        )),
+        ErrorCode::AlreadyExists
+    );
+    let aborted = start("aborted", &digest);
+    request(methods::FS_UPLOAD_ABORT, json!({"uploadId": aborted})).unwrap();
+    assert_eq!(
+        std::fs::read_dir(root.path()).unwrap().count(),
+        1,
+        "all staging inodes are removed"
+    );
+    session.shutdown(STEP_TIMEOUT);
+}
+
+#[test]
+fn staged_upload_disconnect_drops_unpublished_files_and_connection_ownership() {
+    let root = TempDir::new("upload-disconnect");
+    let daemon = support::Daemon::new("upload-disconnect");
+    let (session, _events) = daemon.connect(None);
+    let id = session.request_value(methods::FS_UPLOAD_START,
+        json!({"path": root.join("package"), "size": 1, "sha256": "0".repeat(64), "mode": 0o600}), STEP_TIMEOUT).unwrap()["uploadId"].as_u64().unwrap();
+    drop(session);
+    let (replacement, _) = daemon.connect(None);
+    assert_eq!(
+        code(replacement.request_value(
+            methods::FS_UPLOAD_COMMIT,
+            json!({"uploadId": id}),
+            STEP_TIMEOUT
+        )),
+        ErrorCode::NotFound
+    );
+    replacement.shutdown(STEP_TIMEOUT);
+    assert!(daemon.wait_until_stopped(), "upload server did not stop");
+    assert!(std::fs::read_dir(root.path()).unwrap().next().is_none());
+}
+
+#[test]
+fn staged_upload_limit_and_shutdown_release_private_files() {
+    let root = TempDir::new("upload-cleanup");
+    let daemon = support::Daemon::new("upload-cleanup");
+    let (session, _events) = daemon.connect(None);
+    for index in 0..4 {
+        session.request_value(methods::FS_UPLOAD_START,
+            json!({"path": root.join(&format!("file-{index}")), "size": 1, "sha256": "0".repeat(64), "mode": 0o600}), STEP_TIMEOUT).unwrap();
+    }
+    assert_eq!(code(session.request_value(methods::FS_UPLOAD_START,
+        json!({"path": root.join("overflow"), "size": 1, "sha256": "0".repeat(64), "mode": 0o600}), STEP_TIMEOUT)), ErrorCode::Busy);
+    session.shutdown(STEP_TIMEOUT);
+    assert!(daemon.wait_until_stopped(), "upload server did not stop");
+    assert!(std::fs::read_dir(root.path()).unwrap().next().is_none());
+}
+
+#[test]
+fn tree_mutations_copy_publish_without_replacing_and_preserve_symbolic_links() {
+    let root = TempDir::new("tree-mutations");
+    let (session, _events) = connect();
+    let request = |method: &str, params| session.request_value(method, params, STEP_TIMEOUT);
+    request(
+        methods::FS_CREATE_DIR,
+        json!({"path": root.join("source"), "recursive": false}),
+    )
+    .unwrap();
+    std::fs::write(root.join("source/file with spaces"), "host content").unwrap();
+    std::os::unix::fs::symlink("file with spaces", root.join("source/link")).unwrap();
+    let copied = request(
+        methods::FS_COPY,
+        json!({"from": root.join("source"), "to": root.join("copy"), "recursive": true}),
+    )
+    .unwrap();
+    assert_eq!(copied["skippedSpecialFiles"], 0);
+    assert_eq!(
+        std::fs::read_to_string(root.join("copy/link")).unwrap(),
+        "host content"
+    );
+    assert!(std::fs::symlink_metadata(root.join("copy/link"))
+        .unwrap()
+        .is_symlink());
+    std::fs::write(root.join("copy/file with spaces"), "destination edits").unwrap();
+    assert_eq!(
+        code(request(
+            methods::FS_COPY,
+            json!({"from": root.join("source"), "to": root.join("copy"), "recursive": true})
+        )),
+        ErrorCode::AlreadyExists
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("copy/file with spaces")).unwrap(),
+        "destination edits"
+    );
+    request(
+        methods::FS_RENAME,
+        json!({"from": root.join("copy"), "to": root.join("renamed")}),
+    )
+    .unwrap();
+    request(
+        methods::FS_REMOVE,
+        json!({"path": root.join("renamed"), "recursive": true}),
+    )
+    .unwrap();
+    assert!(!std::path::Path::new(&root.join("renamed")).exists());
+    assert_eq!(
+        std::fs::read_dir(root.path()).unwrap().count(),
+        1,
+        "no staging directory remains"
+    );
+    session.shutdown(STEP_TIMEOUT);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn trash_moves_content_and_recovery_metadata_to_the_remote_account_data_directory() {
+    let root = TempDir::new("trash");
+    let (session, _events) = support::connect_with_environment(&[("XDG_DATA_HOME", root.str())]);
+    std::fs::write(root.join("recover me.txt"), "keep these bytes").unwrap();
+    session
+        .request_value(
+            methods::FS_TRASH,
+            json!({"path": root.join("recover me.txt")}),
+            STEP_TIMEOUT,
+        )
+        .unwrap();
+    assert!(!std::path::Path::new(&root.join("recover me.txt")).exists());
+    let entries = std::fs::read_dir(root.join("Trash/files"))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(
+        std::fs::read_to_string(entries[0].path()).unwrap(),
+        "keep these bytes"
+    );
+    let metadata = std::fs::read_dir(root.join("Trash/info"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap();
+    let metadata = std::fs::read_to_string(metadata.path()).unwrap();
+    assert!(metadata.contains("[Trash Info]"));
+    assert!(metadata.contains("recover%20me.txt"));
+    session.shutdown(STEP_TIMEOUT);
 }
 
 #[test]

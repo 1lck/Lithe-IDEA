@@ -9,6 +9,7 @@ use crate::protocol::{
     MavenSourceRootKind, MavenSourceRootResponse, MavenTestFailureResponse,
     MavenTestResultsResponse,
 };
+use crate::remote::workspace_io as fs;
 use quick_xml::events::{BytesEnd, BytesStart, BytesText, Event};
 use quick_xml::{Reader, Writer};
 use regex::Regex;
@@ -16,7 +17,6 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 #[derive(Debug, Deserialize)]
@@ -475,21 +475,22 @@ fn installation_settings_path(maven_executable_path: Option<&str>) -> Option<Str
                     .any(|launcher| name.eq_ignore_ascii_case(launcher))
             })
     };
-    if !configured.is_dir() && (!configured.is_file() || !is_launcher(configured)) {
+    if !fs::is_dir(configured).ok()? && (!fs::is_file(configured).ok()? || !is_launcher(configured))
+    {
         return None;
     }
     // Homebrew exposes client and directory aliases outside the installation.
     // Only canonicalize an actual alias: canonicalizing every ordinary path
     // would also rewrite macOS /var paths to /private/var in existing contexts.
     let resolve_alias = |path: &Path| {
-        if path.symlink_metadata().ok()?.file_type().is_symlink() {
-            path.canonicalize().ok()
+        if fs::symlink_metadata(path).ok()?.file_type().is_symlink() {
+            fs::canonicalize(path).ok()
         } else {
             Some(path.to_path_buf())
         }
     };
     let configured = resolve_alias(configured)?;
-    let launcher = if configured.is_dir() {
+    let launcher = if fs::is_dir(&configured).ok()? {
         [configured.join("bin"), configured.clone()]
             .into_iter()
             .flat_map(|bin| {
@@ -498,21 +499,19 @@ fn installation_settings_path(maven_executable_path: Option<&str>) -> Option<Str
                     .chain(maven_launchers.iter())
                     .map(move |name| bin.join(name))
             })
-            .find(|candidate| candidate.is_file())?
+            .find(|candidate| fs::is_file(candidate).unwrap_or(false))?
     } else {
         configured
     };
     let launcher = resolve_alias(&launcher)?;
     // Hosts may return alias-to-bin/mvnd after resolving a selected bin directory.
     // Resolve that parent alias as well, without rewriting ordinary /var paths.
-    let launcher = if launcher
-        .parent()?
-        .symlink_metadata()
+    let launcher = if fs::symlink_metadata(launcher.parent()?)
         .ok()?
         .file_type()
         .is_symlink()
     {
-        launcher.canonicalize().ok()?
+        fs::canonicalize(&launcher).ok()?
     } else {
         launcher
     };
@@ -539,8 +538,8 @@ fn installation_settings_path(maven_executable_path: Option<&str>) -> Option<Str
         home.to_path_buf()
     };
     let settings = maven_home.join("conf").join("settings.xml");
-    settings
-        .is_file()
+    fs::is_file(&settings)
+        .ok()?
         .then(|| settings.to_string_lossy().into_owned())
 }
 
@@ -563,11 +562,11 @@ fn validated_maven_context(
     } else {
         workspace_root.join(&reactor_path)
     };
-    let canonical_reactor = reactor_root.canonicalize().map_err(|_| {
+    let canonical_reactor = fs::canonicalize(&reactor_root).map_err(|_| {
         CoreError::new(ErrorCode::WorkspaceNotFound, "Maven reactor does not exist")
     })?;
     if !canonical_reactor.starts_with(&workspace_root)
-        || !canonical_reactor.join("pom.xml").is_file()
+        || !fs::is_file(canonical_reactor.join("pom.xml")).map_err(CoreError::from)?
     {
         return Err(CoreError::new(
             ErrorCode::InvalidRequest,
@@ -1166,7 +1165,7 @@ pub(crate) fn maven_root(
     root: &Path,
     paths: &[String],
 ) -> Result<Option<(PathBuf, String)>, CoreError> {
-    let canonical_root = root.canonicalize().map_err(CoreError::from)?;
+    let canonical_root = fs::canonicalize(root).map_err(CoreError::from)?;
     let mut candidate_directories = BTreeSet::from([PathBuf::new()]);
     for path in paths
         .iter()
@@ -1186,10 +1185,10 @@ pub(crate) fn maven_root(
         .into_iter()
         .filter_map(|directory| {
             let candidate = root.join(&directory);
-            if !candidate.join("pom.xml").is_file() {
+            if !fs::is_file(candidate.join("pom.xml")).ok()? {
                 return None;
             }
-            let canonical_candidate = candidate.canonicalize().ok()?;
+            let canonical_candidate = fs::canonicalize(&candidate).ok()?;
             if !canonical_candidate.starts_with(&canonical_root) {
                 return None;
             }
@@ -1950,15 +1949,15 @@ fn should_skip_test_source_directory(path: &Path) -> bool {
 }
 
 fn workspace_relative_path(root: &Path, path: &Path) -> Option<String> {
-    let canonical_root = root.canonicalize().ok()?;
-    let canonical_path = path.canonicalize().ok()?;
+    let canonical_root = fs::canonicalize(root).ok()?;
+    let canonical_path = fs::canonicalize(path).ok()?;
     let relative = canonical_path.strip_prefix(canonical_root).ok()?;
     Some(relative.to_string_lossy().replace('\\', "/"))
 }
 
 /// Reads a scanned POM only when links still resolve inside its reactor.
 fn contained_descriptor(root: &Path, path: &Path) -> Result<Option<Descriptor>, CoreError> {
-    let (Ok(root), Ok(path)) = (root.canonicalize(), path.canonicalize()) else {
+    let (Ok(root), Ok(path)) = (fs::canonicalize(root), fs::canonicalize(path)) else {
         return Ok(None);
     };
     if !path.starts_with(root) {
@@ -2476,7 +2475,7 @@ fn existing_root(value: &str) -> Result<PathBuf, CoreError> {
             "Workspace root must be a directory",
         ));
     }
-    path.canonicalize().map_err(CoreError::from)
+    fs::canonicalize(path).map_err(CoreError::from)
 }
 
 fn normalize_relative_path(value: &str) -> Option<String> {
@@ -2511,13 +2510,12 @@ fn non_empty(value: String) -> Option<String> {
 fn has_wrapper(root: &Path) -> bool {
     let unix = root.join("mvnw");
     let windows = root.join("mvnw.cmd");
-    windows.is_file()
+    fs::is_file(windows).unwrap_or(false)
         || fs::metadata(unix)
             .map(|metadata| {
                 #[cfg(unix)]
                 {
-                    use std::os::unix::fs::PermissionsExt;
-                    metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+                    metadata.is_file() && metadata.mode() & 0o111 != 0
                 }
                 #[cfg(not(unix))]
                 {

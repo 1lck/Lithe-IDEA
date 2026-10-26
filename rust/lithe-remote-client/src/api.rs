@@ -216,6 +216,7 @@ impl RemoteSession {
             &CreateDirParams {
                 path: path.into(),
                 recursive,
+                mode: None,
             },
         )
     }

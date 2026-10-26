@@ -64,6 +64,29 @@ function reuse(extraArguments = []) {
 }
 
 try {
+  await test("remote host resources and session snapshots cannot cross worktrees", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const listed = run(process.execPath, [reuseScript, "--list"]);
+    assertSucceeded(listed);
+    for (const id of ["remote-server-artifacts", "remote-connection-state", "remote-workspace-session-state"]) {
+      const resource = registry.excludedResources.find(item => item.id === id);
+      assert.equal(resource.reusable, false);
+      assert.ok(!listed.stdout.includes(id));
+      const refused = reuse(["--resource", id]);
+      assert.notEqual(refused.status, 0);
+      assert.match(diagnostics(refused), new RegExp(`${id} is isolated.*cannot be reused`));
+    }
+    const state = registry.excludedResources.find(item => item.id === "remote-connection-state");
+    assert.ok(state.locations.some(location => location.includes("session-and-binary-hash")));
+    const snapshots = registry.excludedResources.find(item => item.id === "remote-workspace-session-state");
+    assert.ok(snapshots.locations.some(location => location.includes("lithe-git-")));
+    assert.ok(snapshots.locations.some(location => location.includes("<app-memory>")));
+    assert.ok(snapshots.locations.some(location => location.includes(".lithe-copy-")));
+    assert.ok(snapshots.locations.some(location => location.includes("account-or-volume-trash")));
+    for (const component of [".lithe-upload-", "plugin-runs", "state/plugins", "lithe-plugin-download-"]) {
+      assert.ok(snapshots.locations.some(location => location.includes(component)), component);
+    }
+  });
   await test("shared translations are regenerated locally rather than reused", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const resource = registry.excludedResources.find(item => item.id === "shared-i18n");

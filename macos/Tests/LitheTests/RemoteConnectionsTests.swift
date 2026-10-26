@@ -231,6 +231,7 @@ private final class FakeTransport: RemoteWorkspaceTransport, @unchecked Sendable
     var directories: [String: [RemoteDirectoryEntry]] = [:]
     private(set) var expectedVersions: [RemoteFileVersion?] = []
     private var clock: Int64 = 1
+    private(set) var mutations: [RemoteFileMutation] = []
 
     func put(_ text: String, at path: String) {
         lock.withLock {
@@ -265,6 +266,23 @@ private final class FakeTransport: RemoteWorkspaceTransport, @unchecked Sendable
             let version = RemoteFileVersion(size: Int64(data.count), modifiedMs: clock)
             files[path] = (data, version)
             return .saved(version)
+        }
+    }
+}
+
+extension FakeTransport {
+    func mutate(_ mutation: RemoteFileMutation, session: String) throws {
+        try lock.withLock {
+            mutations.append(mutation)
+            switch mutation {
+            case .createDirectory(let path, _): directories[path] = []
+            case .copy(let from, let to), .move(let from, let to):
+                guard files[to] == nil else { throw CocoaError(.fileWriteFileExists) }
+                guard let source = files[from] else { throw CocoaError(.fileNoSuchFile) }
+                files[to] = source
+                if case .move = mutation { files.removeValue(forKey: from) }
+            case .remove(let path), .trash(let path): files.removeValue(forKey: path)
+            }
         }
     }
 }
@@ -317,6 +335,29 @@ struct RemoteWorkspaceRoutingTests {
         #expect(registry.resolve(root.appendingPathComponent("src/main.rs"))?.remotePath == "/srv/app/src/main.rs")
         #expect(registry.resolve(root)?.remotePath == "/srv/app")
         #expect(registry.resolve(URL(fileURLWithPath: "/tmp/lithe-tests/RemoteWorkspaces/c/h/application")) == nil)
+    }
+
+    @Test
+    func remoteIndexLifecycleReachesTheHostAwareCoreAdapter() {
+        final class IndexOperations: WorkspaceOperations, @unchecked Sendable {
+            var calls: [String] = []
+            func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot? { nil }
+            func readFile(at rootURL: URL, relativePath: String) -> String? { nil }
+            func writeFile(_ text: String, at rootURL: URL, relativePath: String) -> Bool { false }
+            func warmSearchIndex(at rootURL: URL, visibilityRules: FileVisibilityRules) { calls.append("warm:" + rootURL.path) }
+            func updateSearchIndex(at rootURL: URL, changedPaths: [String], visibilityRules: FileVisibilityRules) {
+                calls.append("update:" + changedPaths.joined(separator: ","))
+            }
+            func invalidateSearchIndex(at rootURL: URL, visibilityRules: FileVisibilityRules) { calls.append("invalidate:" + rootURL.path) }
+        }
+        let (_, _, transport, registry) = routing()
+        let core = IndexOperations()
+        let tree = RemoteRoutingWorkspaceOperations(local: core, registry: registry, transport: transport)
+        let rules = FileVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: [])
+        tree.warmSearchIndex(at: root, visibilityRules: rules)
+        tree.updateSearchIndex(at: root, changedPaths: ["src/main.rs"], visibilityRules: rules)
+        tree.invalidateSearchIndex(at: root, visibilityRules: rules)
+        #expect(core.calls == ["warm:" + root.path, "update:src/main.rs", "invalidate:" + root.path])
     }
 
     // Saving names the version that was read; a file changed on the host in
@@ -381,21 +422,44 @@ struct RemoteWorkspaceRoutingTests {
     }
 
     @Test
-    func creatingRemoteFilesIsUnsupported() {
+    func creatingRemoteFilesAndSavingNewDocumentsNeverOverwritesExistingContent() throws {
         let (files, tree, transport, _) = routing()
         let url = root.appendingPathComponent("new.txt")
+        try files.createFile(at: url)
+        #expect(transport.text(at: "/srv/app/new.txt") == "")
         #expect(throws: CocoaError.self) { try files.createFile(at: url) }
-        #expect(throws: CocoaError.self) { try files.writeText("x", to: url) }
-        #expect(!tree.writeFile("x", at: root, relativePath: "new.txt"))
-        #expect(transport.expectedVersions.isEmpty)
-        #expect(transport.text(at: "/srv/app/new.txt") == nil)
+        try files.writeText("x", to: url)
+        #expect(transport.text(at: "/srv/app/new.txt") == "x")
+        #expect(tree.writeFile("tree", at: root, relativePath: "tree.txt"))
+        let saved = try files.writeDocumentText("new", to: root.appendingPathComponent("doc.txt"), expectedContent: nil)
+        if case .saved = saved {} else { Issue.record("New document was not created") }
+        let conflict = try files.writeDocumentText("overwrite", to: url, expectedContent: nil)
+        if case .conflict = conflict {} else { Issue.record("Existing file was overwritten") }
+        #expect(transport.text(at: "/srv/app/new.txt") == "x")
     }
 
     @Test
-    func unsupportedChangesToRemoteFilesFailInsteadOfTouchingTheDisk() {
-        let (files, _, _, _) = routing()
-        #expect(throws: CocoaError.self) { try files.removeItem(at: root.appendingPathComponent("a.txt")) }
-        #expect(throws: CocoaError.self) { try files.moveItem(at: root.appendingPathComponent("a"), to: root.appendingPathComponent("b")) }
+    func treeMutationsUseHostPathsAndRejectMixedHostsAndRootRemoval() throws {
+        let (files, _, transport, registry) = routing()
+        let a = root.appendingPathComponent("a.txt")
+        let b = root.appendingPathComponent("b.txt")
+        let c = root.appendingPathComponent("c.txt")
+        transport.put("content", at: "/srv/app/a.txt")
+        try files.createDirectory(at: root.appendingPathComponent("src"), withIntermediateDirectories: false)
+        try files.copyItem(at: a, to: b)
+        #expect(throws: CocoaError.self) { try files.copyItem(at: a, to: b) }
+        try files.moveItem(at: b, to: c)
+        try files.trashItem(at: c)
+        try files.removeItem(at: a)
+        #expect(transport.text(at: "/srv/app/a.txt") == nil)
+        #expect(transport.text(at: "/srv/app/c.txt") == nil)
+        #expect(transport.mutations.last == .remove(path: "/srv/app/a.txt"))
+        #expect(transport.mutations.contains(.trash(path: "/srv/app/c.txt")))
+        #expect(throws: CocoaError.self) { try files.removeItem(at: root) }
+        #expect(throws: CocoaError.self) { try files.moveItem(at: a, to: URL(fileURLWithPath: "/tmp/local-target")) }
+        let other = URL(fileURLWithPath: "/tmp/lithe-tests/other")
+        registry.register(RemoteWorkspaceBinding(root: other, remoteRoot: "/other", sessionID: "other-host", connectionID: UUID()))
+        #expect(throws: CocoaError.self) { try files.copyItem(at: a, to: other.appendingPathComponent("a")) }
     }
 
     @Test

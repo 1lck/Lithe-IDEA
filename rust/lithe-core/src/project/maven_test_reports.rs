@@ -13,11 +13,11 @@
 //! Note: the ownership decision is recorded in .agents/notes/implemented/architecture/2026-09-22-editor-run-markers-and-test-outcomes.md
 
 use crate::protocol::{CoreError, ErrorCode, MavenTestCaseResponse};
+use crate::remote::workspace_io as fs;
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::Reader;
 use serde::Deserialize;
 use std::collections::BTreeMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, UNIX_EPOCH};
 
@@ -405,17 +405,15 @@ pub(crate) fn module_root(
             _ => Ok(workspace_root.to_path_buf()),
         };
     };
-    let candidate = workspace_root
-        .join(module.replace('\\', "/"))
-        .canonicalize()
-        .map_err(|_| {
+    let candidate =
+        fs::canonicalize(workspace_root.join(module.replace('\\', "/"))).map_err(|_| {
             CoreError::new(
                 ErrorCode::InvalidRequest,
                 "Maven test module does not exist",
             )
             .with_details(module.to_string())
         })?;
-    if !candidate.starts_with(workspace_root) || !candidate.is_dir() {
+    if !candidate.starts_with(workspace_root) || !fs::is_dir(&candidate).map_err(CoreError::from)? {
         return Err(CoreError::new(
             ErrorCode::InvalidRequest,
             "Maven test module must be inside the workspace",
@@ -428,10 +426,8 @@ pub(crate) fn module_root(
 /// The closest directory at or above `source_path`'s parent that holds a
 /// `pom.xml`, never leaving the workspace; the workspace root otherwise.
 fn nearest_module(workspace_root: &Path, source_path: &str) -> Result<PathBuf, CoreError> {
-    let source = workspace_root
-        .join(source_path.replace('\\', "/"))
-        .canonicalize()
-        .map_err(|_| {
+    let source =
+        fs::canonicalize(workspace_root.join(source_path.replace('\\', "/"))).map_err(|_| {
             CoreError::new(
                 ErrorCode::InvalidRequest,
                 "Maven test source does not exist",
@@ -448,7 +444,7 @@ fn nearest_module(workspace_root: &Path, source_path: &str) -> Result<PathBuf, C
     let mut directory = source.parent();
     while let Some(candidate) = directory.filter(|candidate| candidate.starts_with(workspace_root))
     {
-        if candidate.join("pom.xml").is_file() {
+        if fs::is_file(candidate.join("pom.xml")).map_err(CoreError::from)? {
             return Ok(candidate.to_path_buf());
         }
         directory = candidate.parent();

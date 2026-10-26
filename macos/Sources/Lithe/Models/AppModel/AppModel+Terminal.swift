@@ -15,7 +15,9 @@ extension AppModel {
 
     @MainActor
     func activateTerminalModule() async -> Bool {
-        await terminalModuleCoordinator.activate()
+        let activated = await terminalModuleCoordinator.activate()
+        if activated { terminalFeature?.setShellWorkspace(workspaceURL) }
+        return activated
     }
 
     func toggleTerminal() {
@@ -61,7 +63,8 @@ extension AppModel {
         }
         let session = feature.createSession(
             in: workspaceURL,
-            shellPath: shellPath ?? settings.terminalShellPath,
+            shellPath: shellPath ?? (services.remoteConnections?.workspaces.contains(workspaceURL) == true
+                ? nil : settings.terminalShellPath),
             preferredToolTabTitle: shellPath.map { URL(fileURLWithPath: $0).lastPathComponent },
             showsWorkbenchBackground: workbenchBackgroundFeature.hasImage
         )
@@ -151,8 +154,9 @@ extension AppModel {
                 TerminalEnvironmentChange(name: $0.name, value: $0.value)
             }
         )
-        let created = try feature.createProcessSession(
+        let created = try await feature.createProcessSessionAsync(
             launch,
+            workspaceURL: workspaceURL,
             showsWorkbenchBackground: workbenchBackgroundFeature.hasImage
         ) { [weak self] output in
             self?.genericDebugFeatureIfActive?.appendDebuggeeOutput(output)
@@ -165,7 +169,8 @@ extension AppModel {
             debugTerminalSessionIDsByDebugSession[debugSessionID, default: []].insert(created.session.id)
             activeDebugTerminalSessionIDsByDebugSession[debugSessionID] = created.session.id
         }
-        if let id = debugSessionID, executablePath.hasSuffix("/java") {
+        if let id = debugSessionID, executablePath.hasSuffix("/java"),
+           services.remoteConnections?.workspaces.contains(workspaceURL) != true {
             debugPerformanceFeature.register(DebugPerformanceTarget(processID: created.processID,
                 javaExecutable: URL(fileURLWithPath: executablePath)), sessionID: id.rawValue)
         }
@@ -400,7 +405,10 @@ extension AppModel {
     }
 
     var activeTerminalShellPath: String {
-        settings.terminalShellPath ?? terminalFeature?.availableShells.first ?? "/bin/zsh"
+        if let workspaceURL, services.remoteConnections?.workspaces.contains(workspaceURL) == true {
+            return terminalFeature?.availableShells.first ?? ""
+        }
+        return settings.terminalShellPath ?? terminalFeature?.availableShells.first ?? "/bin/zsh"
     }
 
     private func sessions(orderedBy sessionIDs: [UUID]) -> [TerminalSession] {

@@ -87,11 +87,25 @@ pub(crate) struct ConnectResult {
     diagnostics: String,
 }
 
-struct Connection {
-    session: RemoteSession,
-    child: Mutex<Child>,
-    tree: ProcessTree,
+pub(crate) struct Connection {
+    pub(crate) session: RemoteSession,
+    pub(crate) git_tool: Mutex<Option<(String, String)>>,
+    transport: ConnectionTransport,
 }
+
+/// Owns the native transport independently of the framed workspace session.
+enum ConnectionTransport {
+    Ssh {
+        child: Mutex<Child>,
+        tree: ProcessTree,
+    },
+    #[cfg(test)]
+    InProcess,
+}
+
+#[cfg(all(test, unix))]
+#[path = "sessions_integration_tests.rs"]
+mod integration_tests;
 
 impl Connection {
     fn close(&self) {
@@ -100,13 +114,18 @@ impl Connection {
             serde_json::Value::Null,
             EXIT_GRACE,
         );
-        let _ = self.tree.terminate(EXIT_GRACE);
-        let mut child = self
-            .child
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let _ = child.kill();
-        let _ = child.wait();
+        match &self.transport {
+            ConnectionTransport::Ssh { child, tree } => {
+                let _ = tree.terminate(EXIT_GRACE);
+                let mut child = child
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            #[cfg(test)]
+            ConnectionTransport::InProcess => {}
+        }
     }
 }
 
@@ -138,7 +157,7 @@ fn registry() -> &'static Mutex<HashMap<String, Arc<Connection>>> {
     CONNECTIONS.get_or_init(Mutex::default)
 }
 
-fn lookup(id: &str) -> Result<Arc<Connection>, CoreError> {
+pub(super) fn lookup(id: &str) -> Result<Arc<Connection>, CoreError> {
     registry()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -434,8 +453,11 @@ pub(super) fn connect_with(
             id.clone(),
             Arc::new(Connection {
                 session,
-                child: Mutex::new(child),
-                tree,
+                git_tool: Mutex::new(None),
+                transport: ConnectionTransport::Ssh {
+                    child: Mutex::new(child),
+                    tree,
+                },
             }),
         );
     Ok(ConnectResult {
@@ -641,7 +663,8 @@ pub(super) fn close_registered() -> usize {
     count
 }
 
-fn request_error(session_id: &str, error: ClientError) -> CoreError {
+/// Translates host transport failures without losing their stable remote category.
+pub(crate) fn request_error(session_id: &str, error: ClientError) -> CoreError {
     match error {
         ClientError::Remote(error) => {
             let code = match error.code {
@@ -650,6 +673,7 @@ fn request_error(session_id: &str, error: ClientError) -> CoreError {
                 _ => ErrorCode::ProcessFailed,
             };
             CoreError::new(code, error.message)
+                .with_details(serde_json::json!({"remoteCode": error.code}).to_string())
         }
         ClientError::Timeout => CoreError::new(
             ErrorCode::TimedOut,

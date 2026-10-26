@@ -15,6 +15,7 @@
 use crate::connection::{self, Ended};
 use crate::platform;
 use crate::session::Session;
+use sha2::{Digest, Sha256};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::os::fd::AsRawFd;
@@ -91,10 +92,10 @@ impl PersistentOptions {
             )
             .join(".lithe-server"),
         };
-        // The server version is part of the name: a client upgrade starts a
-        // new daemon instead of talking to an older one, which ends on its
-        // own once idle.
-        let name = format!("{}-{}", self.key, env!("CARGO_PKG_VERSION"));
+        // Preview builds can change protocol features without changing version.
+        // Hash both identities to keep maximal session keys within socket limits.
+        let identity = crate::identity()?;
+        let name = daemon_name(&self.key, &identity.sha256);
         let run = state.join("run");
         private_directory(&run)?;
         let mut socket = run.join(format!("{name}.sock"));
@@ -120,6 +121,14 @@ impl PersistentOptions {
             log: log_directory.join(format!("{name}.log")),
         })
     }
+}
+
+fn daemon_name(key: &str, executable_sha256: &str) -> String {
+    let mut digest = Sha256::new();
+    digest.update(key.as_bytes());
+    digest.update([0]);
+    digest.update(executable_sha256.as_bytes());
+    format!("{:x}", digest.finalize())[..32].to_owned()
 }
 
 /// Creates `path` with mode 0700, or verifies an existing one is a real
@@ -396,4 +405,23 @@ fn write_pid(mut lock: &File) -> io::Result<()> {
     lock.set_len(0)?;
     writeln!(lock, "{}", std::process::id())?;
     lock.flush()
+}
+
+#[cfg(test)]
+mod identity_tests {
+    use super::*;
+
+    #[test]
+    fn same_version_binary_rebuilds_cannot_reuse_a_daemon() {
+        let key = "a".repeat(64);
+        let old = daemon_name(&key, &"1".repeat(64));
+        assert_eq!(old.len(), 32);
+        assert_eq!(old, daemon_name(&key, &"1".repeat(64)));
+        assert_ne!(old, daemon_name(&key, &"2".repeat(64)));
+        assert_ne!(old, daemon_name("other-session", &"1".repeat(64)));
+        let fallback = PathBuf::from(SHORT_SOCKET_ROOT)
+            .join(format!("lithe-server-{}", u32::MAX))
+            .join(format!("{old}.sock"));
+        assert!(fallback.as_os_str().len() <= MAX_SOCKET_PATH_BYTES);
+    }
 }

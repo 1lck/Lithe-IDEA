@@ -5,10 +5,10 @@
 //! resource (`terminal.output` with `terminalId` 7 goes to the subscription
 //! for terminal 7) or, without one, to the session's general event channel.
 //!
-//! Every channel is bounded and the reader blocks when one is full, which
-//! stops reading the server's stream and so applies backpressure all the way
-//! to the remote process. Consumers must therefore drain what they subscribe
-//! to, and either drain the general channel or drop its receiver.
+//! Every channel is bounded. A stalled resource loses its subscription instead
+//! of blocking the shared reader: its owner observes disconnection and reclaims
+//! the resource. General-channel overflow ends the connection, since unobserved
+//! filesystem events cannot safely be discarded.
 //!
 //! A writer thread owns the outgoing stream. Requests queue their frames for
 //! it, so a peer that stops reading blocks only that thread, and every request
@@ -180,20 +180,27 @@ struct Outgoing {
 }
 
 impl Outgoing {
-    /// Queues a frame, waiting until `deadline` for room. `Ok(false)` means
-    /// the queue is closed.
-    fn push(&self, id: u64, payload: Vec<u8>, deadline: Instant) -> Result<bool, ClientError> {
+    /// Returns the still-owned frame when no queue space becomes available
+    /// during this poll. The caller can observe cancellation between polls.
+    fn push_until(
+        &self,
+        id: u64,
+        payload: Vec<u8>,
+        deadline: Instant,
+    ) -> Result<Option<Vec<u8>>, ClientError> {
         let mut state = lock(&self.state);
         loop {
             if state.closed {
-                return Ok(false);
+                return Err(ClientError::Disconnected {
+                    diagnostics: String::new(),
+                });
             }
             if state.frames.is_empty() || state.bytes + payload.len() <= OUTGOING_QUEUE_BYTES {
                 break;
             }
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
-                return Err(ClientError::Timeout);
+                return Ok(Some(payload));
             }
             state = self
                 .changed
@@ -204,7 +211,7 @@ impl Outgoing {
         state.bytes += payload.len();
         state.frames.push_back((id, payload));
         self.changed.notify_all();
-        Ok(true)
+        Ok(None)
     }
 
     /// Queues a frame only if there is room now. Used by the reader thread,
@@ -270,6 +277,59 @@ pub struct RemoteSession {
     child: Mutex<Option<Child>>,
     stderr_tail: Arc<Mutex<VecDeque<u8>>>,
     hello: Option<HelloResult>,
+}
+
+/// An owned request waiter. Dropping it withdraws unsent work and ignores late
+/// replies, without closing the session or its other resources.
+pub struct PendingRequest {
+    id: u64,
+    reply: Receiver<Result<Value, ClientError>>,
+    pending: Arc<Mutex<Pending>>,
+    outgoing: Arc<Outgoing>,
+    deadline: Instant,
+    frame: Mutex<Option<Vec<u8>>>,
+}
+
+impl PendingRequest {
+    /// Waits for at most `interval`, returning `None` while the reply is pending.
+    /// The request's original deadline remains authoritative across polls.
+    pub fn poll(&self, interval: Duration) -> Result<Option<Value>, ClientError> {
+        let poll_deadline = (Instant::now() + interval).min(self.deadline);
+        let mut frame = lock(&self.frame);
+        if let Some(payload) = frame.take() {
+            *frame = self.outgoing.push_until(self.id, payload, poll_deadline)?;
+            if frame.is_some() {
+                return if Instant::now() >= self.deadline {
+                    Err(ClientError::Timeout)
+                } else {
+                    Ok(None)
+                };
+            }
+        }
+        drop(frame);
+        let remaining = self.deadline.saturating_duration_since(Instant::now());
+        match self.reply.recv_timeout(
+            poll_deadline
+                .saturating_duration_since(Instant::now())
+                .min(remaining),
+        ) {
+            Ok(result) => result.map(Some),
+            Err(mpsc::RecvTimeoutError::Disconnected) => Err(ClientError::Disconnected {
+                diagnostics: String::new(),
+            }),
+            Err(mpsc::RecvTimeoutError::Timeout) if Instant::now() >= self.deadline => {
+                Err(ClientError::Timeout)
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => Ok(None),
+        }
+    }
+}
+
+impl Drop for PendingRequest {
+    fn drop(&mut self) {
+        lock(&self.pending).waiting.remove(&self.id);
+        self.outgoing.withdraw(self.id);
+    }
 }
 
 impl RemoteSession {
@@ -463,6 +523,23 @@ impl RemoteSession {
         params: Value,
         timeout: Duration,
     ) -> Result<Value, ClientError> {
+        let request = self.begin_request_value(method, params, timeout)?;
+        match request.poll(timeout) {
+            Ok(Some(value)) => Ok(value),
+            Err(ClientError::Disconnected { .. }) => Err(self.disconnected()),
+            Err(error) => Err(error),
+            Ok(None) => Err(ClientError::Timeout),
+        }
+    }
+
+    /// Queues a request without blocking on its reply. Resource owners can drain
+    /// events and observe cancellation while waiting for creation or control.
+    pub fn begin_request_value(
+        &self,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+    ) -> Result<PendingRequest, ClientError> {
         let deadline = Instant::now() + timeout;
         let id = self.next_request.fetch_add(1, Ordering::Relaxed) + 1;
         let (reply_sender, reply) = mpsc::sync_channel(1);
@@ -478,23 +555,18 @@ impl RemoteSession {
             method: method.into(),
             params,
         };
-        if let Err(error) = self.send(id, &message, deadline) {
+        let payload = serde_json::to_vec(&message).map_err(|error| {
             lock(&self.pending).waiting.remove(&id);
-            return Err(error);
-        }
-        match reply.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-            Ok(Ok(value)) => Ok(value),
-            Ok(Err(ClientError::Disconnected { .. }))
-            | Err(mpsc::RecvTimeoutError::Disconnected) => Err(self.disconnected()),
-            Ok(Err(error)) => Err(error),
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                // Removing the waiter makes the reader drop a late response;
-                // a frame still queued is not sent at all.
-                lock(&self.pending).waiting.remove(&id);
-                self.outgoing.withdraw(id);
-                Err(ClientError::Timeout)
-            }
-        }
+            ClientError::Protocol(error.to_string())
+        })?;
+        Ok(PendingRequest {
+            id,
+            reply,
+            pending: Arc::clone(&self.pending),
+            outgoing: Arc::clone(&self.outgoing),
+            deadline,
+            frame: Mutex::new(Some(payload)),
+        })
     }
 
     /// Whether the stream has ended.
@@ -507,15 +579,6 @@ impl RemoteSession {
     pub fn shutdown(self, timeout: Duration) {
         let _ = self.request_value(methods::SERVER_SHUTDOWN, Value::Null, timeout);
         // Drop closes the stream and reaps the transport process.
-    }
-
-    fn send(&self, id: u64, message: &Message, deadline: Instant) -> Result<(), ClientError> {
-        let payload = serde_json::to_vec(message)
-            .map_err(|error| ClientError::Protocol(error.to_string()))?;
-        match self.outgoing.push(id, payload, deadline)? {
-            true => Ok(()),
-            false => Err(self.disconnected()),
-        }
     }
 
     fn disconnected(&self) -> ClientError {
@@ -607,7 +670,9 @@ fn read_loop(
                 }
             }
             Ok(Message::Event { event, params, seq }) => {
-                route(&routes, &events, Event { event, params, seq });
+                if !route(&routes, &events, Event { event, params, seq }) {
+                    break;
+                }
                 if let Some(seq) = seq {
                     last_seq.store(seq, Ordering::Release);
                     if seq >= acknowledged + ACK_INTERVAL
@@ -653,23 +718,27 @@ fn write_loop(mut writer: Box<dyn Write + Send>, outgoing: &Outgoing, pending: &
     }
 }
 
-fn route(routes: &Routes, events: &SyncSender<Event>, event: Event) {
+fn route(routes: &Routes, events: &SyncSender<Event>, event: Event) -> bool {
     let key = event.resource().map(|(family, id)| (family.to_owned(), id));
-    // The sender is cloned so that a blocking send does not hold the lock
-    // a consumer needs to subscribe or unsubscribe.
+    // Neither a resource nor the general consumer may block the sole response
+    // reader: a process owner needs that reader to acknowledge its kill request.
     let subscriber = key.as_ref().and_then(|key| lock(routes).get(key).cloned());
     match subscriber {
         Some(subscriber) => {
-            if subscriber.send(event).is_err() {
-                if let Some(key) = key {
-                    lock(routes).remove(&key);
+            match subscriber.try_send(event) {
+                Ok(()) => true,
+                Err(error) => {
+                    if let Some(key) = key {
+                        lock(routes).remove(&key);
+                    }
+                    // A live owner losing a frame must resynchronize. Dropping
+                    // a receiver intentionally only ends that subscription.
+                    matches!(error, mpsc::TrySendError::Disconnected(_))
                 }
             }
         }
         // A dropped general receiver means nobody consumes these events.
-        None => {
-            let _ = events.send(event);
-        }
+        None => !matches!(events.try_send(event), Err(mpsc::TrySendError::Full(_))),
     }
 }
 
@@ -711,6 +780,73 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    fn waiter(outgoing: Arc<Outgoing>, payload: Vec<u8>) -> (PendingRequest, SyncSender<Reply>) {
+        let (sender, reply) = mpsc::sync_channel(1);
+        let pending = Arc::new(Mutex::new(Pending::default()));
+        lock(&pending).waiting.insert(1, sender.clone());
+        (
+            PendingRequest {
+                id: 1,
+                reply,
+                pending,
+                outgoing,
+                deadline: Instant::now() + Duration::from_secs(1),
+                frame: Mutex::new(Some(payload)),
+            },
+            sender,
+        )
+    }
+
+    #[test]
+    fn dropping_an_unpolled_request_never_sends_it() {
+        let outgoing = Arc::new(Outgoing::default());
+        let (request, sender) = waiter(outgoing.clone(), vec![1, 2]);
+        let pending = request.pending.clone();
+        drop(request);
+        assert!(lock(&pending).waiting.is_empty());
+        assert!(lock(&outgoing.state).frames.is_empty());
+        assert!(sender.send(Ok(Value::Null)).is_err());
+    }
+
+    #[test]
+    fn full_writer_queue_remains_cancellable_between_polls() {
+        let outgoing = Arc::new(Outgoing::default());
+        assert!(outgoing.try_push(7, vec![0; OUTGOING_QUEUE_BYTES]));
+        let (request, _) = waiter(outgoing.clone(), vec![1, 2]);
+        assert_eq!(request.poll(Duration::ZERO).unwrap(), None);
+        assert!(lock(&request.frame).is_some());
+        drop(request);
+        assert_eq!(lock(&outgoing.state).frames.len(), 1);
+    }
+
+    #[test]
+    fn dropping_a_queued_request_withdraws_only_its_frame() {
+        let outgoing = Arc::new(Outgoing::default());
+        assert!(outgoing.try_push(7, vec![7]));
+        let (request, _) = waiter(outgoing.clone(), vec![1, 2]);
+        assert_eq!(request.poll(Duration::ZERO).unwrap(), None);
+        assert_eq!(lock(&outgoing.state).frames.len(), 2);
+        drop(request);
+        let state = lock(&outgoing.state);
+        assert_eq!(state.frames.len(), 1);
+        assert_eq!(state.frames[0].0, 7);
+        assert_eq!(state.bytes, 1);
+    }
+
+    #[test]
+    fn polling_delivers_a_reply_without_resetting_the_deadline() {
+        let outgoing = Arc::new(Outgoing::default());
+        let (request, sender) = waiter(outgoing, vec![1]);
+        let deadline = request.deadline;
+        assert_eq!(request.poll(Duration::ZERO).unwrap(), None);
+        sender.send(Ok(json!({"ok": true}))).unwrap();
+        assert_eq!(
+            request.poll(Duration::ZERO).unwrap(),
+            Some(json!({"ok": true}))
+        );
+        assert_eq!(request.deadline, deadline);
+    }
+
     #[test]
     fn events_name_their_resource_by_family_and_id() {
         let event = Event {
@@ -725,5 +861,64 @@ mod tests {
             seq: Some(2),
         };
         assert_eq!(unrelated.resource(), None);
+    }
+
+    #[test]
+    fn full_resource_queue_requires_resynchronization_without_blocking_replies() {
+        let routes = Mutex::new(HashMap::new());
+        let (full, stalled) = mpsc::sync_channel(1);
+        let (other, healthy) = mpsc::sync_channel(1);
+        let (general, _) = mpsc::sync_channel(1);
+        lock(&routes).insert(("process".into(), 7), full);
+        lock(&routes).insert(("process".into(), 8), other);
+        let event = |id| Event {
+            event: "process.output".into(),
+            params: json!({"processId": id, "data": ""}),
+            seq: None,
+        };
+        assert!(route(&routes, &general, event(7)));
+        assert!(!route(&routes, &general, event(7)));
+        assert!(!lock(&routes).contains_key(&("process".into(), 7)));
+        assert!(route(&routes, &general, event(8)));
+        assert_eq!(healthy.try_recv().unwrap().resource(), Some(("process", 8)));
+        assert!(stalled.try_recv().is_ok());
+        assert!(matches!(
+            stalled.try_recv(),
+            Err(mpsc::TryRecvError::Disconnected)
+        ));
+    }
+
+    #[test]
+    fn general_overflow_requires_resynchronization_instead_of_losing_watch_changes() {
+        let routes = Mutex::new(HashMap::new());
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let event = || Event {
+            event: "watch.changed".into(),
+            params: json!({}),
+            seq: None,
+        };
+        assert!(route(&routes, &sender, event()));
+        assert!(!route(&routes, &sender, event()));
+        drop(receiver);
+        assert!(route(&routes, &sender, event()));
+    }
+
+    #[test]
+    fn dropped_resource_receiver_does_not_close_the_connection() {
+        let routes = Mutex::new(HashMap::new());
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let (general, _) = mpsc::sync_channel(1);
+        lock(&routes).insert(("process".into(), 7), sender);
+        drop(receiver);
+        assert!(route(
+            &routes,
+            &general,
+            Event {
+                event: "process.output".into(),
+                params: json!({"processId": 7, "data": ""}),
+                seq: None,
+            }
+        ));
+        assert!(!lock(&routes).contains_key(&("process".into(), 7)));
     }
 }

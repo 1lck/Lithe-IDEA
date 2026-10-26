@@ -19,6 +19,8 @@ mod mutations;
 mod patch_exchange;
 mod progress;
 mod rebase_session;
+mod remote_history;
+mod remote_process;
 mod rewrite;
 mod setup;
 mod untracked_directories;
@@ -62,11 +64,11 @@ use crate::protocol::{
     GitWatchContextResponse, GitWorktreeResponse, GitWorktreesResponse,
     WorkspaceRepositoriesResponse, WorkspaceRepositoryResponse,
 };
+use crate::remote::workspace_io as fs;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::{HashSet, VecDeque};
 use std::io::Read;
-use std::io::Write;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -556,6 +558,20 @@ impl TemporaryGitCommitContext {
     }
 
     fn prepare_snapshot(head: Option<&str>) -> Result<Self, CoreError> {
+        if let Some(directory) =
+            fs::remote_temp_directory("lithe-git-snapshot").map_err(line_history_io_error)?
+        {
+            let context = Self {
+                index_path: directory.join("index"),
+                directory,
+                temporary_reference: None,
+            };
+            let contents = head
+                .map(|head| format!("{head}\n"))
+                .unwrap_or_else(|| "ref: refs/heads/lithe-snapshot\n".into());
+            fs::write(context.directory.join("HEAD"), contents).map_err(line_history_io_error)?;
+            return Ok(context);
+        }
         // Creating even an ignored child inside .git changes its parent directory
         // on Windows. A read-only diff must not invalidate the Git watcher that
         // requested it; keep its disposable index outside repository metadata.
@@ -566,16 +582,9 @@ impl TemporaryGitCommitContext {
         let (directory, sequence) = loop {
             let sequence = TEMPORARY_INDEX_SEQUENCE.fetch_add(1, Ordering::Relaxed);
             let candidate = parent.join(format!("{prefix}-{}-{sequence}", std::process::id()));
-            let mut builder = std::fs::DirBuilder::new();
-            builder.recursive(false);
             // Public POSIX temp roots must not expose tracked paths/object IDs.
             // Set permissions at atomic creation, before writing HEAD or index.
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::DirBuilderExt;
-                builder.mode(0o700);
-            }
-            match builder.create(&candidate) {
+            match fs::create_dir_mode(&candidate, false, Some(0o700)) {
                 Ok(()) => break (candidate, sequence),
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
                 Err(error) => {
@@ -608,7 +617,7 @@ impl TemporaryGitCommitContext {
             directory,
             temporary_reference,
         };
-        std::fs::write(context.directory.join("HEAD"), head_contents).map_err(|error| {
+        fs::write(context.directory.join("HEAD"), head_contents).map_err(|error| {
             CoreError::new(
                 ErrorCode::Unknown,
                 "Could not initialize an isolated Git commit context",
@@ -655,7 +664,7 @@ impl TemporaryGitCommitContext {
 
 impl Drop for TemporaryGitCommitContext {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.directory);
+        fs::cleanup_directory(&self.directory);
     }
 }
 
@@ -902,7 +911,7 @@ pub fn workspace_repositories(
             continue;
         }
 
-        let entries = std::fs::read_dir(&canonical_directory).map_err(repository_scan_error)?;
+        let entries = fs::read_dir(&canonical_directory).map_err(repository_scan_error)?;
         let mut child_directories = Vec::new();
         for entry in entries {
             crate::protocol::cancellation::check()?;
@@ -1527,6 +1536,9 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
                     "Invalid clone destination",
                 ));
             }
+            let destination = crate::remote::workspace::remote_path(Path::new(&destination))
+                .to_string_lossy()
+                .into_owned();
             arguments = vec!["clone".into(), "--".into(), remote, destination];
         }
         "stashPush" => {
@@ -1748,6 +1760,16 @@ fn capture_git_process(
 ) -> Result<GitProcessOutput, CoreError> {
     validate_windows_git_path(Path::new(root)).map_err(git_path_error)?;
     crate::protocol::cancellation::check()?;
+    if let Some(result) = remote_process::capture(
+        root,
+        arguments,
+        input.as_deref(),
+        disable_optional_locks,
+        environment,
+        visible,
+    ) {
+        return result;
+    }
     let mut process = git_process();
     let version = lithe_git_host::configuration::version(process.get_program(), || {
         crate::protocol::cancellation::check().is_err()
@@ -3212,7 +3234,7 @@ fn git_directory(root: &str) -> Result<Option<PathBuf>, CoreError> {
 
 /// Reads a single-line numeric counter written by an in-progress rebase.
 fn rebase_counter(directory: &std::path::Path, name: &str) -> Option<usize> {
-    std::fs::read_to_string(directory.join(name))
+    fs::read_to_string(directory.join(name))
         .ok()?
         .trim()
         .parse()
@@ -3239,22 +3261,26 @@ pub fn operation_state(
     if let Some(git_directory) = git_directory(&root)? {
         let rebase_merge = git_directory.join("rebase-merge");
         let rebase_apply = git_directory.join("rebase-apply");
-        let operation_directory = [rebase_merge, rebase_apply]
-            .into_iter()
-            .find(|path| path.exists());
+        let operation_directory = if fs::try_exists(&rebase_merge)? {
+            Some(rebase_merge)
+        } else if fs::try_exists(&rebase_apply)? {
+            Some(rebase_apply)
+        } else {
+            None
+        };
         if let Some(directory) = operation_directory {
             kind = "rebase".to_string();
             step = rebase_counter(&directory, "msgnum");
             total = rebase_counter(&directory, "end");
-            reference = std::fs::read_to_string(directory.join("onto"))
+            reference = fs::read_to_string(directory.join("onto"))
                 .ok()
                 .map(|value| value.trim().to_string())
                 .filter(|value| !value.is_empty());
-        } else if git_directory.join("MERGE_HEAD").exists() {
+        } else if fs::try_exists(git_directory.join("MERGE_HEAD"))? {
             kind = "merge".to_string();
-        } else if git_directory.join("CHERRY_PICK_HEAD").exists() {
+        } else if fs::try_exists(git_directory.join("CHERRY_PICK_HEAD"))? {
             kind = "cherryPick".to_string();
-        } else if git_directory.join("REVERT_HEAD").exists() {
+        } else if fs::try_exists(git_directory.join("REVERT_HEAD"))? {
             kind = "revert".to_string();
         }
     }
@@ -3462,7 +3488,7 @@ struct ScopedLineHistoryDirectory(std::path::PathBuf);
 
 impl Drop for ScopedLineHistoryDirectory {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
+        fs::cleanup_directory(&self.0);
     }
 }
 
@@ -3470,6 +3496,11 @@ impl Drop for ScopedLineHistoryDirectory {
 /// snapshot may hold private source text, so POSIX permissions are applied at
 /// atomic creation exactly like the Git commit context directories.
 fn create_line_history_scratch() -> Result<ScopedLineHistoryDirectory, CoreError> {
+    if let Some(directory) =
+        fs::remote_temp_directory("lithe-line-history").map_err(line_history_io_error)?
+    {
+        return Ok(ScopedLineHistoryDirectory(directory));
+    }
     let prefix = format!("lithe-line-history-{}", std::process::id());
     let mut attempt = 0u128;
     loop {
@@ -3481,7 +3512,7 @@ fn create_line_history_scratch() -> Result<ScopedLineHistoryDirectory, CoreError
         let candidate = std::env::temp_dir().join(format!("{prefix}-{stamp}"));
         let builder = std::fs::DirBuilder::new();
         #[cfg(unix)]
-        let mut builder = {
+        let builder = {
             use std::os::unix::fs::DirBuilderExt;
             let mut builder = builder;
             builder.mode(0o700);
@@ -3930,8 +3961,8 @@ pub fn line_history(request: GitLineHistoryRequest) -> Result<GitLineHistoryResp
     let head_path = scratch.0.join("head.txt");
     let snapshot_path = scratch.0.join("snapshot.txt");
     let head_content = normalize_line_history_newlines(&head_content);
-    std::fs::write(&head_path, &head_content).map_err(line_history_io_error)?;
-    std::fs::write(&snapshot_path, &snapshot).map_err(line_history_io_error)?;
+    fs::write(&head_path, &head_content).map_err(line_history_io_error)?;
+    fs::write(&snapshot_path, &snapshot).map_err(line_history_io_error)?;
 
     // Exit code 1 only reports differences between the two scratch files;
     // anything above that is a genuine failure. Driver overrides keep the
@@ -4212,7 +4243,7 @@ pub(crate) fn simplified_canonical_path(path: PathBuf) -> std::io::Result<PathBu
 /// Validates before filesystem I/O and again after canonicalization (symlinks).
 fn canonicalize_simplified(path: &Path) -> std::io::Result<PathBuf> {
     validate_windows_git_path(path)?;
-    path.canonicalize().and_then(simplified_canonical_path)
+    fs::canonicalize(path).and_then(simplified_canonical_path)
 }
 
 /// Missing worktrees may still be listed, but invalid path identities never fall back.
@@ -4233,7 +4264,7 @@ fn git_path_error(error: std::io::Error) -> CoreError {
 
 fn validate_root(raw_root: &str) -> Result<String, CoreError> {
     let root = canonicalize_simplified(Path::new(raw_root)).map_err(git_path_error)?;
-    if !root.is_dir() {
+    if !fs::is_dir(&root)? {
         return Err(CoreError::new(
             ErrorCode::WorkspaceNotFound,
             "Workspace does not exist",
@@ -4532,7 +4563,7 @@ fn append_git_ignore_patterns(
     }
 
     if let Some(parent) = target_path.parent() {
-        std::fs::create_dir_all(parent).map_err(|error| git_ignore_io_error("create", error))?;
+        fs::create_dir_all(parent).map_err(|error| git_ignore_io_error("create", error))?;
     }
     let mut appended = String::new();
     if !existing.is_empty() && !existing.ends_with(b"\n") {
@@ -4542,18 +4573,13 @@ fn append_git_ignore_patterns(
         appended.push_str(&pattern);
         appended.push('\n');
     }
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(target_path)
-        .map_err(|error| git_ignore_io_error("open", error))?;
-    file.write_all(appended.as_bytes())
+    fs::append(&target_path, appended.as_bytes())
         .map_err(|error| git_ignore_io_error("write", error))?;
     Ok(successful_git_result())
 }
 
 fn read_git_ignore_bytes(path: &Path) -> Result<Vec<u8>, CoreError> {
-    match std::fs::read(path) {
+    match fs::read(path) {
         Ok(content) => Ok(content),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
         Err(error) => Err(git_ignore_io_error("read", error)),
@@ -4636,7 +4662,7 @@ fn git_resolved_path(root: &str, arguments: &[&str], label: &str) -> Result<Path
         ));
     }
     validate_windows_git_path(Path::new(path)).map_err(git_path_error)?;
-    Ok(PathBuf::from(path))
+    Ok(crate::remote::workspace::local_path(Path::new(path)))
 }
 
 fn git_ignore_io_error(action: &str, error: std::io::Error) -> CoreError {
@@ -6150,7 +6176,7 @@ fn worktree_paths_match(left: &str, right: &str) -> bool {
     if left_path == right_path {
         return true;
     }
-    match (left_path.canonicalize(), right_path.canonicalize()) {
+    match (fs::canonicalize(&left_path), fs::canonicalize(&right_path)) {
         (Ok(left), Ok(right)) => left == right,
         _ => false,
     }
@@ -6300,6 +6326,9 @@ fn create_worktree(root: &str, request: &GitWriteRequest) -> Result<GitCommandRe
             ))
         }
     };
+    let destination = crate::remote::workspace::remote_path(Path::new(&destination))
+        .to_string_lossy()
+        .into_owned();
     arguments.extend(["--".into(), destination, source]);
     execute_git(root, &arguments, None)
 }
@@ -6347,6 +6376,9 @@ fn mutate_worktree(root: &str, request: &GitWriteRequest) -> Result<GitCommandRe
         "unlockWorktree" => arguments.push("unlock".into()),
         _ => unreachable!("caller restricts worktree mutations"),
     }
+    let destination = crate::remote::workspace::remote_path(Path::new(&destination))
+        .to_string_lossy()
+        .into_owned();
     arguments.extend(["--".into(), destination]);
     execute_git(root, &arguments, None)
 }
@@ -7687,7 +7719,7 @@ pub fn watch_context(
     request: GitWatchContextRequest,
 ) -> Result<Option<GitWatchContextResponse>, CoreError> {
     let root = canonicalize_simplified(Path::new(&request.root)).map_err(git_path_error)?;
-    if !root.is_dir() {
+    if !fs::is_dir(&root)? {
         return Err(CoreError::new(
             ErrorCode::WorkspaceNotFound,
             "Workspace does not exist",
@@ -7859,7 +7891,7 @@ fn branch_requires_publish(root: &str, branch: &str) -> bool {
 /// Returns the normalized repository status and branch context.
 pub fn status(request: GitStatusRequest) -> Result<GitStatusResponse, CoreError> {
     let root = canonicalize_simplified(Path::new(&request.root)).map_err(git_path_error)?;
-    if !root.is_dir() {
+    if !fs::is_dir(&root)? {
         return Err(CoreError::new(
             ErrorCode::WorkspaceNotFound,
             "Workspace does not exist",
@@ -8042,6 +8074,34 @@ fn pathspec_batches(paths: &[String], budget: usize) -> Vec<&[String]> {
 }
 
 fn run_git(directory: &Path, arguments: &[&str]) -> Result<std::process::Output, CoreError> {
+    if crate::remote::workspace::is_remote() {
+        let output = capture_git_process(
+            &directory.to_string_lossy(),
+            &arguments
+                .iter()
+                .map(|value| value.to_string())
+                .collect::<Vec<_>>(),
+            None,
+            true,
+            &[],
+            false,
+        )?;
+        #[cfg(unix)]
+        let status = {
+            use std::os::unix::process::ExitStatusExt;
+            std::process::ExitStatus::from_raw(output.exit_code << 8)
+        };
+        #[cfg(windows)]
+        let status = {
+            use std::os::windows::process::ExitStatusExt;
+            std::process::ExitStatus::from_raw(output.exit_code as u32)
+        };
+        return Ok(std::process::Output {
+            status,
+            stdout: output.stdout,
+            stderr: output.stderr,
+        });
+    }
     // Status and path discovery are read-only from Lithe's point of view. Git
     // may otherwise refresh its optional index data while answering a query,
     // which emits `.git/index` events into the native watcher and can trigger

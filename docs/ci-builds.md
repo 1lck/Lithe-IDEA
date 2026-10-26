@@ -395,6 +395,30 @@ HTTP/SSE 响应体和 stdio 元数据限制为 2 MiB，原生文件由现有平�
 `remote` 中记住的密码或口令、`Application Support/Lithe/RemoteWorkspaces/` 下打开远程文件夹时
 创建的空占位根目录，以及远端主机上 `~/.lithe-server/bin/` 中按 SHA-256 校验后复用的服务。
 它们属于用户资料或远端主机，没有构建身份，所有复用阶段均拒绝复制。
+远端常驻服务的 socket、锁和日志使用“会话键 + 完整二进制 SHA-256”的散列作为身份；
+即使版本号不变，重新构建后也不会连回旧二进制启动的服务。这些路径仍属于远端用户状态，
+不复制进工作树或应用安装目录。
+
+远程 Git 的临时索引、行历史快照，以及连接内存中的运行时、Shell、Git 可执行文件和搜索索引
+登记为 `remote-workspace-session-state`。临时文件通过主机的临时目录或 Git common directory
+创建，由单次操作清理；本地占位根目录不保存远端文件。探测与索引快照按连接隔离，显式刷新或
+替换连接后重建。它们没有可校验的构建身份，所有复用阶段在调用校验器前拒绝复制。
+运行时写入仅发生在远端可写目录或进程内存中，不影响签名、安装资源或 Sparkle delta。
+文件树复制还会在远端目标父目录创建 `.lithe-copy-<pid>-<sequence>/` 私有暂存目录，
+操作完成后清理；它与文件监听的连接资源同属 `remote-workspace-session-state`，没有复用阶段。
+移到废纸篓的内容和恢复元数据属于主机账户（Linux 的 XDG 数据目录/卷废纸篓，macOS 的系统 Trash），
+由系统和用户保管，不是缓存或构建输入，也不复制到本机工作树。
+
+远端构建输出、插件运行快照和分块上传同样登记在 `remote-workspace-session-state`，
+没有跨工作树复制阶段。上传在目标父目录用 `.lithe-upload-<pid>-<sequence>` 暂存，
+按连接持有，失败、断线或五分钟期限后删除；SHA-256 与架构校验只授权本次运行。
+完整插件快照位于远端 `~/.lithe-server/plugin-runs/<UUID>/package`，进程销毁后释放；
+客户端崩溃或断线后的完整快照回收仍为 TODO。插件配置、索引等持久状态位于远端
+`~/.lithe-server/state/plugins/<plugin-hash>/<provider-scope>/<provider-hash>/workspaces/<root-hash>`，
+由该工作区和提供者持有，构建临时输出按运行清理。异平台包下载复用市场下载器，
+在平台临时目录解压，传输完成或失败后删除；校验来源包括市场归档 SHA-256、安装来源、
+已批准命令、声明逐字节一致性和签名。上述内容没有版本/平台/架构/工具链构建 stamp，
+复用脚本在校验和复制前拒绝这些路径；运行时不改写本机或远端安装资源，不影响签名或 Sparkle delta。
 
 MCP 编辑器、工具面板和指令页的原生验收截图分别输出到
 `.artifacts/test-stability/mcp-ui/` 与 `.artifacts/test-stability/instructions-ui/`，随

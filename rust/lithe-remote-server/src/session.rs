@@ -46,6 +46,7 @@ fn start_reaper(session: std::sync::Weak<Session>) -> std::io::Result<()> {
             };
             session.processes.reap();
             session.terminals.reap();
+            session.uploads.expire();
         })
         .map(|_| ())
 }
@@ -61,6 +62,7 @@ pub(crate) struct Session {
     pub(crate) watches: WatchTable,
     pub(crate) tunnels: TunnelTable,
     pub(crate) walks: WalkTable,
+    pub(crate) uploads: crate::upload::UploadTable,
     /// Requests running on worker threads, drained before the session ends.
     pub(crate) workers: InFlight,
     /// Whether any client completed a handshake before, which makes the
@@ -86,6 +88,7 @@ impl Session {
             watches: WatchTable::new(),
             tunnels: TunnelTable::new(),
             walks: WalkTable::new(),
+            uploads: crate::upload::UploadTable::default(),
             workers: InFlight::default(),
             had_client: AtomicBool::new(false),
             next_connection: AtomicU64::new(0),
@@ -137,6 +140,7 @@ impl Session {
     /// local sockets are gone; walks end because their results would only
     /// fill the replay buffer.
     pub(crate) fn release_connection_resources(&self, connection: u64) {
+        self.uploads.release(connection);
         self.tunnels.close_owned_by(connection);
         self.walks.cancel_owned_by(connection);
     }
@@ -154,5 +158,6 @@ impl Session {
         if unfinished > 0 {
             eprintln!("lithe-remote-server: {unfinished} requests did not finish");
         }
+        self.uploads.clear();
     }
 }

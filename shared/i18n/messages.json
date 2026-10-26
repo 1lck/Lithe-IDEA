@@ -88232,6 +88232,211 @@
         "key": "This folder is empty",
         "arguments": []
       }
+    },
+    {
+      "id": "native.remoteTerminalAsyncStart",
+      "description": "Remote terminal failure",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The remote terminal must be started asynchronously.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.remoteTerminalInvalidDirectory",
+      "description": "Remote terminal failure",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The terminal directory is outside the remote workspace.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.remoteTerminalClosedBeforeStart",
+      "description": "Remote terminal failure",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The remote terminal closed before it started.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.remoteTerminalInputBusy",
+      "description": "Remote terminal failure",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The remote terminal is busy. Wait before sending more input.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.remoteGitMixedHosts",
+      "description": "Remote workspace host isolation",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "A Git operation cannot span different workspace hosts.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.remoteGitMixedLocal",
+      "description": "Remote workspace host isolation",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "A Git operation cannot span local and remote workspaces.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.runtimeDiscoveryFailed",
+      "description": "Workspace host runtime discovery",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Runtime discovery failed",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.remoteRuntimeDiscoveryFailed",
+      "description": "Workspace host runtime discovery",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not discover runtimes on the remote host. Check the connection and refresh.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.runtimeDiscoveryRecovery",
+      "description": "Workspace host runtime discovery",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Check the workspace connection and refresh the available runtimes.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.remoteRuntimeToolMissing",
+      "description": "Workspace host runtime discovery",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The required tool is not available on the remote host.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.remoteRuntimeToolRecovery",
+      "description": "Workspace host runtime discovery",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Install the tool on the remote host, add it to the login PATH, and refresh the available runtimes.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.remoteShellDiscoveryFailed",
+      "description": "Remote terminal shell discovery failure and recovery",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not discover shells on the remote host. Check the connection and try again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "remote.copyIncomplete",
+      "description": "A remote directory copy skipped sockets, devices or named pipes.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Some special files could not be copied",
+        "arguments": []
+      }
+    },
+    {
+      "id": "remote.pendingDocumentsLimit",
+      "description": "Bounded document snapshots while a remote backend is starting.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Remote pending documents exceeded the startup limit. Wait for the language server to start.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "remote.pluginUnapproved",
+      "description": "Remote plugin deployment validation failure.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The remote plugin package is not part of the approved installation.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "remote.pluginHostUnsupported",
+      "description": "Remote plugin deployment validation failure.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This host cannot receive a compatible plugin package. Update the remote server.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "remote.pluginApprovalRequired",
+      "description": "Remote plugin deployment validation failure.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The remote plugin package changes approved commands or permissions. Install and approve that version first.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "remote.pluginPlatformUnavailable",
+      "description": "Remote plugin deployment validation failure.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Plugin %@ has no approved package for %@. Install a compatible plugin version.",
+        "arguments": [
+          "plugin",
+          "platform"
+        ]
+      },
+      "parameters": {
+        "plugin": "string",
+        "platform": "string"
+      }
     }
   ]
 }

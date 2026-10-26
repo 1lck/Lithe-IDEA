@@ -3463,6 +3463,13 @@ the remote server running. Requests over it take `sessionId`:
 | `remote.readDir` | `{ sessionId, path }` | the remote protocol's `fs.readDir` result |
 | `remote.readFile` | `{ sessionId, path }` | `{ data (base64), size, modifiedMs }`; files over 16 MiB are `not_supported` |
 | `remote.writeFile` | `{ sessionId, path, data, expected? }` | `{ status: "saved", size, modifiedMs }` or `{ status: "conflict" }` |
+| `remote.hostRequest` | `{ sessionId, method, params }` | the finite host method's result, including JSON `null` |
+| `remote.hostInfo` | `{ sessionId }` | the original connection's handshake `host`, including OS, architecture, home and features |
+| `remote.uploadFile` | `{ sessionId, sourcePath, path, sha256, mode }` | verified `{ size, sha256 }` |
+| `remote.runWatch` | `{ sessionId, params: { root, excludeNames? } }` | waits until root removal or cancellation; relays `watch.started`, `watch.changed`, `watch.error` |
+| `remote.runProcess` | `{ sessionId, params: { argv, cwd?, environment?, env?, pipeStdin? } }` | leader exit; relays `process.started`, `process.output`, `process.exit` |
+| `remote.runTerminal` | `{ sessionId, params: { argv?, cwd?, env?, columns, rows } }` | leader exit; relays `terminal.started`, `terminal.output`, `terminal.exit` |
+| `remote.captureProcess` | `{ sessionId, params, timeoutMilliseconds, maxOutputBytes }` | base64 `stdout`, `stderr`, nullable `exitCode` and `signal` |
 
 `remote.writeFile` replaces the file atomically on the host. With
 `expected` (`{ size, modifiedMs }` from the read) a changed file is a
@@ -3470,6 +3477,33 @@ the remote server running. Requests over it take `sessionId`:
 `workspace_not_found`, a denied one `permission_denied`. A broken connection
 fails with `connection_closed` and is forgotten, so the host reconnects; an
 unknown or closed `sessionId` is also `connection_closed`.
+
+`remote.hostRequest` accepts finite filesystem, environment and port queries,
+plus controls of existing processes and terminals. Creating a watch, process,
+terminal, walk or tunnel through that command is `invalid_request`; creation
+requires an owner that subscribes before sending the start request. Streamed
+Core events use `{ type: "remote", event, params }`. Resource IDs are allocated
+by Core and replace any caller-supplied ID. Startup output is bounded to 8 MiB.
+Cancellation, invalid event data and disconnect release the subscription and
+stop the host resource with a two-second cleanup deadline.
+
+Watch startup emits `watch.started` before buffered changes. The caller rescans
+on startup, `overflow`, or watch error; `ROOT_REMOVED` ends the call. Watch paths
+remain absolute host paths until the native adapter maps the owning workspace
+back to placeholder URLs. A limit error preserves the partially working watch
+and requests a rescan. Process capture requires a 1–30,000 ms deadline and
+1–8 MiB output budget, rejects open stdin, and owns cleanup on overflow/timeout.
+
+`remote.uploadFile` reads a native absolute regular file and streams it to the
+specified host using the optional `upload` feature. It verifies source size,
+chunk acknowledgements and the commit receipt; failure attempts an uncancelled
+abort with a two-second deadline. Each host call has a 30-second deadline, while
+the host imposes the five-minute staging lifetime. This command does not approve
+plugin code: the platform package adapter validates trust, version, manifest and
+target architecture before invoking it. Target publication never overwrites.
+Successful upload ownership transfers to the caller, which removes its run
+snapshot after the process has ended. The native source and installation remain
+read-only. See the staged upload limits in `remote-workspace-protocol-v1.md`.
 
 ### Git patch discovery and rebase amendment preconditions
 
