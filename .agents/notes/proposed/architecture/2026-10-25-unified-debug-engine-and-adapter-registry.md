@@ -29,7 +29,7 @@
 
 - **不自研调试器。** 符号解析、ptrace / Mach 异常端口 / Windows Debug API、各 CPU 架构的断点和单步，都由 GDB、LLDB 等上游负责。GCC 是编译器；GCC 编出来的程序用 GDB 或 LLDB 调试。
 - **不重建项目模型。** Java 的主类和 classpath 来自 JDT，Python 解释器来自 Run，C/C++/Rust 产物来自 Build/Run。
-- **不另造插件协议。** 启动声明复用 `serverProcess`、启动模板、能力版本和安装审查，详见[声明草案](../../../../shared/proposals/debug-adapters-1210/README.md)。
+- **不另造插件协议。** 启动声明复用 `serverProcess`、启动模板、能力版本和安装审查，详见[声明草案](../../../../shared/proposals/debug-adapters-1210/README.md)（正式契约见 `shared/contracts/plugins/v1/README.md`）。
 - **现有行为是迁移基线，不能丢。** 包括 Java 热替换、JUnit/TestNG、调试使用 Run 选中的 JDK、子调试会话与 source map 位置透传、断点先于 launch 入队、停止与清理顺序。
 
 ## 提案
@@ -97,7 +97,7 @@ Registry 注册时不启动程序做验证。一个适配器在接入验收中�
 
 ### 5. Registry 与插件声明
 
-完整字段和拒绝规则见[声明草案](../../../../shared/proposals/debug-adapters-1210/README.md)，这里只记录决策：
+完整字段和拒绝规则见[声明草案](../../../../shared/proposals/debug-adapters-1210/README.md)（正式契约见 `shared/contracts/plugins/v1/README.md`），这里只记录决策：
 
 - 插件只写一个 `plugin.json.debugAdapters` 块，必填 `id`、`displayName`、`launch`。`launch` 由两部分组成：复用 `serverProcess` 的进程，加上 `stdio`、`tcpAnnounced` 或 `tcpPort` 三种传输之一。
 - 拟定 API 4、`requires.debugAdapters: 1`、`debug.launch` / `debug.attach` 权限。需要 Run 选中的运行时时，使用 `serverProcess: 2` 的 `runSelectedRuntime`。
@@ -132,6 +132,8 @@ macOS 多会话（本阶段）：宿主在 `DebugAdapterSessionManager` 里实�
 界面采用折叠模式，参照 IDEA 把切换放在“线程与变量”里，而不是在标题栏堆标签：标题栏始终只有一个会话标签；出现第二个会话后，“线程与变量”左上角的选择器多一段“会话”，子会话紧跟父会话并带 “↳” 前缀、状态圆点（运行绿、暂停橙、失败红），下面接当前会话的线程列表；选择器按钮显示“当前会话 · 当前线程”。停止单个会话放在选择器的右键菜单里。被否方案：标题栏多标签条，会话一多就挤占标题栏，也让线程切换和会话切换分在两个地方。
 
 `makeChildSession` 是可选覆盖：默认子会话就是 provider 的 `makeSession` 再开一个会话，宿主因此总会声明 `supportsStartDebuggingRequest`。这是有意取舍：旧调试内核要整体被替换，不为兼容旧行为保留休眠开关。代价是 debugpy 这类通过 `connect` 主机和端口附加的适配器，在没有 TCP 子会话传输前，子会话会被忽略该端点，多进程 Python 调试暂时不可用；由具体语言插件覆盖 `makeChildSession` 补上。Swift 侧仍未消费 `projection`、`childSession*` 与 `disabledCapabilities`。
+
+P3 的声明层已在 Rust Core 落地：`plugin.json.debugAdapters[]` 作为插件 API 4 进入正式契约（`shared/contracts/plugins/v1/`），`debug/adapters.rs` 校验声明、安装包资源和启动计划，C01–C09、S01–S02 拒绝用例由 `fixtures/debug-adapter-rejections.json` 驱动 Core 测试。启动计划与安装检查暂无非测试调用方，由下一步 macOS 声明式 Provider（先 stdio）接入。
 
 P0–P5 完成后关闭 #1210。可选扩展、插件依赖和私有 resolver 都不是关闭条件。
 
