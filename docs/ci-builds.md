@@ -730,6 +730,15 @@ Windows 命令模型的 `<windows-app-local-data>/plugin-state/<plugin-id>/build
 `app.lithe.windows.host-acceptance` 用户配置走 `plugin-host-acceptance-state` 排除路由：
 每次在目标工作树重新生成，无可复用 identity，不跨 worktree 复制；驱动回收监听器、进程和隔离用户数据，
 报告留在本次验证目录。HTTPS 使用已有可信证书，不复制私钥或改系统信任，也不改发行资源及签名基线。
+Windows 项目生成器的 `<workspace-parent>/.<project-name>.lithe-creating-<token>/` 暂存及最终用户项目
+走 `plugin-generator-transactions` 排除路由：由当前窗口和原生操作独占，先在用户选择的目标旁生成，
+验证后原子不覆盖发布；取消或失败清理同一 staging，清理失败保留操作与 NativeLease 供重试。
+没有版本/平台/架构/工具链复用身份，任何复制阶段均拒绝；不写插件包或发行资源，不影响签名与更新基线。
+Windows 插件设置的 `<windows-app-local-data>/plugin-settings/<plugin-id>.json`、工作区
+`.lithe/plugin-settings.json` 及同源 `<settings-source>.json.<pid>-<sequence>.tmp/.backup`
+走 `plugin-settings-state` 排除路由。真实偏好由当前用户持有，保存事务持有临时文件和恢复备份；
+打开只读，确认保存时比较原始字节、保留无关值与权限、原子替换并重读。失败清除自己的临时文件，
+恢复不能确认时保留唯一备份并提示恢复。没有构建 identity，不能跨工作树共享；不写发行目录、签名或更新基线。
 生成资源只有在构建流程写入可验证的源码、配置、平台、架构和工具链 identity
 stamp 后才能加入注册表，不能仅凭目录存在就跨 worktree 复制。
 

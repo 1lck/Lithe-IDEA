@@ -9,6 +9,11 @@ import type {
   BuildModelReview,
   BuildModelLoadResult,
 } from "./build-systems-types";
+import { validBuildProviderReview } from "./build-systems-types";
+import {
+  beginBuildProviderLanguage,
+  type BuildProviderLanguageInitialization,
+} from "./build-provider-language";
 import {
   BUILD_SYSTEMS_STORE_KEY,
   buildSystemViewId,
@@ -64,6 +69,8 @@ interface PendingModelLoad {
   controller: AbortController;
   cancellation: Promise<void> | null;
   cancelError: unknown;
+  sharedInitialization?: BuildProviderLanguageInitialization;
+  cancelNative: (operationId: string) => Promise<void>;
 }
 const pendingModelLoads = new Set<PendingModelLoad>();
 
@@ -83,11 +90,11 @@ function requestModelCancellation(pending: PendingModelLoad): Promise<void> {
   if (!pending.operationId) return Promise.resolve();
   if (pending.cancellation) return pending.cancellation;
   pending.cancelError = null;
-  const cancellation = Promise.resolve().then(() =>
-    invoke<void>("declarative_plugins_build_cancel_operation", {
-      operationId: pending.operationId,
-    }),
-  );
+  const cancellation = Promise.resolve().then(async () => {
+    await pending.cancelNative(pending.operationId!);
+    await pending.sharedInitialization?.cleanup();
+    pendingModelLoads.delete(pending);
+  });
   pending.cancellation = cancellation;
   void cancellation.catch((error: unknown) => {
     pending.cancelError = error;
@@ -106,15 +113,30 @@ async function finishModelLoad(pending: PendingModelLoad, completed: boolean): P
     // Cleanup failure takes priority: the UI must retain a retryable Stop
     // until native confirms that the operation has ended.
     throw new BuildModelCancellationError(failureMessage(error));
-  } finally {
-    // Keep cleanup discoverable until it settles so a simultaneous Stop
-    // joins the owned request rather than dispatching another native cancel.
-    pendingModelLoads.delete(pending);
   }
+  // A failed cleanup keeps both the native port and shared-language retry
+  // reachable. Concurrent Stop calls join it until cleanup really succeeds.
+  pendingModelLoads.delete(pending);
 }
 
 /** Approval owns its dialog until resolved or aborted by a workspace/lifecycle change. */
 export type ApproveBuildModel = (review: BuildModelReview, signal: AbortSignal) => Promise<boolean>;
+export interface BuildModelNativePort {
+  prepare(arguments_: {
+    workspaceRoot: string;
+    pluginId: string;
+    buildSystemId: string;
+    root: string;
+    runtimeExecutables: Record<string, string>;
+  }): Promise<BuildModelReview>;
+  load(operationId: string): Promise<BuildModelLoadResult>;
+  cancel(operationId: string): Promise<void>;
+}
+const buildModelNative: BuildModelNativePort = {
+  prepare: (arguments_) => invoke("declarative_plugins_build_prepare_model", arguments_),
+  load: (operationId) => invoke("declarative_plugins_build_load_model", { operationId }),
+  cancel: (operationId) => invoke("declarative_plugins_build_cancel_operation", { operationId }),
+};
 
 async function awaitModelApproval(
   review: BuildModelReview,
@@ -141,10 +163,15 @@ export async function loadBuildModel(
   root: string,
   approve: ApproveBuildModel,
   runtimeExecutables: Record<string, string> = {},
-  options: { signal?: AbortSignal; onPrepared?: (review: BuildModelReview) => void } = {},
+  options: {
+    signal?: AbortSignal;
+    onPrepared?: (review: BuildModelReview) => void;
+    native?: BuildModelNativePort;
+  } = {},
 ): Promise<BuildModelLoadResult | null> {
   const { store, workspaceId, workspaceRoot, isCurrent } = initiatingStore();
   if (!workspaceRoot) return null;
+  const native = options.native ?? buildModelNative;
   const pending: PendingModelLoad = {
     workspaceId,
     pluginId,
@@ -152,6 +179,7 @@ export async function loadBuildModel(
     controller: new AbortController(),
     cancellation: null,
     cancelError: null,
+    cancelNative: native.cancel,
   };
   pendingModelLoads.add(pending);
   let request: ReturnType<BuildSystemsState["actions"]["beginRequest"]> | null = null;
@@ -192,7 +220,7 @@ export async function loadBuildModel(
   try {
     const review = await enqueueRegistryOperation(() =>
       stillCurrent()
-        ? invoke<BuildModelReview>("declarative_plugins_build_prepare_model", {
+        ? native.prepare({
             workspaceRoot,
             pluginId,
             buildSystemId,
@@ -209,7 +237,8 @@ export async function loadBuildModel(
       review.buildSystemId !== buildSystemId ||
       review.root !== root ||
       review.workspaceRoot !== workspaceRoot ||
-      (generation !== null && review.generation !== generation)
+      (generation !== null && review.generation !== generation) ||
+      !validBuildProviderReview(review)
     ) {
       throw new Error("plugin.build.staleContext");
     }
@@ -220,15 +249,16 @@ export async function loadBuildModel(
     )
       return null;
     // Only this operation's own request may advance the captured sequence.
+    pending.sharedInitialization = beginBuildProviderLanguage(review, pending.controller.signal);
+    await pending.sharedInitialization.ready;
+    if (!stillCurrent()) return null;
     // Competing edits/refreshes invalidate consent before their response lands.
     expectedRequestSequence += 1;
     request = store.getState().actions.beginRequest();
     if (!stillCurrent()) return null;
     // Execution must not occupy registryTail: refresh/revoke/close must be
     // able to reach native cancellation while a model process is running.
-    const result = await invoke<BuildModelLoadResult>("declarative_plugins_build_load_model", {
-      operationId: review.operationId,
-    });
+    const result = await native.load(review.operationId);
     if (!stillCurrent()) return null;
     if (
       result.operationId !== review.operationId ||

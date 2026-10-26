@@ -10,6 +10,12 @@ const ownedByThisWindow = new Set<string>();
 const revokedIdeWorkspaces: string[] = [];
 const stoppedDeclarativeWorkspaces: string[] = [];
 const closedPluginWorkspaces: string[] = [];
+const closedVcsWorkspaces: string[] = [];
+mock.module("@/features/vcs/vcs-root-service", () => ({
+  closeWorkspaceVcsRoots: async (id: string) => {
+    closedVcsWorkspaces.push(id);
+  },
+}));
 const executionCleanup: string[] = [];
 mock.module("@/platform/tauri-core", () => ({
   invoke: async (command: string, args: { workspaceId: string }) => {
@@ -112,6 +118,7 @@ beforeEach(() => {
   revokedIdeWorkspaces.length = 0;
   stoppedDeclarativeWorkspaces.length = 0;
   closedPluginWorkspaces.length = 0;
+  closedVcsWorkspaces.length = 0;
   executionCleanup.length = 0;
 });
 afterEach(() => {
@@ -119,6 +126,20 @@ afterEach(() => {
 });
 
 const descriptor = { path: "C:/projects/example", name: "example" };
+
+test("workspace close retires passive VCS sources before disposing its files", async () => {
+  await openWorkspaceRuntime({ descriptor, initialize: async () => true });
+  const id = createProjectTabId(descriptor.path);
+  expect(
+    await closeWorkspaceRuntime(id, {
+      dispose: async () => {
+        expect(closedVcsWorkspaces).toContain(id);
+      },
+      showWelcome: async () => {},
+    }),
+  ).toBe(true);
+  expect(closedVcsWorkspaces).toEqual([id]);
+});
 
 test("a project owned by another window does not mutate the current workspace", async () => {
   redirected = true;

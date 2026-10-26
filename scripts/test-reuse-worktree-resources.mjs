@@ -227,6 +227,34 @@ try {
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /jdt-maven-settings.*cannot be reused/);
   });
+  await test("plugin settings and replacement recovery files stay user-owned", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "plugin-settings-state");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.includes("<workspace>/.lithe/plugin-settings.json"));
+    assert.ok(resource.locations.some(location => location.endsWith(".backup")));
+    assert.match(resource.reason, /permissions/);
+    const listed = reuse(["--list"]);
+    assertSucceeded(listed);
+    assert.ok(!listed.stdout.includes(resource.id));
+    const refused = reuse(["--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /plugin-settings-state.*cannot be reused/);
+  });
+  await test("generator staging and user projects cannot be copied as build resources", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "plugin-generator-transactions");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.includes("<workspace-parent>/.<project-name>.lithe-creating-<token>/"));
+    assert.match(resource.identity, /operation/);
+    assert.match(resource.reason, /NativeLease/);
+    const listed = reuse(["--list"]);
+    assertSucceeded(listed);
+    assert.ok(!listed.stdout.includes(resource.id));
+    const refused = reuse(["--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /plugin-generator-transactions.*cannot be reused/);
+  });
   await test("plugin web state has no transferable build identity or copy stage", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const resource = registry.excludedResources.find(item => item.id === "plugin-web-state");

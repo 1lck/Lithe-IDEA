@@ -38,6 +38,7 @@ fn context() -> ProviderContext {
     ProviderContext {
         window: "workspace-a".into(),
         workspace_root: "/fixture/workspace".into(),
+        launch_workspace_root: "/fixture/workspace".into(),
         generation: 7,
         plugin_id: "fixture.provider".into(),
         package_identity: "package:whole-digest".into(),
@@ -54,6 +55,7 @@ fn entry(core: Arc<ScriptedCore>) -> Arc<Transport> {
         language: None,
         launch_plan: None,
         status: Mutex::new(Status {
+            generation: 7,
             session_id: Some("session-1".into()),
             launch_finished: true,
             ready: true,
@@ -78,6 +80,7 @@ fn plan() -> Value {
 fn identity_rejects_cross_instance_and_build_system_before_request() {
     let transport = entry(Arc::new(ScriptedCore::default()));
     let binding = ProviderBinding {
+        approval_plan: json!({}),
         transport,
         context: context(),
     };
@@ -385,8 +388,96 @@ fn real_core_contract_plans_distinguish_dedicated_and_same_plugin_language_sourc
         let transport=entry(Arc::new(ScriptedCore::default()));
         let mut context=context();
         context.build_system=manifest["buildSystems"][0]["id"].as_str().unwrap().into();
-        let binding=ProviderBinding{transport,context};
+        let binding=ProviderBinding{transport,context,approval_plan:json!({})};
         let forwarded=binding.request_payload("core-plan",&model["plan"],500).unwrap();
         assert_eq!(forwarded["params"],model["plan"]["provider"]["params"]);
     }
+}
+
+#[test]
+fn cancelling_one_initialization_waiter_preserves_the_other_waiter() {
+    let transport = entry(Arc::new(ScriptedCore::default()));
+    let owners = Arc::new(Inner::default());
+    let first = super::runtime::OpenGuard::new(owners.clone(), transport.clone());
+    let mut second = super::runtime::OpenGuard::new(owners, transport.clone());
+    assert_eq!(transport.status.lock().unwrap().open_waiters, 2);
+    drop(first);
+    assert!(!transport.status.lock().unwrap().revoked);
+    second.commit();
+    assert!(transport.status.lock().unwrap().bound);
+    assert_eq!(transport.status.lock().unwrap().open_waiters, 0);
+}
+
+#[tokio::test]
+async fn cancelling_one_dispatched_request_does_not_cancel_a_shared_waiter() {
+    #[derive(Default)]
+    struct Commands {
+        values: Mutex<Vec<(String, Value)>>,
+        changed: tokio::sync::Notify,
+    }
+    impl Commands {
+        async fn until(&self, count: usize) {
+            tokio::time::timeout(std::time::Duration::from_secs(2), async {
+                loop {
+                    let changed = self.changed.notified();
+                    tokio::pin!(changed);
+                    changed.as_mut().enable();
+                    if self.values.lock().unwrap().len() >= count {
+                        return;
+                    }
+                    changed.await;
+                }
+            })
+            .await
+            .expect("native dispatch gate");
+        }
+    }
+    impl Core for Commands {
+        fn execute(&self, command: &str, payload: Value) -> Reply {
+            self.values.lock().unwrap().push((command.into(), payload));
+            self.changed.notify_waiters();
+            Ok(json!({}))
+        }
+        fn start(&self, _: Value, _: &dyn Fn(&str)) -> Reply {
+            panic!("sharing must never launch another process")
+        }
+    }
+    let core = Arc::new(Commands::default());
+    let mut transport = entry(Arc::new(ScriptedCore::default()));
+    Arc::get_mut(&mut transport).unwrap().core = core.clone();
+    let mut first = Box::pin(super::runtime::dispatch_request(
+        &transport,
+        "first".into(),
+        json!({"operationId":"first"}),
+        5000,
+    ));
+    let mut second = Box::pin(super::runtime::dispatch_request(
+        &transport,
+        "second".into(),
+        json!({"operationId":"second"}),
+        5000,
+    ));
+    // Both requests reach Core before cancellation; the observable dispatch
+    // gate establishes ordering without scheduler-turn or wall-clock guesses.
+    tokio::select! {
+        result=&mut first=>panic!("first completed before reply: {result:?}"),
+        result=&mut second=>panic!("second completed before reply: {result:?}"),
+        _=core.until(2)=>{},
+    }
+    drop(first);
+    core.until(3).await;
+    {
+        let values = core.values.lock().unwrap();
+        assert_eq!(values[2].0, "lsp.cancelOperation");
+        assert_eq!(values[2].1["operationId"], "first");
+    }
+    transport.observe(&json!({"type":"requestCompleted","sessionId":"session-1","operationId":"first","result":{"value":{"late":true}}}));
+    transport.observe(&json!({"type":"requestCompleted","sessionId":"session-1","operationId":"second","result":{"value":{"kept":true}}}));
+    let reply = tokio::time::timeout(std::time::Duration::from_secs(2), second)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(reply, json!({"kept":true}));
+    assert!(!transport.status.lock().unwrap().revoked);
+    core.until(4).await; // Drain the final harmless cancellation before teardown.
 }

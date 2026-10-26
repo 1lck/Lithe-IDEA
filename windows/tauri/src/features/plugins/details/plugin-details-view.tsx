@@ -23,7 +23,11 @@ export interface PluginDetailsPanelProps {
   selection: PluginDetailsSelection | null;
   workspacePath: string | null;
   service?: PluginDetailsService;
-  onChanged?: (selection: PluginDetailsSelection, workspacePath: string | null, operation: PluginDetailsOperation) => void;
+  onChanged?: (
+    selection: PluginDetailsSelection,
+    workspacePath: string | null,
+    operation: PluginDetailsOperation,
+  ) => void;
 }
 
 /** Load-owning wrapper. The management page supplies the selected catalog identity. */
@@ -70,7 +74,10 @@ export function PluginDetailsPanel({
   }
   if (state.phase === "failed") {
     return (
-      <div role="alert" className="m-4 rounded-md border border-destructive/40 bg-destructive/8 p-3 ui-text-sm">
+      <div
+        role="alert"
+        className="m-4 rounded-md border border-destructive/40 bg-destructive/8 p-3 ui-text-sm"
+      >
         <p className="text-destructive">{state.error}</p>
         <button
           type="button"
@@ -112,7 +119,10 @@ export function PluginDetailsView({
   const description = details.localizedDescriptions[language] ?? details.description;
 
   return (
-    <section className="flex min-w-0 flex-1 flex-col overflow-hidden" aria-label={details.displayName}>
+    <section
+      className="flex min-w-0 flex-1 flex-col overflow-hidden"
+      aria-label={details.displayName}
+    >
       <header className="flex flex-wrap items-start justify-between gap-3 border-b border-border px-4 py-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -123,13 +133,12 @@ export function PluginDetailsView({
             {[details.vendorName, details.identity.version].filter(Boolean).join(" · ")}
           </p>
         </div>
-        <PluginDetailActions
-          details={details}
-          operation={operation}
-          onOperation={onOperation}
-        />
+        <PluginDetailActions details={details} operation={operation} onOperation={onOperation} />
         {details.rejection && (
-          <p role="alert" className="w-full rounded-md bg-destructive/8 p-2 text-destructive ui-text-sm">
+          <p
+            role="alert"
+            className="w-full rounded-md bg-destructive/8 p-2 text-destructive ui-text-sm"
+          >
             {details.rejection.code}: {details.rejection.message}
           </p>
         )}
@@ -141,7 +150,9 @@ export function PluginDetailsView({
           </p>
         )}
         {operationError && (
-          <p role="alert" className="w-full text-destructive ui-text-sm">{operationError}</p>
+          <p role="alert" className="w-full text-destructive ui-text-sm">
+            {operationError}
+          </p>
         )}
       </header>
       <PluginDetailTabBar value={tab} details={details} onChange={setTab} />
@@ -153,11 +164,12 @@ export function PluginDetailsView({
       >
         {tab === "overview" && <OverviewTab details={details} description={description} />}
         {tab === "features" && <FeaturesTab features={details.features} />}
-        {tab === "settings" && (
-          <SettingsTab details={details} workspacePath={workspacePath} />
-        )}
+        {tab === "settings" && <SettingsTab details={details} workspacePath={workspacePath} />}
         {tab === "permissions" && (
-          <PermissionsAndProgramsTab permissions={details.permissions} programs={details.programs} />
+          <PermissionsAndProgramsTab
+            permissions={details.permissions}
+            programs={details.programs}
+          />
         )}
         {tab === "versions" && <VersionsAndSourceTab details={details} />}
       </div>
@@ -267,31 +279,50 @@ function PluginDetailTabBar({
   );
 }
 
-export function OverviewTab({ details, description }: { details: PluginDetailsModel; description: string | null }) {
+export function OverviewTab({
+  details,
+  description,
+}: {
+  details: PluginDetailsModel;
+  description: string | null;
+}) {
   const { t } = useTranslation();
   return (
     <div className="flex flex-col gap-4 ui-text-sm">
       {description && <p className="max-w-3xl whitespace-pre-wrap">{description}</p>}
-      <DefinitionList rows={[
-        [t("settings.declarativePluginDetails.field.status"), statusText(details, t)],
-        [t("settings.declarativePluginDetails.field.provides"), details.features.map((feature) => feature.title).join(", ") || "—"],
-        [t("settings.declarativePluginDetails.field.source"), sourceText(details.versions.current, t)],
-        [t("settings.declarativePluginDetails.field.settings"), String(details.settings.length)],
-      ]} />
+      <DefinitionList
+        rows={[
+          [t("settings.declarativePluginDetails.field.status"), statusText(details, t)],
+          [
+            t("settings.declarativePluginDetails.field.provides"),
+            details.features.map((feature) => feature.title).join(", ") || "—",
+          ],
+          [
+            t("settings.declarativePluginDetails.field.source"),
+            sourceText(details.versions.current, t),
+          ],
+          [t("settings.declarativePluginDetails.field.settings"), String(details.settings.length)],
+        ]}
+      />
     </div>
   );
 }
 
 export function FeaturesTab({ features }: { features: PluginDetailFeature[] }) {
   const { t } = useTranslation();
-  if (!features.length) return <PluginDetailEmpty message={t("settings.declarativePluginDetails.empty.features")} />;
+  if (!features.length)
+    return <PluginDetailEmpty message={t("settings.declarativePluginDetails.empty.features")} />;
   return (
     <ul className="grid min-w-0 grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))] gap-2">
       {features.map((feature) => (
-        <li key={`${feature.kind}:${feature.subject}`} className="min-w-0 rounded-md border border-border p-3">
+        <li
+          key={`${feature.kind}:${feature.subject}`}
+          className="min-w-0 rounded-md border border-border p-3"
+        >
           <p className="truncate ui-text-sm font-medium">{feature.title}</p>
           <p className="text-subtle-foreground ui-text-sm">
-            <code>{feature.kind}</code> · {t(`settings.declarativePluginDetails.availability.${feature.availability}`)}
+            <code>{feature.kind}</code> ·{" "}
+            {t(`settings.declarativePluginDetails.availability.${feature.availability}`)}
           </p>
           {feature.detail !== null && (
             <pre className="mt-2 overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-2 text-xs">
@@ -312,9 +343,6 @@ export function SettingsTab({
   workspacePath: string | null;
 }) {
   const { t } = useTranslation();
-  if (!details.settings.length) {
-    return <PluginDetailEmpty message={t("settings.declarativePluginDetails.empty.settings")} />;
-  }
   if (!details.enabled || details.status !== "accepted") {
     return <PluginDetailEmpty message={t("settings.declarativePluginDetails.settingsDisabled")} />;
   }
@@ -341,7 +369,9 @@ export function PermissionsAndProgramsTab({
   return (
     <div className="flex min-w-0 flex-col gap-5">
       <section>
-        <h3 className="mb-2 ui-text-sm font-semibold">{t("settings.declarativePluginDetails.permissions")}</h3>
+        <h3 className="mb-2 ui-text-sm font-semibold">
+          {t("settings.declarativePluginDetails.permissions")}
+        </h3>
         {permissions.length ? (
           <ul className="list-disc space-y-1 pl-5 ui-text-sm">
             {permissions.map((permission) => (
@@ -351,14 +381,22 @@ export function PermissionsAndProgramsTab({
               </li>
             ))}
           </ul>
-        ) : <PluginDetailEmpty message={t("settings.declarativePluginDetails.empty.permissions")} />}
+        ) : (
+          <PluginDetailEmpty message={t("settings.declarativePluginDetails.empty.permissions")} />
+        )}
       </section>
       <section>
-        <h3 className="mb-2 ui-text-sm font-semibold">{t("settings.declarativePluginDetails.programs")}</h3>
+        <h3 className="mb-2 ui-text-sm font-semibold">
+          {t("settings.declarativePluginDetails.programs")}
+        </h3>
         {programs.length ? (
           <div className="flex flex-col gap-2">
             {programs.map((program, index) => (
-              <details key={index} className="rounded-md border border-border p-2" open={index === 0}>
+              <details
+                key={index}
+                className="rounded-md border border-border p-2"
+                open={index === 0}
+              >
                 <summary className="cursor-default ui-text-sm">
                   {t("settings.declarativePluginDetails.program", { index: index + 1 })}
                 </summary>
@@ -368,7 +406,9 @@ export function PermissionsAndProgramsTab({
               </details>
             ))}
           </div>
-        ) : <PluginDetailEmpty message={t("settings.declarativePluginDetails.empty.programs")} />}
+        ) : (
+          <PluginDetailEmpty message={t("settings.declarativePluginDetails.empty.programs")} />
+        )}
       </section>
     </div>
   );
@@ -388,27 +428,49 @@ export function VersionsAndSourceTab({ details }: { details: PluginDetailsModel 
           provenance={details.versions.previous}
         />
       )}
-      <DefinitionList rows={[
-        [t("settings.declarativePluginDetails.field.update"), t("settings.declarativePluginDetails.update.unknown")],
-        [t("settings.declarativePluginDetails.field.pluginId"), details.identity.pluginId],
-      ]} />
+      <DefinitionList
+        rows={[
+          [
+            t("settings.declarativePluginDetails.field.update"),
+            t("settings.declarativePluginDetails.update.unknown"),
+          ],
+          [t("settings.declarativePluginDetails.field.pluginId"), details.identity.pluginId],
+        ]}
+      />
     </div>
   );
 }
 
-function VersionCard({ title, provenance }: { title: string; provenance: PluginVersionProvenance }) {
+function VersionCard({
+  title,
+  provenance,
+}: {
+  title: string;
+  provenance: PluginVersionProvenance;
+}) {
   const { t } = useTranslation();
   return (
     <section className="min-w-0 rounded-md border border-border p-3">
       <h3 className="mb-2 ui-text-sm font-semibold">{title}</h3>
-      <DefinitionList rows={[
-        [t("settings.declarativePluginDetails.field.version"), provenance.version],
-        [t("settings.declarativePluginDetails.field.source"), sourceText(provenance, t)],
-        [t("settings.declarativePluginDetails.field.verification"), verificationText(provenance, t)],
-        [t("settings.declarativePluginDetails.field.repository"), provenance.repository ?? "—"],
-        [t("settings.declarativePluginDetails.field.archiveDigest"), provenance.archiveSha256 ?? "—"],
-        [t("settings.declarativePluginDetails.field.contentDigest"), provenance.contentDigest ?? "—"],
-      ]} />
+      <DefinitionList
+        rows={[
+          [t("settings.declarativePluginDetails.field.version"), provenance.version],
+          [t("settings.declarativePluginDetails.field.source"), sourceText(provenance, t)],
+          [
+            t("settings.declarativePluginDetails.field.verification"),
+            verificationText(provenance, t),
+          ],
+          [t("settings.declarativePluginDetails.field.repository"), provenance.repository ?? "—"],
+          [
+            t("settings.declarativePluginDetails.field.archiveDigest"),
+            provenance.archiveSha256 ?? "—",
+          ],
+          [
+            t("settings.declarativePluginDetails.field.contentDigest"),
+            provenance.contentDigest ?? "—",
+          ],
+        ]}
+      />
     </section>
   );
 }
@@ -429,7 +491,9 @@ function DefinitionList({ rows }: { rows: Array<[string, string]> }) {
 function StatusBadge({ details }: { details: PluginDetailsModel }) {
   const { t } = useTranslation();
   return (
-    <span className={`rounded-full px-2 py-0.5 text-xs ${details.status === "rejected" ? "bg-destructive/10 text-destructive" : "bg-success/10 text-success"}`}>
+    <span
+      className={`rounded-full px-2 py-0.5 text-xs ${details.status === "rejected" ? "bg-destructive/10 text-destructive" : "bg-success/10 text-success"}`}
+    >
       {statusText(details, t)}
     </span>
   );
@@ -440,16 +504,14 @@ function PluginDetailEmpty({ message }: { message: string }) {
 }
 
 function statusText(details: PluginDetailsModel, t: (key: string) => string): string {
-  if (details.status === "rejected") return t("settings.declarativePluginDetails.status.quarantined");
+  if (details.status === "rejected")
+    return t("settings.declarativePluginDetails.status.quarantined");
   return details.enabled
     ? t("settings.declarativePluginDetails.status.enabled")
     : t("settings.declarativePluginDetails.status.disabled");
 }
 
-function sourceText(
-  provenance: PluginVersionProvenance,
-  t: (key: string) => string,
-): string {
+function sourceText(provenance: PluginVersionProvenance, t: (key: string) => string): string {
   const channel = t(`settings.declarativePluginDetails.source.${provenance.channel}`);
   return provenance.sourceName
     ? `${channel} · ${provenance.sourceName}`
@@ -458,11 +520,10 @@ function sourceText(
       : channel;
 }
 
-function verificationText(
-  provenance: PluginVersionProvenance,
-  t: (key: string) => string,
-): string {
-  const text = t(`settings.declarativePluginDetails.verification.${provenance.verification.status}`);
+function verificationText(provenance: PluginVersionProvenance, t: (key: string) => string): string {
+  const text = t(
+    `settings.declarativePluginDetails.verification.${provenance.verification.status}`,
+  );
   return provenance.verification.keyId ? `${text} · ${provenance.verification.keyId}` : text;
 }
 

@@ -67,6 +67,181 @@ fn code(error: &str) -> String {
 }
 
 #[test]
+fn dependencies_reply_preserves_the_complete_core_tree_for_root_and_project() {
+    for project in ["reactor", "reactor/app"] {
+        let tree = json!({"project":project,"dependencies":[{"name":"library","children":[]}],"truncated":false});
+        let reply = json!({"terminal":{"kind":"succeeded"},"dependencyTree":tree,
+            "dependencies":[],"truncated":true});
+        assert_eq!(workflow::dependency_result(&reply).unwrap(), tree);
+    }
+    assert!(workflow::dependency_result(&json!({"dependencies":[],"truncated":false})).is_err());
+}
+
+#[test]
+fn workflow_parameters_follow_existing_web_methods_and_reject_extra_authority() {
+    for (method, params) in [
+        ("build.refresh", json!({"instance":"native-instance"})),
+        (
+            "build.runTask",
+            json!({"instance":"native-instance","task":"build","project":{"name":"app","path":"."},"userArguments":["literal argument"]}),
+        ),
+        (
+            "build.runTests",
+            json!({"instance":"native-instance","suite":"Suite","case":"case"}),
+        ),
+        (
+            "build.dependencies",
+            json!({"instance":"native-instance","project":{"path":"nested"}}),
+        ),
+        ("build.cancel", json!({"run":"native-run"})),
+    ] {
+        let request = BuildRequest::parse(method, params).unwrap();
+        assert_eq!(request.method(), method);
+    }
+    for params in [
+        json!({"instance":"id","task":"build","pluginId":"foreign"}),
+        json!({"instance":"id","task":"build","argv":["other"]}),
+        json!({"instance":"id","task":"build","project":{"id":"forged"}}),
+        json!({"instance":"id","task":"build","userArguments":["x".repeat(4097)]}),
+        json!({"instance":"id","task":"build","userArguments":vec!["x";65]}),
+    ] {
+        assert!(BuildRequest::parse("build.runTask", params).is_err());
+    }
+    assert!(BuildRequest::parse("build.cancel", json!({"run":"one","instance":"other"})).is_err());
+    assert!(BuildRequest::parse(
+        "build.runTests",
+        json!({"instance":"id","userArguments":[]})
+    )
+    .is_err());
+}
+
+#[test]
+fn native_failure_details_do_not_become_part_of_the_bridge_error_code() {
+    let error = normalize_error("plugin.build.cleanupFailed: retry the owned operation".into());
+    assert_eq!(code(&error), "plugin.build.cleanupFailed");
+    assert!(serde_json::from_str::<Value>(&error).unwrap()["message"]
+        .as_str()
+        .unwrap()
+        .contains("retry the owned operation"));
+}
+
+#[test]
+fn workflow_selection_paths_and_filters_are_bounded_and_workspace_relative() {
+    for selection in [
+        json!({"path":"../escape"}),
+        json!({"path":"C:/escape"}),
+        json!({"path":"/escape"}),
+        json!({"path":"nested\\escape"}),
+        json!({"name":""}),
+        json!({}),
+        json!({"name":"app","tags":[""]}),
+    ] {
+        assert!(BuildRequest::parse(
+            "build.runTests",
+            json!({"instance":"id","project":selection})
+        )
+        .is_err());
+    }
+    assert!(BuildRequest::parse("build.runTests", json!({"instance":"id","suite":"x\n"})).is_err());
+    assert!(BuildRequest::parse(
+        "build.runTask",
+        json!({"instance":"id","task":"build","project":{"path":"nested","name":"app"}})
+    )
+    .is_ok());
+}
+
+fn workflow_context() -> (Fixture, BuildModelContext) {
+    let fixture = Fixture(super::super::serve_tests::unique_temp_root("web-selection"));
+    std::fs::write(
+        fixture.0.join("Cargo.toml"),
+        "[package]\nname='app'\nversion='0.1.0'\n",
+    )
+    .unwrap();
+    let manifest: Value = serde_json::from_str(include_str!(
+        "../../../../../shared/contracts/plugins/v1/fixtures/build-static-file.plugin.json"
+    ))
+    .unwrap();
+    let plugin = manifest["id"].as_str().unwrap().to_string();
+    let packages = Packages(Mutex::new(BuildPackageInput {
+        plugin_id: plugin.clone(),
+        version: "0.1.0".into(),
+        manifest,
+        content_identity: "approved".into(),
+    }));
+    let root = fixture.0.to_string_lossy().into_owned();
+    let mut registry = BuildRegistry::new();
+    registry
+        .refresh(
+            &HostCoreExecutor,
+            &packages,
+            &MemoryOptions::default(),
+            "main",
+            &root,
+        )
+        .unwrap();
+    let mut context = registry
+        .model_context("main", &root, &plugin, "cargo", ".")
+        .unwrap();
+    context.model = json!({"projects":[{"id":"root-id","name":"app","path":"."},{"id":"nested-id","name":"app","path":"nested"}],
+        "targets":[{"id":"test-id","projectID":"nested-id","name":"test","path":"nested","tags":["test","unit"]}],
+        "tasks":[{"id":"task-id","projectID":"nested-id","name":"check","path":"nested","template":"build","execution":"task","properties":{"trusted":"native"}}]});
+    (fixture, context)
+}
+#[test]
+fn web_model_selectors_resolve_exact_ids_and_full_tag_sets_without_trusting_properties() {
+    let (_fixture, context) = workflow_context();
+    let request = workflow::Request::parse(
+        "build.runTask",
+        json!({"instance":"instance","task":"build",
+        "project":{"name":"app","path":"nested","properties":{"trusted":"forged"}},
+        "target":{"name":"test","path":"nested","tags":["unit","test"]},
+        "modelTask":{"name":"check","execution":"service","properties":{"trusted":"forged"}}}),
+    )
+    .unwrap();
+    let selection = workflow::selection(&context, &request).unwrap();
+    assert_eq!(selection["projectId"], "nested-id");
+    assert_eq!(selection["targetId"], "test-id");
+    assert_eq!(selection["modelTaskId"], "task-id");
+    assert!(selection.get("properties").is_none());
+    assert_eq!(selection["kind"], "task");
+}
+#[test]
+fn ambiguous_cross_project_stale_and_service_model_selections_are_refused() {
+    let (_fixture, mut context) = workflow_context();
+    for params in [
+        json!({"project":{"name":"app"}}),
+        json!({"project":{"path":"."},"target":{"name":"test"}}),
+        json!({"project":{"path":"nested"},"target":{"name":"test","tags":["test"]}}),
+        json!({"modelTask":{"name":"missing"}}),
+    ] {
+        let mut request = json!({"instance":"instance","task":"build"});
+        request
+            .as_object_mut()
+            .unwrap()
+            .extend(params.as_object().unwrap().clone());
+        assert!(workflow::selection(
+            &context,
+            &workflow::Request::parse("build.runTask", request).unwrap()
+        )
+        .is_err());
+    }
+    let request = workflow::Request::parse(
+        "build.runTask",
+        json!({"instance":"instance","task":"build","modelTask":{"name":"check"}}),
+    )
+    .unwrap();
+    assert_eq!(
+        workflow::selection(&context, &request).unwrap()["projectId"],
+        "nested-id"
+    );
+    context.model_stale = true;
+    assert!(workflow::selection(&context, &request).is_err());
+    context.model_stale = false;
+    context.model["tasks"][0]["execution"] = json!("service");
+    assert!(workflow::selection(&context, &request).is_err());
+}
+
+#[test]
 fn parameters_refuse_identity_argv_unknown_fields_and_oversized_values() {
     assert!(BuildRequest::parse("build.instances", Value::Null).is_ok());
     assert!(BuildRequest::parse("build.instances", json!({})).is_ok());
@@ -103,7 +278,7 @@ fn parameters_refuse_identity_argv_unknown_fields_and_oversized_values() {
     ] {
         assert_eq!(
             code(&BuildRequest::parse(method, json!({})).unwrap_err()),
-            "plugin.web.unavailable"
+            "plugin.web.invalidRequest"
         );
     }
 }
@@ -599,4 +774,71 @@ fn real_core_options_persist_reset_invalidate_fingerprint_and_refuse_replaced_pa
     assert!(checked_view(&registry, &packages, &identity).is_err());
     registry.close_workspace("main", &root);
     assert!(checked_view(&registry, &packages, &identity).is_err());
+}
+
+#[test]
+fn passive_page_refresh_reloads_only_the_selected_instance_and_rejects_stale_context() {
+    let fixture = Fixture(super::super::serve_tests::unique_temp_root(
+        "web-passive-refresh",
+    ));
+    let cargo = |name: &str| format!("[package]\nname='{name}'\nversion='0.1.0'\n");
+    std::fs::write(fixture.0.join("Cargo.toml"), cargo("root_before")).unwrap();
+    std::fs::create_dir(fixture.0.join("nested")).unwrap();
+    std::fs::write(fixture.0.join("nested/Cargo.toml"), cargo("nested_before")).unwrap();
+    let manifest: Value = serde_json::from_str(include_str!(
+        "../../../../../shared/contracts/plugins/v1/fixtures/build-static-file.plugin.json"
+    ))
+    .unwrap();
+    let plugin = manifest["id"].as_str().unwrap().to_string();
+    let packages = Packages(Mutex::new(BuildPackageInput {
+        plugin_id: plugin.clone(),
+        version: "0.1.0".into(),
+        manifest,
+        content_identity: "approved".into(),
+    }));
+    let mut registry = BuildRegistry::new();
+    let root = fixture.0.to_string_lossy().into_owned();
+    let original = registry
+        .refresh(
+            &HostCoreExecutor,
+            &packages,
+            &MemoryOptions::default(),
+            "main",
+            &root,
+        )
+        .unwrap();
+    let context = registry
+        .model_context("main", &root, &plugin, "cargo", "nested")
+        .unwrap();
+    // Both files change, but the page only requested the nested instance.
+    std::fs::write(fixture.0.join("Cargo.toml"), cargo("root_after")).unwrap();
+    std::fs::write(fixture.0.join("nested/Cargo.toml"), cargo("nested_after")).unwrap();
+    let refreshed =
+        super::super::super::build::page::refresh_passive(&mut registry, &packages, &context)
+            .unwrap();
+    assert_eq!(refreshed.generation, original.generation);
+    assert_eq!(
+        refreshed.instances.iter().find(|row| row["root"] == "."),
+        original.instances.iter().find(|row| row["root"] == ".")
+    );
+    assert_eq!(
+        refreshed
+            .instances
+            .iter()
+            .find(|row| row["root"] == "nested")
+            .unwrap()["model"]["projects"][0]["name"],
+        "nested_after"
+    );
+    assert!(
+        super::super::super::build::page::refresh_passive(&mut registry, &packages, &context)
+            .is_err()
+    );
+    let current = registry
+        .model_context("main", &root, &plugin, "cargo", "nested")
+        .unwrap();
+    packages.0.lock().unwrap().content_identity = "replaced".into();
+    assert!(
+        super::super::super::build::page::refresh_passive(&mut registry, &packages, &current)
+            .is_err()
+    );
 }

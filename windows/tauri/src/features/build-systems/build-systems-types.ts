@@ -100,6 +100,76 @@ export interface BuildModelReview {
   generation: number;
   executesProjectCode: boolean;
   mayUseNetwork: boolean;
+  provider?: BuildProviderReview;
+}
+
+export interface BuildProviderReview {
+  token: number;
+  context: {
+    window: string;
+    workspaceRoot: string;
+    launchWorkspaceRoot?: string;
+    generation: number;
+    pluginId: string;
+    packageIdentity: string;
+    buildSystem: string;
+    instanceRoot: string;
+    instanceDirectory: string;
+  };
+  executesProjectCode: boolean;
+  mayUseNetwork: boolean;
+  launchPlan: Record<string, unknown>;
+  invocationPlan?: Record<string, unknown>;
+  program: {
+    pluginId: string;
+    languageId: string;
+    serverPath: string;
+    serverArgs: string[];
+    environment: Record<string, string>;
+    initializationOptions?: unknown;
+    workspaceConfiguration?: unknown;
+  };
+}
+
+/** Refuse incomplete or foreign native reviews before asking for consent. */
+function normalizedProviderWorkspace(value: string): string {
+  return value
+    .replace(/\\/g, "/")
+    .replace(/^\/\/\?\/UNC\//i, "//")
+    .replace(/^\/\/\?\//, "")
+    .replace(/\/$/, "")
+    .toLowerCase();
+}
+export function validBuildProviderReview(review: BuildModelReview): boolean {
+  const provider = review.provider;
+  if (provider === undefined) return true;
+  return (
+    !!provider &&
+    Number.isSafeInteger(provider.token) &&
+    provider.token > 0 &&
+    provider.context?.pluginId === review.pluginId &&
+    provider.context.buildSystem === review.buildSystemId &&
+    typeof provider.context.workspaceRoot === "string" &&
+    normalizedProviderWorkspace(provider.context.workspaceRoot) ===
+      normalizedProviderWorkspace(review.workspaceRoot) &&
+    provider.context.generation === review.generation &&
+    provider.context.instanceRoot === review.root &&
+    typeof provider.context.packageIdentity === "string" &&
+    provider.context.packageIdentity.length > 0 &&
+    typeof provider.program?.serverPath === "string" &&
+    provider.program.serverPath.length > 0 &&
+    provider.program.pluginId === review.pluginId &&
+    Array.isArray(provider.program.serverArgs) &&
+    provider.program.serverArgs.every((arg) => typeof arg === "string") &&
+    !!provider.launchPlan &&
+    typeof provider.launchPlan === "object" &&
+    !!provider.program.environment &&
+    typeof provider.program.environment === "object" &&
+    typeof provider.executesProjectCode === "boolean" &&
+    typeof provider.mayUseNetwork === "boolean" &&
+    (!provider.executesProjectCode || review.executesProjectCode) &&
+    (!provider.mayUseNetwork || review.mayUseNetwork)
+  );
 }
 
 export interface BuildModelLoadResult {

@@ -133,6 +133,7 @@ export default function RunActionsButton() {
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState<RunActionDraft>(EMPTY_DRAFT);
   const triggerRef = useRef<HTMLDivElement>(null);
+  const startingDeclarativeActions = useRef(new Set<string>());
   const searchInputRef = useRef<HTMLInputElement>(null);
   const { projectActions, declarativeActions, lspActions, isDiscovering, discoveryError, refresh } =
     useRunActionDiscovery(
@@ -196,10 +197,13 @@ export default function RunActionsButton() {
 
   const runAction = (action: RunActionItem) => {
     if (action.source === "declarative") {
-      if (workspacePath && activeFilePath)
-        void runDeclarativeAction(action, workspaceId, workspacePath, activeFilePath).catch(
-          (error) => toast.error(declarativeExecutionErrorMessage(error)),
-        );
+      const key = JSON.stringify([workspaceId, workspacePath, action.id]);
+      if (workspacePath && !startingDeclarativeActions.current.has(key)) {
+        startingDeclarativeActions.current.add(key);
+        void runDeclarativeAction(action, workspaceId, workspacePath, activeFilePath)
+          .catch((error) => toast.error(declarativeExecutionErrorMessage(error)))
+          .finally(() => startingDeclarativeActions.current.delete(key));
+      }
       closeMenu();
       return;
     }

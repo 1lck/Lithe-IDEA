@@ -15,6 +15,11 @@ import {
   type BuildDependenciesReview,
 } from "./build-dependencies-types";
 import { MAX_OUTPUT_SESSIONS } from "./output/build-output-store";
+import { validBuildProviderReview } from "./build-systems-types";
+import {
+  beginBuildProviderLanguage,
+  type BuildProviderLanguageInitialization,
+} from "./build-provider-language";
 
 export interface BuildDependenciesState extends BuildRunState {
   dependencies: BuildDependencyNode[] | null;
@@ -43,6 +48,8 @@ export class BuildDependenciesSession {
   #review: BuildDependenciesReview | null = null;
   #validationError: string | null = null;
   #attached = 0;
+  #sharedController: AbortController | null = null;
+  #sharedInitialization: BuildProviderLanguageInitialization | null = null;
   constructor(
     readonly workspaceId: string,
     readonly pluginId: string,
@@ -70,12 +77,23 @@ export class BuildDependenciesSession {
         validateReview: (review, selection) => {
           native.validateReview?.(review, selection);
           if (
+            !validBuildProviderReview(review) ||
             review.kind !== "dependencies" ||
             (review as BuildDependenciesReview).projectId !== selection.projectId
           )
             throw new Error("plugin.build.staleContext");
         },
         execute: async (operationId) => {
+          const epoch = this.#epoch;
+          if (!this.#review) throw new Error("plugin.build.staleContext");
+          this.#sharedController = new AbortController();
+          this.#sharedInitialization = beginBuildProviderLanguage(
+            this.#review,
+            this.#sharedController.signal,
+          );
+          await this.#sharedInitialization.ready;
+          if (epoch !== this.#epoch || !this.#approved || !this.#current(this.#approved))
+            throw new Error("plugin.build.cancelled");
           const result = await native.execute(operationId);
           const review = this.#review;
           if (
@@ -95,10 +113,12 @@ export class BuildDependenciesSession {
           this.#candidate = result;
           return result.terminal;
         },
-        cancel: (operationId) => {
+        cancel: async (operationId) => {
           this.#epoch += 1;
           this.#candidate = null;
-          return native.cancel(operationId);
+          this.#sharedController?.abort();
+          await native.cancel(operationId);
+          await this.#sharedInitialization?.cleanup();
         },
       },
       `build-dependencies-output:${JSON.stringify([pluginId, buildSystemId, root])}`,
@@ -195,6 +215,8 @@ export class BuildDependenciesSession {
     this.#approved = null;
     this.#published = null;
     this.#review = null;
+    this.#sharedInitialization = null;
+    this.#sharedController = null;
     this.#validationError = null;
     this.#emit({ dependencies: null, projectId, stale: false, truncated: false });
     await this.run.start({

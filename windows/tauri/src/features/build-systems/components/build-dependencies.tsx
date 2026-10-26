@@ -4,6 +4,7 @@ import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import Select from "@/ui/select";
 import AppDialog from "@/ui/dialog";
+import BuildProviderReviewDetails from "./build-provider-review";
 import {
   buildDependenciesNative,
   type BuildDependenciesNative,
@@ -103,7 +104,6 @@ function DependenciesContent({
     };
   }, [session, instance.pluginID, instance.buildSystemID, revision]);
   const source = definition?.dependencies;
-  const provider = source?.source === "provider";
   const scopes =
     source?.source === "hostIntegration" ? ["workspace", "project"] : (source?.scopes ?? []);
   const projects = instance.model?.projects?.filter((project) => !!project.id) ?? [];
@@ -114,7 +114,6 @@ function DependenciesContent({
   );
   const valid =
     !!source &&
-    !provider &&
     (selected
       ? !!projectId && scopes.includes("project") && !instance.stale
       : scopes.includes("workspace"));
@@ -125,12 +124,7 @@ function DependenciesContent({
       aria-label={t("buildSystems.dependencies.title")}
     >
       <h3 className="text-xs font-medium">{t("buildSystems.dependencies.title")}</h3>
-      {provider && (
-        <p role="status" className="text-xs text-muted-foreground">
-          {t("buildSystems.dependencies.providerUnavailable")}
-        </p>
-      )}
-      {!provider && source && (
+      {source && (
         <>
           <Select
             size="xs"
@@ -186,7 +180,7 @@ function DependenciesContent({
       )}
       {(state.error || definitionError) && (
         <p role="alert" className="break-words text-xs text-destructive">
-          {t("buildSystems.dependencies.failed", { message: state.error ?? definitionError })}
+          {t("buildSystems.dependencies.failed", { message: t(state.error ?? definitionError) })}
         </p>
       )}
       {definitionError && (
@@ -273,6 +267,7 @@ function DependenciesContent({
             )}
           </p>
           <p className="mt-3 text-xs">{t("buildSystems.run.programs")}</p>
+          {state.review.provider && <BuildProviderReviewDetails review={state.review.provider} />}
           <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all text-xs">
             {JSON.stringify(state.programs, null, 2)}
           </pre>

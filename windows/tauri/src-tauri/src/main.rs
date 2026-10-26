@@ -145,6 +145,8 @@ fn main() {
             app.manage(plugin_host::run_plans::ExecutionState::default());
             app.manage(debug::DebugAdapterManager::default());
             app.manage(plugin_host::PluginHostState::default());
+            app.manage(plugin_host::project_generators::GeneratorState::default());
+            app.manage(plugin_host::vcs::VcsHostState::default());
             app.manage(plugin_host::provider::ProviderHostState::default());
             app.manage(plugin_host::build::BuildHostState::default());
             app.manage(plugin_host::web::WebPageHostState::default());
@@ -164,12 +166,17 @@ fn main() {
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
                 plugin_host::run_plans::window_destroyed(window.app_handle(), window.label());
+                plugin_host::project_generators::window_destroyed(window.app_handle(), window.label());
                 plugin_host::web::forget_window_appearance(window.app_handle(), window.label());
                 plugin_host::lifecycle::window_destroyed(window.app_handle(), window.label());
+                plugin_host::vcs::window_destroyed(window.app_handle(), window.label());
                 plugin_host::marketplace::window_destroyed(window.app_handle(), window.label());
                 let build_app = window.app_handle().clone();
                 let build_window = window.label().to_owned();
                 tauri::async_runtime::spawn(async move {
+                    if let Err(error) = plugin_host::project_generators::close_window(&build_app, &build_window).await {
+                        eprintln!("Could not release plugin project generation: {}", error.code);
+                    }
                     if let Err(error) = plugin_host::provider::close_window(&build_app, &build_window).await {
                         eprintln!("Could not release plugin Provider sessions: {}", error.detail);
                     }
@@ -318,6 +325,7 @@ fn main() {
                             plugin_host::details::declarative_plugins_details,
                             plugin_host::web::declarative_plugins_web_open_file_ack,
                             plugin_host::web::build::declarative_plugins_web_build_handle,
+                            plugin_host::web::build::workflow::declarative_plugins_web_build_action,
                             plugin_host::web::declarative_plugins_web_resolve_file,
                             plugin_host::web::declarative_plugins_web_update_appearance,
                             plugin_host::declarative_plugins_manifest,
@@ -335,6 +343,7 @@ fn main() {
                             plugin_host::install::declarative_plugins_set_enabled,
                             plugin_host::install::declarative_plugins_rollback,
                             plugin_host::settings::declarative_plugins_resolve_settings,
+                            plugin_host::settings::declarative_plugins_setting_snapshot,
                             plugin_host::settings::declarative_plugins_store_setting,
                             plugin_host::settings::declarative_plugins_workspace_configuration,
                             plugin_host::marketplace_sources::declarative_marketplace_sources_state,
@@ -348,6 +357,15 @@ fn main() {
                             plugin_host::run_plans::declarative_plugins_execution_context,
                             plugin_host::run_plans::declarative_plugins_close_execution_workspace,
                             plugin_host::build::declarative_plugins_build_catalog,
+                            plugin_host::project_generators::declarative_plugins_generator_catalog,
+                            plugin_host::project_generators::declarative_plugins_generator_form,
+                            plugin_host::project_generators::declarative_plugins_generator_runtime,
+                            plugin_host::project_generators::declarative_plugins_generator_prepare,
+                            plugin_host::project_generators::declarative_plugins_generator_generate,
+                            plugin_host::project_generators::declarative_plugins_generator_cancel,
+                            plugin_host::vcs::declarative_plugins_vcs_detect,
+                            plugin_host::vcs::declarative_plugins_vcs_owners,
+                            plugin_host::vcs::declarative_plugins_vcs_close,
                             plugin_host::build::declarative_plugins_build_language_import,
                             plugin_host::build::declarative_plugins_build_refresh,
                             plugin_host::build::declarative_plugins_build_set_option,
@@ -356,6 +374,7 @@ fn main() {
                             plugin_host::build::declarative_plugins_build_close_workspace,
                             plugin_host::build::declarative_plugins_build_prepare_model,
                             plugin_host::build::declarative_plugins_build_load_model,
+                            plugin_host::build::declarative_plugins_build_authorize_provider_language,
                             plugin_host::build::declarative_plugins_build_cancel_operation,
                             plugin_host::build::declarative_plugins_build_prepare_run,
                             plugin_host::build::declarative_plugins_build_prepare_dependencies,
@@ -380,6 +399,11 @@ fn main() {
         .expect("error while building Lithe desktop shell");
 
     application.run(|app, event| {
+        if let tauri::RunEvent::ExitRequested { api, code, .. } = &event {
+            if plugin_host::project_generators::defer_exit(app, *code) {
+                api.prevent_exit();
+            }
+        }
         if matches!(event, tauri::RunEvent::Exit) {
             owned_processes::shutdown();
             if let Some(manager) = app.try_state::<Arc<logging::LogManager>>() {

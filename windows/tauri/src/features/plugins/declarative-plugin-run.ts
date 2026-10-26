@@ -21,6 +21,7 @@ import {
 } from "@/features/workspace/types/workspace-launch-scope";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { probeDeclarativeExecutionOwner } from "@/features/editor/lsp/declarative-language-support";
+import { extensionRegistry } from "@/extensions/registry/extension-registry";
 import type { RunActionItem } from "@/features/run-actions/types/run-action.types";
 import {
   getDeclarativePluginManifest,
@@ -29,9 +30,11 @@ import {
   discoverDeclarativeTests,
   startDeclarativeExecution,
   setDeclarativeExecutionContext,
+  listDeclarativePlugins,
   type DeclarativeExecutionContext,
   type DeclarativeExecutionSelection,
   type DeclarativeRunPlan,
+  type DeclarativeTestScope,
 } from "./declarative-plugin-launch";
 import { declarativePluginProcessOwner } from "./declarative-plugin-process-owner";
 
@@ -88,6 +91,8 @@ function capture(scope: WorkspaceLaunchScope, onStale: () => void = () => {}) {
 }
 
 export interface DeclarativeExecutionDependencies {
+  catalog: typeof listDeclarativePlugins;
+  workerOwns: (languageId: string) => boolean;
   owner: typeof probeDeclarativeExecutionOwner;
   manifest: typeof getDeclarativePluginManifest;
   discover: typeof discoverDeclarativeTests;
@@ -108,6 +113,9 @@ export interface DeclarativeExecutionDependencies {
 }
 
 const dependencies: DeclarativeExecutionDependencies = {
+  catalog: listDeclarativePlugins,
+  workerOwns: (languageId) =>
+    Boolean(extensionRegistry.getExtensionByLanguageId(languageId)?.manifest.runActions),
   owner: probeDeclarativeExecutionOwner,
   manifest: getDeclarativePluginManifest,
   discover: discoverDeclarativeTests,
@@ -145,6 +153,124 @@ const dependencies: DeclarativeExecutionDependencies = {
   stop: stopRunProcess,
   context: setDeclarativeExecutionContext,
 };
+
+function declaredTestFramework(provider: Record<string, unknown>): string | undefined {
+  const test = provider.test;
+  return test &&
+    typeof test === "object" &&
+    "frameworkID" in test &&
+    typeof test.frameworkID === "string"
+    ? test.frameworkID
+    : undefined;
+}
+
+/** Workspace tests come from the accepted native catalog, independently of
+ * editor ownership. Core remains the only test matcher. Worker declarations
+ * win per language; only the selected file contributes a file/run action. */
+export async function declarativeRunActionsForWorkspace(
+  scope: WorkspaceLaunchScope,
+  filePath?: string,
+  ports: DeclarativeExecutionDependencies = dependencies,
+): Promise<RunActionItem[]> {
+  const revocations: Promise<void>[] = [];
+  const captured = capture(scope, () => {
+    const revoked = ports.context(clientId, ++contextRevision, null);
+    revocations.push(revoked);
+    void revoked.catch(() => {});
+  });
+  const guard = pluginPlanGuard();
+  const check = (pluginId?: string) => {
+    captured.assertCurrent();
+    if (pluginId) guard(pluginId);
+  };
+  try {
+    await ports.context(clientId, ++contextRevision, captured.context);
+    check();
+    const catalog = await ports.catalog();
+    check();
+    // External read-only editors are not a workspace execution selection.
+    // They must not hide this workspace's independent test entry.
+    let relative: string | undefined;
+    if (filePath) {
+      try {
+        relative = toWorkspaceRelative(filePath, scope.root);
+      } catch {
+        /* no workspace file selected */
+      }
+    }
+    const fileOwner = relative && filePath ? await ports.owner(filePath) : null;
+    check();
+    const t = createTranslator(useSettingsStore.getState().settings.displayLanguage);
+    const actions = new Map<string, RunActionItem>();
+    for (const plugin of [...catalog].sort((a, b) => a.pluginId.localeCompare(b.pluginId))) {
+      if (plugin.status !== "accepted" || !plugin.enabled) continue;
+      check(plugin.pluginId);
+      const manifest = await ports.manifest(plugin.pluginId);
+      check(plugin.pluginId);
+      const providers = Array.isArray(manifest?.executionProviders)
+        ? (manifest.executionProviders as Array<Record<string, unknown>>)
+        : [];
+      for (const provider of providers) {
+        const languageId = typeof provider.languageID === "string" ? provider.languageID : "";
+        if (!languageId || ports.workerOwns(languageId)) continue;
+        const owner = { pluginId: plugin.pluginId, languageId };
+        const validate = () => {
+          guard(plugin.pluginId);
+          if (ports.workerOwns(languageId)) throw new Error("plugin.execution.staleContext");
+        };
+        const base = {
+          source: "declarative" as const,
+          sourceLabel: plugin.displayName,
+          description: languageId,
+          declarativeOwner: owner,
+          declarativeContext: captured.context,
+          declarativeValidate: validate,
+        };
+        const id = `declarative:${plugin.pluginId}:${languageId}`;
+        const ownsFile =
+          fileOwner?.pluginId === plugin.pluginId && fileOwner.languageId === languageId;
+        if (ownsFile && provider.run != null)
+          actions.set(`${id}:run`, {
+            ...base,
+            id: `${id}:run`,
+            name: `${t("runActions.run")} ${plugin.displayName}`,
+            declarativeTest: false,
+          });
+        if (provider.test == null) continue;
+        const tests = await ports.discover(plugin.pluginId, languageId, captured.context);
+        check(plugin.pluginId);
+        validate();
+        for (const item of tests.items) {
+          if (item.kind !== "workspace" && item.kind !== "file")
+            throw new Error("plugin.execution.invalidPlan");
+          if (item.kind === "file" && (!ownsFile || item.relativeFilePath !== relative)) continue;
+          const actionId = `${id}:test:${item.id}`;
+          if (actions.has(actionId)) continue;
+          const testScope: DeclarativeTestScope =
+            item.kind === "workspace"
+              ? { kind: "workspace" }
+              : { kind: "file", relativeFilePath: item.relativeFilePath! };
+          actions.set(actionId, {
+            ...base,
+            id: actionId,
+            name: `${t("runActions.test")} ${item.label}`,
+            declarativeTest: true,
+            declarativeTestScope: testScope,
+            testTarget: {
+              languageId,
+              frameworkId: declaredTestFramework(provider),
+              scope: testScope,
+            },
+          });
+        }
+      }
+    }
+    return [...actions.values()];
+  } finally {
+    captured.release();
+    await Promise.all(revocations);
+  }
+}
 
 /** Discovery is read-only. Core returns workspace/file items; no source parser
  * or suite/case guesses are added here. Existing Worker run ownership wins. */
@@ -208,6 +334,11 @@ export async function declarativeRunActionsForFile(
           id: `${id}:test`,
           name: `${t("runActions.test")} ${owner.displayName}`,
           declarativeTest: true,
+          testTarget: {
+            languageId: owner.languageId,
+            frameworkId: declaredTestFramework(provider),
+            scope: { kind: "workspace" },
+          },
         });
       } else {
         const tests = await ports.discover(owner.pluginId, owner.languageId, captured.context);
@@ -218,15 +349,21 @@ export async function declarativeRunActionsForFile(
           if (item.kind === "file" && item.relativeFilePath !== relative) continue;
           if (item.kind !== "workspace" && item.kind !== "file")
             throw new Error("plugin.execution.invalidPlan");
+          const testScope: DeclarativeTestScope =
+            item.kind === "workspace"
+              ? { kind: "workspace" }
+              : { kind: "file", relativeFilePath: item.relativeFilePath! };
           actions.push({
             ...base,
             id: `${id}:test:${item.id}`,
             name: `${t("runActions.test")} ${item.label}`,
             declarativeTest: true,
-            declarativeTestScope:
-              item.kind === "workspace"
-                ? { kind: "workspace" }
-                : { kind: "file", relativeFilePath: item.relativeFilePath! },
+            declarativeTestScope: testScope,
+            testTarget: {
+              languageId: owner.languageId,
+              frameworkId: declaredTestFramework(provider),
+              scope: testScope,
+            },
           });
         }
       }
@@ -259,7 +396,7 @@ export async function runDeclarativeAction(
   action: RunActionItem,
   workspaceId: string,
   root: string,
-  filePath: string,
+  filePath: string | undefined = undefined,
   ports: DeclarativeExecutionDependencies = dependencies,
 ): Promise<void> {
   const owner = action.declarativeOwner;
@@ -284,6 +421,7 @@ export async function runDeclarativeAction(
     scope.assertCurrent();
     guard(owner.pluginId);
     action.declarativeValidate?.();
+    if (ports.workerOwns(owner.languageId)) throw new Error("plugin.execution.staleContext");
   };
   const id = `declarative:${owner.pluginId}:${crypto.randomUUID()}`;
   const store = useRunStore.getStore(workspaceId);
@@ -305,11 +443,22 @@ export async function runDeclarativeAction(
     ) {
       throw new Error("plugin.execution.staleContext");
     }
-    const relative = toWorkspaceRelative(filePath, root);
+    const workspaceTest =
+      action.declarativeTest && (action.declarativeTestScope?.kind ?? "workspace") === "workspace";
+    const relative = !workspaceTest && filePath ? toWorkspaceRelative(filePath, root) : undefined;
     const selection: DeclarativeExecutionSelection = action.declarativeTest
       ? { kind: "test", scope: action.declarativeTestScope ?? { kind: "workspace" } }
-      : { kind: "run", relativeFilePath: relative, userArguments: [] };
-    if (selection.kind === "test" && selection.scope.kind === "suite")
+      : { kind: "run", relativeFilePath: relative ?? "", userArguments: [] };
+    // Core discovery supplies no trusted case/suite identity today. Do not
+    // accept an arbitrary caller-built action as upstream test provenance.
+    if (selection.kind === "test" && ["suite", "testCase"].includes(selection.scope.kind))
+      throw new Error("plugin.execution.unavailable");
+    if (
+      (selection.kind === "run" && !relative) ||
+      (selection.kind === "test" &&
+        selection.scope.kind === "file" &&
+        selection.scope.relativeFilePath !== relative)
+    )
       throw new Error("plugin.execution.unavailable");
     await declarativePluginProcessOwner.start(
       id,
@@ -319,9 +468,35 @@ export async function runDeclarativeAction(
         assertCurrent();
         await ports.context(clientId, ++contextRevision, scope.context);
         assertCurrent();
-        const liveOwner = await ports.owner(filePath);
+        const liveOwner = !workspaceTest && filePath ? await ports.owner(filePath) : null;
         assertCurrent();
-        if (liveOwner?.pluginId !== owner.pluginId || liveOwner.languageId !== owner.languageId)
+        if (workspaceTest) {
+          const catalog = await ports.catalog();
+          assertCurrent();
+          if (
+            !catalog.some(
+              (plugin) =>
+                plugin.pluginId === owner.pluginId &&
+                plugin.status === "accepted" &&
+                plugin.enabled,
+            ) ||
+            ports.workerOwns(owner.languageId)
+          )
+            throw new Error("plugin.execution.staleContext");
+          const manifest = await ports.manifest(owner.pluginId);
+          assertCurrent();
+          if (
+            !Array.isArray(manifest?.executionProviders) ||
+            !manifest.executionProviders.some(
+              (provider: Record<string, unknown>) =>
+                provider.languageID === owner.languageId && provider.test != null,
+            )
+          )
+            throw new Error("plugin.execution.unavailable");
+        } else if (
+          liveOwner?.pluginId !== owner.pluginId ||
+          liveOwner.languageId !== owner.languageId
+        )
           throw new Error("plugin.execution.staleContext");
         await ports.save(workspaceId);
         assertCurrent();
@@ -353,7 +528,13 @@ export async function runDeclarativeAction(
                 selection.scope,
                 scope.context,
               )
-            : await ports.runPlan(owner.pluginId, owner.languageId, relative, [], scope.context);
+            : await ports.runPlan(
+                owner.pluginId,
+                owner.languageId,
+                selection.relativeFilePath,
+                [],
+                scope.context,
+              );
         assertCurrent();
         if (
           !plan.identity ||

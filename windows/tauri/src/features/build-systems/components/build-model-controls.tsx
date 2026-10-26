@@ -9,6 +9,7 @@ import {
   loadBuildModel,
 } from "../build-systems-service";
 import type { BuildInstanceView, BuildModelReview } from "../build-systems-types";
+import BuildProviderReviewDetails from "./build-provider-review";
 
 /** Uses only the existing model IPC; execution/output ports are separate owners. */
 export interface BuildModelService {
@@ -232,7 +233,7 @@ export default function BuildModelControls({
             phase === "cancelFailed"
               ? "buildSystems.model.cancelFailed"
               : "buildSystems.model.failed",
-            { message: error },
+            { message: t(error) },
           )}
         </p>
       )}
@@ -286,6 +287,7 @@ export default function BuildModelControls({
               review.mayUseNetwork ? "buildSystems.model.network" : "buildSystems.model.noNetwork",
             )}
           </p>
+          {review.provider && <BuildProviderReviewDetails review={review.provider} />}
         </AppDialog>
       )}
     </section>

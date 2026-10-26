@@ -19,7 +19,14 @@ export interface PluginWebBuildRequest {
   hostLabel: string;
   workspaceId: string;
   workspacePath: string;
-  method: "build.instances" | "build.setOptions";
+  method:
+    | "build.instances"
+    | "build.setOptions"
+    | "build.refresh"
+    | "build.runTask"
+    | "build.runTests"
+    | "build.cancel"
+    | "build.dependencies";
 }
 
 export interface PluginWebBuildWorkspace {
@@ -37,14 +44,23 @@ export interface PluginWebBuildPort {
   handle(operationId: string, accept: boolean): Promise<BuildView | null>;
   complete(operationId: string): Promise<void>;
   optionsChanged?(workspace: PluginWebBuildWorkspace): Promise<void>;
+  workflow?(
+    request: PluginWebBuildRequest,
+    workspace: PluginWebBuildWorkspace,
+    signal: AbortSignal,
+  ): Promise<void>;
+  listenRevoked?(handler: (operationId: string) => void): Promise<() => void>;
   subscribeWorkspace(handler: () => void): () => void;
   subscribePlugin(handler: (pluginId: string) => void): () => void;
   pluginGuard(): (pluginId: string) => void;
-  scheduleDeadline(handler: () => void): () => void;
+  scheduleDeadline(handler: () => void, milliseconds?: number): () => void;
   report(error: unknown): void;
 }
 
 const REQUEST_TIMEOUT_MS = 10_000;
+// The page receives its run ID after approval. Keep lifecycle cancellation
+// attached while the existing native owner enforces its 660-second run budget.
+const RUN_WORKFLOW_TIMEOUT_MS = 800_000;
 const MAX_PENDING_REQUESTS = 128;
 
 const nativePort: PluginWebBuildPort = {
@@ -75,11 +91,25 @@ const nativePort: PluginWebBuildPort = {
       await import("@/features/build-systems/build-language-import");
     await updateBuildLanguageImport({ workspaceId: workspace.id, root: workspace.path });
   },
+  workflow: async (request, workspace, signal) =>
+    (await import("./plugin-web-build-workflow")).runPluginWebBuildWorkflow(
+      request,
+      workspace,
+      signal,
+    ),
+  listenRevoked: (handler) =>
+    listen<{ operationId: string }>(
+      "plugin-web-build-revoked",
+      ({ payload }) => handler(payload.operationId),
+      {
+        target: { kind: "Window", label: getCurrentWindow().label },
+      },
+    ),
   subscribeWorkspace: (handler) => workspaceRuntimeRegistry.subscribe(handler),
   subscribePlugin: subscribePluginActivity,
   pluginGuard: pluginPlanGuard,
-  scheduleDeadline: (handler) => {
-    const timer = setTimeout(handler, REQUEST_TIMEOUT_MS);
+  scheduleDeadline: (handler, milliseconds = REQUEST_TIMEOUT_MS) => {
+    const timer = setTimeout(handler, milliseconds);
     return () => clearTimeout(timer);
   },
   report: (error) => console.warn("Plugin web build request failed", error),
@@ -92,6 +122,7 @@ interface PendingRequest {
   guard: (pluginId: string) => void;
   stopDeadline: () => void;
   invalidated: boolean;
+  controller: AbortController;
 }
 
 function validRequest(request: PluginWebBuildRequest): boolean {
@@ -107,7 +138,15 @@ function validRequest(request: PluginWebBuildRequest): boolean {
     ].every((value) => typeof value === "string" && !!value) &&
     Number.isSafeInteger(request.pageGeneration) &&
     request.pageGeneration > 0 &&
-    (request.method === "build.instances" || request.method === "build.setOptions")
+    [
+      "build.instances",
+      "build.setOptions",
+      "build.refresh",
+      "build.runTask",
+      "build.runTests",
+      "build.cancel",
+      "build.dependencies",
+    ].includes(request.method)
   );
 }
 
@@ -118,6 +157,7 @@ export async function initializePluginWebBuildListener(
   const pending = new Map<string, PendingRequest>();
   let stopped = false;
   let unlisten: (() => void) | null = null;
+  let unlistenRevoked: (() => void) | null = null;
 
   const refuse = (id: string) => {
     // Native can already have revoked or expired the request. The refusal
@@ -144,6 +184,7 @@ export async function initializePluginWebBuildListener(
   const invalidate = (entry: PendingRequest) => {
     if (entry.invalidated) return;
     entry.invalidated = true;
+    entry.controller.abort();
     entry.stopDeadline();
     pending.delete(entry.payload.operationId);
     if (entry.payload.method === "build.setOptions")
@@ -190,11 +231,19 @@ export async function initializePluginWebBuildListener(
       guard,
       stopDeadline: () => {},
       invalidated: false,
+      controller: new AbortController(),
       version: { sequence: state.requestSequence, revocationEpoch: state.revocationEpoch },
     };
     pending.set(payload.operationId, entry);
     if (payload.method === "build.setOptions") entry.version = state.actions.beginRequest();
-    entry.stopDeadline = port.scheduleDeadline(() => invalidate(entry));
+    const workflow = payload.method !== "build.instances" && payload.method !== "build.setOptions";
+    const timeout =
+      payload.method === "build.runTask" || payload.method === "build.runTests"
+        ? RUN_WORKFLOW_TIMEOUT_MS
+        : workflow
+          ? 120_000
+          : REQUEST_TIMEOUT_MS;
+    entry.stopDeadline = port.scheduleDeadline(() => invalidate(entry), timeout);
     if (!current(entry)) {
       invalidate(entry);
       return;
@@ -204,6 +253,11 @@ export async function initializePluginWebBuildListener(
       .then(async (view) => {
         if (!current(entry)) {
           invalidate(entry);
+          return;
+        }
+        if (workflow) {
+          if (!port.workflow) throw new Error("plugin.build.unavailable");
+          await port.workflow(payload, workspace, entry.controller.signal);
           return;
         }
         const latest = workspace.store.getState();
@@ -246,12 +300,19 @@ export async function initializePluginWebBuildListener(
     stopped = true;
     for (const entry of pending.values()) invalidate(entry);
     unlisten?.();
+    unlistenRevoked?.();
     releaseWorkspace();
     releasePlugin();
     if (typeof window !== "undefined") window.removeEventListener("pagehide", cleanup);
   };
   try {
     if (typeof window !== "undefined") window.addEventListener("pagehide", cleanup, { once: true });
+    const releaseRevoked = await port.listenRevoked?.((id) => {
+      const entry = pending.get(id);
+      if (entry) invalidate(entry);
+    });
+    if (stopped) releaseRevoked?.();
+    else unlistenRevoked = releaseRevoked ?? null;
     const acquired = await port.listen(receive);
     if (stopped) acquired();
     else unlisten = acquired;

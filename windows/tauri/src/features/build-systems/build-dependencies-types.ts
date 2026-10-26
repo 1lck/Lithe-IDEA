@@ -20,6 +20,11 @@ export interface BuildDependenciesResult extends BuildDependenciesReview {
   terminal: BuildRunTerminal;
   dependencies: BuildDependencyNode[] | null;
   truncated?: boolean;
+  dependencyTree?: {
+    project: string;
+    dependencies: BuildDependencyNode[];
+    truncated: boolean;
+  } | null;
 }
 export type BuildDependenciesDefinition = BuildRunDefinition;
 

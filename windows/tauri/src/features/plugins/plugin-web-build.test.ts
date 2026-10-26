@@ -68,6 +68,7 @@ function fixture() {
   let revision = 0;
   let blocked = false;
   let unlistened = 0;
+  let revoked: ((id: string) => void) | null = null;
   const calls: Array<{ operationId: string; accept: boolean }> = [];
   const completions = new Map<
     string,
@@ -96,6 +97,12 @@ function fixture() {
     },
     complete: async (operationId) => {
       delivered.push(operationId);
+    },
+    listenRevoked: async (handler) => {
+      revoked = handler;
+      return () => {
+        revoked = null;
+      };
     },
     subscribeWorkspace: (handler) => {
       workspaceChanged = handler;
@@ -144,6 +151,7 @@ function fixture() {
     timers,
     failures,
     delivered,
+    revoke: (id: string) => revoked?.(id),
     workspace: () => workspace!,
     emit: (payload: PluginWebBuildRequest) => receive?.(payload),
     switchWorkspace: (next: PluginWebBuildWorkspace | null) => {
@@ -184,6 +192,69 @@ test("instance reads accept only a native token and mirror the existing workspac
   expect(f.timers.size).toBe(0);
 });
 
+test("all remaining contract methods enter the workflow port after native acceptance", async () => {
+  for (const method of [
+    "build.refresh",
+    "build.runTask",
+    "build.runTests",
+    "build.dependencies",
+    "build.cancel",
+  ] as const) {
+    const f = fixture();
+    const received: string[] = [];
+    f.port.workflow = async (request, workspace, signal) => {
+      expect(workspace).toBe(f.workspace());
+      expect(signal.aborted).toBe(false);
+      received.push(request.method);
+    };
+    await start(f);
+    const request = f.request({ method });
+    f.emit(request);
+    f.completions.get(request.operationId)!.resolve(null);
+    await flush();
+    expect(received).toEqual([method]);
+    expect(f.delivered).toEqual([]);
+  }
+});
+
+test("native navigation revocation aborts only its own page workflow", async () => {
+  const f = fixture();
+  const signals = new Map<string, AbortSignal>();
+  const releases: Array<() => void> = [];
+  f.port.workflow = (request, _workspace, signal) =>
+    new Promise<void>((resolve) => {
+      signals.set(request.operationId, signal);
+      releases.push(resolve);
+    });
+  cleanups.push(() => releases.forEach((release) => release()));
+  await start(f);
+  const first = f.request({ method: "build.runTask", pageLabel: "page-a" });
+  const second = f.request({ method: "build.runTask", pageLabel: "page-b" });
+  f.emit(first);
+  f.emit(second);
+  f.completions.get(first.operationId)!.resolve(null);
+  f.completions.get(second.operationId)!.resolve(null);
+  await flush();
+  f.revoke(first.operationId);
+  expect(signals.get(first.operationId)!.aborted).toBe(true);
+  expect(signals.get(second.operationId)!.aborted).toBe(false);
+});
+
+test("workspace switch during native workflow admission cannot show a late approval", async () => {
+  const f = fixture();
+  let entered = false;
+  f.port.workflow = async () => {
+    entered = true;
+  };
+  await start(f);
+  const request = f.request({ method: "build.dependencies" });
+  f.emit(request);
+  f.switchWorkspace(scope());
+  f.completions.get(request.operationId)!.resolve(null);
+  await flush();
+  expect(entered).toBe(false);
+});
+
 test("option edits share the existing store request barrier and apply native effective options", async () => {
   const f = fixture();
   await start(f);
@@ -211,7 +282,7 @@ test("malformed and other-window events cannot invoke a build request", async ()
   await start(f);
   f.emit(f.request({ hostLabel: "workspace-other" }));
   f.emit(f.request({ pageGeneration: 0 }));
-  f.emit(f.request({ method: "build.refresh" as PluginWebBuildRequest["method"] }));
+  f.emit(f.request({ method: "build.unknown" as PluginWebBuildRequest["method"] }));
   expect(f.calls).toEqual([]);
   const foreign = f.request({ workspaceId: "other", workspacePath: "C:/fixture/other" });
   f.emit(foreign);

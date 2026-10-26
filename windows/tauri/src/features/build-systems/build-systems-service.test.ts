@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import * as eventApi from "@tauri-apps/api/event";
-import type { BuildView } from "./build-systems-types";
+import * as lspAdapter from "@/platform/lsp-core-adapter";
+import type { BuildModelReview, BuildView } from "./build-systems-types";
 
 /**
  * Service tests for the declarative build bridge. Every request captures
@@ -60,6 +61,13 @@ const invokeMock = mock(async (command: string, args?: Record<string, unknown>) 
   return nextResult;
 });
 mock.module("@/platform/tauri-core", () => ({ invoke: invokeMock }));
+const sharedLanguageStart = mock(
+  async (_args: unknown, _signal?: AbortSignal): Promise<void> => {},
+);
+mock.module("@/platform/lsp-core-adapter", () => ({
+  ...lspAdapter,
+  ensureBuildProviderLanguageSession: sharedLanguageStart,
+}));
 
 type LifecycleHandler = (event: { payload: unknown }) => void;
 let lifecycleHandler: LifecycleHandler | null = null;
@@ -123,6 +131,7 @@ function activateWorkspace(id: string, path: string | null): void {
 }
 
 function resetState(): void {
+  sharedLanguageStart.mockReset().mockImplementation(async () => {});
   invokeCalls.length = 0;
   deferredByCommand.clear();
   nextError = null;
@@ -925,6 +934,84 @@ describe("explicit command model operations", () => {
     expect(
       invokeCalls.filter((row) => row.command === "declarative_plugins_build_cancel_operation"),
     ).toHaveLength(2);
+  });
+
+  test("Stop after model initialization cleanup failure retries the retained shared language owner", async () => {
+    resetState();
+    activateWorkspace("ws-a", WORKSPACE_A);
+    const shared = deferred();
+    const cleanup = deferred();
+    const retryCleanup = mock(async () => {
+      await cleanup.promise;
+    });
+    sharedLanguageStart.mockImplementation(async () => {
+      await shared.promise;
+    });
+    const providerReview: BuildModelReview = {
+      ...review,
+      provider: {
+        token: 7,
+        context: {
+          window: "test-window",
+          workspaceRoot: WORKSPACE_A,
+          generation: 1,
+          pluginId: review.pluginId,
+          packageIdentity: "fixture:digest",
+          buildSystem: "cargo",
+          instanceRoot: ".",
+          instanceDirectory: WORKSPACE_A,
+        },
+        executesProjectCode: true,
+        mayUseNetwork: true,
+        launchPlan: { buildProvider: { languageServer: "fixture-language" } },
+        program: {
+          pluginId: review.pluginId,
+          languageId: "fixture-language",
+          serverPath: "fixture.exe",
+          serverArgs: [],
+          environment: {},
+        },
+      },
+    };
+    const native = {
+      prepare: mock(async () => providerReview),
+      load: mock(async () => ({
+        operationId: review.operationId,
+        view: cargoView(WORKSPACE_A, 1),
+        stderr: "",
+      })),
+      cancel: mock(async () => {}),
+    };
+    const outcome = buildSystemsService
+      .loadBuildModel(review.pluginId, "cargo", ".", async () => true, {}, { native })
+      .catch((error: unknown) => error);
+    try {
+      await flushMicrotasks();
+      expect(sharedLanguageStart).toHaveBeenCalledTimes(1);
+      const stopped = buildSystemsService
+        .cancelBuildModel(review.operationId)
+        .catch((error: unknown) => error);
+      shared.reject(Object.assign(new Error("plugin.build.cleanupFailed"), { retryCleanup }));
+      expect(String(await stopped)).toContain("plugin.build.cleanupFailed");
+      expect(await outcome).toBeInstanceOf(buildSystemsService.BuildModelCancellationError);
+      expect(native.load).not.toHaveBeenCalled();
+      let finished = false;
+      const retry = buildSystemsService.cancelBuildModel(review.operationId).then(() => {
+        finished = true;
+      });
+      await flushMicrotasks();
+      expect(native.cancel).toHaveBeenCalledTimes(2);
+      expect(retryCleanup).toHaveBeenCalledTimes(1);
+      expect(finished).toBe(false);
+      cleanup.resolve(undefined);
+      await retry;
+      expect(finished).toBe(true);
+    } finally {
+      shared.resolve(undefined);
+      cleanup.resolve(undefined);
+      await outcome;
+      await buildSystemsService.cancelBuildModel(review.operationId);
+    }
   });
 
   test("cancel acknowledgement is awaited and concurrent callers share the owned cleanup", async () => {

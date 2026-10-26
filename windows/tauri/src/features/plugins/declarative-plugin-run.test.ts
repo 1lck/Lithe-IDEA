@@ -4,6 +4,7 @@ import { setPluginActive } from "./declarative-plugin-lifecycle";
 import { declarativePluginProcessOwner } from "./declarative-plugin-process-owner";
 import {
   declarativeRunActionsForFile,
+  declarativeRunActionsForWorkspace,
   runDeclarativeAction,
   type DeclarativeExecutionDependencies,
 } from "./declarative-plugin-run";
@@ -27,9 +28,16 @@ const plan: DeclarativeRunPlan = {
 function bridge() {
   const events: string[] = [];
   const ports: DeclarativeExecutionDependencies = {
+    catalog: mock(
+      async () =>
+        [{ pluginId, status: "accepted", enabled: true }] as Awaited<
+          ReturnType<DeclarativeExecutionDependencies["catalog"]>
+        >,
+    ),
+    workerOwns: () => false,
     owner: mock(async () => owner),
     manifest: mock(async () => ({
-      executionProviders: [{ languageID: "php", run: {}, test: {} }],
+      executionProviders: [{ languageID: "php", run: {}, test: { frameworkID: "phpunit" } }],
     })),
     discover: mock(async () => ({
       identity: "discovery",
@@ -114,6 +122,27 @@ test("discovery exposes Core's workspace and current-file items without sibling 
   expect(ports.start).not.toHaveBeenCalled();
 }, 2000);
 
+test("workspace tests discover and launch without any editor or file-owner lookup", async () => {
+  const { ports, events } = bridge();
+  (ports.catalog as ReturnType<typeof mock>).mockResolvedValue([
+    { pluginId, displayName: "Fixture", status: "accepted", enabled: true },
+  ]);
+  const actions = await declarativeRunActionsForWorkspace(scope, undefined, ports);
+  expect(actions.map((action) => action.declarativeTestScope)).toEqual([{ kind: "workspace" }]);
+  expect(actions[0]?.testTarget).toEqual({
+    languageId: "php",
+    frameworkId: "phpunit",
+    scope: { kind: "workspace" },
+  });
+  expect(ports.owner).not.toHaveBeenCalled();
+  await runDeclarativeAction(actions[0]!, scope.workspaceId, scope.root, undefined, ports);
+  expect(events).toEqual(["save", "synchronize", "test-plan", "confirm", "listen", "start"]);
+  expect(ports.owner).not.toHaveBeenCalled();
+  expect((ports.testPlan as ReturnType<typeof mock>).mock.calls[0][3]).toEqual({
+    kind: "workspace",
+  });
+}, 2000);
+
 test("save and synchronization precede exact test planning, approval and existing-owner start", async () => {
   const { ports, events } = bridge();
   const actions = await declarativeRunActionsForFile(file, scope, ports);
@@ -137,29 +166,26 @@ test("save and synchronization precede exact test planning, approval and existin
   expect(ports.runPlan).not.toHaveBeenCalled();
 }, 2000);
 
-test("a supplied case identifier stays exact and a suite is unavailable", async () => {
+test("caller-built case identifiers and suites are unavailable without a trusted upstream entry", async () => {
   const { ports } = bridge();
   const [action] = await declarativeRunActionsForFile(file, scope, ports);
-  await runDeclarativeAction(
-    {
-      ...action!,
-      declarativeTest: true,
-      declarativeTestScope: {
-        kind: "testCase",
-        identifier: "Suite.test[one]",
-        relativeFilePath: "nested/ItemTest.php",
+  await expect(
+    runDeclarativeAction(
+      {
+        ...action!,
+        declarativeTest: true,
+        declarativeTestScope: {
+          kind: "testCase",
+          identifier: "Suite.test[one]",
+          relativeFilePath: "nested/ItemTest.php",
+        },
       },
-    },
-    scope.workspaceId,
-    scope.root,
-    file,
-    ports,
-  );
-  expect((ports.testPlan as ReturnType<typeof mock>).mock.calls[0][3]).toEqual({
-    kind: "testCase",
-    identifier: "Suite.test[one]",
-    relativeFilePath: "nested/ItemTest.php",
-  });
+      scope.workspaceId,
+      scope.root,
+      file,
+      ports,
+    ),
+  ).rejects.toThrow("unavailable");
   await expect(
     runDeclarativeAction(
       {
@@ -173,7 +199,7 @@ test("a supplied case identifier stays exact and a suite is unavailable", async 
       ports,
     ),
   ).rejects.toThrow("unavailable");
-  expect(ports.testPlan).toHaveBeenCalledTimes(1);
+  expect(ports.testPlan).not.toHaveBeenCalled();
 }, 2000);
 
 test.each(["save", "synchronize", "testPlan"] as const)(

@@ -167,7 +167,39 @@ export interface DeclarativePluginSetting {
   options?: Array<{ value: string; title: string }> | null;
   scope?: "global" | "project" | null;
   effect?: "restart" | "immediate" | "reload" | "nextRun" | null;
-  section?: { languageID?: string; buildSystemID?: string } | null;
+  page?: { languageID?: string; buildSystemID?: string } | null;
+  section?: string | null;
+  pattern?: string | null;
+  maxLength?: number | null;
+  placeholder?: string | null;
+}
+
+export interface DeclarativeSettingAction {
+  id: string;
+  title: string;
+  description?: string;
+  function: string;
+  confirm?: boolean;
+  page?: DeclarativePluginSetting["page"];
+  section?: string;
+}
+export interface DeclarativeSettingSnapshot {
+  manifest: Record<string, unknown>;
+  settings: DeclarativePluginSetting[];
+  settingActions: DeclarativeSettingAction[];
+  globalValues: Record<string, unknown>;
+  projectValues: Record<string, unknown>;
+  resolvedGlobal: ResolvedDeclarativeSetting[];
+  resolvedProject: ResolvedDeclarativeSetting[];
+  globalPath: string;
+  projectPath: string | null;
+  identity: string;
+}
+export function loadDeclarativeSettingSnapshot(pluginId: string, workspacePath: string) {
+  return invoke<DeclarativeSettingSnapshot>("declarative_plugins_setting_snapshot", {
+    pluginId,
+    workspacePath,
+  });
 }
 
 /** Effective value of one setting and the layer it came from. */
@@ -192,13 +224,15 @@ export function storeDeclarativeSetting(
   scope: "global" | "project",
   workspacePath: string,
   value: unknown,
-): Promise<void> {
+  expectedIdentity: string,
+): Promise<DeclarativeSettingSnapshot> {
   return invoke("declarative_plugins_store_setting", {
     pluginId,
     settingId,
     scope,
     workspacePath,
     value,
+    expectedIdentity,
   });
 }
 

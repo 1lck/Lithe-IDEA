@@ -7,6 +7,16 @@ import type { BuildDependenciesResult, BuildDependenciesReview } from "./build-d
 import { BuildDependenciesSession } from "./build-dependencies-session";
 import type { BuildOutputEvent } from "./output/build-output-types";
 import { useBuildOutputStore } from "./output/build-output-store";
+import * as lspAdapter from "@/platform/lsp-core-adapter";
+
+const sharedLanguageStart = mock(
+  async (_args: unknown, _signal?: AbortSignal): Promise<void> => {},
+);
+mock.module("@/platform/lsp-core-adapter", () => ({
+  ...lspAdapter,
+  ensureBuildProviderLanguageSession: sharedLanguageStart,
+}));
+mock.module("@/platform/tauri-core", () => ({ invoke: mock(async () => undefined) }));
 
 const ROOT = "D:/fixture/dependencies";
 const PLUGIN = "dev.lithe.fixture.dependencies";
@@ -35,6 +45,7 @@ afterEach(async () => {
   await Promise.allSettled(work.splice(0));
   await flush();
   workspaceRuntimeRegistry.resetForTests();
+  sharedLanguageStart.mockReset().mockImplementation(async () => {});
 });
 function fixture() {
   workspaceRuntimeRegistry.activateWorkspace(
@@ -205,6 +216,65 @@ test("same native busy barrier covers dependency consent, and duplicate starts d
   await operation;
   expect(f.store.getState().status).toBe("ready");
 });
+test("dependency Stop retries shared language cleanup after its initialization promise has rejected", async () => {
+  const f = fixture();
+  f.review.provider = {
+    token: 7,
+    context: {
+      window: "workspace-dependencies",
+      workspaceRoot: ROOT,
+      generation: 9,
+      pluginId: PLUGIN,
+      packageIdentity: "fixture:digest",
+      buildSystem: "fixture",
+      instanceRoot: "reactor",
+      instanceDirectory: `${ROOT}/reactor`,
+    },
+    executesProjectCode: true,
+    mayUseNetwork: true,
+    launchPlan: { buildProvider: { languageServer: "fixture-language" } },
+    program: {
+      pluginId: PLUGIN,
+      languageId: "fixture-language",
+      serverPath: "fixture.exe",
+      serverArgs: [],
+      environment: {},
+    },
+  };
+  const shared = deferred<void>(undefined);
+  const retry = deferred<void>(undefined);
+  const retryCleanup = mock(async () => {
+    await retry.promise;
+  });
+  sharedLanguageStart.mockImplementation(async () => {
+    await shared.promise;
+  });
+  const operation = f.start();
+  await flush();
+  f.session.decide(true);
+  await flush();
+  expect(sharedLanguageStart).toHaveBeenCalledTimes(1);
+  const stopping = f.session.cancel().catch((error: unknown) => error);
+  shared.reject(Object.assign(new Error("plugin.build.cleanupFailed"), { retryCleanup }));
+  expect(String(await stopping)).toContain("plugin.build.cleanupFailed");
+  await operation;
+  expect(f.session.getSnapshot().phase).toBe("cancelFailed");
+  expect(f.native.execute).not.toHaveBeenCalled();
+  let finished = false;
+  const stopped = f.session.cancel().then(() => {
+    finished = true;
+  });
+  work.push(stopped);
+  await flush();
+  expect(f.native.cancel).toHaveBeenCalledTimes(2);
+  expect(retryCleanup).toHaveBeenCalledTimes(1);
+  expect(finished).toBe(false);
+  retry.resolve(undefined);
+  await stopped;
+  expect(f.session.getSnapshot().phase).toBe("ended");
+  expect(f.session.getSnapshot().dependencies).toBeNull();
+});
+
 test("cleanup failure keeps Stop retryable and never publishes a tree", async () => {
   const f = fixture();
   f.native.execute = mock(async () => {

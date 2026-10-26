@@ -284,7 +284,7 @@ WebKit 没有公开的 Web Inspector 开关，所以：
 - `macos/Sources/Lithe/Platform/MacOS/HTMLPreviewMediaCapture.swift`
 - `macos/Sources/Lithe/Platform/MacOS/WebMediaCapture.swift`（摄像头 / 麦克风的统一门和 Lithe 自有页面的拒绝委托）
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/Web/MacPluginWebPage.swift`（插件页的询问、隐藏即停止）
-- `macos/Sources/Lithe/Platform/MacOS/MonacoDiffEditor.swift`、`MonacoWorkbenchEditor.swift`、`Updates/ReleaseNotesWebView.swift`（各一行 `uiDelegate`）
+- `macos/Sources/Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift`、`Updates/ReleaseNotesWebView.swift`（各一行 `uiDelegate`；`MonacoDiffEditor.swift` 已在 #1498 删除）
 - `macos/Sources/Lithe/Platform/MacOS/HTMLPreviewScrollbars.swift`
 - `macos/Sources/Lithe/Platform/MacOS/HTMLPreviewWebView.swift`
 - `macos/Sources/Lithe/Platform/MacOS/LocalFileSchemeSupport.swift`

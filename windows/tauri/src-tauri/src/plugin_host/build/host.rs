@@ -139,6 +139,29 @@ pub(super) async fn prepare(
     root: String,
     runtime_executables: BTreeMap<String, String>,
 ) -> Result<BuildModelReview, String> {
+    prepare_with_refresh(
+        app,
+        window_label,
+        workspace_root,
+        plugin_id,
+        build_system_id,
+        root,
+        runtime_executables,
+        false,
+    )
+    .await
+}
+
+pub(super) async fn prepare_with_refresh(
+    app: AppHandle,
+    window_label: String,
+    workspace_root: String,
+    plugin_id: String,
+    build_system_id: String,
+    root: String,
+    runtime_executables: BTreeMap<String, String>,
+    refresh: bool,
+) -> Result<BuildModelReview, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<BuildHostState>();
         let context = state.registry.lock().map_err(|_| "build registry mutex poisoned")?
@@ -152,11 +175,14 @@ pub(super) async fn prepare(
             "manifest": context.package.manifest, "buildSystemID": build_system_id,
             "request": {"root": root, "options": context.options,
                 "pluginDirectory": package.root, "workspaceStateDirectory": state_directory.join(store::workspace_state_key(&workspace_root)),
-                "outputFile": output_file},
+                "outputFile": output_file, "refresh": refresh},
         }))?;
         core_ok(&response)?;
-        let plan: ModelCommandPlan = serde_json::from_value(response["plan"].clone()).map_err(|error| format!("plugin.build.invalidPlan: {error}"))?;
-        if plan.working_directory != context.root || !matches!(plan.output.as_str(), "stdout" | "outputFile") {
+        let provider_plan=response["plan"]["provider"].is_object().then(||response["plan"].clone());
+        let plan: ModelCommandPlan = if let Some(plan)=&provider_plan { super::provider::command(plan)? } else {
+            serde_json::from_value(response["plan"].clone()).map_err(|error| format!("plugin.build.invalidPlan: {error}"))?
+        };
+        if plan.working_directory != context.root || !matches!(plan.output.as_str(), "stdout" | "outputFile" | "provider") {
             return Err("plugin.build.invalidPlan: unsupported model command".into());
         }
         // Core invocation settings are global only: project files cannot
@@ -175,10 +201,12 @@ pub(super) async fn prepare(
         let working_directory = WindowsBuildToolResolver::instance_directory(&invocation["invocation"], &PathBuf::from(&workspace_root))
             .map_err(|error| format!("{}: {error}", error.code()))?;
         verified_identity(&app, &context)?;
-        let resolver = WindowsBuildToolResolver::from_current_process(runtimes).freeze_discovery()
+        let resolver = WindowsBuildToolResolver::from_current_process(runtimes.clone()).freeze_discovery()
             .map_err(|error| error.to_string())?;
-        let operation = ModelOperation::new(id.clone(), context, plan, invocation["invocation"].clone(),
+        let prepared_provider=provider_plan.map(|plan|super::provider::prepare(&app,&context,plan,runtimes)).transpose()?;
+        let mut operation = ModelOperation::new(id.clone(), context, plan, invocation["invocation"].clone(),
             resolver, output_file, working_directory);
+        operation.provider=prepared_provider;
         let review = state.operations.insert(operation)?;
         let operation = state.operations.get(&window_label, &id)?;
         if !state.registry.lock().map_err(|_| "build registry mutex poisoned")?.context_is_current(&operation.context) {
@@ -222,6 +250,9 @@ pub(super) async fn load(
         .state::<BuildHostState>()
         .operations
         .claim(&window_label, &operation_id)?;
+    if running.0.provider.is_some() {
+        return super::provider::load_model(app, running).await;
+    }
     tauri::async_runtime::spawn_blocking(move || {
         let operation = &running.0;
         let guard = HostGuard {
@@ -288,6 +319,12 @@ pub(super) async fn cancel(
         return Ok(());
     };
     operation.cancel();
+    if let Some(provider) = &operation.provider {
+        super::super::provider::drain_initialization(&app, &window_label, provider.review.token)
+            .await
+            .map_err(|_| "plugin.build.cleanupFailed".to_string())?;
+        operation.finish_provider_cleanup();
+    }
     operation.wait_finished().await
 }
 

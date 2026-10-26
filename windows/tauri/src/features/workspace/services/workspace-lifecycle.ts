@@ -490,6 +490,8 @@ async function closeWorkspaceRuntimeOnce(
   await disableMcp(workspaceId);
   await extensionProcessOwner.stop(workspaceId);
   const { invoke: invokePluginHost } = await import("@/platform/tauri-core");
+  const { closeWorkspaceVcsRoots } = await import("@/features/vcs/vcs-root-service");
+  await closeWorkspaceVcsRoots(workspaceId);
   await invokePluginHost("declarative_plugins_close_execution_workspace", { workspaceId });
   await declarativePluginProcessOwner.stop(workspaceId);
   await invokePluginHost("declarative_plugins_close_workspace_pages", { workspaceId });

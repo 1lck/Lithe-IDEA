@@ -1,4 +1,4 @@
-//! Non-provider dependency loading through the existing native operation
+//! Explicit dependency loading through the existing native operation
 //! owner. Core selects argv and decodes trees; the host owns consent, frozen
 //! inputs, a fresh plugin-state output file, and guarded result publication.
 
@@ -44,16 +44,20 @@ pub struct BuildDependenciesResult {
     /// None on failure/cancellation; an empty successful tree is Some([]).
     pub dependencies: Option<Value>,
     pub truncated: bool,
+    /// Complete, unchanged Core tree for consumers of the public web contract.
+    pub dependency_tree: Option<Value>,
 }
 
 pub(super) struct DecodedDependencies {
     pub nodes: Value,
     pub truncated: bool,
+    pub tree: Value,
 }
 
 pub(super) struct PreparedDependencies {
     pub project_id: Option<String>,
-    project_path: Option<String>,
+    pub(super) project_path: Option<String>,
+    pub provider_plan: Option<Value>,
     pub title: String,
     pub fingerprint: String,
     pub events: RunEvents,
@@ -82,7 +86,7 @@ pub(super) fn plan(
         .ok_or("plugin.build.invalidSelection")?;
     if !matches!(
         system["dependencies"]["source"].as_str(),
-        Some("command" | "hostIntegration")
+        Some("command" | "hostIntegration" | "provider")
     ) {
         return Err("plugin.build.unavailable".into());
     }
@@ -110,14 +114,24 @@ pub(super) fn plan(
             "pluginDirectory":plugin_directory,"workspaceStateDirectory":state_directory,"outputFile":output_file},
     }))?;
     core_ok(&response)?;
-    if response["plan"]["execution"] != "task"
-        || response["plan"]["workingDirectory"] != context.root
+    let provider_plan = response["plan"]["provider"]
+        .is_object()
+        .then(|| response["plan"].clone());
+    if provider_plan.is_none()
+        && (response["plan"]["execution"] != "task"
+            || response["plan"]["workingDirectory"] != context.root)
     {
         return Err("plugin.build.invalidPlan".into());
     }
-    let mut command: ModelCommandPlan =
-        serde_json::from_value(response["plan"].clone()).map_err(|_| "plugin.build.invalidPlan")?;
-    if !matches!(command.output.as_str(), "stdout" | "outputFile") {
+    let mut command: ModelCommandPlan = if let Some(plan) = &provider_plan {
+        super::provider::command(plan)?
+    } else {
+        serde_json::from_value(response["plan"].clone()).map_err(|_| "plugin.build.invalidPlan")?
+    };
+    if !matches!(
+        command.output.as_str(),
+        "stdout" | "outputFile" | "provider"
+    ) {
         return Err("plugin.build.invalidPlan".into());
     }
     // Dependency resolution can run project extensions and fetch artifacts.
@@ -134,12 +148,13 @@ pub(super) fn plan(
                 .map(str::to_string),
             title: context.build_system_id.clone(),
             fingerprint,
+            provider_plan,
             events: RunEvents::new(context, id, sink),
         },
     ))
 }
 
-fn review(operation: &ModelOperation) -> Result<BuildDependenciesReview, String> {
+pub(super) fn review(operation: &ModelOperation) -> Result<BuildDependenciesReview, String> {
     let dependencies = operation
         .dependencies
         .as_ref()
@@ -254,6 +269,7 @@ pub(super) fn execute(
         Ok(Some(DecodedDependencies {
             nodes: decoded["dependencies"].clone(),
             truncated: decoded["truncated"] == true,
+            tree: decoded.clone(),
         }))
     })();
     match decoded {
@@ -273,8 +289,8 @@ pub(super) fn execute(
     }
 }
 
-struct DependencyGuard<'a> {
-    base: HostGuard<'a>,
+pub(super) struct DependencyGuard<'a> {
+    pub base: HostGuard<'a>,
 }
 impl ModelExecutionGuard for DependencyGuard<'_> {
     fn checkpoint(&self) -> Result<(), String> {
@@ -387,6 +403,11 @@ pub(super) async fn prepare(
         let resolver = WindowsBuildToolResolver::from_current_process(BTreeMap::new())
             .freeze_discovery()
             .map_err(|error| error.to_string())?;
+        let prepared_provider = dependencies
+            .provider_plan
+            .clone()
+            .map(|plan| super::provider::prepare(&app, &context, plan, BTreeMap::new()))
+            .transpose()?;
         let mut operation = ModelOperation::new(
             id.clone(),
             context,
@@ -397,6 +418,7 @@ pub(super) async fn prepare(
             working_directory,
         );
         operation.dependencies = Some(dependencies);
+        operation.provider = prepared_provider;
         let guard = DependencyGuard {
             base: HostGuard {
                 app: &app,
@@ -441,6 +463,9 @@ pub(super) async fn load(
         .state::<BuildHostState>()
         .operations
         .claim(&window_label, &operation_id)?;
+    if running.0.provider.is_some() {
+        return super::provider::load_dependencies(app, running).await;
+    }
     tauri::async_runtime::spawn_blocking(move || {
         let operation = &running.0;
         let guard = DependencyGuard {
@@ -482,6 +507,7 @@ pub(super) async fn load(
         let result = BuildDependenciesResult {
             review: review(operation)?,
             truncated: dependencies.as_ref().is_some_and(|tree| tree.truncated),
+            dependency_tree: dependencies.as_ref().map(|tree| tree.tree.clone()),
             dependencies: dependencies.map(|tree| tree.nodes),
             terminal,
         };

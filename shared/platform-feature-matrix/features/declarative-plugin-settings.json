@@ -27,11 +27,22 @@
       "shared/contracts/plugins/v1/fixtures/settings-v2.plugin.json",
       "windows/tauri/src/features/editor/lsp/resolve-editor-lsp-launch.ts",
       "windows/tauri/src/platform/lsp-core-adapter.ts",
-      "windows/tauri/src/platform/lsp-core-adapter.test.ts"
+      "windows/tauri/src/platform/lsp-core-adapter.test.ts",
+      "windows/tauri/src-tauri/src/plugin_host/settings/snapshot.rs",
+      "windows/tauri/src-tauri/src/plugin_host/settings/snapshot/tests.rs",
+      "windows/tauri/src/features/plugins/declarative-settings-session.ts",
+      "windows/tauri/src/features/plugins/declarative-settings-session.test.ts",
+      "windows/tauri/src/features/plugins/declarative-settings-pages.ts",
+      "windows/tauri/src/features/plugins/declarative-settings-pages.test.ts",
+      "windows/tauri/src/features/plugins/use-declarative-settings-pages.ts",
+      "windows/tauri/src/features/settings/components/settings-dialog.tsx",
+      "windows/tauri/src/features/settings/components/settings-hierarchy.test.tsx",
+      "windows/tauri/src/features/plugins/details/plugin-details-view.tsx",
+      "windows/tauri/src/features/plugins/details/plugin-details-view.test.tsx"
     ],
     "implementationStatus": "partial",
     "verificationStatus": "pending"
   },
   "owner": "Plugin Platform",
-  "verification": "macOS：打开设置 › 插件，选中 Java Support，切到“设置”页签，确认显示“最大内存”（默认 1024 MB）和“语言服务器日志级别”（默认全部消息）。把最大内存改成 3072：输入 3072 后点“重启语言服务器”，用 ps 查看 JDT LS 的 java 进程参数，确认 -Xmx3072m 且只出现一次；输入 100 时出现范围提示且没有保存，失焦后回到上一个合法值。把日志级别改成“仅错误”并重启，确认进程参数里是 -Dlog.level=SEVERE。点“恢复默认值”后重启，确认回到 -Xmx1024m 和 -Dlog.level=ALL。退出并重新打开 Lithe，确认修改过的值仍在。卸载并恢复 Java Support，值仍在。Windows：契约设置页与双层存储已接入，须完成下述实机验证。 Windows：启动契约语言服务器，修改 immediate 设置，确认 lsp.startServer 和即时更新都带独立 pluginId，已启动会话收到 workspace/didChangeConfiguration；禁用后旧会话不能继续接收。设置双层持久化和界面验收仍 pending。"
+  "verification": "macOS：打开设置 › 插件，选中 Java Support，切到“设置”页签，确认显示“最大内存”（默认 1024 MB）和“语言服务器日志级别”（默认全部消息）。把最大内存改成 3072：输入 3072 后点“重启语言服务器”，用 ps 查看 JDT LS 的 java 进程参数，确认 -Xmx3072m 且只出现一次；输入 100 时出现范围提示且没有保存，失焦后回到上一个合法值。把日志级别改成“仅错误”并重启，确认进程参数里是 -Dlog.level=SEVERE。点“恢复默认值”后重启，确认回到 -Xmx1024m 和 -Dlog.level=ALL。退出并重新打开 Lithe，确认修改过的值仍在。卸载并恢复 Java Support，值仍在。Windows：契约设置页与双层存储已接入，须完成下述实机验证。 Windows：启动契约语言服务器，修改 immediate 设置，确认 lsp.startServer 和即时更新都带独立 pluginId，已启动会话收到 workspace/didChangeConfiguration；禁用后旧会话不能继续接收。设置双层持久化和界面验收仍 pending。 Windows R8：按 page.languageID/buildSystemID 注册到语言/构建分组，section 分组，无 page 的设置保留插件详情；打开只读，逐项草稿、保存/取消、选择全局或工作区、空值与继承重置、外部字节快照冲突、写回重读已接入。依赖独立的前端状态测试通过，完整组件、原生存储及实机验收仍 pending。实机须验证真实 app-data/工作区路径、全局值被项目覆盖的标记、外部修改拒绝覆盖、禁用/升级/切工作区后的旧结果失效、重开一致、发行目录不变。restart/nextRun 等待下次启动/运行；immediate 仅匹配的活动会话收到配置才显示即时应用。reload 缺少安全自动模型重载端口，settingActions 缺少 M6 Provider 函数链，均明确不可用，未伪造生效。"
 }

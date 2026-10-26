@@ -1,7 +1,7 @@
 //! Tauri composition for declarative build detection and explicit model loads.
 //!
 //! Detection, static models, options and fingerprints remain passive.
-//! Command models run only after a window confirms a prepared operation.
+//! Command and Provider models run after a window confirms a prepared operation.
 //! The host still does not declare the
 //! `buildSystems` capability, so no user-visible entry exists until the
 //! remaining M4 batches land. Package trust is re-verified through M1's
@@ -32,7 +32,12 @@ mod language_import;
 mod language_import_tests;
 mod operation;
 mod output;
+#[path = "web_build_native.rs"]
+pub(super) mod page;
 mod process;
+mod provider;
+#[cfg(test)]
+mod provider_tests;
 mod run;
 #[cfg(test)]
 mod run_tests;
@@ -456,7 +461,20 @@ pub async fn declarative_plugins_build_load_model(
     window: WebviewWindow,
     operation_id: String,
 ) -> Result<BuildModelLoadResult, String> {
-    host::load(app, window.label().to_string(), operation_id).await
+    let result = host::load(app.clone(), window.label().to_string(), operation_id).await?;
+    run_build_task(app, |_, _, _| Ok(())).await?;
+    Ok(result)
+}
+
+/// Confirms only the reviewed shared-language start. The following model or
+/// dependency command still claims and verifies the same native operation.
+#[tauri::command]
+pub async fn declarative_plugins_build_authorize_provider_language(
+    app: AppHandle,
+    window: WebviewWindow,
+    operation_id: String,
+) -> Result<(), String> {
+    provider::authorize_shared(app, window.label().to_owned(), operation_id).await
 }
 
 #[tauri::command]
@@ -558,6 +576,7 @@ impl Drop for BuildExecutionSuspension {
         if let Ok(mut registry) = state.registry.lock() {
             registry.resume_execution(&self.window);
         };
+        super::web::build::workflow::queue_instance_changes(self.app.clone());
     }
 }
 
@@ -652,7 +671,11 @@ where
             .registry
             .lock()
             .map_err(|_| "build registry mutex poisoned")?;
-        operation(&mut registry, &source, &persistence)
+        let result = operation(&mut registry, &source, &persistence);
+        if result.is_ok() {
+            super::web::build::workflow::publish_instance_changes(&app, &registry, &source);
+        }
+        result
     })
     .await
     .map_err(|error| format!("build task failed: {error}"))?

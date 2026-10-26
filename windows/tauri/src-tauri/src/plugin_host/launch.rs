@@ -35,7 +35,7 @@ const MAX_RUNTIME_PROBE_OUTPUT_BYTES: usize = 64 * 1024;
 use std::os::windows::fs::MetadataExt;
 
 /// A resolved launch, shaped for `resolveEditorLspLaunch` on the frontend.
-#[derive(Debug, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResolvedLaunch {
     pub plugin_id: String,
@@ -286,12 +286,101 @@ pub(crate) fn resolve_launch(
     plan: &Value,
     probe_directory: &Path,
 ) -> Result<ResolvedLaunch, String> {
+    let resolved = resolve_launch_passive(package, language_id, plan, probe_directory)?;
+    validate_resolved_launch(plan, &resolved, probe_directory)?;
+    Ok(resolved)
+}
+
+/// Checks only the executables frozen by passive preparation, after consent.
+pub(crate) fn validate_resolved_launch(
+    plan: &Value,
+    resolved: &ResolvedLaunch,
+    probe_directory: &Path,
+) -> Result<(), String> {
+    validate_resolved_launch_checked(plan, resolved, probe_directory, || Ok(()))
+}
+
+pub(crate) fn validate_resolved_launch_checked(
+    plan: &Value,
+    resolved: &ResolvedLaunch,
+    probe_directory: &Path,
+    checkpoint: impl Fn() -> Result<(), String>,
+) -> Result<(), String> {
+    checkpoint()?;
+    let launch = &plan["launch"];
+    if launch["kind"] == "runtime" {
+        verify_runtime_version(
+            Path::new(&resolved.server_path),
+            launch["tool"].as_str().ok_or("runtime has no tool")?,
+            launch,
+            probe_directory,
+        )?;
+    }
+    for requirement in plan["runtimeRequirements"].as_array().into_iter().flatten() {
+        checkpoint()?;
+        let tool = requirement["tool"]
+            .as_str()
+            .ok_or("runtime requirement has no tool")?;
+        let key = format!("LITHE_{}_PATH", tool.to_uppercase().replace('-', "_"));
+        let path = resolved
+            .environment
+            .get(&key)
+            .ok_or("resolved runtime is missing")?;
+        let mut version = requirement.clone();
+        version["versionArguments"] = serde_json::json!(if tool == "java" {
+            vec!["-version"]
+        } else {
+            vec!["--version"]
+        });
+        verify_runtime_version(Path::new(path), tool, &version, probe_directory)?;
+    }
+    let validation = string_arguments(&plan["validationArguments"]);
+    checkpoint()?;
+    if !validation.is_empty() {
+        let mut command = Command::new(&resolved.server_path);
+        command
+            .args(validation)
+            .envs(&resolved.environment)
+            .current_dir(probe_directory);
+        run_process_probe(&mut command, "language server validation", true)?;
+    }
+    checkpoint()
+}
+
+pub(crate) fn resolve_launch_passive(
+    package: &ScannedPackage,
+    language_id: &str,
+    plan: &Value,
+    probe_directory: &Path,
+) -> Result<ResolvedLaunch, String> {
+    resolve_launch_passive_with_environment(
+        package,
+        language_id,
+        plan,
+        probe_directory,
+        &std::env::vars().collect(),
+    )
+}
+
+pub(crate) fn resolve_launch_passive_with_environment(
+    package: &ScannedPackage,
+    language_id: &str,
+    plan: &Value,
+    _probe_directory: &Path,
+    inherited: &BTreeMap<String, String>,
+) -> Result<ResolvedLaunch, String> {
     for relative in string_arguments(&plan["requiredPackagePaths"]) {
         verified_package_resource(&package.root, &relative)?;
     }
     let launch = &plan["launch"];
     let kind = launch["kind"].as_str().unwrap_or_default();
     let mut environment: BTreeMap<String, String> = BTreeMap::new();
+    environment.insert(
+        "PATH".into(),
+        inherited_variable(inherited, "PATH")
+            .cloned()
+            .unwrap_or_default(),
+    );
     let server_path = match kind {
         "packaged" => verified_packaged_path(
             &package.root,
@@ -303,7 +392,7 @@ pub(crate) fn resolve_launch(
             let commands = launch["commands"]
                 .as_array()
                 .ok_or("systemCommand launch has no commands")?;
-            let path_env = std::env::var_os("PATH");
+            let path_env = inherited_variable(inherited, "PATH").map(std::ffi::OsString::from);
             commands
                 .iter()
                 .filter_map(|command| command.as_str())
@@ -322,12 +411,16 @@ pub(crate) fn resolve_launch(
             let path = if let Some(packaged) = launch["packagedRuntime"].as_str() {
                 // Packaged runtimes are fixed by the approved package.
                 verified_packaged_path(&package.root, packaged)?
-            } else if let Some(explicit) = std::env::var_os(&key).filter(|value| !value.is_empty())
+            } else if let Some(explicit) = inherited_variable(inherited, &key)
+                .map(std::ffi::OsString::from)
+                .filter(|value| !value.is_empty())
             {
                 PathBuf::from(explicit)
             } else {
                 super::super::language_tools::find_system_tool(
-                    std::env::var_os("PATH").as_deref(),
+                    inherited_variable(inherited, "PATH")
+                        .map(std::ffi::OsString::from)
+                        .as_deref(),
                     tool,
                 )
                 .ok_or_else(|| format!("runtime tool {tool} is not on PATH"))?
@@ -341,7 +434,7 @@ pub(crate) fn resolve_launch(
                 prepend_path(&mut environment, directory);
             }
             environment.insert(key, path.to_string_lossy().to_string());
-            verify_runtime_version(&path, tool, launch, probe_directory)?;
+
             path
         }
         other => return Err(format!("unsupported launch kind {other}")),
@@ -353,13 +446,16 @@ pub(crate) fn resolve_launch(
         let key = format!("LITHE_{}_PATH", tool.to_uppercase().replace('-', "_"));
         // Explicit user exports take precedence; project-local runtimes are
         // never selected by PATH discovery for automatic server starts.
-        let path = std::env::var_os(&key)
+        let path = inherited_variable(inherited, &key)
+            .map(std::ffi::OsString::from)
             .filter(|value| !value.is_empty())
             .map(PathBuf::from)
             .or_else(|| environment.get(&key).map(PathBuf::from))
             .or_else(|| {
                 super::super::language_tools::find_system_tool(
-                    std::env::var_os("PATH").as_deref(),
+                    inherited_variable(inherited, "PATH")
+                        .map(std::ffi::OsString::from)
+                        .as_deref(),
                     tool,
                 )
             })
@@ -369,26 +465,10 @@ pub(crate) fn resolve_launch(
                 "runtime {tool} must name an absolute executable file"
             ));
         }
-        let mut version = requirement.clone();
-        version["versionArguments"] = serde_json::json!(if tool == "java" {
-            vec!["-version"]
-        } else {
-            vec!["--version"]
-        });
-        verify_runtime_version(&path, tool, &version, probe_directory)?;
         environment.insert(key, path.to_string_lossy().into_owned());
         if let Some(directory) = path.parent() {
             prepend_path(&mut environment, directory);
         }
-    }
-    let validation = string_arguments(&plan["validationArguments"]);
-    if !validation.is_empty() {
-        let mut command = Command::new(&server_path);
-        command
-            .args(&validation)
-            .envs(&environment)
-            .current_dir(probe_directory);
-        run_process_probe(&mut command, "language server validation", true)?;
     }
     Ok(ResolvedLaunch {
         plugin_id: package.entry.plugin_id.clone(),
@@ -612,6 +692,36 @@ fn verified_package_resource(root: &Path, relative: &str) -> Result<PathBuf, Str
     Ok(candidate)
 }
 
+fn inherited_variable<'a>(
+    environment: &'a BTreeMap<String, String>,
+    name: &str,
+) -> Option<&'a String> {
+    #[cfg(windows)]
+    {
+        environment
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case(name))
+            .map(|(_, value)| value)
+    }
+    #[cfg(not(windows))]
+    {
+        environment.get(name)
+    }
+}
+
+/// Apply Windows environment overrides without retaining differently cased
+/// inherited duplicates such as Path and PATH.
+pub(crate) fn merge_environment(
+    environment: &mut BTreeMap<String, String>,
+    extra: BTreeMap<String, String>,
+) {
+    for (key, value) in extra {
+        #[cfg(windows)]
+        environment.retain(|existing, _| !existing.eq_ignore_ascii_case(&key));
+        environment.insert(key, value);
+    }
+}
+
 fn prepend_path(environment: &mut BTreeMap<String, String>, directory: &Path) {
     let existing = environment
         .get("PATH")
@@ -787,6 +897,70 @@ mod tests {
             .into_owned();
         assert_eq!(resolved.server_path, expected);
         assert_eq!(resolved.environment["LITHE_NODE_PATH"], expected);
+    }
+
+    #[test]
+    fn passive_provider_resolution_freezes_runtime_without_version_or_validation_probes() {
+        struct TempRoot(PathBuf);
+        impl Drop for TempRoot {
+            fn drop(&mut self) {
+                std::fs::remove_dir_all(&self.0).unwrap();
+            }
+        }
+        let root = TempRoot(unique_temp_root("passive-provider-runtime"));
+        let runtime = root.0.join("runtime.exe");
+        std::fs::write(&runtime, b"a fixture file that must never be executed").unwrap();
+        let package = package_with_root(root.0.clone(), serde_json::json!({}));
+        let plan = serde_json::json!({"launch":{"kind":"runtime","tool":"node","minimumVersion":"999","versionArguments":["--version"]},
+            "arguments":["provider.js","--stdio"],"runtimeRequirements":[{"tool":"node","minimumVersion":"999"}],"validationArguments":["--validate"]});
+        let frozen = BTreeMap::from([
+            ("PATH".into(), String::new()),
+            (
+                (if cfg!(windows) {
+                    "lithe_node_path"
+                } else {
+                    "LITHE_NODE_PATH"
+                })
+                .into(),
+                runtime.to_string_lossy().into_owned(),
+            ),
+        ]);
+        let resolved =
+            resolve_launch_passive_with_environment(&package, "fixture", &plan, &root.0, &frozen)
+                .unwrap();
+        assert_eq!(resolved.server_path, runtime.to_string_lossy());
+        assert_eq!(resolved.server_args, vec!["provider.js", "--stdio"]);
+        assert_eq!(
+            resolved.environment["LITHE_NODE_PATH"],
+            runtime.to_string_lossy()
+        );
+        assert_eq!(
+            std::fs::read(runtime).unwrap(),
+            b"a fixture file that must never be executed"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn frozen_provider_environment_resolves_windows_case_aliases_once() {
+        let mut environment = BTreeMap::from([
+            ("Path".into(), "old-path".into()),
+            ("java_home".into(), "old-home".into()),
+        ]);
+        assert_eq!(
+            inherited_variable(&environment, "PATH").map(String::as_str),
+            Some("old-path")
+        );
+        merge_environment(
+            &mut environment,
+            BTreeMap::from([
+                ("PATH".into(), "approved-path".into()),
+                ("JAVA_HOME".into(), "approved-home".into()),
+            ]),
+        );
+        assert_eq!(environment.len(), 2);
+        assert_eq!(environment["PATH"], "approved-path");
+        assert_eq!(environment["JAVA_HOME"], "approved-home");
     }
 
     #[test]

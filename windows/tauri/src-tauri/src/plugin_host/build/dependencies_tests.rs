@@ -271,7 +271,11 @@ fn maven_output_file_plan_uses_exact_native_project_and_core_decoder() {
     )
     .unwrap();
     assert_eq!(terminal.kind, "succeeded");
-    assert_eq!(tree.unwrap().nodes[0]["name"], "library");
+    let tree = tree.unwrap();
+    assert_eq!(tree.nodes[0]["name"], "library");
+    assert_eq!(tree.tree["project"], "reactor/app");
+    assert_eq!(tree.tree["dependencies"], tree.nodes);
+    assert_eq!(tree.tree["truncated"], tree.truncated);
     operation.complete_run(terminal, || Ok(())).unwrap();
     let plans = executor.plans.borrow();
     assert_eq!(plans[0].executable, plans[1].executable);
@@ -302,7 +306,10 @@ fn stdout_canonical_dependencies_are_decoded_only_after_successful_execution() {
     )
     .unwrap();
     assert_eq!(terminal.kind, "succeeded");
-    assert_eq!(tree.unwrap().nodes[0]["children"][0]["name"], "transitive");
+    let tree = tree.unwrap();
+    assert_eq!(tree.nodes[0]["children"][0]["name"], "transitive");
+    assert_eq!(tree.tree["project"], "reactor");
+    assert_eq!(tree.tree["dependencies"], tree.nodes);
 }
 
 #[test]
@@ -529,12 +536,9 @@ fn selection_and_provider_sources_cannot_inject_native_plan_fields() {
     .is_err());
     context.package.manifest["buildSystems"][0]["dependencies"] =
         json!({"source":"provider","scopes":["workspace"]});
-    assert_eq!(
-        prepare(&context, BuildDependenciesSelection { project_id: None })
-            .err()
-            .as_deref(),
-        Some("plugin.build.unavailable")
-    );
+    // A provider source without its process declaration is still rejected by
+    // Core. Valid Provider declarations use the separate native session route.
+    assert!(prepare(&context, BuildDependenciesSelection { project_id: None }).is_err());
 }
 
 #[test]

@@ -20,11 +20,19 @@
   },
   "windows": {
     "evidence": [
-      "shared/contracts/plugins/v1/README.md"
+      "windows/tauri/src/features/window/components/new-project-content.tsx",
+      "windows/tauri/src/features/project-generators/project-generator-wizard.tsx",
+      "windows/tauri/src/features/project-generators/generation-session.ts",
+      "windows/tauri/src/features/project-generators/generation-session.test.ts",
+      "windows/tauri/src-tauri/src/plugin_host/project_generators/mod.rs",
+      "windows/tauri/src-tauri/src/plugin_host/project_generators/transaction.rs",
+      "windows/tauri/src-tauri/src/plugin_host/project_generators/tests.rs",
+      "rust/lithe-core/src/project_generators/",
+      "shared/contracts/plugins/v1/fixtures/project-generator.plugin.json"
     ],
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable"
+    "implementationStatus": "partial",
+    "verificationStatus": "pending"
   },
   "owner": "Plugin Platform",
-  "verification": "macOS：从欢迎页和项目切换器点“新建项目”，确认左栏有“新建项目”（Java、空项目）和“生成器”（Maven Archetype、Spring Boot）两组且可搜索。Java 选 Maven、默认 JDK 创建，确认生成 pom.xml（maven.compiler.release 等于所选 JDK 主版本）、.gitignore 和 src/main/java/org/example/Main.java，项目打开后 Main.java 已打开、Build 工具窗口识别 Maven 项目。勾选“创建 Git 仓库”时项目根目录有 .git。Spring Boot 选几个依赖创建，确认从 start.spring.io 下载并解压、mvnw 可执行；把服务器 URL 改成不可达地址时报错且目标目录下没有残留的 .*.lithe-creating-* 临时目录。Maven Archetype 在已安装 mvn 时生成 quickstart 项目，未安装时提示找不到 mvn。停用 Java Support 后，三个条目变灰、创建按钮不可用，只出现一条“启用 Java Support”，点击后条目恢复可用；未安装 Maven 插件时出现“在插件市场中查找”并跳到市场搜索 maven。目标目录已存在时拒绝创建且不改动原目录。Windows：宿主不声明 projectGenerators，需要它的插件在市场中隐藏。"
+  "verification": "macOS：从欢迎页和项目切换器点“新建项目”，确认左栏有“新建项目”（Java、空项目）和“生成器”（Maven Archetype、Spring Boot）两组且可搜索。Java 选 Maven、默认 JDK 创建，确认生成 pom.xml（maven.compiler.release 等于所选 JDK 主版本）、.gitignore 和 src/main/java/org/example/Main.java，项目打开后 Main.java 已打开、Build 工具窗口识别 Maven 项目。勾选“创建 Git 仓库”时项目根目录有 .git。Spring Boot 选几个依赖创建，确认从 start.spring.io 下载并解压、mvnw 可执行；把服务器 URL 改成不可达地址时报错且目标目录下没有残留的 .*.lithe-creating-* 临时目录。Maven Archetype 在已安装 mvn 时生成 quickstart 项目，未安装时提示找不到 mvn。停用 Java Support 后，三个条目变灰、创建按钮不可用，只出现一条“启用 Java Support”，点击后条目恢复可用；未安装 Maven 插件时出现“在插件市场中查找”并跳到市场搜索 maven。目标目录已存在时拒绝创建且不改动原目录。Windows R8：保持 projectGenerators capability 关闭，需要它的插件仍在市场中隐藏，生产目录不会绕过 capability 准入。欢迎页和项目菜单均进入共用泛型向导，目录与字段来自 Core；在隔离 fixture 下验证真实 Core files / command 计划、派生默认值、所选 JDK、同级 staging、产物 collect、Git 初始化、原子不覆盖发布及既有打开工程/语言导入路径。验证失败、取消、目标并发出现、穿越、ADS、reparse/hard link、插件撤销和窗口销毁清理。独立 Windows 事务 smoke 与前端生命周期测试不替代完整 Tauri Cargo/Release 与实机向导验证，后者仍待主会话执行。archive 在创建 staging 前明确 unavailable：受限下载与有界 Core 解压尚未贯通；插件需求启用/市场跳转、字段 segmented 表现仍待补齐。已确认进程结束但文件删除失败时保留原 Transaction、目录身份与 NativeLease；解除文件占用后再次取消会真实重试清理，成功才释放 barrier。同步 Core/Git runner 返回进程树清理不确定结果时尚无可重试句柄，保留 staging 与 NativeLease 并阻止插件替换，恢复需进程重启，不宣称已清理。"
 }

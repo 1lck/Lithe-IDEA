@@ -61138,6 +61138,33 @@
       }
     },
     {
+      "id": "native.sessions",
+      "description": "Native UI: Sessions",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Sessions",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.stopSessionNamed",
+      "description": "Native UI: Stop %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Stop %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
       "id": "native.threads",
       "description": "Native UI: Threads",
       "platforms": [
@@ -90154,6 +90181,410 @@
         "selection": "string",
         "command": "string"
       },
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.provider.programs",
+      "description": "Windows build Provider approval and failures",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.provider.shared",
+      "description": "Windows build Provider approval and failures",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "language": "string"
+      }
+    },
+    {
+      "id": "plugin.build.providerNotNegotiated",
+      "description": "Windows build Provider approval and failures",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "plugin.build.providerFailed",
+      "description": "Windows build Provider approval and failures",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "generator.title",
+      "description": "Windows plugin project generator: title",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "generator.description",
+      "description": "Windows plugin project generator: description",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "generator.plugins",
+      "description": "Windows plugin project generator: plugins",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "generator.back",
+      "description": "Windows plugin project generator: back",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "generator.search",
+      "description": "Windows plugin project generator: search",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "generator.empty",
+      "description": "Windows plugin project generator: empty",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "generator.projects",
+      "description": "Windows plugin project generator: projects",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "generator.generators",
+      "description": "Windows plugin project generator: generators",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "generator.git",
+      "description": "Windows plugin project generator: git",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "generator.advanced",
+      "description": "Windows plugin project generator: advanced",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "generator.invalidField",
+      "description": "Windows plugin project generator: invalidField",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "generator.chooseRuntime",
+      "description": "Windows plugin project generator: chooseRuntime",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "generator.requirements",
+      "description": "Windows plugin project generator: requirements",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "names": "string"
+      }
+    },
+    {
+      "id": "generator.review",
+      "description": "Windows plugin project generator: review",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "generator.network",
+      "description": "Windows plugin project generator: network",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "generator.steps",
+      "description": "Windows plugin project generator: steps",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "generator.create",
+      "description": "Windows plugin project generator: create",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "generator.edit",
+      "description": "Windows plugin project generator: edit",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "generator.cancel",
+      "description": "Windows plugin project generator: cancel",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "generator.openCreated",
+      "description": "Windows plugin project generator: openCreated",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "generator.archiveUnavailable",
+      "description": "Windows plugin project generator: archiveUnavailable",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "generator.cleanupFailed",
+      "description": "Windows plugin project generator: cleanupFailed",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "generator.destinationExists",
+      "description": "Windows plugin project generator: destinationExists",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "generator.cancelled",
+      "description": "Windows plugin project generator: cancelled",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "generator.timeout",
+      "description": "Windows plugin project generator: timeout",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "generator.toolMissing",
+      "description": "Windows plugin project generator: toolMissing",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "generator.stale",
+      "description": "Windows plugin project generator: stale",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "generator.runtimeInvalid",
+      "description": "Windows plugin project generator: runtimeInvalid",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "generator.batchArgumentUnsupported",
+      "description": "Windows plugin project generator: batchArgumentUnsupported",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "generator.failed",
+      "description": "Windows plugin project generator: failed",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "plugins.settings.actionUnavailable",
+      "description": "Windows plugin settings: plugins.settings.actionUnavailable",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "plugins.settings.effect.immediate",
+      "description": "Windows plugin settings: plugins.settings.effect.immediate",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "plugins.settings.effect.nextRun",
+      "description": "Windows plugin settings: plugins.settings.effect.nextRun",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "plugins.settings.effect.nextStart",
+      "description": "Windows plugin settings: plugins.settings.effect.nextStart",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "plugins.settings.effect.reloadUnavailable",
+      "description": "Windows plugin settings: plugins.settings.effect.reloadUnavailable",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "plugins.settings.effect.restart",
+      "description": "Windows plugin settings: plugins.settings.effect.restart",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "plugins.settings.failed",
+      "description": "Windows plugin settings: plugins.settings.failed",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "code": "string"
+      }
+    },
+    {
+      "id": "plugins.settings.inherit",
+      "description": "Windows plugin settings: plugins.settings.inherit",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "plugins.settings.reload",
+      "description": "Windows plugin settings: plugins.settings.reload",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "plugins.settings.storage",
+      "description": "Windows plugin settings: plugins.settings.storage",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "plugins.settings.storageInfo",
+      "description": "Windows plugin settings: plugins.settings.storageInfo",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "plugins.settings.projectOverride",
+      "description": "Windows plugin settings: higher priority workspace override",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "plugins.settings.recoveryRequired",
+      "description": "Windows plugin settings: failed native replacement requires recovery",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.roots.sources",
+      "description": "Windows passive plugin VCS root selector",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.roots.passive",
+      "description": "Windows passive plugin VCS root selector",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.roots.ambiguous",
+      "description": "Windows passive plugin VCS root selector",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "path": "string"
+      }
+    },
+    {
+      "id": "vcs.roots.incomplete",
+      "description": "Windows passive plugin VCS root selector",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.roots.ownerUnavailable",
+      "description": "Windows passive VCS current file ownership",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.roots.fileOwner",
+      "description": "Windows passive VCS current file ownership",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "vcs": "string",
+        "path": "string"
+      }
+    },
+    {
+      "id": "vcs.roots.noOwner",
+      "description": "Windows passive VCS current file ownership",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.roots.checkingOwner",
+      "description": "Windows passive VCS current file ownership",
       "platforms": [
         "windows"
       ]

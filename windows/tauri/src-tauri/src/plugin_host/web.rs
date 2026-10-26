@@ -6,7 +6,7 @@
 //! origin, with a CSP that refuses network access, remote resources, frames,
 //! inline scripts and eval. The window shell (dock, title, order, lifecycle)
 //! is host-owned; the page fills the body only. The build submodule routes
-//! passive instance reads and native option edits through the owning workbench.
+//! instance reads, option edits and approved build operations through the owning workbench.
 
 use super::scan::ScannedPackage;
 use serde::{Deserialize, Serialize};
@@ -556,9 +556,13 @@ pub fn forget_plugin_state(app: &AppHandle, plugin_id: &str) {
 }
 
 /// The first parser-blocking script defines the frozen `window.lithe` bridge.
-/// Only instances/options are implemented for build requests; executable
-/// methods remain unavailable and do not bypass native approval.
-fn bridge_script(plugin_id: &str, window_id: &str, appearance: &WebPageAppearance) -> String {
+/// Build requests remain page-owned and require the workbench's native approval.
+fn bridge_script(
+    plugin_id: &str,
+    window_id: &str,
+    appearance: &WebPageAppearance,
+    generation: u64,
+) -> String {
     let context = json!({
         "pluginID": plugin_id,
         "windowID": window_id,
@@ -570,6 +574,7 @@ fn bridge_script(plugin_id: &str, window_id: &str, appearance: &WebPageAppearanc
         .replace("__LITHE_APPEARANCE__", &json!(appearance).to_string())
         .replace("__LITHE_PLUGIN__", &json!(plugin_id).to_string())
         .replace("__LITHE_WINDOW__", &json!(window_id).to_string())
+        .replace("__LITHE_PAGE_GENERATION__", &generation.to_string())
 }
 
 /// Bridge bootstrap as a plain string; placeholders are replaced with JSON
@@ -578,6 +583,7 @@ fn const_bridge_script() -> &'static str {
     r#"(() => {
   "use strict";
   const initial = __LITHE_CONTEXT__;
+  Object.defineProperty(window, '__lithePageGeneration', {value: __LITHE_PAGE_GENERATION__, writable:false});
   // Never expose a bridge in another document, even if native navigation
   // policy regresses or a page fetches this reserved script explicitly.
   const url = new URL(window.location.href);
@@ -837,14 +843,10 @@ async fn bridge_dispatch(
                 || Ok(json!({})),
             )
         }
-        "build.instances" | "build.setOptions" => {
+        "build.instances" | "build.setOptions" | "build.refresh" | "build.runTask"
+        | "build.runTests" | "build.cancel" | "build.dependencies" => {
             build::request(app, webview.label(), identity, method, params).await
         }
-        "build.refresh" | "build.runTask" | "build.runTests" | "build.cancel"
-        | "build.dependencies" => Err(bridge_error(
-            "plugin.web.unavailable",
-            format!("{method} is not available in the Windows page bridge"),
-        )),
         "functions.list" | "functions.invoke" | "functions.cancel" => Err(bridge_error(
             "plugin.web.unknownMethod",
             format!("{method} needs the Windows build-system capability"),
@@ -1298,7 +1300,13 @@ pub fn handle_scheme_request<R: tauri::Runtime>(
         return match appearance {
             Some(appearance) => ok(
                 "text/javascript; charset=utf-8",
-                bridge_script(&identity.plugin_id, &identity.window_id, &appearance).into_bytes(),
+                bridge_script(
+                    &identity.plugin_id,
+                    &identity.window_id,
+                    &appearance,
+                    identity.generation,
+                )
+                .into_bytes(),
             ),
             None => refused("page is no longer active"),
         };
@@ -1434,6 +1442,7 @@ mod tests {
             "core_execute",
             "read_local_file",
             "declarative_plugins_web_build_handle",
+            "declarative_plugins_web_build_action",
         ] {
             assert!(
                 acl.resolve_access(command, label, label, &own).is_none(),
@@ -1494,6 +1503,7 @@ mod tests {
                 theme: "dark".into(),
                 variables: BTreeMap::new(),
             },
+            1,
         );
         assert!(script.contains(r#""pluginID":"acme.php""#));
         assert!(script.contains("Object.freeze(bridge)"));

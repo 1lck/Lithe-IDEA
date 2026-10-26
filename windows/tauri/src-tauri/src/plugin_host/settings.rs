@@ -11,6 +11,20 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
+mod snapshot;
+pub use snapshot::SettingSnapshot;
+
+#[tauri::command]
+pub async fn declarative_plugins_setting_snapshot(
+    app: AppHandle,
+    plugin_id: String,
+    workspace_path: String,
+) -> Result<SettingSnapshot, String> {
+    tauri::async_runtime::spawn_blocking(move || snapshot::read(&app, &plugin_id, &workspace_path))
+        .await
+        .map_err(|_| "plugin.settings.unavailable".to_string())?
+}
+
 /// Global values of one plugin, persisted as
 /// `app_local_data_dir()/plugin-settings/<pluginID>.json`.
 fn global_store_path(app: &AppHandle, plugin_id: &str) -> Result<PathBuf, String> {
@@ -32,32 +46,41 @@ pub fn project_store_path(workspace_path: &str) -> PathBuf {
 /// Reads a JSON object store; missing files read as empty. Corrupted files
 /// surface as errors so a broken write is never silently reset.
 fn read_object(path: &Path) -> Result<Map<String, Value>, String> {
-    let text = match std::fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Map::new()),
-        Err(error) => return Err(error.to_string()),
-    };
-    let value: Value = serde_json::from_str(&text)
-        .map_err(|error| format!("{} is not valid JSON: {error}", path.display()))?;
-    match value {
-        Value::Object(map) => Ok(map),
-        _ => Err(format!("{} is not a JSON object", path.display())),
-    }
+    snapshot::read_values(path)
 }
 
 /// Writes a JSON object store atomically via temp file + rename.
+#[cfg(test)]
 fn write_object(path: &Path, map: &Map<String, Value>) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
-    let temp = path.with_extension("json.tmp");
-    std::fs::write(
-        &temp,
-        serde_json::to_string_pretty(&Value::Object(map.clone()))
-            .map_err(|error| error.to_string())?,
-    )
-    .map_err(|error| error.to_string())?;
-    std::fs::rename(&temp, path).map_err(|error| error.to_string())
+    use std::io::Write;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let temp = path.with_extension(format!(
+        "json.{}-{}.tmp",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    let text = serde_json::to_string_pretty(&Value::Object(map.clone()))
+        .map_err(|error| error.to_string())?;
+    let result = (|| {
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp)
+            .map_err(|error| error.to_string())?;
+        file.write_all(text.as_bytes())
+            .map_err(|error| error.to_string())?;
+        file.sync_all().map_err(|error| error.to_string())?;
+        drop(file);
+        crate::logging::replace_file_atomically(&temp, path)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temp);
+    }
+    result
 }
 
 /// Both stored layers for one plugin.
@@ -76,7 +99,17 @@ pub fn load_layers(
     let global: BTreeMap<String, Value> = read_object(&global_store_path(app, plugin_id)?)?
         .into_iter()
         .collect();
-    let project_file = read_object(&project_store_path(workspace_path))?;
+    let project_file = if workspace_path.is_empty() {
+        Map::new()
+    } else {
+        read_object(&project_store_path(workspace_path))?
+    };
+    if project_file
+        .get(plugin_id)
+        .is_some_and(|value| !value.is_object())
+    {
+        return Err("plugin.settings.corruptStore".into());
+    }
     let project: BTreeMap<String, Value> = project_file
         .get(plugin_id)
         .and_then(Value::as_object)
@@ -90,9 +123,8 @@ pub fn load_layers(
     Ok(SettingLayers { global, project })
 }
 
-/// Stores the user's global value of one setting. A value equal to the
-/// declared default is forgotten so default changes flow through (macOS
-/// rule); `None` erases the stored value.
+/// Stores an explicit global override; only `None` erases the stored value.
+#[cfg(test)]
 pub fn store_global(
     app: &AppHandle,
     plugin_id: &str,
@@ -116,6 +148,7 @@ pub fn store_global(
 /// with `None`. When the last override of a plugin disappears from the
 /// project store, the empty plugin entry is removed; an empty store file is
 /// deleted entirely.
+#[cfg(test)]
 pub fn store_project(
     workspace_path: &str,
     plugin_id: &str,
@@ -153,62 +186,89 @@ pub fn store_project(
 
 /// Tauri command: effective values of one plugin's settings.
 #[tauri::command]
-pub fn declarative_plugins_resolve_settings(
+pub async fn declarative_plugins_resolve_settings(
     app: AppHandle,
     manifest: Value,
     workspace_path: String,
 ) -> Result<Value, String> {
-    let Some(plugin_id) = manifest["id"].as_str().map(str::to_string) else {
-        return Err("manifest has no id".to_string());
-    };
-    let layers = load_layers(&app, &plugin_id, &workspace_path)?;
-    super::scan::core_execute(
-        "plugins.declarative.resolveSettings",
-        serde_json::json!({
-            "manifest": manifest,
-            "settings": layers.global,
-            "projectSettings": layers.project,
-        }),
-    )
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(plugin_id) = manifest["id"].as_str().map(str::to_string) else {
+            return Err("manifest has no id".to_string());
+        };
+        let _lease = app
+            .state::<super::lifecycle::LifecycleState>()
+            .acquire(&plugin_id)?;
+        let manifest = super::launch::verified_package_by_id(&app, &plugin_id)?.manifest;
+        let layers = load_layers(&app, &plugin_id, &workspace_path)?;
+        super::scan::core_execute(
+            "plugins.declarative.resolveSettings",
+            serde_json::json!({
+                "manifest": manifest,
+                "settings": layers.global,
+                "projectSettings": layers.project,
+            }),
+        )
+    })
+    .await
+    .map_err(|_| "plugin.settings.unavailable".to_string())?
 }
 
 /// Tauri command: stores a setting value in the requested layer.
 #[tauri::command]
-pub fn declarative_plugins_store_setting(
+pub async fn declarative_plugins_store_setting(
     app: AppHandle,
     plugin_id: String,
     setting_id: String,
     scope: String,
     workspace_path: String,
     value: Option<Value>,
-) -> Result<(), String> {
-    match scope.as_str() {
-        "global" => store_global(&app, &plugin_id, &setting_id, value),
-        "project" => store_project(&workspace_path, &plugin_id, &setting_id, value),
-        other => Err(format!("unknown setting scope {other}")),
-    }
+    expected_identity: Option<String>,
+) -> Result<SettingSnapshot, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        snapshot::store(
+            &app,
+            &plugin_id,
+            &setting_id,
+            &scope,
+            &workspace_path,
+            value,
+            expected_identity
+                .as_deref()
+                .ok_or("plugin.settings.snapshotRequired")?,
+        )
+    })
+    .await
+    .map_err(|_| "plugin.settings.unavailable".to_string())?
 }
 
 /// Tauri command: a running language server's `workspaceConfiguration`
 /// expanded with the current values, for `immediate` effect changes.
 #[tauri::command]
-pub fn declarative_plugins_workspace_configuration(
+pub async fn declarative_plugins_workspace_configuration(
     app: AppHandle,
     manifest: Value,
     language_id: String,
     workspace_path: String,
 ) -> Result<Value, String> {
-    let Some(plugin_id) = manifest["id"].as_str().map(str::to_string) else {
-        return Err("manifest has no id".to_string());
-    };
-    let layers = load_layers(&app, &plugin_id, &workspace_path)?;
-    super::scan::core_execute(
-        "plugins.declarative.workspaceConfiguration",
-        serde_json::json!({
-            "manifest": manifest,
-            "languageID": language_id,
-            "settings": layers.global,
-            "projectSettings": layers.project,
-        }),
-    )
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(plugin_id) = manifest["id"].as_str().map(str::to_string) else {
+            return Err("manifest has no id".to_string());
+        };
+        let _lease = app
+            .state::<super::lifecycle::LifecycleState>()
+            .acquire(&plugin_id)?;
+        let manifest = super::launch::verified_package_by_id(&app, &plugin_id)?.manifest;
+        let layers = load_layers(&app, &plugin_id, &workspace_path)?;
+        super::scan::core_execute(
+            "plugins.declarative.workspaceConfiguration",
+            serde_json::json!({
+                "manifest": manifest,
+                "languageID": language_id,
+                "settings": layers.global,
+                "projectSettings": layers.project,
+            }),
+        )
+    })
+    .await
+    .map_err(|_| "plugin.settings.unavailable".to_string())?
 }

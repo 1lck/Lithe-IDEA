@@ -176,9 +176,33 @@ pub(super) async fn ready(transport: &Arc<Transport>) -> Result<(), ProviderErro
 }
 
 pub(super) struct OpenGuard(pub Arc<Inner>, pub Option<Arc<Transport>>);
+impl OpenGuard {
+    pub fn new(inner: Arc<Inner>, transport: Arc<Transport>) -> Self {
+        transport
+            .status
+            .lock()
+            .expect("provider session")
+            .open_waiters += 1;
+        Self(inner, Some(transport))
+    }
+    pub fn commit(&mut self) {
+        if let Some(transport) = self.1.take() {
+            let mut status = transport.status.lock().expect("provider session");
+            status.open_waiters -= 1;
+            status.bound = true;
+        }
+    }
+}
 impl Drop for OpenGuard {
     fn drop(&mut self) {
         if let Some(transport) = self.1.take() {
+            {
+                let mut status = transport.status.lock().expect("provider session");
+                status.open_waiters -= 1;
+                if status.open_waiters > 0 || status.bound {
+                    return;
+                }
+            }
             let inner = self.0.clone();
             transport.revoke(ProviderError::new(
                 "provider.cancelled",
@@ -251,43 +275,50 @@ impl ProviderBinding {
         plan: Value,
         timeout_ms: u64,
     ) -> Reply {
-        super::host::validate_binding(app, window.label(), self)?;
+        super::host::validate_binding_async(app, window.label(), self).await?;
         let timeout_ms = timeout_ms.clamp(1, 60 * 60 * 1000);
         let operation = format!("native-provider-{}", super::host::next_id());
         let payload = self.request_payload(&operation, &plan, timeout_ms)?;
-        let receiver = self.transport.queue(&operation)?;
-        let dispatch = Arc::new(Dispatch::default());
-        let guard = RequestGuard(self.transport.clone(), operation.clone(), dispatch.clone());
-        let transport = self.transport.clone();
-        let sent = tauri::async_runtime::spawn_blocking(move || {
-            let _order = dispatch.order.lock().expect("provider dispatch");
-            if dispatch.cancelled.load(Ordering::Acquire)
-                || transport.status.lock().expect("provider session").revoked
-            {
-                return Err(ProviderError::new(
-                    "provider.cancelled",
-                    "Request closed before dispatch",
-                ));
-            }
-            transport.core.execute("lsp.buildRequest", payload)
-        });
-        tokio::time::timeout(Duration::from_secs(5), sent)
-            .await
-            .map_err(|_| {
-                ProviderError::new("provider.transportTimeout", "Provider dispatch timed out")
-            })?
-            .map_err(|error| ProviderError::new("provider.workerFailed", error.to_string()))??;
-        let reply = tokio::time::timeout(Duration::from_millis(timeout_ms), receiver)
-            .await
-            .map_err(|_| {
-                ProviderError::new("provider.requestTimeout", "Provider request timed out")
-            })?
-            .map_err(|_| {
-                ProviderError::new("provider.sessionEnded", "Provider waiter disconnected")
-            })?;
-        super::host::validate_binding(app, window.label(), self)?;
-        // Late cancellation is harmless to Core; every outcome uses one path.
-        drop(guard);
-        reply
+        let reply = dispatch_request(&self.transport, operation, payload, timeout_ms).await?;
+        super::host::validate_binding_async(app, window.label(), self).await?;
+        Ok(reply)
     }
+}
+
+/// One request waiter owns its dispatch/cancellation ordering, independent of
+/// other bindings sharing this transport.
+pub(super) async fn dispatch_request(
+    transport: &Arc<Transport>,
+    operation: String,
+    payload: Value,
+    timeout_ms: u64,
+) -> Reply {
+    let receiver = transport.queue(&operation)?;
+    let dispatch = Arc::new(Dispatch::default());
+    let guard = RequestGuard(transport.clone(), operation.clone(), dispatch.clone());
+    let worker = transport.clone();
+    let sent = tauri::async_runtime::spawn_blocking(move || {
+        let _order = dispatch.order.lock().expect("provider dispatch");
+        if dispatch.cancelled.load(Ordering::Acquire)
+            || worker.status.lock().expect("provider session").revoked
+        {
+            return Err(ProviderError::new(
+                "provider.cancelled",
+                "Request closed before dispatch",
+            ));
+        }
+        worker.core.execute("lsp.buildRequest", payload)
+    });
+    tokio::time::timeout(Duration::from_secs(5), sent)
+        .await
+        .map_err(|_| {
+            ProviderError::new("provider.transportTimeout", "Provider dispatch timed out")
+        })?
+        .map_err(|error| ProviderError::new("provider.workerFailed", error.to_string()))??;
+    let reply = tokio::time::timeout(Duration::from_millis(timeout_ms), receiver)
+        .await
+        .map_err(|_| ProviderError::new("provider.requestTimeout", "Provider request timed out"))?
+        .map_err(|_| ProviderError::new("provider.sessionEnded", "Provider waiter disconnected"))?;
+    drop(guard);
+    reply
 }

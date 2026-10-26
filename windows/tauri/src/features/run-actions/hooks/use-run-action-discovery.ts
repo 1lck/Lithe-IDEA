@@ -1,6 +1,6 @@
 import { uiExtensionHost } from "@/extensions/ui/services/ui-extension-host";
 import {
-  declarativeRunActionsForFile,
+  declarativeRunActionsForWorkspace,
   declarativeExecutionErrorMessage,
 } from "@/features/plugins/declarative-plugin-run";
 import { subscribePluginActivity } from "@/features/plugins/declarative-plugin-lifecycle";
@@ -17,6 +17,8 @@ import {
   discoverProjectRunActions,
   javaTestActionsForFile,
 } from "../utils/run-action-discovery";
+import { mergeRunActions } from "../utils/merge-run-actions";
+import { getRelativePath } from "@/utils/path-helpers";
 
 export function useRunActionDiscovery(
   workspaceId: string,
@@ -32,11 +34,27 @@ export function useRunActionDiscovery(
       .sort()
       .join("\n"),
   );
-  const [projectActions, setProjectActions] = useState<RunActionItem[]>([]);
+  const [revision, setRevision] = useState(0);
+  const [projectResult, setProjectResult] = useState<{
+    key: string;
+    actions: RunActionItem[];
+  } | null>(null);
+  const projectKey = JSON.stringify([
+    workspaceId,
+    workspacePath,
+    enabledExtensions,
+    revision,
+    enabled,
+  ]);
+  const projectActions = projectResult?.key === projectKey ? projectResult.actions : [];
   const [isDiscovering, setIsDiscovering] = useState(false);
   const [discoveryError, setDiscoveryError] = useState<string | null>(null);
-  const [mavenTestsAvailable, setMavenTestsAvailable] = useState(false);
-  const [revision, setRevision] = useState(0);
+  const mavenKey = JSON.stringify([workspaceId, workspacePath, activeFilePath, enabled]);
+  const [mavenAvailability, setMavenAvailability] = useState<{
+    key: string;
+    available: boolean;
+  } | null>(null);
+  const mavenTestsAvailable = mavenAvailability?.key === mavenKey && mavenAvailability.available;
   useEffect(() => subscribePluginActivity(() => setRevision((current) => current + 1)), []);
   const codeLenses = useCodeLens(activeFilePath, enabled && includeCodeLenses);
   const activeFileContent = useBufferStore((state) => {
@@ -56,7 +74,7 @@ export function useRunActionDiscovery(
 
   useEffect(() => {
     if (!enabled || !workspacePath) {
-      setProjectActions([]);
+      setProjectResult(null);
       setDiscoveryError(null);
       return;
     }
@@ -71,11 +89,11 @@ export function useRunActionDiscovery(
     ])
       .then((groups) => groups.flat())
       .then((actions) => {
-        if (!cancelled) setProjectActions(actions);
+        if (!cancelled) setProjectResult({ key: projectKey, actions });
       })
       .catch((error) => {
         if (cancelled) return;
-        setProjectActions([]);
+        setProjectResult(null);
         setDiscoveryError(error instanceof Error ? error.message : "Could not scan project");
       })
       .finally(() => {
@@ -85,67 +103,107 @@ export function useRunActionDiscovery(
     return () => {
       cancelled = true;
     };
-  }, [enabled, revision, workspacePath, enabledExtensions]);
+  }, [projectKey, enabled, revision, workspaceId, workspacePath, enabledExtensions]);
 
   useEffect(() => {
     if (!enabled || !workspacePath || !activeFilePath || !/\.java$/i.test(activeFilePath)) {
-      setMavenTestsAvailable(false);
+      setMavenAvailability(null);
       return;
     }
 
     let cancelled = false;
-    setMavenTestsAvailable(false);
+    setMavenAvailability(null);
     void canRunMavenTest(workspacePath, activeFilePath).then((available) => {
-      if (!cancelled) setMavenTestsAvailable(available);
+      if (!cancelled) setMavenAvailability({ key: mavenKey, available });
     });
 
     return () => {
       cancelled = true;
     };
-  }, [activeFilePath, enabled, workspacePath]);
+  }, [mavenKey, activeFilePath, enabled, workspaceId, workspacePath]);
 
-  const [declarativeActions, setDeclarativeActions] = useState<RunActionItem[]>([]);
+  const declarativeKey = JSON.stringify([projectKey, activeFilePath]);
+  const [declarativeLoading, setDeclarativeLoading] = useState(false);
+  const [declarativeResult, setDeclarativeResult] = useState<{
+    key: string;
+    actions: RunActionItem[];
+  } | null>(null);
+  const declarativeActions =
+    declarativeResult?.key === declarativeKey ? declarativeResult.actions : [];
   useEffect(() => {
-    if (!enabled || !activeFilePath || !workspacePath) {
-      setDeclarativeActions([]);
+    if (!enabled || !workspacePath) {
+      setDeclarativeResult(null);
+      setDeclarativeLoading(false);
       return;
     }
     let cancelled = false;
-    setDeclarativeActions([]);
-    void declarativeRunActionsForFile(activeFilePath, { workspaceId, root: workspacePath })
+    setDeclarativeResult(null);
+    setDeclarativeLoading(true);
+    void declarativeRunActionsForWorkspace({ workspaceId, root: workspacePath }, activeFilePath)
       .then((actions) => {
-        if (!cancelled) setDeclarativeActions(actions);
+        if (!cancelled) setDeclarativeResult({ key: declarativeKey, actions });
       })
       .catch((error: unknown) => {
         if (!cancelled) {
-          setDeclarativeActions([]);
+          setDeclarativeResult(null);
           setDiscoveryError(declarativeExecutionErrorMessage(error));
         }
+      })
+      .finally(() => {
+        if (!cancelled) setDeclarativeLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [activeFilePath, enabled, enabledExtensions, revision, workspaceId, workspacePath]);
+  }, [
+    declarativeKey,
+    activeFilePath,
+    enabled,
+    enabledExtensions,
+    revision,
+    workspaceId,
+    workspacePath,
+  ]);
 
   const lspActions = useMemo(
     () =>
       activeFilePath
         ? [
-            ...(mavenTestsAvailable ? javaTestActionsForFile(activeFilePath, javaTestMethods) : []),
+            ...(mavenTestsAvailable
+              ? javaTestActionsForFile(activeFilePath, javaTestMethods).map((action) => ({
+                  ...action,
+                  testTarget: {
+                    languageId: "java",
+                    scope: action.mavenTest?.method
+                      ? {
+                          kind: "testCase" as const,
+                          identifier: action.mavenTest.method,
+                          relativeFilePath: getRelativePath(activeFilePath, workspacePath ?? ""),
+                        }
+                      : {
+                          kind: "file" as const,
+                          relativeFilePath: getRelativePath(activeFilePath, workspacePath ?? ""),
+                        },
+                  },
+                }))
+              : []),
             ...codeLensesToRunActions(codeLenses, activeFilePath),
           ]
         : [],
-    [activeFilePath, codeLenses, javaTestMethods, mavenTestsAvailable],
+    [activeFilePath, codeLenses, javaTestMethods, mavenTestsAvailable, workspacePath],
   );
   const refresh = useCallback(() => setRevision((current) => current + 1), []);
 
   return {
-    projectActions: projectActions.filter(
-      (action) => !action.extensionId || enabledExtensions.split("\n").includes(action.extensionId),
+    ...mergeRunActions(
+      lspActions,
+      projectActions.filter(
+        (action) =>
+          !action.extensionId || enabledExtensions.split("\n").includes(action.extensionId),
+      ),
+      declarativeActions,
     ),
-    declarativeActions,
-    lspActions,
-    isDiscovering,
+    isDiscovering: isDiscovering || declarativeLoading,
     discoveryError,
     refresh,
   };

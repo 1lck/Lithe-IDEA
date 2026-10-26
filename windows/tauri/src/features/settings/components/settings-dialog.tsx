@@ -15,9 +15,16 @@ import {
   settingsCategories,
   settingsGroupForCategory,
   settingsSidebarLayout,
+  settingsGroups,
   type SettingsGroup,
 } from "../lib/settings-navigation";
 import { SettingsPanel, type SettingsCategory } from "./settings-panels";
+import { useDeclarativeSettingsPages } from "@/features/plugins/use-declarative-settings-pages";
+import { DeclarativePluginSettingsEditor } from "@/features/plugins/declarative-plugin-settings-editor";
+import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
+import { matchesSearchQuery } from "@/utils/search-match";
+
+type DialogCategory = SettingsCategory | `plugin-settings:${string}`;
 
 interface SettingsDialogProps {
   isOpen: boolean;
@@ -32,8 +39,16 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
   const { t } = useTranslation();
   const settingsInitialTab = useUIState((state) => state.settingsInitialTab);
   const settingsTabRequest = useUIState((state) => state.settingsTabRequest);
-  const [activeCategory, setActiveCategory] = useState<SettingsCategory>("general");
-  const [visitedCategories, setVisitedCategories] = useState<SettingsCategory[]>([]);
+  const [activeCategory, setActiveCategory] = useState<DialogCategory>("general");
+  const [visitedCategories, setVisitedCategories] = useState<DialogCategory[]>([]);
+  const pluginPages = useDeclarativeSettingsPages(isOpen);
+  const workspacePath = useFileSystemStore((state) => state.rootFolderPath) ?? null;
+  const groupFor = (id: DialogCategory) =>
+    id.startsWith("plugin-settings:")
+      ? settingsGroups.find(
+          (group) => group.id === pluginPages.pages.find((page) => page.id === id)?.group,
+        )
+      : settingsGroupForCategory(id as SettingsCategory);
   const [compact, setCompact] = useState(() => window.matchMedia(COMPACT_SETTINGS_QUERY).matches);
   const [query, setQuery] = useState("");
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(["appearance"]));
@@ -45,12 +60,12 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
     storage: window.localStorage,
   });
 
-  const selectCategory = (category: SettingsCategory) => {
+  const selectCategory = (category: DialogCategory) => {
     setActiveCategory(category);
     setVisitedCategories((previous) =>
       previous.includes(category) ? previous : [...previous, category],
     );
-    const group = settingsGroupForCategory(category);
+    const group = groupFor(category);
     if (group) setExpandedGroups((previous) => new Set(previous).add(group.id));
   };
 
@@ -72,7 +87,24 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
     return () => media.removeEventListener("change", update);
   }, [isOpen]);
 
-  const filteredCategories = filterSettingsCategories(query, t);
+  const filteredCategories: Array<{ id: DialogCategory; labelKey: string; label?: string }> = [
+    ...filterSettingsCategories(query, t),
+    ...pluginPages.pages
+      .filter((page) =>
+        matchesSearchQuery(query, [
+          page.title,
+          ...page.contributions.map((item) => item.displayName),
+        ]),
+      )
+      .map((page) => ({ id: page.id, labelKey: "", label: page.title })),
+  ];
+  useEffect(() => {
+    if (
+      activeCategory.startsWith("plugin-settings:") &&
+      !pluginPages.pages.some((page) => page.id === activeCategory)
+    )
+      selectCategory("declarative-plugins");
+  }, [activeCategory, pluginPages.pages]);
   const visibleCategoryIds = filteredCategories.map(({ id }) => id).join(",");
   useEffect(() => {
     if (
@@ -86,10 +118,13 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
   }, [isOpen, query, activeCategory, visibleCategoryIds]);
 
   if (!isOpen) return null;
-  const activeItem = settingsCategories.find(({ id }) => id === activeCategory)!;
-  const activeGroup = settingsGroupForCategory(activeCategory);
+  const activeItem: { labelKey: string; label?: string } | undefined =
+    filteredCategories.find(({ id }) => id === activeCategory) ??
+    settingsCategories.find(({ id }) => id === activeCategory);
+  const activeLabel = activeItem?.label ?? t(activeItem?.labelKey ?? "workbench.settings");
+  const activeGroup = groupFor(activeCategory);
   const searching = query.trim().length > 0;
-  const categoryButton = (id: SettingsCategory, nested = false) => {
+  const categoryButton = (id: DialogCategory, nested = false) => {
     const item = filteredCategories.find((category) => category.id === id);
     if (!item) return null;
     return (
@@ -105,15 +140,16 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
             id === activeCategory && "bg-primary/15 text-foreground hover:bg-primary/15",
           )}
         >
-          <span className="truncate">{t(item.labelKey)}</span>
+          <span className="truncate">{item.label ?? t(item.labelKey)}</span>
         </button>
       </li>
     );
   };
   const groupNode = (group: SettingsGroup) => {
-    const children = group.categories.filter((id) =>
-      filteredCategories.some((category) => category.id === id),
-    );
+    const children: DialogCategory[] = [
+      ...group.categories,
+      ...pluginPages.pages.filter((page) => page.group === group.id).map((page) => page.id),
+    ].filter((id) => filteredCategories.some((category) => category.id === id));
     if (!children.length) return null;
     const expanded = searching || expandedGroups.has(group.id);
     return (
@@ -237,12 +273,17 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
                     <CaretRightIcon className="size-3 text-subtle-foreground" />
                   </>
                 )}
-                <h2>{t(activeItem.labelKey)}</h2>
+                <h2>{activeLabel}</h2>
               </div>
             )}
             {!filteredCategories.length && (
               <p role="status" className="m-auto p-4 ui-text-sm text-subtle-foreground">
                 {t("settings.noResults")}
+              </p>
+            )}
+            {pluginPages.error && (
+              <p role="alert" className="p-4 text-destructive ui-text-sm">
+                {t("plugins.settings.failed", { code: pluginPages.error })}
               </p>
             )}
             {/* Mount pages on first visit; retain drafts until the dialog closes. */}
@@ -256,7 +297,27 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
                   category === "plugins" ? "overflow-hidden" : "overflow-y-auto px-4 pt-4 pb-5",
                 )}
               >
-                <SettingsPanel category={category} onClose={onClose} />
+                {category.startsWith("plugin-settings:") ? (
+                  pluginPages.pages
+                    .find((page) => page.id === category)
+                    ?.contributions.map((plugin) => (
+                      <div
+                        key={`${category}:${plugin.pluginId}:${workspacePath ?? ""}`}
+                        className="mb-5"
+                      >
+                        <h3 className="mb-3 font-semibold ui-text-sm">{plugin.displayName}</h3>
+                        <DeclarativePluginSettingsEditor
+                          pluginId={plugin.pluginId}
+                          settings={plugin.settings}
+                          actions={plugin.actions}
+                          workspacePath={workspacePath}
+                          languageId={plugin.languageId}
+                        />
+                      </div>
+                    ))
+                ) : (
+                  <SettingsPanel category={category as SettingsCategory} onClose={onClose} />
+                )}
               </div>
             ))}
           </div>

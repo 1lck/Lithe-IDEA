@@ -1,4 +1,4 @@
-//! Page-owned requests for the passive Windows build bridge subset.
+//! Page-owned requests for the Windows build bridge.
 //! The workbench supplies no build payloads: it accepts or refuses a native
 //! request, and the native registry owns all model/option facts and writes.
 
@@ -19,6 +19,9 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
 use tokio::sync::oneshot;
 
+#[path = "web_build_workflow.rs"]
+pub mod workflow;
+
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_PAGE_REQUESTS: usize = 16;
 const MAX_HOST_REQUESTS: usize = 128;
@@ -32,6 +35,7 @@ enum BuildRequest {
         instance: String,
         values: BTreeMap<String, Value>,
     },
+    Workflow(workflow::Request),
 }
 
 impl BuildRequest {
@@ -73,6 +77,8 @@ impl BuildRequest {
                     values: parameters.values,
                 })
             }
+            "build.refresh" | "build.runTask" | "build.runTests" | "build.cancel"
+            | "build.dependencies" => Ok(Self::Workflow(workflow::Request::parse(method, params)?)),
             _ => Err(bridge_error(
                 "plugin.web.unavailable",
                 "this build method is not available",
@@ -80,10 +86,11 @@ impl BuildRequest {
         }
     }
 
-    fn method(&self) -> &'static str {
+    fn method(&self) -> &str {
         match self {
             Self::Instances => "build.instances",
             Self::SetOptions { .. } => "build.setOptions",
+            Self::Workflow(request) => request.method(),
         }
     }
 }
@@ -137,7 +144,10 @@ impl PendingBuild {
 }
 
 #[derive(Default)]
-pub(super) struct BuildRequests(Mutex<HashMap<String, Arc<PendingBuild>>>);
+pub(super) struct BuildRequests(
+    Mutex<HashMap<String, Arc<PendingBuild>>>,
+    workflow::Operations,
+);
 
 impl BuildRequests {
     fn admit(&self, pending: Arc<PendingBuild>) -> Result<String, String> {
@@ -202,6 +212,7 @@ impl BuildRequests {
     }
 
     pub(super) fn revoke_pages(&self, labels: &[String]) {
+        self.1.revoke_pages(labels);
         self.0
             .lock()
             .expect("page build requests")
@@ -221,6 +232,11 @@ struct RequestLease {
 }
 impl Drop for RequestLease {
     fn drop(&mut self) {
+        self.app
+            .state::<WebPageHostState>()
+            .builds
+            .1
+            .request_closed(&self.id);
         self.app.state::<WebPageHostState>().builds.remove(&self.id);
     }
 }
@@ -233,12 +249,17 @@ pub(super) async fn request(
     params: Value,
 ) -> Result<Value, String> {
     let request = BuildRequest::parse(method, params)?;
+    let timeout = if matches!(request, BuildRequest::Workflow(_)) {
+        std::time::Duration::from_secs(120)
+    } else {
+        REQUEST_TIMEOUT
+    };
     let (completion, receiver) = oneshot::channel();
     let pending = Arc::new(PendingBuild {
         page_label: page_label.into(),
         identity: identity.clone(),
         request,
-        deadline: Instant::now() + REQUEST_TIMEOUT,
+        deadline: Instant::now() + timeout,
         claimed: AtomicBool::new(false),
         completion: Mutex::new(Some(completion)),
         reply: Mutex::new(None),
@@ -264,15 +285,27 @@ pub(super) async fn request(
         )
         .map_err(|e| bridge_error("plugin.web.unavailable", e.to_string()))
     })?;
-    let result =
-        tokio::time::timeout_at(tokio::time::Instant::from_std(pending.deadline), receiver)
-            .await
-            .map_err(|_| timed_out())?
-            .map_err(|_| forbidden())??;
-    with_page_owner(&state, page_label, &identity, || {
-        state.builds.check(&id, &pending, Instant::now())?;
-        Ok(result)
-    })
+    let result = async {
+        let value =
+            tokio::time::timeout_at(tokio::time::Instant::from_std(pending.deadline), receiver)
+                .await
+                .map_err(|_| timed_out())?
+                .map_err(|_| forbidden())??;
+        with_page_owner(&state, page_label, &identity, || {
+            state.builds.check(&id, &pending, Instant::now())?;
+            Ok(value)
+        })
+    }
+    .await;
+    if result.is_err() {
+        state.builds.1.revoke_request(&id);
+        let _ = app.emit_to(
+            &identity.host_label,
+            "plugin-web-build-revoked",
+            json!({"operationId": id}),
+        );
+    }
+    result
 }
 
 /// Only the product window named by a pending request may accept it. There is
@@ -306,6 +339,9 @@ pub async fn declarative_plugins_web_build_handle(
     }
     if matches!(phase, BuildRequestPhase::Complete) {
         return publish(app.clone(), operation_id, pending).await;
+    }
+    if matches!(pending.request, BuildRequest::Workflow(_)) {
+        return Ok(None);
     }
     let outcome = perform(app.clone(), operation_id.clone(), pending.clone()).await;
     let view = match &outcome {
@@ -367,11 +403,12 @@ async fn publish(
                         return Err(error);
                     }
                 }
-                Ok(None)
+                Ok(())
             },
         )
     })
-    .await
+    .await?;
+    Ok(None)
 }
 
 fn normalize_error(error: String) -> String {
@@ -382,7 +419,7 @@ fn normalize_error(error: String) -> String {
         return error;
     }
     if error.starts_with("plugin.build.") {
-        return bridge_error(&error, &error);
+        return bridge_error(error.split(':').next().unwrap_or(&error), &error);
     }
     bridge_error("plugin.web.unavailable", error)
 }

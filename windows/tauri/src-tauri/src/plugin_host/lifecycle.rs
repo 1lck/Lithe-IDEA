@@ -160,6 +160,10 @@ pub async fn begin(app: &AppHandle, plugin_id: &str) -> Result<Mutation, String>
         operation_id: operation_id.clone(),
     };
     state.revoke(plugin_id);
+    super::project_generators::close_plugin(app, plugin_id)
+        .await
+        .map_err(|error| error.code)?;
+    super::vcs::plugin_changing(app);
     // Persistent native Provider owners hold the same package barrier as
     // probes. Revoke and drain them before waiting for those leases.
     super::provider::close_plugin(app, plugin_id)

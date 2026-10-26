@@ -27,6 +27,7 @@ fn context() -> ProviderContext {
     ProviderContext {
         window: "workspace-fixture".into(),
         workspace_root: "/fixture/workspace".into(),
+        launch_workspace_root: "/fixture/workspace".into(),
         generation: 1,
         plugin_id: PLUGIN.into(),
         package_identity: "fixture:package-digest".into(),
@@ -61,6 +62,16 @@ fn prepared(lease: NativeLease) -> Prepared {
         plan: json!({}),
         state_directory: PathBuf::from("/fixture/state"),
         lease,
+        environment: Default::default(),
+        resolved: launch::ResolvedLaunch {
+            plugin_id: PLUGIN.into(),
+            language_id: "fixture-build".into(),
+            server_path: "/fixture/provider".into(),
+            server_args: Vec::new(),
+            initialization_options: None,
+            workspace_configuration: None,
+            environment: Default::default(),
+        },
     }
 }
 
@@ -74,6 +85,7 @@ fn native_transport(lease: NativeLease, shared: bool, core: Arc<CleanupCore>) ->
     );
     Arc::get_mut(&mut entry).unwrap().core = core;
     *entry.status.lock().unwrap() = Status {
+        generation: 1,
         session_id: Some("fixture-session".into()),
         launch_finished: true,
         ..Default::default()

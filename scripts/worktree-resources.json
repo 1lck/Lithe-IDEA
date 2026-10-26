@@ -412,6 +412,28 @@
       ],
       "identity": "Current worktree shared locale manifest, message registry, per-locale translations and all generated native string-table bytes. Generated outputs have no sealed version/platform/architecture/toolchain reuse identity stamp.",
       "reason": "Git owns source and checked-in generated outputs. Regenerate and validate them in each target worktree with scripts/generate-i18n.mjs; no download, cache validator or cross-worktree copy stage is permitted. Packaging copies registered native tables into its own build destination before signing and converts only that copy to binary plist. Runtime only reads bundled tables; it creates no state and changes neither code-signature bytes nor the Sparkle delta baseline."
+    },
+    {
+      "id": "plugin-generator-transactions",
+      "reusable": false,
+      "locations": [
+        "<workspace-parent>/.<project-name>.lithe-creating-<token>/",
+        "<workspace-parent>/<project-name>/"
+      ],
+      "identity": "One native window and generation operation owns the sibling staging directory, process output and published project. User inputs and filesystem/process identity are not a reusable source/platform/architecture/toolchain build stamp.",
+      "reason": "Never copy staging or user projects through worktree resource reuse. The Windows transaction creates output beside the user-selected target, validates paths/links/budgets and publishes without replacement only after consent. Failed cleanup retains the operation and NativeLease for retry. Installed packages and app resources remain read-only; these user-workspace writes do not alter signatures or update baselines."
+    },
+    {
+      "id": "plugin-settings-state",
+      "reusable": false,
+      "locations": [
+        "<windows-app-local-data>/plugin-settings/<plugin-id>.json",
+        "<workspace>/.lithe/plugin-settings.json",
+        "<settings-source>.json.<pid>-<sequence>.tmp",
+        "<settings-source>.json.<pid>-<sequence>.backup"
+      ],
+      "identity": "Global and workspace plugin preferences and their compare-and-swap snapshots are user-owned runtime state. Replacement temporaries and recovery backups belong to one guarded save, without a transferable version/platform/architecture/toolchain identity stamp.",
+      "reason": "Never copy settings, transaction temporaries or recovery backups between worktrees. Opening settings only reads the real stores. Confirmed saves preserve unrelated values and permissions, reject stale byte snapshots, atomically replace the selected source and reread it. Delete owned temporaries on failure; preserve the only surviving backup when restoration cannot be proven. The writable app-data/workspace stores do not alter installed resources, signatures or update baselines."
     }
   ]
 }

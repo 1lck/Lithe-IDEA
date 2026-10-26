@@ -30,11 +30,14 @@ struct Prepared {
     plan: Value,
     state_directory: PathBuf,
     lease: NativeLease,
+    resolved: launch::ResolvedLaunch,
+    environment: std::collections::BTreeMap<String, String>,
 }
 
 struct LanguageLaunch {
     identity: String,
     resolved: Value,
+    review_token: Option<u64>,
 }
 
 #[derive(Default)]
@@ -47,6 +50,7 @@ struct Registry {
     prepared: HashMap<u64, Prepared>,
     language_launches: HashMap<(String, String, String), LanguageLaunch>,
     transports: HashMap<u64, Arc<Transport>>,
+    cleanup_aliases: HashMap<u64, u64>,
     disposed: std::collections::VecDeque<(String, String)>,
 }
 
@@ -84,6 +88,9 @@ impl Inner {
             .clone();
         {
             let mut registry = self.registry.lock().expect("provider registry");
+            registry
+                .cleanup_aliases
+                .retain(|_, owner| *owner != transport.id);
             if registry.transports.remove(&transport.id).is_some() && transport.language.is_some() {
                 if let Some(session) = session {
                     if registry.disposed.len() >= 256 {
@@ -117,7 +124,7 @@ impl Inner {
 #[derive(Default)]
 pub(crate) struct ProviderHostState(Arc<Inner>);
 
-#[derive(Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ProviderReview {
     pub token: u64,
@@ -127,6 +134,9 @@ pub(crate) struct ProviderReview {
     /// Expanded, passive Core plan. Resolving/probing executables happens
     /// only when confirm consumes this single-use native token.
     pub launch_plan: Value,
+    pub program: launch::ResolvedLaunch,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub invocation_plan: Option<Value>,
 }
 
 fn inner(app: &AppHandle) -> Arc<Inner> {
@@ -172,7 +182,7 @@ fn current(registry: &Registry, context: &ProviderContext) -> bool {
             })
 }
 
-/// The future native build router calls this with its own workspace generation
+/// The native build router calls this with its own workspace generation
 /// before prepare. An older generation cannot replace a newer one. Closing the
 /// old scope cancels all transports before publication of a new binding.
 pub(crate) async fn set_workspace(
@@ -201,6 +211,36 @@ pub(crate) async fn set_workspace(
                 && old.generation == generation
                 && !registry.suspended.contains(window.label())
             {
+                return Ok(());
+            }
+            // A language may start before build detection establishes its
+            // generation. Adopt only an unbound same-root language owner;
+            // never restart it merely to attach its first build binding.
+            if old.root == root
+                && old.generation == 0
+                && !registry
+                    .prepared
+                    .values()
+                    .any(|review| review.context.window == window.label())
+                && registry
+                    .transports
+                    .values()
+                    .filter(|entry| entry.context.window == window.label())
+                    .all(|entry| {
+                        entry.language.is_some()
+                            && !entry.status.lock().expect("provider session").bound
+                    })
+            {
+                for entry in registry
+                    .transports
+                    .values()
+                    .filter(|entry| entry.context.window == window.label())
+                {
+                    entry.status.lock().expect("provider session").generation = generation;
+                }
+                registry
+                    .workspaces
+                    .insert(window.label().into(), Workspace { root, generation });
                 return Ok(());
             }
         }
@@ -234,7 +274,12 @@ pub(crate) fn prepare(
     plugin_id: String,
     build_system: String,
     instance_root: String,
+    runtimes: std::collections::BTreeMap<
+        String,
+        super::super::build_resolver::RuntimeExecutableInput,
+    >,
 ) -> Result<ProviderReview, ProviderError> {
+    let launch_workspace_root = workspace_root.clone();
     let workspace_root = canonical(&workspace_root)?;
     let instance_directory =
         super::super::build_resolver::WindowsBuildToolResolver::instance_root_directory(
@@ -252,6 +297,7 @@ pub(crate) fn prepare(
     let context = ProviderContext {
         window: window.label().into(),
         workspace_root,
+        launch_workspace_root,
         generation,
         plugin_id,
         package_identity: identity(&package)?,
@@ -261,6 +307,28 @@ pub(crate) fn prepare(
     };
     let state_directory = store::plugin_state_directory(app, &context.plugin_id).map_err(error)?;
     let plan = plan(app, &context, &package, &state_directory)?;
+    let mut environment: std::collections::BTreeMap<String, String> = std::env::vars().collect();
+    for (id, runtime) in runtimes {
+        launch::merge_environment(&mut environment, runtime.environment);
+        launch::merge_environment(
+            &mut environment,
+            std::collections::BTreeMap::from([(
+                format!("LITHE_{}_PATH", id.to_uppercase().replace('-', "_")),
+                runtime.executable.to_string_lossy().into_owned(),
+            )]),
+        );
+    }
+    let launch_id = plan["buildProvider"]["languageServer"]
+        .as_str()
+        .unwrap_or(&context.build_system);
+    let resolved = launch::resolve_launch_passive_with_environment(
+        &package,
+        launch_id,
+        &plan,
+        &state_directory,
+        &environment,
+    )
+    .map_err(error)?;
     let token = next_id();
     let review = ProviderReview {
         token,
@@ -272,6 +340,8 @@ pub(crate) fn prepare(
             .as_bool()
             .unwrap_or(true),
         launch_plan: plan.clone(),
+        program: resolved.clone(),
+        invocation_plan: None,
     };
     let state = inner(app);
     state.publish(
@@ -298,6 +368,8 @@ pub(crate) fn prepare(
                     plan,
                     state_directory,
                     lease,
+                    resolved,
+                    environment,
                 },
             );
             Ok(())
@@ -322,20 +394,141 @@ pub(crate) fn cancel_review(
     Ok(())
 }
 
+/// A build operation retains this single-use review until confirmation or
+/// cancellation. Removing it does not stop another binding's shared transport.
+pub(crate) fn discard_review(app: &AppHandle, window: &str, token: u64) {
+    let state = inner(app);
+    let mut registry = state.registry.lock().expect("provider registry");
+    if registry
+        .prepared
+        .get(&token)
+        .is_some_and(|review| review.context.window == window)
+    {
+        registry.prepared.remove(&token);
+    }
+}
+
+/// The build owner calls this after approval, before asking the existing editor
+/// owner to ensure its language session. Passive preparation issues no ticket.
+pub(crate) fn authorize_shared_language(
+    app: &AppHandle,
+    window: &str,
+    token: u64,
+    checkpoint: impl Fn() -> Result<(), String>,
+) -> Result<(), ProviderError> {
+    let state = inner(app);
+    let (context, expected, program, environment, directory) = {
+        let registry = state.registry.lock().expect("provider registry");
+        let prepared = registry
+            .prepared
+            .get(&token)
+            .ok_or_else(|| error("Provider review was cancelled"))?;
+        if prepared.context.window != window || !current(&registry, &prepared.context) {
+            return Err(error("Provider owner changed"));
+        }
+        if !prepared.plan["buildProvider"]["languageServer"].is_string() {
+            return Ok(());
+        }
+        (
+            prepared.context.clone(),
+            prepared.plan.clone(),
+            prepared.resolved.clone(),
+            prepared.environment.clone(),
+            prepared.state_directory.clone(),
+        )
+    };
+    let _lease = app
+        .state::<super::super::lifecycle::LifecycleState>()
+        .acquire(&context.plugin_id)
+        .map_err(error)?;
+    let package = launch::verified_package_by_id(app, &context.plugin_id).map_err(error)?;
+    if identity(&package)? != context.package_identity
+        || plan(app, &context, &package, &directory)? != expected
+    {
+        return Err(ProviderError::new(
+            "provider.identityChanged",
+            "Provider approval is stale",
+        ));
+    }
+    let resolved = launch::resolve_launch_passive_with_environment(
+        &package,
+        &program.language_id,
+        &expected,
+        &directory,
+        &environment,
+    )
+    .map_err(error)?;
+    if resolved != program {
+        return Err(error("Provider program selection changed"));
+    }
+    let workspace = directory.join(store::workspace_state_key(&context.launch_workspace_root));
+    launch::prepare_required_directories(&expected, &directory, &workspace).map_err(error)?;
+    std::fs::create_dir_all(&directory).map_err(|failure| error(failure.to_string()))?;
+    launch::validate_resolved_launch_checked(&expected, &program, &directory, &checkpoint)
+        .map_err(error)?;
+    checkpoint().map_err(|detail| ProviderError::new("provider.cancelled", detail))?;
+    remember_language_launch(app, window, &context.workspace_root, &package, &program)
+        .map_err(error)?;
+    let mut registry = state.registry.lock().expect("provider registry");
+    if !registry.prepared.contains_key(&token) {
+        return Err(error("Provider review was cancelled"));
+    }
+    if let Some(launch) = registry.language_launches.get_mut(&(
+        window.into(),
+        context.workspace_root,
+        program.language_id,
+    )) {
+        launch.review_token = Some(token);
+    }
+    Ok(())
+}
+
+/// Wait for a cancelled sole dedicated initializer's cleanup. Reused and
+/// shared language owners belong to remaining users and are not stopped.
+pub(crate) async fn drain_initialization(
+    app: &AppHandle,
+    window: &str,
+    token: u64,
+) -> Result<(), ProviderError> {
+    let state = inner(app);
+    let entry = {
+        let registry = state.registry.lock().expect("provider registry");
+        registry
+            .transports
+            .get(registry.cleanup_aliases.get(&token).unwrap_or(&token))
+            .cloned()
+    };
+    if let Some(entry) = entry {
+        let stop = {
+            let status = entry.status.lock().expect("provider session");
+            entry.context.window == window
+                && entry.language.is_none()
+                && (status.revoked || (status.open_waiters == 0 && !status.bound))
+        };
+        if stop {
+            runtime::stop(state, entry).await?;
+        }
+    }
+    Ok(())
+}
+
 fn plan(
     app: &AppHandle,
     context: &ProviderContext,
     package: &ScannedPackage,
     state: &Path,
 ) -> Reply {
-    let layers =
-        super::super::settings::load_layers(app, &context.plugin_id, &context.workspace_root)
-            .map_err(error)?;
+    let layers = super::super::settings::load_layers(
+        app,
+        &context.plugin_id,
+        &context.launch_workspace_root,
+    )
+    .map_err(error)?;
     let result = super::super::scan::core_execute(
         "plugins.declarative.languageServerLaunchPlan",
         json!({
             "manifest":package.manifest, "buildSystemID":context.build_system,
-            "request":launch::launch_request(state, package, &context.workspace_root, layers),
+            "request":launch::launch_request(state, package, &context.launch_workspace_root, layers),
         }),
     )
     .map_err(error)?;
@@ -352,12 +545,16 @@ fn transport(
     launch_plan: Option<Value>,
     lease: NativeLease,
 ) -> Arc<Transport> {
+    let generation = context.generation;
     Arc::new(Transport {
         id,
         context,
         language,
         launch_plan,
-        status: Mutex::new(Status::default()),
+        status: Mutex::new(Status {
+            generation,
+            ..Status::default()
+        }),
         changed: Default::default(),
         stopping: Default::default(),
         core: Arc::new(HostCore),
@@ -366,7 +563,7 @@ fn transport(
 }
 
 /// Explicit consent entry, called only after the product presents ProviderReview.
-/// No public Tauri command is registered until build routing is complete.
+/// Build commands consume this binding only after their native review is approved.
 pub(crate) async fn confirm(
     app: &AppHandle,
     window: &WebviewWindow,
@@ -387,16 +584,40 @@ pub(crate) async fn confirm(
         }
         registry.prepared.remove(&token).expect("checked review")
     };
+    let verify_app = app.clone();
+    let prepared = tauri::async_runtime::spawn_blocking(move || {
+        let app = &verify_app;
+        let context = &prepared.context;
+        let package = launch::verified_package_by_id(app, &context.plugin_id).map_err(error)?;
+        if identity(&package)? != context.package_identity
+            || plan(app, context, &package, &prepared.state_directory)? != prepared.plan
+        {
+            return Err(ProviderError::new(
+                "provider.identityChanged",
+                "Package or settings changed since review",
+            ));
+        }
+        let selected = launch::resolve_launch_passive_with_environment(
+            &package,
+            prepared.plan["buildProvider"]["languageServer"]
+                .as_str()
+                .unwrap_or(&context.build_system),
+            &prepared.plan,
+            &prepared.state_directory,
+            &prepared.environment,
+        )
+        .map_err(error)?;
+        if selected != prepared.resolved {
+            return Err(error(
+                "Provider executable selection changed since approval",
+            ));
+        }
+
+        Ok::<_, ProviderError>(prepared)
+    })
+    .await
+    .map_err(|error| ProviderError::new("provider.workerFailed", error.to_string()))??;
     let context = prepared.context.clone();
-    let package = launch::verified_package_by_id(app, &context.plugin_id).map_err(error)?;
-    if identity(&package)? != context.package_identity
-        || plan(app, &context, &package, &prepared.state_directory)? != prepared.plan
-    {
-        return Err(ProviderError::new(
-            "provider.identityChanged",
-            "Package or settings changed since review",
-        ));
-    }
     if let Some(language) = prepared.plan["buildProvider"]["languageServer"].as_str() {
         let selected = {
             let registry = state.registry.lock().expect("provider registry");
@@ -406,7 +627,11 @@ pub(crate) async fn confirm(
             let candidates: Vec<_> = registry
                 .transports
                 .values()
-                .filter(|entry| entry.matches_shared(&context, language))
+                .filter(|entry| {
+                    entry.matches_shared(&context, language)
+                        && entry.launch_plan.as_ref()
+                            == serde_json::to_value(&prepared.resolved).ok().as_ref()
+                })
                 .cloned()
                 .collect();
             if candidates.len() != 1 {
@@ -417,11 +642,13 @@ pub(crate) async fn confirm(
         // The language owner keeps its lease. No probe or second process is
         // started for the shared source, and cancellation preserves the editor.
         runtime::ready(&selected).await?;
+        selected.status.lock().expect("provider session").bound = true;
         let binding = ProviderBinding {
             transport: selected,
+            approval_plan: prepared.plan.clone(),
             context,
         };
-        validate_binding(app, window.label(), &binding)?;
+        validate_binding_async(app, window.label(), &binding).await?;
         return Ok(binding);
     }
     let candidate = transport(
@@ -431,6 +658,33 @@ pub(crate) async fn confirm(
         Some(prepared.plan.clone()),
         prepared.lease,
     );
+    // Reap a crashed or settings-invalid dedicated owner before replacement.
+    // Positive stop proof is mandatory; a failed stop retains the old owner.
+    let previous: Vec<_> = state
+        .registry
+        .lock()
+        .expect("provider registry")
+        .transports
+        .values()
+        .filter(|entry| {
+            entry.language.is_none()
+                && entry.matches_owner(&context)
+                && entry.context.build_system == context.build_system
+                && (entry.status.lock().expect("provider session").revoked
+                    || entry.launch_plan != candidate.launch_plan)
+        })
+        .cloned()
+        .collect();
+    for old in previous {
+        {
+            let mut registry = state.registry.lock().expect("provider registry");
+            if registry.cleanup_aliases.len() >= 256 {
+                return Err(error("Too many failed provider cleanup reviews"));
+            }
+            registry.cleanup_aliases.insert(token, old.id);
+        }
+        runtime::stop(state.clone(), old).await?;
+    }
     let entry = state.publish(
         || {
             !app.state::<super::super::lifecycle::LifecycleState>()
@@ -463,15 +717,19 @@ pub(crate) async fn confirm(
     if entry.id != token {
         // One build-system transport serves sibling instance roots. The
         // binding still validates each request's exact Core-planned root.
+        let mut guard = OpenGuard::new(state.clone(), entry.clone());
         runtime::ready(&entry).await?;
         let binding = ProviderBinding {
             transport: entry,
+            approval_plan: prepared.plan.clone(),
             context,
         };
-        validate_binding(app, window.label(), &binding)?;
+        validate_binding_async(app, window.label(), &binding).await?;
+        guard.commit();
         return Ok(binding);
     }
-    let mut guard = OpenGuard(state.clone(), Some(entry.clone()));
+    let approval_plan = prepared.plan.clone();
+    let mut guard = OpenGuard::new(state.clone(), entry.clone());
     let worker_entry = entry.clone();
     let worker_app = app.clone();
     let worker_state = state.clone();
@@ -494,7 +752,7 @@ pub(crate) async fn confirm(
             }
             let workspace_state = prepared
                 .state_directory
-                .join(store::workspace_state_key(&context.workspace_root));
+                .join(store::workspace_state_key(&context.launch_workspace_root));
             // Both state directories are host app-data paths, never package
             // resources. Their per-plugin/workspace lifetime follows store.rs;
             // writes cannot affect signatures or update package baselines.
@@ -505,11 +763,26 @@ pub(crate) async fn confirm(
             )
             .map_err(error)?;
             std::fs::create_dir_all(&prepared.state_directory).map_err(|e| error(e.to_string()))?;
-            let resolved = launch::resolve_launch(
-                &prepared.package,
-                &context.build_system,
+            let resolved = prepared.resolved;
+            launch::validate_resolved_launch_checked(
                 &prepared.plan,
+                &resolved,
                 &prepared.state_directory,
+                || {
+                    if worker_entry
+                        .status
+                        .lock()
+                        .expect("provider session")
+                        .revoked
+                        || worker_app
+                            .state::<super::super::lifecycle::LifecycleState>()
+                            .blocked(&context.plugin_id)
+                    {
+                        Err("provider.cancelled".into())
+                    } else {
+                        Ok(())
+                    }
+                },
             )
             .map_err(error)?;
             if worker_entry
@@ -529,9 +802,8 @@ pub(crate) async fn confirm(
             if plan(&worker_app, &context, &package, &prepared.state_directory)? != prepared.plan {
                 return Err(error("Provider settings changed during runtime resolution"));
             }
-            let mut environment: std::collections::BTreeMap<String, String> =
-                std::env::vars().collect();
-            environment.extend(resolved.environment);
+            let mut environment = prepared.environment;
+            launch::merge_environment(&mut environment, resolved.environment);
             worker_entry.core.start(json!({
                 "providerId":format!("buildProvider:{}:{}",context.plugin_id,context.build_system),
                 "pluginId":context.plugin_id, "executablePath":resolved.server_path, "arguments":resolved.server_args,
@@ -555,10 +827,11 @@ pub(crate) async fn confirm(
     runtime::ready(&entry).await?;
     let binding = ProviderBinding {
         transport: entry,
+        approval_plan,
         context: prepared.context,
     };
-    validate_binding(app, window.label(), &binding)?;
-    guard.1.take();
+    validate_binding_async(app, window.label(), &binding).await?;
+    guard.commit();
     Ok(binding)
 }
 
@@ -599,7 +872,27 @@ pub(super) fn validate_binding(
     if identity(&package)? != context.package_identity {
         return Err(error("Provider package changed"));
     }
+    let state = store::plugin_state_directory(app, &context.plugin_id).map_err(error)?;
+    if plan(app, context, &package, &state)? != binding.approval_plan {
+        return Err(ProviderError::new(
+            "provider.identityChanged",
+            "Provider settings changed",
+        ));
+    }
     Ok(())
+}
+
+pub(super) async fn validate_binding_async(
+    app: &AppHandle,
+    window: &str,
+    binding: &ProviderBinding,
+) -> Result<(), ProviderError> {
+    let app = app.clone();
+    let window = window.to_owned();
+    let binding = binding.clone();
+    tauri::async_runtime::spawn_blocking(move || validate_binding(&app, &window, &binding))
+        .await
+        .map_err(|error| ProviderError::new("provider.workerFailed", error.to_string()))?
 }
 
 async fn close_matching(
@@ -762,6 +1055,9 @@ pub(crate) fn language_start(app: &AppHandle, window: &str, payload: &Value) -> 
                         owner == window
                             && workspace == &root
                             && matches_language_launch(&approval.resolved, payload)
+                            && approval
+                                .review_token
+                                .is_none_or(|token| registry.prepared.contains_key(&token))
                     })
                     .map(|(key, _)| key.clone())
                     .collect();
@@ -810,6 +1106,10 @@ pub(crate) fn language_start(app: &AppHandle, window: &str, payload: &Value) -> 
                 let context = ProviderContext {
                     window: window.into(),
                     workspace_root: root.clone(),
+                    launch_workspace_root: payload["workingDirectory"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .into(),
                     generation: workspace.generation,
                     plugin_id: plugin.into(),
                     package_identity: identity(&package)?,
@@ -820,7 +1120,13 @@ pub(crate) fn language_start(app: &AppHandle, window: &str, payload: &Value) -> 
                 if registry.transports.len() >= 64 {
                     return Err(error("Too many native provider sessions"));
                 }
-                let entry = transport(next_id(), context, Some(language.into()), None, lease);
+                let entry = transport(
+                    next_id(),
+                    context,
+                    Some(language.into()),
+                    Some(approved.resolved),
+                    lease,
+                );
                 registry.transports.insert(entry.id, entry.clone());
                 Ok(entry)
             },
@@ -862,6 +1168,7 @@ pub(crate) fn remember_language_launch(
     let approved = LanguageLaunch {
         identity: identity(package).map_err(|error| error.detail)?,
         resolved: serde_json::to_value(resolved).map_err(|error| error.to_string())?,
+        review_token: None,
     };
     let state = inner(app);
     state

@@ -84,7 +84,10 @@ async function mount(provider = false) {
           invocation: { executables: [{ kind: "command", command: "fixture-tool" }] },
         },
       ],
-      dependencies: { source: provider ? ("provider" as const) : ("hostIntegration" as const) },
+      dependencies: {
+        source: provider ? ("provider" as const) : ("hostIntegration" as const),
+        scopes: ["workspace" as const],
+      },
     })),
     prepare: mock(async () => review),
     execute: mock(async (): Promise<BuildDependenciesResult> => {
@@ -176,10 +179,9 @@ test("production pane mounts dependencies and requires review before rendering C
   expect(f.host.textContent).toContain("omittedForConflict");
   expect(f.host.textContent).toContain("selectedVersion");
 });
-test("Provider source is explicitly unavailable and never prepares native work", async () => {
+test("Provider dependencies expose the existing explicit approval flow", async () => {
   const f = await mount(true);
-  expect(f.host.textContent).toContain("Provider dependencies are not available yet.");
-  expect(f.host.textContent).not.toContain("Load dependencies…");
+  expect(f.host.textContent).toContain("Load dependencies…");
   expect(f.native.prepare).not.toHaveBeenCalled();
 });
 test("wide dependency levels mount a bounded first page", async () => {

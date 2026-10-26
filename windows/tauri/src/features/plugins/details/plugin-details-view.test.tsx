@@ -59,9 +59,24 @@ function details(): PluginDetailsModel {
     rejection: null,
     settings: [{ id: "heap", type: "integer", title: "Heap", default: 512 }],
     primaryLanguageId: "demo",
-    features: [{ kind: "languageServer", subject: "demo", title: "Demo", availability: "available", detail: { launchKind: "packaged" } }],
+    features: [
+      {
+        kind: "languageServer",
+        subject: "demo",
+        title: "Demo",
+        availability: "available",
+        detail: { launchKind: "packaged" },
+      },
+    ],
     permissions: ["languageServer.launch"],
-    programs: [{ kind: "packagedLanguageServer", arguments: ["bin/server", "--stdio"], validationArguments: ["--version"], initializationOptions: { trace: true } }],
+    programs: [
+      {
+        kind: "packagedLanguageServer",
+        arguments: ["bin/server", "--stdio"],
+        validationArguments: ["--version"],
+        initializationOptions: { trace: true },
+      },
+    ],
     versions: {
       current: {
         version: "2.0.0",
@@ -112,7 +127,9 @@ test("renders five keyboard tabs and complete program declarations", async () =>
   const tabs = [...host!.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
   expect(tabs).toHaveLength(5);
   await act(async () => tabs[3]!.click());
-  expect(host!.querySelector('[role="tabpanel"]')?.getAttribute("aria-labelledby")).toBe(tabs[3]!.id);
+  expect(host!.querySelector('[role="tabpanel"]')?.getAttribute("aria-labelledby")).toBe(
+    tabs[3]!.id,
+  );
   expect(host!.textContent).toContain("languageServer.launch");
   expect(host!.textContent).toContain("bin/server");
   expect(host!.textContent).toContain("validationArguments");
@@ -132,8 +149,29 @@ test("the settings tab reuses the shared settings editor", async () => {
   const tabs = [...host!.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
   await act(async () => tabs[2]!.click());
   expect(host!.querySelector('[data-testid="plugin-details-settings-editor"]')).not.toBeNull();
-  expect(host!.querySelector('[data-testid="shared-settings-editor"]')?.textContent).toContain("io.example.complete");
+  expect(host!.querySelector('[data-testid="shared-settings-editor"]')?.textContent).toContain(
+    "io.example.complete",
+  );
 });
+
+test("settings without ordinary rows still mount the shared editor to discover actions", async () => {
+  const model = details();
+  model.settings = [];
+  await act(async () =>
+    root?.render(
+      <PluginDetailsView
+        details={model}
+        workspacePath={null}
+        operation={null}
+        operationError={null}
+        onOperation={() => {}}
+      />,
+    ),
+  );
+  const tabs = [...host!.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+  await act(async () => tabs[2]!.click());
+  expect(host!.querySelector('[data-testid="shared-settings-editor"]')).not.toBeNull();
+}, 1000);
 
 test("no current selection has a stable empty state and never invokes the service", async () => {
   const service = {
@@ -142,9 +180,9 @@ test("no current selection has a stable empty state and never invokes the servic
     uninstall: mock(async () => {}),
     rollback: mock(async () => {}),
   };
-  await act(async () => root?.render(
-    <PluginDetailsPanel selection={null} workspacePath={null} service={service} />,
-  ));
+  await act(async () =>
+    root?.render(<PluginDetailsPanel selection={null} workspacePath={null} service={service} />),
+  );
   expect(host!.textContent).toContain("settings.declarativePluginDetails.noSelection");
   expect(service.load).not.toHaveBeenCalled();
 });
@@ -156,15 +194,17 @@ test("StrictMode effect replay creates a live detail session", async () => {
     uninstall: mock(async () => {}),
     rollback: mock(async () => {}),
   };
-  await act(async () => root?.render(
-    <StrictMode>
-      <PluginDetailsPanel
-        selection={{ pluginId: "io.example.complete", source: "installed" }}
-        workspacePath="C:/work"
-        service={service}
-      />
-    </StrictMode>,
-  ));
+  await act(async () =>
+    root?.render(
+      <StrictMode>
+        <PluginDetailsPanel
+          selection={{ pluginId: "io.example.complete", source: "installed" }}
+          workspacePath="C:/work"
+          service={service}
+        />
+      </StrictMode>,
+    ),
+  );
   expect(host!.textContent).toContain("Complete Plugin");
   expect(host!.querySelectorAll('[role="tab"]')).toHaveLength(5);
 });

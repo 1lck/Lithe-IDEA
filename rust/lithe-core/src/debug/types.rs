@@ -28,6 +28,16 @@ pub struct CreateSessionRequest {
     /// Whether the native host can launch adapter-requested processes in a terminal.
     #[serde(default)]
     pub supports_run_in_terminal_request: bool,
+    /// Whether the native host can open a child debug session for an adapter
+    /// `startDebugging` reverse request (for example Node worker or child processes).
+    #[serde(default)]
+    pub supports_start_debugging_request: bool,
+    /// Standard DAP capabilities a plugin declared it disables (`capabilities.disabled`).
+    #[serde(default)]
+    pub disabled_capabilities: Vec<String>,
+    /// The session whose adapter asked for this one through `startDebugging`.
+    #[serde(default)]
+    pub parent_session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -424,6 +434,9 @@ pub struct InspectRequest {
     pub count: Option<i64>,
     #[serde(default)]
     pub expression: Option<String>,
+    /// DAP evaluate context: `watch` (default), `hover`, `repl`, `clipboard` or `variables`.
+    #[serde(default)]
+    pub context: Option<String>,
     #[serde(default)]
     pub source_path: Option<String>,
     #[serde(default)]
@@ -471,9 +484,31 @@ pub struct DebugRunInTerminalRequest {
     pub args_can_be_interpreted_by_shell: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Normalized adapter request to start a child debug session.
+pub struct DebugStartDebuggingRequest {
+    /// Whether the child session launches or attaches to its debuggee.
+    pub request: DebugRequestKind,
+    /// Adapter-provided child configuration with the `request` key removed.
+    /// It is passed through verbatim so adapter-specific fields survive.
+    pub configuration: serde_json::Map<String, serde_json::Value>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-/// Completes one pending `runInTerminal` reverse request from the native host.
+/// Completes one pending `startDebugging` reverse request from the native host.
+pub struct DebugStartDebuggingResponseRequest {
+    pub session_id: String,
+    pub request_id: String,
+    pub success: bool,
+    #[serde(default)]
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Completes one pending `runInTerminal' reverse request from the native host.
 pub struct DebugRunInTerminalResponseRequest {
     pub session_id: String,
     pub request_id: String,
@@ -565,6 +600,8 @@ pub enum DebugEventBody {
         reason: String,
         thread_id: Option<i64>,
         description: Option<String>,
+        /// Increments on every stop, resume and termination; stale references compare against it.
+        stop_generation: u64,
     },
     Continued {
         thread_id: Option<i64>,
@@ -578,6 +615,19 @@ pub enum DebugEventBody {
     RunInTerminalRequested {
         request_id: String,
         request: DebugRunInTerminalRequest,
+    },
+    /// The adapter asks the host to open a child debug session.
+    StartDebuggingRequested {
+        request_id: String,
+        request: DebugStartDebuggingRequest,
+    },
+    /// Projection version 2 of the same state, emitted beside the v1 result events.
+    Projection {
+        projection: super::projection_v2::SessionProjection,
+    },
+    /// This session is disconnecting, so the host must disconnect the listed child.
+    ChildSessionStopRequested {
+        child_session_id: String,
     },
     OperationCompleted {
         operation_id: String,
@@ -598,6 +648,8 @@ pub enum DebugOperationFailureCode {
     AdapterRejected,
     Cancelled,
     TimedOut,
+    /// The reply used a frame or variables reference from before the latest resume or stop.
+    StaleReference,
 }
 
 #[derive(Debug, Clone, Serialize)]

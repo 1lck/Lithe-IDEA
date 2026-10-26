@@ -56,6 +56,8 @@ pub struct BuildModelReview {
     pub generation: u64,
     pub executes_project_code: bool,
     pub may_use_network: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider: Option<super::super::provider::ProviderReview>,
 }
 
 pub(super) struct ModelOperation {
@@ -68,6 +70,7 @@ pub(super) struct ModelOperation {
     pub working_directory: PathBuf,
     pub run: Option<super::run::PreparedRun>,
     pub dependencies: Option<super::dependencies::PreparedDependencies>,
+    pub provider: Option<super::provider::ProviderOperation>,
     created: Instant,
     cancelled: AtomicBool,
     running: AtomicBool,
@@ -75,6 +78,7 @@ pub(super) struct ModelOperation {
     changed: Notify,
     publication: Mutex<()>,
     retained_cleanup: Mutex<Option<Box<dyn Send>>>,
+    provider_session_cleanup: AtomicBool,
 }
 
 impl ModelOperation {
@@ -97,6 +101,7 @@ impl ModelOperation {
             working_directory,
             run: None,
             dependencies: None,
+            provider: None,
             created: Instant::now(),
             cancelled: AtomicBool::new(false),
             running: AtomicBool::new(false),
@@ -104,6 +109,7 @@ impl ModelOperation {
             changed: Notify::new(),
             publication: Mutex::new(()),
             retained_cleanup: Mutex::new(None),
+            provider_session_cleanup: AtomicBool::new(false),
         }
     }
 
@@ -131,6 +137,11 @@ impl ModelOperation {
             generation: self.context.generation,
             executes_project_code: self.plan.executes_project_code || project_candidate,
             may_use_network: self.plan.may_use_network,
+            provider: self.provider.as_ref().map(|provider| {
+                let mut review = provider.review.clone();
+                review.invocation_plan = Some(self.invocation.clone());
+                review
+            }),
         }
     }
 
@@ -144,6 +155,10 @@ impl ModelOperation {
     pub fn cancel(&self) {
         let _publication = self.publication.lock().expect("build publication mutex");
         self.cancelled.store(true, Ordering::Release);
+        if let Some(provider) = &self.provider {
+            provider.cancel_review();
+        }
+        self.changed.notify_waiters();
         // A pending review owns no processes. A claimed operation is finished
         // only by its RAII owner after native tree cleanup has returned.
         if !self.running.load(Ordering::Acquire) {
@@ -242,6 +257,26 @@ impl ModelOperation {
         *self.retained_cleanup.lock().expect("build cleanup lease") = Some(Box::new(lease));
     }
 
+    pub fn finish_provider_cleanup(&self) {
+        if self.provider.is_none() || !self.provider_session_cleanup.swap(false, Ordering::AcqRel) {
+            return;
+        }
+        let retained = self
+            .retained_cleanup
+            .lock()
+            .expect("build cleanup lease")
+            .take()
+            .is_some();
+        if retained {
+            self.finish();
+        }
+    }
+
+    pub fn retain_provider_session_cleanup(&self) {
+        self.retain_failed_cleanup(());
+        self.provider_session_cleanup.store(true, Ordering::Release);
+    }
+
     pub async fn wait_finished(&self) -> Result<(), String> {
         tokio::time::timeout(Duration::from_secs(10), async {
             loop {
@@ -256,6 +291,18 @@ impl ModelOperation {
         })
         .await
         .map_err(|_| "plugin.build.cleanupTimeout: process owner has not drained".into())
+    }
+
+    pub async fn wait_cancelled(&self) {
+        loop {
+            let changed = self.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if self.cancelled() {
+                return;
+            }
+            changed.await;
+        }
     }
 }
 

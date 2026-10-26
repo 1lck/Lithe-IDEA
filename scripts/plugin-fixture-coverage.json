@@ -171,6 +171,30 @@
       "gapDetail": "Windows 经 Core 命令消费展开结果；bundled_php_contract_package_expands_plans 实测了 runPlan/testPlan 展开但用的是 PHP 契约包而非本 golden。发现/测试/launchPlan 作用域的宿主行为测试属 M5。"
     },
     {
+      "path": "debug-adapter-rejections.json",
+      "category": "invalid-edits",
+      "outcome": "rejection",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/declarative_plugins.rs:1172 debug_adapter_rejection_fixtures_report_their_code_and_field"
+      ],
+      "windowsEvidence": [],
+      "windowsStatus": "unwired",
+      "gapStage": "followup",
+      "gapDetail": "preview #1510 新增 API 4 调试器声明拒绝金样。Windows 尚未接入 debugAdapters 宿主能力或此夹具的拒绝回归；保持已知缺口，不据 Core 单测宣称 Windows 支持。"
+    },
+    {
+      "path": "debug-adapter.plugin.json",
+      "category": "valid-manifest",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/declarative_plugins.rs:1209 debug_adapter_fixture_is_accepted_with_normalized_requests"
+      ],
+      "windowsEvidence": [],
+      "windowsStatus": "unwired",
+      "gapStage": "followup",
+      "gapDetail": "preview #1510 新增 API 4/debugAdapters 1 声明。Windows 宿主仍未声明该能力，未接入此夹具的会话与运行链，需另行实现并验收后才能开放。"
+    },
+    {
       "path": "function-protocol.json",
       "category": "function-protocol",
       "outcome": "success",

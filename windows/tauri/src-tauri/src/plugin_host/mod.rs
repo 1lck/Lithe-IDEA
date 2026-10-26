@@ -32,6 +32,7 @@ pub mod marketplace_sources;
 mod marketplace_sources_tests;
 #[cfg(test)]
 mod marketplace_tests;
+pub mod project_generators;
 pub(crate) mod provider;
 pub mod run_plans;
 pub mod scan;
@@ -40,6 +41,7 @@ pub mod signature;
 pub mod store;
 #[cfg(test)]
 mod tests;
+pub mod vcs;
 pub mod web;
 
 use serde::Serialize;

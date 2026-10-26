@@ -123,7 +123,6 @@ struct GenericDebugView: View {
                 if let sessionTitle = debugSessionTitle {
                     debugSessionTab(sessionTitle).padding(.horizontal, 4)
                 }
-                if feature.sessionSummaries.count > 1 { sessionPicker }
             }
             Spacer(minLength: 12)
             debugOptionsMenu.padding(.horizontal, 2)
@@ -176,42 +175,27 @@ struct GenericDebugView: View {
         .modifier(LitheToolWindowTabStyle(isSelected: true, isActive: debugToolActive))
     }
 
-    private var sessionPicker: some View {
-        LitheMenu {
-            LitheContextMenuItem.heading("Sessions")
-
-            for summary in feature.sessionSummaries {
-                LitheContextMenuItem.action(
-                    sessionLabel(summary) + " · " + summary.state.title,
-                    systemImage: summary.id == feature.activeSessionID
-                        ? "checkmark.circle.fill" : "circle"
-                ) {
-                    _ = feature.selectSession(summary.id)
-                }
-            }
-
-            if feature.sessionSummaries.count > 1 {
-                LitheContextMenuItem.separator
-                LitheContextMenuItem.heading("Close other sessions")
-
-                for summary in (feature.sessionSummaries.filter { $0.id != feature.activeSessionID }) {
-                    LitheContextMenuItem.action("Stop \(sessionLabel(summary))", role: .destructive) {
-                        feature.stopSession(summary.id)
-                    }
-                }
-
-            }
-        } label: {
-            LitheIDEAIcon(
-                resourcePath: "debugger/threads.svg",
-                size: 14,
-                fallbackSystemImage: "square.stack.3d.up",
-                preservesOriginalColors: true
-            )
+    /// Sessions in display order: every child directly follows its parent.
+    private var orderedSessionSummaries: [DebugSessionSummary] {
+        let all = feature.sessionSummaries
+        let ids = Set(all.map(\.id))
+        var ordered: [DebugSessionSummary] = []
+        func append(_ summary: DebugSessionSummary) {
+            ordered.append(summary)
+            for child in all where child.parentID == summary.id { append(child) }
         }
-        .litheIconButton()
-        .help("Debug sessions")
-        .accessibilityLabel("Debug sessions")
+        // A child whose parent is already gone is shown as a root.
+        for root in all where root.parentID.map({ !ids.contains($0) }) ?? true { append(root) }
+        return ordered
+    }
+
+    private func sessionStateColor(_ state: DebugAdapterState) -> Color {
+        switch state {
+        case .paused: .orange
+        case .running, .launching, .initializing, .ready: .green
+        case .failed: .red
+        case .idle, .terminated: .gray
+        }
     }
 
     private func sessionLabel(_ summary: DebugSessionSummary) -> String {
@@ -625,6 +609,21 @@ struct GenericDebugView: View {
 
     private var threadPicker: some View {
         LitheMenu {
+            if feature.sessionSummaries.count > 1 {
+                LitheContextMenuItem.heading(L10n.string("Sessions"))
+                for summary in orderedSessionSummaries {
+                    LitheContextMenuItem.action(
+                        (summary.parentID != nil ? "↳ " : "") + sessionLabel(summary)
+                            + " · " + summary.state.title,
+                        systemImage: summary.id == feature.activeSessionID
+                            ? "checkmark.circle.fill" : "circle"
+                    ) {
+                        _ = feature.selectSession(summary.id)
+                    }
+                }
+                LitheContextMenuItem.separator
+                LitheContextMenuItem.heading("Threads")
+            }
             if feature.threads.isEmpty {
                 LitheContextMenuItem.action("Load threads") { feature.inspectThreads() }
             } else {
@@ -645,6 +644,16 @@ struct GenericDebugView: View {
             }
         } label: {
             HStack(spacing: 7) {
+                if feature.sessionSummaries.count > 1, let active = activeSessionSummary {
+                    Circle()
+                        .fill(sessionStateColor(active.state))
+                        .frame(width: 7, height: 7)
+                    Text(active.targetTitle?.isEmpty == false
+                        ? active.targetTitle! : active.providerDisplayName)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Text(verbatim: "·").foregroundStyle(LitheTheme.secondaryText)
+                }
                 if let thread = selectedThread {
                     Text(thread.name)
                         .lineLimit(1)
@@ -671,6 +680,13 @@ struct GenericDebugView: View {
         .accessibilityLabel("Debugger thread")
         .litheContextMenu {
             var items: [LitheContextMenuItem] = []
+            if feature.sessionSummaries.count > 1 {
+                for summary in orderedSessionSummaries {
+                    items.append(.action(String(format: L10n.string("Stop %@"), sessionLabel(summary)), role: .destructive) {
+                        feature.stopSession(summary.id)
+                    })
+                }
+            }
             if let thread = selectedThread {
                 items.append(.action("Copy Thread Name", action: { copyToPasteboard(thread.name) }))
                 if feature.capabilities.supportsSingleThreadExecutionRequests {
@@ -684,6 +700,10 @@ struct GenericDebugView: View {
             }
             return items
         }
+    }
+
+    private var activeSessionSummary: DebugSessionSummary? {
+        feature.sessionSummaries.first { $0.id == feature.activeSessionID }
     }
 
     private var selectedThread: DebugThread? {

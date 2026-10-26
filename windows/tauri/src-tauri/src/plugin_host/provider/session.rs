@@ -11,6 +11,9 @@ use tokio::sync::{oneshot, Notify};
 pub(crate) struct ProviderContext {
     pub window: String,
     pub workspace_root: String,
+    /// Original native workspace path used by existing settings/state adapters.
+    /// Canonical identity above must not change their persisted directory key.
+    pub launch_workspace_root: String,
     pub generation: u64,
     pub plugin_id: String,
     /// Canonical package directory and the digest of every package file.
@@ -70,6 +73,9 @@ pub(super) trait Core: Send + Sync {
 
 #[derive(Default)]
 pub(super) struct Status {
+    pub generation: u64,
+    pub open_waiters: usize,
+    pub bound: bool,
     pub session_id: Option<String>,
     pub launch_finished: bool,
     pub disposed: bool,
@@ -101,7 +107,7 @@ impl Transport {
     pub fn matches_owner(&self, context: &ProviderContext) -> bool {
         self.context.window == context.window
             && self.context.workspace_root == context.workspace_root
-            && self.context.generation == context.generation
+            && self.status.lock().expect("provider session").generation == context.generation
             && self.context.plugin_id == context.plugin_id
             && self.context.package_identity == context.package_identity
     }
@@ -232,6 +238,7 @@ fn fail(status: &mut Status, error: ProviderError) {
 pub(crate) struct ProviderBinding {
     pub(super) transport: Arc<Transport>,
     pub(super) context: ProviderContext,
+    pub(super) approval_plan: Value,
 }
 
 impl ProviderBinding {

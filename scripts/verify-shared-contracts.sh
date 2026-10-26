@@ -5,6 +5,7 @@ ROOT_DIR="${0:A:h:h}"
 cd "$ROOT_DIR"
 
 node scripts/generate-i18n.mjs --check
+node scripts/verify-debug-v1-baseline.mjs
 
 for fixture in shared/fixtures/**/*.json; do
     /usr/bin/ruby -rjson -e 'JSON.parse(File.read(ARGV.fetch(0)))' "$fixture"

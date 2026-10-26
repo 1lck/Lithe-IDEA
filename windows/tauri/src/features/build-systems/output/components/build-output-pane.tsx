@@ -280,7 +280,9 @@ function BuildOutputPaneContent({
               : "text-warning",
           )}
         >
-          {session.terminal.message}
+          {session.terminal.message.startsWith("plugin.build.provider")
+            ? t(session.terminal.message)
+            : session.terminal.message}
         </p>
       )}
 

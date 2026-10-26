@@ -1,30 +1,6 @@
 import Foundation
 import LitheExecutionModule
 
-struct StdioDebugAdapterLaunch: Sendable, Equatable {
-    struct Fallback: Sendable, Equatable {
-        let executableName: String
-        let argumentPrefix: [String]
-    }
-
-    let adapterID: String
-    let executableNames: [String]
-    let arguments: [String]
-    var fallbacks: [Fallback]
-
-    init(
-        adapterID: String,
-        executableNames: [String],
-        arguments: [String],
-        fallbacks: [Fallback] = []
-    ) {
-        self.adapterID = adapterID
-        self.executableNames = executableNames
-        self.arguments = arguments
-        self.fallbacks = fallbacks
-    }
-}
-
 /// A complete, platform-neutral description of one language ecosystem.
 ///
 /// The pack is deliberately only a composition value. It does not start
@@ -35,7 +11,6 @@ struct LanguagePack {
     let descriptor: LanguageProviderDescriptor
     let runProvider: (any LanguageRunProvider)?
     let toolchainProviders: [any RunToolchainProvider]
-    let debugAdapterLaunch: StdioDebugAdapterLaunch?
     let toolingRuntime: (any LanguageProviderRuntime)?
     let testProviders: [any LanguageTestProvider]
 
@@ -43,14 +18,12 @@ struct LanguagePack {
         descriptor: LanguageProviderDescriptor,
         runProvider: (any LanguageRunProvider)? = nil,
         toolchainProviders: [any RunToolchainProvider] = [],
-        debugAdapterLaunch: StdioDebugAdapterLaunch? = nil,
         toolingRuntime: (any LanguageProviderRuntime)? = nil,
         testProviders: [any LanguageTestProvider] = []
     ) {
         self.descriptor = descriptor
         self.runProvider = runProvider
         self.toolchainProviders = toolchainProviders
-        self.debugAdapterLaunch = debugAdapterLaunch
         self.toolingRuntime = toolingRuntime
         self.testProviders = testProviders
     }
@@ -60,7 +33,6 @@ struct LanguagePack {
             descriptor: descriptor,
             runProvider: runProvider,
             toolchainProviders: toolchainProviders,
-            debugAdapterLaunch: debugAdapterLaunch,
             toolingRuntime: runtime,
             testProviders: testProviders
         )

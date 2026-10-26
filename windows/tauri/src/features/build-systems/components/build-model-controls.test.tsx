@@ -245,6 +245,52 @@ test("declining closes consent and waits for native review cleanup without execu
   expect(host.textContent).toContain("Model loading declined");
 });
 
+test("Provider model approval shows its frozen program and shared language before execution", async () => {
+  const initial = view();
+  initial.instances[0]!.modelSource = "provider";
+  const { fake, start, prepare, button } = await mount(initial);
+  await start();
+  await prepare({
+    ...review,
+    provider: {
+      token: 1,
+      context: {
+        window: "main",
+        workspaceRoot: ROOT,
+        generation: review.generation,
+        pluginId: PLUGIN,
+        buildSystem: "fixture-build",
+        packageIdentity: "package:digest",
+        instanceRoot: ".",
+        instanceDirectory: ROOT,
+      },
+      executesProjectCode: true,
+      mayUseNetwork: true,
+      launchPlan: {
+        buildProvider: { languageServer: "fixture-language" },
+        launch: { kind: "runtime", tool: "node" },
+        runtimeRequirements: [{ tool: "node", minimumVersion: "22" }],
+      },
+      program: {
+        pluginId: PLUGIN,
+        languageId: "fixture-language",
+        serverPath: "C:/fixture/node.exe",
+        serverArgs: ["provider.js", "--stdio"],
+        environment: { LITHE_NODE_PATH: "C:/fixture/node.exe" },
+      },
+    },
+  });
+  const dialog = document.querySelector('[role="dialog"]')!;
+  expect(dialog.textContent).toContain("Provider programs approved for this request");
+  expect(dialog.textContent).toContain("C:/fixture/node.exe");
+  expect(dialog.textContent).toContain("provider.js");
+  expect(dialog.textContent).toContain("Use the existing fixture-language language server");
+  expect(fake.executes).toBe(0);
+  await act(async () => button("Decline").click());
+  await act(async () => fake.declinedCleanup.resolve());
+  expect(fake.executes).toBe(0);
+}, 5000);
+
 test("duplicate clicks prepare only once and approval can execute only once", async () => {
   const { fake, prepare, button } = await mount();
   await act(async () => {

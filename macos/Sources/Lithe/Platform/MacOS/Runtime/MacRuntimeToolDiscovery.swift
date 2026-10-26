@@ -109,17 +109,6 @@ struct MacRuntimeToolDiscovery: RuntimeToolDiscovery {
             )
         }
 
-        // Xcode and Command Line Tools may expose lldb-dap through xcrun even
-        // when the GUI application's PATH does not include Developer/bin.
-        if command == "lldb-dap" {
-            for url in [
-                "/usr/bin/lldb-dap",
-                "/Library/Developer/CommandLineTools/usr/bin/lldb-dap",
-                "/Applications/Xcode.app/Contents/Developer/usr/bin/lldb-dap"
-            ].map(URL.init(fileURLWithPath:)) {
-                add(url, source: .xcode, detail: "Xcode toolchain")
-            }
-        }
         if command == "xcrun" {
             add(URL(fileURLWithPath: "/usr/bin/xcrun"), source: .xcode, detail: "Xcode toolchain lookup")
         }
@@ -161,14 +150,12 @@ struct MacRuntimeToolDiscovery: RuntimeToolDiscovery {
                 summary: "Node.js tooling (\(command)) was not found.",
                 recovery: "Install Node.js and the required npm package, then restart Lithe or add the Node bin directory to PATH."
             )
-        case "cargo", "rustc", "lldb-dap":
+        case "cargo", "rustc":
             return RuntimeToolGuidance(
                 command: command,
-                displayName: "Rust/Xcode toolchain",
-                summary: "Rust or debugger tooling (\(command)) was not found.",
-                recovery: command == "lldb-dap"
-                    ? "Install or select Xcode Command Line Tools, or configure an lldb-dap path explicitly."
-                    : "Install Rust with rustup and ensure Cargo's bin directory is on PATH."
+                displayName: "Rust toolchain",
+                summary: "Rust tooling (\(command)) was not found.",
+                recovery: "Install Rust with rustup and ensure Cargo's bin directory is on PATH."
             )
         case "java-debug-adapter", "java-debug":
             return RuntimeToolGuidance(
@@ -219,7 +206,6 @@ struct MacRuntimeToolDiscovery: RuntimeToolDiscovery {
         case "ts-node": "ts-node"
         case "cargo", "rustc": "rust"
         case "clangd": "llvm"
-        case "lldb-dap": "llvm"
         default: command
         }
     }

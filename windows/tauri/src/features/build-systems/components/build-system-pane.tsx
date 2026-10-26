@@ -222,7 +222,7 @@ function InstanceBody({
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
-      {instance.modelSource === "command" && (
+      {(instance.modelSource === "command" || instance.modelSource === "provider") && (
         <BuildModelControls
           key={generation}
           instance={instance}

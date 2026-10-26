@@ -1993,7 +1993,7 @@ fn resolve_generic_runtime(
         .ok_or_else(|| format!("No executable was found for toolchain {toolchain}."))
 }
 
-fn resolve_command_executable(
+pub(crate) fn resolve_command_executable(
     command: &str,
     runtime_executable_paths: &HashMap<String, String>,
 ) -> Option<PathBuf> {
@@ -2254,7 +2254,7 @@ fn is_batch_file(executable: &str) -> bool {
         })
 }
 
-fn command_for_executable(executable: &str, arguments: &[String]) -> Command {
+pub(crate) fn command_for_executable(executable: &str, arguments: &[String]) -> Command {
     if is_batch_file(executable) {
         return batch_command(executable, arguments);
     }

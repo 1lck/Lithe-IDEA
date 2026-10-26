@@ -1,256 +1,356 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "@/i18n/locale-provider";
 import Switch from "@/ui/switch";
 import { Checkbox } from "@/ui/checkbox";
 import NumberInput from "@/ui/number-input";
 import SettingsSelect from "@/ui/settings-select";
+import Input from "@/ui/input";
+import { Button } from "@/ui/button";
+import Section, { SettingRow } from "@/features/settings/components/settings-section";
 import { pushDeclarativeWorkspaceConfiguration } from "@/platform/lsp-core-adapter";
+import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
+import { pluginPlanGuard, subscribePluginActivity } from "./declarative-plugin-lifecycle";
 import {
-  getDeclarativePluginManifest,
-  resolveDeclarativeSettings,
+  applySettingEffect,
+  DeclarativeSettingsSession,
+  type SettingsSessionState,
+} from "./declarative-settings-session";
+import {
+  loadDeclarativeSettingSnapshot,
   storeDeclarativeSetting,
   declarativeWorkspaceConfiguration,
   type DeclarativePluginSetting,
   type ResolvedDeclarativeSetting,
+  type DeclarativeSettingAction,
 } from "./declarative-plugin-launch";
 
-/**
- * Editor for one accepted plugin's declared settings. Value semantics live in
- * Core (`plugins.declarative.resolveSettings`); this view only renders
- * controls, applies the declared scope/effect, and reports "immediate"
- * changes to a running server through `workspaceConfiguration`.
- *
- * The workspace path arrives when a workspace feature mounts the editor;
- * without one, project-scoped settings fall back to the global layer and the
- * scope badge says so.
- */
+/** Explicit drafts of the host preferences actually consumed by Core. No
+ * native tool file is read/copied and opening the view performs no write. */
 export function DeclarativePluginSettingsEditor({
   pluginId,
   settings,
   workspacePath,
   languageId,
+  actions,
 }: {
   pluginId: string;
   settings: DeclarativePluginSetting[];
   workspacePath: string | null;
   languageId: string | null;
+  actions?: DeclarativeSettingAction[];
 }) {
   const { t } = useTranslation();
-  const [values, setValues] = useState<ResolvedDeclarativeSetting[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  // Core re-validates the whole manifest on every resolve call, so the
-  // editor must send the full raw manifest from the host catalog — not an
-  // ID placeholder.
-  const [manifest, setManifest] = useState<Record<string, unknown> | null>(null);
-
+  const [state, setState] = useState<SettingsSessionState>({
+    snapshot: null,
+    busy: false,
+    error: null,
+    drafts: {},
+    effect: null,
+  });
+  const [layer, setLayer] = useState<"global" | "project">("global");
+  const [invalid, setInvalid] = useState(false);
+  const session = useRef<DeclarativeSettingsSession | null>(null);
   useEffect(() => {
-    getDeclarativePluginManifest(pluginId)
-      .then((loaded) => setManifest(loaded))
-      .catch((reason: unknown) => setError(String(reason)));
-  }, [pluginId]);
-
-  const refresh = useCallback(async () => {
-    setError(null);
-    if (!manifest) return;
-    try {
-      const outcome = await resolveDeclarativeSettings(manifest, workspacePath ?? "");
-      if (outcome.status !== "ok") {
-        setError(t("settings.declarativePlugins.settingsUnavailable"));
-        return;
+    let stale = false;
+    const workspaceId = workspaceRuntimeRegistry.getActiveWorkspaceId();
+    const runtime = workspaceRuntimeRegistry.getWorkspace(workspaceId);
+    const runtimePath = runtime?.descriptor.path;
+    const sameWorkspace = () =>
+      workspaceRuntimeRegistry.getActiveWorkspaceId() === workspaceId &&
+      workspaceRuntimeRegistry.getWorkspace(workspaceId) === runtime &&
+      runtime?.descriptor.path === runtimePath;
+    const guard = pluginPlanGuard();
+    const assertCurrent = () => {
+      try {
+        guard(pluginId);
+      } catch {
+        throw new Error("plugin.settings.staleContext");
       }
-      setValues(outcome.settings ?? []);
-    } catch (reason) {
-      setError(String(reason));
-    }
-  }, [manifest, workspacePath, t]);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
-
-  const apply = async (setting: DeclarativePluginSetting, value: unknown) => {
-    setBusy(true);
-    setError(null);
-    try {
-      const scope = setting.scope === "project" && workspacePath ? "project" : "global";
-      // Only the global layer forgets values equal to the declaration default.
-      // A project layer must retain an explicit default to override a
-      // different global value; null means “inherit global” there.
-      const stored = scope === "global" && valuesEqual(value, setting.default) ? null : value;
-      await storeDeclarativeSetting(pluginId, setting.id, scope, workspacePath ?? "", stored);
-      await refresh();
-      if (setting.effect === "immediate" && languageId && manifest && workspacePath) {
-        // Expand the configuration from the stored values, then push it to
-        // the running language server through the LSP session.
-        const outcome = await declarativeWorkspaceConfiguration(
-          manifest,
-          languageId,
-          workspacePath,
-        );
-        if (outcome.status === "ok" && outcome.configuration !== null) {
-          await pushDeclarativeWorkspaceConfiguration({
+      if (stale || !sameWorkspace()) throw new Error("plugin.settings.staleContext");
+    };
+    const invalidate = () => {
+      stale = true;
+      setInvalid(true);
+      session.current?.dispose();
+    };
+    const releasePlugin = subscribePluginActivity((id) => {
+      if (id === pluginId) invalidate();
+    });
+    const releaseWorkspace = workspaceRuntimeRegistry.subscribe(() => {
+      if (!sameWorkspace()) invalidate();
+    });
+    const owned = new DeclarativeSettingsSession(
+      {
+        read: () => loadDeclarativeSettingSnapshot(pluginId, workspacePath ?? ""),
+        write: (id, scope, value, identity) =>
+          storeDeclarativeSetting(pluginId, id, scope, workspacePath ?? "", value, identity),
+        assertCurrent,
+        effect: (setting, snapshot) =>
+          applySettingEffect(setting, snapshot, workspacePath, {
+            assertCurrent,
             pluginId,
-            workspacePath,
-            languageId,
-            configuration: outcome.configuration,
-          });
-        }
-      }
-    } catch (reason) {
-      setError(String(reason));
-    } finally {
-      setBusy(false);
-    }
-  };
+            configuration: declarativeWorkspaceConfiguration,
+            push: pushDeclarativeWorkspaceConfiguration,
+          }),
+      },
+      setState,
+    );
+    session.current = owned;
+    setInvalid(false);
+    setLayer("global");
+    setState({ snapshot: null, busy: true, error: null, drafts: {}, effect: null });
+    void owned.reload();
+    return () => {
+      owned.dispose();
+      releasePlugin();
+      releaseWorkspace();
+      if (session.current === owned) session.current = null;
+    };
+  }, [pluginId, workspacePath, languageId]);
 
-  // Loading and error states stay visible; an empty settings list never
-  // hides a failed resolve.
-  if (!manifest) {
-    return error ? (
-      <div className="mt-2 flex flex-col gap-2 border-t border-border pt-2">
-        <p role="alert" className="text-destructive ui-text-sm">
-          {error}
-        </p>
-      </div>
-    ) : null;
-  }
+  const snapshot = state.snapshot;
+  const recoveryRequired = state.error?.includes("plugin.settings.recoveryRequired") ?? false;
+  const visible = snapshot
+    ? snapshot.settings.filter((item) => settings.some((selected) => selected.id === item.id))
+    : [];
+  const declaredActions = actions ?? snapshot?.settingActions ?? [];
+  const sections = [
+    ...new Set([...visible, ...declaredActions].map((setting) => setting.section ?? "")),
+  ];
   return (
-    <div className="mt-2 flex flex-col gap-2 border-t border-border pt-2">
-      <h4 className="ui-text-sm font-semibold">{t("settings.declarativePlugins.settings")}</h4>
-      {error && (
+    <div className="space-y-3" data-plugin-settings={pluginId}>
+      {(state.error || invalid) && (
         <p role="alert" className="text-destructive ui-text-sm">
-          {error}
+          {recoveryRequired
+            ? t("plugins.settings.recoveryRequired")
+            : t("plugins.settings.failed", {
+                code: invalid ? "plugin.settings.staleContext" : (state.error ?? ""),
+              })}
         </p>
       )}
-      {settings.map((setting) => {
-        const resolved = values.find((value) => value.id === setting.id);
-        if (!resolved) return null;
-        return (
-          <SettingControl
-            key={setting.id}
-            setting={setting}
-            resolved={resolved}
-            disabled={busy}
-            projectAvailable={setting.scope === "project" && Boolean(workspacePath)}
-            onApply={(value) => void apply(setting, value)}
-          />
-        );
-      })}
+      {snapshot && (
+        <>
+          {visible.length === 0 && declaredActions.length === 0 && (
+            <p role="status" className="ui-text-sm">
+              {t("settings.declarativePluginDetails.empty.settings")}
+            </p>
+          )}
+          <SettingRow
+            label={t("plugins.settings.storage")}
+            description={t("plugins.settings.storageInfo")}
+            activateOnClick={false}
+          >
+            <SettingsSelect
+              value={layer}
+              disabled={state.busy || invalid}
+              options={[
+                { value: "global", label: t("settings.declarativePlugins.settingScope.global") },
+                ...(workspacePath
+                  ? [
+                      {
+                        value: "project",
+                        label: t("settings.declarativePlugins.settingScope.project"),
+                      },
+                    ]
+                  : []),
+              ]}
+              onChange={(value) => setLayer(value as "global" | "project")}
+            />
+          </SettingRow>
+          <p className="break-all font-mono ui-text-sm">
+            {layer === "project" ? snapshot.projectPath : snapshot.globalPath}
+          </p>
+          {state.effect && (
+            <p role="status" className="ui-text-sm">
+              {t(`plugins.settings.effect.${state.effect}`)}
+            </p>
+          )}
+          {sections.map((section) => (
+            <Section key={section} title={section || t("settings.declarativePlugins.settings")}>
+              {visible
+                .filter((item) => (item.section ?? "") === section)
+                .map((setting) => {
+                  const scope =
+                    layer === "project" && setting.scope === "project" ? "project" : "global";
+                  const resolved = (
+                    scope === "project" ? snapshot.resolvedProject : snapshot.resolvedGlobal
+                  ).find((item) => item.id === setting.id);
+                  if (!resolved) return null;
+                  const key = `${scope}:${setting.id}`;
+                  const dirty = Object.prototype.hasOwnProperty.call(state.drafts, key);
+                  const raw = scope === "project" ? snapshot.projectValues : snapshot.globalValues;
+                  const disabled =
+                    state.busy ||
+                    invalid ||
+                    recoveryRequired ||
+                    (layer === "project" && setting.scope !== "project");
+                  return (
+                    <div key={setting.id} className="space-y-1">
+                      <SettingRow
+                        label={setting.title}
+                        description={setting.description ?? undefined}
+                        activateOnClick={false}
+                        labelAccessory={
+                          <span className="text-subtle-foreground ui-text-sm">
+                            {t(`settings.declarativePlugins.settingSource.${resolved.source}`)} ·{" "}
+                            {t(
+                              `settings.declarativePlugins.settingEffect.${setting.effect ?? "restart"}`,
+                            )}
+                            {layer === "global" &&
+                              setting.scope === "project" &&
+                              snapshot.resolvedProject.some(
+                                (item) => item.id === setting.id && item.source === "project",
+                              ) && <> · {t("plugins.settings.projectOverride")}</>}
+                          </span>
+                        }
+                      >
+                        <SettingValueControl
+                          setting={setting}
+                          value={dirty ? state.drafts[key] : resolved.value}
+                          disabled={disabled}
+                          onChange={(value) => session.current?.edit(setting.id, scope, value)}
+                        />
+                      </SettingRow>
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          size="sm"
+                          disabled={disabled || !dirty}
+                          onClick={() => void session.current?.save(setting, scope)}
+                        >
+                          {t("ui.save")}
+                        </Button>
+                        <Button
+                          size="sm"
+                          disabled={disabled || !dirty}
+                          onClick={() => session.current?.cancel(setting.id, scope)}
+                        >
+                          {t("ui.cancel")}
+                        </Button>
+                        <Button
+                          size="sm"
+                          disabled={
+                            disabled || !Object.prototype.hasOwnProperty.call(raw, setting.id)
+                          }
+                          onClick={() => void session.current?.save(setting, scope, true)}
+                        >
+                          {t("plugins.settings.inherit")}
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              {declaredActions
+                .filter((item) => (item.section ?? "") === section)
+                .map((action) => (
+                  <SettingRow
+                    key={action.id}
+                    label={action.title}
+                    description={action.description}
+                    activateOnClick={false}
+                  >
+                    <span title={t("plugins.settings.actionUnavailable")}>
+                      <Button disabled>{action.title}</Button>
+                    </span>
+                  </SettingRow>
+                ))}
+            </Section>
+          ))}
+          {declaredActions.length > 0 && (
+            <p role="status" className="ui-text-sm">
+              {t("plugins.settings.actionUnavailable")}
+            </p>
+          )}
+        </>
+      )}
+      <Button
+        size="sm"
+        disabled={state.busy || invalid}
+        onClick={() => void session.current?.reload()}
+      >
+        {t("plugins.settings.reload")}
+      </Button>
     </div>
   );
 }
 
-function SettingControl({
+function SettingValueControl({
   setting,
-  resolved,
+  value,
   disabled,
-  projectAvailable,
-  onApply,
+  onChange,
 }: {
   setting: DeclarativePluginSetting;
-  resolved: ResolvedDeclarativeSetting;
+  value: unknown;
   disabled: boolean;
-  projectAvailable: boolean;
-  onApply: (value: unknown) => void;
+  onChange(value: unknown): void;
 }) {
-  const { t } = useTranslation();
-  const sourceLabel = t(`settings.declarativePlugins.settingSource.${resolved.source}`);
-  const effectLabel = setting.effect
-    ? t(`settings.declarativePlugins.settingEffect.${setting.effect}`)
-    : t("settings.declarativePlugins.settingEffect.restart");
-  const scopeLabel = projectAvailable
-    ? t("settings.declarativePlugins.settingScope.project")
-    : t("settings.declarativePlugins.settingScope.global");
-
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <div className="min-w-0">
-        <p className="truncate ui-text-sm">
-          {setting.title}
-          <span className="text-subtle-foreground">
-            {" "}
-            · {sourceLabel} · {scopeLabel} · {effectLabel}
-          </span>
-        </p>
-        {setting.description && (
-          <p className="text-subtle-foreground ui-text-sm">{setting.description}</p>
-        )}
-      </div>
-      {setting.type === "boolean" ? (
-        <Switch
-          checked={resolved.value === true}
-          disabled={disabled}
-          onChange={onApply}
-          aria-label={setting.title}
-        />
-      ) : setting.type === "integer" ? (
-        <NumberInput
-          value={Number(resolved.value ?? 0)}
-          min={setting.minimum ?? undefined}
-          max={setting.maximum ?? undefined}
-          disabled={disabled}
-          onChange={(value: number) => onApply(value)}
-          aria-label={setting.title}
-        />
-      ) : setting.type === "enum" ? (
-        <SettingsSelect
-          value={String(resolved.value ?? "")}
-          disabled={disabled}
-          options={(setting.options ?? []).map((option) => ({
-            value: option.value,
-            label: option.title,
-          }))}
-          onChange={onApply}
-        />
-      ) : setting.type === "multiSelect" ? (
-        <div className="flex max-w-64 flex-wrap justify-end gap-x-3 gap-y-1">
-          {(setting.options ?? []).map((option) => {
-            const selected = Array.isArray(resolved.value)
-              ? resolved.value.some((value) => String(value) === option.value)
-              : false;
-            return (
-              <label key={option.value} className="flex items-center gap-1 ui-text-sm">
-                <Checkbox
-                  checked={selected}
-                  disabled={disabled}
-                  onCheckedChange={(checked) => {
-                    const current = Array.isArray(resolved.value)
-                      ? resolved.value.map(String)
-                      : [];
-                    const next = checked
+  if (setting.type === "boolean")
+    return (
+      <Switch
+        checked={value === true}
+        disabled={disabled}
+        onChange={onChange}
+        aria-label={setting.title}
+      />
+    );
+  if (setting.type === "integer")
+    return (
+      <NumberInput
+        value={Number(value)}
+        min={setting.minimum ?? undefined}
+        max={setting.maximum ?? undefined}
+        disabled={disabled}
+        onChange={onChange}
+        aria-label={setting.title}
+      />
+    );
+  if (setting.type === "enum")
+    return (
+      <SettingsSelect
+        value={String(value)}
+        disabled={disabled}
+        options={(setting.options ?? []).map((option) => ({
+          value: option.value,
+          label: option.title,
+        }))}
+        onChange={onChange}
+      />
+    );
+  if (setting.type === "multiSelect")
+    return (
+      <div className="flex flex-wrap gap-2">
+        {(setting.options ?? []).map((option) => {
+          const current = Array.isArray(value) ? value.map(String) : [];
+          return (
+            <label key={option.value} className="flex items-center gap-1 ui-text-sm">
+              <Checkbox
+                checked={current.includes(option.value)}
+                disabled={disabled}
+                aria-label={option.title}
+                onCheckedChange={(checked) =>
+                  onChange(
+                    checked
                       ? [...new Set([...current, option.value])]
-                      : current.filter((value) => value !== option.value);
-                    onApply(next);
-                  }}
-                  aria-label={option.title}
-                />
-                <span>{option.title}</span>
-              </label>
-            );
-          })}
-        </div>
-      ) : (
-        <input
-          type="text"
-          className="w-40 rounded border border-border bg-background px-2 py-1 ui-text-sm"
-          value={String(resolved.value ?? "")}
-          disabled={disabled}
-          onChange={(event) => onApply(event.target.value)}
-          aria-label={setting.title}
-        />
-      )}
-    </div>
+                      : current.filter((item) => item !== option.value),
+                  )
+                }
+              />
+              {option.title}
+            </label>
+          );
+        })}
+      </div>
+    );
+  return (
+    <Input
+      value={String(value ?? "")}
+      disabled={disabled}
+      maxLength={setting.maxLength ?? undefined}
+      placeholder={setting.placeholder ?? undefined}
+      aria-label={setting.title}
+      onChange={(event) => onChange(event.target.value)}
+    />
   );
 }
 
 export type { DeclarativePluginSetting, ResolvedDeclarativeSetting };
-
-function valuesEqual(left: unknown, right: unknown): boolean {
-  if (Object.is(left, right)) return true;
-  try {
-    return JSON.stringify(left) === JSON.stringify(right);
-  } catch {
-    return false;
-  }
-}
