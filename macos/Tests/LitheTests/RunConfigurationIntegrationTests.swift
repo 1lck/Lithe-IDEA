@@ -286,7 +286,8 @@ struct RunConfigurationIntegrationTests {
         #expect(registry.pack(id: "go")?.toolchainProviders.contains {
             $0.languageProviderID == "go" && $0.identifiers.contains("project-go")
         } == true)
-        #expect(registry.pack(id: "go")?.debugAdapterLaunch?.executableNames == ["dlv"])
+        #expect(registry.pack(id: "go")?.debugAdapterLaunch == nil)
+        #expect(registry.pack(id: "node")?.debugAdapterLaunch == nil)
         #expect(registry.pack(id: "python")?.debugAdapterLaunch?.adapterID == "python")
         #expect(registry.pack(id: "rust")?.debugAdapterLaunch?.fallbacks.first?.executableName == "xcrun")
         #expect(registry.pack(id: "java")?.debugAdapterLaunch == nil)
@@ -411,6 +412,8 @@ struct RunConfigurationIntegrationTests {
                 )
             },
             launches: [:],
+            core: RustCoreBridge(),
+            deadlineScheduler: MacDebugOperationDeadlineScheduler(),
             sessionFactories: ["node": {
                 nodeFactoryCalls += 1
                 return TestDebugAdapterSession()
@@ -1306,148 +1309,9 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
-    func goDebugLaunchUsesTheNearestDetectedCommandDirectory() throws {
-        let root = URL(fileURLWithPath: "/tmp/go-debug-workspace", isDirectory: true)
-        let source = root.appendingPathComponent("cmd/gateway/main.go")
-        let configuration = RunConfiguration(
-            id: "go.command:cmd/gateway/gateway",
-            name: "gateway",
-            kind: .process(provider: "go.command"),
-            execution: .application,
-            modulePath: "cmd/gateway",
-            mainClass: nil
-        )
-        let resolver = DebugLaunchConfigurationResolver(fileExists: { _ in false })
-        let provider = try #require(LanguageProviderCatalog.standard.provider(for: source))
-
-        let launch = try resolver.resolve(
-            provider: provider,
-            documentURL: source,
-            workspaceURL: root,
-            configurations: [configuration],
-            selectedConfiguration: nil,
-            options: { _ in RunOptions() }
-        )
-
-        let commandURL = root.appendingPathComponent("cmd/gateway").standardizedFileURL
-        #expect(launch.name == "gateway")
-        #expect(launch.arguments["mode"] == .string("debug"))
-        #expect(launch.arguments["program"] == .string(commandURL.path))
-        #expect(launch.arguments["cwd"] == .string(commandURL.path))
-    }
-
-    @Test
-    func nodeDebugLaunchUsesTheNearestNPMScriptAndGenericOptions() throws {
-        let root = URL(fileURLWithPath: "/tmp/node-debug-workspace", isDirectory: true)
-        let source = root.appendingPathComponent("apps/web/src/server.ts")
-        let configuration = RunConfiguration(
-            id: "npm.script:apps/web/dev",
-            name: "dev",
-            kind: .process(provider: "npm.script"),
-            execution: .service,
-            modulePath: "apps/web",
-            mainClass: nil
-        )
-        let resolver = DebugLaunchConfigurationResolver(fileExists: { _ in false })
-        let provider = try #require(LanguageProviderCatalog.standard.provider(for: source))
-
-        let launch = try resolver.resolve(
-            provider: provider,
-            documentURL: source,
-            workspaceURL: root,
-            configurations: [configuration],
-            selectedConfiguration: nil,
-            options: { _ in
-                RunOptions(
-                    programArguments: "--port 4100 --name \"web api\"",
-                    environment: ["NODE_ENV": "development"]
-                )
-            }
-        )
-
-        #expect(launch.name == "dev")
-        #expect(launch.arguments["type"] == .string("pwa-node"))
-        #expect(launch.arguments["runtimeExecutable"] == .string("npm"))
-        #expect(launch.arguments["runtimeArgs"] == .array([.string("run"), .string("dev")]))
-        #expect(launch.arguments["cwd"] == .string(root.appendingPathComponent("apps/web").path))
-        #expect(launch.arguments["args"] == .array([
-            .string("--port"), .string("4100"), .string("--name"), .string("web api")
-        ]))
-        #expect(launch.arguments["env"] == .object(["NODE_ENV": .string("development")]))
-    }
-
-    @Test
-    func nodeDebugLaunchFallsBackToTheCurrentJavaScriptFile() throws {
-        let root = URL(fileURLWithPath: "/tmp/node-current-file", isDirectory: true)
-        let source = root.appendingPathComponent("scripts/worker.mjs")
-        let resolver = DebugLaunchConfigurationResolver(fileExists: { _ in false })
-        let provider = try #require(LanguageProviderCatalog.standard.provider(for: source))
-
-        let launch = try resolver.resolve(
-            provider: provider,
-            documentURL: source,
-            workspaceURL: root,
-            configurations: [],
-            selectedConfiguration: nil,
-            options: { _ in RunOptions() }
-        )
-
-        #expect(launch.name == "worker.mjs")
-        #expect(launch.arguments["program"] == .string(source.path))
-        #expect(launch.arguments["runtimeExecutable"] == nil)
-    }
-
-    @Test
-    func delveTransportQueuesDAPBytesUntilTheTCPAnnouncementIsReady() async throws {
-        let process = RecordingRawProcessSession()
-        let socket = TestDlvSocketConnection()
-        var endpoint: (String, UInt16)?
-        let transport = MacDlvDebugAdapterTransport(
-            executableURL: URL(fileURLWithPath: "/toolchains/dlv"),
-            environment: ["PATH": "/toolchains"],
-            process: process,
-            socketFactory: { host, port in
-                endpoint = (host, port)
-                return socket
-            }
-        )
-        var received: [Data] = []
-        var errorOutput: [Data] = []
-        transport.onData = { received.append($0) }
-        transport.onErrorOutput = { errorOutput.append($0) }
-        let initializeFrame = Data("Content-Length: 2\r\n\r\n{}".utf8)
-
-        try transport.start(rootURL: URL(fileURLWithPath: "/tmp/go-dap"))
-        try transport.send(initializeFrame)
-        #expect(socket.sent.isEmpty)
-        let request = try #require(process.requests.first)
-        #expect(request.executablePath == "/toolchains/dlv")
-        #expect(request.arguments == ["dap", "--listen=127.0.0.1:0"])
-        #expect(request.keepsStandardInputOpen == false)
-
-        let announcement = Data("日志🙂\nDAP server listening at: 127.0.0.1:43127\n".utf8)
-        process.onError?(Data(announcement.prefix(1)))
-        await Self.drainMainActorTasks()
-        process.onError?(Data(announcement.dropFirst()))
-        await Self.drainMainActorTasks()
-        #expect(endpoint?.0 == "127.0.0.1")
-        #expect(endpoint?.1 == 43127)
-        let decodedErrorOutput = errorOutput.reduce(into: Data()) { $0.append($1) }
-        #expect(String(decoding: decodedErrorOutput, as: UTF8.self) == "日志🙂\nDAP server listening at: 127.0.0.1:43127\n")
-        #expect(socket.startCount == 1)
-        #expect(socket.sent.isEmpty)
-
-        socket.onReady?()
-        #expect(socket.sent == [initializeFrame])
-        let response = Data("Content-Length: 2\r\n\r\n{}".utf8)
-        socket.onData?(response)
-        #expect(received == [response])
-    }
-
-    @Test
     func javaTransportQueuesDAPBytesUntilJdtlsPortAndSocketAreReady() async throws {
         let portGate = JavaDebugPortGate()
-        let socket = TestDlvSocketConnection()
+        let socket = TestDebugSocketConnection()
         let endpointRecorder = DebugEndpointRecorder()
         let transport = MacJavaDebugAdapterTransport(
             portResolver: { rootURL in try await portGate.resolve(rootURL: rootURL) },
@@ -1480,7 +1344,7 @@ struct RunConfigurationIntegrationTests {
     @Test
     func stoppingJavaTransportCancelsPortDiscoveryWithoutOpeningSocket() async throws {
         let portGate = JavaDebugPortGate()
-        let socket = TestDlvSocketConnection()
+        let socket = TestDebugSocketConnection()
         let endpointRecorder = DebugEndpointRecorder()
         let transport = MacJavaDebugAdapterTransport(
             portResolver: { rootURL in try await portGate.resolve(rootURL: rootURL) },
@@ -1498,116 +1362,6 @@ struct RunConfigurationIntegrationTests {
         #expect(!endpointRecorder.didRecord)
         #expect(socket.startCount == 0)
         #expect(!transport.isRunning)
-    }
-
-    @Test
-    func nodeTransportDiscoversTheOfficialBundleAndQueuesUntilTCPIsReady() async throws {
-        let root = URL(fileURLWithPath: "/tmp/node-dap", isDirectory: true)
-        let adapterRoot = root.appendingPathComponent(".lithe/toolchains/js-debug")
-        let adapterScript = adapterRoot.appendingPathComponent("js-debug/src/dapDebugServer.js")
-        let process = RecordingRawProcessSession()
-        let socket = TestDlvSocketConnection()
-        var endpoint: (String, UInt16)?
-        let locator = MacJavaScriptDebugAdapterLocator(
-            environment: ["PATH": "/toolchains"],
-            homeDirectoryURL: URL(fileURLWithPath: "/users/test", isDirectory: true),
-            fileExists: { $0.standardizedFileURL.path == adapterScript.standardizedFileURL.path },
-            isDirectory: { $0.standardizedFileURL.path == adapterRoot.standardizedFileURL.path },
-            executableOnPath: { _ in nil }
-        )
-        let transport = MacNodeDebugAdapterTransport(
-            nodeExecutableURL: URL(fileURLWithPath: "/toolchains/node"),
-            locator: locator,
-            process: process,
-            socketFactory: { host, port in
-                endpoint = (host, port)
-                return socket
-            }
-        )
-        let initializeFrame = Data("Content-Length: 2\r\n\r\n{}".utf8)
-
-        try transport.start(rootURL: root)
-        try transport.send(initializeFrame)
-        let request = try #require(process.requests.first)
-        #expect(request.executablePath == "/toolchains/node")
-        #expect(request.arguments == [adapterScript.path, "0", "127.0.0.1"])
-        #expect(request.keepsStandardInputOpen == false)
-        #expect(socket.sent.isEmpty)
-
-        process.onOutput?(Data("Debug server listening at 127.0.0.1:49321\n".utf8))
-        await Self.drainMainActorTasks()
-        #expect(endpoint?.0 == "127.0.0.1")
-        #expect(endpoint?.1 == 49321)
-        socket.onReady?()
-        #expect(socket.sent == [initializeFrame])
-    }
-
-    @Test
-    func nodeProviderCreatesItsDebugSessionOnlyOnDemand() throws {
-        let runtimeService = ProjectRuntimeService(
-            runtimeLocator: RunTestRuntimeLocator(),
-            store: RunTestKeyValueStore()
-        )
-        var factoryCalls = 0
-        let expected = TestDebugAdapterSession()
-        let factory = DebugAdapterRuntimeFactory(
-            runtimeService: runtimeService,
-            transportFactory: { executableURL, arguments, environment in
-                MacProcessDebugAdapterTransport(
-                    executableURL: executableURL,
-                    arguments: arguments,
-                    environment: environment,
-                    process: RecordingRawProcessSession()
-                )
-            },
-            launches: [:],
-            sessionFactories: [
-                "node": {
-                    factoryCalls += 1
-                    return expected
-                }
-            ]
-        )
-        let node = try #require(LanguageProviderCatalog.standard.debugProviders.first { $0.id == "node" })
-
-        #expect(factoryCalls == 0)
-        let created = try #require(factory.makeSession(for: node, rootURL: URL(fileURLWithPath: "/tmp")))
-        #expect(factoryCalls == 1)
-        #expect(created === expected)
-    }
-
-    @Test
-    func goProviderCreatesItsInjectedTCPDebugSessionOnlyOnDemand() throws {
-        let runtimeService = ProjectRuntimeService(
-            runtimeLocator: RunTestRuntimeLocator(),
-            store: RunTestKeyValueStore()
-        )
-        var factoryCalls = 0
-        let expected = TestDebugAdapterSession()
-        let factory = DebugAdapterRuntimeFactory(
-            runtimeService: runtimeService,
-            transportFactory: { executableURL, arguments, environment in
-                MacProcessDebugAdapterTransport(
-                    executableURL: executableURL,
-                    arguments: arguments,
-                    environment: environment,
-                    process: RecordingRawProcessSession()
-                )
-            },
-            launches: [:],
-            sessionFactories: [
-                "go": {
-                    factoryCalls += 1
-                    return expected
-                }
-            ]
-        )
-        let go = try #require(LanguageProviderCatalog.standard.debugProviders.first { $0.id == "go" })
-
-        #expect(factoryCalls == 0)
-        let created = try #require(factory.makeSession(for: go, rootURL: URL(fileURLWithPath: "/tmp")))
-        #expect(factoryCalls == 1)
-        #expect(created === expected)
     }
 
     @Test
@@ -2908,7 +2662,9 @@ struct RunConfigurationIntegrationTests {
                 adapterID: "python",
                 executableNames: ["python3"],
                 arguments: ["-m", "debugpy.adapter"]
-            )]
+            )],
+            core: RustCoreBridge(),
+            deadlineScheduler: MacDebugOperationDeadlineScheduler()
         )
         let manager = DebugAdapterSessionManager(
             providers: LanguageProviderCatalog.standard.debugProviders,
@@ -3091,88 +2847,6 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
-    func dapStartDebuggingCreatesAChildSessionAndRoutesInspection() async throws {
-        let root = URL(fileURLWithPath: "/tmp/node-child-session", isDirectory: true)
-        let source = root.appendingPathComponent("server.js")
-        let parentTransport = RecordingDebugAdapterTransport()
-        let session = DebugAdapterProtocolSession(adapterID: "pwa-node", transport: parentTransport)
-        session.setBreakpoints([DebugSourceBreakpoint(line: 2)], in: source)
-
-        try session.start(rootURL: root)
-        try session.launch(DebugLaunchConfiguration(
-            name: "Node root",
-            request: .launch,
-            arguments: ["type": .string("pwa-node"), "program": .string(source.path)]
-        ))
-        let parentInitialize = try #require(Self.debugRequest(named: "initialize", in: parentTransport.sentData))
-        let parentInitializeSequence = try #require(parentInitialize["seq"] as? Int)
-        parentTransport.emitJSON([
-            "seq": 1, "type": "response", "request_seq": parentInitializeSequence,
-            "success": true, "command": "initialize",
-            "body": ["supportsConfigurationDoneRequest": true]
-        ])
-        parentTransport.emitJSON(["seq": 2, "type": "event", "event": "initialized", "body": [:]])
-        await Self.drainMainActorTasks()
-        #expect(Self.debugRequest(named: "launch", in: parentTransport.sentData) != nil)
-
-        parentTransport.emitJSON([
-            "seq": 8,
-            "type": "request",
-            "command": "startDebugging",
-            "arguments": [
-                "request": "launch",
-                "configuration": [
-                    "name": "server.js",
-                    "type": "pwa-node",
-                    "request": "launch",
-                    "__pendingTargetId": "target-1",
-                    "program": source.path
-                ]
-            ]
-        ])
-        await Self.drainMainActorTasks()
-
-        let childTransport = try #require(parentTransport.children.first)
-        let startResponse = try #require(parentTransport.sentData.compactMap(Self.framedJSON).first {
-            $0["type"] as? String == "response" && $0["request_seq"] as? Int == 8
-        })
-        #expect(startResponse["success"] as? Bool == true)
-        let childInitialize = try #require(Self.debugRequest(named: "initialize", in: childTransport.sentData))
-        let childInitializeSequence = try #require(childInitialize["seq"] as? Int)
-        childTransport.emitJSON([
-            "seq": 1, "type": "response", "request_seq": childInitializeSequence,
-            "success": true, "command": "initialize",
-            "body": ["supportsConfigurationDoneRequest": true]
-        ])
-        childTransport.emitJSON(["seq": 2, "type": "event", "event": "initialized", "body": [:]])
-        await Self.drainMainActorTasks()
-
-        let childLaunch = try #require(Self.debugRequest(named: "launch", in: childTransport.sentData))
-        let childArguments = try #require(childLaunch["arguments"] as? [String: Any])
-        #expect(childArguments["__pendingTargetId"] as? String == "target-1")
-        #expect(Self.debugRequest(named: "setBreakpoints", in: childTransport.sentData) != nil)
-
-        childTransport.emitJSON([
-            "seq": 3, "type": "event", "event": "stopped",
-            "body": ["reason": "breakpoint", "threadId": 17]
-        ])
-        await Self.drainMainActorTasks()
-        #expect(session.state == .paused)
-
-        var threadsResult: Result<[DebugThread], Error>?
-        session.requestThreads { threadsResult = $0 }
-        let threadsRequest = try #require(Self.debugRequest(named: "threads", in: childTransport.sentData))
-        let threadsSequence = try #require(threadsRequest["seq"] as? Int)
-        childTransport.emitJSON([
-            "seq": 4, "type": "response", "request_seq": threadsSequence,
-            "success": true, "command": "threads",
-            "body": ["threads": [["id": 17, "name": "Main Thread"]]]
-        ])
-        await Self.drainMainActorTasks()
-        #expect(try threadsResult?.get().first?.id == 17)
-    }
-
-    @Test
     func rustDebugAdapterFallsBackToXcrunDeveloperToolDiscovery() throws {
         let runtimeService = ProjectRuntimeService(
             runtimeLocator: XcrunOnlyRuntimeLocator(),
@@ -3194,7 +2868,9 @@ struct RunConfigurationIntegrationTests {
                 executableNames: ["lldb-dap"],
                 arguments: [],
                 fallbacks: [.init(executableName: "xcrun", argumentPrefix: ["lldb-dap"])]
-            )]
+            )],
+            core: RustCoreBridge(),
+            deadlineScheduler: MacDebugOperationDeadlineScheduler()
         )
         let descriptor = try #require(LanguageProviderCatalog.standard.debugProviders.first { $0.id == "rust" })
         let adapter = try #require(runtime.makeSession(for: descriptor, rootURL: URL(fileURLWithPath: "/tmp/rust-xcrun")))
@@ -3230,7 +2906,9 @@ struct RunConfigurationIntegrationTests {
                 adapterID: "python",
                 executableNames: ["python3"],
                 arguments: ["-m", "debugpy.adapter"]
-            )]
+            )],
+            core: RustCoreBridge(),
+            deadlineScheduler: MacDebugOperationDeadlineScheduler()
         )
         let manager = DebugAdapterSessionManager(
             providers: LanguageProviderCatalog.standard.debugProviders,
@@ -5576,33 +5254,6 @@ private enum RecordingRawProcessSessionError: LocalizedError {
     var errorDescription: String? { "Injected language server transport write failure." }
 }
 
-@MainActor
-private final class RecordingDebugAdapterTransport: DebugAdapterTransport, DebugAdapterChildTransportProviding {
-    private(set) var isRunning = false
-    var onData: ((Data) -> Void)?
-    var onErrorOutput: ((Data) -> Void)?
-    var onTermination: ((Int) -> Void)?
-    private(set) var sentData: [Data] = []
-    private(set) var children: [RecordingDebugAdapterTransport] = []
-
-    func start(rootURL: URL) throws { isRunning = true }
-    func send(_ data: Data) throws { sentData.append(data) }
-    func stop() { isRunning = false }
-
-    func makeChildTransport() -> (any DebugAdapterTransport)? {
-        let child = RecordingDebugAdapterTransport()
-        children.append(child)
-        return child
-    }
-
-    func emitJSON(_ object: [String: Any]) {
-        let body = try! JSONSerialization.data(withJSONObject: object)
-        var framed = Data("Content-Length: \(body.count)\r\n\r\n".utf8)
-        framed.append(body)
-        onData?(framed)
-    }
-}
-
 private final class RecordingProcessFactory: @unchecked Sendable {
     private(set) var processes: [RecordingStreamingProcess] = []
 
@@ -5802,7 +5453,7 @@ private final class TestLanguageProviderRuntimeFactory: LanguageProviderRuntimeF
 }
 
 @MainActor
-private final class TestDlvSocketConnection: DlvSocketConnection {
+private final class TestDebugSocketConnection: DebugAdapterSocketConnection {
     var onReady: (() -> Void)?
     var onData: ((Data) -> Void)?
     var onFailure: ((Error) -> Void)?

@@ -11,16 +11,22 @@ final class DebugAdapterRuntimeFactory {
     private let transportFactory: (URL, [String], [String: String]) -> any DebugAdapterTransport
     private let launches: [String: StdioDebugAdapterLaunch]
     private let sessionFactories: [String: () -> (any DebugAdapterSession)?]
+    private let core: any DebugProtocolCore
+    private let deadlineScheduler: any DebugOperationDeadlineScheduling
 
     init(
         runtimeService: ProjectRuntimeService,
         transportFactory: @escaping (URL, [String], [String: String]) -> any DebugAdapterTransport,
         launches: [String: StdioDebugAdapterLaunch],
+        core: any DebugProtocolCore,
+        deadlineScheduler: any DebugOperationDeadlineScheduling,
         sessionFactories: [String: () -> (any DebugAdapterSession)?] = [:]
     ) {
         self.runtimeService = runtimeService
         self.transportFactory = transportFactory
         self.launches = launches
+        self.core = core
+        self.deadlineScheduler = deadlineScheduler
         self.sessionFactories = sessionFactories
     }
 
@@ -43,13 +49,15 @@ final class DebugAdapterRuntimeFactory {
         }.first
         guard let (executableURL, arguments) = direct ?? fallback else { return nil }
 
-        return DebugAdapterProtocolSession(
+        return CoreDebugAdapterProtocolSession(
             adapterID: launch.adapterID,
             transport: transportFactory(
                 executableURL,
                 arguments,
                 runtimeService.processEnvironment()
-            )
+            ),
+            core: core,
+            deadlineScheduler: deadlineScheduler
         )
     }
 }

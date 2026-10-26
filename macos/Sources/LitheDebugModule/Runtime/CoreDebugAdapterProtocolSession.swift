@@ -6,7 +6,7 @@ import LitheCoreContracts
 /// stay behind `DebugProtocolCore`, while native I/O stays in the transport.
 @MainActor
 public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSession,
-    DebugAdapterRunInTerminalSession {
+    DebugAdapterRunInTerminalSession, DebugAdapterStartDebuggingSession {
     private typealias OperationHandler = (Result<DebugCoreOperationResult, Error>) -> Void
 
     private struct PendingOperation {
@@ -18,6 +18,10 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         let deadline: any DebugOperationDeadline
     }
 
+    private struct PendingStartDebuggingRequest {
+        let deadline: any DebugOperationDeadline
+    }
+
     private let adapterID: String
     private let transport: any DebugAdapterTransport
     private let core: any DebugProtocolCore
@@ -26,6 +30,7 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
     private let operationTimeoutMilliseconds: Int
     private var operationHandlers: [String: PendingOperation] = [:]
     private var pendingRunInTerminalRequests: [String: PendingRunInTerminalRequest] = [:]
+    private var pendingStartDebuggingRequests: [String: PendingStartDebuggingRequest] = [:]
     private var errorOutputDecoder = StreamingUTF8Decoder()
     private var ownsCoreSession = false
     private var isStopping = false
@@ -36,6 +41,7 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
     public var onStateChange: ((DebugAdapterState) -> Void)?
     public var onEvent: ((DebugAdapterEvent) -> Void)?
     public var onRunInTerminalRequest: DebugRunInTerminalRequestHandler?
+    public var onStartDebuggingRequest: DebugStartDebuggingRequestHandler?
     public var isRunning: Bool { transport.isRunning }
     public private(set) var capabilities: DebugAdapterCapabilities = .unknown
 
@@ -64,6 +70,7 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         errorOutputDecoder.reset()
         operationHandlers = [:]
         discardPendingRunInTerminalRequests()
+        discardPendingStartDebuggingRequests()
         capabilities = .unknown
         try transport.start(rootURL: rootURL.standardizedFileURL)
         do {
@@ -71,7 +78,8 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
                 sessionID: sessionID,
                 adapterID: adapterID,
                 rootPath: rootURL.standardizedFileURL.path,
-                supportsRunInTerminalRequest: onRunInTerminalRequest != nil
+                supportsRunInTerminalRequest: onRunInTerminalRequest != nil,
+                supportsStartDebuggingRequest: onStartDebuggingRequest != nil
             )
             ownsCoreSession = true
             try apply(update)
@@ -87,6 +95,7 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         guard state != .idle || transport.isRunning || ownsCoreSession else { return }
         isStopping = true
         failPendingRunInTerminalRequests(DebugAdapterProtocolError.stopped)
+        failPendingStartDebuggingRequests(DebugAdapterProtocolError.stopped)
         if ownsCoreSession, transport.isRunning,
            let update = try? core.disconnectDebugSession(sessionID: sessionID) {
             try? apply(update)
@@ -591,6 +600,10 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
             guard let requestID = event.requestID,
                   let request = event.request else { return }
             beginRunInTerminalRequest(requestID: requestID, request: request)
+        case "startDebuggingRequested":
+            guard let requestID = event.requestID,
+                  let request = event.startDebuggingRequest else { return }
+            beginStartDebuggingRequest(requestID: requestID, request: request)
         case "operationCompleted":
             guard let operationID = event.operationID,
                   let result = event.result else { return }
@@ -620,6 +633,7 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         guard !isStopping else { return }
         finishErrorOutput()
         discardPendingRunInTerminalRequests()
+        discardPendingStartDebuggingRequests()
         releaseCoreSession()
         failPendingOperations(DebugAdapterProtocolError.stopped)
         state = exitCode == 0 ? .terminated : .failed
@@ -630,6 +644,7 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         transport.stop()
         finishErrorOutput()
         discardPendingRunInTerminalRequests()
+        discardPendingStartDebuggingRequests()
         releaseCoreSession()
         failPendingOperations(DebugAdapterProtocolError.stopped)
         state = .failed
@@ -699,6 +714,64 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
             onEvent?(.output(category: "stderr", output: error.localizedDescription + "\n"))
             if !isStopping { failSession() }
         }
+    }
+
+    private func beginStartDebuggingRequest(
+        requestID: String,
+        request: DebugStartDebuggingRequest
+    ) {
+        let deadline = deadlineScheduler.schedule(
+            afterMilliseconds: operationTimeoutMilliseconds
+        ) { [weak self] in
+            self?.completeStartDebuggingRequest(
+                requestID,
+                result: .failure(DebugAdapterProtocolError.timedOut("startDebugging"))
+            )
+        }
+        pendingStartDebuggingRequests[requestID] = PendingStartDebuggingRequest(
+            deadline: deadline
+        )
+        guard let handler = onStartDebuggingRequest else {
+            completeStartDebuggingRequest(
+                requestID,
+                result: .failure(DebugAdapterCapabilityError.unsupported("child debug sessions"))
+            )
+            return
+        }
+        handler(request) { [weak self] result in
+            self?.completeStartDebuggingRequest(requestID, result: result)
+        }
+    }
+
+    private func completeStartDebuggingRequest(
+        _ requestID: String,
+        result: Result<Void, Error>
+    ) {
+        guard let pending = pendingStartDebuggingRequests.removeValue(forKey: requestID),
+              ownsCoreSession else { return }
+        pending.deadline.cancel()
+        do {
+            try apply(core.completeDebugStartDebuggingRequest(
+                sessionID: sessionID,
+                requestID: requestID,
+                result: result
+            ))
+        } catch {
+            onEvent?(.output(category: "stderr", output: error.localizedDescription + "\n"))
+            if !isStopping { failSession() }
+        }
+    }
+
+    private func failPendingStartDebuggingRequests(_ error: Error) {
+        for requestID in pendingStartDebuggingRequests.keys.sorted() {
+            completeStartDebuggingRequest(requestID, result: .failure(error))
+        }
+    }
+
+    private func discardPendingStartDebuggingRequests() {
+        let pending = pendingStartDebuggingRequests.values
+        pendingStartDebuggingRequests = [:]
+        pending.forEach { $0.deadline.cancel() }
     }
 
     private func failPendingRunInTerminalRequests(_ error: Error) {

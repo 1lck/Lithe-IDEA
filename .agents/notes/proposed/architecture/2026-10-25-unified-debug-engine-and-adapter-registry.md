@@ -30,7 +30,7 @@
 - **不自研调试器。** 符号解析、ptrace / Mach 异常端口 / Windows Debug API、各 CPU 架构的断点和单步，都由 GDB、LLDB 等上游负责。GCC 是编译器；GCC 编出来的程序用 GDB 或 LLDB 调试。
 - **不重建项目模型。** Java 的主类和 classpath 来自 JDT，Python 解释器来自 Run，C/C++/Rust 产物来自 Build/Run。
 - **不另造插件协议。** 启动声明复用 `serverProcess`、启动模板、能力版本和安装审查，详见[声明草案](../../../../shared/proposals/debug-adapters-1210/README.md)。
-- **现有行为是迁移基线，不能丢。** 包括 Java 热替换、JUnit/TestNG、调试使用 Run 选中的 JDK、Node 子会话与 source map、断点先于 launch 入队、停止与清理顺序。
+- **现有行为是迁移基线，不能丢。** 包括 Java 热替换、JUnit/TestNG、调试使用 Run 选中的 JDK、子调试会话与 source map 位置透传、断点先于 launch 入队、停止与清理顺序。
 
 ## 提案
 
@@ -123,6 +123,11 @@ Registry 注册时不启动程序做验证。一个适配器在接入验收中�
 | P3 第三方声明契约 | 正式 schema、Core 语义校验、版本号、权限、安装审查一起落地；声明草案里的拒绝 fixtures 接上 Core 测试 |
 | P4 第三方纵向验收 | 两个平台各用一个真实第三方适配器（GDB DAP `gdb -i=dap` 或 `lldb-dap`）完成安装、选择、launch / attach、必选层全流程和资源回收 |
 | P5 删除旧路径 | 所有消费者迁到 v2 之后，在同一个 PR 里删除 Swift 会话、按语言的工厂和 v1 投影 |
+
+P0 的清单落在 `shared/fixtures/debug/v1-baseline.json`：每一项指向 Rust、macOS 上现有的测试和 fixture（Windows 不在当前阶段范围内），并标明 `covered` / `partial` / `gap`。`scripts/verify-debug-v1-baseline.mjs`（已接入 `verify-shared-contracts.sh`）检查引用的测试仍然存在，防止重命名或删除悄悄缩小基线。
+
+P1 已在 Rust Core 落地：v2 投影类型与校验（`debug/projection_v2.rs`，共用 `projection-v2-examples.json`）、DAP `startDebugging` 反向请求（`debug.startDebuggingResponse`，仅在宿主声明 `supportsStartDebuggingRequest` 时启用）、Node source map 位置透传。macOS 的 `DebugProjectionV2` 与 Core 会话读同一份 fixture。旧的 Swift `DebugAdapterProtocolSession` 已删除：Java、Python、Rust 全部走 Core 会话（Python、Rust 经 `DebugAdapterRuntimeFactory` 用 stdio 传输）。宿主同时移除了内置的 Go（Delve）和 Node（js-debug）调试，TCP 传输、会话工厂、启动配置解析和语言包调试入口都已删除，之后由对应语言插件按 Registry 契约补上。P1 之后基础层逻辑也已在 Core 落地（`debug/capabilities.rs`、`engine.rs`）：能力快照 `supported = 适配器协商 ∧ 扩展注册 ∧ 已授权`，带单调递增 `revision`，只在变化时发出；插件只能通过 `disabledCapabilities` 关闭标准能力，`supportsConfigurationDoneRequest` 不可关闭。停止代数（`stopGeneration`）在停止、继续、终止时递增，旧代数发出的引用型请求的回复被丢弃并报 `StaleReference`（`stale-reference-v1.json`）。evaluate 的 context 受校验。Core 记录父子会话树，随父会话停止发出 `ChildSessionStopRequested`。子会话生命周期与父会话统一：销毁父会话会级联销毁整棵子树（叶子在前），`debug.destroySession` 返回 `destroyedChildSessionIds` 供宿主关闭对应传输，Core 里不会留下孤儿子会话。栈帧与作用域响应同时发出 v2 `Projection` 事件，v1 仍为准，校验失败的 v2 投影不下发。
+尚未完成：macOS 没有安装 `startDebugging` 处理器，工作台仍是单会话，所以会发起子会话的适配器会收到失败回复，`child-debug-sessions` 保持 `partial`；多会话 UI 另开分支先出设计。Swift 侧尚未消费 `projection`、`childSession*` 与 `disabledCapabilities`。
 
 P0–P5 完成后关闭 #1210。可选扩展、插件依赖和私有 resolver 都不是关闭条件。
 

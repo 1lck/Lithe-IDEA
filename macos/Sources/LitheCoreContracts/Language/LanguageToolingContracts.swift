@@ -200,7 +200,7 @@ package struct LanguageProviderCatalog: Sendable {
         ),
         LanguageProviderDescriptor(
             id: "go", displayName: "Go", fileExtensions: ["go"],
-            capabilities: [.run, .languageServer, .debugAdapter, .formatting, .testing],
+            capabilities: [.run, .languageServer, .formatting, .testing],
             activationPolicy: .onDemand
         ),
         LanguageProviderDescriptor(
@@ -210,7 +210,7 @@ package struct LanguageProviderCatalog: Sendable {
         ),
         LanguageProviderDescriptor(
             id: "node", displayName: "Node.js", fileExtensions: ["js", "jsx", "ts", "tsx", "mjs", "cjs"],
-            capabilities: [.run, .languageServer, .debugAdapter, .formatting, .testing],
+            capabilities: [.run, .languageServer, .formatting, .testing],
             activationPolicy: .onDemand,
             languageIdentifier: "javascript",
             languageIdentifiersByExtension: [

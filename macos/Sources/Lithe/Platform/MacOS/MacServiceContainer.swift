@@ -557,32 +557,6 @@ final class MacServiceContainer {
                                 core: rustCore,
                                 deadlineScheduler: MacDebugOperationDeadlineScheduler()
                             )
-                        },
-                        "go": {
-                            guard let executable = runtimeService.executableOnPath("dlv") else { return nil }
-                            return DebugAdapterProtocolSession(
-                                adapterID: "go",
-                                transport: MacDlvDebugAdapterTransport(
-                                    executableURL: executable,
-                                    environment: runtimeService.processEnvironment(),
-                                    process: MacRawProcessSession()
-                                )
-                            )
-                        },
-                        "node": {
-                            guard let executable = runtimeService.executableOnPath("node") else { return nil }
-                            let environment = runtimeService.processEnvironment()
-                            return DebugAdapterProtocolSession(
-                                adapterID: "pwa-node",
-                                transport: MacNodeDebugAdapterTransport(
-                                    nodeExecutableURL: executable,
-                                    locator: MacJavaScriptDebugAdapterLocator(
-                                        environment: environment,
-                                        executableOnPath: { runtimeService.executableOnPath($0) }
-                                    ),
-                                    process: MacRawProcessSession()
-                                )
-                            )
                         }
                     ]
                     let debugRuntimeFactory = DebugAdapterRuntimeFactory(
@@ -596,6 +570,8 @@ final class MacServiceContainer {
                             )
                         },
                         launches: debugLaunches,
+                        core: rustCore,
+                        deadlineScheduler: MacDebugOperationDeadlineScheduler(),
                         sessionFactories: debugFactories
                     )
                     let adapterSessions = DebugAdapterSessionManager(

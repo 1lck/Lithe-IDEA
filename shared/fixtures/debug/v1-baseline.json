@@ -1,0 +1,466 @@
+{
+  "version": 1,
+  "purpose": "P0 behavior baseline for #1210: every behavior the unified debug engine must keep. Each item points at the executable evidence on the current Swift session, Rust Core and Windows host. status covered = every platform that owns the behavior has a test; partial = some platforms lack a test; gap = no test yet and P1 must add one before the old path is removed. Windows is out of scope for the P0/P1 phase tracked here (macOS and the shared Rust Core only); Windows evidence is kept where it exists but its absence is not a gap.",
+  "sourceNote": ".agents/notes/proposed/architecture/2026-10-25-unified-debug-engine-and-adapter-registry.md",
+  "items": [
+    {
+      "id": "launch-sequence",
+      "behavior": "initialize, wait for initialized, then launch/attach, breakpoints and configurationDone in a fixed order",
+      "status": "covered",
+      "evidence": [
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/debug/engine.rs",
+          "test": "initialize_launch_breakpoints_and_inspection_are_reduced_in_order"
+        },
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/tests/protocol.rs",
+          "test": "debug_create_and_destroy_commands_cross_the_json_boundary",
+          "fixture": "shared/fixtures/debug/dap-session-v1.json"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift",
+          "test": "coreProtocolSessionProjectsRustUpdatesThroughInjectedTransport"
+        },
+        {
+          "platform": "windows",
+          "path": "windows/tauri/src-tauri/src/debug.rs",
+          "test": "facade_launch_reaches_the_adapter_through_the_shared_state_machine"
+        }
+      ],
+      "gaps": []
+    },
+    {
+      "id": "breakpoints-before-launch",
+      "behavior": "breakpoints and launch requested before the adapter is ready are queued and sent in order after initialized; restored breakpoints in other sources are sent at start",
+      "status": "covered",
+      "evidence": [
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/debug/engine.rs",
+          "test": "initialize_launch_breakpoints_and_inspection_are_reduced_in_order"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheTests/RunConfigurationIntegrationTests.swift",
+          "test": "restoredJavaBreakpointInAnotherSourceIsSentWhenDebugStarts"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheTests/RunConfigurationIntegrationTests.swift",
+          "test": "genericDebugFeatureQueuesPythonLaunchDuringAdapterInitialization"
+        },
+        {
+          "platform": "windows",
+          "path": "windows/tauri/src-tauri/src/debug.rs",
+          "test": "startup_events_are_buffered_until_session_ready"
+        }
+      ],
+      "gaps": []
+    },
+    {
+      "id": "breakpoint-relocation",
+      "behavior": "adapter-corrected breakpoint lines keep the requested identity, stale replies are rejected, and source edits relocate breakpoints",
+      "status": "covered",
+      "evidence": [
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/debug/engine.rs",
+          "test": "source_breakpoint_binding_preserves_requested_identity_and_rejects_stale_replies",
+          "fixture": "shared/fixtures/debug/breakpoint-binding-v1.json"
+        },
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/tests/protocol.rs",
+          "test": "debug_breakpoint_relocation_matches_the_shared_contract_fixture",
+          "fixture": "shared/fixtures/debug/breakpoint-relocation-v1.json"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift",
+          "test": "sourceEditRelocatesPersistsAndResynchronizesBreakpoints"
+        },
+        {
+          "platform": "windows",
+          "path": "windows/tauri/src-tauri/src/debug.rs",
+          "test": "translates_set_breakpoints_into_the_core_contract"
+        }
+      ],
+      "gaps": []
+    },
+    {
+      "id": "variable-paging",
+      "behavior": "indexed and named variables load in bounded pages, child counts are normalized, ignored start offsets stop paging, stale pages are discarded",
+      "status": "covered",
+      "evidence": [
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/debug/engine.rs",
+          "test": "variable_paging_is_forwarded_and_normalized_from_shared_fixture",
+          "fixture": "shared/fixtures/debug/variable-paging-v1.json"
+        },
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/debug/engine.rs",
+          "test": "variable_paging_arguments_reject_invalid_combinations"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift",
+          "test": "largeIndexedVariableCollectionsLoadInBoundedPages"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift",
+          "test": "repeatedVariablePageStopsWhenAdapterIgnoresStart"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift",
+          "test": "staleVariablePageDoesNotEnterNewStackFrame"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift",
+          "test": "coreProtocolSessionForwardsVariablePagingAndChildCounts"
+        }
+      ],
+      "gaps": []
+    },
+    {
+      "id": "stop-and-disconnect",
+      "behavior": "launch terminates the debuggee on disconnect, attach never does, stopping one session leaves the others alive and releases its resources",
+      "status": "covered",
+      "evidence": [
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/debug/engine.rs",
+          "test": "disconnect_policy_matches_shared_fixture",
+          "fixture": "shared/fixtures/debug/disconnect-policy-v1.json"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift",
+          "test": "stoppingActiveSessionPromotesTheMostRecentRemainingSession"
+        },
+        {
+          "platform": "windows",
+          "path": "windows/tauri/src-tauri/src/debug.rs",
+          "test": "repeated_stop_only_ends_the_selected_session"
+        },
+        {
+          "platform": "windows",
+          "path": "windows/tauri/src-tauri/src/debug.rs",
+          "test": "fake_dap_adapter_initialize_rejection_triggers_host_teardown"
+        }
+      ],
+      "gaps": []
+    },
+    {
+      "id": "run-in-terminal",
+      "behavior": "reverse runInTerminal requests are normalized, completed with the process ID, failed explicitly when malformed, and late completions after stop are ignored",
+      "status": "covered",
+      "evidence": [
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/debug/engine.rs",
+          "test": "run_in_terminal_request_is_normalized_completed_and_stale_safe",
+          "fixture": "shared/fixtures/debug/run-in-terminal-v1.json"
+        },
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/debug/engine.rs",
+          "test": "malformed_run_in_terminal_request_gets_an_explicit_failure_response"
+        },
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/debug/engine.rs",
+          "test": "unknown_server_request_gets_an_explicit_failure_response"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift",
+          "test": "coreProtocolSessionLaunchesRunInTerminalAndReturnsProcessID"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift",
+          "test": "stoppingCoreProtocolSessionFailsPendingTerminalRequestAndIgnoresLateCompletion"
+        }
+      ],
+      "gaps": []
+    },
+    {
+      "id": "child-debug-sessions",
+      "behavior": "startDebugging creates a child session that routes inspection and is removed when it finishes",
+      "status": "partial",
+      "evidence": [
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/debug/engine.rs",
+          "test": "start_debugging_request_is_normalized_completed_and_stale_safe",
+          "fixture": "shared/fixtures/debug/start-debugging-v1.json"
+        },
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/debug/engine.rs",
+          "test": "start_debugging_failure_and_unsupported_hosts_answer_the_adapter"
+        },
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/debug/engine.rs",
+          "test": "disconnect_fails_a_pending_start_debugging_request"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift",
+          "test": "coreProtocolSessionDelegatesStartDebuggingAndReportsTheOutcome"
+        },
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/debug/engine.rs",
+          "test": "child_sessions_stop_with_the_parent_and_leave_the_tree_when_destroyed"
+        },
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/debug/engine.rs",
+          "test": "destroying_a_parent_destroys_its_whole_child_tree"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift",
+          "test": "coreProtocolSessionRejectsStartDebuggingWithoutAHostHandler"
+        }
+      ],
+      "gaps": [
+        "Core now tracks parent and child sessions (attach, stop with the parent, detach on destroy). No macOS handler is installed yet, so adapters that spawn child sessions are still answered with a failure until the workbench can host more than one active session. Go and Node debugging was removed and will return through language plugins."
+      ]
+    },
+    {
+      "id": "source-mapped-locations",
+      "behavior": "Locations an adapter reports after source mapping (for example from a JavaScript debug plugin) reach the projection unchanged",
+      "status": "covered",
+      "evidence": [
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/debug/engine.rs",
+          "test": "node_source_mapped_locations_pass_through_unchanged",
+          "fixture": "shared/fixtures/debug/node-source-map-v1.json"
+        }
+      ]
+    },
+    {
+      "id": "java-hot-replace",
+      "behavior": "Java hot code replace normalizes success, empty and error bodies, keeps the paused state, and never touches running classes when the build fails",
+      "status": "covered",
+      "evidence": [
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/debug/engine.rs",
+          "test": "hot_replace_normalizes_success_empty_and_error_bodies",
+          "fixture": "shared/fixtures/debug/hot-code-replace-v1.json"
+        },
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/debug/engine.rs",
+          "test": "hot_replace_requires_java_and_preserves_paused_state"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift",
+          "test": "hotUpdateBuildFailureNeverTouchesRunningClasses"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift",
+          "test": "hotUpdateAppliesAfterBuildAndDoesNotResumeExecution"
+        },
+        {
+          "platform": "windows",
+          "path": "windows/tauri/src-tauri/src/debug.rs",
+          "test": "translates_java_hot_replace_and_its_timeout_without_a_thread"
+        }
+      ],
+      "gaps": []
+    },
+    {
+      "id": "java-test-debug",
+      "behavior": "JUnit and TestNG debug launches reuse the shared Rust launch configuration and result port",
+      "status": "covered",
+      "evidence": [
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/tests/protocol.rs",
+          "test": "java_test_debug_launch_matches_the_shared_contract_fixture",
+          "fixture": "shared/fixtures/debug/java-test-launch-v1.json"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheTests/RunConfigurationIntegrationTests.swift",
+          "test": "javaTestDebugLaunchUsesTheSharedRustConfiguration"
+        }
+      ],
+      "gaps": []
+    },
+    {
+      "id": "java-run-jdk",
+      "behavior": "Java debug runs on the JDK Run selects for the same configuration and fails like Run when that JDK is unusable",
+      "status": "covered",
+      "evidence": [
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheTests/RunConfigurationIntegrationTests.swift",
+          "test": "javaDebugRunsOnTheJDKRunSelectsForTheSameConfiguration"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheTests/RunConfigurationIntegrationTests.swift",
+          "test": "javaDebugFailsLikeRunWhenItsJDKIsUnusable"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheTests/RunConfigurationIntegrationTests.swift",
+          "test": "debugJavaRuntimeFollowsTheRunSelectionChain"
+        }
+      ],
+      "gaps": []
+    },
+    {
+      "id": "stepping-filters",
+      "behavior": "Java default stepping filters are normalized, persisted as overrides, applied at launch and mark stack frames",
+      "status": "covered",
+      "evidence": [
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/tests/protocol.rs",
+          "test": "debug_stepping_filters_match_the_shared_contract_fixture",
+          "fixture": "shared/fixtures/debug/stepping-filters-v1.json"
+        },
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/debug/engine.rs",
+          "test": "java_stepping_filters_are_normalized_projected_and_mark_stack_frames"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift",
+          "test": "javaLaunchAppliesResolvedSteppingFilters"
+        }
+      ],
+      "gaps": []
+    },
+    {
+      "id": "cancel-and-late-events",
+      "behavior": "a cancelled operation forwards DAP cancel and ignores the late response; stale session callbacks, out-of-order inspection results and overlapping controls cannot corrupt state",
+      "status": "covered",
+      "evidence": [
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/debug/engine.rs",
+          "test": "cancelled_operation_forwards_dap_cancel_and_ignores_late_response"
+        },
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/debug/engine.rs",
+          "test": "stale_reference_fixture_matches_core_behavior",
+          "fixture": "shared/fixtures/debug/stale-reference-v1.json"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift",
+          "test": "staleSessionCallbacksCannotOverwriteAReplacementSession"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift",
+          "test": "rapidInspectionSelectionDiscardsOutOfOrderResults"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift",
+          "test": "executionControlsIgnoreOverlappingRequestsUntilSessionLeavesPausedState"
+        }
+      ],
+      "gaps": []
+    },
+    {
+      "id": "stop-inspection-chain",
+      "behavior": "a stopped event loads threads, stack, scopes and variables in order; the first source-backed unfiltered frame is selected; continued clears inspection before the event",
+      "status": "covered",
+      "evidence": [
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/debug/engine.rs",
+          "test": "initialize_launch_breakpoints_and_inspection_are_reduced_in_order"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift",
+          "test": "stoppedEventLoadsThreadStackScopeAndVariablesInOrder"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift",
+          "test": "stoppedStackPrefersTheFirstSourceBackedUnfilteredFrame"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift",
+          "test": "runningStateClearsStoppedInspectionBeforeContinuedEvent"
+        },
+        {
+          "platform": "windows",
+          "path": "windows/tauri/src-tauri/src/debug.rs",
+          "test": "translates_inspection_requests_onto_debug_inspect"
+        }
+      ],
+      "gaps": []
+    },
+    {
+      "id": "optional-adapter-features",
+      "behavior": "data breakpoints, variable mutation, advanced execution, goto/step-in targets and exception info are gated by negotiated capabilities",
+      "status": "covered",
+      "evidence": [
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/debug/engine.rs",
+          "test": "data_breakpoint_identity_and_verification_are_correlated"
+        },
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/debug/engine.rs",
+          "test": "variable_mutation_is_capability_gated_and_correlated"
+        },
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/debug/engine.rs",
+          "test": "advanced_execution_controls_are_capability_gated_and_correlated"
+        },
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/debug/engine.rs",
+          "test": "smart_step_and_goto_targets_are_normalized_before_targeted_execution"
+        },
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/debug/engine.rs",
+          "test": "exception_information_is_capability_gated_and_normalized",
+          "fixture": "shared/fixtures/debug/exception-info-v1.json"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift",
+          "test": "coreProtocolSessionGatesOptionalFeaturesOnNegotiatedCapabilities"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift",
+          "test": "coreProtocolSessionProjectsRustUpdatesThroughInjectedTransport"
+        }
+      ],
+      "gaps": []
+    }
+  ]
+}
