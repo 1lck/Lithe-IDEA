@@ -216,6 +216,18 @@
       "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].launch.process.launch.path"}
     },
     {
+      "id": "runtime-adapter-entry-missing",
+      "layer": "coreInstall",
+      "edits": [{"op": "set", "path": "/block/debugAdapters/0/launch/process/launch", "value": {"kind": "runtime", "tool": "java", "entry": "lib/adapter.jar"}}, {"op": "set", "path": "/context/packageResources", "value": []}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].launch.process.launch.entry"}
+    },
+    {
+      "id": "non-canonical-path-is-still-found",
+      "layer": "coreInstall",
+      "edits": [{"op": "set", "path": "/block/debugAdapters/0/launch/process/launch/path", "value": "./bin//synthetic"}, {"op": "set", "path": "/context/packageResources", "value": [{"path": "bin/synthetic", "kind": "directory"}]}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].launch.process.launch.path"}
+    },
+    {
       "id": "stale-registration",
       "layer": "corePlan",
       "edits": [{"op": "set", "path": "/context/registration/currentGeneration", "value": 2}],

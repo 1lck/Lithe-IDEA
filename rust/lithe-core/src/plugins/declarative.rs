@@ -1849,12 +1849,28 @@ impl LanguageServerDeclaration {
 }
 
 impl ServerProcess {
-    /// Package-relative executable of a `packaged` launch; other launches
-    /// start nothing the installer can check.
-    pub(crate) fn packaged_path(&self) -> Option<&str> {
+    /// Package files the launch starts, as (launch field, package-relative
+    /// path): a `packaged` executable, or a `runtime` entry and its shipped
+    /// runtime. A `${arch}` runtime path varies per machine, so only the
+    /// installer can resolve it and it is left out.
+    pub(crate) fn packaged_files(&self) -> Vec<(&'static str, &str)> {
         match &self.launch {
-            LanguageServerLaunch::Packaged { path } => Some(path),
-            _ => None,
+            LanguageServerLaunch::Packaged { path } => vec![("path", path)],
+            LanguageServerLaunch::Runtime {
+                entry,
+                packaged_runtime,
+                ..
+            } => {
+                let mut files = vec![("entry", entry.as_str())];
+                if let Some(runtime) = packaged_runtime
+                    .as_deref()
+                    .filter(|path| !path.contains("${"))
+                {
+                    files.push(("packagedRuntime", runtime));
+                }
+                files
+            }
+            LanguageServerLaunch::SystemCommand { .. } => Vec::new(),
         }
     }
 

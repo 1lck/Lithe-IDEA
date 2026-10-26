@@ -684,12 +684,12 @@ pub(crate) fn check_package_resources(
 ) -> Validation<()> {
     for (index, adapter) in adapters.iter().enumerate() {
         if let DebugProcess::Server(process) = &adapter.launch.process {
-            if let Some(path) = process.packaged_path() {
+            for (key, path) in process.packaged_files() {
                 check_resource(
                     resources,
                     path,
-                    format!("debugAdapters[{index}].launch.process.launch.path"),
-                    "The adapter executable",
+                    format!("debugAdapters[{index}].launch.process.launch.{key}"),
+                    "The adapter file",
                 )?;
             }
         }
@@ -730,7 +730,7 @@ fn check_resource(
     field: String,
     what: &str,
 ) -> Validation<()> {
-    let mut current = path.to_string();
+    let mut current = normalize(path);
     for _ in 0..=MAX_LINK_HOPS {
         let Some(resource) = resources.iter().find(|resource| resource.path == current) else {
             return Err(invalid(field, format!("{what} is not in the package.")));
@@ -754,8 +754,18 @@ fn check_resource(
     Err(invalid(field, format!("{what} is behind too many links.")))
 }
 
+/// Drops empty and `.` components, so `./bin//x` names the file `bin/x`.
+#[cfg_attr(not(test), allow(dead_code))]
+fn normalize(path: &str) -> String {
+    path.split('/')
+        .filter(|component| !component.is_empty() && *component != ".")
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 /// Resolves a symlink target lexically from the link's directory to a
-/// package-relative path. A target that climbs above the package root, is
+/// package-relative path. Only the final component is followed: a link in a
+/// middle directory is the installer's to flatten into the resource list. A target that climbs above the package root, is
 /// absolute, or resolves to the root itself has no such path.
 #[cfg_attr(not(test), allow(dead_code))]
 fn resolve_link(link: &str, target: Option<&str>) -> Option<String> {

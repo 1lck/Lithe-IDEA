@@ -12,7 +12,7 @@
   "allOf": [
     {
       "if": { "required": ["pluginAPIVersion"], "properties": { "pluginAPIVersion": { "maximum": 3 } } },
-      "then": { "not": { "required": ["debugAdapters"] } }
+      "then": { "properties": { "debugAdapters": { "maxItems": 0 } } }
     }
   ],
   "properties": {

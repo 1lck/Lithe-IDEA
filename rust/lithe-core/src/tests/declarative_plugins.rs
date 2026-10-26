@@ -1197,6 +1197,12 @@ fn debug_adapter_executable_may_be_a_link_to_a_file_inside_the_package() {
     .unwrap();
     check_package_resources(&adapters, &resources)
         .expect("a link to a packaged file is installable");
+
+    // The same file declared in a non-canonical form is still the same file.
+    let mut plain = serde_json::to_value(&adapters).unwrap();
+    plain[0]["launch"]["process"]["launch"]["path"] = json!("./bin//example-dap");
+    let adapters: Vec<DebugAdapterDeclaration> = serde_json::from_value(plain).unwrap();
+    check_package_resources(&adapters, &resources).expect("path forms name one file");
 }
 
 #[test]
