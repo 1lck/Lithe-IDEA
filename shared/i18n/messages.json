@@ -90034,6 +90034,98 @@
       "parameters": {
         "name": "string"
       }
+    },
+    {
+      "id": "buildSystems.dependencies.title",
+      "description": "Windows plugin dependency loading: title",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.dependencies.selection",
+      "description": "Windows plugin dependency loading: selection",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.dependencies.instance",
+      "description": "Windows plugin dependency loading: instance",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.dependencies.load",
+      "description": "Windows plugin dependency loading: load",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.dependencies.review",
+      "description": "Windows plugin dependency loading: review",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.dependencies.approve",
+      "description": "Windows plugin dependency loading: approve",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.dependencies.tree",
+      "description": "Windows plugin dependency loading: tree",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.dependencies.empty",
+      "description": "Windows plugin dependency loading: empty",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.dependencies.failed",
+      "description": "Windows plugin dependency loading: failed",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "message": "string"
+      }
+    },
+    {
+      "id": "buildSystems.dependencies.stale",
+      "description": "Windows plugin dependency loading: stale",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.dependencies.more",
+      "description": "Windows plugin dependency loading: more",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.dependencies.truncated",
+      "description": "Windows plugin dependency loading: bounded Core result",
+      "platforms": ["windows"]
+    },
+    {
+      "id": "buildSystems.dependencies.providerUnavailable",
+      "description": "Windows plugin dependency loading: providerUnavailable",
+      "platforms": [
+        "windows"
+      ]
     }
   ]
 }

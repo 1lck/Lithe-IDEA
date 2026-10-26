@@ -20,10 +20,16 @@ use serde_json::Value;
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager, WebviewWindow};
 
+mod dependencies;
+#[cfg(test)]
+mod dependencies_tests;
 mod host;
 pub(super) mod host_integration;
 #[cfg(test)]
 mod host_integration_tests;
+mod language_import;
+#[cfg(test)]
+mod language_import_tests;
 mod operation;
 mod output;
 mod process;
@@ -33,7 +39,11 @@ mod run_tests;
 #[cfg(test)]
 mod tests;
 
+pub use dependencies::{
+    BuildDependenciesResult, BuildDependenciesReview, BuildDependenciesSelection,
+};
 pub use host::BuildModelLoadResult;
+pub use language_import::BuildLanguageImport;
 pub use operation::BuildModelReview;
 pub use output::BuildRunTerminal;
 pub use run::{BuildRunReview, BuildRunSelection};
@@ -46,7 +56,7 @@ pub struct BuildHostState {
 }
 
 /// Executes Core through the shared host envelope.
-struct HostCoreExecutor;
+pub(super) struct HostCoreExecutor;
 
 impl BuildCoreExecutor for HostCoreExecutor {
     fn execute(&self, command: &str, payload: Value) -> Result<Value, String> {
@@ -242,6 +252,28 @@ pub async fn declarative_plugins_build_catalog(
     .map_err(|error| format!("build catalog task failed: {error}"))?
 }
 
+/// Passive Core import for one exact Java/build snapshot. No project code or
+/// Wrapper is executed; the optional identity rechecks a prepared snapshot.
+#[tauri::command]
+pub async fn declarative_plugins_build_language_import(
+    app: AppHandle,
+    window: WebviewWindow,
+    workspace_root: String,
+    generation: u64,
+    source_path: Option<String>,
+    expected_identity: Option<String>,
+) -> Result<BuildLanguageImport, String> {
+    language_import::prepare(
+        app,
+        window.label().into(),
+        workspace_root,
+        generation,
+        source_path,
+        expected_identity,
+    )
+    .await
+}
+
 /// Re-detects build-system instances for the calling window and workspace.
 /// The window label comes from the injected window, never the frontend.
 #[tauri::command]
@@ -281,28 +313,25 @@ pub async fn declarative_plugins_build_set_option(
     value: Option<Value>,
 ) -> Result<Value, String> {
     let window_label = window.label().to_string();
-    let _suspension = suspend_build_execution(&app, &window_label)?;
-    let generation = _suspension.generation;
-    stop_build_operations(&app, |operation| {
-        operation.context.window_label == window_label
-    })
-    .await?;
-    run_build_task(app, move |registry, source, persistence| {
-        registry.check_generation(&window_label, generation)?;
-        let view = registry.set_option(
-            &HostCoreExecutor,
-            source,
-            persistence,
-            &window_label,
-            &workspace_root,
-            &plugin_id,
-            &build_system_id,
-            &root,
-            &option_id,
-            value,
-        )?;
-        serde_json::to_value(view).map_err(|error| error.to_string())
-    })
+    run_build_option_edit(
+        app,
+        window_label.clone(),
+        move |registry, source, persistence| {
+            let view = registry.set_option(
+                &HostCoreExecutor,
+                source,
+                persistence,
+                &window_label,
+                &workspace_root,
+                &plugin_id,
+                &build_system_id,
+                &root,
+                &option_id,
+                value,
+            )?;
+            serde_json::to_value(view).map_err(|error| error.to_string())
+        },
+    )
     .await
 }
 
@@ -471,6 +500,39 @@ pub async fn declarative_plugins_build_execute_run(
     host::execute_run(app, window.label().to_string(), operation_id).await
 }
 
+/// Prepares Core dependency argv with native model IDs, without probing tools.
+#[tauri::command]
+pub async fn declarative_plugins_build_prepare_dependencies(
+    app: AppHandle,
+    window: WebviewWindow,
+    workspace_root: String,
+    plugin_id: String,
+    build_system_id: String,
+    root: String,
+    selection: BuildDependenciesSelection,
+) -> Result<BuildDependenciesReview, String> {
+    dependencies::prepare(
+        app,
+        window.label().to_string(),
+        workspace_root,
+        plugin_id,
+        build_system_id,
+        root,
+        selection,
+    )
+    .await
+}
+
+/// Confirms the shared single-use operation; Core trees return after cleanup.
+#[tauri::command]
+pub async fn declarative_plugins_build_load_dependencies(
+    app: AppHandle,
+    window: WebviewWindow,
+    operation_id: String,
+) -> Result<BuildDependenciesResult, String> {
+    dependencies::load(app, window.label().to_string(), operation_id).await
+}
+
 async fn stop_build_operations(
     app: &AppHandle,
     predicate: impl Fn(&operation::ModelOperation) -> bool,
@@ -565,7 +627,7 @@ pub async fn close_build_window(app: AppHandle, window_label: String) -> Result<
 /// Runs one registry operation on the async runtime's blocking pool: Core
 /// calls and file I/O must never occupy the UI thread, and the registry
 /// mutex is only held inside the spawned task.
-async fn run_build_task<T, F>(app: AppHandle, operation: F) -> Result<T, String>
+pub(super) async fn run_build_task<T, F>(app: AppHandle, operation: F) -> Result<T, String>
 where
     T: Send + 'static,
     F: FnOnce(
@@ -591,4 +653,34 @@ where
     })
     .await
     .map_err(|error| format!("build task failed: {error}"))?
+}
+
+/// Web option edits share the native suspension and cleanup barrier. Their
+/// page checkpoint runs inside the same registry task before any persistence.
+pub(super) async fn run_build_option_edit<T, F>(
+    app: AppHandle,
+    window_label: String,
+    operation: F,
+) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce(
+            &mut BuildRegistry,
+            &dyn BuildPackageSource,
+            &dyn BuildOptionsPersistence,
+        ) -> Result<T, String>
+        + Send
+        + 'static,
+{
+    let suspension = suspend_build_execution(&app, &window_label)?;
+    let generation = suspension.generation;
+    stop_build_operations(&app, |operation| {
+        operation.context.window_label == window_label
+    })
+    .await?;
+    run_build_task(app, move |registry, source, persistence| {
+        registry.check_generation(&window_label, generation)?;
+        operation(registry, source, persistence)
+    })
+    .await
 }

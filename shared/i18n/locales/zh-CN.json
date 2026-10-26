@@ -9536,7 +9536,20 @@
     "buildOutput.moreProblems": "… 还有 {count} 条",
     "buildOutput.diagnosticsTruncated": "… 已截断 {count} 条诊断",
     "buildOutput.subscriptionFailed": "订阅构建输出失败：{message}",
-    "buildOutput.testsTruncated": "已省略 {count} 项测试详情"
+    "buildOutput.testsTruncated": "已省略 {count} 项测试详情",
+    "buildSystems.dependencies.title": "依赖",
+    "buildSystems.dependencies.selection": "依赖所属工程",
+    "buildSystems.dependencies.instance": "实例根工程",
+    "buildSystems.dependencies.load": "加载依赖…",
+    "buildSystems.dependencies.review": "审查依赖加载",
+    "buildSystems.dependencies.approve": "同意并加载",
+    "buildSystems.dependencies.tree": "依赖树",
+    "buildSystems.dependencies.empty": "未返回依赖。",
+    "buildSystems.dependencies.failed": "依赖加载失败：{message}",
+    "buildSystems.dependencies.stale": "依赖上下文已变化，请重新加载。",
+    "buildSystems.dependencies.more": "显示更多依赖",
+    "buildSystems.dependencies.truncated": "Core 已达到依赖树上限，部分节点未显示。",
+    "buildSystems.dependencies.providerUnavailable": "暂不支持 Provider 依赖加载。"
   },
   "overrides": {
     "macos": {

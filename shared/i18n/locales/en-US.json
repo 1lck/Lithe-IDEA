@@ -9536,7 +9536,20 @@
     "buildOutput.moreProblems": "… {count} more",
     "buildOutput.diagnosticsTruncated": "… {count} diagnostics truncated",
     "buildOutput.subscriptionFailed": "Output subscription failed: {message}",
-    "buildOutput.testsTruncated": "{count} test details omitted"
+    "buildOutput.testsTruncated": "{count} test details omitted",
+    "buildSystems.dependencies.title": "Dependencies",
+    "buildSystems.dependencies.selection": "Dependency project",
+    "buildSystems.dependencies.instance": "Instance root",
+    "buildSystems.dependencies.load": "Load dependencies…",
+    "buildSystems.dependencies.review": "Review dependency loading",
+    "buildSystems.dependencies.approve": "Approve and load",
+    "buildSystems.dependencies.tree": "Dependency tree",
+    "buildSystems.dependencies.empty": "No dependencies reported.",
+    "buildSystems.dependencies.failed": "Dependency loading failed: {message}",
+    "buildSystems.dependencies.stale": "Dependencies changed. Load them again.",
+    "buildSystems.dependencies.more": "Show more dependencies",
+    "buildSystems.dependencies.truncated": "Core reached the dependency tree limit. Some nodes are omitted.",
+    "buildSystems.dependencies.providerUnavailable": "Provider dependencies are not available yet."
   },
   "overrides": {
     "windows": {

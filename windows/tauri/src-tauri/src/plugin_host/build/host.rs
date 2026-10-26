@@ -53,7 +53,7 @@ pub(super) fn explicit_runtime_input(
     })
 }
 
-fn verified_identity(
+pub(super) fn verified_identity(
     app: &AppHandle,
     context: &BuildModelContext,
 ) -> Result<super::super::ScannedPackage, String> {
@@ -64,10 +64,10 @@ fn verified_identity(
     Ok(package)
 }
 
-struct HostGuard<'a> {
-    app: &'a AppHandle,
-    operation: &'a ModelOperation,
-    deadline: Instant,
+pub(super) struct HostGuard<'a> {
+    pub app: &'a AppHandle,
+    pub operation: &'a ModelOperation,
+    pub deadline: Instant,
 }
 impl ModelExecutionGuard for HostGuard<'_> {
     fn start_permit(&self) -> Result<Box<dyn StartPermit + '_>, String> {
@@ -208,6 +208,12 @@ pub(super) async fn load(
         .get(&window_label, &operation_id)?
         .run
         .is_some()
+        || app
+            .state::<BuildHostState>()
+            .operations
+            .get(&window_label, &operation_id)?
+            .dependencies
+            .is_some()
     {
         return Err("plugin.build.invalidPlan".into());
     }
@@ -292,7 +298,7 @@ pub(super) async fn drain(operations: Vec<Arc<ModelOperation>>) -> Result<(), St
     Ok(())
 }
 
-struct WindowBuildOutput(AppHandle);
+pub(super) struct WindowBuildOutput(pub AppHandle);
 impl BuildOutputSink for WindowBuildOutput {
     fn emit(&self, window_label: &str, event: Value) -> Result<(), String> {
         // Only the initiating product window receives these events, never

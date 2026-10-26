@@ -67,6 +67,7 @@ pub(super) struct ModelOperation {
     pub output_file: PathBuf,
     pub working_directory: PathBuf,
     pub run: Option<super::run::PreparedRun>,
+    pub dependencies: Option<super::dependencies::PreparedDependencies>,
     created: Instant,
     cancelled: AtomicBool,
     running: AtomicBool,
@@ -95,6 +96,7 @@ impl ModelOperation {
             output_file,
             working_directory,
             run: None,
+            dependencies: None,
             created: Instant::now(),
             cancelled: AtomicBool::new(false),
             running: AtomicBool::new(false),
@@ -145,9 +147,9 @@ impl ModelOperation {
         // A pending review owns no processes. A claimed operation is finished
         // only by its RAII owner after native tree cleanup has returned.
         if !self.running.load(Ordering::Acquire) {
-            if let Some(run) = &self.run {
+            if let Some(events) = self.events() {
                 // No native owner exists for a cancelled pending review.
-                let _ = run.events.terminal(&super::output::BuildRunTerminal {
+                let _ = events.terminal(&super::output::BuildRunTerminal {
                     kind: "cancelled".into(),
                     exit_code: None,
                     message: Some("plugin.build.cancelled".into()),
@@ -196,12 +198,18 @@ impl ModelOperation {
             .into();
             terminal.message = Some(error);
         }
-        self.run
-            .as_ref()
+        self.events()
             .ok_or("plugin.build.invalidPlan")?
-            .events
             .terminal(&terminal)?;
         Ok(terminal)
+    }
+
+    fn events(&self) -> Option<&super::output::RunEvents> {
+        self.run.as_ref().map(|run| &run.events).or_else(|| {
+            self.dependencies
+                .as_ref()
+                .map(|dependencies| &dependencies.events)
+        })
     }
 
     pub fn start_permit(&self) -> Result<std::sync::MutexGuard<'_, ()>, String> {

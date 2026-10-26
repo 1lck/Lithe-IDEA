@@ -1,8 +1,9 @@
 import type { BuildModelReview } from "./build-systems-types";
 
-/** Exact camelCase serde selection of build::run::BuildRunSelection. */
+/** Common operation selection. Task/test fields mirror native serde; the
+ * dependency adapter narrows its request to projectId before invoking. */
 export interface BuildRunSelection {
-  kind: "task" | "test";
+  kind: "task" | "test" | "dependencies";
   taskId: string | null;
   projectId: string | null;
   targetId: string | null;
@@ -13,7 +14,7 @@ export interface BuildRunSelection {
 }
 export interface BuildRunReview extends BuildModelReview {
   title: string;
-  kind: "task" | "test";
+  kind: "task" | "test" | "dependencies";
 }
 export type BuildRunScope = "workspace" | "project" | "target";
 export interface BuildTaskDeclaration {
@@ -28,6 +29,10 @@ export interface BuildTaskDeclaration {
   group?: string;
 }
 export interface BuildRunDefinition {
+  dependencies?: {
+    source: "command" | "hostIntegration" | "provider";
+    scopes?: ("workspace" | "project")[];
+  } | null;
   tasks: BuildTaskDeclaration[];
   test?: { scopes: BuildRunScope[]; targetTags?: string[]; filters?: ("suite" | "case")[] } | null;
   /** Full Core-reviewed program declarations, never a guessed command/path. */

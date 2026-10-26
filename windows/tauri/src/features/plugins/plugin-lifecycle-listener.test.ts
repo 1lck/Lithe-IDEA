@@ -43,6 +43,12 @@ mock.module("./plugin-web-path", () => ({
 mock.module("./plugin-web-appearance", () => ({
   initializePluginWebAppearanceSync: () => () => {},
 }));
+// Build routing has its own real-store/identity suite. This listener suite
+// keeps its existing minimal workspace double and verifies shared cleanup.
+const releaseBuildListener = mock(() => {});
+mock.module("./plugin-web-build", () => ({
+  initializePluginWebBuildListener: async () => releaseBuildListener,
+}));
 mock.module("./declarative-plugin-ui", () => ({
   removeDeclarativeUI: () => {},
   refreshDeclarativeUI: async () => {},
@@ -59,6 +65,7 @@ let dispose: (() => void) | undefined;
 afterEach(() => {
   dispose?.();
   dispose = undefined;
+  releaseBuildListener.mockClear();
   invoke.mockClear();
   select.mockClear();
   root = "C:/a";

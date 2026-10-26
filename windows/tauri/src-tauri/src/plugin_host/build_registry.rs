@@ -157,12 +157,32 @@ pub(crate) struct BuildModelContext {
     pub options: BTreeMap<String, Value>,
     pub model: Value,
     pub model_stale: bool,
-    revision: u64,
+    pub(crate) revision: u64,
 }
 
 impl BuildRegistry {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Passive consumers must not interpret a reserved refresh's empty view
+    /// as an authoritative absence of ownership.
+    pub(crate) fn check_read_snapshot(
+        &self,
+        window: &str,
+        workspace: &str,
+        generation: u64,
+    ) -> Result<(), String> {
+        if self.windows.get(window).is_some_and(|state| {
+            state.execution_suspended == 0
+                && !state.refresh_pending
+                && state.generation == generation
+                && state.workspace_root.as_deref() == Some(workspace)
+        }) {
+            Ok(())
+        } else {
+            Err("plugin.build.staleContext".into())
+        }
     }
 
     pub(crate) fn model_context(
@@ -901,6 +921,7 @@ impl BuildRegistry {
             return;
         };
         if window.workspace_root.as_deref() == Some(workspace_root) {
+            window.workspace_root = None;
             window.refresh_pending = false;
             window.sessions.clear();
             window.issues.clear();

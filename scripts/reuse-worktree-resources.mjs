@@ -85,8 +85,8 @@ async function readRegistry() {
   // rebuild from the target checkout, never copy another worktree's translations.
   // Windows source lists, raw index caches, digest-bound download files and
   // per-workspace build options use plugin-marketplace-state's refusal route.
-  // Window/operation-owned command-model files stay in mutable plugin state
-  // and use official-plugin-packages' exclusion; a decoded model is not a reusable artifact.
+  // Window/operation-owned model/dependency files stay in mutable plugin state
+  // and use official-plugin-packages' exclusion; decoded output is not a reusable artifact.
   // Core validation or a matching archive hash never transfers user ownership.
   // Native acceptance fixtures/profiles use plugin-host-acceptance-state's
   // refusal route; deterministic test ZIPs do not establish a build identity.

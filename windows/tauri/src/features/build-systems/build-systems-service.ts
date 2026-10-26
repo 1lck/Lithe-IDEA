@@ -272,7 +272,7 @@ function captureActivationEpoch(): number {
   return activationEpoch;
 }
 
-function enqueueRegistryOperation<T>(operation: () => Promise<T>): Promise<T> {
+export function enqueueRegistryOperation<T>(operation: () => Promise<T>): Promise<T> {
   const result = registryTail.then(operation);
   registryTail = result.catch(() => {});
   return result;
@@ -364,7 +364,7 @@ export async function setBuildOption(
   optionId: string,
   value: unknown,
 ): Promise<void> {
-  const { store, workspaceRoot, isCurrent } = initiatingStore();
+  const { store, workspaceId, workspaceRoot, isCurrent } = initiatingStore();
   if (!workspaceRoot) {
     return;
   }
@@ -385,6 +385,10 @@ export async function setBuildOption(
     throw error;
   });
   if (view && isCurrent()) store.getState().actions.applyView(view, sequence);
+  if (view && isCurrent()) {
+    const { updateBuildLanguageImport } = await import("./build-language-import");
+    await updateBuildLanguageImport({ workspaceId, root: workspaceRoot });
+  }
 }
 
 export async function syncInstance(

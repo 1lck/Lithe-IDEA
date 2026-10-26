@@ -15,6 +15,11 @@ import {
 import type { BuildOptionDescription, BuildWindowState } from "../build-systems-types";
 import BuildModelControls, { type BuildModelService } from "./build-model-controls";
 import BuildRunControls from "./build-run-controls";
+import BuildDependencies from "./build-dependencies";
+import {
+  buildDependenciesNative,
+  type BuildDependenciesNative,
+} from "../build-dependencies-native";
 import type { BuildRunNative } from "../build-run-native";
 
 /**
@@ -28,11 +33,13 @@ export default function BuildSystemPane({
   onClose,
   modelService,
   runNative,
+  dependenciesNative,
 }: {
   view: string;
   onClose: () => void;
   modelService?: BuildModelService;
   runNative?: BuildRunNative;
+  dependenciesNative?: BuildDependenciesNative;
 }) {
   const { t } = useTranslation();
   const workspaceId = useActiveWorkspaceId();
@@ -43,6 +50,12 @@ export default function BuildSystemPane({
   const generation = useBuildSystemsStore((state) => state.generation);
   const windowState = useBuildSystemsStore((state) => (parsed ? state.windows[view] : undefined));
   const selectInstance = useBuildSystemsStore((state) => state.actions.selectInstance);
+  const dependencyPort = useMemo(
+    () =>
+      dependenciesNative ??
+      (runNative ? { ...buildDependenciesNative, definition: runNative.definition } : undefined),
+    [dependenciesNative, runNative],
+  );
 
   // Mount/reopen retries failed and stale models once. Workspace activation
   // itself is owned by the bootstrap service, including already-ready stores.
@@ -177,6 +190,7 @@ export default function BuildSystemPane({
               generation={generation}
               modelService={modelService}
               runNative={runNative}
+              dependenciesNative={dependencyPort}
             />
           )}
         </div>
@@ -192,6 +206,7 @@ function InstanceBody({
   generation,
   modelService,
   runNative,
+  dependenciesNative,
 }: {
   windowState: BuildWindowState;
   root: string;
@@ -199,6 +214,7 @@ function InstanceBody({
   generation: number | null;
   modelService?: BuildModelService;
   runNative?: BuildRunNative;
+  dependenciesNative?: BuildDependenciesNative;
 }) {
   const { t } = useTranslation();
   const instance =
@@ -304,6 +320,7 @@ function InstanceBody({
         </section>
       )}
       <BuildRunControls instance={instance} disabled={disabled} native={runNative} />
+      <BuildDependencies instance={instance} disabled={disabled} native={dependenciesNative} />
     </div>
   );
 }

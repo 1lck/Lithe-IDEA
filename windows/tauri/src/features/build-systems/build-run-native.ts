@@ -18,6 +18,8 @@ export interface BuildRunNative {
     selection: BuildRunSelection,
   ): Promise<BuildRunReview>;
   execute(operationId: string): Promise<BuildRunTerminal>;
+  /** Additional result identity checks run after the common owner retains the review ID. */
+  validateReview?: (review: BuildRunReview, selection: BuildRunSelection) => void;
   cancel(operationId: string): Promise<void>;
   listen(windowLabel: string, sink: (event: BuildOutputEvent) => void): Promise<() => void>;
   /** Injected only for deterministic event-drain timeout tests. */
@@ -49,7 +51,12 @@ export const buildRunNative: BuildRunNative = {
     });
     if (!details.enabled || details.status !== "accepted" || !programs.length)
       throw new Error("plugin.build.unavailable");
-    return { tasks: system.tasks ?? [], test: system.test, programs };
+    return {
+      tasks: system.tasks ?? [],
+      test: system.test,
+      dependencies: system.dependencies,
+      programs,
+    };
   },
   save: async (workspaceId) =>
     (

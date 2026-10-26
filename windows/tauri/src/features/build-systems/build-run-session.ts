@@ -165,8 +165,9 @@ export class BuildRunSession {
     readonly root: string,
     private store: StoreApi<BuildSystemsState>,
     readonly native: BuildRunNative = buildRunNative,
+    sessionId = buildOutputSessionId(pluginId, buildSystemId, root),
   ) {
-    this.sessionId = buildOutputSessionId(pluginId, buildSystemId, root);
+    this.sessionId = sessionId;
     this.#output = useBuildOutputStore.getStore(workspaceId);
     this.port = {
       subscribe: async (identity, sink) =>
@@ -313,7 +314,9 @@ export class BuildRunSession {
     return this.#listening;
   }
   async #drainEvents(attempt: Attempt): Promise<void> {
-    if (attempt.terminalEvent || !this.#attached) return;
+    // Invalidation closes the owned listener before native execution returns.
+    // No event can drain after that point; the invoke still proves cleanup.
+    if (attempt.terminalEvent || !this.#attached || attempt.controller.signal.aborted) return;
     await new Promise<void>((resolve) => {
       let cancelTimer = () => {};
       const finish = () => {
@@ -415,6 +418,7 @@ export class BuildRunSession {
       );
       attempt.review = review;
       current();
+      this.native.validateReview?.(review, selection);
       if (
         review.pluginId !== this.pluginId ||
         review.buildSystemId !== this.buildSystemId ||

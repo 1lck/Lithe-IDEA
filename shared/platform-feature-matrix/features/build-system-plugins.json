@@ -68,12 +68,19 @@
       "windows/tauri/src/features/build-systems/build-run-session.test.ts",
       "windows/tauri/src/features/build-systems/components/build-run-controls.test.tsx",
       "windows/tauri/src-tauri/src/plugin_host/build/host_integration.rs",
-      "windows/tauri/src-tauri/src/plugin_host/build/host_integration_tests.rs"
+      "windows/tauri/src-tauri/src/plugin_host/build/host_integration_tests.rs",
+      "windows/tauri/src-tauri/src/plugin_host/build/dependencies.rs",
+      "windows/tauri/src-tauri/src/plugin_host/build/dependencies_tests.rs",
+      "windows/tauri/src-tauri/src/plugin_host/build/language_import.rs",
+      "windows/tauri/src-tauri/src/plugin_host/build/language_import_tests.rs",
+      "windows/tauri/src/features/build-systems/build-dependencies-session.test.ts",
+      "windows/tauri/src/features/build-systems/components/build-dependencies.test.tsx",
+      "windows/tauri/src/features/build-systems/build-language-import.test.ts"
     ],
     "implementationStatus": "partial",
     "verificationStatus": "pending"
   },
   "owner": "Extensions",
-  "notes": "Windows 内部 registry 复用 Core 静态检测、选项和指纹；hostIntegration 的被动模型继续使用既有 project::maven::scan，与旧 maven.scan 同一事实来源，新增薄适配、精确实例根/选项、完整包快照复验、刷新票据和 NativeLease 生命周期保护，不引入 POM 解析器。显式命令模型加载/重载与 task/test UI 已接真实原生 prepare/approve/execute/cancel 和 window-targeted 输出，执行前保存与同步，按完整模型 ID/tags 选择，复用 output 组件展示诊断/测试和源码跳转，取消失败保留原 owner。文件变更和执行前的原生指纹检查会使旧审批失效，自身保存且指纹未变不会误取消；订阅先于执行，快速终态等待输出排空。原生执行仍由 Core 计划/解码和共享 Job Object owner 负责。能力开关 buildSystems/executableResolution/buildProviders 继续关闭；应用/服务运行、依赖执行、语言导入、网页桥和 Provider 仍待后续，整体 partial/pending。模型临时文件仍为操作独占的可写 plugin-state，不进入发行资源或复用缓存。",
-  "verification": "Windows：运行宿主 Rust 逐项计时，覆盖真实 Core/旧 Maven 后端模型根、选项、指纹、同版本替包、关闭/撤销和排队刷新失效，及已有 task/test 计划、报告时序、取消和进程树回收。前端每文件独立运行 run-native/session/controls、service/store/pane/model-controls 和 output 测试，覆盖真实文件事件与审批新鲜度、保存→同步→审批→订阅→执行、execute 前输出、快速完成、完整身份、取消失败重试、迟到订阅与诊断跳转。正式 Release/WebView2 构建和 LSP 插件链不替代尚未开放构建能力的真实 task/test 原生产品验收；三类模型、应用/服务、Provider/网页/导入完成前保持 pending。"
+  "notes": "Windows 内部 registry 复用 Core 静态检测、选项和指纹；hostIntegration 的被动模型继续使用既有 project::maven::scan，与旧 maven.scan 同一事实来源，新增薄适配、精确实例根/选项、完整包快照复验、刷新票据和 NativeLease 生命周期保护，不引入 POM 解析器。显式命令模型加载/重载与 task/test UI 已接真实原生 prepare/approve/execute/cancel 和 window-targeted 输出，执行前保存与同步，按完整模型 ID/tags 选择，复用 output 组件展示诊断/测试和源码跳转，取消失败保留原 owner。文件变更和执行前的原生指纹检查会使旧审批失效，自身保存且指纹未变不会误取消；订阅先于执行，快速终态等待输出排空。原生执行仍由 Core 计划/解码和共享 Job Object owner 负责。能力开关 buildSystems/executableResolution/buildProviders 继续关闭；依赖加载已接 prepare/审批/共享执行器/Core decodeDependencies/通用依赖树，支持 stdout、操作独占 plugin-state 文件和 Maven hostIntegration，Core 命令结果按正式信封读取；取消或上下文失效后不再等待已关闭订阅的事件。Java 启动和预热复用 Core languageImport，精确实例、有效选项和完整包快照在 JDT 准备后再次复验，Maven 经已有会话入口热更新，Gradle 在下次启动生效，无声明式归属时保留兼容来源。网页桥已接被动 instances/setOptions，完整 refresh/run/dependencies、应用/服务运行与 Provider 仍待后续，整体 partial/pending。模型临时文件仍为操作独占的可写 plugin-state，不进入发行资源或复用缓存。",
+  "verification": "Windows：运行宿主 Rust 逐项计时，覆盖真实 Core/旧 Maven 后端模型根、选项、指纹、同版本替包、关闭/撤销和排队刷新失效，及已有 task/test 计划、报告时序、取消和进程树回收。前端每文件独立运行 run-native/session/controls、service/store/pane/model-controls 和 output 测试，覆盖真实文件事件与审批新鲜度、保存→同步→审批→订阅→执行、execute 前输出、快速完成、完整身份、取消失败重试、迟到订阅与诊断跳转。正式 Release/WebView2 构建和 LSP 插件链不替代尚未开放构建能力的真实 task/test 原生产品验收；三类模型、应用/服务、Provider/网页/导入完成前保持 pending。 R5：独立运行依赖 native/session/tree、Java import/launch/Maven hot update 和网页桥前端测试，宿主 Rust 使用真实 Core 依赖解码/导入回归；覆盖陈旧模型、同版本替包、关闭/切换与迟到结果、取消失败保留 owner、stdout/outputFile、完整选择和通用依赖树。能力仍关闭，未执行真实构建插件包产品验收，不能将组件或宿主测试当作完整交付。"
 }

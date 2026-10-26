@@ -1332,6 +1332,10 @@ fn closing_the_workspace_clears_sessions_before_a_reopen() {
     registry.close_workspace("main", &workspace.root());
     let view = view_json(&registry.view("main"));
     assert!(view["instances"].as_array().expect("instances").is_empty());
+    assert_eq!(
+        view["workspaceRoot"], "",
+        "a closed root is no longer readable"
+    );
     let generation = view["generation"].as_u64().expect("generation");
     assert!(generation > 0, "close bumps the generation");
 
@@ -1349,7 +1353,10 @@ fn closing_the_workspace_clears_sessions_before_a_reopen() {
             Some(json!(true)),
         )
         .expect_err("closed workspace refuses writes");
-    assert!(error.contains("no build instance"), "{error}");
+    assert!(error.contains("moved to another workspace"), "{error}");
+    assert!(registry
+        .check_read_snapshot("main", &workspace.root(), generation)
+        .is_err());
 }
 
 #[test]

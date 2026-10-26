@@ -11,6 +11,7 @@ import { invokeLsp } from "@/platform/lsp-core-adapter";
 import { declarativePluginProcessOwner } from "./declarative-plugin-process-owner";
 import { resolvePluginWebFilePath } from "./plugin-web-path";
 import { initializePluginWebAppearanceSync } from "./plugin-web-appearance";
+import { initializePluginWebBuildListener } from "./plugin-web-build";
 
 interface PluginWebOpenFilePayload {
   pluginId: string;
@@ -113,14 +114,19 @@ async function initializePluginLifecycleListener(): Promise<() => void> {
   return unlisten;
 }
 
-/** Registers both plugin-page listeners (open-file and lifecycle). */
+/** Registers the workbench-owned plugin page listeners. */
 export async function initializePluginWebListeners(): Promise<() => void> {
-  const unlistenOpen = await initializePluginWebOpenFileListener();
-  const unlistenLifecycle = await initializePluginLifecycleListener();
-  const stopAppearanceSync = initializePluginWebAppearanceSync();
-  return () => {
-    unlistenOpen();
-    unlistenLifecycle();
-    stopAppearanceSync();
-  };
+  const cleanups: Array<() => void> = [];
+  try {
+    cleanups.push(await initializePluginWebOpenFileListener());
+    cleanups.push(await initializePluginLifecycleListener());
+    cleanups.push(await initializePluginWebBuildListener());
+    cleanups.push(initializePluginWebAppearanceSync());
+    return () => {
+      for (const cleanup of cleanups.splice(0).reverse()) cleanup();
+    };
+  } catch (error) {
+    for (const cleanup of cleanups.reverse()) cleanup();
+    throw error;
+  }
 }
