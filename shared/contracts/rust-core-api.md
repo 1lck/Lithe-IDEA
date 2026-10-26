@@ -1097,7 +1097,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `plugins.declarative.runPlan` | Expand a declarative plugin's run template for one workspace file |
 | `plugins.declarative.discoverTests` | List a declarative plugin's workspace and file test items |
 | `plugins.declarative.testPlan` | Expand a declarative plugin's test template for a workspace, file, or test case |
-| `plugins.declarative.languageServerLaunchPlan` | Expand a declarative plugin's language-server, build-provider, or VCS-provider launch with host directories and architecture |
+| `plugins.declarative.languageServerLaunchPlan` | Expand a declarative plugin's language-server, build-provider, VCS-provider, backend, or debug-adapter launch with host directories and architecture |
+| `debug.adapters.startArguments` | Check one debug start against a plugin's `debugAdapters[]` entry and return its DAP launch arguments |
 | `plugins.declarative.resolveSettings` | Merge a plugin's stored global and project setting layers into effective values with their source |
 | `plugins.declarative.workspaceConfiguration` | Expand a language server's `workspaceConfiguration` with the merged setting values |
 | `plugins.declarative.checkRuntimeVersion` | Decide whether a launch runtime's version output meets the declared minimum version |
@@ -3268,6 +3269,22 @@ architecture or an empty directory is refused with
 `plugin.launch.invalidRequest`; a language without a server, an undeclared
 build system, and a build system without a provider with
 `plugin.launch.unavailable`.
+
+A `debugAdapterID` selects a `debugAdapters[]` entry with a `serverProcess`
+(naming it together with another selector is the same `invalid_request`
+failure); the plan adds `debugAdapter: { id, providerID, displayName,
+adapterID, requests, selectors, configurationTypes, transport, endpoint?,
+disabledCapabilities }`. An adapter that starts on the selected runtime is
+refused with `plugin.launch.unavailable`.
+
+`debug.adapters.startArguments` accepts `{ manifest, adapterID, request:
+"launch" | "attach", facts: { registration: { generation, currentGeneration },
+runtimeSelection?, target: { kind, path?, processID?, workingDirectory? } } }`
+and returns `{ status: "ok", arguments }`: the request's configured
+`arguments` with each `targetBindings` name filled from the target unless the
+configuration already sets it. Refusals use the `rejected` shape with
+`debug.provider.stale`, `debug.request.unsupported`, `debug.runtime.stale`, or
+`debug.target.invalid`.
 
 `plugins.declarative.resolveSettings` accepts
 `{ manifest, settings?, projectSettings? }` and returns `settings`: one

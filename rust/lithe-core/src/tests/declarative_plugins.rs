@@ -1213,3 +1213,102 @@ fn debug_adapter_fixture_is_accepted_with_normalized_requests() {
     assert_eq!(adapter["requests"], json!(["launch", "attach"]));
     assert_eq!(adapter["launch"]["transport"], "stdio");
 }
+
+fn debug_start(request: &str, target: Value) -> Value {
+    crate::plugins::declarative::debug_start_arguments_command(json!({
+        "manifest": fixture("debug-adapter.plugin.json"),
+        "adapterID": "example",
+        "request": request,
+        "facts": {
+            "registration": { "generation": 3, "currentGeneration": 3 },
+            "target": target,
+        },
+    }))
+    .expect("payload is well formed")
+}
+
+#[test]
+fn debug_adapter_launch_plan_carries_the_process_and_the_descriptor() {
+    let plan = language_server_launch_plan_command(json!({
+        "manifest": fixture("debug-adapter.plugin.json"),
+        "debugAdapterID": "example",
+        "request": {
+            "pluginDirectory": "/plugins/example",
+            "stateDirectory": "/state/example",
+            "architecture": "arm64"
+        },
+    }))
+    .expect("payload is well formed");
+    assert_eq!(plan["status"], "ok", "{plan}");
+    assert_eq!(
+        plan["plan"]["launch"],
+        json!({ "kind": "packaged", "path": "bin/example-dap" })
+    );
+    assert_eq!(plan["plan"]["arguments"], json!(["--stdio"]));
+    let descriptor = &plan["plan"]["debugAdapter"];
+    assert_eq!(
+        descriptor["providerID"],
+        "dev.lithe.fixture.debug-adapter/example"
+    );
+    assert_eq!(descriptor["adapterID"], "example-dap");
+    assert_eq!(descriptor["transport"], "stdio");
+    assert_eq!(
+        descriptor["disabledCapabilities"],
+        json!(["supportsStepBack"])
+    );
+}
+
+#[test]
+fn debug_adapter_launch_plan_refuses_unknown_adapters_and_mixed_selectors() {
+    let request = json!({
+        "pluginDirectory": "/plugins/example",
+        "stateDirectory": "/state/example",
+        "architecture": "arm64"
+    });
+    let missing = language_server_launch_plan_command(json!({
+        "manifest": fixture("debug-adapter.plugin.json"),
+        "debugAdapterID": "missing",
+        "request": request,
+    }))
+    .expect("payload is well formed");
+    assert_eq!(missing["error"]["code"], "plugin.launch.unavailable");
+    assert!(language_server_launch_plan_command(json!({
+        "manifest": fixture("debug-adapter.plugin.json"),
+        "debugAdapterID": "example",
+        "backend": true,
+        "request": request,
+    }))
+    .is_err());
+}
+
+#[test]
+fn debug_start_arguments_fill_bindings_without_overriding_defaults() {
+    let launch = debug_start(
+        "launch",
+        json!({ "kind": "file", "path": "/work/main.ex", "workingDirectory": "/work" }),
+    );
+    assert_eq!(launch["status"], "ok", "{launch}");
+    assert_eq!(
+        launch["arguments"],
+        json!({ "stopOnEntry": false, "program": "/work/main.ex", "cwd": "/work" })
+    );
+    let attach = debug_start("attach", json!({ "kind": "process", "processID": 42 }));
+    assert_eq!(attach["arguments"], json!({ "processId": 42 }));
+}
+
+#[test]
+fn debug_start_arguments_refuse_stale_registrations_and_missing_target_facts() {
+    let missing = debug_start("launch", json!({ "kind": "file" }));
+    assert_eq!(missing["error"]["code"], "debug.target.invalid");
+    let stale = crate::plugins::declarative::debug_start_arguments_command(json!({
+        "manifest": fixture("debug-adapter.plugin.json"),
+        "adapterID": "example",
+        "request": "launch",
+        "facts": {
+            "registration": { "generation": 2, "currentGeneration": 3 },
+            "target": { "kind": "file", "path": "/work/main.ex" },
+        },
+    }))
+    .expect("payload is well formed");
+    assert_eq!(stale["error"]["code"], "debug.provider.stale");
+}

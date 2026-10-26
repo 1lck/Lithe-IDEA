@@ -3035,6 +3035,72 @@ fn backend_launch_plan(
     Ok(plan)
 }
 
+/// The launch plan of a debug adapter. `debugAdapter` repeats what the host
+/// needs besides the process: the transport and what to show. An adapter on
+/// the runtime Run selected has no process of its own to plan yet.
+fn debug_adapter_launch_plan(
+    manifest: &DeclarativePluginManifest,
+    adapter_id: &str,
+    request: &LanguageServerLaunchPlanRequest,
+) -> Validation<Value> {
+    use crate::debug::adapters::DebugProcess;
+    let adapter = manifest
+        .debug_adapters
+        .iter()
+        .find(|adapter| adapter.id == adapter_id)
+        .ok_or_else(|| {
+            PluginRejection::new(
+                "plugin.launch.unavailable",
+                format!("The plugin declares no debug adapter {adapter_id}."),
+            )
+        })?;
+    let DebugProcess::Server(process) = &adapter.launch.process else {
+        return Err(PluginRejection::new(
+            "plugin.launch.unavailable",
+            format!("The debug adapter {adapter_id} starts on the selected runtime."),
+        ));
+    };
+    let mut plan = server_launch_plan(manifest, process, None, request)?;
+    plan["debugAdapter"] = adapter.plan_descriptor(&manifest.id);
+    Ok(plan)
+}
+
+/// `debug.adapters.startArguments`: checks one start against the adapter's
+/// declaration and returns the DAP arguments its configuration defaults and
+/// target bindings give.
+pub fn debug_start_arguments_command(payload: Value) -> Result<Value, CoreError> {
+    const COMMAND: &str = "debug.adapters.startArguments";
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Payload {
+        manifest: Value,
+        #[serde(rename = "adapterID")]
+        adapter_id: String,
+        #[serde(flatten)]
+        start: crate::debug::adapters::StartRequest,
+    }
+    let payload: Payload = decode_payload(payload, COMMAND)?;
+    Ok(outcome(validate_manifest_value(payload.manifest).and_then(
+        |manifest| {
+            let adapter = manifest
+                .debug_adapters
+                .iter()
+                .find(|adapter| adapter.id == payload.adapter_id)
+                .ok_or_else(|| {
+                    PluginRejection::new(
+                        "plugin.launch.unavailable",
+                        format!(
+                            "The plugin declares no debug adapter {}.",
+                            payload.adapter_id
+                        ),
+                    )
+                })?;
+            crate::debug::adapters::start_arguments(adapter, &payload.start)
+                .map(|arguments| ("arguments", Value::Object(arguments)))
+        },
+    )))
+}
+
 fn server_launch_plan(
     manifest: &DeclarativePluginManifest,
     process: &ServerProcess,
@@ -3590,6 +3656,8 @@ struct LaunchPlanPayload {
     /// Selects the plugin's backend; `backend` 1.
     #[serde(default)]
     backend: bool,
+    #[serde(default, rename = "debugAdapterID")]
+    debug_adapter_id: Option<String>,
     request: LanguageServerLaunchPlanRequest,
 }
 
@@ -3598,6 +3666,7 @@ enum LaunchSelection<'a> {
     BuildSystem(&'a str),
     VcsProvider(&'a str),
     Backend,
+    DebugAdapter(&'a str),
 }
 
 pub(crate) fn decode_payload<T: for<'de> Deserialize<'de>>(
@@ -3685,18 +3754,22 @@ pub fn language_server_launch_plan_command(payload: Value) -> Result<Value, Core
         &payload.build_system_id,
         &payload.vcs_provider_id,
         payload.backend,
+        &payload.debug_adapter_id,
     ) {
-        (Some(language_id), None, None, false) => LaunchSelection::Language(language_id),
-        (None, Some(build_system_id), None, false) => LaunchSelection::BuildSystem(build_system_id),
-        (None, None, Some(vcs_id), false) => LaunchSelection::VcsProvider(vcs_id),
-        (None, None, None, true) => LaunchSelection::Backend,
+        (Some(language_id), None, None, false, None) => LaunchSelection::Language(language_id),
+        (None, Some(build_system_id), None, false, None) => {
+            LaunchSelection::BuildSystem(build_system_id)
+        }
+        (None, None, Some(vcs_id), false, None) => LaunchSelection::VcsProvider(vcs_id),
+        (None, None, None, true, None) => LaunchSelection::Backend,
+        (None, None, None, false, Some(adapter_id)) => LaunchSelection::DebugAdapter(adapter_id),
         _ => {
             return Err(CoreError::new(
                 ErrorCode::InvalidRequest,
                 format!("Invalid {COMMAND} payload"),
             )
             .with_details(
-                "Name exactly one of languageID, buildSystemID, vcsProviderID, and backend.",
+                "Name exactly one of languageID, buildSystemID, vcsProviderID, backend, and debugAdapterID.",
             ))
         }
     };
@@ -3713,6 +3786,9 @@ pub fn language_server_launch_plan_command(payload: Value) -> Result<Value, Core
                     vcs_provider_launch_plan(&manifest, vcs_id, &payload.request)
                 }
                 LaunchSelection::Backend => backend_launch_plan(&manifest, &payload.request),
+                LaunchSelection::DebugAdapter(adapter_id) => {
+                    debug_adapter_launch_plan(&manifest, adapter_id, &payload.request)
+                }
             }
             .map(|plan| ("plan", plan))
         },

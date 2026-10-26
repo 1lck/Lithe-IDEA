@@ -649,8 +649,8 @@ pub(crate) fn programs(adapter: &DebugAdapterDeclaration) -> Vec<Value> {
     programs
 }
 
-// The install check and start plan have no caller until the debug start
-// command reads Registry entries (macOS provider, step 2); tests run them now.
+// The install check has no caller until the plugin installer reads it; tests
+// run it now.
 
 /// A file of the installed package, as the installer found it.
 #[derive(Debug, Clone, Deserialize)]
@@ -793,7 +793,6 @@ fn resolve_link(link: &str, target: Option<&str>) -> Option<String> {
 /// Facts of one debug start that the manifest cannot know.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) struct StartFacts {
     pub(crate) registration: Generation,
     #[serde(default)]
@@ -804,14 +803,12 @@ pub(crate) struct StartFacts {
 /// A generation the plan was made against and the one current at start.
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) struct Generation {
     pub(crate) generation: u64,
     pub(crate) current_generation: u64,
 }
 
 impl Generation {
-    #[cfg_attr(not(test), allow(dead_code))]
     fn is_stale(self) -> bool {
         self.generation != self.current_generation
     }
@@ -819,8 +816,10 @@ impl Generation {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) struct TargetFacts {
+    // Selection by kind happens before a start; the host still states it so a
+    // start names what it was prepared for.
+    #[allow(dead_code)]
     pub(crate) kind: String,
     #[serde(default)]
     pub(crate) path: Option<String>,
@@ -830,9 +829,83 @@ pub(crate) struct TargetFacts {
     pub(crate) working_directory: Option<String>,
 }
 
+/// What a start asks of the adapter: the request and the facts around it.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct StartRequest {
+    pub(crate) request: DebugRequest,
+    pub(crate) facts: StartFacts,
+}
+
+/// The default DAP arguments of a request with each binding filling its
+/// argument from the target, unless the defaults already set it.
+pub(crate) fn start_arguments(
+    adapter: &DebugAdapterDeclaration,
+    start: &StartRequest,
+) -> Validation<Map<String, Value>> {
+    plan(adapter, start.request, &start.facts)?;
+    let configuration =
+        adapter
+            .configurations
+            .as_ref()
+            .and_then(|configurations| match start.request {
+                DebugRequest::Launch => configurations.launch.as_ref(),
+                DebugRequest::Attach => configurations.attach.as_ref(),
+            });
+    let mut arguments = configuration
+        .and_then(|configuration| configuration.arguments.clone())
+        .unwrap_or_default();
+    let Some(bindings) =
+        configuration.and_then(|configuration| configuration.target_bindings.as_ref())
+    else {
+        return Ok(arguments);
+    };
+    let target = &start.facts.target;
+    // A binding is the fact path that fills the argument of the same name.
+    let mut bind = |name: &str, binding: &Option<String>, value: Option<Value>| {
+        if let (Some(_), Some(value)) = (binding, value) {
+            arguments.entry(name.to_string()).or_insert(value);
+        }
+    };
+    bind(
+        "program",
+        &bindings.program,
+        target.path.clone().map(Value::from),
+    );
+    bind(
+        "processId",
+        &bindings.process_id,
+        target.process_id.map(Value::from),
+    );
+    bind(
+        "cwd",
+        &bindings.cwd,
+        target.working_directory.clone().map(Value::from),
+    );
+    Ok(arguments)
+}
+
+impl DebugAdapterDeclaration {
+    /// What the host needs besides the process: how to reach the adapter and
+    /// what to show. The process itself is the launch plan's own part.
+    pub(crate) fn plan_descriptor(&self, plugin_id: &str) -> Value {
+        json!({
+            "id": self.id,
+            "providerID": format!("{plugin_id}/{}", self.id),
+            "displayName": self.display_name,
+            "adapterID": self.adapter_id.as_deref().unwrap_or(&self.id),
+            "requests": self.requests,
+            "selectors": self.selectors,
+            "configurationTypes": self.configuration_types,
+            "transport": self.launch.transport,
+            "endpoint": self.launch.endpoint,
+            "disabledCapabilities": self.capabilities.as_ref().map(|c| c.disabled.clone()).unwrap_or_default(),
+        })
+    }
+}
+
 /// Checks one debug start against the registration, the selected runtime and
 /// the target facts the request's bindings read.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn plan(
     adapter: &DebugAdapterDeclaration,
     request: DebugRequest,
