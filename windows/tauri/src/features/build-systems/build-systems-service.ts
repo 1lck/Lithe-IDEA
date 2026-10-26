@@ -11,6 +11,7 @@ import type {
 } from "./build-systems-types";
 import {
   BUILD_SYSTEMS_STORE_KEY,
+  buildSystemViewId,
   useBuildSystemsStore,
   type BuildSystemsState,
 } from "./build-systems-store";
@@ -61,18 +62,54 @@ interface PendingModelLoad {
   pluginId: string;
   operationId: string | null;
   controller: AbortController;
+  cancellation: Promise<void> | null;
+  cancelError: unknown;
 }
 const pendingModelLoads = new Set<PendingModelLoad>();
 
 function cancelModelLoads(predicate: (pending: PendingModelLoad) => boolean): void {
   for (const pending of pendingModelLoads) {
     if (!predicate(pending)) continue;
-    pending.controller.abort();
-    if (pending.operationId) {
-      void invoke("declarative_plugins_build_cancel_operation", {
-        operationId: pending.operationId,
-      }).catch(() => {});
+    // The owning load awaits the same cleanup in finally and surfaces errors.
+    void requestModelCancellation(pending).catch(() => {});
+  }
+}
+
+/** Cleanup failure keeps the operation available to the UI's Stop retry. */
+export class BuildModelCancellationError extends Error {}
+
+function requestModelCancellation(pending: PendingModelLoad): Promise<void> {
+  pending.controller.abort();
+  if (!pending.operationId) return Promise.resolve();
+  if (pending.cancellation) return pending.cancellation;
+  pending.cancelError = null;
+  const cancellation = Promise.resolve().then(() =>
+    invoke<void>("declarative_plugins_build_cancel_operation", {
+      operationId: pending.operationId,
+    }),
+  );
+  pending.cancellation = cancellation;
+  void cancellation.catch((error: unknown) => {
+    pending.cancelError = error;
+    pending.cancellation = null;
+  });
+  return cancellation;
+}
+
+async function finishModelLoad(pending: PendingModelLoad, completed: boolean): Promise<void> {
+  try {
+    if (!completed && pending.operationId) {
+      if (pending.cancelError) throw pending.cancelError;
+      await requestModelCancellation(pending);
     }
+  } catch (error) {
+    // Cleanup failure takes priority: the UI must retain a retryable Stop
+    // until native confirms that the operation has ended.
+    throw new BuildModelCancellationError(failureMessage(error));
+  } finally {
+    // Keep cleanup discoverable until it settles so a simultaneous Stop
+    // joins the owned request rather than dispatching another native cancel.
+    pendingModelLoads.delete(pending);
   }
 }
 
@@ -104,6 +141,7 @@ export async function loadBuildModel(
   root: string,
   approve: ApproveBuildModel,
   runtimeExecutables: Record<string, string> = {},
+  options: { signal?: AbortSignal; onPrepared?: (review: BuildModelReview) => void } = {},
 ): Promise<BuildModelLoadResult | null> {
   const { store, workspaceId, workspaceRoot, isCurrent } = initiatingStore();
   if (!workspaceRoot) return null;
@@ -112,12 +150,45 @@ export async function loadBuildModel(
     pluginId,
     operationId: null,
     controller: new AbortController(),
+    cancellation: null,
+    cancelError: null,
   };
   pendingModelLoads.add(pending);
   let request: ReturnType<BuildSystemsState["actions"]["beginRequest"]> | null = null;
   let completed = false;
+  const initial = store.getState();
+  let expectedRequestSequence = initial.requestSequence;
+  const generation = initial.generation;
+  const revocationEpoch = initial.pluginRevocationEpochs[pluginId] ?? 0;
+  const windowKey = buildSystemViewId(pluginId, buildSystemId);
+  const originalWindow = initial.windows[windowKey];
+  const fingerprint = originalWindow?.instances.find(
+    (instance) => instance.root === root,
+  )?.optionFingerprint;
   const stillCurrent = () =>
-    !pending.controller.signal.aborted && isCurrent() && !store.getState().revokedPlugins[pluginId];
+    !pending.controller.signal.aborted &&
+    isCurrent() &&
+    workspaceRuntimeRegistry.getWorkspace(workspaceId)?.stores.get(BUILD_SYSTEMS_STORE_KEY) ===
+      store &&
+    !store.getState().revokedPlugins[pluginId] &&
+    (store.getState().pluginRevocationEpochs[pluginId] ?? 0) === revocationEpoch &&
+    store.getState().generation === generation &&
+    store.getState().requestSequence === expectedRequestSequence &&
+    (!originalWindow ||
+      (store.getState().windows[windowKey]?.selectedRoot === originalWindow.selectedRoot &&
+        store.getState().windows[windowKey]?.instances.find((instance) => instance.root === root)
+          ?.optionFingerprint === fingerprint)) &&
+    (!request || store.getState().lastAppliedSequence <= request.sequence);
+  const abort = () => {
+    void requestModelCancellation(pending).catch(() => {});
+  };
+  const checkContext = () => {
+    if (!completed && !stillCurrent()) abort();
+  };
+  const releaseStore = store.subscribe(checkContext);
+  const releaseRegistry = workspaceRuntimeRegistry.subscribe(checkContext);
+  options.signal?.addEventListener("abort", abort, { once: true });
+  if (options.signal?.aborted) abort();
   try {
     const review = await enqueueRegistryOperation(() =>
       stillCurrent()
@@ -132,20 +203,40 @@ export async function loadBuildModel(
     );
     if (!review) return null;
     pending.operationId = review.operationId;
+    options.onPrepared?.(review);
+    if (
+      review.pluginId !== pluginId ||
+      review.buildSystemId !== buildSystemId ||
+      review.root !== root ||
+      review.workspaceRoot !== workspaceRoot ||
+      (generation !== null && review.generation !== generation)
+    ) {
+      throw new Error("plugin.build.staleContext");
+    }
     if (
       !stillCurrent() ||
       !(await awaitModelApproval(review, approve, pending.controller.signal)) ||
       !stillCurrent()
     )
       return null;
+    // Only this operation's own request may advance the captured sequence.
+    // Competing edits/refreshes invalidate consent before their response lands.
+    expectedRequestSequence += 1;
     request = store.getState().actions.beginRequest();
+    if (!stillCurrent()) return null;
     // Execution must not occupy registryTail: refresh/revoke/close must be
     // able to reach native cancellation while a model process is running.
     const result = await invoke<BuildModelLoadResult>("declarative_plugins_build_load_model", {
       operationId: review.operationId,
     });
+    if (!stillCurrent()) return null;
+    if (
+      result.operationId !== review.operationId ||
+      result.view.workspaceRoot !== workspaceRoot ||
+      result.view.generation !== review.generation
+    )
+      throw new Error("plugin.build.staleContext");
     completed = true;
-    if (!stillCurrent() || result.operationId !== review.operationId) return null;
     store.getState().actions.applyView(result.view, request);
     return result;
   } catch (error) {
@@ -155,21 +246,20 @@ export async function loadBuildModel(
     }
     return null;
   } finally {
-    pendingModelLoads.delete(pending);
+    releaseStore();
+    releaseRegistry();
+    options.signal?.removeEventListener("abort", abort);
     pending.controller.abort();
     if (request) store.getState().actions.cancelRequest(request);
-    if (!completed && pending.operationId) {
-      await invoke("declarative_plugins_build_cancel_operation", {
-        operationId: pending.operationId,
-      });
-    }
+    await finishModelLoad(pending, completed);
   }
 }
 
 export async function cancelBuildModel(operationId: string): Promise<void> {
   for (const pending of pendingModelLoads) {
-    if (pending.operationId === operationId) pending.controller.abort();
+    if (pending.operationId === operationId) return requestModelCancellation(pending);
   }
+  // The existing native contract waits for cleanup, not just acceptance.
   await invoke("declarative_plugins_build_cancel_operation", { operationId });
 }
 

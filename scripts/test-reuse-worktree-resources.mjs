@@ -258,6 +258,21 @@ try {
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /official-plugin-packages.*cannot be reused/);
   });
+  await test("native acceptance refuses copying even a deterministic marketplace fixture", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "plugin-host-acceptance-state");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.includes(".artifacts/plugin-host-acceptance/"));
+    const fixture = ".artifacts/plugin-host-acceptance/marketplace-fixture/packages/a1.zip";
+    const source = path.join(sourceRoot, fixture);
+    await fs.mkdir(path.dirname(source), { recursive: true });
+    await fs.writeFile(source, "deterministic fixture bytes");
+    const refused = reuse(["--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /plugin-host-acceptance-state.*cannot be reused/);
+    assert.equal(await fs.readFile(source, "utf8"), "deterministic fixture bytes");
+    await assert.rejects(fs.access(path.join(targetRoot, fixture)));
+  });
   await test("retained MCP filters and native review screenshots remain user/run state", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const policies = registry.excludedResources.find(item => item.id === "mcp-tool-probe-state");

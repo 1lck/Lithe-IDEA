@@ -72,6 +72,7 @@ pub trait BuildOptionsPersistence: Send + Sync {
 /// One detected build-system instance with its host-side session state.
 #[derive(Debug, Clone)]
 struct BuildSession {
+    revision: u64,
     plugin_id: String,
     build_system_id: String,
     root: String,
@@ -98,6 +99,7 @@ struct BuildSession {
 
 #[derive(Debug, Default)]
 struct WindowState {
+    execution_suspended: usize,
     workspace_root: Option<String>,
     generation: u64,
     /// Keyed by (plugin ID, build system ID, instance root).
@@ -132,6 +134,9 @@ pub(crate) struct BuildModelContext {
     pub root: String,
     pub package: BuildPackageInput,
     pub options: BTreeMap<String, Value>,
+    pub model: Value,
+    pub model_stale: bool,
+    revision: u64,
 }
 
 impl BuildRegistry {
@@ -151,7 +156,9 @@ impl BuildRegistry {
             .windows
             .get(window_label)
             .ok_or("plugin.build.staleContext")?;
-        if window.workspace_root.as_deref() != Some(workspace_root) {
+        if window.execution_suspended > 0
+            || window.workspace_root.as_deref() != Some(workspace_root)
+        {
             return Err("plugin.build.staleContext".into());
         }
         let session = window
@@ -172,6 +179,9 @@ impl BuildRegistry {
                 content_identity: session.content_identity.clone(),
             },
             options: session.effective_options.clone(),
+            model: session.instance["model"].clone(),
+            model_stale: session.stale,
+            revision: session.revision,
         })
     }
 
@@ -179,7 +189,8 @@ impl BuildRegistry {
         let Some(window) = self.windows.get(&context.window_label) else {
             return false;
         };
-        if window.generation != context.generation
+        if window.execution_suspended > 0
+            || window.generation != context.generation
             || window.workspace_root.as_deref() != Some(context.workspace_root.as_str())
         {
             return false;
@@ -193,6 +204,8 @@ impl BuildRegistry {
             ))
             .is_some_and(|session| {
                 session.version == context.package.version
+                    && session.revision == context.revision
+                    && session.stale == context.model_stale
                     && session.content_identity == context.package.content_identity
                     && session.manifest == context.package.manifest
                     && session.effective_options == context.options
@@ -237,6 +250,7 @@ impl BuildRegistry {
             &context.options,
             BTreeSet::new(),
         )?;
+        session.revision = previous.revision.saturating_add(1);
         let after = sync_fingerprint(
             core,
             &context.workspace_root,
@@ -271,7 +285,27 @@ impl BuildRegistry {
     }
 
     pub(crate) fn close_window(&mut self, window_label: &str) {
-        self.windows.remove(window_label);
+        if let Some(window) = self.windows.get_mut(window_label) {
+            window.sessions.clear();
+            window.issues.clear();
+            window.workspace_root = None;
+            window.generation = window.generation.saturating_add(1);
+        }
+    }
+
+    /// Invalidate before draining, not after it. A concurrent prepare/confirm
+    /// cannot obtain a fresh executable snapshot while refresh/close is waiting
+    /// for an older native owner to release its process tree.
+    pub(crate) fn suspend_execution(&mut self, window_label: &str) {
+        let window = self.windows.entry(window_label.into()).or_default();
+        window.execution_suspended = window.execution_suspended.saturating_add(1);
+        window.generation = window.generation.saturating_add(1);
+    }
+
+    pub(crate) fn resume_execution(&mut self, window_label: &str) {
+        if let Some(window) = self.windows.get_mut(window_label) {
+            window.execution_suspended = window.execution_suspended.saturating_sub(1);
+        }
     }
 
     /// Re-detects every instance of the workspace for one window. A changed
@@ -856,6 +890,7 @@ fn resolve_session(
     };
 
     Ok(BuildSession {
+        revision: 0,
         plugin_id: instance["pluginID"]
             .as_str()
             .unwrap_or_default()

@@ -4,7 +4,7 @@
 
 use super::super::build_registry::{BuildCoreExecutor, BuildModelContext};
 use super::super::build_resolver::{
-    BuildResolutionStep, VersionProbeOutcome, WindowsBuildToolResolver,
+    BuildResolutionStep, ResolvedBuildTool, VersionProbeOutcome, WindowsBuildToolResolver,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -66,6 +66,7 @@ pub(super) struct ModelOperation {
     pub resolver: WindowsBuildToolResolver,
     pub output_file: PathBuf,
     pub working_directory: PathBuf,
+    pub run: Option<super::run::PreparedRun>,
     created: Instant,
     cancelled: AtomicBool,
     running: AtomicBool,
@@ -93,6 +94,7 @@ impl ModelOperation {
             resolver,
             output_file,
             working_directory,
+            run: None,
             created: Instant::now(),
             cancelled: AtomicBool::new(false),
             running: AtomicBool::new(false),
@@ -143,6 +145,14 @@ impl ModelOperation {
         // A pending review owns no processes. A claimed operation is finished
         // only by its RAII owner after native tree cleanup has returned.
         if !self.running.load(Ordering::Acquire) {
+            if let Some(run) = &self.run {
+                // No native owner exists for a cancelled pending review.
+                let _ = run.events.terminal(&super::output::BuildRunTerminal {
+                    kind: "cancelled".into(),
+                    exit_code: None,
+                    message: Some("plugin.build.cancelled".into()),
+                });
+            }
             self.finish();
         }
     }
@@ -156,6 +166,42 @@ impl ModelOperation {
             return Err("plugin.build.cancelled".into());
         }
         write()
+    }
+
+    /// The native owner calls this only after tree cleanup. Order its last
+    /// checkpoint and terminal event with cancellation, so a cancel accepted
+    /// before publication cannot be followed by a successful terminal.
+    pub fn complete_run(
+        &self,
+        mut terminal: super::output::BuildRunTerminal,
+        checkpoint: impl FnOnce() -> Result<(), String>,
+    ) -> Result<super::output::BuildRunTerminal, String> {
+        let _publication = self
+            .publication
+            .lock()
+            .map_err(|_| "build publication mutex poisoned")?;
+        let checked = if self.cancelled() {
+            Err("plugin.build.cancelled".into())
+        } else {
+            checkpoint()
+        };
+        if let Err(error) = checked {
+            terminal.kind = if super::run::error_terminal(&error).kind == "cancelled" {
+                "cancelled"
+            } else if terminal.kind == "failedToStart" {
+                "failedToStart"
+            } else {
+                "failed"
+            }
+            .into();
+            terminal.message = Some(error);
+        }
+        self.run
+            .as_ref()
+            .ok_or("plugin.build.invalidPlan")?
+            .events
+            .terminal(&terminal)?;
+        Ok(terminal)
     }
 
     pub fn start_permit(&self) -> Result<std::sync::MutexGuard<'_, ()>, String> {
@@ -251,8 +297,16 @@ impl BuildOperations {
 
     pub fn claim(&self, window: &str, id: &str) -> Result<RunningModelOperation, String> {
         let operation = self.get(window, id)?;
+        // Linearize claim with pending-review cancellation. A cancellation
+        // that wins cannot emit terminal and then have this owner start work.
+        let permit = operation
+            .publication
+            .lock()
+            .map_err(|_| "build publication mutex poisoned")?;
         if operation.created.elapsed() >= REVIEW_TIMEOUT {
+            drop(permit);
             operation.cancel();
+            return Err("plugin.build.cancelled".into());
         }
         if operation.cancelled() || operation.finished() {
             return Err("plugin.build.cancelled".into());
@@ -267,6 +321,7 @@ impl BuildOperations {
         // Cancellation may race with the claim. The executor checks it before
         // any side effect; waiters must now wait for this owner's Drop.
         operation.finished.store(false, Ordering::Release);
+        drop(permit);
         Ok(RunningModelOperation(operation))
     }
 
@@ -328,22 +383,58 @@ pub(super) struct ExecutedModel {
     pub model: Value,
     pub stderr: String,
 }
+pub(super) struct BuildRunProcessOutput {
+    pub exit_code: Option<i32>,
+    pub started: bool,
+    pub failure: Option<String>,
+    pub started_at_millis: Option<u64>,
+}
 pub(super) trait BuildProcessExecutor {
     fn run(
         &self,
         plan: &BuildProcessPlan,
         guard: &dyn ModelExecutionGuard,
     ) -> Result<BuildProcessOutput, String>;
+    fn run_command(
+        &self,
+        plan: &BuildProcessPlan,
+        guard: &dyn ModelExecutionGuard,
+        output: &mut dyn FnMut(lithe_git_host::Stream, &[u8]) -> Result<(), String>,
+    ) -> BuildRunProcessOutput {
+        let started_at_millis = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()
+            .and_then(|time| u64::try_from(time.as_millis()).ok());
+        match self.run(plan, guard) {
+            Ok(result) => {
+                let failure = output(lithe_git_host::Stream::Stdout, &result.stdout)
+                    .and_then(|_| output(lithe_git_host::Stream::Stderr, &result.stderr))
+                    .err();
+                BuildRunProcessOutput {
+                    exit_code: Some(0),
+                    started: true,
+                    failure,
+                    started_at_millis,
+                }
+            }
+            Err(error) => BuildRunProcessOutput {
+                exit_code: None,
+                started: false,
+                failure: Some(error),
+                started_at_millis: None,
+            },
+        }
+    }
 }
 
 /// Shared pipeline for real native execution and deterministic executor tests.
 /// No operation mutates the registry until the caller's final checkpoint.
-pub(super) fn execute_model(
+pub(super) fn resolve_tool(
     operation: &ModelOperation,
     core: &dyn BuildCoreExecutor,
     executor: &dyn BuildProcessExecutor,
     guard: &dyn ModelExecutionGuard,
-) -> Result<ExecutedModel, String> {
+) -> Result<ResolvedBuildTool, String> {
     guard.checkpoint()?; // consent returned; before runtime preparation
     let resolver = operation
         .resolver
@@ -407,6 +498,16 @@ pub(super) fn execute_model(
             }
         }
     };
+    Ok(tool)
+}
+
+pub(super) fn execute_model(
+    operation: &ModelOperation,
+    core: &dyn BuildCoreExecutor,
+    executor: &dyn BuildProcessExecutor,
+    guard: &dyn ModelExecutionGuard,
+) -> Result<ExecutedModel, String> {
+    let tool = resolve_tool(operation, core, executor, guard)?;
     guard.checkpoint()?; // immediately before model command start
     let output = executor.run(
         &BuildProcessPlan {

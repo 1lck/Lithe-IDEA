@@ -3,12 +3,15 @@
 
 use super::super::build_registry::BuildModelContext;
 use super::super::build_resolver::{RuntimeExecutableInput, WindowsBuildToolResolver};
+use super::output::{BuildOutputSink, BuildRunTerminal};
+use super::run::{prepare_run_plan, run_review, BuildRunReview, BuildRunSelection};
 use super::{operation::*, process::*, *};
 use serde_json::json;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tauri::Emitter;
 
 const OPERATION_TIMEOUT: Duration = Duration::from_secs(180);
 
@@ -199,6 +202,15 @@ pub(super) async fn load(
     window_label: String,
     operation_id: String,
 ) -> Result<BuildModelLoadResult, String> {
+    if app
+        .state::<BuildHostState>()
+        .operations
+        .get(&window_label, &operation_id)?
+        .run
+        .is_some()
+    {
+        return Err("plugin.build.invalidPlan".into());
+    }
     // Claim before spawning so duplicate confirmations cannot start two jobs.
     let running = app
         .state::<BuildHostState>()
@@ -278,4 +290,164 @@ pub(super) async fn drain(operations: Vec<Arc<ModelOperation>>) -> Result<(), St
         operation.wait_finished().await?;
     }
     Ok(())
+}
+
+struct WindowBuildOutput(AppHandle);
+impl BuildOutputSink for WindowBuildOutput {
+    fn emit(&self, window_label: &str, event: Value) -> Result<(), String> {
+        // Only the initiating product window receives these events, never
+        // plugin pages or other product windows sharing the application.
+        self.0
+            .emit_to(window_label, "declarative-build-output", event)
+            .map_err(|_| "plugin.build.outputUnavailable".into())
+    }
+}
+
+pub(super) async fn prepare_run(
+    app: AppHandle,
+    window_label: String,
+    workspace_root: String,
+    plugin_id: String,
+    build_system_id: String,
+    root: String,
+    selection: BuildRunSelection,
+) -> Result<BuildRunReview, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if window_label != "main" && !window_label.starts_with("workspace-") {
+            return Err("plugin.build.staleContext".into());
+        }
+        let state = app.state::<BuildHostState>();
+        let context = state
+            .registry
+            .lock()
+            .map_err(|_| "build registry mutex poisoned")?
+            .model_context(
+                &window_label,
+                &workspace_root,
+                &plugin_id,
+                &build_system_id,
+                &root,
+            )?;
+        let _lease = app
+            .state::<super::super::lifecycle::LifecycleState>()
+            .acquire(&plugin_id)?;
+        let package = verified_identity(&app, &context)?;
+        let id = next_operation_id();
+        let state_directory = store::plugin_state_directory(&app, &plugin_id)?;
+        let run = prepare_run_plan(
+            &HostCoreExecutor,
+            &context,
+            &selection,
+            &package.root,
+            &state_directory.join(store::workspace_state_key(&workspace_root)),
+            &id,
+            Arc::new(WindowBuildOutput(app.clone())),
+        )?;
+        let settings = super::super::settings::load_layers(&app, &plugin_id, &workspace_root)?;
+        let invocation = HostCoreExecutor.execute(
+            "build.invocationPlan",
+            json!({
+                "manifest":context.package.manifest, "buildSystemID":build_system_id,
+                "request":{"root":root,"platform":"windows","settings":settings.global},
+            }),
+        )?;
+        core_ok(&invocation)?;
+        let working_directory = WindowsBuildToolResolver::instance_directory(
+            &invocation["invocation"],
+            &PathBuf::from(&workspace_root),
+        )
+        .map_err(|error| format!("{}: {error}", error.code()))?;
+        let resolver = WindowsBuildToolResolver::from_current_process(BTreeMap::new())
+            .freeze_discovery()
+            .map_err(|error| error.to_string())?;
+        // Shared operation ownership, busy slot, runtime resolver and guards.
+        // No model output allocation is used for a task/test operation.
+        let plan = ModelCommandPlan {
+            arguments: run.plan.arguments.clone(),
+            environment: run.plan.environment.clone(),
+            working_directory: run.plan.working_directory.clone(),
+            output: "stdout".into(),
+            executes_project_code: true,
+            may_use_network: true,
+        };
+        let mut operation = ModelOperation::new(
+            id.clone(),
+            context,
+            plan,
+            invocation["invocation"].clone(),
+            resolver,
+            PathBuf::new(),
+            working_directory,
+        );
+        operation.run = Some(run);
+        let review = run_review(&operation)?;
+        verified_identity(&app, &operation.context)?;
+        state.operations.insert(operation)?;
+        let operation = state.operations.get(&window_label, &id)?;
+        if !state
+            .registry
+            .lock()
+            .map_err(|_| "build registry mutex poisoned")?
+            .context_is_current(&operation.context)
+        {
+            operation.cancel();
+            return Err("plugin.build.staleContext".into());
+        }
+        Ok(review)
+    })
+    .await
+    .map_err(|_| "plugin.build.processFailed".to_string())?
+}
+
+pub(super) async fn execute_run(
+    app: AppHandle,
+    window_label: String,
+    operation_id: String,
+) -> Result<BuildRunTerminal, String> {
+    let operation = app
+        .state::<BuildHostState>()
+        .operations
+        .get(&window_label, &operation_id)?;
+    if operation.run.is_none() {
+        return Err("plugin.build.invalidPlan".into());
+    }
+    let running = app
+        .state::<BuildHostState>()
+        .operations
+        .claim(&window_label, &operation_id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let operation = &running.0;
+        let guard = HostGuard {
+            app: &app,
+            operation,
+            deadline: Instant::now() + Duration::from_secs(660),
+        };
+        let mut lease = None;
+        let result = (|| {
+            guard.checkpoint()?;
+            lease = Some(
+                app.state::<super::super::lifecycle::LifecycleState>()
+                    .acquire(&operation.context.plugin_id)?,
+            );
+            guard.checkpoint()?;
+            super::run::execute_run(operation, &HostCoreExecutor, &NativeBuildExecutor, &guard)
+        })();
+        if result
+            .as_ref()
+            .err()
+            .is_some_and(|error| error.starts_with("plugin.build.cleanupFailed"))
+        {
+            // Preserve occupancy and package mutation barrier on failed cleanup.
+            operation.retain_failed_cleanup(lease.take());
+            return result;
+        }
+        let terminal = result.unwrap_or_else(|error| super::run::error_terminal(&error));
+        // Keep package mutation blocked through the final identity check and
+        // publication. Cancellation shares this publication lock.
+        let completed = operation.complete_run(terminal, || guard.checkpoint());
+        drop(lease);
+        completed
+    })
+    .await
+    .map_err(|_| "plugin.build.processFailed".to_string())?
 }

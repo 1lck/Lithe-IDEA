@@ -724,6 +724,10 @@ Windows 的插件源配置、按源与平台缓存的原始索引、摘要绑定
 Windows 命令模型的 `<windows-app-local-data>/plugin-state/<plugin-id>/build-<pid>-<operation-sequence>.model.json`
 按 `official-plugin-packages` 排除路由处理：由当前窗口、工作区代次和操作独占，确认后以
 `create_new` 创建，进程树清理完成后删除；崩溃遗留由插件状态/卸载流程回收，不跨工作树复用。
+原生插件验收的 `.artifacts/plugin-host-acceptance/`（含市场 ZIP/索引、隔离运行镜像和报告）及
+`app.lithe.windows.host-acceptance` 用户配置走 `plugin-host-acceptance-state` 排除路由：
+每次在目标工作树重新生成，无可复用 identity，不跨 worktree 复制；驱动回收监听器、进程和隔离用户数据，
+报告留在本次验证目录。HTTPS 使用已有可信证书，不复制私钥或改系统信任，也不改发行资源及签名基线。
 生成资源只有在构建流程写入可验证的源码、配置、平台、架构和工具链 identity
 stamp 后才能加入注册表，不能仅凭目录存在就跨 worktree 复制。
 

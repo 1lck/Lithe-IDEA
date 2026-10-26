@@ -345,6 +345,8 @@ fn main() {
                             plugin_host::build::declarative_plugins_build_prepare_model,
                             plugin_host::build::declarative_plugins_build_load_model,
                             plugin_host::build::declarative_plugins_build_cancel_operation,
+                            plugin_host::build::declarative_plugins_build_prepare_run,
+                            plugin_host::build::declarative_plugins_build_execute_run,
                             plugin_host::web::declarative_plugins_close_workspace_pages,
                             plugin_host::web::declarative_plugins_web_windows,
                             plugin_host::web::declarative_plugins_open_web_window,

@@ -55,12 +55,17 @@
       "windows/tauri/src/features/build-systems/output/components/build-output-log.test.tsx",
       "windows/tauri/src/features/build-systems/output/components/build-output-problems.test.tsx",
       "windows/tauri/src/features/build-systems/output/components/build-output-tests.test.tsx",
-      "windows/tauri/src-tauri/src/main.rs"
+      "windows/tauri/src-tauri/src/main.rs",
+      "windows/tauri/src-tauri/src/plugin_host/build/run.rs",
+      "windows/tauri/src-tauri/src/plugin_host/build/output.rs",
+      "windows/tauri/src-tauri/src/plugin_host/build/run_tests.rs",
+      "windows/tauri/src/features/build-systems/components/build-model-controls.tsx",
+      "windows/tauri/src/features/build-systems/components/build-model-controls.test.tsx"
     ],
     "implementationStatus": "partial",
     "verificationStatus": "pending"
   },
   "owner": "Extensions",
-  "notes": "Windows 内部 registry 已接入 Core 静态检测、选项、同步指纹和两阶段命令模型加载；三个模型命令及原生窗口关闭清理已注册。模型执行绑定窗口/工作区代次/operation 和包摘要，审批前不探测或执行项目代码，取消/超时回收进程树，冻结工具路径与已验证 runtime 的环境；失败输出有界脱敏。模型文件属于当前操作的可写 plugin-state，不进入发行资源或跨工作树缓存。通用输出组件已提供注入 port、有界 UTF-8 日志/诊断/测试明细和合法源码跳转，旧代次、迟到取消/订阅不得污染新运行。任务/测试执行、真实输出事件、网页桥、语言导入及 Provider 仍待后续接线；buildSystems/executableResolution/buildProviders 保持关闭，整体 partial/pending。",
-  "verification": "运行 WindowsRust 逐项计时，检查真实 Core 的模型准备/审批、候选解析、runtime JAVA_HOME、输出文件、取消/期限/清理和错误脱敏回归。前端分别运行 build-systems service/store/pane 及 output 六个文件计时测试，覆盖完整身份、UTF-8/长行预算、并发、终态、异步订阅清理、取消失败和诊断行列/路径。原生仍需验证 Wrapper 同意前零执行、模型加载/取消/关闭、任务与测试输出、诊断跳转和多窗口资源回收；组件测试不能代替真实运行。macOS 按现有 build-plans fixture 与构建宿主流程执行；两平台的完整 Provider、网页和语言导入证据按各自行记录。"
+  "notes": "Windows 内部 registry 已接入 Core 静态检测、选项、同步指纹和两阶段模型加载；显式加载/重载 UI 展示原生身份与风险并等待同意，支持拒绝、取消失败重试和竞争请求失效。原生 task/test 两阶段入口已复用 Core taskPlan/testPlan、工具/runtime 解析与 Job Object 执行器，输出按完整身份仅发送所属窗口，Core 解码诊断与测试报告后发布单一终态；清理失败保留占用，过期/未加载命令模型不得用于模型相关执行，报告起始时间在 spawn 前冻结。构建 output 组件仍为注入 port，生产 task/test 前端接线、应用/服务运行、网页桥、语言导入和 Provider 待后续；buildSystems/executableResolution/buildProviders 保持关闭，整体 partial/pending。模型临时文件仍为操作独占的可写 plugin-state，不进入发行资源或复用缓存。",
+  "verification": "Windows：运行 WindowsRust 逐项计时，覆盖真实 Core 计划/解码、审批前零执行、候选/runtime 环境、失败输出、双窗口、模型/包变更、取消与终态排序、期限和清理失败；报告必须包含快速报告不漏收、未加载/过期模型拒绝执行。前端按文件独立运行 service/store/pane/model-controls 和 output 测试，覆盖同意/拒绝、旧审批、竞争请求、取消失败重试、完整身份、UTF-8/长行预算及源码跳转。Release/WebView2 仍需在能力开放前验证命令模型、任务/测试实际输出、诊断跳转与多窗口清理；单元和组件回归不提升产品 verified。macOS 继续按现有 fixture 和构建宿主流程验证，Provider/网页/导入另行记录。"
 }

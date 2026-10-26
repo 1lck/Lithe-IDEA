@@ -88,6 +88,8 @@ async function readRegistry() {
   // Window/operation-owned command-model files stay in mutable plugin state
   // and use official-plugin-packages' exclusion; a decoded model is not a reusable artifact.
   // Core validation or a matching archive hash never transfers user ownership.
+  // Native acceptance fixtures/profiles use plugin-host-acceptance-state's
+  // refusal route; deterministic test ZIPs do not establish a build identity.
   const excludedResources = registry.excludedResources ?? [];
   if (!Array.isArray(excludedResources)) throw new Error("Invalid excluded worktree resources");
   for (const resource of excludedResources) {

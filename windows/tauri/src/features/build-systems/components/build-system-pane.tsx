@@ -13,21 +13,30 @@ import {
   setBuildOption,
 } from "../build-systems-service";
 import type { BuildOptionDescription, BuildWindowState } from "../build-systems-types";
+import BuildModelControls, { type BuildModelService } from "./build-model-controls";
 
 /**
- * Native tool window for one declarative build system. This batch renders
- * the read-only model (projects, targets, tasks), option controls resolved
- * by Core, and staleness/empty states; task, test, and run actions arrive
- * with the process-executing milestone and have no entries here yet.
+ * Tool window for one declarative build system: Core-resolved options,
+ * model data and an explicit consent flow for command-backed models.
+ * Task, test and run execution remain with their own feature owners.
  */
 
-export default function BuildSystemPane({ view, onClose }: { view: string; onClose: () => void }) {
+export default function BuildSystemPane({
+  view,
+  onClose,
+  modelService,
+}: {
+  view: string;
+  onClose: () => void;
+  modelService?: BuildModelService;
+}) {
   const { t } = useTranslation();
   const workspaceId = useActiveWorkspaceId();
   const parsed = parseBuildSystemViewId(view);
   const status = useBuildSystemsStore((state) => state.status);
   const error = useBuildSystemsStore((state) => state.error);
   const issues = useBuildSystemsStore((state) => state.issues);
+  const generation = useBuildSystemsStore((state) => state.generation);
   const windowState = useBuildSystemsStore((state) => (parsed ? state.windows[view] : undefined));
   const selectInstance = useBuildSystemsStore((state) => state.actions.selectInstance);
 
@@ -161,6 +170,8 @@ export default function BuildSystemPane({ view, onClose }: { view: string; onClo
               windowState={windowState}
               root={instance.root}
               disabled={status === "loading"}
+              generation={generation}
+              modelService={modelService}
             />
           )}
         </div>
@@ -173,10 +184,14 @@ function InstanceBody({
   windowState,
   root,
   disabled,
+  generation,
+  modelService,
 }: {
   windowState: BuildWindowState;
   root: string;
   disabled: boolean;
+  generation: number | null;
+  modelService?: BuildModelService;
 }) {
   const { t } = useTranslation();
   const instance =
@@ -184,6 +199,14 @@ function InstanceBody({
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
+      {instance.modelSource === "command" && (
+        <BuildModelControls
+          key={generation}
+          instance={instance}
+          disabled={disabled}
+          service={modelService}
+        />
+      )}
       {instance.modelError && (
         <p role="alert" className="mb-2 text-xs text-destructive">
           {t("buildSystems.modelError", {

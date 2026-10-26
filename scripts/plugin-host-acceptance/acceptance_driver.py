@@ -19,6 +19,7 @@ import urllib.request
 from ctypes import wintypes
 from pathlib import Path
 
+import psutil
 from playwright.sync_api import Page, Playwright, expect, sync_playwright
 
 
@@ -31,7 +32,30 @@ PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 PROCESS_TERMINATE = 0x0001
 SYNCHRONIZE = 0x00100000
 WAIT_TIMEOUT = 258
+TH32CS_SNAPPROCESS = 0x00000002
+ERROR_NO_MORE_FILES = 18
+INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+
+
+class ProcessEntry32(ctypes.Structure):
+    _fields_ = [
+        ("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD),
+        ("th32ProcessID", wintypes.DWORD), ("th32DefaultHeapID", ctypes.c_size_t),
+        ("th32ModuleID", wintypes.DWORD), ("cntThreads", wintypes.DWORD),
+        ("th32ParentProcessID", wintypes.DWORD), ("pcPriClassBase", wintypes.LONG),
+        ("dwFlags", wintypes.DWORD), ("szExeFile", wintypes.WCHAR * 260),
+    ]
+
+
 kernel32 = ctypes.windll.kernel32
+kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+kernel32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(ProcessEntry32)]
+kernel32.Process32FirstW.restype = wintypes.BOOL
+kernel32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(ProcessEntry32)]
+kernel32.Process32NextW.restype = wintypes.BOOL
+kernel32.GetLastError.argtypes = []
+kernel32.GetLastError.restype = wintypes.DWORD
 kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
 kernel32.OpenProcess.restype = wintypes.HANDLE
 kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
@@ -56,6 +80,9 @@ class OwnedProcess:
         self.handle = handle
         self.creation_time = creation_time
         self.executable = executable
+        # Keep kernel-object ownership from earlier successful inspections even
+        # if a later query fails or the root exits before cleanup.
+        self.descendants: list[OwnedProcess] = []
 
     @classmethod
     def capture(cls, pid: int, expected: dict | None = None):
@@ -74,13 +101,13 @@ class OwnedProcess:
             if not kernel32.QueryFullProcessImageNameW(handle, 0, image, ctypes.byref(length)):
                 return None
             if expected is not None:
-                # CIM serializes creation times at microsecond precision.
-                if creation_time // 10 != int(expected.get("CreationTime", -1)) // 10:
+                # Both sides retain native FILETIME ticks, without float loss.
+                if creation_time != int(expected.get("CreationTime", -1)):
                     return None
                 expected_image = expected.get("ExecutablePath") or ""
                 if os.path.normcase(image.value) != os.path.normcase(expected_image):
-                    # CIM can preserve a runtime-manager junction while the
-                    # retained handle reports the executable's physical path.
+                    # An inspector can preserve a runtime-manager junction
+                    # while the handle reports the executable's physical path.
                     try:
                         if not os.path.samefile(image.value, expected_image):
                             return None
@@ -115,7 +142,7 @@ fixture_processes: dict[int, OwnedProcess] = {}
 def remember_owned_process(pid: int, expected: dict | None = None) -> OwnedProcess | None:
     previous = owned_processes.get(pid)
     if previous is not None and previous.running():
-        if expected is None or previous.creation_time // 10 == int(expected.get("CreationTime", -1)) // 10:
+        if expected is None or previous.creation_time == int(expected.get("CreationTime", -1)):
             return previous
         return None
     process = OwnedProcess.capture(pid, expected)
@@ -129,7 +156,7 @@ def remember_owned_process(pid: int, expected: dict | None = None) -> OwnedProce
 def owned_process_running(pid: int, expected: dict | None = None) -> bool:
     process = owned_processes.get(pid)
     return process is not None and process.running() and (
-        expected is None or process.creation_time // 10 == int(expected.get("CreationTime", -1)) // 10
+        expected is None or process.creation_time == int(expected.get("CreationTime", -1))
     )
 
 
@@ -154,19 +181,35 @@ def terminate_process_tree(pid: int, timeout_seconds: float = 10, inspect_descen
         if process_exists(pid):
             raise RuntimeError(f"refusing to terminate PID {pid} without a retained ownership handle")
         return
-    if not owner.running():
-        return
-    tree = capture_owned_tree(owner) if inspect_descendants else []
-    targets = [owner] + [item for item in tree if item is not owner]
+    inspection_error = None
+    if inspect_descendants and owner.running():
+        try:
+            capture_owned_tree(owner)
+        except Exception as error:  # noqa: BLE001 - cleanup must still use retained handles.
+            inspection_error = error
+    targets = list(dict.fromkeys([owner] + (owner.descendants if inspect_descendants else [])))
     # Each termination targets the original kernel object, including if it
     # exited between inspection and this call. Never reopen a historical PID.
+    cleanup_errors = []
     for process in targets:
-        process.terminate()
+        try:
+            process.terminate()
+        except Exception as error:  # noqa: BLE001 - another owned handle still needs cleanup.
+            cleanup_errors.append(str(error))
     deadline = time.monotonic() + timeout_seconds
     while any(process.running() for process in targets) and time.monotonic() < deadline:
         time.sleep(0.05)
-    if any(process.running() for process in targets):
-        raise RuntimeError(f"owned process tree rooted at {pid} survived cleanup")
+    survivors = [process.pid for process in targets if process.running()]
+    if survivors:
+        cleanup_errors.append(f"owned process handles survived cleanup: {survivors}")
+    if inspection_error is not None:
+        suffix = f"; {'; '.join(cleanup_errors)}" if cleanup_errors else ""
+        raise RuntimeError(
+            f"could not inspect the owned process tree rooted at {pid}: {inspection_error}; "
+            f"retained-handle cleanup attempted, uninspected descendants may remain{suffix}"
+        ) from inspection_error
+    if cleanup_errors:
+        raise RuntimeError("; ".join(cleanup_errors))
 
 
 def run_bounded_process(command: list[str], timeout_seconds: float, *, inspect_descendants: bool = True) -> subprocess.CompletedProcess:
@@ -175,6 +218,8 @@ def run_bounded_process(command: list[str], timeout_seconds: float, *, inspect_d
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         creationflags=CREATE_NEW_PROCESS_GROUP,
     )
     owner = remember_owned_process(process.pid)
@@ -182,12 +227,25 @@ def run_bounded_process(command: list[str], timeout_seconds: float, *, inspect_d
         stdout, stderr = process.communicate(timeout=timeout_seconds)
         return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
     except subprocess.TimeoutExpired as error:
-        terminate_process_tree(process.pid, inspect_descendants=inspect_descendants)
+        cleanup_error = None
+        try:
+            terminate_process_tree(process.pid, inspect_descendants=inspect_descendants)
+        except Exception as failure:  # noqa: BLE001 - preserve cleanup failure in the timeout.
+            cleanup_error = failure
+        # Popen itself retains a kernel handle, including if capturing our
+        # stronger identity failed. Do not release that last cleanup owner early.
+        if process.poll() is None:
+            try:
+                process.kill()
+                process.wait(timeout=2)
+            except Exception as failure:  # noqa: BLE001 - retain both cleanup diagnostics.
+                cleanup_error = RuntimeError(f"{cleanup_error or 'owned cleanup failed'}; Popen cleanup: {failure}")
         with contextlib.suppress(Exception):
             process.communicate(timeout=2)
+        suffix = f"; cleanup could not be confirmed: {cleanup_error}" if cleanup_error else ""
         raise TimeoutError(
-            f"process exceeded its {timeout_seconds:.1f}s local deadline: {command[0]}"
-        ) from error
+            f"process exceeded its {timeout_seconds:.1f}s local deadline: {command[0]}{suffix}"
+        ) from (cleanup_error or error)
     finally:
         if owner is not None:
             owner.close()
@@ -227,26 +285,98 @@ def write_json(path: Path, value) -> None:
     path.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
+def process_tree_ids(root_pid: int) -> list[int]:
+    """Read only topology; these PIDs never authorize termination by themselves."""
+    snapshot = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+    if snapshot == INVALID_HANDLE_VALUE:
+        raise ctypes.WinError(kernel32.GetLastError())
+    try:
+        entry = ProcessEntry32()
+        entry.dwSize = ctypes.sizeof(entry)
+        parents: dict[int, list[int]] = {}
+        present = kernel32.Process32FirstW(snapshot, ctypes.byref(entry))
+        while present:
+            parents.setdefault(entry.th32ParentProcessID, []).append(entry.th32ProcessID)
+            present = kernel32.Process32NextW(snapshot, ctypes.byref(entry))
+        error = kernel32.GetLastError()
+        if error != ERROR_NO_MORE_FILES:
+            raise ctypes.WinError(error)
+    finally:
+        kernel32.CloseHandle(snapshot)
+    pending, seen, result = [root_pid], set(), []
+    while pending:
+        pid = pending.pop()
+        if pid in seen:
+            continue
+        seen.add(pid)
+        result.append(pid)
+        pending.extend(parents.get(pid, []))
+    return result
+
+
+def process_record(pid: int) -> dict | None:
+    """Use upstream native inspection, retaining exact Win32 identity ticks.
+
+    psutil handles Windows command-line/parent inspection without WMI. Its
+    PID-reuse checks supplement, rather than replace, the retained kernel
+    handles used to authorize cleanup. Do not round FILETIME through a float.
+    """
+    identity = None
+    try:
+        process = psutil.Process(pid)
+        process.create_time()  # Freeze psutil's original process identity.
+        identity = OwnedProcess.capture(pid)
+        if identity is None:
+            if process.is_running():
+                raise RuntimeError(f"could not inspect the process identity for {pid}")
+            return None
+        record = {
+            "ProcessId": pid,
+            "ParentProcessId": process.ppid(),
+            "Name": process.name(),
+            "ExecutablePath": identity.executable,
+            "CommandLine": subprocess.list2cmdline(process.cmdline()),
+            "CreationTime": identity.creation_time,
+        }
+        if not process.is_running() or not identity.running():
+            return None
+        return record
+    except psutil.NoSuchProcess:
+        return None
+    finally:
+        if identity is not None:
+            identity.close()
+
+
 def process_tree(root_pid: int) -> list[dict]:
-    script = (
-        "$items=Get-CimInstance Win32_Process | "
-        "Select-Object ProcessId,ParentProcessId,Name,ExecutablePath,CommandLine,"
-        "@{Name='CreationTime';Expression={$_.CreationDate.ToUniversalTime().ToFileTimeUtc()}}; "
-        f"$pending=@({root_pid}); $seen=@{{}}; $out=@(); "
-        "while($pending.Count){$id=[int]$pending[0]; "
-        "$pending=@($pending | Select-Object -Skip 1); "
-        "if($seen.ContainsKey($id)){continue}; $seen[$id]=$true; "
-        "$match=@($items | Where-Object ProcessId -eq $id); $out += $match; "
-        "$pending += @($items | Where-Object ParentProcessId -eq $id | ForEach-Object ProcessId)}; "
-        "$out | ConvertTo-Json -Compress"
-    )
-    result = run_bounded_process(["powershell", "-NoProfile", "-Command", script], 15, inspect_descendants=False)
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or "could not inspect the owned process tree")
-    if not result.stdout.strip():
-        return []
-    value = json.loads(result.stdout)
-    return value if isinstance(value, list) else [value]
+    return [record for pid in process_tree_ids(root_pid)
+            if (record := process_record(pid)) is not None]
+
+
+def acceptance_process_inventory(executable: Path, identifier: str) -> list[dict]:
+    """Wrapper fallback: inspect only matching app/fixture candidates.
+
+    Returned records are evidence, never termination authority. The wrapper
+    reopens and retains handles, then compares exact times and executable paths.
+    """
+    expected = os.path.normcase(str(executable.resolve()))
+    state_root = Path(os.environ["LOCALAPPDATA"]) / identifier / "plugin-state" / PLUGIN_ID
+    roots = set()
+    for process in psutil.process_iter(["pid", "name"]):
+        name = (process.info["name"] or "").lower()
+        if name not in (executable.name.lower(), "node.exe", "node"):
+            continue
+        record = process_record(process.pid)
+        if record is None:
+            continue
+        if (os.path.normcase(record["ExecutablePath"]) == expected
+                or fixture_command_matches(record["CommandLine"], state_root)):
+            roots.add(process.pid)
+    records = {}
+    for root in roots:
+        for record in process_tree(root):
+            records[record["ProcessId"]] = record
+    return list(records.values())
 
 
 def capture_owned_tree(root: OwnedProcess, records: list[dict] | None = None) -> list[OwnedProcess]:
@@ -254,7 +384,7 @@ def capture_owned_tree(root: OwnedProcess, records: list[dict] | None = None) ->
         return []
     records = process_tree(root.pid) if records is None else records
     root_record = next((item for item in records if int(item["ProcessId"]) == root.pid), None)
-    if root_record is None or int(root_record.get("CreationTime", -1)) // 10 != root.creation_time // 10:
+    if root_record is None or int(root_record.get("CreationTime", -1)) != root.creation_time:
         return []
     pending = {root.pid: root}
     accepted = []
@@ -264,11 +394,13 @@ def capture_owned_tree(root: OwnedProcess, records: list[dict] | None = None) ->
             pid = int(record["ProcessId"])
             if int(record["ParentProcessId"]) != parent_pid or pid == root.pid:
                 continue
-            if int(record.get("CreationTime", -1)) // 10 < parent.creation_time // 10:
+            if int(record.get("CreationTime", -1)) < parent.creation_time:
                 continue
             child = remember_owned_process(pid, record)
             if child is not None and child not in accepted:
                 accepted.append(child)
+                if child not in root.descendants:
+                    root.descendants.append(child)
                 pending[pid] = child
     return accepted
 
@@ -704,12 +836,17 @@ def open_fixture_file(page: Page, file_name: str = "acceptance.litheaccept") -> 
     expect(root).to_have_attribute("aria-expanded", "true", timeout=15_000)
     existing = page.get_by_role("tab", name=re.compile(rf"^{re.escape(file_name)}"))
     if existing.count() > 0:
-        existing.first.hover()
-        existing.first.get_by_role("button").click()
-        expect(existing).to_have_count(0, timeout=15_000)
+        # A restored editor can still be attaching its language server. Select
+        # it without introducing an unrelated close/reopen transaction into
+        # the application-restart scenario under test.
+        existing.first.click()
+        expect(existing.first).to_have_attribute("aria-selected", "true", timeout=15_000)
+        return
     entry = page.get_by_text(file_name, exact=True)
     entry.first.wait_for(state="visible", timeout=30_000)
     entry.first.dblclick()
+    expect(page.get_by_role("tab", name=re.compile(rf"^{re.escape(file_name)}")).first).to_have_attribute(
+        "aria-selected", "true", timeout=15_000)
 
 
 def evidence_files(state_root: Path, prefix: str) -> list[Path]:
@@ -832,7 +969,10 @@ def main() -> int:
     parser.add_argument("--package-v2", required=True, type=Path)
     parser.add_argument("--workspace-one", required=True, type=Path)
     parser.add_argument("--workspace-two", required=True, type=Path)
+    from marketplace_acceptance import add_arguments, validate_arguments
+    add_arguments(parser)
     args = parser.parse_args()
+    validate_arguments(parser, args)
 
     artifact_root = args.artifact_root.resolve()
     artifact_root.mkdir(parents=True, exist_ok=True)
@@ -845,10 +985,11 @@ def main() -> int:
         "macOS native acceptance",
         "This driver is intentionally Windows/WebView2-only; macOS requires its own product acceptance lane.",
     )
-    reporter.document_pending(
-        "roadmap M2 marketplace package acceptance",
-        "The public indexes contain no downloadable Windows package, so a real marketplace install cannot yet be claimed.",
-    )
+    if not args.marketplace:
+        reporter.document_pending(
+            "roadmap M2 marketplace package acceptance",
+            "The optional real HTTPS marketplace lane was not requested; use --marketplace. Native package transactions additionally need the controlled fixture and an already-trusted TLS endpoint.",
+        )
     reporter.document_pending(
         "roadmap M4 build-system provider acceptance",
         "The Windows host does not yet advertise buildSystems/buildProviders; this lane must remain pending instead of treating API rejection as a product failure.",
@@ -1057,7 +1198,9 @@ def main() -> int:
             with reporter.step("uninstall removes package and state"):
                 live = set()
                 if lsp_started:
-                    open_fixture_file(page)
+                    # Exercise uninstall with a genuinely new document after
+                    # rollback, independently of restored-editor reactivation.
+                    open_fixture_file(page, "uninstall.litheaccept")
                     live = wait_for_server_count(state_root, 2)
                     all_owned_fixture_pids.update(live)
                 open_plugin_settings(page)
@@ -1074,6 +1217,33 @@ def main() -> int:
                     )
                 assert not (args.app_local_data / "plugins" / PLUGIN_ID).exists()
                 assert not (args.app_local_data / "plugin-state" / PLUGIN_ID).exists()
+
+            if args.marketplace:
+                from marketplace_acceptance import MarketplaceAcceptance
+
+                def restart_marketplace():
+                    nonlocal session
+                    cleanup_evidence.append(session.stop(require_graceful=True))
+                    session = None
+                    wait_pids_dead(all_owned_fixture_pids, "fixture processes before marketplace restart")
+                    sequence = len(cleanup_evidence) + 1
+                    session = AppSession(
+                        playwright, args.executable.resolve(), args.workspace_one.resolve(),
+                        args.webview_data.resolve(), artifact_root / "logs", sequence,
+                    )
+                    current = session.start()
+                    finish_onboarding(current)
+                    return current
+
+                # The disk lane deliberately opened two workspaces. Start the
+                # marketplace with one window so restoring an old second editor
+                # cannot introduce an extra language-server owner into its cases.
+                with reporter.step("marketplace isolated native session"):
+                    page = restart_marketplace()
+                MarketplaceAcceptance(
+                    sys.modules[__name__], args, reporter, page,
+                    restart_marketplace, all_owned_fixture_pids,
+                ).run()
 
             with reporter.step("owned application and helper processes cleanly terminate"):
                 cleanup_evidence.append(session.stop(require_graceful=True))
@@ -1192,6 +1362,9 @@ def main() -> int:
                         "maxMs": 120000,
                     }
                 )
+        if args.marketplace:
+            from marketplace_acceptance import record_unreached_cases
+            record_unreached_cases(reporter)
         write_json(
             args.report,
             {

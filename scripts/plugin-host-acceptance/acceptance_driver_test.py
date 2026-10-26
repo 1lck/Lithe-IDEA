@@ -4,13 +4,16 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
 import json
 import subprocess
 import sys
 import tempfile
 import time
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
+import acceptance_driver as driver
 from acceptance_driver import (
     DISPLAY_NAME, PLUGIN_ID, OwnedProcess, fixture_command_matches,
     plugin_row, process_exists, run_bounded_process,
@@ -28,18 +31,25 @@ def run_case(name, action, tests, max_ms=10_000):
     except Exception as error:  # noqa: BLE001 - the report must retain any failure.
         status = "failed"
         details = f"{type(error).__name__}: {error}"
+    duration_ms = round((time.monotonic() - started) * 1000, 3)
+    if duration_ms >= max_ms:
+        status = "failed"
+        details = f"{details}; " if details else ""
+        details += f"test exceeded its {max_ms}ms budget ({duration_ms}ms)"
     tests.append(
         {
             "name": name,
             "suite": "plugin-host-acceptance / driver",
             "status": status,
-            "durationMs": round((time.monotonic() - started) * 1000, 3),
+            "durationMs": duration_ms,
             "details": details,
             "maxMs": max_ms,
         }
     )
     if status != "passed":
-        raise AssertionError(details)
+        # Retain the failure and nonzero suite exit while still checking the
+        # remaining cleanup/identity/DOM regressions on an unhealthy machine.
+        print(f"FAIL {name}: {details}", file=sys.stderr)
 
 
 def grouped_plugin_dom(browser_channel: str) -> None:
@@ -92,6 +102,16 @@ def grouped_plugin_dom(browser_channel: str) -> None:
             expect(page.locator("[data-plugin-source='bundled']")).to_have_count(1)
             expect(page.locator("[data-plugin-id='io.example.other']")).to_have_count(1)
             assert page.locator("body").get_attribute("data-trap") is None
+            page.set_content('''
+                <div role="treeitem" data-root="true" aria-expanded="true">workspace</div>
+                <div role="tab" aria-selected="false" onclick="this.setAttribute('aria-selected','true')">
+                  acceptance.litheaccept
+                  <button onclick="document.body.dataset.closed='true';event.stopPropagation()">Close</button>
+                </div>
+            ''', timeout=2_000)
+            driver.open_fixture_file(page)
+            expect(page.get_by_role("tab")).to_have_attribute("aria-selected", "true")
+            assert page.locator("body").get_attribute("data-closed") is None
         finally:
             browser.close()
 
@@ -118,6 +138,177 @@ def main() -> int:
         assert result.returncode == 0
         assert result.stdout.strip() == "bounded-ok"
 
+    def output_is_utf8_and_loss_tolerant():
+        result = run_bounded_process([
+            sys.executable, "-c",
+            "import sys; "
+            "sys.stdout.buffer.write('进程输出'.encode('utf-8') + b'\\xff'); "
+            "sys.stderr.buffer.write('查询错误'.encode('utf-8') + b'\\xfe'); "
+            "sys.exit(1)",
+        ], timeout_seconds=5)
+        assert result.returncode == 1
+        assert result.stdout == "进程输出\ufffd", repr(result.stdout)
+        assert result.stderr == "查询错误\ufffd", repr(result.stderr)
+
+    def inspection_failure_is_not_an_empty_tree():
+        with patch.object(driver, "process_tree_ids", return_value=[123]):
+            with patch.object(driver.psutil, "Process", side_effect=driver.psutil.AccessDenied(123)):
+                try:
+                    driver.process_tree(123)
+                except driver.psutil.AccessDenied:
+                    pass
+                else:
+                    raise AssertionError("inspection failure was accepted as an empty tree")
+
+    def metadata_rejects_pid_reuse_and_closes_identity():
+        process, identity = MagicMock(), MagicMock()
+        process.is_running.return_value = False
+        identity.creation_time = 134000000000000001
+        identity.executable = "C:/fixture/node.exe"
+        with patch.object(driver.psutil, "Process", return_value=process):
+            with patch.object(driver.OwnedProcess, "capture", return_value=identity):
+                assert driver.process_record(123) is None
+                identity.close.assert_called_once()
+        process.is_running.return_value = True
+        identity.running.return_value = True
+        process.ppid.return_value = 100
+        process.name.return_value = "node.exe"
+        process.cmdline.return_value = ["node.exe", "中文 fixture.mjs"]
+        identity.reset_mock()
+        with patch.object(driver.psutil, "Process", return_value=process):
+            with patch.object(driver.OwnedProcess, "capture", return_value=identity):
+                record = driver.process_record(123)
+                assert record["CreationTime"] == 134000000000000001
+                assert record["ParentProcessId"] == 100
+                assert record["CommandLine"] == 'node.exe "中文 fixture.mjs"'
+                identity.close.assert_called_once()
+
+    def topology_snapshot_closes_handles_and_rejects_errors():
+        entries = iter([(101, 0), (102, 101), (103, 102), (999, 0)])
+
+        def next_entry(_handle, pointer):
+            try:
+                pid, parent_pid = next(entries)
+            except StopIteration:
+                return False
+            entry = ctypes.cast(pointer, ctypes.POINTER(driver.ProcessEntry32)).contents
+            assert entry.dwSize == ctypes.sizeof(driver.ProcessEntry32)
+            entry.th32ProcessID, entry.th32ParentProcessID = pid, parent_pid
+            return True
+
+        with patch.object(driver.kernel32, "CreateToolhelp32Snapshot", return_value=456):
+            with patch.object(driver.kernel32, "Process32FirstW", side_effect=next_entry):
+                with patch.object(driver.kernel32, "Process32NextW", side_effect=next_entry):
+                    with patch.object(driver.kernel32, "GetLastError", return_value=driver.ERROR_NO_MORE_FILES):
+                        with patch.object(driver.kernel32, "CloseHandle") as close:
+                            assert driver.process_tree_ids(101) == [101, 102, 103]
+                            close.assert_called_once_with(456)
+            with patch.object(driver.kernel32, "Process32FirstW", return_value=False):
+                with patch.object(driver.kernel32, "GetLastError", return_value=5):
+                    with patch.object(driver.kernel32, "CloseHandle") as close:
+                        try:
+                            driver.process_tree_ids(101)
+                        except OSError as error:
+                            assert error.winerror == 5
+                        else:
+                            raise AssertionError("failed topology snapshot was accepted as an empty tree")
+                        close.assert_called_once_with(456)
+        with patch.object(driver.kernel32, "CreateToolhelp32Snapshot", return_value=driver.INVALID_HANDLE_VALUE):
+            with patch.object(driver.kernel32, "GetLastError", return_value=5):
+                with patch.object(driver.kernel32, "CloseHandle") as close:
+                    try:
+                        driver.process_tree_ids(101)
+                    except OSError as error:
+                        assert error.winerror == 5
+                    else:
+                        raise AssertionError("invalid snapshot handle was accepted")
+                    close.assert_not_called()
+
+    def wrapper_inventory_rejects_unrelated_lookalikes():
+        executable = Path("C:/fixture/lithe-host-acceptance.exe")
+        state = Path(driver.os.environ["LOCALAPPDATA"]) / driver.ACCEPTANCE_IDENTIFIER / "plugin-state" / PLUGIN_ID
+        candidates = []
+        records = {}
+        for pid, directory in ((101, state / "workspace"), (102, Path(str(state) + "-unrelated"))):
+            process = MagicMock(pid=pid)
+            process.info = {"pid": pid, "name": "node.exe"}
+            candidates.append(process)
+            records[pid] = {"ProcessId": pid, "ExecutablePath": "C:/runtime/node.exe",
+                            "CommandLine": subprocess.list2cmdline([
+                                "node.exe", "C:/fixture/fake-lsp-server.mjs", "--state-dir", str(directory),
+                            ])}
+        with patch.object(driver.psutil, "process_iter", return_value=candidates):
+            with patch.object(driver, "process_record", side_effect=records.get):
+                with patch.object(driver, "process_tree", side_effect=lambda pid: [records[pid]]) as tree:
+                    assert driver.acceptance_process_inventory(executable, driver.ACCEPTANCE_IDENTIFIER) == [records[101]]
+                    tree.assert_called_once_with(101)
+    def query_failure_still_cleans_retained_handles():
+        class HandleOwner:
+            def __init__(self, pid):
+                self.pid = pid
+                self.alive = True
+                self.descendants = []
+                self.terminated = False
+                self.creation_time = pid * 100
+
+            def running(self):
+                return self.alive
+
+            def terminate(self):
+                self.terminated = True
+                self.alive = False
+
+        root, child, unrelated = (HandleOwner(pid) for pid in (101, 102, 103))
+        records = [
+            {"ProcessId": root.pid, "ParentProcessId": 0, "CreationTime": root.creation_time},
+            {"ProcessId": child.pid, "ParentProcessId": root.pid, "CreationTime": child.creation_time},
+        ]
+        with patch.object(driver, "remember_owned_process", return_value=child):
+            assert driver.capture_owned_tree(root, records) == [child]
+        query_error = RuntimeError("CIM 查询失败")
+        with patch.object(driver, "owned_processes", {item.pid: item for item in (root, child, unrelated)}):
+            with patch.object(driver, "process_tree", side_effect=query_error):
+                try:
+                    driver.terminate_process_tree(root.pid, timeout_seconds=0)
+                except RuntimeError as error:
+                    assert error.__cause__ is query_error
+                    assert "CIM 查询失败" in str(error)
+                    assert "uninspected descendants may remain" in str(error)
+                else:
+                    raise AssertionError("failed inspection reported complete tree cleanup")
+        assert root.terminated and child.terminated
+        assert unrelated.alive and not unrelated.terminated
+
+    def timeout_query_failure_keeps_error_and_reaps_root():
+        real_popen = driver.subprocess.Popen
+        spawned = []
+
+        def capture_popen(*positional, **keyword):
+            process = real_popen(*positional, **keyword)
+            spawned.append(process)
+            return process
+
+        try:
+            with patch.object(driver.subprocess, "Popen", side_effect=capture_popen):
+                with patch.object(driver, "process_tree", side_effect=RuntimeError("CIM unavailable")):
+                    try:
+                        run_bounded_process([
+                            sys.executable, "-c", "import time; time.sleep(60)",
+                        ], timeout_seconds=0.05)
+                    except TimeoutError as error:
+                        assert "CIM unavailable" in str(error), str(error)
+                        assert "uninspected descendants may remain" in str(error), str(error)
+                    else:
+                        raise AssertionError("bounded process did not time out")
+            assert len(spawned) == 1
+            assert spawned[0].poll() is not None, "retained root survived failed inspection"
+            assert spawned[0].pid not in driver.owned_processes, "root ownership was not released after cleanup"
+        finally:
+            for process in spawned:
+                if process.poll() is None:
+                    process.kill()
+                process.wait(timeout=3)
+
     def timeout_cleans_tree():
         args.report.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(
@@ -125,26 +316,47 @@ def main() -> int:
         ) as directory:
             pid_file = Path(directory) / "child.pid"
             script = (
-                "import pathlib,subprocess,sys,time; "
+                "import json,pathlib,subprocess,sys,time; "
+                f"sys.path.insert(0,{str(Path(__file__).resolve().parent)!r}); "
+                "from acceptance_driver import OwnedProcess; "
                 "p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)']); "
-                f"pathlib.Path({str(pid_file)!r}).write_text(str(p.pid)); "
+                "owner=OwnedProcess.capture(p.pid); assert owner is not None; "
+                f"pathlib.Path({str(pid_file)!r}).write_text(json.dumps("
+                "{'pid':p.pid,'CreationTime':owner.creation_time,'ExecutablePath':owner.executable}),encoding='utf-8'); "
                 "time.sleep(60)"
             )
+            child_owner = None
             try:
-                run_bounded_process([sys.executable, "-c", script], timeout_seconds=1)
-            except TimeoutError:
-                pass
-            else:
-                raise AssertionError("bounded process did not time out")
-            deadline = time.monotonic() + 5
-            while not pid_file.exists() and time.monotonic() < deadline:
-                time.sleep(0.02)
-            assert pid_file.exists(), "fixture child PID was not recorded"
-            child_pid = int(pid_file.read_text(encoding="utf-8"))
-            deadline = time.monotonic() + 5
-            while process_exists(child_pid) and time.monotonic() < deadline:
-                time.sleep(0.05)
-            assert not process_exists(child_pid), f"timed-out child {child_pid} survived cleanup"
+                try:
+                    run_bounded_process([sys.executable, "-B", "-c", script], timeout_seconds=1)
+                except TimeoutError as error:
+                    timeout_error = str(error)
+                else:
+                    raise AssertionError("bounded process did not time out")
+                deadline = time.monotonic() + 5
+                while not pid_file.exists() and time.monotonic() < deadline:
+                    time.sleep(0.02)
+                assert pid_file.exists(), "fixture child PID was not recorded"
+                identity = json.loads(pid_file.read_text(encoding="utf-8"))
+                child_pid = identity["pid"]
+                # Keep teardown ownership separate from the driver's cached
+                # tree, so it cannot make the behavior under test succeed.
+                child_owner = OwnedProcess.capture(child_pid, identity)
+                deadline = time.monotonic() + 5
+                while process_exists(child_pid) and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                assert not process_exists(child_pid), f"timed-out child {child_pid} survived cleanup: {timeout_error}"
+                assert "cleanup could not be confirmed" not in timeout_error, timeout_error
+            finally:
+                if child_owner is None and pid_file.exists():
+                    identity = json.loads(pid_file.read_text(encoding="utf-8"))
+                    child_owner = OwnedProcess.capture(identity["pid"], identity)
+                if child_owner is not None:
+                    try:
+                        child_owner.terminate()
+                        driver.wait_until(lambda: not child_owner.running(), 3, "the fixture child's final cleanup", interval=0.02)
+                    finally:
+                        child_owner.close()
 
     def retained_handle_ignores_changed_pid():
         first = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
@@ -233,6 +445,13 @@ def main() -> int:
 
     try:
         run_case("bounded process captures a successful child", completes, tests)
+        run_case("process output decodes UTF-8 and replaces malformed bytes", output_is_utf8_and_loss_tolerant, tests)
+        run_case("inspection errors cannot become an empty process tree", inspection_failure_is_not_an_empty_tree, tests)
+        run_case("metadata rejects PID reuse and preserves exact native identity", metadata_rejects_pid_reuse_and_closes_identity, tests)
+        run_case("topology snapshots close their handles and reject inspection errors", topology_snapshot_closes_handles_and_rejects_errors, tests)
+        run_case("wrapper inventory rejects unrelated fixture path lookalikes", wrapper_inventory_rejects_unrelated_lookalikes, tests)
+        run_case("query failure cleans retained handles without touching unrelated processes", query_failure_still_cleans_retained_handles, tests)
+        run_case("timeout preserves query failure and reaps its retained root", timeout_query_failure_keeps_error_and_reaps_root, tests)
         run_case("timeout terminates the owned process tree", timeout_cleans_tree, tests)
         run_case("termination targets a retained handle despite a changed PID", retained_handle_ignores_changed_pid, tests)
         run_case("creation-time and executable mismatches reject ownership", mismatched_identity_is_not_owned, tests)
@@ -264,7 +483,7 @@ def main() -> int:
             + "\n",
             encoding="utf-8",
         )
-    return 0
+    return 1 if any(test["status"] == "failed" for test in tests) else 0
 
 
 if __name__ == "__main__":

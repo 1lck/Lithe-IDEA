@@ -325,6 +325,7 @@ jobs:
             "src/features/plugins/declarative-plugins-section.test.tsx",
             "src/features/build-systems/build-systems-service.test.ts",
             "src/features/build-systems/build-systems-store.test.ts",
+            "src/features/build-systems/components/build-model-controls.test.tsx",
             "src/features/build-systems/components/build-system-pane.test.tsx",
             "src/features/build-systems/output/build-output-store.test.ts",
             "src/features/build-systems/output/build-output-path.test.ts",
@@ -342,6 +343,22 @@ jobs:
             node $runner --suite-timeout-ms 60000 --report ".artifacts/test-stability/windows-plugin-integration-$index.json" -- "./$suite"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
+
+      - name: Set up Python for plugin acceptance driver checks
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+
+      - name: Test plugin acceptance process ownership and marketplace fixtures
+        shell: pwsh
+        timeout-minutes: 4
+        run: |
+          python -m pip install --disable-pip-version-check playwright==1.60.0 psutil==7.2.2
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -B scripts/plugin-host-acceptance/acceptance_driver_test.py --report .artifacts/test-stability/plugin-host-driver.json --dom-browser msedge
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -B scripts/plugin-host-acceptance/marketplace_acceptance_test.py --report .artifacts/test-stability/plugin-marketplace-driver.json --dom-browser msedge
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Test Agent panel and capability gate
         shell: pwsh

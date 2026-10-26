@@ -88425,6 +88425,222 @@
       }
     },
     {
+      "id": "buildSystems.model.title",
+      "description": "Windows command model loading UI: title",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.model.load",
+      "description": "Windows command model loading UI: load",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.model.reload",
+      "description": "Windows command model loading UI: reload",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.model.cancel",
+      "description": "Windows command model loading UI: cancel",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.model.retryCancel",
+      "description": "Windows command model loading UI: retryCancel",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.model.reviewTitle",
+      "description": "Windows command model loading UI: reviewTitle",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.model.approve",
+      "description": "Windows command model loading UI: approve",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.model.decline",
+      "description": "Windows command model loading UI: decline",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.model.plugin",
+      "description": "Windows command model loading UI: plugin",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.model.buildSystem",
+      "description": "Windows command model loading UI: buildSystem",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.model.workspace",
+      "description": "Windows command model loading UI: workspace",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.model.instance",
+      "description": "Windows command model loading UI: instance",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.model.operation",
+      "description": "Windows command model loading UI: operation",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.model.generation",
+      "description": "Windows command model loading UI: generation",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.model.projectCode",
+      "description": "Windows command model loading UI: projectCode",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.model.noProjectCode",
+      "description": "Windows command model loading UI: noProjectCode",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.model.network",
+      "description": "Windows command model loading UI: network",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.model.noNetwork",
+      "description": "Windows command model loading UI: noNetwork",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.model.failed",
+      "description": "Windows command model loading UI: failed",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "message": "string"
+      }
+    },
+    {
+      "id": "buildSystems.model.cancelFailed",
+      "description": "Windows command model loading UI: cancelFailed",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "message": "string"
+      }
+    },
+    {
+      "id": "buildSystems.model.stderr",
+      "description": "Windows command model loading UI: stderr",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.model.phase.preparing",
+      "description": "Windows command model loading UI: phase.preparing",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.model.phase.review",
+      "description": "Windows command model loading UI: phase.review",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.model.phase.loading",
+      "description": "Windows command model loading UI: phase.loading",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.model.phase.stopping",
+      "description": "Windows command model loading UI: phase.stopping",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.model.phase.ready",
+      "description": "Windows command model loading UI: phase.ready",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.model.phase.declined",
+      "description": "Windows command model loading UI: phase.declined",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.model.phase.stopped",
+      "description": "Windows command model loading UI: phase.stopped",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.model.phase.failed",
+      "description": "Windows command model loading UI: phase.failed",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.model.phase.cancelFailed",
+      "description": "Windows command model loading UI: phase.cancelFailed",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
       "id": "buildSystems.close",
       "description": "Windows declarative build UI: buildSystems.close",
       "platforms": [

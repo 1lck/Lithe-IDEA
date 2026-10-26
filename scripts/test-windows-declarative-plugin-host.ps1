@@ -4,13 +4,23 @@ param(
     [string]$RustTarget = "x86_64-pc-windows-msvc",
     [switch]$SkipBuild,
     [switch]$ResumeBuild,
-    [string]$ResourceSource = ""
+    [string]$ResourceSource = "",
+    [switch]$Marketplace,
+    [string]$MarketplaceFixtureRoot = "",
+    [string]$MarketplaceTlsCert = "",
+    [string]$MarketplaceTlsKey = "",
+    [string]$MarketplaceListenHost = "127.0.0.1"
 )
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 if (-not $IsWindows) { throw "The declarative plugin host acceptance requires Windows." }
 if ($SkipBuild -and $ResumeBuild) { throw "Choose either -SkipBuild or -ResumeBuild." }
+$controlledMarketplaceArguments = @($MarketplaceFixtureRoot, $MarketplaceTlsCert, $MarketplaceTlsKey)
+$providedMarketplaceArguments = @($controlledMarketplaceArguments | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+if ($providedMarketplaceArguments.Count -gt 0 -and (-not $Marketplace -or $providedMarketplaceArguments.Count -ne 3)) {
+    throw "Controlled marketplace acceptance requires -Marketplace, -MarketplaceFixtureRoot, -MarketplaceTlsCert and -MarketplaceTlsKey together."
+}
 
 $root = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
 $artifactParent = [IO.Path]::GetFullPath((Join-Path $root ".artifacts"))
@@ -115,7 +125,15 @@ function Write-NormalizedReport {
 function Stop-OwnedAcceptanceProcesses {
     param([Parameter(Mandatory)][string]$StagedExecutable)
     $executablePath = [IO.Path]::GetFullPath($StagedExecutable)
-    $snapshot = @(Get-CimInstance Win32_Process)
+    # Share the driver's upstream native inspector. Full CIM enumeration can
+    # hang on an unrelated process even when every owned process has exited.
+    $inventoryPath = Join-Path $evidenceRoot "wrapper-process-inventory.json"
+    $inventoryCode = "import sys,json,pathlib; sys.path.insert(0,sys.argv[1]); import acceptance_driver as d; print(json.dumps(d.acceptance_process_inventory(pathlib.Path(sys.argv[2]),sys.argv[3]),ensure_ascii=True))"
+    $inventoryExit = Invoke-BoundedDriver -Arguments @(
+        "-B", "-c", $inventoryCode, $fixtureRoot, $executablePath, $acceptanceIdentifier
+    ) -LogPath $inventoryPath -TimeoutSeconds 15
+    if ($inventoryExit -ne 0) { throw "Could not inspect acceptance-owned processes; see $inventoryPath" }
+    $snapshot = @(Get-Content -LiteralPath $inventoryPath -Raw | ConvertFrom-Json)
     $survivors = @($snapshot | Where-Object {
         ($_.ExecutablePath -and [IO.Path]::GetFullPath($_.ExecutablePath) -eq $executablePath) -or
         ($_.CommandLine -and
@@ -140,15 +158,15 @@ function Stop-OwnedAcceptanceProcesses {
                 $owner = [Diagnostics.Process]::GetProcessById($processId)
                 $null = $owner.Handle
                 if ($owner.HasExited) { continue }
-                $created = $record.CreationDate.ToUniversalTime().ToFileTimeUtc()
+                $created = [int64]$record.CreationTime
                 $actualCreated = $owner.StartTime.ToUniversalTime().ToFileTimeUtc()
-                if ([Math]::Floor($created / 10) -ne [Math]::Floor($actualCreated / 10)) { continue }
+                if ($created -ne $actualCreated) { continue }
                 if (-not $record.ExecutablePath -or
                     [IO.Path]::GetFullPath($owner.MainModule.FileName) -ne [IO.Path]::GetFullPath($record.ExecutablePath)) { continue }
                 $owners.Add($owner)
                 $retained = $true
                 foreach ($child in $snapshot) {
-                    if ($child.ParentProcessId -eq $processId -and $child.CreationDate -ge $record.CreationDate) {
+                    if ($child.ParentProcessId -eq $processId -and $child.CreationTime -ge $record.CreationTime) {
                         $pending.Enqueue($child)
                     }
                 }
@@ -215,12 +233,17 @@ $customConfig = Join-Path $artifactRoot "tauri.host-acceptance.conf.json"
 
 Invoke-NativeChecked -Executable "node" -Arguments @("--check", (Join-Path $fixtureRoot "fake-lsp-server.mjs")) `
     -FailureMessage "The controlled language-server fixture has invalid JavaScript"
+Invoke-NativeChecked -Executable "python" -Arguments @("-B", "-c", "import playwright,psutil") `
+    -FailureMessage "Install acceptance dependencies with python -m pip install playwright==1.60.0 psutil==7.2.2"
 Invoke-NativeChecked -Executable "python" -Arguments @(
     "-B",
     "-c",
     "import ast,pathlib; [ast.parse(pathlib.Path(p).read_text(encoding='utf-8')) for p in __import__('sys').argv[1:]]",
     (Join-Path $fixtureRoot "acceptance_driver.py"),
     (Join-Path $fixtureRoot "acceptance_driver_test.py"),
+    (Join-Path $fixtureRoot "marketplace_acceptance.py"),
+    (Join-Path $fixtureRoot "marketplace_acceptance_test.py"),
+    (Join-Path $fixtureRoot "marketplace_fixture.py"),
     (Join-Path $fixtureRoot "generate_packages.py")
 ) -FailureMessage "A plugin host acceptance Python source file has invalid syntax"
 
@@ -235,6 +258,12 @@ Invoke-NativeChecked -Executable "python" -Arguments @(
     (Join-Path $fixtureRoot "acceptance_driver_test.py"),
     "--report", $driverUnitReport
 ) -FailureMessage "The acceptance process-owner unit checks failed"
+
+Invoke-NativeChecked -Executable "python" -Arguments @(
+    "-B",
+    (Join-Path $fixtureRoot "marketplace_acceptance_test.py"),
+    "--report", (Join-Path $stabilityRoot "plugin-marketplace-acceptance-driver.json")
+) -FailureMessage "The marketplace fixture and locator unit checks failed"
 
 $zsh = Get-Command zsh -ErrorAction SilentlyContinue
 $immutabilityReport = Join-Path $stabilityRoot "plugin-host-acceptance-source-guard.json"
@@ -254,11 +283,11 @@ if ($null -eq $zsh) {
 }
 
 if (-not $SkipBuild) {
-    $heavyProcesses = @(Get-CimInstance Win32_Process | Where-Object {
-        $_.Name -in @("cargo.exe", "rustc.exe")
-    })
+    # Only presence is needed here; avoid a full CIM inventory whose unrelated
+    # process properties can fail before the build even starts.
+    $heavyProcesses = @(Get-Process -Name cargo, rustc -ErrorAction SilentlyContinue)
     if ($heavyProcesses.Count -gt 0) {
-        throw "Refusing to overlap the formal Release build with existing Cargo/Rust processes: $($heavyProcesses.ProcessId -join ', ')"
+        throw "Refusing to overlap the formal Release build with existing Cargo/Rust processes: $($heavyProcesses.Id -join ', ')"
     }
 
     if (-not [string]::IsNullOrWhiteSpace($ResourceSource)) {
@@ -393,6 +422,7 @@ $workspaceOne = Join-Path $workspaces "one"
 $workspaceTwo = Join-Path $workspaces "two"
 New-Item -ItemType Directory -Path $workspaceOne, $workspaceTwo -Force | Out-Null
 Set-Content -LiteralPath (Join-Path $workspaceOne "acceptance.litheaccept") -Value "workspace one" -Encoding utf8NoBOM
+Set-Content -LiteralPath (Join-Path $workspaceOne "uninstall.litheaccept") -Value "uninstall workflow" -Encoding utf8NoBOM
 Set-Content -LiteralPath (Join-Path $workspaceTwo "acceptance.litheaccept") -Value "workspace two" -Encoding utf8NoBOM
 
 $appLocalData = Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) $acceptanceIdentifier
@@ -420,7 +450,7 @@ $driverLog = Join-Path $artifactRoot "acceptance-driver.log"
 $driverExit = 1
 $cleanupFailure = $null
 try {
-    $driverExit = Invoke-BoundedDriver -LogPath $driverLog -Arguments @(
+    $driverArguments = @(
         "-B", (Join-Path $fixtureRoot "acceptance_driver.py"),
         "--executable", $stagedExecutable,
         "--run-image", $runImage,
@@ -435,6 +465,16 @@ try {
         "--workspace-one", $workspaceOne,
         "--workspace-two", $workspaceTwo
     )
+    if ($Marketplace) { $driverArguments += "--marketplace" }
+    if ($providedMarketplaceArguments.Count -eq 3) {
+        $driverArguments += @(
+            "--marketplace-fixture-root", ([IO.Path]::GetFullPath($MarketplaceFixtureRoot)),
+            "--marketplace-tls-cert", ([IO.Path]::GetFullPath($MarketplaceTlsCert)),
+            "--marketplace-tls-key", ([IO.Path]::GetFullPath($MarketplaceTlsKey)),
+            "--marketplace-listen-host", $MarketplaceListenHost
+        )
+    }
+    $driverExit = Invoke-BoundedDriver -LogPath $driverLog -Arguments $driverArguments
 } catch {
     $driverFailure = $_.ToString()
     Write-NormalizedReport -Path $acceptanceReport -Name "native acceptance driver deadline or startup" `

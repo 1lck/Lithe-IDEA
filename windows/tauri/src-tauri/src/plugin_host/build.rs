@@ -22,12 +22,18 @@ use tauri::{AppHandle, Manager, WebviewWindow};
 
 mod host;
 mod operation;
+mod output;
 mod process;
+mod run;
+#[cfg(test)]
+mod run_tests;
 #[cfg(test)]
 mod tests;
 
 pub use host::BuildModelLoadResult;
 pub use operation::BuildModelReview;
+pub use output::BuildRunTerminal;
+pub use run::{BuildRunReview, BuildRunSelection};
 
 /// Registry shared by every window; entries are keyed per window label.
 #[derive(Default)]
@@ -220,6 +226,7 @@ pub async fn declarative_plugins_build_refresh(
     workspace_root: String,
 ) -> Result<Value, String> {
     let window_label = window.label().to_string();
+    let _suspension = suspend_build_execution(&app, &window_label)?;
     stop_build_operations(&app, |operation| {
         operation.context.window_label == window_label
     })
@@ -251,6 +258,7 @@ pub async fn declarative_plugins_build_set_option(
     value: Option<Value>,
 ) -> Result<Value, String> {
     let window_label = window.label().to_string();
+    let _suspension = suspend_build_execution(&app, &window_label)?;
     stop_build_operations(&app, |operation| {
         operation.context.window_label == window_label
     })
@@ -310,6 +318,11 @@ pub async fn declarative_plugins_build_plugins_changed(
     plugin_id: String,
 ) -> Result<(), String> {
     let window_label = window.label().to_string();
+    app.state::<BuildHostState>()
+        .registry
+        .lock()
+        .map_err(|_| "build registry mutex poisoned")?
+        .drop_plugin(&plugin_id);
     stop_build_operations(&app, |operation| operation.context.plugin_id == plugin_id).await?;
     run_build_task(app, move |registry, _source, _persistence| {
         registry.drop_plugin(&plugin_id);
@@ -328,6 +341,23 @@ pub async fn declarative_plugins_build_close_workspace(
     workspace_root: String,
 ) -> Result<(), String> {
     let window_label = window.label().to_string();
+    // A late close for a detached workspace must not suspend a newer one.
+    let _suspension = {
+        let state = app.state::<BuildHostState>();
+        let mut registry = state
+            .registry
+            .lock()
+            .map_err(|_| "build registry mutex poisoned")?;
+        if registry.view(&window_label).workspace_root == workspace_root {
+            registry.suspend_execution(&window_label);
+            Some(BuildExecutionSuspension {
+                app: app.clone(),
+                window: window_label.clone(),
+            })
+        } else {
+            None
+        }
+    };
     stop_build_operations(&app, |operation| {
         operation.context.window_label == window_label
             && operation.context.workspace_root == workspace_root
@@ -380,6 +410,41 @@ pub async fn declarative_plugins_build_cancel_operation(
     host::cancel(app, window.label().to_string(), operation_id).await
 }
 
+/// Prepares a declared task/test against the current native model. This call
+/// never probes a wrapper or starts a project process.
+#[tauri::command]
+pub async fn declarative_plugins_build_prepare_run(
+    app: AppHandle,
+    window: WebviewWindow,
+    workspace_root: String,
+    plugin_id: String,
+    build_system_id: String,
+    root: String,
+    selection: BuildRunSelection,
+) -> Result<BuildRunReview, String> {
+    host::prepare_run(
+        app,
+        window.label().to_string(),
+        workspace_root,
+        plugin_id,
+        build_system_id,
+        root,
+        selection,
+    )
+    .await
+}
+
+/// Confirms exactly one prepared operation. Subscribe to this window's
+/// `declarative-build-output` before calling; terminal is the last event.
+#[tauri::command]
+pub async fn declarative_plugins_build_execute_run(
+    app: AppHandle,
+    window: WebviewWindow,
+    operation_id: String,
+) -> Result<BuildRunTerminal, String> {
+    host::execute_run(app, window.label().to_string(), operation_id).await
+}
+
 async fn stop_build_operations(
     app: &AppHandle,
     predicate: impl Fn(&operation::ModelOperation) -> bool,
@@ -391,9 +456,38 @@ async fn stop_build_operations(
     host::drain(operations).await
 }
 
+struct BuildExecutionSuspension {
+    app: AppHandle,
+    window: String,
+}
+impl Drop for BuildExecutionSuspension {
+    fn drop(&mut self) {
+        let state = self.app.state::<BuildHostState>();
+        if let Ok(mut registry) = state.registry.lock() {
+            registry.resume_execution(&self.window);
+        };
+    }
+}
+
+fn suspend_build_execution(
+    app: &AppHandle,
+    window_label: &str,
+) -> Result<BuildExecutionSuspension, String> {
+    app.state::<BuildHostState>()
+        .registry
+        .lock()
+        .map_err(|_| "build registry mutex poisoned")?
+        .suspend_execution(window_label);
+    Ok(BuildExecutionSuspension {
+        app: app.clone(),
+        window: window_label.into(),
+    })
+}
+
 /// Main's native window-destruction hook must call this even when pagehide
 /// cannot run. Native cancellation also observes a missing host window.
 pub async fn close_build_window(app: AppHandle, window_label: String) -> Result<(), String> {
+    let _suspension = suspend_build_execution(&app, &window_label)?;
     stop_build_operations(&app, |operation| {
         operation.context.window_label == window_label
     })

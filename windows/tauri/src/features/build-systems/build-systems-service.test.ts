@@ -530,6 +530,287 @@ describe("explicit command model operations", () => {
     mayUseNetwork: true,
   };
 
+  test("caller disposal before prepare completes cancels its late native slot without approval", async () => {
+    resetState();
+    activateWorkspace("ws-a", WORKSPACE_A);
+    const controller = new AbortController();
+    cleanups.push(() => controller.abort());
+    const prepared = deferCommand("declarative_plugins_build_prepare_model");
+    const approve = mock(async () => true);
+    const pending = buildSystemsService.loadBuildModel(
+      catalogEntry.pluginId,
+      "cargo",
+      ".",
+      approve,
+      {},
+      { signal: controller.signal },
+    );
+    await flushMicrotasks();
+    controller.abort();
+    prepared.resolve(review);
+    expect(await pending).toBeNull();
+    expect(approve).toHaveBeenCalledTimes(0);
+    expect(
+      invokeCalls.filter((row) => row.command === "declarative_plugins_build_cancel_operation"),
+    ).toHaveLength(1);
+    expect(invokeCalls.some((row) => row.command === "declarative_plugins_build_load_model")).toBe(
+      false,
+    );
+  });
+
+  for (const invalidation of ["generation", "selection", "option", "disable"] as const) {
+    test(`${invalidation} invalidation aborts consent without relying on the bootstrap listener`, async () => {
+      resetState();
+      activateWorkspace("ws-a", WORKSPACE_A);
+      const actions = useBuildSystemsStore.getState().actions;
+      const initial = cargoView(WORKSPACE_A, 1);
+      initial.instances.push({ ...initial.instances[0]!, root: "nested" });
+      actions.applyView(initial, actions.beginRequest());
+      const prepared = deferCommand("declarative_plugins_build_prepare_model");
+      const consent = deferred();
+      let signal: AbortSignal | undefined;
+      const pending = buildSystemsService.loadBuildModel(
+        catalogEntry.pluginId,
+        "cargo",
+        ".",
+        (_review, input) => {
+          signal = input;
+          return consent.promise as Promise<boolean>;
+        },
+      );
+      await flushMicrotasks();
+      prepared.resolve(review);
+      await flushMicrotasks();
+      if (invalidation === "generation")
+        actions.applyView({ ...initial, generation: 2 }, actions.beginRequest());
+      else if (invalidation === "selection")
+        actions.selectInstance(`build-system:${catalogEntry.pluginId}:cargo`, "nested");
+      else if (invalidation === "option")
+        actions.applyView(
+          {
+            ...initial,
+            instances: initial.instances.map((row) => ({ ...row, optionFingerprint: "changed" })),
+          },
+          actions.beginRequest(),
+        );
+      else actions.dropPlugin(catalogEntry.pluginId);
+      expect(signal!.aborted).toBe(true);
+      consent.resolve(true);
+      expect(await pending).toBeNull();
+      expect(
+        invokeCalls.some((row) => row.command === "declarative_plugins_build_load_model"),
+      ).toBe(false);
+    });
+  }
+
+  test("an option request invalidates open consent before its deferred response lands", async () => {
+    resetState();
+    activateWorkspace("ws-a", WORKSPACE_A);
+    const actions = useBuildSystemsStore.getState().actions;
+    const initial = cargoView(WORKSPACE_A, 1);
+    actions.applyView(initial, actions.beginRequest());
+    const prepared = deferCommand("declarative_plugins_build_prepare_model");
+    const changed = deferCommand("declarative_plugins_build_set_option");
+    const consent = deferred();
+    let signal: AbortSignal | undefined;
+    const pending = buildSystemsService.loadBuildModel(
+      catalogEntry.pluginId,
+      "cargo",
+      ".",
+      (_review, input) => {
+        signal = input;
+        return consent.promise as Promise<boolean>;
+      },
+    );
+    await flushMicrotasks();
+    prepared.resolve(review);
+    await flushMicrotasks();
+    const edit = setBuildOption(catalogEntry.pluginId, "cargo", ".", "release", true);
+    // Invalidate at request initiation, while native has returned no new
+    // fingerprint/generation that could otherwise close this old review.
+    expect(signal!.aborted).toBe(true);
+    consent.resolve(true);
+    expect(await pending).toBeNull();
+    expect(invokeCalls.some((row) => row.command === "declarative_plugins_build_load_model")).toBe(
+      false,
+    );
+    changed.resolve({
+      ...initial,
+      instances: initial.instances.map((row) => ({ ...row, optionFingerprint: "changed" })),
+    });
+    await edit;
+    expect(
+      useBuildSystemsStore.getState().windows[`build-system:${catalogEntry.pluginId}:cargo`]!
+        .instances[0]!.optionFingerprint,
+    ).toBe("changed");
+  });
+
+  test("a review with the wrong identity is cancelled without asking for consent", async () => {
+    resetState();
+    activateWorkspace("ws-a", WORKSPACE_A);
+    const prepared = deferCommand("declarative_plugins_build_prepare_model");
+    const approve = mock(async () => true);
+    const pending = buildSystemsService.loadBuildModel(
+      catalogEntry.pluginId,
+      "cargo",
+      ".",
+      approve,
+    );
+    const failed = pending.catch((error) => error);
+    await flushMicrotasks();
+    prepared.resolve({ ...review, root: "foreign" });
+    expect(String(await failed)).toContain("staleContext");
+    expect(approve).toHaveBeenCalledTimes(0);
+    expect(
+      invokeCalls.some((row) => row.command === "declarative_plugins_build_cancel_operation"),
+    ).toBe(true);
+  });
+
+  test("approval exceptions release the review and report the failure", async () => {
+    resetState();
+    activateWorkspace("ws-a", WORKSPACE_A);
+    const prepared = deferCommand("declarative_plugins_build_prepare_model");
+    const pending = buildSystemsService.loadBuildModel(
+      catalogEntry.pluginId,
+      "cargo",
+      ".",
+      async () => {
+        throw new Error("fixture consent failure");
+      },
+    );
+    const failure = pending.catch((error) => error);
+    await flushMicrotasks();
+    prepared.resolve(review);
+    expect(String(await failure)).toContain("fixture consent failure");
+    expect(invokeCalls.some((row) => row.command === "declarative_plugins_build_load_model")).toBe(
+      false,
+    );
+    expect(
+      invokeCalls.filter((row) => row.command === "declarative_plugins_build_cancel_operation"),
+    ).toHaveLength(1);
+  });
+
+  test("a result with the wrong operation cannot mark the model loaded", async () => {
+    resetState();
+    activateWorkspace("ws-a", WORKSPACE_A);
+    const prepared = deferCommand("declarative_plugins_build_prepare_model");
+    const loaded = deferCommand("declarative_plugins_build_load_model");
+    const pending = buildSystemsService.loadBuildModel(
+      catalogEntry.pluginId,
+      "cargo",
+      ".",
+      async () => true,
+    );
+    const failure = pending.catch((error) => error);
+    await flushMicrotasks();
+    prepared.resolve(review);
+    await flushMicrotasks();
+    loaded.resolve({
+      operationId: "wrong-operation",
+      view: cargoView(WORKSPACE_A, 1),
+      stderr: "late",
+    });
+    expect(String(await failure)).toContain("staleContext");
+    expect(useBuildSystemsStore.getState().workspaceRoot).toBeNull();
+  });
+
+  test("cancellation failure is surfaced, retry remains possible, and a late load cannot apply", async () => {
+    resetState();
+    activateWorkspace("ws-a", WORKSPACE_A);
+    const prepared = deferCommand("declarative_plugins_build_prepare_model");
+    const loaded = deferCommand("declarative_plugins_build_load_model");
+    const cancelled = deferCommand("declarative_plugins_build_cancel_operation");
+    const pending = buildSystemsService.loadBuildModel(
+      catalogEntry.pluginId,
+      "cargo",
+      ".",
+      async () => true,
+    );
+    const outcome = pending.catch((error) => error);
+    await flushMicrotasks();
+    prepared.resolve(review);
+    await flushMicrotasks();
+    const stop = buildSystemsService.cancelBuildModel(review.operationId).catch((error) => error);
+    await flushMicrotasks();
+    cancelled.reject(new Error("fixture cancel failure"));
+    expect(String(await stop)).toContain("fixture cancel failure");
+    loaded.resolve({
+      operationId: review.operationId,
+      view: cargoView(WORKSPACE_A, 1),
+      stderr: "late success",
+    });
+    expect(await outcome).toBeInstanceOf(buildSystemsService.BuildModelCancellationError);
+    expect(useBuildSystemsStore.getState().workspaceRoot).toBeNull();
+    const retried = deferCommand("declarative_plugins_build_cancel_operation");
+    const retry = buildSystemsService.cancelBuildModel(review.operationId);
+    await flushMicrotasks();
+    retried.resolve(undefined);
+    await retry;
+    expect(
+      invokeCalls.filter((row) => row.command === "declarative_plugins_build_cancel_operation"),
+    ).toHaveLength(2);
+  });
+
+  test("cancel acknowledgement is awaited and concurrent callers share the owned cleanup", async () => {
+    resetState();
+    activateWorkspace("ws-a", WORKSPACE_A);
+    const prepared = deferCommand("declarative_plugins_build_prepare_model");
+    const loaded = deferCommand("declarative_plugins_build_load_model");
+    const cleanup = deferCommand("declarative_plugins_build_cancel_operation");
+    const pending = buildSystemsService.loadBuildModel(
+      catalogEntry.pluginId,
+      "cargo",
+      ".",
+      async () => true,
+    );
+    await flushMicrotasks();
+    prepared.resolve(review);
+    await flushMicrotasks();
+    let acknowledged = false;
+    const stop = buildSystemsService.cancelBuildModel(review.operationId).then(() => {
+      acknowledged = true;
+    });
+    const second = buildSystemsService.cancelBuildModel(review.operationId);
+    await flushMicrotasks();
+    expect(acknowledged).toBe(false);
+    expect(
+      invokeCalls.filter((row) => row.command === "declarative_plugins_build_cancel_operation"),
+    ).toHaveLength(1);
+    cleanup.resolve(undefined);
+    await Promise.all([stop, second]);
+    expect(acknowledged).toBe(true);
+    loaded.resolve({
+      operationId: review.operationId,
+      view: cargoView(WORKSPACE_A, 1),
+      stderr: "late",
+    });
+    expect(await pending).toBeNull();
+  });
+
+  test("Stop joins cleanup already pending after a declined review", async () => {
+    resetState();
+    activateWorkspace("ws-a", WORKSPACE_A);
+    const prepared = deferCommand("declarative_plugins_build_prepare_model");
+    const cleanup = deferCommand("declarative_plugins_build_cancel_operation");
+    const pending = buildSystemsService.loadBuildModel(
+      catalogEntry.pluginId,
+      "cargo",
+      ".",
+      async () => false,
+    );
+    await flushMicrotasks();
+    prepared.resolve(review);
+    await flushMicrotasks();
+    const stop = buildSystemsService.cancelBuildModel(review.operationId);
+    await flushMicrotasks();
+    expect(
+      invokeCalls.filter((row) => row.command === "declarative_plugins_build_cancel_operation"),
+    ).toHaveLength(1);
+    cleanup.resolve(undefined);
+    await stop;
+    expect(await pending).toBeNull();
+  });
+
   test("only confirmation starts the prepared operation and applies its matching result", async () => {
     resetState();
     activateWorkspace("ws-a", WORKSPACE_A);

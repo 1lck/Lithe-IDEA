@@ -2,8 +2,8 @@
 //! tree termination stay in lithe_git_host, shared with the launch path.
 
 use super::operation::{
-    BuildProcessExecutor, BuildProcessOutput, BuildProcessPlan, ModelExecutionGuard,
-    MODEL_OUTPUT_LIMIT,
+    BuildProcessExecutor, BuildProcessOutput, BuildProcessPlan, BuildRunProcessOutput,
+    ModelExecutionGuard, MODEL_OUTPUT_LIMIT,
 };
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
@@ -39,96 +39,188 @@ pub(super) fn process_failure(reason: &str, stdout: &[u8], stderr: &[u8]) -> Str
 }
 
 pub(super) struct NativeBuildExecutor;
+
+/// `lithe_git_host` invokes its started hook after the child is resumed.
+/// Freeze report freshness before entering that runner, so even an immediate
+/// child report belongs to this run. The hook only records successful spawn.
+pub(super) struct ProcessStart {
+    before_spawn_millis: Option<u64>,
+    started: Cell<bool>,
+}
+impl ProcessStart {
+    pub fn capture(clock: impl FnOnce() -> Option<u64>) -> Self {
+        Self {
+            before_spawn_millis: clock(),
+            started: Cell::new(false),
+        }
+    }
+    pub fn mark_started(&self) {
+        self.started.set(true);
+    }
+    pub fn started(&self) -> bool {
+        self.started.get()
+    }
+    pub fn started_at_millis(&self) -> Option<u64> {
+        self.started().then_some(self.before_spawn_millis).flatten()
+    }
+}
+
 impl BuildProcessExecutor for NativeBuildExecutor {
     fn run(
         &self,
         plan: &BuildProcessPlan,
         guard: &dyn ModelExecutionGuard,
     ) -> Result<BuildProcessOutput, String> {
-        guard.checkpoint()?;
-        if !plan.executable.is_absolute() || !plan.directory.is_absolute() {
-            return Err("plugin.build.invalidPlan: executable and cwd must be absolute".into());
+        let (output, result) = capture_process(plan, guard, &mut |_, _| Ok(()));
+        if let Some(error) = result.failure {
+            return Err(error);
         }
-        let mut command = std::process::Command::new(&plan.executable);
-        command
-            .args(&plan.arguments)
-            .current_dir(&plan.directory)
-            .env_clear()
-            .envs(&plan.environment);
-        let deadline = Instant::now() + plan.timeout;
-        let stdout_bytes = Cell::new(0usize);
-        let stderr_bytes = Cell::new(0usize);
-        let output_file_invalid = Cell::new(false);
-        let exceeded =
-            || stdout_bytes.get() > plan.output_limit || stderr_bytes.get() > plan.output_limit;
-        let start_permit = RefCell::new(Some(guard.start_permit()?));
-        let outcome = lithe_git_host::run(
-            &mut command,
-            None,
-            || {
-                if let Some(path) = &plan.output_file {
-                    output_file_invalid.set(validate_output_file(path).is_err());
+        if result.exit_code != Some(0) {
+            return Err(process_failure(
+                "unsuccessful exit",
+                &output.stdout,
+                &output.stderr,
+            ));
+        }
+        Ok(output)
+    }
+
+    fn run_command(
+        &self,
+        plan: &BuildProcessPlan,
+        guard: &dyn ModelExecutionGuard,
+        output: &mut dyn FnMut(lithe_git_host::Stream, &[u8]) -> Result<(), String>,
+    ) -> BuildRunProcessOutput {
+        capture_process(plan, guard, output).1
+    }
+}
+
+/// Both model probes and explicit runs use the same frozen argv/environment,
+/// budgets, native Job Object and cleanup/error precedence.
+fn capture_process(
+    plan: &BuildProcessPlan,
+    guard: &dyn ModelExecutionGuard,
+    output: &mut dyn FnMut(lithe_git_host::Stream, &[u8]) -> Result<(), String>,
+) -> (BuildProcessOutput, BuildRunProcessOutput) {
+    let empty = |error: String| {
+        (
+            BuildProcessOutput {
+                stdout: vec![],
+                stderr: vec![],
+            },
+            BuildRunProcessOutput {
+                exit_code: None,
+                started: false,
+                failure: Some(error),
+                started_at_millis: None,
+            },
+        )
+    };
+    if let Err(error) = guard.checkpoint() {
+        return empty(error);
+    }
+    if !plan.executable.is_absolute() || !plan.directory.is_absolute() {
+        return empty("plugin.build.invalidPlan".into());
+    }
+    let mut command = std::process::Command::new(&plan.executable);
+    command
+        .args(&plan.arguments)
+        .current_dir(&plan.directory)
+        .env_clear()
+        .envs(&plan.environment);
+    let deadline = Instant::now() + plan.timeout;
+    let stdout_bytes = Cell::new(0usize);
+    let stderr_bytes = Cell::new(0usize);
+    let output_file_invalid = Cell::new(false);
+    let exceeded =
+        || stdout_bytes.get() > plan.output_limit || stderr_bytes.get() > plan.output_limit;
+    let start_permit = match guard.start_permit() {
+        Ok(permit) => RefCell::new(Some(permit)),
+        Err(error) => return empty(error),
+    };
+    let start = ProcessStart::capture(|| {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()
+            .and_then(|time| u64::try_from(time.as_millis()).ok())
+    });
+    let stream_failure = RefCell::new(None::<String>);
+    let outcome = lithe_git_host::run(
+        &mut command,
+        None,
+        || {
+            if let Some(path) = &plan.output_file {
+                output_file_invalid.set(validate_output_file(path).is_err());
+            }
+            exceeded()
+                || stream_failure.borrow().is_some()
+                || output_file_invalid.get()
+                || Instant::now() >= deadline
+                || guard.cancelled()
+        },
+        || {
+            start.mark_started();
+            drop(start_permit.borrow_mut().take());
+        },
+        |stream, bytes| {
+            let count = match stream {
+                lithe_git_host::Stream::Stdout => &stdout_bytes,
+                lithe_git_host::Stream::Stderr => &stderr_bytes,
+            };
+            count.set(count.get().saturating_add(bytes.len()));
+            if !exceeded() && stream_failure.borrow().is_none() {
+                if let Err(error) = output(stream, bytes) {
+                    *stream_failure.borrow_mut() = Some(error);
                 }
-                exceeded()
-                    || output_file_invalid.get()
-                    || Instant::now() >= deadline
-                    || guard.cancelled()
-            },
-            || {
-                drop(start_permit.borrow_mut().take());
-            },
-            |stream, bytes| {
-                let count = match stream {
-                    lithe_git_host::Stream::Stdout => &stdout_bytes,
-                    lithe_git_host::Stream::Stderr => &stderr_bytes,
-                };
-                count.set(count.get().saturating_add(bytes.len()));
-            },
-        );
-        drop(start_permit); // spawn failure has no started hook
-                            // The shared executor returns only after bounded process-tree cleanup.
-                            // Never publish success merely because the parent process exited.
-        if matches!(
+            }
+        },
+    );
+    // Spawn failure has no started hook. Never publish success merely because
+    // the parent process exited.
+    drop(start_permit);
+    let failure = if matches!(
+        outcome.failure.as_ref(),
+        Some(lithe_git_host::Failure::Cleanup)
+    ) {
+        Some("plugin.build.cleanupFailed".into())
+    } else if let Some(error) = stream_failure.into_inner() {
+        Some(error)
+    } else if exceeded()
+        || output_file_invalid.get()
+        || matches!(
             outcome.failure.as_ref(),
-            Some(lithe_git_host::Failure::Cleanup)
-        ) {
-            return Err("plugin.build.cleanupFailed: process tree did not drain".into());
-        }
-        guard.checkpoint()?;
-        if exceeded()
-            || output_file_invalid.get()
-            || matches!(
-                outcome.failure.as_ref(),
-                Some(lithe_git_host::Failure::OutputLimit)
-            )
-        {
-            return Err("plugin.build.outputLimit".into());
-        }
-        if Instant::now() >= deadline {
-            return Err("plugin.build.timeout".into());
-        }
-        if let Some(failure) = outcome.failure {
-            return Err(process_failure(
-                &format!("{failure:?}"),
-                &outcome.stdout,
-                &outcome.stderr,
-            ));
-        }
-        if outcome.status.is_none_or(|status| !status.success()) {
-            return Err(process_failure(
-                &format!("unsuccessful exit ({:?})", outcome.status),
-                &outcome.stdout,
-                &outcome.stderr,
-            ));
-        }
-        if let Some(path) = &plan.output_file {
-            validate_output_file(path)?;
-        }
-        Ok(BuildProcessOutput {
+            Some(lithe_git_host::Failure::OutputLimit)
+        )
+    {
+        Some("plugin.build.outputLimit".into())
+    } else if Instant::now() >= deadline {
+        Some("plugin.build.timeout".into())
+    } else if let Err(error) = guard.checkpoint() {
+        Some(error)
+    } else if let Some(failure) = outcome.failure {
+        Some(process_failure(
+            &format!("{failure:?}"),
+            &outcome.stdout,
+            &outcome.stderr,
+        ))
+    } else if let Some(path) = &plan.output_file {
+        validate_output_file(path).err()
+    } else {
+        None
+    };
+    let result = BuildRunProcessOutput {
+        exit_code: outcome.status.and_then(|status| status.code()),
+        started: start.started(),
+        failure,
+        started_at_millis: start.started_at_millis(),
+    };
+    (
+        BuildProcessOutput {
             stdout: outcome.stdout,
             stderr: outcome.stderr,
-        })
-    }
+        },
+        result,
+    )
 }
 
 pub(super) fn validate_output_file(path: &Path) -> Result<(), String> {
