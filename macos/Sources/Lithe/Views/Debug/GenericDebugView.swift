@@ -120,10 +120,12 @@ struct GenericDebugView: View {
                 .foregroundStyle(LitheTheme.primaryText)
                 .padding(.trailing, 16)
             if !feature.showsEmptyState {
-                if let sessionTitle = debugSessionTitle {
+                if feature.sessionSummaries.count > 1 {
+                    sessionTabStrip
+                    sessionPicker
+                } else if let sessionTitle = debugSessionTitle {
                     debugSessionTab(sessionTitle).padding(.horizontal, 4)
                 }
-                if feature.sessionSummaries.count > 1 { sessionPicker }
             }
             Spacer(minLength: 12)
             debugOptionsMenu.padding(.horizontal, 2)
@@ -174,6 +176,78 @@ struct GenericDebugView: View {
         }
         .foregroundStyle(LitheTheme.primaryText)
         .modifier(LitheToolWindowTabStyle(isSelected: true, isActive: debugToolActive))
+    }
+
+    /// Sessions in display order: every child directly follows its parent.
+    private var orderedSessionSummaries: [DebugSessionSummary] {
+        let all = feature.sessionSummaries
+        let ids = Set(all.map(\.id))
+        var ordered: [DebugSessionSummary] = []
+        func append(_ summary: DebugSessionSummary) {
+            ordered.append(summary)
+            for child in all where child.parentID == summary.id { append(child) }
+        }
+        // A child whose parent is already gone is shown as a root.
+        for root in all where root.parentID.map({ !ids.contains($0) }) ?? true { append(root) }
+        return ordered
+    }
+
+    private var sessionTabStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 2) {
+                ForEach(orderedSessionSummaries) { summary in
+                    sessionTab(summary)
+                }
+            }
+            .padding(.horizontal, 4)
+        }
+        .frame(maxWidth: 520)
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private func sessionTab(_ summary: DebugSessionSummary) -> some View {
+        let isSelected = summary.id == feature.activeSessionID
+        return HStack(spacing: 0) {
+            Button {
+                _ = feature.selectSession(summary.id)
+            } label: {
+                HStack(spacing: 6) {
+                    if summary.parentID != nil {
+                        Text(verbatim: "↳")
+                            .font(LitheTheme.uiFont(size: 13))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                    }
+                    Circle()
+                        .fill(sessionStateColor(summary.state))
+                        .frame(width: 7, height: 7)
+                    Text(summary.targetTitle?.isEmpty == false
+                        ? summary.targetTitle! : summary.providerDisplayName)
+                        .font(LitheTheme.uiFont(size: 13))
+                        .lineLimit(1)
+                }
+                .padding(.leading, 8)
+                .padding(.trailing, summary.isRunning ? 3 : 8)
+            }
+            .buttonStyle(.litheNoPress)
+            .help(sessionLabel(summary) + " · " + summary.state.title)
+            .accessibilityLabel(sessionLabel(summary) + " · " + summary.state.title)
+            if summary.isRunning {
+                LitheToolWindowTabCloseButton { feature.stopSession(summary.id) }
+                    .help("Stop debug session")
+                    .accessibilityLabel("Stop debug session")
+            }
+        }
+        .foregroundStyle(LitheTheme.primaryText)
+        .modifier(LitheToolWindowTabStyle(isSelected: isSelected, isActive: debugToolActive))
+    }
+
+    private func sessionStateColor(_ state: DebugAdapterState) -> Color {
+        switch state {
+        case .paused: .orange
+        case .running, .launching, .initializing, .ready: .green
+        case .failed: .red
+        case .idle, .terminated: .gray
+        }
     }
 
     private var sessionPicker: some View {

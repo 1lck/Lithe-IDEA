@@ -127,7 +127,11 @@ Registry 注册时不启动程序做验证。一个适配器在接入验收中�
 P0 的清单落在 `shared/fixtures/debug/v1-baseline.json`：每一项指向 Rust、macOS 上现有的测试和 fixture（Windows 不在当前阶段范围内），并标明 `covered` / `partial` / `gap`。`scripts/verify-debug-v1-baseline.mjs`（已接入 `verify-shared-contracts.sh`）检查引用的测试仍然存在，防止重命名或删除悄悄缩小基线。
 
 P1 已在 Rust Core 落地：v2 投影类型与校验（`debug/projection_v2.rs`，共用 `projection-v2-examples.json`）、DAP `startDebugging` 反向请求（`debug.startDebuggingResponse`，仅在宿主声明 `supportsStartDebuggingRequest` 时启用）、Node source map 位置透传。macOS 的 `DebugProjectionV2` 与 Core 会话读同一份 fixture。旧的 Swift `DebugAdapterProtocolSession` 已删除：Java、Python、Rust 全部走 Core 会话（Python、Rust 经 `DebugAdapterRuntimeFactory` 用 stdio 传输）。宿主同时移除了内置的 Go（Delve）和 Node（js-debug）调试，TCP 传输、会话工厂、启动配置解析和语言包调试入口都已删除，之后由对应语言插件按 Registry 契约补上。P1 之后基础层逻辑也已在 Core 落地（`debug/capabilities.rs`、`engine.rs`）：能力快照 `supported = 适配器协商 ∧ 扩展注册 ∧ 已授权`，带单调递增 `revision`，只在变化时发出；插件只能通过 `disabledCapabilities` 关闭标准能力，`supportsConfigurationDoneRequest` 不可关闭。停止代数（`stopGeneration`）在停止、继续、终止时递增，旧代数发出的引用型请求的回复被丢弃并报 `StaleReference`（`stale-reference-v1.json`）。evaluate 的 context 受校验。Core 记录父子会话树，随父会话停止发出 `ChildSessionStopRequested`。子会话生命周期与父会话统一：销毁父会话会级联销毁整棵子树（叶子在前），`debug.destroySession` 返回 `destroyedChildSessionIds` 供宿主关闭对应传输，Core 里不会留下孤儿子会话。栈帧与作用域响应同时发出 v2 `Projection` 事件，v1 仍为准，校验失败的 v2 投影不下发。
-尚未完成：macOS 没有安装 `startDebugging` 处理器，工作台仍是单会话，所以会发起子会话的适配器会收到失败回复，`child-debug-sessions` 保持 `partial`；多会话 UI 另开分支先出设计。Swift 侧尚未消费 `projection`、`childSession*` 与 `disabledCapabilities`。
+macOS 多会话（本阶段）：宿主在 `DebugAdapterSessionManager` 里实现 `startDebugging`。父会话收到反向请求后，管理器通过 `makeChildSession` 向 provider 要一个子会话，把父会话的 Core 会话 ID 设为子会话的 `parentSessionId`，登记为带 `parentID` 的会话并用请求里的配置启动。子会话不会替换 provider 的当前会话（兼容目标仍是父会话），所以单会话的断点、状态和按钮行为不变。生命周期由宿主统一：停止父会话先停子会话；父会话进入 `terminated` 或 `failed` 也会关闭它的子会话；功能模型同步清理快照、Java 热更新目标，并在当前会话消失时改选剩余会话，没有剩余会话就回到空闲。
+
+界面：只有一个会话时标签与以前完全一致。出现第二个会话后，标题栏变成会话标签条，子会话紧跟父会话并带 “↳” 前缀，每个标签有状态圆点（运行绿、暂停橙、失败红）和关闭按钮；原来的会话菜单保留为溢出入口。
+
+`makeChildSession` 默认是 nil：目前没有 provider 提供子会话传输，宿主不声明 `supportsStartDebuggingRequest`，适配器仍收到失败回复，`child-debug-sessions` 保持 `partial`。不能让默认实现复用 `makeSession` 再开一个 stdio 适配器：debugpy 发来的是 `connect` 的主机和端口，新开的 stdio 适配器会忽略它，反而让现在能用的 Python 调试退化。后续由具体语言插件在需要 TCP 或 socket 传输时补上子会话工厂。Swift 侧仍未消费 `projection`、`childSession*` 与 `disabledCapabilities`。
 
 P0–P5 完成后关闭 #1210。可选扩展、插件依赖和私有 resolver 都不是关闭条件。
 

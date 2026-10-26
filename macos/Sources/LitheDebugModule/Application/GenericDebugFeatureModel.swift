@@ -426,7 +426,10 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             if self.sessionSummaries != summaries {
                 self.sessionSummaries = summaries
             }
-            if self.activeSessionID == sessionID {
+            if self.activeSessionID == sessionID, !summaries.contains(where: { $0.id == sessionID }) {
+                // The manager already closed this session (its parent ended).
+                self.reconcileRemovedSessions()
+            } else if self.activeSessionID == sessionID {
                 self.providerID = providerID
                 self.state = state
                 if state != .paused {
@@ -446,6 +449,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
                     state: state
                 )
             }
+            self.reconcileRemovedSessions()
         }
         sessions.onSessionEvent = { [weak self] sessionID, providerID, event in
             guard let self else { return }
@@ -640,10 +644,59 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             stop()
             return
         }
+        let children = sessions.childSessionIDs(of: sessionID)
         sessions.stop(sessionID: sessionID)
-        sessionSnapshots[sessionID] = nil
+        for stoppedID in children.reversed() + [sessionID] { forgetStoppedSession(stoppedID) }
         sessionSummaries = sessions.sessionSummaries
+        // Stopping a parent may close the child the user was looking at.
+        reconcileRemovedSessions()
+    }
+
+    private func forgetStoppedSession(_ sessionID: DebugSessionID) {
+        javaUpdateTargets[sessionID] = nil
+        sessionSnapshots[sessionID] = nil
         onSessionStopped?(sessionID)
+    }
+
+    /// Selects the most recent remaining session after the active one went away.
+    /// Returns false when no session is left.
+    @discardableResult
+    private func selectReplacementSession() -> Bool {
+        sessionSummaries = sessions.sessionSummaries
+        guard let replacement = sessionSummaries.last,
+              sessions.select(sessionID: replacement.id) else { return false }
+        activeSessionID = replacement.id
+        providerID = replacement.providerID
+        onSessionSelectionChanged?(replacement.id)
+        publishConsoleHistory(for: replacement.id)
+        restoreSessionSnapshot(replacement.id, summary: replacement)
+        resetInspectionState()
+        if state == .paused {
+            let generation = inspectionGeneration
+            loadStoppedContext(
+                threadID: nil,
+                generation: generation,
+                shouldLoadExceptionInfo: false
+            )
+        }
+        return true
+    }
+
+    /// Releases per-session state for sessions the manager closed on its own, such as the
+    /// children of a parent that ended, and moves selection off a session that is gone.
+    private func reconcileRemovedSessions() {
+        let live = Set(sessions.sessionSummaries.map(\.id))
+        for gone in sessionSnapshots.keys where !live.contains(gone) && gone != activeSessionID {
+            forgetStoppedSession(gone)
+        }
+        sessionSummaries = sessions.sessionSummaries
+        guard let activeSessionID, !live.contains(activeSessionID) else { return }
+        forgetStoppedSession(activeSessionID)
+        if !selectReplacementSession() {
+            // Nothing is left: clear the active session first so stop() only resets the view state.
+            self.activeSessionID = nil
+            stop()
+        }
     }
 
     private func startSession(
@@ -739,29 +792,14 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             try? sessions.setDataBreakpoints(coreDataBreakpoints, for: activeFileURL)
         }
         if let activeSessionID {
+            let children = sessions.childSessionIDs(of: activeSessionID)
             sessions.stop(sessionID: activeSessionID)
+            for childID in children.reversed() { forgetStoppedSession(childID) }
             sessionSnapshots[activeSessionID] = nil
             onSessionStopped?(activeSessionID)
         }
         sessionSummaries = sessions.sessionSummaries
-        if let replacement = sessionSummaries.last,
-           sessions.select(sessionID: replacement.id) {
-            activeSessionID = replacement.id
-            providerID = replacement.providerID
-            onSessionSelectionChanged?(replacement.id)
-            publishConsoleHistory(for: replacement.id)
-            restoreSessionSnapshot(replacement.id, summary: replacement)
-            resetInspectionState()
-            if state == .paused {
-                let generation = inspectionGeneration
-                loadStoppedContext(
-                    threadID: nil,
-                    generation: generation,
-                    shouldLoadExceptionInfo: false
-                )
-            }
-            return
-        }
+        if selectReplacementSession() { return }
         activeSessionID = nil
         onSessionSelectionChanged?(nil)
         consoleHistory = []

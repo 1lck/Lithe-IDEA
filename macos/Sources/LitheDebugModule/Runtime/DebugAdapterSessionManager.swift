@@ -20,6 +20,8 @@ public struct DebugSessionSummary: Identifiable, Equatable, Sendable {
     public let rootURL: URL
     public let state: DebugAdapterState
     public let targetTitle: String?
+    /// The session whose adapter asked for this one; nil for a root session.
+    public let parentID: DebugSessionID?
 
     public var isRunning: Bool {
         ![.idle, .terminated, .failed].contains(state)
@@ -31,7 +33,8 @@ public struct DebugSessionSummary: Identifiable, Equatable, Sendable {
         providerDisplayName: String,
         rootURL: URL,
         state: DebugAdapterState,
-        targetTitle: String? = nil
+        targetTitle: String? = nil,
+        parentID: DebugSessionID? = nil
     ) {
         self.id = id
         self.providerID = providerID
@@ -39,6 +42,7 @@ public struct DebugSessionSummary: Identifiable, Equatable, Sendable {
         self.rootURL = rootURL
         self.state = state
         self.targetTitle = targetTitle
+        self.parentID = parentID
     }
 }
 
@@ -90,6 +94,22 @@ public final class DebugAdapterSessionManager: ObservableObject {
         }
     }
 
+    /// Builds the adapter session for a `startDebugging` child of a running session.
+    /// Only a provider that understands its adapter's child configuration (for example
+    /// a `connect` endpoint) may supply one; while nil the host does not advertise
+    /// `startDebugging` support and the adapter keeps its single-session behaviour.
+    public var makeChildSession: (@MainActor (
+        DebugProviderDescriptor,
+        DebugStartDebuggingRequest,
+        URL
+    ) -> (any DebugAdapterSession)?)? {
+        didSet {
+            for managed in sessions.values {
+                configureStartDebuggingHandler(managed.session, sessionID: managed.id)
+            }
+        }
+    }
+
     private let providers: [DebugProviderDescriptor]
     private let makeSession: @MainActor (
         DebugProviderDescriptor,
@@ -101,6 +121,7 @@ public final class DebugAdapterSessionManager: ObservableObject {
         let rootURL: URL
         let session: any DebugAdapterSession
         let activationToken: UUID
+        let parentID: DebugSessionID?
         var targetTitle: String?
     }
 
@@ -160,23 +181,9 @@ public final class DebugAdapterSessionManager: ObservableObject {
         guard let session = makeSession(descriptor, normalizedRoot) else {
             throw DebugProviderError.adapterUnavailable(descriptor.displayName)
         }
-        let sessionID = DebugSessionID()
-        let activationToken = UUID()
-        configureCallbacks(
-            session,
-            sessionID: sessionID,
-            providerID: descriptor.id,
-            activationToken: activationToken
+        let (sessionID, activationToken) = register(
+            session, descriptor: descriptor, rootURL: normalizedRoot, parentID: nil
         )
-        sessions[sessionID] = ManagedSession(
-            id: sessionID,
-            descriptor: descriptor,
-            rootURL: normalizedRoot,
-            session: session,
-            activationToken: activationToken,
-            targetTitle: nil
-        )
-        sessionOrder.append(sessionID)
         activeSessionIDsByProvider[descriptor.id] = sessionID
         roots[descriptor.id] = normalizedRoot
         states[descriptor.id] = session.state
@@ -353,7 +360,27 @@ public final class DebugAdapterSessionManager: ObservableObject {
         stop(sessionID: sessionID)
     }
 
+    /// Stops a session together with its whole child tree, children first, so no
+    /// child outlives the parent whose adapter requested it.
     public func stop(sessionID: DebugSessionID) {
+        for childID in childSessionIDs(of: sessionID).reversed() { stopOne(childID) }
+        stopOne(sessionID)
+    }
+
+    /// IDs of every descendant of `sessionID`, parents before their children.
+    public func childSessionIDs(of sessionID: DebugSessionID) -> [DebugSessionID] {
+        var result: [DebugSessionID] = []
+        var pending = [sessionID]
+        while !pending.isEmpty {
+            let parent = pending.removeFirst()
+            let children = sessionOrder.filter { sessions[$0]?.parentID == parent }
+            result.append(contentsOf: children)
+            pending.append(contentsOf: children)
+        }
+        return result
+    }
+
+    private func stopOne(_ sessionID: DebugSessionID) {
         guard let managed = sessions.removeValue(forKey: sessionID) else { return }
         managed.session.stop()
         sessionOrder.removeAll { $0 == sessionID }
@@ -388,12 +415,20 @@ public final class DebugAdapterSessionManager: ObservableObject {
         activationToken: UUID
     ) {
         configureRunInTerminalHandler(session, sessionID: sessionID)
+        configureStartDebuggingHandler(session, sessionID: sessionID)
         guard let controlling = session as? any DebugAdapterControllingSession else { return }
         controlling.onStateChange = { [weak self] state in
             guard let self,
                   self.sessions[sessionID]?.activationToken == activationToken else { return }
             self.updateSessionState(sessionID, state: state)
             self.onSessionStateChange?(sessionID, providerID, state)
+            if state == .terminated || state == .failed {
+                // Core asks children to stop when their parent ends; the host owns the
+                // transports, so it closes them here.
+                for childID in self.childSessionIDs(of: sessionID).reversed() {
+                    self.stopOne(childID)
+                }
+            }
             guard self.activeSessionIDsByProvider[providerID] == sessionID else { return }
             self.states[providerID] = state
             self.onStateChange?(providerID, state)
@@ -438,7 +473,8 @@ public final class DebugAdapterSessionManager: ObservableObject {
             providerDisplayName: existing.descriptor.displayName,
             rootURL: existing.rootURL,
             state: state,
-            targetTitle: existing.targetTitle
+            targetTitle: existing.targetTitle,
+            parentID: existing.parentID
         )
     }
 
@@ -470,7 +506,8 @@ public final class DebugAdapterSessionManager: ObservableObject {
             providerDisplayName: managed.descriptor.displayName,
             rootURL: managed.rootURL,
             state: managed.session.state,
-            targetTitle: managed.targetTitle
+            targetTitle: managed.targetTitle,
+            parentID: managed.parentID
         )
         if let index = sessionSummaries.firstIndex(where: { $0.id == sessionID }) {
             sessionSummaries[index] = summary
@@ -493,6 +530,89 @@ public final class DebugAdapterSessionManager: ObservableObject {
         updateSessionSummary(sessionID)
     }
 
+    private func register(
+        _ session: any DebugAdapterSession,
+        descriptor: DebugProviderDescriptor,
+        rootURL: URL,
+        parentID: DebugSessionID?
+    ) -> (DebugSessionID, UUID) {
+        let sessionID = DebugSessionID()
+        let activationToken = UUID()
+        configureCallbacks(
+            session,
+            sessionID: sessionID,
+            providerID: descriptor.id,
+            activationToken: activationToken
+        )
+        sessions[sessionID] = ManagedSession(
+            id: sessionID,
+            descriptor: descriptor,
+            rootURL: rootURL,
+            session: session,
+            activationToken: activationToken,
+            parentID: parentID,
+            targetTitle: nil
+        )
+        sessionOrder.append(sessionID)
+        return (sessionID, activationToken)
+    }
+
+    private func configureStartDebuggingHandler(
+        _ session: any DebugAdapterSession,
+        sessionID: DebugSessionID
+    ) {
+        guard let session = session as? any DebugAdapterStartDebuggingSession else { return }
+        guard makeChildSession != nil else {
+            session.onStartDebuggingRequest = nil
+            return
+        }
+        session.onStartDebuggingRequest = { [weak self] request, completion in
+            guard let self else {
+                completion(.failure(DebugAdapterProtocolError.stopped))
+                return
+            }
+            completion(self.openChildSession(of: sessionID, request: request))
+        }
+    }
+
+    /// Opens the session an adapter asked for. The child joins the parent's Core
+    /// session tree and never replaces the provider's selected session; the UI decides
+    /// when to bring it forward.
+    private func openChildSession(
+        of parentID: DebugSessionID,
+        request: DebugStartDebuggingRequest
+    ) -> Result<Void, Error> {
+        guard let parent = sessions[parentID],
+              let makeChildSession,
+              let session = makeChildSession(parent.descriptor, request, parent.rootURL),
+              let controlling = session as? any DebugAdapterControllingSession,
+              let childLink = session as? any DebugAdapterChildSessionLinking,
+              let parentLink = parent.session as? any DebugAdapterChildSessionLinking else {
+            return .failure(DebugAdapterCapabilityError.unsupported("child debug sessions"))
+        }
+        childLink.parentCoreSessionID = parentLink.coreSessionID
+        let (childID, _) = register(
+            session, descriptor: parent.descriptor, rootURL: parent.rootURL, parentID: parentID
+        )
+        updateSessionSummary(childID)
+        do {
+            try session.start(rootURL: parent.rootURL)
+            try controlling.launch(DebugLaunchConfiguration(
+                name: request.configurationName ?? parent.targetTitle ?? "",
+                request: request.request,
+                arguments: request.configuration
+            ))
+        } catch {
+            stopOne(childID)
+            return .failure(error)
+        }
+        updateSessionTargetTitle(
+            childID,
+            title: request.configurationName ?? parent.targetTitle
+        )
+        return .success(())
+    }
+
     private func configureRunInTerminalHandler(
         _ session: any DebugAdapterSession,
         sessionID: DebugSessionID
@@ -509,5 +629,12 @@ public final class DebugAdapterSessionManager: ObservableObject {
                 onRunInTerminalRequest?(request, completion)
             }
         }
+    }
+}
+
+private extension DebugStartDebuggingRequest {
+    var configurationName: String? {
+        guard case .string(let name)? = configuration["name"], !name.isEmpty else { return nil }
+        return name
     }
 }
