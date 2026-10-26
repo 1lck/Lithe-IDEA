@@ -1104,7 +1104,12 @@ fn debug_rejection(baseline: &Value, case: &Value) -> (String, String) {
         .collect();
     let mut manifest = fixture("debug-adapter.plugin.json");
     manifest["pluginAPIVersion"] = metadata["pluginAPIVersion"].clone();
-    manifest["requires"] = metadata["requires"].clone();
+    match metadata.get("requires") {
+        Some(requires) => manifest["requires"] = requires.clone(),
+        None => {
+            manifest.as_object_mut().unwrap().remove("requires");
+        }
+    }
     manifest["permissions"] = metadata["permissions"].clone();
     manifest["activationEvents"] = json!(events);
     for (key, value) in input["block"].as_object().unwrap() {

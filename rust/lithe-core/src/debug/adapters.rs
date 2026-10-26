@@ -673,15 +673,26 @@ pub(crate) enum PackageResourceKind {
     Symlink,
 }
 
-/// Checks that every packaged file an adapter refers to is a regular file or
-/// a link that stays inside the package. Only the installer can see the
-/// files, so this is separate from the manifest checks.
+/// Checks that every packaged file an adapter refers to (its packaged
+/// executable and parameter schemas) is a regular file or a link that stays
+/// inside the package. Only the installer can see the files, so this is
+/// separate from the manifest checks.
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn check_package_resources(
     adapters: &[DebugAdapterDeclaration],
     resources: &[PackageResource],
 ) -> Validation<()> {
     for (index, adapter) in adapters.iter().enumerate() {
+        if let DebugProcess::Server(process) = &adapter.launch.process {
+            if let Some(path) = process.packaged_path() {
+                check_resource(
+                    resources,
+                    path,
+                    format!("debugAdapters[{index}].launch.process.launch.path"),
+                    "The adapter executable",
+                )?;
+            }
+        }
         let Some(configurations) = &adapter.configurations else {
             continue;
         };
@@ -695,30 +706,43 @@ pub(crate) fn check_package_resources(
             else {
                 continue;
             };
-            let field = format!("debugAdapters[{index}].configurations.{name}.parametersSchema");
-            let Some(resource) = resources.iter().find(|resource| resource.path == *path) else {
-                return Err(invalid(
-                    field,
-                    "The parameters schema is not in the package.",
-                ));
-            };
-            match resource.kind {
-                PackageResourceKind::File => {}
-                PackageResourceKind::Directory => {
-                    return Err(invalid(field, "The parameters schema is a directory."));
-                }
-                PackageResourceKind::Symlink => {
-                    if !link_stays_inside(&resource.path, resource.target.as_deref()) {
-                        return Err(invalid(
-                            field,
-                            "The parameters schema links outside the plugin package.",
-                        ));
-                    }
-                }
-            }
+            check_resource(
+                resources,
+                path,
+                format!("debugAdapters[{index}].configurations.{name}.parametersSchema"),
+                "The parameters schema",
+            )?;
         }
     }
     Ok(())
+}
+
+/// One packaged path: present, not a directory, and a link only when it stays
+/// inside the package. `what` starts the message.
+#[cfg_attr(not(test), allow(dead_code))]
+fn check_resource(
+    resources: &[PackageResource],
+    path: &str,
+    field: String,
+    what: &str,
+) -> Validation<()> {
+    let Some(resource) = resources.iter().find(|resource| resource.path == path) else {
+        return Err(invalid(field, format!("{what} is not in the package.")));
+    };
+    match resource.kind {
+        PackageResourceKind::File => Ok(()),
+        PackageResourceKind::Directory => Err(invalid(field, format!("{what} is a directory."))),
+        PackageResourceKind::Symlink => {
+            if link_stays_inside(&resource.path, resource.target.as_deref()) {
+                Ok(())
+            } else {
+                Err(invalid(
+                    field,
+                    format!("{what} links outside the plugin package."),
+                ))
+            }
+        }
+    }
 }
 
 /// Resolves a symlink target lexically from the link's directory. A target

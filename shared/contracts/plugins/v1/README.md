@@ -511,6 +511,7 @@ Rules for publishing across levels and capability versions:
 | `onTest:<id>` | Activate the test provider when the user lists or runs tests. |
 | `onBuildSystem:<id>` | Activate the build system before its first plan, model, or decode. |
 | `onVcsRoot:<id>` | Start the VCS provider once a root of its VCS is detected in the workspace. |
+| `onDebug:<id>` | Start the debug adapter when a debug session needs it (API level 4). |
 
 Each provider needs its event and each event needs a provider. Enabling a
 plugin only permits activation; nothing starts until its event occurs.
@@ -1019,7 +1020,7 @@ The declaration is data only: there is no resolver, workflow, host integration,
 or `initializationOptions`, and any such field is refused. Requires
 `requires.debugAdapters` 1, `debug.launch` (plus `debug.attach` when an
 adapter serves `attach`), and one `onDebug:<id>` activation event per adapter.
-A level 3 manifest may not require `debugAdapters` or `serverProcess` 2.
+A manifest below level 4 may not declare `debugAdapters`, and a level 3 manifest may not require `debugAdapters` or `serverProcess` 2.
 
 | Field | Meaning |
 | --- | --- |

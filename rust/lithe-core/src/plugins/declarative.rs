@@ -1076,6 +1076,16 @@ impl DeclarativePluginManifest {
     /// Checks the adapters and that `serverProcess` 2 is required exactly when
     /// one starts on the selected runtime.
     fn validate_debug_adapters(&mut self, declared_settings: &DeclaredSettings) -> Validation<()> {
+        // Levels 1 and 2 carry no `requires`, so the capability gate never
+        // sees an adapter declared there.
+        if !self.debug_adapters.is_empty()
+            && self.plugin_api_version < capabilities::DEBUG_ADAPTERS_API_VERSION
+        {
+            return Err(invalid(
+                "debugAdapters",
+                "Debug adapters require plugin API level 4.",
+            ));
+        }
         crate::debug::adapters::validate_declarations(
             &mut self.debug_adapters,
             &crate::debug::adapters::DeclarationContext {
@@ -1839,6 +1849,15 @@ impl LanguageServerDeclaration {
 }
 
 impl ServerProcess {
+    /// Package-relative executable of a `packaged` launch; other launches
+    /// start nothing the installer can check.
+    pub(crate) fn packaged_path(&self) -> Option<&str> {
+        match &self.launch {
+            LanguageServerLaunch::Packaged { path } => Some(path),
+            _ => None,
+        }
+    }
+
     /// Checks the launch, its arguments and probe, the initialization
     /// options, and the runtime dependencies. Level 1 arguments are literal
     /// text; templates are parsed from level 2 on.

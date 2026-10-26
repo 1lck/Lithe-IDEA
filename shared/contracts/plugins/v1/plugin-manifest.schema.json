@@ -9,6 +9,12 @@
   "if": { "required": ["pluginAPIVersion"], "properties": { "pluginAPIVersion": { "minimum": 3 } } },
   "then": { "required": ["requires"] },
   "else": { "not": { "required": ["requires"] } },
+  "allOf": [
+    {
+      "if": { "required": ["pluginAPIVersion"], "properties": { "pluginAPIVersion": { "maximum": 3 } } },
+      "then": { "not": { "required": ["debugAdapters"] } }
+    }
+  ],
   "properties": {
     "schemaVersion": { "const": 2 },
     "id": { "type": "string", "pattern": "^[a-z0-9.-]+$" },
@@ -52,7 +58,7 @@
     },
     "activationEvents": {
       "type": "array",
-      "items": { "type": "string", "pattern": "^(onLanguage|onRun|onTest|onView|onCommand|onBuildSystem|onVcsRoot):[a-z0-9.+_-]+$" }
+      "items": { "type": "string", "pattern": "^(onLanguage|onRun|onTest|onView|onCommand|onBuildSystem|onVcsRoot|onDebug):[a-z0-9.+_-]+$" }
     },
     "languages": {
       "type": "array",

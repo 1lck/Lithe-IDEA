@@ -49,7 +49,7 @@
       "target": {
         "kind": "file"
       },
-      "packageResources": []
+      "packageResources": [{"path": "bin/synthetic", "kind": "file"}]
     }
   },
   "cases": [
@@ -170,8 +170,32 @@
     {
       "id": "escaping-parameters-schema",
       "layer": "coreInstall",
-      "edits": [{"op": "set", "path": "/block/debugAdapters/0/configurations", "value": {"launch": {"parametersSchema": "schemas/parameters.json"}}}, {"op": "set", "path": "/context/packageResources", "value": [{"path": "schemas/parameters.json", "kind": "symlink", "target": "../../../outside/parameters.json"}]}],
+      "edits": [{"op": "set", "path": "/block/debugAdapters/0/configurations", "value": {"launch": {"parametersSchema": "schemas/parameters.json"}}}, {"op": "set", "path": "/context/packageResources", "value": [{"path": "bin/synthetic", "kind": "file"}, {"path": "schemas/parameters.json", "kind": "symlink", "target": "../../../outside/parameters.json"}]}],
       "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].configurations.launch.parametersSchema"}
+    },
+    {
+      "id": "api-level-below-4",
+      "layer": "coreManifest",
+      "edits": [{"op": "set", "path": "/context/manifestMetadata/pluginAPIVersion", "value": 2}, {"op": "remove", "path": "/context/manifestMetadata/requires"}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters"}
+    },
+    {
+      "id": "missing-adapter-executable",
+      "layer": "coreInstall",
+      "edits": [{"op": "set", "path": "/context/packageResources", "value": []}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].launch.process.launch.path"}
+    },
+    {
+      "id": "adapter-executable-is-directory",
+      "layer": "coreInstall",
+      "edits": [{"op": "set", "path": "/context/packageResources", "value": [{"path": "bin/synthetic", "kind": "directory"}]}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].launch.process.launch.path"}
+    },
+    {
+      "id": "escaping-adapter-executable",
+      "layer": "coreInstall",
+      "edits": [{"op": "set", "path": "/context/packageResources", "value": [{"path": "bin/synthetic", "kind": "symlink", "target": "../../outside/adapter"}]}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].launch.process.launch.path"}
     },
     {
       "id": "stale-registration",
