@@ -48,11 +48,6 @@
           "test": "restoredJavaBreakpointInAnotherSourceIsSentWhenDebugStarts"
         },
         {
-          "platform": "macos",
-          "path": "macos/Tests/LitheTests/RunConfigurationIntegrationTests.swift",
-          "test": "genericDebugFeatureQueuesPythonLaunchDuringAdapterInitialization"
-        },
-        {
           "platform": "windows",
           "path": "windows/tauri/src-tauri/src/debug.rs",
           "test": "startup_events_are_buffered_until_session_ready"

@@ -13,8 +13,8 @@
 
 - [统一调试内核与调试适配器 Registry](../../../.agents/notes/proposed/architecture/2026-10-25-unified-debug-engine-and-adapter-registry.md)：内核重写、必选 / 推荐 / 可选三层能力、P0–P5 迁移与验收。
 - [可选调试扩展](../../../.agents/notes/proposed/architecture/2026-10-25-optional-debug-extensions.md)：寄存器、内存、反汇编、反编译源码、子会话等，各自单独验收。
-- [能力块 schema](debug-adapters.draft.schema.json)：只校验从完整清单提取的 `debugAdapters` 段。
-- [拒绝 fixtures](semantic-rejections.draft.json)：合成的契约验收输入，不是可安装插件；区分 schema 能拒绝和待 Core 实现的语义拒绝。
+- 能力块 schema 已并入正式契约 [plugin-manifest.schema.json](../../contracts/plugins/v1/plugin-manifest.schema.json)（`$defs.debugAdapter`）。
+- [拒绝 fixtures](../../contracts/plugins/v1/fixtures/debug-adapter-rejections.json)：已由 Core 测试逐条执行（schema、coreManifest、corePlan、coreInstall 四层）。
 - [会话投影 v2 schema](debug-session-projection.draft.schema.json) 与[样例](projection-v2-examples.draft.json)：可选的源码位置、字符串地址、`presentationHint` 透传、暂停代次与能力快照。
 
 插件依赖、导出与跨包授权移到[独立平台提案](../../../.agents/notes/proposed/architecture/2026-10-25-plugin-dependencies-and-exports.md)，不是 #1210 的依赖或关闭条件。
@@ -94,7 +94,7 @@ debugpy、lldb-dap 可以走 stdio（宿主已不再内置 Python、Rust 调试�
 
 ## Schema 与 Core 校验分界
 
-`semantic-rejections.draft.json` 以一个合成基线加 `set`/`remove` 描述单个拒绝输入，沿用已有 `invalid-manifests.json` 的 JSON Pointer fixture 约定，不新建编辑语法；路径只用于构造测试数据，**不是插件工作流语法**。每条记录标注校验层和预期稳定错误码，权限缺失沿用已有 `plugin.permission.undeclared`，新增 Debug 错误码仍为拟定；`expected.field` 是标准化后的错误位置，重复 ID 固定指向第二个条目。Core 计划也须验证输入目标快照与字段类型；无法从参数 schema 推断的后端必需字段，仍由 DAP 返回明确错误。无关基础清单字段按正式契约补足，不假装这些投影能安装。
+`debug-adapter-rejections.json` 以一个合成基线加 `set`/`remove` 描述单个拒绝输入，沿用已有 `invalid-manifests.json` 的 JSON Pointer fixture 约定，不新建编辑语法；路径只用于构造测试数据，**不是插件工作流语法**。每条记录标注校验层和预期稳定错误码，权限缺失沿用已有 `plugin.permission.undeclared`，新增 Debug 错误码仍为拟定；`expected.field` 是标准化后的错误位置，重复 ID 固定指向第二个条目。Core 计划也须验证输入目标快照与字段类型；无法从参数 schema 推断的后端必需字段，仍由 DAP 返回明确错误。无关基础清单字段按正式契约补足，不假装这些投影能安装。
 
 | 规则 | 必须拒绝的情况 | Fixture |
 | --- | --- | --- |

@@ -30,6 +30,8 @@ const MIX_PROVIDER_FIXTURE: &str =
     contract_file!("fixtures/build-provider-language-server.plugin.json");
 const SETTINGS_V2_FIXTURE: &str = contract_file!("fixtures/settings-v2.plugin.json");
 const BACKEND_FIXTURE: &str = contract_file!("fixtures/backend.plugin.json");
+const DEBUG_ADAPTER_FIXTURE: &str = contract_file!("fixtures/debug-adapter.plugin.json");
+const DEBUG_ADAPTER_REJECTIONS: &str = contract_file!("fixtures/debug-adapter-rejections.json");
 const INVALID_MANIFESTS: &str = contract_file!("fixtures/invalid-manifests.json");
 const COMMAND_PLANS: &str = contract_file!("fixtures/command-plans.json");
 const RUNTIME_VERSIONS: &str = contract_file!("fixtures/runtime-versions.json");
@@ -54,6 +56,7 @@ fn fixture(name: &str) -> Value {
         "build-provider-language-server.plugin.json" => MIX_PROVIDER_FIXTURE,
         "settings-v2.plugin.json" => SETTINGS_V2_FIXTURE,
         "backend.plugin.json" => BACKEND_FIXTURE,
+        "debug-adapter.plugin.json" => DEBUG_ADAPTER_FIXTURE,
         other => panic!("unknown fixture {other}"),
     };
     serde_json::from_str(source).expect("fixture manifest is JSON")
@@ -73,6 +76,7 @@ fn contract_fixtures_and_official_plugins_validate() {
         JAVA_FIXTURE,
         NODE_RUNTIME_FIXTURE,
         BACKEND_FIXTURE,
+        DEBUG_ADAPTER_FIXTURE,
         OFFICIAL_JAVA,
     ] {
         let outcome = validate(serde_json::from_str(source).unwrap());
@@ -1077,4 +1081,135 @@ fn settings_v2_rejects_unsafe_setting_use() {
     let mut v1 = settings_v2_manifest();
     v1["requires"]["settings"] = json!(1);
     rejected(v1);
+}
+
+/// Runs one case of the shared debug adapter rejection fixture through the
+/// layer it names, so every host reports the same code and location.
+fn debug_rejection(baseline: &Value, case: &Value) -> (String, String) {
+    use crate::debug::adapters::{
+        check_package_resources, plan, DebugAdapterDeclaration, DebugRequest, PackageResource,
+        StartFacts,
+    };
+    let mut input = baseline.clone();
+    for edit in case["edits"].as_array().unwrap() {
+        apply_edit(&mut input, edit);
+    }
+    let metadata = &input["context"]["manifestMetadata"];
+    let adapters = input["block"]["debugAdapters"].clone();
+    let events: Vec<String> = adapters
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|adapter| format!("onDebug:{}", adapter["id"].as_str().unwrap()))
+        .collect();
+    let mut manifest = fixture("debug-adapter.plugin.json");
+    manifest["pluginAPIVersion"] = metadata["pluginAPIVersion"].clone();
+    match metadata.get("requires") {
+        Some(requires) => manifest["requires"] = requires.clone(),
+        None => {
+            manifest.as_object_mut().unwrap().remove("requires");
+        }
+    }
+    manifest["permissions"] = metadata["permissions"].clone();
+    manifest["activationEvents"] = json!(events);
+    for (key, value) in input["block"].as_object().unwrap() {
+        manifest[key] = value.clone();
+    }
+    let outcome = validate_command(
+        json!({ "manifest": manifest, "hostCapabilities": input["context"]["hostCapabilities"] }),
+    )
+    .expect("payload is well formed");
+    let layer = case["layer"].as_str().unwrap();
+    if outcome["status"] == "rejected" {
+        assert!(
+            matches!(layer, "schema" | "coreManifest"),
+            "{}: manifest rejected in layer {layer}: {outcome}",
+            case["id"]
+        );
+        let error = &outcome["error"];
+        return (
+            error["code"].as_str().unwrap().into(),
+            error["field"].as_str().unwrap_or_default().into(),
+        );
+    }
+    let plugin = &outcome["plugin"];
+    let adapter: DebugAdapterDeclaration =
+        serde_json::from_value(plugin["debugAdapters"][0].clone()).unwrap();
+    let rejection = match layer {
+        "corePlan" => {
+            let facts: StartFacts = serde_json::from_value(json!({
+                "registration": input["context"]["registration"],
+                "runtimeSelection": input["context"]["runtimeSelection"],
+                "target": input["context"]["target"],
+            }))
+            .unwrap();
+            plan(&adapter, DebugRequest::Launch, &facts)
+        }
+        "coreInstall" => {
+            let resources: Vec<PackageResource> =
+                serde_json::from_value(input["context"]["packageResources"].clone()).unwrap();
+            check_package_resources(
+                &serde_json::from_value::<Vec<DebugAdapterDeclaration>>(
+                    plugin["debugAdapters"].clone(),
+                )
+                .unwrap(),
+                &resources,
+            )
+        }
+        other => panic!(
+            "{}: layer {other} accepted the manifest: {outcome}",
+            case["id"]
+        ),
+    };
+    let rejection = rejection.expect_err("the case must be rejected");
+    (
+        rejection.code().into(),
+        rejection.field().unwrap_or_default().into(),
+    )
+}
+
+#[test]
+fn debug_adapter_rejection_fixtures_report_their_code_and_field() {
+    let fixtures: Value = serde_json::from_str(DEBUG_ADAPTER_REJECTIONS).unwrap();
+    for case in fixtures["cases"].as_array().unwrap() {
+        let (code, field) = debug_rejection(&fixtures["baseline"], case);
+        assert_eq!(code, case["expected"]["code"], "{}", case["id"]);
+        // Serde decode errors name the field only in their message.
+        if case["layer"] != "schema" {
+            assert_eq!(field, case["expected"]["field"], "{}", case["id"]);
+        }
+    }
+}
+
+#[test]
+fn debug_adapter_executable_may_be_a_link_to_a_file_inside_the_package() {
+    use crate::debug::adapters::{
+        check_package_resources, DebugAdapterDeclaration, PackageResource,
+    };
+    let outcome = validate(fixture("debug-adapter.plugin.json"));
+    let adapters: Vec<DebugAdapterDeclaration> =
+        serde_json::from_value(outcome["plugin"]["debugAdapters"].clone()).unwrap();
+    let resources: Vec<PackageResource> = serde_json::from_value(json!([
+        {"path": "bin/example-dap", "kind": "symlink", "target": "../libexec/dap"},
+        {"path": "libexec/dap", "kind": "file"},
+        {"path": "schemas/launch.json", "kind": "file"},
+    ]))
+    .unwrap();
+    check_package_resources(&adapters, &resources)
+        .expect("a link to a packaged file is installable");
+
+    // The same file declared in a non-canonical form is still the same file.
+    let mut plain = serde_json::to_value(&adapters).unwrap();
+    plain[0]["launch"]["process"]["launch"]["path"] = json!("./bin//example-dap");
+    let adapters: Vec<DebugAdapterDeclaration> = serde_json::from_value(plain).unwrap();
+    check_package_resources(&adapters, &resources).expect("path forms name one file");
+}
+
+#[test]
+fn debug_adapter_fixture_is_accepted_with_normalized_requests() {
+    let outcome = validate(fixture("debug-adapter.plugin.json"));
+    assert_eq!(outcome["status"], "ok", "{outcome}");
+    let adapter = &outcome["plugin"]["debugAdapters"][0];
+    assert_eq!(adapter["requests"], json!(["launch", "attach"]));
+    assert_eq!(adapter["launch"]["transport"], "stdio");
 }
