@@ -866,7 +866,11 @@ struct DebugModuleTests {
 
     @Test
     func sharedProjectionV2FixturesDecodeAndRejectOnTheSameTerms() throws {
-        let url = URL(fileURLWithPath: "shared/fixtures/debug/projection-v2-examples.json")
+        // 夹具在仓库根的 shared/ 下，按本文件位置定位，不依赖 swift test 的工作目录。
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("shared/fixtures/debug/projection-v2-examples.json")
         let root = try #require(
             try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]
         )
