@@ -1341,17 +1341,23 @@ fn debug_executable_plan(adapter: &str, extra: Value) -> Value {
 
 #[test]
 fn debug_start_arguments_bind_program_to_the_resolved_executable() {
+    // The host resolves a native path, and "absolute" depends on the platform.
+    let executable = if cfg!(windows) {
+        r"C:\work\main"
+    } else {
+        "/work/main"
+    };
     let launch = debug_start_native(json!({
         "kind": "file",
         "path": "/work/main.c",
         "workingDirectory": "/work",
-        "executable": "/work/main",
+        "executable": executable,
     }));
     assert_eq!(launch["status"], "ok", "{launch}");
     // The source file is never the program: the host resolved the binary.
     assert_eq!(
         launch["arguments"],
-        json!({ "stopOnEntry": false, "program": "/work/main", "cwd": "/work" })
+        json!({ "stopOnEntry": false, "program": executable, "cwd": "/work" })
     );
 }
 
