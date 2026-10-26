@@ -4,6 +4,7 @@
 //! Version 1 stays authoritative until every consumer migrates. The engine emits v2
 //! beside it, built here from the raw adapter body so no v1 narrowing leaks into v2.
 
+#[cfg(test)]
 use crate::protocol::{CoreError, ErrorCode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
