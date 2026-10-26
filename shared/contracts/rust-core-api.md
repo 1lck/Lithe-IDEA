@@ -1099,6 +1099,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `plugins.declarative.testPlan` | Expand a declarative plugin's test template for a workspace, file, or test case |
 | `plugins.declarative.languageServerLaunchPlan` | Expand a declarative plugin's language-server, build-provider, VCS-provider, backend, or debug-adapter launch with host directories and architecture |
 | `debug.adapters.startArguments` | Check one debug start against a plugin's `debugAdapters[]` entry and return its DAP launch arguments |
+| `debug.adapters.executablePlan` | Say where to look for the program a launch debugs: the user's setting and the adapter's candidate paths |
 | `plugins.declarative.resolveSettings` | Merge a plugin's stored global and project setting layers into effective values with their source |
 | `plugins.declarative.workspaceConfiguration` | Expand a language server's `workspaceConfiguration` with the merged setting values |
 | `plugins.declarative.checkRuntimeVersion` | Decide whether a launch runtime's version output meets the declared minimum version |
@@ -2208,7 +2209,7 @@ The successful DAP initialize response emits a normalized `capabilities` event.
 It includes conditional, hit-count, log, function, data, and exception
 breakpoint support; variable mutation; restart and terminate requests; step
 back; exception information; request cancellation; single-thread execution;
-step-in targets; goto targets; and ordered exception filters. Native UIs
+step-in targets; goto targets; console completions; and ordered exception filters. Native UIs
 must treat capability state as unknown until this event arrives and hide or
 disable unsupported actions after negotiation.
 
@@ -2224,6 +2225,27 @@ evaluations, and variable-mutation results include non-negative
 `namedVariables` and `indexedVariables` counts, using zero when the adapter
 omits or reports an invalid negative value. The compatibility cases are in
 `shared/fixtures/debug/variable-paging-v1.json`.
+
+An `evaluate` inspection may carry `context` (`watch`, `hover`, `repl`,
+`clipboard`, or `variables`) and defaults to `watch`. Native consoles send
+`repl`, which adapters such as lldb-dap use to run their own debugger commands
+(`bt`, `p total`) and answer with plain text in the evaluation result. Other
+inspection kinds ignore `context`; Core rejects any value outside that list.
+
+A `completions` inspection asks the adapter for Debug Console proposals. It
+carries the typed text in `expression`, an optional UTF-16 caret `column` that
+counts from 1 and defaults to the end of the text (Core rejects a caret outside
+the text), and an optional `frameId`. It is rejected unless the adapter
+advertised `supportsCompletionsRequest`. The result lists items with `label`,
+`text` (the label when the adapter sends none), optional `detail` and `kind`,
+and an optional `start`/`length` range of the typed text the item replaces, in
+zero-based UTF-16 units. Adapters such as lldb-dap send no range; the client
+then replaces the word ending at the caret. Items without a label are dropped.
+
+A normalized stack frame carries `sourceReference` when the adapter serves the
+frame's source itself (a positive DAP `source.sourceReference`, for example
+lldb-dap's `dyld\`start`). Such a frame has no file the editor can open, so
+native clients must not treat its `source.path` as a workspace file.
 
 Exception information is available only while
 paused and normalizes the exception type, description, break mode, optional
@@ -3279,12 +3301,27 @@ refused with `plugin.launch.unavailable`.
 
 `debug.adapters.startArguments` accepts `{ manifest, adapterID, request:
 "launch" | "attach", facts: { registration: { generation, currentGeneration },
-runtimeSelection?, target: { kind, path?, processID?, workingDirectory? } } }`
+runtimeSelection?, target: { kind, path?, processID?, workingDirectory?,
+executable? } } }`
 and returns `{ status: "ok", arguments }`: the request's configured
 `arguments` with each `targetBindings` name filled from the target unless the
-configuration already sets it. Refusals use the `rejected` shape with
+configuration already sets it. `program` is filled from `target.path`, or from
+`target.executable` (an absolute path the host found) when the configuration
+binds it to `target.executable`. Refusals use the `rejected` shape with
 `debug.provider.stale`, `debug.request.unsupported`, `debug.runtime.stale`, or
 `debug.target.invalid`.
+
+`debug.adapters.executablePlan` accepts `{ manifest, adapterID, settings?,
+projectSettings?, workspace?, targetPath? }` and returns `{ status: "ok",
+plan }`. `plan` is `null` when the adapter's launch configuration declares no
+`executable` lookup; otherwise `{ setting, configured, candidates }`.
+`configured` is `{ path, source }` when the lookup's `file` setting has a
+non-empty effective value (`source` being `project`, `global`, or `default`)
+and `null` otherwise. `candidates` are the absolute paths to try in order,
+expanded from `workspace` and `targetPath`; a candidate that needs a variable
+the host did not send is left out. Core never touches the file system: the host
+checks `configured` first, and a configured path that is not a runnable file is
+an error, not a reason to try the candidates.
 
 `plugins.declarative.resolveSettings` accepts
 `{ manifest, settings?, projectSettings? }` and returns `settings`: one

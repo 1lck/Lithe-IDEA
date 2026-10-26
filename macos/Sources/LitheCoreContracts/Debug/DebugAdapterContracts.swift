@@ -557,6 +557,48 @@ public struct DebugGotoTarget: Identifiable, Equatable, Sendable {
     }
 }
 
+/// One Debug Console proposal. `start`/`length` select the typed text it replaces
+/// (zero-based UTF-16 units); adapters that send no range expect the client to
+/// replace the word ending at the caret.
+public struct DebugCompletionItem: Identifiable, Equatable, Sendable {
+    public let label: String
+    public let text: String
+    public let detail: String?
+    public let kind: String?
+    public let start: Int?
+    public let length: Int?
+
+    public var id: String { "\(text)\u{0}\(label)" }
+
+    public init(
+        label: String,
+        text: String,
+        detail: String? = nil,
+        kind: String? = nil,
+        start: Int? = nil,
+        length: Int? = nil
+    ) {
+        self.label = label
+        self.text = text
+        self.detail = detail
+        self.kind = kind
+        self.start = start
+        self.length = length
+    }
+}
+
+/// A debugger command a plugin declares for Debug Console completion, for adapters
+/// that cannot propose commands themselves. `detail` is the plugin's own text.
+public struct DebugConsoleCommand: Equatable, Sendable {
+    public let name: String
+    public let detail: String?
+
+    public init(name: String, detail: String? = nil) {
+        self.name = name
+        self.detail = detail
+    }
+}
+
 public struct DebugAdapterCapabilities: Equatable, Sendable {
     public let negotiated: Bool
     public let supportsConfigurationDone: Bool
@@ -576,6 +618,7 @@ public struct DebugAdapterCapabilities: Equatable, Sendable {
     public let supportsExceptionInfoRequest: Bool
     public let supportsStepInTargetsRequest: Bool
     public let supportsGotoTargetsRequest: Bool
+    public let supportsCompletionsRequest: Bool
     public let exceptionBreakpointFilters: [DebugExceptionBreakpointFilter]
 
     public static let unknown = DebugAdapterCapabilities()
@@ -599,6 +642,7 @@ public struct DebugAdapterCapabilities: Equatable, Sendable {
         supportsExceptionInfoRequest: Bool = false,
         supportsStepInTargetsRequest: Bool = false,
         supportsGotoTargetsRequest: Bool = false,
+        supportsCompletionsRequest: Bool = false,
         exceptionBreakpointFilters: [DebugExceptionBreakpointFilter] = []
     ) {
         self.negotiated = negotiated
@@ -619,6 +663,7 @@ public struct DebugAdapterCapabilities: Equatable, Sendable {
         self.supportsExceptionInfoRequest = supportsExceptionInfoRequest
         self.supportsStepInTargetsRequest = supportsStepInTargetsRequest
         self.supportsGotoTargetsRequest = supportsGotoTargetsRequest
+        self.supportsCompletionsRequest = supportsCompletionsRequest
         self.exceptionBreakpointFilters = exceptionBreakpointFilters
     }
 }
@@ -790,10 +835,36 @@ public protocol DebugAdapterControllingSession: DebugAdapterSession {
         completion: @escaping (Result<DebugVariable, Error>) -> Void
     )
     func evaluate(_ expression: String, frameID: Int?, completion: @escaping (Result<DebugVariable, Error>) -> Void)
+    /// Runs console input in the DAP `repl` context, which adapters such as lldb-dap
+    /// also use for their own debugger commands. Adapters without a distinct repl
+    /// treat it as a plain evaluation.
+    func evaluateInConsole(_ expression: String, frameID: Int?, completion: @escaping (Result<DebugVariable, Error>) -> Void)
+    /// Asks the adapter for Debug Console proposals. `column` is the caret as a
+    /// UTF-16 offset from 0 into `text` and defaults to its end.
+    func requestCompletions(
+        _ text: String,
+        column: Int?,
+        frameID: Int?,
+        completion: @escaping (Result<[DebugCompletionItem], Error>) -> Void
+    )
+    /// Commands the adapter's plugin declared for completion; empty for other adapters.
+    var consoleCommands: [DebugConsoleCommand] { get }
+    /// Text the adapter's console reads as "a debugger command follows"; nil when the
+    /// plugin declared none.
+    var consoleCommandPrefix: String? { get }
     func cancelPendingOperations()
 }
 
 public extension DebugAdapterControllingSession {
+    var consoleCommands: [DebugConsoleCommand] { [] }
+    var consoleCommandPrefix: String? { nil }
+    func evaluateInConsole(
+        _ expression: String,
+        frameID: Int?,
+        completion: @escaping (Result<DebugVariable, Error>) -> Void
+    ) {
+        evaluate(expression, frameID: frameID, completion: completion)
+    }
     func redefineClasses(_ completion: @escaping (Result<[String], Error>) -> Void) {
         completion(.failure(NSError(domain: "Lithe.Debug", code: 1, userInfo: [NSLocalizedDescriptionKey: L10n.string("This adapter does not support hot code replacement.")])))
     }
@@ -811,6 +882,14 @@ public extension DebugAdapterControllingSession {
         singleThread _: Bool
     ) {
         execute(command, threadID: threadID, targetID: targetID)
+    }
+    func requestCompletions(
+        _: String,
+        column _: Int?,
+        frameID _: Int?,
+        completion: @escaping (Result<[DebugCompletionItem], Error>) -> Void
+    ) {
+        completion(.failure(DebugAdapterCapabilityError.unsupported("console completion")))
     }
     func requestStepInTargets(
         frameID _: Int,

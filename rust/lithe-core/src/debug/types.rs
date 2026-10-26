@@ -374,6 +374,8 @@ pub enum DebugInspectKind {
     ExceptionInfo,
     StepInTargets,
     GotoTargets,
+    /// Debug Console completion proposals for the text typed so far.
+    Completions,
     /// Java Debug Server hot replacement; mutates classes in the debuggee.
     RedefineClasses,
 }
@@ -389,6 +391,7 @@ impl DebugInspectKind {
             Self::ExceptionInfo => "exceptionInfo",
             Self::StepInTargets => "stepInTargets",
             Self::GotoTargets => "gotoTargets",
+            Self::Completions => "completions",
             Self::RedefineClasses => "redefineClasses",
         }
     }
@@ -553,6 +556,7 @@ pub struct DebugCapabilities {
     pub supports_exception_info_request: bool,
     pub supports_step_in_targets_request: bool,
     pub supports_goto_targets_request: bool,
+    pub supports_completions_request: bool,
     pub exception_breakpoint_filters: Vec<DebugExceptionBreakpointFilter>,
 }
 
@@ -700,6 +704,24 @@ pub enum DebugOperationResult {
     GotoTargets {
         targets: Vec<DebugGotoTarget>,
     },
+    Completions {
+        items: Vec<DebugCompletionItem>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// One Debug Console proposal. `start`/`length` select the typed text the
+/// proposal replaces, in UTF-16 units from 0; absent means the word at the caret.
+pub struct DebugCompletionItem {
+    pub label: String,
+    /// Text inserted in place of the replaced range; the label when the adapter sends none.
+    pub text: String,
+    pub detail: Option<String>,
+    /// The adapter's DAP `CompletionItemType` (`method`, `variable`, ...).
+    pub kind: Option<String>,
+    pub start: Option<i64>,
+    pub length: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -761,6 +783,11 @@ pub struct DebugStackFrame {
     pub id: i64,
     pub name: String,
     pub source_path: Option<String>,
+    /// The adapter's `sourceReference` when it serves this frame's source itself, such as
+    /// the disassembly of a function without debug info. `source_path` then names no file
+    /// on disk, even when it looks like an absolute path.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_reference: Option<i64>,
     pub line: i64,
     pub column: i64,
     /// True when the active portable stepping policy matches this frame.

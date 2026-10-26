@@ -3101,6 +3101,83 @@ pub fn debug_start_arguments_command(payload: Value) -> Result<Value, CoreError>
     )))
 }
 
+/// `debug.adapters.executablePlan`: where a host looks for the program a
+/// launch debugs, when the adapter's configuration binds `program` to
+/// `target.executable`. `plan` is `null` for an adapter with no such lookup.
+/// The host owns the file system, so it checks `configured` and then each
+/// candidate; Core only says what to look at and in which order.
+pub fn debug_executable_plan_command(payload: Value) -> Result<Value, CoreError> {
+    const COMMAND: &str = "debug.adapters.executablePlan";
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Payload {
+        manifest: Value,
+        #[serde(rename = "adapterID")]
+        adapter_id: String,
+        #[serde(default)]
+        settings: BTreeMap<String, Value>,
+        #[serde(default)]
+        project_settings: BTreeMap<String, Value>,
+        /// Absolute root of the open project.
+        #[serde(default)]
+        workspace: Option<String>,
+        /// Absolute path of the source file being debugged, when there is one.
+        #[serde(default)]
+        target_path: Option<String>,
+    }
+    let payload: Payload = decode_payload(payload, COMMAND)?;
+    Ok(outcome(validate_manifest_value(payload.manifest).and_then(
+        |manifest| {
+            let adapter = manifest
+                .debug_adapters
+                .iter()
+                .find(|adapter| adapter.id == payload.adapter_id)
+                .ok_or_else(|| {
+                    PluginRejection::new(
+                        "plugin.launch.unavailable",
+                        format!(
+                            "The plugin declares no debug adapter {}.",
+                            payload.adapter_id
+                        ),
+                    )
+                })?;
+            let Some(lookup) = adapter
+                .configurations
+                .as_ref()
+                .and_then(|configurations| configurations.launch.as_ref())
+                .and_then(|configuration| configuration.executable.as_ref())
+            else {
+                return Ok(("plan", Value::Null));
+            };
+            let layers = SettingLayers {
+                global: &payload.settings,
+                project: &payload.project_settings,
+            };
+            let configured = manifest
+                .resolve_settings(layers)
+                .into_iter()
+                .find(|setting| setting.id == lookup.setting)
+                .and_then(|setting| match &setting.value {
+                    Value::String(path) if !path.is_empty() => {
+                        Some(json!({"path": path, "source": setting.source}))
+                    }
+                    _ => None,
+                });
+            Ok((
+                "plan",
+                json!({
+                    "setting": lookup.setting,
+                    "configured": configured,
+                    "candidates": lookup.expanded_candidates(
+                        payload.workspace.as_deref(),
+                        payload.target_path.as_deref(),
+                    ),
+                }),
+            ))
+        },
+    )))
+}
+
 fn server_launch_plan(
     manifest: &DeclarativePluginManifest,
     process: &ServerProcess,

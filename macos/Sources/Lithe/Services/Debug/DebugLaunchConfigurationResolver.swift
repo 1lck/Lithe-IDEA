@@ -8,6 +8,11 @@ enum DebugLaunchConfigurationResolutionError: LocalizedError, Equatable {
     case invalidJavaAttachHost
     case invalidJavaAttachPort
     case javaRuntimeUnavailable
+    /// No program to debug: the plugin's setting is empty and none of its
+    /// candidate locations holds one.
+    case executableNotFound(plugin: String, setting: String, searched: [String])
+    /// The user chose a program in the plugin's setting that cannot run.
+    case configuredExecutableUnusable(plugin: String, setting: String, path: String)
 
     var errorDescription: String? {
         switch self {
@@ -21,6 +26,14 @@ enum DebugLaunchConfigurationResolutionError: LocalizedError, Equatable {
             return L10n.string("Enter a JVM debug port between 1 and 65535.")
         case .javaRuntimeUnavailable:
             return L10n.string("No Java runtime was found. Set JAVA_HOME or install a JDK.")
+        case .executableNotFound(let plugin, let setting, let searched):
+            if searched.isEmpty {
+                return L10n.string("No program to debug was found. Build it first, or choose one in the “\(setting)” setting of \(plugin).")
+            }
+            let places = searched.joined(separator: ", ")
+            return L10n.string("No program to debug was found. Build it first, or choose one in the “\(setting)” setting of \(plugin). Looked in: \(places)")
+        case .configuredExecutableUnusable(let plugin, let setting, let path):
+            return L10n.string("The program chosen in the “\(setting)” setting of \(plugin) is missing or not executable: \(path)")
         }
     }
 }

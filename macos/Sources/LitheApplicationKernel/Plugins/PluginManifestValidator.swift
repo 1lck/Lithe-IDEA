@@ -162,6 +162,9 @@ public struct ValidatedPluginCatalog: Sendable {
             }
             try Self.validateLanguageSupports(in: plugin)
             for support in plugin.languageSupports ?? [] {
+                // A debug-only declaration adds a debugger to a language that
+                // another package owns; it never takes that ownership over.
+                if languageSupports[support.id] != nil, support.isDebugOnly { continue }
                 if let existing = languageSupports[support.id] {
                     throw PluginCatalogError.duplicateLanguageSupport(
                         languageID: support.id,

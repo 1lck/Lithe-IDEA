@@ -20,6 +20,7 @@
 "%@ disabled" = "%@ disabled";
 "%@ does not include %@; Lithe renders those characters with %@ and the system font." = "%@ does not include %@; Lithe renders those characters with %@ and the system font.";
 "%@ does not provide archived conversations." = "%@ does not provide archived conversations.";
+"%@ does not support Debug yet" = "%@ does not support Debug yet";
 "%@ does not support running the current file directly. Use a project run configuration." = "%@ does not support running the current file directly. Use a project run configuration.";
 "%@ enabled" = "%@ enabled";
 "%@ exited with status %d.\n%@" = "%@ exited with status %d.\n%@";
@@ -202,11 +203,14 @@
 "Active Maven Profiles" = "Active Maven Profiles";
 "Active profiles" = "Active profiles";
 "Activity" = "Activity";
+"Adapter Ready" = "Adapter Ready";
 "Add" = "Add";
 "Add Hook" = "Add Hook";
+"Add Method Breakpoint" = "Add Method Breakpoint";
 "Add Provider" = "Add Provider";
 "Add Selected" = "Add Selected";
 "Add Shortcut" = "Add Shortcut";
+"Add Watch" = "Add Watch";
 "Add a class or method name" = "Add a class or method name";
 "Add a memory usage indicator to the status bar" = "Add a memory usage indicator to the status bar";
 "Add an AI provider in AI Providers first." = "Add an AI provider in AI Providers first.";
@@ -226,6 +230,7 @@
 "Add to %@" = "Add to %@";
 "Add to Another Conversation" = "Add to Another Conversation";
 "Add to Current Conversation · %@" = "Add to Current Conversation · %@";
+"Add to Watches" = "Add to Watches";
 "Add to favorites" = "Add to favorites";
 "Add tool windows and commands to the workbench" = "Add tool windows and commands to the workbench";
 "Add variable" = "Add variable";
@@ -301,6 +306,7 @@
 "Allow “%@” to run build tools?" = "Allow “%@” to run build tools?";
 "Always ask before making changes" = "Ask before making changes or running actions that require approval.";
 "Always ask to edit external files and use the internet" = "Always ask to edit external files and use the internet";
+"Always break" = "Always break";
 "Always end" = "Always end";
 "Always keep" = "Always keep";
 "Amend" = "Amend";
@@ -440,6 +446,7 @@
 "Branches have diverged" = "Branches have diverged";
 "Branches must be different" = "Branches must be different";
 "Branches unavailable" = "Branches unavailable";
+"Break on Field Access…" = "Break on Field Access…";
 "Breakdown unavailable" = "Breakdown unavailable";
 "Breakpoint" = "Breakpoint";
 "Breakpoint actions" = "Breakpoint actions";
@@ -579,6 +586,7 @@
 "Choose a Git executable above to continue." = "Choose a Git executable above to continue.";
 "Choose a JDK directory" = "Choose a JDK directory";
 "Choose a JDK in Settings → Project or install a full JDK and set JAVA_HOME." = "Choose a JDK in Settings → Project or install a full JDK and set JAVA_HOME.";
+"Choose a Run configuration before starting Debug" = "Choose a Run configuration before starting Debug";
 "Choose a Run configuration for this Maven module" = "Choose a Run configuration for this Maven module";
 "Choose a ZIP archive or an unpacked plugin directory." = "Choose a ZIP archive or an unpacked plugin directory.";
 "Choose a base and compare branch, then describe the pull request." = "Choose a base and compare branch, then describe the pull request.";
@@ -622,6 +630,7 @@
 "Choose which branch Push targets when you do not name one." = "Choose which branch Push targets when you do not name one.";
 "Choose which branch to update before pushing." = "Choose which branch to update before pushing.";
 "Choose…" = "Choose…";
+"Class or method" = "Class or method";
 "Classes" = "Classes";
 "Claude Agent" = "Claude Agent";
 "Claude Code has MCP tool restrictions. Update its native rules before renaming a server so disabled tools do not become available under a new name." = "Claude Code has MCP tool restrictions. Update its native rules before renaming a server so disabled tools do not become available under a new name.";
@@ -641,6 +650,7 @@
 "Cleaning up…" = "Cleaning up…";
 "Clear" = "Clear";
 "Clear All" = "Clear All";
+"Clear Console" = "Clear Console";
 "Clear Git console" = "Clear Git console";
 "Clear Logs" = "Clear Logs";
 "Clear Override" = "Clear Override";
@@ -805,6 +815,7 @@
 "Compression is unavailable. Showing complete retained output." = "Compression is unavailable. Showing complete retained output.";
 "Concise" = "Concise";
 "Concise sentence" = "Concise sentence";
+"Condition" = "Condition";
 "Configuration" = "Configuration";
 "Configuration ID" = "Configuration ID";
 "Configuration details" = "Configuration details";
@@ -831,6 +842,7 @@
 "Connect" = "Connect";
 "Connect a GitHub account before continuing" = "Connect a GitHub account before continuing";
 "Connect to Running JVM" = "Connect to Running JVM";
+"Connect to Running JVM…" = "Connect to Running JVM…";
 "Connect to databases, browse schemas, edit data, run SQL, and manage backups from the Database workspace." = "Connect to databases, browse schemas, edit data, run SQL, and manage backups from the Database workspace.";
 "Connect to running JVM" = "Connect to running JVM";
 "Connected" = "Connected";
@@ -883,16 +895,22 @@
 "Copy Branch Name" = "Copy Branch Name";
 "Copy Commit Hash" = "Copy Commit Hash";
 "Copy Conversation" = "Copy Conversation";
+"Copy Expression" = "Copy Expression";
 "Copy Files" = "Copy";
 "Copy JSON" = "Copy JSON";
+"Copy Method Name" = "Copy Method Name";
 "Copy Name" = "Copy Name";
 "Copy Original Command" = "Copy Original Command";
 "Copy Path" = "Copy Path";
 "Copy Path / Reference" = "Copy Path / Reference";
 "Copy Project Path" = "Copy Project Path";
 "Copy Recovery Reference" = "Copy Recovery Reference";
+"Copy Relative Location" = "Copy Relative Location";
 "Copy Relative Path" = "Copy Relative Path";
 "Copy Short Hash" = "Copy Short Hash";
+"Copy Source Location" = "Copy Source Location";
+"Copy Thread Name" = "Copy Thread Name";
+"Copy Value" = "Copy Value";
 "Copy agent configuration" = "Copy agent configuration";
 "Copy code" = "Copy code";
 "Copy command" = "Copy command";
@@ -914,6 +932,7 @@
 "Could not connect to the Debug Adapter: %@" = "Could not connect to the Debug Adapter: %@";
 "Could not connect to the Java Debug Server: %@" = "Could not connect to the Java Debug Server: %@";
 "Could not copy your Stable settings" = "Could not copy your Stable settings";
+"Could not find the Java source for %@" = "Could not find the Java source for %@";
 "Could not import MCP JSON. Check the mcpServers object and try again." = "Could not import MCP JSON. Check the mcpServers object and try again.";
 "Could not inspect saved file" = "Could not inspect saved file";
 "Could not inspect the selected history. Refresh the preview to retry." = "Could not inspect the selected history. Refresh the preview to retry.";
@@ -1027,14 +1046,18 @@
 "Debug" = "Debug";
 "Debug selected test" = "Debug selected test";
 "Debug sessions" = "Debug sessions";
+"Debug support is not available for %@" = "Debug support is not available for %@";
 "Debug target" = "Debug target";
 "Debug: Resume" = "Debug: Resume";
 "Debug: Step Into" = "Debug: Step Into";
 "Debug: Step Out" = "Debug: Step Out";
 "Debug: Step Over" = "Debug: Step Over";
 "Debugger" = "Debugger";
+"Debugger command input" = "Debugger command input";
+"Debugger command suggestions" = "Debugger command suggestions";
 "Debugger thread" = "Debugger thread";
 "Debugging code" = "Debugging code";
+"Debugging is not supported for this file type" = "Debugging is not supported for this file type";
 "Decrease Font Size" = "Decrease Font Size";
 "Deep reasoning for complex tasks" = "Deep reasoning for complex tasks";
 "Default" = "Default";
@@ -1214,10 +1237,12 @@
 "Edit Configuration…" = "Edit Configuration…";
 "Edit Hook" = "Edit Hook";
 "Edit MCP server" = "Edit MCP server";
+"Edit Method Breakpoint" = "Edit Method Breakpoint";
 "Edit Paths as Text" = "Edit Paths as Text";
 "Edit Service" = "Edit Service";
 "Edit Shortcut" = "Edit Shortcut";
 "Edit Shortcuts" = "Edit Shortcuts";
+"Edit Watch" = "Edit Watch";
 "Edit configuration text" = "Edit configuration text";
 "Edit exception breakpoint" = "Edit exception breakpoint";
 "Edit files and stage the changes you want to include. Amend and Continue updates this commit; Continue keeps the existing commit." = "Edit files and stage the changes you want to include. Amend and Continue updates this commit; Continue keeps the existing commit.";
@@ -1284,6 +1309,7 @@
 "Enter a branch name." = "Enter a branch name.";
 "Enter a commit message" = "Enter a commit message";
 "Enter a complete server URL." = "Enter a complete server URL.";
+"Enter a debugger command (Tab to complete)" = "Enter a debugger command (Tab to complete)";
 "Enter a description and instructions." = "Enter a description and instructions.";
 "Enter a host." = "Enter a host.";
 "Enter a model ID supported by your provider." = "Enter a model ID supported by your provider.";
@@ -1319,9 +1345,11 @@
 "Estimated from the size of the latest request." = "Estimated from the size of the latest request.";
 "Evaluate expression" = "Evaluate expression";
 "Evaluate expression while paused" = "Evaluate expression while paused";
+"Evaluating…" = "Evaluating…";
 "Example" = "Example";
 "Exception" = "Exception";
 "Exception Breakpoints" = "Exception Breakpoints";
+"Exception condition" = "Exception condition";
 "Exclude from dependency tree" = "Exclude from dependency tree";
 "Excluded" = "Excluded";
 "Excluded Paths" = "Excluded Paths";
@@ -1355,6 +1383,7 @@
 "Exports the working tree's net changes against HEAD, including selected untracked files." = "Exports the working tree's net changes against HEAD, including selected untracked files.";
 "Exports working files against the index, including selected untracked files." = "Exports working files against the index, including selected untracked files.";
 "Export…" = "Export…";
+"Expression" = "Expression";
 "Expression history" = "Expression history";
 "External change" = "External change";
 "External edits conflict with unsaved changes" = "External edits conflict with unsaved changes";
@@ -1463,6 +1492,7 @@
 "Format" = "Format";
 "Format JSON" = "Format JSON";
 "Forward" = "Forward";
+"Found automatically" = "Found automatically";
 "Frames are not available" = "Frames are not available";
 "Frames rendered per second" = "Frames rendered per second";
 "Free space" = "Free space";
@@ -1611,6 +1641,7 @@
 "History changed, but Git reported an incomplete step. Refresh the repository and inspect the recovery reference before retrying." = "History changed, but Git reported an incomplete step. Refresh the repository and inspect the recovery reference before retrying.";
 "History filter" = "History filter";
 "History of %@" = "History of %@";
+"Hit count" = "Hit count";
 "Hit: %@" = "Hit: %@";
 "Home directory" = "Home directory";
 "Homebrew is not installed or is not available to Lithe." = "Homebrew is not installed or is not available to Lithe.";
@@ -1678,6 +1709,7 @@
 "Initialize Git to track changes and create your first commit." = "Initialize Git to track changes and create your first commit.";
 "Initialize a repository before saving repository-specific identity" = "Initialize a repository before saving repository-specific identity";
 "Initialize this project from Git before saving repository-specific identity." = "Initialize this project from Git before saving repository-specific identity.";
+"Initializing Adapter" = "Initializing Adapter";
 "Initializing project index" = "Initializing project index";
 "Input" = "Input";
 "Input: %@" = "Input: %@";
@@ -1761,6 +1793,7 @@
 "Java Run marker request failed" = "Java Run marker request failed";
 "Java SDK" = "Java SDK";
 "Java Stepping Filters" = "Java Stepping Filters";
+"Java Stepping Filters…" = "Java Stepping Filters…";
 "Java entries appear after the Java language service lists runnable classes." = "Java entries appear after the Java language service lists runnable classes.";
 "Java entries could not be refreshed" = "Java entries could not be refreshed";
 "Java entry-point freshness check failed" = "Java entry-point freshness check failed";
@@ -1896,15 +1929,18 @@
 "Lithe: fetch tags" = "Lithe: fetch tags";
 "Lithe: prune stale branches" = "Lithe: prune stale branches";
 "Load" = "Load";
+"Load %lld more" = "Load %lld more";
 "Load Disk Version" = "Load Disk Version";
 "Load More" = "Load More";
 "Load Project Model" = "Load Project Model";
 "Load more" = "Load more";
 "Load more commits" = "Load more commits";
+"Load more debugger variables" = "Load more debugger variables";
 "Load the %@ model" = "Load the %@ model";
 "Load the dependencies again" = "Load the dependencies again";
 "Load the dependencies of %@" = "Load the dependencies of %@";
 "Load the project model" = "Load the project model";
+"Load threads" = "Load threads";
 "Loaded file-system version" = "Loaded file-system version";
 "Loading %@ model" = "Loading %@ model";
 "Loading branch details…" = "Loading branch details…";
@@ -1916,6 +1952,7 @@
 "Loading commits…" = "Loading commits…";
 "Loading comparison…" = "Loading comparison…";
 "Loading conversation…" = "Loading conversation…";
+"Loading debugger variables" = "Loading debugger variables";
 "Loading dependencies of %@" = "Loading dependencies of %@";
 "Loading dependencies..." = "Loading dependencies...";
 "Loading dependencies…" = "Loading dependencies…";
@@ -1959,12 +1996,14 @@
 "Log filter" = "Log filter";
 "Log level" = "Log level";
 "Log locations" = "Log locations";
+"Log message" = "Log message";
 "Log timeline" = "Log timeline";
 "Log: %@" = "Log: %@";
 "Logs" = "Logs";
 "Logs and Diagnostics" = "Logs and Diagnostics";
 "Look Up Again" = "Look Up Again";
 "Look Up Location" = "Look Up Location";
+"Looked in: %@" = "Looked in: %@";
 "Looking for Git…" = "Looking for Git…";
 "Looking for installed JDKs…" = "Looking for installed JDKs…";
 "Looking up the location sends this address to ipinfo.io. Lithe does this only when you click Look Up." = "Looking up the location sends this address to ipinfo.io. Lithe does this only when you click Look Up.";
@@ -2143,6 +2182,8 @@
 "Navigation" = "Navigation";
 "Needs no extra permissions." = "Needs no extra permissions.";
 "Needs restart" = "Needs restart";
+"Nested exception" = "Nested exception";
+"Never break" = "Never break";
 "New" = "New";
 "New Branch" = "New Branch";
 "New Branch from '%@'…" = "New Branch from '%@'…";
@@ -2247,6 +2288,7 @@
 "No differences were found for this selection." = "No differences were found for this selection.";
 "No earlier conversations" = "No earlier conversations";
 "No effective value configured" = "No effective value configured";
+"No executable location was found at the cursor" = "No executable location was found at the cursor";
 "No file edits" = "No file edits";
 "No files match the conflict filter" = "No files match the conflict filter";
 "No history recorded yet" = "No history recorded yet";
@@ -2256,6 +2298,7 @@
 "No items" = "No items";
 "No language dependency sources registered" = "No language dependency sources registered";
 "No language provider handles .%@ files." = "No language provider handles .%@ files.";
+"No language provider is available for this file" = "No language provider is available for this file";
 "No language run provider handles .%@ files." = "No language run provider handles .%@ files.";
 "No local changes" = "No local changes";
 "No local variables in the current frame" = "No local variables in the current frame";
@@ -2286,10 +2329,13 @@
 "No notifications" = "No notifications";
 "No paths" = "No paths";
 "No paths resolved for this service" = "No paths resolved for this service";
+"No place to look yet. Open the file you want to debug, or choose the program yourself." = "No place to look yet. Open the file you want to debug, or choose the program yourself.";
 "No plugins available" = "No plugins available";
 "No problems in %@" = "No problems in %@";
 "No problems match the current filter" = "No problems match the current filter";
 "No profiling events were recorded." = "No profiling events were recorded.";
+"No program to debug was found. Build it first, or choose one in the “%@” setting of %@." = "No program to debug was found. Build it first, or choose one in the “%@” setting of %@.";
+"No program to debug was found. Build it first, or choose one in the “%@” setting of %@. Looked in: %@" = "No program to debug was found. Build it first, or choose one in the “%@” setting of %@. Looked in: %@";
 "No project entry point detected" = "No project entry point detected";
 "No project history recorded yet" = "No project history recorded yet";
 "No project is open" = "No project is open";
@@ -2343,6 +2389,7 @@
 "Normal Folder" = "Normal Folder";
 "Not Assigned" = "Not Assigned";
 "Not Supported" = "Not Supported";
+"Not available" = "Not available";
 "Not available yet: dependencies are not indexed" = "Not available yet: dependencies are not indexed";
 "Not detected" = "Not detected";
 "Not fetched yet." = "Not fetched yet.";
@@ -2425,6 +2472,7 @@
 "Open a Git project before using pull requests" = "Open a Git project before using pull requests";
 "Open a Java file" = "Open a Java file";
 "Open a Java file before starting Debug" = "Open a Java file before starting Debug";
+"Open a Java project before connecting the debugger" = "Open a Java project before connecting the debugger";
 "Open a local folder to start working." = "Open a local folder to start working.";
 "Open a local project folder" = "Open a local project folder";
 "Open a project" = "Open a project";
@@ -2440,6 +2488,7 @@
 "Open a project to see its language service." = "Open a project to see its language service.";
 "Open a project to use Git" = "Open a project to use Git";
 "Open a source file before running Current File." = "Open a source file before running Current File.";
+"Open a source file or choose a project Run configuration" = "Open a source file or choose a project Run configuration";
 "Open again" = "Open again";
 "Open file" = "Open file";
 "Open file in editor to see problems" = "Open file in editor to see problems";
@@ -2518,7 +2567,9 @@
 "Path Missing" = "Path Missing";
 "Paths" = "Paths";
 "Pause" = "Pause";
+"Pause Thread" = "Pause Thread";
 "Pause the process to inspect variables" = "Pause the process to inspect variables";
+"Pause the program to run debugger commands" = "Pause the program to run debugger commands";
 "Paused" = "Paused";
 "Peak this run" = "Peak this run";
 "Peak total" = "Peak total";
@@ -2541,6 +2592,7 @@
 "Pinned" = "Pinned";
 "Pinned: %@ · Local: %@" = "Pinned: %@ · Local: %@";
 "Place the caret in a Java file to set a breakpoint" = "Place the caret in a Java file to set a breakpoint";
+"Place the caret in a source file to set a breakpoint" = "Place the caret in a source file to set a breakpoint";
 "Place the caret on a Java symbol first" = "Place the caret on a Java symbol first";
 "Plan" = "Plan";
 "Plan %lld/%lld" = "Plan %lld/%lld";
@@ -2735,11 +2787,13 @@
 "R Support" = "R Support";
 "Ran %lld command" = "Ran %lld command";
 "Ran %lld commands" = "Ran %lld commands";
+"Read" = "Read";
 "Read %lld file" = "Read %lld file";
 "Read %lld files" = "Read %lld files";
 "Read, write and search files only in the directories you allow. Requires Node.js 24 or later." = "Read, write and search files only in the directories you allow. Requires Node.js 24 or later.";
 "Read-only" = "Read-only";
 "Read-only file preview" = "Read-only file preview";
+"Read/Write" = "Read/Write";
 "Reading Git configuration…" = "Reading Git configuration…";
 "Reading changes and recent commits." = "Reading changes and recent commits.";
 "Reading changes…" = "Reading changes…";
@@ -2974,6 +3028,7 @@
 "Result" = "Result";
 "Results" = "Results";
 "Resume" = "Resume";
+"Resume Thread" = "Resume Thread";
 "Resume the paused debug session" = "Resume the paused debug session";
 "Retention and cleanup" = "Retention and cleanup";
 "Retired official Go plugin. Go support is now the community plugin Go Support in Lithe Store." = "Retired official Go plugin. Go support is now the community plugin Go Support in Lithe Store.";
@@ -3057,6 +3112,7 @@
 "Run tests" = "Run tests";
 "Run tests to view process performance." = "Run tests to view process performance.";
 "Run this MCP command?" = "Run this MCP command?";
+"Run to Cursor is unavailable for the active debug session" = "Run to Cursor is unavailable for the active debug session";
 "Run your files" = "Run your files";
 "Run your tests" = "Run your tests";
 "Running" = "Running";
@@ -3188,6 +3244,7 @@
 "Select a pull request" = "Select a pull request";
 "Select a run configuration to see its output." = "Select a run configuration to see its output.";
 "Select a service or task to configure its arguments, environment and project-environment overrides. Changes apply after Save." = "Select a service or task to configure its arguments, environment and project-environment overrides. Changes apply after Save.";
+"Select a stack frame to inspect variables" = "Select a stack frame to inspect variables";
 "Select a worktree" = "Select a worktree";
 "Select all" = "Select all";
 "Select branch" = "Select branch";
@@ -3201,6 +3258,7 @@
 "Select shell" = "Select shell";
 "Select test JVM" = "Select test JVM";
 "Select the ChangeList to commit" = "Select the ChangeList to commit";
+"Select thread" = "Select thread";
 "Selected" = "Selected";
 "Selected ChangeList or staged files changed before generation finished" = "Selected ChangeList or staged files changed before generation finished";
 "Selected directory" = "Selected directory";
@@ -3225,6 +3283,7 @@
 "Sessions" = "Sessions";
 "Set" = "Set";
 "Set Up Agent File Attachments…" = "Set Up Agent File Attachments…";
+"Set Value…" = "Set Value…";
 "Set Variable Value" = "Set Variable Value";
 "Set as preferred" = "Set as preferred";
 "Set the custom Agent's executable in the panel settings." = "Set the custom Agent's executable in Settings > AI > Agents.";
@@ -3367,6 +3426,7 @@
 "Smart Checkout (Shelve)" = "Smart Checkout (Shelve)";
 "Smart Checkout shelves your changes in Lithe, switches branch, then restores them. Force Checkout switches and discards them." = "Smart Checkout shelves your changes in Lithe, switches branch, then restores them. Force Checkout switches and discards them.";
 "Smart Checkout stashes your changes, switches branch, then restores them. Force Checkout switches and discards them." = "Smart Checkout stashes your changes, switches branch, then restores them. Force Checkout switches and discards them.";
+"Smart Step Into" = "Smart Step Into";
 "Smart step into" = "Smart step into";
 "Soft Reset (Keep Changes Staged)" = "Soft Reset (Keep Changes Staged)";
 "Soft Wraps" = "Soft Wraps";
@@ -3415,6 +3475,7 @@
 "Start Debugging" = "Start Debugging";
 "Start Rebase" = "Start Rebase";
 "Start Recording" = "Start Recording";
+"Start a debug session to run debugger commands" = "Start a debug session to run debugger commands";
 "Start a language server when you open files of its language" = "Start a language server when you open files of its language";
 "Start a local Java debug session to view performance." = "Start a local Java debug session to view performance.";
 "Start a new conversation after saving to load the updated instructions. Project instructions still apply." = "Start a new conversation after saving to load the updated instructions. Project instructions still apply.";
@@ -3450,6 +3511,7 @@
 "State unknown" = "State unknown";
 "Status" = "Status";
 "Step %lld of %lld" = "Step %lld of %lld";
+"Step Back" = "Step Back";
 "Step into" = "Step into";
 "Step out" = "Step out";
 "Step over" = "Step over";
@@ -3647,6 +3709,7 @@
 "The bundled JDT LS version could not be determined." = "The bundled JDT LS version could not be determined.";
 "The checkout directory no longer exists. Repair moved worktree metadata or prune the stale Git record." = "The checkout directory no longer exists. Repair moved worktree metadata or prune the stale Git record.";
 "The checkout path does not exist" = "The checkout path does not exist";
+"The chosen file is missing or not executable." = "The chosen file is missing or not executable.";
 "The clipboard image could not be read" = "The clipboard image could not be read";
 "The clipboard image is empty" = "The clipboard image is empty";
 "The clipboard image is larger than 100 MB" = "The clipboard image is larger than 100 MB";
@@ -3750,6 +3813,7 @@
 "The primary worktree cannot be removed." = "The primary worktree cannot be removed.";
 "The process does not have an open standard-input pipe." = "The process does not have an open standard-input pipe.";
 "The process is not running." = "The process is not running.";
+"The program chosen in the “%@” setting of %@ is missing or not executable: %@" = "The program chosen in the “%@” setting of %@ is missing or not executable: %@";
 "The project archive from %@ is too large." = "The project archive from %@ is too large.";
 "The project directory is unavailable." = "The project directory is unavailable.";
 "The project folder on the host. Browse connects, installs the Lithe server on the host if needed, and lets you pick a folder." = "The project folder on the host. Browse connects, installs the Lithe server on the host if needed, and lets you pick a folder.";
@@ -3797,6 +3861,7 @@
 "The stable release is missing a valid publisher signature. Nothing was installed. Try a newer release or install manually from a trusted source." = "The stable release is missing a valid publisher signature. Nothing was installed. Try a newer release or install manually from a trusted source.";
 "The staged changes have no textual diff to summarize." = "The staged changes have no textual diff to summarize.";
 "The staged changes will be committed and the current branch will be pushed to its configured remote." = "The staged changes will be committed and the current branch will be pushed to its configured remote.";
+"The stopped source file is no longer available: %@" = "The stopped source file is no longer available: %@";
 "The switch controls the Lithe shared block, not the Agent or its own instructions. Save shared changes before switching. Open a row to edit the complete native file." = "The switch controls the Lithe shared block, not the Agent or its own instructions. Save shared changes before switching. Open a row to edit the complete native file.";
 "The test file is outside the current workspace: %@" = "The test file is outside the current workspace: %@";
 "The update could not be installed. Download the release manually and try again." = "The update could not be installed. Download the release manually and try again.";
@@ -3925,6 +3990,7 @@
 "This worktree has a detached HEAD. Publish it as a branch before creating a pull request." = "This worktree has a detached HEAD. Publish it as a branch before creating a pull request.";
 "This worktree has no uncommitted changes." = "This worktree has no uncommitted changes.";
 "Threads" = "Threads";
+"Threads & Variables" = "Threads & Variables";
 "Time to exit" = "Time to exit";
 "Timed Out" = "Timed Out";
 "Timeout (seconds)" = "Timeout (seconds)";
@@ -4010,6 +4076,7 @@
 "Undo" = "Undo";
 "Undo Commit" = "Undo Last Commit (Keep Changes)";
 "Undo Commit…" = "Undo Last Commit (Keep Changes)…";
+"Unhandled" = "Unhandled";
 "Uninstall" = "Uninstall";
 "Uninstall %@ from the Installed tab and restart Lithe first. It is the retired official version of this plugin and supports the same language." = "Uninstall %@ from the Installed tab and restart Lithe first. It is the retired official version of this plugin and supports the same language.";
 "Uninstall %@?" = "Uninstall %@?";
@@ -4138,6 +4205,7 @@
 "User" = "User";
 "User name" = "User name";
 "User-facing sentence for release notes" = "User-facing sentence for release notes";
+"User-unhandled" = "User-unhandled";
 "Uses the claude.ai account signed in to Claude Code. Sign in with /login in Claude Code if the Agent asks." = "Uses the claude.ai account signed in to Claude Code. Sign in with /login in Claude Code if the Agent asks.";
 "Uses your local ChatGPT account." = "Uses your local ChatGPT account.";
 "Usually the reversed domain name of your organization, such as com.example." = "Usually the reversed domain name of your organization, such as com.example.";
@@ -4183,6 +4251,7 @@
 "Wait for the running version control action to finish." = "Wait for the running version control action to finish.";
 "Waiting for Agent response…" = "Waiting for Agent response…";
 "Waiting for ChatGPT sign-in…" = "Waiting for ChatGPT sign-in…";
+"Waiting for Debug Adapter output…" = "Waiting for Debug Adapter output…";
 "Waiting for GitHub…" = "Waiting for GitHub…";
 "Waiting for JVM performance data…" = "Waiting for JVM performance data…";
 "Waiting for a local test JVM…" = "Waiting for a local test JVM…";
@@ -4248,6 +4317,7 @@
 "Worktrees" = "Worktrees";
 "Worktrees are unavailable" = "Worktrees are unavailable";
 "Wrap into rows" = "Wrap into rows";
+"Write" = "Write";
 "Write a clear, actionable comment…" = "Write a clear, actionable comment…";
 "Write shared instructions once, then enable them for each Agent. Lithe only changes its marked block; the rest of each native file stays yours. Start a new conversation to load changes. Project instructions still apply." = "Write shared instructions once, then enable them for each Agent. Lithe only changes its marked block; the rest of each native file stays yours. Start a new conversation to load changes. Project instructions still apply.";
 "Write to global config" = "Write to global config";
@@ -4290,6 +4360,7 @@
 "commit messages" = "commit messages";
 "conflict -> %@" = "conflict -> %@";
 "debugger.continue" = "Continue";
+"debugger.threadsAndVariables" = "Threads & Variables";
 "detected on this Mac" = "detected on this Mac";
 "ditto exited with code %@: %@" = "ditto exited with code %@: %@";
 "duplicate omitted" = "duplicate omitted";
@@ -4363,6 +4434,7 @@
 "native.activeMavenProfiles" = "Active Maven Profiles";
 "native.activeProfiles" = "Active profiles";
 "native.activity" = "Activity";
+"native.adapterReady" = "Adapter Ready";
 "native.addAClassOrMethodName" = "Add a class or method name";
 "native.addAMemoryUsageIndicatorToTheStatusBar" = "Add a memory usage indicator to the status bar";
 "native.addAnAIProviderInAIProvidersFirst" = "Add an AI provider in AI Providers first.";
@@ -4374,6 +4446,7 @@
 "native.addMemoryUsageMonitoringTrackCurrentAndAverageMemoryUsageInTheStatusBar" = "Add memory usage monitoring\n\nTrack current and average memory usage in the status bar.";
 "native.addMemoryUsageVisibilityToTheStatusBar" = "Add memory usage visibility to the status bar";
 "native.addMethodBreakpoint" = "Add method breakpoint";
+"native.addMethodBreakpoint2" = "Add Method Breakpoint";
 "native.addOneHereOrRegisterAServerWithCodexOrClaudeCodeAndRefresh" = "Add one here, or register a server with Codex or Claude Code and refresh.";
 "native.addOrRemoveABreakpointAtTheCaret" = "Add or remove a breakpoint at the caret";
 "native.addProvider" = "Add Provider";
@@ -4386,9 +4459,11 @@
 "native.addToAnotherConversation" = "Add to Another Conversation";
 "native.addToCurrentConversation" = "Add to Current Conversation · %1$@";
 "native.addToFavorites" = "Add to favorites";
+"native.addToWatches" = "Add to Watches";
 "native.addToolWindowsAndCommandsToTheWorkbench" = "Add tool windows and commands to the workbench";
 "native.addVariable" = "Add variable";
 "native.addWatch" = "Add watch";
+"native.addWatch2" = "Add Watch";
 "native.added" = "Added";
 "native.addedByPlugins" = "Added by plugins";
 "native.addedMemoryUsageVisibilityToTheStatusBar" = "Added memory usage visibility to the status bar.";
@@ -4487,6 +4562,7 @@
 "native.alreadyExistsChooseAnotherNameOrLocation" = "%1$@ already exists. Choose another name or location.";
 "native.alwaysAskBeforeMakingChanges" = "Ask before making changes or running actions that require approval.";
 "native.alwaysAskToEditExternalFilesAndUseTheInternet" = "Always ask to edit external files and use the internet";
+"native.alwaysBreak" = "Always break";
 "native.alwaysEnd" = "Always end";
 "native.alwaysKeep" = "Always keep";
 "native.amend" = "Amend";
@@ -4647,6 +4723,7 @@
 "native.branchesMustBeDifferent" = "Branches must be different";
 "native.branchesPaneSettings" = "Branches Pane Settings";
 "native.branchesUnavailable" = "Branches unavailable";
+"native.breakOnFieldAccess" = "Break on Field Access…";
 "native.breakdownUnavailable" = "Breakdown unavailable";
 "native.breakpoint" = "Breakpoint";
 "native.breakpointActions" = "Breakpoint actions";
@@ -4782,6 +4859,7 @@
 "native.chooseAModuleEnableDetailedDiagnosticsReproduceTheProblemThenPreviewAndExportADiagnosticBundle" = "Choose a module, enable detailed diagnostics, reproduce the problem, then preview and export a diagnostic bundle.";
 "native.chooseAPrivateKeyFile" = "Choose a private key file.";
 "native.chooseAPullRequestToReviewItsContextFilesAndConversation" = "Choose a pull request to review its context, files, and conversation.";
+"native.chooseARunConfigurationBeforeStartingDebug" = "Choose a Run configuration before starting Debug";
 "native.chooseARunConfigurationForThisMavenModule" = "Choose a Run configuration for this Maven module";
 "native.chooseATableFromTheSidebarToBrowseAndEditData" = "Choose a table from the sidebar to browse and edit data.";
 "native.chooseATableToInspectItsColumnsIndexesAndForeignKeys" = "Choose a table to inspect its columns, indexes, and foreign keys.";
@@ -4828,6 +4906,7 @@
 "native.chooseWhichBranchToUpdateBeforePushing" = "Choose which branch to update before pushing.";
 "native.chooseWorkbenchBackground" = "Choose Workbench Background";
 "native.chooseWorktreeParent" = "Choose Worktree Parent";
+"native.classOrMethod" = "Class or method";
 "native.classes" = "Classes";
 "native.claudeAgent" = "Claude Agent";
 "native.claudeCodeHasDisabledAllHooksInItsSettings" = "Claude Code has disabled all Hooks in its settings.";
@@ -4850,6 +4929,7 @@
 "native.clearBuildOutput" = "Clear build output";
 "native.clearCollectedLogs" = "Clear collected logs?";
 "native.clearConflictFilter" = "Clear conflict filter";
+"native.clearConsole" = "Clear Console";
 "native.clearDateFilter" = "Clear date filter";
 "native.clearDebugOutput" = "Clear debug output";
 "native.clearGitConsole" = "Clear Git console";
@@ -5014,6 +5094,7 @@
 "native.compressionIsUnavailableShowingCompleteRetainedOutput" = "Compression is unavailable. Showing complete retained output.";
 "native.concise" = "Concise";
 "native.conciseSentence" = "Concise sentence";
+"native.condition" = "Condition";
 "native.configuration" = "Configuration";
 "native.configurationDetails" = "Configuration details";
 "native.configurationID" = "Configuration ID";
@@ -5041,6 +5122,7 @@
 "native.connectAGitHubAccountBeforeContinuing" = "Connect a GitHub account before continuing";
 "native.connectToDatabasesBrowseSchemasEditDataRunSQLAndManageBackupsFromTheDatabaseWorkspace" = "Connect to databases, browse schemas, edit data, run SQL, and manage backups from the Database workspace.";
 "native.connectToRunningJVM" = "Connect to running JVM";
+"native.connectToRunningJVM2" = "Connect to Running JVM…";
 "native.connectToRunningJvm" = "Connect to Running JVM";
 "native.connected" = "Connected";
 "native.connectedAgentsCanChangeTheProjectJDKMavenAndRunConfigurationSettings" = "Connected agents can change the project JDK, Maven and run configuration settings.";
@@ -5101,9 +5183,11 @@
 "native.copyCompleteConsole" = "Copy complete console";
 "native.copyCompleteOutput" = "Copy complete output";
 "native.copyConversation" = "Copy Conversation";
+"native.copyExpression" = "Copy Expression";
 "native.copyFiles" = "Copy";
 "native.copyJSON" = "Copy JSON";
 "native.copyMessage" = "Copy message";
+"native.copyMethodName" = "Copy Method Name";
 "native.copyName" = "Copy Name";
 "native.copyOriginalCommand" = "Copy Original Command";
 "native.copyOutput" = "Copy output";
@@ -5112,12 +5196,16 @@
 "native.copyPathReference" = "Copy Path / Reference";
 "native.copyProjectPath" = "Copy Project Path";
 "native.copyRecoveryReference" = "Copy Recovery Reference";
+"native.copyRelativeLocation" = "Copy Relative Location";
 "native.copyRelativePath" = "Copy Relative Path";
 "native.copyReply" = "Copy reply";
 "native.copyRepositoryPath" = "Copy repository path";
 "native.copySessionID" = "Copy session ID";
 "native.copyShortHash" = "Copy Short Hash";
+"native.copySourceLocation" = "Copy Source Location";
 "native.copyTable" = "Copy table";
+"native.copyThreadName" = "Copy Thread Name";
+"native.copyValue" = "Copy Value";
 "native.copyWorktreePath" = "Copy worktree path";
 "native.couldNotCheckForUpdates" = "Could not check for updates";
 "native.couldNotCheckForUpdates.variant2" = "Could not check for updates.";
@@ -5126,6 +5214,7 @@
 "native.couldNotConnectToTheDebugAdapter" = "Could not connect to the Debug Adapter: %1$@";
 "native.couldNotConnectToTheJavaDebugServer" = "Could not connect to the Java Debug Server: %1$@";
 "native.couldNotCopyYourStableSettings" = "Could not copy your Stable settings";
+"native.couldNotFindTheJavaSourceFor" = "Could not find the Java source for %1$@";
 "native.couldNotImportMcpJsonCheckTheMcpserversObjectAndTryAgain" = "Could not import MCP JSON. Check the mcpServers object and try again.";
 "native.couldNotInspectSavedFile" = "Could not inspect saved file";
 "native.couldNotInspectTheSelectedHistoryRefreshThePreviewToRetry" = "Could not inspect the selected history. Refresh the preview to retry.";
@@ -5239,21 +5328,29 @@
 "native.dangerZone" = "Danger Zone";
 "native.dark" = "Dark";
 "native.dartSupport" = "Dart Support";
+"native.dataAccessRead" = "Read";
+"native.dataAccessReadWrite" = "Read/Write";
+"native.dataAccessWrite" = "Write";
 "native.database" = "Database";
 "native.databaseIsNowAPluginInstallItFromTheMarketplace" = "Database is now a plugin. Install it from the Marketplace, and your saved connections and passwords move into it.";
 "native.date" = "Date";
 "native.debug" = "Debug";
 "native.debugAdapterIsUnavailable" = "%1$@ debug adapter is unavailable.";
+"native.debugConsoleSuggestionKeys" = "↑↓ Select · Tab Fill · Enter Run · Esc Close";
 "native.debugResume" = "Debug: Resume";
 "native.debugSelectedTest" = "Debug selected test";
 "native.debugSessions" = "Debug sessions";
 "native.debugStepInto" = "Debug: Step Into";
 "native.debugStepOut" = "Debug: Step Out";
 "native.debugStepOver" = "Debug: Step Over";
+"native.debugSupportIsNotAvailableFor" = "Debug support is not available for %1$@";
 "native.debugTarget" = "Debug target";
 "native.debugger" = "Debugger";
+"native.debuggerCommandInput" = "Debugger command input";
+"native.debuggerCommandSuggestions" = "Debugger command suggestions";
 "native.debuggerThread" = "Debugger thread";
 "native.debuggingCode" = "Debugging code";
+"native.debuggingIsNotSupportedForThisFileType" = "Debugging is not supported for this file type";
 "native.decreaseFontSize" = "Decrease Font Size";
 "native.deepReasoningForComplexTasks" = "Deep reasoning for complex tasks";
 "native.default" = "Default";
@@ -5386,6 +5483,7 @@
 "native.documentation" = "Documentation";
 "native.doesNotIncludeLitheRendersThoseCharactersWithAndTheSystemFont" = "%1$@ does not include %2$@; Lithe renders those characters with %3$@ and the system font.";
 "native.doesNotProvideArchivedConversations" = "%1$@ does not provide archived conversations.";
+"native.doesNotSupportDebugYet" = "%1$@ does not support Debug yet";
 "native.doesNotSupportRunningTheCurrentFileDirectly" = "%1$@ does not support running the current file directly. Use a project run configuration.";
 "native.donTAllow" = "Don’t Allow";
 "native.donTAskAgain" = "Don't ask again";
@@ -5443,6 +5541,7 @@
 "native.editMcpServer" = "Edit MCP server";
 "native.editMessage" = "Edit message";
 "native.editMethodBreakpoint" = "Edit %1$@ method breakpoint";
+"native.editMethodBreakpoint2" = "Edit Method Breakpoint";
 "native.editPathsAsText" = "Edit Paths as Text";
 "native.editProvider" = "Edit provider";
 "native.editPullRequest" = "Edit pull request";
@@ -5453,6 +5552,7 @@
 "native.editShortcut" = "Edit Shortcut";
 "native.editShortcuts" = "Edit Shortcuts";
 "native.editTitleAndDescription" = "Edit title and description";
+"native.editWatch" = "Edit Watch";
 "native.editedLldFile" = "Edited %1$lld file";
 "native.editedLldFiles" = "Edited %1$lld files";
 "native.editor" = "Editor";
@@ -5505,6 +5605,7 @@
 "native.enterAChangeListName1100Characters" = "Enter a ChangeList name (1–100 characters).";
 "native.enterACommitMessage" = "Enter a commit message";
 "native.enterACompleteServerURL" = "Enter a complete server URL.";
+"native.enterADebuggerCommandTabToComplete" = "Enter a debugger command (Tab to complete)";
 "native.enterADescriptionAndInstructions" = "Enter a description and instructions.";
 "native.enterAHost" = "Enter a host.";
 "native.enterAJvmDebugPortBetween1And" = "Enter a JVM debug port between 1 and 65535.";
@@ -5541,9 +5642,11 @@
 "native.estimatedFromTheSizeOfTheLatestRequestAndScaledToTheProviderSInputTokens" = "Estimated from the size of the latest request and scaled to the provider's input tokens.";
 "native.evaluateExpression" = "Evaluate expression";
 "native.evaluateExpressionWhilePaused" = "Evaluate expression while paused";
+"native.evaluating" = "Evaluating…";
 "native.example" = "Example";
 "native.exception" = "Exception";
 "native.exceptionBreakpoints" = "Exception Breakpoints";
+"native.exceptionCondition" = "Exception condition";
 "native.excludeFromDependencyTree" = "Exclude from dependency tree";
 "native.excluded" = "Excluded";
 "native.excludedPaths" = "Excluded Paths";
@@ -5577,6 +5680,7 @@
 "native.exportsTheIndexAgainstHEAD" = "Exports the index against HEAD.";
 "native.exportsTheWorkingTreeSNetChangesAgainstHEADIncludingSelectedUntrackedFiles" = "Exports the working tree's net changes against HEAD, including selected untracked files.";
 "native.exportsWorkingFilesAgainstTheIndexIncludingSelectedUntrackedFiles" = "Exports working files against the index, including selected untracked files.";
+"native.expression" = "Expression";
 "native.expressionHistory" = "Expression history";
 "native.externalChange" = "External change";
 "native.externalEditsConflictWithUnsavedChanges" = "External edits conflict with unsaved changes";
@@ -5690,6 +5794,7 @@
 "native.formatJSON" = "Format JSON";
 "native.forward" = "Forward";
 "native.found" = "found";
+"native.foundAutomatically" = "Found automatically";
 "native.framesAreNotAvailable" = "Frames are not available";
 "native.framesRenderedPerSecond" = "Frames rendered per second";
 "native.freeOf" = "%1$@ free of %2$@";
@@ -5836,6 +5941,7 @@
 "native.historyFilter" = "History filter";
 "native.historyOfArg1" = "History of %1$@";
 "native.hit" = "Hit: %1$@";
+"native.hitCount" = "Hit count";
 "native.homeDirectory" = "Home directory";
 "native.homebrewIsNotInstalledOrIsNotAvailable" = "Homebrew is not installed or is not available to Lithe.";
 "native.homepage" = "Homepage";
@@ -5910,6 +6016,7 @@
 "native.initializeGitRepository.variant3" = "Initialize Git repository…";
 "native.initializeGitToTrackChangesAndCreateYourFirstCommit" = "Initialize Git to track changes and create your first commit.";
 "native.initializeThisProjectFromGitBeforeSavingRepositorySpecificIdentity" = "Initialize this project from Git before saving repository-specific identity.";
+"native.initializingAdapter" = "Initializing Adapter";
 "native.initializingProjectIndex" = "Initializing project index";
 "native.inline.alwaysContinueInThisWorkspace" = "Always Continue in This Workspace";
 "native.inline.arg1Finished" = "“%1$@” finished";
@@ -6082,6 +6189,7 @@
 "native.javaServiceIsReady" = "Java service is ready";
 "native.javaServicePreparationTimedOut" = "Java service preparation timed out";
 "native.javaSteppingFilters" = "Java Stepping Filters";
+"native.javaSteppingFilters2" = "Java Stepping Filters…";
 "native.javaTestDiscoveryIsNotSupportedByThis" = "Java test discovery is not supported by this language server.";
 "native.javaWorkspacePreparationCancelled" = "Java workspace preparation cancelled";
 "native.jdkHome" = "JDK Home";
@@ -6271,15 +6379,18 @@
 "native.lldmLlds" = "%1$lldm %2$llds";
 "native.llds" = "%1$llds";
 "native.load" = "Load";
+"native.loadArg1More" = "Load %1$lld more";
 "native.loadDiskVersion" = "Load Disk Version";
 "native.loadMore" = "Load More";
 "native.loadMore2" = "Load more";
 "native.loadMoreCommits" = "Load more commits";
+"native.loadMoreDebuggerVariables" = "Load more debugger variables";
 "native.loadProjectModel" = "Load Project Model";
 "native.loadTheDependenciesAgain" = "Load the dependencies again";
 "native.loadTheDependenciesOf" = "Load the dependencies of %1$@";
 "native.loadTheModel" = "Load the %1$@ model";
 "native.loadTheProjectModel" = "Load the project model";
+"native.loadThreads" = "Load threads";
 "native.loadedFileSystemVersion" = "Loaded file-system version";
 "native.loading" = "Loading…";
 "native.loadingBranchDetails" = "Loading branch details…";
@@ -6291,6 +6402,7 @@
 "native.loadingCommits" = "Loading commits…";
 "native.loadingComparison" = "Loading comparison…";
 "native.loadingConversation" = "Loading conversation…";
+"native.loadingDebuggerVariables" = "Loading debugger variables";
 "native.loadingDependencies" = "Loading dependencies...";
 "native.loadingDependencies.variant2" = "Loading dependencies…";
 "native.loadingDependenciesOf" = "Loading dependencies of %1$@";
@@ -6335,11 +6447,13 @@
 "native.logFilter" = "Log filter";
 "native.logLevel" = "Log level";
 "native.logLocations" = "Log locations";
+"native.logMessage" = "Log message";
 "native.logTimeline" = "Log timeline";
 "native.logs" = "Logs";
 "native.logsAndDiagnostics" = "Logs and Diagnostics";
 "native.lookUpAgain" = "Look Up Again";
 "native.lookUpLocation" = "Look Up Location";
+"native.lookedIn" = "Looked in: %1$@";
 "native.lookingForGit" = "Looking for Git…";
 "native.lookingForInstalledJDKs" = "Looking for installed JDKs…";
 "native.lookingUpTheLocationSendsThisAddressToIpinfoIoLitheDoesThisOnlyWhenYouClickLookUp" = "Looking up the location sends this address to ipinfo.io. Lithe does this only when you click Look Up.";
@@ -6531,6 +6645,8 @@
 "native.navigation" = "Navigation";
 "native.needsNoExtraPermissions" = "Needs no extra permissions.";
 "native.needsRestart" = "Needs restart";
+"native.nestedException" = "Nested exception";
+"native.neverBreak" = "Never break";
 "native.new" = "New";
 "native.newBranch" = "New Branch";
 "native.newBranch.variant2" = "New Branch…";
@@ -6612,6 +6728,7 @@
 "native.noDifferencesWereFoundForThisSelection" = "No differences were found for this selection.";
 "native.noEarlierConversations" = "No earlier conversations";
 "native.noEffectiveValueConfigured" = "No effective value configured";
+"native.noExecutableLocationWasFoundAtTheCursor" = "No executable location was found at the cursor";
 "native.noFileEdits" = "No file edits";
 "native.noFilesMatchTheConflictFilter" = "No files match the conflict filter";
 "native.noGitHubOrigin" = "No GitHub origin";
@@ -6632,6 +6749,7 @@
 "native.noJavaRuntimeWasFoundSetJavaHome" = "No Java runtime was found. Set JAVA_HOME or install a JDK.";
 "native.noLanguageDependencySourcesRegistered" = "No language dependency sources registered";
 "native.noLanguageProviderHandlesFiles" = "No language provider handles .%1$@ files.";
+"native.noLanguageProviderIsAvailableForThisFile" = "No language provider is available for this file";
 "native.noLanguageRunProviderHandlesFiles" = "No language run provider handles .%1$@ files.";
 "native.noLocalChanges" = "No local changes";
 "native.noLocalVariablesInTheCurrentFrame" = "No local variables in the current frame";
@@ -6668,11 +6786,14 @@
 "native.noNotifications" = "No notifications";
 "native.noPaths" = "No paths";
 "native.noPathsResolvedForThisService" = "No paths resolved for this service";
+"native.noPlaceToLookYetOpenTheFileYouWantToDebugOrChooseTheProgramYourself" = "No place to look yet. Open the file you want to debug, or choose the program yourself.";
 "native.noPlugins" = "No Plugins";
 "native.noPluginsAvailable" = "No plugins available";
 "native.noProblemsIn" = "No problems in %1$@";
 "native.noProblemsMatchTheCurrentFilter" = "No problems match the current filter";
 "native.noProfilingEventsWereRecorded" = "No profiling events were recorded.";
+"native.noProgramToDebugWasFoundBuildItFirstOrChooseOneInTheSettingOf" = "No program to debug was found. Build it first, or choose one in the “%1$@” setting of %2$@.";
+"native.noProgramToDebugWasFoundBuildItFirstOrChooseOneInTheSettingOfLookedIn" = "No program to debug was found. Build it first, or choose one in the “%1$@” setting of %2$@. Looked in: %3$@";
 "native.noProjectEntryPointDetected" = "No project entry point detected";
 "native.noProjectHistoryRecordedYet" = "No project history recorded yet";
 "native.noProjectIsOpen" = "No project is open";
@@ -6730,6 +6851,7 @@
 "native.noneFastest" = "None (fastest)";
 "native.normalFolder" = "Normal Folder";
 "native.notAssigned" = "Not Assigned";
+"native.notAvailable" = "Not available";
 "native.notAvailableForThisLitheOrMac" = "%1$@ (not available for this Lithe or Mac)";
 "native.notAvailableYetDependenciesAreNotIndexed" = "Not available yet: dependencies are not indexed";
 "native.notDetected" = "Not detected";
@@ -6793,6 +6915,7 @@
 "native.openAICommitSettings" = "Open AI & Commit settings";
 "native.openAJavaFile" = "Open a Java file";
 "native.openAJavaFileBeforeStartingDebug" = "Open a Java file before starting Debug";
+"native.openAJavaProjectBeforeConnectingTheDebugger" = "Open a Java project before connecting the debugger";
 "native.openALocalFolderToStartWorking" = "Open a local folder to start working.";
 "native.openALocalProjectFolder" = "Open a local project folder";
 "native.openAProject" = "Open a project";
@@ -6808,6 +6931,7 @@
 "native.openAProjectToSeeItsLanguageService" = "Open a project to see its language service.";
 "native.openAProjectToUseGit" = "Open a project to use Git";
 "native.openASourceFileBeforeRunningCurrentFile" = "Open a source file before running Current File.";
+"native.openASourceFileOrChooseAProjectRunConfiguration" = "Open a source file or choose a project Run configuration";
 "native.openAgain" = "Open again";
 "native.openAgentSettings" = "Open Agent Settings";
 "native.openAutoBuildDownloads" = "Open AutoBuild Downloads";
@@ -6912,6 +7036,8 @@
 "native.paths" = "Paths";
 "native.pause" = "Pause";
 "native.pauseTheProcessToInspectVariables" = "Pause the process to inspect variables";
+"native.pauseTheProgramToRunDebuggerCommands" = "Pause the program to run debugger commands";
+"native.pauseThread" = "Pause Thread";
 "native.paused" = "Paused";
 "native.peakThisRun" = "Peak this run";
 "native.peakTotal" = "Peak total";
@@ -6936,6 +7062,7 @@
 "native.pinned" = "Pinned";
 "native.pinnedLocal" = "Pinned: %1$@ · Local: %2$@";
 "native.placeTheCaretInAJavaFileToSetABreakpoint" = "Place the caret in a Java file to set a breakpoint";
+"native.placeTheCaretInASourceFileToSetABreakpoint" = "Place the caret in a source file to set a breakpoint";
 "native.placeTheCaretOnAJavaSymbolFirst" = "Place the caret on a Java symbol first";
 "native.plan" = "Plan";
 "native.planBeforeMakingChanges" = "Plan before making changes";
@@ -7363,6 +7490,7 @@
 "native.results.variant2" = "results";
 "native.resume" = "Resume";
 "native.resumeThePausedDebugSession" = "Resume the paused debug session";
+"native.resumeThread" = "Resume Thread";
 "native.retentionAndCleanup" = "Retention and cleanup";
 "native.retiredOfficialGoPluginGoSupportIsNowTheCommunityPluginGoSupportInLitheStore" = "Retired official Go plugin. Go support is now the community plugin Go Support in Lithe Store.";
 "native.retiredOfficialPHPPluginPHPSupportIsNowTheCommunityPluginPHPSupportInLitheStore" = "Retired official PHP plugin. PHP support is now the community plugin PHP Support in Lithe Store.";
@@ -7446,6 +7574,7 @@
 "native.runTests.variant2" = "Run tests";
 "native.runTestsToViewProcessPerformance" = "Run tests to view process performance.";
 "native.runThisMcpCommand" = "Run this MCP command?";
+"native.runToCursorIsUnavailableForTheActiveDebugSession" = "Run to Cursor is unavailable for the active debug session";
 "native.runYourFiles" = "Run your files";
 "native.runYourTests" = "Run your tests";
 "native.running" = "Running";
@@ -7567,6 +7696,7 @@
 "native.selectAServiceOrTaskToConfigureItsArgumentsEnvironmentAndProjectEnvironmentOveafafee2e2f" = "Select a service or task to configure its arguments, environment and project-environment overrides. Changes apply after Save.";
 "native.selectASpringBootOrMavenModuleConfiguration" = "Select a Spring Boot or Maven Module configuration";
 "native.selectASpringBootOrMavenModuleConfigurationBeforeStartingDebug" = "Select a Spring Boot or Maven Module configuration before starting Debug";
+"native.selectAStackFrameToInspectVariables" = "Select a stack frame to inspect variables";
 "native.selectAWorktree" = "Select a worktree";
 "native.selectAll" = "Select all";
 "native.selectBranch" = "Select branch";
@@ -7582,6 +7712,7 @@
 "native.selectSkillMdOrItsContainingDirectory" = "Select SKILL.md or its containing directory.";
 "native.selectTestJVM" = "Select test JVM";
 "native.selectTheChangeListToCommit" = "Select the ChangeList to commit";
+"native.selectThread" = "Select thread";
 "native.selected" = "Selected";
 "native.selectedChangeListOrStagedFilesChangedBeforeGenerationFinished" = "Selected ChangeList or staged files changed before generation finished";
 "native.selectedDirectory" = "Selected directory";
@@ -7609,6 +7740,7 @@
 "native.setTheCustomAgentSExecutableInThePanelSettings" = "Set the custom Agent's executable in Settings > AI > Agents.";
 "native.setTheDefaultsUsedByOrdinaryFetchInEveryProjectCredentialsUseYourExistingGitHea37790d0a5" = "Set the defaults used by ordinary Fetch in every project. Credentials use your existing Git helper and SSH configuration.";
 "native.setUpAgentFileAttachments" = "Set Up Agent File Attachments…";
+"native.setValue" = "Set Value…";
 "native.setVariableValue" = "Set Variable Value";
 "native.setYourGitNameAndEmailInSettingsBeforeCommitting" = "Set your Git name and email in Settings before committing.";
 "native.setsAsTheUpstream" = "Sets %1$@ as the upstream";
@@ -7752,6 +7884,7 @@
 "native.smartCheckoutShelvesYourChangesInLitheSwitchesBranchThenRestoresThemForceCheck60e1561e81" = "Smart Checkout shelves your changes in Lithe, switches branch, then restores them. Force Checkout switches and discards them.";
 "native.smartCheckoutStashesYourChangesSwitchesBranchThenRestoresThemForceCheckoutSwit3688f9f903" = "Smart Checkout stashes your changes, switches branch, then restores them. Force Checkout switches and discards them.";
 "native.smartStepInto" = "Smart step into";
+"native.smartStepInto2" = "Smart Step Into";
 "native.softResetKeepChangesStaged" = "Soft Reset (Keep Changes Staged)";
 "native.softWrapIsUnavailableForVeryLargeFiles" = "Soft wrap is unavailable for very large files";
 "native.softWraps" = "Soft Wraps";
@@ -7798,6 +7931,7 @@
 "native.stagedFilesChangedBeforeGenerationFinished" = "Staged files changed before generation finished";
 "native.staleRecord" = "Stale record";
 "native.standard" = "Standard";
+"native.startADebugSessionToRunDebuggerCommands" = "Start a debug session to run debugger commands";
 "native.startALanguageServerWhenYouOpenFilesOfItsLanguage" = "Start a language server when you open files of its language";
 "native.startALocalJavaDebugSessionToViewPerformance" = "Start a local Java debug session to view performance.";
 "native.startANewConversationAfterSavingToLoadTheUpdatedInstructionsProjectInstructionsStillApply" = "Start a new conversation after saving to load the updated instructions. Project instructions still apply.";
@@ -7837,6 +7971,7 @@
 "native.state" = "State";
 "native.stateUnknown" = "State unknown";
 "native.status" = "Status";
+"native.stepBack" = "Step Back";
 "native.stepInto" = "Step into";
 "native.stepLldOfLld" = "Step %1$lld of %2$lld";
 "native.stepOut" = "Step out";
@@ -7995,6 +8130,7 @@
 "native.theBundledJdtLsVersionCouldNotBe" = "The bundled JDT LS version could not be determined.";
 "native.theCheckoutDirectoryNoLongerExistsRepairMovedWorktreeMetadataOrPruneTheStaleGitRecord" = "The checkout directory no longer exists. Repair moved worktree metadata or prune the stale Git record.";
 "native.theCheckoutPathDoesNotExist" = "The checkout path does not exist";
+"native.theChosenFileIsMissingOrNotExecutable" = "The chosen file is missing or not executable.";
 "native.theClipboardImageCouldNotBeRead" = "The clipboard image could not be read";
 "native.theClipboardImageIsEmpty" = "The clipboard image is empty";
 "native.theClipboardImageIsLargerThan100Mb" = "The clipboard image is larger than 100 MB";
@@ -8135,6 +8271,7 @@
 "native.thePrimaryWorktreeCannotBeRemoved" = "The primary worktree cannot be removed.";
 "native.theProcessDoesNotHaveAnOpenStandard" = "The process does not have an open standard-input pipe.";
 "native.theProcessIsNotRunning" = "The process is not running.";
+"native.theProgramChosenInTheSettingOfIsMissingOrNotExecutable" = "The program chosen in the “%1$@” setting of %2$@ is missing or not executable: %3$@";
 "native.theProjectArchiveFromIsTooLarge" = "The project archive from %1$@ is too large.";
 "native.theProjectDirectoryIsUnavailable" = "The project directory is unavailable.";
 "native.theProjectFolderOnTheHostBrowseConnectsInstallsTheLitheServerOnTheHostIfNeededAndLetsYouPi" = "The project folder on the host. Browse connects, installs the Lithe server on the host if needed, and lets you pick a folder.";
@@ -8185,6 +8322,7 @@
 "native.theStableReleaseIsMissingAValidPublisherSignatureNothingWasInstalledTryANewerRef80e417a6" = "The stable release is missing a valid publisher signature. Nothing was installed. Try a newer release or install manually from a trusted source.";
 "native.theStagedChangesHaveNoTextualDiffToSummarize" = "The staged changes have no textual diff to summarize.";
 "native.theStagedChangesWillBeCommittedAndTheCurrentBranchWillBePushedToItsConfiguredRemote" = "The staged changes will be committed and the current branch will be pushed to its configured remote.";
+"native.theStoppedSourceFileIsNoLongerAvailable" = "The stopped source file is no longer available: %1$@";
 "native.theSwitchControlsTheLitheSharedBlockNotTheAgentOrItsOwnInstructionsSaveSharedChangesBeforeSwitchingOpenARowToEditTheCompleteNativeFile" = "The switch controls the Lithe shared block, not the Agent or its own instructions. Save shared changes before switching. Open a row to edit the complete native file.";
 "native.theTestFileIsOutsideTheCurrentWorkspace" = "The test file is outside the current workspace: %1$@";
 "native.theUpdateCouldNotBeInstalledDownloadTheReleaseManuallyAndTryAgain" = "The update could not be installed. Download the release manually and try again.";
@@ -8400,6 +8538,7 @@
 "native.undoCommit" = "Undo Last Commit (Keep Changes)";
 "native.undoCommit.variant2" = "Undo Last Commit (Keep Changes)…";
 "native.unfiledCONNECTIONS" = "UNFILED CONNECTIONS";
+"native.unhandled" = "Unhandled";
 "native.uninstall" = "Uninstall %1$@?";
 "native.uninstallFromTheInstalledTabAndRestartLitheFirstItIsTheRetiredOfficialVersionO07265e4f97" = "Uninstall %1$@ from the Installed tab and restart Lithe first. It is the retired official version of this plugin and supports the same language.";
 "native.uninstallPHPSupport" = "Uninstall PHP Support?";
@@ -8529,6 +8668,7 @@
 "native.user" = "User";
 "native.userFacingSentenceForReleaseNotes" = "User-facing sentence for release notes";
 "native.userName" = "User name";
+"native.userUnhandled" = "User-unhandled";
 "native.usesTheClaudeAiAccountSignedInToClaudeCodeSignInWithLoginInClaudeCodeIfTheAgentAsks" = "Uses the claude.ai account signed in to Claude Code. Sign in with /login in Claude Code if the Agent asks.";
 "native.usesYourLocalChatGPTAccount" = "Uses your local ChatGPT account.";
 "native.usuallyTheReversedDomainNameOfYourOrganizationSuchAsComExample" = "Usually the reversed domain name of your organization, such as com.example.";
@@ -8584,6 +8724,7 @@
 "native.waitingForALocalTestJVM" = "Waiting for a local test JVM…";
 "native.waitingForAgentResponse" = "Waiting for Agent response…";
 "native.waitingForChatGPTSignIn" = "Waiting for ChatGPT sign-in…";
+"native.waitingForDebugAdapterOutput" = "Waiting for Debug Adapter output…";
 "native.waitingForDebuggerOutput" = "Waiting for debugger output…";
 "native.waitingForDownloadDataCheckYourNetworkOrProxyIfThisContinues" = "Waiting for download data. Check your network or proxy if this continues.";
 "native.waitingForGitHub" = "Waiting for GitHub…";
@@ -8748,5 +8889,6 @@
 "… %lld more files" = "… %lld more files";
 "… %lld more references" = "… %lld more references";
 "… more" = "… more";
+"↑↓ Select · Tab Fill · Enter Run · Esc Close" = "↑↓ Select · Tab Fill · Enter Run · Esc Close";
 "→ %@" = "→ %@";
 /* END GENERATED SHARED I18N */

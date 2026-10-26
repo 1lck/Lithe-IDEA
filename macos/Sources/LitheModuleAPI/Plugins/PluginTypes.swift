@@ -396,6 +396,16 @@ public struct LanguageSupportDeclaration: Equatable, Codable, Sendable {
         self.hostCapabilities = hostCapabilities
     }
 
+    /// Declares only a debugger, so it can extend a language another package
+    /// or the shared catalog owns without taking its other features over.
+    public var isDebugOnly: Bool {
+        debugModuleID != nil
+            && languageServerModuleID == nil
+            && executionModuleID == nil
+            && testingModuleID == nil
+            && hostCapabilities.isEmpty
+    }
+
     public var moduleIDs: [ModuleID] {
         [languageServerModuleID, executionModuleID, testingModuleID, debugModuleID].compactMap { $0 }
     }
@@ -484,7 +494,7 @@ public struct PluginManifest: Equatable, Codable, Sendable {
     /// Declarative plugin API levels this host supports. Rust Core enforces
     /// the same list (`SUPPORTED_PLUGIN_API_VERSIONS`) when it validates a
     /// manifest; the Lithe application version plays no part.
-    public static let supportedDeclarativeAPIVersions: Set<Int> = [1, 2, 3]
+    public static let supportedDeclarativeAPIVersions: Set<Int> = [1, 2, 3, 4]
     /// Capability versions of API level 3 this host runs, sent to Rust Core
     /// as `hostCapabilities`. Core then refuses, and the marketplace hides, a
     /// level 3 plugin that requires anything else. Validating a capability is
@@ -492,7 +502,7 @@ public struct PluginManifest: Equatable, Codable, Sendable {
     public static let hostCapabilities: [String: [Int]] = [
         "backend": [1],
         "buildProviders": [1],
-        "buildSystems": [1, 2], "executableResolution": [1],
+        "buildSystems": [1, 2], "debugAdapters": [1], "executableResolution": [1],
         "executionProviders": [1],
         "languageServers": [1, 2],
         "languages": [1],

@@ -45,7 +45,13 @@ extension LanguageProviderCatalog {
             // Process-backed capabilities declared by a language package are
             // authoritative. This prevents a shared fallback catalog from
             // silently running tools after the package module is disabled.
-            capabilities.subtract([.run, .languageServer, .debugAdapter, .testing])
+            // A debug-only declaration adds a debugger to a language another
+            // package or the catalog already provides; it must not take that
+            // language's server, run, or test features away.
+            let isDebugOnly = support.isDebugOnly && existing != nil
+            if !isDebugOnly {
+                capabilities.subtract([.run, .languageServer, .debugAdapter, .testing])
+            }
             if support.languageServerModuleID != nil { capabilities.insert(.languageServer) }
             if support.executionModuleID != nil { capabilities.insert(.run) }
             if support.testingModuleID != nil { capabilities.insert(.testing) }

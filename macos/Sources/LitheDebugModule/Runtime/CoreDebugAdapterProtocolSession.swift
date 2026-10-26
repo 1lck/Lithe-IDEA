@@ -24,6 +24,8 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
     }
 
     private let adapterID: String
+    public let consoleCommands: [DebugConsoleCommand]
+    public let consoleCommandPrefix: String?
     private let transport: any DebugAdapterTransport
     private let core: any DebugProtocolCore
     private let sessionID: String
@@ -51,6 +53,8 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
 
     public init(
         adapterID: String,
+        consoleCommands: [DebugConsoleCommand] = [],
+        consoleCommandPrefix: String? = nil,
         transport: any DebugAdapterTransport,
         core: any DebugProtocolCore,
         sessionID: String = UUID().uuidString,
@@ -58,6 +62,8 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         operationTimeoutMilliseconds: Int = 10_000
     ) {
         self.adapterID = adapterID
+        self.consoleCommands = consoleCommands
+        self.consoleCommandPrefix = consoleCommandPrefix
         self.transport = transport
         self.core = core
         self.sessionID = sessionID
@@ -293,7 +299,10 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
                     DebugStackFrame(
                         id: $0.id,
                         name: $0.name,
-                        sourceURL: $0.sourcePath.map { URL(fileURLWithPath: $0) },
+                        sourceURL: Self.fileURL(
+                            forAdapterSourcePath: $0.sourcePath,
+                            sourceReference: $0.sourceReference
+                        ),
                         line: $0.line,
                         column: $0.column,
                         isFiltered: $0.isFiltered
@@ -427,6 +436,54 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         }
     }
 
+    /// Evaluates console input with the DAP `repl` context, where adapters such
+    /// as lldb-dap also accept their own debugger commands (`bt`, `p x`).
+    public func evaluateInConsole(
+        _ expression: String,
+        frameID: Int?,
+        completion: @escaping (Result<DebugVariable, Error>) -> Void
+    ) {
+        inspect(kind: "evaluate", frameID: frameID, expression: expression, context: "repl") { result in
+            completion(result.flatMap { value in
+                guard value.kind == "evaluate", let variable = value.variable else {
+                    return .failure(DebugAdapterProtocolError.invalidResponse("evaluate"))
+                }
+                return .success(Self.makeVariable(variable, fallbackID: expression))
+            })
+        }
+    }
+
+    public func requestCompletions(
+        _ text: String,
+        column: Int?,
+        frameID: Int?,
+        completion: @escaping (Result<[DebugCompletionItem], Error>) -> Void
+    ) {
+        // The caller's caret counts UTF-16 units from 0; the wire column starts at 1.
+        inspect(
+            kind: "completions",
+            frameID: frameID,
+            expression: text,
+            column: column.map { $0 + 1 }
+        ) { result in
+            completion(result.flatMap { value in
+                guard value.kind == "completions", let items = value.items else {
+                    return .failure(DebugAdapterProtocolError.invalidResponse("completions"))
+                }
+                return .success(items.map {
+                    DebugCompletionItem(
+                        label: $0.label,
+                        text: $0.text,
+                        detail: $0.detail,
+                        kind: $0.kind,
+                        start: $0.start,
+                        length: $0.length
+                    )
+                })
+            })
+        }
+    }
+
     public func redefineClasses(_ completion: @escaping (Result<[String], Error>) -> Void) {
         inspect(kind: "redefineClasses") { result in
             completion(result.flatMap { value in
@@ -493,6 +550,16 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         }
     }
 
+    /// A frame or breakpoint is a file on disk only when its adapter path is
+    /// absolute and the adapter does not serve the content itself. Frames without
+    /// debug information, such as dyld's `start`, name a symbol there (lldb-dap
+    /// reports ``/usr/lib/dyld`start`` with a `sourceReference`), and resolving it
+    /// as a file would point at something that does not exist.
+    private static func fileURL(forAdapterSourcePath path: String?, sourceReference: Int? = nil) -> URL? {
+        guard let path, path.hasPrefix("/"), (sourceReference ?? 0) <= 0 else { return nil }
+        return URL(fileURLWithPath: path)
+    }
+
     private func inspect(
         kind: String,
         threadID: Int? = nil,
@@ -502,6 +569,7 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         start: Int? = nil,
         count: Int? = nil,
         expression: String? = nil,
+        context: String? = nil,
         sourcePath: String? = nil,
         line: Int? = nil,
         column: Int? = nil,
@@ -525,6 +593,7 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
                 start: start,
                 count: count,
                 expression: expression,
+                context: context,
                 sourcePath: sourcePath,
                 line: line,
                 column: column
@@ -594,7 +663,7 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
                 id: breakpoint.id,
                 verified: breakpoint.verified,
                 message: breakpoint.message,
-                sourceURL: breakpoint.sourcePath.map { URL(fileURLWithPath: $0) },
+                sourceURL: Self.fileURL(forAdapterSourcePath: breakpoint.sourcePath),
                 line: breakpoint.line,
                 column: breakpoint.column,
                 functionName: breakpoint.functionName,
@@ -813,6 +882,7 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
             supportsExceptionInfoRequest: value.supportsExceptionInfoRequest,
             supportsStepInTargetsRequest: value.supportsStepInTargetsRequest,
             supportsGotoTargetsRequest: value.supportsGotoTargetsRequest,
+            supportsCompletionsRequest: value.supportsCompletionsRequest,
             exceptionBreakpointFilters: value.exceptionBreakpointFilters
         )
     }

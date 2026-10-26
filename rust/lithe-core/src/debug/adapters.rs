@@ -37,6 +37,30 @@ const MAX_SELECTORS: usize = 16;
 const MAX_CONFIGURATION_TYPES: usize = 16;
 /// Longest announced-endpoint prefix, in bytes.
 const MAX_ENDPOINT_PREFIX: usize = 256;
+/// Most console commands one adapter may declare.
+const MAX_CONSOLE_COMMANDS: usize = 1024;
+/// Longest console command name, in characters.
+const MAX_CONSOLE_COMMAND_NAME: usize = 128;
+/// Longest console command description, in characters.
+const MAX_CONSOLE_COMMAND_DESCRIPTION: usize = 240;
+/// Longest console command prefix, in characters.
+const MAX_CONSOLE_COMMAND_PREFIX: usize = 8;
+/// Most places an executable lookup may list.
+const MAX_EXECUTABLE_CANDIDATES: usize = 8;
+/// Longest executable candidate, in characters.
+const MAX_EXECUTABLE_CANDIDATE: usize = 1024;
+/// The `targetBindings.program` source that reads the executable the host
+/// resolved, instead of the target's own path.
+const TARGET_EXECUTABLE: &str = "target.executable";
+/// Variables an executable candidate may name, and the only ones the host
+/// can answer: the workspace root and the open source file's location.
+const EXECUTABLE_VARIABLES: &[&str] = &[
+    "workspaceFolder",
+    "fileDirectory",
+    "fileBasenameNoExtension",
+];
+/// What a candidate may start with, so a lookup stays beside the user's work.
+const EXECUTABLE_ROOTS: &[&str] = &["${workspaceFolder}/", "${fileDirectory}/"];
 
 /// Runtimes a `runSelectedRuntime` launch may name: the tools Run can select
 /// a runtime for.
@@ -120,7 +144,37 @@ pub(crate) struct DebugAdapterDeclaration {
     pub(crate) configurations: Option<DebugConfigurations>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) capabilities: Option<DebugCapabilities>,
+    /// What the Debug Console offers while typing a debugger command.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) console: Option<DebugConsole>,
     pub(crate) launch: DebugLaunch,
+}
+
+/// Debugger commands the adapter's console understands. Adapters that answer
+/// the DAP `completions` request complete live; this list is for the ones
+/// that do not, and a host shows both together.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct DebugConsole {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) commands: Vec<DebugConsoleCommand>,
+    /// Text the adapter's console reads as "what follows is a debugger
+    /// command, not an expression". A host puts it before the typed line when
+    /// it asks the adapter to complete, so the adapter proposes commands
+    /// instead of expression keywords it would offer for a bare word.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) command_prefix: Option<String>,
+}
+
+/// One completable command word or phrase, for example `breakpoint set`.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct DebugConsoleCommand {
+    /// The text inserted when the command is chosen.
+    pub(crate) name: String,
+    /// One line shown beside the name. Adapter-owned text, shown as written.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) description: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
@@ -162,6 +216,25 @@ pub(crate) struct DebugConfiguration {
     /// Which target fact fills which missing DAP argument.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) target_bindings: Option<DebugTargetBindings>,
+    /// Where the program to debug comes from when the target is a source
+    /// file. Launch only, and exactly when `program` binds to
+    /// `target.executable`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) executable: Option<DebugExecutable>,
+}
+
+/// How a host finds the program a source file builds into. The user's own
+/// choice in a `file` setting always wins; the candidates are what a host
+/// looks for when the user chose nothing, so the setting can show it.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct DebugExecutable {
+    /// ID of a `file` setting of the same plugin.
+    pub(crate) setting: String,
+    /// Paths to try in order. Each starts with `${workspaceFolder}/` or
+    /// `${fileDirectory}/` and may use `${fileBasenameNoExtension}`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) candidates: Vec<String>,
 }
 
 /// Typed projections from the target into known DAP fields. Each field has
@@ -423,11 +496,14 @@ impl DebugAdapterDeclaration {
                         "The configuration is for a request the adapter does not declare.",
                     ));
                 }
-                configuration.validate(&configuration_field, request)?;
+                configuration.validate(&configuration_field, request, context)?;
             }
         }
         if let Some(capabilities) = &mut self.capabilities {
             capabilities.validate(&format!("{field}.capabilities"))?;
+        }
+        if let Some(console) = &mut self.console {
+            console.validate(&format!("{field}.console"))?;
         }
         self.launch.validate(&format!("{field}.launch"), context)
     }
@@ -493,10 +569,16 @@ impl DebugAdapterDeclaration {
 }
 
 impl DebugConfiguration {
-    fn validate(&self, field: &str, request: DebugRequest) -> Validation<()> {
+    fn validate(
+        &self,
+        field: &str,
+        request: DebugRequest,
+        context: &DeclarationContext<'_>,
+    ) -> Validation<()> {
         if self.arguments.is_none()
             && self.parameters_schema.is_none()
             && self.target_bindings.is_none()
+            && self.executable.is_none()
         {
             return Err(invalid(
                 field,
@@ -511,6 +593,28 @@ impl DebugConfiguration {
                 ));
             }
         }
+        let reads_executable = self
+            .target_bindings
+            .as_ref()
+            .is_some_and(|bindings| bindings.program.as_deref() == Some(TARGET_EXECUTABLE));
+        match (&self.executable, reads_executable) {
+            (Some(executable), true) => {
+                executable.validate(&format!("{field}.executable"), request, context)?
+            }
+            (Some(_), false) => {
+                return Err(invalid(
+                    format!("{field}.executable"),
+                    "An executable lookup needs program bound to target.executable.",
+                ))
+            }
+            (None, true) => {
+                return Err(invalid(
+                    format!("{field}.executable"),
+                    "A program bound to target.executable needs an executable lookup.",
+                ))
+            }
+            (None, false) => {}
+        }
         let Some(bindings) = &self.target_bindings else {
             return Ok(());
         };
@@ -521,15 +625,22 @@ impl DebugConfiguration {
                 "A binding list declares a binding.",
             ));
         }
-        for (name, source, expected) in [
-            ("program", &bindings.program, "target.path"),
-            ("processId", &bindings.process_id, "target.processID"),
-            ("cwd", &bindings.cwd, "target.workingDirectory"),
+        for (name, source, allowed) in [
+            (
+                "program",
+                &bindings.program,
+                &["target.path", TARGET_EXECUTABLE][..],
+            ),
+            ("processId", &bindings.process_id, &["target.processID"][..]),
+            ("cwd", &bindings.cwd, &["target.workingDirectory"][..]),
         ] {
-            if source.as_deref().is_some_and(|source| source != expected) {
+            if source
+                .as_deref()
+                .is_some_and(|source| !allowed.contains(&source))
+            {
                 return Err(invalid(
                     format!("{binding_field}.{name}"),
-                    format!("{name} can only be bound to {expected}."),
+                    format!("{name} can only be bound to {}.", allowed.join(" or ")),
                 ));
             }
         }
@@ -544,6 +655,121 @@ impl DebugConfiguration {
         }
         Ok(())
     }
+}
+
+impl DebugExecutable {
+    fn validate(
+        &self,
+        field: &str,
+        request: DebugRequest,
+        context: &DeclarationContext<'_>,
+    ) -> Validation<()> {
+        if request != DebugRequest::Launch {
+            return Err(invalid(field, "Only a launch looks for an executable."));
+        }
+        if !context.declared_settings.is_file(&self.setting) {
+            return Err(invalid(
+                format!("{field}.setting"),
+                "The setting must be a declared file setting of this plugin.",
+            ));
+        }
+        if self.candidates.len() > MAX_EXECUTABLE_CANDIDATES {
+            return Err(invalid(
+                format!("{field}.candidates"),
+                format!("A lookup lists at most {MAX_EXECUTABLE_CANDIDATES} candidates."),
+            ));
+        }
+        for (index, candidate) in self.candidates.iter().enumerate() {
+            if !is_executable_candidate(candidate) {
+                return Err(invalid(
+                    format!("{field}.candidates[{index}]"),
+                    "A candidate starts with ${workspaceFolder}/ or ${fileDirectory}/, \
+                     names only known variables, and has no .. or control characters.",
+                ));
+            }
+        }
+        let mut seen = BTreeSet::new();
+        if !self
+            .candidates
+            .iter()
+            .all(|candidate| seen.insert(candidate))
+        {
+            return Err(invalid(
+                format!("{field}.candidates"),
+                "A candidate is listed more than once.",
+            ));
+        }
+        Ok(())
+    }
+
+    /// The candidates a host can look for with what it knows now, in order.
+    /// One that needs the source file is skipped when there is none, which is
+    /// how the settings page asks without a file open.
+    pub(crate) fn expanded_candidates(
+        &self,
+        workspace: Option<&str>,
+        target_path: Option<&str>,
+    ) -> Vec<String> {
+        let file = target_path.map(std::path::Path::new);
+        let directory = file
+            .and_then(std::path::Path::parent)
+            .and_then(std::path::Path::to_str);
+        let stem = file
+            .and_then(std::path::Path::file_stem)
+            .and_then(std::ffi::OsStr::to_str);
+        let mut expanded = Vec::new();
+        for candidate in &self.candidates {
+            let mut path = candidate.clone();
+            for (name, value) in [
+                ("workspaceFolder", workspace),
+                ("fileDirectory", directory),
+                ("fileBasenameNoExtension", stem),
+            ] {
+                let variable = format!("${{{name}}}");
+                if !path.contains(&variable) {
+                    continue;
+                }
+                let Some(value) = value.filter(|value| !value.is_empty()) else {
+                    path.clear();
+                    break;
+                };
+                path = path.replace(&variable, value.trim_end_matches('/'));
+            }
+            if !path.is_empty() && !expanded.contains(&path) {
+                expanded.push(path);
+            }
+        }
+        expanded
+    }
+}
+
+/// Whether a candidate is a path template a host may look at.
+fn is_executable_candidate(candidate: &str) -> bool {
+    if candidate.chars().count() > MAX_EXECUTABLE_CANDIDATE
+        || candidate
+            .chars()
+            .any(|character| character.is_control() || character == '\\')
+        || !EXECUTABLE_ROOTS
+            .iter()
+            .any(|root| candidate.starts_with(root))
+        || candidate.split('/').any(|part| part == "..")
+    {
+        return false;
+    }
+    // Every `${` must close on a known variable; a stray one would reach the
+    // file system as part of a name.
+    let mut rest = candidate;
+    while let Some(start) = rest.find("${") {
+        let after = &rest[start + 2..];
+        let Some(end) = after.find('}') else {
+            return false;
+        };
+        if !EXECUTABLE_VARIABLES.contains(&&after[..end]) {
+            return false;
+        }
+        rest = &after[end + 1..];
+    }
+    true
 }
 
 impl DebugCapabilities {
@@ -566,6 +792,78 @@ impl DebugCapabilities {
             ));
         }
         sort_unique(&mut self.disabled, &disabled_field)
+    }
+}
+
+impl DebugConsole {
+    fn validate(&mut self, field: &str) -> Validation<()> {
+        let commands_field = format!("{field}.commands");
+        if let Some(prefix) = &self.command_prefix {
+            // The host concatenates the prefix and the line as written, so a
+            // space or control character would shift what the adapter reads.
+            if prefix.is_empty()
+                || prefix.chars().count() > MAX_CONSOLE_COMMAND_PREFIX
+                || prefix
+                    .chars()
+                    .any(|character| character.is_control() || character.is_whitespace())
+            {
+                return Err(invalid(
+                    format!("{field}.commandPrefix"),
+                    "A command prefix is 1-8 characters without spaces.",
+                ));
+            }
+        }
+        if self.commands.is_empty() && self.command_prefix.is_none() {
+            return Err(invalid(
+                commands_field,
+                "A console declares at least one command or a command prefix.",
+            ));
+        }
+        if self.commands.len() > MAX_CONSOLE_COMMANDS {
+            return Err(invalid(
+                commands_field,
+                format!("An adapter declares at most {MAX_CONSOLE_COMMANDS} console commands."),
+            ));
+        }
+        for (index, command) in self.commands.iter().enumerate() {
+            let command_field = format!("{commands_field}[{index}]");
+            // The name is inserted as written, so surrounding spaces would
+            // change what the user's line means.
+            if command.name.is_empty()
+                || command.name.trim() != command.name
+                || command.name.chars().count() > MAX_CONSOLE_COMMAND_NAME
+                || command.name.chars().any(char::is_control)
+            {
+                return Err(invalid(
+                    format!("{command_field}.name"),
+                    "A command name is one line of 1-128 characters without surrounding spaces.",
+                ));
+            }
+            if let Some(description) = &command.description {
+                if description.trim().is_empty()
+                    || description.chars().count() > MAX_CONSOLE_COMMAND_DESCRIPTION
+                    || description.chars().any(char::is_control)
+                {
+                    return Err(invalid(
+                        format!("{command_field}.description"),
+                        "A description is one line of 1-240 characters.",
+                    ));
+                }
+            }
+        }
+        self.commands
+            .sort_by(|left, right| left.name.cmp(&right.name));
+        if let Some(pair) = self
+            .commands
+            .windows(2)
+            .find(|pair| pair[0].name == pair[1].name)
+        {
+            return Err(invalid(
+                commands_field,
+                format!("The command {} is listed more than once.", pair[0].name),
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -827,6 +1125,9 @@ pub(crate) struct TargetFacts {
     pub(crate) process_id: Option<u64>,
     #[serde(default)]
     pub(crate) working_directory: Option<String>,
+    /// The program the host found for a source file, an absolute path.
+    #[serde(default)]
+    pub(crate) executable: Option<String>,
 }
 
 /// What a start asks of the adapter: the request and the facts around it.
@@ -867,11 +1168,11 @@ pub(crate) fn start_arguments(
             arguments.entry(name.to_string()).or_insert(value);
         }
     };
-    bind(
-        "program",
-        &bindings.program,
-        target.path.clone().map(Value::from),
-    );
+    let program = match bindings.program.as_deref() {
+        Some(TARGET_EXECUTABLE) => target.executable.clone(),
+        _ => target.path.clone(),
+    };
+    bind("program", &bindings.program, program.map(Value::from));
     bind(
         "processId",
         &bindings.process_id,
@@ -953,8 +1254,22 @@ pub(crate) fn plan(
         )
     };
     let target = &facts.target;
-    if bindings.program.is_some() && target.path.as_deref().map_or(true, str::is_empty) {
-        return Err(missing("target.path", "path"));
+    match bindings.program.as_deref() {
+        Some(TARGET_EXECUTABLE)
+            if !target
+                .executable
+                .as_deref()
+                .is_some_and(|path| std::path::Path::new(path).is_absolute()) =>
+        {
+            return Err(missing("target.executable", "executable"));
+        }
+        Some(source)
+            if source != TARGET_EXECUTABLE
+                && target.path.as_deref().map_or(true, str::is_empty) =>
+        {
+            return Err(missing("target.path", "path"));
+        }
+        _ => {}
     }
     if bindings.process_id.is_some() && target.process_id.is_none() {
         return Err(missing("target.processID", "process ID"));

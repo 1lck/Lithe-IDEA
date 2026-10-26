@@ -674,7 +674,10 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 id: $0.id,
                 displayName: $0.displayName,
                 adapterID: $0.adapterID ?? $0.id,
-                languageIDs: $0.selectors.flatMap(\.languageIDs)
+                languageIDs: $0.selectors.flatMap(\.languageIDs),
+                consoleCommands: $0.consoleCommands,
+                consoleCommandPrefix: $0.consoleCommandPrefix,
+                launchExecutableSettingID: $0.launchExecutableSettingID
             )
         }
         projectGenerators = decoded.projectGenerators.map {
@@ -1056,10 +1059,48 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 private enum CodingKeys: String, CodingKey { case languageIDs }
             }
 
+            struct Console: Decodable {
+                struct Command: Decodable {
+                    let name: String
+                    let description: String?
+                }
+
+                let commands: [Command]
+                let commandPrefix: String?
+
+                init(from decoder: Decoder) throws {
+                    let values = try decoder.container(keyedBy: CodingKeys.self)
+                    commands = try values.decodeIfPresent([Command].self, forKey: .commands) ?? []
+                    commandPrefix = try values.decodeIfPresent(String.self, forKey: .commandPrefix)
+                }
+
+                private enum CodingKeys: String, CodingKey { case commands, commandPrefix }
+            }
+
+            /// Only the launch lookup of the program matters to the host's lists.
+            struct Configurations: Decodable {
+                struct Launch: Decodable {
+                    struct Executable: Decodable { let setting: String }
+                    let executable: Executable?
+                }
+
+                let launch: Launch?
+            }
+
             let id: String
             let displayName: String
             let adapterID: String?
             let selectors: [Selector]
+            let console: Console?
+            let configurations: Configurations?
+
+            var launchExecutableSettingID: String? { configurations?.launch?.executable?.setting }
+
+            var consoleCommands: [DebugConsoleCommand] {
+                (console?.commands ?? []).map { DebugConsoleCommand(name: $0.name, detail: $0.description) }
+            }
+
+            var consoleCommandPrefix: String? { console?.commandPrefix }
 
             init(from decoder: Decoder) throws {
                 let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -1067,9 +1108,13 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 displayName = try values.decode(String.self, forKey: .displayName)
                 adapterID = try values.decodeIfPresent(String.self, forKey: .adapterID)
                 selectors = try values.decodeIfPresent([Selector].self, forKey: .selectors) ?? []
+                console = try values.decodeIfPresent(Console.self, forKey: .console)
+                configurations = try values.decodeIfPresent(Configurations.self, forKey: .configurations)
             }
 
-            private enum CodingKeys: String, CodingKey { case id, displayName, adapterID, selectors }
+            private enum CodingKeys: String, CodingKey {
+                case id, displayName, adapterID, selectors, console, configurations
+            }
         }
 
         /// The parts of a build system the tool window lists. Detection,
@@ -1245,12 +1290,31 @@ public struct DeclarativeDebugAdapter: Equatable, Sendable {
     public let adapterID: String
     /// Languages whose files the adapter debugs.
     public let languageIDs: [String]
+    /// Debugger commands the Debug Console offers as completions.
+    public let consoleCommands: [DebugConsoleCommand]
+    /// Text the adapter's console reads as "a debugger command follows"; the Debug
+    /// Console puts it before the line it asks the adapter to complete.
+    public let consoleCommandPrefix: String?
+    /// The `file` setting that names the program a launch debugs, when the
+    /// adapter has the host look the program up.
+    public let launchExecutableSettingID: String?
 
-    public init(id: String, displayName: String, adapterID: String, languageIDs: [String]) {
+    public init(
+        id: String,
+        displayName: String,
+        adapterID: String,
+        languageIDs: [String],
+        consoleCommands: [DebugConsoleCommand] = [],
+        consoleCommandPrefix: String? = nil,
+        launchExecutableSettingID: String? = nil
+    ) {
         self.id = id
         self.displayName = displayName
         self.adapterID = adapterID
         self.languageIDs = languageIDs
+        self.consoleCommands = consoleCommands
+        self.consoleCommandPrefix = consoleCommandPrefix
+        self.launchExecutableSettingID = launchExecutableSettingID
     }
 }
 
@@ -1344,20 +1408,53 @@ public struct DeclarativeDebugStartRequest: Equatable, Sendable {
     public let path: String?
     public let processID: Int?
     public let workingDirectory: String?
+    /// The program the host found for a launch whose adapter binds `program` to
+    /// `target.executable`; an absolute path the host has checked is runnable.
+    public let executable: String?
     public let registrationGeneration: Int
     public let currentRegistrationGeneration: Int
 
     public init(
         request: Request, targetKind: String, path: String? = nil, processID: Int? = nil,
-        workingDirectory: String? = nil, registrationGeneration: Int, currentRegistrationGeneration: Int
+        workingDirectory: String? = nil, executable: String? = nil,
+        registrationGeneration: Int, currentRegistrationGeneration: Int
     ) {
         self.request = request
         self.targetKind = targetKind
         self.path = path
         self.processID = processID
         self.workingDirectory = workingDirectory
+        self.executable = executable
         self.registrationGeneration = registrationGeneration
         self.currentRegistrationGeneration = currentRegistrationGeneration
+    }
+}
+
+/// Where a host looks for the program a debug launch runs. Rust Core only
+/// says what to look at and in which order; the host owns the file system.
+public struct DeclarativeDebugExecutablePlan: Equatable, Sendable {
+    /// A path the user chose in the plugin's settings.
+    public struct Configured: Equatable, Sendable {
+        public let path: String
+        public let source: PluginSettingSource
+
+        public init(path: String, source: PluginSettingSource) {
+            self.path = path
+            self.source = source
+        }
+    }
+
+    /// The `file` setting that holds the user's own choice.
+    public let settingID: String
+    /// Set when the user chose a program; it always wins over `candidates`.
+    public let configured: Configured?
+    /// Absolute paths to try in order when nothing is configured.
+    public let candidates: [String]
+
+    public init(settingID: String, configured: Configured?, candidates: [String]) {
+        self.settingID = settingID
+        self.configured = configured
+        self.candidates = candidates
     }
 }
 
@@ -1399,6 +1496,16 @@ public protocol DeclarativeLanguageServerLaunchPlanning: Sendable {
         adapterID: String,
         request: DeclarativeDebugStartRequest
     ) throws -> [String: ToolingJSONValue]
+    /// Where to look for the program of a launch, or nil when the adapter
+    /// declares no lookup.
+    func debugExecutablePlan(
+        manifest: Data,
+        adapterID: String,
+        settings: [String: ToolingJSONValue],
+        projectSettings: [String: ToolingJSONValue],
+        workspace: String?,
+        targetPath: String?
+    ) throws -> DeclarativeDebugExecutablePlan?
 }
 
 public extension DeclarativeLanguageServerLaunchPlanning {
@@ -1453,6 +1560,20 @@ public extension DeclarativeLanguageServerLaunchPlanning {
         throw DeclarativePluginRejection(
             code: "plugin.launch.unavailable",
             message: "This host cannot plan debug starts."
+        )
+    }
+
+    func debugExecutablePlan(
+        manifest _: Data,
+        adapterID _: String,
+        settings _: [String: ToolingJSONValue],
+        projectSettings _: [String: ToolingJSONValue],
+        workspace _: String?,
+        targetPath _: String?
+    ) throws -> DeclarativeDebugExecutablePlan? {
+        throw DeclarativePluginRejection(
+            code: "plugin.launch.unavailable",
+            message: "This host cannot plan debug executable lookups."
         )
     }
 }

@@ -174,6 +174,10 @@ final class MacServiceContainer {
             directories: MacPluginStateDirectories(fileStorage: fileStorage),
             settings: pluginSettings
         )
+        let debugExecutableResolver = MacPluginDebugExecutableResolver(
+            planner: declarativePluginOperations,
+            settings: pluginSettings
+        )
         let pluginStartup = MacPluginStartupLoader(
             packageStore: pluginPackageStore,
             validateUI: { _ = try WorkbenchModuleUIComposition.registry(for: $0) }
@@ -581,6 +585,8 @@ final class MacServiceContainer {
                             let pluginID = entry.plugin.descriptor.id.rawValue
                             return CoreDebugAdapterProtocolSession(
                                 adapterID: entry.adapter.adapterID,
+                                consoleCommands: entry.adapter.consoleCommands,
+                                consoleCommandPrefix: entry.adapter.consoleCommandPrefix,
                                 transport: MacPluginDebugAdapterTransport(
                                     adapterID: entry.adapter.id,
                                     resolve: { rootURL in
@@ -737,6 +743,16 @@ final class MacServiceContainer {
                 try declarativePluginOperations.workspaceConfiguration(
                     manifest: manifest, languageID: languageID, settings: global, projectSettings: project
                 )
+            },
+            lookUpDebugExecutable: { plugin, adapterID, workspaceRootURL, targetPath in
+                // The page only echoes what a launch would find; a plan Core
+                // cannot make shows nothing here and fails with its reason at launch.
+                try? debugExecutableResolver.lookup(
+                    plugin: plugin,
+                    adapterID: adapterID,
+                    workspaceRootURL: workspaceRootURL,
+                    targetPath: targetPath
+                )
             }
         )
         let pluginMarketplaceTransport: any MacPluginMarketplaceTransport
@@ -789,6 +805,15 @@ final class MacServiceContainer {
                 },
                 pluginLaunch: { languageID, documentURL, workspaceURL in
                     guard let entry = pluginDebugAdapters[languageID] else { return nil }
+                    let targetPath = documentURL.standardizedFileURL.path
+                    // The program the adapter launches is the host's to find;
+                    // a plugin that declares none gets no `executable` fact.
+                    let executable = try debugExecutableResolver.executableForLaunch(
+                        plugin: entry.plugin,
+                        adapter: entry.adapter,
+                        workspaceRootURL: workspaceURL,
+                        targetPath: targetPath
+                    )
                     // Registration is fixed for the process lifetime, so the
                     // start is prepared against the current generation.
                     let arguments = try declarativePluginOperations.debugStartArguments(
@@ -797,8 +822,9 @@ final class MacServiceContainer {
                         request: DeclarativeDebugStartRequest(
                             request: .launch,
                             targetKind: "file",
-                            path: documentURL.standardizedFileURL.path,
+                            path: targetPath,
                             workingDirectory: workspaceURL.standardizedFileURL.path,
+                            executable: executable,
                             registrationGeneration: 1,
                             currentRegistrationGeneration: 1
                         )

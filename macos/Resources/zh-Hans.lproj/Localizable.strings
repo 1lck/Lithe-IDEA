@@ -20,6 +20,7 @@
 "%@ disabled" = "%@ 已停用";
 "%@ does not include %@; Lithe renders those characters with %@ and the system font." = "%@ 不包含%@；Lithe 会用 %@ 和系统字体显示这些字符。";
 "%@ does not provide archived conversations." = "%@ 不支持归档会话。";
+"%@ does not support Debug yet" = "%@ 暂不支持调试";
 "%@ does not support running the current file directly. Use a project run configuration." = "%@ 不支持直接运行当前文件。请使用项目运行配置。";
 "%@ enabled" = "%@ 已启用";
 "%@ exited with status %d.\n%@" = "%1$@ 以状态 %2$d 退出。\n%3$@";
@@ -202,11 +203,14 @@
 "Active Maven Profiles" = "启用的 Maven Profiles";
 "Active profiles" = "启用的 Profiles";
 "Activity" = "活动";
+"Adapter Ready" = "适配器已就绪";
 "Add" = "添加";
 "Add Hook" = "添加 Hook";
+"Add Method Breakpoint" = "添加方法断点";
 "Add Provider" = "添加服务商";
 "Add Selected" = "添加所选项";
 "Add Shortcut" = "添加快捷键";
+"Add Watch" = "添加监视";
 "Add a class or method name" = "添加类名或方法名";
 "Add a memory usage indicator to the status bar" = "在状态栏添加内存占用指示器";
 "Add an AI provider in AI Providers first." = "请先在“AI 服务商”中添加服务商。";
@@ -226,6 +230,7 @@
 "Add to %@" = "添加到 %@";
 "Add to Another Conversation" = "添加到其他会话";
 "Add to Current Conversation · %@" = "添加到当前会话 · %@";
+"Add to Watches" = "添加到监视";
 "Add to favorites" = "加入收藏";
 "Add tool windows and commands to the workbench" = "向工作台添加工具窗口和命令";
 "Add variable" = "添加变量";
@@ -301,6 +306,7 @@
 "Allow “%@” to run build tools?" = "允许“%@”运行构建工具吗？";
 "Always ask before making changes" = "修改文件或执行需要权限的操作前请求你的批准。";
 "Always ask to edit external files and use the internet" = "修改工作区外文件或访问网络时先请求批准。";
+"Always break" = "始终中断";
 "Always end" = "总是结束";
 "Always keep" = "总是保留";
 "Amend" = "修订提交";
@@ -440,6 +446,7 @@
 "Branches have diverged" = "分支已分叉";
 "Branches must be different" = "两个分支不能相同";
 "Branches unavailable" = "无法加载分支";
+"Break on Field Access…" = "字段被访问时中断…";
 "Breakdown unavailable" = "分项暂不可用";
 "Breakpoint" = "断点";
 "Breakpoint actions" = "断点操作";
@@ -579,6 +586,7 @@
 "Choose a Git executable above to continue." = "请先在上方选择 Git 可执行文件。";
 "Choose a JDK directory" = "选择 JDK 目录";
 "Choose a JDK in Settings → Project or install a full JDK and set JAVA_HOME." = "请在“设置 → 项目”中选择 JDK，或安装完整 JDK 并设置 JAVA_HOME。";
+"Choose a Run configuration before starting Debug" = "开始调试前，请先选择运行配置";
 "Choose a Run configuration for this Maven module" = "请为此 Maven 模块选择运行配置";
 "Choose a ZIP archive or an unpacked plugin directory." = "请选择 ZIP 压缩包或已解压的插件目录。";
 "Choose a base and compare branch, then describe the pull request." = "选择目标分支和比较分支，然后填写拉取请求说明。";
@@ -622,6 +630,7 @@
 "Choose which branch Push targets when you do not name one." = "未指定目标分支时，选择 Push 要推送到哪个分支。";
 "Choose which branch to update before pushing." = "推送前请选择要更新的分支。";
 "Choose…" = "选择…";
+"Class or method" = "类或方法";
 "Classes" = "类";
 "Claude Agent" = "Claude Agent";
 "Claude Code has MCP tool restrictions. Update its native rules before renaming a server so disabled tools do not become available under a new name." = "Claude Code 存在 MCP 工具限制。重命名服务器前请先更新其原生规则，以免已禁用的工具在新名称下重新可用。";
@@ -641,6 +650,7 @@
 "Cleaning up…" = "正在清理…";
 "Clear" = "清除";
 "Clear All" = "全部清除";
+"Clear Console" = "清空控制台";
 "Clear Git console" = "清空 Git 控制台";
 "Clear Logs" = "清空日志";
 "Clear Override" = "清除覆盖";
@@ -805,6 +815,7 @@
 "Compression is unavailable. Showing complete retained output." = "暂时无法压缩，正在显示完整保留的输出。";
 "Concise" = "简洁";
 "Concise sentence" = "简洁一句话";
+"Condition" = "条件";
 "Configuration" = "配置";
 "Configuration ID" = "配置 ID";
 "Configuration details" = "配置详情";
@@ -831,6 +842,7 @@
 "Connect" = "连接";
 "Connect a GitHub account before continuing" = "请先连接 GitHub 账号";
 "Connect to Running JVM" = "连接到运行中的 JVM";
+"Connect to Running JVM…" = "连接到运行中的 JVM…";
 "Connect to databases, browse schemas, edit data, run SQL, and manage backups from the Database workspace." = "连接数据库、浏览结构、编辑数据、运行 SQL，并在数据库工作区中管理备份。";
 "Connect to running JVM" = "连接到正在运行的 JVM";
 "Connected" = "已连接";
@@ -883,16 +895,22 @@
 "Copy Branch Name" = "复制分支名称";
 "Copy Commit Hash" = "复制提交哈希";
 "Copy Conversation" = "复制对话";
+"Copy Expression" = "复制表达式";
 "Copy Files" = "拷贝";
 "Copy JSON" = "复制 JSON";
+"Copy Method Name" = "复制方法名";
 "Copy Name" = "复制名称";
 "Copy Original Command" = "复制原始命令";
 "Copy Path" = "复制路径";
 "Copy Path / Reference" = "复制路径 / 引用";
 "Copy Project Path" = "复制项目路径";
 "Copy Recovery Reference" = "复制恢复引用";
+"Copy Relative Location" = "复制相对位置";
 "Copy Relative Path" = "复制相对路径";
 "Copy Short Hash" = "复制短哈希";
+"Copy Source Location" = "复制源码位置";
+"Copy Thread Name" = "复制线程名";
+"Copy Value" = "复制值";
 "Copy agent configuration" = "复制 Agent 配置";
 "Copy code" = "复制代码";
 "Copy command" = "复制命令";
@@ -914,6 +932,7 @@
 "Could not connect to the Debug Adapter: %@" = "无法连接调试适配器：%@";
 "Could not connect to the Java Debug Server: %@" = "无法连接 Java Debug Server：%@";
 "Could not copy your Stable settings" = "无法复制正式版设置";
+"Could not find the Java source for %@" = "找不到 %@ 对应的 Java 源码";
 "Could not import MCP JSON. Check the mcpServers object and try again." = "无法导入 MCP JSON。请检查 mcpServers 对象后重试。";
 "Could not inspect saved file" = "无法读取已保存的文件";
 "Could not inspect the selected history. Refresh the preview to retry." = "无法检查所选历史。请刷新预览后重试。";
@@ -1027,14 +1046,18 @@
 "Debug" = "调试";
 "Debug selected test" = "调试所选测试";
 "Debug sessions" = "调试会话";
+"Debug support is not available for %@" = "%@ 暂时没有可用的调试支持";
 "Debug target" = "调试目标";
 "Debug: Resume" = "调试：继续";
 "Debug: Step Into" = "调试：步入";
 "Debug: Step Out" = "调试：步出";
 "Debug: Step Over" = "调试：步过";
 "Debugger" = "调试器";
+"Debugger command input" = "调试器命令输入框";
+"Debugger command suggestions" = "调试器命令建议";
 "Debugger thread" = "调试器线程";
 "Debugging code" = "调试代码";
+"Debugging is not supported for this file type" = "这种类型的文件暂不支持调试";
 "Decrease Font Size" = "减小字号";
 "Deep reasoning for complex tasks" = "深度推理，适合复杂任务";
 "Default" = "默认";
@@ -1214,10 +1237,12 @@
 "Edit Configuration…" = "编辑运行配置…";
 "Edit Hook" = "编辑 Hook";
 "Edit MCP server" = "编辑 MCP 服务器";
+"Edit Method Breakpoint" = "编辑方法断点";
 "Edit Paths as Text" = "以文本编辑路径";
 "Edit Service" = "编辑服务";
 "Edit Shortcut" = "编辑快捷键";
 "Edit Shortcuts" = "编辑快捷键";
+"Edit Watch" = "编辑监视";
 "Edit configuration text" = "编辑配置文本";
 "Edit exception breakpoint" = "编辑异常断点";
 "Edit files and stage the changes you want to include. Amend and Continue updates this commit; Continue keeps the existing commit." = "修改文件并暂存需要包含的更改。“修订并继续”会更新当前提交；“继续”会保留现有提交。";
@@ -1284,6 +1309,7 @@
 "Enter a branch name." = "请输入分支名称。";
 "Enter a commit message" = "请输入提交信息";
 "Enter a complete server URL." = "请输入完整的服务器 URL。";
+"Enter a debugger command (Tab to complete)" = "输入调试器命令（Tab 补全）";
 "Enter a description and instructions." = "请填写技能说明和正文。";
 "Enter a host." = "请填写主机。";
 "Enter a model ID supported by your provider." = "请填写该服务商支持的模型 ID。";
@@ -1319,9 +1345,11 @@
 "Estimated from the size of the latest request." = "按最近一次主请求各部分的大小估算。";
 "Evaluate expression" = "计算表达式";
 "Evaluate expression while paused" = "暂停时计算表达式";
+"Evaluating…" = "正在计算…";
 "Example" = "示例";
 "Exception" = "异常";
 "Exception Breakpoints" = "异常断点";
+"Exception condition" = "异常条件";
 "Exclude from dependency tree" = "从依赖树中排除";
 "Excluded" = "已排除";
 "Excluded Paths" = "已排除路径";
@@ -1355,6 +1383,7 @@
 "Exports the working tree's net changes against HEAD, including selected untracked files." = "导出工作树相对 HEAD 的最终更改，包含所选的未跟踪文件。";
 "Exports working files against the index, including selected untracked files." = "导出工作文件相对暂存区的更改，包含所选的未跟踪文件。";
 "Export…" = "导出…";
+"Expression" = "表达式";
 "Expression history" = "表达式历史";
 "External change" = "外部更改";
 "External edits conflict with unsaved changes" = "外部编辑与未保存的更改发生冲突";
@@ -1463,6 +1492,7 @@
 "Format" = "格式";
 "Format JSON" = "格式化 JSON";
 "Forward" = "前进";
+"Found automatically" = "已自动找到";
 "Frames are not available" = "当前无可用栈帧";
 "Frames rendered per second" = "每秒渲染帧数";
 "Free space" = "剩余空间";
@@ -1611,6 +1641,7 @@
 "History changed, but Git reported an incomplete step. Refresh the repository and inspect the recovery reference before retrying." = "提交历史已改变，但仍有步骤未完成。重试前请刷新仓库并检查恢复引用。";
 "History filter" = "历史筛选";
 "History of %@" = "%@ 的历史";
+"Hit count" = "命中次数";
 "Hit: %@" = "命中次数：%@";
 "Home directory" = "主目录";
 "Homebrew is not installed or is not available to Lithe." = "Homebrew 未安装，或 Lithe 无法使用它。";
@@ -1678,6 +1709,7 @@
 "Initialize Git to track changes and create your first commit." = "初始化 Git 后即可跟踪更改并创建首次提交。";
 "Initialize a repository before saving repository-specific identity" = "请先初始化仓库，再保存仓库身份配置。";
 "Initialize this project from Git before saving repository-specific identity." = "请先在 Git 面板初始化项目，再保存当前仓库的身份配置。";
+"Initializing Adapter" = "正在初始化适配器";
 "Initializing project index" = "正在初始化项目索引";
 "Input" = "输入";
 "Input: %@" = "输入：%@";
@@ -1761,6 +1793,7 @@
 "Java Run marker request failed" = "Java 运行标记请求失败";
 "Java SDK" = "Java SDK";
 "Java Stepping Filters" = "Java 步进过滤器";
+"Java Stepping Filters…" = "Java 步进过滤器…";
 "Java entries appear after the Java language service lists runnable classes." = "Java 语言服务列出可运行的类之后，Java 入口才会出现。";
 "Java entries could not be refreshed" = "无法刷新 Java 入口";
 "Java entry-point freshness check failed" = "Java 入口点时效性检查失败";
@@ -1896,15 +1929,18 @@
 "Lithe: fetch tags" = "Lithe：获取标签";
 "Lithe: prune stale branches" = "Lithe：清理失效的远程分支";
 "Load" = "加载";
+"Load %lld more" = "再加载 %lld 项";
 "Load Disk Version" = "加载磁盘版本";
 "Load More" = "加载更多";
 "Load Project Model" = "加载项目模型";
 "Load more" = "加载更多";
 "Load more commits" = "加载更多提交";
+"Load more debugger variables" = "加载更多调试变量";
 "Load the %@ model" = "加载 %@ 的模型";
 "Load the dependencies again" = "重新加载依赖";
 "Load the dependencies of %@" = "加载 %@ 的依赖";
 "Load the project model" = "加载项目模型";
+"Load threads" = "加载线程";
 "Loaded file-system version" = "已加载文件系统版本";
 "Loading %@ model" = "正在加载 %@ 模型";
 "Loading branch details…" = "正在加载分支信息…";
@@ -1916,6 +1952,7 @@
 "Loading commits…" = "正在加载提交…";
 "Loading comparison…" = "正在加载比较结果…";
 "Loading conversation…" = "正在加载对话…";
+"Loading debugger variables" = "正在加载调试变量";
 "Loading dependencies of %@" = "正在加载 %@ 的依赖";
 "Loading dependencies..." = "正在加载依赖…";
 "Loading dependencies…" = "正在加载依赖…";
@@ -1959,12 +1996,14 @@
 "Log filter" = "日志筛选";
 "Log level" = "日志级别";
 "Log locations" = "日志位置";
+"Log message" = "日志消息";
 "Log timeline" = "日志时间线";
 "Log: %@" = "日志：%@";
 "Logs" = "日志";
 "Logs and Diagnostics" = "日志与诊断";
 "Look Up Again" = "重新查询";
 "Look Up Location" = "查询地区";
+"Looked in: %@" = "已查找：%@";
 "Looking for Git…" = "正在查找 Git…";
 "Looking for installed JDKs…" = "正在查找已安装的 JDK…";
 "Looking up the location sends this address to ipinfo.io. Lithe does this only when you click Look Up." = "查询地区会把这个地址发送给 ipinfo.io。只有你点击“查询地区”时 Lithe 才会这样做。";
@@ -2143,6 +2182,8 @@
 "Navigation" = "导航";
 "Needs no extra permissions." = "不需要额外权限。";
 "Needs restart" = "需重启";
+"Nested exception" = "嵌套异常";
+"Never break" = "从不中断";
 "New" = "新增";
 "New Branch" = "新建分支";
 "New Branch from '%@'…" = "从“%@”新建分支…";
@@ -2247,6 +2288,7 @@
 "No differences were found for this selection." = "所选内容没有差异。";
 "No earlier conversations" = "没有更早的对话";
 "No effective value configured" = "尚未配置有效值";
+"No executable location was found at the cursor" = "光标所在位置没有可执行的代码";
 "No file edits" = "暂无文件修改";
 "No files match the conflict filter" = "没有符合冲突筛选条件的文件";
 "No history recorded yet" = "还没有历史记录";
@@ -2256,6 +2298,7 @@
 "No items" = "暂无项目";
 "No language dependency sources registered" = "未注册语言依赖来源";
 "No language provider handles .%@ files." = "没有语言 Provider 处理 .%@ 文件。";
+"No language provider is available for this file" = "这个文件没有可用的语言支持";
 "No language run provider handles .%@ files." = "没有语言运行 Provider 处理 .%@ 文件。";
 "No local changes" = "没有本地更改";
 "No local variables in the current frame" = "当前栈帧没有局部变量";
@@ -2286,10 +2329,13 @@
 "No notifications" = "暂无通知";
 "No paths" = "没有路径";
 "No paths resolved for this service" = "此服务没有已解析的路径";
+"No place to look yet. Open the file you want to debug, or choose the program yourself." = "还没有可查找的位置。请打开要调试的文件，或自行选择程序。";
 "No plugins available" = "暂无可用插件";
 "No problems in %@" = "%@ 中没有问题";
 "No problems match the current filter" = "没有问题匹配当前筛选条件";
 "No profiling events were recorded." = "没有录制到性能事件。";
+"No program to debug was found. Build it first, or choose one in the “%@” setting of %@." = "没有找到要调试的程序。请先编译它，或在 %2$@ 的“%1$@”设置中选择程序。";
+"No program to debug was found. Build it first, or choose one in the “%@” setting of %@. Looked in: %@" = "没有找到要调试的程序。请先编译它，或在 %2$@ 的“%1$@”设置中选择程序。已查找：%3$@";
 "No project entry point detected" = "未识别到项目启动入口";
 "No project history recorded yet" = "还没有项目历史记录";
 "No project is open" = "未打开项目";
@@ -2343,6 +2389,7 @@
 "Normal Folder" = "普通文件夹";
 "Not Assigned" = "未分配";
 "Not Supported" = "不支持";
+"Not available" = "不可用";
 "Not available yet: dependencies are not indexed" = "尚不可用：依赖尚未建立索引";
 "Not detected" = "未检测";
 "Not fetched yet." = "尚未获取。";
@@ -2425,6 +2472,7 @@
 "Open a Git project before using pull requests" = "请先打开 Git 项目，再使用拉取请求功能";
 "Open a Java file" = "打开 Java 文件";
 "Open a Java file before starting Debug" = "开始调试前请先打开 Java 文件";
+"Open a Java project before connecting the debugger" = "连接调试器前，请先打开 Java 项目";
 "Open a local folder to start working." = "打开本地文件夹开始工作。";
 "Open a local project folder" = "打开本地项目文件夹";
 "Open a project" = "打开项目";
@@ -2440,6 +2488,7 @@
 "Open a project to see its language service." = "打开项目后可查看其语言服务。";
 "Open a project to use Git" = "请打开项目以使用 Git";
 "Open a source file before running Current File." = "运行“当前文件”前请先打开一个源文件。";
+"Open a source file or choose a project Run configuration" = "请打开一个源文件，或选择项目的运行配置";
 "Open again" = "重新打开";
 "Open file" = "打开文件";
 "Open file in editor to see problems" = "在编辑器中打开文件以查看问题";
@@ -2518,7 +2567,9 @@
 "Path Missing" = "路径不存在";
 "Paths" = "路径";
 "Pause" = "暂停";
+"Pause Thread" = "暂停线程";
 "Pause the process to inspect variables" = "暂停程序以查看变量";
+"Pause the program to run debugger commands" = "先暂停程序，再运行调试器命令";
 "Paused" = "已暂停";
 "Peak this run" = "本次运行峰值";
 "Peak total" = "峰值总计";
@@ -2541,6 +2592,7 @@
 "Pinned" = "置顶";
 "Pinned: %@ · Local: %@" = "固定版本：%@ · 本地：%@";
 "Place the caret in a Java file to set a breakpoint" = "请将光标置于 Java 文件中以设置断点";
+"Place the caret in a source file to set a breakpoint" = "请把光标放在源文件中，再设置断点";
 "Place the caret on a Java symbol first" = "请先将光标置于 Java 符号上";
 "Plan" = "计划";
 "Plan %lld/%lld" = "计划 %lld/%lld";
@@ -2735,11 +2787,13 @@
 "R Support" = "R 支持";
 "Ran %lld command" = "运行了 %lld 个命令";
 "Ran %lld commands" = "运行了 %lld 个命令";
+"Read" = "读取";
 "Read %lld file" = "读取了 %lld 个文件";
 "Read %lld files" = "读取了 %lld 个文件";
 "Read, write and search files only in the directories you allow. Requires Node.js 24 or later." = "读写、搜索你允许的目录中的文件。需要 Node.js 24 或更高版本。";
 "Read-only" = "只读";
 "Read-only file preview" = "只读文件预览";
+"Read/Write" = "读写";
 "Reading Git configuration…" = "正在读取 Git 配置…";
 "Reading changes and recent commits." = "正在读取文件更改和最近提交。";
 "Reading changes…" = "正在读取更改…";
@@ -2974,6 +3028,7 @@
 "Result" = "结果";
 "Results" = "测试结果";
 "Resume" = "恢复执行";
+"Resume Thread" = "恢复线程";
 "Resume the paused debug session" = "继续已暂停的调试会话";
 "Retention and cleanup" = "保留与清理";
 "Retired official Go plugin. Go support is now the community plugin Go Support in Lithe Store." = "已退役的官方 Go 插件。Go 支持现在由 Lithe Store 中的社区插件 Go Support 提供。";
@@ -3057,6 +3112,7 @@
 "Run tests" = "运行测试";
 "Run tests to view process performance." = "运行测试以查看进程性能。";
 "Run this MCP command?" = "运行此 MCP 命令？";
+"Run to Cursor is unavailable for the active debug session" = "当前调试会话不支持“运行到光标处”";
 "Run your files" = "运行你的文件";
 "Run your tests" = "运行你的测试";
 "Running" = "运行中";
@@ -3188,6 +3244,7 @@
 "Select a pull request" = "选择一个拉取请求";
 "Select a run configuration to see its output." = "选择一个运行配置以查看详情和输出。";
 "Select a service or task to configure its arguments, environment and project-environment overrides. Changes apply after Save." = "选择服务或任务，配置启动参数、环境变量和项目环境覆盖项；点击保存后生效。";
+"Select a stack frame to inspect variables" = "选择一个栈帧以查看变量";
 "Select a worktree" = "选择工作树";
 "Select all" = "全选";
 "Select branch" = "选择分支";
@@ -3201,6 +3258,7 @@
 "Select shell" = "选择 Shell";
 "Select test JVM" = "选择测试 JVM";
 "Select the ChangeList to commit" = "选择要提交的更改列表";
+"Select thread" = "选择线程";
 "Selected" = "已勾选";
 "Selected ChangeList or staged files changed before generation finished" = "生成完成前，当前更改列表或暂存文件已变化，已丢弃旧的提交说明";
 "Selected directory" = "当前选择的目录";
@@ -3225,6 +3283,7 @@
 "Sessions" = "会话";
 "Set" = "设置";
 "Set Up Agent File Attachments…" = "设置 Agent 文件附件…";
+"Set Value…" = "设置值…";
 "Set Variable Value" = "设置变量值";
 "Set as preferred" = "设为首选";
 "Set the custom Agent's executable in the panel settings." = "请在设置窗口的 Agent 页面中填写自定义 Agent 的可执行文件。";
@@ -3367,6 +3426,7 @@
 "Smart Checkout (Shelve)" = "智能检出（Shelf）";
 "Smart Checkout shelves your changes in Lithe, switches branch, then restores them. Force Checkout switches and discards them." = "智能检出会先把更改保存为 Lithe Shelf，切换分支后再恢复。强制检出会直接切换并丢弃这些更改。";
 "Smart Checkout stashes your changes, switches branch, then restores them. Force Checkout switches and discards them." = "智能检出会先贮藏你的更改，切换分支后再恢复。强制检出会直接切换并丢弃这些更改。";
+"Smart Step Into" = "智能步入";
 "Smart step into" = "智能步入";
 "Soft Reset (Keep Changes Staged)" = "软重置（保留暂存更改）";
 "Soft Wraps" = "自动换行";
@@ -3415,6 +3475,7 @@
 "Start Debugging" = "开始调试";
 "Start Rebase" = "开始变基";
 "Start Recording" = "开始录制";
+"Start a debug session to run debugger commands" = "启动调试会话后即可运行调试器命令";
 "Start a language server when you open files of its language" = "打开对应语言的文件时启动语言服务器";
 "Start a local Java debug session to view performance." = "启动本地 Java 调试会话以查看性能。";
 "Start a new conversation after saving to load the updated instructions. Project instructions still apply." = "保存后请新建对话以加载更新后的指令。项目指令仍然有效。";
@@ -3450,6 +3511,7 @@
 "State unknown" = "状态未知";
 "Status" = "状态";
 "Step %lld of %lld" = "第 %lld 步，共 %lld 步";
+"Step Back" = "回退一步";
 "Step into" = "单步进入";
 "Step out" = "单步跳出";
 "Step over" = "单步跳过";
@@ -3647,6 +3709,7 @@
 "The bundled JDT LS version could not be determined." = "无法确定内置 JDT LS 的版本。";
 "The checkout directory no longer exists. Repair moved worktree metadata or prune the stale Git record." = "检出目录已不存在。你可以修复移动后的工作树元数据，或清理失效的 Git 记录。";
 "The checkout path does not exist" = "检出路径不存在";
+"The chosen file is missing or not executable." = "所选文件不存在或不可执行。";
 "The clipboard image could not be read" = "无法读取剪贴板中的图片";
 "The clipboard image is empty" = "剪贴板中的图片为空";
 "The clipboard image is larger than 100 MB" = "剪贴板中的图片超过 100 MB";
@@ -3750,6 +3813,7 @@
 "The primary worktree cannot be removed." = "主工作区不能删除。";
 "The process does not have an open standard-input pipe." = "进程没有打开的标准输入管道。";
 "The process is not running." = "进程未在运行。";
+"The program chosen in the “%@” setting of %@ is missing or not executable: %@" = "在 %2$@ 的“%1$@”设置中选择的程序不存在或不可执行：%3$@";
 "The project archive from %@ is too large." = "来自 %@ 的项目压缩包过大。";
 "The project directory is unavailable." = "项目目录不可用。";
 "The project folder on the host. Browse connects, installs the Lithe server on the host if needed, and lets you pick a folder." = "主机上的项目文件夹。“浏览”会连接主机，必要时在主机上安装 Lithe 远端服务，然后让你选择文件夹。";
@@ -3797,6 +3861,7 @@
 "The stable release is missing a valid publisher signature. Nothing was installed. Try a newer release or install manually from a trusted source." = "正式版缺少有效的发布者签名，未执行安装。请等待新版本，或从可信来源手动安装。";
 "The staged changes have no textual diff to summarize." = "已暂存的更改没有可用于总结的文本 Diff。";
 "The staged changes will be committed and the current branch will be pushed to its configured remote." = "暂存的更改将被提交，并推送当前分支到已配置的远程仓库。";
+"The stopped source file is no longer available: %@" = "程序停住的源文件已不存在：%@";
 "The switch controls the Lithe shared block, not the Agent or its own instructions. Save shared changes before switching. Open a row to edit the complete native file." = "开关控制是否使用 Lithe 共享区块，不会停用 Agent 或它的自有指令。请先保存共享修改再操作开关。点击行可编辑完整原生文件。";
 "The test file is outside the current workspace: %@" = "测试文件在当前工作区之外：%@";
 "The update could not be installed. Download the release manually and try again." = "无法安装更新，请手动下载版本后重试。";
@@ -3925,6 +3990,7 @@
 "This worktree has a detached HEAD. Publish it as a branch before creating a pull request." = "当前工作树处于分离 HEAD 状态。请先将它发布为分支，再创建拉取请求。";
 "This worktree has no uncommitted changes." = "此工作树没有未提交的更改。";
 "Threads" = "线程";
+"Threads & Variables" = "线程和变量";
 "Time to exit" = "等待退出时间";
 "Timed Out" = "已超时";
 "Timeout (seconds)" = "超时（秒）";
@@ -4010,6 +4076,7 @@
 "Undo" = "撤销";
 "Undo Commit" = "撤销最近一次提交（保留更改）";
 "Undo Commit…" = "撤销最近一次提交（保留更改）…";
+"Unhandled" = "未处理";
 "Uninstall" = "卸载";
 "Uninstall %@ from the Installed tab and restart Lithe first. It is the retired official version of this plugin and supports the same language." = "请先在“已安装”中卸载 %@ 并重启 Lithe。它是此插件已退役的官方版本，支持同一种语言。";
 "Uninstall %@?" = "卸载 %@？";
@@ -4138,6 +4205,7 @@
 "User" = "用户";
 "User name" = "用户名";
 "User-facing sentence for release notes" = "适合发布说明的面向用户句子";
+"User-unhandled" = "用户未处理";
 "Uses the claude.ai account signed in to Claude Code. Sign in with /login in Claude Code if the Agent asks." = "使用 Claude Code 中登录的 claude.ai 账号；如提示未登录，请在 Claude Code 中用 /login 登录。";
 "Uses your local ChatGPT account." = "使用本机 ChatGPT 账号。";
 "Usually the reversed domain name of your organization, such as com.example." = "通常是组织域名的反写，例如 com.example。";
@@ -4183,6 +4251,7 @@
 "Wait for the running version control action to finish." = "请等待正在执行的版本控制操作完成。";
 "Waiting for Agent response…" = "等待 Agent 响应…";
 "Waiting for ChatGPT sign-in…" = "正在等待 ChatGPT 登录…";
+"Waiting for Debug Adapter output…" = "正在等待调试适配器输出…";
 "Waiting for GitHub…" = "正在等待 GitHub 授权…";
 "Waiting for JVM performance data…" = "正在等待 JVM 性能数据…";
 "Waiting for a local test JVM…" = "正在等待本地测试 JVM…";
@@ -4248,6 +4317,7 @@
 "Worktrees" = "工作树";
 "Worktrees are unavailable" = "无法加载工作树";
 "Wrap into rows" = "多行展开";
+"Write" = "写入";
 "Write a clear, actionable comment…" = "写下清晰、可执行的评论…";
 "Write shared instructions once, then enable them for each Agent. Lithe only changes its marked block; the rest of each native file stays yours. Start a new conversation to load changes. Project instructions still apply." = "共享指令只需写一次，再为各 Agent 开启。Lithe 只修改标记区块，保留原生文件的其他内容。新建对话后加载更新，项目指令仍然生效。";
 "Write to global config" = "写入全局配置";
@@ -4290,6 +4360,7 @@
 "commit messages" = "提交信息";
 "conflict -> %@" = "版本冲突 → %@";
 "debugger.continue" = "继续";
+"debugger.threadsAndVariables" = "线程和变量";
 "detected on this Mac" = "本机检测到";
 "ditto exited with code %@: %@" = "ditto 以代码 %@ 退出：%@";
 "duplicate omitted" = "重复依赖已省略";
@@ -4363,6 +4434,7 @@
 "native.activeMavenProfiles" = "启用的 Maven Profiles";
 "native.activeProfiles" = "启用的 Profiles";
 "native.activity" = "活动";
+"native.adapterReady" = "适配器已就绪";
 "native.addAClassOrMethodName" = "添加类名或方法名";
 "native.addAMemoryUsageIndicatorToTheStatusBar" = "在状态栏添加内存占用指示器";
 "native.addAnAIProviderInAIProvidersFirst" = "请先在“AI 服务商”中添加服务商。";
@@ -4374,6 +4446,7 @@
 "native.addMemoryUsageMonitoringTrackCurrentAndAverageMemoryUsageInTheStatusBar" = "添加内存占用监控\n\n在状态栏显示当前及平均内存占用。";
 "native.addMemoryUsageVisibilityToTheStatusBar" = "在状态栏显示内存占用";
 "native.addMethodBreakpoint" = "添加方法断点";
+"native.addMethodBreakpoint2" = "添加方法断点";
 "native.addOneHereOrRegisterAServerWithCodexOrClaudeCodeAndRefresh" = "可以在这里添加，也可以先在 Codex 或 Claude Code 中注册服务器后刷新。";
 "native.addOrRemoveABreakpointAtTheCaret" = "在光标所在行添加或移除断点";
 "native.addProvider" = "添加服务商";
@@ -4386,9 +4459,11 @@
 "native.addToAnotherConversation" = "添加到其他会话";
 "native.addToCurrentConversation" = "添加到当前会话 · %1$@";
 "native.addToFavorites" = "加入收藏";
+"native.addToWatches" = "添加到监视";
 "native.addToolWindowsAndCommandsToTheWorkbench" = "向工作台添加工具窗口和命令";
 "native.addVariable" = "添加变量";
 "native.addWatch" = "添加监视";
+"native.addWatch2" = "添加监视";
 "native.added" = "新增";
 "native.addedByPlugins" = "由插件添加";
 "native.addedMemoryUsageVisibilityToTheStatusBar" = "已在状态栏中加入内存占用显示。";
@@ -4487,6 +4562,7 @@
 "native.alreadyExistsChooseAnotherNameOrLocation" = "%1$@ 已存在，请更换名称或位置。";
 "native.alwaysAskBeforeMakingChanges" = "修改文件或执行需要权限的操作前请求你的批准。";
 "native.alwaysAskToEditExternalFilesAndUseTheInternet" = "修改工作区外文件或访问网络时先请求批准。";
+"native.alwaysBreak" = "始终中断";
 "native.alwaysEnd" = "总是结束";
 "native.alwaysKeep" = "总是保留";
 "native.amend" = "修订提交";
@@ -4647,6 +4723,7 @@
 "native.branchesMustBeDifferent" = "两个分支不能相同";
 "native.branchesPaneSettings" = "分支面板设置";
 "native.branchesUnavailable" = "无法加载分支";
+"native.breakOnFieldAccess" = "字段被访问时中断…";
 "native.breakdownUnavailable" = "分项暂不可用";
 "native.breakpoint" = "断点";
 "native.breakpointActions" = "断点操作";
@@ -4782,6 +4859,7 @@
 "native.chooseAModuleEnableDetailedDiagnosticsReproduceTheProblemThenPreviewAndExportADiagnosticBundle" = "选择模块，开启详细诊断并复现问题，然后预览并导出诊断包。";
 "native.chooseAPrivateKeyFile" = "请选择私钥文件。";
 "native.chooseAPullRequestToReviewItsContextFilesAndConversation" = "选择一个拉取请求以查看上下文、文件和讨论。";
+"native.chooseARunConfigurationBeforeStartingDebug" = "开始调试前，请先选择运行配置";
 "native.chooseARunConfigurationForThisMavenModule" = "请为此 Maven 模块选择运行配置";
 "native.chooseATableFromTheSidebarToBrowseAndEditData" = "从侧边栏选择一个表以浏览和编辑数据。";
 "native.chooseATableToInspectItsColumnsIndexesAndForeignKeys" = "选择一个表以查看其列、索引和外键。";
@@ -4828,6 +4906,7 @@
 "native.chooseWhichBranchToUpdateBeforePushing" = "推送前请选择要更新的分支。";
 "native.chooseWorkbenchBackground" = "选择工作台背景";
 "native.chooseWorktreeParent" = "选择工作树的父目录";
+"native.classOrMethod" = "类或方法";
 "native.classes" = "类";
 "native.claudeAgent" = "Claude Agent";
 "native.claudeCodeHasDisabledAllHooksInItsSettings" = "Claude Code 已在设置中关闭所有 Hook。";
@@ -4850,6 +4929,7 @@
 "native.clearBuildOutput" = "清除构建输出";
 "native.clearCollectedLogs" = "清空已收集的日志？";
 "native.clearConflictFilter" = "清除冲突筛选";
+"native.clearConsole" = "清空控制台";
 "native.clearDateFilter" = "清除日期筛选";
 "native.clearDebugOutput" = "清除调试输出";
 "native.clearGitConsole" = "清空 Git 控制台";
@@ -5014,6 +5094,7 @@
 "native.compressionIsUnavailableShowingCompleteRetainedOutput" = "暂时无法压缩，正在显示完整保留的输出。";
 "native.concise" = "简洁";
 "native.conciseSentence" = "简洁一句话";
+"native.condition" = "条件";
 "native.configuration" = "配置";
 "native.configurationDetails" = "配置详情";
 "native.configurationID" = "配置 ID";
@@ -5041,6 +5122,7 @@
 "native.connectAGitHubAccountBeforeContinuing" = "请先连接 GitHub 账号";
 "native.connectToDatabasesBrowseSchemasEditDataRunSQLAndManageBackupsFromTheDatabaseWorkspace" = "连接数据库、浏览结构、编辑数据、运行 SQL，并在数据库工作区中管理备份。";
 "native.connectToRunningJVM" = "连接到正在运行的 JVM";
+"native.connectToRunningJVM2" = "连接到运行中的 JVM…";
 "native.connectToRunningJvm" = "连接到运行中的 JVM";
 "native.connected" = "已连接";
 "native.connectedAgentsCanChangeTheProjectJDKMavenAndRunConfigurationSettings" = "连接的 Agent 可以修改项目 JDK、Maven 和运行配置。";
@@ -5101,9 +5183,11 @@
 "native.copyCompleteConsole" = "复制完整控制台";
 "native.copyCompleteOutput" = "复制完整输出";
 "native.copyConversation" = "复制对话";
+"native.copyExpression" = "复制表达式";
 "native.copyFiles" = "拷贝";
 "native.copyJSON" = "复制 JSON";
 "native.copyMessage" = "复制消息";
+"native.copyMethodName" = "复制方法名";
 "native.copyName" = "复制名称";
 "native.copyOriginalCommand" = "复制原始命令";
 "native.copyOutput" = "复制输出";
@@ -5112,12 +5196,16 @@
 "native.copyPathReference" = "复制路径 / 引用";
 "native.copyProjectPath" = "复制项目路径";
 "native.copyRecoveryReference" = "复制恢复引用";
+"native.copyRelativeLocation" = "复制相对位置";
 "native.copyRelativePath" = "复制相对路径";
 "native.copyReply" = "复制回复";
 "native.copyRepositoryPath" = "复制仓库路径";
 "native.copySessionID" = "复制会话 ID";
 "native.copyShortHash" = "复制短哈希";
+"native.copySourceLocation" = "复制源码位置";
 "native.copyTable" = "复制表格";
+"native.copyThreadName" = "复制线程名";
+"native.copyValue" = "复制值";
 "native.copyWorktreePath" = "复制工作树路径";
 "native.couldNotCheckForUpdates" = "无法检查更新";
 "native.couldNotCheckForUpdates.variant2" = "无法检查更新。";
@@ -5126,6 +5214,7 @@
 "native.couldNotConnectToTheDebugAdapter" = "无法连接调试适配器：%1$@";
 "native.couldNotConnectToTheJavaDebugServer" = "无法连接 Java Debug Server：%1$@";
 "native.couldNotCopyYourStableSettings" = "无法复制正式版设置";
+"native.couldNotFindTheJavaSourceFor" = "找不到 %1$@ 对应的 Java 源码";
 "native.couldNotImportMcpJsonCheckTheMcpserversObjectAndTryAgain" = "无法导入 MCP JSON。请检查 mcpServers 对象后重试。";
 "native.couldNotInspectSavedFile" = "无法读取已保存的文件";
 "native.couldNotInspectTheSelectedHistoryRefreshThePreviewToRetry" = "无法检查所选历史。请刷新预览后重试。";
@@ -5239,21 +5328,29 @@
 "native.dangerZone" = "危险操作";
 "native.dark" = "深色";
 "native.dartSupport" = "Dart 支持";
+"native.dataAccessRead" = "读取";
+"native.dataAccessReadWrite" = "读写";
+"native.dataAccessWrite" = "写入";
 "native.database" = "数据库连接";
 "native.databaseIsNowAPluginInstallItFromTheMarketplace" = "数据库已改为插件。从插件市场安装后，已保存的连接和密码会自动迁入。";
 "native.date" = "日期";
 "native.debug" = "调试";
 "native.debugAdapterIsUnavailable" = "%1$@ 调试适配器不可用。";
+"native.debugConsoleSuggestionKeys" = "↑↓ 选择 · Tab 填充 · Enter 执行 · Esc 关闭";
 "native.debugResume" = "调试：继续";
 "native.debugSelectedTest" = "调试所选测试";
 "native.debugSessions" = "调试会话";
 "native.debugStepInto" = "调试：步入";
 "native.debugStepOut" = "调试：步出";
 "native.debugStepOver" = "调试：步过";
+"native.debugSupportIsNotAvailableFor" = "%1$@ 暂时没有可用的调试支持";
 "native.debugTarget" = "调试目标";
 "native.debugger" = "调试器";
+"native.debuggerCommandInput" = "调试器命令输入框";
+"native.debuggerCommandSuggestions" = "调试器命令建议";
 "native.debuggerThread" = "调试器线程";
 "native.debuggingCode" = "调试代码";
+"native.debuggingIsNotSupportedForThisFileType" = "这种类型的文件暂不支持调试";
 "native.decreaseFontSize" = "减小字号";
 "native.deepReasoningForComplexTasks" = "深度推理，适合复杂任务";
 "native.default" = "默认";
@@ -5386,6 +5483,7 @@
 "native.documentation" = "文档";
 "native.doesNotIncludeLitheRendersThoseCharactersWithAndTheSystemFont" = "%1$@ 不包含%2$@；Lithe 会用 %3$@ 和系统字体显示这些字符。";
 "native.doesNotProvideArchivedConversations" = "%1$@ 不支持归档会话。";
+"native.doesNotSupportDebugYet" = "%1$@ 暂不支持调试";
 "native.doesNotSupportRunningTheCurrentFileDirectly" = "%1$@ 不支持直接运行当前文件。请使用项目运行配置。";
 "native.donTAllow" = "不允许";
 "native.donTAskAgain" = "不再询问";
@@ -5443,6 +5541,7 @@
 "native.editMcpServer" = "编辑 MCP 服务器";
 "native.editMessage" = "编辑消息";
 "native.editMethodBreakpoint" = "编辑方法断点 %1$@";
+"native.editMethodBreakpoint2" = "编辑方法断点";
 "native.editPathsAsText" = "以文本编辑路径";
 "native.editProvider" = "编辑供应商";
 "native.editPullRequest" = "编辑拉取请求";
@@ -5453,6 +5552,7 @@
 "native.editShortcut" = "编辑快捷键";
 "native.editShortcuts" = "编辑快捷键";
 "native.editTitleAndDescription" = "编辑标题和描述";
+"native.editWatch" = "编辑监视";
 "native.editedLldFile" = "编辑了 %1$lld 个文件";
 "native.editedLldFiles" = "编辑了 %1$lld 个文件";
 "native.editor" = "编辑器";
@@ -5505,6 +5605,7 @@
 "native.enterAChangeListName1100Characters" = "请输入更改列表名称（1–100 个字符）。";
 "native.enterACommitMessage" = "请输入提交信息";
 "native.enterACompleteServerURL" = "请输入完整的服务器 URL。";
+"native.enterADebuggerCommandTabToComplete" = "输入调试器命令（Tab 补全）";
 "native.enterADescriptionAndInstructions" = "请填写技能说明和正文。";
 "native.enterAHost" = "请填写主机。";
 "native.enterAJvmDebugPortBetween1And" = "请输入 1 到 65535 之间的 JVM 调试端口。";
@@ -5541,9 +5642,11 @@
 "native.estimatedFromTheSizeOfTheLatestRequestAndScaledToTheProviderSInputTokens" = "按最近一次主请求各部分的大小估算，并按服务商返回的输入 token 校准。";
 "native.evaluateExpression" = "计算表达式";
 "native.evaluateExpressionWhilePaused" = "暂停时计算表达式";
+"native.evaluating" = "正在计算…";
 "native.example" = "示例";
 "native.exception" = "异常";
 "native.exceptionBreakpoints" = "异常断点";
+"native.exceptionCondition" = "异常条件";
 "native.excludeFromDependencyTree" = "从依赖树中排除";
 "native.excluded" = "已排除";
 "native.excludedPaths" = "已排除路径";
@@ -5577,6 +5680,7 @@
 "native.exportsTheIndexAgainstHEAD" = "导出暂存区相对 HEAD 的更改。";
 "native.exportsTheWorkingTreeSNetChangesAgainstHEADIncludingSelectedUntrackedFiles" = "导出工作树相对 HEAD 的最终更改，包含所选的未跟踪文件。";
 "native.exportsWorkingFilesAgainstTheIndexIncludingSelectedUntrackedFiles" = "导出工作文件相对暂存区的更改，包含所选的未跟踪文件。";
+"native.expression" = "表达式";
 "native.expressionHistory" = "表达式历史";
 "native.externalChange" = "外部更改";
 "native.externalEditsConflictWithUnsavedChanges" = "外部编辑与未保存的更改发生冲突";
@@ -5690,6 +5794,7 @@
 "native.formatJSON" = "格式化 JSON";
 "native.forward" = "前进";
 "native.found" = "个结果";
+"native.foundAutomatically" = "已自动找到";
 "native.framesAreNotAvailable" = "当前无可用栈帧";
 "native.framesRenderedPerSecond" = "每秒渲染帧数";
 "native.freeOf" = "可用 %1$@，共 %2$@";
@@ -5836,6 +5941,7 @@
 "native.historyFilter" = "历史筛选";
 "native.historyOfArg1" = "%1$@ 的历史";
 "native.hit" = "命中次数：%1$@";
+"native.hitCount" = "命中次数";
 "native.homeDirectory" = "主目录";
 "native.homebrewIsNotInstalledOrIsNotAvailable" = "Homebrew 未安装，或 Lithe 无法使用它。";
 "native.homepage" = "主页";
@@ -5910,6 +6016,7 @@
 "native.initializeGitRepository.variant3" = "初始化 Git 仓库…";
 "native.initializeGitToTrackChangesAndCreateYourFirstCommit" = "初始化 Git 后即可跟踪更改并创建首次提交。";
 "native.initializeThisProjectFromGitBeforeSavingRepositorySpecificIdentity" = "请先在 Git 面板初始化项目，再保存当前仓库的身份配置。";
+"native.initializingAdapter" = "正在初始化适配器";
 "native.initializingProjectIndex" = "正在初始化项目索引";
 "native.inline.alwaysContinueInThisWorkspace" = "对此工作区始终继续";
 "native.inline.arg1Finished" = "“%1$@”已完成";
@@ -6082,6 +6189,7 @@
 "native.javaServiceIsReady" = "Java 服务已就绪";
 "native.javaServicePreparationTimedOut" = "Java 服务准备超时";
 "native.javaSteppingFilters" = "Java 步进过滤器";
+"native.javaSteppingFilters2" = "Java 步进过滤器…";
 "native.javaTestDiscoveryIsNotSupportedByThis" = "此语言服务器不支持 Java 测试发现。";
 "native.javaWorkspacePreparationCancelled" = "Java 工作区准备已取消";
 "native.jdkHome" = "JDK 主目录";
@@ -6271,15 +6379,18 @@
 "native.lldmLlds" = "%1$lld分 %2$lld秒";
 "native.llds" = "%1$lld秒";
 "native.load" = "加载";
+"native.loadArg1More" = "再加载 %1$lld 项";
 "native.loadDiskVersion" = "加载磁盘版本";
 "native.loadMore" = "加载更多";
 "native.loadMore2" = "加载更多";
 "native.loadMoreCommits" = "加载更多提交";
+"native.loadMoreDebuggerVariables" = "加载更多调试变量";
 "native.loadProjectModel" = "加载项目模型";
 "native.loadTheDependenciesAgain" = "重新加载依赖";
 "native.loadTheDependenciesOf" = "加载 %1$@ 的依赖";
 "native.loadTheModel" = "加载 %1$@ 的模型";
 "native.loadTheProjectModel" = "加载项目模型";
+"native.loadThreads" = "加载线程";
 "native.loadedFileSystemVersion" = "已加载文件系统版本";
 "native.loading" = "正在加载…";
 "native.loadingBranchDetails" = "正在加载分支信息…";
@@ -6291,6 +6402,7 @@
 "native.loadingCommits" = "正在加载提交…";
 "native.loadingComparison" = "正在加载比较结果…";
 "native.loadingConversation" = "正在加载对话…";
+"native.loadingDebuggerVariables" = "正在加载调试变量";
 "native.loadingDependencies" = "正在加载依赖…";
 "native.loadingDependencies.variant2" = "正在加载依赖…";
 "native.loadingDependenciesOf" = "正在加载 %1$@ 的依赖";
@@ -6335,11 +6447,13 @@
 "native.logFilter" = "日志筛选";
 "native.logLevel" = "日志级别";
 "native.logLocations" = "日志位置";
+"native.logMessage" = "日志消息";
 "native.logTimeline" = "日志时间线";
 "native.logs" = "日志";
 "native.logsAndDiagnostics" = "日志与诊断";
 "native.lookUpAgain" = "重新查询";
 "native.lookUpLocation" = "查询地区";
+"native.lookedIn" = "已查找：%1$@";
 "native.lookingForGit" = "正在查找 Git…";
 "native.lookingForInstalledJDKs" = "正在查找已安装的 JDK…";
 "native.lookingUpTheLocationSendsThisAddressToIpinfoIoLitheDoesThisOnlyWhenYouClickLookUp" = "查询地区会把这个地址发送给 ipinfo.io。只有你点击“查询地区”时 Lithe 才会这样做。";
@@ -6531,6 +6645,8 @@
 "native.navigation" = "导航";
 "native.needsNoExtraPermissions" = "不需要额外权限。";
 "native.needsRestart" = "需重启";
+"native.nestedException" = "嵌套异常";
+"native.neverBreak" = "从不中断";
 "native.new" = "新增";
 "native.newBranch" = "新建分支";
 "native.newBranch.variant2" = "新建分支…";
@@ -6612,6 +6728,7 @@
 "native.noDifferencesWereFoundForThisSelection" = "所选内容没有差异。";
 "native.noEarlierConversations" = "没有更早的对话";
 "native.noEffectiveValueConfigured" = "尚未配置有效值";
+"native.noExecutableLocationWasFoundAtTheCursor" = "光标所在位置没有可执行的代码";
 "native.noFileEdits" = "暂无文件修改";
 "native.noFilesMatchTheConflictFilter" = "没有符合冲突筛选条件的文件";
 "native.noGitHubOrigin" = "未找到 GitHub 远程仓库";
@@ -6632,6 +6749,7 @@
 "native.noJavaRuntimeWasFoundSetJavaHome" = "未找到 Java 运行时。请设置 JAVA_HOME 或安装 JDK。";
 "native.noLanguageDependencySourcesRegistered" = "未注册语言依赖来源";
 "native.noLanguageProviderHandlesFiles" = "没有语言 Provider 处理 .%1$@ 文件。";
+"native.noLanguageProviderIsAvailableForThisFile" = "这个文件没有可用的语言支持";
 "native.noLanguageRunProviderHandlesFiles" = "没有语言运行 Provider 处理 .%1$@ 文件。";
 "native.noLocalChanges" = "没有本地更改";
 "native.noLocalVariablesInTheCurrentFrame" = "当前栈帧没有局部变量";
@@ -6668,11 +6786,14 @@
 "native.noNotifications" = "暂无通知";
 "native.noPaths" = "没有路径";
 "native.noPathsResolvedForThisService" = "此服务没有已解析的路径";
+"native.noPlaceToLookYetOpenTheFileYouWantToDebugOrChooseTheProgramYourself" = "还没有可查找的位置。请打开要调试的文件，或自行选择程序。";
 "native.noPlugins" = "暂无插件";
 "native.noPluginsAvailable" = "暂无可用插件";
 "native.noProblemsIn" = "%1$@ 中没有问题";
 "native.noProblemsMatchTheCurrentFilter" = "没有问题匹配当前筛选条件";
 "native.noProfilingEventsWereRecorded" = "没有录制到性能事件。";
+"native.noProgramToDebugWasFoundBuildItFirstOrChooseOneInTheSettingOf" = "没有找到要调试的程序。请先编译它，或在 %2$@ 的“%1$@”设置中选择程序。";
+"native.noProgramToDebugWasFoundBuildItFirstOrChooseOneInTheSettingOfLookedIn" = "没有找到要调试的程序。请先编译它，或在 %2$@ 的“%1$@”设置中选择程序。已查找：%3$@";
 "native.noProjectEntryPointDetected" = "未识别到项目启动入口";
 "native.noProjectHistoryRecordedYet" = "还没有项目历史记录";
 "native.noProjectIsOpen" = "未打开项目";
@@ -6730,6 +6851,7 @@
 "native.noneFastest" = "无（最快）";
 "native.normalFolder" = "普通文件夹";
 "native.notAssigned" = "未分配";
+"native.notAvailable" = "不可用";
 "native.notAvailableForThisLitheOrMac" = "%1$@（当前 Lithe 或这台 Mac 无法使用）";
 "native.notAvailableYetDependenciesAreNotIndexed" = "尚不可用：依赖尚未建立索引";
 "native.notDetected" = "未检测";
@@ -6793,6 +6915,7 @@
 "native.openAICommitSettings" = "打开“AI 与提交”设置";
 "native.openAJavaFile" = "打开 Java 文件";
 "native.openAJavaFileBeforeStartingDebug" = "开始调试前请先打开 Java 文件";
+"native.openAJavaProjectBeforeConnectingTheDebugger" = "连接调试器前，请先打开 Java 项目";
 "native.openALocalFolderToStartWorking" = "打开本地文件夹开始工作。";
 "native.openALocalProjectFolder" = "打开本地项目文件夹";
 "native.openAProject" = "打开项目";
@@ -6808,6 +6931,7 @@
 "native.openAProjectToSeeItsLanguageService" = "打开项目后可查看其语言服务。";
 "native.openAProjectToUseGit" = "请打开项目以使用 Git";
 "native.openASourceFileBeforeRunningCurrentFile" = "运行“当前文件”前请先打开一个源文件。";
+"native.openASourceFileOrChooseAProjectRunConfiguration" = "请打开一个源文件，或选择项目的运行配置";
 "native.openAgain" = "重新打开";
 "native.openAgentSettings" = "打开 Agent 设置";
 "native.openAutoBuildDownloads" = "打开 AutoBuild 下载页";
@@ -6912,6 +7036,8 @@
 "native.paths" = "路径";
 "native.pause" = "暂停";
 "native.pauseTheProcessToInspectVariables" = "暂停程序以查看变量";
+"native.pauseTheProgramToRunDebuggerCommands" = "先暂停程序，再运行调试器命令";
+"native.pauseThread" = "暂停线程";
 "native.paused" = "已暂停";
 "native.peakThisRun" = "本次运行峰值";
 "native.peakTotal" = "峰值总计";
@@ -6936,6 +7062,7 @@
 "native.pinned" = "置顶";
 "native.pinnedLocal" = "固定版本：%1$@ · 本地：%2$@";
 "native.placeTheCaretInAJavaFileToSetABreakpoint" = "请将光标置于 Java 文件中以设置断点";
+"native.placeTheCaretInASourceFileToSetABreakpoint" = "请把光标放在源文件中，再设置断点";
 "native.placeTheCaretOnAJavaSymbolFirst" = "请先将光标置于 Java 符号上";
 "native.plan" = "计划";
 "native.planBeforeMakingChanges" = "先制定计划，再进行修改。";
@@ -7363,6 +7490,7 @@
 "native.results.variant2" = "个结果";
 "native.resume" = "恢复执行";
 "native.resumeThePausedDebugSession" = "继续已暂停的调试会话";
+"native.resumeThread" = "恢复线程";
 "native.retentionAndCleanup" = "保留与清理";
 "native.retiredOfficialGoPluginGoSupportIsNowTheCommunityPluginGoSupportInLitheStore" = "已退役的官方 Go 插件。Go 支持现在由 Lithe Store 中的社区插件 Go Support 提供。";
 "native.retiredOfficialPHPPluginPHPSupportIsNowTheCommunityPluginPHPSupportInLitheStore" = "已退役的官方 PHP 插件。PHP 支持现在由 Lithe Store 中的社区插件 PHP Support 提供。";
@@ -7446,6 +7574,7 @@
 "native.runTests.variant2" = "运行测试";
 "native.runTestsToViewProcessPerformance" = "运行测试以查看进程性能。";
 "native.runThisMcpCommand" = "运行此 MCP 命令？";
+"native.runToCursorIsUnavailableForTheActiveDebugSession" = "当前调试会话不支持“运行到光标处”";
 "native.runYourFiles" = "运行你的文件";
 "native.runYourTests" = "运行你的测试";
 "native.running" = "运行中";
@@ -7567,6 +7696,7 @@
 "native.selectAServiceOrTaskToConfigureItsArgumentsEnvironmentAndProjectEnvironmentOveafafee2e2f" = "选择服务或任务，配置启动参数、环境变量和项目环境覆盖项；点击保存后生效。";
 "native.selectASpringBootOrMavenModuleConfiguration" = "选择 Spring Boot 或 Maven Module 配置";
 "native.selectASpringBootOrMavenModuleConfigurationBeforeStartingDebug" = "开始调试前请选择 Spring Boot 或 Maven Module 配置";
+"native.selectAStackFrameToInspectVariables" = "选择一个栈帧以查看变量";
 "native.selectAWorktree" = "选择工作树";
 "native.selectAll" = "全选";
 "native.selectBranch" = "选择分支";
@@ -7582,6 +7712,7 @@
 "native.selectSkillMdOrItsContainingDirectory" = "请选择 SKILL.md 文件或包含该文件的目录。";
 "native.selectTestJVM" = "选择测试 JVM";
 "native.selectTheChangeListToCommit" = "选择要提交的更改列表";
+"native.selectThread" = "选择线程";
 "native.selected" = "已勾选";
 "native.selectedChangeListOrStagedFilesChangedBeforeGenerationFinished" = "生成完成前，当前更改列表或暂存文件已变化，已丢弃旧的提交说明";
 "native.selectedDirectory" = "当前选择的目录";
@@ -7609,6 +7740,7 @@
 "native.setTheCustomAgentSExecutableInThePanelSettings" = "请在设置窗口的 Agent 页面中填写自定义 Agent 的可执行文件。";
 "native.setTheDefaultsUsedByOrdinaryFetchInEveryProjectCredentialsUseYourExistingGitHea37790d0a5" = "设置所有项目中普通 Fetch 使用的默认行为。凭据使用现有的 Git 凭据助手和 SSH 配置。";
 "native.setUpAgentFileAttachments" = "设置 Agent 文件附件…";
+"native.setValue" = "设置值…";
 "native.setVariableValue" = "设置变量值";
 "native.setYourGitNameAndEmailInSettingsBeforeCommitting" = "提交前，请先在设置页填写 Git 姓名和邮箱。";
 "native.setsAsTheUpstream" = "将 %1$@ 设为上游分支";
@@ -7752,6 +7884,7 @@
 "native.smartCheckoutShelvesYourChangesInLitheSwitchesBranchThenRestoresThemForceCheck60e1561e81" = "智能检出会先把更改保存为 Lithe Shelf，切换分支后再恢复。强制检出会直接切换并丢弃这些更改。";
 "native.smartCheckoutStashesYourChangesSwitchesBranchThenRestoresThemForceCheckoutSwit3688f9f903" = "智能检出会先贮藏你的更改，切换分支后再恢复。强制检出会直接切换并丢弃这些更改。";
 "native.smartStepInto" = "智能步入";
+"native.smartStepInto2" = "智能步入";
 "native.softResetKeepChangesStaged" = "软重置（保留暂存更改）";
 "native.softWrapIsUnavailableForVeryLargeFiles" = "文件过大，自动换行不可用";
 "native.softWraps" = "自动换行";
@@ -7798,6 +7931,7 @@
 "native.stagedFilesChangedBeforeGenerationFinished" = "生成完成前，已暂存的文件发生了变化";
 "native.staleRecord" = "陈旧记录";
 "native.standard" = "标准";
+"native.startADebugSessionToRunDebuggerCommands" = "启动调试会话后即可运行调试器命令";
 "native.startALanguageServerWhenYouOpenFilesOfItsLanguage" = "打开对应语言的文件时启动语言服务器";
 "native.startALocalJavaDebugSessionToViewPerformance" = "启动本地 Java 调试会话以查看性能。";
 "native.startANewConversationAfterSavingToLoadTheUpdatedInstructionsProjectInstructionsStillApply" = "保存后请新建对话以加载更新后的指令。项目指令仍然有效。";
@@ -7837,6 +7971,7 @@
 "native.state" = "状态";
 "native.stateUnknown" = "状态未知";
 "native.status" = "状态";
+"native.stepBack" = "回退一步";
 "native.stepInto" = "单步进入";
 "native.stepLldOfLld" = "第 %1$lld 步，共 %2$lld 步";
 "native.stepOut" = "单步跳出";
@@ -7995,6 +8130,7 @@
 "native.theBundledJdtLsVersionCouldNotBe" = "无法确定内置 JDT LS 的版本。";
 "native.theCheckoutDirectoryNoLongerExistsRepairMovedWorktreeMetadataOrPruneTheStaleGitRecord" = "检出目录已不存在。你可以修复移动后的工作树元数据，或清理失效的 Git 记录。";
 "native.theCheckoutPathDoesNotExist" = "检出路径不存在";
+"native.theChosenFileIsMissingOrNotExecutable" = "所选文件不存在或不可执行。";
 "native.theClipboardImageCouldNotBeRead" = "无法读取剪贴板中的图片";
 "native.theClipboardImageIsEmpty" = "剪贴板中的图片为空";
 "native.theClipboardImageIsLargerThan100Mb" = "剪贴板中的图片超过 100 MB";
@@ -8135,6 +8271,7 @@
 "native.thePrimaryWorktreeCannotBeRemoved" = "主工作区不能删除。";
 "native.theProcessDoesNotHaveAnOpenStandard" = "进程没有打开的标准输入管道。";
 "native.theProcessIsNotRunning" = "进程未在运行。";
+"native.theProgramChosenInTheSettingOfIsMissingOrNotExecutable" = "在 %2$@ 的“%1$@”设置中选择的程序不存在或不可执行：%3$@";
 "native.theProjectArchiveFromIsTooLarge" = "来自 %1$@ 的项目压缩包过大。";
 "native.theProjectDirectoryIsUnavailable" = "项目目录不可用。";
 "native.theProjectFolderOnTheHostBrowseConnectsInstallsTheLitheServerOnTheHostIfNeededAndLetsYouPi" = "主机上的项目文件夹。“浏览”会连接主机，必要时在主机上安装 Lithe 远端服务，然后让你选择文件夹。";
@@ -8185,6 +8322,7 @@
 "native.theStableReleaseIsMissingAValidPublisherSignatureNothingWasInstalledTryANewerRef80e417a6" = "正式版缺少有效的发布者签名，未执行安装。请等待新版本，或从可信来源手动安装。";
 "native.theStagedChangesHaveNoTextualDiffToSummarize" = "已暂存的更改没有可用于总结的文本 Diff。";
 "native.theStagedChangesWillBeCommittedAndTheCurrentBranchWillBePushedToItsConfiguredRemote" = "暂存的更改将被提交，并推送当前分支到已配置的远程仓库。";
+"native.theStoppedSourceFileIsNoLongerAvailable" = "程序停住的源文件已不存在：%1$@";
 "native.theSwitchControlsTheLitheSharedBlockNotTheAgentOrItsOwnInstructionsSaveSharedChangesBeforeSwitchingOpenARowToEditTheCompleteNativeFile" = "开关控制是否使用 Lithe 共享区块，不会停用 Agent 或它的自有指令。请先保存共享修改再操作开关。点击行可编辑完整原生文件。";
 "native.theTestFileIsOutsideTheCurrentWorkspace" = "测试文件在当前工作区之外：%1$@";
 "native.theUpdateCouldNotBeInstalledDownloadTheReleaseManuallyAndTryAgain" = "无法安装更新，请手动下载版本后重试。";
@@ -8400,6 +8538,7 @@
 "native.undoCommit" = "撤销最近一次提交（保留更改）";
 "native.undoCommit.variant2" = "撤销最近一次提交（保留更改）…";
 "native.unfiledCONNECTIONS" = "未归档连接";
+"native.unhandled" = "未处理";
 "native.uninstall" = "卸载 %1$@？";
 "native.uninstallFromTheInstalledTabAndRestartLitheFirstItIsTheRetiredOfficialVersionO07265e4f97" = "请先在“已安装”中卸载 %1$@ 并重启 Lithe。它是此插件已退役的官方版本，支持同一种语言。";
 "native.uninstallPHPSupport" = "卸载 PHP 支持？";
@@ -8529,6 +8668,7 @@
 "native.user" = "用户";
 "native.userFacingSentenceForReleaseNotes" = "适合发布说明的面向用户句子";
 "native.userName" = "用户名";
+"native.userUnhandled" = "用户未处理";
 "native.usesTheClaudeAiAccountSignedInToClaudeCodeSignInWithLoginInClaudeCodeIfTheAgentAsks" = "使用 Claude Code 中登录的 claude.ai 账号；如提示未登录，请在 Claude Code 中用 /login 登录。";
 "native.usesYourLocalChatGPTAccount" = "使用本机 ChatGPT 账号。";
 "native.usuallyTheReversedDomainNameOfYourOrganizationSuchAsComExample" = "通常是组织域名的反写，例如 com.example。";
@@ -8584,6 +8724,7 @@
 "native.waitingForALocalTestJVM" = "正在等待本地测试 JVM…";
 "native.waitingForAgentResponse" = "等待 Agent 响应…";
 "native.waitingForChatGPTSignIn" = "正在等待 ChatGPT 登录…";
+"native.waitingForDebugAdapterOutput" = "正在等待调试适配器输出…";
 "native.waitingForDebuggerOutput" = "等待调试器输出…";
 "native.waitingForDownloadDataCheckYourNetworkOrProxyIfThisContinues" = "正在等待下载数据。如果持续无进展，请检查网络或代理。";
 "native.waitingForGitHub" = "正在等待 GitHub 授权…";
@@ -8748,5 +8889,6 @@
 "… %lld more files" = "… 另 %lld 个文件";
 "… %lld more references" = "… 另 %lld 个引用";
 "… more" = "… 更多";
+"↑↓ Select · Tab Fill · Enter Run · Esc Close" = "↑↓ 选择 · Tab 填充 · Enter 执行 · Esc 关闭";
 "→ %@" = "→ %@";
 /* END GENERATED SHARED I18N */

@@ -222,6 +222,7 @@ extension RustCoreBridge: DebugProtocolCore {
         start: Int?,
         count: Int?,
         expression: String?,
+        context: String?,
         sourcePath: String?,
         line: Int?,
         column: Int?
@@ -239,6 +240,7 @@ extension RustCoreBridge: DebugProtocolCore {
                 start: start,
                 count: count,
                 expression: expression,
+                context: context,
                 sourcePath: sourcePath,
                 line: line,
                 column: column
@@ -559,6 +561,7 @@ private struct DebugInspectPayload: Encodable {
     let start: Int?
     let count: Int?
     let expression: String?
+    let context: String?
     let sourcePath: String?
     let line: Int?
     let column: Int?
@@ -571,7 +574,7 @@ private struct DebugInspectPayload: Encodable {
         case frameID = "frameId"
         case variablesReference
         case variableFilter, start, count
-        case expression
+        case expression, context
         case sourcePath, line, column
     }
 }

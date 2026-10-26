@@ -432,13 +432,38 @@
           "minProperties": 1,
           "properties": {
             "program": {
-              "const": "target.path"
+              "description": "`target.path` is the target's own path. `target.executable` is the program the host found through `executable`, which then must be declared.",
+              "enum": ["target.path", "target.executable"]
             },
             "processId": {
               "const": "target.processID"
             },
             "cwd": {
               "const": "target.workingDirectory"
+            }
+          }
+        },
+        "executable": {
+          "description": "Launch only. Where a host finds the program a source file builds into: the user's `file` setting first, then the candidates. Required exactly when `targetBindings.program` is `target.executable`.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["setting"],
+          "properties": {
+            "setting": {
+              "description": "ID of a `file` setting of the same plugin.",
+              "type": "string",
+              "minLength": 1
+            },
+            "candidates": {
+              "description": "Paths tried in order when the setting is empty. Each starts with `${workspaceFolder}/` or `${fileDirectory}/` and may use `${fileBasenameNoExtension}`; no `..`.",
+              "type": "array",
+              "maxItems": 8,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "maxLength": 1024,
+                "pattern": "^\\$\\{(workspaceFolder|fileDirectory)\\}/"
+              }
             }
           }
         }
@@ -457,6 +482,46 @@
           "items": {
             "type": "string",
             "pattern": "^(supports[A-Z][A-Za-z0-9]*|exceptionBreakpointFilters)$"
+          }
+        }
+      }
+    },
+    "debugConsole": {
+      "description": "Debugger commands the adapter's console understands, offered as completions while typing in the Debug Console. Adapters that answer the DAP completions request complete live; this list is for the ones that do not. Names are inserted as written; Core refuses padded or duplicate names.",
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "commandPrefix": {
+          "description": "Text the adapter's console reads as \"what follows is a debugger command\". The host puts it before the typed line when it asks the adapter to complete, so the adapter proposes commands instead of expression keywords. No spaces.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8,
+          "pattern": "^\\S+$"
+        },
+        "commands": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1024,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "description": {
+                "description": "One line shown beside the name, as written. Not translated by the host.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 240
+              }
+            }
           }
         }
       }
@@ -531,6 +596,9 @@
         },
         "capabilities": {
           "$ref": "#/$defs/debugCapabilities"
+        },
+        "console": {
+          "$ref": "#/$defs/debugConsole"
         },
         "launch": {
           "$ref": "#/$defs/debugLaunch"

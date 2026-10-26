@@ -1112,6 +1112,9 @@ fn debug_rejection(baseline: &Value, case: &Value) -> (String, String) {
     }
     manifest["permissions"] = metadata["permissions"].clone();
     manifest["activationEvents"] = json!(events);
+    // The fixture's own settings belong to its own adapters; a case declares the
+    // settings it needs in `block`.
+    manifest.as_object_mut().unwrap().remove("settings");
     for (key, value) in input["block"].as_object().unwrap() {
         manifest[key] = value.clone();
     }
@@ -1214,6 +1217,21 @@ fn debug_adapter_fixture_is_accepted_with_normalized_requests() {
     assert_eq!(adapter["launch"]["transport"], "stdio");
 }
 
+#[test]
+fn debug_adapter_console_commands_are_sorted_for_the_host() {
+    let outcome = validate(fixture("debug-adapter.plugin.json"));
+    assert_eq!(outcome["status"], "ok", "{outcome}");
+    let console = &outcome["plugin"]["debugAdapters"][0]["console"];
+    assert_eq!(
+        console["commands"],
+        json!([
+            { "name": "breakpoint set", "description": "Set a breakpoint" },
+            { "name": "frame variable" },
+        ])
+    );
+    assert_eq!(console["commandPrefix"], "`");
+}
+
 fn debug_start(request: &str, target: Value) -> Value {
     crate::plugins::declarative::debug_start_arguments_command(json!({
         "manifest": fixture("debug-adapter.plugin.json"),
@@ -1294,6 +1312,134 @@ fn debug_start_arguments_fill_bindings_without_overriding_defaults() {
     );
     let attach = debug_start("attach", json!({ "kind": "process", "processID": 42 }));
     assert_eq!(attach["arguments"], json!({ "processId": 42 }));
+}
+
+fn debug_start_native(target: Value) -> Value {
+    crate::plugins::declarative::debug_start_arguments_command(json!({
+        "manifest": fixture("debug-adapter.plugin.json"),
+        "adapterID": "native",
+        "request": "launch",
+        "facts": {
+            "registration": { "generation": 3, "currentGeneration": 3 },
+            "target": target,
+        },
+    }))
+    .expect("payload is well formed")
+}
+
+fn debug_executable_plan(adapter: &str, extra: Value) -> Value {
+    let mut payload = json!({
+        "manifest": fixture("debug-adapter.plugin.json"),
+        "adapterID": adapter,
+    });
+    for (key, value) in extra.as_object().unwrap() {
+        payload[key] = value.clone();
+    }
+    crate::plugins::declarative::debug_executable_plan_command(payload)
+        .expect("payload is well formed")
+}
+
+#[test]
+fn debug_start_arguments_bind_program_to_the_resolved_executable() {
+    let launch = debug_start_native(json!({
+        "kind": "file",
+        "path": "/work/main.c",
+        "workingDirectory": "/work",
+        "executable": "/work/main",
+    }));
+    assert_eq!(launch["status"], "ok", "{launch}");
+    // The source file is never the program: the host resolved the binary.
+    assert_eq!(
+        launch["arguments"],
+        json!({ "stopOnEntry": false, "program": "/work/main", "cwd": "/work" })
+    );
+}
+
+#[test]
+fn debug_start_arguments_need_an_absolute_resolved_executable() {
+    for executable in [None, Some(""), Some("main"), Some("./main")] {
+        let mut target = json!({
+            "kind": "file",
+            "path": "/work/main.c",
+            "workingDirectory": "/work",
+        });
+        if let Some(executable) = executable {
+            target["executable"] = json!(executable);
+        }
+        let refused = debug_start_native(target);
+        assert_eq!(
+            refused["error"]["code"], "debug.target.invalid",
+            "{refused}"
+        );
+        assert_eq!(refused["error"]["field"], "target.executable", "{refused}");
+    }
+}
+
+#[test]
+fn debug_executable_plan_lists_the_configured_path_and_ordered_candidates() {
+    let plan = debug_executable_plan(
+        "native",
+        json!({
+            "workspace": "/work/",
+            "targetPath": "/work/src/main.c",
+            "settings": { "program": "/global/app" },
+            "projectSettings": { "program": "/work/out/app" },
+        }),
+    );
+    assert_eq!(plan["status"], "ok", "{plan}");
+    assert_eq!(
+        plan["plan"],
+        json!({
+            "setting": "program",
+            // A project value wins over the global one and says where it came from.
+            "configured": { "path": "/work/out/app", "source": "project" },
+            "candidates": ["/work/src/main", "/work/build/main"],
+        })
+    );
+}
+
+#[test]
+fn debug_executable_plan_reports_no_configured_path_when_the_setting_is_empty() {
+    let plan = debug_executable_plan(
+        "native",
+        json!({ "workspace": "/work", "targetPath": "/work/main.c" }),
+    );
+    assert_eq!(plan["plan"]["configured"], Value::Null, "{plan}");
+    let global = debug_executable_plan(
+        "native",
+        json!({
+            "workspace": "/work",
+            "targetPath": "/work/main.c",
+            "settings": { "program": "/opt/app" },
+        }),
+    );
+    assert_eq!(
+        global["plan"]["configured"],
+        json!({ "path": "/opt/app", "source": "global" })
+    );
+}
+
+#[test]
+fn debug_executable_plan_skips_candidates_it_has_no_facts_for() {
+    // The settings page has a project but no source file: a candidate named
+    // after the file cannot be looked for, so it is left out, not guessed.
+    let plan = debug_executable_plan("native", json!({ "workspace": "/work" }));
+    assert_eq!(plan["plan"]["candidates"], json!([]), "{plan}");
+    let no_project = debug_executable_plan("native", json!({ "targetPath": "/work/main.c" }));
+    assert_eq!(
+        no_project["plan"]["candidates"],
+        json!(["/work/main"]),
+        "{no_project}"
+    );
+}
+
+#[test]
+fn debug_executable_plan_is_empty_for_an_adapter_without_a_lookup() {
+    let plan = debug_executable_plan("example", json!({ "workspace": "/work" }));
+    assert_eq!(plan["status"], "ok", "{plan}");
+    assert_eq!(plan["plan"], Value::Null);
+    let missing = debug_executable_plan("absent", json!({}));
+    assert_eq!(missing["error"]["code"], "plugin.launch.unavailable");
 }
 
 #[test]

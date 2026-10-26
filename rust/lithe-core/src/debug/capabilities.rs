@@ -31,6 +31,7 @@ pub(crate) const REGISTERED_ADAPTER_CAPABILITIES: &[&str] = &[
     "supportsExceptionInfoRequest",
     "supportsStepInTargetsRequest",
     "supportsGotoTargetsRequest",
+    "supportsCompletionsRequest",
 ];
 
 /// The session cannot reach `configurationDone` ordering without this capability.

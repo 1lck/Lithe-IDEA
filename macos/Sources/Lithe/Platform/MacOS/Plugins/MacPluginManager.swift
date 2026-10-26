@@ -32,8 +32,12 @@ final class MacPluginManager: PluginManaging {
     /// Rust Core's expansion of a manifest's `workspaceConfiguration` with
     /// the given global and project values.
     private let expandWorkspaceConfiguration: WorkspaceConfigurationExpansion
+    /// Looks for the program a plugin's debug adapter launches, for the settings
+    /// that name it. nil when the adapter declares no lookup.
+    private let lookUpDebugExecutable: DebugExecutableLookupHandler
     private var installedPlugins: [PluginID: InstalledPluginPackage]
     var settingsProjectRootURL: URL?
+    var settingsActiveFileURL: URL?
     private var restartRequiredPluginIDs: Set<PluginID> = []
     private(set) var issues: [PluginManagementIssue]
 
@@ -52,9 +56,11 @@ final class MacPluginManager: PluginManaging {
         enableWebPages: @escaping (PluginID) -> Void = { _ in },
         beforePackageReplacement: ((PluginID) -> Void)? = nil,
         reviewPrograms: @escaping (_ manifest: Data, _ id: PluginID, _ version: PluginVersion) throws -> [PluginProgram] = { _, _, _ in [] },
-        expandWorkspaceConfiguration: @escaping WorkspaceConfigurationExpansion = { _, _, _, _ in nil }
+        expandWorkspaceConfiguration: @escaping WorkspaceConfigurationExpansion = { _, _, _, _ in nil },
+        lookUpDebugExecutable: @escaping DebugExecutableLookupHandler = { _, _, _, _ in nil }
     ) {
         self.reviewPrograms = reviewPrograms
+        self.lookUpDebugExecutable = lookUpDebugExecutable
         self.expandWorkspaceConfiguration = expandWorkspaceConfiguration
         self.packageStore = packageStore
         self.allowsLocalDevelopmentPackages = allowsLocalDevelopmentPackages
@@ -99,6 +105,7 @@ final class MacPluginManager: PluginManaging {
                     previousVersion: $0.installation.previousVersion
                 )
                 .withContributions(Self.contributions(of: $0.descriptor))
+                .withSettingDiscoveries(settingDiscoveries(of: $0))
             }
         let builtIn = managedBuiltInPlugins.map {
             snapshot(
@@ -416,6 +423,32 @@ final class MacPluginManager: PluginManaging {
             PluginSettingState.resolve($0, global: stored[$0.id], project: project[$0.id])
         }
     }
+
+    /// What the host finds for each setting that names a debug program, by
+    /// setting ID. A plugin that is not installed has nothing to look for.
+    private func settingDiscoveries(of package: InstalledPluginPackage) -> [String: DebugExecutableLookup] {
+        guard package.installation.status == .installed else { return [:] }
+        var discoveries: [String: DebugExecutableLookup] = [:]
+        for adapter in package.descriptor.debugAdapters {
+            guard let settingID = adapter.launchExecutableSettingID, discoveries[settingID] == nil,
+                  let lookup = lookUpDebugExecutable(
+                    package,
+                    adapter.id,
+                    settingsProjectRootURL,
+                    settingsActiveFileURL?.standardizedFileURL.path
+                  )
+            else { continue }
+            discoveries[settingID] = lookup
+        }
+        return discoveries
+    }
+
+    typealias DebugExecutableLookupHandler = (
+        _ plugin: InstalledPluginPackage,
+        _ adapterID: String,
+        _ workspaceRootURL: URL?,
+        _ targetPath: String?
+    ) -> DebugExecutableLookup?
 
     private static func contributions(of descriptor: DeclarativePluginDescriptor) -> PluginSettingsContributions {
         PluginSettingsContributions(

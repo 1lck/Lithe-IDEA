@@ -190,12 +190,42 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
                         kind: request.targetKind,
                         path: request.path,
                         processID: request.processID,
-                        workingDirectory: request.workingDirectory
+                        workingDirectory: request.workingDirectory,
+                        executable: request.executable
                     )
                 )
             )
         )
         return outcome.value.arguments
+    }
+
+    func debugExecutablePlan(
+        manifest: Data,
+        adapterID: String,
+        settings: [String: ToolingJSONValue],
+        projectSettings: [String: ToolingJSONValue],
+        workspace: String?,
+        targetPath: String?
+    ) throws -> DeclarativeDebugExecutablePlan? {
+        let outcome: Outcome<DebugExecutablePlanResult> = try execute(
+            "debug.adapters.executablePlan",
+            payload: DebugExecutablePlanPayload(
+                manifest: try Self.json(manifest),
+                adapterID: adapterID,
+                settings: settings,
+                projectSettings: projectSettings,
+                workspace: workspace,
+                targetPath: targetPath
+            )
+        )
+        guard let plan = outcome.value.plan else { return nil }
+        return DeclarativeDebugExecutablePlan(
+            settingID: plan.setting,
+            configured: plan.configured.map {
+                .init(path: $0.path, source: PluginSettingSource(rawValue: $0.source) ?? .default)
+            },
+            candidates: plan.candidates
+        )
     }
 
     private func launchPlan(_ payload: LaunchPlanPayload) throws -> DeclarativeLanguageServerLaunchPlan {
@@ -565,6 +595,7 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
                 let path: String?
                 let processID: Int?
                 let workingDirectory: String?
+                let executable: String?
             }
 
             let registration: Registration
@@ -579,6 +610,31 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
 
     private struct DebugStartArgumentsResult: Decodable {
         let arguments: [String: ToolingJSONValue]
+    }
+
+    private struct DebugExecutablePlanPayload: Encodable {
+        let manifest: ToolingJSONValue
+        let adapterID: String
+        let settings: [String: ToolingJSONValue]
+        let projectSettings: [String: ToolingJSONValue]
+        let workspace: String?
+        let targetPath: String?
+    }
+
+    private struct DebugExecutablePlanResult: Decodable {
+        struct Plan: Decodable {
+            struct Configured: Decodable {
+                let path: String
+                let source: String
+            }
+
+            let setting: String
+            let configured: Configured?
+            let candidates: [String]
+        }
+
+        /// Null when the adapter declares no executable lookup.
+        let plan: Plan?
     }
 
     private struct LaunchPlanResult: Decodable {

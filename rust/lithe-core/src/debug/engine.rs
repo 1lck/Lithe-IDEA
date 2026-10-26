@@ -706,6 +706,13 @@ pub(crate) fn inspect(request: InspectRequest) -> Result<DebugSessionUpdate, Cor
                 "The debug adapter does not support run to cursor.",
             ));
         }
+        if request.kind == DebugInspectKind::Completions
+            && !session.capabilities.supports_completions_request
+        {
+            return Err(invalid_request(
+                "The debug adapter does not support console completion.",
+            ));
+        }
         if request.kind == DebugInspectKind::ExceptionInfo {
             if session.state != DebugSessionState::Paused {
                 return Err(invalid_request(
@@ -1724,6 +1731,7 @@ impl PendingRequest {
                     | DebugInspectKind::Evaluate
                     | DebugInspectKind::StepInTargets
                     | DebugInspectKind::GotoTargets
+                    | DebugInspectKind::Completions
             ),
             _ => false,
         }
@@ -1840,6 +1848,30 @@ fn inspect_arguments(request: &InspectRequest) -> Result<Map<String, Value>, Cor
                 arguments.insert("column".to_string(), json!(column));
             }
         }
+        DebugInspectKind::Completions => {
+            // Whitespace is significant: `break ` and `break` complete differently.
+            let text = request.expression.as_deref().unwrap_or_default();
+            if text.is_empty() {
+                return Err(invalid_request("Debug completions require text."));
+            }
+            arguments.insert("text".to_string(), json!(text));
+            // The caret defaults to the end of the text. DAP columns count UTF-16
+            // units from 1, matching the `columnsStartAt1` the session initialized with.
+            let end = text.encode_utf16().count() as i64 + 1;
+            let column = request.column.unwrap_or(end);
+            if column < 1 || column > end {
+                return Err(invalid_request(
+                    "Debug completion column must lie within the text.",
+                ));
+            }
+            arguments.insert("column".to_string(), json!(column));
+            if let Some(frame_id) = request.frame_id {
+                if frame_id < 0 {
+                    return Err(invalid_request("Debug frameId cannot be negative."));
+                }
+                arguments.insert("frameId".to_string(), json!(frame_id));
+            }
+        }
     }
     Ok(arguments)
 }
@@ -1935,6 +1967,12 @@ fn normalize_inspection(
                 .filter_map(parse_goto_target)
                 .collect(),
         }),
+        DebugInspectKind::Completions => Ok(DebugOperationResult::Completions {
+            items: required_array(body, "targets")?
+                .iter()
+                .filter_map(parse_completion_item)
+                .collect(),
+        }),
     }
 }
 
@@ -1979,6 +2017,30 @@ fn parse_goto_target(value: &Value) -> Option<DebugGotoTarget> {
     })
 }
 
+fn parse_completion_item(value: &Value) -> Option<DebugCompletionItem> {
+    let label = value.get("label")?.as_str()?;
+    if label.is_empty() {
+        return None;
+    }
+    // The wire range counts from 1 with the session's `columnsStartAt1`; clients get 0.
+    let offset = |field: &str| {
+        value
+            .get(field)
+            .and_then(Value::as_i64)
+            .filter(|number| *number >= 0)
+    };
+    Some(DebugCompletionItem {
+        label: label.to_string(),
+        text: string_field(value, "text")
+            .filter(|text| !text.is_empty())
+            .unwrap_or_else(|| label.to_string()),
+        detail: string_field(value, "detail"),
+        kind: string_field(value, "type"),
+        start: offset("start").map(|start| (start - 1).max(0)),
+        length: offset("length"),
+    })
+}
+
 fn parse_thread(value: &Value) -> Option<DebugThread> {
     Some(DebugThread {
         id: value.get("id")?.as_i64()?,
@@ -1997,6 +2059,11 @@ fn parse_stack_frame(
         .and_then(|source| source.get("path"))
         .and_then(Value::as_str)
         .map(str::to_string);
+    let source_reference = value
+        .get("source")
+        .and_then(|source| source.get("sourceReference"))
+        .and_then(Value::as_i64)
+        .filter(|reference| *reference > 0);
     let presentation_hint = value.get("presentationHint").and_then(Value::as_str);
     Some(DebugStackFrame {
         id: value.get("id")?.as_i64()?,
@@ -2009,6 +2076,7 @@ fn parse_stack_frame(
         ),
         name,
         source_path,
+        source_reference,
         line: value.get("line").and_then(Value::as_i64).unwrap_or(1),
         column: value.get("column").and_then(Value::as_i64).unwrap_or(1),
     })
@@ -2301,6 +2369,7 @@ fn parse_capabilities(value: &Value) -> DebugCapabilities {
         supports_exception_info_request: bool_field(value, "supportsExceptionInfoRequest"),
         supports_step_in_targets_request: bool_field(value, "supportsStepInTargetsRequest"),
         supports_goto_targets_request: bool_field(value, "supportsGotoTargetsRequest"),
+        supports_completions_request: bool_field(value, "supportsCompletionsRequest"),
         exception_breakpoint_filters: value
             .get("exceptionBreakpointFilters")
             .and_then(Value::as_array)
@@ -2639,6 +2708,29 @@ mod tests {
     }
 
     #[test]
+    fn stack_frame_reports_adapter_served_source_references() {
+        let filters = DebugSteppingFilters::defaults_for_adapter("lldb");
+        let body = json!({"stackFrames": [
+            {"id": 1, "name": "main", "line": 9, "column": 1,
+             "source": {"name": "main.c", "path": "/workspace/main.c"}},
+            {"id": 2, "name": "start", "line": 1664, "column": 1,
+             "source": {"name": "start", "path": "/usr/lib/dyld`start", "sourceReference": 1}},
+            {"id": 3, "name": "stale", "line": 1, "column": 1,
+             "source": {"name": "stale.c", "path": "/workspace/stale.c", "sourceReference": 0}},
+        ]});
+        let frames =
+            normalize_inspection(DebugInspectKind::StackTrace, &body, &filters, "/workspace")
+                .unwrap();
+        let value = serde_json::to_value(frames).unwrap();
+        let frames = &value["stackFrames"];
+        // A path with a positive reference is adapter-served content, not a file on disk.
+        assert!(frames[0].get("sourceReference").is_none());
+        assert_eq!(frames[1]["sourceReference"], 1);
+        assert_eq!(frames[1]["sourcePath"], "/usr/lib/dyld`start");
+        assert!(frames[2].get("sourceReference").is_none());
+    }
+
+    #[test]
     fn hot_replace_normalizes_success_empty_and_error_bodies() {
         let fixture: Value = serde_json::from_str(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -2791,6 +2883,7 @@ mod tests {
                                 id: 7,
                                 name: "example.Main.run".to_string(),
                                 source_path: Some("/workspace/Main.java".to_string()),
+                                source_reference: None,
                                 line: 12,
                                 column: 1,
                                 is_filtered: false,
@@ -4401,6 +4494,88 @@ mod tests {
         .unwrap();
     }
 
+    fn completions_request(session_id: &str, text: &str, column: Option<i64>) -> InspectRequest {
+        InspectRequest {
+            session_id: session_id.to_string(),
+            operation_id: "complete".to_string(),
+            kind: DebugInspectKind::Completions,
+            thread_id: None,
+            frame_id: Some(7),
+            variables_reference: None,
+            variable_filter: None,
+            start: None,
+            count: None,
+            expression: Some(text.to_string()),
+            context: None,
+            source_path: None,
+            line: None,
+            column,
+        }
+    }
+
+    #[test]
+    fn console_completions_are_capability_gated_and_normalized() {
+        let unsupported = "debug-completions-unsupported";
+        paused_session(unsupported);
+        assert!(inspect(completions_request(unsupported, "fra", None)).is_err());
+        destroy_session(SessionRequest {
+            session_id: unsupported.to_string(),
+        })
+        .unwrap();
+
+        let session_id = "debug-completions";
+        paused_session_with_capabilities(session_id, json!({"supportsCompletionsRequest": true}));
+        // The caret must lie inside the typed text, counted in UTF-16 units.
+        assert!(inspect(completions_request(session_id, "fra", Some(5))).is_err());
+        assert!(inspect(completions_request(session_id, "fra", Some(0))).is_err());
+        assert!(inspect(completions_request(session_id, "", None)).is_err());
+
+        let update = inspect(completions_request(session_id, "p 😀fra", None)).unwrap();
+        let request = decode_frame(&update.outbound_frames[0]);
+        assert_eq!(request["command"], "completions");
+        assert_eq!(request["arguments"]["text"], "p 😀fra");
+        // "p ", the emoji (two UTF-16 units) and "fra" make seven units; the caret is the eighth.
+        assert_eq!(request["arguments"]["column"], 8);
+        assert_eq!(request["arguments"]["frameId"], 7);
+
+        let completed = receive_messages(
+            session_id,
+            vec![response_message(
+                3,
+                "completions",
+                json!({"targets": [
+                    {"label": "frame -- Commands for stack frames.", "text": "frame"},
+                    {"label": "format", "start": 3, "length": 2, "type": "function"},
+                    {"label": ""},
+                    {"text": "no label"}
+                ]}),
+            )],
+        );
+        let items = completed
+            .events
+            .iter()
+            .find_map(|event| match &event.body {
+                DebugEventBody::OperationCompleted {
+                    operation_id,
+                    result: DebugOperationResult::Completions { items },
+                } if operation_id == "complete" => Some(items),
+                _ => None,
+            })
+            .expect("completions result");
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].text, "frame");
+        assert_eq!(items[0].start, None);
+        // Without `text` the label is inserted; the 1-based wire range becomes 0-based.
+        assert_eq!(items[1].text, "format");
+        assert_eq!(items[1].start, Some(2));
+        assert_eq!(items[1].length, Some(2));
+        assert_eq!(items[1].kind.as_deref(), Some("function"));
+        destroy_session(SessionRequest {
+            session_id: session_id.to_string(),
+        })
+        .unwrap();
+    }
+
     #[test]
     fn exception_information_is_capability_gated_and_normalized() {
         let fixture: Value = serde_json::from_str(include_str!(concat!(
@@ -5044,6 +5219,11 @@ mod tests {
 
     /// Creates a paused Java-style session so reference-bound inspections can be issued.
     fn paused_session(session_id: &str) {
+        paused_session_with_capabilities(session_id, json!({}));
+    }
+
+    /// A paused session whose adapter answered `initialize` with `capabilities`.
+    fn paused_session_with_capabilities(session_id: &str, capabilities: Value) {
         create_session(CreateSessionRequest {
             session_id: session_id.to_string(),
             adapter_id: "java".to_string(),
@@ -5067,7 +5247,7 @@ mod tests {
         .unwrap();
         receive_messages(
             session_id,
-            vec![response_message(1, "initialize", json!({}))],
+            vec![response_message(1, "initialize", capabilities)],
         );
         receive_messages(session_id, vec![response_message(2, "launch", json!({}))]);
         receive_messages(session_id, vec![stopped_event(103)]);
