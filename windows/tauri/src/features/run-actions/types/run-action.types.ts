@@ -18,6 +18,10 @@ export interface RunActionItem {
   declarativeOwner?: { pluginId: string; languageId: string };
   /** Route this declarative action through the plugin's test template. */
   declarativeTest?: boolean;
+  declarativeTestScope?: import("@/features/plugins/declarative-plugin-launch").DeclarativeTestScope;
+  declarativeContext?: import("@/features/plugins/declarative-plugin-launch").DeclarativeExecutionContext;
+  /** Local revocation guard captured at discovery; never sent over IPC. */
+  declarativeValidate?: () => void;
   id: string;
   name: string;
   command?: string;

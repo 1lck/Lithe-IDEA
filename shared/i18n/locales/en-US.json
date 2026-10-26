@@ -9549,7 +9549,10 @@
     "buildSystems.dependencies.stale": "Dependencies changed. Load them again.",
     "buildSystems.dependencies.more": "Show more dependencies",
     "buildSystems.dependencies.truncated": "Core reached the dependency tree limit. Some nodes are omitted.",
-    "buildSystems.dependencies.providerUnavailable": "Provider dependencies are not available yet."
+    "buildSystems.dependencies.providerUnavailable": "Provider dependencies are not available yet.",
+    "plugins.execution.reviewTitle": "Run plugin command?",
+    "plugins.execution.failed": "Cannot run this plugin selection ({code}). Save files and refresh the actions, or choose a supported scope.",
+    "plugins.execution.review": "Workspace: {workspace}\nSelection: {selection}\nCommand: {command}"
   },
   "overrides": {
     "windows": {

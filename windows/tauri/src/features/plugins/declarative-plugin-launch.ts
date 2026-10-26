@@ -85,10 +85,13 @@ export async function resolveDeclarativePluginLaunch(
   workspacePath: string,
 ): Promise<DeclarativePluginLaunch | null> {
   const guard = pluginPlanGuard();
-  const launch = await invoke<DeclarativePluginLaunch | null>("declarative_plugins_language_launch", {
-    filePath,
-    workspacePath,
-  });
+  const launch = await invoke<DeclarativePluginLaunch | null>(
+    "declarative_plugins_language_launch",
+    {
+      filePath,
+      workspacePath,
+    },
+  );
   if (launch) guard(launch.pluginId);
   return launch;
 }
@@ -216,9 +219,68 @@ export function declarativeWorkspaceConfiguration(
 export interface DeclarativeRunPlan {
   pluginId: string;
   languageId: string;
-  executable: { command?: string | null; tool?: string | null };
+  executable: { command?: string | null; toolchain?: string | null; tool?: string | null };
   arguments: string[];
   workingDirectory: string;
+  label?: string | null;
+  frameworkId?: string | null;
+  identity?: string;
+}
+
+export interface DeclarativeExecutionContext {
+  clientId: string;
+  workspaceId: string;
+  workspacePath: string;
+  generation: string;
+}
+export function setDeclarativeExecutionContext(
+  clientId: string,
+  revision: number,
+  context: DeclarativeExecutionContext | null,
+) {
+  return invoke<void>("declarative_plugins_execution_context", { clientId, revision, context });
+}
+export type DeclarativeTestScope =
+  | { kind: "workspace" }
+  | { kind: "file"; relativeFilePath: string }
+  | { kind: "testCase"; identifier: string; relativeFilePath?: string }
+  | { kind: "suite"; identifier: string };
+export type DeclarativeExecutionSelection =
+  | { kind: "run"; relativeFilePath: string; userArguments: string[] }
+  | { kind: "test"; scope: DeclarativeTestScope };
+export interface DeclarativeTestItem {
+  id: string;
+  label: string;
+  kind: "workspace" | "file";
+  relativeFilePath?: string;
+}
+
+export function discoverDeclarativeTests(
+  pluginId: string,
+  languageId: string,
+  context: DeclarativeExecutionContext,
+) {
+  return invoke<{ items: DeclarativeTestItem[]; identity: string }>(
+    "declarative_plugins_discover_tests",
+    {
+      pluginId,
+      languageId,
+      context,
+    },
+  );
+}
+
+/** Native rechecks the receipt and owns executable resolution/process start. */
+export function startDeclarativeExecution(args: {
+  pluginId: string;
+  languageId: string;
+  context: DeclarativeExecutionContext;
+  selection: DeclarativeExecutionSelection;
+  expectedIdentity: string;
+  sessionId: string;
+  executionId: string;
+}) {
+  return invoke<void>("declarative_plugins_start_execution", { ...args });
 }
 
 /** Expands the run template for one file of a plugin-owned language. */
@@ -227,12 +289,14 @@ export function resolveDeclarativeRunPlan(
   languageId: string,
   relativeFilePath: string,
   userArguments: string[] = [],
+  context?: DeclarativeExecutionContext,
 ): Promise<DeclarativeRunPlan> {
   return invoke<DeclarativeRunPlan>("declarative_plugins_run_plan", {
     pluginId,
     languageId,
     relativeFilePath,
     userArguments,
+    ...(context ? { context } : {}),
   });
 }
 
@@ -241,11 +305,15 @@ export function resolveDeclarativeTestPlan(
   pluginId: string,
   languageId: string,
   workspacePath: string,
+  scope?: DeclarativeTestScope,
+  context?: DeclarativeExecutionContext,
 ): Promise<DeclarativeRunPlan> {
   return invoke<DeclarativeRunPlan>("declarative_plugins_test_plan", {
     pluginId,
     languageId,
     workspacePath,
+    ...(scope ? { scope } : {}),
+    ...(context ? { context } : {}),
   });
 }
 
@@ -267,14 +335,21 @@ export function listDeclarativeWebWindows(): Promise<DeclarativeWebToolWindow[]>
 /** Opens (or focuses) the web view of one tool window. */
 export function openDeclarativeWebWindow(pluginId: string, windowId: string): Promise<void> {
   return invoke<void>("declarative_plugins_open_web_window", {
-    pluginId, windowId, workspaceId: workspaceRuntimeRegistry.getActiveWorkspaceId(),
-    workspacePath: useFileSystemStore.getState().rootFolderPath, appearance: getPluginWebAppearance(),
+    pluginId,
+    windowId,
+    workspaceId: workspaceRuntimeRegistry.getActiveWorkspaceId(),
+    workspacePath: useFileSystemStore.getState().rootFolderPath,
+    appearance: getPluginWebAppearance(),
   });
 }
 
 /** Destroys the web view of one tool window. */
 export function closeDeclarativeWebWindow(pluginId: string, windowId: string): Promise<void> {
-  return invoke<void>("declarative_plugins_close_web_window", { pluginId, windowId, workspaceId: workspaceRuntimeRegistry.getActiveWorkspaceId() });
+  return invoke<void>("declarative_plugins_close_web_window", {
+    pluginId,
+    windowId,
+    workspaceId: workspaceRuntimeRegistry.getActiveWorkspaceId(),
+  });
 }
 
 /** Returns the raw manifest of one accepted declarative plugin. */

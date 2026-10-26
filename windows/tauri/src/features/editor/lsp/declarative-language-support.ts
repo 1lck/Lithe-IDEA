@@ -2,10 +2,22 @@ import {
   pluginPlanGuard,
   subscribePluginActivity,
 } from "@/features/plugins/declarative-plugin-lifecycle";
+import { extensionRegistry } from "@/extensions/registry/extension-registry";
 
 interface DeclarativeLanguageOwner {
   pluginId: string;
   languageId: string;
+  displayName: string;
+}
+
+/** Execution follows the existing Worker-first migration rule per capability.
+ * A Worker language with run actions must not get duplicate contract actions. */
+export async function probeDeclarativeExecutionOwner(
+  filePath: string,
+): Promise<DeclarativeLanguageOwner | null> {
+  if (extensionRegistry.getExtensionForFilePath(filePath)?.manifest.runActions) return null;
+  const owner = await probeDeclarativeLanguageOwner(filePath);
+  return extensionRegistry.getExtensionForFilePath(filePath)?.manifest.runActions ? null : owner;
 }
 
 interface CachedOwner {

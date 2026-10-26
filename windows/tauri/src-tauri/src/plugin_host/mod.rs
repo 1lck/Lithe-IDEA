@@ -10,28 +10,29 @@
 
 pub mod build;
 pub mod build_registry;
+pub(crate) mod build_resolver;
+#[cfg(test)]
+mod build_resolver_tests;
 #[cfg(test)]
 mod build_tests;
 pub mod details;
 #[cfg(test)]
 mod details_tests;
-pub(crate) mod build_resolver;
-#[cfg(test)]
-mod build_resolver_tests;
 pub mod install;
 #[cfg(test)]
 mod install_tests;
 pub mod launch;
 pub mod lifecycle;
+pub mod marketplace;
+pub(crate) mod marketplace_coordinator;
+pub mod marketplace_download;
+pub mod marketplace_index;
 pub mod marketplace_sources;
 #[cfg(test)]
 mod marketplace_sources_tests;
-pub mod marketplace_download;
-pub mod marketplace_index;
-pub mod marketplace;
-pub(crate) mod marketplace_coordinator;
 #[cfg(test)]
 mod marketplace_tests;
+pub(crate) mod provider;
 pub mod run_plans;
 pub mod scan;
 pub mod settings;

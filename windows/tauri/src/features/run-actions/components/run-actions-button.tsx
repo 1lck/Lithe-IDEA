@@ -1,5 +1,8 @@
 import { runExtensionAction } from "@/extensions/run/extension-run-actions";
-import { runDeclarativeAction } from "@/features/plugins/declarative-plugin-run";
+import {
+  runDeclarativeAction,
+  declarativeExecutionErrorMessage,
+} from "@/features/plugins/declarative-plugin-run";
 import { RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -195,7 +198,7 @@ export default function RunActionsButton() {
     if (action.source === "declarative") {
       if (workspacePath && activeFilePath)
         void runDeclarativeAction(action, workspaceId, workspacePath, activeFilePath).catch(
-          (error) => toast.error(String(error)),
+          (error) => toast.error(declarativeExecutionErrorMessage(error)),
         );
       closeMenu();
       return;

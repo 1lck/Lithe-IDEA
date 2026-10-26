@@ -89,7 +89,8 @@ async function readRegistry() {
   // and use official-plugin-packages' exclusion; decoded output is not a reusable artifact.
   // Core validation or a matching archive hash never transfers user ownership.
   // Native acceptance fixtures/profiles use plugin-host-acceptance-state's
-  // refusal route; deterministic test ZIPs do not establish a build identity.
+  // refusal route, including build-fixture tools/workspaces; deterministic
+  // test ZIPs do not establish a build identity.
   const excludedResources = registry.excludedResources ?? [];
   if (!Array.isArray(excludedResources)) throw new Error("Invalid excluded worktree resources");
   for (const resource of excludedResources) {

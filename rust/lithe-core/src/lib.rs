@@ -33,6 +33,28 @@ pub fn execute_json(request: &str) -> String {
     runtime::execute_json(request)
 }
 
+/// Starts the existing LSP engine with a native resource owner attached before
+/// initialization. The callback only records the ID; it must not call Core.
+/// Unlike a wire request, this also preserves ownership when the first write
+/// fails and the ordinary start command returns an error.
+pub fn start_lsp_owned(
+    payload: serde_json::Value,
+    registered: impl FnOnce(&str),
+) -> Result<serde_json::Value, CoreError> {
+    let request = serde_json::from_value(payload).map_err(|error| {
+        CoreError::new(ErrorCode::InvalidRequest, "Invalid language-server launch.")
+            .with_details(error.to_string())
+    })?;
+    let response = lsp::interface::start_server_owned(request, registered)?;
+    serde_json::to_value(response).map_err(|error| {
+        CoreError::new(
+            ErrorCode::Unknown,
+            "Could not encode language-server launch.",
+        )
+        .with_details(error.to_string())
+    })
+}
+
 /// Requests cooperative cancellation of an active operation.
 ///
 /// Native Rust hosts use this entry point while the Swift and C++ clients keep

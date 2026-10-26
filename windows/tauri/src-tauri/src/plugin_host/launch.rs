@@ -19,7 +19,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, WebviewWindow};
 
 /// Windows reparse-point attribute; covers symlinks and junctions alike.
 #[cfg(windows)]
@@ -54,6 +54,7 @@ pub struct ResolvedLaunch {
 #[tauri::command]
 pub fn declarative_plugins_language_launch(
     app: AppHandle,
+    window: WebviewWindow,
     file_path: String,
     workspace_path: String,
 ) -> Result<Option<ResolvedLaunch>, String> {
@@ -91,7 +92,15 @@ pub fn declarative_plugins_language_launch(
         state_directory.join(store::workspace_state_key(&workspace_path));
     prepare_required_directories(resolved_plan, &state_directory, &workspace_state_directory)?;
     std::fs::create_dir_all(&state_directory).map_err(|error| error.to_string())?;
-    resolve_launch(&package, &language_id, resolved_plan, &state_directory).map(Some)
+    let resolved = resolve_launch(&package, &language_id, resolved_plan, &state_directory)?;
+    super::provider::remember_language_launch(
+        &app,
+        window.label(),
+        &workspace_path,
+        &package,
+        &resolved,
+    )?;
+    Ok(Some(resolved))
 }
 
 /// Finds an accepted, enabled scanned package by plugin ID.
@@ -219,7 +228,7 @@ fn owning_language_id(package: &ScannedPackage, file_path: &str) -> Option<Strin
 /// Builds the Core launch-plan request with host-owned directories and
 /// architecture. Settings layers stay empty until the settings milestone;
 /// Core then falls back to declared defaults.
-fn launch_request(
+pub(crate) fn launch_request(
     state_directory: &Path,
     package: &ScannedPackage,
     workspace_path: &str,
@@ -239,7 +248,7 @@ fn launch_request(
 /// Creates the host-owned directories requested by Core before the frontend
 /// starts the process. The plan only names the two directories from the
 /// shared contract; arbitrary paths are rejected at this boundary.
-fn prepare_required_directories(
+pub(crate) fn prepare_required_directories(
     plan: &Value,
     state_directory: &Path,
     workspace_state_directory: &Path,
@@ -271,7 +280,7 @@ fn prepare_required_directories(
     Ok(())
 }
 
-fn resolve_launch(
+pub(crate) fn resolve_launch(
     package: &ScannedPackage,
     language_id: &str,
     plan: &Value,

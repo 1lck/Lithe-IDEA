@@ -142,8 +142,10 @@ fn main() {
             app.manage(project_windows::ProjectWindows::default());
             app.manage(window_title::WindowTitles::default());
             app.manage(run::RunProcessManager::default());
+            app.manage(plugin_host::run_plans::ExecutionState::default());
             app.manage(debug::DebugAdapterManager::default());
             app.manage(plugin_host::PluginHostState::default());
+            app.manage(plugin_host::provider::ProviderHostState::default());
             app.manage(plugin_host::build::BuildHostState::default());
             app.manage(plugin_host::web::WebPageHostState::default());
             app.manage(plugin_host::lifecycle::LifecycleState::default());
@@ -161,12 +163,16 @@ fn main() {
         })
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
+                plugin_host::run_plans::window_destroyed(window.app_handle(), window.label());
                 plugin_host::web::forget_window_appearance(window.app_handle(), window.label());
                 plugin_host::lifecycle::window_destroyed(window.app_handle(), window.label());
                 plugin_host::marketplace::window_destroyed(window.app_handle(), window.label());
                 let build_app = window.app_handle().clone();
                 let build_window = window.label().to_owned();
                 tauri::async_runtime::spawn(async move {
+                    if let Err(error) = plugin_host::provider::close_window(&build_app, &build_window).await {
+                        eprintln!("Could not release plugin Provider sessions: {}", error.detail);
+                    }
                     if let Err(error) = plugin_host::build::close_build_window(build_app, build_window).await {
                         eprintln!("Could not release plugin build operations: {error}");
                     }
@@ -337,6 +343,10 @@ fn main() {
                             plugin_host::marketplace_sources::declarative_marketplace_sources_remove,
                             plugin_host::run_plans::declarative_plugins_run_plan,
                             plugin_host::run_plans::declarative_plugins_test_plan,
+                            plugin_host::run_plans::declarative_plugins_discover_tests,
+                            plugin_host::run_plans::declarative_plugins_start_execution,
+                            plugin_host::run_plans::declarative_plugins_execution_context,
+                            plugin_host::run_plans::declarative_plugins_close_execution_workspace,
                             plugin_host::build::declarative_plugins_build_catalog,
                             plugin_host::build::declarative_plugins_build_language_import,
                             plugin_host::build::declarative_plugins_build_refresh,

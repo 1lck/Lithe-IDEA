@@ -395,6 +395,9 @@ pub async fn declarative_plugins_build_close_workspace(
     workspace_root: String,
 ) -> Result<(), String> {
     let window_label = window.label().to_string();
+    super::provider::close_workspace(&app, &window_label, &workspace_root)
+        .await
+        .map_err(|error| error.detail)?;
     // A late close for a detached workspace must not suspend a newer one.
     let _suspension = {
         let state = app.state::<BuildHostState>();

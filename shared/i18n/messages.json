@@ -90118,11 +90118,42 @@
     {
       "id": "buildSystems.dependencies.truncated",
       "description": "Windows plugin dependency loading: bounded Core result",
-      "platforms": ["windows"]
+      "platforms": [
+        "windows"
+      ]
     },
     {
       "id": "buildSystems.dependencies.providerUnavailable",
       "description": "Windows plugin dependency loading: providerUnavailable",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "plugins.execution.failed",
+      "description": "Actionable failure of a plugin execution or discovery",
+      "parameters": {
+        "code": "string"
+      },
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "plugins.execution.reviewTitle",
+      "description": "Confirm one exact declarative plugin execution",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "plugins.execution.review",
+      "description": "Reviewed workspace, selection and full command for a declarative execution",
+      "parameters": {
+        "workspace": "string",
+        "selection": "string",
+        "command": "string"
+      },
       "platforms": [
         "windows"
       ]

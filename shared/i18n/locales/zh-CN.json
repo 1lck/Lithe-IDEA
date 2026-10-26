@@ -9549,7 +9549,10 @@
     "buildSystems.dependencies.stale": "依赖上下文已变化，请重新加载。",
     "buildSystems.dependencies.more": "显示更多依赖",
     "buildSystems.dependencies.truncated": "Core 已达到依赖树上限，部分节点未显示。",
-    "buildSystems.dependencies.providerUnavailable": "暂不支持 Provider 依赖加载。"
+    "buildSystems.dependencies.providerUnavailable": "暂不支持 Provider 依赖加载。",
+    "plugins.execution.reviewTitle": "运行插件命令？",
+    "plugins.execution.failed": "无法运行此插件选择（{code}）。请保存文件并刷新操作，或选择受支持的范围。",
+    "plugins.execution.review": "工作区：{workspace}\n选择：{selection}\n命令：{command}"
   },
   "overrides": {
     "macos": {

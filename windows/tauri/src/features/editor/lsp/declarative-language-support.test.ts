@@ -7,11 +7,43 @@ import {
   languageIdForEditorFile,
   resolveEditorLspSupport,
 } from "./built-in-language-support";
-import { subscribeDeclarativeLanguageSupport } from "./declarative-language-support";
+import {
+  subscribeDeclarativeLanguageSupport,
+  probeDeclarativeExecutionOwner,
+} from "./declarative-language-support";
 import { resolveEditorLspLaunch } from "./resolve-editor-lsp-launch";
 
 const pluginId = "io.example.editor-admission";
 const owner = { pluginId, displayName: "Fixture", languageId: "admission" };
+
+test("a Worker run owner suppresses contract execution discovery without changing LSP priority", async () => {
+  const worker = spyOn(extensionRegistry, "getExtensionForFilePath").mockReturnValue({
+    manifest: {
+      id: "io.example.worker",
+      name: "worker",
+      displayName: "Worker",
+      description: "Worker fixture",
+      version: "1.0.0",
+      publisher: "Example",
+      categories: [],
+      runActions: { manifestFiles: [], executables: [] },
+    },
+    path: "C:/fixture/worker",
+    isBundled: true,
+    isEnabled: true,
+    state: "activated",
+  });
+  const nativeOwner = spyOn(native, "invoke").mockImplementation(async () => {
+    throw new Error("duplicate native lookup");
+  });
+  try {
+    expect(await probeDeclarativeExecutionOwner("C:/fixture/worker.admission")).toBeNull();
+    expect(nativeOwner).not.toHaveBeenCalled();
+  } finally {
+    worker.mockRestore();
+    nativeOwner.mockRestore();
+  }
+}, 2000);
 afterEach(() => {
   setPluginActive(pluginId, false);
 });
@@ -20,7 +52,7 @@ function mockNativeInvoke(
   handler: (command: string, args?: Parameters<typeof native.invoke>[1]) => Promise<unknown>,
 ) {
   return spyOn(native, "invoke").mockImplementation(
-    async <T,>(command: string, args?: Parameters<typeof native.invoke>[1]): Promise<T> =>
+    async <T>(command: string, args?: Parameters<typeof native.invoke>[1]): Promise<T> =>
       (await handler(command, args)) as T,
   );
 }
@@ -159,35 +191,35 @@ test("revocation invalidates cached hints even while no editor subscribes", asyn
 
 for (const continuousSubscription of [true, false]) {
   test(`reenabling rejects revoked lookups with ${continuousSubscription ? "an active editor" : "a reopened editor"}`, async () => {
-  setPluginActive(pluginId, true);
-  const answer = deferred<typeof owner>();
-  const entered = deferred<void>();
-  let unsubscribe = subscribeDeclarativeLanguageSupport(() => {});
-  const path = "C:/fixture/reenable.admission";
-  let calls = 0;
-  const spy = mockNativeInvoke(async () => {
-    if (++calls === 1) {
-      entered.resolve();
-      return answer.promise;
-    }
-    return owner;
-  });
-  const old = resolveEditorLspSupport(path);
-  try {
-    await entered.promise;
-    if (!continuousSubscription) unsubscribe();
-    setPluginActive(pluginId, false);
     setPluginActive(pluginId, true);
-    if (!continuousSubscription) unsubscribe = subscribeDeclarativeLanguageSupport(() => {});
-    expect(await resolveEditorLspSupport(path)).toBe(true);
-    answer.resolve(owner);
-    expect(await old).toBe(false);
-    expect(isEditorLspSupported(path)).toBe(true);
-  } finally {
-    answer.resolve(owner);
-    await old;
-    unsubscribe();
-    spy.mockRestore();
-  }
-});
+    const answer = deferred<typeof owner>();
+    const entered = deferred<void>();
+    let unsubscribe = subscribeDeclarativeLanguageSupport(() => {});
+    const path = "C:/fixture/reenable.admission";
+    let calls = 0;
+    const spy = mockNativeInvoke(async () => {
+      if (++calls === 1) {
+        entered.resolve();
+        return answer.promise;
+      }
+      return owner;
+    });
+    const old = resolveEditorLspSupport(path);
+    try {
+      await entered.promise;
+      if (!continuousSubscription) unsubscribe();
+      setPluginActive(pluginId, false);
+      setPluginActive(pluginId, true);
+      if (!continuousSubscription) unsubscribe = subscribeDeclarativeLanguageSupport(() => {});
+      expect(await resolveEditorLspSupport(path)).toBe(true);
+      answer.resolve(owner);
+      expect(await old).toBe(false);
+      expect(isEditorLspSupported(path)).toBe(true);
+    } finally {
+      answer.resolve(owner);
+      await old;
+      unsubscribe();
+      spy.mockRestore();
+    }
+  });
 }

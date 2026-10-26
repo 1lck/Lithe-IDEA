@@ -68,6 +68,26 @@ impl WindowsBuildToolResolver {
         .start(invocation, workspace)
         .map(|session| session.instance_root)
     }
+
+    /// Passive native path proof shared with Provider bindings. Core keeps
+    /// the workspace-relative root in its plans; hosts also retain the real
+    /// directory identity without rewriting Provider request parameters.
+    pub(crate) fn instance_root_directory(
+        root: &str,
+        workspace: &Path,
+    ) -> Result<PathBuf, BuildResolutionError> {
+        let workspace = absolute_existing_directory(workspace, "workspace root")?;
+        let relative = plan_relative_path(root, "instance root")?;
+        let path = workspace.join(relative);
+        reject_reparse_components(&workspace, &path)?;
+        let directory = absolute_existing_directory(&path, "build instance root")?;
+        if !path_is_within(&directory, &workspace) {
+            return Err(BuildResolutionError::project_escape(
+                "Provider instance escaped its workspace",
+            ));
+        }
+        Ok(directory)
+    }
     /// Option-owned environment is frozen before both probes and execution.
     pub(crate) fn with_overrides(mut self, values: BTreeMap<String, String>) -> Self {
         for (key, value) in values {
@@ -119,17 +139,7 @@ impl WindowsBuildToolResolver {
             BuildResolutionError::invalid_plan(format!("build invocation plan is invalid: {error}"))
         })?;
         let workspace_root = absolute_existing_directory(workspace_root, "workspace root")?;
-        let instance_relative = plan_relative_path(&plan.root, "instance root")?;
-        let instance_path = workspace_root.join(&instance_relative);
-        reject_reparse_components(&workspace_root, &instance_path)?;
-        let instance_root = absolute_existing_directory(&instance_path, "build instance root")?;
-        if !path_is_within(&instance_root, &workspace_root) {
-            return Err(BuildResolutionError::project_escape(format!(
-                "build instance root {} escapes workspace {}",
-                instance_path.display(),
-                workspace_root.display()
-            )));
-        }
+        let instance_root = Self::instance_root_directory(&plan.root, &workspace_root)?;
         let configured_setting = plan
             .executables
             .iter()

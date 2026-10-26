@@ -160,6 +160,11 @@ pub async fn begin(app: &AppHandle, plugin_id: &str) -> Result<Mutation, String>
         operation_id: operation_id.clone(),
     };
     state.revoke(plugin_id);
+    // Persistent native Provider owners hold the same package barrier as
+    // probes. Revoke and drain them before waiting for those leases.
+    super::provider::close_plugin(app, plugin_id)
+        .await
+        .map_err(|error| error.detail)?;
     state.wait_native(plugin_id).await?;
     super::web::close_plugin_windows(app, plugin_id)?;
     let mut senders = HashMap::new();

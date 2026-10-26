@@ -1,5 +1,9 @@
 import { uiExtensionHost } from "@/extensions/ui/services/ui-extension-host";
-import { declarativeRunActionsForFile } from "@/features/plugins/declarative-plugin-run";
+import {
+  declarativeRunActionsForFile,
+  declarativeExecutionErrorMessage,
+} from "@/features/plugins/declarative-plugin-run";
+import { subscribePluginActivity } from "@/features/plugins/declarative-plugin-lifecycle";
 import { useExtensionStore } from "@/extensions/registry/extension-store";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
@@ -33,6 +37,7 @@ export function useRunActionDiscovery(
   const [discoveryError, setDiscoveryError] = useState<string | null>(null);
   const [mavenTestsAvailable, setMavenTestsAvailable] = useState(false);
   const [revision, setRevision] = useState(0);
+  useEffect(() => subscribePluginActivity(() => setRevision((current) => current + 1)), []);
   const codeLenses = useCodeLens(activeFilePath, enabled && includeCodeLenses);
   const activeFileContent = useBufferStore((state) => {
     const buffer = getBufferByPath(state.buffers, activeFilePath);
@@ -101,22 +106,26 @@ export function useRunActionDiscovery(
 
   const [declarativeActions, setDeclarativeActions] = useState<RunActionItem[]>([]);
   useEffect(() => {
-    if (!enabled || !activeFilePath) {
+    if (!enabled || !activeFilePath || !workspacePath) {
       setDeclarativeActions([]);
       return;
     }
     let cancelled = false;
-    void declarativeRunActionsForFile(activeFilePath)
+    setDeclarativeActions([]);
+    void declarativeRunActionsForFile(activeFilePath, { workspaceId, root: workspacePath })
       .then((actions) => {
         if (!cancelled) setDeclarativeActions(actions);
       })
-      .catch(() => {
-        if (!cancelled) setDeclarativeActions([]);
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setDeclarativeActions([]);
+          setDiscoveryError(declarativeExecutionErrorMessage(error));
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [activeFilePath, enabled, revision]);
+  }, [activeFilePath, enabled, enabledExtensions, revision, workspaceId, workspacePath]);
 
   const lspActions = useMemo(
     () =>

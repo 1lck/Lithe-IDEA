@@ -1074,8 +1074,11 @@ def main() -> int:
                         help="Require fresh owned didOpen evidence for retained and reopened editors.")
     from marketplace_acceptance import add_arguments, validate_arguments
     add_arguments(parser)
+    from build_acceptance import add_arguments as add_build_arguments, validate_arguments as validate_build_arguments
+    add_build_arguments(parser)
     args = parser.parse_args()
     validate_arguments(parser, args)
+    validate_build_arguments(parser, args)
 
     artifact_root = args.artifact_root.resolve()
     artifact_root.mkdir(parents=True, exist_ok=True)
@@ -1093,10 +1096,13 @@ def main() -> int:
             "roadmap M2 marketplace package acceptance",
             "The optional real HTTPS marketplace lane was not requested; use --marketplace. Native package transactions additionally need the controlled fixture and an already-trusted TLS endpoint.",
         )
-    reporter.document_pending(
-        "roadmap M4 build-system provider acceptance",
-        "The Windows host does not yet advertise buildSystems/buildProviders; this lane must remain pending instead of treating API rejection as a product failure.",
-    )
+    if not args.build_fixture_root:
+        reporter.document_pending(
+            "roadmap M4 non-provider build acceptance",
+            "Not requested. Generate build_fixture.py inputs and pass --build-fixture-root; closed capabilities stay pending.",
+        )
+    reporter.document_pending("roadmap M5 build-system provider acceptance",
+                              "Provider execution is outside the non-provider build fixture lane and remains pending.")
     immutable_before = hash_tree(args.run_image.resolve())
     write_json(artifact_root / "resource-hashes-before.json", immutable_before)
     session: AppSession | None = None
@@ -1372,6 +1378,21 @@ def main() -> int:
                     restart_marketplace, all_owned_fixture_pids,
                 ).run()
 
+            if args.build_fixture_root:
+                from build_acceptance import BuildAcceptance
+
+                def restart_build(workspace):
+                    nonlocal session
+                    cleanup_evidence.append(session.stop(require_graceful=True))
+                    session = None
+                    session = AppSession(playwright, args.executable.resolve(), workspace,
+                                         args.webview_data.resolve(), artifact_root / "logs", len(cleanup_evidence) + 1)
+                    current = session.start()
+                    finish_onboarding(current)
+                    return current, session
+
+                BuildAcceptance(sys.modules[__name__], args, reporter, restart_build).run()
+
             with reporter.step("owned application and helper processes cleanly terminate"):
                 cleanup_evidence.append(session.stop(require_graceful=True))
                 session = None
@@ -1495,6 +1516,11 @@ def main() -> int:
         if args.lsp_lifecycle:
             from lsp_lifecycle_acceptance import record_unreached_cases
             record_unreached_cases(reporter)
+        if args.build_fixture_root:
+            from build_acceptance import record_unreached_cases as record_build_cases, source_capabilities
+            from build_fixture import load_plan
+            record_build_cases(reporter, load_plan(args.build_fixture_root), source_capabilities(),
+                               official=bool(args.build_official_maven_package), reason="No success is inferred from helper tests or source presence.")
         write_json(
             args.report,
             {

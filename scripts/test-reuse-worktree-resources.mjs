@@ -274,6 +274,17 @@ try {
     assert.equal(await fs.readFile(source, "utf8"), "deterministic fixture bytes");
     await assert.rejects(fs.access(path.join(targetRoot, fixture)));
   });
+  await test("controlled build fixtures remain isolated acceptance state", { timeout: 15000 }, async () => {
+    const fixture = ".artifacts/plugin-host-acceptance/build-fixture/tools with spaces/bin/fake-build-tool.mjs";
+    const source = path.join(sourceRoot, fixture);
+    await fs.mkdir(path.dirname(source), { recursive: true });
+    await fs.writeFile(source, "controlled build fixture bytes");
+    const refused = reuse(["--resource", "plugin-host-acceptance-state"]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /plugin-host-acceptance-state.*cannot be reused/);
+    assert.equal(await fs.readFile(source, "utf8"), "controlled build fixture bytes");
+    await assert.rejects(fs.access(path.join(targetRoot, fixture)));
+  });
   await test("retained MCP filters and native review screenshots remain user/run state", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const policies = registry.excludedResources.find(item => item.id === "mcp-tool-probe-state");
