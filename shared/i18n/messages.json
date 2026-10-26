@@ -84990,35 +84990,6 @@
       }
     },
     {
-      "id": "native.noCargoBinaryRunConfigurationMatchesThisRust",
-      "description": "Native UI: No Cargo binary run configuration matches this Rust file.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "No Cargo binary run configuration matches this Rust file.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.buildTheRustBinaryFirstWithCargoBuild",
-      "description": "Native UI: Build the Rust binary first with `cargo build --bin %@`. Expected executable: %@",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Build the Rust binary first with `cargo build --bin %@`. Expected executable: %@",
-        "arguments": [
-          "arg1",
-          "arg2"
-        ]
-      },
-      "parameters": {
-        "arg1": "string",
-        "arg2": "string"
-      }
-    },
-    {
       "id": "native.githubAuthorizationFailed.variant2",
       "description": "Native UI: GitHub authorization failed: %@",
       "platforms": [

@@ -8,8 +8,6 @@ enum DebugLaunchConfigurationResolutionError: LocalizedError, Equatable {
     case invalidJavaAttachHost
     case invalidJavaAttachPort
     case javaRuntimeUnavailable
-    case noRustBinaryConfiguration
-    case rustExecutableNotBuilt(URL, binary: String)
 
     var errorDescription: String? {
         switch self {
@@ -23,10 +21,6 @@ enum DebugLaunchConfigurationResolutionError: LocalizedError, Equatable {
             return L10n.string("Enter a JVM debug port between 1 and 65535.")
         case .javaRuntimeUnavailable:
             return L10n.string("No Java runtime was found. Set JAVA_HOME or install a JDK.")
-        case .noRustBinaryConfiguration:
-            return L10n.string("No Cargo binary run configuration matches this Rust file.")
-        case .rustExecutableNotBuilt(let url, let binary):
-            return L10n.string("Build the Rust binary first with `cargo build --bin \(binary)`. Expected executable: \(url.path)")
         }
     }
 }
@@ -54,10 +48,8 @@ enum DebugJavaRuntime: Equatable {
 
 /// Maps an editor target and the language-neutral run model into adapter launch
 /// arguments. It contains no process or UI code, so platform composition can
-/// supply only the executable naming convention and file-system capability.
+/// supply only the Java runtime and plugin launch capabilities.
 struct DebugLaunchConfigurationResolver {
-    private let fileExists: (URL) -> Bool
-    private let executableSuffix: String
     private let javaTestLaunchResolver: (any JavaTestDebugLaunchResolving)?
     /// Path of the `java` executable Run uses for a runtime. Without it the
     /// Java Debug Server picks the JVM, which is the one JDT LS runs on.
@@ -67,29 +59,11 @@ struct DebugLaunchConfigurationResolver {
     private let pluginLaunch: (@MainActor (_ languageID: String, _ documentURL: URL, _ workspaceURL: URL) throws -> DebugLaunchConfiguration?)?
 
     init(
-        fileStorage: any FileStorage,
-        executableSuffix: String = "",
         javaTestLaunchResolver: (any JavaTestDebugLaunchResolving)? = nil,
         javaExecutablePath: (@MainActor (DebugJavaRuntime) -> String?)? = nil,
         pluginLaunch: (@MainActor (String, URL, URL) throws -> DebugLaunchConfiguration?)? = nil
     ) {
         self.pluginLaunch = pluginLaunch
-        self.fileExists = { fileStorage.fileExists(at: $0) }
-        self.executableSuffix = executableSuffix
-        self.javaTestLaunchResolver = javaTestLaunchResolver
-        self.javaExecutablePath = javaExecutablePath
-    }
-
-    init(
-        executableSuffix: String = "",
-        fileExists: @escaping (URL) -> Bool,
-        javaTestLaunchResolver: (any JavaTestDebugLaunchResolving)? = nil,
-        javaExecutablePath: (@MainActor (DebugJavaRuntime) -> String?)? = nil,
-        pluginLaunch: (@MainActor (String, URL, URL) throws -> DebugLaunchConfiguration?)? = nil
-    ) {
-        self.pluginLaunch = pluginLaunch
-        self.fileExists = fileExists
-        self.executableSuffix = executableSuffix
         self.javaTestLaunchResolver = javaTestLaunchResolver
         self.javaExecutablePath = javaExecutablePath
     }
@@ -154,24 +128,6 @@ struct DebugLaunchConfigurationResolver {
                 configurations: configurations,
                 selectedConfiguration: selectedConfiguration,
                 target: javaTarget,
-                options: options
-            )
-        case "python":
-            return DebugLaunchConfiguration(
-                name: documentURL.lastPathComponent,
-                request: .launch,
-                arguments: [
-                    "program": .string(documentURL.standardizedFileURL.path),
-                    "console": .string("internalConsole"),
-                    "justMyCode": .bool(true)
-                ]
-            )
-        case "rust":
-            return try rustConfiguration(
-                documentURL: documentURL,
-                workspaceURL: workspaceURL,
-                configurations: configurations,
-                selectedConfiguration: selectedConfiguration,
                 options: options
             )
         default:
@@ -266,79 +222,6 @@ struct DebugLaunchConfigurationResolver {
             request: .launch,
             arguments: arguments
         )
-    }
-
-    private func rustConfiguration(
-        documentURL: URL,
-        workspaceURL: URL,
-        configurations: [RunConfiguration],
-        selectedConfiguration: RunConfiguration?,
-        options: (RunConfiguration) -> RunOptions
-    ) throws -> DebugLaunchConfiguration {
-        let cargoConfigurations = configurations.filter {
-            $0.kind.providerID == "cargo" && $0.execution == .application
-        }
-        let configuration: RunConfiguration?
-        if let selectedConfiguration,
-           selectedConfiguration.kind.providerID == "cargo",
-           selectedConfiguration.execution == .application {
-            configuration = selectedConfiguration
-        } else {
-            configuration = cargoConfigurations
-                .filter { contains(documentURL, inModule: $0.modulePath, workspaceURL: workspaceURL) }
-                .max { moduleDepth($0.modulePath) < moduleDepth($1.modulePath) }
-                ?? cargoConfigurations.first
-        }
-        guard let configuration else {
-            throw DebugLaunchConfigurationResolutionError.noRustBinaryConfiguration
-        }
-
-        let moduleURL = workspaceURL
-            .appendingPathComponent(configuration.modulePath ?? "", isDirectory: true)
-            .standardizedFileURL
-        let runOptions = options(configuration)
-        let targetRoot: URL
-        if let configured = runOptions.environment["CARGO_TARGET_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !configured.isEmpty {
-            if configured.hasPrefix("/") {
-                targetRoot = URL(fileURLWithPath: configured, isDirectory: true)
-            } else {
-                targetRoot = moduleURL.appendingPathComponent(configured, isDirectory: true)
-            }
-        } else {
-            targetRoot = moduleURL.appendingPathComponent("target", isDirectory: true)
-        }
-        let executableURL = targetRoot
-            .appendingPathComponent("debug", isDirectory: true)
-            .appendingPathComponent(configuration.name + executableSuffix)
-            .standardizedFileURL
-        guard fileExists(executableURL) else {
-            throw DebugLaunchConfigurationResolutionError.rustExecutableNotBuilt(
-                executableURL,
-                binary: configuration.name
-            )
-        }
-        return DebugLaunchConfiguration(
-            name: configuration.name,
-            request: .launch,
-            arguments: [
-                "program": .string(executableURL.path),
-                "cwd": .string(moduleURL.path),
-                "stopOnEntry": .bool(false)
-            ]
-        )
-    }
-
-    private func contains(_ fileURL: URL, inModule modulePath: String?, workspaceURL: URL) -> Bool {
-        let moduleURL = workspaceURL
-            .appendingPathComponent(modulePath ?? "", isDirectory: true)
-            .standardizedFileURL
-        let filePath = fileURL.standardizedFileURL.path
-        return filePath == moduleURL.path || filePath.hasPrefix(moduleURL.path + "/")
-    }
-
-    private func moduleDepth(_ modulePath: String?) -> Int {
-        (modulePath ?? "").split(separator: "/").count
     }
 
 }

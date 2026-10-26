@@ -777,7 +777,6 @@ final class MacServiceContainer {
             workspaceLanguageServerPreferences: workspaceLanguageServerPreferences,
             languageProviderCatalogSnapshot: languageProviderCatalogSnapshot,
             debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver(
-                fileStorage: fileStorage,
                 javaTestLaunchResolver: rustCore,
                 javaExecutablePath: { [runtimeService] runtime in
                     runtimeService.javaExecutableURL(forDebugging: runtime)?.path

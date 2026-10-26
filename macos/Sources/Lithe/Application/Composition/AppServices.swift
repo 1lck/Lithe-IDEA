@@ -161,7 +161,7 @@ final class AppServices {
         let resolvedCatalog = resolvedCatalogSnapshot.catalog
         self.languageProviderCatalog = resolvedCatalog
         self.debugLaunchConfigurationResolver = debugLaunchConfigurationResolver
-            ?? DebugLaunchConfigurationResolver(fileStorage: fileStorage)
+            ?? DebugLaunchConfigurationResolver()
         self.debugPortAvailabilityChecker = debugPortAvailabilityChecker
             ?? AlwaysAvailableDebugPortChecker()
         self.javaTestDebugLaunchService = JavaTestDebugLaunchService(

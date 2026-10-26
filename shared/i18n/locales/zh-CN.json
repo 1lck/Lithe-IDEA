@@ -9029,8 +9029,6 @@
     "native.theJavaLanguageServiceCouldNotResolveA": "Java 语言服务无法为此文件解析主类。",
     "native.enterTheHostNameOfTheRunningJvm": "请输入正在运行的 JVM 的主机名。",
     "native.enterAJvmDebugPortBetween1And": "请输入 1 到 65535 之间的 JVM 调试端口。",
-    "native.noCargoBinaryRunConfigurationMatchesThisRust": "没有与此 Rust 文件匹配的 Cargo 二进制运行配置。",
-    "native.buildTheRustBinaryFirstWithCargoBuild": "请先用 `cargo build --bin {arg1}` 构建 Rust 二进制。预期的可执行文件：{arg2}",
     "native.githubAuthorizationFailed.variant2": "GitHub 授权失败：{arg1}",
     "native.languageServerReturnedAnInvalidTextRange": "语言服务器返回了无效的文本范围。",
     "native.languageServerReturnedOverlappingTextEdits": "语言服务器返回了重叠的文本编辑。",

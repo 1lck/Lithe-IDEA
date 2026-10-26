@@ -59,7 +59,6 @@ struct PluginDebugAdapterTests {
         )
         var asked: [String] = []
         let resolver = DebugLaunchConfigurationResolver(
-            fileExists: { _ in true },
             pluginLaunch: { languageID, _, _ in
                 asked.append(languageID)
                 return DebugLaunchConfiguration(name: "main.zig", request: .launch, arguments: [:])
@@ -72,7 +71,7 @@ struct PluginDebugAdapterTests {
         #expect(asked == ["zig"])
         #expect(configuration.name == "main.zig")
 
-        let without = DebugLaunchConfigurationResolver(fileExists: { _ in true })
+        let without = DebugLaunchConfigurationResolver()
         #expect(throws: DebugLaunchConfigurationResolutionError.self) {
             try without.resolve(
                 provider: provider, documentURL: document, workspaceURL: root,

@@ -457,7 +457,6 @@
 "Build output" = "构建输出";
 "Build provider" = "构建 Provider";
 "Build system" = "构建系统";
-"Build the Rust binary first with `cargo build --bin %@`. Expected executable: %@" = "请先用 `cargo build --bin %@` 构建 Rust 二进制。预期的可执行文件：%@";
 "Build, Execution, Deployment" = "构建、执行、部署";
 "Build, run and debug" = "构建、运行与调试";
 "Build-system language import is still preparing. Retry when project loading completes." = "构建系统的语言导入仍在准备中。请在项目加载完成后重试。";
@@ -2194,7 +2193,6 @@
 "No Agent is ready yet. Open the panel settings to install an Agent and fetch its local configuration." = "还没有可用的 Agent。请打开设置窗口的 Agent 页面，安装 Agent 并获取它的本机配置。";
 "No Agent is selected." = "未选择 Agent。";
 "No Agent is set up yet" = "尚未设置 Agent";
-"No Cargo binary run configuration matches this Rust file." = "没有与此 Rust 文件匹配的 Cargo 二进制运行配置。";
 "No Codex configuration was found" = "未找到 Codex 配置";
 "No Columns" = "没有列";
 "No Git repository is open" = "未打开 Git 仓库";
@@ -4670,7 +4668,6 @@
 "native.buildSystemLanguageImportIsStillPreparingRetry" = "构建系统的语言导入仍在准备中。请在项目加载完成后重试。";
 "native.buildSystemLanguageImportPreparationTimedOutRetry" = "构建系统的语言导入准备超时。请重新加载项目。";
 "native.buildSystemX797f5735e5" = "构建系统";
-"native.buildTheRustBinaryFirstWithCargoBuild" = "请先用 `cargo build --bin %1$@` 构建 Rust 二进制。预期的可执行文件：%2$@";
 "native.buildsProjects" = "构建 %1$@ 项目";
 "native.built" = "构建于 %1$@";
 "native.builtIn" = "内置";
@@ -6587,7 +6584,6 @@
 "native.noBranchesFound" = "没有匹配的分支";
 "native.noBreakpoints" = "没有断点";
 "native.noCallableTargetAtThisLocation" = "当前位置没有可调用目标";
-"native.noCargoBinaryRunConfigurationMatchesThisRust" = "没有与此 Rust 文件匹配的 Cargo 二进制运行配置。";
 "native.noChangedFiles" = "没有更改的文件";
 "native.noChanges" = "没有更改";
 "native.noCodexConfigurationWasFound" = "未找到 Codex 配置";

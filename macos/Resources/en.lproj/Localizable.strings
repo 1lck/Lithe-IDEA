@@ -457,7 +457,6 @@
 "Build output" = "Build output";
 "Build provider" = "Build provider";
 "Build system" = "Build system";
-"Build the Rust binary first with `cargo build --bin %@`. Expected executable: %@" = "Build the Rust binary first with `cargo build --bin %@`. Expected executable: %@";
 "Build, Execution, Deployment" = "Build, Execution, Deployment";
 "Build, run and debug" = "Build, run and debug";
 "Build-system language import is still preparing. Retry when project loading completes." = "Build-system language import is still preparing. Retry when project loading completes.";
@@ -2194,7 +2193,6 @@
 "No Agent is ready yet. Open the panel settings to install an Agent and fetch its local configuration." = "No Agent is ready yet. Open Settings > AI > Agents to install an Agent and fetch its local configuration.";
 "No Agent is selected." = "No Agent is selected.";
 "No Agent is set up yet" = "No Agent is set up yet";
-"No Cargo binary run configuration matches this Rust file." = "No Cargo binary run configuration matches this Rust file.";
 "No Codex configuration was found" = "No Codex configuration was found";
 "No Columns" = "No Columns";
 "No Git repository is open" = "No Git repository is open";
@@ -4670,7 +4668,6 @@
 "native.buildSystemLanguageImportIsStillPreparingRetry" = "Build-system language import is still preparing. Retry when project loading completes.";
 "native.buildSystemLanguageImportPreparationTimedOutRetry" = "Build-system language import preparation timed out. Retry project loading.";
 "native.buildSystemX797f5735e5" = "Build system";
-"native.buildTheRustBinaryFirstWithCargoBuild" = "Build the Rust binary first with `cargo build --bin %1$@`. Expected executable: %2$@";
 "native.buildsProjects" = "Builds %1$@ projects";
 "native.built" = "Built %1$@";
 "native.builtIn" = "Built-in";
@@ -6587,7 +6584,6 @@
 "native.noBranchesFound" = "No branches found";
 "native.noBreakpoints" = "No breakpoints";
 "native.noCallableTargetAtThisLocation" = "No callable target at this location";
-"native.noCargoBinaryRunConfigurationMatchesThisRust" = "No Cargo binary run configuration matches this Rust file.";
 "native.noChangedFiles" = "No changed files";
 "native.noChanges" = "No changes";
 "native.noCodexConfigurationWasFound" = "No Codex configuration was found";

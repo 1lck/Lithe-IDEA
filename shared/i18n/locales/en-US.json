@@ -9029,8 +9029,6 @@
     "native.theJavaLanguageServiceCouldNotResolveA": "The Java language service could not resolve a main class for this file.",
     "native.enterTheHostNameOfTheRunningJvm": "Enter the host name of the running JVM.",
     "native.enterAJvmDebugPortBetween1And": "Enter a JVM debug port between 1 and 65535.",
-    "native.noCargoBinaryRunConfigurationMatchesThisRust": "No Cargo binary run configuration matches this Rust file.",
-    "native.buildTheRustBinaryFirstWithCargoBuild": "Build the Rust binary first with `cargo build --bin {arg1}`. Expected executable: {arg2}",
     "native.githubAuthorizationFailed.variant2": "GitHub authorization failed: {arg1}",
     "native.languageServerReturnedAnInvalidTextRange": "Language server returned an invalid text range.",
     "native.languageServerReturnedOverlappingTextEdits": "Language server returned overlapping text edits.",
