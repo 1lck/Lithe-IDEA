@@ -1290,7 +1290,10 @@ fn execute(request: &str) -> CoreResponse {
                 })
                 .and_then(crate::debug::destroy_session)
             {
-                Ok(()) => CoreResponse::success(id, json!({"destroyed": true})),
+                Ok(destroyed_children) => CoreResponse::success(
+                    id,
+                    json!({"destroyed": true, "destroyedChildSessionIds": destroyed_children}),
+                ),
                 Err(error) => CoreResponse::failure(id, error),
             }
         }

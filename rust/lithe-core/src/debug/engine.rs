@@ -856,13 +856,16 @@ pub(crate) fn disconnect(request: SessionRequest) -> Result<DebugSessionUpdate, 
     })
 }
 
-/// Removes a session after the platform has closed its socket or process.
-pub(crate) fn destroy_session(request: SessionRequest) -> Result<(), CoreError> {
+/// Removes a session and its whole child tree, returning the removed descendant IDs.
+///
+/// A child never outlives its parent, so destroying a parent also removes every
+/// descendant (leaves first). The host owns the transports and must close the transport of
+/// each returned ID; the list is empty for a session without children.
+pub(crate) fn destroy_session(request: SessionRequest) -> Result<Vec<String>, CoreError> {
     let mut sessions = sessions_lock()?;
     let Some(removed) = sessions.remove(&request.session_id) else {
         return Err(session_not_found(&request.session_id));
     };
-    // A finished child leaves its parent's list; orphaned children stop reporting upward.
     if let Some(parent) = removed
         .parent_id
         .as_ref()
@@ -871,12 +874,16 @@ pub(crate) fn destroy_session(request: SessionRequest) -> Result<(), CoreError> 
         parent.child_ids.retain(|id| id != &removed.id);
         parent.stopping_children.remove(&removed.id);
     }
-    for child_id in &removed.child_ids {
-        if let Some(child) = sessions.get_mut(child_id) {
-            child.parent_id = None;
+    let mut descendants = Vec::new();
+    let mut pending = removed.child_ids;
+    while let Some(child_id) = pending.pop() {
+        if let Some(child) = sessions.remove(&child_id) {
+            pending.extend(child.child_ids);
+            descendants.push(child_id);
         }
     }
-    Ok(())
+    descendants.reverse();
+    Ok(descendants)
 }
 
 impl DebugSession {
@@ -4915,8 +4922,15 @@ mod tests {
             .collect()
     }
 
+    fn destroy(session_id: &str) -> Vec<String> {
+        destroy_session(SessionRequest {
+            session_id: session_id.to_string(),
+        })
+        .unwrap()
+    }
+
     #[test]
-    fn child_sessions_attach_stop_with_the_parent_and_detach_when_destroyed() {
+    fn child_sessions_stop_with_the_parent_and_leave_the_tree_when_destroyed() {
         let parent = "debug-tree-parent";
         let child = "debug-tree-child";
         create_session(child_request(parent, None)).unwrap();
@@ -4938,20 +4952,36 @@ mod tests {
             "a stopping parent accepts no new children"
         );
 
-        destroy_session(SessionRequest {
-            session_id: child.to_string(),
-        })
-        .unwrap();
-        let after = with_session(parent, |session| {
+        assert!(destroy(child).is_empty());
+        with_session(parent, |session| {
             assert!(session.child_ids.is_empty());
-            Ok(child_events(&session.take_update()))
+            Ok(())
         })
         .unwrap();
-        assert!(after.is_empty());
-        destroy_session(SessionRequest {
-            session_id: parent.to_string(),
-        })
-        .unwrap();
+        assert!(destroy(parent).is_empty());
+    }
+
+    #[test]
+    fn destroying_a_parent_destroys_its_whole_child_tree() {
+        let (root, child, grandchild) = (
+            "debug-cascade-root",
+            "debug-cascade-child",
+            "debug-cascade-leaf",
+        );
+        create_session(child_request(root, None)).unwrap();
+        create_session(child_request(child, Some(root))).unwrap();
+        create_session(child_request(grandchild, Some(child))).unwrap();
+
+        assert_eq!(
+            destroy(root),
+            vec![grandchild.to_string(), child.to_string()]
+        );
+        for id in [root, child, grandchild] {
+            assert!(
+                with_session(id, |_| Ok(())).is_err(),
+                "{id} must not outlive the root"
+            );
+        }
     }
 
     #[test]

@@ -221,7 +221,12 @@
         {
           "platform": "rust",
           "path": "rust/lithe-core/src/debug/engine.rs",
-          "test": "child_sessions_attach_stop_with_the_parent_and_detach_when_destroyed"
+          "test": "child_sessions_stop_with_the_parent_and_leave_the_tree_when_destroyed"
+        },
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/debug/engine.rs",
+          "test": "destroying_a_parent_destroys_its_whole_child_tree"
         },
         {
           "platform": "macos",
