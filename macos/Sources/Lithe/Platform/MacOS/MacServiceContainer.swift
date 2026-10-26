@@ -178,6 +178,19 @@ final class MacServiceContainer {
             packageStore: pluginPackageStore,
             validateUI: { _ = try WorkbenchModuleUIComposition.registry(for: $0) }
         ).load(recoveryStore: moduleStore)
+        // Plugin debug adapters by the language they debug. A language the
+        // host debugs itself keeps its own adapter.
+        let pluginDebugAdapters: [String: (plugin: InstalledPluginPackage, adapter: DeclarativeDebugAdapter)] = {
+            var adapters: [String: (plugin: InstalledPluginPackage, adapter: DeclarativeDebugAdapter)] = [:]
+            for plugin in pluginStartup.registeredPlugins {
+                for adapter in plugin.descriptor.debugAdapters {
+                    for languageID in adapter.languageIDs where languageID != "java" && adapters[languageID] == nil {
+                        adapters[languageID] = (plugin, adapter)
+                    }
+                }
+            }
+            return adapters
+        }()
         let bundledLanguageManifests = BundledLanguagePluginCatalog.manifests
         let moduleRegistry = ModuleRegistry(
             runtime: moduleRuntime,
@@ -557,7 +570,33 @@ final class MacServiceContainer {
                     let adapterSessions = DebugAdapterSessionManager(
                         providers: languageProviderCatalog.debugProviders,
                         makeSession: { descriptor, _ in
-                            debugFactories[descriptor.id]?()
+                            if let factory = debugFactories[descriptor.id] { return factory() }
+                            guard let entry = pluginDebugAdapters[descriptor.id],
+                                  let snapshot = try? moduleRuntime.snapshot(
+                                      for: .debugAdaptersExtension(entry.plugin.descriptor.id.rawValue)
+                                  ),
+                                  snapshot.state != .disabled,
+                                  !snapshot.isQuarantined,
+                                  !snapshot.isSuppressedBySafeMode else { return nil }
+                            let pluginID = entry.plugin.descriptor.id.rawValue
+                            return CoreDebugAdapterProtocolSession(
+                                adapterID: entry.adapter.adapterID,
+                                transport: MacPluginDebugAdapterTransport(
+                                    adapterID: entry.adapter.id,
+                                    resolve: { rootURL in
+                                        try pluginLaunchResolver.resolveDebugAdapter(
+                                            pluginID: pluginID,
+                                            adapterID: entry.adapter.id,
+                                            manifest: entry.plugin.descriptor.normalizedManifest,
+                                            packageURL: entry.plugin.packageURL,
+                                            workspaceRootURL: rootURL
+                                        )
+                                    },
+                                    makeProcess: { MacRawProcessSession() }
+                                ),
+                                core: rustCore,
+                                deadlineScheduler: MacDebugOperationDeadlineScheduler()
+                            )
                         }
                     )
                     let graph = DebugFeatureGraph(
@@ -742,6 +781,28 @@ final class MacServiceContainer {
                 javaTestLaunchResolver: rustCore,
                 javaExecutablePath: { [runtimeService] runtime in
                     runtimeService.javaExecutableURL(forDebugging: runtime)?.path
+                },
+                pluginLaunch: { languageID, documentURL, workspaceURL in
+                    guard let entry = pluginDebugAdapters[languageID] else { return nil }
+                    // Registration is fixed for the process lifetime, so the
+                    // start is prepared against the current generation.
+                    let arguments = try declarativePluginOperations.debugStartArguments(
+                        manifest: entry.plugin.descriptor.normalizedManifest,
+                        adapterID: entry.adapter.id,
+                        request: DeclarativeDebugStartRequest(
+                            request: .launch,
+                            targetKind: "file",
+                            path: documentURL.standardizedFileURL.path,
+                            workingDirectory: workspaceURL.standardizedFileURL.path,
+                            registrationGeneration: 1,
+                            currentRegistrationGeneration: 1
+                        )
+                    )
+                    return DebugLaunchConfiguration(
+                        name: documentURL.lastPathComponent,
+                        request: .launch,
+                        arguments: arguments
+                    )
                 }
             ),
             debugPortAvailabilityChecker: MacDebugPortAvailabilityChecker(),
@@ -972,6 +1033,7 @@ final class MacServiceContainer {
                 !$0.contributions.isEmpty
                     || $0.manifest.id == .buildSystemsExtension(descriptor.id.rawValue)
                     || $0.manifest.id == .vcsProvidersExtension(descriptor.id.rawValue)
+                    || $0.manifest.id == .debugAdaptersExtension(descriptor.id.rawValue)
                     || $0.manifest.id == .projectGeneratorsExtension(descriptor.id.rawValue)
             }.map { declaration in
                 ModuleFactory(manifest: declaration.manifest, contributions: declaration.contributions) {

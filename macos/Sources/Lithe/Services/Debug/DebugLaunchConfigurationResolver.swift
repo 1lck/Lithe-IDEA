@@ -62,13 +62,18 @@ struct DebugLaunchConfigurationResolver {
     /// Path of the `java` executable Run uses for a runtime. Without it the
     /// Java Debug Server picks the JVM, which is the one JDT LS runs on.
     private let javaExecutablePath: (@MainActor (DebugJavaRuntime) -> String?)?
+    /// The launch of a language a plugin's debug adapter serves. Returns nil
+    /// when no adapter serves the language.
+    private let pluginLaunch: (@MainActor (_ languageID: String, _ documentURL: URL, _ workspaceURL: URL) throws -> DebugLaunchConfiguration?)?
 
     init(
         fileStorage: any FileStorage,
         executableSuffix: String = "",
         javaTestLaunchResolver: (any JavaTestDebugLaunchResolving)? = nil,
-        javaExecutablePath: (@MainActor (DebugJavaRuntime) -> String?)? = nil
+        javaExecutablePath: (@MainActor (DebugJavaRuntime) -> String?)? = nil,
+        pluginLaunch: (@MainActor (String, URL, URL) throws -> DebugLaunchConfiguration?)? = nil
     ) {
+        self.pluginLaunch = pluginLaunch
         self.fileExists = { fileStorage.fileExists(at: $0) }
         self.executableSuffix = executableSuffix
         self.javaTestLaunchResolver = javaTestLaunchResolver
@@ -79,8 +84,10 @@ struct DebugLaunchConfigurationResolver {
         executableSuffix: String = "",
         fileExists: @escaping (URL) -> Bool,
         javaTestLaunchResolver: (any JavaTestDebugLaunchResolving)? = nil,
-        javaExecutablePath: (@MainActor (DebugJavaRuntime) -> String?)? = nil
+        javaExecutablePath: (@MainActor (DebugJavaRuntime) -> String?)? = nil,
+        pluginLaunch: (@MainActor (String, URL, URL) throws -> DebugLaunchConfiguration?)? = nil
     ) {
+        self.pluginLaunch = pluginLaunch
         self.fileExists = fileExists
         self.executableSuffix = executableSuffix
         self.javaTestLaunchResolver = javaTestLaunchResolver
@@ -168,6 +175,9 @@ struct DebugLaunchConfigurationResolver {
                 options: options
             )
         default:
+            if let configuration = try pluginLaunch?(provider.id, documentURL, workspaceURL) {
+                return configuration
+            }
             throw DebugLaunchConfigurationResolutionError.unsupportedProvider(provider.displayName)
         }
     }

@@ -88259,6 +88259,22 @@
         "key": "This folder is empty",
         "arguments": []
       }
+    },
+    {
+      "id": "native.theDebugAdapterMustLaunchAnExecutableFromItsPluginPackage",
+      "description": "Native UI: The debug adapter %@ must launch an executable from its plugin package.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The debug adapter %@ must launch an executable from its plugin package.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
     }
   ]
 }

@@ -8947,6 +8947,7 @@
     "native.savedBreakpointsCouldNotBeRead": "无法读取已保存的断点。",
     "native.savedDebuggerSteppingFiltersCouldNotBeRead": "无法读取已保存的调试器步进过滤器。",
     "native.theJavaLanguageServiceIsUnavailable": "Java 语言服务不可用。",
+    "native.theDebugAdapterMustLaunchAnExecutableFromItsPluginPackage": "调试适配器 {arg1} 必须启动其插件包内的可执行文件。",
     "native.couldNotConnectToTheJavaDebugServer": "无法连接 Java Debug Server：{arg1}",
     "native.theJavaDebugServerConnectionIsStopped": "Java Debug Server 的连接已停止。",
     "native.couldNotStartTheJavaTestResultListener": "无法启动 Java 测试结果监听器：{arg1}",

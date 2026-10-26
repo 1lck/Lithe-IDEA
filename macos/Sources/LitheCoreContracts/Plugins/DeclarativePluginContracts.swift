@@ -450,6 +450,31 @@ public struct DeclarativeLanguageServerLaunchPlan: Equatable, Sendable {
     /// Set when the plan is the plugin's backend: the host services its
     /// permissions grant, passed to the session unchanged.
     public var backend: Backend? = nil
+    /// Set when the plan was selected by debug adapter.
+    public var debugAdapter: DebugAdapter? = nil
+
+    /// What the host needs besides the process: the identity the adapter
+    /// registers under and the DAP `adapterID` its requests carry.
+    public struct DebugAdapter: Equatable, Sendable {
+        public let id: String
+        public let providerID: String
+        public let displayName: String
+        public let adapterID: String
+        public let requests: [String]
+        public let languageIDs: [String]
+
+        public init(
+            id: String, providerID: String, displayName: String, adapterID: String,
+            requests: [String], languageIDs: [String]
+        ) {
+            self.id = id
+            self.providerID = providerID
+            self.displayName = displayName
+            self.adapterID = adapterID
+            self.requests = requests
+            self.languageIDs = languageIDs
+        }
+    }
 
     public struct Backend: Equatable, Sendable {
         public let hostServices: [String]
@@ -592,6 +617,8 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
     public let buildSystems: [DeclarativeBuildSystem]
     /// VCS providers the plugin adds (`vcsProviders` capability).
     public let vcsProviders: [DeclarativeVcsProvider]
+    /// Debug adapters the plugin adds (`debugAdapters` capability).
+    public let debugAdapters: [DeclarativeDebugAdapter]
     public let settings: [DeclarativePluginSetting]
     /// Buttons the plugin adds to settings pages (settings capability 2).
     public let settingActions: [DeclarativePluginSettingAction]
@@ -642,6 +669,14 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
         }
         buildSystems = decoded.buildSystems.map { $0.declaration() }
         vcsProviders = decoded.vcsProviders.map { DeclarativeVcsProvider(id: $0.id, displayName: $0.displayName) }
+        debugAdapters = decoded.debugAdapters.map {
+            DeclarativeDebugAdapter(
+                id: $0.id,
+                displayName: $0.displayName,
+                adapterID: $0.adapterID ?? $0.id,
+                languageIDs: $0.selectors.flatMap(\.languageIDs)
+            )
+        }
         projectGenerators = decoded.projectGenerators.map {
             DeclarativeProjectGenerator(id: $0.id, displayName: $0.displayName, icon: $0.icon)
         }
@@ -710,6 +745,17 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 }
             ))
         }
+        if !debugAdapters.isEmpty {
+            // Enablement only: an adapter process starts when the user starts
+            // debugging, never while the module is enabled.
+            modules.append(PluginModuleDeclaration(
+                manifest: LanguageExtensionModuleManifests.debugAdapters(
+                    pluginID: decoded.id,
+                    displayName: decoded.displayName,
+                    enabledByDefault: enabledByDefault
+                )
+            ))
+        }
         if !projectGenerators.isEmpty {
             modules.append(PluginModuleDeclaration(
                 manifest: LanguageExtensionModuleManifests.projectGenerators(
@@ -728,6 +774,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 contributions: ui.contributions
             ))
         }
+        let debuggedLanguages = Set(debugAdapters.flatMap(\.languageIDs))
         let languageSupports = decoded.languages.map { language in
             let execution = executionByLanguage[language.id]
             return LanguageSupportDeclaration(
@@ -752,6 +799,9 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                     : nil,
                 testingModuleID: execution?.providesTest == true
                     ? .languageExecutionExtension(language.id)
+                    : nil,
+                debugModuleID: debuggedLanguages.contains(language.id)
+                    ? .debugAdaptersExtension(decoded.id)
                     : nil,
                 hostCapabilities: hostCapabilitiesByLanguage[language.id] ?? []
             )
@@ -992,6 +1042,36 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             let displayName: String
         }
 
+        /// Naming and language selection only; the process, requests, and
+        /// bindings stay with Rust Core.
+        struct DebugAdapter: Decodable {
+            struct Selector: Decodable {
+                let languageIDs: [String]
+
+                init(from decoder: Decoder) throws {
+                    let values = try decoder.container(keyedBy: CodingKeys.self)
+                    languageIDs = try values.decodeIfPresent([String].self, forKey: .languageIDs) ?? []
+                }
+
+                private enum CodingKeys: String, CodingKey { case languageIDs }
+            }
+
+            let id: String
+            let displayName: String
+            let adapterID: String?
+            let selectors: [Selector]
+
+            init(from decoder: Decoder) throws {
+                let values = try decoder.container(keyedBy: CodingKeys.self)
+                id = try values.decode(String.self, forKey: .id)
+                displayName = try values.decode(String.self, forKey: .displayName)
+                adapterID = try values.decodeIfPresent(String.self, forKey: .adapterID)
+                selectors = try values.decodeIfPresent([Selector].self, forKey: .selectors) ?? []
+            }
+
+            private enum CodingKeys: String, CodingKey { case id, displayName, adapterID, selectors }
+        }
+
         /// The parts of a build system the tool window lists. Detection,
         /// commands, and decoders stay with Rust Core.
         struct BuildSystem: Decodable {
@@ -1110,6 +1190,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
         let executionProviders: [ExecutionProvider]
         let buildSystems: [BuildSystem]
         let vcsProviders: [VcsProvider]
+        let debugAdapters: [DebugAdapter]
         let ui: DeclarativeUIContributions?
         let settings: [Setting]
         let settingActions: [SettingAction]
@@ -1141,6 +1222,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             executionProviders = try values.decodeIfPresent([ExecutionProvider].self, forKey: .executionProviders) ?? []
             buildSystems = try values.decodeIfPresent([BuildSystem].self, forKey: .buildSystems) ?? []
             vcsProviders = try values.decodeIfPresent([VcsProvider].self, forKey: .vcsProviders) ?? []
+            debugAdapters = try values.decodeIfPresent([DebugAdapter].self, forKey: .debugAdapters) ?? []
             settings = try values.decodeIfPresent([Setting].self, forKey: .settings) ?? []
             settingActions = try values.decodeIfPresent([SettingAction].self, forKey: .settingActions) ?? []
             projectGenerators = try values.decodeIfPresent([ProjectGenerator].self, forKey: .projectGenerators) ?? []
@@ -1150,8 +1232,25 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
         private enum CodingKeys: String, CodingKey {
             case id, displayName, version, pluginAPIVersion, vendor, permissions, activationEvents
             case languages, languageServers, executionProviders, buildSystems, vcsProviders, ui, settings, settingActions
-            case projectGenerators, backend
+            case projectGenerators, backend, debugAdapters
         }
+    }
+}
+
+/// One debug adapter of a plugin, as the host lists and selects it.
+public struct DeclarativeDebugAdapter: Equatable, Sendable {
+    public let id: String
+    public let displayName: String
+    /// The `adapterID` of the DAP `initialize` request.
+    public let adapterID: String
+    /// Languages whose files the adapter debugs.
+    public let languageIDs: [String]
+
+    public init(id: String, displayName: String, adapterID: String, languageIDs: [String]) {
+        self.id = id
+        self.displayName = displayName
+        self.adapterID = adapterID
+        self.languageIDs = languageIDs
     }
 }
 
@@ -1234,6 +1333,34 @@ public protocol DeclarativePluginSettingsResolving: Sendable {
     ) throws -> ToolingJSONValue?
 }
 
+/// What a debug start knows that the manifest cannot: the target and the
+/// generations of the registration the start was prepared against.
+public struct DeclarativeDebugStartRequest: Equatable, Sendable {
+    public enum Request: String, Sendable { case launch, attach }
+
+    public let request: Request
+    /// What the target is: `file` or `process`.
+    public let targetKind: String
+    public let path: String?
+    public let processID: Int?
+    public let workingDirectory: String?
+    public let registrationGeneration: Int
+    public let currentRegistrationGeneration: Int
+
+    public init(
+        request: Request, targetKind: String, path: String? = nil, processID: Int? = nil,
+        workingDirectory: String? = nil, registrationGeneration: Int, currentRegistrationGeneration: Int
+    ) {
+        self.request = request
+        self.targetKind = targetKind
+        self.path = path
+        self.processID = processID
+        self.workingDirectory = workingDirectory
+        self.registrationGeneration = registrationGeneration
+        self.currentRegistrationGeneration = currentRegistrationGeneration
+    }
+}
+
 public protocol DeclarativeLanguageServerLaunchPlanning: Sendable {
     func languageServerLaunchPlan(
         manifest: Data,
@@ -1259,6 +1386,19 @@ public protocol DeclarativeLanguageServerLaunchPlanning: Sendable {
         manifest: Data,
         request: DeclarativeLanguageServerLaunchRequest
     ) throws -> DeclarativeLanguageServerLaunchPlan
+    /// The launch plan of a debug adapter, with `debugAdapter` set.
+    func debugAdapterLaunchPlan(
+        manifest: Data,
+        adapterID: String,
+        request: DeclarativeLanguageServerLaunchRequest
+    ) throws -> DeclarativeLanguageServerLaunchPlan
+    /// The DAP arguments of one debug start, checked by Rust Core against the
+    /// adapter's registration and the facts of the target.
+    func debugStartArguments(
+        manifest: Data,
+        adapterID: String,
+        request: DeclarativeDebugStartRequest
+    ) throws -> [String: ToolingJSONValue]
 }
 
 public extension DeclarativeLanguageServerLaunchPlanning {
@@ -1291,6 +1431,28 @@ public extension DeclarativeLanguageServerLaunchPlanning {
         throw DeclarativePluginRejection(
             code: "plugin.launch.unavailable",
             message: "This host cannot plan plugin backend launches."
+        )
+    }
+
+    func debugAdapterLaunchPlan(
+        manifest _: Data,
+        adapterID _: String,
+        request _: DeclarativeLanguageServerLaunchRequest
+    ) throws -> DeclarativeLanguageServerLaunchPlan {
+        throw DeclarativePluginRejection(
+            code: "plugin.launch.unavailable",
+            message: "This host cannot plan debug adapter launches."
+        )
+    }
+
+    func debugStartArguments(
+        manifest _: Data,
+        adapterID _: String,
+        request _: DeclarativeDebugStartRequest
+    ) throws -> [String: ToolingJSONValue] {
+        throw DeclarativePluginRejection(
+            code: "plugin.launch.unavailable",
+            message: "This host cannot plan debug starts."
         )
     }
 }

@@ -3662,6 +3662,7 @@
 "The current file is outside the workspace: %@" = "当前文件在工作区之外：%@";
 "The current file will be saved to Local History before it is replaced." = "替换当前文件前，会将其保存到本地历史。";
 "The current worktree cannot be removed here." = "不能在这里删除当前工作树。";
+"The debug adapter %@ must launch an executable from its plugin package." = "调试适配器 %@ 必须启动其插件包内的可执行文件。";
 "The debug adapter did not provide a terminal executable." = "调试适配器没有提供终端可执行文件。";
 "The debug adapter provided an invalid terminal working directory." = "调试适配器提供的终端工作目录无效。";
 "The debugger did not return object fields in time." = "调试器未能及时返回对象字段。";
@@ -8013,6 +8014,7 @@
 "native.theDebugAdapterDidNotProvideATerminal" = "调试适配器没有提供终端可执行文件。";
 "native.theDebugAdapterIsNotInstalledYet" = "%1$@ 调试适配器尚未安装。";
 "native.theDebugAdapterIsNotReady" = "调试适配器未就绪。";
+"native.theDebugAdapterMustLaunchAnExecutableFromItsPluginPackage" = "调试适配器 %1$@ 必须启动其插件包内的可执行文件。";
 "native.theDebugAdapterProvidedAnInvalidTerminalWorking" = "调试适配器提供的终端工作目录无效。";
 "native.theDebugAdapterReturnedAnInvalidResponse" = "调试适配器返回了无效的 %1$@ 响应。";
 "native.theDebugAdapterStopped" = "调试适配器已停止。";

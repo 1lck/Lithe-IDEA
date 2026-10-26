@@ -3662,6 +3662,7 @@
 "The current file is outside the workspace: %@" = "The current file is outside the workspace: %@";
 "The current file will be saved to Local History before it is replaced." = "The current file will be saved to Local History before it is replaced.";
 "The current worktree cannot be removed here." = "The current worktree cannot be removed here.";
+"The debug adapter %@ must launch an executable from its plugin package." = "The debug adapter %@ must launch an executable from its plugin package.";
 "The debug adapter did not provide a terminal executable." = "The debug adapter did not provide a terminal executable.";
 "The debug adapter provided an invalid terminal working directory." = "The debug adapter provided an invalid terminal working directory.";
 "The debugger did not return object fields in time." = "The debugger did not return object fields in time.";
@@ -8013,6 +8014,7 @@
 "native.theDebugAdapterDidNotProvideATerminal" = "The debug adapter did not provide a terminal executable.";
 "native.theDebugAdapterIsNotInstalledYet" = "The %1$@ Debug Adapter is not installed yet.";
 "native.theDebugAdapterIsNotReady" = "The Debug Adapter is not ready.";
+"native.theDebugAdapterMustLaunchAnExecutableFromItsPluginPackage" = "The debug adapter %1$@ must launch an executable from its plugin package.";
 "native.theDebugAdapterProvidedAnInvalidTerminalWorking" = "The debug adapter provided an invalid terminal working directory.";
 "native.theDebugAdapterReturnedAnInvalidResponse" = "The Debug Adapter returned an invalid %1$@ response.";
 "native.theDebugAdapterStopped" = "The Debug Adapter stopped.";
