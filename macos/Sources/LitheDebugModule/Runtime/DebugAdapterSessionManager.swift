@@ -205,18 +205,7 @@ public final class DebugAdapterSessionManager: ObservableObject {
         }
         updateSessionSummary(sessionID)
         if let controlling = session as? any DebugAdapterControllingSession {
-            for (source, breakpoints) in requestedBreakpoints[descriptor.id] ?? [:] {
-                controlling.setBreakpoints(breakpoints, in: source)
-            }
-            if let breakpoints = requestedExceptionBreakpoints[descriptor.id] {
-                controlling.setExceptionBreakpoints(breakpoints)
-            }
-            if let breakpoints = requestedFunctionBreakpoints[descriptor.id] {
-                controlling.setFunctionBreakpoints(breakpoints)
-            }
-            if let breakpoints = requestedDataBreakpoints[descriptor.id] {
-                controlling.setDataBreakpoints(breakpoints)
-            }
+            replayBreakpoints(to: controlling, providerID: descriptor.id)
         }
         return DebugSessionHandle(id: sessionID, session: session)
     }
@@ -594,6 +583,7 @@ public final class DebugAdapterSessionManager: ObservableObject {
         updateSessionSummary(childID)
         do {
             try session.start(rootURL: parent.rootURL)
+            replayBreakpoints(to: controlling, providerID: parent.descriptor.id)
             try controlling.launch(DebugLaunchConfiguration(
                 name: request.configurationName ?? parent.targetTitle ?? "",
                 request: request.request,
@@ -608,6 +598,26 @@ public final class DebugAdapterSessionManager: ObservableObject {
             title: request.configurationName ?? parent.targetTitle
         )
         return .success(())
+    }
+
+    /// Sends the provider's saved source, exception, function and data breakpoints to a
+    /// newly started session so it stops where the user already asked it to.
+    private func replayBreakpoints(
+        to controlling: any DebugAdapterControllingSession,
+        providerID: String
+    ) {
+        for (source, breakpoints) in requestedBreakpoints[providerID] ?? [:] {
+            controlling.setBreakpoints(breakpoints, in: source)
+        }
+        if let breakpoints = requestedExceptionBreakpoints[providerID] {
+            controlling.setExceptionBreakpoints(breakpoints)
+        }
+        if let breakpoints = requestedFunctionBreakpoints[providerID] {
+            controlling.setFunctionBreakpoints(breakpoints)
+        }
+        if let breakpoints = requestedDataBreakpoints[providerID] {
+            controlling.setDataBreakpoints(breakpoints)
+        }
     }
 
     private func configureRunInTerminalHandler(

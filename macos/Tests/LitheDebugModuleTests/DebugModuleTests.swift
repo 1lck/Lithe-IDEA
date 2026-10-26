@@ -1058,6 +1058,25 @@ struct DebugModuleTests {
     }
 
     @Test
+    func childSessionReplaysBreakpointsSavedBeforeItWasCreated() throws {
+        let core = RecordingDebugProtocolCore()
+        let transport = RecordingTransport()
+        let (manager, _) = makeChildCapableManager(core: core, parentTransport: transport)
+        defer { manager.stopAll() }
+        let root = URL(fileURLWithPath: "/tmp/multi-child")
+        let file = root.appendingPathComponent("a.js")
+        try manager.activateNew(for: file, rootURL: root)
+        try manager.setBreakpoints([DebugSourceBreakpoint(line: 7, condition: "ready")], in: file)
+        let before = core.breakpointUpdates.count
+
+        requestChild(core, transport)
+
+        #expect(core.startDebuggingResults.map(\.succeeded) == [true])
+        let replayed = Array(core.breakpointUpdates.dropFirst(before))
+        #expect(replayed == [[DebugSourceBreakpoint(line: 7, condition: "ready")]])
+    }
+
+    @Test
     func stoppingAParentStopsItsChildren() throws {
         let core = RecordingDebugProtocolCore()
         let transport = RecordingTransport()
