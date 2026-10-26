@@ -1098,21 +1098,21 @@ struct DebugModuleTests {
     }
 
     @Test
-    func startDebuggingFailsCleanlyWhenNoChildFactoryExists() throws {
+    func startDebuggingFallsBackToTheProviderSessionFactory() throws {
         let core = RecordingDebugProtocolCore()
         let transport = RecordingTransport()
-        let (manager, _) = makeChildCapableManager(
+        let (manager, created) = makeChildCapableManager(
             core: core, parentTransport: transport, childFactory: false
         )
         defer { manager.stopAll() }
-        let root = URL(fileURLWithPath: "/tmp/multi-dormant")
-        try manager.activateNew(for: root.appendingPathComponent("a.js"), rootURL: root)
+        let root = URL(fileURLWithPath: "/tmp/multi-default")
+        let handle = try manager.activateNew(for: root.appendingPathComponent("a.js"), rootURL: root)
+        #expect(core.lastSupportsStartDebuggingRequest == true)
 
         requestChild(core, transport)
 
-        #expect(manager.sessionSummaries.count == 1)
-        #expect(core.lastSupportsStartDebuggingRequest == false)
-        #expect(core.startDebuggingResults.map(\.succeeded) == [false])
+        #expect(created().count == 2)
+        #expect(manager.sessionSummaries.contains { $0.parentID == handle.id })
     }
 
     @Test

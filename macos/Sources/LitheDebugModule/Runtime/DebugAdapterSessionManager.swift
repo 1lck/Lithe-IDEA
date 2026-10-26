@@ -95,9 +95,9 @@ public final class DebugAdapterSessionManager: ObservableObject {
     }
 
     /// Builds the adapter session for a `startDebugging` child of a running session.
-    /// Only a provider that understands its adapter's child configuration (for example
-    /// a `connect` endpoint) may supply one; while nil the host does not advertise
-    /// `startDebugging` support and the adapter keeps its single-session behaviour.
+    /// A provider that understands its adapter's child configuration (for example a
+    /// `connect` endpoint) may override it; by default the child is a new session
+    /// from `makeSession`, so the host always advertises `startDebugging` support.
     public var makeChildSession: (@MainActor (
         DebugProviderDescriptor,
         DebugStartDebuggingRequest,
@@ -562,10 +562,6 @@ public final class DebugAdapterSessionManager: ObservableObject {
         sessionID: DebugSessionID
     ) {
         guard let session = session as? any DebugAdapterStartDebuggingSession else { return }
-        guard makeChildSession != nil else {
-            session.onStartDebuggingRequest = nil
-            return
-        }
         session.onStartDebuggingRequest = { [weak self] request, completion in
             guard let self else {
                 completion(.failure(DebugAdapterProtocolError.stopped))
@@ -583,8 +579,9 @@ public final class DebugAdapterSessionManager: ObservableObject {
         request: DebugStartDebuggingRequest
     ) -> Result<Void, Error> {
         guard let parent = sessions[parentID],
-              let makeChildSession,
-              let session = makeChildSession(parent.descriptor, request, parent.rootURL),
+              let session = (makeChildSession ?? { descriptor, _, root in self.makeSession(descriptor, root) })(
+                  parent.descriptor, request, parent.rootURL
+              ),
               let controlling = session as? any DebugAdapterControllingSession,
               let childLink = session as? any DebugAdapterChildSessionLinking,
               let parentLink = parent.session as? any DebugAdapterChildSessionLinking else {

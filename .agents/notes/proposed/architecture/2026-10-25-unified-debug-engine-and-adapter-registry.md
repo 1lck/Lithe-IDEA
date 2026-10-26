@@ -131,7 +131,7 @@ macOS 多会话（本阶段）：宿主在 `DebugAdapterSessionManager` 里实�
 
 界面：只有一个会话时标签与以前完全一致。出现第二个会话后，标题栏变成会话标签条，子会话紧跟父会话并带 “↳” 前缀，每个标签有状态圆点（运行绿、暂停橙、失败红）和关闭按钮；原来的会话菜单保留为溢出入口。
 
-`makeChildSession` 默认是 nil：目前没有 provider 提供子会话传输，宿主不声明 `supportsStartDebuggingRequest`，适配器仍收到失败回复，`child-debug-sessions` 保持 `partial`。不能让默认实现复用 `makeSession` 再开一个 stdio 适配器：debugpy 发来的是 `connect` 的主机和端口，新开的 stdio 适配器会忽略它，反而让现在能用的 Python 调试退化。后续由具体语言插件在需要 TCP 或 socket 传输时补上子会话工厂。Swift 侧仍未消费 `projection`、`childSession*` 与 `disabledCapabilities`。
+`makeChildSession` 是可选覆盖：默认子会话就是 provider 的 `makeSession` 再开一个会话，宿主因此总会声明 `supportsStartDebuggingRequest`。这是有意取舍：旧调试内核要整体被替换，不为兼容旧行为保留休眠开关。代价是 debugpy 这类通过 `connect` 主机和端口附加的适配器，在没有 TCP 子会话传输前，子会话会被忽略该端点，多进程 Python 调试暂时不可用；由具体语言插件覆盖 `makeChildSession` 补上。Swift 侧仍未消费 `projection`、`childSession*` 与 `disabledCapabilities`。
 
 P0–P5 完成后关闭 #1210。可选扩展、插件依赖和私有 resolver 都不是关闭条件。
 
