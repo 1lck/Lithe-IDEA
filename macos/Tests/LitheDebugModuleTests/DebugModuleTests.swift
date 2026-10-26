@@ -866,7 +866,11 @@ struct DebugModuleTests {
 
     @Test
     func sharedProjectionV2FixturesDecodeAndRejectOnTheSameTerms() throws {
-        let url = URL(fileURLWithPath: "shared/fixtures/debug/projection-v2-examples.json")
+        // 夹具在仓库根的 shared/ 下，按本文件位置定位，不依赖 swift test 的工作目录。
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("shared/fixtures/debug/projection-v2-examples.json")
         let root = try #require(
             try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]
         )
@@ -981,6 +985,178 @@ struct DebugModuleTests {
         transport.emitData(Data("start-debugging-request".utf8))
 
         #expect(core.startDebuggingResults.map(\.succeeded) == [false])
+    }
+
+    /// Builds a manager whose parent and child sessions share one recording core.
+    private func makeChildCapableManager(
+        core: RecordingDebugProtocolCore,
+        parentTransport: RecordingTransport,
+        childFactory: Bool = true
+    ) -> (DebugAdapterSessionManager, () -> [CoreDebugAdapterProtocolSession]) {
+        let descriptor = DebugProviderDescriptor(id: "node", displayName: "Node", fileExtensions: ["js"])
+        var created: [CoreDebugAdapterProtocolSession] = []
+        let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in
+            let session = CoreDebugAdapterProtocolSession(
+                adapterID: "node",
+                transport: parentTransport,
+                core: core,
+                sessionID: "node-parent",
+                deadlineScheduler: RecordingDebugDeadlineScheduler()
+            )
+            created.append(session)
+            return session
+        }
+        if childFactory {
+            manager.makeChildSession = { _, _, _ in
+                let session = CoreDebugAdapterProtocolSession(
+                    adapterID: "node",
+                    transport: RecordingTransport(),
+                    core: core,
+                    sessionID: "node-child-\(created.count)",
+                    deadlineScheduler: RecordingDebugDeadlineScheduler()
+                )
+                created.append(session)
+                return session
+            }
+        }
+        return (manager, { created })
+    }
+
+    private func requestChild(_ core: RecordingDebugProtocolCore, _ transport: RecordingTransport) {
+        core.enqueueReceive(sessionID: "node-parent", state: "running", events: [[
+            "sequence": 2,
+            "type": "startDebuggingRequested",
+            "requestId": "startDebugging-70",
+            "request": ["request": "attach", "configuration": ["name": "Worker", "port": 9230]]
+        ]])
+        transport.emitData(Data("start-debugging-request".utf8))
+    }
+
+    @Test
+    func startDebuggingOpensALinkedChildWithoutStealingTheProviderSelection() throws {
+        let core = RecordingDebugProtocolCore()
+        let transport = RecordingTransport()
+        let (manager, created) = makeChildCapableManager(core: core, parentTransport: transport)
+        defer { manager.stopAll() }
+        let root = URL(fileURLWithPath: "/tmp/multi-child")
+        let handle = try manager.activateNew(for: root.appendingPathComponent("a.js"), rootURL: root)
+
+        requestChild(core, transport)
+
+        let summaries = manager.sessionSummaries
+        #expect(summaries.count == 2)
+        let child = try #require(summaries.first { $0.id != handle.id })
+        #expect(child.parentID == handle.id)
+        #expect(child.targetTitle == "Worker")
+        #expect(core.lastParentSessionID == "node-parent")
+        #expect(core.lastLaunchConfiguration?.request == .attach)
+        #expect(core.startDebuggingResults.map(\.succeeded) == [true])
+        #expect(created().count == 2)
+        let selected = try #require(manager.session(providerID: "node") as? CoreDebugAdapterProtocolSession)
+        let parentSession = try #require(handle.session as? CoreDebugAdapterProtocolSession)
+        #expect(selected === parentSession)
+    }
+
+    @Test
+    func childSessionReplaysBreakpointsSavedBeforeItWasCreated() throws {
+        let core = RecordingDebugProtocolCore()
+        let transport = RecordingTransport()
+        let (manager, _) = makeChildCapableManager(core: core, parentTransport: transport)
+        defer { manager.stopAll() }
+        let root = URL(fileURLWithPath: "/tmp/multi-child")
+        let file = root.appendingPathComponent("a.js")
+        try manager.activateNew(for: file, rootURL: root)
+        try manager.setBreakpoints([DebugSourceBreakpoint(line: 7, condition: "ready")], in: file)
+        let before = core.breakpointUpdates.count
+
+        requestChild(core, transport)
+
+        #expect(core.startDebuggingResults.map(\.succeeded) == [true])
+        let replayed = Array(core.breakpointUpdates.dropFirst(before))
+        #expect(replayed == [[DebugSourceBreakpoint(line: 7, condition: "ready")]])
+    }
+
+    @Test
+    func childSessionIsNeverPromotedOverARootSession() throws {
+        let core = RecordingDebugProtocolCore()
+        let transport = RecordingTransport()
+        let (manager, _) = makeChildCapableManager(core: core, parentTransport: transport)
+        defer { manager.stopAll() }
+        let root = URL(fileURLWithPath: "/tmp/multi-child")
+        let file = root.appendingPathComponent("a.js")
+        let first = try manager.activateNew(for: file, rootURL: root)
+        requestChild(core, transport)
+        let second = try manager.activateNew(for: file, rootURL: root)
+        let secondChild = try #require(manager.sessionSummaries.first { $0.parentID == nil && $0.id != first.id })
+        #expect(secondChild.id == second.id)
+
+        manager.stop(sessionID: second.id)
+
+        let selected = try #require(manager.session(providerID: "node") as? CoreDebugAdapterProtocolSession)
+        let firstSession = try #require(first.session as? CoreDebugAdapterProtocolSession)
+        #expect(selected === firstSession)
+    }
+
+    @Test
+    func stoppingAParentStopsItsChildren() throws {
+        let core = RecordingDebugProtocolCore()
+        let transport = RecordingTransport()
+        let (manager, _) = makeChildCapableManager(core: core, parentTransport: transport)
+        defer { manager.stopAll() }
+        let root = URL(fileURLWithPath: "/tmp/multi-stop")
+        let handle = try manager.activateNew(for: root.appendingPathComponent("a.js"), rootURL: root)
+        requestChild(core, transport)
+        #expect(manager.childSessionIDs(of: handle.id).count == 1)
+
+        manager.stop(sessionID: handle.id)
+
+        #expect(manager.sessionSummaries.isEmpty)
+        #expect(core.destroyedSessionIDs.contains("node-parent"))
+        #expect(core.destroyedSessionIDs.count == 2)
+    }
+
+    @Test
+    func featureModelDropsChildrenWithTheirParentAndSelectsARemainingSession() throws {
+        let core = RecordingDebugProtocolCore()
+        let transport = RecordingTransport()
+        let (manager, _) = makeChildCapableManager(core: core, parentTransport: transport)
+        let feature = GenericDebugFeatureModel(sessions: manager)
+        defer { feature.reset() }
+        var stopped: [DebugSessionID] = []
+        feature.onSessionStopped = { stopped.append($0) }
+        let root = URL(fileURLWithPath: "/tmp/multi-feature")
+        let configuration = DebugLaunchConfiguration(name: "Main", request: .launch, arguments: [:])
+        #expect(feature.start(
+            fileURL: root.appendingPathComponent("a.js"), rootURL: root, configuration: configuration
+        ))
+        let parentID = try #require(feature.activeSessionID)
+        requestChild(core, transport)
+        let childID = try #require(feature.sessionSummaries.first { $0.parentID == parentID }?.id)
+        #expect(feature.selectSession(childID))
+
+        feature.stopSession(parentID)
+
+        #expect(feature.sessionSummaries.isEmpty)
+        #expect(feature.activeSessionID == nil)
+        #expect(Set(stopped) == [parentID, childID])
+    }
+
+    @Test
+    func startDebuggingFallsBackToTheProviderSessionFactory() throws {
+        let core = RecordingDebugProtocolCore()
+        let transport = RecordingTransport()
+        let (manager, created) = makeChildCapableManager(
+            core: core, parentTransport: transport, childFactory: false
+        )
+        defer { manager.stopAll() }
+        let root = URL(fileURLWithPath: "/tmp/multi-default")
+        let handle = try manager.activateNew(for: root.appendingPathComponent("a.js"), rootURL: root)
+        #expect(core.lastSupportsStartDebuggingRequest == true)
+
+        requestChild(core, transport)
+
+        #expect(created().count == 2)
+        #expect(manager.sessionSummaries.contains { $0.parentID == handle.id })
     }
 
     @Test
@@ -3191,6 +3367,7 @@ private final class RecordingDebugProtocolCore: DebugProtocolCore {
     private(set) var lastLaunchConfiguration: DebugLaunchConfiguration?
     private(set) var lastSupportsRunInTerminalRequest: Bool?
     private(set) var lastSupportsStartDebuggingRequest: Bool?
+    private(set) var lastParentSessionID: String?
     private(set) var startDebuggingResults: [(requestID: String, succeeded: Bool)] = []
     private(set) var runInTerminalCompletions: [RecordingRunInTerminalCompletion] = []
     let defaultSteppingFilters = DebugSteppingFilters(
@@ -3213,8 +3390,10 @@ private final class RecordingDebugProtocolCore: DebugProtocolCore {
         adapterID _: String,
         rootPath _: String,
         supportsRunInTerminalRequest: Bool,
-        supportsStartDebuggingRequest: Bool
+        supportsStartDebuggingRequest: Bool,
+        parentSessionID: String?
     ) throws -> DebugCoreUpdate {
+        lastParentSessionID = parentSessionID
         lastSupportsRunInTerminalRequest = supportsRunInTerminalRequest
         lastSupportsStartDebuggingRequest = supportsStartDebuggingRequest
         return update(

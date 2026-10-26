@@ -158,6 +158,14 @@ public protocol DebugAdapterStartDebuggingSession: AnyObject {
     var onStartDebuggingRequest: DebugStartDebuggingRequestHandler? { get set }
 }
 
+/// Lets the host link a session to its parent in the shared Core session tree.
+/// `parentCoreSessionID` must be set before `start`; Core rejects an unknown parent.
+@MainActor
+public protocol DebugAdapterChildSessionLinking: AnyObject {
+    var coreSessionID: String { get }
+    var parentCoreSessionID: String? { get set }
+}
+
 /// Optional reverse-request surface implemented only by sessions whose native
 /// host can create an integrated terminal before DAP initialization begins.
 @MainActor

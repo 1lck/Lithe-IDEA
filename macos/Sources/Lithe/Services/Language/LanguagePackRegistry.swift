@@ -82,37 +82,10 @@ final class LanguagePackRegistry {
                 toolchainProviders: standardToolchains.filter {
                     $0.languageProviderID == descriptor.id
                 },
-                debugAdapterLaunch: hostProvided.contains(.debug)
-                    ? Self.standardDebugAdapterDefinition(for: descriptor.id)
-                    : nil,
                 toolingRuntime: runtimeByID[descriptor.id],
                 testProviders: testProviders
             )
         }
         return Self(packs: packs)
-    }
-
-    private static func standardDebugAdapterDefinition(for id: String) -> StdioDebugAdapterLaunch? {
-        switch id {
-        case "python":
-            return StdioDebugAdapterLaunch(
-                adapterID: "python",
-                executableNames: ["python3", "python"],
-                arguments: ["-m", "debugpy.adapter"]
-            )
-        case "rust":
-            return StdioDebugAdapterLaunch(
-                adapterID: "lldb",
-                executableNames: ["lldb-dap"],
-                arguments: [],
-                fallbacks: [
-                    // Xcode exposes lldb-dap through xcrun even when the
-                    // app's inherited PATH does not contain the tool.
-                    .init(executableName: "xcrun", argumentPrefix: ["lldb-dap"])
-                ]
-            )
-        default:
-            return nil
-        }
     }
 }

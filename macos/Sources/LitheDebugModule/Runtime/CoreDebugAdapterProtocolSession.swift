@@ -6,7 +6,8 @@ import LitheCoreContracts
 /// stay behind `DebugProtocolCore`, while native I/O stays in the transport.
 @MainActor
 public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSession,
-    DebugAdapterRunInTerminalSession, DebugAdapterStartDebuggingSession {
+    DebugAdapterRunInTerminalSession, DebugAdapterStartDebuggingSession,
+    DebugAdapterChildSessionLinking {
     private typealias OperationHandler = (Result<DebugCoreOperationResult, Error>) -> Void
 
     private struct PendingOperation {
@@ -42,6 +43,9 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
     public var onEvent: ((DebugAdapterEvent) -> Void)?
     public var onRunInTerminalRequest: DebugRunInTerminalRequestHandler?
     public var onStartDebuggingRequest: DebugStartDebuggingRequestHandler?
+    public var coreSessionID: String { sessionID }
+    /// Set by the host before `start` when the adapter of another session asked for this one.
+    public var parentCoreSessionID: String?
     public var isRunning: Bool { transport.isRunning }
     public private(set) var capabilities: DebugAdapterCapabilities = .unknown
 
@@ -79,7 +83,8 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
                 adapterID: adapterID,
                 rootPath: rootURL.standardizedFileURL.path,
                 supportsRunInTerminalRequest: onRunInTerminalRequest != nil,
-                supportsStartDebuggingRequest: onStartDebuggingRequest != nil
+                supportsStartDebuggingRequest: onStartDebuggingRequest != nil,
+                parentSessionID: parentCoreSessionID
             )
             ownsCoreSession = true
             try apply(update)

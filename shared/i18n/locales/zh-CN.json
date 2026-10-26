@@ -6369,6 +6369,8 @@
     "native.thisWindow.variant2": "此窗口",
     "native.thisWorktreeHasADetachedHEADPublishItAsABranchBeforeCreatingAPullRequest": "当前工作树处于分离 HEAD 状态。请先将它发布为分支，再创建拉取请求。",
     "native.thisWorktreeHasNoUncommittedChanges": "此工作树没有未提交的更改。",
+    "native.sessions": "会话",
+    "native.stopSessionNamed": "停止 {arg1}",
     "native.threads": "线程",
     "native.timeToExit": "等待退出时间",
     "native.timedOut": "{arg1} 超时。",
