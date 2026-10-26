@@ -468,9 +468,12 @@ public final class DebugAdapterSessionManager: ObservableObject {
     }
 
     private func promoteLatestSession(for providerID: String) {
-        guard let replacementID = sessionOrder.reversed().first(where: {
-            sessions[$0]?.descriptor.id == providerID
-        }), let replacement = sessions[replacementID] else {
+        // Child sessions never become the provider's selected session; they are only
+        // promoted when no root session of the provider is left.
+        let candidates = sessionOrder.reversed().filter { sessions[$0]?.descriptor.id == providerID }
+        guard let replacementID = candidates.first(where: { sessions[$0]?.parentID == nil })
+                ?? candidates.first,
+              let replacement = sessions[replacementID] else {
             activeSessionIDsByProvider[providerID] = nil
             roots[providerID] = nil
             activationTokens[providerID] = nil
@@ -568,6 +571,7 @@ public final class DebugAdapterSessionManager: ObservableObject {
         request: DebugStartDebuggingRequest
     ) -> Result<Void, Error> {
         guard let parent = sessions[parentID],
+              parent.session.state != .terminated, parent.session.state != .failed,
               let session = (makeChildSession ?? { descriptor, _, root in self.makeSession(descriptor, root) })(
                   parent.descriptor, request, parent.rootURL
               ),

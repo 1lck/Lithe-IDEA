@@ -3224,6 +3224,7 @@
 "Services" = "Services";
 "Session" = "Session";
 "Session statistics" = "Session statistics";
+"Sessions" = "Sessions";
 "Set" = "Set";
 "Set Up Agent File Attachments…" = "Set Up Agent File Attachments…";
 "Set Variable Value" = "Set Variable Value";
@@ -3455,6 +3456,7 @@
 "Step out" = "Step out";
 "Step over" = "Step over";
 "Stop" = "Stop";
+"Stop %@" = "Stop %@";
 "Stop Camera" = "Stop Camera";
 "Stop Debug" = "Stop Debug";
 "Stop Loading" = "Stop Loading";
@@ -7604,6 +7606,7 @@
 "native.services" = "Services";
 "native.session" = "Session";
 "native.sessionStatistics" = "Session statistics";
+"native.sessions" = "Sessions";
 "native.set" = "Set";
 "native.setTheCustomAgentSExecutableInThePanelSettings" = "Set the custom Agent's executable in Settings > AI > Agents.";
 "native.setTheDefaultsUsedByOrdinaryFetchInEveryProjectCredentialsUseYourExistingGitHea37790d0a5" = "Set the defaults used by ordinary Fetch in every project. Credentials use your existing Git helper and SSH configuration.";
@@ -7858,6 +7861,7 @@
 "native.stopRun.variant2" = "Stop run";
 "native.stopSelected" = "Stop selected";
 "native.stopService" = "Stop service";
+"native.stopSessionNamed" = "Stop %1$@";
 "native.stopTestRun" = "Stop test run";
 "native.stopTheCurrentDebugSession" = "Stop the current debug session";
 "native.stopTheCurrentRun" = "Stop the current run";

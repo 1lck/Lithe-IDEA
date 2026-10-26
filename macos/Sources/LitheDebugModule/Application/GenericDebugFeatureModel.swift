@@ -230,6 +230,8 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     @Published public private(set) var serviceUpdateFailed = false
     @Published public private(set) var updatingServiceSessionID: DebugSessionID?
     private var javaUpdateTargets: [DebugSessionID: JavaDebugLaunchTarget] = [:]
+    /// Sessions whose cleanup already ran, so re-entrant state callbacks cannot repeat it.
+    private var forgottenSessionIDs: Set<DebugSessionID> = []
 
     public func registerJavaUpdateTarget(_ target: JavaDebugLaunchTarget) {
         guard let id = activeSessionID else { return }
@@ -653,6 +655,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     }
 
     private func forgetStoppedSession(_ sessionID: DebugSessionID) {
+        guard forgottenSessionIDs.insert(sessionID).inserted else { return }
         javaUpdateTargets[sessionID] = nil
         sessionSnapshots[sessionID] = nil
         onSessionStopped?(sessionID)
@@ -795,8 +798,11 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             let children = sessions.childSessionIDs(of: activeSessionID)
             sessions.stop(sessionID: activeSessionID)
             for childID in children.reversed() { forgetStoppedSession(childID) }
-            sessionSnapshots[activeSessionID] = nil
-            onSessionStopped?(activeSessionID)
+            forgetStoppedSession(activeSessionID)
+            sessionSummaries = sessions.sessionSummaries
+            // The state callback fired while stopping may already have selected a
+            // replacement or reset the view; do not repeat that work.
+            guard self.activeSessionID == activeSessionID else { return }
         }
         sessionSummaries = sessions.sessionSummaries
         if selectReplacementSession() { return }
@@ -827,6 +833,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
 
     public func reset() {
         javaUpdateTargets.removeAll()
+        forgottenSessionIDs.removeAll()
         serviceUpdateMessage = nil
         serviceUpdateFailed = false
         invalidateInspectionRequests()

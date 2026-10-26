@@ -1077,6 +1077,27 @@ struct DebugModuleTests {
     }
 
     @Test
+    func childSessionIsNeverPromotedOverARootSession() throws {
+        let core = RecordingDebugProtocolCore()
+        let transport = RecordingTransport()
+        let (manager, _) = makeChildCapableManager(core: core, parentTransport: transport)
+        defer { manager.stopAll() }
+        let root = URL(fileURLWithPath: "/tmp/multi-child")
+        let file = root.appendingPathComponent("a.js")
+        let first = try manager.activateNew(for: file, rootURL: root)
+        requestChild(core, transport)
+        let second = try manager.activateNew(for: file, rootURL: root)
+        let secondChild = try #require(manager.sessionSummaries.first { $0.parentID == nil && $0.id != first.id })
+        #expect(secondChild.id == second.id)
+
+        manager.stop(sessionID: second.id)
+
+        let selected = try #require(manager.session(providerID: "node") as? CoreDebugAdapterProtocolSession)
+        let firstSession = try #require(first.session as? CoreDebugAdapterProtocolSession)
+        #expect(selected === firstSession)
+    }
+
+    @Test
     func stoppingAParentStopsItsChildren() throws {
         let core = RecordingDebugProtocolCore()
         let transport = RecordingTransport()

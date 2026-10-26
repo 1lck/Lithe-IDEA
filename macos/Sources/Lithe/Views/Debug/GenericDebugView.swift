@@ -610,7 +610,7 @@ struct GenericDebugView: View {
     private var threadPicker: some View {
         LitheMenu {
             if feature.sessionSummaries.count > 1 {
-                LitheContextMenuItem.heading("Sessions")
+                LitheContextMenuItem.heading(L10n.string("Sessions"))
                 for summary in orderedSessionSummaries {
                     LitheContextMenuItem.action(
                         (summary.parentID != nil ? "↳ " : "") + sessionLabel(summary)
@@ -681,8 +681,8 @@ struct GenericDebugView: View {
         .litheContextMenu {
             var items: [LitheContextMenuItem] = []
             if feature.sessionSummaries.count > 1 {
-                for summary in orderedSessionSummaries where summary.isRunning {
-                    items.append(.action("Stop \(sessionLabel(summary))", role: .destructive) {
+                for summary in orderedSessionSummaries {
+                    items.append(.action(String(format: L10n.string("Stop %@"), sessionLabel(summary)), role: .destructive) {
                         feature.stopSession(summary.id)
                     })
                 }
