@@ -6,6 +6,7 @@ param(
     [switch]$ResumeBuild,
     [string]$ResourceSource = "",
     [switch]$Marketplace,
+    [switch]$LspLifecycle,
     [string]$MarketplaceFixtureRoot = "",
     [string]$MarketplaceTlsCert = "",
     [string]$MarketplaceTlsKey = "",
@@ -243,6 +244,8 @@ Invoke-NativeChecked -Executable "python" -Arguments @(
     (Join-Path $fixtureRoot "acceptance_driver_test.py"),
     (Join-Path $fixtureRoot "marketplace_acceptance.py"),
     (Join-Path $fixtureRoot "marketplace_acceptance_test.py"),
+    (Join-Path $fixtureRoot "lsp_lifecycle_acceptance.py"),
+    (Join-Path $fixtureRoot "lsp_lifecycle_acceptance_test.py"),
     (Join-Path $fixtureRoot "marketplace_fixture.py"),
     (Join-Path $fixtureRoot "generate_packages.py")
 ) -FailureMessage "A plugin host acceptance Python source file has invalid syntax"
@@ -264,6 +267,12 @@ Invoke-NativeChecked -Executable "python" -Arguments @(
     (Join-Path $fixtureRoot "marketplace_acceptance_test.py"),
     "--report", (Join-Path $stabilityRoot "plugin-marketplace-acceptance-driver.json")
 ) -FailureMessage "The marketplace fixture and locator unit checks failed"
+
+Invoke-NativeChecked -Executable "python" -Arguments @(
+    "-B",
+    (Join-Path $fixtureRoot "lsp_lifecycle_acceptance_test.py"),
+    "--report", (Join-Path $stabilityRoot "plugin-lsp-lifecycle-driver.json")
+) -FailureMessage "The LSP lifecycle event and initialization gate unit checks failed"
 
 $zsh = Get-Command zsh -ErrorAction SilentlyContinue
 $immutabilityReport = Join-Path $stabilityRoot "plugin-host-acceptance-source-guard.json"
@@ -466,6 +475,7 @@ try {
         "--workspace-two", $workspaceTwo
     )
     if ($Marketplace) { $driverArguments += "--marketplace" }
+    if ($LspLifecycle) { $driverArguments += "--lsp-lifecycle" }
     if ($providedMarketplaceArguments.Count -eq 3) {
         $driverArguments += @(
             "--marketplace-fixture-root", ([IO.Path]::GetFullPath($MarketplaceFixtureRoot)),

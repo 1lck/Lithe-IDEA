@@ -97,9 +97,21 @@ struct BuildSession {
     stale: bool,
 }
 
+impl BuildSession {
+    fn matches_package(&self, package: &BuildPackageInput) -> bool {
+        self.plugin_id == package.plugin_id
+            && self.version == package.version
+            && self.content_identity == package.content_identity
+            && self.manifest == package.manifest
+    }
+}
+
 #[derive(Debug, Default)]
 struct WindowState {
     execution_suspended: usize,
+    /// A queued whole-window detection also depends on plugins that have not
+    /// produced sessions yet, so revocation must invalidate this request too.
+    refresh_pending: bool,
     workspace_root: Option<String>,
     generation: u64,
     /// Keyed by (plugin ID, build system ID, instance root).
@@ -120,6 +132,15 @@ pub struct BuildView {
 #[derive(Debug, Default)]
 pub struct BuildRegistry {
     windows: HashMap<String, WindowState>,
+}
+
+/// Admission identity for a passive refresh queued behind native cleanup.
+/// Reserving it happens before the first await, so a later close or request
+/// can invalidate work that has not entered the blocking pool yet.
+pub(crate) struct BuildRefreshTicket {
+    window_label: String,
+    workspace_root: String,
+    generation: u64,
 }
 
 /// Frozen semantic input for an explicit model load. The host operation
@@ -289,6 +310,7 @@ impl BuildRegistry {
             window.sessions.clear();
             window.issues.clear();
             window.workspace_root = None;
+            window.refresh_pending = false;
             window.generation = window.generation.saturating_add(1);
         }
     }
@@ -296,16 +318,90 @@ impl BuildRegistry {
     /// Invalidate before draining, not after it. A concurrent prepare/confirm
     /// cannot obtain a fresh executable snapshot while refresh/close is waiting
     /// for an older native owner to release its process tree.
-    pub(crate) fn suspend_execution(&mut self, window_label: &str) {
+    pub(crate) fn suspend_execution(&mut self, window_label: &str) -> u64 {
         let window = self.windows.entry(window_label.into()).or_default();
         window.execution_suspended = window.execution_suspended.saturating_add(1);
+        window.refresh_pending = false;
         window.generation = window.generation.saturating_add(1);
+        window.generation
     }
 
     pub(crate) fn resume_execution(&mut self, window_label: &str) {
         if let Some(window) = self.windows.get_mut(window_label) {
             window.execution_suspended = window.execution_suspended.saturating_sub(1);
         }
+    }
+
+    pub(crate) fn check_generation(
+        &self,
+        window_label: &str,
+        generation: u64,
+    ) -> Result<(), String> {
+        if self
+            .windows
+            .get(window_label)
+            .is_some_and(|window| window.generation == generation)
+        {
+            Ok(())
+        } else {
+            Err("plugin.build.staleContext".into())
+        }
+    }
+
+    pub(crate) fn reserve_refresh(
+        &mut self,
+        window_label: &str,
+        workspace_root: &str,
+    ) -> BuildRefreshTicket {
+        let window = self.windows.entry(window_label.into()).or_default();
+        window.generation = window.generation.saturating_add(1);
+        if window.workspace_root.as_deref() != Some(workspace_root) {
+            window.sessions.clear();
+            window.issues.clear();
+        }
+        // Record the requested workspace now. A close arriving before this
+        // request starts reading must invalidate it even on the first load.
+        window.workspace_root = Some(workspace_root.into());
+        window.refresh_pending = true;
+        BuildRefreshTicket {
+            window_label: window_label.into(),
+            workspace_root: workspace_root.into(),
+            generation: window.generation,
+        }
+    }
+
+    pub(crate) fn refresh_reserved(
+        &mut self,
+        core: &dyn BuildCoreExecutor,
+        packages: &dyn BuildPackageSource,
+        persistence: &dyn BuildOptionsPersistence,
+        ticket: &BuildRefreshTicket,
+        checkpoint: &dyn Fn() -> Result<(), String>,
+    ) -> Result<BuildView, String> {
+        self.check_generation(&ticket.window_label, ticket.generation)?;
+        if !self
+            .windows
+            .get(&ticket.window_label)
+            .is_some_and(|window| {
+                window.refresh_pending
+                    && window.workspace_root.as_deref() == Some(ticket.workspace_root.as_str())
+            })
+        {
+            return Err("plugin.build.staleContext".into());
+        }
+        let result = self.refresh_checked(
+            core,
+            packages,
+            persistence,
+            &ticket.window_label,
+            &ticket.workspace_root,
+            checkpoint,
+        );
+        self.windows
+            .get_mut(&ticket.window_label)
+            .expect("reserved window")
+            .refresh_pending = false;
+        result
     }
 
     /// Re-detects every instance of the workspace for one window. A changed
@@ -319,6 +415,26 @@ impl BuildRegistry {
         window_label: &str,
         workspace_root: &str,
     ) -> Result<BuildView, String> {
+        self.refresh_checked(
+            core,
+            packages,
+            persistence,
+            window_label,
+            workspace_root,
+            &|| Ok(()),
+        )
+    }
+
+    fn refresh_checked(
+        &mut self,
+        core: &dyn BuildCoreExecutor,
+        packages: &dyn BuildPackageSource,
+        persistence: &dyn BuildOptionsPersistence,
+        window_label: &str,
+        workspace_root: &str,
+        checkpoint: &dyn Fn() -> Result<(), String>,
+    ) -> Result<BuildView, String> {
+        checkpoint()?;
         {
             let window = self.windows.entry(window_label.to_string()).or_default();
             let switched = window.workspace_root.is_some()
@@ -332,7 +448,8 @@ impl BuildRegistry {
         }
 
         let manifests = packages.accepted_packages();
-        let mut stored = persistence.load(workspace_root)?;
+        let persisted = persistence.load(workspace_root)?;
+        let mut stored = persisted.clone();
         let mut changed = false;
         let request_options: BTreeMap<String, BTreeMap<String, Value>> = stored
             .systems
@@ -420,17 +537,13 @@ impl BuildRegistry {
                 instance["modelSource"].as_str(),
                 Some("static" | "hostIntegration")
             ) {
-                let response = core.execute(
-                    "build.decodeModel",
-                    json!({
-                        "manifest": session.manifest,
-                        "buildSystemID": build_system_id,
-                        "request": {
-                            "workspaceRoot": workspace_root,
-                            "root": root,
-                            "options": session.effective_options,
-                        },
-                    }),
+                let response = super::build::host_integration::read_passive_model(
+                    core,
+                    &session.manifest,
+                    build_system_id,
+                    workspace_root,
+                    root,
+                    &session.effective_options,
                 )?;
                 let mut loaded = instance.clone();
                 loaded
@@ -485,9 +598,22 @@ impl BuildRegistry {
             }
         }
 
+        // The source owns trust and lifecycle. Recheck complete identities,
+        // not just versions: a read must not publish after disable, quarantine,
+        // relocation, or a same-version replacement during Core decoding.
+        checkpoint()?;
+        if persistence.load(workspace_root)? != persisted {
+            return Err("plugin.build.staleContext".into());
+        }
+        for package in &manifests {
+            if packages.package(&package.plugin_id).as_ref() != Some(package) {
+                return Err("plugin.build.packageChanged".into());
+            }
+        }
         if changed {
             persistence.save(workspace_root, &stored)?;
         }
+        checkpoint()?;
         let window = self.windows.entry(window_label.to_string()).or_default();
         // Even a same-workspace refresh replaces the model/options snapshot.
         // Preserve the first-generation contract, invalidate subsequent loads.
@@ -540,7 +666,7 @@ impl BuildRegistry {
                     root.to_string(),
                 ))
                 .ok_or_else(|| format!("no build instance {build_system_id} at {root}"))?;
-            if session.version != fresh.version {
+            if !session.matches_package(&fresh) {
                 return Err(format!(
                     "{plugin_id} changed since the build window loaded it; reload"
                 ));
@@ -658,6 +784,9 @@ impl BuildRegistry {
 
         // First and only disk write, then re-detect; a failed refresh rolls
         // the storage back so the model and the file stay consistent.
+        if packages.package(plugin_id).as_ref() != Some(&fresh) {
+            return Err("plugin.build.packageChanged".into());
+        }
         persistence.save(workspace_root, &candidate)?;
         self.refresh(core, packages, persistence, window_label, workspace_root)
             .map_err(|error| {
@@ -714,9 +843,13 @@ impl BuildRegistry {
                 "{plugin_id} changed since the build window loaded it; reload"
             ));
         }
+        let replaced = !session.matches_package(&fresh);
 
         // Use the current verified manifest, including same-version reinstalls.
         let digest = sync_fingerprint(core, workspace_root, &session, &fresh.manifest)?;
+        if packages.package(plugin_id).as_ref() != Some(&fresh) {
+            return Err("plugin.build.packageChanged".into());
+        }
 
         let window = self
             .windows
@@ -730,8 +863,14 @@ impl BuildRegistry {
             Some(previous) if *previous != digest => session.stale = true,
             _ => {}
         }
+        if replaced {
+            // A sync may observe the current package to report staleness, but
+            // cannot adopt its identity for a model decoded by the old one.
+            // Preserve that snapshot until an explicit passive refresh/load.
+            session.stale = true;
+            session.revision = session.revision.saturating_add(1);
+        }
         session.sync_digest = Some(digest);
-        session.manifest = fresh.manifest;
         Ok(self.view(window_label))
     }
 
@@ -745,8 +884,9 @@ impl BuildRegistry {
             window
                 .sessions
                 .retain(|(owner, _, _), _| owner != plugin_id);
-            if window.sessions.len() != before {
+            if window.sessions.len() != before || window.refresh_pending {
                 window.generation += 1;
+                window.refresh_pending = false;
             }
             window
                 .issues
@@ -760,7 +900,8 @@ impl BuildRegistry {
         let Some(window) = self.windows.get_mut(window_label) else {
             return;
         };
-        if window.workspace_root.as_deref() == Some(workspace_root) && !window.sessions.is_empty() {
+        if window.workspace_root.as_deref() == Some(workspace_root) {
+            window.refresh_pending = false;
             window.sessions.clear();
             window.issues.clear();
             window.generation += 1;

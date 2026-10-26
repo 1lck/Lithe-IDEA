@@ -14,21 +14,25 @@ import {
 } from "../build-systems-service";
 import type { BuildOptionDescription, BuildWindowState } from "../build-systems-types";
 import BuildModelControls, { type BuildModelService } from "./build-model-controls";
+import BuildRunControls from "./build-run-controls";
+import type { BuildRunNative } from "../build-run-native";
 
 /**
  * Tool window for one declarative build system: Core-resolved options,
  * model data and an explicit consent flow for command-backed models.
- * Task, test and run execution remain with their own feature owners.
+ * Declared task/test execution uses the window-owned native coordinator.
  */
 
 export default function BuildSystemPane({
   view,
   onClose,
   modelService,
+  runNative,
 }: {
   view: string;
   onClose: () => void;
   modelService?: BuildModelService;
+  runNative?: BuildRunNative;
 }) {
   const { t } = useTranslation();
   const workspaceId = useActiveWorkspaceId();
@@ -172,6 +176,7 @@ export default function BuildSystemPane({
               disabled={status === "loading"}
               generation={generation}
               modelService={modelService}
+              runNative={runNative}
             />
           )}
         </div>
@@ -186,12 +191,14 @@ function InstanceBody({
   disabled,
   generation,
   modelService,
+  runNative,
 }: {
   windowState: BuildWindowState;
   root: string;
   disabled: boolean;
   generation: number | null;
   modelService?: BuildModelService;
+  runNative?: BuildRunNative;
 }) {
   const { t } = useTranslation();
   const instance =
@@ -251,10 +258,17 @@ function InstanceBody({
               <li key={`${project.path}/${project.name}`} className="text-xs">
                 <span className="font-medium">{project.name}</span>
                 <span className="ml-1 text-muted-foreground">{project.path}</span>
-                {(project.targets?.length ?? 0) > 0 && (
+                {((
+                  instance.model?.targets?.filter((row) => row.projectID === project.id) ??
+                  project.targets
+                )?.length ?? 0) > 0 && (
                   <ul className="ml-3 list-disc">
-                    {(project.targets ?? []).map((target) => (
-                      <li key={target.name}>
+                    {(
+                      instance.model?.targets?.filter((row) => row.projectID === project.id) ??
+                      project.targets ??
+                      []
+                    ).map((target) => (
+                      <li key={target.id ?? target.name}>
                         {target.name}
                         {target.tags && target.tags.length > 0 && (
                           <span className="ml-1 text-muted-foreground">
@@ -265,9 +279,16 @@ function InstanceBody({
                     ))}
                   </ul>
                 )}
-                {(project.tasks?.length ?? 0) > 0 && (
+                {((
+                  instance.model?.tasks?.filter((row) => row.projectID === project.id) ??
+                  project.tasks
+                )?.length ?? 0) > 0 && (
                   <ul className="ml-3 list-disc">
-                    {(project.tasks ?? []).map((task) => (
+                    {(
+                      instance.model?.tasks?.filter((row) => row.projectID === project.id) ??
+                      project.tasks ??
+                      []
+                    ).map((task) => (
                       <li key={task.id}>
                         {task.name}
                         {task.group && (
@@ -282,6 +303,7 @@ function InstanceBody({
           </ul>
         </section>
       )}
+      <BuildRunControls instance={instance} disabled={disabled} native={runNative} />
     </div>
   );
 }

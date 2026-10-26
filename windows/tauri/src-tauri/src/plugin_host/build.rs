@@ -12,7 +12,7 @@
 
 use super::build_registry::{
     BuildCoreExecutor, BuildOptionsPersistence, BuildPackageInput, BuildPackageSource,
-    BuildRegistry, StoredBuildOptions,
+    BuildRefreshTicket, BuildRegistry, StoredBuildOptions,
 };
 use super::store;
 use serde::Serialize;
@@ -21,6 +21,9 @@ use std::sync::Mutex;
 use tauri::{AppHandle, Manager, WebviewWindow};
 
 mod host;
+pub(super) mod host_integration;
+#[cfg(test)]
+mod host_integration_tests;
 mod operation;
 mod output;
 mod process;
@@ -98,21 +101,43 @@ fn package_input(package: &super::ScannedPackage) -> Option<BuildPackageInput> {
 /// The verified build package source used by the registry.
 struct HostPackageSource {
     app: AppHandle,
+    /// A registry call keeps the package mutation barrier through model read,
+    /// final identity checks and publication. No process or writable resource
+    /// is acquired by a passive model.
+    leases: Mutex<std::collections::HashMap<String, super::lifecycle::NativeLease>>,
 }
 
 impl BuildPackageSource for HostPackageSource {
     fn accepted_packages(&self) -> Vec<BuildPackageInput> {
-        verified_build_packages(&self.app)
-            .iter()
-            .filter_map(package_input)
+        self.app
+            .state::<super::PluginHostState>()
+            .packages()
+            .into_iter()
+            .filter(|package| package.entry.status == "accepted" && package.entry.enabled)
+            .filter_map(|package| self.package(&package.entry.plugin_id))
             .collect()
     }
 
     fn package(&self, plugin_id: &str) -> Option<BuildPackageInput> {
-        verified_build_packages(&self.app)
-            .iter()
-            .find(|package| package.entry.plugin_id == plugin_id)
-            .and_then(package_input)
+        {
+            let mut leases = self.leases.lock().ok()?;
+            if !leases.contains_key(plugin_id) {
+                let lease = self
+                    .app
+                    .state::<super::lifecycle::LifecycleState>()
+                    .acquire(plugin_id)
+                    .ok()?;
+                leases.insert(plugin_id.into(), lease);
+            }
+        }
+        let package = super::launch::verified_package_by_id(&self.app, plugin_id).ok()?;
+        if !package.manifest["buildSystems"]
+            .as_array()
+            .is_some_and(|systems| !systems.is_empty())
+        {
+            return None;
+        }
+        package_input(&package)
     }
 }
 
@@ -226,19 +251,17 @@ pub async fn declarative_plugins_build_refresh(
     workspace_root: String,
 ) -> Result<Value, String> {
     let window_label = window.label().to_string();
-    let _suspension = suspend_build_execution(&app, &window_label)?;
+    let (_suspension, ticket) = suspend_build_refresh(&app, &window_label, &workspace_root)?;
     stop_build_operations(&app, |operation| {
         operation.context.window_label == window_label
     })
     .await?;
+    let checkpoint_app = app.clone();
     run_build_task(app, move |registry, source, persistence| {
-        let view = registry.refresh(
-            &HostCoreExecutor,
-            source,
-            persistence,
-            &window_label,
-            &workspace_root,
-        )?;
+        let view =
+            registry.refresh_reserved(&HostCoreExecutor, source, persistence, &ticket, &|| {
+                live_build_window(&checkpoint_app, &window_label)
+            })?;
         serde_json::to_value(view).map_err(|error| error.to_string())
     })
     .await
@@ -259,11 +282,13 @@ pub async fn declarative_plugins_build_set_option(
 ) -> Result<Value, String> {
     let window_label = window.label().to_string();
     let _suspension = suspend_build_execution(&app, &window_label)?;
+    let generation = _suspension.generation;
     stop_build_operations(&app, |operation| {
         operation.context.window_label == window_label
     })
     .await?;
     run_build_task(app, move |registry, source, persistence| {
+        registry.check_generation(&window_label, generation)?;
         let view = registry.set_option(
             &HostCoreExecutor,
             source,
@@ -349,10 +374,11 @@ pub async fn declarative_plugins_build_close_workspace(
             .lock()
             .map_err(|_| "build registry mutex poisoned")?;
         if registry.view(&window_label).workspace_root == workspace_root {
-            registry.suspend_execution(&window_label);
+            let generation = registry.suspend_execution(&window_label);
             Some(BuildExecutionSuspension {
                 app: app.clone(),
                 window: window_label.clone(),
+                generation,
             })
         } else {
             None
@@ -459,6 +485,7 @@ async fn stop_build_operations(
 struct BuildExecutionSuspension {
     app: AppHandle,
     window: String,
+    generation: u64,
 }
 impl Drop for BuildExecutionSuspension {
     fn drop(&mut self) {
@@ -473,7 +500,8 @@ fn suspend_build_execution(
     app: &AppHandle,
     window_label: &str,
 ) -> Result<BuildExecutionSuspension, String> {
-    app.state::<BuildHostState>()
+    let generation = app
+        .state::<BuildHostState>()
         .registry
         .lock()
         .map_err(|_| "build registry mutex poisoned")?
@@ -481,7 +509,41 @@ fn suspend_build_execution(
     Ok(BuildExecutionSuspension {
         app: app.clone(),
         window: window_label.into(),
+        generation,
     })
+}
+
+fn live_build_window(app: &AppHandle, window_label: &str) -> Result<(), String> {
+    if (window_label == "main" || window_label.starts_with("workspace-"))
+        && app.get_webview_window(window_label).is_some()
+    {
+        Ok(())
+    } else {
+        Err("plugin.build.staleContext".into())
+    }
+}
+
+fn suspend_build_refresh(
+    app: &AppHandle,
+    window_label: &str,
+    workspace_root: &str,
+) -> Result<(BuildExecutionSuspension, BuildRefreshTicket), String> {
+    live_build_window(app, window_label)?;
+    let state = app.state::<BuildHostState>();
+    let mut registry = state
+        .registry
+        .lock()
+        .map_err(|_| "build registry mutex poisoned")?;
+    let generation = registry.suspend_execution(window_label);
+    let ticket = registry.reserve_refresh(window_label, workspace_root);
+    Ok((
+        BuildExecutionSuspension {
+            app: app.clone(),
+            window: window_label.into(),
+            generation,
+        },
+        ticket,
+    ))
 }
 
 /// Main's native window-destruction hook must call this even when pagehide
@@ -515,7 +577,10 @@ where
         + 'static,
 {
     tauri::async_runtime::spawn_blocking(move || {
-        let source = HostPackageSource { app: app.clone() };
+        let source = HostPackageSource {
+            app: app.clone(),
+            leases: Mutex::new(Default::default()),
+        };
         let persistence = HostOptionsPersistence { app: app.clone() };
         let state = app.state::<BuildHostState>();
         let mut registry = state

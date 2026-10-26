@@ -20,6 +20,9 @@ export interface BuildOptionDescription {
 }
 
 export interface BuildModelTarget {
+  id?: string;
+  projectID?: string;
+  path?: string;
   name: string;
   tags?: string[];
 }
@@ -29,9 +32,15 @@ export interface BuildModelTask {
   name: string;
   group?: string;
   category?: string[];
+  projectID?: string;
+  template?: string;
+  execution?: "task" | "application" | "service";
+  displayName?: string;
 }
 
 export interface BuildModelProject {
+  id?: string;
+  displayName?: string;
   name: string;
   path: string;
   properties?: Record<string, unknown>;
@@ -52,7 +61,12 @@ export interface BuildInstanceView {
   root: string;
   markers: string[];
   modelSource: "static" | "command" | "hostIntegration" | "provider" | null;
-  model?: { projects?: BuildModelProject[]; truncated?: boolean } | null;
+  model?: {
+    projects?: BuildModelProject[];
+    targets?: BuildModelTarget[];
+    tasks?: BuildModelTask[];
+    truncated?: boolean;
+  } | null;
   modelError?: BuildModelError | null;
   stale: boolean;
   syncDigest: string | null;

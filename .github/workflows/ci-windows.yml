@@ -325,6 +325,9 @@ jobs:
             "src/features/plugins/declarative-plugins-section.test.tsx",
             "src/features/build-systems/build-systems-service.test.ts",
             "src/features/build-systems/build-systems-store.test.ts",
+            "src/features/build-systems/build-run-native.test.ts",
+            "src/features/build-systems/build-run-session.test.ts",
+            "src/features/build-systems/components/build-run-controls.test.tsx",
             "src/features/build-systems/components/build-model-controls.test.tsx",
             "src/features/build-systems/components/build-system-pane.test.tsx",
             "src/features/build-systems/output/build-output-store.test.ts",
@@ -335,7 +338,11 @@ jobs:
             "src/features/build-systems/output/components/build-output-tests.test.tsx",
             "src/features/editor/lsp/built-in-language-support.test.ts",
             "src/features/editor/lsp/declarative-language-support.test.ts",
-            "src/features/editor/hooks/use-lsp-integration-declarative.test.tsx"
+            "src/features/editor/hooks/use-lsp-integration-declarative.test.tsx",
+            "src/features/editor/hooks/use-lsp-attachment-lifecycle.test.tsx",
+            "src/features/editor/hooks/use-lsp-queued-owner.test.tsx",
+            "src/features/editor/lsp/lsp-client-attachment-lifecycle.test.ts",
+            "src/features/editor/stores/buffer-lsp-close.test.ts"
           )
           $index = 0
           foreach ($suite in $suites) {
@@ -349,7 +356,7 @@ jobs:
         with:
           python-version: '3.14'
 
-      - name: Test plugin acceptance process ownership and marketplace fixtures
+      - name: Test plugin acceptance process ownership, marketplace and LSP fixtures
         shell: pwsh
         timeout-minutes: 4
         run: |
@@ -358,6 +365,8 @@ jobs:
           python -B scripts/plugin-host-acceptance/acceptance_driver_test.py --report .artifacts/test-stability/plugin-host-driver.json --dom-browser msedge
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -B scripts/plugin-host-acceptance/marketplace_acceptance_test.py --report .artifacts/test-stability/plugin-marketplace-driver.json --dom-browser msedge
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -B scripts/plugin-host-acceptance/lsp_lifecycle_acceptance_test.py --report .artifacts/test-stability/plugin-lsp-lifecycle-driver.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Test Agent panel and capability gate

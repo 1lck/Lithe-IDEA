@@ -48,6 +48,8 @@ export interface BuildOutputPaneProps {
   port: BuildOutputPort;
   onReveal?: (path: string, line: number, column?: number) => void;
   onClose?: () => void;
+  /** Production coordinator subscribed before execute and owns ingestion. */
+  managedEvents?: boolean;
 }
 
 export default function BuildOutputPane(props: BuildOutputPaneProps) {
@@ -90,6 +92,7 @@ function BuildOutputPaneContent({
   store,
   workspaceId,
   scoped,
+  managedEvents = false,
 }: BuildOutputPaneProps & {
   store: StoreApi<BuildOutputState>;
   workspaceId: string;
@@ -134,6 +137,7 @@ function BuildOutputPaneContent({
     };
     releaseStore = store.subscribe(checkBinding);
     releaseRegistry = workspaceRuntimeRegistry.subscribe(checkBinding);
+    if (managedEvents) return close;
     try {
       const acquisition = port.subscribe(identity, (event) => {
         if (!isCurrent()) return;
@@ -165,7 +169,7 @@ function BuildOutputPaneContent({
       fail(error);
     }
     return close;
-  }, [port, workspaceId, scoped, store, sessionId, identity]);
+  }, [port, workspaceId, scoped, store, sessionId, identity, managedEvents]);
 
   // The stop control asks the port, which owns the operation, to cancel it.
   // Acceptance is not termination: only the owner's terminal event ends a run.

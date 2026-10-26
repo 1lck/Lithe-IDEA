@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import contextlib
 import ctypes
 import hashlib
@@ -21,6 +22,7 @@ from pathlib import Path
 
 import psutil
 from playwright.sync_api import Page, Playwright, expect, sync_playwright
+from playwright._impl._errors import TargetClosedError
 
 
 PLUGIN_ID = "io.github.lithe-acceptance.host"
@@ -190,16 +192,21 @@ def terminate_process_tree(pid: int, timeout_seconds: float = 10, inspect_descen
     targets = list(dict.fromkeys([owner] + (owner.descendants if inspect_descendants else [])))
     # Each termination targets the original kernel object, including if it
     # exited between inspection and this call. Never reopen a historical PID.
-    cleanup_errors = []
+    termination_errors = []
     for process in targets:
         try:
             process.terminate()
         except Exception as error:  # noqa: BLE001 - another owned handle still needs cleanup.
-            cleanup_errors.append(str(error))
+            termination_errors.append((process, str(error)))
     deadline = time.monotonic() + timeout_seconds
     while any(process.running() for process in targets) and time.monotonic() < deadline:
         time.sleep(0.05)
-    survivors = [process.pid for process in targets if process.running()]
+    surviving_handles = [process for process in targets if process.running()]
+    survivors = [process.pid for process in surviving_handles]
+    # Windows can deny TerminateProcess while a console/process is already
+    # exiting. The retained object becoming signaled within this same bounded
+    # cleanup is proof that it exited; preserve errors only for survivors.
+    cleanup_errors = [message for process, message in termination_errors if process in surviving_handles]
     if survivors:
         cleanup_errors.append(f"owned process handles survived cleanup: {survivors}")
     if inspection_error is not None:
@@ -508,6 +515,69 @@ def invoke(page: Page, command: str, arguments: dict | None = None):
     )
 
 
+def disconnect_cdp_observer(browser) -> None:
+    # For connect_over_cdp, Playwright 1.60 closes its transport, not the
+    # external browser. Its public close() has no timeout; use the same pinned
+    # sync bridge with an explicit bound around that transport-only operation.
+    browser._sync(asyncio.wait_for(browser._impl_obj.close(reason="native acceptance observer detached"), timeout=5))
+    if browser.is_connected():
+        raise RuntimeError("the acceptance CDP observer remained connected")
+
+
+def application_window_inventory(owner: OwnedProcess) -> list[dict]:
+    if not owner.running():
+        return []
+    windows = []
+
+    @EnumWindowsProc
+    def callback(hwnd, _):
+        if window_pid(hwnd) == owner.pid:
+            title = ctypes.create_unicode_buffer(1024)
+            user32.GetWindowTextW(hwnd, title, len(title))
+            windows.append({"hwnd": int(hwnd), "class": window_class(hwnd), "title": title.value,
+                            "visible": bool(user32.IsWindowVisible(hwnd))})
+        return True
+
+    if not user32.EnumWindows(callback, 0):
+        raise RuntimeError("could not inventory the owned application's top-level windows")
+    return windows
+
+
+def request_application_quit(page: Page, evidence: dict | None = None) -> dict:
+    # Match requestApplicationQuit() exactly: getAllWebviewWindows, then emitTo
+    # every label, including hidden product windows. Native auxiliary HWNDs do
+    # not represent application windows and must never receive synthetic close.
+    # The bundled @tauri-apps/api 2.11.1 webviewWindow.js uses this window-list
+    # command; webview|get_all_webviews belongs to the separate getAllWebviews.
+    labels = invoke(page, "plugin:window|get_all_windows")
+    if not isinstance(labels, list) or not labels or any(not isinstance(label, str) or not label for label in labels):
+        raise RuntimeError("the product did not return its WebviewWindow labels for quit")
+    evidence = evidence if evidence is not None else {}
+    evidence.update({"windowLabels": labels, "observedProductPageClosed": False, "dispatch": "started"})
+    with page.expect_event("close", timeout=15_000):
+        try:
+            page.evaluate("""async (labels) => {
+              let deadline;
+              try {
+                await Promise.race([
+                  Promise.all(labels.map(label => window.__TAURI_INTERNALS__.invoke("plugin:event|emit_to", {
+                    target: { kind: "AnyLabel", label }, event: "menu_quit_app", payload: null,
+                  }))),
+                  new Promise((_, reject) => {
+                    deadline = setTimeout(() => reject(new Error("Application quit dispatch deadline exceeded")), 10000);
+                  }),
+                ]);
+              } finally { clearTimeout(deadline); }
+            }""", labels)
+            evidence["dispatch"] = "acknowledged"
+        except TargetClosedError:
+            # Closing the actual product page can win the acknowledgement
+            # race. The enclosing event wait still requires that real close.
+            evidence["dispatch"] = "target-closed-before-acknowledgement"
+    evidence["observedProductPageClosed"] = True
+    return evidence
+
+
 class AppSession:
     def __init__(
         self,
@@ -532,6 +602,7 @@ class AppSession:
         self.initial_tree: list[dict] = []
         self.root_owner: OwnedProcess | None = None
         self.owned_tree: list[OwnedProcess] = []
+        self.stop_attempts: list[dict] = []
 
     def start(self) -> Page:
         port = free_port()
@@ -600,36 +671,64 @@ class AppSession:
             int(item["ProcessId"]): item
             for item in self.initial_tree + current_tree
         }.values())
-        forced = False
-        if self.root_owner is not None and self.root_owner.running() and self.page is not None:
-            with contextlib.suppress(Exception):
-                invoke(self.page, "plugin:process|exit", {"code": 0})
+        attempt = {"shutdownPath": "application-quit-event", "forced": False, "tree": tree,
+                   "observerDetachedAfterWindowClose": False, "quitRequest": None, "survivorsBeforeCleanup": []}
+        self.stop_attempts.append(attempt)
         try:
-            self.process.wait(timeout=20)
-        except subprocess.TimeoutExpired:
-            forced = True
-            terminate_process_tree(self.process.pid)
-        if self.browser is not None:
-            with contextlib.suppress(Exception):
-                self.browser.close()
-        for stream in (self.stdout_file, self.stderr_file):
-            if stream is not None:
-                stream.close()
-        deadline = time.monotonic() + 10
-        survivors = [item for item in self.owned_tree if item.running()]
-        while survivors and time.monotonic() < deadline:
-            time.sleep(0.05)
-            survivors = [item for item in survivors if item.running()]
-        if survivors:
-            for item in survivors:
-                with contextlib.suppress(Exception):
-                    terminate_process_tree(item.pid)
-            raise RuntimeError(f"owned application process tree left survivors: {[item.pid for item in survivors]}")
-        if forced and require_graceful:
-            raise RuntimeError("the isolated Lithe instance required forced termination")
-        if require_graceful and self.process.returncode != 0:
-            raise RuntimeError(f"the isolated Lithe instance exited with code {self.process.returncode}")
-        return {"forced": forced, "tree": tree}
+            attempt["nativeWindowInventory"] = application_window_inventory(self.root_owner) if self.root_owner is not None else []
+            if self.root_owner is not None and self.root_owner.running():
+                if self.page is None or self.page.is_closed():
+                    raise RuntimeError("no live product page can request application quit")
+                attempt["quitRequest"] = {}
+                request_application_quit(self.page, attempt["quitRequest"])
+            if self.browser is not None:
+                disconnect_cdp_observer(self.browser)
+                self.browser = None
+            attempt["observerDetachedAfterWindowClose"] = bool(attempt["quitRequest"])
+            try:
+                self.process.wait(timeout=20)
+            except subprocess.TimeoutExpired:
+                attempt["forced"] = True
+                terminate_process_tree(self.process.pid)
+            attempt["rootReturnCode"] = self.process.poll()
+            deadline = time.monotonic() + 10
+            survivors = [item for item in self.owned_tree if item.running()]
+            while survivors and time.monotonic() < deadline:
+                time.sleep(0.05)
+                survivors = [item for item in survivors if item.running()]
+            if survivors:
+                attempt["survivorsBeforeCleanup"] = [
+                    {"pid": item.pid, "creationTime": item.creation_time, "executable": item.executable}
+                    for item in survivors
+                ]
+                attempt["forced"] = True
+                for item in survivors:
+                    with contextlib.suppress(Exception):
+                        terminate_process_tree(item.pid)
+                raise RuntimeError(f"owned application process tree left survivors: {[item.pid for item in survivors]}")
+            if attempt["forced"] and require_graceful:
+                raise RuntimeError("the isolated Lithe instance required forced termination")
+            if require_graceful and self.process.returncode != 0:
+                raise RuntimeError(f"the isolated Lithe instance exited with code {self.process.returncode}")
+            return {"forced": any(item["forced"] for item in self.stop_attempts), "tree": tree,
+                    "attempts": list(self.stop_attempts)}
+        except Exception as error:
+            attempt["error"] = f"{type(error).__name__}: {error}"
+            if self.root_owner is not None and (self.root_owner.running()
+                    or any(item.running() for item in self.owned_tree)):
+                attempt["forced"] = True
+                try:
+                    terminate_process_tree(self.process.pid)
+                except Exception as cleanup_error:
+                    attempt["cleanupError"] = f"{type(cleanup_error).__name__}: {cleanup_error}"
+            raise
+        finally:
+            attempt["rootReturnCode"] = self.process.poll()
+            for stream in (self.stdout_file, self.stderr_file):
+                if stream is not None:
+                    stream.close()
+            self.log_root.mkdir(parents=True, exist_ok=True)
+            write_json(self.log_root / f"app-{self.sequence}.stop.json", self.stop_attempts)
 
 
 user32 = ctypes.windll.user32
@@ -638,6 +737,8 @@ user32.EnumWindows.argtypes = [EnumWindowsProc, wintypes.LPARAM]
 user32.EnumChildWindows.argtypes = [wintypes.HWND, EnumWindowsProc, wintypes.LPARAM]
 user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
 user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+user32.GetWindowTextW.restype = ctypes.c_int
 user32.GetWindow.argtypes = [wintypes.HWND, wintypes.UINT]
 user32.GetWindow.restype = wintypes.HWND
 user32.IsWindow.argtypes = [wintypes.HWND]
@@ -969,6 +1070,8 @@ def main() -> int:
     parser.add_argument("--package-v2", required=True, type=Path)
     parser.add_argument("--workspace-one", required=True, type=Path)
     parser.add_argument("--workspace-two", required=True, type=Path)
+    parser.add_argument("--lsp-lifecycle", action="store_true",
+                        help="Require fresh owned didOpen evidence for retained and reopened editors.")
     from marketplace_acceptance import add_arguments, validate_arguments
     add_arguments(parser)
     args = parser.parse_args()
@@ -1063,6 +1166,10 @@ def main() -> int:
                     assert record["disk"]["archiveSha256"] == hashlib.file_digest(archive, "sha256").hexdigest()
 
             state_root = args.app_local_data / "plugin-state" / PLUGIN_ID
+            lifecycle = None
+            if args.lsp_lifecycle:
+                from lsp_lifecycle_acceptance import LspLifecycleAcceptance
+                lifecycle = LspLifecycleAcceptance(sys.modules[__name__], args, reporter, all_owned_fixture_pids)
             with reporter.step("installed plugin survives application restart"):
                 cleanup_evidence.append(session.stop(require_graceful=True))
                 session = None
@@ -1116,6 +1223,10 @@ def main() -> int:
                     finish_onboarding(page)
                     open_fixture_file(page)
                     all_owned_fixture_pids.update(wait_for_server_count(state_root, 2))
+                if lifecycle is not None:
+                    lifecycle.require_did_open({}, "1.0.0-a", "existing-current-attachment")
+                    lifecycle.repeat_reopen(page, "1.0.0-a")
+                    lifecycle.initialize_close_reopen(page, "1.0.0-a")
                 with reporter.step("two product windows revoke both owned process trees on disable"):
                     # The event wait pumps Playwright's protocol dispatcher;
                     # polling its cached pages list cannot receive a new target.
@@ -1135,11 +1246,14 @@ def main() -> int:
                     live = wait_for_server_count(state_root, 4)
                     all_owned_fixture_pids.update(live)
                     open_plugin_settings(page)
+                    retained_offsets = lifecycle.snapshot() if lifecycle is not None else None
                     set_plugin_enabled(page, False)
                     wait_catalog(page, "1.0.0", False)
                     wait_pids_dead(live, "both windows' language-server process trees after disable")
                     set_plugin_enabled(page, True)
                     wait_catalog(page, "1.0.0", True)
+                    if lifecycle is not None:
+                        lifecycle.retained(page, "1.0.0-a", "disable and enable", retained_offsets)
             else:
                 reporter.document_pending(
                     "application exit revokes the language-server process tree",
@@ -1171,6 +1285,7 @@ def main() -> int:
                 )
 
             with reporter.step("same-version replacement, update, and rollback preserve provenance"):
+                retained_offsets = lifecycle.snapshot() if lifecycle is not None else None
                 review = import_review(page, session.process.pid, args.package_v1_b.resolve())
                 confirm_review(page, review)
                 wait_catalog(page, "1.0.0", True)
@@ -1180,7 +1295,10 @@ def main() -> int:
                 with args.package_v1_b.open("rb") as archive:
                     replacement_digest = hashlib.file_digest(archive, "sha256").hexdigest()
                 assert record["disk"]["archiveSha256"] == replacement_digest
+                if lifecycle is not None:
+                    lifecycle.retained(page, "1.0.0-b", "same-version replacement", retained_offsets)
 
+                retained_offsets = lifecycle.snapshot() if lifecycle is not None else None
                 review = import_review(page, session.process.pid, args.package_v2.resolve())
                 confirm_review(page, review)
                 wait_catalog(page, "1.1.0", True)
@@ -1189,18 +1307,27 @@ def main() -> int:
                 assert record["previousVersion"] == "1.0.0"
                 assert record["previousDisk"]["archiveSha256"] == replacement_digest
                 assert active_fixture_marker(args.app_local_data, "1.1.0") == "1.1.0"
+                if lifecycle is not None:
+                    lifecycle.retained(page, "1.1.0", "update", retained_offsets)
+                    open_plugin_settings(page)
 
+                retained_offsets = lifecycle.snapshot() if lifecycle is not None else None
                 select_plugin_details(page).get_by_role("button", name="Roll back…", exact=True).click()
                 wait_catalog(page, "1.0.0", True)
                 assert active_fixture_marker(args.app_local_data, "1.0.0") == "1.0.0-b"
                 assert installation_record(args.app_local_data)["disk"]["archiveSha256"] == replacement_digest
+                if lifecycle is not None:
+                    lifecycle.retained(page, "1.0.0-b", "rollback", retained_offsets)
 
             with reporter.step("uninstall removes package and state"):
                 live = set()
                 if lsp_started:
                     # Exercise uninstall with a genuinely new document after
                     # rollback, independently of restored-editor reactivation.
-                    open_fixture_file(page, "uninstall.litheaccept")
+                    if lifecycle is not None:
+                        lifecycle.select_existing(page)
+                    else:
+                        open_fixture_file(page, "uninstall.litheaccept")
                     live = wait_for_server_count(state_root, 2)
                     all_owned_fixture_pids.update(live)
                 open_plugin_settings(page)
@@ -1364,6 +1491,9 @@ def main() -> int:
                 )
         if args.marketplace:
             from marketplace_acceptance import record_unreached_cases
+            record_unreached_cases(reporter)
+        if args.lsp_lifecycle:
+            from lsp_lifecycle_acceptance import record_unreached_cases
             record_unreached_cases(reporter)
         write_json(
             args.report,

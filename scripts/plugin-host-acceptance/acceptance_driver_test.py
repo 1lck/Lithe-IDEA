@@ -116,16 +116,40 @@ def grouped_plugin_dom(browser_channel: str) -> None:
             browser.close()
 
 
+def cdp_observer_detaches_only(browser_channel: str) -> None:
+    """Prove the pinned client's bounded close leaves its external browser alive."""
+    port = driver.free_port()
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(channel=browser_channel, headless=True, timeout=10_000,
+                                             args=[f"--remote-debugging-port={port}"])
+        try:
+            observer = playwright.chromium.connect_over_cdp(f"http://127.0.0.1:{port}", timeout=10_000)
+            driver.disconnect_cdp_observer(observer)
+            assert not observer.is_connected()
+            assert browser.is_connected(), "observer detach closed a browser it did not launch"
+            page = browser.new_page()
+            page.set_content("<title>still-owned</title>", timeout=2_000)
+            assert page.title() == "still-owned"
+        finally:
+            browser.close()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--report", type=Path)
     parser.add_argument("--dom-browser", choices=["msedge"], help="Also run the HTML locator regression using this installed browser; no Lithe product is launched.")
     parser.add_argument("--dom-fixture-child", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--observer-fixture-child", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.dom_fixture_child:
         if args.dom_browser is None:
             parser.error("--dom-fixture-child requires --dom-browser")
         grouped_plugin_dom(args.dom_browser)
+        return 0
+    if args.observer_fixture_child:
+        if args.dom_browser is None:
+            parser.error("--observer-fixture-child requires --dom-browser")
+        cdp_observer_detaches_only(args.dom_browser)
         return 0
     if args.report is None:
         parser.error("--report is required")
@@ -278,6 +302,35 @@ def main() -> int:
                     raise AssertionError("failed inspection reported complete tree cleanup")
         assert root.terminated and child.terminated
         assert unrelated.alive and not unrelated.terminated
+
+    def cleanup_distinguishes_exiting_and_surviving_handles():
+        class ExitingHandle:
+            pid = 123
+            descendants = []
+
+            def __init__(self, survives):
+                self.alive = True
+                self.survives = survives
+
+            def running(self):
+                return self.alive
+
+            def terminate(self):
+                self.alive = self.survives
+                raise RuntimeError("controlled native termination denial")
+
+        exited = ExitingHandle(False)
+        with patch.dict(driver.owned_processes, {exited.pid: exited}, clear=True):
+            driver.terminate_process_tree(exited.pid, timeout_seconds=0, inspect_descendants=False)
+        survivor = ExitingHandle(True)
+        with patch.dict(driver.owned_processes, {survivor.pid: survivor}, clear=True):
+            try:
+                driver.terminate_process_tree(survivor.pid, timeout_seconds=0, inspect_descendants=False)
+            except RuntimeError as error:
+                assert "controlled native termination denial" in str(error)
+                assert "owned process handles survived cleanup: [123]" in str(error)
+            else:
+                raise AssertionError("a surviving retained handle was accepted as clean")
 
     def timeout_query_failure_keeps_error_and_reaps_root():
         real_popen = driver.subprocess.Popen
@@ -443,6 +496,101 @@ def main() -> int:
         ], timeout_seconds=30)
         assert result.returncode == 0, result.stderr or result.stdout
 
+    def observer_detach_preserves_external_browser():
+        result = run_bounded_process([
+            sys.executable, "-B", str(Path(__file__).resolve()),
+            "--dom-browser", args.dom_browser, "--observer-fixture-child",
+        ], timeout_seconds=30)
+        assert result.returncode == 0, result.stderr or result.stdout
+
+    def application_quit_uses_all_product_labels_and_waits_for_real_close():
+        page = MagicMock()
+        labels = ["main", "project-2", "hidden-launcher"]
+        with patch.object(driver, "invoke", return_value=labels) as invoke:
+            result = driver.request_application_quit(page)
+        invoke.assert_called_once_with(page, "plugin:window|get_all_windows")
+        page.expect_event.assert_called_once_with("close", timeout=15_000)
+        script, emitted = page.evaluate.call_args.args
+        assert emitted == labels
+        assert 'Promise.all(labels.map(label' in script
+        assert '"plugin:event|emit_to"' in script and 'event: "menu_quit_app"' in script
+        assert 'kind: "AnyLabel", label' in script
+        assert result == {"windowLabels": labels, "observedProductPageClosed": True, "dispatch": "acknowledged"}
+        page.reset_mock()
+        page.evaluate.side_effect = driver.TargetClosedError("fixture page closed during acknowledgement")
+        with patch.object(driver, "invoke", return_value=labels):
+            assert driver.request_application_quit(page)["observedProductPageClosed"] is True
+        page.expect_event.assert_called_once_with("close", timeout=15_000)
+        page.evaluate.side_effect = RuntimeError("fixture permission denied")
+        with patch.object(driver, "invoke", return_value=labels):
+            try:
+                driver.request_application_quit(page)
+            except RuntimeError as error:
+                assert str(error) == "fixture permission denied"
+            else:
+                raise AssertionError("a rejected quit dispatch was accepted")
+        page.reset_mock()
+        with patch.object(driver, "invoke", return_value=[]):
+            try:
+                driver.request_application_quit(page)
+            except RuntimeError as error:
+                assert "WebviewWindow labels" in str(error)
+            else:
+                raise AssertionError("an empty product window list was accepted")
+        page.evaluate.assert_not_called()
+
+    def session_observes_quit_before_detach_and_keeps_failed_cleanup_evidence():
+        with tempfile.TemporaryDirectory(prefix="lithe-session-stop-") as directory:
+            root = Path(directory)
+            session = driver.AppSession(None, root / "app.exe", root, root / "webview", root / "logs", 1)
+            owner = MagicMock(pid=101)
+            owner.running.return_value = True
+            session.root_owner = owner
+            session.process = MagicMock(pid=101, returncode=0)
+            session.process.poll.return_value = 0
+            session.browser = MagicMock()
+            session.page = MagicMock()
+            session.page.is_closed.return_value = False
+            events = []
+            def waited(**_):
+                events.append("wait")
+                owner.running.return_value = False
+            session.process.wait.side_effect = waited
+            with patch.object(driver, "process_tree", return_value=[]):
+                with patch.object(driver, "capture_owned_tree", return_value=[]):
+                    with patch.object(driver, "application_window_inventory", side_effect=lambda _: events.append("inventory") or []):
+                        with patch.object(driver, "disconnect_cdp_observer", side_effect=lambda _: events.append("disconnect")):
+                            def request_quit(_page, evidence):
+                                events.append("quit-closed")
+                                evidence.update({"windowLabels": ["main", "hidden"], "observedProductPageClosed": True})
+                            with patch.object(driver, "request_application_quit", side_effect=request_quit):
+                                result = session.stop()
+            assert events == ["inventory", "quit-closed", "disconnect", "wait"], events
+            assert result["forced"] is False
+            assert result["attempts"][0]["quitRequest"]["windowLabels"] == ["main", "hidden"]
+            assert result["attempts"][0]["observerDetachedAfterWindowClose"] is True
+
+            child = MagicMock(pid=102, creation_time=12345, executable="C:/fixture/webview.exe")
+            child.running.return_value = True
+            session.owned_tree = [child]
+            clock = iter(range(0, 1000, 20))
+            def terminate(_):
+                child.running.return_value = False
+            with patch.object(driver.time, "monotonic", side_effect=lambda: next(clock)):
+                with patch.object(driver, "terminate_process_tree", side_effect=terminate):
+                    try:
+                        session.stop()
+                    except RuntimeError as error:
+                        assert "left survivors: [102]" in str(error)
+                    else:
+                        raise AssertionError("forced descendant cleanup was accepted as graceful")
+            final = session.stop(require_graceful=False)
+            assert final["forced"] is True, "a later cleanup attempt hid the original forced cleanup"
+            assert final["attempts"][1]["survivorsBeforeCleanup"] == [
+                {"pid": 102, "creationTime": 12345, "executable": "C:/fixture/webview.exe"}]
+            recorded = json.loads((root / "logs/app-1.stop.json").read_text(encoding="utf-8"))
+            assert recorded[1]["forced"] is True and "left survivors" in recorded[1]["error"]
+
     try:
         run_case("bounded process captures a successful child", completes, tests)
         run_case("process output decodes UTF-8 and replaces malformed bytes", output_is_utf8_and_loss_tolerant, tests)
@@ -451,14 +599,18 @@ def main() -> int:
         run_case("topology snapshots close their handles and reject inspection errors", topology_snapshot_closes_handles_and_rejects_errors, tests)
         run_case("wrapper inventory rejects unrelated fixture path lookalikes", wrapper_inventory_rejects_unrelated_lookalikes, tests)
         run_case("query failure cleans retained handles without touching unrelated processes", query_failure_still_cleans_retained_handles, tests)
+        run_case("cleanup accepts a signaled original handle but rejects a surviving handle", cleanup_distinguishes_exiting_and_surviving_handles, tests)
         run_case("timeout preserves query failure and reaps its retained root", timeout_query_failure_keeps_error_and_reaps_root, tests)
         run_case("timeout terminates the owned process tree", timeout_cleans_tree, tests)
         run_case("termination targets a retained handle despite a changed PID", retained_handle_ignores_changed_pid, tests)
         run_case("creation-time and executable mismatches reject ownership", mismatched_identity_is_not_owned, tests)
         run_case("fixture arguments reject substring lookalikes", fixture_arguments_are_exact, tests)
         run_case("filesystem aliases preserve the retained process identity", executable_alias_retains_identity, tests)
+        run_case("application quit uses all product labels and waits for real close", application_quit_uses_all_product_labels_and_waits_for_real_close, tests)
+        run_case("session observes quit before detach and retains failed cleanup evidence", session_observes_quit_before_detach_and_keeps_failed_cleanup_evidence, tests)
         if args.dom_browser is not None:
             run_case("grouped installed rows select scoped detail actions", grouped_plugin_actions, tests, max_ms=35_000)
+            run_case("CDP observer detach leaves the external browser alive", observer_detach_preserves_external_browser, tests, max_ms=35_000)
         else:
             tests.append({
                 "name": "grouped installed rows select scoped detail actions",

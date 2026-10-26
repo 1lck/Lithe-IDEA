@@ -387,14 +387,29 @@ export async function setBuildOption(
   if (view && isCurrent()) store.getState().actions.applyView(view, sequence);
 }
 
-async function syncInstance(pluginId: string, buildSystemId: string, root: string): Promise<void> {
-  const { store, workspaceRoot, isCurrent } = initiatingStore();
+export async function syncInstance(
+  pluginId: string,
+  buildSystemId: string,
+  root: string,
+  options: { observeOnly?: boolean } = {},
+): Promise<void> {
+  const { workspaceId, store, workspaceRoot, isCurrent } = initiatingStore();
   if (!workspaceRoot) {
     return;
   }
-  const sequence = store.getState().actions.beginRequest();
+  const initial = store.getState();
+  const sequence = options.observeOnly
+    ? { sequence: initial.requestSequence, revocationEpoch: initial.revocationEpoch }
+    : initial.actions.beginRequest();
+  const windowId = buildSystemViewId(pluginId, buildSystemId);
+  const observationCurrent = () =>
+    isCurrent() &&
+    workspaceRuntimeRegistry.getWorkspace(workspaceId)?.stores.get(BUILD_SYSTEMS_STORE_KEY) ===
+      store &&
+    store.getState().requestSequence === sequence.sequence &&
+    store.getState().revocationEpoch === sequence.revocationEpoch;
   const view = await enqueueRegistryOperation(() =>
-    isCurrent()
+    (options.observeOnly ? observationCurrent() : isCurrent())
       ? invoke<BuildView>("declarative_plugins_build_sync_check", {
           workspaceRoot,
           pluginId,
@@ -403,10 +418,40 @@ async function syncInstance(pluginId: string, buildSystemId: string, root: strin
         })
       : Promise.resolve(null),
   ).catch((error: unknown) => {
-    if (isCurrent()) store.getState().actions.fail(failureMessage(error), sequence);
+    if (options.observeOnly) {
+      if (observationCurrent()) {
+        const invalidation = store.getState().actions.beginRequest();
+        store.getState().actions.fail(failureMessage(error), invalidation);
+      }
+    } else if (isCurrent()) store.getState().actions.fail(failureMessage(error), sequence);
     throw error;
   });
-  if (view && isCurrent()) store.getState().actions.applyView(view, sequence);
+  if (!view || !isCurrent()) return;
+  if (!options.observeOnly) {
+    store.getState().actions.applyView(view, sequence);
+    return;
+  }
+  if (!observationCurrent()) return;
+  const current = store.getState();
+  const original = current.windows[windowId]?.instances.find((row) => row.root === root);
+  const updated = view.instances.find(
+    (row) => row.pluginID === pluginId && row.buildSystemID === buildSystemId && row.root === root,
+  );
+  // Own saves and generated output also notify the file watcher. Checking a
+  // fingerprint is passive; only an actual native context change invalidates
+  // consent, so unchanged notifications must not cancel their own build.
+  if (
+    view.workspaceRoot === workspaceRoot &&
+    view.generation === current.generation &&
+    updated?.syncDigest === original?.syncDigest &&
+    updated?.stale === original?.stale &&
+    updated?.optionFingerprint === original?.optionFingerprint &&
+    JSON.stringify(updated?.modelError) === JSON.stringify(original?.modelError) &&
+    !!updated === !!original
+  )
+    return;
+  const invalidation = store.getState().actions.beginRequest();
+  store.getState().actions.applyView(view, invalidation);
 }
 
 /**
@@ -431,12 +476,14 @@ export async function subscribeBuildSyncWatcher(
     // Read the active workspace's store at fire time; a workspace switch
     // during the debounce checks the new workspace's instances only.
     const state = useBuildSystemsStore.getState();
-    if (state.status !== "ready") {
+    if (!state.workspaceRoot || state.generation === null) {
       return;
     }
     for (const window of Object.values(state.windows)) {
       for (const instance of window.instances) {
-        syncInstance(instance.pluginID, instance.buildSystemID, instance.root).catch(() => {
+        syncInstance(instance.pluginID, instance.buildSystemID, instance.root, {
+          observeOnly: true,
+        }).catch(() => {
           // A failed sync (workspace mid-switch, plugin disabled) keeps the
           // last state; the next change or manual refresh retries.
         });

@@ -107,6 +107,9 @@ const {
   useBuildSystemsCatalogStore,
 } = buildSystemsService;
 const { useBuildSystemsStore } = await import("./build-systems-store");
+const { BuildRunSession } = await import("./build-run-session");
+type BuildRunNative = import("./build-run-native").BuildRunNative;
+type BuildRunTerminal = import("./output/build-output-types").BuildRunTerminal;
 
 const WORKSPACE_A = "C:/work/a";
 const WORKSPACE_B = "C:/work/b";
@@ -179,6 +182,179 @@ function cargoView(workspaceRoot: string, generation: number): BuildView {
     issues: [],
   };
 }
+
+describe("file changes during task consent and execution", () => {
+  async function runningFixture() {
+    resetState();
+    activateWorkspace("ws-a", WORKSPACE_A);
+    const initial = cargoView(WORKSPACE_A, 1);
+    workspaceRuntimeRegistry.updateWorkspaceStatus("ws-a", "ready");
+    initial.instances[0]!.modelSource = "command";
+    initial.instances[0]!.syncDigest = "approved-source";
+    nextResult = initial;
+    const store = useBuildSystemsStore.getStore("ws-a");
+    store.getState().actions.applyView(initial, store.getState().actions.beginRequest());
+    const terminal = deferred();
+    const native: BuildRunNative = {
+      windowLabel: () => "test-window",
+      save: async () => {},
+      sync: buildSystemsService.syncInstance,
+      definition: async () => ({
+        tasks: [{ id: "build", displayName: "Build", scopes: ["workspace"] }],
+        programs: [],
+      }),
+      prepare: async () => ({
+        operationId: "native-watched-run",
+        pluginId: catalogEntry.pluginId,
+        buildSystemId: "cargo",
+        workspaceRoot: WORKSPACE_A,
+        root: ".",
+        generation: 1,
+        kind: "task",
+        title: "Build",
+        executesProjectCode: true,
+        mayUseNetwork: true,
+      }),
+      execute: mock(async () => terminal.promise as Promise<BuildRunTerminal>),
+      cancel: mock(async () => {
+        terminal.resolve({ kind: "cancelled" });
+      }),
+      listen: async () => () => {},
+      scheduleOutputDrain: (callback) => {
+        callback();
+        return () => {};
+      },
+    };
+    const session = new BuildRunSession("ws-a", catalogEntry.pluginId, "cargo", ".", store, native);
+    const releaseSession = session.attach();
+    cleanups.push(() => {
+      session.decide(false);
+      releaseSession();
+    });
+    let scheduled: (() => void) | undefined;
+    const releaseWatcher = await subscribeBuildSyncWatcher((callback) => {
+      scheduled = callback;
+      return () => {
+        scheduled = undefined;
+      };
+    });
+    cleanups.push(releaseWatcher);
+    const run = session.start({
+      kind: "task",
+      taskId: "build",
+      projectId: null,
+      targetId: null,
+      modelTaskId: null,
+      suite: null,
+      case: null,
+      userArguments: [],
+    });
+    await flushMicrotasks();
+    expect(session.getSnapshot()).toEqual(
+      expect.objectContaining({ phase: "review", error: null }),
+    );
+    const change = async (changed: boolean) => {
+      nextResult = changed
+        ? {
+            ...initial,
+            instances: initial.instances.map((row) => ({
+              ...row,
+              stale: true,
+              syncDigest: "edited-source",
+            })),
+          }
+        : initial;
+      fileChangeHandler!({ payload: { path: "Cargo.toml", event_type: "reloaded" } });
+      expect(scheduled).toBeDefined();
+      scheduled!();
+      await flushMicrotasks();
+    };
+    return { initial, native, session, store, terminal, run, change };
+  }
+
+  test("unchanged save notifications preserve consent and the active run", async () => {
+    const f = await runningFixture();
+    await f.change(false);
+    expect(f.session.getSnapshot().phase).toBe("review");
+    expect(f.native.cancel).toHaveBeenCalledTimes(0);
+    f.session.decide(true);
+    await flushMicrotasks();
+    expect(f.native.execute).toHaveBeenCalledTimes(1);
+    await f.change(false);
+    expect(f.session.getSnapshot().phase).toBe("running");
+    expect(f.native.cancel).toHaveBeenCalledTimes(0);
+    f.terminal.resolve({ kind: "succeeded", exitCode: 0 });
+    await f.run;
+  });
+
+  test("a watched fingerprint change cancels open consent before execution", async () => {
+    const f = await runningFixture();
+    await f.change(true);
+    f.session.decide(true);
+    await f.run;
+    expect(f.native.execute).toHaveBeenCalledTimes(0);
+    expect(f.native.cancel).toHaveBeenCalledWith("native-watched-run");
+    expect(
+      f.store.getState().windows[`build-system:${catalogEntry.pluginId}:cargo`]!.instances[0]!
+        .stale,
+    ).toBe(true);
+  });
+
+  test("a watched fingerprint change also cancels an executing native owner", async () => {
+    const f = await runningFixture();
+    f.session.decide(true);
+    await flushMicrotasks();
+    expect(f.native.execute).toHaveBeenCalledTimes(1);
+    await f.change(true);
+    await f.run;
+    expect(f.native.cancel).toHaveBeenCalledWith("native-watched-run");
+  });
+
+  test("approval rechecks native freshness before a debounced event is delivered", async () => {
+    const f = await runningFixture();
+    nextResult = {
+      ...f.initial,
+      instances: f.initial.instances.map((row) => ({
+        ...row,
+        stale: true,
+        syncDigest: "edited-before-watch",
+      })),
+    };
+    // Deliberately leave the real file event's scheduled callback pending.
+    fileChangeHandler!({ payload: { path: "Cargo.toml", event_type: "reloaded" } });
+    f.session.decide(true);
+    await f.run;
+    expect(f.native.execute).toHaveBeenCalledTimes(0);
+    expect(f.native.cancel).toHaveBeenCalledWith("native-watched-run");
+  });
+
+  test("a file change while acquiring the output listener is checked before execution", async () => {
+    const f = await runningFixture();
+    const listener = deferred();
+    f.native.listen = mock(async () => listener.promise as Promise<() => void>);
+    f.session.decide(true);
+    await flushMicrotasks();
+    expect(f.native.listen).toHaveBeenCalledTimes(1);
+    expect(f.native.execute).toHaveBeenCalledTimes(0);
+    nextResult = {
+      ...f.initial,
+      instances: f.initial.instances.map((row) => ({
+        ...row,
+        stale: true,
+        syncDigest: "edited-during-listener-acquisition",
+      })),
+    };
+    // The notification remains debounced while native listener acquisition
+    // completes. Its delivery must not be necessary to reject the old plan.
+    fileChangeHandler!({ payload: { path: "Cargo.toml", event_type: "reloaded" } });
+    listener.resolve(() => {});
+    await flushMicrotasks();
+    f.terminal.resolve({ kind: "succeeded", exitCode: 0 });
+    await f.run;
+    expect(f.native.execute).toHaveBeenCalledTimes(0);
+    expect(f.native.cancel).toHaveBeenCalledWith("native-watched-run");
+  });
+});
 
 describe("refreshBuildSystems", () => {
   test("forwards the workspace root without a forgeable window label", async () => {

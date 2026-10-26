@@ -8,6 +8,7 @@ import { installHappyDom } from "@/test-utils/happy-dom";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { buildSystemViewId, useBuildSystemsStore } from "../build-systems-store";
 import type { BuildOptionDescription, BuildView } from "../build-systems-types";
+import type { BuildRunNative } from "../build-run-native";
 
 const restoreDom = installHappyDom();
 const { createRoot } = await import("react-dom/client");
@@ -18,6 +19,19 @@ const PLUGIN = "dev.lithe.fixture.build-static-file";
 const WORKSPACE = "C:/work/build-pane-fixture";
 const VIEW_ID = buildSystemViewId(PLUGIN, "cargo");
 const cleanups: Array<() => void | Promise<void>> = [];
+const noRun = async (): Promise<never> => {
+  throw new Error("unexpected task/test execution in passive pane test");
+};
+const passiveRunNative: BuildRunNative = {
+  windowLabel: () => "workspace-passive-pane",
+  definition: async () => ({ tasks: [], programs: [] }),
+  save: noRun,
+  sync: noRun,
+  prepare: noRun,
+  execute: noRun,
+  cancel: noRun,
+  listen: noRun,
+};
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
@@ -88,7 +102,7 @@ async function mount(initial = view()) {
   const render = () =>
     root.render(
       <LocaleProvider language="en-US">
-        <BuildSystemPane view={VIEW_ID} onClose={() => {}} />
+        <BuildSystemPane view={VIEW_ID} onClose={() => {}} runNative={passiveRunNative} />
       </LocaleProvider>,
     );
   await act(async () => render());

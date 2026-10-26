@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, watch, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import path from "node:path";
@@ -73,6 +73,7 @@ if (childMode) {
 
   let buffer = Buffer.alloc(0);
   let shutdownRequested = false;
+  let releaseInitialize = null;
 
   function send(message) {
     const body = Buffer.from(JSON.stringify(message), "utf8");
@@ -81,9 +82,14 @@ if (childMode) {
   }
 
   function handle(message) {
-    logEvent("message", { method: message.method ?? null, id: message.id ?? null });
+    logEvent("message", {
+      method: message.method ?? null,
+      id: message.id ?? null,
+      uri: message.params?.textDocument?.uri ?? null,
+      documentVersion: message.params?.textDocument?.version ?? null,
+    });
     if (message.method === "initialize") {
-      send({
+      const respond = () => send({
         jsonrpc: "2.0",
         id: message.id,
         result: {
@@ -94,6 +100,41 @@ if (childMode) {
           serverInfo: { name: "lithe-plugin-host-acceptance", version: fixtureVersion },
         },
       });
+      // This optional gate is disposable control state in app-data, never in
+      // the signed/installed package. A real filesystem notification controls
+      // the race; the deadline only fails a forgotten release.
+      const gatePath = path.join(stateDirectory, "lsp-initialize-gate.json");
+      let gate;
+      try { gate = JSON.parse(readFileSync(gatePath, "utf8")); } catch { gate = null; }
+      if (gate?.schemaVersion === 1 && /^[a-f0-9]{32}$/.test(gate.token)) {
+        const token = gate.token;
+        const releasePath = path.join(stateDirectory, `lsp-initialize-release-${token}`);
+        if (!existsSync(releasePath)) {
+          const timer = setTimeout(() => finish(4, "initialize-gate-deadline"), 15_000);
+          const watcher = watch(stateDirectory, () => {
+            if (releaseInitialize && existsSync(releasePath)) {
+              releaseInitialize?.();
+              logEvent("initialize-released", { token });
+              respond();
+            }
+          });
+          watcher.on("error", () => finish(4, "initialize-gate-watch-error"));
+          releaseInitialize = () => {
+            clearTimeout(timer);
+            watcher.close();
+            releaseInitialize = null;
+          };
+          logEvent("initialize-gated", { token });
+          // Close the watch-registration race against an early release.
+          if (existsSync(releasePath)) {
+            releaseInitialize();
+            logEvent("initialize-released", { token });
+            respond();
+          }
+          return;
+        }
+      }
+      respond();
       return;
     }
     if (message.method === "shutdown") {
@@ -130,6 +171,7 @@ if (childMode) {
   function finish(code, reason) {
     if (finished) return;
     finished = true;
+    releaseInitialize?.();
     writeEvidence("server-stopped", { code, reason, childPid: child.pid });
     logEvent("server-stopped", { code, reason, childPid: child.pid });
     process.exit(code);

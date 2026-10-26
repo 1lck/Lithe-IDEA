@@ -9,12 +9,26 @@ import { buildSystemViewId, useBuildSystemsStore } from "../build-systems-store"
 import { BuildModelCancellationError } from "../build-systems-service";
 import type { BuildModelLoadResult, BuildModelReview, BuildView } from "../build-systems-types";
 import type { BuildModelService } from "./build-model-controls";
+import type { BuildRunNative } from "../build-run-native";
 
 const restoreDom = installHappyDom();
 const { createRoot } = await import("react-dom/client");
 const { default: BuildSystemPane } = await import("./build-system-pane");
 afterAll(restoreDom);
 const cleanups: Array<() => void | Promise<void>> = [];
+const noRun = async (): Promise<never> => {
+  throw new Error("unexpected task/test execution in model-only test");
+};
+const passiveRunNative: BuildRunNative = {
+  windowLabel: () => "workspace-model-tests",
+  definition: async () => ({ tasks: [], programs: [] }),
+  save: noRun,
+  sync: noRun,
+  prepare: noRun,
+  execute: noRun,
+  cancel: noRun,
+  listen: noRun,
+};
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
   workspaceRuntimeRegistry.resetForTests();
@@ -155,7 +169,12 @@ async function mount(
   await act(async () =>
     root.render(
       <LocaleProvider language={language}>
-        <BuildSystemPane view={VIEW} onClose={() => {}} modelService={fake.service} />
+        <BuildSystemPane
+          view={VIEW}
+          onClose={() => {}}
+          modelService={fake.service}
+          runNative={passiveRunNative}
+        />
       </LocaleProvider>,
     ),
   );

@@ -88425,6 +88425,247 @@
       }
     },
     {
+      "id": "buildSystems.run.title",
+      "description": "Windows declared task/test workflow: title",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.run.action",
+      "description": "Windows declared task/test workflow: action",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.run.chooseAction",
+      "description": "Windows declared task/test workflow: chooseAction",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.run.task",
+      "description": "Windows declared task/test workflow: task",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.run.tests",
+      "description": "Windows declared task/test workflow: tests",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.run.scope",
+      "description": "Windows declared task/test workflow: scope",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.run.scope.workspace",
+      "description": "Windows declared task/test workflow: scope.workspace",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.run.scope.project",
+      "description": "Windows declared task/test workflow: scope.project",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.run.scope.target",
+      "description": "Windows declared task/test workflow: scope.target",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.run.project",
+      "description": "Windows declared task/test workflow: project",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.run.chooseProject",
+      "description": "Windows declared task/test workflow: chooseProject",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.run.target",
+      "description": "Windows declared task/test workflow: target",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.run.chooseTarget",
+      "description": "Windows declared task/test workflow: chooseTarget",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.run.modelTask",
+      "description": "Windows declared task/test workflow: modelTask",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.run.chooseTask",
+      "description": "Windows declared task/test workflow: chooseTask",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.run.suite",
+      "description": "Windows declared task/test workflow: suite",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.run.case",
+      "description": "Windows declared task/test workflow: case",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.run.arguments",
+      "description": "Windows declared task/test workflow: arguments",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.run.prepare",
+      "description": "Windows declared task/test workflow: prepare",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.run.cancel",
+      "description": "Windows declared task/test workflow: cancel",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.run.review",
+      "description": "Windows declared task/test workflow: review",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.run.approve",
+      "description": "Windows declared task/test workflow: approve",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.run.programs",
+      "description": "Windows declared task/test workflow: programs",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.run.failed",
+      "description": "Windows declared task/test workflow: failed",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "message": "string"
+      }
+    },
+    {
+      "id": "buildSystems.run.retryDefinitions",
+      "description": "Windows declared task/test workflow: retryDefinitions",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.run.modelReloadRequired",
+      "description": "Windows declared task/test workflow: modelReloadRequired",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.run.phase.preparing",
+      "description": "Windows declared task/test workflow: phase.preparing",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.run.phase.review",
+      "description": "Windows declared task/test workflow: phase.review",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.run.phase.starting",
+      "description": "Waiting for native output subscription before execution",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.run.phase.running",
+      "description": "Windows declared task/test workflow: phase.running",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.run.phase.stopping",
+      "description": "Windows declared task/test workflow: phase.stopping",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.run.phase.cancelFailed",
+      "description": "Windows declared task/test workflow: phase.cancelFailed",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.run.phase.failed",
+      "description": "Windows declared task/test workflow: phase.failed",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "buildSystems.run.phase.ended",
+      "description": "Windows declared task/test workflow: phase.ended",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
       "id": "buildSystems.model.title",
       "description": "Windows command model loading UI: title",
       "platforms": [

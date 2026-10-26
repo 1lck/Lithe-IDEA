@@ -7,6 +7,7 @@ import {
 } from "@/features/editor/lsp/built-in-language-support";
 import {
   declarativeLanguageSupportRevision,
+  cachedDeclarativeLanguageOwner,
   subscribeDeclarativeLanguageSupport,
 } from "@/features/editor/lsp/declarative-language-support";
 import { LspClient } from "@/features/editor/lsp/lsp-client";
@@ -20,13 +21,21 @@ import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { getSourceEditorBufferByPath } from "@/features/editor/utils/buffer-index";
 import { logger } from "@/features/editor/utils/logger";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
-import { useActiveWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
-import { workspaceScopeMatchesRoot } from "@/features/workspace/types/workspace-launch-scope";
+import {
+  useActiveWorkspaceId,
+  useWorkspaceStoreScopeId,
+} from "@/features/workspace/stores/create-workspace-scoped-store";
+import {
+  workspaceScopeMatchesRoot,
+  workspaceScopesMatch,
+  type WorkspaceLaunchScope,
+} from "@/features/workspace/types/workspace-launch-scope";
 import { getDirName } from "@/utils/path-helpers";
 
 interface UseLspIntegrationOptions {
   enabled?: boolean;
   filePath: string | undefined;
+  bufferId?: string;
   contentRevision?: number;
 }
 
@@ -50,33 +59,38 @@ type DocumentChangeOwnerState =
 
 interface LspDocumentOwner {
   // One record owns every asynchronous resource for one editor attachment.
+  attachmentId: string;
+  bufferId: string | undefined;
+  scope: WorkspaceLaunchScope;
+  declarativeOwner: ReturnType<typeof cachedDeclarativeLanguageOwner>;
   state: LspDocumentOwnerState;
   changes: DocumentChangeOwnerState;
 }
 
 const DOCUMENT_CHANGE_DEBOUNCE_MS = 75;
 
-function documentTextForPath(filePath: string): string {
-  return getSourceEditorBufferByPath(useBufferStore.getState().buffers, filePath)?.content ?? "";
+function documentTextForPath(filePath: string, workspaceId: string): string {
+  const buffers = useBufferStore.getStore(workspaceId).getState().buffers;
+  return getSourceEditorBufferByPath(buffers, filePath)?.content ?? "";
 }
 
 function isTerminalOwnerState(state: LspDocumentOwnerState): boolean {
   return state.phase === "stopped" || state.phase === "failed";
 }
 
-function attachmentIdForOwner(state: LspDocumentOwnerState): string | undefined {
-  return state.phase === "attached" || state.phase === "open" || state.phase === "stopping"
-    ? state.attachmentId
-    : undefined;
+function isReleasingOwnerState(state: LspDocumentOwnerState): boolean {
+  return state.phase === "stopping" || state.phase === "stopped";
 }
 
 export const useLspIntegration = ({
   enabled = true,
   filePath,
+  bufferId,
   contentRevision = 0,
 }: UseLspIntegrationOptions) => {
   const lspClient = useMemo(() => LspClient.getInstance(), []);
-  const workspaceId = useActiveWorkspaceId();
+  const activeWorkspaceId = useActiveWorkspaceId();
+  const workspaceId = useWorkspaceStoreScopeId() ?? activeWorkspaceId;
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
   const installedExtensions = useExtensionStore.use.installedExtensions();
   const activeFilePath = enabled ? filePath : undefined;
@@ -88,6 +102,10 @@ export const useLspIntegration = ({
   const isLspSupported = useMemo(
     () => isEditorLspSupported(activeFilePath),
     [activeFilePath, installedExtensions, declarativeRevision],
+  );
+  const declarativeOwner = useMemo(
+    () => activeFilePath ? cachedDeclarativeLanguageOwner(activeFilePath) : null,
+    [activeFilePath, declarativeRevision],
   );
   const lastSyncedRevisionRef = useRef(contentRevision);
   const documentOwnersRef = useRef<Map<string, LspDocumentOwner>>(new Map());
@@ -121,31 +139,51 @@ export const useLspIntegration = ({
       return;
     }
 
-    const existingOwner = documentOwnersRef.current.get(filePath);
-    const owner: LspDocumentOwner =
-      existingOwner && !isTerminalOwnerState(existingOwner.state)
-        ? existingOwner
-        : {
-            state: { phase: "scheduled" },
-            changes: { phase: "idle", completion: Promise.resolve() },
-          };
+    const previousOwner = documentOwnersRef.current.get(filePath);
+    const existingOwner = previousOwner &&
+      previousOwner.state.phase !== "stopping" &&
+      !isTerminalOwnerState(previousOwner.state) &&
+      previousOwner.bufferId === bufferId &&
+      previousOwner.declarativeOwner === declarativeOwner &&
+      workspaceScopesMatch(previousOwner.scope, scope) ? previousOwner : undefined;
+    const owner: LspDocumentOwner = existingOwner ?? {
+      attachmentId: crypto.randomUUID(), bufferId, scope, declarativeOwner,
+      state: { phase: "scheduled" },
+      changes: { phase: "idle", completion: Promise.resolve() },
+    };
     documentOwnersRef.current.set(filePath, owner);
 
     const cleanupDocument = () => {
-      const isStillOpen = Boolean(
-        getSourceEditorBufferByPath(useBufferStore.getState().buffers, filePath),
+      // The deferred callback was cancelled by this effect's cleanup. There
+      // is no attachment to retain, even if the buffer itself remains open.
+      if (owner.state.phase === "scheduled") {
+        owner.state = { phase: "stopped" };
+        if (documentOwnersRef.current.get(filePath) === owner) documentOwnersRef.current.delete(filePath);
+        return;
+      }
+      const buffer = getSourceEditorBufferByPath(
+        useBufferStore.getStore(workspaceId).getState().buffers, filePath,
       );
+      const isStillOpen = buffer && (!bufferId || buffer.id === bufferId);
       // An open buffer can retain an attachment across view changes, but a
       // revoked plugin must release it even while its document stays open.
-      if (isStillOpen && isEditorLspSupported(filePath)) return;
+      if (isStillOpen && isEditorLspSupported(filePath) &&
+          cachedDeclarativeLanguageOwner(filePath) === declarativeOwner) return;
 
       if (owner.state.phase === "stopping" || owner.state.phase === "stopped") return;
       const previousState = owner.state;
       const initializationTask = previousState.phase === "starting" ? previousState.task : null;
-      const attachmentId = attachmentIdForOwner(previousState);
+      const attachmentId = owner.attachmentId;
       const changeCompletion = owner.changes.completion;
       if (owner.changes.phase === "scheduled") clearTimeout(owner.changes.timer);
       owner.changes = { phase: "idle", completion: changeCompletion };
+      // Revoke the pending identity synchronously, before a reopened editor
+      // can start. Native teardown still drains its actual initialization.
+      const pendingStop = previousState.phase === "starting"
+        ? lspClient.stopForFile(filePath, attachmentId) : null;
+      // Teardown can fail before initialization settles. Observe that promise
+      // immediately; the awaited cleanup below still reports the same error.
+      void pendingStop?.catch(() => undefined);
       const stopTask = (async () => {
         await initializationTask?.catch(() => undefined);
         await changeCompletion;
@@ -156,7 +194,7 @@ export const useLspIntegration = ({
             logger.error("LspIntegration", `Failed to close LSP document ${filePath}`, error);
           }
           try {
-            await lspClient.stopForFile(filePath, attachmentId);
+            await (pendingStop ?? lspClient.stopForFile(filePath, attachmentId));
           } catch (error) {
             logger.error("LspIntegration", `Failed to stop LSP attachment ${filePath}`, error);
           }
@@ -170,14 +208,15 @@ export const useLspIntegration = ({
       void stopTask;
     };
 
-    if (existingOwner && !isTerminalOwnerState(existingOwner.state)) {
+    if (existingOwner) {
       return cleanupDocument;
     }
 
     const initializeLsp = async () => {
+      if (owner.state.phase !== "starting" || documentOwnersRef.current.get(filePath) !== owner) return;
       try {
         logger.debug("LspIntegration", `Starting LSP for ${filePath} in ${workspacePath}`);
-        const attachment = await lspClient.startForFile(filePath, scope);
+        const attachment = await lspClient.startForFile(filePath, scope, "attach", owner.attachmentId);
         if (attachment.kind !== "attached") {
           owner.state = { phase: "stopped" };
           if (documentOwnersRef.current.get(filePath) === owner) {
@@ -192,7 +231,7 @@ export const useLspIntegration = ({
         }
         owner.state = { phase: "attached", attachmentId };
 
-        const text = documentTextForPath(filePath);
+        const text = documentTextForPath(filePath, workspaceId);
         await lspClient.notifyDocumentOpen(filePath, text, attachmentId);
         if (documentOwnersRef.current.get(filePath) !== owner || owner.state.phase !== "attached") {
           await lspClient.notifyDocumentClose(filePath, attachmentId);
@@ -202,7 +241,7 @@ export const useLspIntegration = ({
         owner.state = { phase: "open", attachmentId };
         logger.debug("LspIntegration", `LSP started and document opened for ${filePath}`);
       } catch (error) {
-        if (owner.state.phase !== "stopping" && owner.state.phase !== "stopped") {
+        if (!isReleasingOwnerState(owner.state)) {
           owner.state = { phase: "failed", error };
         }
         logger.error("LspIntegration", `LSP initialization failed for ${filePath}`, error);
@@ -210,6 +249,7 @@ export const useLspIntegration = ({
     };
 
     const cancelInitialization = deferUntilAfterNextPaint(() => {
+      if (owner.state.phase !== "scheduled" || documentOwnersRef.current.get(filePath) !== owner) return;
       const task = Promise.resolve().then(initializeLsp);
       owner.state = { phase: "starting", task };
       void task;
@@ -219,18 +259,23 @@ export const useLspIntegration = ({
       cancelInitialization();
       cleanupDocument();
     };
-  }, [enabled, filePath, isLspSupported, lspClient, rootFolderPath, workspaceId]);
+  }, [enabled, filePath, bufferId, isLspSupported, declarativeOwner, lspClient, rootFolderPath, workspaceId]);
 
   useEffect(() => {
     if (!enabled || !filePath || !isLspSupported) return;
 
+    // A semantic request may already be waiting behind a change when this
+    // view becomes hidden. Retaining the document attachment does not retain
+    // this view's right to consume changes or send its captured workspace text.
+    let active = true;
     const flushDocumentChange = (preferIncremental: boolean) => {
+      if (!active) return;
       const owner = documentOwnersRef.current.get(filePath);
       if (owner?.state.phase !== "open") return;
 
       const previousCompletion = owner.changes.completion;
       const completion = previousCompletion.then(async () => {
-        if (owner.state.phase !== "open") return;
+        if (!active || owner.state.phase !== "open" || documentOwnersRef.current.get(filePath) !== owner) return;
         const contentChanges = takeLspDocumentChanges(filePath);
         try {
           if (preferIncremental && contentChanges.length > 0) {
@@ -238,11 +283,13 @@ export const useLspIntegration = ({
             // text when ranges overlap or cannot be replayed safely.
             await lspClient.synchronizeDocument(
               filePath,
-              documentTextForPath(filePath),
+              documentTextForPath(filePath, workspaceId),
               contentChanges,
             );
           } else {
-            await lspClient.synchronizeDocument(filePath, documentTextForPath(filePath));
+            await lspClient.synchronizeDocument(
+              filePath, documentTextForPath(filePath, workspaceId),
+            );
           }
           if (owner.state.phase === "open") {
             lastSyncedRevisionRef.current = contentRevision;
@@ -283,6 +330,7 @@ export const useLspIntegration = ({
     // starve the request.
     const flushBeforeRequest = async (): Promise<void> => {
       for (let attempt = 0; attempt < 3; attempt += 1) {
+        if (!active) return;
         const owner = documentOwnersRef.current.get(filePath);
         if (owner?.state.phase !== "open") return;
         if (owner.changes.phase === "scheduled") {
@@ -311,6 +359,7 @@ export const useLspIntegration = ({
     }
 
     return () => {
+      active = false;
       unsubscribe();
       unregisterFlusher();
       const owner = documentOwnersRef.current.get(filePath);
@@ -319,5 +368,5 @@ export const useLspIntegration = ({
         owner.changes = { phase: "idle", completion: owner.changes.completion };
       }
     };
-  }, [contentRevision, enabled, filePath, isLspSupported, lspClient]);
+  }, [contentRevision, enabled, filePath, bufferId, isLspSupported, declarativeOwner, lspClient, workspaceId]);
 };
