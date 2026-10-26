@@ -389,11 +389,6 @@ final class MacServiceContainer {
             extensionRequiredProviderIDs: pluginLanguageIDs,
             hostCapabilities: hostLanguageCapabilities
         )
-        let debugLaunches = Dictionary(
-            uniqueKeysWithValues: languagePackDefinitions.packs.compactMap { pack in
-                pack.debugAdapterLaunch.map { (pack.descriptor.id, $0) }
-            }
-        )
         let languagePackRegistry = languagePackDefinitions
         let runToolchainRegistry = languagePackRegistry.toolchainRegistry
         do {
@@ -624,54 +619,12 @@ final class MacServiceContainer {
                                 core: rustCore,
                                 deadlineScheduler: MacDebugOperationDeadlineScheduler()
                             )
-                        },
-                        "go": {
-                            guard let executable = runtimeService.executableOnPath("dlv") else { return nil }
-                            return DebugAdapterProtocolSession(
-                                adapterID: "go",
-                                transport: MacDlvDebugAdapterTransport(
-                                    executableURL: executable,
-                                    environment: runtimeService.processEnvironment(),
-                                    process: MacRawProcessSession()
-                                )
-                            )
-                        },
-                        "node": {
-                            guard let executable = runtimeService.executableOnPath("node") else { return nil }
-                            let environment = runtimeService.processEnvironment()
-                            return DebugAdapterProtocolSession(
-                                adapterID: "pwa-node",
-                                transport: MacNodeDebugAdapterTransport(
-                                    nodeExecutableURL: executable,
-                                    locator: MacJavaScriptDebugAdapterLocator(
-                                        environment: environment,
-                                        executableOnPath: { runtimeService.executableOnPath($0) }
-                                    ),
-                                    process: MacRawProcessSession()
-                                )
-                            )
                         }
                     ]
-                    let debugRuntimeFactory = DebugAdapterRuntimeFactory(
-                        runtimeService: runtimeService,
-                        transportFactory: { executableURL, arguments, environment in
-                            MacProcessDebugAdapterTransport(
-                                executableURL: executableURL,
-                                arguments: arguments,
-                                environment: environment,
-                                process: MacRawProcessSession()
-                            )
-                        },
-                        launches: debugLaunches,
-                        sessionFactories: debugFactories
-                    )
                     let adapterSessions = DebugAdapterSessionManager(
                         providers: languageProviderCatalog.debugProviders,
-                        makeSession: { descriptor, rootURL in
-                            debugRuntimeFactory.makeSession(
-                                for: descriptor,
-                                rootURL: rootURL
-                            )
+                        makeSession: { descriptor, _ in
+                            debugFactories[descriptor.id]?()
                         }
                     )
                     let graph = DebugFeatureGraph(

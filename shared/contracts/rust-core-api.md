@@ -993,7 +993,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `debug.receive` | Reduce base64-encoded bytes received from a platform-owned DAP transport |
 | `debug.runInTerminalResponse` | Complete one adapter-requested native terminal launch |
 | `debug.disconnect` | Begin the DAP disconnect handshake without closing the native transport |
-| `debug.destroySession` | Remove a session after the platform closes its native transport |
+| `debug.destroySession` | Remove a session and its whole child tree after the platform closes its native transport; the response lists `destroyedChildSessionIds` (leaves first) whose transports the platform must also close |
 | `lsp.applyTextEdits` | Apply LSP UTF-16 text edits with range validation |
 | `lsp.plainSnippet` | Convert LSP snippet insert text into plain editor text |
 | `lsp.builtinCompletions` | Return lightweight current-file identifier completions |
@@ -2254,6 +2254,11 @@ The compatibility cases are in
 socket or process alive long enough to flush the frame, then closes it and
 calls `debug.destroySession`. A session allocates no process, socket, timer, or
 background task, and no session exists until Debug is used.
+
+A child session never outlives its parent. `debug.destroySession` removes every
+descendant together with the parent and returns their IDs as
+`destroyedChildSessionIds`, so the platform can close those transports instead
+of leaving them attached to a session Core no longer knows.
 
 `lsp.builtinCompletions`, `lsp.builtinHover`, and `lsp.builtinNavigation` are
 the no-process lightweight language path. They accept current-file text, an

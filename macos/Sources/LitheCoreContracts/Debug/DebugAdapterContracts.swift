@@ -21,11 +21,6 @@ public protocol DebugAdapterTransport: AnyObject {
 }
 
 @MainActor
-public protocol DebugAdapterChildTransportProviding: AnyObject {
-    func makeChildTransport() -> (any DebugAdapterTransport)?
-}
-
-@MainActor
 public protocol DebugOperationDeadline: AnyObject {
     func cancel()
 }
@@ -137,6 +132,39 @@ public typealias DebugRunInTerminalRequestHandler = (
     DebugRunInTerminalRequest,
     @escaping DebugRunInTerminalCompletion
 ) -> Void
+
+/// Child debug session the adapter asks the host to open through DAP `startDebugging`.
+/// `configuration` excludes the `request` key and keeps adapter-specific fields verbatim.
+public struct DebugStartDebuggingRequest: Decodable, Equatable, Sendable {
+    public let request: DebugRequestKind
+    public let configuration: [String: ToolingJSONValue]
+
+    public init(request: DebugRequestKind, configuration: [String: ToolingJSONValue]) {
+        self.request = request
+        self.configuration = configuration
+    }
+}
+
+public typealias DebugStartDebuggingCompletion = (Result<Void, Error>) -> Void
+public typealias DebugStartDebuggingRequestHandler = (
+    DebugStartDebuggingRequest,
+    @escaping DebugStartDebuggingCompletion
+) -> Void
+
+/// Optional reverse-request surface for sessions whose host can open child sessions.
+/// Core only advertises `startDebugging` support while a handler is installed.
+@MainActor
+public protocol DebugAdapterStartDebuggingSession: AnyObject {
+    var onStartDebuggingRequest: DebugStartDebuggingRequestHandler? { get set }
+}
+
+/// Lets the host link a session to its parent in the shared Core session tree.
+/// `parentCoreSessionID` must be set before `start`; Core rejects an unknown parent.
+@MainActor
+public protocol DebugAdapterChildSessionLinking: AnyObject {
+    var coreSessionID: String { get }
+    var parentCoreSessionID: String? { get set }
+}
 
 /// Optional reverse-request surface implemented only by sessions whose native
 /// host can create an integrated terminal before DAP initialization begins.

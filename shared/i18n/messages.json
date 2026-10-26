@@ -61138,6 +61138,33 @@
       }
     },
     {
+      "id": "native.sessions",
+      "description": "Native UI: Sessions",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Sessions",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.stopSessionNamed",
+      "description": "Native UI: Stop %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Stop %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
       "id": "native.threads",
       "description": "Native UI: Threads",
       "platforms": [

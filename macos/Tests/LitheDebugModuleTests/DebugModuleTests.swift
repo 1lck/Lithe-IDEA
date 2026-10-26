@@ -865,6 +865,301 @@ struct DebugModuleTests {
     }
 
     @Test
+    func sharedProjectionV2FixturesDecodeAndRejectOnTheSameTerms() throws {
+        // 夹具在仓库根的 shared/ 下，按本文件位置定位，不依赖 swift test 的工作目录。
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("shared/fixtures/debug/projection-v2-examples.json")
+        let root = try #require(
+            try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]
+        )
+        func decode(_ entry: Any) throws -> DebugProjectionV2 {
+            let value = try #require((entry as? [String: Any])?["value"])
+            return try JSONDecoder().decode(
+                DebugProjectionV2.self,
+                from: JSONSerialization.data(withJSONObject: value)
+            )
+        }
+        let accepted = try #require(root["accept"] as? [Any])
+        let rejected = try #require(root["reject"] as? [Any])
+        #expect(!accepted.isEmpty && !rejected.isEmpty)
+        for entry in accepted { _ = try decode(entry) }
+        for entry in rejected {
+            #expect(throws: (any Error).self, "\((entry as? [String: Any])?["name"] ?? "")") {
+                try decode(entry)
+            }
+        }
+        guard case .stackTrace(_, let frames) = try decode(accepted[0]).projection else {
+            Issue.record("first example must be a stack trace")
+            return
+        }
+        #expect(frames[1].source == nil)
+        #expect(frames[1].instructionPointerReference == "0xffffffff81002a10")
+    }
+
+    @Test
+    func coreProtocolSessionGatesOptionalFeaturesOnNegotiatedCapabilities() throws {
+        let transport = RecordingTransport()
+        let core = RecordingDebugProtocolCore()
+        let session = CoreDebugAdapterProtocolSession(
+            adapterID: "java",
+            transport: transport,
+            core: core,
+            sessionID: "java-no-capabilities",
+            deadlineScheduler: RecordingDebugDeadlineScheduler()
+        )
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/java-no-capabilities"))
+        defer { session.stop() }
+
+        var dataResult: Result<DebugDataBreakpointInfo, Error>?
+        session.requestDataBreakpointInfo(name: "count", variablesReference: 1, frameID: 1) {
+            dataResult = $0
+        }
+        var exceptionResult: Result<DebugExceptionInfo, Error>?
+        session.requestExceptionInfo(threadID: 1) { exceptionResult = $0 }
+
+        #expect(throws: DebugAdapterCapabilityError.self) { try dataResult?.get() }
+        #expect(throws: DebugAdapterCapabilityError.self) { try exceptionResult?.get() }
+        #expect(core.lastDataBreakpointInfoOperationID == nil)
+    }
+
+    @Test
+    func coreProtocolSessionDelegatesStartDebuggingAndReportsTheOutcome() throws {
+        let transport = RecordingTransport()
+        let core = RecordingDebugProtocolCore()
+        let session = CoreDebugAdapterProtocolSession(
+            adapterID: "node",
+            transport: transport,
+            core: core,
+            sessionID: "node-start-debugging",
+            deadlineScheduler: RecordingDebugDeadlineScheduler()
+        )
+        var received: DebugStartDebuggingRequest?
+        session.onStartDebuggingRequest = { request, completion in
+            received = request
+            completion(.success(()))
+        }
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/node-start-debugging"))
+        defer { session.stop() }
+        #expect(core.lastSupportsStartDebuggingRequest == true)
+        core.enqueueReceive(sessionID: "node-start-debugging", state: "running", events: [[
+            "sequence": 2,
+            "type": "startDebuggingRequested",
+            "requestId": "startDebugging-61",
+            "request": [
+                "request": "attach",
+                "configuration": ["type": "pwa-node", "port": 9230]
+            ]
+        ]])
+
+        transport.emitData(Data("start-debugging-request".utf8))
+
+        #expect(received?.request == .attach)
+        #expect(received?.configuration["type"] == .string("pwa-node"))
+        #expect(core.startDebuggingResults.map(\.requestID) == ["startDebugging-61"])
+        #expect(core.startDebuggingResults.map(\.succeeded) == [true])
+    }
+
+    @Test
+    func coreProtocolSessionRejectsStartDebuggingWithoutAHostHandler() throws {
+        let transport = RecordingTransport()
+        let core = RecordingDebugProtocolCore()
+        let session = CoreDebugAdapterProtocolSession(
+            adapterID: "node",
+            transport: transport,
+            core: core,
+            sessionID: "node-no-child-host",
+            deadlineScheduler: RecordingDebugDeadlineScheduler()
+        )
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/node-no-child-host"))
+        defer { session.stop() }
+        #expect(core.lastSupportsStartDebuggingRequest == false)
+        core.enqueueReceive(sessionID: "node-no-child-host", state: "running", events: [[
+            "sequence": 2,
+            "type": "startDebuggingRequested",
+            "requestId": "startDebugging-62",
+            "request": ["request": "launch", "configuration": [:]]
+        ]])
+
+        transport.emitData(Data("start-debugging-request".utf8))
+
+        #expect(core.startDebuggingResults.map(\.succeeded) == [false])
+    }
+
+    /// Builds a manager whose parent and child sessions share one recording core.
+    private func makeChildCapableManager(
+        core: RecordingDebugProtocolCore,
+        parentTransport: RecordingTransport,
+        childFactory: Bool = true
+    ) -> (DebugAdapterSessionManager, () -> [CoreDebugAdapterProtocolSession]) {
+        let descriptor = DebugProviderDescriptor(id: "node", displayName: "Node", fileExtensions: ["js"])
+        var created: [CoreDebugAdapterProtocolSession] = []
+        let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in
+            let session = CoreDebugAdapterProtocolSession(
+                adapterID: "node",
+                transport: parentTransport,
+                core: core,
+                sessionID: "node-parent",
+                deadlineScheduler: RecordingDebugDeadlineScheduler()
+            )
+            created.append(session)
+            return session
+        }
+        if childFactory {
+            manager.makeChildSession = { _, _, _ in
+                let session = CoreDebugAdapterProtocolSession(
+                    adapterID: "node",
+                    transport: RecordingTransport(),
+                    core: core,
+                    sessionID: "node-child-\(created.count)",
+                    deadlineScheduler: RecordingDebugDeadlineScheduler()
+                )
+                created.append(session)
+                return session
+            }
+        }
+        return (manager, { created })
+    }
+
+    private func requestChild(_ core: RecordingDebugProtocolCore, _ transport: RecordingTransport) {
+        core.enqueueReceive(sessionID: "node-parent", state: "running", events: [[
+            "sequence": 2,
+            "type": "startDebuggingRequested",
+            "requestId": "startDebugging-70",
+            "request": ["request": "attach", "configuration": ["name": "Worker", "port": 9230]]
+        ]])
+        transport.emitData(Data("start-debugging-request".utf8))
+    }
+
+    @Test
+    func startDebuggingOpensALinkedChildWithoutStealingTheProviderSelection() throws {
+        let core = RecordingDebugProtocolCore()
+        let transport = RecordingTransport()
+        let (manager, created) = makeChildCapableManager(core: core, parentTransport: transport)
+        defer { manager.stopAll() }
+        let root = URL(fileURLWithPath: "/tmp/multi-child")
+        let handle = try manager.activateNew(for: root.appendingPathComponent("a.js"), rootURL: root)
+
+        requestChild(core, transport)
+
+        let summaries = manager.sessionSummaries
+        #expect(summaries.count == 2)
+        let child = try #require(summaries.first { $0.id != handle.id })
+        #expect(child.parentID == handle.id)
+        #expect(child.targetTitle == "Worker")
+        #expect(core.lastParentSessionID == "node-parent")
+        #expect(core.lastLaunchConfiguration?.request == .attach)
+        #expect(core.startDebuggingResults.map(\.succeeded) == [true])
+        #expect(created().count == 2)
+        let selected = try #require(manager.session(providerID: "node") as? CoreDebugAdapterProtocolSession)
+        let parentSession = try #require(handle.session as? CoreDebugAdapterProtocolSession)
+        #expect(selected === parentSession)
+    }
+
+    @Test
+    func childSessionReplaysBreakpointsSavedBeforeItWasCreated() throws {
+        let core = RecordingDebugProtocolCore()
+        let transport = RecordingTransport()
+        let (manager, _) = makeChildCapableManager(core: core, parentTransport: transport)
+        defer { manager.stopAll() }
+        let root = URL(fileURLWithPath: "/tmp/multi-child")
+        let file = root.appendingPathComponent("a.js")
+        try manager.activateNew(for: file, rootURL: root)
+        try manager.setBreakpoints([DebugSourceBreakpoint(line: 7, condition: "ready")], in: file)
+        let before = core.breakpointUpdates.count
+
+        requestChild(core, transport)
+
+        #expect(core.startDebuggingResults.map(\.succeeded) == [true])
+        let replayed = Array(core.breakpointUpdates.dropFirst(before))
+        #expect(replayed == [[DebugSourceBreakpoint(line: 7, condition: "ready")]])
+    }
+
+    @Test
+    func childSessionIsNeverPromotedOverARootSession() throws {
+        let core = RecordingDebugProtocolCore()
+        let transport = RecordingTransport()
+        let (manager, _) = makeChildCapableManager(core: core, parentTransport: transport)
+        defer { manager.stopAll() }
+        let root = URL(fileURLWithPath: "/tmp/multi-child")
+        let file = root.appendingPathComponent("a.js")
+        let first = try manager.activateNew(for: file, rootURL: root)
+        requestChild(core, transport)
+        let second = try manager.activateNew(for: file, rootURL: root)
+        let secondChild = try #require(manager.sessionSummaries.first { $0.parentID == nil && $0.id != first.id })
+        #expect(secondChild.id == second.id)
+
+        manager.stop(sessionID: second.id)
+
+        let selected = try #require(manager.session(providerID: "node") as? CoreDebugAdapterProtocolSession)
+        let firstSession = try #require(first.session as? CoreDebugAdapterProtocolSession)
+        #expect(selected === firstSession)
+    }
+
+    @Test
+    func stoppingAParentStopsItsChildren() throws {
+        let core = RecordingDebugProtocolCore()
+        let transport = RecordingTransport()
+        let (manager, _) = makeChildCapableManager(core: core, parentTransport: transport)
+        defer { manager.stopAll() }
+        let root = URL(fileURLWithPath: "/tmp/multi-stop")
+        let handle = try manager.activateNew(for: root.appendingPathComponent("a.js"), rootURL: root)
+        requestChild(core, transport)
+        #expect(manager.childSessionIDs(of: handle.id).count == 1)
+
+        manager.stop(sessionID: handle.id)
+
+        #expect(manager.sessionSummaries.isEmpty)
+        #expect(core.destroyedSessionIDs.contains("node-parent"))
+        #expect(core.destroyedSessionIDs.count == 2)
+    }
+
+    @Test
+    func featureModelDropsChildrenWithTheirParentAndSelectsARemainingSession() throws {
+        let core = RecordingDebugProtocolCore()
+        let transport = RecordingTransport()
+        let (manager, _) = makeChildCapableManager(core: core, parentTransport: transport)
+        let feature = GenericDebugFeatureModel(sessions: manager)
+        defer { feature.reset() }
+        var stopped: [DebugSessionID] = []
+        feature.onSessionStopped = { stopped.append($0) }
+        let root = URL(fileURLWithPath: "/tmp/multi-feature")
+        let configuration = DebugLaunchConfiguration(name: "Main", request: .launch, arguments: [:])
+        #expect(feature.start(
+            fileURL: root.appendingPathComponent("a.js"), rootURL: root, configuration: configuration
+        ))
+        let parentID = try #require(feature.activeSessionID)
+        requestChild(core, transport)
+        let childID = try #require(feature.sessionSummaries.first { $0.parentID == parentID }?.id)
+        #expect(feature.selectSession(childID))
+
+        feature.stopSession(parentID)
+
+        #expect(feature.sessionSummaries.isEmpty)
+        #expect(feature.activeSessionID == nil)
+        #expect(Set(stopped) == [parentID, childID])
+    }
+
+    @Test
+    func startDebuggingFallsBackToTheProviderSessionFactory() throws {
+        let core = RecordingDebugProtocolCore()
+        let transport = RecordingTransport()
+        let (manager, created) = makeChildCapableManager(
+            core: core, parentTransport: transport, childFactory: false
+        )
+        defer { manager.stopAll() }
+        let root = URL(fileURLWithPath: "/tmp/multi-default")
+        let handle = try manager.activateNew(for: root.appendingPathComponent("a.js"), rootURL: root)
+        #expect(core.lastSupportsStartDebuggingRequest == true)
+
+        requestChild(core, transport)
+
+        #expect(created().count == 2)
+        #expect(manager.sessionSummaries.contains { $0.parentID == handle.id })
+    }
+
+    @Test
     func coreProtocolSessionForwardsVariablePagingAndChildCounts() throws {
         let transport = RecordingTransport()
         let core = RecordingDebugProtocolCore()
@@ -2561,343 +2856,6 @@ struct DebugModuleTests {
     }
 
     @Test
-    func protocolSessionInitializesAndStopsThroughInjectedTransport() throws {
-        let transport = RecordingTransport()
-        let session = DebugAdapterProtocolSession(
-            adapterID: "test-adapter",
-            transport: transport
-        )
-
-        try session.start(rootURL: URL(fileURLWithPath: "/tmp/debug-module"))
-
-        #expect(session.state == .initializing)
-        #expect(transport.isRunning)
-        let initialize = try #require(transport.request(named: "initialize"))
-        transport.emitJSON([
-            "seq": 2,
-            "type": "response",
-            "request_seq": initialize["seq"] as! Int,
-            "success": true,
-            "command": "initialize",
-            "body": [
-                "supportsConfigurationDoneRequest": true,
-                "supportsFunctionBreakpoints": true,
-                "supportsDataBreakpoints": true,
-                "supportsSetVariable": true,
-                "supportsStepBack": true,
-                "supportsExceptionInfoRequest": false,
-                "supportsStepInTargetsRequest": true,
-                "supportsGotoTargetsRequest": true,
-                "supportsRestartRequest": true,
-                "supportsTerminateRequest": true
-            ]
-        ])
-        #expect(session.state == .ready)
-        session.setExceptionBreakpoints([
-            DebugExceptionBreakpoint(filter: "uncaught", enabled: true),
-            DebugExceptionBreakpoint(filter: "caught", enabled: false)
-        ])
-        session.setFunctionBreakpoints([
-            DebugFunctionBreakpoint(
-                name: "example.Main.run",
-                enabled: true,
-                condition: "ready",
-                hitCondition: "2"
-            ),
-            DebugFunctionBreakpoint(name: "example.Main.skip", enabled: false)
-        ])
-        session.setDataBreakpoints([
-            DebugDataBreakpoint(
-                dataID: "field:count",
-                label: "Main.count",
-                accessType: "write",
-                condition: "count > 1"
-            )
-        ])
-        transport.emitJSON([
-            "seq": 3,
-            "type": "event",
-            "event": "initialized"
-        ])
-        let exceptionRequest = try #require(transport.request(named: "setExceptionBreakpoints"))
-        let exceptionArguments = try #require(exceptionRequest["arguments"] as? [String: Any])
-        #expect(exceptionArguments["filters"] as? [String] == ["uncaught"])
-        let functionRequest = try #require(transport.request(named: "setFunctionBreakpoints"))
-        let functionArguments = try #require(functionRequest["arguments"] as? [String: Any])
-        let functionValues = try #require(functionArguments["breakpoints"] as? [[String: Any]])
-        #expect(functionValues.count == 1)
-        #expect(functionValues.first?["name"] as? String == "example.Main.run")
-        #expect(functionValues.first?["condition"] as? String == "ready")
-        #expect(functionValues.first?["hitCondition"] as? String == "2")
-        let dataRequest = try #require(transport.request(named: "setDataBreakpoints"))
-        let dataArguments = try #require(dataRequest["arguments"] as? [String: Any])
-        let dataValues = try #require(dataArguments["breakpoints"] as? [[String: Any]])
-        #expect(dataValues.first?["dataId"] as? String == "field:count")
-        #expect(dataValues.first?["accessType"] as? String == "write")
-        var dataInfo: Result<DebugDataBreakpointInfo, Error>?
-        session.requestDataBreakpointInfo(
-            name: "count",
-            variablesReference: 42,
-            frameID: 7
-        ) { dataInfo = $0 }
-        let dataInfoRequest = try #require(transport.request(named: "dataBreakpointInfo"))
-        transport.emitJSON([
-            "seq": 8,
-            "type": "response",
-            "request_seq": dataInfoRequest["seq"] as! Int,
-            "success": true,
-            "command": "dataBreakpointInfo",
-            "body": [
-                "dataId": "field:count",
-                "description": "Main.count",
-                "accessTypes": ["write"],
-                "canPersist": false
-            ]
-        ])
-        #expect(try dataInfo?.get().dataID == "field:count")
-        #expect(transport.request(named: "configurationDone") != nil)
-
-        transport.emitJSON([
-            "seq": 9,
-            "type": "event",
-            "event": "stopped",
-            "body": ["reason": "breakpoint", "threadId": 11]
-        ])
-        var setVariable: Result<DebugVariable, Error>?
-        session.setVariable(
-            variablesReference: 42,
-            name: "count",
-            value: "7"
-        ) { setVariable = $0 }
-        let setVariableRequest = try #require(transport.request(named: "setVariable"))
-        let setVariableArguments = try #require(setVariableRequest["arguments"] as? [String: Any])
-        #expect(setVariableArguments["variablesReference"] as? Int == 42)
-        #expect(setVariableArguments["name"] as? String == "count")
-        #expect(setVariableArguments["value"] as? String == "7")
-        transport.emitJSON([
-            "seq": 10,
-            "type": "response",
-            "request_seq": setVariableRequest["seq"] as! Int,
-            "success": true,
-            "command": "setVariable",
-            "body": ["value": "7", "type": "int", "variablesReference": 0]
-        ])
-        #expect(try setVariable?.get().value == "7")
-        var stepTargets: Result<[DebugStepInTarget], Error>?
-        session.requestStepInTargets(frameID: 7) { stepTargets = $0 }
-        let stepTargetsRequest = try #require(transport.request(named: "stepInTargets"))
-        transport.emitJSON([
-            "seq": 10,
-            "type": "response",
-            "request_seq": stepTargetsRequest["seq"] as! Int,
-            "success": true,
-            "command": "stepInTargets",
-            "body": ["targets": [["id": 21, "label": "service.load()", "line": 12]]]
-        ])
-        #expect(try stepTargets?.get().first?.id == 21)
-        var gotoTargets: Result<[DebugGotoTarget], Error>?
-        session.requestGotoTargets(
-            fileURL: URL(fileURLWithPath: "/tmp/Main.java"),
-            line: 20,
-            column: 5
-        ) { gotoTargets = $0 }
-        let gotoTargetsRequest = try #require(transport.request(named: "gotoTargets"))
-        transport.emitJSON([
-            "seq": 11,
-            "type": "response",
-            "request_seq": gotoTargetsRequest["seq"] as! Int,
-            "success": true,
-            "command": "gotoTargets",
-            "body": ["targets": [["id": 31, "label": "Main.java:20", "line": 20]]]
-        ])
-        #expect(try gotoTargets?.get().first?.id == 31)
-        session.execute(.stepIn, threadID: 11, targetID: 21)
-        session.execute(.goto, threadID: 11, targetID: 31)
-        session.execute(.stepBack, threadID: 11)
-        session.execute(.restart, threadID: 11)
-        session.execute(.terminate, threadID: 11)
-        let stepBack = try #require(transport.request(named: "stepBack"))
-        let stepBackArguments = try #require(stepBack["arguments"] as? [String: Any])
-        #expect(stepBackArguments["threadId"] as? Int == 11)
-        #expect(stepBackArguments["singleThread"] as? Bool == false)
-        let smartStep = try #require(transport.request(named: "stepIn"))
-        #expect((smartStep["arguments"] as? [String: Any])?["targetId"] as? Int == 21)
-        let goto = try #require(transport.request(named: "goto"))
-        #expect((goto["arguments"] as? [String: Any])?["targetId"] as? Int == 31)
-        let restart = try #require(transport.request(named: "restart"))
-        #expect((restart["arguments"] as? [String: Any])?["threadId"] == nil)
-        let terminate = try #require(transport.request(named: "terminate"))
-        #expect((terminate["arguments"] as? [String: Any])?["threadId"] == nil)
-
-        session.stop()
-
-        #expect(!transport.isRunning)
-        #expect(session.state == .idle)
-        #expect(transport.stopCalls == 1)
-    }
-
-    @Test
-    func protocolSessionPreservesUTF8ErrorOutputSplitAcrossTransportReads() throws {
-        let transport = RecordingTransport()
-        let session = DebugAdapterProtocolSession(
-            adapterID: "test-adapter",
-            transport: transport
-        )
-        var output = ""
-        session.onEvent = { event in
-            if case .output(_, let value) = event {
-                output += value
-            }
-        }
-        try session.start(rootURL: URL(fileURLWithPath: "/tmp/debug-utf8"))
-
-        for byte in Data("调试🙂\n".utf8) {
-            transport.emitErrorOutput(Data([byte]))
-        }
-
-        #expect(output == "调试🙂\n")
-        #expect(!output.contains("�"))
-        session.stop()
-    }
-
-    @Test
-    func protocolSessionDisconnectTerminatesOnlyLaunchedDebuggees() throws {
-        let launchArguments = try disconnectArguments(for: .launch)
-        #expect(launchArguments["restart"] as? Bool == false)
-        #expect(launchArguments["terminateDebuggee"] as? Bool == true)
-
-        let attachArguments = try disconnectArguments(for: .attach)
-        #expect(attachArguments["restart"] as? Bool == false)
-        #expect(attachArguments["terminateDebuggee"] as? Bool == false)
-
-        let unstartedArguments = try disconnectArguments(for: nil)
-        #expect(unstartedArguments["restart"] as? Bool == false)
-        #expect(unstartedArguments["terminateDebuggee"] as? Bool == false)
-    }
-
-    @Test
-    func protocolSessionCreatesAndStopsChildTransport() throws {
-        let parent = RecordingTransport()
-        let session = DebugAdapterProtocolSession(adapterID: "test-adapter", transport: parent)
-        let root = URL(fileURLWithPath: "/tmp/debug-child", isDirectory: true)
-
-        try session.start(rootURL: root)
-        let initialize = try #require(parent.request(named: "initialize"))
-        parent.emitJSON([
-            "seq": 2,
-            "type": "response",
-            "request_seq": initialize["seq"] as! Int,
-            "success": true,
-            "command": "initialize",
-            "body": [:]
-        ])
-        parent.emitJSON([
-            "seq": 3,
-            "type": "request",
-            "command": "startDebugging",
-            "arguments": [
-                "configuration": [
-                    "name": "Child",
-                    "request": "launch",
-                    "program": root.appendingPathComponent("main.js").path
-                ]
-            ]
-        ])
-
-        let child = try #require(parent.children.first)
-        #expect(child.isRunning)
-        #expect(child.request(named: "initialize") != nil)
-        #expect(parent.response(to: 3)?["success"] as? Bool == true)
-
-        session.stop()
-
-        #expect(!child.isRunning)
-        #expect(child.stopCalls == 1)
-    }
-
-    @Test
-    func protocolSessionRemovesFinishedChildTransport() throws {
-        let parent = RecordingTransport()
-        let session = DebugAdapterProtocolSession(adapterID: "test-adapter", transport: parent)
-        let root = URL(fileURLWithPath: "/tmp/debug-child-cleanup", isDirectory: true)
-
-        try session.start(rootURL: root)
-        let initialize = try #require(parent.request(named: "initialize"))
-        parent.emitJSON([
-            "seq": 2,
-            "type": "response",
-            "request_seq": initialize["seq"] as! Int,
-            "success": true,
-            "command": "initialize",
-            "body": [:]
-        ])
-        parent.emitJSON([
-            "seq": 3,
-            "type": "request",
-            "command": "startDebugging",
-            "arguments": [
-                "configuration": [
-                    "name": "Child",
-                    "request": "launch",
-                    "program": root.appendingPathComponent("main.js").path
-                ]
-            ]
-        ])
-
-        let child = try #require(parent.children.first)
-        child.terminate(0)
-        #expect(!child.isRunning)
-
-        session.stop()
-
-        // A terminated child is removed immediately, so parent shutdown does
-        // not retain or stop the same transport a second time.
-        #expect(child.stopCalls == 0)
-    }
-
-    @Test
-    func protocolSessionReportsLaunchFailureInDebugOutput() throws {
-        let transport = RecordingTransport()
-        let session = DebugAdapterProtocolSession(
-            adapterID: "test-adapter",
-            transport: transport
-        )
-        var events: [DebugAdapterEvent] = []
-        session.onEvent = { events.append($0) }
-
-        try session.start(rootURL: URL(fileURLWithPath: "/tmp/debug-launch-failure"))
-        let initialize = try #require(transport.request(named: "initialize"))
-        transport.emitJSON([
-            "seq": 2,
-            "type": "response",
-            "request_seq": initialize["seq"] as! Int,
-            "success": true,
-            "command": "initialize",
-            "body": [:]
-        ])
-        try session.launch(DebugLaunchConfiguration(
-            name: "Broken Main",
-            request: .launch,
-            arguments: ["program": .string("/tmp/missing-main")]
-        ))
-        let launch = try #require(transport.request(named: "launch"))
-        transport.emitJSON([
-            "seq": 3,
-            "type": "response",
-            "request_seq": launch["seq"] as! Int,
-            "success": false,
-            "command": "launch",
-            "message": "main class was not found"
-        ])
-
-        #expect(session.state == .failed)
-        #expect(events.contains(.output(
-            category: "stderr",
-            output: "Debug launch failed: launch failed: main class was not found\n"
-        )))
-    }
-
-    @Test
     func disabledDebugDoesNotConstructGraph() async throws {
         let recorder = Recorder()
         let runtime = ModuleRuntime()
@@ -3013,49 +2971,15 @@ struct DebugModuleTests {
             )
         }
     }
-
-    private func disconnectArguments(
-        for requestKind: DebugRequestKind?
-    ) throws -> [String: Any] {
-        let transport = RecordingTransport()
-        let session = DebugAdapterProtocolSession(
-            adapterID: "test-adapter",
-            transport: transport
-        )
-        try session.start(rootURL: URL(fileURLWithPath: "/tmp/debug-disconnect"))
-        defer {
-            if session.isRunning { session.stop() }
-        }
-        let initialize = try #require(transport.request(named: "initialize"))
-        transport.emitJSON([
-            "seq": 2,
-            "type": "response",
-            "request_seq": initialize["seq"] as! Int,
-            "success": true,
-            "command": "initialize",
-            "body": [:]
-        ])
-        if let requestKind {
-            try session.launch(DebugLaunchConfiguration(
-                name: "Disconnect Policy",
-                request: requestKind,
-                arguments: [:]
-            ))
-        }
-        session.stop()
-        let disconnect = try #require(transport.request(named: "disconnect"))
-        return try #require(disconnect["arguments"] as? [String: Any])
-    }
 }
 
 @MainActor
-private final class RecordingTransport: DebugAdapterTransport, DebugAdapterChildTransportProviding {
+private final class RecordingTransport: DebugAdapterTransport {
     private(set) var isRunning = false
     var onData: ((Data) -> Void)?
     var onErrorOutput: ((Data) -> Void)?
     var onTermination: ((Int) -> Void)?
     private(set) var sentData: [Data] = []
-    private(set) var children: [RecordingTransport] = []
     private(set) var stopCalls = 0
 
     func start(rootURL: URL) throws {
@@ -3074,12 +2998,6 @@ private final class RecordingTransport: DebugAdapterTransport, DebugAdapterChild
     func terminate(_ exitCode: Int) {
         isRunning = false
         onTermination?(exitCode)
-    }
-
-    func makeChildTransport() -> (any DebugAdapterTransport)? {
-        let child = RecordingTransport()
-        children.append(child)
-        return child
     }
 
     func emitJSON(_ object: [String: Any]) {
@@ -3448,6 +3366,9 @@ private final class RecordingDebugProtocolCore: DebugProtocolCore {
     private(set) var inspectionRequests: [RecordingDebugInspectionRequest] = []
     private(set) var lastLaunchConfiguration: DebugLaunchConfiguration?
     private(set) var lastSupportsRunInTerminalRequest: Bool?
+    private(set) var lastSupportsStartDebuggingRequest: Bool?
+    private(set) var lastParentSessionID: String?
+    private(set) var startDebuggingResults: [(requestID: String, succeeded: Bool)] = []
     private(set) var runInTerminalCompletions: [RecordingRunInTerminalCompletion] = []
     let defaultSteppingFilters = DebugSteppingFilters(
         classNameFilters: ["$JDK", "org.junit.*"],
@@ -3468,9 +3389,13 @@ private final class RecordingDebugProtocolCore: DebugProtocolCore {
         sessionID: String,
         adapterID _: String,
         rootPath _: String,
-        supportsRunInTerminalRequest: Bool
+        supportsRunInTerminalRequest: Bool,
+        supportsStartDebuggingRequest: Bool,
+        parentSessionID: String?
     ) throws -> DebugCoreUpdate {
+        lastParentSessionID = parentSessionID
         lastSupportsRunInTerminalRequest = supportsRunInTerminalRequest
+        lastSupportsStartDebuggingRequest = supportsStartDebuggingRequest
         return update(
             sessionID: sessionID,
             state: "initializing",
@@ -3630,6 +3555,19 @@ private final class RecordingDebugProtocolCore: DebugProtocolCore {
             state: "launching",
             frames: [Data("run-in-terminal-response".utf8)]
         )
+    }
+
+    func completeDebugStartDebuggingRequest(
+        sessionID: String,
+        requestID: String,
+        result: Result<Void, Error>
+    ) throws -> DebugCoreUpdate {
+        if case .success = result {
+            startDebuggingResults.append((requestID, true))
+        } else {
+            startDebuggingResults.append((requestID, false))
+        }
+        return update(sessionID: sessionID, state: "running")
     }
 
     func disconnectDebugSession(sessionID: String) throws -> DebugCoreUpdate {

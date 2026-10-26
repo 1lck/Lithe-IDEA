@@ -3233,6 +3233,7 @@
 "Services" = "服务";
 "Session" = "会话";
 "Session statistics" = "会话统计";
+"Sessions" = "会话";
 "Set" = "设置";
 "Set Up Agent File Attachments…" = "设置 Agent 文件附件…";
 "Set Variable Value" = "设置变量值";
@@ -3465,6 +3466,7 @@
 "Step out" = "单步跳出";
 "Step over" = "单步跳过";
 "Stop" = "停止";
+"Stop %@" = "停止 %@";
 "Stop Camera" = "停止摄像头";
 "Stop Debug" = "停止调试";
 "Stop Loading" = "停止加载";
@@ -7634,6 +7636,7 @@
 "native.services" = "服务";
 "native.session" = "会话";
 "native.sessionStatistics" = "会话统计";
+"native.sessions" = "会话";
 "native.set" = "设置";
 "native.setTheCustomAgentSExecutableInThePanelSettings" = "请在设置窗口的 Agent 页面中填写自定义 Agent 的可执行文件。";
 "native.setTheDefaultsUsedByOrdinaryFetchInEveryProjectCredentialsUseYourExistingGitHea37790d0a5" = "设置所有项目中普通 Fetch 使用的默认行为。凭据使用现有的 Git 凭据助手和 SSH 配置。";
@@ -7888,6 +7891,7 @@
 "native.stopRun.variant2" = "停止运行";
 "native.stopSelected" = "停止所选配置";
 "native.stopService" = "停止服务";
+"native.stopSessionNamed" = "停止 %1$@";
 "native.stopTestRun" = "停止测试运行";
 "native.stopTheCurrentDebugSession" = "停止当前调试会话";
 "native.stopTheCurrentRun" = "停止当前运行";

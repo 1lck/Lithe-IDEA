@@ -35,6 +35,7 @@ public struct DebugCoreEvent: Decodable, Equatable, Sendable {
     public let capabilities: DebugCoreCapabilities?
     public let requestID: String?
     public let request: DebugRunInTerminalRequest?
+    public let startDebuggingRequest: DebugStartDebuggingRequest?
     public let operationID: String?
     public let result: DebugCoreOperationResult?
     public let command: String?
@@ -60,6 +61,43 @@ public struct DebugCoreEvent: Decodable, Equatable, Sendable {
         case command
         case code
         case message
+    }
+
+    /// `request` carries a different payload for each reverse request, so it is
+    /// decoded by event type instead of being forced into one shape.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        sequence = try container.decode(UInt64.self, forKey: .sequence)
+        type = try container.decode(String.self, forKey: .type)
+        state = try container.decodeIfPresent(DebugCoreSessionState.self, forKey: .state)
+        category = try container.decodeIfPresent(String.self, forKey: .category)
+        output = try container.decodeIfPresent(String.self, forKey: .output)
+        reason = try container.decodeIfPresent(String.self, forKey: .reason)
+        threadID = try container.decodeIfPresent(Int.self, forKey: .threadID)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        exitCode = try container.decodeIfPresent(Int.self, forKey: .exitCode)
+        breakpoint = try container.decodeIfPresent(DebugCoreBreakpoint.self, forKey: .breakpoint)
+        capabilities = try container.decodeIfPresent(DebugCoreCapabilities.self, forKey: .capabilities)
+        requestID = try container.decodeIfPresent(String.self, forKey: .requestID)
+        switch type {
+        case "runInTerminalRequested":
+            request = try container.decodeIfPresent(DebugRunInTerminalRequest.self, forKey: .request)
+            startDebuggingRequest = nil
+        case "startDebuggingRequested":
+            request = nil
+            startDebuggingRequest = try container.decodeIfPresent(
+                DebugStartDebuggingRequest.self,
+                forKey: .request
+            )
+        default:
+            request = nil
+            startDebuggingRequest = nil
+        }
+        operationID = try container.decodeIfPresent(String.self, forKey: .operationID)
+        result = try container.decodeIfPresent(DebugCoreOperationResult.self, forKey: .result)
+        command = try container.decodeIfPresent(String.self, forKey: .command)
+        code = try container.decodeIfPresent(String.self, forKey: .code)
+        message = try container.decodeIfPresent(String.self, forKey: .message)
     }
 }
 
@@ -282,7 +320,9 @@ public protocol DebugProtocolCore: DebugSteppingFilterResolving, Sendable {
         sessionID: String,
         adapterID: String,
         rootPath: String,
-        supportsRunInTerminalRequest: Bool
+        supportsRunInTerminalRequest: Bool,
+        supportsStartDebuggingRequest: Bool,
+        parentSessionID: String?
     ) throws -> DebugCoreUpdate
     func launchDebugSession(
         sessionID: String,
@@ -353,6 +393,11 @@ public protocol DebugProtocolCore: DebugSteppingFilterResolving, Sendable {
         sessionID: String,
         requestID: String,
         result: Result<DebugRunInTerminalResponse, Error>
+    ) throws -> DebugCoreUpdate
+    func completeDebugStartDebuggingRequest(
+        sessionID: String,
+        requestID: String,
+        result: Result<Void, Error>
     ) throws -> DebugCoreUpdate
     func disconnectDebugSession(sessionID: String) throws -> DebugCoreUpdate
     func destroyDebugSession(sessionID: String)

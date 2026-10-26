@@ -20,7 +20,9 @@
       "macos/Sources/Lithe/Views/Workbench/WorkbenchModuleUIComposition.swift",
       "macos/Tests/LitheTests/DebugToolbarPresentationTests.swift",
       "macos/Sources/Lithe/Models/AppModel/AppModel+Debugging.swift",
-      "macos/Tests/LitheTests/RunEntryPointTests.swift"
+      "macos/Tests/LitheTests/RunEntryPointTests.swift",
+      "macos/Sources/LitheDebugModule/Runtime/DebugAdapterSessionManager.swift",
+      "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -40,6 +42,6 @@
     "verificationStatus": "pending"
   },
   "owner": "Debug",
-  "verification": "设置、命中、禁用和重新定位断点，确认调试会话生命周期。 Windows验证Java gutter增删断点、禁用断点和暂停行装饰；只读编辑器不增删断点，切换/销毁编辑器后订阅与装饰均释放。 Windows盘符路径的大小写/分隔符别名必须在 gutter mutation、按文件查询和 Monaco 投影使用同一字面身份；第二次点击移除可见位置及其历史重复别名，保留其他行/模块和原始持久化路径。POSIX大小写保持区分，真实store与隔离localStorage回归登记Windows CI。 macOS WebKit验证IDEA原始14pt断点SVG明暗变体、普通/禁用/静音/未验证/日志状态，未启动调试时为普通实心断点；启用且暂停的断点采用IDEA配色行背景，禁用和日志断点无此背景，增删不改变文本或边栏宽度。 可编辑行号区hover显示原始断点SVG预览，Islands深/浅透明度0.35/0.30，光标为pointer；已有断点保持完整不透明度，只读与Git blame不显示可点击预览。 macOS断点位置只检查合法源码行和provider能力，不以@注解、类型声明或单独花括号启发式拒绝；hover与点击共享宿主能力，未支持文件和只读等状态不发请求。真实JUnit/TestNG调试同时保留方法结束括号断点并在方法体语句暂停、检查局部变量及继续退出。Core requestedLine与适配器ID关联实际行号和后续无位置事件，拒绝旧请求回包；显示已调整位置的圆点仍切换原始持久化断点，新会话撤销旧绑定确认。 macOS暂停位置对齐IDEA EXECUTIONPOINT_ATTRIBUTES：Islands深/浅背景#2A5091/#2154A6，执行高亮覆盖同位置断点背景并保留语法色和已验证断点；不增加IDEA Java默认没有的黄色stack-frame箭头。行尾变量使用#849FBF/#A9B7D6斜体透明背景。真实WebKit覆盖深浅主题、单步移动、继续后清除暂停装饰并恢复断点背景及文本历史不变。 共享行尾变量注入必须设置showIfCollapsed，使零宽锚点实际渲染；不得只检查模型装饰存在。macOS实际演示项目已验证断点命中、单步到下一行及继续退出后的高亮和值清理。 macOS主工具栏对当前选中调试目标以Pause/Resume替换Run，使用IDEA原始16pt图标与普通按钮底色；执行请求处理中禁用，仍保留Restart Debug和Stop，退出调试或选择其他目标恢复Run/Rerun。检查暂停时点击Resume继续到下一断点、运行时Pause、目标切换及模块禁用；纯展示测试覆盖各会话状态和不匹配的目标。 顶栏选中测试目标时，Debug及其共享快捷键入口必须调用测试调试工作流，而非底下的Main配置；没有源码的测试必须明确报错，不能回退调试Main。",
-  "notes": "Windows 真实调试产品链路仍在 #466 跟进。 本次Windows改动保留Core/JDT的DAP及Java目标所有权，仅修复前端事件、请求和资源生命周期；完整界面及跨平台验收保持pending。 路径键复用既有装饰规则，不等同于原生文件句柄/符号链接身份，不全量迁移用户断点。"
+  "verification": "设置、命中、禁用和重新定位断点，确认调试会话生命周期。 Windows验证Java gutter增删断点、禁用断点和暂停行装饰；只读编辑器不增删断点，切换/销毁编辑器后订阅与装饰均释放。 Windows盘符路径的大小写/分隔符别名必须在 gutter mutation、按文件查询和 Monaco 投影使用同一字面身份；第二次点击移除可见位置及其历史重复别名，保留其他行/模块和原始持久化路径。POSIX大小写保持区分，真实store与隔离localStorage回归登记Windows CI。 macOS WebKit验证IDEA原始14pt断点SVG明暗变体、普通/禁用/静音/未验证/日志状态，未启动调试时为普通实心断点；启用且暂停的断点采用IDEA配色行背景，禁用和日志断点无此背景，增删不改变文本或边栏宽度。 可编辑行号区hover显示原始断点SVG预览，Islands深/浅透明度0.35/0.30，光标为pointer；已有断点保持完整不透明度，只读与Git blame不显示可点击预览。 macOS断点位置只检查合法源码行和provider能力，不以@注解、类型声明或单独花括号启发式拒绝；hover与点击共享宿主能力，未支持文件和只读等状态不发请求。真实JUnit/TestNG调试同时保留方法结束括号断点并在方法体语句暂停、检查局部变量及继续退出。Core requestedLine与适配器ID关联实际行号和后续无位置事件，拒绝旧请求回包；显示已调整位置的圆点仍切换原始持久化断点，新会话撤销旧绑定确认。 macOS暂停位置对齐IDEA EXECUTIONPOINT_ATTRIBUTES：Islands深/浅背景#2A5091/#2154A6，执行高亮覆盖同位置断点背景并保留语法色和已验证断点；不增加IDEA Java默认没有的黄色stack-frame箭头。行尾变量使用#849FBF/#A9B7D6斜体透明背景。真实WebKit覆盖深浅主题、单步移动、继续后清除暂停装饰并恢复断点背景及文本历史不变。 共享行尾变量注入必须设置showIfCollapsed，使零宽锚点实际渲染；不得只检查模型装饰存在。macOS实际演示项目已验证断点命中、单步到下一行及继续退出后的高亮和值清理。 macOS主工具栏对当前选中调试目标以Pause/Resume替换Run，使用IDEA原始16pt图标与普通按钮底色；执行请求处理中禁用，仍保留Restart Debug和Stop，退出调试或选择其他目标恢复Run/Rerun。检查暂停时点击Resume继续到下一断点、运行时Pause、目标切换及模块禁用；纯展示测试覆盖各会话状态和不匹配的目标。 顶栏选中测试目标时，Debug及其共享快捷键入口必须调用测试调试工作流，而非底下的Main配置；没有源码的测试必须明确报错，不能回退调试Main。 macOS 多会话（#1210）：启动带 startDebugging 子会话的调试，确认头部只有一个会话标签，线程选择器先列“会话”（子会话缩进、带状态和当前勾选）再列线程，切换会话后线程、栈帧和变量跟随；停止父会话连带停止子会话，父会话终止或失败也清理子会话，右键线程选择器可单独停止某个运行中的会话。运行 LitheDebugModuleTests 的多会话用例；真实多会话产品验收 pending。",
+  "notes": "Windows 真实调试产品链路仍在 #466 跟进。 本次Windows改动保留Core/JDT的DAP及Java目标所有权，仅修复前端事件、请求和资源生命周期；完整界面及跨平台验收保持pending。 路径键复用既有装饰规则，不等同于原生文件句柄/符号链接身份，不全量迁移用户断点。 macOS 内置 Python（debugpy）和 Rust（lldb-dap）stdio 调试器已移除，只保留 Java，其余语言由语言插件提供调试适配器（#1210）。"
 }

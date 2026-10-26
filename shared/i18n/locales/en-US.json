@@ -6369,6 +6369,8 @@
     "native.thisWindow.variant2": "This window",
     "native.thisWorktreeHasADetachedHEADPublishItAsABranchBeforeCreatingAPullRequest": "This worktree has a detached HEAD. Publish it as a branch before creating a pull request.",
     "native.thisWorktreeHasNoUncommittedChanges": "This worktree has no uncommitted changes.",
+    "native.sessions": "Sessions",
+    "native.stopSessionNamed": "Stop {arg1}",
     "native.threads": "Threads",
     "native.timeToExit": "Time to exit",
     "native.timedOut": "{arg1} timed out.",

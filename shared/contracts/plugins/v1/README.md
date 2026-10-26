@@ -377,6 +377,7 @@ files sorted by path, or an empty list when no project marker is present.
 | `1` | Languages, `packaged` and `systemCommand` language servers, `node` and `go` runtime dependencies, run and test providers. |
 | `2` | `runtime` launches with a packaged or discovered runtime, host integrations, the `java` runtime, launch templates, `initializationOptions`, and plugin settings. |
 | `3` | Capability versions (`requires`), `buildSystems`: declarative build tools with detection, options, a project model, tasks, run entries, tests, diagnostics, dependencies, and sync, and [`vcsProviders`](#api-level-3-vcs-providers). |
+| `4` | [`debugAdapters`](#api-level-4-debug-adapters) and `serverProcess` 2 (`runSelectedRuntime`). |
 
 A level 2 feature in a level 1 manifest is refused with
 `plugin.manifest.invalid` (`plugin.runtime.unsupported` for the `java` tool),
@@ -407,6 +408,7 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 | `buildSystems` | Declarative build detection, models, and command plans | `1` |
 | `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers | `1` |
 | `vcsProviders` | `vcsProviders[]` | `1` |
+| `debugAdapters` | [`debugAdapters[]`](#api-level-4-debug-adapters) | `1` |
 | `projectGenerators` | [`projectGenerators[]`](#project-generators): entries of the New Project window | `1` |
 | `backend` | [`backend`](#plugin-backend): the plugin's own long-lived process for its pages | `1` |
 
@@ -494,6 +496,8 @@ Rules for publishing across levels and capability versions:
 | `process.test` | any provider declares `test` |
 | `process.build` | `buildSystems` is not empty |
 | `process.vcs` | `vcsProviders` is not empty |
+| `debug.launch` | `debugAdapters` is not empty |
+| `debug.attach` | an adapter lists `attach` in `requests` (and only then) |
 | `project.generate` | `projectGenerators` is not empty |
 | `ui.contribute` | `ui` is declared |
 | `ui.web` | a tool window shows [web content](#web-content-ui-2) |
@@ -507,6 +511,7 @@ Rules for publishing across levels and capability versions:
 | `onTest:<id>` | Activate the test provider when the user lists or runs tests. |
 | `onBuildSystem:<id>` | Activate the build system before its first plan, model, or decode. |
 | `onVcsRoot:<id>` | Start the VCS provider once a root of its VCS is detected in the workspace. |
+| `onDebug:<id>` | Start the debug adapter when a debug session needs it (API level 4). |
 
 Each provider needs its event and each event needs a provider. Enabling a
 plugin only permits activation; nothing starts until its event occurs.
@@ -1006,6 +1011,35 @@ its VCS client (`vcsTool`) and `mayUseNetwork`. Requests go through
 `lsp.vcsRequest` by operation name and replies are normalized by
 `vcs.decodeReply`. The fields, operations, reply shapes, and error codes are
 defined in [the VCS provider contract](https://github.com/1lck/Lithe-IDEA/blob/preview/shared/contracts/vcs-provider-v1.md).
+
+## API level 4: debug adapters
+
+`debugAdapters[]` declares debug adapters the plugin implements. Each one is a
+DAP process the host starts and talks to over stdio or a loopback TCP port.
+The declaration is data only: there is no resolver, workflow, host integration,
+or `initializationOptions`, and any such field is refused. Requires
+`requires.debugAdapters` 1, `debug.launch` (plus `debug.attach` when an
+adapter serves `attach`), and one `onDebug:<id>` activation event per adapter.
+A manifest below level 4 may not declare `debugAdapters`, and a level 3 manifest may not require `debugAdapters` or `serverProcess` 2.
+
+| Field | Meaning |
+| --- | --- |
+| `id`, `displayName` | Plugin-local ID (unique in the plugin) and its title. |
+| `adapterID` | DAP `initialize.adapterID`; defaults to `id`. |
+| `requests` | `launch` (default) and/or `attach`. |
+| `selectors[]` | Optional automatic matching by `targetKinds` and `languageIDs`; absent means explicit selection only. |
+| `configurationTypes` | Imported `launch.json` `type` values the adapter answers to. |
+| `configurations.launch/attach` | Default DAP `arguments`, a packaged `parametersSchema`, and `targetBindings` (`program` ← `target.path`, `processId` ← `target.processID`, `cwd` ← `target.workingDirectory`). A configuration for an undeclared request is refused. |
+| `capabilities.disabled` | Standard DAP `supports*` names or `exceptionBreakpointFilters` the host treats as absent. |
+| `launch.process` | The shared `serverProcess` launch fields without `initializationOptions`, or `{"launch": {"kind": "runSelectedRuntime", "tool": "python" \| "java" \| "node"}}`, which needs `serverProcess` 2 and is the only use of it. |
+| `launch.transport` | `stdio`, `tcpAnnounced` (`endpoint`: `stream`, one-line `prefix`, `value` = `port` or `hostPort`), or `tcpPort` (`endpoint.port`). TCP endpoints are loopback only. |
+
+The cases in `fixtures/debug-adapter-rejections.json` state the stable code and
+field for each refusal and the layer that reports it: `schema`,
+`coreManifest`, `corePlan` (one start: stale registration or runtime
+selection, a target missing a fact a binding reads), and `coreInstall`
+(a `parametersSchema` that is missing or links outside the package).
+`fixtures/debug-adapter.plugin.json` is a valid example.
 
 ## Plugin backend
 

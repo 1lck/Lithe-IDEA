@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "description": "A reference-bound reply that arrives after a newer stop must fail as StaleReference; a reply issued under the current stop still completes.",
+  "staleOperationId": "old",
+  "freshOperationId": "fresh",
+  "evaluateResponseBody": {"result": "3"},
+  "expectedFailureCode": "staleReference"
+}

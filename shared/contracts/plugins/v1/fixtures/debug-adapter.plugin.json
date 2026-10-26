@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 2,
+  "id": "dev.lithe.fixture.debug-adapter",
+  "displayName": "Debug Adapter Fixture",
+  "version": "0.1.0",
+  "pluginAPIVersion": 4,
+  "requires": { "debugAdapters": 1, "serverProcess": 1 },
+  "vendor": {
+    "id": "org.example",
+    "displayName": "Example",
+    "signatureRequirement": "publisherPackage"
+  },
+  "permissions": [
+    "debug.attach",
+    "debug.launch"
+  ],
+  "activationEvents": [
+    "onDebug:example"
+  ],
+  "languages": [],
+  "debugAdapters": [
+    {
+      "id": "example",
+      "displayName": "Example Debugger",
+      "adapterID": "example-dap",
+      "requests": ["launch", "attach"],
+      "selectors": [{ "targetKinds": ["file"], "languageIDs": ["example"] }],
+      "configurationTypes": ["example"],
+      "configurations": {
+        "launch": {
+          "arguments": { "stopOnEntry": false },
+          "parametersSchema": "schemas/launch.json",
+          "targetBindings": { "program": "target.path", "cwd": "target.workingDirectory" }
+        },
+        "attach": {
+          "targetBindings": { "processId": "target.processID" }
+        }
+      },
+      "capabilities": { "disabled": ["supportsStepBack"] },
+      "launch": {
+        "process": {
+          "launch": { "kind": "packaged", "path": "bin/example-dap" },
+          "arguments": ["--stdio"]
+        },
+        "transport": "stdio"
+      }
+    }
+  ]
+}
