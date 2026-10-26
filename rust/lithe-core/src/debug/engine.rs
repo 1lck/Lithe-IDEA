@@ -1165,11 +1165,8 @@ impl DebugSession {
             .unwrap_or(false);
         if !success {
             let command = pending.command().to_string();
-            let detail = message
-                .get("message")
-                .and_then(Value::as_str)
-                .unwrap_or("The debug adapter rejected the request.")
-                .to_string();
+            let detail = adapter_failure_detail(message)
+                .unwrap_or_else(|| "The debug adapter rejected the request.".to_string());
             if let Some(operation_id) = pending.operation_id() {
                 self.emit(DebugEventBody::OperationFailed {
                     operation_id: operation_id.to_string(),
@@ -2627,6 +2624,62 @@ fn required_array<'a>(value: &'a Value, field: &str) -> Result<&'a Vec<Value>, C
 
 fn string_field(value: &Value, field: &str) -> Option<String> {
     value.get(field).and_then(Value::as_str).map(str::to_string)
+}
+
+/// The reason an adapter gave for rejecting a request, in the words meant for the user.
+///
+/// DAP carries two texts: `message` is a short raw reason the client may interpret
+/// (`cancelled`, `notStopped`), while `body.error.format` is the text to show, with
+/// `{name}` placeholders filled from `body.error.variables`. Adapters such as
+/// lldb-dap and debugpy put the useful explanation only in the latter.
+fn adapter_failure_detail(response: &Value) -> Option<String> {
+    let error = response.get("body").and_then(|body| body.get("error"));
+    let formatted = error
+        .and_then(|error| error.get("format"))
+        .and_then(Value::as_str)
+        .map(|format| {
+            let variables = error
+                .and_then(|error| error.get("variables"))
+                .and_then(Value::as_object);
+            fill_error_variables(format, variables)
+        });
+    formatted
+        .or_else(|| string_field(response, "message"))
+        .map(|text| text.trim().to_string())
+        .filter(|text| !text.is_empty())
+}
+
+/// Replaces `{name}` with the matching string variable; unknown placeholders stay as written.
+fn fill_error_variables(format: &str, variables: Option<&Map<String, Value>>) -> String {
+    let Some(variables) = variables else {
+        return format.to_string();
+    };
+    let mut result = String::with_capacity(format.len());
+    let mut rest = format;
+    while let Some(open) = rest.find('{') {
+        result.push_str(&rest[..open]);
+        let after = &rest[open + 1..];
+        match after.find('}') {
+            Some(close) => {
+                let name = &after[..close];
+                match variables.get(name).and_then(Value::as_str) {
+                    Some(value) => result.push_str(value),
+                    None => {
+                        result.push('{');
+                        result.push_str(name);
+                        result.push('}');
+                    }
+                }
+                rest = &after[close + 1..];
+            }
+            None => {
+                result.push_str(&rest[open..]);
+                rest = "";
+            }
+        }
+    }
+    result.push_str(rest);
+    result
 }
 
 fn bool_field(value: &Value, field: &str) -> bool {
@@ -4096,6 +4149,109 @@ mod tests {
             session_id: session_id.to_string(),
         })
         .unwrap();
+    }
+
+    // Regression: adapters that explain a failure only in `body.error.format` used to surface
+    // as the generic "rejected the request" line, hiding the actionable reason from the user.
+    #[test]
+    fn adapter_failure_detail_prefers_the_user_visible_error_format() {
+        let response = json!({
+            "success": false,
+            "message": "launch failed",
+            "body": {"error": {
+                "id": 2,
+                "format": "program '{path}' does not exist ({path})",
+                "variables": {"path": "/work/a.out"}
+            }}
+        });
+        assert_eq!(
+            adapter_failure_detail(&response).as_deref(),
+            Some("program '/work/a.out' does not exist (/work/a.out)")
+        );
+    }
+
+    #[test]
+    fn adapter_failure_detail_falls_back_to_the_short_message_and_keeps_unknown_placeholders() {
+        let short_only = json!({"success": false, "message": "  notStopped  "});
+        assert_eq!(
+            adapter_failure_detail(&short_only).as_deref(),
+            Some("notStopped")
+        );
+
+        // A placeholder without a matching variable must stay readable, not vanish.
+        let unknown = json!({
+            "success": false,
+            "body": {"error": {"format": "cannot read {file} {", "variables": {"other": "x"}}}
+        });
+        assert_eq!(
+            adapter_failure_detail(&unknown).as_deref(),
+            Some("cannot read {file} {")
+        );
+
+        let empty = json!({"success": false, "message": "  ", "body": {"error": {"format": ""}}});
+        assert_eq!(adapter_failure_detail(&empty), None);
+        assert_eq!(adapter_failure_detail(&json!({"success": false})), None);
+    }
+
+    #[test]
+    fn rejected_launch_reports_the_adapters_own_explanation() {
+        let session_id = "debug-launch-rejected-detail";
+        create_session(CreateSessionRequest {
+            session_id: session_id.to_string(),
+            adapter_id: "java".to_string(),
+            root_path: "/workspace".to_string(),
+            supports_run_in_terminal_request: false,
+            supports_start_debugging_request: false,
+            disabled_capabilities: Vec::new(),
+            parent_session_id: None,
+        })
+        .unwrap();
+        launch(LaunchRequest {
+            session_id: session_id.to_string(),
+            operation_id: "launch".to_string(),
+            configuration: DebugLaunchConfiguration {
+                name: "Main".to_string(),
+                request: DebugRequestKind::Launch,
+                arguments: Map::new(),
+                stepping_filters: None,
+            },
+        })
+        .unwrap();
+        receive_messages(
+            session_id,
+            vec![response_message(1, "initialize", json!({}))],
+        );
+        let update = receive_messages(
+            session_id,
+            vec![json!({
+                "seq": 102,
+                "type": "response",
+                "request_seq": 2,
+                "success": false,
+                "command": "launch",
+                "message": "launch failed",
+                "body": {"error": {"id": 1, "format": "no such file: {path}", "variables": {"path": "/work/a.out"}}}
+            })],
+        );
+        let failure = update.events.iter().find_map(|event| match &event.body {
+            DebugEventBody::OperationFailed {
+                operation_id,
+                code,
+                message,
+                ..
+            } => Some((operation_id.clone(), *code, message.clone())),
+            _ => None,
+        });
+        assert_eq!(
+            failure,
+            Some((
+                "launch".to_string(),
+                DebugOperationFailureCode::AdapterRejected,
+                "no such file: /work/a.out".to_string()
+            ))
+        );
+        assert_eq!(session_state(session_id), DebugSessionState::Failed);
+        cleanup(session_id);
     }
 
     #[test]

@@ -3653,6 +3653,7 @@
 "The Agent stopped after reaching its request limit for this turn." = "The Agent stopped after reaching its request limit for this turn.";
 "The Agent user directory must be an absolute path. Check CODEX_HOME or CLAUDE_CONFIG_DIR." = "The Agent user directory must be an absolute path. Check CODEX_HOME or CLAUDE_CONFIG_DIR.";
 "The Debug Adapter is not ready." = "The Debug Adapter is not ready.";
+"The Debug Adapter rejected the request." = "The Debug Adapter rejected the request.";
 "The Debug Adapter returned an invalid %@ response." = "The Debug Adapter returned an invalid %@ response.";
 "The Debug Adapter stopped." = "The Debug Adapter stopped.";
 "The GitHub authorization code expired. Start again." = "The GitHub authorization code expired. Start again.";
@@ -8150,6 +8151,7 @@
 "native.theDebugAdapterMustLaunchAnExecutableFromItsPluginPackage" = "The debug adapter %1$@ must launch an executable from its plugin package.";
 "native.theDebugAdapterNeedsWhichWasNotFoundInstall" = "The debug adapter %1$@ needs %2$@, which was not found. Install it, then try again.";
 "native.theDebugAdapterProvidedAnInvalidTerminalWorking" = "The debug adapter provided an invalid terminal working directory.";
+"native.theDebugAdapterRejectedTheRequest" = "The Debug Adapter rejected the request.";
 "native.theDebugAdapterReturnedAnInvalidResponse" = "The Debug Adapter returned an invalid %1$@ response.";
 "native.theDebugAdapterStopped" = "The Debug Adapter stopped.";
 "native.theDebugProviderDoesNotSupport" = "The %1$@ debug provider does not support %2$@.";

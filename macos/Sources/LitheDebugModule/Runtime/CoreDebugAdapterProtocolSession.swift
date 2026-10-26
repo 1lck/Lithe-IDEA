@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import LitheCoreContracts
 
@@ -690,7 +691,7 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
             case "timedOut": .timedOut(command)
             default: .requestFailed(
                 command: command,
-                message: event.message ?? "The Debug Adapter rejected the request."
+                message: event.message ?? L10n.string("The Debug Adapter rejected the request.")
             )
             }
             if operationHandlers[operationID] != nil {

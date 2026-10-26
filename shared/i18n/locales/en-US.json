@@ -9122,6 +9122,7 @@
     "native.theDebuggerDidNotReturnObjectFieldsIn": "The debugger did not return object fields in time.",
     "native.theDebugAdapterIsNotReady": "The Debug Adapter is not ready.",
     "native.theDebugAdapterStopped": "The Debug Adapter stopped.",
+    "native.theDebugAdapterRejectedTheRequest": "The Debug Adapter rejected the request.",
     "native.theDebugAdapterReturnedAnInvalidResponse": "The Debug Adapter returned an invalid {arg1} response.",
     "native.failed.variant3": "{arg1} failed: {arg2}",
     "native.wasCancelled": "{arg1} was cancelled.",

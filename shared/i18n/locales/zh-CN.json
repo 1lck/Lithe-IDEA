@@ -9122,6 +9122,7 @@
     "native.theDebuggerDidNotReturnObjectFieldsIn": "调试器未能及时返回对象字段。",
     "native.theDebugAdapterIsNotReady": "调试适配器未就绪。",
     "native.theDebugAdapterStopped": "调试适配器已停止。",
+    "native.theDebugAdapterRejectedTheRequest": "调试适配器拒绝了该请求。",
     "native.theDebugAdapterReturnedAnInvalidResponse": "调试适配器返回了无效的 {arg1} 响应。",
     "native.failed.variant3": "{arg1} 失败：{arg2}",
     "native.wasCancelled": "{arg1} 已取消。",

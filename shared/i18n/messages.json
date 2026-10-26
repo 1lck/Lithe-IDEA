@@ -85353,6 +85353,17 @@
       }
     },
     {
+      "id": "native.theDebugAdapterRejectedTheRequest",
+      "description": "Native UI: The Debug Adapter rejected the request.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The Debug Adapter rejected the request.",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.theDebugAdapterReturnedAnInvalidResponse",
       "description": "Native UI: The Debug Adapter returned an invalid %@ response.",
       "platforms": [
