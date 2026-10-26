@@ -891,7 +891,7 @@ struct RunConfigurationIntegrationTests {
             root.appendingPathComponent(".lithe/toolchains/bin/dlv").path,
             "/custom/bin/dlv",
             "/opt/homebrew/bin/dlv",
-            "/Library/Developer/CommandLineTools/usr/bin/lldb-dap"
+            "/usr/bin/xcrun"
         ]
         let discovery = MacRuntimeToolDiscovery(
             homeDirectoryURL: URL(fileURLWithPath: "/tmp/home", isDirectory: true),
@@ -910,12 +910,12 @@ struct RunConfigurationIntegrationTests {
             "/opt/homebrew/bin/dlv"
         ])
 
-        let lldbCandidates = discovery.candidates(
-            for: "lldb-dap",
+        let xcrunCandidates = discovery.candidates(
+            for: "xcrun",
             projectURL: root,
             environment: [:]
         )
-        #expect(lldbCandidates.first?.source == .xcode)
+        #expect(xcrunCandidates.first?.source == .xcode)
         #expect(discovery.guidance(for: "java-debug-adapter", projectURL: root, environment: [:])
             .recovery.contains("bundled Java language and Debug Adapter resources"))
     }
