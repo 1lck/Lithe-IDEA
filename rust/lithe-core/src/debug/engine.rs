@@ -33,6 +33,8 @@ struct DebugSession {
     parent_id: Option<String>,
     /// Live child sessions in creation order; the host owns their transports.
     child_ids: Vec<String>,
+    /// Children already asked to stop, so a retry or a later `terminated` does not repeat it.
+    stopping_children: BTreeSet<String>,
     breakpoints: BTreeMap<String, Vec<SourceBreakpoint>>,
     /// Rejects replies to superseded per-file breakpoint sets.
     breakpoint_generations: BTreeMap<String, u64>,
@@ -144,6 +146,7 @@ pub(crate) fn create_session(
         stop_generation: 0,
         parent_id: request.parent_session_id.clone(),
         child_ids: Vec::new(),
+        stopping_children: BTreeSet::new(),
         breakpoints: BTreeMap::new(),
         breakpoint_generations: BTreeMap::new(),
         resolved_source_breakpoints: BTreeMap::new(),
@@ -195,10 +198,8 @@ pub(crate) fn create_session(
         .as_ref()
         .and_then(|parent_id| sessions.get_mut(parent_id))
     {
+        // The host created the child, so it needs no attach event.
         parent.child_ids.push(session.id.clone());
-        parent.emit(DebugEventBody::ChildSessionAttached {
-            child_session_id: session.id.clone(),
-        });
     }
     sessions.insert(request.session_id, session);
     Ok(update)
@@ -843,10 +844,7 @@ pub(crate) fn disconnect(request: SessionRequest) -> Result<DebugSessionUpdate, 
         )?;
         // An attach session does not own the remote JVM, so disconnect must
         // never terminate it. A launch session owns the local debuggee.
-        let children = session.child_ids.clone();
-        for child_session_id in children {
-            session.emit(DebugEventBody::ChildSessionStopRequested { child_session_id });
-        }
+        session.request_children_stop();
         let terminate_debuggee = session.debug_request_kind == Some(DebugRequestKind::Launch);
         session.send_request(
             "disconnect",
@@ -871,9 +869,7 @@ pub(crate) fn destroy_session(request: SessionRequest) -> Result<(), CoreError> 
         .and_then(|parent_id| sessions.get_mut(parent_id))
     {
         parent.child_ids.retain(|id| id != &removed.id);
-        parent.emit(DebugEventBody::ChildSessionDetached {
-            child_session_id: removed.id.clone(),
-        });
+        parent.stopping_children.remove(&removed.id);
     }
     for child_id in &removed.child_ids {
         if let Some(child) = sessions.get_mut(child_id) {
@@ -1194,16 +1190,7 @@ impl DebugSession {
                 self.adapter_capabilities = body.as_object().cloned().unwrap_or_default();
                 self.refresh_capabilities(false);
                 if !self.did_configure_exception_breakpoints {
-                    self.exception_breakpoints = self
-                        .capabilities
-                        .exception_breakpoint_filters
-                        .iter()
-                        .map(|filter| ExceptionBreakpoint {
-                            filter: filter.filter.clone(),
-                            enabled: filter.default,
-                            condition: None,
-                        })
-                        .collect();
+                    self.exception_breakpoints = self.default_exception_breakpoints();
                 }
                 self.supports_configuration_done = self.capabilities.supports_configuration_done;
                 self.transition(DebugSessionState::Ready);
@@ -1284,9 +1271,12 @@ impl DebugSession {
                 command,
                 single_thread,
             } => {
+                // Some adapters send `stopped` before the reply to `next`; a newer generation
+                // means an event already advanced the state, so the reply must not undo it.
                 if command != DebugExecutionCommand::Pause
                     && command != DebugExecutionCommand::Terminate
                     && !(single_thread && command == DebugExecutionCommand::Continue)
+                    && issued_generation == Some(self.stop_generation)
                 {
                     self.stop_generation += 1;
                     self.transition(DebugSessionState::Running);
@@ -1388,12 +1378,13 @@ impl DebugSession {
                 });
             }
             "continued" => {
-                self.stop_generation += 1;
+                // Resuming one thread leaves the frames and variables of the others valid.
                 if body
                     .get("allThreadsContinued")
                     .and_then(Value::as_bool)
                     .unwrap_or(true)
                 {
+                    self.stop_generation += 1;
                     self.transition(DebugSessionState::Running);
                 }
                 self.emit(DebugEventBody::Continued {
@@ -1403,11 +1394,13 @@ impl DebugSession {
             "terminated" => {
                 self.stop_generation += 1;
                 self.transition(DebugSessionState::Terminated);
+                self.request_children_stop();
                 self.emit(DebugEventBody::Terminated { exit_code: None });
             }
             "exited" => {
                 self.stop_generation += 1;
                 self.transition(DebugSessionState::Terminated);
+                self.request_children_stop();
                 self.emit(DebugEventBody::Terminated {
                     exit_code: body.get("exitCode").and_then(Value::as_i64),
                 });
@@ -1624,17 +1617,42 @@ impl DebugSession {
         self.emit(DebugEventBody::StateChanged { state });
     }
 
+    fn default_exception_breakpoints(&self) -> Vec<ExceptionBreakpoint> {
+        self.capabilities
+            .exception_breakpoint_filters
+            .iter()
+            .map(|filter| ExceptionBreakpoint {
+                filter: filter.filter.clone(),
+                enabled: filter.default,
+                condition: None,
+            })
+            .collect()
+    }
+
+    /// Asks the host to stop each child once; the host owns the child transports.
+    fn request_children_stop(&mut self) {
+        for child_session_id in self.child_ids.clone() {
+            if self.stopping_children.insert(child_session_id.clone()) {
+                self.emit(DebugEventBody::ChildSessionStopRequested { child_session_id });
+            }
+        }
+    }
+
     /// Recomputes the effective capabilities and publishes them when any state changed.
     ///
     /// With `only_changes` false the first negotiation is always published.
     fn refresh_capabilities(&mut self, only_changes: bool) {
         let states = capability_states(&self.adapter_capabilities, &self.disabled_capabilities);
-        if only_changes && states == self.capability_states {
+        let capabilities = parse_capabilities(&effective_body(&self.adapter_capabilities, &states));
+        // Non-boolean fields such as exception filters change without any flag flipping.
+        if only_changes && states == self.capability_states && capabilities == self.capabilities {
             return;
         }
-        self.capabilities =
-            parse_capabilities(&effective_body(&self.adapter_capabilities, &states));
+        self.capabilities = capabilities;
         self.capability_states = states;
+        if only_changes && !self.did_configure_exception_breakpoints {
+            self.exception_breakpoints = self.default_exception_breakpoints();
+        }
         self.capability_revision += 1;
         self.emit(DebugEventBody::Capabilities {
             capabilities: self.capabilities.clone(),
@@ -1693,7 +1711,8 @@ impl PendingRequest {
             Self::SetVariable { .. } => true,
             Self::Inspect { kind, .. } => matches!(
                 kind,
-                DebugInspectKind::Scopes
+                DebugInspectKind::StackTrace
+                    | DebugInspectKind::Scopes
                     | DebugInspectKind::Variables
                     | DebugInspectKind::Evaluate
                     | DebugInspectKind::StepInTargets
@@ -4888,12 +4907,6 @@ mod tests {
             .events
             .iter()
             .filter_map(|event| match &event.body {
-                DebugEventBody::ChildSessionAttached { child_session_id } => {
-                    Some(format!("attached:{child_session_id}"))
-                }
-                DebugEventBody::ChildSessionDetached { child_session_id } => {
-                    Some(format!("detached:{child_session_id}"))
-                }
                 DebugEventBody::ChildSessionStopRequested { child_session_id } => {
                     Some(format!("stop:{child_session_id}"))
                 }
@@ -4914,10 +4927,12 @@ mod tests {
             session_id: parent.to_string(),
         })
         .unwrap();
-        assert_eq!(
-            child_events(&stopping),
-            vec![format!("attached:{child}"), format!("stop:{child}")]
-        );
+        assert_eq!(child_events(&stopping), vec![format!("stop:{child}")]);
+        let again = disconnect(SessionRequest {
+            session_id: parent.to_string(),
+        })
+        .unwrap();
+        assert!(child_events(&again).is_empty(), "stop is requested once");
         assert!(
             create_session(child_request("debug-tree-late", Some(parent))).is_err(),
             "a stopping parent accepts no new children"
@@ -4932,7 +4947,7 @@ mod tests {
             Ok(child_events(&session.take_update()))
         })
         .unwrap();
-        assert_eq!(after, vec![format!("detached:{child}")]);
+        assert!(after.is_empty());
         destroy_session(SessionRequest {
             session_id: parent.to_string(),
         })
@@ -5171,6 +5186,159 @@ mod tests {
             session_id: session_id.to_string(),
         })
         .unwrap();
+    }
+
+    fn session_state(session_id: &str) -> DebugSessionState {
+        with_session(session_id, |session| Ok(session.state)).unwrap()
+    }
+
+    fn cleanup(session_id: &str) {
+        destroy_session(SessionRequest {
+            session_id: session_id.to_string(),
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn step_reply_arriving_after_the_stopped_event_keeps_the_session_paused() {
+        let session_id = "debug-step-race";
+        paused_session(session_id);
+        let update = execute(ExecuteRequest {
+            session_id: session_id.to_string(),
+            operation_id: "step".to_string(),
+            command: DebugExecutionCommand::Next,
+            thread_id: Some(11),
+            target_id: None,
+            single_thread: false,
+        })
+        .unwrap();
+        let request_seq = decode_frame(&update.outbound_frames[0])["seq"]
+            .as_i64()
+            .unwrap();
+        let stopped = receive_messages(session_id, vec![stopped_event(104)]);
+        let generation = stopped
+            .events
+            .iter()
+            .find_map(|event| match event.body {
+                DebugEventBody::Stopped {
+                    stop_generation, ..
+                } => Some(stop_generation),
+                _ => None,
+            })
+            .unwrap();
+        receive_messages(
+            session_id,
+            vec![response_message(request_seq, "next", json!({}))],
+        );
+        assert_eq!(session_state(session_id), DebugSessionState::Paused);
+        let current = with_session(session_id, |session| Ok(session.stop_generation)).unwrap();
+        assert_eq!(current, generation);
+        cleanup(session_id);
+    }
+
+    #[test]
+    fn single_thread_continue_event_keeps_other_threads_references_valid() {
+        let session_id = "debug-single-thread-continue";
+        paused_session(session_id);
+        let update = inspect(evaluate_request(session_id, "other", None)).unwrap();
+        let request_seq = decode_frame(&update.outbound_frames[0])["seq"]
+            .as_i64()
+            .unwrap();
+        receive_messages(
+            session_id,
+            vec![json!({"seq": 105, "type": "event", "event": "continued",
+                "body": {"threadId": 12, "allThreadsContinued": false}})],
+        );
+        let update = receive_messages(
+            session_id,
+            vec![response_message(
+                request_seq,
+                "evaluate",
+                json!({"result": "1"}),
+            )],
+        );
+        assert!(update.events.iter().any(|event| matches!(
+            &event.body,
+            DebugEventBody::OperationCompleted { operation_id, .. } if operation_id == "other"
+        )));
+        assert_eq!(session_state(session_id), DebugSessionState::Paused);
+        cleanup(session_id);
+    }
+
+    #[test]
+    fn stale_stack_trace_reply_is_not_published_under_the_new_generation() {
+        let session_id = "debug-stale-stack";
+        paused_session(session_id);
+        let mut request = evaluate_request(session_id, "stack", None);
+        request.kind = DebugInspectKind::StackTrace;
+        request.thread_id = Some(11);
+        request.expression = None;
+        let update = inspect(request).unwrap();
+        let request_seq = decode_frame(&update.outbound_frames[0])["seq"]
+            .as_i64()
+            .unwrap();
+        receive_messages(session_id, vec![stopped_event(104)]);
+        let update = receive_messages(
+            session_id,
+            vec![response_message(
+                request_seq,
+                "stackTrace",
+                json!({"stackFrames": [{"id": 1, "name": "main", "line": 1}]}),
+            )],
+        );
+        assert!(update.events.iter().any(|event| matches!(
+            &event.body,
+            DebugEventBody::OperationFailed {
+                code: DebugOperationFailureCode::StaleReference,
+                ..
+            }
+        )));
+        assert!(!update
+            .events
+            .iter()
+            .any(|event| matches!(event.body, DebugEventBody::Projection { .. })));
+        cleanup(session_id);
+    }
+
+    #[test]
+    fn capabilities_event_with_new_exception_filters_is_published() {
+        let session_id = "debug-late-filters";
+        paused_session(session_id);
+        let update = receive_messages(
+            session_id,
+            vec![json!({"seq": 106, "type": "event", "event": "capabilities",
+            "body": {"capabilities": {"exceptionBreakpointFilters": [
+                {"filter": "uncaught", "label": "Uncaught", "default": true}
+            ]}}})],
+        );
+        let filters = update.events.iter().find_map(|event| match &event.body {
+            DebugEventBody::Capabilities { capabilities } => {
+                Some(capabilities.exception_breakpoint_filters.len())
+            }
+            _ => None,
+        });
+        assert_eq!(filters, Some(1));
+        cleanup(session_id);
+    }
+
+    #[test]
+    fn terminated_parent_asks_each_child_to_stop_once() {
+        let parent = "debug-term-parent";
+        let child = "debug-term-child";
+        create_session(child_request(parent, None)).unwrap();
+        create_session(child_request(child, Some(parent))).unwrap();
+        let update = receive_messages(
+            parent,
+            vec![json!({"seq": 9, "type": "event", "event": "terminated", "body": {}})],
+        );
+        assert_eq!(child_events(&update), vec![format!("stop:{child}")]);
+        let update = disconnect(SessionRequest {
+            session_id: parent.to_string(),
+        })
+        .unwrap();
+        assert!(child_events(&update).is_empty());
+        cleanup(child);
+        cleanup(parent);
     }
 
     #[test]

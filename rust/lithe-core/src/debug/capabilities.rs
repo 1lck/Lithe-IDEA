@@ -54,7 +54,7 @@ pub(crate) fn client_capabilities(host: HostFeatures) -> Value {
         "supportsStartDebuggingRequest": host.start_debugging,
         "supportsMemoryReferences": false,
         "supportsProgressReporting": false,
-        "supportsInvalidatedEvent": true
+        "supportsInvalidatedEvent": false
     })
 }
 

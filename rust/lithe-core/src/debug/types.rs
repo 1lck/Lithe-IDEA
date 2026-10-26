@@ -625,14 +625,6 @@ pub enum DebugEventBody {
     Projection {
         projection: super::projection_v2::SessionProjection,
     },
-    /// A child session was created for this session's `startDebugging` request.
-    ChildSessionAttached {
-        child_session_id: String,
-    },
-    /// A child session finished and was removed from this session.
-    ChildSessionDetached {
-        child_session_id: String,
-    },
     /// This session is disconnecting, so the host must disconnect the listed child.
     ChildSessionStopRequested {
         child_session_id: String,

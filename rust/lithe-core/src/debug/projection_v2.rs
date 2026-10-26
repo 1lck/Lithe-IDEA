@@ -323,11 +323,13 @@ pub(crate) fn stack_trace_projection(
     root_path: &str,
     is_filtered: impl Fn(&str, Option<&str>, Option<&str>) -> bool,
 ) -> Option<SessionProjection> {
+    // A malformed frame withholds the whole projection: dropping it would leave
+    // `frames` shorter than the adapter's list and shift host paging offsets.
     let frames = body
         .get("stackFrames")?
         .as_array()?
         .iter()
-        .filter_map(|value| {
+        .map(|value| {
             let name = value.get("name")?.as_str()?.to_string();
             let source = value.get("source").and_then(|s| map_source(s, root_path));
             let hint = value.get("presentationHint").and_then(Value::as_str);
@@ -368,7 +370,7 @@ pub(crate) fn stack_trace_projection(
                 presentation_hint: hint.map(str::to_string),
             })
         })
-        .collect();
+        .collect::<Option<Vec<_>>>()?;
     finish(SessionProjection {
         projection_version: PROJECTION_VERSION,
         session_id: session_id.to_string(),
@@ -445,6 +447,31 @@ fn finish(projection: SessionProjection) -> Option<SessionProjection> {
     projection.validate().ok().map(|_| projection)
 }
 
+/// Returns `path` relative to `root`, accepting `/` and Windows backslash separators.
+///
+/// A drive-letter root (`C:\proj`) compares its letter case-insensitively, as the file
+/// system does; POSIX roots stay case-sensitive.
+fn workspace_relative(path: &str, root: &str) -> Option<String> {
+    let is_windows =
+        root.as_bytes().get(1) == Some(&b':') && root.as_bytes()[0].is_ascii_alphabetic();
+    let normalize = |text: &str| {
+        if is_windows {
+            text.replace('\\', "/")
+        } else {
+            text.to_string()
+        }
+    };
+    let (path, root) = (normalize(path), normalize(root));
+    let root = root.trim_end_matches('/');
+    let rest = if is_windows && path.len() >= root.len() && path.is_char_boundary(root.len()) {
+        let (head, tail) = path.split_at(root.len());
+        head.eq_ignore_ascii_case(root).then_some(tail)?
+    } else {
+        path.strip_prefix(root)?
+    };
+    rest.strip_prefix('/').map(str::to_string)
+}
+
 /// Maps a DAP source to exactly one identity.
 ///
 /// Paths outside the workspace have no host grant yet, so they stay sourceless instead
@@ -452,14 +479,10 @@ fn finish(projection: SessionProjection) -> Option<SessionProjection> {
 fn map_source(source: &Value, root_path: &str) -> Option<Source> {
     let name = source.get("name").and_then(Value::as_str);
     if let Some(path) = source.get("path").and_then(Value::as_str) {
-        let root = root_path.trim_end_matches('/');
-        if let Some(relative) = path
-            .strip_prefix(root)
-            .and_then(|rest| rest.strip_prefix('/'))
-        {
-            if !relative.is_empty() && validate_workspace_path(relative).is_ok() {
+        if let Some(relative) = workspace_relative(path, root_path) {
+            if !relative.is_empty() && validate_workspace_path(&relative).is_ok() {
                 return Some(Source::Workspace(WorkspaceSource {
-                    path: relative.to_string(),
+                    path: relative,
                     name: name.map(str::to_string),
                 }));
             }
@@ -557,5 +580,25 @@ mod tests {
             scopes[0].presentation_hint.as_deref(),
             Some("x-vendor-simd")
         );
+    }
+
+    #[test]
+    fn workspace_paths_accept_windows_separators_and_drive_case() {
+        assert_eq!(
+            workspace_relative("c:\\proj\\src\\Main.java", "C:\\proj\\").as_deref(),
+            Some("src/Main.java")
+        );
+        assert_eq!(workspace_relative("/other/a.rs", "/proj"), None);
+        assert_eq!(
+            workspace_relative("/proj/a.rs", "/proj").as_deref(),
+            Some("a.rs")
+        );
+    }
+
+    #[test]
+    fn a_malformed_frame_withholds_the_stack_trace_projection() {
+        let body = serde_json::json!({"stackFrames": [
+            {"id": 1, "name": "ok"}, {"name": "no id"}]});
+        assert!(stack_trace_projection("s", 1, 1, &body, "/w", |_, _, _| false).is_none());
     }
 }
