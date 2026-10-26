@@ -18,7 +18,7 @@
 | --- | --- | --- |
 | Rust Core `debug.*` 内核：DAP 分帧、请求序列、断点、变量分页、取消、`runInTerminal`、Java 热替换 | `rust/lithe-core/src/debug/` | Windows 的全部调试和 macOS 的 Java 走这里 |
 | Swift `DebugAdapterProtocolSession`：通用 stdio、Go、Node（含子会话） | `macos/Sources/LitheDebugModule/Runtime/` | 同一个功能要在 Swift 和 Rust 各写一遍，两边行为容易分叉 |
-| 按语言装配的工厂 | `macos/Sources/Lithe/Services/Debug/DebugAdapterRuntimeFactory.swift`、`MacServiceContainer.swift` | 每接一种调试器都要改组合根（Composition Root，负责组装依赖的地方） |
+| 按语言装配的工厂 | `MacServiceContainer.swift`（内置 Python、Rust stdio 调试器和 `DebugAdapterRuntimeFactory` 已移除，只保留 Java，其余由语言插件提供） | 每接一种调试器都要改组合根（Composition Root，负责组装依赖的地方） |
 | 以源码为中心的投影 | `rust/lithe-core/src/debug/types.rs`：`DebugStackFrame.line/column` 是必填 `i64`，`DebugScope` 没有 `presentationHint`；initialize 固定声明 `supportsMemoryReferences: false` | 无源码栈帧、寄存器、内存都没有地方表达；以后再放宽必填字段，就是 Rust、Swift、TypeScript 三端同时的破坏性变更 |
 
 ### 为什么重写，而不是继续扩展

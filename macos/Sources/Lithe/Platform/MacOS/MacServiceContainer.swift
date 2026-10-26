@@ -337,11 +337,6 @@ final class MacServiceContainer {
             extensionRequiredProviderIDs: pluginLanguageIDs,
             hostCapabilities: hostLanguageCapabilities
         )
-        let debugLaunches = Dictionary(
-            uniqueKeysWithValues: languagePackDefinitions.packs.compactMap { pack in
-                pack.debugAdapterLaunch.map { (pack.descriptor.id, $0) }
-            }
-        )
         let languagePackRegistry = languagePackDefinitions
         let runToolchainRegistry = languagePackRegistry.toolchainRegistry
         do {
@@ -559,28 +554,10 @@ final class MacServiceContainer {
                             )
                         }
                     ]
-                    let debugRuntimeFactory = DebugAdapterRuntimeFactory(
-                        runtimeService: runtimeService,
-                        transportFactory: { executableURL, arguments, environment in
-                            MacProcessDebugAdapterTransport(
-                                executableURL: executableURL,
-                                arguments: arguments,
-                                environment: environment,
-                                process: MacRawProcessSession()
-                            )
-                        },
-                        launches: debugLaunches,
-                        core: rustCore,
-                        deadlineScheduler: MacDebugOperationDeadlineScheduler(),
-                        sessionFactories: debugFactories
-                    )
                     let adapterSessions = DebugAdapterSessionManager(
                         providers: languageProviderCatalog.debugProviders,
-                        makeSession: { descriptor, rootURL in
-                            debugRuntimeFactory.makeSession(
-                                for: descriptor,
-                                rootURL: rootURL
-                            )
+                        makeSession: { descriptor, _ in
+                            debugFactories[descriptor.id]?()
                         }
                     )
                     let graph = DebugFeatureGraph(

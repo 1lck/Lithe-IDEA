@@ -286,11 +286,7 @@ struct RunConfigurationIntegrationTests {
         #expect(registry.pack(id: "go")?.toolchainProviders.contains {
             $0.languageProviderID == "go" && $0.identifiers.contains("project-go")
         } == true)
-        #expect(registry.pack(id: "go")?.debugAdapterLaunch == nil)
-        #expect(registry.pack(id: "node")?.debugAdapterLaunch == nil)
-        #expect(registry.pack(id: "python")?.debugAdapterLaunch?.adapterID == "python")
-        #expect(registry.pack(id: "rust")?.debugAdapterLaunch?.fallbacks.first?.executableName == "xcrun")
-        #expect(registry.pack(id: "java")?.debugAdapterLaunch == nil)
+        #expect(registry.pack(id: "python")?.descriptor.capabilities.contains(.debugAdapter) != true)
         if !RustCoreBridge().isAvailable {
             #expect(providerIDSet == ["java", "go", "python", "node", "rust"])
             #expect(registry.catalog.provider(for: URL(fileURLWithPath: "/tmp/Dockerfile")) == nil)
@@ -313,7 +309,6 @@ struct RunConfigurationIntegrationTests {
 
         #expect(registry.runProviders.provider(id: "zig") == nil)
         #expect(registry.testProviders.provider(id: "zig") == nil)
-        #expect(registry.pack(id: "zig")?.debugAdapterLaunch == nil)
         #expect(registry.pack(id: "zig")?.toolingRuntime == nil)
     }
 
@@ -336,7 +331,6 @@ struct RunConfigurationIntegrationTests {
 
         #expect(registry.runProviders.provider(id: "python") == nil)
         #expect(registry.testProviders.provider(id: "python") != nil)
-        #expect(registry.pack(id: "python")?.debugAdapterLaunch != nil)
         #expect(registry.pack(id: "python")?.toolingRuntime == nil)
     }
 
@@ -396,35 +390,17 @@ struct RunConfigurationIntegrationTests {
     @Test
     func genericDebugCapabilityReflectsTheRuntimeFactoryWithoutStartingIt() throws {
         let catalog = LanguageProviderCatalog.standard
-        let runtimeService = ProjectRuntimeService(
-            runtimeLocator: RunTestRuntimeLocator(),
-            store: RunTestKeyValueStore()
-        )
         var nodeFactoryCalls = 0
-        let debugFactory = DebugAdapterRuntimeFactory(
-            runtimeService: runtimeService,
-            transportFactory: { executableURL, arguments, environment in
-                MacProcessDebugAdapterTransport(
-                    executableURL: executableURL,
-                    arguments: arguments,
-                    environment: environment,
-                    process: RecordingRawProcessSession()
-                )
-            },
-            launches: [:],
-            core: RustCoreBridge(),
-            deadlineScheduler: MacDebugOperationDeadlineScheduler(),
-            sessionFactories: ["node": {
-                nodeFactoryCalls += 1
-                return TestDebugAdapterSession()
-            }]
-        )
+        let sessionFactories: [String: () -> (any DebugAdapterSession)?] = ["node": {
+            nodeFactoryCalls += 1
+            return TestDebugAdapterSession()
+        }]
 
         #expect(nodeFactoryCalls == 0)
         let debugManager = DebugAdapterSessionManager(
             providers: catalog.debugProviders,
-            makeSession: { descriptor, rootURL in
-                debugFactory.makeSession(for: descriptor, rootURL: rootURL)
+            makeSession: { descriptor, _ in
+                sessionFactories[descriptor.id]?()
             }
         )
         #expect(debugManager.activeAdapterIDs.isEmpty)
@@ -2636,315 +2612,6 @@ struct RunConfigurationIntegrationTests {
         )
         #expect(runtime.debugAdapters.count == 2)
         #expect(runtime.debugAdapters.last?.breakpointUpdates.isEmpty == true)
-    }
-
-    @Test
-    func stdioDebugAdapterImplementsLaunchBreakpointsInspectionAndControl() async throws {
-        let descriptor = try #require(LanguageProviderCatalog.standard.provider(
-            for: URL(fileURLWithPath: "/tmp/main.py")
-        ))
-        let runtimeService = ProjectRuntimeService(
-            runtimeLocator: RunTestRuntimeLocator(),
-            store: RunTestKeyValueStore()
-        )
-        let process = RecordingRawProcessSession()
-        let runtime = DebugAdapterRuntimeFactory(
-            runtimeService: runtimeService,
-            transportFactory: { executableURL, arguments, environment in
-                MacProcessDebugAdapterTransport(
-                    executableURL: executableURL,
-                    arguments: arguments,
-                    environment: environment,
-                    process: process
-                )
-            },
-            launches: [descriptor.id: StdioDebugAdapterLaunch(
-                adapterID: "python",
-                executableNames: ["python3"],
-                arguments: ["-m", "debugpy.adapter"]
-            )],
-            core: RustCoreBridge(),
-            deadlineScheduler: MacDebugOperationDeadlineScheduler()
-        )
-        let manager = DebugAdapterSessionManager(
-            providers: LanguageProviderCatalog.standard.debugProviders,
-            makeSession: { descriptor, rootURL in
-                runtime.makeSession(for: descriptor, rootURL: rootURL)
-            }
-        )
-        let root = URL(fileURLWithPath: "/tmp/python-project", isDirectory: true)
-        let source = root.appendingPathComponent("main.py")
-        try manager.setBreakpoints([DebugSourceBreakpoint(line: 7)], in: source)
-
-        let session = try manager.activate(for: source, rootURL: root)
-        let controlling = try #require(session as? any DebugAdapterControllingSession)
-        let processRequest = try #require(process.requests.first)
-        #expect(processRequest.executablePath == "/usr/bin/python3")
-        #expect(processRequest.arguments == ["-m", "debugpy.adapter"])
-        #expect(manager.states["python"] == .initializing)
-        let initialize = try #require(Self.debugRequest(named: "initialize", in: process.sentData))
-        let initializeSequence = try #require(initialize["seq"] as? Int)
-
-        _ = try manager.launch(
-            for: source,
-            rootURL: root,
-            configuration: DebugLaunchConfiguration(
-                name: "Python Current File",
-                request: .launch,
-                arguments: [
-                    "program": .string(source.path),
-                    "console": .string("internalConsole"),
-                    "justMyCode": .bool(true)
-                ]
-            )
-        )
-        #expect(Self.debugRequest(named: "launch", in: process.sentData) == nil)
-
-        process.emitJSON([
-            "seq": 1,
-            "type": "response",
-            "request_seq": initializeSequence,
-            "success": true,
-            "command": "initialize",
-            "body": ["supportsConfigurationDoneRequest": true]
-        ])
-        await Self.drainMainActorTasks()
-        #expect(controlling.state == .launching)
-        #expect(manager.states["python"] == .launching)
-        let launch = try #require(Self.debugRequest(named: "launch", in: process.sentData))
-        let launchSequence = try #require(launch["seq"] as? Int)
-        let launchArguments = try #require(launch["arguments"] as? [String: Any])
-        #expect(launchArguments["program"] as? String == source.path)
-        #expect(launchArguments["cwd"] as? String == root.path)
-
-        process.emitJSON(["seq": 2, "type": "event", "event": "initialized", "body": [:]])
-        await Self.drainMainActorTasks()
-        let setBreakpoints = try #require(Self.debugRequest(named: "setBreakpoints", in: process.sentData))
-        let breakpointSequence = try #require(setBreakpoints["seq"] as? Int)
-        let breakpointArguments = try #require(setBreakpoints["arguments"] as? [String: Any])
-        let requested = try #require(breakpointArguments["breakpoints"] as? [[String: Any]])
-        #expect(requested.first?["line"] as? Int == 7)
-        let configurationDone = try #require(Self.debugRequest(named: "configurationDone", in: process.sentData))
-        let configurationDoneSequence = try #require(configurationDone["seq"] as? Int)
-
-        process.emitJSON([
-            "seq": 3,
-            "type": "response",
-            "request_seq": breakpointSequence,
-            "success": true,
-            "command": "setBreakpoints",
-            "body": ["breakpoints": [[
-                "id": 91,
-                "verified": true,
-                "line": 7,
-                "source": ["path": source.path]
-            ]]]
-        ])
-        process.emitJSON([
-            "seq": 4, "type": "response", "request_seq": configurationDoneSequence,
-            "success": true, "command": "configurationDone", "body": [:]
-        ])
-        process.emitJSON([
-            "seq": 5, "type": "response", "request_seq": launchSequence,
-            "success": true, "command": "launch", "body": [:]
-        ])
-        await Self.drainMainActorTasks()
-        #expect(manager.verifiedBreakpoints["python"]?.first?.verified == true)
-        #expect(controlling.state == .running)
-
-        process.emitJSON([
-            "seq": 6,
-            "type": "event",
-            "event": "stopped",
-            "body": ["reason": "breakpoint", "threadId": 42, "description": "Paused on breakpoint"]
-        ])
-        await Self.drainMainActorTasks()
-        #expect(controlling.state == .paused)
-        #expect(manager.lastEvents["python"] == .stopped(
-            reason: "breakpoint",
-            threadID: 42,
-            description: "Paused on breakpoint"
-        ))
-
-        var threadsResult: Result<[DebugThread], Error>?
-        controlling.requestThreads { threadsResult = $0 }
-        let threadsRequest = try #require(Self.debugRequest(named: "threads", in: process.sentData))
-        process.emitJSON([
-            "seq": 7, "type": "response", "request_seq": threadsRequest["seq"] as! Int,
-            "success": true, "command": "threads",
-            "body": ["threads": [["id": 42, "name": "MainThread"]]]
-        ])
-        await Self.drainMainActorTasks()
-        #expect(try threadsResult?.get() == [DebugThread(id: 42, name: "MainThread")])
-
-        var stackResult: Result<[DebugStackFrame], Error>?
-        controlling.requestStackTrace(threadID: 42) { stackResult = $0 }
-        let stackRequest = try #require(Self.debugRequest(named: "stackTrace", in: process.sentData))
-        process.emitJSON([
-            "seq": 8, "type": "response", "request_seq": stackRequest["seq"] as! Int,
-            "success": true, "command": "stackTrace",
-            "body": ["stackFrames": [[
-                "id": 100, "name": "main", "line": 7, "column": 1,
-                "source": ["path": source.path]
-            ]]]
-        ])
-        await Self.drainMainActorTasks()
-        let frame = try #require(try stackResult?.get().first)
-        #expect(frame.id == 100)
-        #expect(frame.sourceURL == source.standardizedFileURL)
-
-        var scopesResult: Result<[DebugScope], Error>?
-        controlling.requestScopes(frameID: frame.id) { scopesResult = $0 }
-        let scopesRequest = try #require(Self.debugRequest(named: "scopes", in: process.sentData))
-        process.emitJSON([
-            "seq": 9, "type": "response", "request_seq": scopesRequest["seq"] as! Int,
-            "success": true, "command": "scopes",
-            "body": ["scopes": [[
-                "name": "Locals", "variablesReference": 200, "expensive": false
-            ]]]
-        ])
-        await Self.drainMainActorTasks()
-        let scope = try #require(try scopesResult?.get().first)
-        #expect(scope.variablesReference == 200)
-
-        var variablesResult: Result<[DebugVariable], Error>?
-        controlling.requestVariables(reference: scope.variablesReference) { variablesResult = $0 }
-        let variablesRequest = try #require(Self.debugRequest(named: "variables", in: process.sentData))
-        process.emitJSON([
-            "seq": 10, "type": "response", "request_seq": variablesRequest["seq"] as! Int,
-            "success": true, "command": "variables",
-            "body": ["variables": [[
-                "name": "count", "value": "3", "type": "int",
-                "evaluateName": "count", "variablesReference": 0
-            ]]]
-        ])
-        await Self.drainMainActorTasks()
-        #expect(try variablesResult?.get().first?.value == "3")
-
-        var evaluateResult: Result<DebugVariable, Error>?
-        controlling.evaluate("count + 1", frameID: frame.id) { evaluateResult = $0 }
-        let evaluateRequest = try #require(Self.debugRequest(named: "evaluate", in: process.sentData))
-        process.emitJSON([
-            "seq": 11, "type": "response", "request_seq": evaluateRequest["seq"] as! Int,
-            "success": true, "command": "evaluate",
-            "body": ["result": "4", "type": "int", "variablesReference": 0]
-        ])
-        await Self.drainMainActorTasks()
-        #expect(try evaluateResult?.get().value == "4")
-
-        controlling.execute(.next, threadID: 42)
-        let next = try #require(Self.debugRequest(named: "next", in: process.sentData))
-        process.emitJSON([
-            "seq": 12, "type": "response", "request_seq": next["seq"] as! Int,
-            "success": true, "command": "next", "body": [:]
-        ])
-        await Self.drainMainActorTasks()
-        #expect(controlling.state == .running)
-
-        manager.stop(providerID: "python")
-        #expect(!process.isRunning)
-        #expect(manager.states["python"] == .idle)
-    }
-
-    @Test
-    func rustDebugAdapterFallsBackToXcrunDeveloperToolDiscovery() throws {
-        let runtimeService = ProjectRuntimeService(
-            runtimeLocator: XcrunOnlyRuntimeLocator(),
-            store: RunTestKeyValueStore()
-        )
-        let process = RecordingRawProcessSession()
-        let runtime = DebugAdapterRuntimeFactory(
-            runtimeService: runtimeService,
-            transportFactory: { executableURL, arguments, environment in
-                MacProcessDebugAdapterTransport(
-                    executableURL: executableURL,
-                    arguments: arguments,
-                    environment: environment,
-                    process: process
-                )
-            },
-            launches: ["rust": StdioDebugAdapterLaunch(
-                adapterID: "lldb",
-                executableNames: ["lldb-dap"],
-                arguments: [],
-                fallbacks: [.init(executableName: "xcrun", argumentPrefix: ["lldb-dap"])]
-            )],
-            core: RustCoreBridge(),
-            deadlineScheduler: MacDebugOperationDeadlineScheduler()
-        )
-        let descriptor = try #require(LanguageProviderCatalog.standard.debugProviders.first { $0.id == "rust" })
-        let adapter = try #require(runtime.makeSession(for: descriptor, rootURL: URL(fileURLWithPath: "/tmp/rust-xcrun")))
-
-        try adapter.start(rootURL: URL(fileURLWithPath: "/tmp/rust-xcrun"))
-
-        let request = try #require(process.requests.first)
-        #expect(request.executablePath == "/usr/bin/xcrun")
-        #expect(request.arguments == ["lldb-dap"])
-    }
-
-    @Test
-    func genericDebugFeatureQueuesPythonLaunchDuringAdapterInitialization() async throws {
-        let descriptor = try #require(LanguageProviderCatalog.standard.provider(
-            for: URL(fileURLWithPath: "/tmp/app.py")
-        ))
-        let runtimeService = ProjectRuntimeService(
-            runtimeLocator: RunTestRuntimeLocator(),
-            store: RunTestKeyValueStore()
-        )
-        let process = RecordingRawProcessSession()
-        let runtime = DebugAdapterRuntimeFactory(
-            runtimeService: runtimeService,
-            transportFactory: { executableURL, arguments, environment in
-                MacProcessDebugAdapterTransport(
-                    executableURL: executableURL,
-                    arguments: arguments,
-                    environment: environment,
-                    process: process
-                )
-            },
-            launches: [descriptor.id: StdioDebugAdapterLaunch(
-                adapterID: "python",
-                executableNames: ["python3"],
-                arguments: ["-m", "debugpy.adapter"]
-            )],
-            core: RustCoreBridge(),
-            deadlineScheduler: MacDebugOperationDeadlineScheduler()
-        )
-        let manager = DebugAdapterSessionManager(
-            providers: LanguageProviderCatalog.standard.debugProviders,
-            makeSession: { descriptor, rootURL in
-                runtime.makeSession(for: descriptor, rootURL: rootURL)
-            }
-        )
-        let feature = GenericDebugFeatureModel(sessions: manager)
-        let root = URL(fileURLWithPath: "/tmp/python-feature", isDirectory: true)
-        let source = root.appendingPathComponent("app.py")
-        feature.toggleBreakpoint(fileURL: source, line: 4)
-
-        let started = feature.start(
-            fileURL: source,
-            rootURL: root,
-            configuration: DebugLaunchConfiguration(
-                name: "app.py",
-                request: .launch,
-                arguments: ["program": .string(source.path)]
-            )
-        )
-
-        #expect(started)
-        #expect(feature.providerID == "python")
-        #expect(feature.state == .initializing)
-        #expect(feature.breakpoints.map(\.line) == [4])
-        #expect(Self.debugRequest(named: "launch", in: process.sentData) == nil)
-        let initialize = try #require(Self.debugRequest(named: "initialize", in: process.sentData))
-        process.emitJSON([
-            "seq": 1, "type": "response", "request_seq": initialize["seq"] as! Int,
-            "success": true, "command": "initialize", "body": [:]
-        ])
-        await Self.drainMainActorTasks()
-
-        #expect(feature.state == .launching)
-        #expect(Self.debugRequest(named: "launch", in: process.sentData) != nil)
     }
 
     @Test

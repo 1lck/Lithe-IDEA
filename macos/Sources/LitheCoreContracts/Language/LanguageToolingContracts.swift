@@ -205,7 +205,7 @@ package struct LanguageProviderCatalog: Sendable {
         ),
         LanguageProviderDescriptor(
             id: "python", displayName: "Python", fileExtensions: ["py", "pyw"],
-            capabilities: [.run, .languageServer, .debugAdapter, .formatting, .testing],
+            capabilities: [.run, .languageServer, .formatting, .testing],
             activationPolicy: .onDemand
         ),
         LanguageProviderDescriptor(
@@ -221,7 +221,7 @@ package struct LanguageProviderCatalog: Sendable {
         ),
         LanguageProviderDescriptor(
             id: "rust", displayName: "Rust", fileExtensions: ["rs"],
-            capabilities: [.run, .languageServer, .debugAdapter, .formatting, .testing],
+            capabilities: [.run, .languageServer, .formatting, .testing],
             activationPolicy: .onDemand
         ),
     ])
