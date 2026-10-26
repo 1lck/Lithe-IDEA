@@ -404,6 +404,52 @@ struct LanguageIntelligenceModuleTests {
         #expect(factory.standardRequests.isEmpty)
     }
 
+    /// A debugger plugin installed or removed while the app runs changes only
+    /// the catalog's debug capability. The running language server keeps going;
+    /// any other change to the descriptor still stops it.
+    @Test
+    func aDebuggerAppearingInTheCatalogDoesNotStopTheRunningLanguageServer() throws {
+        func descriptor(displayName: String, capabilities: LanguageToolingCapability) -> LanguageProviderDescriptor {
+            LanguageProviderDescriptor(
+                id: "roc",
+                displayName: displayName,
+                fileExtensions: ["roc"],
+                capabilities: capabilities,
+                activationPolicy: .onDemand,
+                languageIdentifier: "roc",
+                languageServerLaunch: LanguageServerLaunchDescriptor(
+                    executableNames: ["roc_language_server"],
+                    arguments: []
+                )
+            )
+        }
+        let withoutDebugger = descriptor(displayName: "Roc", capabilities: [.languageServer])
+        let withDebugger = descriptor(displayName: "Roc", capabilities: [.languageServer, .debugAdapter])
+        let renamed = descriptor(displayName: "Roc Lang", capabilities: [.languageServer, .debugAdapter])
+        let session = WorkspaceStateLanguageServerSession()
+        let manager = LanguageToolingSessionManager(
+            catalog: LanguageProviderCatalog(descriptors: [withoutDebugger]),
+            runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: withoutDebugger, session: session)]
+        )
+        defer { manager.stopAllLanguageServers() }
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+
+        try manager.startLanguageServer(providerID: "roc", rootURL: root)
+        #expect(session.isRunning)
+
+        manager.updateCatalog(LanguageProviderCatalog(descriptors: [withDebugger]))
+        #expect(session.stopCallCount == 0)
+        #expect(session.isRunning)
+
+        manager.updateCatalog(LanguageProviderCatalog(descriptors: [withoutDebugger]))
+        #expect(session.stopCallCount == 0)
+        #expect(session.isRunning)
+
+        manager.updateCatalog(LanguageProviderCatalog(descriptors: [renamed]))
+        #expect(session.stopCallCount == 1)
+        #expect(!session.isRunning)
+    }
+
     /// Host workflows start a missing server on demand. While a module is
     /// being stopped its capability is still published, so the extension it
     /// already stopped must not be registered again; otherwise the server

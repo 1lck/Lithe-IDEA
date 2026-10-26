@@ -198,10 +198,10 @@ extension AppModel {
                 showNotification("Open a source file or choose a project Run configuration")
             return
         case .javaSourceUnavailable(let name):
-            showNotification("Could not find the Java source for \(name)")
+            showNotification("Could not find the Java source for %@", arguments: [name])
             return
         case .unsupported(let name):
-            showNotification("\(name) does not support Debug yet")
+            showNotification("%@ does not support Debug yet", arguments: [name])
             return
         }
 
@@ -212,7 +212,7 @@ extension AppModel {
         )
         guard case .ready = providerReadiness else {
             if case .unsupported(let fileName) = providerReadiness {
-                showNotification("Debug support is not available for \(fileName)")
+                showNotification("Debug support is not available for %@", arguments: [fileName])
             }
             showToolWindow(.debug)
             return
@@ -272,7 +272,10 @@ extension AppModel {
     func revealDebugLocation(url: URL, line: Int, column: Int?) {
         let normalizedURL = url.standardizedFileURL
         guard workspaceFeature.fileExists(at: normalizedURL) else {
-            showNotification("The stopped source file is no longer available: \(url.lastPathComponent)")
+            showNotification(
+                "The stopped source file is no longer available: %@",
+                arguments: [url.lastPathComponent]
+            )
             return
         }
         navigate(

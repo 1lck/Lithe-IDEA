@@ -8062,8 +8062,13 @@
       "id": "debugger.threadsAndVariables",
       "description": "Windows UI: debugger.threadsAndVariables",
       "platforms": [
-        "windows"
-      ]
+        "windows",
+        "macos"
+      ],
+      "macos": {
+        "key": "Threads & Variables",
+        "arguments": []
+      }
     },
     {
       "id": "debugger.threadsEmpty",
@@ -84990,35 +84995,6 @@
       }
     },
     {
-      "id": "native.noCargoBinaryRunConfigurationMatchesThisRust",
-      "description": "Native UI: No Cargo binary run configuration matches this Rust file.",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "No Cargo binary run configuration matches this Rust file.",
-        "arguments": []
-      }
-    },
-    {
-      "id": "native.buildTheRustBinaryFirstWithCargoBuild",
-      "description": "Native UI: Build the Rust binary first with `cargo build --bin %@`. Expected executable: %@",
-      "platforms": [
-        "macos"
-      ],
-      "macos": {
-        "key": "Build the Rust binary first with `cargo build --bin %@`. Expected executable: %@",
-        "arguments": [
-          "arg1",
-          "arg2"
-        ]
-      },
-      "parameters": {
-        "arg1": "string",
-        "arg2": "string"
-      }
-    },
-    {
       "id": "native.githubAuthorizationFailed.variant2",
       "description": "Native UI: GitHub authorization failed: %@",
       "platforms": [
@@ -85373,6 +85349,17 @@
       ],
       "macos": {
         "key": "The Debug Adapter stopped.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theDebugAdapterRejectedTheRequest",
+      "description": "Native UI: The Debug Adapter rejected the request.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The Debug Adapter rejected the request.",
         "arguments": []
       }
     },
@@ -88258,6 +88245,915 @@
       "macos": {
         "key": "This folder is empty",
         "arguments": []
+      }
+    },
+    {
+      "id": "native.theDebugAdapterNeedsWhichWasNotFoundInstall",
+      "description": "Native UI: The debug adapter %@ needs %@, which was not found. Install it, then try again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The debug adapter %@ needs %@, which was not found. Install it, then try again.",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string"
+      }
+    },
+    {
+      "id": "native.theDebugAdapterMustLaunchAnExecutableFromItsPluginPackage",
+      "description": "Native UI: The debug adapter %@ must launch an executable from its plugin package.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The debug adapter %@ must launch an executable from its plugin package.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.openAJavaProjectBeforeConnectingTheDebugger",
+      "description": "Native UI: Open a Java project before connecting the debugger",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Open a Java project before connecting the debugger",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.chooseARunConfigurationBeforeStartingDebug",
+      "description": "Native UI: Choose a Run configuration before starting Debug",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Choose a Run configuration before starting Debug",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.openASourceFileOrChooseAProjectRunConfiguration",
+      "description": "Native UI: Open a source file or choose a project Run configuration",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Open a source file or choose a project Run configuration",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.couldNotFindTheJavaSourceFor",
+      "description": "Native UI: Could not find the Java source for %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not find the Java source for %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.doesNotSupportDebugYet",
+      "description": "Native UI: %@ does not support Debug yet",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%@ does not support Debug yet",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.debugSupportIsNotAvailableFor",
+      "description": "Native UI: Debug support is not available for %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Debug support is not available for %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theStoppedSourceFileIsNoLongerAvailable",
+      "description": "Native UI: The stopped source file is no longer available: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The stopped source file is no longer available: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.placeTheCaretInASourceFileToSetABreakpoint",
+      "description": "Native UI: Place the caret in a source file to set a breakpoint",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Place the caret in a source file to set a breakpoint",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.debuggingIsNotSupportedForThisFileType",
+      "description": "Native UI: Debugging is not supported for this file type",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Debugging is not supported for this file type",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.runToCursorIsUnavailableForTheActiveDebugSession",
+      "description": "Native UI: Run to Cursor is unavailable for the active debug session",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Run to Cursor is unavailable for the active debug session",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noExecutableLocationWasFoundAtTheCursor",
+      "description": "Native UI: No executable location was found at the cursor",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No executable location was found at the cursor",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noLanguageProviderIsAvailableForThisFile",
+      "description": "Native UI: No language provider is available for this file",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No language provider is available for this file",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.selectAStackFrameToInspectVariables",
+      "description": "Native UI: Select a stack frame to inspect variables",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Select a stack frame to inspect variables",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.initializingAdapter",
+      "description": "Native UI: Initializing Adapter",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Initializing Adapter",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.adapterReady",
+      "description": "Native UI: Adapter Ready",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Adapter Ready",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.loadThreads",
+      "description": "Native UI: Load threads",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Load threads",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.selectThread",
+      "description": "Native UI: Select thread",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Select thread",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.smartStepInto2",
+      "description": "Native UI: Smart Step Into",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Smart Step Into",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.stepBack",
+      "description": "Native UI: Step Back",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Step Back",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.javaSteppingFilters2",
+      "description": "Native UI: Java Stepping Filters…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Java Stepping Filters…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.connectToRunningJVM2",
+      "description": "Native UI: Connect to Running JVM…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Connect to Running JVM…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.clearConsole",
+      "description": "Native UI: Clear Console",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Clear Console",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.copyMethodName",
+      "description": "Native UI: Copy Method Name",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Copy Method Name",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.copySourceLocation",
+      "description": "Native UI: Copy Source Location",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Copy Source Location",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.copyRelativeLocation",
+      "description": "Native UI: Copy Relative Location",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Copy Relative Location",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.copyThreadName",
+      "description": "Native UI: Copy Thread Name",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Copy Thread Name",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.resumeThread",
+      "description": "Native UI: Resume Thread",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Resume Thread",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.pauseThread",
+      "description": "Native UI: Pause Thread",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Pause Thread",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.setValue",
+      "description": "Native UI: Set Value…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Set Value…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.breakOnFieldAccess",
+      "description": "Native UI: Break on Field Access…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Break on Field Access…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.copyValue",
+      "description": "Native UI: Copy Value",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Copy Value",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.copyExpression",
+      "description": "Native UI: Copy Expression",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Copy Expression",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.addToWatches",
+      "description": "Native UI: Add to Watches",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Add to Watches",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.evaluating",
+      "description": "Native UI: Evaluating…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Evaluating…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.notAvailable",
+      "description": "Native UI: Not available",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Not available",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.nestedException",
+      "description": "Native UI: Nested exception",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Nested exception",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.alwaysBreak",
+      "description": "Native UI: Always break",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Always break",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.unhandled",
+      "description": "Native UI: Unhandled",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Unhandled",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.userUnhandled",
+      "description": "Native UI: User-unhandled",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "User-unhandled",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.neverBreak",
+      "description": "Native UI: Never break",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Never break",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.loadingDebuggerVariables",
+      "description": "Native UI: Loading debugger variables",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Loading debugger variables",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.loadMoreDebuggerVariables",
+      "description": "Native UI: Load more debugger variables",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Load more debugger variables",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.addMethodBreakpoint2",
+      "description": "Native UI: Add Method Breakpoint",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Add Method Breakpoint",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editMethodBreakpoint2",
+      "description": "Native UI: Edit Method Breakpoint",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Edit Method Breakpoint",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.classOrMethod",
+      "description": "Native UI: Class or method",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Class or method",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.condition",
+      "description": "Native UI: Condition",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Condition",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.hitCount",
+      "description": "Native UI: Hit count",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Hit count",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.exceptionCondition",
+      "description": "Native UI: Exception condition",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Exception condition",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.logMessage",
+      "description": "Native UI: Log message",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Log message",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.waitingForDebugAdapterOutput",
+      "description": "Native UI: Waiting for Debug Adapter output…",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Waiting for Debug Adapter output…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.addWatch2",
+      "description": "Native UI: Add Watch",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Add Watch",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.editWatch",
+      "description": "Native UI: Edit Watch",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Edit Watch",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.expression",
+      "description": "Native UI: Expression",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Expression",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.loadArg1More",
+      "description": "Native UI: Load %lld more",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Load %lld more",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "integer"
+      }
+    },
+    {
+      "id": "native.dataAccessRead",
+      "description": "Native UI: data breakpoint access type Read",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Read",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.dataAccessWrite",
+      "description": "Native UI: data breakpoint access type Write",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Write",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.dataAccessReadWrite",
+      "description": "Native UI: data breakpoint access type Read/Write",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Read/Write",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.pauseTheProgramToRunDebuggerCommands",
+      "description": "Native UI: Pause the program to run debugger commands",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Pause the program to run debugger commands",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.startADebugSessionToRunDebuggerCommands",
+      "description": "Native UI: Start a debug session to run debugger commands",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Start a debug session to run debugger commands",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.enterADebuggerCommandTabToComplete",
+      "description": "Native UI: Enter a debugger command (Tab to complete)",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Enter a debugger command (Tab to complete)",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.debuggerCommandInput",
+      "description": "Native UI: Debugger command input",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Debugger command input",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.debuggerCommandSuggestions",
+      "description": "Native UI: Debugger command suggestions",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Debugger command suggestions",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.debugConsoleSuggestionKeys",
+      "description": "Native UI: ↑↓ Select · Tab Fill · Enter Run · Esc Close",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "↑↓ Select · Tab Fill · Enter Run · Esc Close",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noProgramToDebugWasFoundBuildItFirstOrChooseOneInTheSettingOfLookedIn",
+      "description": "Native UI: No program to debug was found. Build it first, or choose one in the “%@” setting of %@. Looked in: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No program to debug was found. Build it first, or choose one in the “%@” setting of %@. Looked in: %@",
+        "arguments": [
+          "arg1",
+          "arg2",
+          "arg3"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string",
+        "arg3": "string"
+      }
+    },
+    {
+      "id": "native.noProgramToDebugWasFoundBuildItFirstOrChooseOneInTheSettingOf",
+      "description": "Native UI: No program to debug was found. Build it first, or choose one in the “%@” setting of %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No program to debug was found. Build it first, or choose one in the “%@” setting of %@.",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string"
+      }
+    },
+    {
+      "id": "native.theProgramChosenInTheSettingOfIsMissingOrNotExecutable",
+      "description": "Native UI: The program chosen in the “%@” setting of %@ is missing or not executable: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The program chosen in the “%@” setting of %@ is missing or not executable: %@",
+        "arguments": [
+          "arg1",
+          "arg2",
+          "arg3"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string",
+        "arg3": "string"
+      }
+    },
+    {
+      "id": "native.foundAutomatically",
+      "description": "Native UI: Found automatically",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Found automatically",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.lookedIn",
+      "description": "Native UI: Looked in: %@",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Looked in: %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theChosenFileIsMissingOrNotExecutable",
+      "description": "Native UI: The chosen file is missing or not executable.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The chosen file is missing or not executable.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noPlaceToLookYetOpenTheFileYouWantToDebugOrChooseTheProgramYourself",
+      "description": "Native UI: No place to look yet. Open the file you want to debug, or choose the program yourself.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No place to look yet. Open the file you want to debug, or choose the program yourself.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.thePluginDoesNotProvideTheDebugAdapter",
+      "description": "Native UI: The plugin does not provide the debug adapter %@.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The plugin does not provide the debug adapter %@.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theDebugAdapterUsesTheTransportWhichLitheCannotStartYet",
+      "description": "Native UI: The debug adapter %@ uses the %@ transport, which Lithe cannot start yet. Only stdio adapters are supported.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The debug adapter %@ uses the %@ transport, which Lithe cannot start yet. Only stdio adapters are supported.",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string"
+      }
+    },
+    {
+      "id": "native.theDebugAdapterMustLaunchAPackagedExecutableOrASystemCommand",
+      "description": "Native UI: The debug adapter %@ must launch a packaged executable or a system command.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The debug adapter %@ must launch a packaged executable or a system command.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
       }
     }
   ]

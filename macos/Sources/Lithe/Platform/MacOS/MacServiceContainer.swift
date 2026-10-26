@@ -174,10 +174,76 @@ final class MacServiceContainer {
             directories: MacPluginStateDirectories(fileStorage: fileStorage),
             settings: pluginSettings
         )
-        let pluginStartup = MacPluginStartupLoader(
+        let debugExecutableResolver = MacPluginDebugExecutableResolver(
+            planner: declarativePluginOperations,
+            settings: pluginSettings
+        )
+        let pluginStartupLoader = MacPluginStartupLoader(
             packageStore: pluginPackageStore,
             validateUI: { _ = try WorkbenchModuleUIComposition.registry(for: $0) }
-        ).load(recoveryStore: moduleStore)
+        )
+        let pluginStartup = pluginStartupLoader.load(recoveryStore: moduleStore)
+        // Debug adapters of plugins registered at launch, by the language they
+        // debug. A language the host debugs itself keeps its own adapter.
+        // Plugins that apply without a restart are in `livePlugins` instead.
+        let registeredDebugAdapters = PluginDebugAdapterEntry.index(of: pluginStartup.registeredPlugins)
+        let debugAdapterSessionsBox = DebugAdapterSessionsBox()
+        let moduleEnablement = moduleStore
+        let launchMode = moduleLaunchMode
+        let livePlugins = MacLivePluginRegistry(
+            initial: pluginStartup.livePlugins,
+            registeredManifests: pluginStartup.registeredManifests,
+            makeScanStore: pluginPackageStore.makeScanStoreFactory(),
+            accept: { [pluginStartupLoader] packages, registered in
+                pluginStartupLoader.accept(packages, alongside: registered)
+            },
+            // Follows what the module graph would decide for the plugin's modules.
+            isEnabled: { package in
+                guard launchMode != .safeMode else { return false }
+                return package.manifest.modules.allSatisfy { declaration in
+                    let id = declaration.manifest.id
+                    return !moduleEnablement.isQuarantined(id)
+                        && (moduleEnablement.enabledState(for: id) ?? (declaration.manifest.defaultState == .enabled))
+                }
+            },
+            didWithdraw: { package in
+                // A session runs from the registration it started with.
+                debugAdapterSessionsBox.stopSessions(ofPlugin: package.descriptor.id.rawValue)
+            }
+        )
+        let liveSnapshotBox = livePlugins.snapshotBox
+        // The adapter that debugs a language right now: launch-registered
+        // plugins follow their module's enablement, live plugins follow the registry.
+        let isLaunchRegisteredAdapterUsable: @MainActor (String) -> Bool = { pluginID in
+            guard let snapshot = try? moduleRuntime.snapshot(for: .debugAdaptersExtension(pluginID)) else {
+                return false
+            }
+            return snapshot.state != .disabled && !snapshot.isQuarantined && !snapshot.isSuppressedBySafeMode
+        }
+        let activeDebugAdapter: @MainActor (String) -> PluginDebugAdapterEntry? = { languageID in
+            if let entry = registeredDebugAdapters[languageID],
+               isLaunchRegisteredAdapterUsable(entry.plugin.descriptor.id.rawValue) {
+                return entry
+            }
+            return liveSnapshotBox.snapshot.debugAdapters[languageID]
+        }
+        // A launch-registered plugin is not in the live registry, so turning its
+        // debug module off reaches the running sessions through the module's
+        // own state change.
+        let launchRegisteredDebugModules = Dictionary(
+            pluginStartup.registeredPlugins
+                .filter { !$0.descriptor.debugAdapters.isEmpty }
+                .map { (ModuleID.debugAdaptersExtension($0.descriptor.id.rawValue), $0.descriptor.id.rawValue) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        if !launchRegisteredDebugModules.isEmpty {
+            moduleRuntime.observeEvents { event in
+                guard event.name == ModuleEvent.stateChangedName,
+                      let pluginID = launchRegisteredDebugModules[event.source],
+                      !isLaunchRegisteredAdapterUsable(pluginID) else { return }
+                debugAdapterSessionsBox.stopSessions(ofPlugin: pluginID)
+            }
+        }
         let bundledLanguageManifests = BundledLanguagePluginCatalog.manifests
         let moduleRegistry = ModuleRegistry(
             runtime: moduleRuntime,
@@ -314,16 +380,25 @@ final class MacServiceContainer {
             + pluginStartup.installedLanguageSupports
         let languageProviderCatalogSource = PluginLanguageProviderCatalogSource(
             base: rustLanguageProviderCatalogSource,
-            languageSupports: installedLanguageSupports
+            languageSupports: installedLanguageSupports,
+            liveLanguageSupports: { liveSnapshotBox.snapshot.languageSupports }
         )
         let languageProviderCatalogSnapshot = languageProviderCatalogSource.load()
         let languageProviderCatalog = languageProviderCatalogSnapshot.catalog
-        let pluginLanguageIDs = Set(installedLanguageSupports.map(\.id))
+        let debugProviderCache = DebugProviderCache(
+            currentGeneration: { liveSnapshotBox.snapshot.generation },
+            providers: languageProviderCatalog.debugProviders,
+            reload: { languageProviderCatalogSource.load().catalog.debugProviders }
+        )
+        // A debug-only declaration adds a debugger to a language another owner
+        // serves, so it must not switch the host's own tools for it off.
+        let languageOwningSupports = installedLanguageSupports.filter { !$0.isDebugOnly }
+        let pluginLanguageIDs = Set(languageOwningSupports.map(\.id))
         // A package may declare, through its host integration, that the host
         // keeps providing a feature of its language. Everything else of an
         // installed language needs the package's own module.
         let hostLanguageCapabilities = Dictionary(
-            installedLanguageSupports.map { ($0.id, $0.hostCapabilities) },
+            languageOwningSupports.map { ($0.id, $0.hostCapabilities) },
             uniquingKeysWith: { $0.intersection($1) }
         )
         let runExtensionLanguageIDs = installedLanguageSupports
@@ -555,11 +630,45 @@ final class MacServiceContainer {
                         }
                     ]
                     let adapterSessions = DebugAdapterSessionManager(
-                        providers: languageProviderCatalog.debugProviders,
+                        providersSource: { debugProviderCache.providers() },
                         makeSession: { descriptor, _ in
-                            debugFactories[descriptor.id]?()
+                            if let factory = debugFactories[descriptor.id] { return factory() }
+                            guard let entry = activeDebugAdapter(descriptor.id) else { return nil }
+                            let pluginID = entry.plugin.descriptor.id.rawValue
+                            let session = CoreDebugAdapterProtocolSession(
+                                adapterID: entry.adapter.adapterID,
+                                consoleCommands: entry.adapter.consoleCommands,
+                                consoleCommandPrefix: entry.adapter.consoleCommandPrefix,
+                                disabledCapabilities: entry.adapter.disabledCapabilities,
+                                transport: MacPluginDebugAdapterTransport(
+                                    adapterID: entry.adapter.id,
+                                    resolve: { rootURL in
+                                        try pluginLaunchResolver.resolveDebugAdapter(
+                                            pluginID: pluginID,
+                                            adapterID: entry.adapter.id,
+                                            manifest: entry.plugin.descriptor.normalizedManifest,
+                                            packageURL: entry.plugin.packageURL,
+                                            workspaceRootURL: rootURL
+                                        )
+                                    },
+                                    makeProcess: { MacRawProcessSession() },
+                                    findCommand: { commands in
+                                        commands.lazy.compactMap { command in
+                                            runtimeService.executableCandidates(command)
+                                                .first { $0.source != .project }?.executableURL
+                                        }.first
+                                    }
+                                ),
+                                core: rustCore,
+                                deadlineScheduler: MacDebugOperationDeadlineScheduler()
+                            )
+                            // Remembered so withdrawing this plugin ends this session
+                            // and no other plugin's session for the same language.
+                            debugAdapterSessionsBox.record(session, pluginID: pluginID)
+                            return session
                         }
                     )
+                    debugAdapterSessionsBox.manager = adapterSessions
                     let graph = DebugFeatureGraph(
                         adapterSessions: adapterSessions,
                         breakpointPersistence: debugBreakpointStore,
@@ -679,6 +788,7 @@ final class MacServiceContainer {
                 // not see the replacement.
                 buildProviderSessions.stopProviders(ofPlugin: id.rawValue)
                 vcsProviderSessions.stopProviders(ofPlugin: id.rawValue)
+                livePlugins.willReplacePackage(of: id)
             },
             reviewPrograms: { [pluginMarketplaceEvaluator] manifest, id, version in
                 try pluginMarketplaceEvaluator.installReview(
@@ -692,7 +802,18 @@ final class MacServiceContainer {
                 try declarativePluginOperations.workspaceConfiguration(
                     manifest: manifest, languageID: languageID, settings: global, projectSettings: project
                 )
-            }
+            },
+            lookUpDebugExecutable: { plugin, adapterID, workspaceRootURL, targetPath in
+                // The page only echoes what a launch would find; a plan Core
+                // cannot make shows nothing here and fails with its reason at launch.
+                try? debugExecutableResolver.lookup(
+                    plugin: plugin,
+                    adapterID: adapterID,
+                    workspaceRootURL: workspaceRootURL,
+                    targetPath: targetPath
+                )
+            },
+            livePlugins: livePlugins
         )
         let pluginMarketplaceTransport: any MacPluginMarketplaceTransport
         #if DEBUG
@@ -738,10 +859,42 @@ final class MacServiceContainer {
             workspaceLanguageServerPreferences: workspaceLanguageServerPreferences,
             languageProviderCatalogSnapshot: languageProviderCatalogSnapshot,
             debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver(
-                fileStorage: fileStorage,
                 javaTestLaunchResolver: rustCore,
                 javaExecutablePath: { [runtimeService] runtime in
                     runtimeService.javaExecutableURL(forDebugging: runtime)?.path
+                },
+                pluginLaunch: { languageID, documentURL, workspaceURL in
+                    guard let entry = activeDebugAdapter(languageID) else { return nil }
+                    let targetPath = documentURL.standardizedFileURL.path
+                    // The program the adapter launches is the host's to find;
+                    // a plugin that declares none gets no `executable` fact.
+                    let executable = try debugExecutableResolver.executableForLaunch(
+                        plugin: entry.plugin,
+                        adapter: entry.adapter,
+                        workspaceRootURL: workspaceURL,
+                        targetPath: targetPath
+                    )
+                    // Prepared against the registry's current generation, which
+                    // is the one Core compares the start with.
+                    let generation = liveSnapshotBox.snapshot.generation
+                    let arguments = try declarativePluginOperations.debugStartArguments(
+                        manifest: entry.plugin.descriptor.normalizedManifest,
+                        adapterID: entry.adapter.id,
+                        request: DeclarativeDebugStartRequest(
+                            request: .launch,
+                            targetKind: "file",
+                            path: targetPath,
+                            workingDirectory: workspaceURL.standardizedFileURL.path,
+                            executable: executable,
+                            registrationGeneration: generation,
+                            currentRegistrationGeneration: generation
+                        )
+                    )
+                    return DebugLaunchConfiguration(
+                        name: documentURL.lastPathComponent,
+                        request: .launch,
+                        arguments: arguments
+                    )
                 }
             ),
             debugPortAvailabilityChecker: MacDebugPortAvailabilityChecker(),
@@ -787,6 +940,7 @@ final class MacServiceContainer {
             testJVMPerformance: MacTestJVMPerformance(processRegistry: processRegistry)
         )
         services.ideCapabilityRegistry = ideCapabilityRegistry
+        services.pluginRegistrationChanges = livePlugins.changes
         services.ideHostTransport = MacIdeHostTransport(core: rustCore, storage: fileStorage)
         services.mcpConfigurationStore = MacAgentMcpConfigurationStore(
             core: rustCore, storage: fileStorage
@@ -972,6 +1126,7 @@ final class MacServiceContainer {
                 !$0.contributions.isEmpty
                     || $0.manifest.id == .buildSystemsExtension(descriptor.id.rawValue)
                     || $0.manifest.id == .vcsProvidersExtension(descriptor.id.rawValue)
+                    || $0.manifest.id == .debugAdaptersExtension(descriptor.id.rawValue)
                     || $0.manifest.id == .projectGeneratorsExtension(descriptor.id.rawValue)
             }.map { declaration in
                 ModuleFactory(manifest: declaration.manifest, contributions: declaration.contributions) {
@@ -980,5 +1135,65 @@ final class MacServiceContainer {
             }
             return servers + executions + workbench
         }
+    }
+}
+
+/// Reaches the debug session manager from the live plugin registry, which is
+/// created before the debug module's graph exists, and remembers which plugin
+/// each plugin-provided session was built from.
+@MainActor
+private final class DebugAdapterSessionsBox {
+    weak var manager: DebugAdapterSessionManager?
+    private struct Owner {
+        weak var session: AnyObject?
+        let pluginID: String
+    }
+    private var owners: [Owner] = []
+
+    /// Called by the session factory for every session a plugin's adapter backs.
+    func record(_ session: any DebugAdapterSession, pluginID: String) {
+        owners.removeAll { $0.session == nil }
+        owners.append(Owner(session: session, pluginID: pluginID))
+    }
+
+    /// Sessions run from the files of the package they started with, so they
+    /// end when the package is replaced, removed or turned off. Only that
+    /// plugin's own sessions end: another plugin or the host's adapter may be
+    /// debugging the same language.
+    func stopSessions(ofPlugin pluginID: String) {
+        guard let manager else { return }
+        manager.stopSessions { session in
+            owners.contains { $0.session === session && $0.pluginID == pluginID }
+        }
+    }
+}
+
+/// The debug providers for one registry generation, so a lookup per file does
+/// not rebuild the language catalog until a live plugin changed.
+@MainActor
+private final class DebugProviderCache {
+    private let currentGeneration: () -> Int
+    private let reload: () -> [DebugProviderDescriptor]
+    private var generation: Int
+    private var cached: [DebugProviderDescriptor]
+
+    init(
+        currentGeneration: @escaping () -> Int,
+        providers: [DebugProviderDescriptor],
+        reload: @escaping () -> [DebugProviderDescriptor]
+    ) {
+        self.currentGeneration = currentGeneration
+        self.reload = reload
+        generation = currentGeneration()
+        cached = providers
+    }
+
+    func providers() -> [DebugProviderDescriptor] {
+        let latest = currentGeneration()
+        if latest != generation {
+            generation = latest
+            cached = reload()
+        }
+        return cached
     }
 }

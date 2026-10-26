@@ -48,6 +48,7 @@ extension RustCoreBridge: DebugProtocolCore {
         rootPath: String,
         supportsRunInTerminalRequest: Bool,
         supportsStartDebuggingRequest: Bool,
+        disabledCapabilities: [String],
         parentSessionID: String?
     ) throws -> DebugCoreUpdate {
         try executeResult(
@@ -58,6 +59,7 @@ extension RustCoreBridge: DebugProtocolCore {
                 rootPath: rootPath,
                 supportsRunInTerminalRequest: supportsRunInTerminalRequest,
                 supportsStartDebuggingRequest: supportsStartDebuggingRequest,
+                disabledCapabilities: disabledCapabilities,
                 parentSessionID: parentSessionID
             )
         ).get()
@@ -222,6 +224,7 @@ extension RustCoreBridge: DebugProtocolCore {
         start: Int?,
         count: Int?,
         expression: String?,
+        context: String?,
         sourcePath: String?,
         line: Int?,
         column: Int?
@@ -239,6 +242,7 @@ extension RustCoreBridge: DebugProtocolCore {
                 start: start,
                 count: count,
                 expression: expression,
+                context: context,
                 sourcePath: sourcePath,
                 line: line,
                 column: column
@@ -376,13 +380,14 @@ private struct DebugCreateSessionPayload: Encodable {
     let rootPath: String
     let supportsRunInTerminalRequest: Bool
     let supportsStartDebuggingRequest: Bool
+    let disabledCapabilities: [String]
     let parentSessionID: String?
 
     private enum CodingKeys: String, CodingKey {
         case sessionID = "sessionId"
         case adapterID = "adapterId"
         case parentSessionID = "parentSessionId"
-        case rootPath, supportsRunInTerminalRequest, supportsStartDebuggingRequest
+        case rootPath, supportsRunInTerminalRequest, supportsStartDebuggingRequest, disabledCapabilities
     }
 }
 
@@ -559,6 +564,7 @@ private struct DebugInspectPayload: Encodable {
     let start: Int?
     let count: Int?
     let expression: String?
+    let context: String?
     let sourcePath: String?
     let line: Int?
     let column: Int?
@@ -571,7 +577,7 @@ private struct DebugInspectPayload: Encodable {
         case frameID = "frameId"
         case variablesReference
         case variableFilter, start, count
-        case expression
+        case expression, context
         case sourcePath, line, column
     }
 }

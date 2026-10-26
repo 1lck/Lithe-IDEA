@@ -166,6 +166,26 @@ package struct LanguageProviderDescriptor: Identifiable, Hashable, Sendable {
         self.languageServerInstallation = languageServerInstallation
     }
 
+    /// The descriptor as a language server session sees it: whether a debugger
+    /// exists changes nothing about how the server runs.
+    package var withoutDebugAdapter: LanguageProviderDescriptor {
+        guard capabilities.contains(.debugAdapter) else { return self }
+        return LanguageProviderDescriptor(
+            id: id,
+            displayName: displayName,
+            fileExtensions: fileExtensions,
+            fileNames: fileNames,
+            fileNamePrefixes: fileNamePrefixes,
+            capabilities: capabilities.subtracting(.debugAdapter),
+            activationPolicy: activationPolicy,
+            languageIdentifier: languageIdentifier,
+            languageIdentifiersByExtension: languageIdentifiersByExtension,
+            languageIdentifiersByFileName: languageIdentifiersByFileName,
+            languageServerLaunch: languageServerLaunch,
+            languageServerInstallation: languageServerInstallation
+        )
+    }
+
     package func handles(fileURL: URL) -> Bool {
         let fileName = fileURL.lastPathComponent.lowercased()
         return fileExtensions.contains(fileURL.pathExtension.lowercased())
