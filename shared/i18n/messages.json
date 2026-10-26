@@ -88232,6 +88232,24 @@
       }
     },
     {
+      "id": "native.theDebugAdapterNeedsWhichWasNotFoundInstall",
+      "description": "Native UI: The debug adapter %@ needs %@, which was not found. Install it, then try again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The debug adapter %@ needs %@, which was not found. Install it, then try again.",
+        "arguments": [
+          "arg1",
+          "arg2"
+        ]
+      },
+      "parameters": {
+        "arg1": "string",
+        "arg2": "string"
+      }
+    },
+    {
       "id": "native.theDebugAdapterMustLaunchAnExecutableFromItsPluginPackage",
       "description": "Native UI: The debug adapter %@ must launch an executable from its plugin package.",
       "platforms": [

@@ -592,7 +592,13 @@ final class MacServiceContainer {
                                             workspaceRootURL: rootURL
                                         )
                                     },
-                                    makeProcess: { MacRawProcessSession() }
+                                    makeProcess: { MacRawProcessSession() },
+                                    findCommand: { commands in
+                                        commands.lazy.compactMap { command in
+                                            runtimeService.executableCandidates(command)
+                                                .first { $0.source != .project }?.executableURL
+                                        }.first
+                                    }
                                 ),
                                 core: rustCore,
                                 deadlineScheduler: MacDebugOperationDeadlineScheduler()

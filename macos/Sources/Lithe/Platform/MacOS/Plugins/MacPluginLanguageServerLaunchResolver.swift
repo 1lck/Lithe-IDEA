@@ -341,9 +341,9 @@ struct MacPluginLanguageServerLaunchResolver {
         let adapter: DeclarativeLanguageServerLaunchPlan.DebugAdapter
     }
 
-    /// Expands the launch of one debug adapter for one workspace. Only a
-    /// packaged executable is supported; the adapter never writes into the
-    /// package.
+    /// Expands the launch of one debug adapter for one workspace. A packaged
+    /// executable or a system command is supported; the adapter never writes
+    /// into the package.
     func resolveDebugAdapter(
         pluginID: String,
         adapterID: String,
@@ -370,10 +370,12 @@ struct MacPluginLanguageServerLaunchResolver {
                 message: "Rust Core returned no debug adapter for \(adapterID)."
             )
         }
-        guard case .packaged? = plan.executable else {
+        switch plan.executable {
+        case .packaged?, .systemCommand?: break
+        default:
             throw DeclarativePluginRejection(
                 code: "plugin.launch.unavailable",
-                message: "The debug adapter \(adapterID) must launch a packaged executable."
+                message: "The debug adapter \(adapterID) must launch a packaged executable or a system command."
             )
         }
         let process = try providerProcess(

@@ -25,13 +25,14 @@ struct PluginDebugAdapterTests {
     }
 
     @Test
-    func transportOnlyLaunchesExecutablesFromThePluginPackage() {
+    func aMissingSystemCommandFailsTheStartWithInstallGuidance() {
         let transport = MacPluginDebugAdapterTransport(
             adapterID: "lldb",
             resolve: { _ in Self.process(.commands(["lldb-dap"])) },
-            makeProcess: { Issue.record("No process starts for a non-packaged executable."); fatalError() }
+            makeProcess: { Issue.record("No process starts for a missing command."); fatalError() },
+            findCommand: { _ in nil }
         )
-        #expect(throws: MacPluginDebugAdapterTransport.TransportError.self) {
+        #expect(throws: MacPluginDebugAdapterTransport.TransportError.commandNotFound(adapterID: "lldb", commands: ["lldb-dap"])) {
             try transport.start(rootURL: URL(fileURLWithPath: "/tmp/workspace", isDirectory: true))
         }
         #expect(!transport.isRunning)
