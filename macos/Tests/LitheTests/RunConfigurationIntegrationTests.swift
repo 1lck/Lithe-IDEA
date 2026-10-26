@@ -2585,18 +2585,22 @@ struct RunConfigurationIntegrationTests {
 
     @Test
     func stoppingToolingSessionsClearsProjectScopedBreakpoints() throws {
-        let descriptor = try #require(LanguageProviderCatalog.standard.provider(
-            for: URL(fileURLWithPath: "/tmp/main.py")
-        ))
+        // Breakpoint cleanup must not depend on the product's installed debug providers.
+        let descriptor = LanguageProviderDescriptor(
+            id: "python", displayName: "Python", fileExtensions: ["py"],
+            capabilities: [.debugAdapter], activationPolicy: .onDemand
+        )
+        let catalog = LanguageProviderCatalog(descriptors: [descriptor])
         let runtime = TestDebugLanguageProviderRuntime(descriptor: descriptor)
         let manager = DebugAdapterSessionManager(
-            providers: LanguageProviderCatalog.standard.debugProviders,
+            providers: catalog.debugProviders,
             makeSession: { descriptor, rootURL in
                 descriptor.id == runtime.descriptor.id
                     ? runtime.makeSession()
                     : nil
             }
         )
+        defer { manager.stopAll() }
         let firstRoot = URL(fileURLWithPath: "/tmp/first-python-project")
         let firstSource = firstRoot.appendingPathComponent("main.py")
         try manager.setBreakpoints([DebugSourceBreakpoint(line: 12)], in: firstSource)
