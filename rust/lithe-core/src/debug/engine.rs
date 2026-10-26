@@ -1,12 +1,18 @@
 //! Stateful DAP reducer whose byte transport and process lifecycle remain platform owned.
 
+use super::capabilities::{
+    capability_states, client_capabilities, effective_body, validate_disabled, HostFeatures,
+};
+use super::projection_v2::{
+    capabilities_projection, scopes_projection, stack_trace_projection, CapabilityState,
+};
 use super::protocol::{frame_message, parse_messages};
 use super::types::*;
 use crate::protocol::{CoreError, ErrorCode};
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
 use serde_json::{json, Map, Value};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{Mutex, OnceLock};
 
 static SESSIONS: OnceLock<Mutex<HashMap<String, DebugSession>>> = OnceLock::new();
@@ -21,6 +27,12 @@ struct DebugSession {
     next_event_sequence: u64,
     read_buffer: Vec<u8>,
     pending_requests: BTreeMap<i64, PendingRequest>,
+    /// Pause generation each request was issued under; frame and variable references die with it.
+    request_stop_generations: BTreeMap<i64, u64>,
+    stop_generation: u64,
+    parent_id: Option<String>,
+    /// Live child sessions in creation order; the host owns their transports.
+    child_ids: Vec<String>,
     breakpoints: BTreeMap<String, Vec<SourceBreakpoint>>,
     /// Rejects replies to superseded per-file breakpoint sets.
     breakpoint_generations: BTreeMap<String, u64>,
@@ -37,6 +49,11 @@ struct DebugSession {
     did_receive_initialized: bool,
     supports_configuration_done: bool,
     capabilities: DebugCapabilities,
+    /// Raw capability flags exactly as the adapter reported them (merged with `capabilities` events).
+    adapter_capabilities: Map<String, Value>,
+    disabled_capabilities: BTreeSet<String>,
+    capability_states: BTreeMap<String, CapabilityState>,
+    capability_revision: u64,
     stepping_filters: DebugSteppingFilters,
     debug_request_kind: Option<DebugRequestKind>,
     pending_launch: Option<(String, DebugLaunchConfiguration)>,
@@ -79,6 +96,9 @@ enum PendingRequest {
     Inspect {
         operation_id: String,
         kind: DebugInspectKind,
+        /// Identify the v2 projection of stack traces and scopes.
+        thread_id: Option<i64>,
+        frame_id: Option<i64>,
     },
     Disconnect,
 }
@@ -90,11 +110,26 @@ pub(crate) fn create_session(
     validate_identifier(&request.session_id, "sessionId")?;
     validate_identifier(&request.adapter_id, "adapterId")?;
     validate_path(&request.root_path, "rootPath")?;
+    let disabled_capabilities = validate_disabled(&request.disabled_capabilities)?;
     let mut sessions = sessions_lock()?;
     if sessions.contains_key(&request.session_id) {
         return Err(invalid_request(
             "A debug session with this sessionId already exists.",
         ));
+    }
+    if let Some(parent_id) = &request.parent_session_id {
+        validate_identifier(parent_id, "parentSessionId")?;
+        let parent = sessions
+            .get(parent_id)
+            .ok_or_else(|| session_not_found(parent_id))?;
+        if matches!(
+            parent.state,
+            DebugSessionState::Terminating | DebugSessionState::Terminated
+        ) {
+            return Err(invalid_request(
+                "A child debug session needs a running parent session.",
+            ));
+        }
     }
     let mut session = DebugSession {
         id: request.session_id.clone(),
@@ -105,6 +140,10 @@ pub(crate) fn create_session(
         next_event_sequence: 1,
         read_buffer: Vec::new(),
         pending_requests: BTreeMap::new(),
+        request_stop_generations: BTreeMap::new(),
+        stop_generation: 0,
+        parent_id: request.parent_session_id.clone(),
+        child_ids: Vec::new(),
         breakpoints: BTreeMap::new(),
         breakpoint_generations: BTreeMap::new(),
         resolved_source_breakpoints: BTreeMap::new(),
@@ -119,6 +158,10 @@ pub(crate) fn create_session(
         did_receive_initialized: false,
         supports_configuration_done: false,
         capabilities: DebugCapabilities::default(),
+        adapter_capabilities: Map::new(),
+        disabled_capabilities,
+        capability_states: BTreeMap::new(),
+        capability_revision: 0,
         stepping_filters: DebugSteppingFilters::unfiltered(),
         debug_request_kind: None,
         pending_launch: None,
@@ -126,26 +169,37 @@ pub(crate) fn create_session(
         events: Vec::new(),
     };
     session.transition(DebugSessionState::Initializing);
-    session.send_request(
-        "initialize",
-        json!({
-            "clientID": "lithe",
-            "clientName": "Lithe",
-            "adapterID": session.adapter_id,
-            "linesStartAt1": true,
-            "columnsStartAt1": true,
-            "pathFormat": "path",
-            "supportsVariableType": true,
-            "supportsVariablePaging": true,
-            "supportsRunInTerminalRequest": session.supports_run_in_terminal_request,
-            "supportsStartDebuggingRequest": session.supports_start_debugging_request,
-            "supportsMemoryReferences": false,
-            "supportsProgressReporting": false,
-            "supportsInvalidatedEvent": true
+    let mut initialize = json!({
+        "clientID": "lithe",
+        "clientName": "Lithe",
+        "adapterID": session.adapter_id,
+        "linesStartAt1": true,
+        "columnsStartAt1": true,
+        "pathFormat": "path",
+        "supportsVariableType": true,
+        "supportsVariablePaging": true
+    });
+    if let (Some(arguments), Value::Object(client)) = (
+        initialize.as_object_mut(),
+        client_capabilities(HostFeatures {
+            run_in_terminal: session.supports_run_in_terminal_request,
+            start_debugging: session.supports_start_debugging_request,
         }),
-        PendingRequest::Initialize,
-    )?;
+    ) {
+        arguments.extend(client);
+    }
+    session.send_request("initialize", initialize, PendingRequest::Initialize)?;
     let update = session.take_update();
+    if let Some(parent) = session
+        .parent_id
+        .as_ref()
+        .and_then(|parent_id| sessions.get_mut(parent_id))
+    {
+        parent.child_ids.push(session.id.clone());
+        parent.emit(DebugEventBody::ChildSessionAttached {
+            child_session_id: session.id.clone(),
+        });
+    }
     sessions.insert(request.session_id, session);
     Ok(update)
 }
@@ -669,6 +723,8 @@ pub(crate) fn inspect(request: InspectRequest) -> Result<DebugSessionUpdate, Cor
             PendingRequest::Inspect {
                 operation_id: request.operation_id,
                 kind: request.kind,
+                thread_id: request.thread_id,
+                frame_id: request.frame_id,
             },
         )?;
         Ok(session.take_update())
@@ -787,6 +843,10 @@ pub(crate) fn disconnect(request: SessionRequest) -> Result<DebugSessionUpdate, 
         )?;
         // An attach session does not own the remote JVM, so disconnect must
         // never terminate it. A launch session owns the local debuggee.
+        let children = session.child_ids.clone();
+        for child_session_id in children {
+            session.emit(DebugEventBody::ChildSessionStopRequested { child_session_id });
+        }
         let terminate_debuggee = session.debug_request_kind == Some(DebugRequestKind::Launch);
         session.send_request(
             "disconnect",
@@ -801,8 +861,24 @@ pub(crate) fn disconnect(request: SessionRequest) -> Result<DebugSessionUpdate, 
 /// Removes a session after the platform has closed its socket or process.
 pub(crate) fn destroy_session(request: SessionRequest) -> Result<(), CoreError> {
     let mut sessions = sessions_lock()?;
-    if sessions.remove(&request.session_id).is_none() {
+    let Some(removed) = sessions.remove(&request.session_id) else {
         return Err(session_not_found(&request.session_id));
+    };
+    // A finished child leaves its parent's list; orphaned children stop reporting upward.
+    if let Some(parent) = removed
+        .parent_id
+        .as_ref()
+        .and_then(|parent_id| sessions.get_mut(parent_id))
+    {
+        parent.child_ids.retain(|id| id != &removed.id);
+        parent.emit(DebugEventBody::ChildSessionDetached {
+            child_session_id: removed.id.clone(),
+        });
+    }
+    for child_id in &removed.child_ids {
+        if let Some(child) = sessions.get_mut(child_id) {
+            child.parent_id = None;
+        }
     }
     Ok(())
 }
@@ -1012,6 +1088,8 @@ impl DebugSession {
             "arguments": arguments
         });
         self.outbound_frames.push(frame_message(&message)?);
+        self.request_stop_generations
+            .insert(sequence, self.stop_generation);
         self.pending_requests.insert(sequence, pending);
         Ok(())
     }
@@ -1070,6 +1148,7 @@ impl DebugSession {
         let Some(pending) = self.pending_requests.remove(&request_sequence) else {
             return Ok(());
         };
+        let issued_generation = self.request_stop_generations.remove(&request_sequence);
         let success = message
             .get("success")
             .and_then(Value::as_bool)
@@ -1097,10 +1176,23 @@ impl DebugSession {
             }
             return Ok(());
         }
+        if pending.is_reference_bound() && issued_generation != Some(self.stop_generation) {
+            if let Some(operation_id) = pending.operation_id() {
+                self.emit(DebugEventBody::OperationFailed {
+                    operation_id: operation_id.to_string(),
+                    command: pending.command().to_string(),
+                    code: DebugOperationFailureCode::StaleReference,
+                    message: "The debuggee resumed or stopped again before the adapter replied."
+                        .to_string(),
+                });
+            }
+            return Ok(());
+        }
         let body = message.get("body").cloned().unwrap_or_else(|| json!({}));
         match pending {
             PendingRequest::Initialize => {
-                self.capabilities = parse_capabilities(&body);
+                self.adapter_capabilities = body.as_object().cloned().unwrap_or_default();
+                self.refresh_capabilities(false);
                 if !self.did_configure_exception_breakpoints {
                     self.exception_breakpoints = self
                         .capabilities
@@ -1114,9 +1206,6 @@ impl DebugSession {
                         .collect();
                 }
                 self.supports_configuration_done = self.capabilities.supports_configuration_done;
-                self.emit(DebugEventBody::Capabilities {
-                    capabilities: self.capabilities.clone(),
-                });
                 self.transition(DebugSessionState::Ready);
                 if let Some((operation_id, configuration)) = self.pending_launch.take() {
                     self.perform_launch(operation_id, configuration)?;
@@ -1199,6 +1288,7 @@ impl DebugSession {
                     && command != DebugExecutionCommand::Terminate
                     && !(single_thread && command == DebugExecutionCommand::Continue)
                 {
+                    self.stop_generation += 1;
                     self.transition(DebugSessionState::Running);
                 }
                 self.emit(DebugEventBody::OperationCompleted {
@@ -1208,7 +1298,13 @@ impl DebugSession {
                     },
                 });
             }
-            PendingRequest::Inspect { operation_id, kind } => {
+            PendingRequest::Inspect {
+                operation_id,
+                kind,
+                thread_id,
+                frame_id,
+            } => {
+                self.emit_inspection_projection(kind, thread_id, frame_id, &body);
                 let result =
                     normalize_inspection(kind, &body, &self.stepping_filters, &self.root_path);
                 // HCR rejection is an operation failure, not a broken transport/session.
@@ -1275,6 +1371,7 @@ impl DebugSession {
                     .to_string(),
             }),
             "stopped" => {
+                self.stop_generation += 1;
                 self.transition(DebugSessionState::Paused);
                 self.emit(DebugEventBody::Stopped {
                     reason: body
@@ -1287,9 +1384,11 @@ impl DebugSession {
                         .get("description")
                         .and_then(Value::as_str)
                         .map(str::to_string),
+                    stop_generation: self.stop_generation,
                 });
             }
             "continued" => {
+                self.stop_generation += 1;
                 if body
                     .get("allThreadsContinued")
                     .and_then(Value::as_bool)
@@ -1302,14 +1401,22 @@ impl DebugSession {
                 });
             }
             "terminated" => {
+                self.stop_generation += 1;
                 self.transition(DebugSessionState::Terminated);
                 self.emit(DebugEventBody::Terminated { exit_code: None });
             }
             "exited" => {
+                self.stop_generation += 1;
                 self.transition(DebugSessionState::Terminated);
                 self.emit(DebugEventBody::Terminated {
                     exit_code: body.get("exitCode").and_then(Value::as_i64),
                 });
+            }
+            "capabilities" => {
+                if let Some(updated) = body.get("capabilities").and_then(Value::as_object) {
+                    self.adapter_capabilities.extend(updated.clone());
+                    self.refresh_capabilities(true);
+                }
             }
             "breakpoint" => {
                 if let Some(value) = body.get("breakpoint") {
@@ -1417,6 +1524,45 @@ impl DebugSession {
         Ok(())
     }
 
+    /// Emits the v2 projection of a stack trace or scopes reply beside the v1 result.
+    fn emit_inspection_projection(
+        &mut self,
+        kind: DebugInspectKind,
+        thread_id: Option<i64>,
+        frame_id: Option<i64>,
+        body: &Value,
+    ) {
+        let projection = match (kind, thread_id, frame_id) {
+            (DebugInspectKind::StackTrace, Some(thread_id), _) => stack_trace_projection(
+                &self.id,
+                self.stop_generation,
+                thread_id,
+                body,
+                &self.root_path,
+                |name, path, hint| {
+                    stack_frame_matches_filters(
+                        name,
+                        path,
+                        hint,
+                        &self.stepping_filters,
+                        &self.root_path,
+                    )
+                },
+            ),
+            (DebugInspectKind::Scopes, _, Some(frame_id)) => scopes_projection(
+                &self.id,
+                self.stop_generation,
+                frame_id,
+                body,
+                &self.root_path,
+            ),
+            _ => None,
+        };
+        if let Some(projection) = projection {
+            self.emit(DebugEventBody::Projection { projection });
+        }
+    }
+
     fn emit_breakpoint_results(
         &mut self,
         body: &Value,
@@ -1478,6 +1624,31 @@ impl DebugSession {
         self.emit(DebugEventBody::StateChanged { state });
     }
 
+    /// Recomputes the effective capabilities and publishes them when any state changed.
+    ///
+    /// With `only_changes` false the first negotiation is always published.
+    fn refresh_capabilities(&mut self, only_changes: bool) {
+        let states = capability_states(&self.adapter_capabilities, &self.disabled_capabilities);
+        if only_changes && states == self.capability_states {
+            return;
+        }
+        self.capabilities =
+            parse_capabilities(&effective_body(&self.adapter_capabilities, &states));
+        self.capability_states = states;
+        self.capability_revision += 1;
+        self.emit(DebugEventBody::Capabilities {
+            capabilities: self.capabilities.clone(),
+        });
+        if let Some(projection) = capabilities_projection(
+            &self.id,
+            self.stop_generation,
+            self.capability_revision,
+            self.capability_states.clone(),
+        ) {
+            self.emit(DebugEventBody::Projection { projection });
+        }
+    }
+
     fn emit(&mut self, body: DebugEventBody) {
         let sequence = self.next_event_sequence;
         self.next_event_sequence += 1;
@@ -1513,6 +1684,22 @@ impl PendingRequest {
             Self::Execute { command, .. } => command.command(),
             Self::Inspect { kind, .. } => kind.command(),
             Self::Disconnect => "disconnect",
+        }
+    }
+
+    /// Frame IDs and variables references are only valid until the next stop or resume.
+    fn is_reference_bound(&self) -> bool {
+        match self {
+            Self::SetVariable { .. } => true,
+            Self::Inspect { kind, .. } => matches!(
+                kind,
+                DebugInspectKind::Scopes
+                    | DebugInspectKind::Variables
+                    | DebugInspectKind::Evaluate
+                    | DebugInspectKind::StepInTargets
+                    | DebugInspectKind::GotoTargets
+            ),
+            _ => false,
         }
     }
 
@@ -1581,7 +1768,16 @@ fn inspect_arguments(request: &InspectRequest) -> Result<Map<String, Value>, Cor
                 return Err(invalid_request("Debug evaluate requires an expression."));
             }
             arguments.insert("expression".to_string(), json!(expression));
-            arguments.insert("context".to_string(), json!("watch"));
+            let context = request.context.as_deref().unwrap_or("watch");
+            if !matches!(
+                context,
+                "watch" | "hover" | "repl" | "clipboard" | "variables"
+            ) {
+                return Err(invalid_request(
+                    "Debug evaluate context must be watch, hover, repl, clipboard or variables.",
+                ));
+            }
+            arguments.insert("context".to_string(), json!(context));
             if let Some(frame_id) = request.frame_id {
                 if frame_id < 0 {
                     return Err(invalid_request("Debug frameId cannot be negative."));
@@ -2360,7 +2556,7 @@ fn normalize_optional_text(value: Option<String>) -> Option<String> {
         .filter(|text| !text.is_empty())
 }
 
-fn invalid_request(message: &str) -> CoreError {
+pub(super) fn invalid_request(message: &str) -> CoreError {
     CoreError::new(ErrorCode::InvalidRequest, message)
 }
 
@@ -2372,6 +2568,7 @@ fn session_not_found(session_id: &str) -> CoreError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::debug::projection_v2::{Projection, SessionProjection, Source};
 
     fn request_message(sequence: i64, command: &str, arguments: Value) -> Value {
         json!({
@@ -2447,6 +2644,8 @@ mod tests {
                 root_path: "/workspace".into(),
                 supports_run_in_terminal_request: false,
                 supports_start_debugging_request: false,
+                disabled_capabilities: Vec::new(),
+                parent_session_id: None,
             })
             .unwrap();
             // The guard always removes the process-free session, including on assertion failure.
@@ -2554,6 +2753,7 @@ mod tests {
                         reason: "breakpoint".to_string(),
                         thread_id: Some(13),
                         description: None,
+                        stop_generation: 1,
                     },
                 },
                 DebugEvent {
@@ -2606,6 +2806,8 @@ mod tests {
                 root_path: "/workspace".to_string(),
                 supports_run_in_terminal_request: false,
                 supports_start_debugging_request: false,
+                disabled_capabilities: Vec::new(),
+                parent_session_id: None,
             })
             .unwrap();
 
@@ -2656,6 +2858,7 @@ mod tests {
             start: Some(0),
             count: Some(100),
             expression: None,
+            context: None,
             source_path: None,
             line: None,
             column: None,
@@ -2788,6 +2991,8 @@ mod tests {
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
+            disabled_capabilities: Vec::new(),
+            parent_session_id: None,
         })
         .unwrap();
         launch(LaunchRequest {
@@ -2838,6 +3043,7 @@ mod tests {
             start: None,
             count: None,
             expression: None,
+            context: None,
             source_path: None,
             line: None,
             column: None,
@@ -2924,6 +3130,8 @@ mod tests {
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
+            disabled_capabilities: Vec::new(),
+            parent_session_id: None,
         })
         .unwrap();
         assert_eq!(created.state, DebugSessionState::Initializing);
@@ -3163,6 +3371,7 @@ mod tests {
             start: None,
             count: None,
             expression: None,
+            context: None,
             source_path: None,
             line: None,
             column: None,
@@ -3207,6 +3416,8 @@ mod tests {
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
+            disabled_capabilities: Vec::new(),
+            parent_session_id: None,
         })
         .unwrap();
         // This reducer owns no processes; always destroy its registry entry below.
@@ -3298,6 +3509,8 @@ mod tests {
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: true,
+            disabled_capabilities: Vec::new(),
+            parent_session_id: None,
         })
         .unwrap();
         // This reducer owns no processes; always destroy its registry entry below.
@@ -3366,6 +3579,8 @@ mod tests {
                 root_path: "/workspace".to_string(),
                 supports_run_in_terminal_request: false,
                 supports_start_debugging_request: supported,
+                disabled_capabilities: Vec::new(),
+                parent_session_id: None,
             })
             .unwrap();
             let update = receive_messages(session_id, vec![fixture["adapterRequest"].clone()]);
@@ -3416,6 +3631,8 @@ mod tests {
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: true,
+            disabled_capabilities: Vec::new(),
+            parent_session_id: None,
         })
         .unwrap();
         receive_messages(session_id, vec![fixture["adapterRequest"].clone()]);
@@ -3447,6 +3664,8 @@ mod tests {
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
+            disabled_capabilities: Vec::new(),
+            parent_session_id: None,
         })
         .unwrap();
         // This reducer owns no processes; always destroy its registry entry below.
@@ -3512,6 +3731,7 @@ mod tests {
             start: None,
             count: None,
             expression: None,
+            context: None,
             source_path: None,
             line: None,
             column: None,
@@ -3555,6 +3775,8 @@ mod tests {
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
+            disabled_capabilities: Vec::new(),
+            parent_session_id: None,
         })
         .unwrap();
         set_data_breakpoints(SetDataBreakpointsRequest {
@@ -3677,6 +3899,8 @@ mod tests {
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
+            disabled_capabilities: Vec::new(),
+            parent_session_id: None,
         })
         .unwrap();
         launch(LaunchRequest {
@@ -3764,6 +3988,8 @@ mod tests {
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
+            disabled_capabilities: Vec::new(),
+            parent_session_id: None,
         })
         .unwrap();
         launch(LaunchRequest {
@@ -3809,6 +4035,7 @@ mod tests {
             start: None,
             count: None,
             expression: None,
+            context: None,
             source_path: None,
             line: None,
             column: None,
@@ -3886,6 +4113,8 @@ mod tests {
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
+            disabled_capabilities: Vec::new(),
+            parent_session_id: None,
         })
         .unwrap();
         launch(LaunchRequest {
@@ -3984,6 +4213,8 @@ mod tests {
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
+            disabled_capabilities: Vec::new(),
+            parent_session_id: None,
         })
         .unwrap();
         launch(LaunchRequest {
@@ -4030,6 +4261,7 @@ mod tests {
             start: None,
             count: None,
             expression: None,
+            context: None,
             source_path: None,
             line: None,
             column: None,
@@ -4096,6 +4328,7 @@ mod tests {
             start: None,
             count: None,
             expression: None,
+            context: None,
             source_path: Some("/workspace/src/Main.java".to_string()),
             line: Some(20),
             column: Some(5),
@@ -4156,6 +4389,8 @@ mod tests {
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
+            disabled_capabilities: Vec::new(),
+            parent_session_id: None,
         })
         .unwrap();
         launch(LaunchRequest {
@@ -4207,6 +4442,7 @@ mod tests {
             start: None,
             count: None,
             expression: None,
+            context: None,
             source_path: None,
             line: None,
             column: None,
@@ -4260,6 +4496,8 @@ mod tests {
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
+            disabled_capabilities: Vec::new(),
+            parent_session_id: None,
         })
         .unwrap();
         launch(LaunchRequest {
@@ -4303,6 +4541,7 @@ mod tests {
             start: fixture["request"]["start"].as_i64(),
             count: fixture["request"]["count"].as_i64(),
             expression: None,
+            context: None,
             source_path: None,
             line: None,
             column: None,
@@ -4351,6 +4590,8 @@ mod tests {
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
+            disabled_capabilities: Vec::new(),
+            parent_session_id: None,
         })
         .unwrap();
         launch(LaunchRequest {
@@ -4390,6 +4631,7 @@ mod tests {
             start: None,
             count: None,
             expression: None,
+            context: None,
             source_path: None,
             line: None,
             column: None,
@@ -4416,6 +4658,8 @@ mod tests {
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: true,
             supports_start_debugging_request: false,
+            disabled_capabilities: Vec::new(),
+            parent_session_id: None,
         })
         .unwrap();
         assert_eq!(
@@ -4497,6 +4741,8 @@ mod tests {
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: true,
             supports_start_debugging_request: false,
+            disabled_capabilities: Vec::new(),
+            parent_session_id: None,
         })
         .unwrap();
 
@@ -4531,6 +4777,8 @@ mod tests {
             root_path: "/workspace".to_string(),
             supports_run_in_terminal_request: false,
             supports_start_debugging_request: false,
+            disabled_capabilities: Vec::new(),
+            parent_session_id: None,
         })
         .unwrap();
 
@@ -4542,6 +4790,401 @@ mod tests {
         let response = decode_frame(&update.outbound_frames[0]);
         assert_eq!(response["request_seq"], 44);
         assert_eq!(response["success"], false);
+        destroy_session(SessionRequest {
+            session_id: session_id.to_string(),
+        })
+        .unwrap();
+    }
+
+    fn snapshot_of(
+        update: &DebugSessionUpdate,
+    ) -> Option<(u64, BTreeMap<String, CapabilityState>)> {
+        update.events.iter().find_map(|event| match &event.body {
+            DebugEventBody::Projection {
+                projection:
+                    SessionProjection {
+                        projection: Projection::Capabilities(payload),
+                        ..
+                    },
+            } => Some((payload.revision, payload.capabilities.clone())),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn initialize_publishes_a_snapshot_and_forces_disabled_capabilities_off() {
+        let session_id = "debug-capability-snapshot";
+        create_session(CreateSessionRequest {
+            session_id: session_id.to_string(),
+            adapter_id: "java".to_string(),
+            root_path: "/workspace".to_string(),
+            supports_run_in_terminal_request: false,
+            supports_start_debugging_request: false,
+            disabled_capabilities: vec!["supportsRestartRequest".to_string()],
+            parent_session_id: None,
+        })
+        .unwrap();
+        launch(LaunchRequest {
+            session_id: session_id.to_string(),
+            operation_id: "launch".to_string(),
+            configuration: DebugLaunchConfiguration {
+                name: "Main".to_string(),
+                request: DebugRequestKind::Launch,
+                arguments: Map::new(),
+                stepping_filters: None,
+            },
+        })
+        .unwrap();
+
+        let update = receive_messages(
+            session_id,
+            vec![response_message(
+                1,
+                "initialize",
+                json!({"supportsRestartRequest": true, "supportsReadMemoryRequest": true}),
+            )],
+        );
+        let (revision, states) = snapshot_of(&update).expect("initialize publishes a snapshot");
+        assert_eq!(revision, 1);
+        let restart = &states["supportsRestartRequest"];
+        assert!(restart.adapter && restart.extension && !restart.authorized && !restart.supported);
+        // The adapter reports memory reads, but no extension in this build handles it.
+        let step_back = &states["supportsReadMemoryRequest"];
+        assert!(step_back.adapter && !step_back.extension && !step_back.supported);
+
+        let late = receive_messages(
+            session_id,
+            vec![json!({
+                "seq": 90,
+                "type": "event",
+                "event": "capabilities",
+                "body": {"capabilities": {"supportsRestartRequest": true}}
+            })],
+        );
+        assert!(
+            snapshot_of(&late).is_none(),
+            "an unchanged state must not bump the revision"
+        );
+        destroy_session(SessionRequest {
+            session_id: session_id.to_string(),
+        })
+        .unwrap();
+    }
+
+    fn child_request(session_id: &str, parent: Option<&str>) -> CreateSessionRequest {
+        CreateSessionRequest {
+            session_id: session_id.to_string(),
+            adapter_id: "java".to_string(),
+            root_path: "/workspace".to_string(),
+            supports_run_in_terminal_request: false,
+            supports_start_debugging_request: false,
+            disabled_capabilities: Vec::new(),
+            parent_session_id: parent.map(str::to_string),
+        }
+    }
+
+    fn child_events(update: &DebugSessionUpdate) -> Vec<String> {
+        update
+            .events
+            .iter()
+            .filter_map(|event| match &event.body {
+                DebugEventBody::ChildSessionAttached { child_session_id } => {
+                    Some(format!("attached:{child_session_id}"))
+                }
+                DebugEventBody::ChildSessionDetached { child_session_id } => {
+                    Some(format!("detached:{child_session_id}"))
+                }
+                DebugEventBody::ChildSessionStopRequested { child_session_id } => {
+                    Some(format!("stop:{child_session_id}"))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn child_sessions_attach_stop_with_the_parent_and_detach_when_destroyed() {
+        let parent = "debug-tree-parent";
+        let child = "debug-tree-child";
+        create_session(child_request(parent, None)).unwrap();
+        assert!(create_session(child_request("debug-tree-orphan", Some("missing"))).is_err());
+        create_session(child_request(child, Some(parent))).unwrap();
+
+        let stopping = disconnect(SessionRequest {
+            session_id: parent.to_string(),
+        })
+        .unwrap();
+        assert_eq!(
+            child_events(&stopping),
+            vec![format!("attached:{child}"), format!("stop:{child}")]
+        );
+        assert!(
+            create_session(child_request("debug-tree-late", Some(parent))).is_err(),
+            "a stopping parent accepts no new children"
+        );
+
+        destroy_session(SessionRequest {
+            session_id: child.to_string(),
+        })
+        .unwrap();
+        let after = with_session(parent, |session| {
+            assert!(session.child_ids.is_empty());
+            Ok(child_events(&session.take_update()))
+        })
+        .unwrap();
+        assert_eq!(after, vec![format!("detached:{child}")]);
+        destroy_session(SessionRequest {
+            session_id: parent.to_string(),
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn stack_trace_and_scopes_emit_v2_projections_with_one_source_identity() {
+        let session_id = "debug-v2-projection";
+        paused_session(session_id);
+        let mut request = evaluate_request(session_id, "stack", None);
+        request.kind = DebugInspectKind::StackTrace;
+        request.thread_id = Some(11);
+        request.expression = None;
+        inspect(request).unwrap();
+        let update = receive_messages(
+            session_id,
+            vec![response_message(
+                3,
+                "stackTrace",
+                json!({"totalFrames": 3, "stackFrames": [
+                    {"id": 1, "name": "main", "line": 4, "column": 2,
+                     "source": {"path": "/workspace/src/Main.java"}},
+                    {"id": 2, "name": "decompiled", "line": 9,
+                     "source": {"name": "Lib.class", "sourceReference": 77}},
+                    {"id": 3, "name": "jit", "line": 5,
+                     "source": {"path": "/elsewhere/Lib.c"},
+                     "instructionPointerReference": "0xFFFFFFFFFFFFFFFF"}
+                ]}),
+            )],
+        );
+        let projection = update
+            .events
+            .iter()
+            .find_map(|event| match &event.body {
+                DebugEventBody::Projection { projection } => Some(projection.clone()),
+                _ => None,
+            })
+            .expect("stack trace emits a v2 projection");
+        assert_eq!(projection.stop_generation, 1);
+        let Projection::StackTrace(payload) = projection.projection else {
+            panic!("expected a stack trace projection");
+        };
+        assert_eq!(payload.thread_id, 11);
+        assert!(matches!(
+            &payload.frames[0].source,
+            Some(Source::Workspace(source)) if source.path == "src/Main.java"
+        ));
+        assert!(matches!(
+            &payload.frames[1].source,
+            Some(Source::Session(source)) if source.source_reference == 77
+        ));
+        // A path outside the workspace has no grant, so the frame carries no location.
+        assert!(payload.frames[2].source.is_none() && payload.frames[2].line.is_none());
+        assert_eq!(
+            payload.frames[2].instruction_pointer_reference.as_deref(),
+            Some("0xFFFFFFFFFFFFFFFF")
+        );
+        destroy_session(SessionRequest {
+            session_id: session_id.to_string(),
+        })
+        .unwrap();
+    }
+
+    /// Creates a paused Java-style session so reference-bound inspections can be issued.
+    fn paused_session(session_id: &str) {
+        create_session(CreateSessionRequest {
+            session_id: session_id.to_string(),
+            adapter_id: "java".to_string(),
+            root_path: "/workspace".to_string(),
+            supports_run_in_terminal_request: false,
+            supports_start_debugging_request: false,
+            disabled_capabilities: Vec::new(),
+            parent_session_id: None,
+        })
+        .unwrap();
+        launch(LaunchRequest {
+            session_id: session_id.to_string(),
+            operation_id: "launch".to_string(),
+            configuration: DebugLaunchConfiguration {
+                name: "Main".to_string(),
+                request: DebugRequestKind::Launch,
+                arguments: Map::new(),
+                stepping_filters: None,
+            },
+        })
+        .unwrap();
+        receive_messages(
+            session_id,
+            vec![response_message(1, "initialize", json!({}))],
+        );
+        receive_messages(session_id, vec![response_message(2, "launch", json!({}))]);
+        receive_messages(session_id, vec![stopped_event(103)]);
+    }
+
+    fn stopped_event(sequence: i64) -> Value {
+        json!({
+            "seq": sequence,
+            "type": "event",
+            "event": "stopped",
+            "body": {"reason": "breakpoint", "threadId": 11}
+        })
+    }
+
+    fn evaluate_request(
+        session_id: &str,
+        operation_id: &str,
+        context: Option<&str>,
+    ) -> InspectRequest {
+        InspectRequest {
+            session_id: session_id.to_string(),
+            operation_id: operation_id.to_string(),
+            kind: DebugInspectKind::Evaluate,
+            thread_id: None,
+            frame_id: Some(7),
+            variables_reference: None,
+            variable_filter: None,
+            start: None,
+            count: None,
+            expression: Some("a + b".to_string()),
+            context: context.map(str::to_string),
+            source_path: None,
+            line: None,
+            column: None,
+        }
+    }
+
+    #[test]
+    fn evaluate_forwards_each_supported_context_and_rejects_unknown_ones() {
+        let session_id = "debug-evaluate-context";
+        paused_session(session_id);
+        let update = inspect(evaluate_request(session_id, "default", None)).unwrap();
+        assert_eq!(
+            decode_frame(&update.outbound_frames[0])["arguments"]["context"],
+            "watch"
+        );
+        for context in ["watch", "hover", "repl", "clipboard", "variables"] {
+            let update = inspect(evaluate_request(session_id, context, Some(context))).unwrap();
+            assert_eq!(
+                decode_frame(&update.outbound_frames[0])["arguments"]["context"],
+                context
+            );
+        }
+        assert!(inspect(evaluate_request(session_id, "bad", Some("debugger"))).is_err());
+        destroy_session(SessionRequest {
+            session_id: session_id.to_string(),
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn reference_bound_replies_after_a_new_stop_fail_as_stale() {
+        let session_id = "debug-stale-reference";
+        paused_session(session_id);
+        let update = inspect(evaluate_request(session_id, "old", None)).unwrap();
+        let request_seq = decode_frame(&update.outbound_frames[0])["seq"]
+            .as_i64()
+            .unwrap();
+        receive_messages(session_id, vec![stopped_event(104)]);
+        let update = receive_messages(
+            session_id,
+            vec![response_message(
+                request_seq,
+                "evaluate",
+                json!({"result": "3"}),
+            )],
+        );
+        assert!(update.events.iter().any(|event| matches!(
+            &event.body,
+            DebugEventBody::OperationFailed { operation_id, code: DebugOperationFailureCode::StaleReference, .. }
+                if operation_id == "old"
+        )));
+        assert!(!update
+            .events
+            .iter()
+            .any(|event| matches!(event.body, DebugEventBody::OperationCompleted { .. })));
+
+        let update = inspect(evaluate_request(session_id, "fresh", None)).unwrap();
+        let request_seq = decode_frame(&update.outbound_frames[0])["seq"]
+            .as_i64()
+            .unwrap();
+        let update = receive_messages(
+            session_id,
+            vec![response_message(
+                request_seq,
+                "evaluate",
+                json!({"result": "3"}),
+            )],
+        );
+        assert!(update.events.iter().any(|event| matches!(
+            &event.body,
+            DebugEventBody::OperationCompleted { operation_id, .. } if operation_id == "fresh"
+        )));
+        destroy_session(SessionRequest {
+            session_id: session_id.to_string(),
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn stale_reference_fixture_matches_core_behavior() {
+        let fixture: Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/fixtures/debug/stale-reference-v1.json"
+        )))
+        .unwrap();
+        let session_id = "debug-stale-fixture";
+        paused_session(session_id);
+        let stale_id = fixture["staleOperationId"].as_str().unwrap();
+        let update = inspect(evaluate_request(session_id, stale_id, None)).unwrap();
+        let request_seq = decode_frame(&update.outbound_frames[0])["seq"]
+            .as_i64()
+            .unwrap();
+        receive_messages(session_id, vec![stopped_event(104)]);
+        let update = receive_messages(
+            session_id,
+            vec![response_message(
+                request_seq,
+                "evaluate",
+                fixture["evaluateResponseBody"].clone(),
+            )],
+        );
+        let failed = update
+            .events
+            .iter()
+            .find_map(|event| match &event.body {
+                DebugEventBody::OperationFailed {
+                    operation_id, code, ..
+                } => Some((operation_id.clone(), serde_json::to_value(code).unwrap())),
+                _ => None,
+            })
+            .expect("stale reply must fail");
+        assert_eq!(failed.0, stale_id);
+        assert_eq!(failed.1, fixture["expectedFailureCode"]);
+        destroy_session(SessionRequest {
+            session_id: session_id.to_string(),
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn stop_generation_increments_on_every_stop() {
+        let session_id = "debug-stop-generation";
+        paused_session(session_id);
+        let update = receive_messages(session_id, vec![stopped_event(104)]);
+        assert!(update.events.iter().any(|event| matches!(
+            event.body,
+            DebugEventBody::Stopped {
+                stop_generation: 2,
+                ..
+            }
+        )));
         destroy_session(SessionRequest {
             session_id: session_id.to_string(),
         })

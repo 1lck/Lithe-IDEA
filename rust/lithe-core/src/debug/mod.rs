@@ -1,6 +1,7 @@
 //! Transport-neutral Debug Adapter Protocol state and normalized debugger models.
 
 mod breakpoint_relocation;
+mod capabilities;
 mod engine;
 mod java_test;
 mod projection_v2;

@@ -219,13 +219,18 @@
           "test": "coreProtocolSessionDelegatesStartDebuggingAndReportsTheOutcome"
         },
         {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/debug/engine.rs",
+          "test": "child_sessions_attach_stop_with_the_parent_and_detach_when_destroyed"
+        },
+        {
           "platform": "macos",
           "path": "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift",
           "test": "coreProtocolSessionRejectsStartDebuggingWithoutAHostHandler"
         }
       ],
       "gaps": [
-        "The legacy Swift session that routed child-session inspection was deleted. The Core session reports startDebugging to the host handler, but no macOS handler is installed yet, so adapters that spawn child sessions are answered with a failure until the Core aggregates child sessions. Go and Node debugging was removed and will return through language plugins."
+        "Core now tracks parent and child sessions (attach, stop with the parent, detach on destroy). No macOS handler is installed yet, so adapters that spawn child sessions are still answered with a failure until the workbench can host more than one active session. Go and Node debugging was removed and will return through language plugins."
       ]
     },
     {
@@ -350,6 +355,12 @@
           "platform": "rust",
           "path": "rust/lithe-core/src/debug/engine.rs",
           "test": "cancelled_operation_forwards_dap_cancel_and_ignores_late_response"
+        },
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/debug/engine.rs",
+          "test": "stale_reference_fixture_matches_core_behavior",
+          "fixture": "shared/fixtures/debug/stale-reference-v1.json"
         },
         {
           "platform": "macos",

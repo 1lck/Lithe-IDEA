@@ -1,15 +1,12 @@
 //! Debug session projection version 2: source-optional frames, string references and
 //! capability snapshots shared by macOS and Windows.
 //!
-//! Version 1 stays authoritative until every consumer migrates. This module only decodes
-//! and validates the v2 wire shape so the unified engine and both platforms can share
-//! fixtures before any producer emits it.
-
-// No producer emits v2 yet; the engine adopts it in a later migration phase.
-#![allow(dead_code)]
+//! Version 1 stays authoritative until every consumer migrates. The engine emits v2
+//! beside it, built here from the raw adapter body so no v1 narrowing leaks into v2.
 
 use crate::protocol::{CoreError, ErrorCode};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::BTreeMap;
 
 /// Only wire version this module accepts.
@@ -307,12 +304,180 @@ fn validate_workspace_path(path: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn is_capability_name(name: &str) -> bool {
+pub(crate) fn is_capability_name(name: &str) -> bool {
     name.strip_prefix("supports")
         .and_then(|rest| rest.chars().next().map(|first| (first, rest)))
         .is_some_and(|(first, rest)| {
             first.is_ascii_uppercase() && rest.chars().all(|c| c.is_ascii_alphanumeric())
         })
+}
+
+/// Builds the v2 stack trace of one thread from a raw DAP `stackTrace` body.
+///
+/// Returns `None` when the adapter body is malformed; v1 remains the source of errors.
+pub(crate) fn stack_trace_projection(
+    session_id: &str,
+    stop_generation: u64,
+    thread_id: i64,
+    body: &Value,
+    root_path: &str,
+    is_filtered: impl Fn(&str, Option<&str>, Option<&str>) -> bool,
+) -> Option<SessionProjection> {
+    let frames = body
+        .get("stackFrames")?
+        .as_array()?
+        .iter()
+        .filter_map(|value| {
+            let name = value.get("name")?.as_str()?.to_string();
+            let source = value.get("source").and_then(|s| map_source(s, root_path));
+            let hint = value.get("presentationHint").and_then(Value::as_str);
+            let raw_path = value
+                .get("source")
+                .and_then(|s| s.get("path"))
+                .and_then(Value::as_str);
+            // Coordinates are meaningless without a source, so they are dropped with it.
+            let has_source = source.is_some();
+            let coordinate = |key: &str| {
+                value
+                    .get(key)
+                    .and_then(Value::as_u64)
+                    .filter(|number| *number > 0 && has_source)
+            };
+            let line = coordinate("line");
+            let column = line.and(coordinate("column"));
+            let end_line = line.and(coordinate("endLine"));
+            let end_column = end_line.and(coordinate("endColumn"));
+            Some(StackFrame {
+                id: value.get("id")?.as_i64()?.to_string(),
+                is_filtered: Some(is_filtered(&name, raw_path, hint)),
+                name,
+                source,
+                line,
+                column,
+                end_line,
+                end_column,
+                instruction_pointer_reference: value
+                    .get("instructionPointerReference")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                module_id: match value.get("moduleId") {
+                    Some(Value::String(text)) => Some(text.clone()),
+                    Some(Value::Number(number)) => Some(number.to_string()),
+                    _ => None,
+                },
+                presentation_hint: hint.map(str::to_string),
+            })
+        })
+        .collect();
+    finish(SessionProjection {
+        projection_version: PROJECTION_VERSION,
+        session_id: session_id.to_string(),
+        stop_generation,
+        projection: Projection::StackTrace(StackTracePayload {
+            thread_id,
+            frames,
+            total_frames: body.get("totalFrames").and_then(Value::as_u64),
+        }),
+    })
+}
+
+/// Builds the v2 scopes of one frame from a raw DAP `scopes` body.
+pub(crate) fn scopes_projection(
+    session_id: &str,
+    stop_generation: u64,
+    frame_id: i64,
+    body: &Value,
+    root_path: &str,
+) -> Option<SessionProjection> {
+    let scopes = body
+        .get("scopes")?
+        .as_array()?
+        .iter()
+        .filter_map(|value| {
+            Some(Scope {
+                name: value.get("name")?.as_str()?.to_string(),
+                presentation_hint: value
+                    .get("presentationHint")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                variables_reference: value.get("variablesReference")?.as_u64()?,
+                named_variables: value.get("namedVariables").and_then(Value::as_u64),
+                indexed_variables: value.get("indexedVariables").and_then(Value::as_u64),
+                expensive: value
+                    .get("expensive")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+                source: value.get("source").and_then(|s| map_source(s, root_path)),
+            })
+        })
+        .collect();
+    finish(SessionProjection {
+        projection_version: PROJECTION_VERSION,
+        session_id: session_id.to_string(),
+        stop_generation,
+        projection: Projection::Scopes(ScopesPayload {
+            frame_id: frame_id.to_string(),
+            scopes,
+        }),
+    })
+}
+
+/// Builds the v2 capability snapshot.
+pub(crate) fn capabilities_projection(
+    session_id: &str,
+    stop_generation: u64,
+    revision: u64,
+    capabilities: BTreeMap<String, CapabilityState>,
+) -> Option<SessionProjection> {
+    finish(SessionProjection {
+        projection_version: PROJECTION_VERSION,
+        session_id: session_id.to_string(),
+        stop_generation,
+        projection: Projection::Capabilities(CapabilitiesPayload {
+            revision,
+            capabilities,
+        }),
+    })
+}
+
+/// A projection that fails its own validation is withheld rather than sent to hosts.
+fn finish(projection: SessionProjection) -> Option<SessionProjection> {
+    projection.validate().ok().map(|_| projection)
+}
+
+/// Maps a DAP source to exactly one identity.
+///
+/// Paths outside the workspace have no host grant yet, so they stay sourceless instead
+/// of leaking a raw path; adapter-served content uses its `sourceReference`.
+fn map_source(source: &Value, root_path: &str) -> Option<Source> {
+    let name = source.get("name").and_then(Value::as_str);
+    if let Some(path) = source.get("path").and_then(Value::as_str) {
+        let root = root_path.trim_end_matches('/');
+        if let Some(relative) = path
+            .strip_prefix(root)
+            .and_then(|rest| rest.strip_prefix('/'))
+        {
+            if !relative.is_empty() && validate_workspace_path(relative).is_ok() {
+                return Some(Source::Workspace(WorkspaceSource {
+                    path: relative.to_string(),
+                    name: name.map(str::to_string),
+                }));
+            }
+        }
+    }
+    let reference = source.get("sourceReference").and_then(Value::as_i64)?;
+    if !(1..=MAX_SOURCE_REFERENCE).contains(&reference) {
+        return None;
+    }
+    let name = name.or_else(|| source.get("path").and_then(Value::as_str))?;
+    Some(Source::Session(SessionSource {
+        source_reference: reference,
+        name: name.to_string(),
+        origin: source
+            .get("origin")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+    }))
 }
 
 #[cfg(test)]

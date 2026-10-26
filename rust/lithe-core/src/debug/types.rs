@@ -32,6 +32,12 @@ pub struct CreateSessionRequest {
     /// `startDebugging` reverse request (for example Node worker or child processes).
     #[serde(default)]
     pub supports_start_debugging_request: bool,
+    /// Standard DAP capabilities a plugin declared it disables (`capabilities.disabled`).
+    #[serde(default)]
+    pub disabled_capabilities: Vec<String>,
+    /// The session whose adapter asked for this one through `startDebugging`.
+    #[serde(default)]
+    pub parent_session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -428,6 +434,9 @@ pub struct InspectRequest {
     pub count: Option<i64>,
     #[serde(default)]
     pub expression: Option<String>,
+    /// DAP evaluate context: `watch` (default), `hover`, `repl`, `clipboard` or `variables`.
+    #[serde(default)]
+    pub context: Option<String>,
     #[serde(default)]
     pub source_path: Option<String>,
     #[serde(default)]
@@ -591,6 +600,8 @@ pub enum DebugEventBody {
         reason: String,
         thread_id: Option<i64>,
         description: Option<String>,
+        /// Increments on every stop, resume and termination; stale references compare against it.
+        stop_generation: u64,
     },
     Continued {
         thread_id: Option<i64>,
@@ -609,6 +620,22 @@ pub enum DebugEventBody {
     StartDebuggingRequested {
         request_id: String,
         request: DebugStartDebuggingRequest,
+    },
+    /// Projection version 2 of the same state, emitted beside the v1 result events.
+    Projection {
+        projection: super::projection_v2::SessionProjection,
+    },
+    /// A child session was created for this session's `startDebugging` request.
+    ChildSessionAttached {
+        child_session_id: String,
+    },
+    /// A child session finished and was removed from this session.
+    ChildSessionDetached {
+        child_session_id: String,
+    },
+    /// This session is disconnecting, so the host must disconnect the listed child.
+    ChildSessionStopRequested {
+        child_session_id: String,
     },
     OperationCompleted {
         operation_id: String,
@@ -629,6 +656,8 @@ pub enum DebugOperationFailureCode {
     AdapterRejected,
     Cancelled,
     TimedOut,
+    /// The reply used a frame or variables reference from before the latest resume or stop.
+    StaleReference,
 }
 
 #[derive(Debug, Clone, Serialize)]
