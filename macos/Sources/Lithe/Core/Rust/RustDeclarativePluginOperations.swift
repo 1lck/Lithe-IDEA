@@ -285,7 +285,13 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
                 adapterID: $0.adapterID,
                 requests: $0.requests,
                 languageIDs: $0.selectors.flatMap { $0.languageIDs ?? [] },
-                transport: $0.transport
+                transport: $0.transport,
+                languageServerEndpoint: $0.endpoint.flatMap { endpoint in
+                    guard let languageID = endpoint.languageID, let command = endpoint.command else {
+                        return nil
+                    }
+                    return .init(languageID: languageID, command: command)
+                }
             )
         }
         return result
@@ -513,6 +519,14 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
             let requests: [String]
             let selectors: [Selector]
             let transport: String
+            let endpoint: Endpoint?
+
+            /// Only the fields of `tcpLanguageServer` are read; the other
+            /// transports' endpoint fields stay with the Core.
+            struct Endpoint: Decodable {
+                let languageID: String?
+                let command: String?
+            }
 
             init(from decoder: Decoder) throws {
                 let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -522,13 +536,13 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
                 adapterID = try values.decode(String.self, forKey: .adapterID)
                 requests = try values.decode([String].self, forKey: .requests)
                 selectors = try values.decodeIfPresent([Selector].self, forKey: .selectors) ?? []
-                // Stdio when a plan carries none, which is the only transport
-                // the host speaks.
+                // Stdio when a plan carries none.
                 transport = try values.decodeIfPresent(String.self, forKey: .transport) ?? "stdio"
+                endpoint = try values.decodeIfPresent(Endpoint.self, forKey: .endpoint)
             }
 
             private enum CodingKeys: String, CodingKey {
-                case id, providerID, displayName, adapterID, requests, selectors, transport
+                case id, providerID, displayName, adapterID, requests, selectors, transport, endpoint
             }
         }
 

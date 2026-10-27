@@ -90,7 +90,7 @@
       "items": { "$ref": "#/$defs/vcsProvider" }
     },
     "debugAdapters": {
-      "description": "pluginAPIVersion 4, requires.debugAdapters 1: debug adapters the plugin implements, each started as its own DAP process. Requires debug.launch (and debug.attach when an adapter serves attach) and one onDebug:<id> activation event per adapter.",
+      "description": "pluginAPIVersion 4, requires.debugAdapters 1: debug adapters the plugin implements, each started as its own DAP process, or hosted by the plugin's own language server (transport tcpLanguageServer). Requires debug.launch (and debug.attach when an adapter serves attach) and one onDebug:<id> activation event per adapter.",
       "type": "array",
       "maxItems": 16,
       "items": { "$ref": "#/$defs/debugAdapter" }
@@ -297,7 +297,6 @@
     "debugLaunch": {
       "type": "object",
       "required": [
-        "process",
         "transport"
       ],
       "properties": {
@@ -307,6 +306,9 @@
       },
       "oneOf": [
         {
+          "required": [
+            "process"
+          ],
           "properties": {
             "transport": {
               "const": "stdio"
@@ -315,6 +317,7 @@
         },
         {
           "required": [
+            "process",
             "endpoint"
           ],
           "properties": {
@@ -355,6 +358,7 @@
         },
         {
           "required": [
+            "process",
             "endpoint"
           ],
           "properties": {
@@ -373,6 +377,44 @@
                   "type": "integer",
                   "minimum": 1,
                   "maximum": 65535
+                }
+              }
+            }
+          }
+        },
+        {
+          "required": [
+            "endpoint"
+          ],
+          "not": {
+            "required": [
+              "process"
+            ]
+          },
+          "properties": {
+            "transport": {
+              "const": "tcpLanguageServer"
+            },
+            "endpoint": {
+              "description": "The adapter runs inside a language server this plugin declares in languageServers, which has no adapter process of its own. The host starts that server, sends workspace/executeCommand with command, and connects to the loopback port the server answers with (an integer or a numeric string).",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "languageID",
+                "command"
+              ],
+              "properties": {
+                "languageID": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[a-z0-9+_-]+$"
+                },
+                "command": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9._:-]+$"
                 }
               }
             }

@@ -6,6 +6,7 @@
   "macos": {
     "evidence": [
       "shared/contracts/plugins/v1/fixtures/debug-adapter.plugin.json",
+      "shared/contracts/plugins/v1/fixtures/debug-adapter-language-server.plugin.json",
       "shared/contracts/plugins/v1/fixtures/debug-adapter-rejections.json",
       "rust/lithe-core/src/debug/adapters.rs",
       "macos/Sources/LitheCoreContracts/Plugins/DeclarativePluginContracts.swift",
@@ -13,13 +14,17 @@
       "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginLanguageServerLaunchResolver.swift",
       "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginDebugExecutableResolver.swift",
       "macos/Sources/Lithe/Platform/MacOS/Debug/MacPluginDebugAdapterTransport.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Debug/MacHostedPortDebugAdapterTransport.swift",
+      "macos/Sources/LitheLanguageIntelligenceModule/Services/LanguageToolingSessionManager.swift",
       "macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift",
       "macos/Sources/LitheDebugModule/Runtime/CoreDebugAdapterProtocolSession.swift",
       "macos/Sources/LitheDebugModule/Runtime/DebugAdapterSessionManager.swift",
       "macos/Sources/LitheDebugModule/Application/DebugConsoleCompletion.swift",
       "macos/Tests/LitheTests/PluginLiveActivationTests.swift",
       "macos/Tests/LitheTests/PluginDebugAdapterTests.swift",
+      "macos/Tests/LitheTests/MacBuildProviderSessionsTests.swift",
       "macos/Tests/LitheTests/DebugExecutableResolverTests.swift",
+      "macos/Tests/LitheLanguageIntelligenceModuleTests/LanguageIntelligenceModuleTests.swift",
       "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift"
     ],
     "implementationStatus": "implemented",
@@ -28,11 +33,12 @@
   "windows": {
     "evidence": [
       "rust/lithe-core/src/debug/adapters.rs",
-      "shared/contracts/plugins/v1/fixtures/debug-adapter.plugin.json"
+      "shared/contracts/plugins/v1/fixtures/debug-adapter.plugin.json",
+      "shared/contracts/plugins/v1/fixtures/debug-adapter-language-server.plugin.json"
     ],
     "implementationStatus": "missing",
     "verificationStatus": "not-applicable"
   },
   "owner": "Debug",
-  "verification": "macOS：安装声明了 debugAdapters 的插件，在其语言文件上启动调试，确认适配器按声明的 stdio 传输由宿主拉起并命中断点；可执行文件缺失时显示插件设置里的安装提示而不是笼统错误；声明 tcpPort 或 tcpAnnounced 传输的适配器在启动进程前被拒绝并说明原因。适配器只声明 attach，或 selectors 的 targetKinds 不含 file 时，不会被选作文件启动的调试器；Java 仍使用宿主自带适配器。capabilities.disabled 中的能力在调试会话里不可用，并随 debug.createSession 传给 Core。会话进行中禁用、更新或卸载该插件，或在模块设置里停用它，只停止该插件拥有的会话，同语言其他插件的会话继续运行。启动后 app bundle 文件清单不变（scripts/verify-runtime-bundle-immutability.sh）。Windows：宿主尚未接入 debugAdapters，Core 校验通过不代表 Windows 能调试插件语言。"
+  "verification": "macOS：安装声明了 debugAdapters 的插件，在其语言文件上启动调试，确认适配器按声明的 stdio 传输由宿主拉起并命中断点；可执行文件缺失时显示插件设置里的安装提示而不是笼统错误；声明 tcpPort 或 tcpAnnounced 传输的适配器在启动进程前被拒绝并说明原因。声明 tcpLanguageServer 传输的适配器（调试服务随同一插件的语言服务器运行，如 Java Debug Server 之于 JDT LS）不由宿主拉起进程：宿主启动该插件声明的语言服务器，用 endpoint.command 向它要端口并连接 127.0.0.1，端口无效、语言服务器不属于该插件或不可用时会话以原因结束。从保存配置直接启动且未打开源码时也会激活、登记语言服务器并探测工具；停止调试取消端口命令而不停止共享语言服务器，拒绝工作区或会话替换后的旧端口。适配器只声明 attach，或 selectors 的 targetKinds 不含 file 时，不会被选作文件启动的调试器；Java 在迁入 Java Support 插件前仍使用宿主自带适配器。capabilities.disabled 中的能力在调试会话里不可用，并随 debug.createSession 传给 Core。会话进行中禁用、更新或卸载该插件，或在模块设置里停用它，只停止该插件拥有的会话，同语言其他插件的会话继续运行。启动后 app bundle 文件清单不变（scripts/verify-runtime-bundle-immutability.sh）。Windows：宿主尚未接入 debugAdapters，Core 校验通过不代表 Windows 能调试插件语言。"
 }

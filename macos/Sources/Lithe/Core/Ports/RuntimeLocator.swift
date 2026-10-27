@@ -67,6 +67,8 @@ struct DefaultRuntimeToolDiscovery: RuntimeToolDiscovery {
 
 protocol RuntimeLocator: Sendable {
     func environment() -> [String: String]
+    /// Platform search path used only when a launch environment omits PATH.
+    func defaultExecutableSearchPath() -> String?
     func discover() -> RuntimeDiscoveryResult
     /// Java-only probing for launch paths; never runs Maven or other tools.
     func discoverJavaRuntimes() -> [JavaRuntimeCandidate]
@@ -84,6 +86,7 @@ protocol RuntimeLocator: Sendable {
 }
 
 extension RuntimeLocator {
+    func defaultExecutableSearchPath() -> String? { nil }
     func invalidateProbeCache() {}
     func discoverJavaRuntimes(isCancelled: @Sendable () -> Bool) -> [JavaRuntimeCandidate] {
         isCancelled() ? [] : discoverJavaRuntimes()

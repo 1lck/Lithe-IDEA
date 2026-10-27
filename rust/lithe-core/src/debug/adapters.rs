@@ -2,8 +2,9 @@
 //! about a debug adapter before starting any process for it.
 //!
 //! A declaration names the adapter, how its process is started and reached
-//! (stdio or a loopback TCP endpoint), and optional matching, default DAP
-//! arguments and capability suppression. It carries no behavior: there is no
+//! (stdio, a loopback TCP endpoint, or a port the plugin's own language server
+//! opens on request), and optional matching, default DAP arguments and
+//! capability suppression. It carries no behavior: there is no
 //! resolver, workflow or host integration, so a plugin can only choose among
 //! facts Core already understands. DAP capabilities belong to the running
 //! adapter and are negotiated in `initialize`; `capabilities.disabled` can
@@ -37,6 +38,8 @@ const MAX_SELECTORS: usize = 16;
 const MAX_CONFIGURATION_TYPES: usize = 16;
 /// Longest announced-endpoint prefix, in bytes.
 const MAX_ENDPOINT_PREFIX: usize = 256;
+/// Longest language server command ID, in characters.
+const MAX_ENDPOINT_COMMAND: usize = 128;
 /// Most console commands one adapter may declare.
 const MAX_CONSOLE_COMMANDS: usize = 1024;
 /// Longest console command name, in characters.
@@ -262,7 +265,11 @@ pub(crate) struct DebugCapabilities {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct DebugLaunch {
-    pub(crate) process: DebugProcess,
+    /// Absent exactly for `tcpLanguageServer`, whose adapter lives inside a
+    /// language server the plugin already declares and has no process of its
+    /// own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) process: Option<DebugProcess>,
     pub(crate) transport: DebugTransport,
     /// Required by, and only allowed for, the TCP transports.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -275,13 +282,27 @@ pub(crate) enum DebugTransport {
     Stdio,
     TcpAnnounced,
     TcpPort,
+    /// The adapter runs inside the plugin's language server, which opens a
+    /// loopback port when asked by a command.
+    TcpLanguageServer,
 }
 
-/// Where a TCP adapter listens. The fields of the other transport must stay
+/// Where a TCP adapter listens. The fields of the other transports must stay
 /// absent, which `validate` checks.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct DebugEndpoint {
+    /// `tcpLanguageServer`: language ID of a language server of this plugin.
+    #[serde(
+        default,
+        rename = "languageID",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub(crate) language_id: Option<String>,
+    /// `tcpLanguageServer`: the `workspace/executeCommand` command that starts
+    /// the adapter and answers with its loopback port.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) command: Option<String>,
     /// `tcpAnnounced`: the stream the adapter prints its endpoint on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) stream: Option<String>,
@@ -404,6 +425,8 @@ impl DebugProcess {
 pub(crate) struct DeclarationContext<'a> {
     pub(crate) plugin_api_version: u32,
     pub(crate) declared_settings: &'a DeclaredSettings,
+    /// Language IDs of the plugin's `languageServers[]`.
+    pub(crate) language_servers: &'a BTreeSet<String>,
 }
 
 /// Validates every declaration and sorts them by ID.
@@ -438,9 +461,14 @@ pub(crate) fn validate_declarations(
 /// Whether any adapter starts on the selected runtime, which is the only use
 /// of `serverProcess` 2.
 pub(crate) fn uses_selected_runtime(adapters: &[DebugAdapterDeclaration]) -> bool {
-    adapters
-        .iter()
-        .any(|adapter| adapter.launch.process.selected_runtime_tool().is_some())
+    adapters.iter().any(|adapter| {
+        adapter
+            .launch
+            .process
+            .as_ref()
+            .and_then(DebugProcess::selected_runtime_tool)
+            .is_some()
+    })
 }
 
 /// Whether any adapter serves `attach`, which needs its own permission.
@@ -869,9 +897,24 @@ impl DebugConsole {
 
 impl DebugLaunch {
     fn validate(&self, field: &str, context: &DeclarationContext<'_>) -> Validation<()> {
-        self.process
-            .validate(&format!("{field}.process"), context)?;
         let endpoint_field = format!("{field}.endpoint");
+        let hosted = self.transport == DebugTransport::TcpLanguageServer;
+        match (&self.process, hosted) {
+            (Some(process), false) => process.validate(&format!("{field}.process"), context)?,
+            (None, true) => {}
+            (None, false) => {
+                return Err(invalid(
+                    format!("{field}.process"),
+                    "An adapter process is required unless the transport is tcpLanguageServer.",
+                ));
+            }
+            (Some(_), true) => {
+                return Err(invalid(
+                    format!("{field}.process"),
+                    "A tcpLanguageServer adapter runs inside the language server and has no process.",
+                ));
+            }
+        }
         match (self.transport, &self.endpoint) {
             (DebugTransport::Stdio, None) => Ok(()),
             (DebugTransport::Stdio, Some(_)) => Err(invalid(
@@ -884,6 +927,7 @@ impl DebugLaunch {
             )),
             (DebugTransport::TcpAnnounced, Some(endpoint)) => {
                 let valid = endpoint.port.is_none()
+                    && !endpoint.has_language_server_fields()
                     && matches!(endpoint.stream.as_deref(), Some("stdout" | "stderr"))
                     && matches!(endpoint.value.as_deref(), Some("port" | "hostPort"))
                     && endpoint.prefix.as_deref().is_some_and(|prefix| {
@@ -904,6 +948,7 @@ impl DebugLaunch {
                 let valid = endpoint.stream.is_none()
                     && endpoint.prefix.is_none()
                     && endpoint.value.is_none()
+                    && !endpoint.has_language_server_fields()
                     && endpoint.port.is_some_and(|port| port >= 1);
                 if valid {
                     Ok(())
@@ -914,7 +959,39 @@ impl DebugLaunch {
                     ))
                 }
             }
+            (DebugTransport::TcpLanguageServer, Some(endpoint)) => {
+                if endpoint.stream.is_some()
+                    || endpoint.prefix.is_some()
+                    || endpoint.value.is_some()
+                    || endpoint.port.is_some()
+                {
+                    return Err(invalid(
+                        endpoint_field,
+                        "A language server endpoint names only a language and a command.",
+                    ));
+                }
+                let language = endpoint.language_id.as_deref().unwrap_or_default();
+                if !context.language_servers.contains(language) {
+                    return Err(invalid(
+                        format!("{endpoint_field}.languageID"),
+                        "The language server is not declared in languageServers.",
+                    ));
+                }
+                if !endpoint.command.as_deref().is_some_and(is_server_command) {
+                    return Err(invalid(
+                        format!("{endpoint_field}.command"),
+                        "A command is 1-128 letters, digits, and . _ : -.",
+                    ));
+                }
+                Ok(())
+            }
         }
+    }
+}
+
+impl DebugEndpoint {
+    fn has_language_server_fields(&self) -> bool {
+        self.language_id.is_some() || self.command.is_some()
     }
 }
 
@@ -929,19 +1006,22 @@ pub(crate) fn activation_event(adapter: &DebugAdapterDeclaration) -> String {
 /// the runtime is the one the user already chose for Run.
 pub(crate) fn programs(adapter: &DebugAdapterDeclaration) -> Vec<Value> {
     let mut program = match &adapter.launch.process {
-        DebugProcess::Server(process) => process.program(ServerRole::DebugAdapter),
-        DebugProcess::SelectedRuntime(process) => json!({
+        Some(DebugProcess::Server(process)) => process.program(ServerRole::DebugAdapter),
+        Some(DebugProcess::SelectedRuntime(process)) => json!({
             "kind": "selectedRuntimeDebugAdapter",
             "tool": process.launch.tool,
             "arguments": process.arguments,
             "validationArguments": process.validation_arguments,
         }),
+        // The server is reviewed as the plugin's language server; what is new
+        // here is the command that makes it serve debugging.
+        None => json!({ "kind": "languageServerDebugAdapter" }),
     };
     program["debugAdapter"] = json!(adapter.id);
     program["transport"] = json!(adapter.launch.transport);
     program["endpoint"] = json!(adapter.launch.endpoint);
     let mut programs = vec![program];
-    if let DebugProcess::Server(process) = &adapter.launch.process {
+    if let Some(DebugProcess::Server(process)) = &adapter.launch.process {
         programs.extend(process.runtime_programs());
     }
     programs
@@ -981,7 +1061,7 @@ pub(crate) fn check_package_resources(
     resources: &[PackageResource],
 ) -> Validation<()> {
     for (index, adapter) in adapters.iter().enumerate() {
-        if let DebugProcess::Server(process) = &adapter.launch.process {
+        if let Some(DebugProcess::Server(process)) = &adapter.launch.process {
             for (key, path) in process.packaged_files() {
                 check_resource(
                     resources,
@@ -1226,7 +1306,7 @@ pub(crate) fn plan(
             "The adapter does not serve this request.",
         ));
     }
-    if adapter.launch.process.selected_runtime_tool().is_some()
+    if uses_selected_runtime(std::slice::from_ref(adapter))
         && facts.runtime_selection.map_or(true, Generation::is_stale)
     {
         return Err(PluginRejection::at(
@@ -1307,6 +1387,15 @@ fn is_local_id(value: &str) -> bool {
                 || character.is_ascii_digit()
                 || "._-".contains(character)
         })
+}
+
+/// A `workspace/executeCommand` command ID, as language servers register them.
+fn is_server_command(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_ENDPOINT_COMMAND
+        && value
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || "._:-".contains(character))
 }
 
 fn is_language_id(value: &str) -> bool {

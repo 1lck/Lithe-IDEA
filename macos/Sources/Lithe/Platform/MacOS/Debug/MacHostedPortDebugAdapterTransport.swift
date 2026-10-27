@@ -2,11 +2,12 @@ import LitheModuleAPI
 import Foundation
 import LitheCoreContracts
 
-/// Connects the macOS product to the Java Debug Server hosted inside JDT LS.
-/// JDT LS activation stays in the language module and DAP state stays in Core;
-/// this adapter owns only asynchronous port discovery and the native TCP socket.
+/// Connects the macOS product to a debug adapter hosted inside a language
+/// server, such as the Java Debug Server inside JDT LS. Language server
+/// activation stays in the language module and DAP state stays in Core; this
+/// transport owns only asynchronous port discovery and the native TCP socket.
 @MainActor
-final class MacJavaDebugAdapterTransport: DebugAdapterTransport {
+final class MacHostedPortDebugAdapterTransport: DebugAdapterTransport {
     enum TransportError: LocalizedError {
         case languageIntelligenceUnavailable
         case connectionFailed(String)
@@ -15,11 +16,11 @@ final class MacJavaDebugAdapterTransport: DebugAdapterTransport {
         var errorDescription: String? {
             switch self {
             case .languageIntelligenceUnavailable:
-                return L10n.string("The Java language service is unavailable.")
+                return L10n.string("The language service that hosts the debug adapter is unavailable.")
             case .connectionFailed(let message):
-                return L10n.string("Could not connect to the Java Debug Server: \(message)")
+                return L10n.string("Could not connect to the Debug Adapter: \(message)")
             case .stopped:
-                return L10n.string("The Java Debug Server connection is stopped.")
+                return L10n.string("The debug adapter connection is stopped.")
             }
         }
     }

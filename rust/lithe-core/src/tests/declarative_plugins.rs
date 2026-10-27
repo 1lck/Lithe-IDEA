@@ -31,6 +31,8 @@ const MIX_PROVIDER_FIXTURE: &str =
 const SETTINGS_V2_FIXTURE: &str = contract_file!("fixtures/settings-v2.plugin.json");
 const BACKEND_FIXTURE: &str = contract_file!("fixtures/backend.plugin.json");
 const DEBUG_ADAPTER_FIXTURE: &str = contract_file!("fixtures/debug-adapter.plugin.json");
+const DEBUG_ADAPTER_LANGUAGE_SERVER_FIXTURE: &str =
+    contract_file!("fixtures/debug-adapter-language-server.plugin.json");
 const DEBUG_ADAPTER_REJECTIONS: &str = contract_file!("fixtures/debug-adapter-rejections.json");
 const INVALID_MANIFESTS: &str = contract_file!("fixtures/invalid-manifests.json");
 const COMMAND_PLANS: &str = contract_file!("fixtures/command-plans.json");
@@ -57,6 +59,7 @@ fn fixture(name: &str) -> Value {
         "settings-v2.plugin.json" => SETTINGS_V2_FIXTURE,
         "backend.plugin.json" => BACKEND_FIXTURE,
         "debug-adapter.plugin.json" => DEBUG_ADAPTER_FIXTURE,
+        "debug-adapter-language-server.plugin.json" => DEBUG_ADAPTER_LANGUAGE_SERVER_FIXTURE,
         other => panic!("unknown fixture {other}"),
     };
     serde_json::from_str(source).expect("fixture manifest is JSON")
@@ -1297,6 +1300,154 @@ fn debug_adapter_launch_plan_refuses_unknown_adapters_and_mixed_selectors() {
         "request": request,
     }))
     .is_err());
+}
+
+#[test]
+fn debug_adapter_inside_the_language_server_has_no_process_of_its_own() {
+    let outcome = validate(fixture("debug-adapter-language-server.plugin.json"));
+    assert_eq!(outcome["status"], "ok", "{outcome}");
+    let launch = &outcome["plugin"]["debugAdapters"][0]["launch"];
+    assert_eq!(
+        launch,
+        &json!({
+            "transport": "tcpLanguageServer",
+            "endpoint": { "languageID": "example", "command": "example.startDebugSession" },
+        })
+    );
+
+    // The adapter plans the plugin's language server, and the descriptor tells
+    // the host which command to ask it for the port.
+    let plan = language_server_launch_plan_command(json!({
+        "manifest": fixture("debug-adapter-language-server.plugin.json"),
+        "debugAdapterID": "example",
+        "request": {
+            "pluginDirectory": "/plugins/example",
+            "stateDirectory": "/state/example",
+            "architecture": "arm64"
+        },
+    }))
+    .expect("payload is well formed");
+    assert_eq!(plan["status"], "ok", "{plan}");
+    assert_eq!(
+        plan["plan"]["launch"],
+        json!({ "kind": "systemCommand", "commands": ["example-ls"] })
+    );
+    let descriptor = &plan["plan"]["debugAdapter"];
+    assert_eq!(
+        descriptor["providerID"],
+        "dev.lithe.fixture.debug-adapter-language-server/example"
+    );
+    assert_eq!(descriptor["transport"], "tcpLanguageServer");
+    assert_eq!(
+        descriptor["endpoint"],
+        json!({ "languageID": "example", "command": "example.startDebugSession" })
+    );
+}
+
+#[test]
+fn debug_adapter_inside_the_language_server_is_a_reviewed_program() {
+    let review = crate::plugins::marketplace::install_review_command(json!({
+        "manifest": fixture("debug-adapter-language-server.plugin.json"),
+    }))
+    .expect("payload is well formed");
+    let programs = review["review"]["programs"].as_array().unwrap();
+    let adapter = programs
+        .iter()
+        .find(|program| program["debugAdapter"] == "example")
+        .expect("the adapter is listed");
+    assert_eq!(adapter["kind"], "languageServerDebugAdapter");
+    assert_eq!(adapter["transport"], "tcpLanguageServer");
+    // Pointing the adapter at another command is a new program to approve.
+    assert_eq!(adapter["endpoint"]["command"], "example.startDebugSession");
+    // The server itself stays a program of its own, reviewed once.
+    assert!(programs
+        .iter()
+        .any(|program| program["languageID"] == "example"));
+}
+
+#[test]
+fn debug_adapter_inside_the_language_server_rejects_inconsistent_launches() {
+    let cases = [
+        (
+            "a process beside the language server",
+            json!({
+                "process": { "launch": { "kind": "systemCommand", "commands": ["x"] } },
+                "transport": "tcpLanguageServer",
+                "endpoint": { "languageID": "example", "command": "example.start" },
+            }),
+            "debugAdapters[0].launch.process",
+        ),
+        (
+            "no endpoint",
+            json!({ "transport": "tcpLanguageServer" }),
+            "debugAdapters[0].launch.endpoint",
+        ),
+        (
+            "a language server the plugin does not declare",
+            json!({
+                "transport": "tcpLanguageServer",
+                "endpoint": { "languageID": "absent", "command": "example.start" },
+            }),
+            "debugAdapters[0].launch.endpoint.languageID",
+        ),
+        (
+            "no language",
+            json!({
+                "transport": "tcpLanguageServer",
+                "endpoint": { "command": "example.start" },
+            }),
+            "debugAdapters[0].launch.endpoint.languageID",
+        ),
+        (
+            "a command with whitespace",
+            json!({
+                "transport": "tcpLanguageServer",
+                "endpoint": { "languageID": "example", "command": "example start" },
+            }),
+            "debugAdapters[0].launch.endpoint.command",
+        ),
+        (
+            "no command",
+            json!({
+                "transport": "tcpLanguageServer",
+                "endpoint": { "languageID": "example" },
+            }),
+            "debugAdapters[0].launch.endpoint.command",
+        ),
+        (
+            "a fixed port as well",
+            json!({
+                "transport": "tcpLanguageServer",
+                "endpoint": { "languageID": "example", "command": "example.start", "port": 5005 },
+            }),
+            "debugAdapters[0].launch.endpoint",
+        ),
+        (
+            "no process on stdio",
+            json!({ "transport": "stdio" }),
+            "debugAdapters[0].launch.process",
+        ),
+        (
+            "language server fields on a fixed port",
+            json!({
+                "process": { "launch": { "kind": "systemCommand", "commands": ["x"] } },
+                "transport": "tcpPort",
+                "endpoint": { "port": 5005, "command": "example.start" },
+            }),
+            "debugAdapters[0].launch.endpoint",
+        ),
+    ];
+    for (name, launch, field) in cases {
+        let mut manifest = fixture("debug-adapter-language-server.plugin.json");
+        manifest["debugAdapters"][0]["launch"] = launch;
+        let outcome = validate(manifest);
+        assert_eq!(outcome["status"], "rejected", "{name}: {outcome}");
+        assert_eq!(
+            outcome["error"]["code"], "plugin.manifest.invalid",
+            "{name}: {outcome}"
+        );
+        assert_eq!(outcome["error"]["field"], field, "{name}: {outcome}");
+    }
 }
 
 #[test]

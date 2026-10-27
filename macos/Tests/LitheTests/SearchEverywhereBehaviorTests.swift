@@ -748,6 +748,22 @@ struct SearchEverywhereBehaviorTests {
             }
             try click(window, point: point)
         }
+        func laidOutContent(in window: NSWindow) async throws -> NSView {
+            let deadline = clock.now.advanced(by: .seconds(1))
+            repeat {
+                // SwiftUI can attach the native panel before sizing its hosting view.
+                // Re-read the live content after focus/environment updates rather than caching it.
+                if let content = window.contentView {
+                    content.layoutSubtreeIfNeeded()
+                    if content.window === window, content.bounds.width > 0, content.bounds.height > 0 {
+                        return content
+                    }
+                }
+                await Task.yield()
+            } while clock.now < deadline
+            Issue.record("Popup content did not acquire attached, nonzero geometry: \(String(describing: window.contentView?.bounds))")
+            throw CancellationError()
+        }
         func openEditor() async throws -> NSWindow {
             let enabled = settings.searchExclusionsEnabled
             try await clickControl("search-exclusions-edit", in: filter)
@@ -755,14 +771,15 @@ struct SearchEverywhereBehaviorTests {
             while popup.childWindows?.first(where: { $0.styleMask.contains(.titled) }) == nil,
                   clock.now < deadline { await Task.yield() }
             #expect(settings.searchExclusionsEnabled == enabled, "Editing must not toggle the exclusion checkbox")
-            return try #require(popup.childWindows?.first(where: { $0.styleMask.contains(.titled) }))
+            let dialog = try #require(popup.childWindows?.first(where: { $0.styleMask.contains(.titled) }))
+            _ = try await laidOutContent(in: dialog)
+            return dialog
         }
         // Saving an expression must not turn a disabled rule back on.
         try await clickControl("search-exclusions-toggle", in: filter)
         #expect(!settings.searchExclusionsEnabled)
         await Task.yield()
-        let filterContent = try #require(filter.contentView)
-        filterContent.layoutSubtreeIfNeeded()
+        let filterContent = try await laidOutContent(in: filter)
         let rowBitmap = try #require(filterContent.bitmapImageRepForCachingDisplay(in: filterContent.bounds))
         filterContent.cacheDisplay(in: filterContent.bounds, to: rowBitmap)
         let rowScale = CGFloat(rowBitmap.pixelsWide) / filterContent.bounds.width
@@ -785,8 +802,7 @@ struct SearchEverywhereBehaviorTests {
             #expect(descendants(try #require(filter.contentView)).compactMap { $0 as? NSTextView }.isEmpty,
                 "The funnel contains a top-level option, not an inline editor")
             var dialog = try await openEditor()
-            let content = try #require(dialog.contentView)
-            content.layoutSubtreeIfNeeded()
+            let content = try await laidOutContent(in: dialog)
             var editor = try #require(descendants(content).compactMap { $0 as? NSTextView }.first)
             #expect(editor.string == saved.joined(separator: "\n"))
             deadline = clock.now.advanced(by: .seconds(1))
@@ -803,12 +819,14 @@ struct SearchEverywhereBehaviorTests {
                 #expect(editor.selectedRange() == range, "Blank clicks must preserve the caret/selection")
             }
             // Shared chrome expands its focused border outward: both the outer and inner pixels are accent.
+            let captureContent = try await laidOutContent(in: dialog)
+            #expect(editor.isDescendant(of: captureContent), "Capture must use the live editor's hosting view")
             let scroll = try #require(editor.enclosingScrollView)
-            let point = scroll.convert(NSPoint(x: scroll.bounds.minX - 6, y: scroll.bounds.midY), to: content)
-            let bitmap = try #require(content.bitmapImageRepForCachingDisplay(in: content.bounds))
-            content.cacheDisplay(in: content.bounds, to: bitmap)
-            let scale = CGFloat(bitmap.pixelsWide) / content.bounds.width
-            let y = content.isFlipped ? point.y : content.bounds.height - point.y
+            let point = scroll.convert(NSPoint(x: scroll.bounds.minX - 6, y: scroll.bounds.midY), to: captureContent)
+            let bitmap = try #require(captureContent.bitmapImageRepForCachingDisplay(in: captureContent.bounds))
+            captureContent.cacheDisplay(in: captureContent.bounds, to: bitmap)
+            let scale = CGFloat(bitmap.pixelsWide) / captureContent.bounds.width
+            let y = captureContent.isFlipped ? point.y : captureContent.bounds.height - point.y
             var accent: NSColor?
             dialog.effectiveAppearance.performAsCurrentDrawingAppearance {
                 accent = NSColor(LitheTheme.settingsControlAccent).usingColorSpace(.sRGB)
