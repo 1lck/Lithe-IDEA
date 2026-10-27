@@ -139,8 +139,15 @@ macOS 声明式 Provider：
 - Rust Core 新增 `languageServerLaunchPlan` 的 `debugAdapterID` 选择器和 `debug.adapters.startArguments` 命令；后者按 manifest、adapterID、request 与事实（注册代次、目标、运行时选择）返回启动参数，拒绝码为 `debug.provider.stale`、`debug.request.unsupported`、`debug.runtime.stale`、`debug.target.invalid`、`plugin.launch.unavailable`。
 - 宿主启用模块 `<pluginID>.debug-adapters`（只承载启用、隔离与安全模式状态）。容器按语言 ID 建立插件适配器会话；Java 等内置语言优先，宿主不按插件名字分支。
 - 启动计划在会话 `start(rootURL:)` 时才解析，因为启动依赖工作区；被拒绝的计划就是启动错误。`adapterID` 声明时默认等于 `id`，会话创建时即需要（DAP `initialize.adapterId`），所以随描述符提前提供。
-- 首版只允许启动插件包内的可执行文件，system-command、运行时可执行文件、TCP、attach 和 `runSelectedRuntime` 之后再做。
+- 适配器可执行文件只允许来自插件包或 `systemCommand`；工具发现覆盖 Xcode 工具链（`xcrun` 等）。TCP、attach 和 `runSelectedRuntime` 还没有接入宿主，之后再做。
 - 生命周期与所有权：适配器进程归会话，随会话停止。适配器状态目录是 Application Support 下的 `<插件状态目录>/debug-adapters/<adapterID>`，不写 app bundle 或插件包，不影响代码签名和 Sparkle 增量更新；`${workspaceStateDir}` 按工作区摘要隔离。被调试程序的启动配置由 `startArguments` 生成，宿主只在没有内置 provider 处理时回落到它。
+
+macOS 的 P4 纵向验收用 `lldb-dap` 推进：官方 LLDB 插件（`io.github.lithe-idea.lldb-debug`，仓库 [lithe-plugin-lldb](https://github.com/Lithe-IDEA/lithe-plugin-lldb)）已作为预发布收录在 Lithe Store，需要支持 API 4 的 Lithe 才能安装；必选层全流程的验收结果还没有记录，不算 P4 完成。这一轮在契约里补了三件事，全部在尚未发布的 API 4 / `debugAdapters` v1 内，没有已发布的契约被改动：
+- `configurations.launch.executable`（`setting` 加 `candidates[]`）与 `targetBindings.program: "target.executable"`：C、C++、Swift 的用户打开的是源文件，要调试的是编译产物，由宿主按用户设置、再按候选路径解析，见[可执行文件设置与默认发现](../../implemented/feature/2026-10-26-debug-adapter-executable-setting.md)。
+- `console`（`commandPrefix`、`commands[]`）：调试控制台的命令输入行与补全，见[命令输入行与插件补全](../../implemented/feature/2026-10-26-debug-console-prompt-and-completion.md)。
+- 适配器拒绝请求时，Core 优先取 DAP 响应里的 `body.error.format`（按 `body.error.variables` 填充 `{name}`），再回落到 `message`；`lldb-dap` 和 `debugpy` 都只把可读解释放在 `error.format` 里。
+
+只贡献调试适配器的插件在 macOS 上安装、更新、卸载免重启，见[插件热激活](../../implemented/architecture/2026-10-26-plugin-live-activation.md)。这是宿主后端能力，不是清单字段，插件契约不变。Windows 的 P2–P4 还没有开始，不属于这一轮。
 
 P0–P5 完成后关闭 #1210。可选扩展、插件依赖和私有 resolver 都不是关闭条件。
 
