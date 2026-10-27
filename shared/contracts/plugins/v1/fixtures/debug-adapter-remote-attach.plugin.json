@@ -1,0 +1,184 @@
+{
+  "schemaVersion": 2,
+  "id": "dev.lithe.fixture.debug-adapter-remote-attach",
+  "displayName": "Debug Adapter Remote Attach Fixture",
+  "version": "0.1.0",
+  "pluginAPIVersion": 4,
+  "requires": { "debugAdapters": 1, "serverProcess": 1 },
+  "vendor": {
+    "id": "org.example",
+    "displayName": "Example",
+    "signatureRequirement": "publisherPackage"
+  },
+  "permissions": [
+    "debug.attach",
+    "debug.launch"
+  ],
+  "activationEvents": [
+    "onDebug:flat",
+    "onDebug:nested",
+    "onDebug:scalar",
+    "onDebug:joined",
+    "onDebug:keyed",
+    "onDebug:paired"
+  ],
+  "languages": [],
+  "debugAdapters": [
+    {
+      "id": "flat",
+      "displayName": "Flat Remote Debugger",
+      "adapterID": "flat-dap",
+      "requests": ["attach"],
+      "selectors": [{ "targetKinds": ["connection"] }],
+      "configurations": {
+        "attach": {
+          "arguments": { "timeout": 5000 },
+          "targetBindings": {
+            "connection": { "host": "hostName", "port": "port" }
+          }
+        }
+      },
+      "launch": {
+        "process": {
+          "launch": { "kind": "packaged", "path": "bin/flat-dap" }
+        },
+        "transport": "stdio"
+      }
+    },
+    {
+      "id": "nested",
+      "displayName": "Nested Remote Debugger",
+      "adapterID": "nested-dap",
+      "requests": ["attach"],
+      "selectors": [{ "targetKinds": ["connection"] }],
+      "configurations": {
+        "attach": {
+          "arguments": { "justMyCode": false },
+          "targetBindings": {
+            "connection": {
+              "host": "connect.host",
+              "port": "connect.port",
+              "pathMappings": {
+                "shape": "objects",
+                "argument": "pathMappings",
+                "localKey": "localRoot",
+                "remoteKey": "remoteRoot"
+              }
+            }
+          }
+        }
+      },
+      "launch": {
+        "process": {
+          "launch": { "kind": "packaged", "path": "bin/nested-dap" }
+        },
+        "transport": "stdio"
+      }
+    },
+    {
+      "id": "scalar",
+      "displayName": "Single Root Remote Debugger",
+      "adapterID": "scalar-dap",
+      "requests": ["attach"],
+      "selectors": [{ "targetKinds": ["connection"] }],
+      "configurations": {
+        "attach": {
+          "targetBindings": {
+            "connection": {
+              "host": "address",
+              "port": "port",
+              "pathMappings": {
+                "shape": "first",
+                "local": "localRoot",
+                "remote": "remoteRoot"
+              }
+            }
+          }
+        }
+      },
+      "launch": {
+        "process": {
+          "launch": { "kind": "packaged", "path": "bin/scalar-dap" }
+        },
+        "transport": "stdio"
+      }
+    },
+    {
+      "id": "joined",
+      "displayName": "Address Remote Debugger",
+      "adapterID": "joined-dap",
+      "requests": ["attach"],
+      "selectors": [{ "targetKinds": ["connection"] }],
+      "configurations": {
+        "attach": {
+          "arguments": { "request": "attach" },
+          "targetBindings": {
+            "connection": { "address": "target" }
+          }
+        }
+      },
+      "launch": {
+        "process": {
+          "launch": { "kind": "packaged", "path": "bin/joined-dap" }
+        },
+        "transport": "stdio"
+      }
+    },
+    {
+      "id": "keyed",
+      "displayName": "Keyed Source Map Remote Debugger",
+      "adapterID": "keyed-dap",
+      "requests": ["attach"],
+      "selectors": [{ "targetKinds": ["connection"] }],
+      "configurations": {
+        "attach": {
+          "targetBindings": {
+            "connection": {
+              "host": "connect.host",
+              "port": "connect.port",
+              "pathMappings": {
+                "shape": "dictionary",
+                "argument": "sourceMap",
+                "keyedBy": "remote"
+              }
+            }
+          }
+        }
+      },
+      "launch": {
+        "process": {
+          "launch": { "kind": "packaged", "path": "bin/keyed-dap" }
+        },
+        "transport": "stdio"
+      }
+    },
+    {
+      "id": "paired",
+      "displayName": "Paired Source Map Remote Debugger",
+      "adapterID": "paired-dap",
+      "requests": ["attach"],
+      "selectors": [{ "targetKinds": ["connection"] }],
+      "configurations": {
+        "attach": {
+          "targetBindings": {
+            "connection": {
+              "host": "hostName",
+              "port": "port",
+              "pathMappings": {
+                "shape": "pairs",
+                "argument": "sourceMap",
+                "order": "remoteLocal"
+              }
+            }
+          }
+        }
+      },
+      "launch": {
+        "process": {
+          "launch": { "kind": "packaged", "path": "bin/paired-dap" }
+        },
+        "transport": "stdio"
+      }
+    }
+  ]
+}

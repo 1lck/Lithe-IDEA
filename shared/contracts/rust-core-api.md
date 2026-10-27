@@ -986,6 +986,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `debug.setFunctionBreakpoints` | Replace and deterministically order one session's named function breakpoints |
 | `debug.dataBreakpointInfo` | Resolve an adapter-owned data breakpoint identity for a paused variable or field |
 | `debug.setDataBreakpoints` | Replace and deterministically order one session's resolved data breakpoints |
+| `debug.setInstructionBreakpoints` | Replace and deterministically order one session's machine-instruction breakpoints |
 | `debug.setVariable` | Replace one visible variable value in its adapter-owned parent container |
 | `debug.cancelOperation` | Cancel or time out one pending operation and ignore its late response |
 | `debug.execute` | Submit continue, pause, next, step-in, or step-out control |
@@ -2187,6 +2188,48 @@ disabled entries, and sends access type, condition, and hit count only when the
 adapter negotiated data-breakpoint support. Native clients must discard IDs
 whose `canPersist` is false when the debug session ends.
 
+`debug.setInstructionBreakpoints` replaces one session's instruction (address)
+breakpoints. Each entry carries an opaque `instructionReference` (the address
+string the adapter reported, never a JSON number, because a 64-bit address can
+exceed the JavaScript safe integer range), an optional byte `offset`, `enabled`,
+`condition`, and `hitCondition`. Core validates the reference text, sorts and
+deduplicates by reference and offset, keeps the set in the session, and sends DAP
+`setInstructionBreakpoints` only after the adapter advertised
+`supportsInstructionBreakpoints` and sent `initialized`. Clients keep the set per
+session and never persist or replay it: an address is only valid for one run of
+one process.
+
+`debug.execute` accepts an optional `granularity` of `statement`, `line`, or
+`instruction` on `next`, `stepIn`, `stepOut`, and `stepBack`. Core forwards it as
+the DAP `granularity` argument only when the adapter advertised
+`supportsSteppingGranularity`; otherwise it omits the field and the adapter steps
+by its default unit. Clients use `instruction` while a disassembly view is open.
+
+`debug.inspect` also accepts the kinds `disassemble` and `readMemory`. Both take
+an opaque `memoryReference` and are rejected unless the capability snapshot
+reports them supported (`adapter` and registered extension and `authorized`) and
+the session is paused. `disassemble` additionally takes `offset` (bytes),
+`instructionOffset` (negative asks for instructions before the reference),
+`instructionCount`, and `resolveSymbols` (default true), and returns
+`instructions` with `address`, `instructionBytes`, `instruction`, an optional
+`symbol` on the first instruction of a symbol, and an optional `sourcePath` and
+`line`. `readMemory` takes `offset` and `count` and returns `address`,
+`unreadableBytes`, and base64 `dataBase64`, like DAP. Core never does address
+arithmetic and never opens `writeMemory`: reading is the only memory operation,
+and writing would need its own authorization. Both results are tied to the
+`stopGeneration` they were requested in, so a late reply after the debuggee
+resumed is dropped as stale.
+
+A stack frame without debug info has no usable file or line. When the adapter
+sends neither a source path nor a `sourceReference`, Core reports
+`line` 0 and no `sourcePath` for it, and carries the adapter's
+`instructionPointerReference` so clients can anchor the disassembly on the frame
+instead of showing a made-up file or line 1. A scope whose DAP
+`presentationHint` is `registers` is passed through with that hint; the host has
+no register table of its own, so register names, groups, and values are the
+adapter's. The compatibility cases are in
+`shared/fixtures/debug/projection-v2-examples.json`.
+
 `debug.setVariable` accepts the selected variable's parent `variablesReference`,
 name, and replacement text. Core permits mutation only while paused and after
 the adapter advertises `supportsSetVariable`, then returns the adapter's
@@ -3329,11 +3372,16 @@ build system, and a build system without a provider with
 `plugin.launch.unavailable`.
 
 A `debugAdapterID` selects a `debugAdapters[]` entry with a `serverProcess`
-(naming it together with another selector is the same `invalid_request`
-failure); the plan adds `debugAdapter: { id, providerID, displayName,
-adapterID, requests, selectors, configurationTypes, transport, endpoint?,
-disabledCapabilities }`. An adapter that starts on the selected runtime is
-refused with `plugin.launch.unavailable`. Core validates every declared
+or a `tcpLanguageServer` transport (naming it together with another selector is
+the same `invalid_request` failure); the plan adds `debugAdapter: { id,
+providerID, displayName, adapterID, requests, selectors, configurationTypes,
+transport, endpoint?, disabledCapabilities }`. An adapter that starts on the
+selected runtime is refused with `plugin.launch.unavailable`. A
+`tcpLanguageServer` adapter has no process of its own: its plan is the launch
+plan of the plugin language server that `endpoint.languageID` names, so the
+host starts that server as for editing, then sends `workspace/executeCommand`
+with `endpoint.command` and connects to the loopback port the server answers
+with (an integer or a numeric string from 1 to 65535). Core validates every declared
 `transport`, but a host starts only the transports it implements: the macOS host
 runs `stdio` and refuses `tcpPort` and `tcpAnnounced` before starting the
 process, with `plugin.launch.unsupportedTransport`.
@@ -3341,14 +3389,37 @@ process, with `plugin.launch.unsupportedTransport`.
 `debug.adapters.startArguments` accepts `{ manifest, adapterID, request:
 "launch" | "attach", facts: { registration: { generation, currentGeneration },
 runtimeSelection?, target: { kind, path?, processID?, workingDirectory?,
-executable? } } }`
-and returns `{ status: "ok", arguments }`: the request's configured
+executable?, host?, port?, pathMappings? } } }`
+and returns `{ status: "ok", arguments, connection? }`: the request's configured
 `arguments` with each `targetBindings` name filled from the target unless the
 configuration already sets it. `program` is filled from `target.path`, or from
 `target.executable` (an absolute path the host found) when the configuration
 binds it to `target.executable`. Refusals use the `rejected` shape with
 `debug.provider.stale`, `debug.request.unsupported`, `debug.runtime.stale`, or
 `debug.target.invalid`.
+
+A target of `kind: "connection"` attaches to a debuggee on a host and port:
+`host` is a DNS name or IP literal, `port` is 1–65535, and `pathMappings` is up
+to 16 `{ local, remote }` source-root pairs whose `local` is an absolute path on
+the host's platform. It is accepted only for `attach` and only by an adapter
+whose attach configuration declares a `connection` binding; the binding names
+the argument paths that receive each fact, so Core writes `hostName`,
+`connect.host`, or a joined `host:port` string as that adapter reads it. A bad
+`host`, `port`, or `pathMappings` entry is `debug.target.invalid` with the field
+`target.host`, `target.port`, or `target.pathMappings`; so is
+`pathMappings` sent to an adapter that declares no mapping argument, and a
+`connection` target for a `launch` or an adapter without the binding
+(`target.kind`). The response then carries `connection: { host, port, remote }`.
+`remote` is `false` only for `localhost`, `127.0.0.0/8`, and `::1` read from the
+text; every other host is `true`, including `0.0.0.0` and `::ffff:127.0.0.1`.
+Core does not resolve names and opens no socket; the host asks the user before it
+connects to a `remote` endpoint and does not remember the answer by default. The
+launch plan's `debugAdapter.remoteAttach` is `{ pathMappings, maxPathMappings }`
+for an adapter that takes a connection and `null` otherwise. The mappings reach
+the adapter in the shape its binding declares (`objects`, `first`, `dictionary`,
+or `pairs`); a shape that cannot hold them all (`first` takes one, a
+`dictionary` takes each root once on its keyed side) refuses the target with
+`target.pathMappings` instead of dropping some.
 
 `debug.adapters.executablePlan` accepts `{ manifest, adapterID, settings?,
 projectSettings?, workspace?, targetPath? }` and returns `{ status: "ok",

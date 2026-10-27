@@ -222,6 +222,50 @@ Java 8 字节码（major 52），这不代表已经在 Java 8 运行。原生单
 计划、真实 Maven/Surefire 和 Core 报告解析；完整测试类名不能误匹配其他包的同名后缀；断言失败时的测试清理也会回收 SDK
 另起进程组的工具。完整报告、命令与源码哈希保存在本地 `.artifacts/test-stability/`。
 
+宿主集成测试 `MacNativeBuildProviderIntegrationTests` 使用生产
+`MacBuildProviderSessions` 和链接的 Rust Core，直接启动开发包中的真实 Java SDK
+后端，完成三模块模型读取、单模块编译、精确单方法测试和 Core 报告解码。
+它不创建插件页面，后端私有函数列表为空；工具路径由测试环境显式选择，既不探测
+也不改写用户运行时设置。结束后等待生产会话的释放回调，再比较整个插件包的
+SHA-256 与权限清单。初次本地计时为 3.552 秒，报告是 `stage-c-native-macos.json`
+及对应 HTML/JUnit；这项证据覆盖真实宿主 adapter，仍不等于完整窗口或发行包验收。
+
+SDK 的 [显式宿主 CI 运行](https://github.com/Lithe-IDEA/lithe-plugin-docs/actions/runs/40531099687)
+在 Node 20、Java 8 上对主仓库 `58ca81cf66c5c6e281c7df73ac67adb3526174f3`
+通过真实 Core 原生工作流与锁定旧契约的兼容场景。整轮工作流仍因 preview 的调试
+契约已更新而报告镜像漂移失败；不能把单个端到端作业通过说成整轮 CI 通过，
+也不能提前把未合并分支写进正式契约锁。Maven 的显式 SDK 开发验证同样独立于
+普通 PR/发行打包，只有源码与最低运行时验证，不生成发行 ZIP 或改写正式 SDK 锁。
+
+Maven 的 [Java 8 开发验证](https://github.com/Lithe-IDEA/lithe-plugin-maven/actions/runs/40533306865)
+已在 SDK 固定提交 `82e602c47ad80603ad31d503ddf0d2d229240e08` 上通过，覆盖当前 Maven
+和最低支持的 3.6.3，每组各 55 项计时检查（包括 3 项开发打包）。产物身份与 JAR
+哈希随报告上传；普通正式打包仍因旧版 SDK 锁定而失败，两个结果不能相互替代。
+
+合并 `preview` 的 `edb8c3691415439c8bedc5f45478d42df6530cf2` 后，Core 的 1,327 项测试、
+macOS 19 组共 505 项回归与独立仓库的 6 项真实 SDK 进程集成通过。远程连接选择器
+的旧夹具补齐 attach/connection 声明，继续验证它不能成为文件启动的默认适配器，
+没有放松生产准入。生产 macOS Maven 集成此次计时为 3.440 秒。
+
+显式 `MacNativeProviderDebugIntegrationTests` 已通过真实 LLDB 验收：同一工作区的
+公开 Node SDK Provider 用 Clang 编译 C 程序，经 Core 准备、Registry 明确身份与
+生产 stdio 传输启动 LLDB，命中第 4 行断点、读取 main 栈帧，带保留空格的参数继续
+运行，核对输出和退出码 0。当前计时 2.083 秒，报告为 `stage-c-native-lldb.json`
+及对应 HTML/JUnit；SDK/插件源码、权限和包文件 SHA-256 保持不变，无本次启动的
+LLDB、debugserver、后端或被调试程序残留。这是生产 adapter/Registry/Core 的集成
+证据，尚不代替完整应用窗口或正式插件发行验收。
+
+测试显式提供 `LITHE_STAGE_C_NODE_SDK`、`LITHE_STAGE_C_NODE`、
+`LITHE_STAGE_C_CLANG`、`LITHE_STAGE_C_LLDB_DAP`，不改用户工具路径设置。
+本机系统开发者调试授权起初关闭，独立 LLDB CLI 同样停在 run；经用户明确授权后
+开启 `DevToolsSecurity`，LLDB 可启动目标。测试中编译器的绝对源码路径与 DAP 源码
+路径保持一致，避免 macOS 临时目录的 `/var` 与 `/private/var` 别名导致未验证断点。
+测试退出前固定 LLDB 子孙进程的 PID/开始时间，使用平台有界清理，因为 debugserver
+可能新建会话且不继承环境；失败同样清理，在 worker queue 等待而不阻塞主 actor。
+
+最终组合计时报告 `stage-c-final-macos.json` 共 20 组 506 项通过，真实 Maven 和
+LLDB 集成分别为 3.776 秒与 2.032 秒；两项有对应 HTML/JUnit 和完整清理断言。
+
 在 `lithe-plugin-docs` 运行以下入口可以复验 SDK 部分：
 
 ```bash

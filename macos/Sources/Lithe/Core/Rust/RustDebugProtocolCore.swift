@@ -122,6 +122,19 @@ extension RustCoreBridge: DebugProtocolCore {
         ).get()
     }
 
+    func setDebugInstructionBreakpoints(
+        sessionID: String,
+        breakpoints: [DebugInstructionBreakpoint]
+    ) throws -> DebugCoreUpdate {
+        try executeResult(
+            command: "debug.setInstructionBreakpoints",
+            payload: DebugInstructionBreakpointsPayload(
+                sessionID: sessionID,
+                breakpoints: breakpoints
+            )
+        ).get()
+    }
+
     func debugDataBreakpointInfo(
         sessionID: String,
         operationID: String,
@@ -197,7 +210,8 @@ extension RustCoreBridge: DebugProtocolCore {
         command: DebugExecutionCommand,
         threadID: Int?,
         targetID: Int?,
-        singleThread: Bool
+        singleThread: Bool,
+        granularity: DebugSteppingGranularity?
     ) throws -> DebugCoreUpdate {
         try executeResult(
             command: "debug.execute",
@@ -207,7 +221,8 @@ extension RustCoreBridge: DebugProtocolCore {
                 command: command.rawValue,
                 threadID: threadID,
                 targetID: targetID,
-                singleThread: singleThread
+                singleThread: singleThread,
+                granularity: granularity
             ),
             operationID: operationID
         ).get()
@@ -227,7 +242,8 @@ extension RustCoreBridge: DebugProtocolCore {
         context: String?,
         sourcePath: String?,
         line: Int?,
-        column: Int?
+        column: Int?,
+        memory: DebugCoreMemoryQuery?
     ) throws -> DebugCoreUpdate {
         try executeResult(
             command: "debug.inspect",
@@ -245,7 +261,12 @@ extension RustCoreBridge: DebugProtocolCore {
                 context: context,
                 sourcePath: sourcePath,
                 line: line,
-                column: column
+                column: column,
+                memoryReference: memory?.reference,
+                offset: memory?.offset,
+                instructionOffset: memory?.instructionOffset,
+                instructionCount: memory?.instructionCount,
+                resolveSymbols: memory?.resolveSymbols
             ),
             operationID: operationID
         ).get()
@@ -484,6 +505,16 @@ private struct DebugFunctionBreakpointsPayload: Encodable {
     }
 }
 
+private struct DebugInstructionBreakpointsPayload: Encodable {
+    let sessionID: String
+    let breakpoints: [DebugInstructionBreakpoint]
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionID = "sessionId"
+        case breakpoints
+    }
+}
+
 private struct DebugDataBreakpointInfoPayload: Encodable {
     let sessionID: String
     let operationID: String
@@ -542,6 +573,7 @@ private struct DebugExecutePayload: Encodable {
     let threadID: Int?
     let targetID: Int?
     let singleThread: Bool
+    let granularity: DebugSteppingGranularity?
 
     private enum CodingKeys: String, CodingKey {
         case sessionID = "sessionId"
@@ -550,6 +582,7 @@ private struct DebugExecutePayload: Encodable {
         case threadID = "threadId"
         case targetID = "targetId"
         case singleThread
+        case granularity
     }
 }
 
@@ -568,6 +601,11 @@ private struct DebugInspectPayload: Encodable {
     let sourcePath: String?
     let line: Int?
     let column: Int?
+    let memoryReference: String?
+    let offset: Int?
+    let instructionOffset: Int?
+    let instructionCount: Int?
+    let resolveSymbols: Bool?
 
     private enum CodingKeys: String, CodingKey {
         case sessionID = "sessionId"
@@ -579,6 +617,7 @@ private struct DebugInspectPayload: Encodable {
         case variableFilter, start, count
         case expression, context
         case sourcePath, line, column
+        case memoryReference, offset, instructionOffset, instructionCount, resolveSymbols
     }
 }
 

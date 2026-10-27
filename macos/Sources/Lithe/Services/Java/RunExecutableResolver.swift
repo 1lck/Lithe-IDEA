@@ -59,7 +59,8 @@ final class RunExecutableResolver: RunExecutableResolving {
                 resolved.environment,
                 executableURL: resolved.executableURL,
                 nodeCandidates: runtimeService.executableCandidates("node"),
-                projectURL: projectURL
+                projectURL: projectURL,
+                defaultSearchPath: runtimeService.defaultExecutableSearchPath()
             )
         )
     }

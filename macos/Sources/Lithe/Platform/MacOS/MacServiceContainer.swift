@@ -620,12 +620,12 @@ final class MacServiceContainer {
                         "java": {
                             CoreDebugAdapterProtocolSession(
                                 adapterID: "java",
-                                transport: MacJavaDebugAdapterTransport(
+                                transport: MacHostedPortDebugAdapterTransport(
                                     portResolver: { rootURL in
                                         guard let capability = try await moduleRuntime
                                             .activateCapability(.languageIntelligence)
                                             as? LanguageIntelligenceCapability else {
-                                            throw MacJavaDebugAdapterTransport.TransportError
+                                            throw MacHostedPortDebugAdapterTransport.TransportError
                                                 .languageIntelligenceUnavailable
                                         }
                                         return try await capability.sessions.startJavaDebugServer(
@@ -672,6 +672,30 @@ final class MacServiceContainer {
                                             runtimeService.executableCandidates(command)
                                                 .first { $0.source != .project }?.executableURL
                                         }.first
+                                    },
+                                    startHostedPort: { languageID, command, rootURL in
+                                        guard let capability = try await moduleRuntime
+                                            .activateCapability(.languageIntelligence)
+                                            as? LanguageIntelligenceCapability else {
+                                            throw MacHostedPortDebugAdapterTransport.TransportError
+                                                .languageIntelligenceUnavailable
+                                        }
+                                        try await Self.prepareHostedDebugAdapterLanguageServer(
+                                            languageID: languageID, pluginID: pluginID,
+                                            supports: installedLanguageSupports,
+                                            runtime: moduleRuntime, sessions: capability.sessions,
+                                            prepareTools: { descriptor in
+                                                if capability.tools.needsCandidateValidation(for: descriptor) {
+                                                    await capability.tools.refreshCandidates(for: descriptor)
+                                                }
+                                            }
+                                        )
+                                        return try await capability.sessions.startHostedDebugAdapter(
+                                            languageID: languageID,
+                                            pluginID: pluginID,
+                                            command: command,
+                                            rootURL: rootURL
+                                        )
                                     }
                                 ),
                                 core: rustCore,
@@ -1065,6 +1089,35 @@ final class MacServiceContainer {
                     fields: ["error": error.localizedDescription])
             }
         }
+    }
+
+    /// Debugging can start from a saved configuration before any source file
+    /// has activated the plugin's language-server module.
+    static func prepareHostedDebugAdapterLanguageServer(
+        languageID: String,
+        pluginID: String,
+        supports: [LanguageSupportDeclaration],
+        runtime: ModuleRuntime,
+        sessions: LanguageToolingSessionManager,
+        prepareTools: @MainActor (LanguageProviderDescriptor) async -> Void
+    ) async throws {
+        try Task.checkCancellation()
+        guard let support = supports.first(where: { $0.id == languageID && !$0.isDebugOnly }),
+              let moduleID = support.languageServerModuleID,
+              let snapshot = try? runtime.snapshot(for: moduleID),
+              snapshot.state != .disabled, !snapshot.isQuarantined, !snapshot.isSuppressedBySafeMode else {
+            throw LanguageToolingSessionError.languageServerNotOwnedByPlugin(languageID: languageID)
+        }
+        let provider = try await runtime.activateCapability(.languageServerExtension(languageID))
+            as? any LanguageServerExtensionProviding
+        try Task.checkCancellation()
+        guard let provider, provider.configuration.launchSource?.pluginID == pluginID,
+              sessions.registerLanguageServerExtension(provider, support: support),
+              let descriptor = sessions.languageServerExtensionDescriptor(languageID: languageID) else {
+            throw LanguageToolingSessionError.languageServerNotOwnedByPlugin(languageID: languageID)
+        }
+        await prepareTools(descriptor)
+        try Task.checkCancellation()
     }
 
     /// Host-owned module factories for declarative plugins. The plugins'
