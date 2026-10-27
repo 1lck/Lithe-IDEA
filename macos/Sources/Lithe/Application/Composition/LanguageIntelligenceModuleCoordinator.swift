@@ -9,14 +9,14 @@ import LitheModuleAPI
 final class LanguageIntelligenceModuleCoordinator {
     private let runtime: ModuleRuntime
     private let store: ModuleCapabilityStore
-    private let awaitShutdown: () async -> Void
+    private let awaitShutdown: () async throws -> Void
     private let bind: (LanguageIntelligenceCapability) -> Void
     private let notify: @MainActor (String) -> Void
 
     init(
         runtime: ModuleRuntime,
         store: ModuleCapabilityStore,
-        awaitShutdown: @escaping () async -> Void,
+        awaitShutdown: @escaping () async throws -> Void,
         bind: @escaping (LanguageIntelligenceCapability) -> Void,
         notify: @escaping @MainActor (String) -> Void
     ) {
@@ -29,7 +29,7 @@ final class LanguageIntelligenceModuleCoordinator {
 
     func activate() async throws -> LanguageIntelligenceCapability {
         // A cached capability can still belong to the graph being torn down.
-        await awaitShutdown()
+        try await awaitShutdown()
         try Task.checkCancellation()
         if let cached: LanguageIntelligenceCapability = store.capability(.languageIntelligence) {
             return cached
@@ -77,8 +77,13 @@ final class LanguageIntelligenceModuleCoordinator {
         testService: LanguageTestService,
         supports: @MainActor ([URL]) -> [LanguageSupportDeclaration]
     ) async -> Bool {
-        await awaitShutdown()
-        guard !Task.isCancelled else { return false }
+        do {
+            try await awaitShutdown()
+            try Task.checkCancellation()
+        } catch {
+            if !error.isCancellation { notify(error.localizedDescription) }
+            return false
+        }
         for support in supports(files) where support.testingModuleID != nil {
             do {
                 let value = try await runtime.activateCapability(

@@ -148,6 +148,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     private var documentLanguageCoordinator: DocumentLanguageCoordinator?
     private var sidebarRefreshTask: Task<Void, Never>?
     private var moduleSessionCoordinator: ModuleSessionCoordinator?
+    private(set) var isProjectSessionClosed = false
     private var featureObservationBinder: AppModelObservationBinder?
     private var fileVisibilityRulesObserverID: UUID?
     private var searchExclusionsObservation: AnyCancellable?
@@ -227,7 +228,10 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     lazy var languageIntelligenceModuleCoordinator = LanguageIntelligenceModuleCoordinator(
         runtime: services.moduleRuntime,
         store: moduleCapabilityStore,
-        awaitShutdown: { [weak self] in await self?.awaitModuleRuntimeShutdown() },
+        awaitShutdown: { [weak self] in
+            await self?.awaitModuleRuntimeShutdown()
+            guard self?.isProjectSessionClosed == false else { throw CancellationError() }
+        },
         bind: { [weak self] in self?.bindLanguageIntelligenceCapability($0) },
         notify: { [weak self] in self?.showNotification($0) }
     )
@@ -692,6 +696,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     func shutdownProjectSession() async {
+        isProjectSessionClosed = true
         // Native window close can retain this model through Settings without
         // closing its workspace. Revoke page requests before teardown can yield.
         services.pluginWebPages.closeAll()
