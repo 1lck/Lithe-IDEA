@@ -3101,25 +3101,34 @@ pub fn debug_start_arguments_command(payload: Value) -> Result<Value, CoreError>
         start: crate::debug::adapters::StartRequest,
     }
     let payload: Payload = decode_payload(payload, COMMAND)?;
-    Ok(outcome(validate_manifest_value(payload.manifest).and_then(
-        |manifest| {
-            let adapter = manifest
-                .debug_adapters
-                .iter()
-                .find(|adapter| adapter.id == payload.adapter_id)
-                .ok_or_else(|| {
-                    PluginRejection::new(
-                        "plugin.launch.unavailable",
-                        format!(
-                            "The plugin declares no debug adapter {}.",
-                            payload.adapter_id
-                        ),
-                    )
-                })?;
-            crate::debug::adapters::start_arguments(adapter, &payload.start)
-                .map(|arguments| ("arguments", Value::Object(arguments)))
-        },
-    )))
+    let started = validate_manifest_value(payload.manifest).and_then(|manifest| {
+        let adapter = manifest
+            .debug_adapters
+            .iter()
+            .find(|adapter| adapter.id == payload.adapter_id)
+            .ok_or_else(|| {
+                PluginRejection::new(
+                    "plugin.launch.unavailable",
+                    format!(
+                        "The plugin declares no debug adapter {}.",
+                        payload.adapter_id
+                    ),
+                )
+            })?;
+        crate::debug::adapters::start_arguments(adapter, &payload.start)
+    });
+    // `connection` is present only for a remote target, so a host that never
+    // attaches to one can ignore it.
+    let connection = started
+        .as_ref()
+        .ok()
+        .and_then(|started| started.connection.clone());
+    let mut result =
+        outcome(started.map(|started| ("arguments", Value::Object(started.arguments))));
+    if let Some(connection) = connection {
+        result["connection"] = json!(connection);
+    }
+    Ok(result)
 }
 
 /// `debug.adapters.executablePlan`: where a host looks for the program a

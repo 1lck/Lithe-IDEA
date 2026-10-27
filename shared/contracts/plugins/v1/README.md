@@ -497,7 +497,7 @@ Rules for publishing across levels and capability versions:
 | `process.build` | `buildSystems` is not empty |
 | `process.vcs` | `vcsProviders` is not empty |
 | `debug.launch` | `debugAdapters` is not empty |
-| `debug.attach` | an adapter lists `attach` in `requests` (and only then) |
+| `debug.attach` | an adapter lists `attach` in `requests` (and only then); it also covers attaching to a remote host and port |
 | `project.generate` | `projectGenerators` is not empty |
 | `ui.contribute` | `ui` is declared |
 | `ui.web` | a tool window shows [web content](#web-content-ui-2) |
@@ -1030,7 +1030,7 @@ A manifest below level 4 may not declare `debugAdapters`, and a level 3 manifest
 | `requests` | `launch` (default) and/or `attach`. |
 | `selectors[]` | Optional automatic matching by `targetKinds` and `languageIDs`; absent means explicit selection only. |
 | `configurationTypes` | Imported `launch.json` `type` values the adapter answers to. |
-| `configurations.launch/attach` | Default DAP `arguments`, a packaged `parametersSchema`, and `targetBindings` (`program` ← `target.path`, `processId` ← `target.processID`, `cwd` ← `target.workingDirectory`). A configuration for an undeclared request is refused. |
+| `configurations.launch/attach` | Default DAP `arguments`, a packaged `parametersSchema`, and `targetBindings` (`program` ← `target.path`, `processId` ← `target.processID`, `cwd` ← `target.workingDirectory`, and for `attach` only `connection` ← `target.host`, `target.port`, `target.pathMappings`; see [Remote attach](#remote-attach)). A configuration for an undeclared request is refused. |
 | `configurations.launch.executable` | For a target that is a source file the adapter cannot debug directly (C, C++, Swift): `setting` names a `file` setting of the plugin, `candidates[]` (up to 8) are the paths a host looks for when the user chose nothing. Each candidate starts with `${workspaceFolder}/` or `${fileDirectory}/`, may use `${fileBasenameNoExtension}`, and has no `..`. Declare it together with `targetBindings.program: "target.executable"` and neither without the other; a launch fills `program` with the path the host settled on. The user's setting always wins: a chosen path that is not a runnable file is an error, not a reason to try the candidates. The host shows the path it found in that setting, and the setting's `description` is where the plugin teaches how to produce the program. |
 | `capabilities.disabled` | Standard DAP `supports*` names or `exceptionBreakpointFilters` the host treats as absent. |
 | `console.commandPrefix` | Text (1–8 characters, no spaces; for lldb-dap a backtick) the adapter's console reads as "what follows is a debugger command". The host puts it before the typed line only when it asks the adapter to complete, and moves the adapter's answer back, so the user never sees it. An adapter that treats a bare word as an expression (lldb-dap) otherwise mixes language keywords such as `long` into the first word's completions; the prefix limits them to commands. Declare at least this or `console.commands[]` when `console` is present. |
@@ -1039,12 +1039,87 @@ A manifest below level 4 may not declare `debugAdapters`, and a level 3 manifest
 | `launch.transport` | `stdio`, `tcpAnnounced` (`endpoint`: `stream`, one-line `prefix`, `value` = `port` or `hostPort`), `tcpPort` (`endpoint.port`), or `tcpLanguageServer` (`endpoint`: `languageID`, `command`). TCP endpoints are loopback only. |
 | `launch.endpoint` for `tcpLanguageServer` | For an adapter that lives inside a language server and has no process of its own (the Java Debug Server runs in JDT LS). `languageID` names a `languageServers[]` entry of the same plugin; `command` (1–128 characters of letters, digits, `.`, `_`, `:`, `-`) is the `workspace/executeCommand` the host sends to that server for each session. The server answers with the loopback port to connect to, as an integer or a numeric string from 1 to 65535. The host starts the language server for the workspace first, as it does for editing. The command is part of what the user reviews at install and update, and changing it asks again. |
 
+### Remote attach
+
+An adapter that attaches to a debuggee on another machine (a JVM started with
+`-agentlib:jdwp`, debugpy behind `--listen`, a Node inspector, gdbserver) is an
+ordinary `attach` adapter whose `targetBindings` carry a `connection`. The
+adapter itself still runs on this machine, stdio or loopback as before; only
+the debuggee is remote. `connection` does not cover an adapter that runs on the
+remote machine (for example `ssh host gdb -i=dap`); that needs path translation
+and a user-supplied destination and is not declared in this version.
+
+```json
+"configurations": {
+  "attach": {
+    "arguments": { "timeout": 5000 },
+    "targetBindings": {
+      "connection": {
+        "host": "connect.host",
+        "port": "connect.port",
+        "pathMappings": { "shape": "objects", "argument": "pathMappings",
+                          "localKey": "localRoot", "remoteKey": "remoteRoot" }
+      }
+    }
+  }
+}
+```
+
+- The values of `connection` are paths into the adapter's `arguments`, because
+  adapters name and nest them differently: java-debug takes `hostName` and
+  `port`, debugpy `connect.host` and `connect.port`, js-debug `address` and
+  `port`, gdb one `host:port` string. A path is 1–4 dot-separated names of
+  letters, digits, `_`, and `-` (up to 64 characters each) and Core creates the
+  intermediate objects.
+- `host` and `port` are declared together. `address` takes the endpoint as one
+  `host:port` string, with an IPv6 host in brackets (`[2001:db8::1]:2345`); it
+  stands in for `host` and `port`, or is a further destination beside them.
+  At least one of the two forms is required.
+- `pathMappings` is optional and has two shapes. `objects` fills a list of
+  objects, one per mapping: `argument` names the list, `localKey` and
+  `remoteKey` the keys of each object. `first` is for an adapter with a single
+  pair of roots and fills `local` and `remote` from the first mapping. An
+  adapter whose mapping is something else (lldb `sourceMap` pairs) declares
+  none, and a start that sends mappings to it is refused.
+- A destination may not equal, contain, or sit inside another destination, the
+  `processId` or `cwd` argument a declared binding of the same configuration
+  fills, or a name that the configuration's own `arguments` already sets. Defaults win over bindings, so without this rule
+  the adapter would connect somewhere other than the endpoint the user
+  confirmed. A manifest that does it is `plugin.manifest.invalid`.
+- `connection` is allowed under `attach` only. `selectors[].targetKinds` may
+  list `connection`, and only for an adapter that declares the binding.
+
+The target of a start is `{ "kind": "connection", "host", "port",
+"pathMappings"?: [{ "local", "remote" }] }`. `host` is a DNS name or an IP
+literal of 1–253 characters, with labels of up to 63 letters, digits, and
+hyphens, none leading or trailing: no scheme, port, brackets, whitespace, or
+user. A dotted run of digits must be a valid IPv4 address, and IPv6 zone IDs and
+internationalized names (use punycode) are not accepted. `port` is 1–65535.
+There are at most 16 mappings; each root is 1–1024 characters without control
+characters, and a `local` root must be an absolute path on the host's
+platform.
+
+`debug.adapters.startArguments` answers with the filled `arguments` and a
+`connection: { host, port, remote }`. `remote` is `false` only for what
+Core can prove local from the text: `localhost` (any case), `127.0.0.0/8`, and
+`::1`. Every other host, including `0.0.0.0`, `::ffff:127.0.0.1`, and
+`localhost.example.org`, is `remote: true`. A host asks the user to confirm each
+`remote` endpoint it has not been told to trust, and does not remember the
+answer by default. `debug.attach` covers remote attach; there is no separate
+permission. `plan.debugAdapter.remoteAttach` in the launch plan is
+`{ "pathMappings": boolean }` for an adapter that takes a connection and `null`
+otherwise, so a host knows whether to offer the host-and-port form and the
+mapping list.
+
 The cases in `fixtures/debug-adapter-rejections.json` state the stable code and
 field for each refusal and the layer that reports it: `schema`,
 `coreManifest`, `corePlan` (one start: stale registration or runtime
-selection, a target missing a fact a binding reads), and `coreInstall`
+selection, a target missing a fact a binding reads; the request defaults to
+`launch` and `context.request` sets `attach`), and `coreInstall`
 (a `parametersSchema` that is missing or links outside the package).
-`fixtures/debug-adapter.plugin.json` is a valid example.
+`fixtures/debug-adapter.plugin.json` is a valid example, and
+`fixtures/debug-adapter-remote-attach.plugin.json` declares four adapters that
+differ in how they take a connection.
 
 ## Plugin backend
 

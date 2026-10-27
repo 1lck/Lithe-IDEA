@@ -235,6 +235,70 @@
       "minLength": 1,
       "pattern": "^(?!/)(?!.*(?:^|/)[.]{1,2}(?:/|$))[^\\\\:\\u0000]+$"
     },
+    "debugArgumentName": {
+      "description": "One DAP argument name or object key.",
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_-]{0,63}$"
+    },
+    "debugArgumentPath": {
+      "description": "Dotted path to a DAP argument, up to four names, for example `hostName` or `connect.host`. Objects on the way are created; the path must not overlap another binding or an argument the configuration sets itself.",
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_-]{0,63}(\\.[A-Za-z_][A-Za-z0-9_-]{0,63}){0,3}$"
+    },
+    "debugConnectionBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "host": {
+          "description": "Receives `target.host`, a string. Declared together with `port`.",
+          "$ref": "#/$defs/debugArgumentPath"
+        },
+        "port": {
+          "description": "Receives `target.port`, an integer 1-65535. Declared together with `host`.",
+          "$ref": "#/$defs/debugArgumentPath"
+        },
+        "address": {
+          "description": "Receives `host:port` as one string; an IPv6 host is written in brackets.",
+          "$ref": "#/$defs/debugArgumentPath"
+        },
+        "pathMappings": {
+          "description": "How local and remote source roots reach the adapter. Omit when the adapter takes none; the host then does not offer the choice.",
+          "oneOf": [
+            {
+              "description": "A list of objects at `argument`, each with the local root under `localKey` and the remote root under `remoteKey`.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["shape", "argument", "localKey", "remoteKey"],
+              "properties": {
+                "shape": { "const": "objects" },
+                "argument": { "$ref": "#/$defs/debugArgumentPath" },
+                "localKey": { "$ref": "#/$defs/debugArgumentName" },
+                "remoteKey": { "$ref": "#/$defs/debugArgumentName" }
+              }
+            },
+            {
+              "description": "The first mapping only, as two strings at `local` and `remote`.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["shape", "local", "remote"],
+              "properties": {
+                "shape": { "const": "first" },
+                "local": { "$ref": "#/$defs/debugArgumentPath" },
+                "remote": { "$ref": "#/$defs/debugArgumentPath" }
+              }
+            }
+          ]
+        }
+      },
+      "dependentRequired": {
+        "host": ["port"],
+        "port": ["host"]
+      },
+      "anyOf": [
+        { "required": ["host"] },
+        { "required": ["address"] }
+      ]
+    },
     "debugServerProcessV1": {
       "$ref": "#/$defs/serverProcess",
       "description": "Reuse existing launch fields and validation. LSP initializationOptions have no meaning for a DAP transport and are excluded.",
@@ -482,6 +546,10 @@
             },
             "cwd": {
               "const": "target.workingDirectory"
+            },
+            "connection": {
+              "description": "Attach only. Where the remote target's host and port go. Unlike the other bindings, each value is the destination argument path, because adapters name and nest these differently.",
+              "$ref": "#/$defs/debugConnectionBinding"
             }
           }
         },

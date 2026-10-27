@@ -166,6 +166,40 @@ Java 是宿主里最后一个内置 Provider（`debugFactories["java"]`、`MacJa
 - **停止调试不停止语言服务器。** 传输 `stop()` 只关闭 TCP 连接；语言服务器是共享资源，沿用“结束 Java 调试不终止 JDT LS”的所有权规则。
 - 被否方案：让宿主按 `adapterID == "java"` 特判端口获取。这正是要删除的东西。
 
+#### 远程 attach（连接到另一台机器上的被调试程序）
+
+“远程调试”有两种常被混为一谈的情形：被调试程序在远端（JVM 开了 `-agentlib:jdwp`、debugpy `--listen`、Node `--inspect`、本机 gdb 连远端 `gdbserver`），或适配器本身在远端（`ssh host gdb -i=dap`，DAP 仍走 stdio，只是进程是 ssh）。第一种本来就是 DAP `attach`，只缺“把主机和端口交给适配器”这一步，这一轮先做它，适配器仍在本机，传输仍是 stdio 或回环 TCP，不放宽 loopback 规则。第二种在跨机器调试里同样常见，不能当作“不做”，它的下一步设计见本节末尾和独立的设计 Note。
+
+做法是给 `attach` 配置新增一种目标绑定 `targetBindings.connection`，目标种类 `connection`（`TARGET_KINDS` 里本来就有，之前没有事实和绑定）。
+
+| 决定 | 内容 | 原因 |
+| --- | --- | --- |
+| 绑定的值是**目标参数路径** | `host`、`port`（须成对）、`address`（一个 `host:port` 字符串，IPv6 带方括号）、可选 `pathMappings`，值是适配器参数里的点分路径（最多 4 段）。事实来源是封闭的：`target.host`、`target.port`、`target.pathMappings` | 适配器给这些参数起的名字和嵌套都不同：java-debug 是 `hostName`/`port`，debugpy 是 `connect.host`/`connect.port`，js-debug 是 `address`/`port`，gdb 是一个 `target` 字符串。若沿用 `program`/`processId` 的写法（键是固定的目标参数名），就得宿主为每个适配器记名字，也就回到按名字分支。这些参数名只是设计参考，Core 不内置任何一个，具体以各适配器文档和对应插件的验收为准 |
+| 路径映射有两种形状 | `objects`：写一个对象列表，`argument` 是列表名，`localKey`/`remoteKey` 是每项的键（debugpy 的 `pathMappings`）；`first`：只取第一条映射写成两个字符串（js-debug 的 `localRoot`/`remoteRoot`） | 这两种覆盖了目前评估过的适配器，且声明仍是纯数据 |
+| 声明时拒绝目的地冲突 | 目的地路径与另一个目的地、`processId`/`cwd` 参数，或同一配置 `arguments` 里已有的名字相同、包含或被包含，清单就是 `plugin.manifest.invalid` | 启动参数里“默认值优先”。如果插件默认值里已经写了 `hostName`，宿主让用户确认的主机会被默认值盖掉，适配器连到用户没有确认的地方。这个风险必须在声明期堵死，运行期再检查只是兜底（`set_argument` 只写空位） |
+| 回环判断只看字面量 | `localhost`（不分大小写）、`127.0.0.0/8`、`::1` 是 `remote: false`；其余全是 `remote: true`，包括 `0.0.0.0`、`::ffff:127.0.0.1`、`localhost.example.org` | Core 不解析域名、不开 socket。名字本身证明不了它在本机，把不确定的当成远端只会多问一次，反过来则会静默连出去 |
+| 不新增权限 | `debug.attach` 已覆盖；`debug.attach` 的说明里写明它包含连接远程主机和端口 | 新权限只是把同一件事换个名字，安装审查已经能看到这个适配器会 attach |
+| 每个新的非回环端点单独确认 | `startArguments` 返回 `connection: { host, port, remote }`，宿主对 `remote: true` 的端点弹确认，默认不记住 | 和摄像头/麦克风一样：网页或插件可以请求，但每次请求都不默认有权限；以后若加“记住”也只能由用户主动选 |
+| 路径映射被不支持的适配器**拒绝**而不是忽略 | 适配器没有 `pathMappings` 绑定，目标却带了映射，返回 `debug.target.invalid`（`target.pathMappings`） | 悄悄丢掉用户填的映射，会话能启动但断点对不上源码，比启动失败更难排查 |
+| 主机与路径的输入校验 | 主机是 DNS 名或 IP 字面量（1–253 字符，标签不超过 63 且不以 `-` 开头或结尾），不接受 scheme、端口、方括号、空白、用户名；全数字点分必须是合法 IPv4；端口 1–65535；映射最多 16 条，每个根 1–1024 字符且无控制字符，本地根必须是绝对路径，远程根不限制形状（它是远端的路径） | 这些字符串最终会进入适配器参数，宁可严格；远端的路径风格由对方决定，Core 不替它判断 |
+
+`plan.debugAdapter.remoteAttach` 返回 `{ pathMappings: bool }` 或 `null`，宿主据此决定显示“连接到远程主机”和映射列表，不必按适配器名字判断。
+
+这一轮不做，且不是遗漏：
+- lldb 的 `sourceMap`（成对数组）：形状不同于上面两种，等 lldb 插件真正需要时再加第三种形状，不为猜测的需求扩大契约。
+- IPv6 zone ID（`fe80::1%en0`）和国际化域名：后者用 punycode；前者依赖本机网卡，写进可分享的配置不可移植。
+- SSH 隧道：用户先自己建隧道再连 `127.0.0.1` 已经可用，由宿主管理隧道要先解决密钥、主机指纹和进程所有权，另开提案。
+- 适配器运行在远端：不是不做，而是它需要下面这一节的几样新东西（Core 路径翻译、用户提供的 ssh 目的地、独立权限与每次确认），不适合塞进这个契约 PR。
+- 绑定键等于参数名的写法：见上表第一行，已否决。
+
+#### 下一步：适配器在远端（SSH + stdio）
+
+形态：宿主经系统 `ssh` 在远端执行插件声明的适配器命令（如 `gdb -i=dap`），DAP 仍走 stdio，传输、帧、会话模型都不变；认证、加密、主机指纹交给 ssh，命令通过已有的 `TransportChain` 构造。这一点修正了前文对“远端适配器要先设计认证和加密传输”的判断，那只适用于不经 ssh、直接跨网络连 TCP 的适配器，仍然不做。
+
+难点（Core 路径翻译、用户提供的目的地、权限与确认、ssh 失败分类、首帧前噪声）和被否方案见独立的设计 Note：[适配器运行在远端——经 SSH 的 stdio 调试](2026-10-27-remote-debug-adapter-over-ssh.md)。它只写设计，其中“需要你确认的默认选择”四项确认之前不开始实现。
+
+宿主侧还没有接入：macOS 的 `attach` 仍被拒绝，Java 的 `JavaAttachView` 是仅限 Java 的界面。后续由一个通用的“附加到远程”对话框取代它：主机、端口、可选映射、非回环确认，文案走 `shared/i18n`。Attach 会话结束时发送 `terminateDebuggee: false`，只断开不结束远端程序，沿用上面“`attach` 默认只断开”的所有权规则。
+
 P0–P5 完成后关闭 #1210。可选扩展、插件依赖和私有 resolver 都不是关闭条件。
 
 ### 正确做法

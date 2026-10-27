@@ -3313,14 +3313,33 @@ process, with `plugin.launch.unsupportedTransport`.
 `debug.adapters.startArguments` accepts `{ manifest, adapterID, request:
 "launch" | "attach", facts: { registration: { generation, currentGeneration },
 runtimeSelection?, target: { kind, path?, processID?, workingDirectory?,
-executable? } } }`
-and returns `{ status: "ok", arguments }`: the request's configured
+executable?, host?, port?, pathMappings? } } }`
+and returns `{ status: "ok", arguments, connection? }`: the request's configured
 `arguments` with each `targetBindings` name filled from the target unless the
 configuration already sets it. `program` is filled from `target.path`, or from
 `target.executable` (an absolute path the host found) when the configuration
 binds it to `target.executable`. Refusals use the `rejected` shape with
 `debug.provider.stale`, `debug.request.unsupported`, `debug.runtime.stale`, or
 `debug.target.invalid`.
+
+A target of `kind: "connection"` attaches to a debuggee on a host and port:
+`host` is a DNS name or IP literal, `port` is 1–65535, and `pathMappings` is up
+to 16 `{ local, remote }` source-root pairs whose `local` is an absolute path on
+the host's platform. It is accepted only for `attach` and only by an adapter
+whose attach configuration declares a `connection` binding; the binding names
+the argument paths that receive each fact, so Core writes `hostName`,
+`connect.host`, or a joined `host:port` string as that adapter reads it. A bad
+`host`, `port`, or `pathMappings` entry is `debug.target.invalid` with the field
+`target.host`, `target.port`, or `target.pathMappings`; so is
+`pathMappings` sent to an adapter that declares no mapping argument, and a
+`connection` target for a `launch` or an adapter without the binding
+(`target.kind`). The response then carries `connection: { host, port, remote }`.
+`remote` is `false` only for `localhost`, `127.0.0.0/8`, and `::1` read from the
+text; every other host is `true`, including `0.0.0.0` and `::ffff:127.0.0.1`.
+Core does not resolve names and opens no socket; the host asks the user before it
+connects to a `remote` endpoint and does not remember the answer by default. The
+launch plan's `debugAdapter.remoteAttach` is `{ pathMappings }` for an adapter
+that takes a connection and `null` otherwise.
 
 `debug.adapters.executablePlan` accepts `{ manifest, adapterID, settings?,
 projectSettings?, workspace?, targetPath? }` and returns `{ status: "ok",
