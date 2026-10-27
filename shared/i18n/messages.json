@@ -83812,24 +83812,35 @@
       }
     },
     {
-      "id": "native.theJavaLanguageServiceIsUnavailable",
-      "description": "Native UI: The Java language service is unavailable.",
+      "id": "native.theLanguageServiceThatHostsTheDebugAdapterIsUnavailable",
+      "description": "Native UI: The language service that hosts the debug adapter is unavailable.",
       "platforms": [
         "macos"
       ],
       "macos": {
-        "key": "The Java language service is unavailable.",
+        "key": "The language service that hosts the debug adapter is unavailable.",
         "arguments": []
       }
     },
     {
-      "id": "native.couldNotConnectToTheJavaDebugServer",
-      "description": "Native UI: Could not connect to the Java Debug Server: %@",
+      "id": "native.theDebugAdapterConnectionIsStopped",
+      "description": "Native UI: The debug adapter connection is stopped.",
       "platforms": [
         "macos"
       ],
       "macos": {
-        "key": "Could not connect to the Java Debug Server: %@",
+        "key": "The debug adapter connection is stopped.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theLanguageServerReturnedAnInvalidTcpPortForItsDebugAdapter",
+      "description": "Native UI: The %@ language server returned an invalid TCP port for its debug adapter.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The %@ language server returned an invalid TCP port for its debug adapter.",
         "arguments": [
           "arg1"
         ]
@@ -83839,14 +83850,19 @@
       }
     },
     {
-      "id": "native.theJavaDebugServerConnectionIsStopped",
-      "description": "Native UI: The Java Debug Server connection is stopped.",
+      "id": "native.theLanguageServerOfThisPluginIsNotAvailable",
+      "description": "Native UI: The %@ language server of this plugin is not available.",
       "platforms": [
         "macos"
       ],
       "macos": {
-        "key": "The Java Debug Server connection is stopped.",
-        "arguments": []
+        "key": "The %@ language server of this plugin is not available.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
       }
     },
     {
@@ -89123,13 +89139,29 @@
       }
     },
     {
-      "id": "native.theDebugAdapterUsesTheTransportWhichLitheCannotStartYet",
-      "description": "Native UI: The debug adapter %@ uses the %@ transport, which Lithe cannot start yet. Only stdio adapters are supported.",
+      "id": "native.theDebugAdapterNamesNoLanguageServerToHostIt",
+      "description": "Native UI: The debug adapter %@ names no language server to host it.",
       "platforms": [
         "macos"
       ],
       "macos": {
-        "key": "The debug adapter %@ uses the %@ transport, which Lithe cannot start yet. Only stdio adapters are supported.",
+        "key": "The debug adapter %@ names no language server to host it.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "native.theDebugAdapterUsesTheTransportWhichLitheCannotStartYet",
+      "description": "Native UI: The debug adapter %@ uses the %@ transport, which Lithe cannot start yet. Only stdio and language server hosted adapters are supported.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The debug adapter %@ uses the %@ transport, which Lithe cannot start yet. Only stdio and language server hosted adapters are supported.",
         "arguments": [
           "arg1",
           "arg2"

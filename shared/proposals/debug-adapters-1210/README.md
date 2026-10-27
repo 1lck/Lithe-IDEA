@@ -58,11 +58,13 @@
 
 ## 固定启动声明，不引入工作流
 
-`launch` 固定包含 `process` 和 `transport`：
+`launch` 固定包含 `transport`，并在除 `tcpLanguageServer` 外的传输里包含 `process`：
 
 - `stdio`：适配器进程的标准输入输出直接传 DAP，stderr 仅记录诊断。
 - `tcpAnnounced`：从明确指定的 stdout/stderr 读取有界 UTF-8 行。字面量 `prefix` 后只接受端口或 `host:port`；IPv6 使用方括号，必须是 loopback。限制单行 4 KiB、总启动输出 1 MiB、连接准备 30 秒；未完整解出合法端点就不连接。没有 `jsDebugStandalone` 等按产品命名的解码档位。
 - `tcpPort`：连接本次适配器进程的固定 loopback 端口；进程先启动，端口占用则失败，不悄悄改端口。它不是 DAP attach 参数里的被调试程序端口。若无法证明连接对应本次启动的进程，平台应拒绝该传输，不公布支持。
+
+- `tcpLanguageServer`：适配器寄宿在同一插件已声明的语言服务器里，没有自己的进程，因此不写 `launch.process`（写了就拒绝，其他传输则必须写）。`endpoint` 只有 `languageID`（必须出现在同一插件的 `languageServers[]`）和 `command`（`workspace/executeCommand` 的命令 ID）。宿主先照常启动该语言服务器，再发送这个命令，服务器返回本次调试服务的 loopback 端口（整数或数字字符串，1...65535），宿主连接该端口。命令是安装与更新时用户审阅的内容的一部分，改命令会重新确认。它不是通用的“调用插件函数”：没有参数、没有返回值解释、不能指向其他插件的服务器。Java Debug Server 寄宿在 JDT LS 中，就是这种形式。
 
 TCP 启动期限只约束端口发现与连接，不限制整个调试会话。关闭、失败、取消和禁用都会关闭连接、清理本次创建的进程；已有共享服务和外部 attach 目标不属于这条进程清理链。
 

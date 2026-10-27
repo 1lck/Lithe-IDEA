@@ -10,7 +10,7 @@
 `PATH` 找不到 `node`，于是 `pnpm run <script>` 直接报
 `env: node: No such file or directory`（#1455）。
 
-现在运行入口会在启动前把两类目录补到子进程 `PATH` 前面：Lithe 发现到的 `node`
+现在运行入口会在启动前把两类目录补到子进程 `PATH` 后面：Lithe 发现到的 `node`
 解释器目录，以及解析出的可执行文件目录；项目内的 `node` 和项目根目录永远不加。
 终端、调试适配器和语言服务器不走这条路径，行为不变。
 
@@ -46,9 +46,12 @@ Node 版本管理器目录的额外探测；这份探测结果从来没有进入
   分支都会经过它。只补运行启动环境，不改 `ProjectRuntimeService.processEnvironment`
   本身，避免终端、调试适配器、语言服务器被顺带改掉。
 - 目录顺序：原有 `PATH` 条目保持原位置和优先级，`node` 目录与被解析出的可执行
-  文件目录补在后面，按小写比较去重（默认的 APFS 卷大小写不敏感）。运行配置允许
+  文件目录补在后面，按原始拼写去重，避免错误合并大小写敏感卷上的不同目录。运行配置允许
   用户显式设置 `PATH` 来固定自己的工具链，追加而不是前置才能尊重这份配置；从
   Finder 启动时 `PATH` 里本来没有 `node`，追加同样能被 `env` 找到。
+- 环境没有 `PATH` 时，`MacRuntimeLocator` 通过系统 `confstr(_CS_PATH)` 读取默认
+  可执行搜索路径，经运行时服务传入纯环境组合器；Service 不硬编码系统目录。
+  显式空 `PATH` 仍是用户覆盖，不被默认值替换；终端和语言服务器的基础环境不变。
 - 安全边界：`RuntimeToolCandidate.source == .project` 的 `node` 不注入；可执行
   文件位于项目根内时（例如 `mvnw`、`gradlew`），它所在的目录也不注入。仓库内容
   不可信，把项目根放到 `PATH` 前部会让仓库里的同名文件劫持脚本后续调用的系统
@@ -104,9 +107,10 @@ pnpm 在 /opt/homebrew/bin，node 在 fnm 的默认别名目录
 
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter RunLaunchEnvironmentTests`
-  覆盖八个场景：GUI 最小 PATH 下补齐 node 与启动器目录、项目内 node 被排除、
+  覆盖这些场景：GUI 最小 PATH 下补齐 node 与启动器目录、项目内 node 被排除、
   项目 wrapper 不把仓库根放进 PATH、已有目录去重且保持顺序、显式 PATH 保持优先级、
-  缺失 PATH 时新建、resolver 对 `.command` 与 `.toolchain("project-node")` 的接线。
+  缺失 PATH 时使用注入的系统默认值、显式空 PATH 不使用默认值、resolver 对
+  `.command` 与 `.toolchain("project-node")` 的接线，以及基础进程环境不被改写。
 - `./scripts/verify-service-boundaries.sh`
 - 失败形态的手工复现：`env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin /usr/bin/env node --version`
   返回 `env: node: No such file or directory`；把 node 目录加进 `PATH` 后恢复。

@@ -99,7 +99,7 @@ Registry 注册时不启动程序做验证。一个适配器在接入验收中�
 
 完整字段和拒绝规则见[声明草案](../../../../shared/proposals/debug-adapters-1210/README.md)（正式契约见 `shared/contracts/plugins/v1/README.md`），这里只记录决策：
 
-- 插件只写一个 `plugin.json.debugAdapters` 块，必填 `id`、`displayName`、`launch`。`launch` 由两部分组成：复用 `serverProcess` 的进程，加上 `stdio`、`tcpAnnounced` 或 `tcpPort` 三种传输之一。
+- 插件只写一个 `plugin.json.debugAdapters` 块，必填 `id`、`displayName`、`launch`。`launch` 由两部分组成：复用 `serverProcess` 的进程，加上 `stdio`、`tcpAnnounced` 或 `tcpPort` 三种传输之一；调试服务寄居在同一插件的语言服务器里时（Java Debug Server 之于 JDT LS），改用 `tcpLanguageServer`，此时没有 `process`，只有 `endpoint`。
 - 拟定 API 4、`requires.debugAdapters: 1`、`debug.launch` / `debug.attach` 权限。需要 Run 选中的运行时时，使用 `serverProcess: 2` 的 `runSelectedRuntime`。
 - 标准能力跟随 DAP 协商，清单只能禁用。没有依赖、导出、工作流、resolver 或 `hostIntegration` 字段；插件依赖另见[独立平台提案](2026-10-25-plugin-dependencies-and-exports.md)。
 - 内置 Provider（Java、Go、Node、Python、LLDB）和第三方声明转成同一种描述后进入 Registry。身份由插件 ID 加局部 ID 组成，内置 Provider 使用保留空间。
@@ -139,7 +139,7 @@ macOS 声明式 Provider：
 - Rust Core 新增 `languageServerLaunchPlan` 的 `debugAdapterID` 选择器和 `debug.adapters.startArguments` 命令；后者按 manifest、adapterID、request 与事实（注册代次、目标、运行时选择）返回启动参数，拒绝码为 `debug.provider.stale`、`debug.request.unsupported`、`debug.runtime.stale`、`debug.target.invalid`、`plugin.launch.unavailable`。
 - 宿主启用模块 `<pluginID>.debug-adapters`（只承载启用、隔离与安全模式状态）。容器按语言 ID 建立插件适配器会话；Java 等内置语言优先，宿主不按插件名字分支。
 - 启动计划在会话 `start(rootURL:)` 时才解析，因为启动依赖工作区；被拒绝的计划就是启动错误。`adapterID` 声明时默认等于 `id`，会话创建时即需要（DAP `initialize.adapterId`），所以随描述符提前提供。
-- 适配器可执行文件只允许来自插件包或 `systemCommand`；工具发现覆盖 Xcode 工具链（`xcrun` 等）。TCP、attach 和 `runSelectedRuntime` 还没有接入宿主，之后再做。
+- 适配器可执行文件只允许来自插件包或 `systemCommand`；工具发现覆盖 Xcode 工具链（`xcrun` 等）。`tcpPort`、`tcpAnnounced`、attach 和 `runSelectedRuntime` 还没有接入宿主，之后再做；`tcpLanguageServer` 已接入，见下一节。
 - 生命周期与所有权：适配器进程归会话，随会话停止。适配器状态目录是 Application Support 下的 `<插件状态目录>/debug-adapters/<adapterID>`，不写 app bundle 或插件包，不影响代码签名和 Sparkle 增量更新；`${workspaceStateDir}` 按工作区摘要隔离。被调试程序的启动配置由 `startArguments` 生成，宿主只在没有内置 provider 处理时回落到它。
 
 macOS 的 P4 纵向验收用 `lldb-dap` 推进：官方 LLDB 插件（`io.github.lithe-idea.lldb-debug`，仓库 [lithe-plugin-lldb](https://github.com/Lithe-IDEA/lithe-plugin-lldb)）已作为预发布收录在 Lithe Store，需要支持 API 4 的 Lithe 才能安装；必选层全流程的验收结果还没有记录，不算 P4 完成。这一轮在契约里补了三件事，全部在尚未发布的 API 4 / `debugAdapters` v1 内，没有已发布的契约被改动：
@@ -148,6 +148,25 @@ macOS 的 P4 纵向验收用 `lldb-dap` 推进：官方 LLDB 插件（`io.github
 - 适配器拒绝请求时，Core 优先取 DAP 响应里的 `body.error.format`（按 `body.error.variables` 填充 `{name}`），再回落到 `message`；`lldb-dap` 和 `debugpy` 都只把可读解释放在 `error.format` 里。
 
 只贡献调试适配器的插件在 macOS 上安装、更新、卸载免重启，见[插件热激活](../../implemented/architecture/2026-10-26-plugin-live-activation.md)。这是宿主后端能力，不是清单字段，插件契约不变。Windows 的 P2–P4 还没有开始，不属于这一轮。
+
+#### Java 迁入 Java Support 插件（P5 的最后一块内置路径）
+
+Java 是宿主里最后一个内置 Provider（`debugFactories["java"]`、`MacJavaDebugAdapterTransport`、Core 里 `adapter_id == "java"` 的分支）。迁移拆成三个 PR，每个都能单独合并、单独回退：
+
+| PR | 内容 | 状态 |
+| --- | --- | --- |
+| PR-A 传输 | 新增 `tcpLanguageServer` 传输：`launch.process` 必须缺省，`endpoint` 只有 `{languageID, command}`；`languageID` 必须是同一插件 `languageServers[]` 里声明过的，`command` 限 `[A-Za-z0-9._:-]{1,128}`。宿主不拉起进程，而是启动该插件的语言服务器，用 `workspace/executeCommand` 执行 `command`（Java 是 `vscode.java.startDebugSession`），把返回值解析成 1…65535 的端口再连 `127.0.0.1`。`MacJavaDebugAdapterTransport` 改名 `MacHostedPortDebugAdapterTransport`，端口来源由宿主注入，不再知道 Java | 本 PR |
+| PR-B 语言专属扩展 | 把 Java 独有的三件事从“按适配器名字”改成“按描述声明”：`redefineClasses` 热替换、`stepFilters` 默认值（`java_step_filters`、`defaults_for_adapter("java")`）、`JAVA_DEBUG_DISABLE_DEVTOOLS_RESTART` 追加到 `vmArgs` | 未开始 |
+| PR-C 切换与删除 | Java Support 清单升到 API 4 并声明 `debugAdapters`；删除 `debugFactories["java"]`、Core 里的 Java 分支和 `MacJavaDebugAdapterTransport` 的残留引用 | 依赖 #1495（J7/C2）：启动目标（`JavaDebugLaunchTarget`）和测试调试（`JavaTestDebugLaunchService`、`JavaTestResultServer`）还在宿主里，要先随 J7/C2 迁出 |
+
+关键取舍：
+- **为什么是新传输，而不是 `tcpPort` 加一个“先执行命令”的钩子。** Java Debug Server 的端口每次会话都由语言服务器分配，且只能通过它自己的会话问到。`tcpPort` 的端口是清单里写死或进程公布的，扩展它等于在 `launch.process` 之外再开一条“向某个服务要端口”的通道；单独的传输让校验规则（无 `process`、`endpoint` 只有两个字段、语言服务器归属）一目了然，也与构建 provider 的 `{languageServer: "<id>"}` 形态一致。
+- **`endpoint.command` 只允许一个命令名，不允许参数。** `vscode.java.startDebugSession` 本身不带参数（旧实现传的就是空数组），主类和 classpath 在随后的 `launch` 请求里给，所以清单只需要命令名；不开放参数，是为了插件不能借这个端点让宿主向语言服务器发送任意负载。`programs()` 把它列入审批内容（`languageServerDebugAdapter`），命令名变了要重新批准。
+- **语言服务器归属由宿主校验，而不是信任清单。** 清单声明的 `languageID` 必须是同一插件的 `languageServers[]`，运行时 `startHostedDebugAdapter` 还要核对该语言的运行时来自同一个插件；内置的 Java 语言服务（不属于插件）被拒绝，避免插件借内置语言服务器执行命令。
+- **停止调试不停止语言服务器。** 传输 `stop()` 只关闭 TCP 连接；语言服务器是共享资源，沿用“结束 Java 调试不终止 JDT LS”的所有权规则。
+- **启动不依赖先打开源码。** 从保存的 Run 配置启动时，语言服务器模块可能尚未激活。组合根先激活声明的模块，核对插件身份并登记运行时、完成工具探测，再交给语言模块启动会话；不能把“尚未登记”当成“插件不可用”。停用、隔离和安全模式仍禁止激活。
+- **端口请求沿用 Core 的期限和取消。** `workspace/executeCommand` 的写入走会话已有的后台发送路径，避免插件不读 stdin 时卡住主线程；停止调试取消对应的 Core operation，不终止共享语言服务器。请求前后核对工作区和会话身份，拒绝换工作区或服务器替换后的旧端口。不要只取消等待 TCP 的 Task，却留下端口命令继续执行。
+- 被否方案：让宿主按 `adapterID == "java"` 特判端口获取。这正是要删除的东西。
 
 P0–P5 完成后关闭 #1210。可选扩展、插件依赖和私有 resolver 都不是关闭条件。
 

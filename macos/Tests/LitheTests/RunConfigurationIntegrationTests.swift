@@ -1217,7 +1217,7 @@ struct RunConfigurationIntegrationTests {
         let portGate = JavaDebugPortGate()
         let socket = TestDebugSocketConnection()
         let endpointRecorder = DebugEndpointRecorder()
-        let transport = MacJavaDebugAdapterTransport(
+        let transport = MacHostedPortDebugAdapterTransport(
             portResolver: { rootURL in try await portGate.resolve(rootURL: rootURL) },
             socketFactory: { host, port in
                 endpointRecorder.record(host: host, port: port)
@@ -1250,7 +1250,7 @@ struct RunConfigurationIntegrationTests {
         let portGate = JavaDebugPortGate()
         let socket = TestDebugSocketConnection()
         let endpointRecorder = DebugEndpointRecorder()
-        let transport = MacJavaDebugAdapterTransport(
+        let transport = MacHostedPortDebugAdapterTransport(
             portResolver: { rootURL in try await portGate.resolve(rootURL: rootURL) },
             socketFactory: { host, port in
                 endpointRecorder.record(host: host, port: port)

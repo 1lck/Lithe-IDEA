@@ -73,6 +73,8 @@ protocol RuntimeLocator: Sendable {
     /// Remote adapters select from a host-read snapshot without UI-thread I/O.
     func selectJavaRuntime(candidates: [AutomaticJavaCandidate], fallbackID: String?) -> Result<AutomaticJavaSelection, RustCoreBridge.CoreCallError>?
     func environment() -> [String: String]
+    /// Platform search path used only when a launch environment omits PATH.
+    func defaultExecutableSearchPath() -> String?
     func discover() -> RuntimeDiscoveryResult
     func discover(isCancelled: @Sendable () -> Bool) -> RuntimeDiscoveryResult
     /// Java-only probing for launch paths; never runs Maven or other tools.
@@ -102,6 +104,7 @@ extension RuntimeLocator {
     func discover(isCancelled: @Sendable () -> Bool) -> RuntimeDiscoveryResult {
         isCancelled() ? RuntimeDiscoveryResult(javaRuntimes: [], mavenRuntimes: []) : discover()
     }
+    func defaultExecutableSearchPath() -> String? { nil }
     func invalidateProbeCache() {}
     func discoverJavaRuntimes(isCancelled: @Sendable () -> Bool) -> [JavaRuntimeCandidate] {
         isCancelled() ? [] : discoverJavaRuntimes()
