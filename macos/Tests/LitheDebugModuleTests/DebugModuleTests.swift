@@ -3188,6 +3188,1195 @@ struct DebugModuleTests {
         #expect(recorder.graphCalls == 2)
     }
 
+    // MARK: - Disassembly, instruction stepping, instruction breakpoints and memory
+
+    private static let disassemblyCapabilities = DebugAdapterCapabilities(
+        negotiated: true,
+        supportsDisassembleRequest: true,
+        supportsSteppingGranularity: true,
+        supportsInstructionBreakpoints: true,
+        supportsReadMemoryRequest: true
+    )
+
+    /// A Core capability snapshot with everything off except the given flags.
+    private static func coreCapabilities(_ enabled: [String: Bool]) -> [String: Any] {
+        var snapshot: [String: Any] = [
+            "supportsConfigurationDone": false,
+            "supportsConditionalBreakpoints": false,
+            "supportsHitConditionalBreakpoints": false,
+            "supportsLogPoints": false,
+            "supportsFunctionBreakpoints": false,
+            "supportsDataBreakpoints": false,
+            "supportsExceptionOptions": false,
+            "supportsExceptionFilterOptions": false,
+            "supportsSetVariable": false,
+            "supportsCancelRequest": false,
+            "supportsSingleThreadExecutionRequests": false,
+            "supportsRestartRequest": false,
+            "supportsTerminateRequest": false,
+            "supportsStepBack": false,
+            "supportsExceptionInfoRequest": false,
+            "supportsStepInTargetsRequest": false,
+            "supportsGotoTargetsRequest": false,
+            "supportsCompletionsRequest": false,
+            "exceptionBreakpointFilters": [[String: Any]]()
+        ]
+        for (key, value) in enabled { snapshot[key] = value }
+        return snapshot
+    }
+
+    private func instruction(
+        _ address: String,
+        _ text: String,
+        symbol: String? = nil
+    ) -> DebugDisassembledInstruction {
+        DebugDisassembledInstruction(
+            address: address,
+            instructionBytes: nil,
+            instruction: text,
+            symbol: symbol
+        )
+    }
+
+    /// A started feature that has received the capabilities the adapter negotiated, as it does
+    /// right after `initialize` in a real session.
+    private func makeDisassemblyFeature(
+        session: DeferredInspectionDebugSession,
+        rootPath: String
+    ) -> GenericDebugFeatureModel {
+        let feature = makeDeferredFeature(session: session, rootPath: rootPath)
+        session.emit(.capabilities(session.capabilities))
+        return feature
+    }
+
+    /// A feature stopped in a frame that has no source, as in a program built without debug info.
+    private func makeSourcelessStop(
+        session: DeferredInspectionDebugSession,
+        rootPath: String,
+        address: String = "0x19b5f2a4c"
+    ) -> (feature: GenericDebugFeatureModel, frame: DebugStackFrame) {
+        let feature = makeDisassemblyFeature(session: session, rootPath: rootPath)
+        let frame = DebugStackFrame(
+            id: 5,
+            name: "__pthread_kill",
+            sourceURL: nil,
+            line: 0,
+            column: 0,
+            instructionPointerReference: address
+        )
+        feature.selectThread(DebugThread(id: 1, name: "main"))
+        session.completeStackTrace(at: 0, with: [frame])
+        return (feature, frame)
+    }
+
+    @Test
+    func instructionAddressesAreComparedAsTextWithoutArithmetic() {
+        #expect(DebugAddressText.canonical("0x0000000100003F50") == "100003f50")
+        #expect(DebugAddressText.canonical("0X0") == "0")
+        #expect(DebugAddressText.canonical("0x0000") == "0")
+        #expect(DebugAddressText.areEqual("0x100003f50", "0x0000000100003F50"))
+        #expect(!DebugAddressText.areEqual("0x100003f50", "0x100003f51"))
+        // A 64-bit pointer that an Int or a JSON number would round or wrap stays distinct.
+        #expect(!DebugAddressText.areEqual("0xffffffffffffffff", "0xfffffffffffffffe"))
+        #expect(
+            DebugAddressText.firstHexLiteral(in: "0x000000016fdff8a0 -> 0x1")
+                == "0x000000016fdff8a0"
+        )
+        #expect(DebugAddressText.firstHexLiteral(in: "no pointer here") == nil)
+        #expect(DebugAddressText.isHexLiteral(" 0xdeadBEEF "))
+        #expect(!DebugAddressText.isHexLiteral("rsp"))
+        #expect(!DebugAddressText.isHexLiteral("0x"))
+    }
+
+    @Test
+    func memoryDisplayRowsShowHexBytesAndMaskNonPrintableCharacters() {
+        let bytes = Array("Hello, lldb!".utf8) + [0x00, 0x7f, 0xff, 0x0a, 0x41]
+
+        let rows = GenericDebugMemoryDisplay.standard.rows(of: Data(bytes))
+        #expect(rows.map(\.index) == [0, 16])
+        #expect(rows[0].cells.map(\.text).joined(separator: " ") == "48 65 6c 6c 6f 2c 20 6c 6c 64 62 21 00 7f ff 0a")
+        #expect(rows[0].text == "Hello, lldb!....")
+        #expect(rows[1].cells.map(\.text) == ["41"])
+        #expect(rows[1].text == "A")
+        #expect(GenericDebugMemoryDisplay.standard.rows(of: Data()).isEmpty)
+    }
+
+    @Test
+    func memoryDisplayGroupsBytesIntoValuesOfTheChosenBaseSizeAndOrder() {
+        let data = Data([0x01, 0x02, 0x03, 0x04, 0xff, 0xff, 0xff, 0xfe])
+
+        let words = GenericDebugMemoryDisplay(unitSize: 4, bytesPerRow: 8)
+        #expect(words.rows(of: data)[0].cells.map(\.text) == ["04030201", "feffffff"])
+        let bigEndian = GenericDebugMemoryDisplay(unitSize: 4, bytesPerRow: 8, byteOrder: .big)
+        #expect(bigEndian.rows(of: data)[0].cells.map(\.text) == ["01020304", "fffffffe"])
+
+        let signed = GenericDebugMemoryDisplay(radix: .signedDecimal, unitSize: 4, bytesPerRow: 8, byteOrder: .big)
+        #expect(signed.rows(of: data)[0].cells.map { $0.text.trimmingCharacters(in: .whitespaces) } == ["16909060", "-2"])
+        let unsigned = GenericDebugMemoryDisplay(radix: .unsignedDecimal, unitSize: 1, bytesPerRow: 8)
+        #expect(unsigned.rows(of: data)[0].cells.map { $0.text.trimmingCharacters(in: .whitespaces) }
+            == ["1", "2", "3", "4", "255", "255", "255", "254"])
+        let octal = GenericDebugMemoryDisplay(radix: .octal, unitSize: 1, bytesPerRow: 8)
+        #expect(octal.rows(of: data)[0].cells.map(\.text).prefix(2) == ["001", "002"])
+        let binary = GenericDebugMemoryDisplay(radix: .binary, unitSize: 1, bytesPerRow: 8)
+        #expect(binary.rows(of: data)[0].cells.map(\.text).prefix(2) == ["00000001", "00000010"])
+        let float = GenericDebugMemoryDisplay(radix: .floatingPoint, unitSize: 4, bytesPerRow: 8, byteOrder: .big)
+        #expect(float.rows(of: Data([0x3f, 0x80, 0x00, 0x00, 0xc0, 0x00, 0x00, 0x00]))[0].cells
+            .map { $0.text.trimmingCharacters(in: .whitespaces) } == ["1", "-2"])
+        let double = GenericDebugMemoryDisplay(radix: .floatingPoint, unitSize: 8, bytesPerRow: 8)
+        #expect(double.rows(of: Data([0, 0, 0, 0, 0, 0, 0xf8, 0x3f]))[0].cells[0].text
+            .trimmingCharacters(in: .whitespaces) == "1.5")
+    }
+
+    @Test
+    func memoryDisplayRowsHaveAFixedWidthAndShowAnIncompleteTrailingValueAsUnknown() {
+        let display = GenericDebugMemoryDisplay(unitSize: 4, bytesPerRow: 16)
+        let rows = display.rows(of: Data(repeating: 0xab, count: 22))
+        #expect(rows.map(\.index) == [0, 16])
+        #expect(rows[0].cells.map(\.index) == [0, 4, 8, 12])
+        #expect(rows[1].cells.map(\.text) == ["abababab", "????????"])
+        #expect(rows[1].cells.last?.byteCount == 2)
+        #expect(display.rowTextWidth == 4 * 8 + 3)
+        #expect(rows[0].cells.map(\.text.count) == [8, 8, 8, 8])
+
+        for radix in GenericDebugMemoryDisplay.Radix.allCases {
+            for unitSize in GenericDebugMemoryDisplay.unitSizes
+            where radix != .floatingPoint || GenericDebugMemoryDisplay.supportsFloatingPoint(unitSize: unitSize) {
+                let sample = GenericDebugMemoryDisplay(radix: radix, unitSize: unitSize, bytesPerRow: 8)
+                // The widest values must still fit the column, or rows would drift out of line.
+                let widest = sample.rows(of: Data(repeating: 0xff, count: 8))[0].cells.map(\.text.count)
+                let narrowest = sample.rows(of: Data(repeating: 0x00, count: 8))[0].cells.map(\.text.count)
+                #expect(widest.allSatisfy { $0 == sample.cellWidth })
+                #expect(narrowest.allSatisfy { $0 == sample.cellWidth })
+            }
+        }
+    }
+
+    @Test
+    func memoryDisplayChoicesStayConsistentAndSurviveStorage() {
+        // Floating point has no 1 or 2 byte form, so choosing it widens the value.
+        let float = GenericDebugMemoryDisplay.standard.selecting(radix: .floatingPoint)
+        #expect(float.radix == .floatingPoint)
+        #expect(float.unitSize == 4)
+        // Narrowing a float afterwards falls back to a base that has such a value.
+        #expect(float.selecting(unitSize: 2).radix == .hexadecimal)
+        #expect(float.selecting(unitSize: 8).radix == .floatingPoint)
+
+        let unusual = GenericDebugMemoryDisplay(radix: .octal, unitSize: 3, bytesPerRow: 12, byteOrder: .big, showsText: false)
+        let repaired = unusual.normalized()
+        #expect(repaired.unitSize == 1)
+        #expect(repaired.bytesPerRow == 16)
+        #expect(repaired.byteOrder == .big)
+        #expect(!repaired.showsText)
+
+        let chosen = GenericDebugMemoryDisplay(radix: .signedDecimal, unitSize: 8, bytesPerRow: 32, byteOrder: .big, showsText: false)
+        #expect(GenericDebugMemoryDisplay(storedText: chosen.storedText) == chosen)
+        #expect(GenericDebugMemoryDisplay(storedText: "") == .standard)
+        #expect(GenericDebugMemoryDisplay(storedText: "{not json") == .standard)
+        #expect(GenericDebugMemoryDisplay(storedText: "{\"radix\":\"decimal-from-the-future\"}") == .standard)
+    }
+
+    @Test
+    func memoryDumpKnowsWhereTheRequestedAddressIs() {
+        func dump(pageOffset: Int, count: Int) -> GenericDebugMemoryDump {
+            GenericDebugMemoryDump(
+                reference: "0x1000",
+                pageOffset: pageOffset,
+                address: "0x0fc0",
+                unreadableBytes: 0,
+                data: Data(repeating: 0, count: count)
+            )
+        }
+        #expect(dump(pageOffset: -64, count: 256).targetIndex == 64)
+        #expect(dump(pageOffset: 0, count: 256).targetIndex == 0)
+        // A page that lies entirely after or before the address does not contain it.
+        #expect(dump(pageOffset: 256, count: 256).targetIndex == nil)
+        #expect(dump(pageOffset: -320, count: 256).targetIndex == nil)
+        // The adapter may return fewer bytes than the page size.
+        #expect(dump(pageOffset: -64, count: 32).targetIndex == nil)
+    }
+
+    @Test
+    func coreProtocolSessionRequestsDisassemblyAndMemoryOnlyAfterNegotiation() throws {
+        let transport = RecordingTransport()
+        let core = RecordingDebugProtocolCore()
+        let session = CoreDebugAdapterProtocolSession(
+            adapterID: "lldb",
+            transport: transport,
+            core: core,
+            sessionID: "lldb-memory",
+            deadlineScheduler: RecordingDebugDeadlineScheduler()
+        )
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/lldb-memory", isDirectory: true))
+        defer { session.stop() }
+
+        var early: Result<[DebugDisassembledInstruction], Error>?
+        session.requestDisassembly(
+            memoryReference: "0x100003f50",
+            instructionOffset: -4,
+            instructionCount: 8
+        ) { early = $0 }
+        var earlyMemory: Result<DebugMemoryRead, Error>?
+        session.requestReadMemory(memoryReference: "0x100003f50", offset: 0, count: 16) {
+            earlyMemory = $0
+        }
+        #expect(throws: DebugAdapterCapabilityError.self) { try early?.get() }
+        #expect(throws: DebugAdapterCapabilityError.self) { try earlyMemory?.get() }
+        #expect(core.inspectionRequests.isEmpty)
+
+        core.enqueueReceive(sessionID: "lldb-memory", state: "ready", events: [[
+            "sequence": 2,
+            "type": "capabilities",
+            "capabilities": Self.coreCapabilities([
+                "supportsDisassembleRequest": true,
+                "supportsReadMemoryRequest": true,
+                "supportsSteppingGranularity": true,
+                "supportsInstructionBreakpoints": true
+            ])
+        ]])
+        transport.emitData(Data("initialize-response".utf8))
+        #expect(session.capabilities.supportsDisassembleRequest)
+        #expect(session.capabilities.supportsReadMemoryRequest)
+        #expect(session.capabilities.supportsSteppingGranularity)
+        #expect(session.capabilities.supportsInstructionBreakpoints)
+
+        var instructions: Result<[DebugDisassembledInstruction], Error>?
+        session.requestDisassembly(
+            memoryReference: "0x100003f50",
+            instructionOffset: -4,
+            instructionCount: 8
+        ) { instructions = $0 }
+        #expect(core.inspectionRequests.last?.kind == "disassemble")
+        #expect(core.inspectionRequests.last?.memory == DebugCoreMemoryQuery(
+            reference: "0x100003f50",
+            instructionOffset: -4,
+            instructionCount: 8,
+            resolveSymbols: true
+        ))
+        let disassembleID = try #require(core.lastInspectionOperationID)
+        core.enqueueReceive(sessionID: "lldb-memory", state: "paused", events: [[
+            "sequence": 3,
+            "type": "operationCompleted",
+            "operationId": disassembleID,
+            "result": [
+                "kind": "disassemble",
+                "instructions": [[
+                    "address": "0x100003f48",
+                    "instructionBytes": "fd 7b bf a9",
+                    "instruction": "stp x29, x30, [sp, #-0x10]!",
+                    "symbol": "main"
+                ], [
+                    "address": "0x100003f4c",
+                    "instruction": "mov x29, sp",
+                    "sourcePath": "/tmp/lldb-memory/main.c",
+                    "line": 4
+                ]]
+            ]
+        ]])
+        transport.emitData(Data("disassemble-response".utf8))
+        let rows = try #require(try instructions?.get())
+        #expect(rows.map(\.address) == ["0x100003f48", "0x100003f4c"])
+        #expect(rows[0].instructionBytes == "fd 7b bf a9")
+        #expect(rows[0].symbol == "main")
+        #expect(rows[1].instructionBytes == nil)
+        #expect(rows[1].sourceURL?.lastPathComponent == "main.c")
+        #expect(rows[1].line == 4)
+
+        var memory: Result<DebugMemoryRead, Error>?
+        session.requestReadMemory(memoryReference: "0x100003f50", offset: 16, count: 4) {
+            memory = $0
+        }
+        #expect(core.inspectionRequests.last?.kind == "readMemory")
+        #expect(core.inspectionRequests.last?.count == 4)
+        #expect(core.inspectionRequests.last?.memory == DebugCoreMemoryQuery(
+            reference: "0x100003f50",
+            offset: 16
+        ))
+        let readID = try #require(core.lastInspectionOperationID)
+        core.enqueueReceive(sessionID: "lldb-memory", state: "paused", events: [[
+            "sequence": 4,
+            "type": "operationCompleted",
+            "operationId": readID,
+            "result": [
+                "kind": "readMemory",
+                "address": "0x100003f60",
+                "unreadableBytes": 2,
+                "dataBase64": Data([1, 2, 3, 4]).base64EncodedString()
+            ]
+        ]])
+        transport.emitData(Data("read-memory-response".utf8))
+        let read = try #require(try memory?.get())
+        #expect(read.address == "0x100003f60")
+        #expect(read.unreadableBytes == 2)
+        #expect(read.data == Data([1, 2, 3, 4]))
+    }
+
+    @Test
+    func coreProtocolSessionForwardsInstructionBreakpointsAndSteppingGranularity() throws {
+        let transport = RecordingTransport()
+        let core = RecordingDebugProtocolCore()
+        let session = CoreDebugAdapterProtocolSession(
+            adapterID: "lldb",
+            transport: transport,
+            core: core,
+            sessionID: "lldb-instruction-steps",
+            deadlineScheduler: RecordingDebugDeadlineScheduler()
+        )
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/lldb-steps", isDirectory: true))
+        defer { session.stop() }
+
+        session.setInstructionBreakpoints([
+            DebugInstructionBreakpoint(instructionReference: "0x100003f50")
+        ])
+        #expect(core.instructionBreakpointUpdates.map { $0.map(\.instructionReference) } == [
+            ["0x100003f50"]
+        ])
+
+        session.execute(.next, threadID: 1, granularity: .instruction)
+        #expect(core.lastExecutionGranularity == .instruction)
+        session.execute(.next, threadID: 1)
+        #expect(core.lastExecutionGranularity == nil)
+    }
+
+    @Test
+    func coreProtocolSessionMapsSourcelessFramesAndRegisterScopes() throws {
+        let transport = RecordingTransport()
+        let core = RecordingDebugProtocolCore()
+        let session = CoreDebugAdapterProtocolSession(
+            adapterID: "lldb",
+            transport: transport,
+            core: core,
+            sessionID: "lldb-sourceless",
+            deadlineScheduler: RecordingDebugDeadlineScheduler()
+        )
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/lldb-sourceless", isDirectory: true))
+        defer { session.stop() }
+
+        var frames: Result<[DebugStackFrame], Error>?
+        session.requestStackTrace(threadID: 1) { frames = $0 }
+        let stackID = try #require(core.lastInspectionOperationID)
+        core.enqueueReceive(sessionID: "lldb-sourceless", state: "paused", events: [[
+            "sequence": 2,
+            "type": "operationCompleted",
+            "operationId": stackID,
+            "result": [
+                "kind": "stackTrace",
+                "stackFrames": [[
+                    "id": 1,
+                    "name": "__pthread_kill",
+                    "line": 0,
+                    "column": 0,
+                    "instructionPointerReference": "0x19b5f2a4c"
+                ], [
+                    // lldb-dap serves code without debug info as a synthetic source.
+                    "id": 3,
+                    "name": "raise",
+                    "sourcePath": "/usr/lib/system/libsystem_c.dylib`raise",
+                    "sourceReference": 4,
+                    "line": 12,
+                    "column": 1,
+                    "instructionPointerReference": "0x19b5f2b00"
+                ], [
+                    "id": 2,
+                    "name": "main",
+                    "sourcePath": "/tmp/lldb-sourceless/main.c",
+                    "line": 3,
+                    "column": 1
+                ]]
+            ]
+        ]])
+        transport.emitData(Data("stack-response".utf8))
+        let stack = try #require(try frames?.get())
+        #expect(stack[0].isSourceless)
+        #expect(stack[0].sourceURL == nil)
+        #expect(stack[0].instructionPointerReference == "0x19b5f2a4c")
+        #expect(stack[1].isSourceless)
+        #expect(stack[1].sourceURL == nil)
+        #expect(stack[1].instructionPointerReference == "0x19b5f2b00")
+        #expect(!stack[2].isSourceless)
+        #expect(stack[2].instructionPointerReference == nil)
+
+        var scopes: Result<[DebugScope], Error>?
+        session.requestScopes(frameID: 1) { scopes = $0 }
+        let scopesID = try #require(core.lastInspectionOperationID)
+        core.enqueueReceive(sessionID: "lldb-sourceless", state: "paused", events: [[
+            "sequence": 3,
+            "type": "operationCompleted",
+            "operationId": scopesID,
+            "result": [
+                "kind": "scopes",
+                "scopes": [[
+                    "name": "Variables",
+                    "variablesReference": 9,
+                    "expensive": false
+                ], [
+                    "name": "Registers",
+                    "variablesReference": 10,
+                    "expensive": true,
+                    "presentationHint": "registers"
+                ]]
+            ]
+        ]])
+        transport.emitData(Data("scopes-response".utf8))
+        let mapped = try #require(try scopes?.get())
+        #expect(mapped.map(\.isRegisters) == [false, true])
+    }
+
+    @Test
+    func sourcelessFrameOpensTheDisassemblyAndASourceFrameClosesItAgain() throws {
+        let session = DeferredInspectionDebugSession(capabilities: Self.disassemblyCapabilities)
+        let feature = makeDisassemblyFeature(session: session, rootPath: "/tmp/lldb-disassembly-follow")
+        defer { feature.stop() }
+        let source = URL(fileURLWithPath: "/tmp/lldb-disassembly-follow/src/main.c")
+        let library = DebugStackFrame(
+            id: 1,
+            name: "__pthread_kill",
+            sourceURL: nil,
+            line: 0,
+            column: 0,
+            instructionPointerReference: "0x19b5f2a4c"
+        )
+        let user = DebugStackFrame(
+            id: 2,
+            name: "main",
+            sourceURL: source,
+            line: 4,
+            column: 1,
+            instructionPointerReference: "0x100003f50"
+        )
+
+        feature.selectThread(DebugThread(id: 1, name: "main"))
+        session.completeStackTrace(at: 0, with: [library, user])
+        // The first frame with source is preferred, so the view stays closed.
+        #expect(feature.selectedFrameID == 2)
+        #expect(!feature.disassembly.isPresented)
+        #expect(session.disassemblyReferences.isEmpty)
+
+        feature.selectFrame(library)
+        #expect(feature.disassembly.isPresented)
+        #expect(feature.disassembly.currentAddress == "0x19b5f2a4c")
+        #expect(feature.disassembly.isLoading)
+        #expect(session.disassemblyReferences == ["0x19b5f2a4c"])
+        #expect(session.disassemblyOffsets == [-GenericDebugDisassemblyModel.instructionsBefore])
+
+        let rows = [
+            instruction("0x19b5f2a48", "mov x16, #0x148", symbol: "__pthread_kill"),
+            instruction("0x19b5f2a4c", "svc #0x80")
+        ]
+        session.completeDisassembly(at: 0, with: .success(rows))
+        #expect(feature.disassembly.rows == rows)
+        #expect(!feature.disassembly.isLoading)
+        #expect(feature.disassembly.isCurrent(rows[1]))
+        #expect(!feature.disassembly.isCurrent(rows[0]))
+
+        // A frame with source returns to the editor, so the view that opened itself closes.
+        feature.selectFrame(user)
+        #expect(!feature.disassembly.isPresented)
+        #expect(feature.disassembly.rows.isEmpty)
+
+        // Opened by hand, the view stays while other frames are selected.
+        feature.disassembly.present()
+        #expect(session.disassemblyReferences == ["0x19b5f2a4c", "0x100003f50"])
+        feature.selectFrame(library)
+        feature.selectFrame(user)
+        #expect(feature.disassembly.isPresented)
+    }
+
+    @Test
+    func disassemblyStartsAtTheInstructionPointerWhenTheAdapterRefusesNegativeOffsets() throws {
+        let session = DeferredInspectionDebugSession(capabilities: Self.disassemblyCapabilities)
+        let (feature, _) = makeSourcelessStop(session: session, rootPath: "/tmp/lldb-no-negative")
+        defer { feature.stop() }
+
+        #expect(feature.disassembly.isPresented)
+        #expect(session.disassemblyOffsets == [-GenericDebugDisassemblyModel.instructionsBefore])
+        session.completeDisassembly(at: 0, with: .failure(DeferredDebugSessionError.launchFailed))
+        #expect(session.disassemblyOffsets == [-GenericDebugDisassemblyModel.instructionsBefore, 0])
+        #expect(feature.disassembly.isLoading)
+        #expect(feature.disassembly.loadFailure == nil)
+
+        let rows = [instruction("0x19b5f2a4c", "svc #0x80")]
+        session.completeDisassembly(at: 1, with: .success(rows))
+        #expect(feature.disassembly.rows == rows)
+        #expect(!feature.disassembly.isLoading)
+
+        // A failure of a request that was not the first window is reported, not retried.
+        feature.disassembly.loadMore(.after)
+        #expect(session.disassemblyReferences.last == "0x19b5f2a4c")
+        #expect(session.disassemblyOffsets.last == 1)
+        session.completeDisassembly(at: 2, with: .failure(DeferredDebugSessionError.launchFailed))
+        #expect(feature.disassembly.loadFailure != nil)
+        #expect(!feature.disassembly.isLoading)
+        #expect(feature.disassembly.rows == rows)
+        #expect(session.disassemblyOffsets.count == 3)
+    }
+
+    @Test
+    func loadingMoreInstructionsAddsOnlyAddressesNotListedYet() throws {
+        let session = DeferredInspectionDebugSession(capabilities: Self.disassemblyCapabilities)
+        let (feature, _) = makeSourcelessStop(session: session, rootPath: "/tmp/lldb-load-more")
+        defer { feature.stop() }
+
+        let first = instruction("0x19b5f2a48", "mov x16, #0x148")
+        let second = instruction("0x19b5f2a4c", "svc #0x80")
+        session.completeDisassembly(at: 0, with: .success([first, second]))
+
+        feature.disassembly.loadMore(.before)
+        #expect(session.disassemblyReferences.last == "0x19b5f2a48")
+        #expect(session.disassemblyOffsets.last == -GenericDebugDisassemblyModel.pageInstructionCount)
+        let older = instruction("0x19b5f2a44", "nop")
+        // The adapter may repeat the edge; the same address in a different spelling is the same row.
+        let repeated = instruction("0x0000000019b5f2a48", "mov x16, #0x148")
+        session.completeDisassembly(at: 1, with: .success([older, repeated]))
+        #expect(feature.disassembly.rows == [older, first, second])
+
+        feature.disassembly.loadMore(.after)
+        #expect(session.disassemblyReferences.last == "0x19b5f2a4c")
+        #expect(session.disassemblyOffsets.last == 1)
+        let newer = instruction("0x19b5f2a50", "ret")
+        session.completeDisassembly(at: 2, with: .success([newer]))
+        #expect(feature.disassembly.rows == [older, first, second, newer])
+    }
+
+    @Test
+    func disassemblyReplyAfterTheDebuggeeResumedIsDropped() throws {
+        let session = DeferredInspectionDebugSession(capabilities: Self.disassemblyCapabilities)
+        let (feature, _) = makeSourcelessStop(session: session, rootPath: "/tmp/lldb-stale-disassembly")
+        defer { feature.stop() }
+        #expect(feature.disassembly.isLoading)
+
+        session.emit(.continued(threadID: 1))
+        #expect(!feature.disassembly.isLoading)
+        #expect(feature.disassembly.currentAddress == nil)
+
+        // Addresses of the previous stop mean nothing now, even if the reply still arrives.
+        session.completeDisassembly(at: 0, with: .success([instruction("0x19b5f2a4c", "svc #0x80")]))
+        #expect(feature.disassembly.rows.isEmpty)
+        #expect(feature.disassembly.loadFailure == nil)
+    }
+
+    @Test
+    func steppingMovesOneInstructionWhileTheDisassemblyIsOpenAndTheAdapterCan() throws {
+        let session = DeferredInspectionDebugSession(capabilities: Self.disassemblyCapabilities)
+        let feature = makeDisassemblyFeature(session: session, rootPath: "/tmp/lldb-instruction-step")
+        defer { feature.stop() }
+        func resume() {
+            session.transition(to: .running)
+            session.transition(to: .paused)
+        }
+
+        feature.execute(.next)
+        #expect(session.executionCommands == [.next])
+        #expect(session.steppingGranularities.isEmpty)
+        resume()
+
+        feature.disassembly.present()
+        feature.execute(.next)
+        resume()
+        feature.execute(.stepIn)
+        resume()
+        // Leaving the function is not an instruction-sized move.
+        feature.execute(.stepOut)
+        resume()
+        #expect(session.executionCommands == [.next, .next, .stepIn, .stepOut])
+        #expect(session.steppingGranularities == [.instruction, .instruction])
+
+        feature.disassembly.dismiss()
+        feature.execute(.next)
+        #expect(session.steppingGranularities == [.instruction, .instruction])
+        #expect(session.executionCommands.count == 5)
+
+        let plain = DeferredInspectionDebugSession(
+            capabilities: DebugAdapterCapabilities(negotiated: true, supportsDisassembleRequest: true)
+        )
+        let plainFeature = makeDisassemblyFeature(session: plain, rootPath: "/tmp/lldb-no-granularity")
+        defer { plainFeature.stop() }
+        plainFeature.disassembly.present()
+        plainFeature.execute(.next)
+        #expect(plain.executionCommands == [.next])
+        #expect(plain.steppingGranularities.isEmpty)
+    }
+
+    @Test
+    func instructionBreakpointsAreSetThroughTheSessionAndMatchedByAddressText() throws {
+        let session = DeferredInspectionDebugSession(capabilities: Self.disassemblyCapabilities)
+        let feature = makeDisassemblyFeature(session: session, rootPath: "/tmp/lldb-instruction-breakpoints")
+        defer { feature.stop() }
+
+        feature.disassembly.toggleBreakpoint(at: "0x100003f50")
+        #expect(session.instructionBreakpointUpdates.map { $0.map(\.instructionReference) } == [
+            ["0x100003f50"]
+        ])
+        #expect(feature.disassembly.breakpoint(at: "0x0000000100003F50") != nil)
+        #expect(feature.disassembly.breakpoints.first?.verified == false)
+
+        // The adapter may spell the address differently from the one that was requested.
+        session.emit(.breakpoint(DebugBreakpoint(
+            id: 1,
+            verified: true,
+            message: nil,
+            sourceURL: nil,
+            line: nil,
+            column: nil,
+            instructionReference: "0x0000000100003f50"
+        )))
+        #expect(feature.disassembly.breakpoint(at: "0x100003f50")?.verified == true)
+
+        session.emit(.breakpoint(DebugBreakpoint(
+            id: 1,
+            verified: false,
+            message: "no code at this address",
+            sourceURL: nil,
+            line: nil,
+            column: nil,
+            instructionReference: "0x100003f50"
+        )))
+        #expect(feature.disassembly.breakpoint(at: "0x100003f50")?.verified == false)
+        #expect(feature.disassembly.breakpoint(at: "0x100003f50")?.message == "no code at this address")
+
+        // Clicking the address again clears it, whichever way the address is spelled.
+        feature.disassembly.toggleBreakpoint(at: "0x0000000100003F50")
+        #expect(feature.disassembly.breakpoints.isEmpty)
+        #expect(session.instructionBreakpointUpdates.last?.isEmpty == true)
+        #expect(session.instructionBreakpointUpdates.count == 2)
+    }
+
+    @Test
+    func instructionBreakpointsBelongToOneSessionAndAreForgottenWithIt() {
+        final class Sink {
+            var sessions: [DebugSessionID] = []
+        }
+        let sink = Sink()
+        let model = GenericDebugDisassemblyModel()
+        model.environment = GenericDebugDisassemblyModel.Environment(
+            session: { nil },
+            capabilities: { Self.disassemblyCapabilities },
+            selectedFrameID: { nil },
+            breakpointsChanged: { id, _ in sink.sessions.append(id) }
+        )
+        let first = DebugSessionID()
+        let second = DebugSessionID()
+
+        model.activate(sessionID: first)
+        model.toggleBreakpoint(at: "0x10")
+        model.activate(sessionID: second)
+        #expect(model.breakpoints.isEmpty)
+        model.toggleBreakpoint(at: "0x20")
+        #expect(sink.sessions == [first, second])
+
+        // ASLR gives the next run other addresses, so nothing outlives its session.
+        model.activate(sessionID: first)
+        #expect(model.breakpoints.map(\.address) == ["0x10"])
+        model.forget(sessionID: first)
+        #expect(model.breakpoints.isEmpty)
+        model.activate(sessionID: second)
+        model.activate(sessionID: first)
+        #expect(model.breakpoints.isEmpty)
+    }
+
+    @Test
+    func disassemblyActionsAreInertWithoutTheMatchingAdapterCapability() throws {
+        let session = DeferredInspectionDebugSession()
+        let (feature, _) = makeSourcelessStop(session: session, rootPath: "/tmp/lldb-no-capabilities")
+        defer { feature.stop() }
+
+        #expect(!feature.disassembly.isPresented)
+        feature.disassembly.present()
+        feature.disassembly.toggleBreakpoint(at: "0x10")
+        feature.disassembly.readMemory(from: "0x1000")
+        #expect(session.disassemblyReferences.isEmpty)
+        #expect(session.instructionBreakpointUpdates.isEmpty)
+        #expect(session.memoryReferences.isEmpty)
+        #expect(feature.disassembly.breakpoints.isEmpty)
+        #expect(!feature.disassembly.canDisassemble)
+        #expect(!feature.disassembly.canReadMemory)
+        #expect(!feature.disassembly.stepsByInstruction)
+    }
+
+    @Test
+    func memoryReadsAcceptAnAddressOrAnExpressionAndPageByOffset() throws {
+        let session = DeferredInspectionDebugSession(capabilities: Self.disassemblyCapabilities)
+        let (feature, frame) = makeSourcelessStop(session: session, rootPath: "/tmp/lldb-read-memory")
+        defer { feature.stop() }
+        let page = GenericDebugMemoryDump.pageSize
+        let context = GenericDebugMemoryDump.contextBytes
+
+        // The page starts before the address, so the address is not the first thing on it.
+        feature.disassembly.readMemory(from: " 0x1000 ")
+        #expect(session.memoryReferences == ["0x1000"])
+        #expect(session.memoryOffsets == [-context])
+        #expect(feature.disassembly.isLoadingMemory)
+        let revealBefore = feature.disassembly.memoryRevealToken
+        session.completeMemory(at: 0, with: .success(DebugMemoryRead(
+            address: "0x0fc0",
+            unreadableBytes: 0,
+            data: Data(repeating: 0x41, count: page)
+        )))
+        #expect(!feature.disassembly.isLoadingMemory)
+        #expect(feature.disassembly.memory?.pageOffset == -context)
+        #expect(feature.disassembly.memory?.targetIndex == context)
+        #expect(feature.disassembly.memoryRevealToken == revealBefore + 1)
+
+        feature.disassembly.showMemoryPage(.after)
+        #expect(session.memoryReferences == ["0x1000", "0x1000"])
+        #expect(session.memoryOffsets == [-context, -context + page])
+        session.completeMemory(at: 1, with: .success(DebugMemoryRead(
+            address: "0x10c0",
+            unreadableBytes: 16,
+            data: Data(repeating: 0x42, count: 8)
+        )))
+        #expect(feature.disassembly.memory?.pageOffset == -context + page)
+        #expect(feature.disassembly.memory?.unreadableBytes == 16)
+        #expect(feature.disassembly.memory?.targetIndex == nil)
+        feature.disassembly.showMemoryPage(.before)
+        #expect(session.memoryOffsets.last == -context)
+        session.completeMemory(at: 2, with: .failure(DeferredDebugSessionError.launchFailed))
+        #expect(feature.disassembly.memoryFailure != nil)
+
+        // A register or any other expression is evaluated in the selected frame first.
+        feature.disassembly.readMemory(from: "$sp")
+        #expect(session.evaluateExpressions == ["$sp"])
+        #expect(session.evaluateFrameIDs == [frame.id])
+        session.completeEvaluation(at: 0, with: .success(DebugVariable(
+            id: "$sp",
+            name: "$sp",
+            value: "0x000000016fdff8a0",
+            type: "unsigned long",
+            evaluateName: "$sp",
+            variablesReference: 0
+        )))
+        #expect(session.memoryReferences.last == "0x000000016fdff8a0")
+        #expect(session.memoryOffsets.last == -context)
+        // Nothing is readable before the start of a mapping; the page then starts at the address.
+        session.completeMemory(at: 3, with: .failure(DeferredDebugSessionError.launchFailed))
+        #expect(session.memoryOffsets.last == 0)
+        #expect(feature.disassembly.memoryFailure == nil)
+        #expect(feature.disassembly.isLoadingMemory)
+        session.completeMemory(at: 4, with: .success(DebugMemoryRead(
+            address: "0x000000016fdff8a0",
+            unreadableBytes: 0,
+            data: Data(repeating: 0, count: page)
+        )))
+        #expect(feature.disassembly.memory?.targetIndex == 0)
+        #expect(!feature.disassembly.isLoadingMemory)
+
+        // A value that holds no address is reported instead of guessed at.
+        feature.disassembly.readMemory(from: "argc")
+        session.completeEvaluation(at: 1, with: .success(DebugVariable(
+            id: "argc",
+            name: "argc",
+            value: "3",
+            type: "int",
+            evaluateName: "argc",
+            variablesReference: 0
+        )))
+        #expect(feature.disassembly.memoryFailure == .unresolvedAddress)
+        #expect(!feature.disassembly.isLoadingMemory)
+        // Five reads so far: first page, next, previous, `$sp` with context, and its retry from the address.
+        // The unresolved `argc` adds none.
+        #expect(session.memoryReferences.count == 5)
+    }
+
+    @Test
+    func selectingAnotherFrameDropsMemoryOfThePreviousOne() throws {
+        let session = DeferredInspectionDebugSession(capabilities: Self.disassemblyCapabilities)
+        let (feature, frame) = makeSourcelessStop(session: session, rootPath: "/tmp/lldb-memory-frame")
+        defer { feature.stop() }
+
+        feature.disassembly.readMemory(from: "0x1000")
+        feature.selectFrame(frame)
+        // The reply of the read started before the selection belongs to the old frame.
+        session.completeMemory(at: 0, with: .success(DebugMemoryRead(
+            address: "0x1000",
+            unreadableBytes: 0,
+            data: Data([1, 2, 3])
+        )))
+        #expect(feature.disassembly.memory == nil)
+        #expect(!feature.disassembly.isLoadingMemory)
+
+        feature.disassembly.readMemory(from: "0x2000")
+        session.completeMemory(at: 1, with: .success(DebugMemoryRead(
+            address: "0x2000",
+            unreadableBytes: 0,
+            data: Data([4])
+        )))
+        #expect(feature.disassembly.memory?.address == "0x2000")
+        feature.selectFrame(frame)
+        #expect(feature.disassembly.memory == nil)
+    }
+
+    // MARK: - Stepping refreshes the panels in place
+
+    /// A feature stopped once in `main`, with `point` expanded next to `count`, ready for a step.
+    private func makeSteppableStop(
+        session: DeferredInspectionDebugSession,
+        rootPath: String
+    ) -> (feature: GenericDebugFeatureModel, point: DebugVariable) {
+        let feature = makeDeferredFeature(session: session, rootPath: rootPath)
+        let frame = DebugStackFrame(
+            id: 70,
+            name: "main",
+            sourceURL: URL(fileURLWithPath: "\(rootPath)/src/Main.java"),
+            line: 10,
+            column: 1
+        )
+        let point = DebugVariable(
+            id: "locals/point", name: "point", value: "{x=1, y=2}", type: "Point",
+            evaluateName: "point", variablesReference: 71
+        )
+        let count = DebugVariable(
+            id: "locals/count", name: "count", value: "1", type: "int",
+            evaluateName: "count", variablesReference: 0
+        )
+        feature.selectThread(DebugThread(id: 1, name: "main"))
+        session.completeStackTrace(at: 0, with: [frame])
+        session.completeScopes(
+            at: 0,
+            with: [DebugScope(id: 700, name: "Locals", variablesReference: 700, expensive: false)]
+        )
+        session.completeVariables(at: 0, with: [point, count])
+        feature.toggleVariableExpansion(point)
+        session.completeVariables(at: 1, with: [
+            DebugVariable(id: "point/x", name: "x", value: "1", type: "int", evaluateName: "point.x", variablesReference: 0),
+            DebugVariable(id: "point/y", name: "y", value: "2", type: "int", evaluateName: "point.y", variablesReference: 0)
+        ])
+        return (feature, point)
+    }
+
+    /// The adapter reports a step: it resumes, stops in the same thread, then pauses.
+    private func landStep(_ session: DeferredInspectionDebugSession) {
+        session.emit(.stopped(reason: "step", threadID: 1, description: nil))
+        session.transition(to: .paused)
+    }
+
+    @Test
+    func steppingKeepsTheVariableTreeAndSwapsItInPlaceAtTheNextStop() throws {
+        let session = DeferredInspectionDebugSession()
+        let (feature, point) = makeSteppableStop(session: session, rootPath: "/tmp/debug-step-in-place")
+        defer { feature.stop() }
+        #expect(feature.isVariableExpanded(point))
+        #expect(feature.children(of: point).map(\.name) == ["x", "y"])
+        let before = feature.presentedVariables
+
+        feature.execute(.next)
+        session.transition(to: .running)
+
+        // The step is in flight: nothing was cleared, the panels are only marked as outdated.
+        #expect(feature.isInspectionStale)
+        #expect(feature.stackFrames.count == 1)
+        #expect(feature.presentedVariables == before)
+        #expect(feature.isVariableExpanded(point))
+        #expect(feature.children(of: point).map(\.name) == ["x", "y"])
+
+        landStep(session)
+        #expect(!feature.isInspectionStale)
+        #expect(feature.stackFrames.count == 1, "The previous stack stays until the new one arrives")
+        #expect(feature.presentedVariables == before)
+
+        session.completeThreads(at: 0, with: [DebugThread(id: 1, name: "main")])
+        session.completeStackTrace(at: 1, with: [
+            DebugStackFrame(
+                id: 80,
+                name: "main",
+                sourceURL: URL(fileURLWithPath: "/tmp/debug-step-in-place/src/Main.java"),
+                line: 11,
+                column: 1
+            )
+        ])
+        #expect(feature.selectedFrameID == 80)
+        #expect(feature.presentedVariables == before)
+        session.completeScopes(
+            at: 1,
+            with: [DebugScope(id: 800, name: "Locals", variablesReference: 800, expensive: false)]
+        )
+        #expect(feature.isRefreshingVariables)
+        #expect(session.variableReferences.last == 800)
+        #expect(feature.presentedVariables == before)
+
+        // The new root page arrives behind the old tree, which is still what the view shows.
+        let newPoint = DebugVariable(
+            id: "locals2/point", name: "point", value: "{x=5, y=2}", type: "Point",
+            evaluateName: "point", variablesReference: 81
+        )
+        let newCount = DebugVariable(
+            id: "locals2/count", name: "count", value: "2", type: "int",
+            evaluateName: "count", variablesReference: 0
+        )
+        session.completeVariables(at: 2, with: [newPoint, newCount])
+        #expect(feature.isRefreshingVariables, "`point` was expanded, so its children are fetched again")
+        #expect(session.variableReferences.last == 81)
+        #expect(feature.presentedVariables == before)
+
+        session.completeVariables(at: 3, with: [
+            DebugVariable(id: "point2/x", name: "x", value: "5", type: "int", evaluateName: "point.x", variablesReference: 0),
+            DebugVariable(id: "point2/y", name: "y", value: "2", type: "int", evaluateName: "point.y", variablesReference: 0)
+        ])
+        #expect(!feature.isRefreshingVariables)
+        #expect(feature.presentedVariables == [newPoint, newCount])
+        #expect(feature.isVariableExpanded(newPoint), "Expansion survives by name path, not by the adapter's ids")
+        #expect(feature.children(of: newPoint).map(\.value) == ["5", "2"])
+    }
+
+    @Test
+    func theVariableTreeCannotBeEditedWhileItIsBeingReplaced() async throws {
+        let session = DeferredInspectionDebugSession()
+        let (feature, point) = makeSteppableStop(session: session, rootPath: "/tmp/debug-step-readonly")
+        defer { feature.stop() }
+        let requestsBefore = session.variableReferences.count
+
+        feature.execute(.next)
+        session.transition(to: .running)
+        feature.toggleVariableExpansion(point)
+        feature.loadMoreVariables(parentVariableID: nil)
+        #expect(feature.isVariableExpanded(point), "A click on the frozen tree must not collapse it")
+        #expect(session.variableReferences.count == requestsBefore)
+
+        // A JSON snapshot of a tree the debuggee already left would show values that no longer exist.
+        await #expect(throws: CancellationError.self) {
+            _ = try await feature.variableJSONSnapshot()
+        }
+    }
+
+    @Test
+    func continuingStillClearsTheStoppedInspection() throws {
+        let session = DeferredInspectionDebugSession()
+        let (feature, _) = makeSteppableStop(session: session, rootPath: "/tmp/debug-step-continue")
+        defer { feature.stop() }
+
+        // Continue can end anywhere, so it keeps the full reset instead of the in-place swap.
+        feature.execute(.continueExecution)
+        session.transition(to: .running)
+
+        #expect(!feature.isInspectionStale)
+        #expect(feature.stackFrames.isEmpty)
+        #expect(feature.presentedVariables.isEmpty)
+        #expect(feature.selectedFrameID == nil)
+    }
+
+    @Test
+    func terminatingWhileSteppingClearsThePanels() throws {
+        let session = DeferredInspectionDebugSession()
+        let (feature, _) = makeSteppableStop(session: session, rootPath: "/tmp/debug-step-terminated")
+        defer { feature.stop() }
+
+        feature.execute(.stepIn)
+        session.transition(to: .running)
+        #expect(feature.isInspectionStale)
+        session.emit(.terminated(exitCode: 0))
+        session.transition(to: .terminated)
+
+        #expect(!feature.isInspectionStale)
+        #expect(!feature.isRefreshingVariables)
+        #expect(feature.stackFrames.isEmpty)
+        #expect(feature.presentedVariables.isEmpty)
+    }
+
+    @Test
+    func aStopWithoutFramesDoesNotLeaveTheOldStackOnScreen() throws {
+        let session = DeferredInspectionDebugSession()
+        let (feature, _) = makeSteppableStop(session: session, rootPath: "/tmp/debug-step-empty-stack")
+        defer { feature.stop() }
+
+        feature.execute(.next)
+        session.transition(to: .running)
+        landStep(session)
+        session.completeThreads(at: 0, with: [DebugThread(id: 1, name: "main")])
+        session.completeStackTrace(at: 1, with: [])
+
+        // Nothing replaces the kept panels, so they must not pretend to describe this stop.
+        #expect(feature.selectedFrameID == nil)
+        #expect(feature.stackFrames.isEmpty)
+        #expect(feature.presentedVariables.isEmpty)
+        #expect(!feature.isRefreshingVariables)
+    }
+
+    @Test
+    func aStopThatReportsNoThreadFallsBackToAFullReset() throws {
+        let session = DeferredInspectionDebugSession()
+        let (feature, _) = makeSteppableStop(session: session, rootPath: "/tmp/debug-step-no-threads")
+        defer { feature.stop() }
+
+        feature.execute(.next)
+        session.transition(to: .running)
+        session.emit(.stopped(reason: "step", threadID: nil, description: nil))
+        session.transition(to: .paused)
+        session.completeThreads(at: 0, with: [])
+
+        #expect(feature.stackFrames.isEmpty)
+        #expect(feature.presentedVariables.isEmpty)
+        #expect(!feature.isInspectionStale)
+    }
+
+    @Test
+    func automaticVariablesKeepTheirOldValuesUntilEachOneIsEvaluatedAgain() throws {
+        let session = DeferredInspectionDebugSession()
+        let feature = makeDeferredFeature(session: session, rootPath: "/tmp/debug-step-automatic")
+        defer { feature.stop() }
+        feature.onAutomaticVariableInspectionRequest = { [weak feature] _ in
+            feature?.requestAutomaticVariables(["total"])
+        }
+        func frame(_ id: Int, line: Int) -> DebugStackFrame {
+            DebugStackFrame(
+                id: id,
+                name: "main",
+                sourceURL: URL(fileURLWithPath: "/tmp/debug-step-automatic/src/Main.java"),
+                line: line,
+                column: 1
+            )
+        }
+        func total(_ value: String) -> DebugVariable {
+            DebugVariable(
+                id: "total", name: "total", value: value, type: "int",
+                evaluateName: "total", variablesReference: 0
+            )
+        }
+
+        feature.selectThread(DebugThread(id: 1, name: "main"))
+        session.completeStackTrace(at: 0, with: [frame(1, line: 5)])
+        session.completeEvaluation(at: 0, with: .success(total("3")))
+        #expect(feature.automaticVariables.map(\.value) == ["3"])
+
+        feature.execute(.next)
+        session.transition(to: .running)
+        landStep(session)
+        session.completeThreads(at: 0, with: [DebugThread(id: 1, name: "main")])
+        session.completeStackTrace(at: 1, with: [frame(2, line: 6)])
+
+        // The expression is asked again for the new frame while the old value stays visible.
+        #expect(session.evaluateFrameIDs.last == 2)
+        #expect(feature.automaticVariables.map(\.value) == ["3"])
+        session.completeEvaluation(at: 1, with: .success(total("4")))
+        #expect(feature.automaticVariables.map(\.value) == ["4"])
+    }
+
+    // MARK: - Stepping in the disassembly view
+
+    @Test
+    func stepButtonsKnowWhetherTheyMoveByInstruction() throws {
+        let session = DeferredInspectionDebugSession(capabilities: Self.disassemblyCapabilities)
+        let feature = makeDisassemblyFeature(session: session, rootPath: "/tmp/lldb-step-granularity-flags")
+        defer { feature.stop() }
+
+        #expect(feature.disassembly.canStepByInstruction)
+        #expect(!feature.disassembly.stepsByInstruction, "Closed view: a step still moves by source line")
+        feature.disassembly.present()
+        #expect(feature.disassembly.stepsByInstruction)
+        feature.disassembly.dismiss()
+        #expect(!feature.disassembly.stepsByInstruction)
+
+        let plain = DeferredInspectionDebugSession(
+            capabilities: DebugAdapterCapabilities(negotiated: true, supportsDisassembleRequest: true)
+        )
+        let plainFeature = makeDisassemblyFeature(session: plain, rootPath: "/tmp/lldb-step-granularity-missing")
+        defer { plainFeature.stop() }
+        plainFeature.disassembly.present()
+        // The header warns about this case, so it has to be distinguishable from the supported one.
+        #expect(plainFeature.disassembly.isPresented)
+        #expect(!plainFeature.disassembly.canStepByInstruction)
+        #expect(!plainFeature.disassembly.stepsByInstruction)
+    }
+
+    @Test
+    func steppingInsideTheListedRangeOnlyMovesTheCurrentInstructionMarker() throws {
+        let session = DeferredInspectionDebugSession(capabilities: Self.disassemblyCapabilities)
+        let (feature, _) = makeSourcelessStop(session: session, rootPath: "/tmp/lldb-step-keeps-listing")
+        defer { feature.stop() }
+        let rows = (0..<20).map { instruction("0x\(String(0x1000 + $0 * 4, radix: 16))", "nop") }
+        session.completeDisassembly(at: 0, with: .success(rows))
+        let requestsBefore = session.disassemblyReferences.count
+
+        let next = DebugStackFrame(
+            id: 6, name: "__pthread_kill", sourceURL: nil, line: 0, column: 0,
+            instructionPointerReference: rows[4].address
+        )
+        feature.disassembly.frameSelected(next, preservingView: true)
+
+        #expect(feature.disassembly.currentAddress == rows[4].address)
+        #expect(feature.disassembly.rows == rows, "The listing must not blink away for one step")
+        #expect(feature.disassembly.isCurrent(rows[4]))
+        #expect(!feature.disassembly.isLoading)
+        #expect(session.disassemblyReferences.count == requestsBefore)
+    }
+
+    @Test
+    func steppingOutOfTheListedRangeReadsTheListingAgain() throws {
+        let session = DeferredInspectionDebugSession(capabilities: Self.disassemblyCapabilities)
+        let (feature, _) = makeSourcelessStop(session: session, rootPath: "/tmp/lldb-step-leaves-listing")
+        defer { feature.stop() }
+        session.completeDisassembly(at: 0, with: .success([instruction("0x1000", "nop"), instruction("0x1004", "ret")]))
+
+        let far = DebugStackFrame(
+            id: 6, name: "elsewhere", sourceURL: nil, line: 0, column: 0,
+            instructionPointerReference: "0x9000"
+        )
+        feature.disassembly.frameSelected(far, preservingView: true)
+
+        #expect(feature.disassembly.isLoading)
+        #expect(session.disassemblyReferences.last == "0x9000")
+        #expect(session.disassemblyOffsets.last == -GenericDebugDisassemblyModel.instructionsBefore)
+    }
+
+    @Test
+    func steppingTowardsTheEndOfTheListingExtendsItBeforeTheMarkerRunsOff() throws {
+        let session = DeferredInspectionDebugSession(capabilities: Self.disassemblyCapabilities)
+        let (feature, _) = makeSourcelessStop(session: session, rootPath: "/tmp/lldb-step-extends-listing")
+        defer { feature.stop() }
+        let rows = (0..<12).map { instruction("0x\(String(0x2000 + $0 * 4, radix: 16))", "nop") }
+        session.completeDisassembly(at: 0, with: .success(rows))
+        let requestsBefore = session.disassemblyReferences.count
+
+        let near = DebugStackFrame(
+            id: 6, name: "__pthread_kill", sourceURL: nil, line: 0, column: 0,
+            instructionPointerReference: rows[8].address
+        )
+        feature.disassembly.frameSelected(near, preservingView: true)
+
+        #expect(feature.disassembly.rows == rows)
+        #expect(session.disassemblyReferences.count == requestsBefore + 1)
+        #expect(session.disassemblyReferences.last == rows[11].address)
+        #expect(session.disassemblyOffsets.last == 1)
+    }
+
+    // MARK: - Memory refresh while stepping
+
+    @Test
+    func aStepReadsTheMemoryPageAgainQuietlyAndMarksTheBytesThatChanged() throws {
+        let session = DeferredInspectionDebugSession(capabilities: Self.disassemblyCapabilities)
+        let (feature, frame) = makeSourcelessStop(session: session, rootPath: "/tmp/lldb-memory-changed")
+        defer { feature.stop() }
+
+        // The first read asks for the context before the address; this double refuses it, so the
+        // model falls back to the page that starts at the address.
+        feature.disassembly.readMemory(from: "0x1000")
+        session.completeMemory(at: 0, with: .failure(DeferredDebugSessionError.launchFailed))
+        session.completeMemory(at: 1, with: .success(DebugMemoryRead(
+            address: "0x1000", unreadableBytes: 0, data: Data([1, 2, 3, 4])
+        )))
+        let revealed = feature.disassembly.memoryRevealToken
+        #expect(feature.disassembly.memory?.data == Data([1, 2, 3, 4]))
+        #expect(feature.disassembly.memoryChangedIndices.isEmpty)
+
+        let next = DebugStackFrame(
+            id: frame.id, name: frame.name, sourceURL: nil, line: 0, column: 0,
+            instructionPointerReference: "0x19b5f2a50"
+        )
+        feature.disassembly.frameSelected(next, preservingView: true)
+        // The page on screen is kept while the new bytes are fetched behind it.
+        #expect(feature.disassembly.memory?.data == Data([1, 2, 3, 4]))
+        #expect(!feature.disassembly.isLoadingMemory)
+        session.completeMemory(at: session.memoryOffsets.count - 1, with: .success(DebugMemoryRead(
+            address: "0x1000", unreadableBytes: 0, data: Data([1, 9, 3, 7])
+        )))
+
+        #expect(feature.disassembly.memory?.data == Data([1, 9, 3, 7]))
+        #expect(feature.disassembly.memoryChangedIndices == [1, 3])
+        #expect(feature.disassembly.memoryRevealToken == revealed, "A refresh must not scroll the page")
+
+        // Resuming makes every address stale, marks included.
+        feature.disassembly.invalidate()
+        #expect(feature.disassembly.memory == nil)
+        #expect(feature.disassembly.memoryChangedIndices.isEmpty)
+    }
+
     private func workspaceFactory() -> ModuleFactory {
         ModuleFactory(manifest: ModuleManifest(id: .workspace, displayName: "Workspace", scope: .workspace)) {
             EmptyModule(id: .workspace, name: "Workspace")
@@ -3427,6 +4616,7 @@ private struct RecordingDebugInspectionRequest: Equatable {
     let count: Int?
     let expression: String?
     let column: Int?
+    var memory: DebugCoreMemoryQuery?
 }
 
 private struct RecordingDebugVariablePageRequest: Equatable {
@@ -3450,6 +4640,8 @@ private final class DeferredInspectionDebugSession: DebugAdapterControllingSessi
     private(set) var launchConfigurations: [DebugLaunchConfiguration] = []
     private(set) var breakpointUpdates: [[DebugSourceBreakpoint]] = []
     private(set) var executionCommands: [DebugExecutionCommand] = []
+    private(set) var steppingGranularities: [DebugSteppingGranularity] = []
+    private(set) var instructionBreakpointUpdates: [[DebugInstructionBreakpoint]] = []
     var failNextLaunch = false
     var consoleCommands: [DebugConsoleCommand] = []
     var consoleCommandPrefix: String?
@@ -3462,6 +4654,7 @@ private final class DeferredInspectionDebugSession: DebugAdapterControllingSessi
     var onEvent: ((DebugAdapterEvent) -> Void)?
     var onRunInTerminalRequest: DebugRunInTerminalRequestHandler?
 
+    private var threadRequests: [(Result<[DebugThread], Error>) -> Void] = []
     private var stackTraceRequests: [(
         threadID: Int,
         completion: (Result<[DebugStackFrame], Error>) -> Void
@@ -3486,7 +4679,23 @@ private final class DeferredInspectionDebugSession: DebugAdapterControllingSessi
         frameID: Int?,
         completion: (Result<DebugVariable, Error>) -> Void
     )] = []
+    private var disassemblyRequests: [(
+        reference: String,
+        offset: Int,
+        count: Int,
+        completion: (Result<[DebugDisassembledInstruction], Error>) -> Void
+    )] = []
+    private var memoryRequests: [(
+        reference: String,
+        offset: Int,
+        count: Int,
+        completion: (Result<DebugMemoryRead, Error>) -> Void
+    )] = []
 
+    var disassemblyReferences: [String] { disassemblyRequests.map(\.reference) }
+    var disassemblyOffsets: [Int] { disassemblyRequests.map(\.offset) }
+    var memoryReferences: [String] { memoryRequests.map(\.reference) }
+    var memoryOffsets: [Int] { memoryRequests.map(\.offset) }
     var stackTraceThreadIDs: [Int] { stackTraceRequests.map(\.threadID) }
     var scopeFrameIDs: [Int] { scopeRequests.map(\.frameID) }
     var variableReferences: [Int] { variableRequests.map(\.reference) }
@@ -3546,7 +4755,45 @@ private final class DeferredInspectionDebugSession: DebugAdapterControllingSessi
     func execute(_ command: DebugExecutionCommand, threadID _: Int?) {
         executionCommands.append(command)
     }
-    func requestThreads(_: @escaping (Result<[DebugThread], Error>) -> Void) {}
+    func execute(
+        _ command: DebugExecutionCommand,
+        threadID _: Int?,
+        granularity: DebugSteppingGranularity
+    ) {
+        executionCommands.append(command)
+        steppingGranularities.append(granularity)
+    }
+    func setInstructionBreakpoints(_ breakpoints: [DebugInstructionBreakpoint]) {
+        instructionBreakpointUpdates.append(breakpoints)
+    }
+    func requestDisassembly(
+        memoryReference: String,
+        instructionOffset: Int,
+        instructionCount: Int,
+        completion: @escaping (Result<[DebugDisassembledInstruction], Error>) -> Void
+    ) {
+        disassemblyRequests.append((memoryReference, instructionOffset, instructionCount, completion))
+    }
+    func requestReadMemory(
+        memoryReference: String,
+        offset: Int,
+        count: Int,
+        completion: @escaping (Result<DebugMemoryRead, Error>) -> Void
+    ) {
+        memoryRequests.append((memoryReference, offset, count, completion))
+    }
+    func completeDisassembly(at index: Int, with result: Result<[DebugDisassembledInstruction], Error>) {
+        disassemblyRequests[index].completion(result)
+    }
+    func completeMemory(at index: Int, with result: Result<DebugMemoryRead, Error>) {
+        memoryRequests[index].completion(result)
+    }
+    func requestThreads(_ completion: @escaping (Result<[DebugThread], Error>) -> Void) {
+        threadRequests.append(completion)
+    }
+    func completeThreads(at index: Int, with threads: [DebugThread]) {
+        threadRequests[index](.success(threads))
+    }
 
     func requestExceptionInfo(
         threadID: Int,
@@ -3656,6 +4903,8 @@ private final class RecordingDebugProtocolCore: DebugProtocolCore {
     private(set) var breakpointUpdates: [[DebugSourceBreakpoint]] = []
     private(set) var exceptionBreakpointUpdates: [[DebugExceptionBreakpoint]] = []
     private(set) var functionBreakpointUpdates: [[DebugFunctionBreakpoint]] = []
+    private(set) var instructionBreakpointUpdates: [[DebugInstructionBreakpoint]] = []
+    private(set) var lastExecutionGranularity: DebugSteppingGranularity?
     private(set) var dataBreakpointUpdates: [[DebugDataBreakpoint]] = []
     private(set) var cancelledOperationReasons: [String] = []
     private(set) var lastExecutionSingleThread: Bool?
@@ -3737,6 +4986,14 @@ private final class RecordingDebugProtocolCore: DebugProtocolCore {
         return update(sessionID: sessionID, state: "ready")
     }
 
+    func setDebugInstructionBreakpoints(
+        sessionID: String,
+        breakpoints: [DebugInstructionBreakpoint]
+    ) throws -> DebugCoreUpdate {
+        instructionBreakpointUpdates.append(breakpoints)
+        return update(sessionID: sessionID, state: "ready")
+    }
+
     func debugDataBreakpointInfo(
         sessionID: String,
         operationID: String,
@@ -3791,10 +5048,12 @@ private final class RecordingDebugProtocolCore: DebugProtocolCore {
         command _: DebugExecutionCommand,
         threadID: Int?,
         targetID _: Int?,
-        singleThread: Bool
+        singleThread: Bool,
+        granularity: DebugSteppingGranularity?
     ) throws -> DebugCoreUpdate {
         lastExecutionThreadID = threadID
         lastExecutionSingleThread = singleThread
+        lastExecutionGranularity = granularity
         return update(sessionID: sessionID, state: "running")
     }
 
@@ -3812,7 +5071,8 @@ private final class RecordingDebugProtocolCore: DebugProtocolCore {
         context _: String?,
         sourcePath _: String?,
         line _: Int?,
-        column: Int?
+        column: Int?,
+        memory: DebugCoreMemoryQuery?
     ) throws -> DebugCoreUpdate {
         lastInspectionOperationID = operationID
         inspectionRequests.append(RecordingDebugInspectionRequest(
@@ -3825,7 +5085,8 @@ private final class RecordingDebugProtocolCore: DebugProtocolCore {
             start: start,
             count: count,
             expression: expression,
-            column: column
+            column: column,
+            memory: memory
         ))
         return update(sessionID: sessionID, state: "paused")
     }

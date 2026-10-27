@@ -986,6 +986,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `debug.setFunctionBreakpoints` | Replace and deterministically order one session's named function breakpoints |
 | `debug.dataBreakpointInfo` | Resolve an adapter-owned data breakpoint identity for a paused variable or field |
 | `debug.setDataBreakpoints` | Replace and deterministically order one session's resolved data breakpoints |
+| `debug.setInstructionBreakpoints` | Replace and deterministically order one session's machine-instruction breakpoints |
 | `debug.setVariable` | Replace one visible variable value in its adapter-owned parent container |
 | `debug.cancelOperation` | Cancel or time out one pending operation and ignore its late response |
 | `debug.execute` | Submit continue, pause, next, step-in, or step-out control |
@@ -2179,6 +2180,48 @@ allowed access modes, and `canPersist`. The client then calls
 disabled entries, and sends access type, condition, and hit count only when the
 adapter negotiated data-breakpoint support. Native clients must discard IDs
 whose `canPersist` is false when the debug session ends.
+
+`debug.setInstructionBreakpoints` replaces one session's instruction (address)
+breakpoints. Each entry carries an opaque `instructionReference` (the address
+string the adapter reported, never a JSON number, because a 64-bit address can
+exceed the JavaScript safe integer range), an optional byte `offset`, `enabled`,
+`condition`, and `hitCondition`. Core validates the reference text, sorts and
+deduplicates by reference and offset, keeps the set in the session, and sends DAP
+`setInstructionBreakpoints` only after the adapter advertised
+`supportsInstructionBreakpoints` and sent `initialized`. Clients keep the set per
+session and never persist or replay it: an address is only valid for one run of
+one process.
+
+`debug.execute` accepts an optional `granularity` of `statement`, `line`, or
+`instruction` on `next`, `stepIn`, `stepOut`, and `stepBack`. Core forwards it as
+the DAP `granularity` argument only when the adapter advertised
+`supportsSteppingGranularity`; otherwise it omits the field and the adapter steps
+by its default unit. Clients use `instruction` while a disassembly view is open.
+
+`debug.inspect` also accepts the kinds `disassemble` and `readMemory`. Both take
+an opaque `memoryReference` and are rejected unless the capability snapshot
+reports them supported (`adapter` and registered extension and `authorized`) and
+the session is paused. `disassemble` additionally takes `offset` (bytes),
+`instructionOffset` (negative asks for instructions before the reference),
+`instructionCount`, and `resolveSymbols` (default true), and returns
+`instructions` with `address`, `instructionBytes`, `instruction`, an optional
+`symbol` on the first instruction of a symbol, and an optional `sourcePath` and
+`line`. `readMemory` takes `offset` and `count` and returns `address`,
+`unreadableBytes`, and base64 `dataBase64`, like DAP. Core never does address
+arithmetic and never opens `writeMemory`: reading is the only memory operation,
+and writing would need its own authorization. Both results are tied to the
+`stopGeneration` they were requested in, so a late reply after the debuggee
+resumed is dropped as stale.
+
+A stack frame without debug info has no usable file or line. When the adapter
+sends neither a source path nor a `sourceReference`, Core reports
+`line` 0 and no `sourcePath` for it, and carries the adapter's
+`instructionPointerReference` so clients can anchor the disassembly on the frame
+instead of showing a made-up file or line 1. A scope whose DAP
+`presentationHint` is `registers` is passed through with that hint; the host has
+no register table of its own, so register names, groups, and values are the
+adapter's. The compatibility cases are in
+`shared/fixtures/debug/projection-v2-examples.json`.
 
 `debug.setVariable` accepts the selected variable's parent `variablesReference`,
 name, and replacement text. Core permits mutation only while paused and after

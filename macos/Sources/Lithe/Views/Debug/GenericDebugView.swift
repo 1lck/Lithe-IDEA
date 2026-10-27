@@ -25,6 +25,9 @@ struct GenericDebugView: View {
     @State private var isJavaAttachPresented = false
     @State private var isJavaSteppingSettingsPresented = false
     @State private var selectedContent: DebugContent = .console
+    @State private var showsMemory = false
+    @State private var memoryInput = ""
+    @State private var disassemblyAuxiliaryHeight: CGFloat?
     @State private var consoleWrapsLines = false
     @State private var consolePresentation = ConsoleFoldPresentation()
 
@@ -40,6 +43,15 @@ struct GenericDebugView: View {
         }
         .litheWorkbenchSurface(LitheTheme.editor)
         .background(LitheToolWindowActivityTracker(isActive: $debugToolActive))
+        .background(
+            DebugDisassemblyPresentationObserver(disassembly: feature.disassembly) { presented in
+                if presented {
+                    selectedContent = .disassembly
+                } else if selectedContent == .disassembly {
+                    selectedContent = .debugger
+                }
+            }
+        )
         .sheet(item: $editingVariable) { variable in
             VariableValueEditorView(variable: variable) {
                 feature.setVariable(variable, value: $0)
@@ -66,8 +78,9 @@ struct GenericDebugView: View {
             synchronizePerformanceSession()
             switch state {
             case .paused:
-                selectedContent = .debugger
+                selectedContent = feature.disassembly.isPresented ? .disassembly : .debugger
             case .initializing, .launching, .failed:
+                feature.disassembly.dismiss()
                 selectedContent = .console
             default:
                 break
@@ -86,16 +99,35 @@ struct GenericDebugView: View {
         switch selectedContent {
         case .debugger:
             inspector
+        case .disassembly:
+            disassemblyInspector
         case .console:
             debugConsole
         }
     }
 
+    private var visibleContents: [DebugContent] {
+        DebugContent.allCases.filter {
+            $0 != .disassembly || feature.capabilities.supportsDisassembleRequest
+        }
+    }
+
+    /// The disassembly is on screen only while its tab is, so stepping by instruction
+    /// follows what the user is looking at.
+    private func select(_ content: DebugContent) {
+        if content == .disassembly {
+            feature.disassembly.present()
+        } else {
+            feature.disassembly.dismiss()
+        }
+        selectedContent = content
+    }
+
     private var contentTabs: some View {
         HStack(spacing: 0) {
-            ForEach(DebugContent.allCases) { content in
+            ForEach(visibleContents) { content in
                 Button {
-                    selectedContent = content
+                    select(content)
                 } label: {
                     Text(content.title)
                         .font(LitheTheme.uiFont(size: 13))
@@ -248,8 +280,24 @@ struct GenericDebugView: View {
         }
     }
 
+    @ViewBuilder
     private func debugToolbarActionButton(_ action: DebugToolbarActionID) -> some View {
+        if action == .stepOver || action == .stepInto {
+            // Only the two buttons whose meaning changes watch the disassembly model.
+            DebugSteppingGranularityReader(disassembly: feature.disassembly) { stepsByInstruction in
+                debugToolbarActionButton(action, stepsByInstruction: stepsByInstruction)
+            }
+        } else {
+            debugToolbarActionButton(action, stepsByInstruction: false)
+        }
+    }
+
+    private func debugToolbarActionButton(
+        _ action: DebugToolbarActionID,
+        stepsByInstruction: Bool
+    ) -> some View {
         let isDisabled = isDebugToolbarActionDisabled(action)
+        let help = debugToolbarActionHelp(action, stepsByInstruction: stepsByInstruction)
         return Button {
             performDebugToolbarAction(action)
         } label: {
@@ -268,8 +316,8 @@ struct GenericDebugView: View {
         .buttonStyle(LitheIconButtonStyle(size: LitheTheme.Metrics.toolbarIconButtonSize, disabledOpacity: 1, cornerRadius: 4, hoverBackground: LitheTheme.toolbarHoverBackground, pressedBackground: LitheTheme.toolbarPressedBackground))
         .padding(.horizontal, 2)
         .disabled(isDisabled)
-        .help(debugToolbarActionHelp(action))
-        .accessibilityLabel(debugToolbarActionHelp(action))
+        .help(help)
+        .accessibilityLabel(help)
         .accessibilityIdentifier("debug-toolbar-\(action.rawValue)")
     }
 
@@ -325,7 +373,10 @@ struct GenericDebugView: View {
         }
     }
 
-    private func debugToolbarActionHelp(_ action: DebugToolbarActionID) -> String {
+    private func debugToolbarActionHelp(
+        _ action: DebugToolbarActionID,
+        stepsByInstruction: Bool
+    ) -> String {
         let title: String
         switch action {
         case .restartOrStart:
@@ -335,8 +386,10 @@ struct GenericDebugView: View {
         case .stop: title = L10n.string("Stop debugging")
         case .resume: title = L10n.string("Resume")
         case .pause: title = L10n.string("Pause")
-        case .stepOver: title = L10n.string("Step over")
-        case .stepInto: title = L10n.string("Step into")
+        case .stepOver:
+            title = stepsByInstruction ? L10n.string("Step Over Instruction") : L10n.string("Step over")
+        case .stepInto:
+            title = stepsByInstruction ? L10n.string("Step Into Instruction") : L10n.string("Step into")
         case .stepOut: title = L10n.string("Step out")
         case .viewBreakpoints: title = L10n.string("View breakpoints")
         case .muteBreakpoints:
@@ -454,7 +507,12 @@ struct GenericDebugView: View {
     }
 
     private var inspector: some View {
-        GeometryReader { geometry in
+        splitInspector { dataInspector }
+    }
+
+    private func splitInspector<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        let data = content()
+        return GeometryReader { geometry in
             LitheSplitPaneView(axis: .horizontal, placement: .leading,
                 defaultSize: inspectorWidth ?? geometry.size.width / 3,
                 minimum: 240, maximum: max(240, geometry.size.width - 300), flexibleMinimum: 300,
@@ -462,11 +520,94 @@ struct GenericDebugView: View {
                 onCommit: { inspectorWidth = $0 }) {
                 executionInspector
             } flexible: {
-                dataInspector
+                data
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .litheWorkbenchSurface(LitheTheme.sidebar)
+    }
+
+    private var disassemblyInspector: some View {
+        splitInspector { disassemblyWorkspace }
+    }
+
+    private var disassemblyWorkspace: some View {
+        GeometryReader { geometry in
+            LitheSplitPaneView(axis: .vertical, placement: .trailing,
+                defaultSize: disassemblyAuxiliaryHeight ?? max(100, geometry.size.height * 0.38),
+                minimum: 100, maximum: max(100, geometry.size.height - 120), flexibleMinimum: 120,
+                dividerColor: LitheTheme.toolWindowBorder(for: colorScheme),
+                onCommit: { disassemblyAuxiliaryHeight = $0 }) {
+                disassemblyAuxiliaryPane
+            } flexible: {
+                GenericDebugDisassemblyView(disassembly: feature.disassembly, readMemory: showMemory)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .litheWorkbenchSurface(LitheTheme.sidebar)
+    }
+
+    private var registersScope: DebugScope? {
+        feature.scopes.first { $0.isRegisters }
+    }
+
+    private var selectedScopeIsRegisters: Bool {
+        feature.scopes.first { $0.id == feature.selectedScopeID }?.isRegisters == true
+    }
+
+    private var disassemblyAuxiliaryPane: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 14) {
+                auxiliaryTab("Variables", isSelected: !showsMemory && !selectedScopeIsRegisters) {
+                    showsMemory = false
+                    if selectedScopeIsRegisters,
+                       let scope = feature.scopes.first(where: { !$0.isRegisters }) {
+                        feature.selectScope(scope)
+                    }
+                }
+                if let registers = registersScope {
+                    auxiliaryTab("Registers", isSelected: !showsMemory && selectedScopeIsRegisters) {
+                        showsMemory = false
+                        feature.selectScope(registers)
+                    }
+                }
+                if feature.disassembly.canReadMemory {
+                    auxiliaryTab("Memory", isSelected: showsMemory) { showsMemory = true }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .frame(height: LitheTheme.Debugger.inspectorHeaderHeight)
+            .litheWorkbenchSurface(LitheTheme.toolHeader)
+            divider
+            if showsMemory && feature.disassembly.canReadMemory {
+                GenericDebugMemoryView(disassembly: feature.disassembly, input: $memoryInput)
+            } else {
+                variablesInspector
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func auxiliaryTab(
+        _ title: LocalizedStringKey,
+        isSelected: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(LitheTheme.uiFont(size: 13, weight: isSelected ? .semibold : .regular))
+                .foregroundStyle(isSelected ? LitheTheme.primaryText : LitheTheme.secondaryText)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.litheNoPress)
+    }
+
+    /// Reads memory at an address taken from the disassembly or from a register value.
+    private func showMemory(at address: String) {
+        memoryInput = address
+        showsMemory = true
+        feature.disassembly.readMemory(from: address)
     }
 
     private var executionInspector: some View {
@@ -536,6 +677,12 @@ struct GenericDebugView: View {
                                     .foregroundStyle(LitheTheme.Tree.secondaryText)
                                     .lineLimit(1)
                                     .truncationMode(.middle)
+                            } else if frame.isSourceless, let address = frame.instructionPointerReference {
+                                Text(verbatim: address)
+                                    .font(LitheTheme.uiFont(size: 12, design: .monospaced))
+                                    .foregroundStyle(LitheTheme.Tree.secondaryText)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
                             }
                         }
                         .opacity(frame.isFiltered ? 0.58 : 1)
@@ -547,6 +694,19 @@ struct GenericDebugView: View {
                                     action: {
                                         copyToPasteboard(frame.name)
                                     }))
+                            if let address = frame.instructionPointerReference {
+                                items.append(
+                                    .action("Copy Address", action: { copyToPasteboard(address) }))
+                                if feature.capabilities.supportsDisassembleRequest {
+                                    items.append(
+                                        .action(
+                                            "Show Disassembly",
+                                            action: {
+                                                feature.selectFrame(frame)
+                                                select(.disassembly)
+                                            }))
+                                }
+                            }
                             if let sourceURL = frame.sourceURL {
                                 items.append(.separator)
                                 items.append(
@@ -817,6 +977,18 @@ struct GenericDebugView: View {
                                             feature.requestDataBreakpoint(for: variable)
                                         }))
                             }
+                            if feature.disassembly.canReadMemory,
+                                let pointer = DebugAddressText.firstHexLiteral(in: variable.value)
+                            {
+                                items.append(
+                                    .action(
+                                        "Read Memory at Value",
+                                        action: {
+                                            selectedContent = .disassembly
+                                            feature.disassembly.present()
+                                            showMemory(at: pointer)
+                                        }))
+                            }
                             items.append(.separator)
                             items.append(.action("Copy Value", action: { copyToPasteboard(variable.value) }))
                             items.append(
@@ -934,6 +1106,7 @@ struct GenericDebugView: View {
                     for scope in feature.scopes {
                         LitheContextMenuItem.action(
                             scope.name,
+                            systemImage: scope.isRegisters ? "cpu" : nil,
                             checked: feature.selectedScopeID == scope.id
                         ) {
                             feature.selectScope(scope)
@@ -1928,6 +2101,7 @@ struct DebugBreakpointManagerView: View {
 
 private enum DebugContent: CaseIterable, Identifiable {
     case debugger
+    case disassembly
     case console
 
     var id: Self { self }
@@ -1935,6 +2109,7 @@ private enum DebugContent: CaseIterable, Identifiable {
     var title: LocalizedStringKey {
         switch self {
         case .debugger: "Threads & Variables"
+        case .disassembly: "Disassembly"
         case .console: "Console"
         }
     }

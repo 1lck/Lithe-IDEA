@@ -151,6 +151,8 @@ macOS 的 P4 纵向验收用 `lldb-dap` 推进：官方 LLDB 插件（`io.github
 
 只贡献调试适配器的插件在 macOS 上安装、更新、卸载免重启，见[插件热激活](../../implemented/architecture/2026-10-26-plugin-live-activation.md)。这是宿主后端能力，不是清单字段，插件契约不变。Windows 的 P2–P4 还没有开始，不属于这一轮。
 
+可选扩展里的原生调试已在 macOS 落地（无源码栈帧、反汇编、指令步进与指令断点、寄存器、只读内存）：它们是内核的扩展请求，不改必选层，也不按适配器名分支，所以 `lldb-dap`、GDB DAP 或其他声明了对应能力的适配器自动获得；`writeMemory` 保持关闭。设计与边界见[可选调试扩展](2026-10-25-optional-debug-extensions.md)。Windows 界面尚未接入。
+
 #### Java 迁入 Java Support 插件（P5 的最后一块内置路径）
 
 Java 是宿主里最后一个内置 Provider（`debugFactories["java"]`、`MacJavaDebugAdapterTransport`、Core 里 `adapter_id == "java"` 的分支）。迁移拆成三个 PR，每个都能单独合并、单独回退：

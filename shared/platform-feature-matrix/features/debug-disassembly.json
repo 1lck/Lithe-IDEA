@@ -1,0 +1,42 @@
+{
+  "id": "debug-disassembly",
+  "area": "运行与调试",
+  "group": "调试器",
+  "capability": "汇编级调试：无源码栈帧、反汇编视图、指令步进、指令断点、寄存器与只读内存，均由适配器能力决定是否可用",
+  "macos": {
+    "evidence": [
+      "rust/lithe-core/src/debug/types.rs",
+      "rust/lithe-core/src/debug/capabilities.rs",
+      "rust/lithe-core/src/debug/engine.rs",
+      "rust/lithe-core/src/protocol/command.rs",
+      "rust/lithe-core/src/runtime/dispatcher.rs",
+      "macos/Sources/LitheCoreContracts/Debug/DebugAdapterContracts.swift",
+      "macos/Sources/LitheCoreContracts/Debug/DebugProtocolCore.swift",
+      "macos/Sources/Lithe/Core/Rust/RustDebugProtocolCore.swift",
+      "macos/Sources/LitheDebugModule/Runtime/CoreDebugAdapterProtocolSession.swift",
+      "macos/Sources/LitheDebugModule/Runtime/DebugAdapterSessionManager.swift",
+      "macos/Sources/LitheDebugModule/Application/GenericDebugFeatureModel.swift",
+      "macos/Sources/LitheDebugModule/Application/GenericDebugDisassemblyModel.swift",
+      "macos/Sources/LitheDebugModule/Application/GenericDebugMemoryDisplay.swift",
+      "macos/Sources/Lithe/Views/Debug/GenericDebugView.swift",
+      "macos/Sources/Lithe/Views/Debug/GenericDebugDisassemblyView.swift",
+      "macos/Sources/Lithe/Views/Debug/DebugVariableJSONView.swift",
+      "macos/Sources/Lithe/Views/Debug/DebugJSONSyntax.swift",
+      "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift",
+      "macos/Tests/LitheTests/DebugJSONSyntaxTests.swift",
+      "shared/fixtures/debug/projection-v2-examples.json"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "rust/lithe-core/src/debug/engine.rs",
+      "rust/lithe-core/src/debug/capabilities.rs"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "owner": "Debug",
+  "verification": "macOS：用只带符号表、没有调试信息的 C 程序（含 raise(SIGTRAP)）经 Xcode lldb-dap 启动调试，暂停后栈帧显示函数名与地址而不是伪造的文件和第 1 行，反汇编标签自动打开并高亮当前指令；适配器不声明 supportsDisassembleRequest 时没有反汇编标签。反汇编中单步改为按指令前进（仅适配器声明 supportsSteppingGranularity 时），关闭反汇编标签后恢复按行单步；点击地址栏设置或移除指令断点（仅适配器声明 supportsInstructionBreakpoints 时），断点只属于当前会话、不写入持久化，新会话不重放。反汇编打开时，步过/步入的按钮提示变为按指令单步，头部显示“按指令单步”；适配器不支持时头部提示单步仍按源码行前进。寄存器作用域出现在寄存器标签，内存标签接受地址或保存着地址的表达式，从目标地址前 64 字节读起并分页，目标字节在十六进制和 ASCII 两侧高亮并滚入可见区，读取不到的字节显示为缺失而不是 00；右侧显示设置可切换进制、每格字节数、每行字节数、字节序与 ASCII 列；只读内存，不开放 writeMemory。连续单步时线程、调用栈、变量、反汇编、内存与 JSON 视图原地更新，不整面板清空重画，变化的内存字节被标出，继续执行或会话结束才清空。地址和引用对宿主是不透明字符串，宿主不做地址运算、不内置 CPU 寄存器表，也不按适配器 ID 分支。Windows 尚未实现，共享 Rust 内核已经提供能力快照与 debug.inspect 的 disassemble、readMemory，待 React 界面接入。"
+}

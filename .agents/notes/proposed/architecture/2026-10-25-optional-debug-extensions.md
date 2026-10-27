@@ -12,7 +12,7 @@
 
 GDB、LLDB 可以调试 C、C++、Rust 和汇编，但二进制不一定有源码或行号；Java 调试器可以返回反编译源码；js-debug 会发起子会话。这些功能在 DAP 里都是可选的，不同适配器支持的组合各不相同。如果为了显示它们去改必选层的数据结构，或者按适配器名称写分支，每接一个调试器就要改一次宿主。
 
-现在 Rust Core 已经实现 `setVariable`、各类断点（含数据断点）、`stepBack`、`runInTerminal`；尚未实现 `readMemory`、`writeMemory`、`disassemble`、`setInstructionBreakpoints`、指令粒度单步、`modules`、`loadedSources` 和 `startDebugging`。macOS 的 Node 子会话目前在 Swift 会话里实现。
+现在 Rust Core 已经实现 `setVariable`、各类断点（含数据断点）、`stepBack`、`runInTerminal`，以及原生调试分组里除 `writeMemory` 以外的全部请求（`readMemory`、`disassemble`、`setInstructionBreakpoints`、指令粒度单步，见“原生调试的落地”）；尚未实现 `writeMemory`、`modules` 和 `loadedSources`。`startDebugging` 子会话已在宿主与 Core 统一（见统一调试内核笔记）。
 
 ## 提案
 
@@ -61,6 +61,32 @@ GDB、LLDB 可以调试 C、C++、Rust 和汇编，但二进制不一定有源�
 4. 原生调试：寄存器 → 反汇编 → 只读内存 → 指令断点与单步 → 写内存。
 
 第 3 项实际上是 P5 删除旧路径的前置条件：Node 子会话迁到新内核之前，不能删 Swift 会话。
+
+### 原生调试的落地（macOS）
+
+寄存器、反汇编、只读内存、指令步进与指令断点按上面的顺序一次落地，`writeMemory` 保持关闭。边界如下：
+
+- **内核**：`debug.inspect` 新增 `disassemble`、`readMemory` 两个 kind；`debug.execute` 新增可选 `granularity`；新增命令 `debug.setInstructionBreakpoints`。四项适配器能力 `supportsDisassembleRequest`、`supportsReadMemoryRequest`、`supportsSteppingGranularity`、`supportsInstructionBreakpoints` 都已注册为扩展，所以 `initialize` 现在声明 `supportsMemoryReferences`；能力快照里 `supported = 适配器 ∧ 已注册 ∧ 已授权` 不变。栈帧新增 `instructionPointerReference`，没有 `source` 也没有 `sourceReference` 的帧行号为 0，不再补成第 1 行。两个新 kind 都是引用型请求，受 `stopGeneration` 约束，继续执行后到达的旧回复按 `StaleReference` 丢弃。字段细节见 `shared/contracts/rust-core-api.md`。
+- **地址不透明**：宿主任何一层都不把地址解析成整数，也不做加减。反汇编向前后翻页用 `instructionOffset` 加上当前首尾指令的地址；内存分页用相对 `memoryReference` 的字节偏移，行首标签显示偏移而不是算出的地址。判断两个地址写法是否同一个地址，只做文本规范化（小写、去 `0x`、去前导零），所以 `0x0000000100003f50` 与 `0x100003f50` 视为同一个地址，超过 2^53 的地址不会被舍入。
+- **界面**：只有 `supportsDisassembleRequest` 为真才出现“反汇编”标签。选中的栈帧没有源码时标签自动打开，选中有源码的帧时自动关闭；用户自己打开的反汇编不会被自动关闭。标签下方是辅助区：变量、寄存器（只在适配器给出 `presentationHint: "registers"` 的 scope 时出现）、内存（只在 `supportsReadMemoryRequest` 为真时出现）。无源码栈帧的行内显示等宽的指令地址，右键菜单可复制地址、打开反汇编；变量右键可以按其值读取内存。
+- **指令步进**：反汇编标签打开期间，单步（步过）和步入带 `granularity: "instruction"`；工具栏按钮的悬停提示同步变为“按指令单步跳过 / 按指令单步进入”，反汇编头部显示“按指令单步”，当前行随单步最小幅度滚动，不整列表跳动。步出仍按适配器默认处理，因为“跑完当前函数”没有指令粒度的含义。关闭标签后回到适配器默认的按行单步。适配器没有声明 `supportsSteppingGranularity` 时不带该字段，头部改为明确提示“该适配器不支持按指令单步，单步仍按源码行前进”：静默回退会让用户以为是反汇编视图的缺陷。
+- **指令断点**：在反汇编地址栏点击设置或移除，只属于当前会话，不写入持久化，也不在新会话重放：同一段代码下次运行时位于另一个地址（ASLR）。适配器声明 `supportsInstructionBreakpoints` 才显示入口；适配器报告断点未生效时，圆点显示未验证状态，悬停提示是适配器的原文说明。
+- **内存**：输入框接受 `0x…` 地址，或在选中栈帧里求值后得到地址的表达式（寄存器名、保存着指针的变量）。表达式的值不是地址时显示“该表达式的值不是地址”，适配器的错误原样显示。读取失败的尾部字节在界面上标为无法读取，不显示成 00。
+- **内存的显示与定位**：输入地址后首次读取从目标地址前 64 字节开始（`offset: -64`），目标字节所在的十六进制格和 ASCII 字符同时高亮并滚入可见区；适配器不支持负偏移，或前面不是已映射区域（读取失败）时，退回从目标地址读起，不报错。首行标签是相对 `memoryReference` 的偏移，不是算出的地址。右侧的显示设置（进制、每格字节数 1/2/4/8、每行字节数、字节序、是否显示 ASCII）只改变展示，不改变读取请求，也不写入持久化。单步后的静默重读只标出相对上一页变化的字节，不改变滚动位置；翻页也不滚动到目标，只有用户主动读取才滚动到目标字节。
+- **单步时的局部刷新**：`next`、`stepIn`、`stepOut`、`stepBack` 之后，线程、调用栈、变量、反汇编、内存和 JSON 视图保持原样并标为过期（只读，不能编辑变量或 Watch），新的停止到达后再原地替换：先后拉取线程、调用栈、同名作用域、变量，按名称路径恢复已展开的节点，变量树整体提交后才替换旧树，所以不会出现整块清空再重画。`continue`、`pause`、终止和失败仍按原来的方式整体清空；栈为空、没有可用线程或会话结束时放弃保留。选中另一个栈帧不属于单步，不走保留逻辑；此时 JSON 视图会短暂显示上一个快照再更新，这是接受的代价。反汇编列表只在当前指令不在已加载范围内时重新定位，快到列表末尾（剩余 ≤8 行）时向后补页。
+- **仍然关闭**：`writeMemory`。读取能力不代表允许写入，写入需要独立的授权和确认用例，见上面的“写操作单独授权”。
+
+### 真实适配器验证（Xcode `lldb-dap`）
+
+用 `-g` 编译的 C 程序和 Xcode 自带的 `lldb-dap` 实测，结论如下：
+
+- `initialize` 声明了 `supportsDisassembleRequest`、`supportsReadMemoryRequest`、`supportsSteppingGranularity`、`supportsInstructionBreakpoints`，也声明了 `supportsWriteMemoryRequest`。适配器支持写内存不影响 Lithe 的边界：写入没有注册为扩展，客户端不开放，能力快照里它保持不可用。
+- 在 `main.c:8` 设行断点停住后连续单步：`next` / `stepIn` 带 `granularity: "instruction"` 每次只前进一条指令（arm64 每次 PC +4，源码行仍是 8）；`granularity: "line"` 才会走到第 9 行。这说明“看起来还是代码级单步”是界面没有提示造成的，内核发送的粒度本来就对。
+- 没有 `-g` 的二进制里，在函数或文件上设的断点不会绑定；这类程序在 `main` 之前没有可停的位置。要在反汇编里选定位置停下，用带调试信息的程序：先用行断点停住，再点击后面指令的断点栏，然后继续执行。指令断点只属于当前会话，下次运行地址会变（ASLR）。
+- 地址有大小写和前导零的差异（`0x10000049C` 与 `0x10000049c`），所以比较地址只做文本规范化，不做数值运算。
+- 直接 `swift build` 得到的是没有链接 Rust Core 的二进制，调试和打开文件都不可用；本地验证要用 `scripts/build-macos.sh --configuration debug --triple arm64-apple-macosx` 构建，把产物放进开发包并重新签名（开发包标识 `app.lithe.desktop.dev`，数据目录与正式版分开）。
+- 两轴滚动里的文本如果不用 `fixedSize(horizontal: true, vertical: false)`，宽度会塌成 0，反汇编列表整行看起来是空的。
+- JSON 视图顶部的空白条来自复制按钮单独占一行；改成浮在第一行右侧、各行右侧留出按钮宽度，并按键、字符串、数字、关键字分色。
 
 ### 正确做法
 
