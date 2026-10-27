@@ -49,7 +49,7 @@ final class MacTCPDebugAdapterTransport: DebugAdapterDrainingTransport {
     private let scheduler: any DebugOperationDeadlineScheduling
     private let core: any DebugTransportLifecycleCore
     private let limits: Limits
-    private let transportID = UUID().uuidString
+    private var transportID = UUID().uuidString
     private var rootURL: URL?
     private var startupTask: Task<Void, Never>?
     private var socket: (any DebugAdapterSocketConnection)?
@@ -109,6 +109,7 @@ final class MacTCPDebugAdapterTransport: DebugAdapterDrainingTransport {
             step = try core.handleDebugTransportEvent(transportID: transportID, event: .send(bytes: data.count))
         } catch {
             if !data.isEmpty { writes.removeLast() }
+            abort(after: error)
             throw error
         }
         switch step.outcome {
@@ -130,7 +131,8 @@ final class MacTCPDebugAdapterTransport: DebugAdapterDrainingTransport {
 
     /// Reports an event to Core and runs the answer. A Core failure is a bridge
     /// fault, not a lifecycle outcome, so it fails the stream locally.
-    private func dispatch(_ event: DebugTransportEvent, inbound: Data? = nil) {
+    private func dispatch(_ event: DebugTransportEvent, inbound: Data? = nil, registrationID: String? = nil) {
+        guard registrationID == nil || registrationID == transportID else { return }
         do {
             apply(try core.handleDebugTransportEvent(transportID: transportID, event: event), inbound: inbound)
         } catch {
@@ -139,6 +141,7 @@ final class MacTCPDebugAdapterTransport: DebugAdapterDrainingTransport {
     }
 
     private func apply(_ step: DebugTransportStep, inbound: Data? = nil) {
+        let registrationID = transportID
         generation = step.generation
         phase = step.phase
         effectDepth += 1
@@ -146,7 +149,7 @@ final class MacTCPDebugAdapterTransport: DebugAdapterDrainingTransport {
         for effect in step.effects {
             // A callback or an observer may have stopped or restarted the stream
             // while an earlier effect ran; the rest of this step is stale.
-            guard generation == step.generation else { return }
+            guard transportID == registrationID, generation == step.generation else { return }
             run(effect, generation: step.generation, inbound: inbound)
         }
     }
@@ -187,14 +190,15 @@ final class MacTCPDebugAdapterTransport: DebugAdapterDrainingTransport {
     private func discoverEndpoint(generation: UInt64) {
         guard let rootURL else { return }
         let resolveEndpoint = resolveEndpoint
+        let registrationID = transportID
         startupTask = Task { @MainActor [weak self] in
             do {
                 let endpoint = try await resolveEndpoint(rootURL)
                 try Task.checkCancellation()
-                self?.dispatch(.endpointResolved(generation: generation, host: endpoint.host, port: endpoint.port))
+                self?.dispatch(.endpointResolved(generation: generation, host: endpoint.host, port: endpoint.port), registrationID: registrationID)
             } catch {
                 guard !Task.isCancelled else { return }
-                self?.dispatch(.failed(generation: generation, message: error.localizedDescription))
+                self?.dispatch(.failed(generation: generation, message: error.localizedDescription), registrationID: registrationID)
             }
         }
     }
@@ -207,13 +211,15 @@ final class MacTCPDebugAdapterTransport: DebugAdapterDrainingTransport {
     ) {
         // The bounded drain owns the transport: the session manager can release it
         // right after asking to finish, and the queued disconnect still gets its window.
+        let registrationID = transportID
         let fire: @MainActor () -> Void = purpose == .drain
-            ? { [self] in timerFired(timerID, generation: generation) }
-            : { [weak self] in self?.timerFired(timerID, generation: generation) }
+            ? { [self] in timerFired(timerID, generation: generation, registrationID: registrationID) }
+            : { [weak self] in self?.timerFired(timerID, generation: generation, registrationID: registrationID) }
         timers[timerID] = scheduler.schedule(afterMilliseconds: afterMilliseconds, action: fire)
     }
 
-    private func timerFired(_ timerID: UInt64, generation: UInt64) {
+    private func timerFired(_ timerID: UInt64, generation: UInt64, registrationID: String) {
+        guard registrationID == transportID, self.generation == generation else { return }
         // Core takes the fired timer's slot itself; only the handle is ours to drop.
         // Cancelling a timer that already fired is a no-op that releases whatever
         // the handle still retains, such as the drain timer's strong owner.
@@ -224,6 +230,7 @@ final class MacTCPDebugAdapterTransport: DebugAdapterDrainingTransport {
 
     private func connect(_ endpoint: DebugAdapterEndpoint, generation: UInt64) {
         startupTask = nil
+        let registrationID = transportID
         let connection: any DebugAdapterSocketConnection
         do {
             connection = try makeSocket(endpoint)
@@ -233,16 +240,16 @@ final class MacTCPDebugAdapterTransport: DebugAdapterDrainingTransport {
         }
         socket = connection
         connection.onReady = { [weak self] in
-            self?.dispatch(.connectionReady(generation: generation))
+            self?.dispatch(.connectionReady(generation: generation), registrationID: registrationID)
         }
         connection.onData = { [weak self] data in
-            self?.dispatch(.dataReceived(generation: generation), inbound: data)
+            self?.dispatch(.dataReceived(generation: generation), inbound: data, registrationID: registrationID)
         }
         connection.onFailure = { [weak self] error in
-            self?.dispatch(.failed(generation: generation, message: error.localizedDescription))
+            self?.dispatch(.failed(generation: generation, message: error.localizedDescription), registrationID: registrationID)
         }
         connection.onComplete = { [weak self] in
-            self?.dispatch(.peerClosed(generation: generation))
+            self?.dispatch(.peerClosed(generation: generation), registrationID: registrationID)
         }
         connection.start()
     }
@@ -253,6 +260,7 @@ final class MacTCPDebugAdapterTransport: DebugAdapterDrainingTransport {
             return
         }
         let data = writes.removeFirst()
+        let registrationID = transportID
         assert(data.count == bytes, "Core's frame size disagrees with the queued frame")
         socket.send(data) { [weak self] result in
             guard let self else { return }
@@ -263,9 +271,9 @@ final class MacTCPDebugAdapterTransport: DebugAdapterDrainingTransport {
             }
             // A provider may complete inline; never recurse through the queue.
             if effectDepth > 0 {
-                Task { @MainActor [weak self] in self?.dispatch(event) }
+                Task { @MainActor [weak self] in self?.dispatch(event, registrationID: registrationID) }
             } else {
-                dispatch(event)
+                dispatch(event, registrationID: registrationID)
             }
         }
     }
@@ -295,8 +303,13 @@ final class MacTCPDebugAdapterTransport: DebugAdapterDrainingTransport {
         generation &+= 1
         closeConnection()
         try? core.releaseDebugTransport(transportID: transportID)
+        // Releasing Core state resets its counters. Use a new registration so
+        // old callbacks cannot match the replacement's generation or timer ids.
+        transportID = UUID().uuidString
+        let registrationID = transportID
         guard wasRunning else { return }
         onErrorOutput?(Data((error.localizedDescription + "\n").utf8))
+        guard transportID == registrationID, phase == .stopped else { return }
         onTermination?(1)
     }
 }

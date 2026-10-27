@@ -69,7 +69,7 @@
       }
     },
     {
-      "name": "capability snapshot without memory extension",
+      "name": "capability snapshot with read-only memory and no write extension",
       "value": {
         "projectionVersion": 2,
         "sessionID": "s-1",
@@ -79,8 +79,9 @@
           "revision": 2,
           "capabilities": {
             "supportsConfigurationDoneRequest": { "adapter": true, "extension": true, "authorized": true, "supported": true },
-            "supportsDisassembleRequest": { "adapter": true, "extension": false, "authorized": true, "supported": false },
-            "supportsReadMemoryRequest": { "adapter": true, "extension": false, "authorized": true, "supported": false }
+            "supportsDisassembleRequest": { "adapter": true, "extension": true, "authorized": true, "supported": true },
+            "supportsReadMemoryRequest": { "adapter": true, "extension": true, "authorized": true, "supported": true },
+            "supportsWriteMemoryRequest": { "adapter": true, "extension": false, "authorized": true, "supported": false }
           }
         }
       }

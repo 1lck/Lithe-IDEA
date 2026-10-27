@@ -11,6 +11,167 @@ struct TCPDebugAdapterTests {
     private let root = URL(fileURLWithPath: "/tcp-debug-test", isDirectory: true)
     private let endpoint = DebugAdapterEndpoint(host: "debug.example.org", port: 5678)
 
+    @Test(arguments: ["ready", "failure", "timeout", "cancel", "replacement"])
+    func externalFormWaitsForInitializationAndCancellationOwnsOnlyItsSession(outcome: String) async throws {
+        let socket = ControlledDebugSocket()
+        let replacementSocket = ControlledDebugSocket()
+        let deadlines = TCPTestScheduler()
+        var sockets = [socket, replacementSocket]
+        var transports: [MacTCPDebugAdapterTransport] = []
+        let manager = DebugAdapterSessionManager(providers: [
+            DebugProviderDescriptor(id: "python", displayName: "Python", fileExtensions: ["py"])
+        ]) { _, _ in nil }
+        manager.makeEndpointSession = { _, _, _ in
+            let transport = make(socket: sockets.removeFirst())
+            transports.append(transport)
+            return CoreDebugAdapterProtocolSession(
+                adapterID: "python", transport: transport, core: RustCoreBridge(),
+                deadlineScheduler: deadlines, initializationTimeoutMilliseconds: 20_000
+            )
+        }
+        let feature = GenericDebugFeatureModel(sessions: manager)
+        let source = root.appendingPathComponent("main.py")
+        let configuration = DebugLaunchConfiguration(name: "TCP", request: .attach, arguments: [:], adapterEndpoint: endpoint)
+        let finished = TCPTestEvent()
+        var returned = false
+        let task = Task { @MainActor in
+            let result = await ExternalDebugAdapterConnection.connect(
+                feature: feature, fileURL: source, rootURL: root, configuration: configuration
+            )
+            returned = true
+            finished.fire()
+            return result
+        }
+        defer { task.cancel(); feature.reset(); transports.forEach { $0.stop() } }
+        try #require(await socket.started.wait(timeout: .seconds(5)))
+        #expect(!returned, "Starting a socket is not successful DAP initialization")
+        let originalID = try #require(feature.activeSessionID)
+        switch outcome {
+        case "ready":
+            socket.onReady?()
+            socket.onData?(Self.frame(#"{"seq":101,"type":"response","request_seq":1,"command":"initialize","success":true,"body":{}}"#))
+        case "failure": socket.onFailure?(TCPTestError.failed)
+        case "timeout": deadlines.deadlines[0].fire()
+        case "replacement":
+            #expect(feature.startAdditional(fileURL: source, rootURL: root, configuration: configuration))
+            try #require(await replacementSocket.started.wait(timeout: .seconds(5)))
+            task.cancel()
+        default: task.cancel()
+        }
+        try #require(await finished.wait(timeout: .seconds(5)))
+        let failure = await task.value
+        if outcome == "failure" || outcome == "timeout" {
+            #expect(failure?.isEmpty == false)
+            #expect(feature.state == .failed)
+        } else {
+            #expect(failure == nil)
+        }
+        if outcome == "cancel" || outcome == "replacement" {
+            #expect(!feature.sessionSummaries.contains { $0.id == originalID })
+            #expect(socket.stopCount == 1)
+        }
+        if outcome == "replacement" {
+            #expect(replacementSocket.stopCount == 0)
+            #expect(feature.activeSessionID != originalID)
+        }
+    }
+
+    @Test
+    func aSendBridgeFaultClosesTheStreamAndItsDeadlinesImmediately() async throws {
+        let socket = ControlledDebugSocket()
+        let deadlines = TCPTestScheduler()
+        let core = FailingTCPTestCore()
+        let transport = MacTCPDebugAdapterTransport(
+            endpointResolver: { _ in endpoint }, core: core, deadlineScheduler: deadlines,
+            socketFactory: { _ in socket }
+        )
+        defer { transport.stop() }
+        var codes: [Int] = []
+        transport.onTermination = { codes.append($0) }
+        try transport.start(rootURL: root)
+        try #require(await socket.started.wait(timeout: .seconds(5)))
+        socket.onReady?()
+        core.failNextSend()
+        #expect(throws: TCPTestError.self) { try transport.send(Data([1])) }
+        #expect(!transport.isRunning)
+        #expect(socket.stopCount == 1)
+        #expect(deadlines.deadlines.allSatisfy { $0.cancelled })
+        #expect(codes == [1])
+    }
+
+    @Test
+    func callbacksFromAReleasedCoreRegistrationCannotEndItsReplacement() async throws {
+        let first = ControlledDebugSocket()
+        let second = ControlledDebugSocket()
+        let deadlines = TCPTestScheduler()
+        let core = FailingTCPTestCore()
+        var sockets = [first, second]
+        let transport = MacTCPDebugAdapterTransport(
+            endpointResolver: { _ in endpoint }, core: core, deadlineScheduler: deadlines,
+            socketFactory: { _ in sockets.removeFirst() }
+        )
+        defer { transport.stop() }
+        var codes: [Int] = []
+        var received = Data()
+        transport.onTermination = { codes.append($0) }
+        transport.onData = { received.append($0) }
+        try transport.start(rootURL: root)
+        try #require(await first.started.wait(timeout: .seconds(5)))
+        first.onReady?()
+        try transport.send(Data([1]))
+        let lateFailure = first.onFailure
+        let lateData = first.onData
+        let lateTimer = try #require(deadlines.deadlines.last).action
+        core.failNextReceive()
+        first.onData?(Data([2]))
+        #expect(!transport.isRunning)
+        try transport.start(rootURL: root)
+        try #require(await second.started.wait(timeout: .seconds(5)))
+        second.onReady?()
+        try transport.send(Data([3]))
+        first.completeWrite(.success(()))
+        lateTimer()
+        lateFailure?(TCPTestError.failed)
+        lateData?(Data([9]))
+        #expect(transport.isRunning)
+        #expect(second.stopCount == 0)
+        #expect(received.isEmpty)
+        #expect(codes == [1])
+        #expect(deadlines.deadlines.last?.cancelled == false)
+    }
+
+    @Test
+    func aBridgeFaultObserverRestartDoesNotReceiveTheOldTermination() async throws {
+        let first = ControlledDebugSocket()
+        let second = ControlledDebugSocket()
+        let core = FailingTCPTestCore()
+        var sockets = [first, second]
+        let transport = MacTCPDebugAdapterTransport(
+            endpointResolver: { _ in endpoint }, core: core,
+            socketFactory: { _ in sockets.removeFirst() }
+        )
+        defer { transport.onErrorOutput = nil; transport.stop() }
+        transport.onErrorOutput = { _ in
+            do { try transport.start(rootURL: root) }
+            catch { Issue.record("Restart failed: \(error)") }
+        }
+        transport.onTermination = { _ in Issue.record("Bridge fault ended the replacement lifecycle") }
+        try transport.start(rootURL: root)
+        try #require(await first.started.wait(timeout: .seconds(5)))
+        first.onReady?()
+        core.failNextSend()
+        #expect(throws: TCPTestError.self) { try transport.send(Data([1])) }
+        try #require(await second.started.wait(timeout: .seconds(5)))
+        #expect(transport.isRunning)
+        #expect(first.stopCount == 1)
+        #expect(second.stopCount == 0)
+    }
+
+    private static func frame(_ json: String) -> Data {
+        let body = Data(json.utf8)
+        return Data("Content-Length: \(body.count)\r\n\r\n".utf8) + body
+    }
+
     @Test
     func aCancelledDrainDeadlineCannotCloseTheReplacementConnection() async throws {
         let first = ControlledDebugSocket()
@@ -640,6 +801,38 @@ struct TCPDebugAdapterTests {
 }
 
 private enum TCPTestError: Error { case failed }
+
+/// A bridge fault, rather than a lifecycle failure returned successfully by Core.
+private final class FailingTCPTestCore: DebugTransportLifecycleCore, @unchecked Sendable {
+    private let bridge = RustCoreBridge()
+    private let lock = NSLock()
+    private var shouldFailSend = false
+    private var shouldFailReceive = false
+
+    func failNextSend() { lock.withLock { shouldFailSend = true } }
+    func failNextReceive() { lock.withLock { shouldFailReceive = true } }
+    func debugTransportPolicy() throws -> DebugTransportPolicy { try bridge.debugTransportPolicy() }
+    func releaseDebugTransport(transportID: String) throws { try bridge.releaseDebugTransport(transportID: transportID) }
+    func handleDebugTransportEvent(transportID: String, event: DebugTransportEvent) throws -> DebugTransportStep {
+        if case .send = event {
+            let fail = lock.withLock {
+                let fail = shouldFailSend
+                shouldFailSend = false
+                return fail
+            }
+            if fail { throw TCPTestError.failed }
+        }
+        if case .dataReceived = event {
+            let fail = lock.withLock {
+                let fail = shouldFailReceive
+                shouldFailReceive = false
+                return fail
+            }
+            if fail { throw TCPTestError.failed }
+        }
+        return try bridge.handleDebugTransportEvent(transportID: transportID, event: event)
+    }
+}
 
 @MainActor
 private final class ControlledDebugSocket: DebugAdapterSocketConnection {

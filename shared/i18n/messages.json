@@ -89401,6 +89401,549 @@
         "key": "The debug adapter connection could not be started.",
         "arguments": []
       }
+    },
+    {
+      "id": "debugger.disassembly.title",
+      "description": "Debug panel tab that shows machine instructions",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Disassembly",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.disassembly.steppingByInstruction",
+      "description": "Badge shown while Step Over / Step Into move one machine instruction at a time",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Stepping by instruction",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.disassembly.loading",
+      "description": "Disassembly placeholder while instructions are being requested",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Loading instructions…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.disassembly.selectFrame",
+      "description": "Disassembly placeholder when no frame is selected",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Select a frame to see its instructions",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.disassembly.loadEarlier",
+      "description": "Disassembly button that requests instructions before the first row",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Load earlier instructions",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.disassembly.loadLater",
+      "description": "Disassembly button that requests instructions after the last row",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Load later instructions",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.disassembly.setBreakpoint",
+      "description": "Disassembly context menu: set a breakpoint on an instruction address",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Set Instruction Breakpoint",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.disassembly.removeBreakpoint",
+      "description": "Disassembly context menu: remove the breakpoint on an instruction address",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Remove Instruction Breakpoint",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.disassembly.toggleBreakpoint",
+      "description": "Tooltip and accessibility label of the disassembly breakpoint gutter",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Toggle instruction breakpoint",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.disassembly.readMemoryAtAddress",
+      "description": "Disassembly context menu: show memory starting at the instruction address",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Read Memory at Address",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.disassembly.readMemoryAtValue",
+      "description": "Variable context menu: show memory starting at the address held by the value",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Read Memory at Value",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.disassembly.copyAddress",
+      "description": "Context menu: copy an instruction or frame address",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Copy Address",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.disassembly.copyInstruction",
+      "description": "Disassembly context menu: copy the instruction text",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Copy Instruction",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.disassembly.showDisassembly",
+      "description": "Stack frame context menu: open the disassembly for this frame",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Show Disassembly",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.title",
+      "description": "Debug panel tab that shows a memory dump",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Memory",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.addressOrExpression",
+      "description": "Placeholder of the memory address field",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Address or expression",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.addressOrExpressionLabel",
+      "description": "Accessibility label of the memory address field",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Memory address or expression",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.previousPage",
+      "description": "Memory dump: show the previous page of bytes",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Previous page",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.nextPage",
+      "description": "Memory dump: show the next page of bytes",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Next page",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.reading",
+      "description": "Memory placeholder while bytes are being requested",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Reading memory…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.enterAddress",
+      "description": "Memory placeholder before any address was entered",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Enter an address, or a register or variable that holds one",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.notAnAddress",
+      "description": "Memory error when the entered expression does not evaluate to an address",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The expression does not hold an address",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.unreadableBytes",
+      "description": "Memory dump note: the adapter could not read the trailing bytes",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%lld bytes could not be read",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "integer"
+      }
+    },
+    {
+      "id": "debugger.registers.title",
+      "description": "Debug panel tab that shows the register scope",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Registers",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.displayOptions",
+      "description": "Tooltip and accessibility label of the memory view display options menu",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Memory display options",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.numberBase",
+      "description": "Memory display options submenu: the number base values are shown in",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Number Base",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.valueSize",
+      "description": "Memory display options submenu: how many bytes make one value",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Value Size",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.bytesPerRow",
+      "description": "Memory display options submenu: how many bytes one row holds",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Bytes per Row",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.byteOrder",
+      "description": "Memory display options submenu: which byte of a value comes first",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Byte Order",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.littleEndian",
+      "description": "Memory display options: least significant byte first",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Little Endian",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.bigEndian",
+      "description": "Memory display options: most significant byte first",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Big Endian",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.radix.hexadecimal",
+      "description": "Memory display options: show values in base 16",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Hexadecimal",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.radix.unsignedDecimal",
+      "description": "Memory display options: show values as unsigned base 10 integers",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Unsigned Decimal",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.radix.signedDecimal",
+      "description": "Memory display options: show values as signed base 10 integers",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Signed Decimal",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.radix.octal",
+      "description": "Memory display options: show values in base 8",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Octal",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.radix.binary",
+      "description": "Memory display options: show values in base 2",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Binary",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.radix.floatingPoint",
+      "description": "Memory display options: show 4 or 8 byte values as IEEE floating point numbers",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Floating Point",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.size.one",
+      "description": "Memory display options: one value is a single byte",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "1 byte",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.size.two",
+      "description": "Memory display options: one value is 2 bytes",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "2 bytes",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.size.four",
+      "description": "Memory display options: one value is 4 bytes",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "4 bytes",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.size.eight",
+      "description": "Memory display options: one value is 8 bytes",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "8 bytes",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.showTextColumn",
+      "description": "Memory display options: toggle the printable character column",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Show Text Column",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.resetDisplay",
+      "description": "Memory display options: go back to hexadecimal bytes, 16 to a row",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Reset Display Options",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.memory.offsetsRelativeTo",
+      "description": "Memory view strip: the address that the row offsets are counted from",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Offsets relative to %@",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "debugger.memory.changedBytes",
+      "description": "Memory view strip: bytes that differ from before the last step",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "%lld bytes changed",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "integer"
+      }
+    },
+    {
+      "id": "debugger.step.overInstruction",
+      "description": "Toolbar tooltip for step over while the disassembly is open and the adapter steps by instruction",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Step Over Instruction",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.step.intoInstruction",
+      "description": "Toolbar tooltip for step into while the disassembly is open and the adapter steps by instruction",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Step Into Instruction",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debugger.disassembly.stepsByLine",
+      "description": "Disassembly header note: the adapter cannot step by instruction, so stepping still moves by source line",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This adapter cannot step by instruction; steps still move by line",
+        "arguments": []
+      }
     }
   ]
 }

@@ -56,6 +56,7 @@ struct ExternalDebugAdapterView: View {
         }
         .padding(18)
         .frame(width: 480)
+        .onDisappear { connectTask?.cancel() }
     }
 
     private func connect() {
@@ -74,6 +75,7 @@ struct ExternalDebugAdapterView: View {
         // declined consent leaves the host, port and arguments editable.
         connectTask = Task {
             let failure = await onConnect(configuration)
+            guard !Task.isCancelled else { return }
             connectTask = nil
             if let failure { errorMessage = failure } else { dismiss() }
         }

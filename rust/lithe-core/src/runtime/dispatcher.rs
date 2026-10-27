@@ -1133,6 +1133,27 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::DebugSetInstructionBreakpoints => {
+            match serde_json::from_value::<crate::debug::SetInstructionBreakpointsRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid debug set-instruction-breakpoints request",
+                )
+                .with_details(error.to_string())
+            })
+            .and_then(crate::debug::set_instruction_breakpoints)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("Debug instruction breakpoint update should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::DebugDataBreakpointInfo => {
             match serde_json::from_value::<crate::debug::DataBreakpointInfoRequest>(parsed.payload)
                 .map_err(|error| {

@@ -100,8 +100,8 @@ extension AppModel {
         }
     }
 
-    /// Returns the reason the connection could not be started, or nil once it has
-    /// started (or the request was cancelled). The caller keeps its form open on
+    /// Returns the reason initialization failed, or nil once it has completed
+    /// (or the request was cancelled). The caller keeps its form open on
     /// a message, so the user's host, port and arguments are not lost.
     func connectExternalDebugAdapter(
         configuration: DebugLaunchConfiguration, fileURL: URL
@@ -111,17 +111,13 @@ extension AppModel {
         guard let feature = await activateDebugModule()?.genericFeature else { return notReady }
         guard !Task.isCancelled else { return nil }
         guard isCurrentWorkspace(identity) else { return notReady }
-        guard !feature.isSessionActive else {
-            return L10n.string("Stop the current debug session before connecting to a debug adapter.")
-        }
         // The selected source chooses an installed provider, not a wire
         // protocol guessed from the port. A failed connection stays visible
         // in Debug, rather than restoring an older session over its error.
-        let started = feature.start(
-            fileURL: fileURL, rootURL: workspaceURL, configuration: configuration
-        )
         showDebugToolWindow()
-        return started ? nil : (feature.errorMessage ?? notReady)
+        return await ExternalDebugAdapterConnection.connect(
+            feature: feature, fileURL: fileURL, rootURL: workspaceURL, configuration: configuration
+        )
     }
 
     private func attachJavaDebuggerAfterActivation(host: String, port: Int) async {
