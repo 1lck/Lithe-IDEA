@@ -364,6 +364,8 @@ jobs:
         run: |
           $runner = ".agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs"
           $suites = @(
+            "src/ui/info-tip.test.tsx",
+            "src/ui/icons.test.tsx",
             "src/features/plugins/native-ui/native-docking.test.tsx",
             "src/features/plugins/native-ui/native-main-layout.test.tsx",
             "src/features/plugins/native-ui/native-panel.test.tsx",
@@ -381,7 +383,7 @@ jobs:
           $index = 0
           foreach ($suite in $suites) {
             $index += 1
-            node $runner --suite-timeout-ms 60000 --report ".artifacts/test-stability/windows-plugin-docking-vcs-$index.json" -- "./$suite"
+            node $runner --suite-timeout-ms 60000 --report ".artifacts/test-stability/windows-plugin-docking-vcs-$index.json" -- --preload ./src/test-utils/vite-assets.ts "./$suite"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
 
@@ -407,7 +409,7 @@ jobs:
 
       - name: Test Agent panel and capability gate
         shell: pwsh
-        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-agent.json -- src/features/agent src/features/editor/stores/buffer-agent-conversation.test.ts src/utils/markdown-links.test.ts src/config/backend-capabilities.test.ts src/i18n src/features/file-system/utils/file-system-drop-controller.test.ts src/ui/icons.test.tsx
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-agent.json -- src/features/agent src/features/editor/stores/buffer-agent-conversation.test.ts src/utils/markdown-links.test.ts src/config/backend-capabilities.test.ts src/i18n src/features/file-system/utils/file-system-drop-controller.test.ts
 
       - name: Test Agent connection service ownership in isolation
         shell: pwsh

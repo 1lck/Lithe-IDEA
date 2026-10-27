@@ -10,23 +10,17 @@ import {
   ContextMenuTrigger,
 } from "@/ui/context-menu";
 import { Field, FieldLabel } from "@/ui/field";
-import {
-  ArrowClockwiseIcon,
-  CaretDownIcon,
-  CaretRightIcon,
-  InfoIcon,
-  MinusIcon,
-  PlayIcon,
-} from "@/ui/icons";
+import { ArrowClockwiseIcon, CaretDownIcon, CaretRightIcon, MinusIcon, PlayIcon } from "@/ui/icons";
+import { InfoTip } from "@/ui/info-tip";
 import Input from "@/ui/input";
 import NumberInput from "@/ui/number-input";
+import { PluginHostIcon } from "@/ui/plugin-host-icon";
 import { SearchField } from "@/ui/search";
 import Select from "@/ui/select";
 import { SidebarHeaderIconButton, SidebarPanel, SidebarTitleBar } from "@/ui/sidebar";
 import { Spinner } from "@/ui/spinner";
 import Textarea from "@/ui/textarea";
 import { ToggleGroup } from "@/ui/toggle-group";
-import Tooltip from "@/ui/tooltip";
 import { getFileTreeRowHeight } from "@/features/file-explorer/lib/file-tree-row";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { subscribePluginActivity } from "../declarative-plugin-lifecycle";
@@ -102,7 +96,11 @@ function MountedNativePanel({ identity, title, ui, port, store, onClose }: Nativ
                 disabled={!owner.canPerform(entry)}
                 onClick={() => action(id)}
               >
-                <Icon className="size-4" />
+                {entry.icon ? (
+                  <PluginHostIcon host={entry.icon.host} className="size-4" />
+                ) : (
+                  <Icon className="size-4" />
+                )}
               </SidebarHeaderIconButton>
             );
           })}
@@ -215,13 +213,7 @@ function MountedNativePanel({ identity, title, ui, port, store, onClose }: Nativ
 
 function NativeInfo({ label, info }: { label: string; info: string }) {
   const { t } = useTranslation();
-  return (
-    <Tooltip content={info}>
-      <Button variant="ghost" size="icon-xs" aria-label={t("pluginNative.info", { name: label })}>
-        <InfoIcon className="size-4" />
-      </Button>
-    </Tooltip>
-  );
+  return <InfoTip label={t("pluginNative.info", { name: label })} content={info} />;
 }
 
 function NativeField({

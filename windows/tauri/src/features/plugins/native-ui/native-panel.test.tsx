@@ -1,4 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { act, type ReactElement } from "react";
 import type { Root } from "react-dom/client";
 import { LocaleProvider } from "@/i18n/locale-provider";
@@ -112,6 +113,117 @@ function panel(
     </LocaleProvider>
   );
 }
+
+test("native toolbar renders every approved host icon and retains undeclared action defaults", async () => {
+  const expected = {
+    "tool-window": "toolWindowComponents@20x20",
+    plugin: "plugin",
+    database: "dbms@20x20",
+    services: "services@20x20",
+    terminal: "terminal",
+    search: "search",
+    refresh: "refresh",
+    reset: "reset",
+    run: "run",
+    debug: "debug",
+    settings: "settings",
+    add: "add",
+    remove: "delete",
+    git: "vcs",
+    problems: "problems",
+  };
+  const core = readFileSync(
+    new URL("../../../../../../rust/lithe-core/src/plugins/declarative.rs", import.meta.url),
+    "utf8",
+  );
+  const hostIds = [
+    ...core.match(/const HOST_IDS:.*?= &\[([\s\S]*?)\];/)![1].matchAll(/"([^"]+)"/g),
+  ].map((match) => match[1]);
+  expect(Object.keys(expected)).toEqual(hostIds);
+  const ui = structuredClone(treeFixture.ui.toolWindows[0].native) as unknown as NativeUI;
+  // Inspect's search declaration is the original production regression.
+  expect(ui.actions.find((action) => action.title === "Inspect")?.icon?.host).toBe("search");
+  ui.actions = hostIds.map((host) => ({
+    id: host,
+    title: host,
+    kind: "invoke",
+    function: "inspect",
+    requiresSelection: false,
+    icon: { host },
+  }));
+  ui.actions.push(
+    { id: "default-refresh", title: "Default refresh", kind: "refresh", requiresSelection: false },
+    {
+      id: "default-invoke",
+      title: "Default invoke",
+      kind: "invoke",
+      function: "inspect",
+      requiresSelection: false,
+    },
+  );
+  ui.toolbar = ui.actions.map((action) => action.id);
+  ui.contextMenu = [];
+  const mounted = await mount(panel(ui, { validate }));
+  try {
+    for (const [host, asset] of Object.entries(expected)) {
+      const button = mounted.host.querySelector(`button[aria-label="${host}"]`)!;
+      const light = button
+        .querySelector(".lithe-idea-icon-light")!
+        .getAttribute("href")!
+        .replace(/\\/g, "/");
+      const dark = button
+        .querySelector(".lithe-idea-icon-dark")!
+        .getAttribute("href")!
+        .replace(/\\/g, "/");
+      expect(light).toContain(`/${asset}.svg`);
+      expect(dark).toContain(`/${asset}_dark.svg`);
+      expect(button.querySelectorAll("svg")).toHaveLength(1);
+    }
+    expect(
+      mounted.host
+        .querySelector('button[aria-label="Default refresh"] image')!
+        .getAttribute("href")!
+        .replace(/\\/g, "/"),
+    ).toContain("/redo.svg");
+    expect(
+      mounted.host
+        .querySelector('button[aria-label="Default invoke"] image')!
+        .getAttribute("href")!
+        .replace(/\\/g, "/"),
+    ).toContain("/run.svg");
+  } finally {
+    await mounted.close();
+  }
+}, 3000);
+
+test("native disabled fields and actions keep their explanations operable", async () => {
+  const ui = controlsFixture.ui.toolWindows[0].native as unknown as NativeUI;
+  const mounted = await mount(panel(ui, { validate }));
+  try {
+    const disabled = [...ui.controls!, ...ui.buttons!].filter(
+      (entry) => entry.enabled === false && entry.info,
+    );
+    expect(disabled.length).toBeGreaterThan(0);
+    for (const entry of disabled) {
+      const tip = [...mounted.host.querySelectorAll<HTMLButtonElement>("button")].find(
+        (button) => button.getAttribute("aria-label") === `Information for ${entry.label}`,
+      )!;
+      expect(tip).toBeDefined();
+      expect(tip.disabled).toBe(false);
+      expect(document.getElementById(tip.getAttribute("aria-describedby")!)?.textContent).toBe(
+        entry.info!,
+      );
+      await act(async () => tip.click());
+      expect(tip.getAttribute("aria-expanded")).toBe("true");
+      expect(document.querySelector('[role="dialog"]')?.textContent).toBe(entry.info!);
+      await act(async () => tip.click());
+      expect(tip.getAttribute("aria-expanded")).toBe("false");
+    }
+  } finally {
+    await mounted.close();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  }
+}, 3000);
 
 test("the real native-controls form renders shared controls and IME Enter commits all current fields once", async () => {
   const ui = controlsFixture.ui.toolWindows[0].native as unknown as NativeUI;

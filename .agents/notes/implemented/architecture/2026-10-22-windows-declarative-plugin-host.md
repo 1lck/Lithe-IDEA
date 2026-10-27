@@ -121,6 +121,8 @@ resolve 使用实际协商的 `conflicts` 能力，只接受状态为 conflicted
 
 写入自身会改变元数据。最终复验成功后，在原窗口、scope 和 generation 的 registry 条目中暂停监听失效，直到写后完整检测替换该条目；条目数量沿用工作区预算。这样进程 owner 已回收后才交付的旧元数据事件，也不能撤销成功结果。其它窗口继续独立失效，插件撤销和窗口关闭仍直接撤销 registry。完成后由原 scope 重读根、同根状态和原历史；新一代恢复普通监听，旧 scope 不发布结果。监听永远不确认或补发写操作。
 
+文件移动不能沿用已存在双端点的校验后直接执行。正式 v1 的 `fileOperations:1` 只声明操作可用，不承诺原子地拒绝覆盖，也不保证缺失叶子不会被解释为后来出现的目录；最后一次目标不存在预检无法消除 Provider 调用期间的竞态。固定 Subversion Provider v0.1.0（commit `3a558be049f47a3ebe24ae770faf7999df883c29`，SDK `54598ae6e0b9fd71a07b77e1fea6917ba8897a6f`）把已跟踪移动交给 `svn move --parents`；没有 `--force` 不是并发安全证明。当前 Windows 不增加 move 菜单、未接线的计划器或磁盘 fallback。保证应由 Provider 与成熟 SVN 事务实现提供，契约如何表达该保证须先评审，不能按插件 ID 特判或重新解释既有 v1 能力。源码审查和当前控制器拒绝不证明真实 Provider、安全目标发布或固定 Windows 包已验收。
+
 新增状态全部在内存中；Provider 可写目录仍由现有平台存储 adapter 提供，没有新下载、生成或缓存路径，安装包和发行资源保持只读。`ui:3` 与 `vcsProviders` 继续关闭；文件 move、缺失节点类型证明与 gutter/Annotate 未扩展。resolve/cleanup 已接入不代表真实 SVN 客户端、生产插件包、原生进程树或 WebView2 人工验收通过，这些验证继续 pending。
 
 ### 与 Worker 扩展模型共存（产品分工）
