@@ -175,6 +175,18 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         }
     }
 
+    public func setInstructionBreakpoints(_ breakpoints: [DebugInstructionBreakpoint]) {
+        guard ownsCoreSession else { return }
+        do {
+            try apply(core.setDebugInstructionBreakpoints(
+                sessionID: sessionID,
+                breakpoints: breakpoints
+            ))
+        } catch {
+            onEvent?(.output(category: "stderr", output: error.localizedDescription + "\n"))
+        }
+    }
+
     public func setDataBreakpoints(_ breakpoints: [DebugDataBreakpoint]) {
         guard ownsCoreSession else { return }
         do {
@@ -240,8 +252,38 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
     public func execute(
         _ command: DebugExecutionCommand,
         threadID: Int?,
+        granularity: DebugSteppingGranularity
+    ) {
+        execute(
+            command,
+            threadID: threadID,
+            targetID: nil,
+            singleThread: false,
+            granularity: granularity
+        )
+    }
+
+    public func execute(
+        _ command: DebugExecutionCommand,
+        threadID: Int?,
         targetID: Int?,
         singleThread: Bool
+    ) {
+        execute(
+            command,
+            threadID: threadID,
+            targetID: targetID,
+            singleThread: singleThread,
+            granularity: nil
+        )
+    }
+
+    private func execute(
+        _ command: DebugExecutionCommand,
+        threadID: Int?,
+        targetID: Int?,
+        singleThread: Bool,
+        granularity: DebugSteppingGranularity?
     ) {
         guard ownsCoreSession else { return }
         let operationID = UUID().uuidString
@@ -252,7 +294,8 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
                 command: command,
                 threadID: threadID,
                 targetID: targetID,
-                singleThread: singleThread
+                singleThread: singleThread,
+                granularity: granularity
             ))
         } catch {
             onEvent?(.output(category: "stderr", output: error.localizedDescription + "\n"))
@@ -312,9 +355,78 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
                         ),
                         line: $0.line,
                         column: $0.column,
-                        isFiltered: $0.isFiltered
+                        isFiltered: $0.isFiltered,
+                        instructionPointerReference: $0.instructionPointerReference
                     )
                 })
+            })
+        }
+    }
+
+    public func requestDisassembly(
+        memoryReference: String,
+        instructionOffset: Int,
+        instructionCount: Int,
+        completion: @escaping (Result<[DebugDisassembledInstruction], Error>) -> Void
+    ) {
+        guard capabilities.supportsDisassembleRequest else {
+            completion(.failure(DebugAdapterCapabilityError.unsupported("disassembly")))
+            return
+        }
+        inspect(
+            kind: "disassemble",
+            memory: DebugCoreMemoryQuery(
+                reference: memoryReference,
+                instructionOffset: instructionOffset,
+                instructionCount: instructionCount,
+                resolveSymbols: true
+            )
+        ) { result in
+            completion(result.flatMap { value in
+                guard value.kind == "disassemble", let instructions = value.instructions else {
+                    return .failure(DebugAdapterProtocolError.invalidResponse("disassemble"))
+                }
+                return .success(instructions.map {
+                    DebugDisassembledInstruction(
+                        address: $0.address,
+                        instructionBytes: $0.instructionBytes,
+                        instruction: $0.instruction,
+                        symbol: $0.symbol,
+                        sourceURL: Self.fileURL(forAdapterSourcePath: $0.sourcePath),
+                        line: $0.line
+                    )
+                })
+            })
+        }
+    }
+
+    public func requestReadMemory(
+        memoryReference: String,
+        offset: Int,
+        count: Int,
+        completion: @escaping (Result<DebugMemoryRead, Error>) -> Void
+    ) {
+        guard capabilities.supportsReadMemoryRequest else {
+            completion(.failure(DebugAdapterCapabilityError.unsupported("memory reading")))
+            return
+        }
+        inspect(
+            kind: "readMemory",
+            count: count,
+            memory: DebugCoreMemoryQuery(reference: memoryReference, offset: offset)
+        ) { result in
+            completion(result.flatMap { value in
+                guard value.kind == "readMemory",
+                      let address = value.address,
+                      let encoded = value.dataBase64,
+                      let data = Data(base64Encoded: encoded) else {
+                    return .failure(DebugAdapterProtocolError.invalidResponse("readMemory"))
+                }
+                return .success(DebugMemoryRead(
+                    address: address,
+                    unreadableBytes: value.unreadableBytes ?? 0,
+                    data: data
+                ))
             })
         }
     }
@@ -335,7 +447,8 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
                         variablesReference: scope.variablesReference,
                         expensive: scope.expensive,
                         namedVariables: scope.namedVariables,
-                        indexedVariables: scope.indexedVariables
+                        indexedVariables: scope.indexedVariables,
+                        presentationHint: scope.presentationHint
                     )
                 })
             })
@@ -580,6 +693,7 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         sourcePath: String? = nil,
         line: Int? = nil,
         column: Int? = nil,
+        memory: DebugCoreMemoryQuery? = nil,
         completion: @escaping OperationHandler
     ) {
         guard ownsCoreSession else {
@@ -603,7 +717,8 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
                 context: context,
                 sourcePath: sourcePath,
                 line: line,
-                column: column
+                column: column,
+                memory: memory
             ))
         } catch {
             completeOperation(operationID, result: .failure(error))
@@ -675,7 +790,8 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
                 column: breakpoint.column,
                 functionName: breakpoint.functionName,
                 dataID: breakpoint.dataID,
-                requestedLine: breakpoint.requestedLine
+                requestedLine: breakpoint.requestedLine,
+                instructionReference: breakpoint.instructionReference
             )))
         case "runInTerminalRequested":
             guard let requestID = event.requestID,
@@ -890,6 +1006,10 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
             supportsStepInTargetsRequest: value.supportsStepInTargetsRequest,
             supportsGotoTargetsRequest: value.supportsGotoTargetsRequest,
             supportsCompletionsRequest: value.supportsCompletionsRequest,
+            supportsDisassembleRequest: value.supportsDisassembleRequest,
+            supportsSteppingGranularity: value.supportsSteppingGranularity,
+            supportsInstructionBreakpoints: value.supportsInstructionBreakpoints,
+            supportsReadMemoryRequest: value.supportsReadMemoryRequest,
             exceptionBreakpointFilters: value.exceptionBreakpointFilters
         )
     }

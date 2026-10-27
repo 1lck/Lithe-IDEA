@@ -416,6 +416,10 @@ final class ProjectRuntimeService: ObservableObject {
         runtimeLocator.environment().merging(overrides) { _, override in override }
     }
 
+    func defaultExecutableSearchPath() -> String? {
+        runtimeLocator.defaultExecutableSearchPath()
+    }
+
     /// Returns all known candidates in preference order.  The platform
     /// adapter can add project-local, Homebrew, Xcode, or registry sources;
     /// the locator fallback keeps existing non-platform implementations fully

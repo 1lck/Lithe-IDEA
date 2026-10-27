@@ -95,6 +95,9 @@ function Invoke-TimedRustTests {
             # Two repositories plus a real submodule clone exceeded the 15s
             # process budget (16.1s) in Windows run 39933498873.
             $arguments += @("--test-budget", "watch_context_resolves_a_submodule_git_directory_outside_its_workspace=30000")
+            # Linked-worktree setup hit 15.419s in Windows run 40442602987.
+            # Git children remain bounded; only this native integration case gets headroom.
+            $arguments += @("--test-budget", "watch_context_distinguishes_linked_worktree_git_and_common_directories=30000")
             # This six-commit conflict/skip/squash case reached the 30s cutoff
             # on a hosted Windows runner without an assertion failure.
             $arguments += @("--test-budget", "tests::git_history_rewrite::native_rebase_skip_omits_conflicted_message_from_later_squash=45000")
