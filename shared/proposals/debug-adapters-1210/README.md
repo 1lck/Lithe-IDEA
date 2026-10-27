@@ -78,7 +78,11 @@ debugpy、lldb-dap 可以走 stdio（宿主已不再内置 Python、Rust 调试�
 
 保留现有 `DebugLaunchConfiguration`、Run 配置 ID、三层覆盖和导入参数。处理顺序是：适配器默认参数 → 现有 Run/导入/用户覆盖链 → 只补缺失的目标字段 → 可选参数 schema → Core 规范化。schema 的 `default` 是文档提示，实际默认值由 Core 实现。
 
-`targetBindings` 限定为 `program ← target.path`、`processId ← target.processID`、`cwd ← target.workingDirectory`；不允许把进程号当路径，也不引入任意表达式。如果所选目标缺少必需事实且显式参数也未提供，准备阶段失败，不启动进程。文件目标不会自动产生 `program`，插件需要选择映射或由现有 Run 配置提供参数；不能仅声明 selector 就声称能启动。
+`targetBindings` 限定为 `program ← target.path`、`processId ← target.processID`、`cwd ← target.workingDirectory`，以及只用于 `attach` 的 `connection`；不允许把进程号当路径，也不引入任意表达式。如果所选目标缺少必需事实且显式参数也未提供，准备阶段失败，不启动进程。
+
+`connection` 让适配器附加到另一台机器上的被调试程序（适配器仍在本机）。与前三项不同，它的值是**适配器参数里的目的地路径**，因为各适配器给主机和端口起的名字、嵌套都不同（`hostName`/`port`、`connect.host`/`connect.port`、一个 `host:port` 字符串）：`host` 与 `port` 成对，或 `address` 单个字符串；可选 `pathMappings` 有四种形状：`objects`（对象列表）、`first`（唯一一条映射写成两个字符串）、`dictionary`（以其中一侧为键的对象）、`pairs`（二元数组列表）；形状装不下用户给的全部映射时拒绝而不是丢弃。事实来源仍然封闭：`target.host`、`target.port`、`target.pathMappings`。目的地与其他目的地、`processId`/`cwd` 或同一配置的默认 `arguments` 冲突的清单，在声明期被拒绝，否则“默认值优先”会让适配器连到用户没有确认的地方。Core 只按字面量把 `localhost`、`127.0.0.0/8`、`::1` 判为本机，其余都返回 `remote: true` 交宿主确认。不新增权限，`debug.attach` 已覆盖。决策原因、被否方案和不做的内容见主 Note 的“远程 attach”。文件目标不会自动产生 `program`，插件需要选择映射或由现有 Run 配置提供参数；不能仅声明 selector 就声称能启动。
+
+这里绑定的是适配器 → 被调试程序的端点，不是 IDE → 适配器的 DAP 地址。默认 debugpy `--listen` 启动的是远端 DAP 适配器，需要独立的 DAP 直连入口，不能只填嵌套参数就算支持。当前只推进复用 #1520 的普通 TCP 连接与生命周期；代理、隧道、端口转发和 SSH 远端执行另做方案，不新增相关清单字段，见[网络边界 Note](../../../.agents/notes/proposed/architecture/2026-10-27-debug-network-paths-and-tcp-lifecycle.md)。
 
 路径身份和执行路径分开：工作区内源码的持久化身份仍为相对路径；Build/Run 可以提供用户已选择或授权的外部产物引用，平台在执行时解析为绝对路径。源码外构建和工作区外可执行文件无需伪造相对路径。本提案不新增 `workspacePath`、`configuration.id` 或 `target.configurationID` 的重复结构。
 
