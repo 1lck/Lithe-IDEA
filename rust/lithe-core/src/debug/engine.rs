@@ -43,6 +43,7 @@ struct DebugSession {
     exception_breakpoints: Vec<ExceptionBreakpoint>,
     did_configure_exception_breakpoints: bool,
     function_breakpoints: Vec<FunctionBreakpoint>,
+    instruction_breakpoints: Vec<InstructionBreakpoint>,
     data_breakpoints: Vec<DataBreakpoint>,
     supports_run_in_terminal_request: bool,
     pending_run_in_terminal_requests: BTreeMap<String, i64>,
@@ -77,6 +78,9 @@ enum PendingRequest {
     SetExceptionBreakpoints,
     SetFunctionBreakpoints {
         requested: Vec<FunctionBreakpoint>,
+    },
+    SetInstructionBreakpoints {
+        requested: Vec<InstructionBreakpoint>,
     },
     DataBreakpointInfo {
         operation_id: String,
@@ -153,6 +157,7 @@ pub(crate) fn create_session(
         exception_breakpoints: Vec::new(),
         did_configure_exception_breakpoints: false,
         function_breakpoints: Vec::new(),
+        instruction_breakpoints: Vec::new(),
         data_breakpoints: Vec::new(),
         supports_run_in_terminal_request: request.supports_run_in_terminal_request,
         pending_run_in_terminal_requests: BTreeMap::new(),
@@ -347,6 +352,55 @@ pub(crate) fn set_function_breakpoints(
         session.function_breakpoints = request.breakpoints;
         if session.did_receive_initialized && session.capabilities.supports_function_breakpoints {
             session.send_function_breakpoints()?;
+        }
+        Ok(session.take_update())
+    })
+}
+
+/// Longest opaque memory or instruction reference the Core forwards to an adapter.
+const MAXIMUM_MEMORY_REFERENCE_LENGTH: usize = 256;
+/// Largest `readMemory` request, so one call cannot ask an adapter for unbounded bytes.
+const MAXIMUM_READ_MEMORY_BYTES: i64 = 65_536;
+/// Largest `disassemble` window, enough for a scrolling view without flooding the transport.
+const MAXIMUM_DISASSEMBLE_INSTRUCTIONS: i64 = 1_000;
+
+/// Stores deterministic instruction breakpoints and sends them when supported.
+///
+/// References are opaque address strings: they are only trimmed and bounded, never parsed,
+/// so a 64-bit address survives untouched and no CPU-specific logic enters the Core.
+pub(crate) fn set_instruction_breakpoints(
+    mut request: SetInstructionBreakpointsRequest,
+) -> Result<DebugSessionUpdate, CoreError> {
+    for breakpoint in &mut request.breakpoints {
+        breakpoint.instruction_reference =
+            validated_memory_reference(&breakpoint.instruction_reference)?;
+        breakpoint.condition = normalize_optional_text(breakpoint.condition.take());
+        breakpoint.hit_condition = normalize_optional_text(breakpoint.hit_condition.take());
+    }
+    request.breakpoints.sort_by(|left, right| {
+        (
+            &left.instruction_reference,
+            left.offset,
+            left.enabled,
+            &left.condition,
+            &left.hit_condition,
+        )
+            .cmp(&(
+                &right.instruction_reference,
+                right.offset,
+                right.enabled,
+                &right.condition,
+                &right.hit_condition,
+            ))
+    });
+    request.breakpoints.dedup_by(|left, right| {
+        left.instruction_reference == right.instruction_reference && left.offset == right.offset
+    });
+    with_session(&request.session_id, |session| {
+        session.instruction_breakpoints = request.breakpoints;
+        if session.did_receive_initialized && session.capabilities.supports_instruction_breakpoints
+        {
+            session.send_instruction_breakpoints()?;
         }
         Ok(session.take_update())
     })
@@ -619,6 +673,25 @@ pub(crate) fn execute(request: ExecuteRequest) -> Result<DebugSessionUpdate, Cor
         {
             return Err(invalid_request("Stepping requires a selected thread."));
         }
+        if let Some(granularity) = request.granularity {
+            if !matches!(
+                request.command,
+                DebugExecutionCommand::Next
+                    | DebugExecutionCommand::StepIn
+                    | DebugExecutionCommand::StepOut
+                    | DebugExecutionCommand::StepBack
+            ) {
+                return Err(invalid_request(
+                    "Debug granularity is only valid for next, stepIn, stepOut or stepBack.",
+                ));
+            }
+            if !session.capabilities.supports_stepping_granularity {
+                return Err(invalid_request(
+                    "The debug adapter does not support choosing the stepping granularity.",
+                )
+                .with_details(granularity.argument().to_string()));
+            }
+        }
         let mut arguments = Map::new();
         if !matches!(
             request.command,
@@ -660,6 +733,9 @@ pub(crate) fn execute(request: ExecuteRequest) -> Result<DebugSessionUpdate, Cor
                 "singleThread".to_string(),
                 Value::Bool(request.single_thread),
             );
+        }
+        if let Some(granularity) = request.granularity {
+            arguments.insert("granularity".to_string(), json!(granularity.argument()));
         }
         session.send_request(
             request.command.command(),
@@ -712,6 +788,30 @@ pub(crate) fn inspect(request: InspectRequest) -> Result<DebugSessionUpdate, Cor
             return Err(invalid_request(
                 "The debug adapter does not support console completion.",
             ));
+        }
+        if request.kind == DebugInspectKind::Disassemble {
+            if session.state != DebugSessionState::Paused {
+                return Err(invalid_request(
+                    "Disassembly requires a paused debug session.",
+                ));
+            }
+            if !session.capabilities.supports_disassemble_request {
+                return Err(invalid_request(
+                    "The debug adapter does not support disassembly.",
+                ));
+            }
+        }
+        if request.kind == DebugInspectKind::ReadMemory {
+            if session.state != DebugSessionState::Paused {
+                return Err(invalid_request(
+                    "Reading memory requires a paused debug session.",
+                ));
+            }
+            if !session.capabilities.supports_read_memory_request {
+                return Err(invalid_request(
+                    "The debug adapter does not support reading memory.",
+                ));
+            }
         }
         if request.kind == DebugInspectKind::ExceptionInfo {
             if session.state != DebugSessionState::Paused {
@@ -1054,6 +1154,38 @@ impl DebugSession {
         )
     }
 
+    fn send_instruction_breakpoints(&mut self) -> Result<(), CoreError> {
+        let requested: Vec<InstructionBreakpoint> = self
+            .instruction_breakpoints
+            .iter()
+            .filter(|breakpoint| breakpoint.enabled)
+            .cloned()
+            .collect();
+        let breakpoints: Vec<Value> = requested
+            .iter()
+            .map(|breakpoint| {
+                let mut value = Map::new();
+                value.insert(
+                    "instructionReference".to_string(),
+                    json!(breakpoint.instruction_reference),
+                );
+                insert_option(&mut value, "offset", breakpoint.offset);
+                insert_nonempty(&mut value, "condition", breakpoint.condition.as_deref());
+                insert_nonempty(
+                    &mut value,
+                    "hitCondition",
+                    breakpoint.hit_condition.as_deref(),
+                );
+                Value::Object(value)
+            })
+            .collect();
+        self.send_request(
+            "setInstructionBreakpoints",
+            json!({"breakpoints": breakpoints}),
+            PendingRequest::SetInstructionBreakpoints { requested },
+        )
+    }
+
     fn send_data_breakpoints(&mut self) -> Result<(), CoreError> {
         let requested: Vec<DataBreakpoint> = self
             .data_breakpoints
@@ -1231,6 +1363,9 @@ impl DebugSession {
             PendingRequest::SetFunctionBreakpoints { requested } => {
                 self.emit_function_breakpoint_results(&body, &requested)
             }
+            PendingRequest::SetInstructionBreakpoints { requested } => {
+                self.emit_instruction_breakpoint_results(&body, &requested)
+            }
             PendingRequest::DataBreakpointInfo { operation_id } => {
                 self.emit(DebugEventBody::OperationCompleted {
                     operation_id,
@@ -1308,8 +1443,14 @@ impl DebugSession {
                 self.emit_inspection_projection(kind, thread_id, frame_id, &body);
                 let result =
                     normalize_inspection(kind, &body, &self.stepping_filters, &self.root_path);
-                // HCR rejection is an operation failure, not a broken transport/session.
-                if kind == DebugInspectKind::RedefineClasses {
+                // HCR rejection and unreadable memory are operation failures, not a broken
+                // transport/session.
+                if matches!(
+                    kind,
+                    DebugInspectKind::RedefineClasses
+                        | DebugInspectKind::Disassemble
+                        | DebugInspectKind::ReadMemory
+                ) {
                     match result {
                         Ok(result) => self.emit(DebugEventBody::OperationCompleted {
                             operation_id,
@@ -1344,6 +1485,9 @@ impl DebugSession {
                 self.send_exception_breakpoints()?;
                 if self.capabilities.supports_function_breakpoints {
                     self.send_function_breakpoints()?;
+                }
+                if self.capabilities.supports_instruction_breakpoints {
+                    self.send_instruction_breakpoints()?;
                 }
                 if self.capabilities.supports_data_breakpoints {
                     self.send_data_breakpoints()?;
@@ -1607,6 +1751,28 @@ impl DebugSession {
         }
     }
 
+    fn emit_instruction_breakpoint_results(
+        &mut self,
+        body: &Value,
+        requested: &[InstructionBreakpoint],
+    ) {
+        let values = body
+            .get("breakpoints")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        for (index, value) in values.iter().enumerate() {
+            let mut breakpoint = parse_breakpoint(value, None, None, 0);
+            // Adapters may omit the reference; the request at the same index owns it.
+            if breakpoint.instruction_reference.is_none() {
+                breakpoint.instruction_reference = requested
+                    .get(index)
+                    .map(|item| item.instruction_reference.clone());
+            }
+            self.emit(DebugEventBody::Breakpoint { breakpoint });
+        }
+    }
+
     fn emit_data_breakpoint_results(&mut self, body: &Value, requested: &[DataBreakpoint]) {
         let values = body
             .get("breakpoints")
@@ -1705,6 +1871,7 @@ impl PendingRequest {
             Self::SetBreakpoints { .. } => "setBreakpoints",
             Self::SetExceptionBreakpoints => "setExceptionBreakpoints",
             Self::SetFunctionBreakpoints { .. } => "setFunctionBreakpoints",
+            Self::SetInstructionBreakpoints { .. } => "setInstructionBreakpoints",
             Self::DataBreakpointInfo { .. } => "dataBreakpointInfo",
             Self::SetDataBreakpoints { .. } => "setDataBreakpoints",
             Self::SetVariable { .. } => "setVariable",
@@ -1729,6 +1896,8 @@ impl PendingRequest {
                     | DebugInspectKind::StepInTargets
                     | DebugInspectKind::GotoTargets
                     | DebugInspectKind::Completions
+                    | DebugInspectKind::Disassemble
+                    | DebugInspectKind::ReadMemory
             ),
             _ => false,
         }
@@ -1747,11 +1916,29 @@ impl PendingRequest {
 }
 
 fn inspect_arguments(request: &InspectRequest) -> Result<Map<String, Value>, CoreError> {
-    if request.kind != DebugInspectKind::Variables
-        && (request.variable_filter.is_some() || request.start.is_some() || request.count.is_some())
+    // `readMemory` reuses `count` for its byte length; every other kind rejects paging fields.
+    let paging_allowed = request.kind == DebugInspectKind::Variables;
+    let count_allowed = paging_allowed || request.kind == DebugInspectKind::ReadMemory;
+    if (!paging_allowed && (request.variable_filter.is_some() || request.start.is_some()))
+        || (!count_allowed && request.count.is_some())
     {
         return Err(invalid_request(
             "Debug variable paging is only valid for variables inspection.",
+        ));
+    }
+    let is_memory_kind = matches!(
+        request.kind,
+        DebugInspectKind::Disassemble | DebugInspectKind::ReadMemory
+    );
+    if !is_memory_kind
+        && (request.memory_reference.is_some()
+            || request.offset.is_some()
+            || request.instruction_offset.is_some()
+            || request.instruction_count.is_some()
+            || request.resolve_symbols.is_some())
+    {
+        return Err(invalid_request(
+            "Debug memory fields are only valid for disassemble or readMemory.",
         ));
     }
     let mut arguments = Map::new();
@@ -1844,6 +2031,45 @@ fn inspect_arguments(request: &InspectRequest) -> Result<Map<String, Value>, Cor
                 }
                 arguments.insert("column".to_string(), json!(column));
             }
+        }
+        DebugInspectKind::Disassemble => {
+            let reference = request.memory_reference.as_deref().unwrap_or_default();
+            arguments.insert(
+                "memoryReference".to_string(),
+                json!(validated_memory_reference(reference)?),
+            );
+            insert_option(&mut arguments, "offset", request.offset);
+            insert_option(
+                &mut arguments,
+                "instructionOffset",
+                request.instruction_offset,
+            );
+            let count = required_positive(request.instruction_count, "instructionCount")?;
+            if count > MAXIMUM_DISASSEMBLE_INSTRUCTIONS {
+                return Err(invalid_request(
+                    "Debug instructionCount cannot exceed 1000 instructions.",
+                ));
+            }
+            arguments.insert("instructionCount".to_string(), json!(count));
+            arguments.insert(
+                "resolveSymbols".to_string(),
+                json!(request.resolve_symbols.unwrap_or(true)),
+            );
+        }
+        DebugInspectKind::ReadMemory => {
+            let reference = request.memory_reference.as_deref().unwrap_or_default();
+            arguments.insert(
+                "memoryReference".to_string(),
+                json!(validated_memory_reference(reference)?),
+            );
+            insert_option(&mut arguments, "offset", request.offset);
+            let count = required_positive(request.count, "count")?;
+            if count > MAXIMUM_READ_MEMORY_BYTES {
+                return Err(invalid_request(
+                    "Debug readMemory count cannot exceed 65536 bytes.",
+                ));
+            }
+            arguments.insert("count".to_string(), json!(count));
         }
         DebugInspectKind::Completions => {
             // Whitespace is significant: `break ` and `break` complete differently.
@@ -1970,7 +2196,65 @@ fn normalize_inspection(
                 .filter_map(parse_completion_item)
                 .collect(),
         }),
+        DebugInspectKind::Disassemble => Ok(DebugOperationResult::Disassemble {
+            instructions: required_array(body, "instructions")?
+                .iter()
+                .filter_map(parse_disassembled_instruction)
+                .collect(),
+        }),
+        DebugInspectKind::ReadMemory => {
+            // Memory that is entirely unreadable comes back without `data`.
+            let data_base64 = string_field(body, "data").unwrap_or_default();
+            if BASE64.decode(&data_base64).is_err() {
+                return Err(CoreError::new(
+                    ErrorCode::ParseFailed,
+                    "DAP readMemory data was not valid base64.",
+                ));
+            }
+            Ok(DebugOperationResult::ReadMemory {
+                address: required_str(body, "address")?.to_string(),
+                unreadable_bytes: nonnegative_count_field(body, "unreadableBytes"),
+                data_base64,
+            })
+        }
     }
+}
+
+/// Rejects empty, oversized or multi-line references; the value itself stays opaque.
+fn validated_memory_reference(reference: &str) -> Result<String, CoreError> {
+    let reference = reference.trim();
+    if reference.is_empty()
+        || reference.chars().count() > MAXIMUM_MEMORY_REFERENCE_LENGTH
+        || reference.chars().any(char::is_control)
+    {
+        return Err(invalid_request(
+            "Debug memory references must be short single-line adapter references.",
+        ));
+    }
+    Ok(reference.to_string())
+}
+
+fn parse_disassembled_instruction(value: &Value) -> Option<DebugDisassembledInstruction> {
+    let address = value.get("address")?.as_str()?;
+    let instruction = value.get("instruction")?.as_str()?;
+    if address.is_empty() {
+        return None;
+    }
+    Some(DebugDisassembledInstruction {
+        address: address.to_string(),
+        instruction_bytes: string_field(value, "instructionBytes").filter(|text| !text.is_empty()),
+        instruction: instruction.to_string(),
+        symbol: string_field(value, "symbol").filter(|text| !text.is_empty()),
+        source_path: value
+            .get("location")
+            .and_then(|source| source.get("path"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        line: value
+            .get("line")
+            .and_then(Value::as_i64)
+            .filter(|line| *line > 0),
+    })
 }
 
 fn parse_exception_details(value: &Value) -> Option<DebugExceptionDetails> {
@@ -2062,6 +2346,9 @@ fn parse_stack_frame(
         .and_then(Value::as_i64)
         .filter(|reference| *reference > 0);
     let presentation_hint = value.get("presentationHint").and_then(Value::as_str);
+    // A frame in code without debug info has no file; the Core must not invent line 1 of
+    // nothing, so the UI can show the function and its instruction address instead.
+    let has_source = source_path.is_some() || source_reference.is_some();
     Some(DebugStackFrame {
         id: value.get("id")?.as_i64()?,
         is_filtered: stack_frame_matches_filters(
@@ -2074,8 +2361,13 @@ fn parse_stack_frame(
         name,
         source_path,
         source_reference,
-        line: value.get("line").and_then(Value::as_i64).unwrap_or(1),
+        line: value
+            .get("line")
+            .and_then(Value::as_i64)
+            .unwrap_or(if has_source { 1 } else { 0 }),
         column: value.get("column").and_then(Value::as_i64).unwrap_or(1),
+        instruction_pointer_reference: string_field(value, "instructionPointerReference")
+            .filter(|reference| !reference.is_empty()),
     })
 }
 
@@ -2289,6 +2581,7 @@ fn parse_scope(value: &Value) -> Option<DebugScope> {
             .unwrap_or(false),
         named_variables: nonnegative_count_field(value, "namedVariables"),
         indexed_variables: nonnegative_count_field(value, "indexedVariables"),
+        presentation_hint: string_field(value, "presentationHint").filter(|hint| !hint.is_empty()),
     })
 }
 
@@ -2326,6 +2619,7 @@ fn parse_breakpoint(
         message: string_field(value, "message"),
         function_name: function_name.map(str::to_string),
         data_id: None,
+        instruction_reference: string_field(value, "instructionReference"),
         requested_line: None,
         source_path: value
             .get("source")
@@ -2367,6 +2661,10 @@ fn parse_capabilities(value: &Value) -> DebugCapabilities {
         supports_step_in_targets_request: bool_field(value, "supportsStepInTargetsRequest"),
         supports_goto_targets_request: bool_field(value, "supportsGotoTargetsRequest"),
         supports_completions_request: bool_field(value, "supportsCompletionsRequest"),
+        supports_disassemble_request: bool_field(value, "supportsDisassembleRequest"),
+        supports_stepping_granularity: bool_field(value, "supportsSteppingGranularity"),
+        supports_instruction_breakpoints: bool_field(value, "supportsInstructionBreakpoints"),
+        supports_read_memory_request: bool_field(value, "supportsReadMemoryRequest"),
         exception_breakpoint_filters: value
             .get("exceptionBreakpointFilters")
             .and_then(Value::as_array)
@@ -2940,6 +3238,7 @@ mod tests {
                                 line: 12,
                                 column: 1,
                                 is_filtered: false,
+                                instruction_pointer_reference: None,
                             }],
                         },
                     },
@@ -3034,6 +3333,11 @@ mod tests {
             source_path: None,
             line: None,
             column: None,
+            memory_reference: None,
+            offset: None,
+            instruction_offset: None,
+            instruction_count: None,
+            resolve_symbols: None,
         };
 
         let mut negative_start = base.clone();
@@ -3219,6 +3523,11 @@ mod tests {
             source_path: None,
             line: None,
             column: None,
+            memory_reference: None,
+            offset: None,
+            instruction_offset: None,
+            instruction_count: None,
+            resolve_symbols: None,
         })
         .unwrap();
         let stack = receive_messages(
@@ -3547,6 +3856,11 @@ mod tests {
             source_path: None,
             line: None,
             column: None,
+            memory_reference: None,
+            offset: None,
+            instruction_offset: None,
+            instruction_count: None,
+            resolve_symbols: None,
         })
         .unwrap();
         assert_eq!(
@@ -3907,6 +4221,11 @@ mod tests {
             source_path: None,
             line: None,
             column: None,
+            memory_reference: None,
+            offset: None,
+            instruction_offset: None,
+            instruction_count: None,
+            resolve_symbols: None,
         })
         .unwrap();
         let stack_sequence = 4;
@@ -4314,6 +4633,11 @@ mod tests {
             source_path: None,
             line: None,
             column: None,
+            memory_reference: None,
+            offset: None,
+            instruction_offset: None,
+            instruction_count: None,
+            resolve_symbols: None,
         })
         .unwrap();
         assert_eq!(decode_frame(&pending.outbound_frames[0])["seq"], 3);
@@ -4354,6 +4678,7 @@ mod tests {
             thread_id: Some(11),
             target_id: None,
             single_thread: true,
+            granularity: None,
         })
         .unwrap();
         let resumed_request = decode_frame(&resumed.outbound_frames[0]);
@@ -4433,6 +4758,7 @@ mod tests {
             thread_id: Some(11),
             target_id: None,
             single_thread: false,
+            granularity: None,
         })
         .unwrap();
         let request = decode_frame(&step_back.outbound_frames[0]);
@@ -4454,6 +4780,7 @@ mod tests {
             thread_id: Some(11),
             target_id: None,
             single_thread: false,
+            granularity: None,
         })
         .unwrap();
         let request = decode_frame(&restart.outbound_frames[0]);
@@ -4468,6 +4795,7 @@ mod tests {
             thread_id: Some(11),
             target_id: None,
             single_thread: false,
+            granularity: None,
         })
         .unwrap();
         let request = decode_frame(&terminate.outbound_frames[0]);
@@ -4540,6 +4868,11 @@ mod tests {
             source_path: None,
             line: None,
             column: None,
+            memory_reference: None,
+            offset: None,
+            instruction_offset: None,
+            instruction_count: None,
+            resolve_symbols: None,
         })
         .unwrap();
         let request = decode_frame(&step_targets.outbound_frames[0]);
@@ -4575,6 +4908,7 @@ mod tests {
             thread_id: Some(11),
             target_id: Some(21),
             single_thread: false,
+            granularity: None,
         })
         .unwrap();
         assert_eq!(
@@ -4607,6 +4941,11 @@ mod tests {
             source_path: Some("/workspace/src/Main.java".to_string()),
             line: Some(20),
             column: Some(5),
+            memory_reference: None,
+            offset: None,
+            instruction_offset: None,
+            instruction_count: None,
+            resolve_symbols: None,
         })
         .unwrap();
         let request = decode_frame(&goto_targets.outbound_frames[0]);
@@ -4639,6 +4978,7 @@ mod tests {
             thread_id: Some(11),
             target_id: Some(31),
             single_thread: false,
+            granularity: None,
         })
         .unwrap();
         let request = decode_frame(&goto.outbound_frames[0]);
@@ -4666,6 +5006,11 @@ mod tests {
             source_path: None,
             line: None,
             column,
+            memory_reference: None,
+            offset: None,
+            instruction_offset: None,
+            instruction_count: None,
+            resolve_symbols: None,
         }
     }
 
@@ -4803,6 +5148,11 @@ mod tests {
             source_path: None,
             line: None,
             column: None,
+            memory_reference: None,
+            offset: None,
+            instruction_offset: None,
+            instruction_count: None,
+            resolve_symbols: None,
         })
         .unwrap();
         let request = decode_frame(&inspection.outbound_frames[0]);
@@ -4902,6 +5252,11 @@ mod tests {
             source_path: None,
             line: None,
             column: None,
+            memory_reference: None,
+            offset: None,
+            instruction_offset: None,
+            instruction_count: None,
+            resolve_symbols: None,
         })
         .unwrap();
         let request = decode_frame(&inspection.outbound_frames[0]);
@@ -4992,6 +5347,11 @@ mod tests {
             source_path: None,
             line: None,
             column: None,
+            memory_reference: None,
+            offset: None,
+            instruction_offset: None,
+            instruction_count: None,
+            resolve_symbols: None,
         })
         .unwrap_err();
         assert!(matches!(error.code, ErrorCode::InvalidRequest));
@@ -5198,7 +5558,7 @@ mod tests {
             vec![response_message(
                 1,
                 "initialize",
-                json!({"supportsRestartRequest": true, "supportsReadMemoryRequest": true}),
+                json!({"supportsRestartRequest": true, "supportsWriteMemoryRequest": true}),
             )],
         );
         let (revision, states) = snapshot_of(&update).expect("initialize publishes a snapshot");
@@ -5206,7 +5566,7 @@ mod tests {
         let restart = &states["supportsRestartRequest"];
         assert!(restart.adapter && restart.extension && !restart.authorized && !restart.supported);
         // The adapter reports memory reads, but no extension in this build handles it.
-        let step_back = &states["supportsReadMemoryRequest"];
+        let step_back = &states["supportsWriteMemoryRequest"];
         assert!(step_back.adapter && !step_back.extension && !step_back.supported);
 
         let late = receive_messages(
@@ -5438,6 +5798,11 @@ mod tests {
             source_path: None,
             line: None,
             column: None,
+            memory_reference: None,
+            offset: None,
+            instruction_offset: None,
+            instruction_count: None,
+            resolve_symbols: None,
         }
     }
 
@@ -5576,6 +5941,7 @@ mod tests {
             thread_id: Some(11),
             target_id: None,
             single_thread: false,
+            granularity: None,
         })
         .unwrap();
         let request_seq = decode_frame(&update.outbound_frames[0])["seq"]
@@ -5723,5 +6089,521 @@ mod tests {
             session_id: session_id.to_string(),
         })
         .unwrap();
+    }
+
+    /// Removes the process-free session even when an assertion fails first.
+    struct SessionGuard(&'static str);
+
+    impl Drop for SessionGuard {
+        fn drop(&mut self) {
+            let _ = destroy_session(SessionRequest {
+                session_id: self.0.to_string(),
+            });
+        }
+    }
+
+    fn memory_request(
+        session_id: &str,
+        operation_id: &str,
+        kind: DebugInspectKind,
+    ) -> InspectRequest {
+        InspectRequest {
+            session_id: session_id.to_string(),
+            operation_id: operation_id.to_string(),
+            kind,
+            thread_id: Some(11),
+            frame_id: Some(7),
+            variables_reference: None,
+            variable_filter: None,
+            start: None,
+            count: None,
+            expression: None,
+            context: None,
+            source_path: None,
+            line: None,
+            column: None,
+            memory_reference: Some("0x100003f50".to_string()),
+            offset: None,
+            instruction_offset: None,
+            instruction_count: None,
+            resolve_symbols: None,
+        }
+    }
+
+    fn step_request(
+        session_id: &str,
+        command: DebugExecutionCommand,
+        granularity: Option<DebugSteppingGranularity>,
+    ) -> ExecuteRequest {
+        ExecuteRequest {
+            session_id: session_id.to_string(),
+            operation_id: "step".to_string(),
+            command,
+            thread_id: Some(11),
+            target_id: None,
+            single_thread: false,
+            granularity,
+        }
+    }
+
+    fn instruction_breakpoint(
+        reference: &str,
+        offset: Option<i64>,
+        enabled: bool,
+        condition: Option<&str>,
+    ) -> InstructionBreakpoint {
+        InstructionBreakpoint {
+            instruction_reference: reference.to_string(),
+            offset,
+            enabled,
+            condition: condition.map(str::to_string),
+            hit_condition: None,
+        }
+    }
+
+    fn request_sequence(update: &DebugSessionUpdate) -> i64 {
+        decode_frame(&update.outbound_frames[0])["seq"]
+            .as_i64()
+            .unwrap()
+    }
+
+    #[test]
+    fn sourceless_frames_keep_the_instruction_pointer_without_a_fake_line() {
+        let filters = DebugSteppingFilters::defaults_for_adapter("lldb");
+        let body = json!({"stackFrames": [
+            {"id": 1, "name": "main", "line": 9, "column": 1,
+             "instructionPointerReference": "0x100003f50",
+             "source": {"name": "main.c", "path": "/workspace/main.c"}},
+            {"id": 2, "name": "start",
+             "instructionPointerReference": "0xffffffffffffffff"},
+            {"id": 3, "name": "no-line",
+             "source": {"name": "a.c", "path": "/workspace/a.c"}},
+            {"id": 4, "name": "empty-reference", "instructionPointerReference": ""},
+        ]});
+        let frames =
+            normalize_inspection(DebugInspectKind::StackTrace, &body, &filters, "/workspace")
+                .unwrap();
+        let value = serde_json::to_value(frames).unwrap();
+        let frames = &value["stackFrames"];
+        assert_eq!(frames[0]["line"], 9);
+        assert_eq!(frames[0]["instructionPointerReference"], "0x100003f50");
+        // No file means no line: the UI shows the function and its address instead.
+        assert_eq!(frames[1]["line"], 0);
+        assert!(frames[1]["sourcePath"].is_null());
+        // A 64-bit address stays an opaque string; it never passes through a JSON number.
+        assert_eq!(
+            frames[1]["instructionPointerReference"],
+            "0xffffffffffffffff"
+        );
+        // A frame that does name a file keeps the historical line-1 fallback.
+        assert_eq!(frames[2]["line"], 1);
+        assert!(frames[2].get("instructionPointerReference").is_none());
+        assert!(frames[3].get("instructionPointerReference").is_none());
+    }
+
+    #[test]
+    fn registers_scope_keeps_its_presentation_hint() {
+        let filters = DebugSteppingFilters::defaults_for_adapter("lldb");
+        let body = json!({"scopes": [
+            {"name": "Locals", "variablesReference": 3},
+            {"name": "Registers", "variablesReference": 4,
+             "presentationHint": "registers", "expensive": true},
+            {"name": "Blank", "variablesReference": 5, "presentationHint": ""},
+        ]});
+        let scopes =
+            normalize_inspection(DebugInspectKind::Scopes, &body, &filters, "/workspace").unwrap();
+        let value = serde_json::to_value(scopes).unwrap();
+        let scopes = &value["scopes"];
+        assert!(scopes[0].get("presentationHint").is_none());
+        assert_eq!(scopes[1]["presentationHint"], "registers");
+        assert!(scopes[2].get("presentationHint").is_none());
+    }
+
+    #[test]
+    fn stepping_granularity_is_gated_and_forwarded() {
+        let unsupported = "debug-granularity-unsupported";
+        let _unsupported_guard = SessionGuard(unsupported);
+        paused_session(unsupported);
+        let error = execute(step_request(
+            unsupported,
+            DebugExecutionCommand::StepIn,
+            Some(DebugSteppingGranularity::Instruction),
+        ))
+        .unwrap_err();
+        assert!(matches!(error.code, ErrorCode::InvalidRequest));
+        // The rejected request left the session paused, so a plain step still works.
+        let update = execute(step_request(unsupported, DebugExecutionCommand::Next, None)).unwrap();
+        let request = decode_frame(&update.outbound_frames[0]);
+        assert_eq!(request["command"], "next");
+        assert!(request["arguments"].get("granularity").is_none());
+
+        let supported = "debug-granularity-supported";
+        let _supported_guard = SessionGuard(supported);
+        paused_session_with_capabilities(supported, json!({"supportsSteppingGranularity": true}));
+        // Granularity only describes how far a step moves.
+        for command in [
+            DebugExecutionCommand::Continue,
+            DebugExecutionCommand::Pause,
+            DebugExecutionCommand::Restart,
+        ] {
+            assert!(execute(step_request(
+                supported,
+                command,
+                Some(DebugSteppingGranularity::Instruction)
+            ))
+            .is_err());
+        }
+        let update = execute(step_request(
+            supported,
+            DebugExecutionCommand::StepIn,
+            Some(DebugSteppingGranularity::Instruction),
+        ))
+        .unwrap();
+        let request = decode_frame(&update.outbound_frames[0]);
+        assert_eq!(request["command"], "stepIn");
+        assert_eq!(request["arguments"]["granularity"], "instruction");
+        assert_eq!(request["arguments"]["threadId"], 11);
+    }
+
+    #[test]
+    fn instruction_breakpoints_are_validated_deduplicated_and_sent_after_initialized() {
+        let session_id = "debug-instruction-breakpoints";
+        let _guard = SessionGuard(session_id);
+        create_session(CreateSessionRequest {
+            session_id: session_id.to_string(),
+            adapter_id: "lldb".to_string(),
+            root_path: "/workspace".to_string(),
+            supports_run_in_terminal_request: false,
+            supports_start_debugging_request: false,
+            disabled_capabilities: Vec::new(),
+            parent_session_id: None,
+        })
+        .unwrap();
+        launch(LaunchRequest {
+            session_id: session_id.to_string(),
+            operation_id: "launch".to_string(),
+            configuration: DebugLaunchConfiguration {
+                name: "Main".to_string(),
+                request: DebugRequestKind::Launch,
+                arguments: Map::new(),
+                stepping_filters: None,
+            },
+        })
+        .unwrap();
+        for invalid in ["  ", "0x1000\n0x2000", &"9".repeat(300)] {
+            assert!(
+                set_instruction_breakpoints(SetInstructionBreakpointsRequest {
+                    session_id: session_id.to_string(),
+                    breakpoints: vec![instruction_breakpoint(invalid, None, true, None)],
+                })
+                .is_err(),
+                "{invalid:?}"
+            );
+        }
+        let queued = set_instruction_breakpoints(SetInstructionBreakpointsRequest {
+            session_id: session_id.to_string(),
+            breakpoints: vec![
+                instruction_breakpoint(" 0x100003f60 ", Some(4), true, None),
+                instruction_breakpoint(" 0x100003f50 ", None, true, Some(" x > 1 ")),
+                instruction_breakpoint("0x100003f50", None, true, Some("x > 1")),
+                instruction_breakpoint("0x100003f70", None, false, None),
+            ],
+        })
+        .unwrap();
+        // The session has not seen `initialized`, so nothing is sent yet.
+        assert!(queued.outbound_frames.is_empty());
+
+        receive_messages(
+            session_id,
+            vec![response_message(
+                1,
+                "initialize",
+                json!({
+                    "supportsConfigurationDoneRequest": true,
+                    "supportsInstructionBreakpoints": true
+                }),
+            )],
+        );
+        let configured = receive_messages(
+            session_id,
+            vec![json!({"seq": 102, "type": "event", "event": "initialized"})],
+        );
+        let frames: Vec<Value> = configured
+            .outbound_frames
+            .iter()
+            .map(|frame| decode_frame(frame))
+            .collect();
+        let sent = frames
+            .iter()
+            .find(|frame| frame["command"] == "setInstructionBreakpoints")
+            .expect("instruction breakpoints are sent after initialized");
+        let breakpoints = sent["arguments"]["breakpoints"].as_array().unwrap();
+        // The duplicate address collapsed and the disabled one is not sent.
+        assert_eq!(breakpoints.len(), 2);
+        assert_eq!(breakpoints[0]["instructionReference"], "0x100003f50");
+        assert_eq!(breakpoints[0]["condition"], "x > 1");
+        assert!(breakpoints[0].get("offset").is_none());
+        assert_eq!(breakpoints[1]["instructionReference"], "0x100003f60");
+        assert_eq!(breakpoints[1]["offset"], 4);
+
+        let results = receive_messages(
+            session_id,
+            vec![response_message(
+                sent["seq"].as_i64().unwrap(),
+                "setInstructionBreakpoints",
+                json!({"breakpoints": [
+                    {"id": 5, "verified": true, "instructionReference": "0x100003f50"},
+                    {"verified": false, "message": "no code at this address"}
+                ]}),
+            )],
+        );
+        let verified: Vec<(Option<String>, bool)> = results
+            .events
+            .iter()
+            .filter_map(|event| match &event.body {
+                DebugEventBody::Breakpoint { breakpoint } => Some((
+                    breakpoint.instruction_reference.clone(),
+                    breakpoint.verified,
+                )),
+                _ => None,
+            })
+            .collect();
+        // The second reply omitted the address, so the request at the same index names it.
+        assert_eq!(
+            verified,
+            vec![
+                (Some("0x100003f50".to_string()), true),
+                (Some("0x100003f60".to_string()), false)
+            ]
+        );
+
+        // Once initialized, a change is sent immediately and an empty list clears the set.
+        let cleared = set_instruction_breakpoints(SetInstructionBreakpointsRequest {
+            session_id: session_id.to_string(),
+            breakpoints: Vec::new(),
+        })
+        .unwrap();
+        let request = decode_frame(&cleared.outbound_frames[0]);
+        assert_eq!(request["command"], "setInstructionBreakpoints");
+        assert_eq!(request["arguments"]["breakpoints"], json!([]));
+    }
+
+    #[test]
+    fn instruction_breakpoints_are_not_sent_without_adapter_support() {
+        let session_id = "debug-instruction-breakpoints-unsupported";
+        let _guard = SessionGuard(session_id);
+        paused_session(session_id);
+        let update = set_instruction_breakpoints(SetInstructionBreakpointsRequest {
+            session_id: session_id.to_string(),
+            breakpoints: vec![instruction_breakpoint("0x100003f50", None, true, None)],
+        })
+        .unwrap();
+        assert!(update.outbound_frames.is_empty());
+    }
+
+    #[test]
+    fn disassemble_is_gated_bounded_and_normalized() {
+        let unsupported = "debug-disassemble-unsupported";
+        let _unsupported_guard = SessionGuard(unsupported);
+        paused_session(unsupported);
+        let mut request = memory_request(unsupported, "dis", DebugInspectKind::Disassemble);
+        request.instruction_count = Some(4);
+        assert!(inspect(request).is_err());
+
+        let session_id = "debug-disassemble";
+        let _guard = SessionGuard(session_id);
+        paused_session_with_capabilities(session_id, json!({"supportsDisassembleRequest": true}));
+        let valid = |count: Option<i64>| {
+            let mut request = memory_request(session_id, "dis", DebugInspectKind::Disassemble);
+            request.instruction_count = count;
+            request
+        };
+        assert!(inspect(valid(None)).is_err());
+        assert!(inspect(valid(Some(0))).is_err());
+        assert!(inspect(valid(Some(1001))).is_err());
+        let mut no_reference = valid(Some(4));
+        no_reference.memory_reference = None;
+        assert!(inspect(no_reference).is_err());
+        // Memory fields belong to memory requests only.
+        let mut misplaced = memory_request(session_id, "threads", DebugInspectKind::Threads);
+        misplaced.memory_reference = Some("0x100003f50".to_string());
+        assert!(inspect(misplaced).is_err());
+
+        let mut request = valid(Some(5));
+        request.instruction_offset = Some(-2);
+        request.offset = Some(0);
+        let update = inspect(request).unwrap();
+        let sent = decode_frame(&update.outbound_frames[0]);
+        assert_eq!(sent["command"], "disassemble");
+        assert_eq!(sent["arguments"]["memoryReference"], "0x100003f50");
+        assert_eq!(sent["arguments"]["instructionOffset"], -2);
+        assert_eq!(sent["arguments"]["instructionCount"], 5);
+        assert_eq!(sent["arguments"]["resolveSymbols"], true);
+
+        let completed = receive_messages(
+            session_id,
+            vec![response_message(
+                sent["seq"].as_i64().unwrap(),
+                "disassemble",
+                json!({"instructions": [
+                    {"address": "0x100003f48", "instructionBytes": "fd 7b bf a9",
+                     "instruction": "stp x29, x30, [sp, #-0x10]!", "symbol": "main"},
+                    {"address": "0xffffffffffffff00", "instruction": "mov x29, sp",
+                     "location": {"path": "/workspace/main.c"}, "line": 9},
+                    {"instruction": "no address is dropped"},
+                    {"address": "0x100003f50"}
+                ]}),
+            )],
+        );
+        let instructions = completed
+            .events
+            .iter()
+            .find_map(|event| match &event.body {
+                DebugEventBody::OperationCompleted {
+                    operation_id,
+                    result: DebugOperationResult::Disassemble { instructions },
+                } if operation_id == "dis" => Some(instructions),
+                _ => None,
+            })
+            .expect("disassemble result");
+        assert_eq!(instructions.len(), 2);
+        assert_eq!(instructions[0].address, "0x100003f48");
+        assert_eq!(
+            instructions[0].instruction_bytes.as_deref(),
+            Some("fd 7b bf a9")
+        );
+        assert_eq!(instructions[0].symbol.as_deref(), Some("main"));
+        assert_eq!(instructions[1].address, "0xffffffffffffff00");
+        assert_eq!(
+            instructions[1].source_path.as_deref(),
+            Some("/workspace/main.c")
+        );
+        assert_eq!(instructions[1].line, Some(9));
+    }
+
+    #[test]
+    fn disassemble_failure_and_stale_replies_are_operation_failures() {
+        let session_id = "debug-disassemble-failure";
+        let _guard = SessionGuard(session_id);
+        paused_session_with_capabilities(session_id, json!({"supportsDisassembleRequest": true}));
+        let mut request = memory_request(session_id, "bad", DebugInspectKind::Disassemble);
+        request.instruction_count = Some(3);
+        // A body without `instructions` is a rejected request, not a broken session.
+        let update = inspect(request.clone()).unwrap();
+        let failed = receive_messages(
+            session_id,
+            vec![response_message(
+                request_sequence(&update),
+                "disassemble",
+                json!({}),
+            )],
+        );
+        assert!(failed.events.iter().any(|event| matches!(
+            &event.body,
+            DebugEventBody::OperationFailed { operation_id, code: DebugOperationFailureCode::AdapterRejected, .. }
+                if operation_id == "bad"
+        )));
+        assert_eq!(session_state(session_id), DebugSessionState::Paused);
+
+        // Addresses belong to one stop: a reply after the next stop is stale.
+        request.operation_id = "old".to_string();
+        let update = inspect(request).unwrap();
+        let sequence = request_sequence(&update);
+        receive_messages(session_id, vec![stopped_event(104)]);
+        let stale = receive_messages(
+            session_id,
+            vec![response_message(
+                sequence,
+                "disassemble",
+                json!({"instructions": [{"address": "0x1", "instruction": "nop"}]}),
+            )],
+        );
+        assert!(stale.events.iter().any(|event| matches!(
+            &event.body,
+            DebugEventBody::OperationFailed { operation_id, code: DebugOperationFailureCode::StaleReference, .. }
+                if operation_id == "old"
+        )));
+    }
+
+    #[test]
+    fn read_memory_is_gated_bounded_and_returns_validated_bytes() {
+        let unsupported = "debug-read-memory-unsupported";
+        let _unsupported_guard = SessionGuard(unsupported);
+        paused_session(unsupported);
+        let mut request = memory_request(unsupported, "mem", DebugInspectKind::ReadMemory);
+        request.count = Some(16);
+        assert!(inspect(request).is_err());
+
+        let session_id = "debug-read-memory";
+        let _guard = SessionGuard(session_id);
+        paused_session_with_capabilities(session_id, json!({"supportsReadMemoryRequest": true}));
+        let sized = |count: Option<i64>| {
+            let mut request = memory_request(session_id, "mem", DebugInspectKind::ReadMemory);
+            request.count = count;
+            request
+        };
+        assert!(inspect(sized(None)).is_err());
+        assert!(inspect(sized(Some(0))).is_err());
+        assert!(inspect(sized(Some(65_537))).is_err());
+
+        let mut request = sized(Some(16));
+        request.offset = Some(8);
+        let update = inspect(request).unwrap();
+        let sent = decode_frame(&update.outbound_frames[0]);
+        assert_eq!(sent["command"], "readMemory");
+        assert_eq!(sent["arguments"]["memoryReference"], "0x100003f50");
+        assert_eq!(sent["arguments"]["offset"], 8);
+        assert_eq!(sent["arguments"]["count"], 16);
+
+        let completed = receive_messages(
+            session_id,
+            vec![response_message(
+                sent["seq"].as_i64().unwrap(),
+                "readMemory",
+                json!({"address": "0x100003f58", "unreadableBytes": 8, "data": "3q2+7w=="}),
+            )],
+        );
+        assert!(completed.events.iter().any(|event| matches!(
+            &event.body,
+            DebugEventBody::OperationCompleted {
+                operation_id,
+                result: DebugOperationResult::ReadMemory { address, unreadable_bytes: 8, data_base64 }
+            } if operation_id == "mem" && address == "0x100003f58" && data_base64 == "3q2+7w=="
+        )));
+
+        // Entirely unreadable memory has no `data`; invalid base64 is rejected, not forwarded.
+        let update = inspect(sized(Some(4))).unwrap();
+        let unreadable = receive_messages(
+            session_id,
+            vec![response_message(
+                request_sequence(&update),
+                "readMemory",
+                json!({"address": "0x100003f50", "unreadableBytes": 4}),
+            )],
+        );
+        assert!(unreadable.events.iter().any(|event| matches!(
+            &event.body,
+            DebugEventBody::OperationCompleted {
+                result: DebugOperationResult::ReadMemory { unreadable_bytes: 4, data_base64, .. },
+                ..
+            } if data_base64.is_empty()
+        )));
+        let update = inspect(sized(Some(4))).unwrap();
+        let malformed = receive_messages(
+            session_id,
+            vec![response_message(
+                request_sequence(&update),
+                "readMemory",
+                json!({"address": "0x100003f50", "data": "***not base64***"}),
+            )],
+        );
+        assert!(malformed.events.iter().any(|event| matches!(
+            &event.body,
+            DebugEventBody::OperationFailed {
+                code: DebugOperationFailureCode::AdapterRejected,
+                ..
+            }
+        )));
+        assert_eq!(session_state(session_id), DebugSessionState::Paused);
     }
 }

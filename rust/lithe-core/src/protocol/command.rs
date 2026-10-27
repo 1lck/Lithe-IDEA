@@ -232,6 +232,8 @@ pub enum CoreCommand {
     DebugSetExceptionBreakpoints,
     /// Replaces named function breakpoints for one debug session (`debug.setFunctionBreakpoints`).
     DebugSetFunctionBreakpoints,
+    /// Replaces instruction (address) breakpoints for one debug session (`debug.setInstructionBreakpoints`).
+    DebugSetInstructionBreakpoints,
     /// Resolves one adapter-owned data breakpoint identity (`debug.dataBreakpointInfo`).
     DebugDataBreakpointInfo,
     /// Replaces data breakpoints for one debug session (`debug.setDataBreakpoints`).
@@ -587,6 +589,7 @@ impl CoreCommand {
             "debug.setBreakpoints" => Some(Self::DebugSetBreakpoints),
             "debug.setExceptionBreakpoints" => Some(Self::DebugSetExceptionBreakpoints),
             "debug.setFunctionBreakpoints" => Some(Self::DebugSetFunctionBreakpoints),
+            "debug.setInstructionBreakpoints" => Some(Self::DebugSetInstructionBreakpoints),
             "debug.dataBreakpointInfo" => Some(Self::DebugDataBreakpointInfo),
             "debug.setDataBreakpoints" => Some(Self::DebugSetDataBreakpoints),
             "debug.setVariable" => Some(Self::DebugSetVariable),
@@ -802,6 +805,7 @@ mod tests {
             "debug.setBreakpoints",
             "debug.setExceptionBreakpoints",
             "debug.setFunctionBreakpoints",
+            "debug.setInstructionBreakpoints",
             "debug.dataBreakpointInfo",
             "debug.setDataBreakpoints",
             "debug.setVariable",

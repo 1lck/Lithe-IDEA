@@ -327,6 +327,16 @@ public final class DebugAdapterSessionManager: ObservableObject {
             .forEach { $0.setDataBreakpoints(breakpoints) }
     }
 
+    /// Instruction addresses belong to one running debuggee (ASLR moves them on the next
+    /// run), so they go to a single session and are never replayed to a later one.
+    public func setInstructionBreakpoints(
+        _ breakpoints: [DebugInstructionBreakpoint],
+        sessionID: DebugSessionID
+    ) {
+        (sessions[sessionID]?.session as? any DebugAdapterControllingSession)?
+            .setInstructionBreakpoints(breakpoints)
+    }
+
     public func session(providerID: String) -> (any DebugAdapterControllingSession)? {
         guard let sessionID = activeSessionIDsByProvider[providerID] else { return nil }
         return sessions[sessionID]?.session as? any DebugAdapterControllingSession
