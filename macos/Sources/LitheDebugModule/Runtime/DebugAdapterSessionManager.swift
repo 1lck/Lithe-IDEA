@@ -110,6 +110,12 @@ public final class DebugAdapterSessionManager: ObservableObject {
         }
     }
 
+    /// An explicitly supplied DAP endpoint bypasses the provider's process/LSP
+    /// transport. The platform must validate it and obtain per-connection consent.
+    public var makeEndpointSession: (@MainActor (
+        DebugProviderDescriptor, DebugAdapterEndpoint, URL
+    ) throws -> (any DebugAdapterSession)?)?
+
     /// Read at every lookup: a host that registers debug adapters while it
     /// runs hands back the current set instead of the one it started with.
     private let providersSource: @MainActor () -> [DebugProviderDescriptor]
@@ -124,6 +130,7 @@ public final class DebugAdapterSessionManager: ObservableObject {
         let session: any DebugAdapterSession
         let activationToken: UUID
         let parentID: DebugSessionID?
+        let adapterEndpoint: DebugAdapterEndpoint?
         var targetTitle: String?
     }
 
@@ -173,6 +180,7 @@ public final class DebugAdapterSessionManager: ObservableObject {
         let providerID = try descriptor(for: fileURL).id
         if let sessionID = activeSessionIDsByProvider[providerID],
            let managed = sessions[sessionID],
+           managed.adapterEndpoint == nil,
            managed.session.isRunning,
            managed.rootURL == rootURL.standardizedFileURL {
             return managed.session
@@ -187,14 +195,24 @@ public final class DebugAdapterSessionManager: ObservableObject {
     /// the same provider. Existing provider-level APIs continue to use the
     /// latest session as their compatibility target.
     @discardableResult
-    public func activateNew(for fileURL: URL, rootURL: URL) throws -> DebugSessionHandle {
+    public func activateNew(
+        for fileURL: URL, rootURL: URL, adapterEndpoint: DebugAdapterEndpoint? = nil
+    ) throws -> DebugSessionHandle {
         let descriptor = try descriptor(for: fileURL)
         let normalizedRoot = rootURL.standardizedFileURL
-        guard let session = makeSession(descriptor, normalizedRoot) else {
+        let candidate: (any DebugAdapterSession)?
+        if let adapterEndpoint {
+            // Never fall back to a local process if this host lacks TCP support.
+            candidate = try makeEndpointSession?(descriptor, adapterEndpoint, normalizedRoot)
+        } else {
+            candidate = makeSession(descriptor, normalizedRoot)
+        }
+        guard let session = candidate else {
             throw DebugProviderError.adapterUnavailable(descriptor.displayName)
         }
         let (sessionID, activationToken) = register(
-            session, descriptor: descriptor, rootURL: normalizedRoot, parentID: nil
+            session, descriptor: descriptor, rootURL: normalizedRoot, parentID: nil,
+            adapterEndpoint: adapterEndpoint
         )
         activeSessionIDsByProvider[descriptor.id] = sessionID
         roots[descriptor.id] = normalizedRoot
@@ -228,6 +246,9 @@ public final class DebugAdapterSessionManager: ObservableObject {
         rootURL: URL,
         configuration: DebugLaunchConfiguration
     ) throws -> any DebugAdapterControllingSession {
+        if configuration.adapterEndpoint != nil {
+            return try launchNew(for: fileURL, rootURL: rootURL, configuration: configuration).session
+        }
         let session = try activate(for: fileURL, rootURL: rootURL)
         guard let controlling = session as? any DebugAdapterControllingSession else {
             throw DebugProviderError.capabilityUnavailable(
@@ -246,7 +267,9 @@ public final class DebugAdapterSessionManager: ObservableObject {
         rootURL: URL,
         configuration: DebugLaunchConfiguration
     ) throws -> (id: DebugSessionID, session: any DebugAdapterControllingSession) {
-        let handle = try activateNew(for: fileURL, rootURL: rootURL)
+        let handle = try activateNew(
+            for: fileURL, rootURL: rootURL, adapterEndpoint: configuration.adapterEndpoint
+        )
         guard let controlling = handle.session as? any DebugAdapterControllingSession else {
             stop(sessionID: handle.id)
             throw DebugProviderError.capabilityUnavailable(
@@ -549,16 +572,11 @@ public final class DebugAdapterSessionManager: ObservableObject {
         _ session: any DebugAdapterSession,
         descriptor: DebugProviderDescriptor,
         rootURL: URL,
-        parentID: DebugSessionID?
+        parentID: DebugSessionID?,
+        adapterEndpoint: DebugAdapterEndpoint? = nil
     ) -> (DebugSessionID, UUID) {
         let sessionID = DebugSessionID()
         let activationToken = UUID()
-        configureCallbacks(
-            session,
-            sessionID: sessionID,
-            providerID: descriptor.id,
-            activationToken: activationToken
-        )
         sessions[sessionID] = ManagedSession(
             id: sessionID,
             descriptor: descriptor,
@@ -566,9 +584,16 @@ public final class DebugAdapterSessionManager: ObservableObject {
             session: session,
             activationToken: activationToken,
             parentID: parentID,
+            adapterEndpoint: adapterEndpoint,
             targetTitle: nil
         )
         sessionOrder.append(sessionID)
+        configureCallbacks(
+            session,
+            sessionID: sessionID,
+            providerID: descriptor.id,
+            activationToken: activationToken
+        )
         return (sessionID, activationToken)
     }
 
@@ -577,6 +602,12 @@ public final class DebugAdapterSessionManager: ObservableObject {
         sessionID: DebugSessionID
     ) {
         guard let session = session as? any DebugAdapterStartDebuggingSession else { return }
+        // External adapters can require provider-specific child endpoints.
+        // Do not advertise a local-process fallback as support for those children.
+        if sessions[sessionID]?.adapterEndpoint != nil, makeChildSession == nil {
+            session.onStartDebuggingRequest = nil
+            return
+        }
         session.onStartDebuggingRequest = { [weak self] request, completion in
             guard let self else {
                 completion(.failure(DebugAdapterProtocolError.stopped))

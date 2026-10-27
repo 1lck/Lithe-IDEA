@@ -8,7 +8,7 @@ import LitheModuleAPI
 /// starts, not when the provider is registered; a rejected plan surfaces as the
 /// start error.
 @MainActor
-final class MacPluginDebugAdapterTransport: DebugAdapterTransport {
+final class MacPluginDebugAdapterTransport: DebugAdapterDrainingTransport {
     enum TransportError: LocalizedError, Equatable {
         case unsupportedExecutable(adapterID: String)
         case commandNotFound(adapterID: String, commands: [String])
@@ -111,5 +111,11 @@ final class MacPluginDebugAdapterTransport: DebugAdapterTransport {
 
     func stop() {
         transport?.stop()
+    }
+
+    func finishSendingAndStop() {
+        if let draining = transport as? any DebugAdapterDrainingTransport {
+            draining.finishSendingAndStop()
+        } else { transport?.stop() }
     }
 }

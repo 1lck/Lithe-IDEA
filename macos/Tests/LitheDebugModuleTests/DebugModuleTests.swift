@@ -7,6 +7,57 @@ import Testing
 
 @MainActor
 struct DebugModuleTests {
+    @Test(arguments: [DebugRequestKind.launch, .attach])
+    func explicitEndpointUsesItsFactoryAndPreservesTheDAPRequest(request: DebugRequestKind) throws {
+        let descriptor = DebugProviderDescriptor(id: "python", displayName: "Python", fileExtensions: ["py"])
+        var localCount = 0
+        let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in
+            localCount += 1
+            return DeferredInspectionDebugSession()
+        }
+        defer { manager.stopAll() }
+        let external = DeferredInspectionDebugSession()
+        let endpoint = DebugAdapterEndpoint(host: "debug.example.org", port: 5678)
+        manager.makeEndpointSession = { provider, destination, root in
+            #expect(provider.id == "python")
+            #expect(destination == endpoint)
+            #expect(root.path == "/workspace")
+            return external
+        }
+        let configuration = DebugLaunchConfiguration(
+            name: "Remote", request: request, arguments: ["connect": .object(["port": .integer(9000)])],
+            adapterEndpoint: endpoint
+        )
+        let source = URL(fileURLWithPath: "/workspace/main.py")
+        _ = try manager.launch(for: source, rootURL: source.deletingLastPathComponent(), configuration: configuration)
+        #expect(external.launchConfigurations == [configuration])
+        #expect(localCount == 0)
+        // A subsequent ordinary launch must not reuse the external TCP session.
+        _ = try manager.activate(for: source, rootURL: source.deletingLastPathComponent())
+        #expect(localCount == 1)
+        #expect(!external.isRunning)
+    }
+
+    @Test(arguments: [false, true])
+    func unsupportedOrDeclinedEndpointNeverFallsBackOrRegistersASession(declined: Bool) {
+        let descriptor = DebugProviderDescriptor(id: "python", displayName: "Python", fileExtensions: ["py"])
+        let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in
+            Issue.record("External endpoint fell back to a local process")
+            return nil
+        }
+        defer { manager.stopAll() }
+        if declined {
+            manager.makeEndpointSession = { _, _, _ in throw DeferredDebugSessionError.launchFailed }
+        }
+        #expect(throws: (any Error).self) {
+            _ = try manager.activateNew(
+                for: URL(fileURLWithPath: "/workspace/main.py"), rootURL: URL(fileURLWithPath: "/workspace"),
+                adapterEndpoint: DebugAdapterEndpoint(host: "localhost", port: 5678)
+            )
+        }
+        #expect(manager.activeSessionIDs.isEmpty)
+    }
+
     @Test
     func explicitHotUpdateRestartReplacesTheOriginalSessionWithNewRuntimePaths() async {
         let session = DeferredInspectionDebugSession()

@@ -429,7 +429,10 @@ private final class HostedAdapterSocket: DebugAdapterSocketConnection {
     private(set) var sent: [Data] = []
 
     func start() { startCount += 1 }
-    func send(_ data: Data) { sent.append(data) }
+    func send(_ data: Data, completion: @escaping @MainActor @Sendable (Result<Void, Error>) -> Void) {
+        sent.append(data)
+        completion(.success(()))
+    }
     func stop() { stopCount += 1 }
 }
 

@@ -35,6 +35,9 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
     private let disabledCapabilities: [String]
     private let deadlineScheduler: any DebugOperationDeadlineScheduling
     private let operationTimeoutMilliseconds: Int
+    private let initializationTimeoutMilliseconds: Int?
+    private var initializationDeadline: (any DebugOperationDeadline)?
+    private var initializationToken: UUID?
     private var operationHandlers: [String: PendingOperation] = [:]
     private var pendingRunInTerminalRequests: [String: PendingRunInTerminalRequest] = [:]
     private var pendingStartDebuggingRequests: [String: PendingStartDebuggingRequest] = [:]
@@ -64,7 +67,8 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         core: any DebugProtocolCore,
         sessionID: String = UUID().uuidString,
         deadlineScheduler: any DebugOperationDeadlineScheduling,
-        operationTimeoutMilliseconds: Int = 10_000
+        operationTimeoutMilliseconds: Int = 10_000,
+        initializationTimeoutMilliseconds: Int? = nil
     ) {
         self.adapterID = adapterID
         self.disabledCapabilities = disabledCapabilities
@@ -75,6 +79,7 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         self.sessionID = sessionID
         self.deadlineScheduler = deadlineScheduler
         self.operationTimeoutMilliseconds = max(1, operationTimeoutMilliseconds)
+        self.initializationTimeoutMilliseconds = initializationTimeoutMilliseconds.map { max(1, $0) }
         transport.onData = { [weak self] data in self?.receive(data) }
         transport.onErrorOutput = { [weak self] data in self?.receiveErrorOutput(data) }
         transport.onTermination = { [weak self] code in self?.transportTerminated(exitCode: code) }
@@ -89,6 +94,16 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         discardPendingStartDebuggingRequests()
         capabilities = .unknown
         try transport.start(rootURL: rootURL.standardizedFileURL)
+        if let initializationTimeoutMilliseconds {
+            let token = UUID()
+            initializationToken = token
+            initializationDeadline = deadlineScheduler.schedule(afterMilliseconds: initializationTimeoutMilliseconds) { [weak self] in
+                guard let self, self.initializationToken == token, self.ownsCoreSession else { return }
+                self.onEvent?(.output(category: "stderr", output: DebugAdapterProtocolError.timedOut("initialize").localizedDescription + "\n"))
+                guard self.initializationToken == token else { return }
+                self.failSession()
+            }
+        }
         do {
             let update = try core.createDebugSession(
                 sessionID: sessionID,
@@ -102,6 +117,7 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
             ownsCoreSession = true
             try apply(update)
         } catch {
+            cancelInitializationDeadline()
             transport.stop()
             releaseCoreSession()
             state = .failed
@@ -112,13 +128,18 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
     public func stop() {
         guard state != .idle || transport.isRunning || ownsCoreSession else { return }
         isStopping = true
+        cancelInitializationDeadline()
         failPendingRunInTerminalRequests(DebugAdapterProtocolError.stopped)
         failPendingStartDebuggingRequests(DebugAdapterProtocolError.stopped)
         if ownsCoreSession, transport.isRunning,
            let update = try? core.disconnectDebugSession(sessionID: sessionID) {
             try? apply(update)
         }
-        transport.stop()
+        if let draining = transport as? any DebugAdapterDrainingTransport {
+            draining.finishSendingAndStop()
+        } else {
+            transport.stop()
+        }
         finishErrorOutput()
         releaseCoreSession()
         failPendingOperations(DebugAdapterProtocolError.stopped)
@@ -640,6 +661,7 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
             consume(event)
         }
         state = Self.adapterState(update.state)
+        if state != .initializing { cancelInitializationDeadline() }
     }
 
     private func consume(_ event: DebugCoreEvent) {
@@ -712,6 +734,7 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
 
     private func transportTerminated(exitCode: Int) {
         guard !isStopping else { return }
+        cancelInitializationDeadline()
         finishErrorOutput()
         discardPendingRunInTerminalRequests()
         discardPendingStartDebuggingRequests()
@@ -722,6 +745,7 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
     }
 
     private func failSession() {
+        cancelInitializationDeadline()
         transport.stop()
         finishErrorOutput()
         discardPendingRunInTerminalRequests()
@@ -729,6 +753,12 @@ public final class CoreDebugAdapterProtocolSession: DebugAdapterControllingSessi
         releaseCoreSession()
         failPendingOperations(DebugAdapterProtocolError.stopped)
         state = .failed
+    }
+
+    private func cancelInitializationDeadline() {
+        initializationToken = nil
+        initializationDeadline?.cancel()
+        initializationDeadline = nil
     }
 
     private func releaseCoreSession() {

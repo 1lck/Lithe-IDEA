@@ -296,7 +296,8 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             if startAdditional(fileURL: request.fileURL, rootURL: request.rootURL,
                      configuration: DebugLaunchConfiguration(
                         name: request.configuration.name, request: request.configuration.request,
-                        arguments: arguments, steppingFilters: request.configuration.steppingFilters)) {
+                        arguments: arguments, steppingFilters: request.configuration.steppingFilters,
+                        adapterEndpoint: request.configuration.adapterEndpoint)) {
                 registerJavaUpdateTarget(target)
             }
         } catch {

@@ -456,6 +456,30 @@
         }
       ],
       "gaps": []
+    },
+    {
+      "id": "adapter-tcp-endpoint",
+      "behavior": "IDE-to-DAP endpoints are validated independently of debuggee attach arguments; TCP startup/write waits, buffering, cancellation and ownership are bounded",
+      "status": "covered",
+      "evidence": [
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/debug/endpoint.rs",
+          "test": "dap_endpoint_contract_fixtures_match_validation_and_consent_classification",
+          "fixture": "shared/fixtures/debug/adapter-endpoints-v1.json"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheTests/TCPDebugAdapterTests.swift",
+          "test": "realTCPRunsCoreInitializeAndAttachWithFragmentedDAPResponses"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift",
+          "test": "explicitEndpointUsesItsFactoryAndPreservesTheDAPRequest"
+        }
+      ],
+      "gaps": []
     }
   ]
 }

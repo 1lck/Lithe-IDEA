@@ -4,6 +4,29 @@ use base64::Engine as _;
 use serde_json::Value;
 
 #[test]
+fn debug_adapter_endpoint_validation_crosses_the_json_boundary() {
+    let fixture: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../shared/fixtures/debug/adapter-endpoints-v1.json"
+    )))
+    .expect("endpoint fixture is JSON");
+    for case in fixture["cases"].as_array().expect("endpoint cases") {
+        let request = serde_json::json!({
+            "id": "validate-endpoint", "command": "debug.validateAdapterEndpoint", "payload": case["input"]
+        });
+        let response: Value = serde_json::from_str(&execute_json(&request.to_string()))
+            .expect("endpoint response is JSON");
+        assert_eq!(response["id"], "validate-endpoint");
+        assert_eq!(response["ok"], case.get("remote").is_some(), "{case}");
+        if let Some(remote) = case.get("remote") {
+            assert_eq!(response["data"]["remote"], *remote, "{case}");
+        } else {
+            assert_eq!(response["error"]["code"], "invalid_request", "{case}");
+        }
+    }
+}
+
+#[test]
 fn ping_exposes_protocol_version() {
     let response: Value = serde_json::from_str(&execute_json(
         r#"{"id":"test-1","command":"core.ping","payload":{}}"#,

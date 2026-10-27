@@ -84,6 +84,8 @@ pub enum CoreCommand {
     PluginsDeclarativeLanguageServerLaunchPlan,
     /// Checks a debug start and returns the adapter's DAP arguments (`debug.adapters.startArguments`).
     DebugAdaptersStartArguments,
+    /// Validates an IDE-to-DAP TCP endpoint, not an attach target.
+    DebugValidateAdapterEndpoint,
     /// Says where to look for the program a launch debugs (`debug.adapters.executablePlan`).
     DebugAdaptersExecutablePlan,
     /// Compares a launch runtime's version output with its requirement (`plugins.declarative.checkRuntimeVersion`).
@@ -509,6 +511,7 @@ impl CoreCommand {
                 Some(Self::PluginsDeclarativeLanguageServerLaunchPlan)
             }
             "debug.adapters.startArguments" => Some(Self::DebugAdaptersStartArguments),
+            "debug.validateAdapterEndpoint" => Some(Self::DebugValidateAdapterEndpoint),
             "debug.adapters.executablePlan" => Some(Self::DebugAdaptersExecutablePlan),
             "plugins.declarative.checkRuntimeVersion" => {
                 Some(Self::PluginsDeclarativeCheckRuntimeVersion)

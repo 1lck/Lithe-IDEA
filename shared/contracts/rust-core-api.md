@@ -977,6 +977,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `maven.diagnostics` | Parse stable Maven compiler diagnostics from build output |
 | `maven.testResults` | Parse bounded JUnit/Surefire result summaries and failure locations |
 | `debug.createSession` | Create a transport-neutral DAP session and return its initialize frame |
+| `debug.validateAdapterEndpoint` | Validate an IDE-to-DAP TCP endpoint and classify whether remote consent is required; performs no DNS or network I/O |
 | `debug.launch` | Queue a launch or attach request, including during initialization |
 | `debug.javaTestLaunch` | Normalize JUnit or TestNG launch metadata into Java DAP arguments |
 | `debug.steppingFilters` | Return adapter defaults or normalize portable stepping filters |
@@ -2089,6 +2090,32 @@ execution state, deterministic breakpoint sets, and normalized thread, stack,
 scope, variable, evaluation, output, stop, continue, and termination events.
 Platforms own adapter discovery, JDT LS activation, sockets or process pipes,
 native process termination, persistence, and UI rendering.
+
+`debug.validateAdapterEndpoint` accepts exactly `{ host, port }`. `host` is a
+bare IPv4, unbracketed IPv6, or DNS name, not a URL, authority, credential,
+path, or scoped address; `port` is an integer from 1 through 65535. It returns
+`{ host, port, remote }`, preserving the input. `localhost` (case insensitive),
+127.0.0.0/8 and `::1` are loopback; every other spelling requires remote
+consent, without resolving DNS. Invalid inputs return `invalid_request`.
+Compatibility cases live in `shared/fixtures/debug/adapter-endpoints-v1.json`.
+The platform obtains approval before connecting a non-loopback endpoint, once
+per connection with no remembered approval, and warns that plain TCP provides
+neither authentication nor encryption. This endpoint is the **IDE-to-adapter**
+address, not a `targetBindings.connection` debuggee address.
+
+The macOS launch envelope may carry optional `adapterEndpoint: { host, port }`
+beside `arguments`. Its session manager selects an already-running DAP server
+instead of starting a local adapter. Missing platform support fails without a
+local fallback. This host-only field is not forwarded as DAP arguments: Core's
+launch configuration ignores it. `request` still independently chooses `launch`
+or `attach`. The provider's language-server port source remains loopback-only.
+Closing this connection never stops the external server, shared language server,
+debuggee, or user-managed tunnel. On user stop, the macOS TCP host makes a
+bounded best-effort drain of queued frames (including disconnect) for up to one
+second before closing; this is local write completion, not a remote acknowledgement.
+Failure and explicit transport abort close immediately. There is no automatic reconnect or request
+replay. Proxy/tunnel implementations and plugin `tcpPort` / `tcpAnnounced`
+process hosting are not enabled by this API.
 
 `debug.createSession` accepts `{ sessionId, adapterId, rootPath,
 supportsRunInTerminalRequest, disabledCapabilities? }`.

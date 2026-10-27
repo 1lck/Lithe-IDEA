@@ -100,6 +100,23 @@ extension AppModel {
         }
     }
 
+    func connectExternalDebugAdapter(configuration: DebugLaunchConfiguration, fileURL: URL) {
+        guard let identity = currentWorkspaceIdentity, let workspaceURL else { return }
+        Task { [weak self] in
+            guard let self,
+                  let feature = await self.activateDebugModule()?.genericFeature,
+                  self.isCurrentWorkspace(identity), !Task.isCancelled,
+                  !feature.isSessionActive else { return }
+            // The selected source chooses an installed provider, not a wire
+            // protocol guessed from the port. A failed connection stays visible
+            // in Debug, rather than restoring an older session over its error.
+            _ = feature.start(
+                fileURL: fileURL, rootURL: workspaceURL, configuration: configuration
+            )
+            self.showDebugToolWindow()
+        }
+    }
+
     private func attachJavaDebuggerAfterActivation(host: String, port: Int) async {
         guard let workspaceURL,
               await activateDebugModule() != nil else { return }

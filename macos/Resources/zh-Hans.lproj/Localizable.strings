@@ -203,6 +203,7 @@
 "Active Maven Profiles" = "启用的 Maven Profiles";
 "Active profiles" = "启用的 Profiles";
 "Activity" = "活动";
+"Adapter Arguments (JSON)" = "适配器参数（JSON）";
 "Adapter Ready" = "适配器已就绪";
 "Add" = "添加";
 "Add Hook" = "添加 Hook";
@@ -376,6 +377,7 @@
 "Assignees" = "负责人";
 "Astro Support" = "Astro 支持";
 "Attach" = "连接";
+"Attach Request" = "附加请求";
 "Attach file" = "附件";
 "Attach files" = "添加文件";
 "Attach to a remote JVM or Tomcat" = "连接到远程 JVM 或 Tomcat";
@@ -841,8 +843,12 @@
 "Conflicts with %@" = "与 %@ 冲突";
 "Connect" = "连接";
 "Connect a GitHub account before continuing" = "请先连接 GitHub 账号";
+"Connect to Debug Adapter" = "连接调试适配器";
+"Connect to Debug Adapter…" = "连接调试适配器…";
 "Connect to Running JVM" = "连接到运行中的 JVM";
 "Connect to Running JVM…" = "连接到运行中的 JVM…";
+"Connect to an already running DAP server using the active file's installed debugger. This is not a JVM JDWP or gdbserver port. No proxy or tunnel is created." = "使用当前文件已安装的调试器连接已运行的 DAP 服务。这不是 JVM JDWP 或 gdbserver 端口。不会创建代理或隧道。";
+"Connect to an external debug adapter?" = "连接到外部调试适配器？";
 "Connect to databases, browse schemas, edit data, run SQL, and manage backups from the Database workspace." = "连接数据库、浏览结构、编辑数据、运行 SQL，并在数据库工作区中管理备份。";
 "Connect to running JVM" = "连接到正在运行的 JVM";
 "Connected" = "已连接";
@@ -1302,6 +1308,7 @@
 "Enlarge image" = "放大查看图片";
 "Enter API key" = "填写 API Key";
 "Enter a ChangeList name (1–100 characters)." = "请输入更改列表名称（1–100 个字符）。";
+"Enter a JSON object of adapter arguments no larger than 256 KiB." = "请输入不超过 256 KiB 的适配器参数 JSON 对象。";
 "Enter a JVM debug port between 1 and 65535." = "请输入 1 到 65535 之间的 JVM 调试端口。";
 "Enter a branch name" = "请输入分支名称";
 "Enter a branch name before publishing." = "请输入分支名称后再发布。";
@@ -1318,6 +1325,7 @@
 "Enter a size such as 200K or 1M, between 10K and 10M." = "请输入如 200K 或 1M 的大小，范围为 10K 到 10M。";
 "Enter a tag name" = "请输入标签名称";
 "Enter a tag name, branch name, commit hash, or other Git revision." = "输入标签名、分支名、提交 Hash 或其他 Git 修订版本。";
+"Enter a valid debug adapter host and a port between 1 and 65535." = "请输入有效的调试适配器主机和 1 到 65535 之间的端口。";
 "Enter a value." = "请输入内容。";
 "Enter a whole number from %d to %d." = "请输入 %d 到 %d 之间的整数。";
 "Enter address" = "输入网址或本地路径";
@@ -1330,6 +1338,7 @@
 "Enter the executable and arguments as in a terminal. Quote paths with spaces. Lithe passes exact arguments without running a shell; pipes and redirects are not evaluated." = "按终端形式输入程序和参数，含空格的路径请加引号。Lithe 直接传递参数，不运行 Shell，也不解释管道或重定向。";
 "Enter the host name of the running JVM." = "请输入正在运行的 JVM 的主机名。";
 "Enter the host without a user name or spaces; put the user in User name." = "主机里不要包含用户名或空格，用户名请填在“用户名”里。";
+"Enter the launch or attach arguments required by this adapter, including its source path mappings if needed. These are separate from the DAP server's TCP address." = "输入此适配器所需的启动或附加参数，必要时包含源码路径映射。这些参数独立于 DAP 服务的 TCP 地址。";
 "Enter the new symbol name." = "输入新的符号名称。";
 "Enter the next function call" = "进入下一个函数调用";
 "Enter the one-time code" = "输入一次性代码";
@@ -1384,6 +1393,7 @@
 "Export…" = "导出…";
 "Expression" = "表达式";
 "Expression history" = "表达式历史";
+"External Debug Adapter" = "外部调试适配器";
 "External change" = "外部更改";
 "External edits conflict with unsaved changes" = "外部编辑与未保存的更改发生冲突";
 "Extra deep reasoning for demanding tasks" = "额外深度推理，适合高难度任务";
@@ -1866,6 +1876,7 @@
 "Latest Version" = "最新版本";
 "Latest turn as reported by the Agent; its accounting scope depends on the Agent. Turn on Model call statistics for session totals." = "最近一轮由 Agent 上报的计数，统计口径由 Agent 决定；开启“模型调用统计”后显示整个会话的合计。";
 "Launch" = "启动方式";
+"Launch Request" = "启动请求";
 "Launching" = "启动中";
 "Layout" = "布局";
 "Leave a review" = "提交审查";
@@ -2965,6 +2976,7 @@
 "Repository changed; review and retry" = "仓库状态已改变，请检查并重试";
 "Repository identity overrides inherited global values. Clear an override to use inherited settings." = "仓库身份会覆盖继承的全局值。清除覆盖后将使用继承的配置。";
 "Repository needs attention" = "仓库需要处理";
+"Request" = "请求";
 "Request changes" = "请求修改";
 "Requested by the plugin “%@”." = "由插件“%@”请求。";
 "Required fields are marked with *" = "带 * 的字段为必填项";
@@ -3728,8 +3740,13 @@
 "The debug adapter %@ names no language server to host it." = "调试适配器 %@ 没有指定承载它的语言服务器。";
 "The debug adapter %@ needs %@, which was not found. Install it, then try again." = "调试适配器 %@ 需要 %@，但未找到。请先安装，然后重试。";
 "The debug adapter %@ uses the %@ transport, which Lithe cannot start yet. Only stdio and language server hosted adapters are supported." = "调试适配器 %@ 使用 %@ 传输方式，Lithe 暂时无法启动。目前只支持 stdio 和由语言服务器承载的适配器。";
+"The debug adapter at %@ can access your debugging data. Plain TCP is not encrypted or authenticated. Connect only over a trusted network or a tunnel you configured." = "位于 %@ 的调试适配器可以访问你的调试数据。普通 TCP 不提供加密或身份认证。请仅通过可信网络或你自行配置的隧道连接。";
 "The debug adapter connection is stopped." = "调试适配器的连接已停止。";
+"The debug adapter connection timed out." = "调试适配器连接超时。";
+"The debug adapter connection was not approved." = "未批准连接调试适配器。";
+"The debug adapter did not accept outgoing data in time." = "调试适配器未能及时接收待发送数据。";
 "The debug adapter did not provide a terminal executable." = "调试适配器没有提供终端可执行文件。";
+"The debug adapter outgoing buffer is full." = "调试适配器的发送缓冲区已满。";
 "The debug adapter provided an invalid terminal working directory." = "调试适配器提供的终端工作目录无效。";
 "The debugger did not return object fields in time." = "调试器未能及时返回对象字段。";
 "The default ChangeList cannot be renamed." = "默认更改列表不能重命名。";
@@ -4365,6 +4382,23 @@
 "code" = "代码";
 "commit messages" = "提交信息";
 "conflict -> %@" = "版本冲突 → %@";
+"debug.tcp.arguments" = "适配器参数（JSON）";
+"debug.tcp.argumentsHelp" = "输入此适配器所需的启动或附加参数，必要时包含源码路径映射。这些参数独立于 DAP 服务的 TCP 地址。";
+"debug.tcp.attachRequest" = "附加请求";
+"debug.tcp.bufferFull" = "调试适配器的发送缓冲区已满。";
+"debug.tcp.confirmBody" = "位于 %1$@ 的调试适配器可以访问你的调试数据。普通 TCP 不提供加密或身份认证。请仅通过可信网络或你自行配置的隧道连接。";
+"debug.tcp.confirmTitle" = "连接到外部调试适配器？";
+"debug.tcp.declined" = "未批准连接调试适配器。";
+"debug.tcp.help" = "使用当前文件已安装的调试器连接已运行的 DAP 服务。这不是 JVM JDWP 或 gdbserver 端口。不会创建代理或隧道。";
+"debug.tcp.invalidArguments" = "请输入不超过 256 KiB 的适配器参数 JSON 对象。";
+"debug.tcp.invalidEndpoint" = "请输入有效的调试适配器主机和 1 到 65535 之间的端口。";
+"debug.tcp.launchRequest" = "启动请求";
+"debug.tcp.menu" = "连接调试适配器…";
+"debug.tcp.name" = "外部调试适配器";
+"debug.tcp.request" = "请求";
+"debug.tcp.startupTimedOut" = "调试适配器连接超时。";
+"debug.tcp.title" = "连接调试适配器";
+"debug.tcp.writeTimedOut" = "调试适配器未能及时接收待发送数据。";
 "debugger.continue" = "继续";
 "debugger.threadsAndVariables" = "线程和变量";
 "detected on this Mac" = "本机检测到";

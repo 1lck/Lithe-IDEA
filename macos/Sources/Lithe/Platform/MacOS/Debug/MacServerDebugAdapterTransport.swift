@@ -10,7 +10,7 @@ protocol DebugAdapterSocketConnection: AnyObject {
     var onFailure: ((Error) -> Void)? { get set }
     var onComplete: (() -> Void)? { get set }
     func start()
-    func send(_ data: Data)
+    func send(_ data: Data, completion: @escaping @MainActor @Sendable (Result<Void, Error>) -> Void)
     func stop()
 }
 
@@ -22,6 +22,7 @@ final class NetworkDebugAdapterSocketConnection: DebugAdapterSocketConnection {
     var onData: ((Data) -> Void)?
     var onFailure: ((Error) -> Void)?
     var onComplete: (() -> Void)?
+    private var stopped = false
 
     init(host: String, port: UInt16) {
         connection = NWConnection(
@@ -31,7 +32,7 @@ final class NetworkDebugAdapterSocketConnection: DebugAdapterSocketConnection {
         )
         connection.stateUpdateHandler = { [weak self] state in
             Task { @MainActor [weak self] in
-                guard let self else { return }
+                guard let self, !self.stopped else { return }
                 switch state {
                 case .ready: self.onReady?()
                 case .failed(let error): self.onFailure?(error)
@@ -42,25 +43,42 @@ final class NetworkDebugAdapterSocketConnection: DebugAdapterSocketConnection {
         }
     }
 
+    deinit { connection.cancel() }
+
     func start() {
+        guard !stopped else { return }
         connection.start(queue: queue)
         receiveNext()
     }
 
-    func send(_ data: Data) {
+    func send(_ data: Data, completion: @escaping @MainActor @Sendable (Result<Void, Error>) -> Void) {
+        guard !stopped else { return }
         connection.send(content: data, completion: .contentProcessed { [weak self] error in
-            guard let error else { return }
-            Task { @MainActor [weak self] in self?.onFailure?(error) }
+            Task { @MainActor [weak self] in
+                guard let self, !self.stopped else { return }
+                if let error { completion(.failure(error)) }
+                else { completion(.success(())) }
+            }
         })
     }
 
-    func stop() { connection.cancel() }
+    func stop() {
+        guard !stopped else { return }
+        stopped = true
+        connection.stateUpdateHandler = nil
+        onReady = nil
+        onData = nil
+        onFailure = nil
+        onComplete = nil
+        connection.cancel()
+    }
 
     private func receiveNext() {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 1_048_576) { [weak self] data, _, complete, error in
             Task { @MainActor [weak self] in
-                guard let self else { return }
+                guard let self, !self.stopped else { return }
                 if let data, !data.isEmpty { self.onData?(data) }
+                guard !self.stopped else { return }
                 if let error {
                     self.onFailure?(error)
                 } else if complete {

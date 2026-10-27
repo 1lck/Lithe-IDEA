@@ -213,6 +213,12 @@ fn execute(request: &str) -> CoreResponse {
             parsed.payload,
             crate::plugins::declarative::language_server_launch_plan_command,
         ),
+        CoreCommand::DebugValidateAdapterEndpoint => {
+            match crate::debug::validate_adapter_endpoint(parsed.payload) {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::DebugAdaptersStartArguments => plugin_response(
             id,
             parsed.payload,

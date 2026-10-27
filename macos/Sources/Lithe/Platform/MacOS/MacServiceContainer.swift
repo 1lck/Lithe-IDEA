@@ -692,6 +692,35 @@ final class MacServiceContainer {
                             return session
                         }
                     )
+                    adapterSessions.makeEndpointSession = { descriptor, endpoint, _ in
+                        let entry = activeDebugAdapter(descriptor.id)
+                        guard descriptor.id == "java" || entry != nil else { return nil }
+                        let session = CoreDebugAdapterProtocolSession(
+                            adapterID: entry?.adapter.adapterID ?? "java",
+                            consoleCommands: entry?.adapter.consoleCommands ?? [],
+                            consoleCommandPrefix: entry?.adapter.consoleCommandPrefix,
+                            disabledCapabilities: entry?.adapter.disabledCapabilities ?? [],
+                            transport: try MacExternalDebugAdapterTransport.make(
+                                endpoint: endpoint,
+                                validate: { endpoint in
+                                    do {
+                                        return try rustCore.executeResult(
+                                            command: "debug.validateAdapterEndpoint", payload: endpoint
+                                        ).get()
+                                    } catch let error as RustCoreBridge.CoreCallError where error.code == "invalid_request" {
+                                        throw MacTCPDebugAdapterTransport.TransportError.invalidEndpoint
+                                    }
+                                }
+                            ),
+                            core: rustCore,
+                            deadlineScheduler: MacDebugOperationDeadlineScheduler(),
+                            initializationTimeoutMilliseconds: 10_000
+                        )
+                        if let entry {
+                            debugAdapterSessionsBox.record(session, pluginID: entry.plugin.descriptor.id.rawValue)
+                        }
+                        return session
+                    }
                     debugAdapterSessionsBox.manager = adapterSessions
                     let graph = DebugFeatureGraph(
                         adapterSessions: adapterSessions,
