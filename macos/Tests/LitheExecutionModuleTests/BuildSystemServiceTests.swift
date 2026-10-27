@@ -2126,6 +2126,133 @@ struct BuildSystemServiceTests {
         #expect(planner.decodedModelOutputs.isEmpty)
     }
 
+
+    @Test(arguments: ["disable", "optionABA", "producerReload", "files", "workspace"])
+    func sharedModelChangesCancelAnUncooperativeConsumer(change: String) async throws {
+        // Producer facts are captured before the backend starts; changing the producer
+        // revokes them while the reply is deliberately held, even across an option ABA.
+        let planner = FakeBuildPlanner()
+        planner.fingerprint = "o"
+        let producer = try decode(BuildSystemInstance.self, """
+        {"id":"source:app","pluginID":"dev.producer","buildSystemID":"source","displayName":"Source",
+        "root":"app","modelSource":"provider","optionFingerprint":"o",
+        "model":{"projects":[{"id":"p","path":"app","name":"source"}]}}
+        """)
+        planner.detection = BuildDetection(instances: [producer, try Self.instance(modelSource: "provider")])
+        planner.providerRequest = Self.providerRequest(method: "lithe/build/execute")
+        let sources = [
+            fixtureSource(pluginID: "dev.producer", buildSystemID: "source", sharesModel: true),
+            fixtureSource(modelInputs: [.init(pluginID: "dev.producer", buildSystemID: "source")])
+        ]
+        let gate = BuildTestGate()
+        let providers = FakeBuildProviders()
+        providers.replyGate = gate
+        providers.ignoresCancellation = true
+        let harness = Harness(planner: planner, sources: sources, providers: providers)
+        defer { gate.open(); harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { $0.count == 2 })
+        let operation = try #require(harness.service.runTask(Self.instanceID, request: BuildTaskRequest(task: "build"), title: "Build"))
+        try #require(await providers.requestStarted.waitUntilOpen())
+        let facts = try #require(planner.modelInputSources.last)
+        #expect(facts.count == 1)
+        #expect(facts.first?.instances.first?.buildSystemID == "source")
+        if change == "disable" {
+            harness.sources = [sources[1]]
+            harness.service.pluginsChanged()
+        } else if change == "optionABA" {
+            harness.service.setOption("source:app", optionID: "release", value: .bool(true))
+            harness.service.setOption("source:app", optionID: "release", value: nil)
+        } else if change == "producerReload" {
+            harness.service.loadModel("source:app")
+        } else if change == "files" {
+            harness.service.workspaceFilesChanged([Self.workspace.appendingPathComponent("build.file")])
+        } else {
+            harness.service.reset(workspaceURL: URL(fileURLWithPath: "/workspace/other"))
+        }
+        #expect(harness.service.currentRunID != operation)
+        gate.open()
+        try #require(await providers.requestFinished.waitUntilOpen())
+        #expect(harness.service.runState != .succeeded)
+    }
+
+    @Test
+    func aProducerModelLoadedAcrossOptionABARemainsStale() async throws {
+        let planner = FakeBuildPlanner()
+        planner.fingerprint = "o"
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "provider")])
+        planner.providerRequest = Self.providerRequest(method: "lithe/build/model")
+        let gate = BuildTestGate()
+        let providers = FakeBuildProviders()
+        providers.replyGate = gate
+        let harness = Harness(planner: planner, sources: [fixtureSource(sharesModel: true)], providers: providers)
+        defer { gate.open(); harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { $0.count == 1 })
+        harness.service.loadModel(Self.instanceID)
+        try #require(await providers.requestStarted.waitUntilOpen())
+        harness.service.setOption(Self.instanceID, optionID: "release", value: .bool(true))
+        harness.service.setOption(Self.instanceID, optionID: "release", value: nil)
+        gate.open()
+        try #require(await harness.waitForEntries { $0.first?.modelState == .loaded })
+        #expect(harness.service.entry(Self.instanceID)?.isReloadRequired == true)
+    }
+
+    @Test(arguments: [false, true])
+    func sharedInputsStayRevokedThroughBackgroundDecode(dependencies: Bool) async throws {
+        let planner = FakeBuildPlanner()
+        planner.fingerprint = "o"
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "provider")])
+        planner.providerRequest = Self.providerRequest(method: dependencies ? "lithe/build/dependencies" : "lithe/build/model")
+        let consumer = fixtureSource(modelInputs: [.init(pluginID: "dev.producer", buildSystemID: "source")])
+        let gate = GatedBuildDecode()
+        planner.backgroundDecodeGate = gate
+        let harness = Harness(planner: planner, sources: [consumer], providers: FakeBuildProviders())
+        defer { gate.releaseDecode(); harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { $0.count == 1 })
+        if dependencies { harness.service.loadDependencies(Self.instanceID, project: nil) }
+        else { harness.service.loadModel(Self.instanceID) }
+        try #require(await gate.entered.waitUntilOpen())
+        // Availability changes revoke even the explicit unavailable slot snapshot.
+        harness.service.pluginsChanged()
+        gate.releaseDecode()
+        try #require(await gate.finished.waitUntilOpen())
+        #expect(!(await harness.waitsForStaleSharedInputResult()))
+        #expect(harness.service.entry(Self.instanceID)?.model == nil)
+        #expect(harness.service.entry(Self.instanceID)?.dependencies.isEmpty == true)
+    }
+
+    @Test
+    func sharedModelHostIncludesOnlyEnabledExactPackageFacts() async throws {
+        let planner = FakeBuildPlanner()
+        planner.fingerprint = "o"
+        let producer = try decode(BuildSystemInstance.self, """
+        {"id":"source:app","pluginID":"dev.producer","buildSystemID":"source","displayName":"Source",
+        "root":"app","modelSource":"provider","optionFingerprint":"o"}
+        """)
+        planner.detection = BuildDetection(instances: [producer, try Self.instance(modelSource: "provider")])
+        planner.providerRequest = Self.providerRequest(method: "lithe/build/execute")
+        let consumer = fixtureSource(modelInputs: [.init(pluginID: "dev.producer", buildSystemID: "source")])
+        let producerSource = fixtureSource(pluginID: "dev.producer", buildSystemID: "source", sharesModel: true)
+        let providers = FakeBuildProviders()
+        let harness = Harness(planner: planner, sources: [producerSource, consumer], providers: providers)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { $0.count == 2 })
+        harness.service.runTask(Self.instanceID, request: BuildTaskRequest(task: "build"), title: "Build")
+        try #require(await harness.waitForRunState { $0 == .succeeded })
+        let instance = try #require(planner.modelInputSources.last?.first?.instances.first)
+        #expect(instance.state == "stale")
+        #expect(instance.model == nil)
+        harness.sources = [consumer]
+        harness.service.pluginsChanged()
+        try #require(await harness.waitForEntries { $0.count == 1 })
+        harness.service.runTask(Self.instanceID, request: BuildTaskRequest(task: "build"), title: "Build")
+        try #require(await harness.waitForRunState { $0 == .succeeded })
+        #expect(planner.modelInputSources.last?.isEmpty == true)
+    }
+
     private static func providerRequest(method: String) -> BuildProviderRequest {
         BuildProviderRequest(
             method: method, params: .object(["root": .string("app")]), optionFingerprint: "o",
@@ -2205,14 +2332,14 @@ struct BuildSystemServiceTests {
     }
 }
 
-private func fixtureSource(pluginID: String = "dev.example", testDiscovery: Bool = false, providerRuns: [DeclarativeBuildSystem.ProviderRun] = []) -> BuildSystemPluginSource {
+private func fixtureSource(pluginID: String = "dev.example", testDiscovery: Bool = false, providerRuns: [DeclarativeBuildSystem.ProviderRun] = [], buildSystemID: String = "fixture", sharesModel: Bool = false, modelInputs: [DeclarativeBuildSystem.ModelInput] = []) -> BuildSystemPluginSource {
     BuildSystemPluginSource(
         pluginID: pluginID,
         manifest: Data("{}".utf8),
         packageURL: URL(fileURLWithPath: "/plugins/\(pluginID)"),
         buildSystems: [DeclarativeBuildSystem(
-            id: "fixture", displayName: "Fixture", modelSource: .command, tasks: [],
-            testScopes: [], dependencyScopes: [], testDiscovery: testDiscovery, providerRuns: providerRuns
+            id: buildSystemID, displayName: "Fixture", modelSource: .command, tasks: [],
+            testScopes: [], dependencyScopes: [], testDiscovery: testDiscovery, providerRuns: providerRuns, sharesModel: sharesModel, modelInputs: modelInputs
         )]
     )
 }
@@ -2275,6 +2402,15 @@ private final class Harness {
     /// Bounded wait for a publication a correct service never makes. Returns
     /// true when the stale value appears, so a regression fails locally
     /// instead of hanging.
+    func waitsForStaleSharedInputResult() async -> Bool {
+        let gate = BuildTestGate()
+        let observation = service.$entries.sink { entries in
+            if entries.contains(where: { $0.model != nil || $0.dependencies.values.contains(where: { if case .loaded = $0 { return true }; return false }) }) { gate.open() }
+        }
+        defer { observation.cancel() }
+        return await gate.waitUntilOpen(timeout: .milliseconds(500))
+    }
+
     func waitsForStaleDiagnostics(_ diagnostics: [BuildDiagnostic]) async -> Bool {
         let gate = BuildTestGate()
         let observation = service.$diagnostics.sink { if $0 == diagnostics { gate.open() } }
@@ -2412,6 +2548,7 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         var providerRequest: BuildProviderRequest?
         var decodedDependencyOutputs: [BuildCommandOutput] = []
         var diagnostics: [BuildDiagnostic] = []
+        var backgroundDecodeGate: GatedBuildDecode?
         var diagnosticsGate: GatedBuildDecode?
         var testResultsGate: GatedBuildDecode?
         var detectGate: GatedBuildDecode?
@@ -2431,6 +2568,7 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         var decodedModelOutputs: [BuildCommandOutput] = []
         var diagnosticOutputs: [String] = []
         var taskPlanContexts: [BuildPlanContext] = []
+        var modelInputSources: [[BuildModelInputSource]] = []
         var modelPlanHints: [BuildProviderHints] = []
         var dependencyPlanHints: [BuildProviderHints] = []
     }
@@ -2615,6 +2753,33 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         """)
     }
 
+    var backgroundDecodeGate: GatedBuildDecode? {
+        get { access { $0.backgroundDecodeGate } }
+        set { access { $0.backgroundDecodeGate = newValue } }
+    }
+
+    private func waitForBackgroundDecode() throws {
+        if let gate = access({ let gate = $0.backgroundDecodeGate; $0.backgroundDecodeGate = nil; return gate }) {
+            gate.entered.open()
+            defer { gate.finished.open() }
+            guard gate.waitForRelease() else { throw GatedDecodeError.releaseTimedOut }
+        }
+    }
+
+    var modelInputSources: [[BuildModelInputSource]] { access { $0.modelInputSources } }
+
+    func resolveModelInputs(_ target: BuildSystemTarget, revision: UInt64, sources: [BuildModelInputSource]) throws -> ToolingJSONValue {
+        access { $0.modelInputSources.append(sources) }
+        return .object(["version": .integer(1), "revision": .integer(Int(revision)), "inputs": .array([])])
+    }
+
+    private func withInputs(_ request: BuildProviderRequest, context: BuildPlanContext) -> BuildProviderRequest {
+        guard let inputs = context.modelInputs, case .object(var params) = request.params else { return request }
+        params["modelInputs"] = inputs
+        return BuildProviderRequest(method: request.method, params: .object(params), optionFingerprint: request.optionFingerprint,
+            executesProjectCode: request.executesProjectCode, mayUseNetwork: request.mayUseNetwork)
+    }
+
     func modelPlan(
         _ target: BuildSystemTarget,
         context: BuildPlanContext,
@@ -2622,14 +2787,14 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         providerHints: BuildProviderHints
     ) throws -> BuildOutputPlan {
         access { $0.modelPlanHints.append(providerHints) }
-        if let request = providerRequest { return .provider(request) }
+        if let request = providerRequest { return .provider(withInputs(request, context: context)) }
         return .process(plan(["model"], output: modelOutput))
     }
 
     func taskPlan(_ target: BuildSystemTarget, context: BuildPlanContext, request: BuildTaskRequest) throws
         -> BuildOutputPlan {
         access { $0.taskPlanContexts.append(context) }
-        if let request = providerRequest { return .provider(request) }
+        if let request = providerRequest { return .provider(withInputs(request, context: context)) }
         return .process(plan([request.task, "with space"], output: nil))
     }
 
@@ -2638,7 +2803,7 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         access { $0.testRequests.append(request) }
         let declaresResults = access { $0.testPlanDeclaresResults }
         return BuildTestPlan(
-            execution: providerRequest.map(BuildOutputPlan.provider) ?? .process(plan(["test"], output: nil)),
+            execution: providerRequest.map { .provider(withInputs($0, context: context)) } ?? .process(plan(["test"], output: nil)),
             results: declaresResults ? .reports(decoder: "junitXml", patterns: []) : nil
         )
     }
@@ -2646,13 +2811,13 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
     func prepareRunPlan(_ target: BuildSystemTarget, context: BuildPlanContext, run: String,
                         project: BuildSelection, selectedTarget: BuildSelection, userArguments: [String]) throws -> BuildProviderRequest {
         guard let providerRequest else { throw CancellationError() }
-        return providerRequest
+        return withInputs(providerRequest, context: context)
     }
 
     func prepareDebugPlan(_ target: BuildSystemTarget, context: BuildPlanContext, run: String,
                           project: BuildSelection, selectedTarget: BuildSelection, userArguments: [String]) throws -> BuildProviderRequest {
         guard let providerRequest else { throw CancellationError() }
-        return providerRequest
+        return withInputs(providerRequest, context: context)
     }
 
     func decodeDebugPreparation(_ target: BuildSystemTarget, workspaceURL: URL, root: String, run: String,
@@ -2698,7 +2863,7 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         providerHints: BuildProviderHints
     ) throws -> BuildOutputPlan {
         access { $0.dependencyPlanHints.append(providerHints) }
-        if let request = providerRequest { return .provider(request) }
+        if let request = providerRequest { return .provider(withInputs(request, context: context)) }
         return .process(plan(["dependencies"], output: .stdout))
     }
 
@@ -2709,6 +2874,7 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         output: BuildCommandOutput,
         options: [String: ToolingJSONValue]
     ) throws -> BuildModel {
+        try waitForBackgroundDecode()
         access { $0.decodedModelOutputs.append(output) }
         let name: String
         if case .stdout(let text) = output, text == "OLD" || text == "NEW" {
@@ -2755,6 +2921,7 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         project: String?,
         output: BuildCommandOutput
     ) throws -> BuildDependencyTree {
+        try waitForBackgroundDecode()
         access { $0.decodedDependencyOutputs.append(output) }
         if case .stdout(let name) = output, name == "OLD" || name == "NEW" {
             return try decode(BuildDependencyTree.self, """
@@ -3017,11 +3184,12 @@ private final class FakeBuildProviders: BuildProviderRequesting {
         running.insert(target)
         requestStarted.open()
         defer { requestFinished.open() }
-        if let replyGate, !(await replyGate.waitUntilOpen()) { throw CancellationError() }
+        if let replyGate, !(await replyGate.waitUntilOpen(ignoringCancellation: ignoresCancellation)) { throw CancellationError() }
         if let failure { throw failure }
         return reply
     }
 
+    var ignoresCancellation = false
     var executionResult = BuildProviderExecutionResult(exitCode: 0, output: "completed")
     var executionProgress: (@MainActor @Sendable (BuildProviderProgress) -> Void)?
 

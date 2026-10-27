@@ -49,6 +49,12 @@ pub(crate) const MAX_CATEGORY_DEPTH: usize = 4;
 pub(crate) struct BuildSystemDeclaration {
     pub(crate) id: String,
     pub(crate) display_name: String,
+    /// Optional, explicit read-only publication of the normalized model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) model_sharing: Option<super::model_inputs::ModelSharing>,
+    /// Exact optional producers; these are not installation dependencies.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) model_inputs: Vec<super::model_inputs::ModelInput>,
     /// Icon of the build system's tool window; display only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) icon: Option<UIIcon>,
@@ -943,6 +949,7 @@ pub(crate) struct DeclarationContext<'a> {
     pub(crate) build_systems_version: u32,
     /// Admission version for provider execution; independent of wire negotiation.
     pub(crate) build_providers_version: u32,
+    pub(crate) model_inputs_version: u32,
     pub(crate) official: bool,
     /// Setting IDs a provider's launch templates may name.
     pub(crate) declared_settings: &'a crate::plugins::settings::DeclaredSettings,
@@ -1074,7 +1081,7 @@ fn program(build_system: &BuildSystemDeclaration) -> Value {
 
 /// A build-system or run ID: also a run-configuration provider segment, so
 /// it starts with a letter.
-fn is_entry_identifier(value: &str) -> bool {
+pub(super) fn is_entry_identifier(value: &str) -> bool {
     is_identifier(value)
         && value.len() <= MAX_IDENTIFIER
         && value
@@ -1233,6 +1240,11 @@ impl BuildSystemDeclaration {
         self.validate_provider(field, context)?;
         self.validate_detection(field)?;
         let option_ids = self.validate_options(field)?;
+        super::model_inputs::validate_declaration(
+            self,
+            context.model_inputs_version,
+            context.build_providers_version,
+        )?;
         self.validate_invocation(field, &option_ids, context)?;
         let model_templates = self.validate_tasks(field, &option_ids)?;
         self.validate_model(field, &option_ids)?;

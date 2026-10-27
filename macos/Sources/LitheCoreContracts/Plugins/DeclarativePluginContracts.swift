@@ -1250,6 +1250,8 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             let run: [ProviderRun]
             let dependencies: Source?
             let declaresProvider: Bool
+            let sharesModel: Bool
+            let modelInputs: [DeclarativeBuildSystem.ModelInput]
 
             init(from decoder: Decoder) throws {
                 let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -1263,10 +1265,12 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 run = try values.decodeIfPresent([ProviderRun].self, forKey: .run) ?? []
                 dependencies = try values.decodeIfPresent(Source.self, forKey: .dependencies)
                 declaresProvider = values.contains(.provider)
+                sharesModel = values.contains(.modelSharing)
+                modelInputs = try values.decodeIfPresent([DeclarativeBuildSystem.ModelInput].self, forKey: .modelInputs) ?? []
             }
 
             private enum CodingKeys: String, CodingKey {
-                case id, displayName, icon, options, model, tasks, test, dependencies, provider, run
+                case id, displayName, icon, options, model, tasks, test, dependencies, provider, run, modelSharing, modelInputs
             }
 
             func declaration() -> DeclarativeBuildSystem {
@@ -1299,7 +1303,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                     testDiscovery: test?.discovery ?? false,
                     providerRuns: run.filter { $0.source == "provider" }.map {
                         .init(id: $0.id, displayName: $0.name ?? $0.id, targetTags: $0.fromTargets?.tags ?? [], debugAdapter: $0.debug?.adapter)
-                    }
+                    }, sharesModel: sharesModel, modelInputs: modelInputs
                 )
             }
         }

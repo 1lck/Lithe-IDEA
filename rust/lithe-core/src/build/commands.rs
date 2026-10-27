@@ -323,3 +323,15 @@ pub(crate) fn build_decode_debug_preparation_command(payload: Value) -> Result<V
         },
     )
 }
+
+/// `build.resolveModelInputs`: filters optional public models for one consumer.
+pub(crate) fn build_resolve_model_inputs_command(payload: Value) -> Result<Value, CoreError> {
+    with_build_system(
+        payload,
+        "build.resolveModelInputs",
+        "modelInputs",
+        |build, request: &super::model_inputs::ResolveRequest| {
+            super::model_inputs::resolve(build, request)
+        },
+    )
+}

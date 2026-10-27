@@ -54,7 +54,7 @@ Core 用 JSON-RPC 请求 ID 作为后端看到的 `operationID`，进度按仍�
 
 本次没有新增下载入口、生成目录、缓存路径或用户数据迁移。执行复用既有 `workspaceStateDir` 和进程生命周期；插件包与发行目录只读，运行状态、日志、锁和输出仍由现有平台存储 adapter 提供位置。可变工作区状态不跨工作树共享，不影响代码签名或 Sparkle 增量更新的基线。
 
-契约/协议变更合并前，用 `lithe-plugin-docs` 的 SDK 端到端工具验证当前源码；合并后按[契约发布规则](2026-10-23-plugin-contract-publishing.md)同步副本。已有 SDK 模型/依赖示例须继续协商版本 1 并正常工作；SDK 的新执行处理器与 Maven 插件接入属于后续独立交付，本次不宣称它们已迁移。
+契约/协议变更合并前，用 `lithe-plugin-docs` 的 SDK 端到端工具验证当前源码；合并后按[契约发布规则](2026-10-23-plugin-contract-publishing.md)同步副本。已有 SDK 模型/依赖示例须继续协商版本 1 并正常工作；SDK 的执行处理器和 Maven 插件接入在独立仓库分别推进；本地源码验证、正式发版与旧生产路径删除必须分别记录，不互相代替。
 
 ### 正确做法与反例
 
@@ -102,6 +102,64 @@ Build 树和已保存的 Provider Run 配置都有 Debug 入口，启动前先�
 
 这个纵向增量只覆盖插件自有原生可执行程序。Java/JDT、跨插件准备与长期服务仍未迁移，不能据此声称整个阶段 C 或 Java Support 拆分已完成。
 
+### 已启用 Provider 之间只共享只读工程输入
+
+构建插件与另一个插件交换工程事实，先通过宿主提供快照，不让后端互相调用。
+生产者明确开放项目、目标和内容目录，以及选定的普通构建选项；接收者明确声明
+插件 ID 与构建系统 ID。Core 检查数据范围并删除任务、运行计划、设置和未公开的
+选项值，宿主只提供当前工作区内已启用包的事实。工程图仍由已有上游引擎产生，
+Core 不从源码或构建脚本再推导一份。
+
+例如构建插件开放项目路径与选中的 profile，另一个 Provider 可以据此准备自己的
+工程模型。没有生产者、还在加载、失败或模型已经过期，都有单独的结果，不能拿上
+一次的模型冒充 ready。配置改了又改回也产生新的快照代次；宿主立即取消消费者，
+并在后端回复和解析完成后再次检查，防止忽略取消的旧结果发布。
+
+这是 `buildModelInputs: 1` 与 Provider 协议 6 的窄入口，不是插件安装依赖或公开
+函数系统。第一版生产者不能同时消费输入，避免递归转发和失效循环；缺失生产者
+不会被下载或自动启动。比如消费者不应借公开项目数据取得生产者的进程、权限或
+私有函数。完整安装闭包、包版本选择、信任提示和事务回滚仍按
+[插件依赖与导出提案](../../proposed/architecture/2026-10-25-plugin-dependencies-and-exports.md)
+独立设计，本增量没有提前实现这些决策。
+
+这项能力已接入原生模型、依赖、构建、测试、发现与启动准备的计划入口，并不等于
+Java 语言后端、Maven 插件已经改用它；现有 Java/Maven 业务迁移仍待后续交付。
+共享快照只存在于请求内存，复用既有工作区资源 adapter，不引入缓存目录或下载物，
+不修改安装包、签名或 Sparkle 增量更新基线。Windows 宿主仍未接入，不能以 Core
+识别协议代替 Windows 功能验收。
+
+### Maven 插件的首个真实执行接入
+
+独立社区插件 [lithe-plugin-maven](https://github.com/Lithe-IDEA/lithe-plugin-maven)
+的本地后续实现把生命周期、模型中的插件目标、自定义目标和测试改成 Provider 来源，
+删除清单中对应的命令模板。后端沿用自己的 Maven 核心扩展读取反应堆（当前 Maven
+构建包含的模块）和插件目标，在执行前重新确认所选工程与目标属于当前模型；不把
+宿主传来的一个 properties.goal 当作已授权的模型事实。
+
+模型读取和执行都消费同一组生效选项，由插件生成 Maven 参数。嵌套工程的选择按
+工作区相对路径解释，不能再在构建根前重复拼接一段目录。显式测试请求使用 Surefire
+公开的类/方法选择接口；依赖模块可以没有所选用例，但整个请求必须产生所选测试的
+新报告。比如请求不存在的方法时不能拿“退出码 0、零测试”或者旧 XML 当作成功。
+报告的完整展示继续走已有 Core JUnit XML 解析器，插件这里只核对真实执行证据。
+依据为 [Maven CLI](https://maven.apache.org/ref/3-LATEST/maven-embedder/cli.html) 与
+[Surefire 测试选择](https://maven.apache.org/surefire/maven-surefire-plugin/test-mojo)。
+
+共享模型只公开规范化事实与 profiles/offline/skipTests 的生效值；不开放 settings.xml
+内容、未声明选项、运行计划或私有函数。执行复用 SDK 的有界输出、取消及子进程清理，
+模型快照继续使用既有工作区状态目录。构建产物和测试报告写用户工程 target，插件
+安装包保持只读，没有新增产品下载入口或运行缓存。
+
+这批源码在独立仓库的 [Maven Draft PR #7](https://github.com/Lithe-IDEA/lithe-plugin-maven/pull/7) 提交，配套 SDK 见 [Draft PR #4](https://github.com/Lithe-IDEA/lithe-plugin-docs/pull/4)，均尚未合并或发布。正式 SDK 锁文件仍指向已经发布的旧版，
+没有伪造新校验值，也不放松正式 package.mjs 的 SHA-256 校验。发布前必须先交付配套
+Java SDK 并更新插件锁定值。开发验证通过显式 SDK JAR 构建独立临时包，记录 SDK
+哈希与包文件清单，既不生成发行 ZIP，也不改 dist 或 SDK 锁文件；这些本地构建状态
+不跨工作树复用。
+
+真实 Core C ABI、插件 Java 进程和 Maven 三模块工程已经一起验证模型读取、模块编译、
+精确单方法测试、报告解析及公开模型投影；没有启动完整 macOS UI。旧 MavenService、
+Agent 专属入口、项目设置、运行配置和 Java/JDT 协同仍未迁移，因此只算阶段 D 的一个
+执行切片，不能宣布阶段 C 的全部官方插件同步或阶段 D 完成。
+
 ## 考虑过的备选方案
 
 - **扩展独立页面 backend。** 它是全应用范围的私有服务；改为工作区服务需要重复已有 Provider 的作用域和清理。执行首先复用现有工作区机制。
@@ -148,6 +206,22 @@ cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib lsp
 
 原生调试准备的本地增量报告是 `provider-debug-preparation-macos.json`（375 项）、`provider-debug-preparation-core.json`（1,304 项）、`provider-debug-sdk-unit.json`（114 项）和 `provider-debug-sdk-native.json`（6 项），均有对应 HTML/JUnit。报告覆盖当前 Swift/Node/JDK 运行时的受控宿主与真实 SDK 进程；原生调试准备取消后构建子进程结束、另一工作区仍可用，完整插件包保持只读。平台交接回归另验程序不可执行、程序/实例别名变化以及插件撤回和替换；没有启动真实 LLDB、JDT 或 Windows 产品，所以功能矩阵继续保持 `pending`。
 
+只读模型共享增量的本地报告为 `provider-model-inputs-macos.json`（413 项）、
+`provider-model-inputs-core.json`（1,307 项）、`provider-model-inputs-sdk-unit.json`
+（117 项）与 `provider-model-inputs-sdk-native.json`（6 项），均有对应 HTML/JUnit。
+其中两个独立 SDK 后端经过真实 Core 交换公开投影，消费结果保留共享快照代次与项目数；
+包文件清单不变。宿主回归覆盖停用、重载、构建文件、工作区替换、选项 ABA，以及
+后台解析后仍不能发布旧事实；生产者跨 ABA 加载的模型也保持 stale。
+这些仍是本地受控与进程集成证据，不代表真实 Java/Maven 插件迁移或 Windows 验收。
+
+Maven 首个执行接入的本地报告以 `provider-maven-` 为前缀：`native-maven`（12 项）、
+`native-maven-core`（7 项）、`maven-integration`（16 项）、`backend`（16 项）和
+`process-regressions`（8 项），共 59 项回归；独立开发打包另外有 3 项记录。
+本机使用 Microsoft JDK 21 与 Maven 3.9.16，后端 52 个类和扩展 5 个类都检查为
+Java 8 字节码（major 52），这不代表已经在 Java 8 运行。原生单方法测试经过 Core
+计划、真实 Maven/Surefire 和 Core 报告解析；完整测试类名不能误匹配其他包的同名后缀；断言失败时的测试清理也会回收 SDK
+另起进程组的工具。完整报告、命令与源码哈希保存在本地 `.artifacts/test-stability/`。
+
 在 `lithe-plugin-docs` 运行以下入口可以复验 SDK 部分：
 
 ```bash
@@ -162,6 +236,8 @@ node scripts/sdk-e2e.mjs --source /path/to/Lithe-IDEA --working-tree --build-wor
 工作区快照工具只复制 `rust/` 和 `shared/` 的暂存、未暂存与未跟踪源码，源目录和 Git index 保持只读，忽略的构建缓存不复制。SDK 验证使用独立构建目录，不与主工作树共享可变 Cargo 状态；这些临时验证输入不是产品运行资源或可跨工作树复用缓存。
 
 这些证据不替代真实插件工程、发行包和 Windows 实机验收，功能矩阵保持 `pending`。没有新增下载物或产品资源目录；本地用户配置不属于可跨工作树共享的构建缓存。新增目录或依赖时仍须遵循资源复用和安装包只读规则。
+
+剩余合并发布、Maven 全生产入口、Java/JDT 与跨平台收尾按[四个大任务执行计划](../../../../docs/development/issue-1495-plugin-migration-remaining-plan.md)推进；计划不是已完成功能清单。
 
 ## 适用范围
 

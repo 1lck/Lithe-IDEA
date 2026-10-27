@@ -2238,3 +2238,174 @@ fn provider_debug_target_bindings_keep_exact_arguments_and_require_bounded_facts
         assert_eq!(arguments(invalid)["status"], "rejected");
     }
 }
+
+/// Only explicitly published normalized facts and selected options reach the exact consumer.
+#[test]
+fn model_inputs_project_public_facts_and_preserve_configuration_identity() {
+    use crate::build::build_resolve_model_inputs_command;
+    let producer: Value =
+        serde_json::from_str(contract_file!("fixtures/build-model-producer.plugin.json")).unwrap();
+    let consumer: Value =
+        serde_json::from_str(contract_file!("fixtures/build-model-consumer.plugin.json")).unwrap();
+    assert_eq!(
+        validate(producer.clone())["status"],
+        "ok",
+        "{}",
+        validate(producer.clone())
+    );
+    assert_eq!(
+        validate(consumer.clone())["status"],
+        "ok",
+        "{}",
+        validate(consumer.clone())
+    );
+    let request = json!({"revision":7,"sources":[{"manifest":producer,"instances":[{
+        "buildSystemID":"source","root":"app","state":"ready","options":{"offline":true},
+        "model":{"projects":[{"id":"source:app/demo","path":"app","name":"demo","properties":{"group":"org.example"}}],
+            "targets":[{"id":"source:app/main","projectID":"source:app/demo","path":"app","name":"main","tags":["application"],"properties":{}}],
+            "contentRoots":[{"projectID":"source:app/demo","path":"app/src","kind":"source"}],
+            "tasks":[{"command":"private"}],"run":[{"command":"private"}],"optionValues":{},"settings":{"secret":"private"}}
+    }]}]});
+    let resolve = |request: Value| {
+        build_resolve_model_inputs_command(
+            json!({"manifest":consumer,"buildSystemID":"gradle","request":request}),
+        )
+        .unwrap()
+    };
+    let result = resolve(request.clone());
+    assert_eq!(result["status"], "ok", "{result}");
+    let snapshot = &result["modelInputs"];
+    let instance = &snapshot["inputs"][0]["instances"][0];
+    assert_eq!(instance["options"], json!({"offline":true}));
+    assert!(instance["model"].get("tasks").is_none());
+    assert!(instance["model"].get("run").is_none());
+    assert!(instance["model"].get("settings").is_none());
+    assert!(instance["model"].get("optionValues").is_none());
+    assert_eq!(
+        instance["model"]["targets"][0]["tags"],
+        json!(["application"])
+    );
+    let plan = build_task_plan_command(json!({"manifest":consumer,"buildSystemID":"gradle","request":{"root":"app","task":"build","modelInputs":snapshot}})).unwrap();
+    assert_eq!(plan["status"], "ok", "{plan}");
+    assert_eq!(plan["plan"]["provider"]["params"]["modelInputs"], *snapshot);
+    let mut no_sharing = request.clone();
+    no_sharing["sources"][0]["manifest"]["buildSystems"][0]["modelSharing"] = json!({});
+    let stripped = resolve(no_sharing);
+    assert_eq!(
+        stripped["modelInputs"]["inputs"][0]["instances"][0]["options"],
+        json!({})
+    );
+    let mut changed = request.clone();
+    changed["sources"][0]["instances"][0]["options"]["offline"] = json!(false);
+    assert_ne!(
+        resolve(changed)["modelInputs"]["inputs"][0]["instances"][0]["configurationFingerprint"],
+        instance["configurationFingerprint"]
+    );
+    for state in ["loading", "stale", "failed"] {
+        let mut pending = request.clone();
+        pending["sources"][0]["instances"][0]["state"] = json!(state);
+        let value = resolve(pending);
+        assert_eq!(value["status"], "ok");
+        assert_eq!(
+            value["modelInputs"]["inputs"][0]["instances"][0],
+            json!({"root":"app","state":state})
+        );
+    }
+    let missing = resolve(json!({"revision":8,"sources":[]}));
+    assert_eq!(missing["modelInputs"]["inputs"][0]["state"], "unavailable");
+    assert_eq!(missing["modelInputs"]["inputs"][0]["instances"], json!([]));
+}
+
+/// Capability admission and every later plan reject opaque or stale authority-shaped payloads.
+#[test]
+fn model_inputs_reject_invalid_manifests_models_and_snapshot_smuggling() {
+    use crate::build::build_resolve_model_inputs_command;
+    let producer: Value =
+        serde_json::from_str(contract_file!("fixtures/build-model-producer.plugin.json")).unwrap();
+    let consumer: Value =
+        serde_json::from_str(contract_file!("fixtures/build-model-consumer.plugin.json")).unwrap();
+    for change in ["oldWire", "noCapability", "reexport", "unknownOption"] {
+        let mut manifest = consumer.clone();
+        match change {
+            "oldWire" => manifest["requires"]["buildProviders"] = json!(5),
+            "noCapability" => {
+                manifest["requires"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("buildModelInputs");
+            }
+            "reexport" => manifest["buildSystems"][0]["modelSharing"] = json!({}),
+            _ => {
+                manifest = producer.clone();
+                manifest["buildSystems"][0]["modelSharing"]["options"] = json!(["unknown"]);
+            }
+        }
+        assert_eq!(validate(manifest)["status"], "rejected", "{change}");
+    }
+    let model = json!({"projects":[{"id":"p","path":"app","name":"demo","properties":{}}],"targets":[],"contentRoots":[]});
+    let request = json!({"revision":1,"sources":[{"manifest":producer,"instances":[{"buildSystemID":"source","root":"app","state":"ready","model":model}]}]});
+    for change in [
+        "escape",
+        "badName",
+        "missingOwner",
+        "parentCycle",
+        "duplicate",
+        "truncated",
+    ] {
+        let mut request = request.clone();
+        let model = &mut request["sources"][0]["instances"][0]["model"];
+        match change {
+            "escape" => model["projects"][0]["path"] = json!("../private"),
+            "badName" => model["projects"][0]["name"] = json!({"command":"run"}),
+            "missingOwner" => {
+                model["contentRoots"] =
+                    json!([{"projectID":"elsewhere","path":"app/src","kind":"source"}])
+            }
+            "parentCycle" => model["projects"][0]["parentID"] = json!("p"),
+            "duplicate" => {
+                let row = model["projects"][0].clone();
+                model["projects"].as_array_mut().unwrap().push(row);
+            }
+            _ => model["truncated"] = json!(true),
+        }
+        let value = build_resolve_model_inputs_command(
+            json!({"manifest":consumer,"buildSystemID":"gradle","request":request}),
+        )
+        .unwrap();
+        if change == "truncated" {
+            assert_eq!(
+                value["modelInputs"]["inputs"][0]["instances"][0],
+                json!({"root":"app","state":"stale"})
+            );
+        } else {
+            assert_eq!(value["status"], "rejected", "{change}: {value}");
+        }
+    }
+    let resolved = build_resolve_model_inputs_command(
+        json!({"manifest":consumer,"buildSystemID":"gradle","request":request}),
+    )
+    .unwrap();
+    for change in [
+        "private",
+        "wrongPlugin",
+        "optionsObject",
+        "unavailablePayload",
+        "wrongRevision",
+    ] {
+        let mut snapshot = resolved["modelInputs"].clone();
+        match change {
+            "private" => {
+                snapshot["inputs"][0]["instances"][0]["model"]["run"] = json!([{"command":"run"}])
+            }
+            "wrongPlugin" => snapshot["inputs"][0]["pluginID"] = json!("dev.other"),
+            "optionsObject" => {
+                snapshot["inputs"][0]["instances"][0]["options"] =
+                    json!({"private":{"command":"run"}})
+            }
+            "unavailablePayload" => snapshot["inputs"][0]["state"] = json!("unavailable"),
+            _ => snapshot["revision"] = json!(9007199254740992_u64),
+        }
+        let plan = build_task_plan_command(json!({"manifest":consumer,"buildSystemID":"gradle","request":{"root":"app","task":"build","modelInputs":snapshot}})).unwrap();
+        assert_eq!(plan["status"], "rejected", "{change}: {plan}");
+    }
+}

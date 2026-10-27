@@ -382,6 +382,44 @@ struct RustBuildSystemOperationsTests {
         ) == nil)
     }
 
+    @Test
+    func modelInputsCrossTheRealCoreBridgeWithoutPrivatePlans() throws {
+        let producer = try Self.source("build-model-producer")
+        let consumer = try Self.source("build-model-consumer")
+        #expect(producer.buildSystems.first?.sharesModel == true)
+        #expect(consumer.buildSystems.first?.modelInputs == [.init(pluginID: producer.pluginID, buildSystemID: "source")])
+        let model = try JSONDecoder().decode(BuildModel.self, from: Data("""
+        {"projects":[{"id":"source:app/demo","path":"app","name":"demo","properties":{"group":"org.example"}}],
+         "targets":[], "contentRoots":[], "tasks":[], "run":[{"command":"private"}], "optionValues":{}}
+        """.utf8))
+        let target = BuildSystemTarget(manifest: consumer.manifest, buildSystemID: "gradle")
+        let snapshot = try operations.resolveModelInputs(target, revision: 9, sources: [
+            BuildModelInputSource(manifest: producer.manifest, instances: [
+                .init(buildSystemID: "source", root: "app", state: "ready", model: model, options: ["offline": .bool(true)])
+            ])
+        ])
+        let context = BuildPlanContext(root: "app", options: [:], modelInputs: snapshot)
+        guard case .provider(let request) = try operations.taskPlan(target, context: context, request: BuildTaskRequest(task: "build")),
+              case .object(let params) = request.params, case .object(let wire)? = params["modelInputs"],
+              case .array(let slots)? = wire["inputs"], case .object(let slot)? = slots.first,
+              case .array(let instances)? = slot["instances"], case .object(let instance)? = instances.first,
+              case .object(let shared)? = instance["model"] else {
+            Issue.record("Expected the shared snapshot in the typed provider request"); return
+        }
+        #expect(params["modelInputs"] == snapshot)
+        #expect(instance["options"] == .object(["offline": .bool(true)]))
+        #expect(Set(shared.keys) == ["projects", "targets", "contentRoots"])
+        #expect(shared["run"] == nil)
+        #expect(throws: (any Error).self) {
+            try operations.taskPlan(target, context: BuildPlanContext(root: "app", options: [:]), request: BuildTaskRequest(task: "build"))
+        }
+        let unavailable = try operations.resolveModelInputs(target, revision: 10, sources: [])
+        guard case .object(let value) = unavailable, case .array(let slots)? = value["inputs"],
+              case .object(let missing)? = slots.first else { Issue.record("Missing slot"); return }
+        #expect(missing["state"] == .string("unavailable"))
+        #expect(missing["instances"] == .array([]))
+    }
+
     // MARK: Fixtures
 
     private static func fixtureData(_ name: String) throws -> Data {

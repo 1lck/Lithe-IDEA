@@ -12,7 +12,7 @@ public enum BuildScope: String, Codable, Hashable, Sendable {
 
 /// Tool-window grouping of a task. Unknown groups from a newer Core read as
 /// `other`.
-public enum BuildTaskGroup: String, Hashable, Sendable, CaseIterable, Decodable {
+public enum BuildTaskGroup: String, Hashable, Sendable, CaseIterable, Codable {
     case lifecycle, build, test, run, verification, documentation, other
 
     public init(from decoder: Decoder) throws {
@@ -111,6 +111,14 @@ public struct DeclarativeBuildSystem: Equatable, Sendable {
             self.id = id; self.displayName = displayName; self.targetTags = targetTags; self.debugAdapter = debugAdapter
         }
     }
+    /// Optional public producer identities; never installation dependencies or private function access.
+    public struct ModelInput: Equatable, Sendable, Codable {
+        public let pluginID: String
+        public let buildSystemID: String
+        public init(pluginID: String, buildSystemID: String) { self.pluginID = pluginID; self.buildSystemID = buildSystemID }
+    }
+    public let sharesModel: Bool
+    public let modelInputs: [ModelInput]
     public let providerRuns: [ProviderRun]
     public let testDiscovery: Bool
     /// Empty when the build system lists no dependencies.
@@ -122,13 +130,14 @@ public struct DeclarativeBuildSystem: Equatable, Sendable {
     public init(
         id: String, displayName: String, icon: PluginUIIcon? = nil, modelSource: ModelSource?,
         options: [Option] = [], tasks: [Task], testScopes: [BuildScope], testTargetTags: [String] = [],
-        dependencyScopes: [BuildScope], declaresProvider: Bool = false, testDiscovery: Bool = false, providerRuns: [ProviderRun] = []
+        dependencyScopes: [BuildScope], declaresProvider: Bool = false, testDiscovery: Bool = false, providerRuns: [ProviderRun] = [], sharesModel: Bool = false, modelInputs: [ModelInput] = []
     ) {
         self.id = id; self.displayName = displayName; self.icon = icon; self.modelSource = modelSource
         self.options = options; self.tasks = tasks
         self.testScopes = testScopes; self.testTargetTags = testTargetTags; self.dependencyScopes = dependencyScopes
         self.declaresProvider = declaresProvider
         self.testDiscovery = testDiscovery
+        self.sharesModel = sharesModel; self.modelInputs = modelInputs
         self.providerRuns = providerRuns
     }
 
@@ -294,8 +303,8 @@ package struct BuildDetection: Equatable, Sendable, Decodable {
 }
 
 /// The normalized project model of one instance. Paths are workspace-relative.
-package struct BuildModel: Equatable, Sendable, Decodable {
-    package struct Project: Equatable, Identifiable, Sendable, Decodable {
+package struct BuildModel: Equatable, Sendable, Codable {
+    package struct Project: Equatable, Identifiable, Sendable, Codable {
         package let id: String
         package let path: String
         package let name: String
@@ -324,7 +333,7 @@ package struct BuildModel: Equatable, Sendable, Decodable {
         private enum CodingKeys: String, CodingKey { case id, path, name, displayName, parentID, properties }
     }
 
-    package struct Target: Equatable, Identifiable, Sendable, Decodable {
+    package struct Target: Equatable, Identifiable, Sendable, Codable {
         package let id: String
         package let projectID: String
         package let name: String
@@ -345,7 +354,7 @@ package struct BuildModel: Equatable, Sendable, Decodable {
         private enum CodingKeys: String, CodingKey { case id, projectID, name, path, tags, properties }
     }
 
-    package struct Task: Equatable, Identifiable, Sendable, Decodable {
+    package struct Task: Equatable, Identifiable, Sendable, Codable {
         package let id: String
         package let projectID: String
         package let name: String
@@ -393,7 +402,7 @@ package struct BuildModel: Equatable, Sendable, Decodable {
         }
     }
 
-    package struct ContentRoot: Equatable, Sendable, Decodable {
+    package struct ContentRoot: Equatable, Sendable, Codable {
         package let projectID: String
         package let path: String
         /// `source`, `testSource`, `generatedSource`, `excluded`, ….
@@ -608,8 +617,27 @@ package protocol BuildOptionsStoring: AnyObject {
 
 // MARK: Plans
 
+/// Current workspace facts from installed enabled producers. Core alone selects the public projection.
+package struct BuildModelInputSource: Sendable {
+    package let manifest: Data
+    package let instances: [Instance]
+    package struct Instance: Encodable, Sendable {
+        package let buildSystemID: String
+        package let root: String
+        package let state: String
+        package let model: BuildModel?
+        package let options: [String: ToolingJSONValue]
+        package init(buildSystemID: String, root: String, state: String, model: BuildModel?, options: [String: ToolingJSONValue]) {
+            self.buildSystemID = buildSystemID; self.root = root; self.state = state; self.model = model; self.options = options
+        }
+    }
+    package init(manifest: Data, instances: [Instance]) { self.manifest = manifest; self.instances = instances }
+}
+
 /// Inputs every plan request shares.
 package struct BuildPlanContext: Equatable, Sendable {
+    /// Public snapshot selected by Core, absent for declarations without inputs.
+    package let modelInputs: ToolingJSONValue?
     /// Workspace-relative instance root.
     package let root: String
     package let options: [String: ToolingJSONValue]
@@ -618,8 +646,9 @@ package struct BuildPlanContext: Equatable, Sendable {
 
     package init(
         root: String, options: [String: ToolingJSONValue],
-        pluginDirectory: URL? = nil, workspaceStateDirectory: URL? = nil
+        pluginDirectory: URL? = nil, workspaceStateDirectory: URL? = nil, modelInputs: ToolingJSONValue? = nil
     ) {
+        self.modelInputs = modelInputs
         self.root = root; self.options = options
         self.pluginDirectory = pluginDirectory; self.workspaceStateDirectory = workspaceStateDirectory
     }
@@ -1016,6 +1045,7 @@ package enum BuildLanguageImport: Equatable, Sendable, Decodable {
 /// `DeclarativePluginRejection`. Detection, decoding, and fingerprints read
 /// workspace files, so callers keep them off the main actor.
 package protocol BuildSystemPlanning: Sendable {
+    func resolveModelInputs(_ target: BuildSystemTarget, revision: UInt64, sources: [BuildModelInputSource]) throws -> ToolingJSONValue
     func detect(
         workspaceURL: URL,
         sources: [BuildSystemPluginSource],

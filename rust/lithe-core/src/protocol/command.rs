@@ -108,6 +108,8 @@ pub enum CoreCommand {
     BuildTestPlan,
     /// Plans typed provider run preparation (`build.prepareRunPlan`).
     BuildPrepareRunPlan,
+    /// Resolves optional public build inputs (`build.resolveModelInputs`).
+    BuildResolveModelInputs,
     /// Plans native debug preparation (`build.prepareDebugPlan`).
     BuildPrepareDebugPlan,
     /// Validates native debug target facts (`build.decodeDebugPreparation`).
@@ -538,6 +540,7 @@ impl CoreCommand {
             "build.testPlan" => Some(Self::BuildTestPlan),
             "build.prepareDebugPlan" => Some(Self::BuildPrepareDebugPlan),
             "build.decodeDebugPreparation" => Some(Self::BuildDecodeDebugPreparation),
+            "build.resolveModelInputs" => Some(Self::BuildResolveModelInputs),
             "build.prepareRunPlan" => Some(Self::BuildPrepareRunPlan),
             "build.decodeRunPreparation" => Some(Self::BuildDecodeRunPreparation),
             "build.testDiscoveryPlan" => Some(Self::BuildTestDiscoveryPlan),

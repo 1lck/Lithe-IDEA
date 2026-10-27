@@ -41,6 +41,8 @@ pub(crate) const UI: &str = "ui";
 pub(crate) const BUILD_SYSTEMS: &str = "buildSystems";
 /// `buildSystems[].provider`, whether it owns or shares a language server process.
 pub(crate) const BUILD_PROVIDERS: &str = "buildProviders";
+/// Optional public model snapshots between enabled build providers.
+pub(crate) const BUILD_MODEL_INPUTS: &str = "buildModelInputs";
 /// `vcsProviders[]`: version control systems implemented by a plugin
 /// process; see `crate::vcs`.
 pub(crate) const VCS_PROVIDERS: &str = "vcsProviders";
@@ -66,7 +68,8 @@ pub(crate) const EXECUTABLE_RESOLUTION: &str = "executableResolution";
 /// capability keeps the meaning its section had at API level 2.
 pub const SUPPORTED_CAPABILITIES: &[(&str, &[u32])] = &[
     (BACKEND, &[1]),
-    (BUILD_PROVIDERS, &[1, 2, 3, 4, 5]),
+    (BUILD_MODEL_INPUTS, &[1]),
+    (BUILD_PROVIDERS, &[1, 2, 3, 4, 5, 6]),
     (BUILD_SYSTEMS, &[1, 2]),
     (DEBUG_ADAPTERS, &[1, 2]),
     (EXECUTION_PROVIDERS, &[1]),

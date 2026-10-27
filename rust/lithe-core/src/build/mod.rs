@@ -24,6 +24,7 @@ mod invocation;
 mod language_import;
 mod manifest;
 mod model;
+mod model_inputs;
 mod options;
 mod outputs;
 mod plans;

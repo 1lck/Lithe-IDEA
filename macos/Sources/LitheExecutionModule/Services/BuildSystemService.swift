@@ -154,6 +154,7 @@ package final class BuildSystemService: ObservableObject {
     /// before the change can tell its result is based on older files.
     private var fileRevision = 0
     private var providerConfigurationRevision = 0
+    private var modelInputRevision: UInt64 = 0
     private var providerRunID: UUID?
     private var preparingApplicationID: UUID?
     private var detectionTask: Task<Void, Never>?
@@ -242,6 +243,7 @@ package final class BuildSystemService: ObservableObject {
     package func reset(workspaceURL: URL?) {
         stop()
         generation += 1
+        modelInputRevision += 1
         detectionTask?.cancel(); detectionTask = nil
         redetectTask?.cancel(); redetectTask = nil
         self.workspaceURL = workspaceURL?.standardizedFileURL
@@ -313,6 +315,7 @@ package final class BuildSystemService: ObservableObject {
             switch result {
             case .success(let detected):
                 let current = Dictionary(uniqueKeysWithValues: self.entries.map { ($0.id, $0) })
+                let publishedBefore = self.entries.filter { $0.declaration.sharesModel }
                 self.entries = detected.entries.map { detectedEntry in
                     guard let currentEntry = current[detectedEntry.id],
                           currentEntry.instance.pluginID == detectedEntry.instance.pluginID
@@ -336,8 +339,10 @@ package final class BuildSystemService: ObservableObject {
                         // detection just read.
                         merged.dependencies = currentEntry.dependencies
                     }
+                    if !merged.declaration.modelInputs.isEmpty, currentEntry.isReloadRequired { merged.isReloadRequired = true }
                     return merged
                 }
+                if publishedBefore != self.entries.filter({ $0.declaration.sharesModel }) { self.invalidateModelInputs() }
                 self.issues = detected.issues
                 self.persistDroppedOptions()
                 let inputs = self.entries.map { entry in
@@ -394,6 +399,7 @@ package final class BuildSystemService: ObservableObject {
     /// Ends what a now disabled plugin started and detects again with the
     /// plugins enabled now, so its instances leave the tool window.
     package func pluginsChanged() {
+        invalidateModelInputs()
         if preparingApplicationID != nil { stopRun() }
         if let runEntryID, testDiscoveries[runEntryID] == .loading { stopRun() }
         testDiscoveries = [:]
@@ -439,6 +445,10 @@ package final class BuildSystemService: ObservableObject {
             entry.sync?.watch.contains(where: changed.contains) == true
         }
         guard affected else { return }
+        for entry in entries where entry.declaration.sharesModel && entry.sync?.watch.contains(where: changed.contains) == true {
+            update(entry.id) { $0.isReloadRequired = true }
+        }
+        invalidateModelInputs()
         providerConfigurationRevision += 1
         if providerRunID != nil { stopRun() }
         // Reject the old input immediately; consumers wait for the coalesced
@@ -575,7 +585,12 @@ package final class BuildSystemService: ObservableObject {
             break
         }
         modelTasks[entryID]?.cancel()
-        update(entryID) { $0.modelState = .loading }
+        update(entryID) {
+            $0.modelState = .loading
+            if entry.declaration.sharesModel { $0.isReloadRequired = $0.model != nil }
+        }
+        noteModelChanged(entryID)
+        let publicationRevision = entry.declaration.sharesModel ? modelInputRevision : nil
         let generation = generation
         let id = UUID()
         // The model command depends on the options; a change while it runs
@@ -596,6 +611,8 @@ package final class BuildSystemService: ObservableObject {
             switch result {
             case .success(let loaded):
                 let configChanged: Bool = {
+                    // An exporter cannot make an ABA-configured in-flight model public.
+                    if let publicationRevision, self.modelInputRevision != publicationRevision { return true }
                     guard self.fileRevision == startFileRevision else { return true }
                     guard let current = self.entry(entryID),
                           let currentFingerprint = self.optionFingerprint(current, workspaceURL: workspaceURL)
@@ -660,7 +677,7 @@ package final class BuildSystemService: ObservableObject {
             )
             let target = entry.target
             let root = entry.instance.root
-            return .success(try await Task.detached(priority: .userInitiated) {
+            let loaded = try await Task.detached(priority: .userInitiated) {
                 let model = try planner.decodeModel(
                     target, workspaceURL: workspaceURL, root: root, output: output, options: context.options
                 )
@@ -674,7 +691,9 @@ package final class BuildSystemService: ObservableObject {
                         projects: model.projects.map(\.path), options: context.options
                     )
                 )
-            }.value)
+            }.value
+            guard modelInputsAreCurrent(context.modelInputs) else { throw CancellationError() }
+            return .success(loaded)
         } catch {
             return .failure(error)
         }
@@ -1151,11 +1170,13 @@ package final class BuildSystemService: ObservableObject {
             )
             let target = entry.target
             let root = entry.instance.root
-            return .success(try await Task.detached(priority: .userInitiated) {
+            let loaded = try await Task.detached(priority: .userInitiated) {
                 try planner.decodeDependencies(
                     target, workspaceURL: workspaceURL, root: root, project: project?.path, output: output
                 )
-            }.value)
+            }.value
+            guard modelInputsAreCurrent(context.modelInputs) else { throw CancellationError() }
+            return .success(loaded)
         } catch {
             return .failure(error)
         }
@@ -1229,6 +1250,10 @@ package final class BuildSystemService: ObservableObject {
         optionsStore.setEmptyMultiSelectOptions(empty, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
         optionsStore.setOptions(stored, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
         refreshOptions(buildSystemID: buildSystemID)
+        if entry.declaration.sharesModel {
+            for producer in entries where producer.instance.buildSystemID == buildSystemID { update(producer.id) { $0.isReloadRequired = true } }
+            invalidateModelInputs()
+        }
         // The options take part in the sync fingerprint, so a changed value
         // marks a loaded command model stale.
         detect()
@@ -1267,6 +1292,10 @@ package final class BuildSystemService: ObservableObject {
         optionsStore.setEmptyMultiSelectOptions(empty, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
         optionsStore.setOptions(stored, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
         refreshOptions(buildSystemID: buildSystemID)
+        if entry.declaration.sharesModel {
+            for producer in entries where producer.instance.buildSystemID == buildSystemID { update(producer.id) { $0.isReloadRequired = true } }
+            invalidateModelInputs()
+        }
         detect()
     }
 
@@ -1410,8 +1439,62 @@ package final class BuildSystemService: ObservableObject {
                 pluginID: entry.instance.pluginID,
                 buildSystemID: entry.instance.buildSystemID,
                 workspaceURL: workspaceURL
-            )
+            ),
+            modelInputs: try resolvedModelInputs(entry, workspaceURL: workspaceURL)
         )
+    }
+
+    private func resolvedModelInputs(_ consumer: BuildSystemEntry, workspaceURL: URL) throws -> ToolingJSONValue? {
+        guard !consumer.declaration.modelInputs.isEmpty else { return nil }
+        let enabled = sources()
+        let required = Set(consumer.declaration.modelInputs.map(\.pluginID))
+        let facts = enabled.filter { required.contains($0.pluginID) }.map { source in
+            BuildModelInputSource(manifest: source.manifest, instances: entries.filter { $0.source == source && $0.declaration.sharesModel }.map { producer in
+                let state: String
+                switch producer.modelState {
+                case .loading: state = "loading"
+                case .failed: state = "failed"
+                case .loaded where !producer.isReloadRequired && producer.model != nil: state = "ready"
+                default: state = "stale"
+                }
+                return BuildModelInputSource.Instance(buildSystemID: producer.instance.buildSystemID, root: producer.instance.root,
+                    state: state, model: state == "ready" ? producer.model : nil, options: storedOptions(for: producer, workspaceURL: workspaceURL))
+            })
+        }
+        return try planner.resolveModelInputs(consumer.target, revision: modelInputRevision, sources: facts)
+    }
+
+    private func modelInputsAreCurrent(_ snapshot: ToolingJSONValue?) -> Bool {
+        guard let snapshot else { return true }
+        guard case .object(let value) = snapshot, case .integer(let revision) = value["revision"] else { return false }
+        return revision >= 0 && UInt64(revision) == modelInputRevision
+    }
+
+    private func modelInputsAreCurrent(_ request: BuildProviderRequest) -> Bool {
+        guard case .object(let params) = request.params else { return false }
+        return modelInputsAreCurrent(params["modelInputs"])
+    }
+
+    /// Producers are independent in v1: consumers cannot re-export their inputs.
+    /// Revoke consumers immediately; cancellation-ignoring replies still fail revision checks.
+    private func invalidateModelInputs() {
+        modelInputRevision += 1
+        let consumers = Set(entries.filter { !$0.declaration.modelInputs.isEmpty }.map(\.id))
+        if let runEntryID, consumers.contains(runEntryID) { stopRun() }
+        for id in consumers {
+            modelTasks.removeValue(forKey: id)?.cancel()
+            for key in Array(dependencyTasks.keys) where Self.entryID(ofDependencyTask: key) == id {
+                dependencyTasks.removeValue(forKey: key)?.cancel()
+            }
+            update(id) {
+                $0.isReloadRequired = $0.model != nil
+                if $0.modelState == .loading { $0.modelState = $0.model == nil ? .notLoaded : .loaded }
+                $0.dependencies = [:]
+            }
+            modelRevisions[id, default: 0] += 1
+            testDiscoveries[id] = nil
+            discoverySnapshots[id] = nil
+        }
     }
 
     /// Stored values reduced to the ones Core accepted in `resolution`. Core
@@ -1499,7 +1582,7 @@ package final class BuildSystemService: ObservableObject {
         return { [weak self] in
             guard let self, self.isCurrent(run) else { return false }
             guard case .provider(let request) = plan else { return true }
-            guard self.providerConfigurationRevision == revision,
+            guard self.modelInputsAreCurrent(request), self.providerConfigurationRevision == revision,
                   self.settings(entry.source.pluginID) == launchSettings,
                   let current = self.entry(entry.id), current.source == entry.source else { return false }
             return self.optionFingerprint(current, workspaceURL: workspaceURL) == request.optionFingerprint
@@ -1638,7 +1721,10 @@ package final class BuildSystemService: ObservableObject {
                 appendOutput("\n▶ " + title + "\n→ " + request.method + "\n", in: outputDirectory(entry))
             }
             let target = Self.providerTarget(entry, workspaceURL: workspaceURL)
-            return .providerResult(try await providers.send(request, to: target, timeout: timeout))
+            guard modelInputsAreCurrent(request), canAppend(owner) else { throw CancellationError() }
+            let result = try await providers.send(request, to: target, timeout: timeout)
+            guard modelInputsAreCurrent(request), canAppend(owner), !Task.isCancelled else { throw CancellationError() }
+            return .providerResult(result)
         }
     }
 
@@ -1746,6 +1832,7 @@ package final class BuildSystemService: ObservableObject {
 
     private func noteModelChanged(_ entryID: String) {
         modelRevisions[entryID, default: 0] += 1
+        if entry(entryID)?.declaration.sharesModel == true { invalidateModelInputs() }
     }
 
     private func noteDependenciesChanged(_ entryID: String) {

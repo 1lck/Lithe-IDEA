@@ -75,6 +75,15 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         return outcome.value.options
     }
 
+    func resolveModelInputs(_ target: BuildSystemTarget, revision: UInt64, sources: [BuildModelInputSource]) throws -> ToolingJSONValue {
+        struct Source: Encodable { let manifest: ToolingJSONValue; let instances: [BuildModelInputSource.Instance] }
+        struct Request: Encodable { let revision: UInt64; let sources: [Source] }
+        struct Reply: Decodable { let modelInputs: ToolingJSONValue }
+        let request = Request(revision: revision, sources: try sources.map { Source(manifest: try Self.json($0.manifest), instances: $0.instances) })
+        let outcome: Outcome<Reply> = try execute("build.resolveModelInputs", target: target, request: request)
+        return outcome.value.modelInputs
+    }
+
     func modelPlan(
         _ target: BuildSystemTarget,
         context: BuildPlanContext,
@@ -139,6 +148,7 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
             let root: String
             let pluginDirectory: String?
             let workspaceStateDirectory: String?
+            let modelInputs: ToolingJSONValue?
             let options: [String: ToolingJSONValue]
             let run: String
             let project: BuildSelection
@@ -147,7 +157,7 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         }
         let outcome: Outcome<PlanResult> = try execute(command, target: target,
             request: Request(root: context.root, pluginDirectory: context.pluginDirectory?.path,
-                             workspaceStateDirectory: context.workspaceStateDirectory?.path, options: context.options, run: run,
+                             workspaceStateDirectory: context.workspaceStateDirectory?.path, modelInputs: context.modelInputs, options: context.options, run: run,
                              project: project, target: selectedTarget, userArguments: userArguments))
         guard case .provider(let request) = try outcome.value.plan.outputPlan() else {
             throw DeclarativePluginRejection(code: "plugin.build.invalidOutput", message: L10n.string("The build provider returned an invalid launch plan."))
@@ -182,12 +192,13 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
             let result: ToolingJSONValue
             let pluginDirectory: String?
             let workspaceStateDirectory: String?
+            let modelInputs: ToolingJSONValue?
         }
         struct Reply: Decodable { let discovery: BuildTestDiscovery }
         let outcome: Outcome<Reply> = try execute(
             "build.decodeTestDiscovery", target: target,
             request: Request(root: context.root, options: context.options, result: result,
-                             pluginDirectory: context.pluginDirectory?.path, workspaceStateDirectory: context.workspaceStateDirectory?.path)
+                             pluginDirectory: context.pluginDirectory?.path, workspaceStateDirectory: context.workspaceStateDirectory?.path, modelInputs: context.modelInputs)
         )
         return outcome.value.discovery
     }
@@ -393,6 +404,7 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         let options: [String: ToolingJSONValue]
         let pluginDirectory: String?
         let workspaceStateDirectory: String?
+        let modelInputs: ToolingJSONValue?
         let project: BuildSelection?
         let outputFile: String?
         let refresh: Bool
@@ -403,6 +415,7 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         }
 
         init(context: BuildPlanContext, project: BuildSelection?, outputFile: URL?, hints: BuildProviderHints) {
+            modelInputs = context.modelInputs
             root = context.root
             options = context.options
             pluginDirectory = context.pluginDirectory?.path
@@ -419,6 +432,7 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         let options: [String: ToolingJSONValue]
         let pluginDirectory: String?
         let workspaceStateDirectory: String?
+        let modelInputs: ToolingJSONValue?
         let task: String
         let project: BuildSelection?
         let target: BuildSelection?
@@ -426,6 +440,7 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         let userArguments: [String]
 
         init(context: BuildPlanContext, request: BuildTaskRequest) {
+            modelInputs = context.modelInputs
             root = context.root
             options = context.options
             pluginDirectory = context.pluginDirectory?.path
@@ -443,6 +458,7 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         let options: [String: ToolingJSONValue]
         let pluginDirectory: String?
         let workspaceStateDirectory: String?
+        let modelInputs: ToolingJSONValue?
         let project: BuildSelection?
         let target: BuildSelection?
         let suite: String?
@@ -451,6 +467,7 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         let projects: [String]
 
         init(context: BuildPlanContext, request: BuildTestRequest) {
+            modelInputs = context.modelInputs
             root = context.root
             options = context.options
             pluginDirectory = context.pluginDirectory?.path

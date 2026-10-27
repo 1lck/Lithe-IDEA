@@ -406,7 +406,8 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 | `settings` | `settings[]` and `settingActions[]` | `1`, `2` (adds [placement, scope, effect, page buttons](#settings-v2-placement-scope-effect-and-page-buttons)) |
 | `ui` | `ui` | `1`, `2` (adds [web content](#web-content-ui-2)) |
 | `buildSystems` | Declarative build detection, models, and command plans | `1` |
-| `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers; v2 tasks, v3 tests, v4 run, v5 native debug preparation | `1`, `2`, `3`, `4`, `5` |
+| `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers; v2 tasks, v3 tests, v4 run, v5 native debug preparation, v6 read-only model inputs | `1`, `2`, `3`, `4`, `5`, `6` |
+| `buildModelInputs` | Optional public model sharing between enabled workspace plugins | `1` |
 | `vcsProviders` | `vcsProviders[]` | `1` |
 | `debugAdapters` | [`debugAdapters[]`](#api-level-4-debug-adapters); v2 adds target arguments/environment | `1`, `2` |
 | `projectGenerators` | [`projectGenerators[]`](#project-generators): entries of the New Project window | `1` |
@@ -456,7 +457,7 @@ in `plugins.declarative.validate`, `plugins.marketplace.validateIndex`, and
 
 The macOS host sends its capability table with validation, marketplace filtering
 and install review. It advertises `buildSystems: [1, 2]` and
-`buildProviders: [1, 2, 3, 4, 5]`; native Provider models, dependencies, tasks, tests and launch preparation
+`buildProviders: [1, 2, 3, 4, 5, 6]`; native Provider models, dependencies, tasks, tests and launch preparation
 share workspace-owned sessions. Backend and VCS support use their own entries
 in the same table. Core validates supported versions without a host table,
 but admission must use the actual host table. Windows does not yet advertise
@@ -1118,6 +1119,79 @@ Saving and running work before detector-generated Run configurations exist.
 Service coordination, debug target registration and Java/Maven migration remain
 separate. See `fixtures/build-provider-run-preparation.plugin.json`
 and `fixtures/build-run-preparation.json`.
+
+### Optional read-only model inputs (buildModelInputs 1)
+
+A producer opts into `buildSystems[].modelSharing: { options: [<optionID>] }`.
+Only normalized `projects`, `targets` and `contentRoots`, including their
+ordinary public metadata, are published. Tasks, run entries, settings,
+`optionValues`, process handles and private functions are excluded. The
+options list names existing ordinary build options whose **effective values**
+may be shared; omitted options stay private. A configuration fingerprint
+identifies all effective options without publishing their values.
+
+A consumer declares `modelInputs: [{ pluginID, buildSystemID }]`, requires
+`buildModelInputs: 1` and `buildProviders: 6`, and owns a provider and model.
+Slots are exact optional identities; Core sorts them by plugin ID and build
+system ID and rejects duplicates. Version 1 producers cannot also consume
+inputs, so consumers cannot recursively re-export a model.
+
+The native host calls `build.resolveModelInputs` with the consumer manifest
+and `{revision, sources: [{manifest, instances: [{buildSystemID, root, state,
+model?, options?}]}]}`. Sources are enabled installed packages in the current
+workspace activation, never identities supplied by another backend.
+Input states are `ready`, `loading`, `stale`, or `failed`; only ready
+instances include a complete normalized model. A truncated model becomes stale.
+Core revalidates source manifests, ownership, shape and path containment and
+returns `modelInputs: {version: 1, revision, inputs}`, where each input is:
+
+```json
+{
+  "pluginID": "dev.example.source",
+  "buildSystemID": "source",
+  "state": "available",
+  "instances": [{
+    "root": "app",
+    "state": "ready",
+    "model": {"projects": [], "targets": [], "contentRoots": []},
+    "configurationFingerprint": "<64 lowercase hex characters>",
+    "options": {}
+  }]
+}
+```
+
+A missing, disabled, non-public or mismatched producer gives
+`state: "unavailable", instances: []`. An installed public producer with no
+detected instance is available with an empty list. A non-ready instance has
+only `root` and `state`; no old model or options travel with it. Roots and
+model paths remain workspace-relative, and instances are deterministically
+ordered. There are at most 8 slots, 64 instances per source, 2,000 projects and
+10,000 targets/content roots per instance, and 8 MiB of resolved JSON. The
+revision is a nonnegative integer no larger than 9,007,199,254,740,991.
+
+The host supplies this snapshot as the common plan request's optional
+`modelInputs`. It is required exactly for a consumer with declared slots.
+Every Provider plan copies it unchanged into `params.modelInputs`; Core
+revalidates the snapshot and rejects extra fields or mismatched slots.
+The running backend must negotiate `litheBuild` version 6 independently of
+manifest admission. Older versions reject an input-bearing request even for
+an existing method such as `lithe/build/model`.
+
+A revision belongs to one workspace activation. The host revokes consumer
+model/dependency loads, discovery and in-flight execution/preparation when a
+producer's model, options, watched configuration or package availability
+changes. Revisions also detect changing an option away and back before a reply
+arrives. Guard the result after decoding as well as after the RPC; do not
+publish an old reply merely because cancellation was ignored. Already launched
+applications retain their existing native ownership.
+
+This facility never installs or activates a producer, invokes its private
+functions, grants permissions, leases a process or resolves a package version.
+There is no general plugin-dependency/export API. Backend authors must handle
+unavailable and non-ready slots explicitly. Language integration and existing
+Java/Maven business migration remain separate work. Shared fixtures:
+`fixtures/build-model-producer.plugin.json` and
+`fixtures/build-model-consumer.plugin.json`.
 
 ### Build providers
 

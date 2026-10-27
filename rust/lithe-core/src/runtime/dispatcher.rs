@@ -272,6 +272,11 @@ fn execute(request: &str) -> CoreResponse {
             parsed.payload,
             crate::build::build_decode_debug_preparation_command,
         ),
+        CoreCommand::BuildResolveModelInputs => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_resolve_model_inputs_command,
+        ),
         CoreCommand::BuildPrepareRunPlan => plugin_response(
             id,
             parsed.payload,

@@ -68,6 +68,9 @@ pub(crate) struct SelectedEntity {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PlanBase {
+    /// Host-resolved public input snapshot, validated against declared slots.
+    #[serde(default)]
+    pub(crate) model_inputs: Option<Value>,
     /// Instance root, workspace-relative.
     pub(crate) root: String,
     /// Stored option values by option ID.
@@ -248,6 +251,7 @@ pub(crate) struct PlanContext<'a> {
     pub(crate) fingerprint: String,
     /// Effective option values by option ID.
     option_values: BTreeMap<String, Value>,
+    model_inputs: Option<Value>,
     plugin_directory: Option<String>,
     workspace_state_directory: Option<String>,
 }
@@ -273,6 +277,15 @@ impl<'a> PlanContext<'a> {
         build_system: &'a BuildSystemDeclaration,
         base: &PlanBase,
     ) -> Validation<Self> {
+        match (&base.model_inputs, build_system.model_inputs.is_empty()) {
+            (None, true) => {}
+            (Some(value), false) => super::model_inputs::check_snapshot(build_system, value)?,
+            _ => {
+                return Err(invalid_selection(
+                    "The provider needs exactly its declared shared model inputs.",
+                ))
+            }
+        }
         Self::with_model_options(build_system, base, None)
     }
 
@@ -286,6 +299,7 @@ impl<'a> PlanContext<'a> {
         let fingerprint = options::fingerprint(build_system, &resolved);
         Ok(Self {
             build_system,
+            model_inputs: base.model_inputs.clone(),
             root: decode::request_path(&base.root, "root")?,
             contribution,
             fingerprint,
@@ -370,6 +384,9 @@ impl<'a> PlanContext<'a> {
             "environment".to_string(),
             json!(self.contribution.environment),
         );
+        if let Some(inputs) = &self.model_inputs {
+            params.insert("modelInputs".into(), inputs.clone());
+        }
         json!({
             "buildSystemID": self.build_system.id,
             "root": self.root,
@@ -966,6 +983,7 @@ pub(crate) fn run_entries(
         return Ok(Vec::new());
     }
     let base = PlanBase {
+        model_inputs: None,
         root: root.to_string(),
         options: stored_options.clone(),
         plugin_directory: None,

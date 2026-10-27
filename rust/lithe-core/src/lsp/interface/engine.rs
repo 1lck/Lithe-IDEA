@@ -2155,6 +2155,19 @@ impl RuntimeSession {
                 )
                 .with_details("plugin.build.unavailable"));
             }
+            if request.params.get("modelInputs").is_some()
+                && !state
+                    .client
+                    .server_capabilities
+                    .iter()
+                    .any(|feature| feature == super::build_provider::MODEL_INPUTS_FEATURE)
+            {
+                return Err(CoreError::new(
+                    ErrorCode::NotSupported,
+                    "The provider did not negotiate model inputs.",
+                )
+                .with_details("plugin.build.unavailable"));
+            }
             let mut params = request.params;
             if super::build_provider::is_progress_method(&request.method) {
                 let object = params.as_object_mut().ok_or_else(|| {
@@ -11620,7 +11633,7 @@ public class Main {
             .expect("initialize should have been written");
         assert_eq!(
             initialize["params"]["capabilities"]["experimental"]["litheBuild"],
-            json!({ "versions": [5, 4, 3, 2, 1] })
+            json!({ "versions": [6, 5, 4, 3, 2, 1] })
         );
 
         let error = build_request(&harness, "lithe/build/model", json!({}), None)
@@ -11631,6 +11644,42 @@ public class Main {
             .messages()
             .iter()
             .all(|message| message["method"] != "lithe/build/model"));
+    }
+
+    /// A legacy backend must never silently execute without a declared shared input.
+    #[test]
+    fn model_inputs_need_version_six_even_for_an_old_model_method() {
+        for version in [5, 6] {
+            let mut harness = Harness::start(|_| {});
+            harness
+                .server
+                .complete_initialize(json!({"experimental":{"litheBuild":{"version":version}}}));
+            harness.await_state(LspLifecycleState::Ready);
+            let params = json!({"modelInputs":{"version":1,"revision":7,"inputs":[]}});
+            let result = build_request(&harness, "lithe/build/model", params.clone(), None);
+            if version == 5 {
+                assert!(matches!(result.unwrap_err().code, ErrorCode::NotSupported));
+                assert!(harness
+                    .server
+                    .messages()
+                    .iter()
+                    .all(|message| message["method"] != "lithe/build/model"));
+            } else {
+                let operation = result.unwrap();
+                let id = harness
+                    .server
+                    .await_request("lithe/build/model")
+                    .expect("version six receives its snapshot");
+                assert_eq!(harness.written_request(&id)["params"], params);
+                harness
+                    .server
+                    .send(json!({"jsonrpc":"2.0","id":id,"result":{"projects":[]}}));
+                harness.await_event(|event| {
+                    event.operation_id.as_deref() == Some(&operation)
+                        && event.kind == "requestCompleted"
+                });
+            }
+        }
     }
 
     #[test]
@@ -12127,7 +12176,7 @@ public class Main {
         assert_eq!(
             initialize["params"]["capabilities"]["experimental"],
             json!({
-                "litheBuild": { "versions": [5, 4, 3, 2, 1] },
+                "litheBuild": { "versions": [6, 5, 4, 3, 2, 1] },
                 "litheFunctions": { "versions": [1, 2] },
                 "litheVcs": { "versions": [1] }
             })
