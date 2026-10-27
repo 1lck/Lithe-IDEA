@@ -186,6 +186,8 @@ dev.lithe.plugin.java-support/
 - `./scripts/verify-macos-package.sh`：打出的应用里 Java Support 的文件齐全，且不存在 `Contents/Resources/LanguageServers`。
 - `./scripts/verify-runtime-bundle-immutability.sh`：启动与插件工作流不改写安装目录。
 
+生产启动适配的回归使用 `RustLanguageServerLaunchTests`，直接从 `RustCoreBridge.startPluginLanguageServer` 经 C ABI 启动本地标准输入输出协议夹具；不经过协议默认回退。它用函数所属插件校验、credentials 请求与响应、通用插件配置查询、Java 启动参数、缓存配置副本和工作区指纹日志验证实际接线。夹具使用 macOS 开发工具已有的 Python，不依赖真实 JVM 或联网；Core 会话负责子进程，测试始终停止并销毁会话，再移除临时资源。运行命令：`./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter RustLanguageServerLaunchTests`。
+
 ## 适用范围
 
 - `shared/contracts/plugins/v1/`
