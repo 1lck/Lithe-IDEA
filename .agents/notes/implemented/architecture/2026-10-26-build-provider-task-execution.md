@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-构建插件现在可以在自己的工作区 Provider（提供构建能力的后端进程）里执行任务、发现和运行测试，而不是把每个操作都展开为宿主命令。原生 Build 窗口复用现有工作区会话、输出、诊断、取消和进程清理，测试报告复用现有解析器，不要求插件增加网页或调用私有函数。这是 [#1495](https://github.com/1lck/Lithe-IDEA/issues/1495) 阶段 C 的构建、测试与应用启动准备基础能力；Maven/Java 业务迁移、多服务编排，以及运行准备与既有调试适配器注册表的衔接不在本决策已实现的范围内。
+构建插件现在可以在自己的工作区 Provider（提供构建能力的后端进程）里执行任务、发现和运行测试，而不是把每个操作都展开为宿主命令。原生 Build 窗口复用现有工作区会话、输出、诊断、取消和进程清理，测试报告复用现有解析器，不要求插件增加网页或调用私有函数。这是 [#1495](https://github.com/1lck/Lithe-IDEA/issues/1495) 阶段 C 的构建、测试与应用启动准备基础能力；Maven/Java 业务迁移、多服务编排，及 Java/JDT 调试准备不在本决策已实现的范围内。插件自有原生程序的调试准备已经接到既有调试适配器注册表。
 
 ## 问题
 
@@ -70,7 +70,7 @@ Core 用 JSON-RPC 请求 ID 作为后端看到的 `operationID`，进度按仍�
 
 准备中的源码、模型、配置、插件或工作区变化使旧结果失效，解码完成后也要再次检查。应用启动后不因普通源码编辑就终止；停用所属插件或关闭工作区才按对应操作 ID 停止，旧操作 ID 不能停止新进程。运行目录只能是工作区内、属于当前实例的已有目录；符号链接解析后的目录也必须满足这一限制。没有新增运行资源目录、下载或跨工作树缓存，既有平台进程与临时参数 adapter 继续负责可写位置，安装包保持只读。
 
-首次从 Build 树运行仍在 Build 窗口管理准备；从 Run 重启时，Run 的停止动作取消对应准备 ID，成功启动后改由进程 ID 管理。应用输出不再要求旧式检测器先生成 Run 配置，也不会因缺少 generated.json 被配置引导页遮住。多服务编排与调试目标注册仍未接入，不能把此增量表述为阶段 C 或 Java/Maven 迁移全部完成。
+首次从 Build 树运行仍在 Build 窗口管理准备；从 Run 重启时，Run 的停止动作取消对应准备 ID，成功启动后改由进程 ID 管理。应用输出不再要求旧式检测器先生成 Run 配置，也不会因缺少 generated.json 被配置引导页遮住。多服务编排与 Java/JDT 调试准备仍未接入，不能把此增量表述为阶段 C 或 Java/Maven 迁移全部完成。
 
 ### 保存选择器，重启时重新准备
 
@@ -88,6 +88,20 @@ Core 用 JSON-RPC 请求 ID 作为后端看到的 `operationID`，进度按仍�
 
 两套无页面示例使用虚构引擎展示协议，端到端回归通过真实 Core 检查构建退出码、精确筛选、运行前构建与准备计划、并行工作区隔离、取消后的工具清理，以及包含 SDK/JAR 的完整包字节不变。SDK 处理器属于开发中的源码，不代表已发布 SDK 或现有 Maven/Java 插件完成迁移；发布契约副本仍必须等主仓库合并后运行同步工具。
 
+### 调试启动保留已选适配器的身份
+
+现有调试适配器注册表（DebugAdapter Registry）已经定义插件 ID 与适配器 ID 组成的身份，但 macOS 会话过去只按源文件选择语言默认适配器。工程目标可能没有打开的源文件，同一语言也可能有多个调试器，所以明确选中的适配器现在通过 `DebugLaunchConfiguration.adapterProviderID` 交给原有会话管理器。原有插件文件启动入口也携带这份身份，重试与配置变换继续保留它。
+
+开发者要从已安装、已启用的注册中取得 `插件 ID/适配器 ID`，并在启动前完成现有 Core 参数及权限校验。正确例子是把已校验的 LLDB 启动参数交给 `dev.example.native/lldb`；不要只传一个 `.c` 文件，再期待宿主碰巧选中同一个调试器。明确身份已经消失、被停用或不支持该请求时，启动在创建进程前失败。不能因此改用同语言的另一插件，也不能把身份当成可调用私有函数、任意进程或端口的权限。
+
+宿主保留所有适配器的完整身份，包括只能附加到进程的适配器；它们不会挤占文件启动的默认项。源码断点传给匹配语言的已注册适配器（未限制语言的原生适配器接收全部源码），并在之后启动时重放；函数、异常与数据断点按当前会话的适配器身份更新。新增会话启动失败只关闭自己的资源，原会话和选择继续保留。这里不增加资源目录、下载或缓存；插件进程仍由既有平台 adapter 放在原有可写状态位置，安装包保持只读。
+
+`buildProviders: 5` 增加独立的原生程序调试准备请求。运行声明只引用同插件适配器；后端先构建，再返回程序路径、参数、工作目录和环境，不得夹带适配器身份、进程、端口或任意调试协议参数。Core 检查程序属于当前工程实例且为已有文件；平台交接前再次检查可执行权限和符号链接，随后复用注册表的目标绑定生成参数。`debugAdapters: 2` 只增加参数与环境的类型化目标绑定，原有 DAP 引擎、适配器资源与权限规则继续生效。
+
+Build 树和已保存的 Provider Run 配置都有 Debug 入口，启动前先保存文档。异步准备、Core 解码和宿主交接共享已有运行准备的配置、源码与模型失效判断；调试停止只取消对应准备，准备成功后由 Debug 会话负责资源。正确例子是插件自己的构建引擎生成当前程序，再交给自己声明的 LLDB 入口；不要把 `prepareRun` 返回的命令改名成调试计划，更不能从 Provider 返回另一个插件的私有函数或开放端口。两个 SDK 同步增加类型化入口并保留版本准入；正式契约副本仍在合并后同步。
+
+这个纵向增量只覆盖插件自有原生可执行程序。Java/JDT、跨插件准备与长期服务仍未迁移，不能据此声称整个阶段 C 或 Java Support 拆分已完成。
+
 ## 考虑过的备选方案
 
 - **扩展独立页面 backend。** 它是全应用范围的私有服务；改为工作区服务需要重复已有 Provider 的作用域和清理。执行首先复用现有工作区机制。
@@ -96,6 +110,7 @@ Core 用 JSON-RPC 请求 ID 作为后端看到的 `operationID`，进度按仍�
 - **让测试复用任务方法并让宿主推导筛选命令。** 无法证明旧后端支持测试，也容易扩大筛选范围；单独协商测试方法，保留选择器为类型化数据。报告解析复用现有实现，不增加另一套测试报告系统。
 - **只在宿主源码里找测试，或返回不可运行的标签。** 宿主会拥有第二份框架事实，测试清单和实际运行容易不一致。插件返回上游选择器，Core 只复用现有测试计划校验；当前不支持精确筛选的工具暂不声明发现能力。
 - **一次补齐全部 Run/Test/Debug。** 各领域有不同目标和状态要求；先交付可独立验证的执行路径，后续基于真实需求补类型化能力，复用 #1210 的调试契约。
+- **让 Provider 准备后伪造一个带语言后缀的文件来选调试器。** 会把工程目标误当成文件，遇到同语言多个适配器或插件停用时选错。直接传递现有注册身份，不增加另一套调试器路由与进程机制。
 
 ## 后果
 
@@ -120,12 +135,18 @@ Agent 入口回归从真实本地 Run 配置读取选择器，用可控 Provider
 ./scripts/verify-rust-core-comments.sh
 ./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh
 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --jobs 6 --filter 'BuildSystemServiceTests|ExecutionModuleTests|MacBuildProviderSessionsTests|RustBuildSystemOperationsTests|BuildToolProviderResolutionTests|PluginWebBridgeTests|BuildSystemToolWindowTests|RunConfigurationIntegrationTests|RunWorkflowCoordinatorTests|IdeCapabilitiesTests'
+./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'BuildSystemServiceTests|RustBuildSystemOperationsTests|MacBuildProviderSessionsTests|LitheDebugModuleTests|PluginDebugAdapterTests|PluginLiveActivationTests|RunConfigurationIntegrationTests|RunWorkflowCoordinatorTests'
 cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib build_systems
 cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib run_configuration
+cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib provider_debug
 cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib lsp
 ```
 
 当前本地逐项计时证据为 `saved-provider-complete-macos.json`、`saved-provider-core.json`、`provider-sdk-unit.json` 与 `provider-sdk-native.json`，对应 HTML/JUnit 保存在 `.artifacts/test-stability/`。SDK 兼容场景另外使用契约锁定的 Core，原生工作流场景使用显式工作区源码快照，不能把日志里的基线 SHA 当作完整已提交实现。Java 产物检查 Java 8 字节码；本地运行时和 Windows 实机证据分别记录，不能用编译替代运行。
+
+调试身份交接的本地回归记录在 `provider-debug-routing-final.json` 及对应 HTML/JUnit：182 个测试通过，包含真实 Rust Core 桥接后 DAP 参数不混入宿主身份、无源文件目标、明确身份失效、请求类型不匹配、多适配器断点、失败后恢复原会话及同步回调替换会话后的精确清理。测试使用受控会话，不代表真实插件适配器、Provider 调试准备或 Windows 已验收。
+
+原生调试准备的本地增量报告是 `provider-debug-preparation-macos.json`（375 项）、`provider-debug-preparation-core.json`（1,304 项）、`provider-debug-sdk-unit.json`（114 项）和 `provider-debug-sdk-native.json`（6 项），均有对应 HTML/JUnit。报告覆盖当前 Swift/Node/JDK 运行时的受控宿主与真实 SDK 进程；原生调试准备取消后构建子进程结束、另一工作区仍可用，完整插件包保持只读。平台交接回归另验程序不可执行、程序/实例别名变化以及插件撤回和替换；没有启动真实 LLDB、JDT 或 Windows 产品，所以功能矩阵继续保持 `pending`。
 
 在 `lithe-plugin-docs` 运行以下入口可以复验 SDK 部分：
 
@@ -161,3 +182,9 @@ node scripts/sdk-e2e.mjs --source /path/to/Lithe-IDEA --working-tree --build-wor
 - `shared/fixtures/run-configuration/build-provider.json`
 - `macos/Sources/Lithe/Platform/MacOS/RunConfiguration/MacRunConfigurationStore.swift`
 - `macos/Sources/Lithe/Application/Features/IdeCapabilitiesFeatureModel.swift`
+- `macos/Sources/LitheCoreContracts/Debug/DebugAdapterContracts.swift`
+- `macos/Sources/LitheDebugModule/Runtime/DebugAdapterSessionManager.swift`
+- `macos/Sources/LitheDebugModule/Application/GenericDebugFeatureModel.swift`
+- `macos/Sources/Lithe/Platform/MacOS/Plugins/MacLivePluginRegistry.swift`
+- `macos/Sources/Lithe/Platform/MacOS/Debug/MacBuildDebugLaunchResolver.swift`
+- `shared/fixtures/debug/adapter-selection-v1.json`

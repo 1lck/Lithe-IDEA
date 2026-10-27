@@ -2123,3 +2123,118 @@ fn provider_run_working_directory_rejects_external_symlinks() {
             "arguments":[],"workingDirectory":"escape","environment":{}}}})).unwrap();
     assert_eq!(result["error"]["code"], "plugin.build.invalidOutput");
 }
+
+#[test]
+fn provider_debug_preparation_validates_native_target_and_same_plugin_adapter() {
+    use crate::build::{build_decode_debug_preparation_command, build_prepare_debug_plan_command};
+    let manifest: Value = serde_json::from_str(contract_file!(
+        "fixtures/build-provider-debug-preparation.plugin.json"
+    ))
+    .unwrap();
+    let fixture: Value =
+        serde_json::from_str(contract_file!("fixtures/build-debug-preparation.json")).unwrap();
+    let run: Value =
+        serde_json::from_str(contract_file!("fixtures/build-run-preparation.json")).unwrap();
+    assert_eq!(validate(manifest.clone())["status"], "ok");
+    let planned = build_prepare_debug_plan_command(
+        json!({"manifest":manifest,"buildSystemID":"gradle","request":run["request"]}),
+    )
+    .unwrap();
+    assert_eq!(
+        planned["plan"]["provider"]["method"], "lithe/build/prepareDebug",
+        "{planned}"
+    );
+    assert_eq!(planned["plan"]["decoder"], "litheDebugPreparation");
+    for (field, value) in [("buildProviders", json!(4)), ("debugAdapters", json!(1))] {
+        let mut old = manifest.clone();
+        old["requires"][field] = value;
+        assert_eq!(validate(old)["status"], "rejected");
+    }
+    for adapter in ["other/native", "missing", ""] {
+        let mut invalid = manifest.clone();
+        invalid["buildSystems"][0]["run"][0]["debug"]["adapter"] = json!(adapter);
+        assert_eq!(validate(invalid)["status"], "rejected");
+    }
+    let mut overridden = manifest.clone();
+    overridden["debugAdapters"][0]["configurations"]["launch"]["arguments"] =
+        json!({"program":"other"});
+    assert_eq!(validate(overridden)["status"], "rejected");
+    let workspace = TemporaryWorkspace::new("provider-native-debug");
+    workspace.write("app/bin/sample", "sample");
+    let decode = |result: Value| {
+        build_decode_debug_preparation_command(json!({"manifest":manifest,"buildSystemID":"gradle",
+        "request":{"workspaceRoot":workspace.root(),"root":"app","run":run["request"]["run"],"result":result}})).unwrap()
+    };
+    let valid = decode(fixture["result"].clone());
+    assert_eq!(valid["status"], "ok", "{valid}");
+    assert_eq!(valid["preparation"]["adapter"], "native");
+    assert_eq!(valid["preparation"]["arguments"], json!(["a b", "x#y"]));
+    for invalid in fixture["invalidResults"].as_array().unwrap() {
+        assert_eq!(decode(invalid.clone())["status"], "rejected");
+    }
+    for (field, value) in [
+        ("program", json!("app/missing")),
+        ("program", json!("app")),
+        ("program", json!("/tmp/sample")),
+        ("arguments", json!(["bad\u{0}"])),
+        ("environment", json!({"1BAD":"x"})),
+        ("workingDirectory", json!(".")),
+    ] {
+        let mut invalid = fixture["result"].clone();
+        invalid[field] = value;
+        assert_eq!(decode(invalid)["status"], "rejected");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn provider_debug_preparation_rejects_a_program_symlink_outside_the_instance() {
+    use crate::build::build_decode_debug_preparation_command;
+    let manifest: Value = serde_json::from_str(contract_file!(
+        "fixtures/build-provider-debug-preparation.plugin.json"
+    ))
+    .unwrap();
+    let workspace = TemporaryWorkspace::new("debug-native-symlink");
+    workspace.write("app/keep", "");
+    workspace.write("other/program", "");
+    std::os::unix::fs::symlink(
+        workspace.0.join("other/program"),
+        workspace.0.join("app/program"),
+    )
+    .unwrap();
+    let result = build_decode_debug_preparation_command(json!({"manifest":manifest,"buildSystemID":"gradle","request":{
+        "workspaceRoot":workspace.root(),"root":"app","run":"application","result":{"program":"app/program","arguments":[],"workingDirectory":"app","environment":{}}}})).unwrap();
+    assert_eq!(result["status"], "rejected");
+}
+
+#[test]
+fn provider_debug_target_bindings_keep_exact_arguments_and_require_bounded_facts() {
+    let manifest: Value = serde_json::from_str(contract_file!(
+        "fixtures/build-provider-debug-preparation.plugin.json"
+    ))
+    .unwrap();
+    let target = json!({"kind":"executable","path":"/workspace/app/main","workingDirectory":"/workspace/app",
+        "arguments":["a b","x#y"],"environment":{"MODE":"debug"}});
+    let arguments = |target: Value| {
+        crate::plugins::declarative::debug_start_arguments_command(json!({"manifest":manifest,
+        "adapterID":"native","request":"launch","facts":{"registration":{"generation":7,"currentGeneration":7},"target":target}})).unwrap()
+    };
+    let result = arguments(target.clone());
+    assert_eq!(
+        result["arguments"]["args"],
+        json!(["a b", "x#y"]),
+        "{result}"
+    );
+    assert_eq!(result["arguments"]["env"], json!({"MODE":"debug"}));
+    for (field, value) in [
+        ("arguments", Value::Null),
+        ("arguments", json!(["bad\u{0}"])),
+        ("arguments", json!(vec!["x"; 1025])),
+        ("environment", Value::Null),
+        ("environment", json!({"1BAD":"x"})),
+    ] {
+        let mut invalid = target.clone();
+        invalid[field] = value;
+        assert_eq!(arguments(invalid)["status"], "rejected");
+    }
+}

@@ -1756,6 +1756,12 @@ fn feature_names_from_capabilities(capabilities: &Value) -> Vec<String> {
     if super::build_provider::tests_negotiated(capabilities) {
         insert_unique(&mut values, super::build_provider::TEST_EXECUTION_FEATURE);
     }
+    if super::build_provider::debug_preparation_negotiated(capabilities) {
+        insert_unique(
+            &mut values,
+            super::build_provider::DEBUG_PREPARATION_FEATURE,
+        );
+    }
     if super::build_provider::run_preparation_negotiated(capabilities) {
         insert_unique(&mut values, super::build_provider::RUN_PREPARATION_FEATURE);
     }

@@ -299,3 +299,27 @@ pub(crate) fn build_language_import_command(payload: Value) -> Result<Value, Cor
         },
     )
 }
+
+/// `build.prepareDebugPlan`: a selected provider run's native debug preparation.
+pub(crate) fn build_prepare_debug_plan_command(payload: Value) -> Result<Value, CoreError> {
+    with_build_system(
+        payload,
+        "build.prepareDebugPlan",
+        "plan",
+        |build, request: &super::run_preparation::PrepareRunRequest| {
+            super::debug_preparation::plan(build, request)
+        },
+    )
+}
+
+/// `build.decodeDebugPreparation`: validates portable native debug target facts.
+pub(crate) fn build_decode_debug_preparation_command(payload: Value) -> Result<Value, CoreError> {
+    with_build_system(
+        payload,
+        "build.decodeDebugPreparation",
+        "preparation",
+        |build, request: &super::debug_preparation::DecodeDebugPreparationRequest| {
+            super::debug_preparation::decode(build, request)
+        },
+    )
+}

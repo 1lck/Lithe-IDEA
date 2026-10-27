@@ -3710,6 +3710,7 @@
 "The build provider failed to start." = "构建 Provider 启动失败。";
 "The build provider returned an invalid launch plan." = "构建提供方返回了无效的启动计划。";
 "The build provider stopped before it was ready." = "构建 Provider 在就绪前已停止。";
+"The build provider's debug program or adapter is unavailable. Build it again and check that the plugin is enabled." = "构建插件的调试程序或适配器不可用。请重新构建，并检查插件是否已启用。";
 "The build tool exited with code %lld." = "构建工具已退出，退出码 %lld。";
 "The build tool output is too large or not UTF-8." = "构建工具的输出过大或不是 UTF-8 编码。";
 "The build tool timed out." = "构建工具超时。";
@@ -7215,6 +7216,7 @@
 "native.providedByLitheForThisLanguage" = "由 Lithe 为该语言提供";
 "native.provider" = "识别器";
 "native.providerConfigurationParsingIsUnavailable" = "供应商配置解析暂不可用。";
+"native.providerDebugUnavailable" = "构建插件的调试程序或适配器不可用。请重新构建，并检查插件是否已启用。";
 "native.providerDetails" = "服务商详情";
 "native.providerName" = "服务商名称";
 "native.providerRequiresAnAPIKey" = "服务商需要 API 密钥";

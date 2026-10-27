@@ -2129,6 +2129,19 @@ impl RuntimeSession {
                 )
                 .with_details("plugin.build.unavailable"));
             }
+            if request.method == super::build_provider::PREPARE_DEBUG_METHOD
+                && !state
+                    .client
+                    .server_capabilities
+                    .iter()
+                    .any(|feature| feature == super::build_provider::DEBUG_PREPARATION_FEATURE)
+            {
+                return Err(CoreError::new(
+                    ErrorCode::NotSupported,
+                    "The provider did not negotiate debug preparation.",
+                )
+                .with_details("plugin.build.unavailable"));
+            }
             if request.method == super::build_provider::PREPARE_RUN_METHOD
                 && !state
                     .client
@@ -11273,6 +11286,48 @@ public class Main {
     }
 
     #[test]
+    fn provider_debug_preparation_requires_version_five_and_retains_progress() {
+        for version in [1, 2, 3, 4] {
+            let harness = plugin_backend(json!({"litheBuild":{"version":version}}));
+            let error =
+                build_request(&harness, "lithe/build/prepareDebug", json!({}), None).unwrap_err();
+            assert_eq!(error.details.as_deref(), Some("plugin.build.unavailable"));
+            assert!(harness
+                .server
+                .messages()
+                .iter()
+                .all(|message| message["method"] != "lithe/build/prepareDebug"));
+        }
+        let mut harness = plugin_backend(json!({"litheBuild":{"version":5}}));
+        let operation =
+            build_request(&harness, "lithe/build/prepareDebug", json!({}), None).unwrap();
+        let request = harness
+            .server
+            .await_request("lithe/build/prepareDebug")
+            .unwrap();
+        let wire_id = request.clone();
+        assert_eq!(
+            harness.written_request(&request)["params"]["operationID"],
+            wire_id
+        );
+        harness.server.send(json!({"jsonrpc":"2.0","method":"lithe/build/progress","params":{"operationID":wire_id,"output":"built"}}));
+        let progress = harness.await_event(|event| {
+            event.kind == "requestProgress"
+                && event.operation_id.as_deref() == Some(operation.as_str())
+        });
+        assert_eq!(progress.result.as_ref().unwrap()["output"], "built");
+        harness.server.send(json!({"jsonrpc":"2.0","id":request,"result":{"program":"app/bin/main","arguments":[],"environment":{},"workingDirectory":"app"}}));
+        let done = harness.await_event(|event| {
+            event.kind == "requestCompleted"
+                && event.operation_id.as_deref() == Some(operation.as_str())
+        });
+        assert_eq!(
+            done.result.as_ref().unwrap()["value"]["program"],
+            "app/bin/main"
+        );
+    }
+
+    #[test]
     fn provider_run_preparation_requires_version_four_and_returns_raw_plan() {
         for version in [1, 2, 3] {
             let harness = plugin_backend(json!({"litheBuild":{"version":version}}));
@@ -11565,7 +11620,7 @@ public class Main {
             .expect("initialize should have been written");
         assert_eq!(
             initialize["params"]["capabilities"]["experimental"]["litheBuild"],
-            json!({ "versions": [4, 3, 2, 1] })
+            json!({ "versions": [5, 4, 3, 2, 1] })
         );
 
         let error = build_request(&harness, "lithe/build/model", json!({}), None)
@@ -12072,7 +12127,7 @@ public class Main {
         assert_eq!(
             initialize["params"]["capabilities"]["experimental"],
             json!({
-                "litheBuild": { "versions": [4, 3, 2, 1] },
+                "litheBuild": { "versions": [5, 4, 3, 2, 1] },
                 "litheFunctions": { "versions": [1, 2] },
                 "litheVcs": { "versions": [1] }
             })

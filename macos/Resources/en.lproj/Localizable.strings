@@ -3710,6 +3710,7 @@
 "The build provider failed to start." = "The build provider failed to start.";
 "The build provider returned an invalid launch plan." = "The build provider returned an invalid launch plan.";
 "The build provider stopped before it was ready." = "The build provider stopped before it was ready.";
+"The build provider's debug program or adapter is unavailable. Build it again and check that the plugin is enabled." = "The build provider's debug program or adapter is unavailable. Build it again and check that the plugin is enabled.";
 "The build tool exited with code %lld." = "The build tool exited with code %lld.";
 "The build tool output is too large or not UTF-8." = "The build tool output is too large or not UTF-8.";
 "The build tool timed out." = "The build tool timed out.";
@@ -7215,6 +7216,7 @@
 "native.providedByLitheForThisLanguage" = "Provided by Lithe for this language";
 "native.provider" = "Provider";
 "native.providerConfigurationParsingIsUnavailable" = "Provider configuration parsing is unavailable.";
+"native.providerDebugUnavailable" = "The build provider's debug program or adapter is unavailable. Build it again and check that the plugin is enabled.";
 "native.providerDetails" = "Provider details";
 "native.providerName" = "Provider name";
 "native.providerRequiresAnAPIKey" = "Provider requires an API key";

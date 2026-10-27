@@ -973,6 +973,7 @@ impl DeclarativePluginManifest {
         crate::build::validate_declarations(
             &mut self.build_systems,
             &crate::build::DeclarationContext {
+                debug_adapters: &self.debug_adapters,
                 plugin_api_version: self.plugin_api_version,
                 build_systems_version: self.requires.get("buildSystems").copied().unwrap_or(1),
                 build_providers_version: self.requires.get("buildProviders").copied().unwrap_or(1),
@@ -1094,6 +1095,19 @@ impl DeclarativePluginManifest {
                 declared_settings,
             },
         )?;
+        if crate::debug::adapters::uses_target_arguments(&self.debug_adapters)
+            && self
+                .requires
+                .get(capabilities::DEBUG_ADAPTERS)
+                .copied()
+                .unwrap_or(1)
+                < 2
+        {
+            return Err(invalid(
+                "requires.debugAdapters",
+                "Argument and environment bindings require debugAdapters 2.",
+            ));
+        }
         if self.plugin_api_version >= CAPABILITIES_API_VERSION {
             // serverProcess 2 exists for the selected-runtime launch alone, so
             // a host without it never accepts an adapter it cannot start.

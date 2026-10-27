@@ -534,6 +534,12 @@ struct BuildSystemToolWindowView: View {
                             runnable: .application(BuildRunRequest(run: run.id, projectID: project.id, targetID: target.id),
                                                    title: Self.title(run.displayName, scope: target.name)), target: target)
                     }
+                    for run in runs where run.debugAdapter != nil {
+                        leafRow(id: nodeID + ":debug:" + run.id, title: Self.title(L10n.string("Debug"), scope: run.displayName), help: nil,
+                            iconPath: "expui/run/debug.svg", entryID: entry.id, project: project,
+                            runnable: .debugApplication(BuildRunRequest(run: run.id, projectID: project.id, targetID: target.id),
+                                title: Self.title(run.displayName, scope: target.name)), target: target)
+                    }
                     if testable {
                         leafRow(
                             id: nodeID + ":tests", title: L10n.string("Run Tests"), help: nil,
@@ -940,6 +946,7 @@ struct BuildSystemToolWindowView: View {
         case tests(BuildTestRequest, title: String)
         case discoveredTest(String, title: String)
         case application(BuildRunRequest, title: String)
+        case debugApplication(BuildRunRequest, title: String)
     }
 
     private struct Selection: Equatable {
@@ -968,6 +975,8 @@ struct BuildSystemToolWindowView: View {
             feature.runTask(entryID, request: request, title: title)
         case .tests(let request, let title):
             feature.runTests(entryID, request: request, title: title)
+        case .debugApplication(let request, let title):
+            model.debugBuildProviderApplication(entryID: entryID, request: request, title: title)
         case .application(let request, let title):
             model.runBuildProviderApplication(entryID: entryID, request: request, title: title)
         case .discoveredTest(let testID, let title):

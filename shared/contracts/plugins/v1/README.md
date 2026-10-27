@@ -406,9 +406,9 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 | `settings` | `settings[]` and `settingActions[]` | `1`, `2` (adds [placement, scope, effect, page buttons](#settings-v2-placement-scope-effect-and-page-buttons)) |
 | `ui` | `ui` | `1`, `2` (adds [web content](#web-content-ui-2)) |
 | `buildSystems` | Declarative build detection, models, and command plans | `1` |
-| `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers; version 2 adds task execution, version 3 test execution | `1`, `2`, `3` |
+| `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers; v2 tasks, v3 tests, v4 run, v5 native debug preparation | `1`, `2`, `3`, `4`, `5` |
 | `vcsProviders` | `vcsProviders[]` | `1` |
-| `debugAdapters` | [`debugAdapters[]`](#api-level-4-debug-adapters) | `1` |
+| `debugAdapters` | [`debugAdapters[]`](#api-level-4-debug-adapters); v2 adds target arguments/environment | `1`, `2` |
 | `projectGenerators` | [`projectGenerators[]`](#project-generators): entries of the New Project window | `1` |
 | `backend` | [`backend`](#plugin-backend): the plugin's own long-lived process for its pages | `1` |
 
@@ -456,7 +456,7 @@ in `plugins.declarative.validate`, `plugins.marketplace.validateIndex`, and
 
 The macOS host sends its capability table with validation, marketplace filtering
 and install review. It advertises `buildSystems: [1, 2]` and
-`buildProviders: [1, 2, 3]`; native Provider models, dependencies, tasks and tests
+`buildProviders: [1, 2, 3, 4, 5]`; native Provider models, dependencies, tasks, tests and launch preparation
 share workspace-owned sessions. Backend and VCS support use their own entries
 in the same table. Core validates supported versions without a host table,
 but admission must use the actual host table. Windows does not yet advertise
@@ -1028,7 +1028,7 @@ The host may add the resolved build tool hint. The provider owns upstream
 synchronization, build, classpath and launch facts; Core does not reconstruct
 those facts from source files or build configuration.
 
-Only protocol version 4 accepts this method. Version 4 retains task and test
+Protocol versions 4 and 5 accept this method. Version 4 retains task and test
 support. Preparation shares the Core-assigned wire `operationID`, progress,
 timeout, cancellation and stale-result handling of execution. It ends when
 preparation finishes; the application is a separate host-owned process.
@@ -1058,6 +1058,50 @@ the selected instance, including after resolving filesystem aliases.
 Unknown fields are ignored. The host calls `build.decodeRunPreparation`
 with its workspace root, instance root and raw result; any malformed plan
 fails as `plugin.build.invalidOutput` before executable resolution.
+
+#### Native debug preparation (version 5)
+
+A provider run may additionally declare `debug: {"adapter":"native"}` with
+`requires.buildProviders: 5` and `requires.debugAdapters: 2`. `adapter` is a
+local ID declared by this plugin; qualified cross-package references are refused.
+The adapter must serve launch of executable targets, with bindings `program` ←
+`target.path`, `cwd` ← `target.workingDirectory`, `args` ← `target.arguments`,
+and `env` ← `target.environment`. These fields cannot be overridden by adapter
+default arguments. This first increment covers native executable launch only;
+it does not accept attach endpoints, backend-selected adapters or arbitrary DAP JSON.
+
+`build.prepareDebugPlan` validates the same selected run/project/target and
+arguments as run preparation and returns `lithe/build/prepareDebug`. Only wire
+version 5 accepts it. Progress, cancellation, timeouts, tool hints, workspace
+ownership and JSON-RPC failure handling follow run preparation. A successful result
+contains exactly these four fields:
+
+```json
+{"program":"app/bin/sample","arguments":["a b","x#y"],"workingDirectory":"app","environment":{}}
+```
+
+The provider owns synchronization/build before returning. `program` is an existing
+workspace-relative regular file contained in the selected instance, including
+canonical symlink resolution. Arguments, environment and directory retain run
+preparation's size and containment limits. Unknown fields are refused here; there
+is no adapter process, socket, shell, private function or DAP argument channel.
+`build.decodeDebugPreparation` takes the selected `run` separately and returns
+`preparation` with its validated `root`, declaration-owned `adapter`, and these
+four fields. Missing, malformed and escaping targets fail before adapter startup.
+
+The native host saves documents before preparation, retains model/configuration/
+source/plugin identity through decode, and drops stale results. It checks executable
+permissions and canonical containment again at handoff. `debug.adapters.startArguments`
+binds the validated target facts; the existing Registry launches the adapter using
+its own permissions and package process declaration. The launch configuration retains
+`pluginID/adapterID` for routing and retry. Stopping preparation cancels only its
+operation; the Debug host owns launched sessions and plugin withdrawal cleanup.
+Saved Run configurations keep their existing selectors and prepare again for Debug.
+
+Fixtures: [native declaration](fixtures/build-provider-debug-preparation.plugin.json)
+and [native result](fixtures/build-debug-preparation.json). This does not provide
+Java/JDT preparation, long-running services or cross-plugin collaboration.
+
 
 The native Build tree re-resolves model IDs before preparation. Source/model,
 option, settings, package and workspace changes revoke a pending preparation.
@@ -1127,11 +1171,11 @@ The manifest only says how to start the provider and which sources use it.
 Everything else is negotiated in the LSP `initialize` exchange, so a provider
 can add optional data within a negotiated protocol version:
 
-- The host sends `capabilities.experimental.litheBuild: { "versions": [4, 3, 2, 1] }`,
+- The host sends `capabilities.experimental.litheBuild: { "versions": [5, 4, 3, 2, 1] }`,
   the build-provider protocol versions it speaks. Version 1 is the two
   requests above with the params and result formats of this section;
   version 2 adds typed task execution; version 3 adds typed test execution
-  and discovery; version 4 adds application run preparation.
+  and discovery; version 4 adds application run preparation; version 5 adds native debug preparation.
 - The provider answers `capabilities.experimental.litheBuild: { "version": 1 }`
   with the version it chose from that list. A provider that answers no
   version, or one the host did not offer, is not used for build requests; a
@@ -1220,7 +1264,7 @@ A manifest below level 4 may not declare `debugAdapters`, and a level 3 manifest
 | `requests` | `launch` (default) and/or `attach`. |
 | `selectors[]` | Optional automatic matching by `targetKinds` and `languageIDs`; absent means explicit selection only. |
 | `configurationTypes` | Imported `launch.json` `type` values the adapter answers to. |
-| `configurations.launch/attach` | Default DAP `arguments`, a packaged `parametersSchema`, and `targetBindings` (`program` ← `target.path`, `processId` ← `target.processID`, `cwd` ← `target.workingDirectory`). A configuration for an undeclared request is refused. |
+| `configurations.launch/attach` | Default DAP `arguments`, a packaged `parametersSchema`, and `targetBindings` (`program` ← `target.path`, `processId` ← `target.processID`, `cwd` ← `target.workingDirectory`; version 2 also supports bounded `args` ← `target.arguments` and `env` ← `target.environment`). A configuration for an undeclared request is refused. |
 | `configurations.launch.executable` | For a target that is a source file the adapter cannot debug directly (C, C++, Swift): `setting` names a `file` setting of the plugin, `candidates[]` (up to 8) are the paths a host looks for when the user chose nothing. Each candidate starts with `${workspaceFolder}/` or `${fileDirectory}/`, may use `${fileBasenameNoExtension}`, and has no `..`. Declare it together with `targetBindings.program: "target.executable"` and neither without the other; a launch fills `program` with the path the host settled on. The user's setting always wins: a chosen path that is not a runnable file is an error, not a reason to try the candidates. The host shows the path it found in that setting, and the setting's `description` is where the plugin teaches how to produce the program. |
 | `capabilities.disabled` | Standard DAP `supports*` names or `exceptionBreakpointFilters` the host treats as absent. |
 | `console.commandPrefix` | Text (1–8 characters, no spaces; for lldb-dap a backtick) the adapter's console reads as "what follows is a debugger command". The host puts it before the typed line only when it asks the adapter to complete, and moves the adapter's answer back, so the user never sees it. An adapter that treats a bare word as an expression (lldb-dap) otherwise mixes language keywords such as `long` into the first word's completions; the prefix limits them to commands. Declare at least this or `console.commands[]` when `console` is present. |

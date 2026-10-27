@@ -9380,7 +9380,8 @@
     "native.providerRunSavingUnavailable": "Saving build provider run configurations is unavailable.",
     "native.loadProviderModelBeforeRun": "Load the current build model and enable its provider before running this configuration.",
     "native.providerRunSaveConflict": "Run configuration changed while saving. Reload and try again.",
-    "native.savedProviderRunUnavailable": "The saved provider run configuration is unavailable."
+    "native.savedProviderRunUnavailable": "The saved provider run configuration is unavailable.",
+    "native.providerDebugUnavailable": "The build provider's debug program or adapter is unavailable. Build it again and check that the plugin is enabled."
   },
   "overrides": {
     "windows": {

@@ -262,6 +262,16 @@ fn execute(request: &str) -> CoreResponse {
         CoreCommand::BuildTaskPlan => {
             plugin_response(id, parsed.payload, crate::build::build_task_plan_command)
         }
+        CoreCommand::BuildPrepareDebugPlan => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_prepare_debug_plan_command,
+        ),
+        CoreCommand::BuildDecodeDebugPreparation => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_decode_debug_preparation_command,
+        ),
         CoreCommand::BuildPrepareRunPlan => plugin_response(
             id,
             parsed.payload,

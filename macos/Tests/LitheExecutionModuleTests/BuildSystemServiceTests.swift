@@ -1444,6 +1444,100 @@ struct BuildSystemServiceTests {
         #expect(harness.service.output.contains("build failed"))
     }
 
+    @Test
+    func providerDebugPreparationHandsOffOnlyValidatedCurrentFacts() async throws {
+        let (planner, providers, launcher, harness) = try Self.debugPreparationHarness()
+        defer { harness.service.stop() }
+        var launched: [BuildDebugPreparation] = []
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        try #require(harness.service.debugApplication(Self.instanceID, request: Self.runRequest, title: "Debug") { source, plan in
+            #expect(source.pluginID == "dev.example")
+            launched.append(plan)
+        } != nil)
+        try #require(await harness.waitForRunState { $0 == .succeeded })
+        #expect(providers.sent.map(\.request.method) == ["lithe/build/prepareDebug"])
+        #expect(launched.first?.adapter == "native")
+        #expect(launched.first?.arguments == ["a b", "x#y"])
+        #expect(launcher.launched.isEmpty)
+        #expect(planner.diagnosticOutputs.isEmpty)
+    }
+
+    @Test(arguments: ["stop", "debug-stop", "workspace", "options", "disable", "source", "reload"])
+    func providerDebugLateReplyCannotLaunch(change: String) async throws {
+        let (_, providers, _, harness) = try Self.debugPreparationHarness()
+        let release = BuildTestGate()
+        let launched = BuildTestGate()
+        providers.replyGate = release
+        defer { release.open(); harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        harness.service.debugApplication(Self.instanceID, request: Self.runRequest, title: "Debug") { _, _ in launched.open() }
+        try #require(await providers.requestStarted.waitUntilOpen())
+        switch change {
+        case "workspace": harness.service.reset(workspaceURL: URL(fileURLWithPath: "/other"))
+        case "options": harness.service.setOption(Self.instanceID, optionID: "release", value: .bool(true))
+        case "disable": harness.sources = []; harness.service.pluginsChanged()
+        case "source": harness.service.workspaceFilesChanged([Self.workspace.appendingPathComponent("app/main.c")])
+        case "reload": harness.service.loadModel(Self.instanceID, reason: .refresh)
+        case "debug-stop": harness.service.cancelDebugPreparation()
+        default: harness.service.stopRun()
+        }
+        providers.executionProgress?(BuildProviderProgress(output: "stale debug output"))
+        release.open()
+        try #require(await providers.requestFinished.waitUntilOpen())
+        #expect(await launched.waitUntilOpen(timeout: .milliseconds(200)) == false)
+        #expect(!harness.service.output.contains("stale debug output"))
+    }
+
+    @Test
+    func providerDebugCancellationDuringDecodePreventsAdapterStart() async throws {
+        let (planner, _, _, harness) = try Self.debugPreparationHarness()
+        let gate = GatedBuildDecode()
+        let launched = BuildTestGate()
+        planner.runPreparationGate = gate
+        defer { gate.releaseDecode(); harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        harness.service.debugApplication(Self.instanceID, request: Self.runRequest, title: "Debug") { _, _ in launched.open() }
+        try #require(await gate.entered.waitUntilOpen())
+        harness.service.cancelDebugPreparation()
+        gate.releaseDecode()
+        try #require(await gate.finished.waitUntilOpen())
+        #expect(await launched.waitUntilOpen(timeout: .milliseconds(200)) == false)
+    }
+
+    @Test
+    func providerDebugRejectsMissingCapabilitiesAndReportsLaunchFailure() async throws {
+        let (_, providers, _, noDebug) = try Self.runPreparationHarness()
+        defer { noDebug.service.stop() }
+        noDebug.service.reset(workspaceURL: Self.workspace)
+        try #require(await noDebug.waitForEntries { !$0.isEmpty })
+        #expect(noDebug.service.debugApplication(Self.instanceID, request: Self.runRequest, title: "Debug") { _, _ in
+            Issue.record("No debug adapter was declared")
+        } == nil)
+        #expect(providers.sent.isEmpty)
+        let (_, _, _, harness) = try Self.debugPreparationHarness()
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        harness.service.debugApplication(Self.instanceID, request: Self.runRequest, title: "Debug") { _, _ in
+            throw BuildSystemServiceTestsError(message: "adapter unavailable")
+        }
+        try #require(await harness.waitForRunState { if case .failed = $0 { true } else { false } })
+        #expect(harness.service.output.contains("adapter unavailable"))
+    }
+
+    private static func debugPreparationHarness() throws -> (FakeBuildPlanner, FakeBuildProviders, FakeBuildRunLauncher, Harness) {
+        let (planner, providers, launcher, harness) = try runPreparationHarness()
+        planner.providerRequest = providerRequest(method: "lithe/build/prepareDebug")
+        providers.reply = try decode(ToolingJSONValue.self,
+            #"{"root":"app","adapter":"native","program":"app/bin/main","arguments":["a b","x#y"],"workingDirectory":"app","environment":{}}"#)
+        harness.sources = [fixtureSource(providerRuns: [.init(id: "application", displayName: "Run",
+            targetTags: ["application"], debugAdapter: "native")])]
+        return (planner, providers, launcher, harness)
+    }
+
     private static let runRequest = BuildRunRequest(run: "application", projectID: "p", targetID: "t")
     private static func runPreparationHarness() throws -> (FakeBuildPlanner, FakeBuildProviders, FakeBuildRunLauncher, Harness) {
         let planner = FakeBuildPlanner()
@@ -2555,6 +2649,22 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         return providerRequest
     }
 
+    func prepareDebugPlan(_ target: BuildSystemTarget, context: BuildPlanContext, run: String,
+                          project: BuildSelection, selectedTarget: BuildSelection, userArguments: [String]) throws -> BuildProviderRequest {
+        guard let providerRequest else { throw CancellationError() }
+        return providerRequest
+    }
+
+    func decodeDebugPreparation(_ target: BuildSystemTarget, workspaceURL: URL, root: String, run: String,
+                                result: ToolingJSONValue) throws -> BuildDebugPreparation {
+        if let gate = access({ let gate = $0.runPreparationGate; $0.runPreparationGate = nil; return gate }) {
+            gate.entered.open()
+            guard gate.waitForRelease() else { throw GatedDecodeError.releaseTimedOut }
+            gate.finished.open()
+        }
+        return try JSONDecoder().decode(BuildDebugPreparation.self, from: JSONEncoder().encode(result))
+    }
+
     func decodeRunPreparation(_ target: BuildSystemTarget, workspaceURL: URL, root: String,
                               result: ToolingJSONValue) throws -> BuildRunPreparation {
         if let gate = access({ let gate = $0.runPreparationGate; $0.runPreparationGate = nil; return gate }) {
@@ -2922,6 +3032,11 @@ private final class FakeBuildProviders: BuildProviderRequesting {
         executionProgress = progress
         _ = try await send(request, to: target, timeout: timeout)
         return executionResult
+    }
+
+    func prepareDebug(_ request: BuildProviderRequest, on target: BuildProviderTarget, timeout: Duration,
+                      progress: @escaping @MainActor @Sendable (BuildProviderProgress) -> Void) async throws -> ToolingJSONValue {
+        try await prepareRun(request, on: target, timeout: timeout, progress: progress)
     }
 
     func prepareRun(_ request: BuildProviderRequest, on target: BuildProviderTarget, timeout: Duration,

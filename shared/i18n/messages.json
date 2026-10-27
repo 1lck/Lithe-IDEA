@@ -89276,6 +89276,17 @@
         "key": "The saved provider run configuration is unavailable.",
         "arguments": []
       }
+    },
+    {
+      "id": "native.providerDebugUnavailable",
+      "description": "Native UI: Provider debug target unavailable",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The build provider's debug program or adapter is unavailable. Build it again and check that the plugin is enabled.",
+        "arguments": []
+      }
     }
   ]
 }

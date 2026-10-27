@@ -532,6 +532,42 @@ must not impose a shorter readiness deadline. The terminal timeout code is
 `serviceReadyTimeout`, and its details preserve the last import, download, and
 cache snapshot for both products.
 
+### Explicit debug adapter selection
+
+`DebugLaunchConfiguration.adapterProviderID` is optional host routing metadata.
+Plugin registrations use the existing Registry identity `pluginID/adapterID`;
+the host Java adapter retains `java`. The field is not a DAP argument, a process
+command, or a plugin-private function call. An omitted identity uses the existing
+file selection. An explicit identity, including an empty or withdrawn one, must
+never fall back to another adapter matching the file.
+
+Qualified registrations include every declared adapter, including attach-only
+and executable/process adapters. They do not become automatic file defaults.
+Before creating a transport, the session manager resolves the current registration
+and verifies its declared launch/attach request. An explicit target need not be
+an open source file. Retry and configuration transformations retain the identity;
+failed additional starts clean up their own session and preserve the previous one.
+
+Source breakpoints are shared by matching registered adapters, including replay
+on a later launch. Function, exception and data breakpoint changes use the selected
+adapter identity, even when the target has no source extension. Plugin ownership
+continues to control withdrawal and process cleanup. The platform resolver still
+owns manifest validation, permissions, executable resolution and supported transports;
+this routing field grants no new permission and carries no adapter process or socket.
+
+The host fixture is [adapter-selection-v1.json](../fixtures/debug/adapter-selection-v1.json).
+macOS consumes this contract. Windows has no plugin adapter launch consumer yet.
+Build Provider version 5 adds a separate native debug preparation request;
+version 4 run plans are never reinterpreted as debug plans. The selected run
+names a same-plugin launch adapter. Core validates an existing instance-contained
+program plus bounded arguments/environment/directory, and the platform rechecks
+executable permissions before binding target facts through `debug.adapters.startArguments`.
+Build-tree Debug and saved-provider Run Debug save documents first and revalidate
+workspace, source, configuration, model and plugin identity before handoff. Debug
+owns the resulting session; stopping preparation or accepting late replies cannot
+start a session after invalidation. Java/JDT and cross-plugin preparation are not
+covered by this native increment.
+
 ## Error Codes
 
 Use stable categories rather than platform error strings:

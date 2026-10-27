@@ -631,6 +631,9 @@ fn task_execution() -> BuildExecution {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct RunDeclaration {
+    /// A same-package adapter for native executable debug preparation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) debug: Option<RunDebug>,
     pub(crate) id: String,
     /// Provider runs prepare a launch plan; they never become empty argv entries.
     #[serde(default, skip_serializing_if = "TaskSource::is_command")]
@@ -652,6 +655,13 @@ pub(crate) struct RunDeclaration {
     /// Metadata stored under `extensions.<buildSystemID>` of the entry.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub(crate) extension: BTreeMap<String, String>,
+}
+
+/// Explicit adapter reference; it never grants cross-package access.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RunDebug {
+    pub(crate) adapter: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -928,6 +938,7 @@ fn check_target_tags(tags: &mut Vec<String>, scopes: &[Scope], field: &str) -> V
 /// Facts of the rest of the manifest a build-system declaration is checked
 /// against.
 pub(crate) struct DeclarationContext<'a> {
+    pub(crate) debug_adapters: &'a [crate::debug::adapters::DebugAdapterDeclaration],
     pub(crate) plugin_api_version: u32,
     pub(crate) build_systems_version: u32,
     /// Admission version for provider execution; independent of wire negotiation.
@@ -1341,6 +1352,17 @@ impl BuildSystemDeclaration {
                 field,
                 "No model, dependencies, task or test source uses the provider.",
             ));
+        }
+        for run in &self.run {
+            if run.debug.is_some() {
+                if context.build_providers_version < 5 {
+                    return Err(invalid(
+                        &field,
+                        "Provider debug preparation requires buildProviders 5.",
+                    ));
+                }
+                super::debug_preparation::adapter(run, context.debug_adapters)?;
+            }
         }
         if provider_tests && context.build_providers_version < 3 {
             return Err(invalid(&field, "Provider tests require buildProviders 3."));
@@ -1788,6 +1810,12 @@ impl BuildSystemDeclaration {
                 return Err(invalid(
                     format!("{field}.id"),
                     "Run IDs are unique identifiers that start with a letter.",
+                ));
+            }
+            if run.debug.is_some() && run.source != TaskSource::Provider {
+                return Err(invalid(
+                    &field,
+                    "Debug preparation requires a provider run.",
                 ));
             }
             if run.source == TaskSource::Provider {

@@ -191,7 +191,8 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
                         path: request.path,
                         processID: request.processID,
                         workingDirectory: request.workingDirectory,
-                        executable: request.executable
+                        executable: request.executable,
+                        arguments: request.arguments, environment: request.environment
                     )
                 )
             )
@@ -601,6 +602,8 @@ struct RustDeclarativePluginOperations: DeclarativePluginManifestValidating, Dec
                 let processID: Int?
                 let workingDirectory: String?
                 let executable: String?
+                let arguments: [String]?
+                let environment: [String: String]?
             }
 
             let registration: Registration

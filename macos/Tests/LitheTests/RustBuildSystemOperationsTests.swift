@@ -144,6 +144,32 @@ struct RustBuildSystemOperationsTests {
     }
 
     @Test
+    func providerDebugPreparationRoundTripsThroughRealCore() throws {
+        let descriptor = try Self.descriptor("build-provider-debug-preparation")
+        #expect(descriptor.buildSystems.first?.providerRuns.first?.debugAdapter == "native")
+        let target = try Self.target("build-provider-debug-preparation", "gradle")
+        let workspace = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: workspace) }
+        let directory = workspace.appendingPathComponent("app", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data("native program".utf8).write(to: directory.appendingPathComponent("main"))
+        let plan = try operations.prepareDebugPlan(target, context: BuildPlanContext(root: ".", options: ["offline": .bool(true)]),
+            run: "application", project: BuildSelection(name: "app", path: "app"),
+            selectedTarget: BuildSelection(name: "Main", path: "app", tags: ["application"]), userArguments: ["a b"])
+        #expect(plan.method == "lithe/build/prepareDebug")
+        guard case .object(let params) = plan.params else { Issue.record("Missing provider params"); return }
+        #expect(params["userArguments"] == .array([.string("a b")]))
+        let result: ToolingJSONValue = .object(["program": .string("app/main"), "arguments": .array([.string("a b")]),
+            "workingDirectory": .string("app"), "environment": .object(["MODE": .string("debug")])])
+        let prepared = try operations.decodeDebugPreparation(target, workspaceURL: workspace, root: "app", run: "application", result: result)
+        #expect(prepared.adapter == "native")
+        #expect(prepared.root == "app")
+        #expect(prepared.program == "app/main")
+        #expect(prepared.arguments == ["a b"])
+        #expect(prepared.environment == ["MODE": "debug"])
+    }
+
+    @Test
     func providerTestPlanKeepsTypedFiltersAndReportPatterns() throws {
         let target = try Self.target("build-provider-tests", "gradle")
         let plan = try operations.testPlan(

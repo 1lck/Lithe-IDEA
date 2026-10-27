@@ -69,6 +69,20 @@ package final class BuildSystemsFeatureModel: ObservableObject {
     package func runTests(_ entryID: String, request: BuildTestRequest, title: String) -> UUID? {
         service.runTests(entryID, request: request, title: title)
     }
+    package func cancelDebugPreparation() { service.cancelDebugPreparation() }
+
+    @discardableResult
+    package func debugApplication(_ entryID: String, request: BuildRunRequest, title: String,
+                                  launch: @escaping @MainActor (BuildSystemPluginSource, BuildDebugPreparation) throws -> Void) -> UUID? {
+        service.debugApplication(entryID, request: request, title: title, launch: launch)
+    }
+
+    @discardableResult
+    package func debugProviderConfiguration(_ configuration: RunConfiguration, workspace: URL,
+                                  launch: @escaping @MainActor (BuildSystemPluginSource, BuildDebugPreparation) throws -> Void) -> UUID? {
+        service.debugProviderConfiguration(configuration, workspace: workspace, launch: launch)
+    }
+
     @discardableResult
     package func runApplication(_ entryID: String, request: BuildRunRequest, title: String) -> UUID? {
         service.runApplication(entryID, request: request, title: title)

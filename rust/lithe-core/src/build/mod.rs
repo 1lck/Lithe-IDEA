@@ -16,6 +16,7 @@
 //! Note: the contract is recorded in .agents/notes/implemented/architecture/2026-10-17-build-system-plugin-contract.md
 
 mod commands;
+mod debug_preparation;
 mod decode;
 mod detect;
 mod integrations;

@@ -108,6 +108,10 @@ pub enum CoreCommand {
     BuildTestPlan,
     /// Plans typed provider run preparation (`build.prepareRunPlan`).
     BuildPrepareRunPlan,
+    /// Plans native debug preparation (`build.prepareDebugPlan`).
+    BuildPrepareDebugPlan,
+    /// Validates native debug target facts (`build.decodeDebugPreparation`).
+    BuildDecodeDebugPreparation,
     /// Validates prepared launch data (`build.decodeRunPreparation`).
     BuildDecodeRunPreparation,
     /// Plans provider-owned test discovery (`build.testDiscoveryPlan`).
@@ -532,6 +536,8 @@ impl CoreCommand {
             "build.modelPlan" => Some(Self::BuildModelPlan),
             "build.taskPlan" => Some(Self::BuildTaskPlan),
             "build.testPlan" => Some(Self::BuildTestPlan),
+            "build.prepareDebugPlan" => Some(Self::BuildPrepareDebugPlan),
+            "build.decodeDebugPreparation" => Some(Self::BuildDecodeDebugPreparation),
             "build.prepareRunPlan" => Some(Self::BuildPrepareRunPlan),
             "build.decodeRunPreparation" => Some(Self::BuildDecodeRunPreparation),
             "build.testDiscoveryPlan" => Some(Self::BuildTestDiscoveryPlan),

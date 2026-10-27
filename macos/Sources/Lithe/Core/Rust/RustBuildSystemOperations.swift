@@ -123,6 +123,18 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
 
     func prepareRunPlan(_ target: BuildSystemTarget, context: BuildPlanContext, run: String,
                         project: BuildSelection, selectedTarget: BuildSelection, userArguments: [String]) throws -> BuildProviderRequest {
+        try preparationPlan(target, context: context, run: run, project: project, selectedTarget: selectedTarget,
+                            userArguments: userArguments, command: "build.prepareRunPlan")
+    }
+
+    func prepareDebugPlan(_ target: BuildSystemTarget, context: BuildPlanContext, run: String,
+                          project: BuildSelection, selectedTarget: BuildSelection, userArguments: [String]) throws -> BuildProviderRequest {
+        try preparationPlan(target, context: context, run: run, project: project, selectedTarget: selectedTarget,
+                            userArguments: userArguments, command: "build.prepareDebugPlan")
+    }
+
+    private func preparationPlan(_ target: BuildSystemTarget, context: BuildPlanContext, run: String,
+                                 project: BuildSelection, selectedTarget: BuildSelection, userArguments: [String], command: String) throws -> BuildProviderRequest {
         struct Request: Encodable {
             let root: String
             let pluginDirectory: String?
@@ -133,7 +145,7 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
             let target: BuildSelection
             let userArguments: [String]
         }
-        let outcome: Outcome<PlanResult> = try execute("build.prepareRunPlan", target: target,
+        let outcome: Outcome<PlanResult> = try execute(command, target: target,
             request: Request(root: context.root, pluginDirectory: context.pluginDirectory?.path,
                              workspaceStateDirectory: context.workspaceStateDirectory?.path, options: context.options, run: run,
                              project: project, target: selectedTarget, userArguments: userArguments))
@@ -150,6 +162,15 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         let outcome: Outcome<Reply> = try execute("build.decodeRunPreparation", target: target,
             request: Request(workspaceRoot: workspaceURL.path, root: root, result: result))
         return outcome.value.launch
+    }
+
+    func decodeDebugPreparation(_ target: BuildSystemTarget, workspaceURL: URL, root: String, run: String,
+                                result: ToolingJSONValue) throws -> BuildDebugPreparation {
+        struct Request: Encodable { let workspaceRoot: String; let root: String; let run: String; let result: ToolingJSONValue }
+        struct Reply: Decodable { let preparation: BuildDebugPreparation }
+        let outcome: Outcome<Reply> = try execute("build.decodeDebugPreparation", target: target,
+            request: Request(workspaceRoot: workspaceURL.path, root: root, run: run, result: result))
+        return outcome.value.preparation
     }
 
     func decodeTestDiscovery(

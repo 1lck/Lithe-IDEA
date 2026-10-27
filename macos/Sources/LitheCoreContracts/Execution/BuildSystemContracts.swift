@@ -106,8 +106,9 @@ public struct DeclarativeBuildSystem: Equatable, Sendable {
         public let id: String
         public let displayName: String
         public let targetTags: [String]
-        public init(id: String, displayName: String, targetTags: [String]) {
-            self.id = id; self.displayName = displayName; self.targetTags = targetTags
+        public let debugAdapter: String?
+        public init(id: String, displayName: String, targetTags: [String], debugAdapter: String? = nil) {
+            self.id = id; self.displayName = displayName; self.targetTags = targetTags; self.debugAdapter = debugAdapter
         }
     }
     public let providerRuns: [ProviderRun]
@@ -718,6 +719,17 @@ package struct BuildRunPreparation: Codable, Equatable, Sendable {
     }
 }
 
+/// Core-validated native facts. The adapter comes from the selected declaration,
+/// never from the backend's reply; the platform checks executable permissions.
+package struct BuildDebugPreparation: Decodable, Equatable, Sendable {
+    package let root: String
+    package let adapter: String
+    package let program: String
+    package let arguments: [String]
+    package let workingDirectory: String
+    package let environment: [String: String]
+}
+
 @MainActor
 package protocol BuildRunLaunching: AnyObject {
     func launchPreparedRun(_ plan: BuildRunPreparation, workspaceURL: URL, title: String, configuration: RunConfiguration?) throws -> String
@@ -1039,6 +1051,10 @@ package protocol BuildSystemPlanning: Sendable {
                         project: BuildSelection, selectedTarget: BuildSelection, userArguments: [String]) throws -> BuildProviderRequest
     func decodeRunPreparation(_ target: BuildSystemTarget, workspaceURL: URL, root: String,
                               result: ToolingJSONValue) throws -> BuildRunPreparation
+    func prepareDebugPlan(_ target: BuildSystemTarget, context: BuildPlanContext, run: String,
+                          project: BuildSelection, selectedTarget: BuildSelection, userArguments: [String]) throws -> BuildProviderRequest
+    func decodeDebugPreparation(_ target: BuildSystemTarget, workspaceURL: URL, root: String, run: String,
+                                result: ToolingJSONValue) throws -> BuildDebugPreparation
     func testDiscoveryPlan(_ target: BuildSystemTarget, context: BuildPlanContext) throws -> BuildProviderRequest
     func decodeTestDiscovery(
         _ target: BuildSystemTarget, context: BuildPlanContext, result: ToolingJSONValue
@@ -1131,6 +1147,8 @@ package protocol BuildProviderRequesting: AnyObject {
     /// Prepares portable launch data, retaining execution progress and cancellation.
     func prepareRun(_ request: BuildProviderRequest, on target: BuildProviderTarget, timeout: Duration,
                     progress: @escaping @MainActor @Sendable (BuildProviderProgress) -> Void) async throws -> ToolingJSONValue
+    func prepareDebug(_ request: BuildProviderRequest, on target: BuildProviderTarget, timeout: Duration,
+                      progress: @escaping @MainActor @Sendable (BuildProviderProgress) -> Void) async throws -> ToolingJSONValue
     /// Runs a typed provider task in the same workspace session.
     func execute(
         _ request: BuildProviderRequest, on target: BuildProviderTarget, timeout: Duration,
@@ -1154,6 +1172,10 @@ package protocol BuildProviderRequesting: AnyObject {
 }
 
 package extension BuildProviderRequesting {
+    func prepareDebug(_ request: BuildProviderRequest, on target: BuildProviderTarget, timeout: Duration,
+                      progress: @escaping @MainActor @Sendable (BuildProviderProgress) -> Void) async throws -> ToolingJSONValue {
+        throw PluginFunctionFailure(code: "plugin.build.unavailable", message: L10n.string("The build provider returned an invalid launch plan."))
+    }
     func pluginFunctions(of _: BuildProviderTarget) async throws -> [String] {
         throw PluginFunctionFailure(
             code: "plugin.function.unavailable",

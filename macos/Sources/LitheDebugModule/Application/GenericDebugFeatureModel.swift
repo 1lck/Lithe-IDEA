@@ -296,7 +296,8 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             if startAdditional(fileURL: request.fileURL, rootURL: request.rootURL,
                      configuration: DebugLaunchConfiguration(
                         name: request.configuration.name, request: request.configuration.request,
-                        arguments: arguments, steppingFilters: request.configuration.steppingFilters)) {
+                        arguments: arguments, steppingFilters: request.configuration.steppingFilters,
+                        adapterProviderID: request.configuration.adapterProviderID)) {
                 registerJavaUpdateTarget(target)
             }
         } catch {
@@ -727,7 +728,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         serviceUpdateFailed = false
         lastStartRequest = request
         activeFileURL = request.fileURL
-        providerID = sessionsProviderID(for: fileURL)
+        providerID = configuration.adapterProviderID ?? sessionsProviderID(for: fileURL)
         targetTitle = configuration.name
         replaceOutput(with: "")
         debuggeeOutputNormalizer.reset()
@@ -748,7 +749,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         selectedFrameID = nil
         stoppedFrame = nil
         selectedFrame = nil
-        for index in breakpoints.indices where sessionsProviderID(for: breakpoints[index].fileURL) == providerID {
+        for index in breakpoints.indices where providerHandles(breakpoints[index].fileURL, providerID: providerID) {
             breakpoints[index].verified = false
             breakpoints[index].message = nil
             breakpoints[index].resolvedLine = nil
@@ -756,7 +757,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         do {
             try synchronizeRequestedBreakpoints(for: providerID)
             if !dataBreakpoints.isEmpty {
-                try sessions.setDataBreakpoints(coreDataBreakpoints, for: request.fileURL)
+                try sessions.setDataBreakpoints(coreDataBreakpoints, for: request.fileURL, adapterProviderID: providerID)
             }
             let effectiveConfiguration: DebugLaunchConfiguration
             if providerID == "java", let javaSteppingFilters {
@@ -803,7 +804,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         outputPresentation.flush()
         if let activeFileURL {
             dataBreakpoints.removeAll { !$0.canPersist }
-            try? sessions.setDataBreakpoints(coreDataBreakpoints, for: activeFileURL)
+            try? sessions.setDataBreakpoints(coreDataBreakpoints, for: activeFileURL, adapterProviderID: providerID)
         }
         if let activeSessionID {
             let children = sessions.childSessionIDs(of: activeSessionID)
@@ -2072,6 +2073,10 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         sessions.provider(for: fileURL)?.id
     }
 
+    private func providerHandles(_ fileURL: URL, providerID: String?) -> Bool {
+        providerID.flatMap { sessions.provider(id: $0) }?.matches(fileURL) == true
+    }
+
     private func consume(_ event: DebugAdapterEvent) {
         switch event {
         case .initialized:
@@ -2404,7 +2409,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     private func synchronizeRequestedBreakpoints(for providerID: String?) throws {
         guard let providerID else { return }
         for fileURL in requestedBreakpointsByFile.keys.sorted(by: { $0.path < $1.path })
-        where sessionsProviderID(for: fileURL) == providerID {
+        where providerHandles(fileURL, providerID: providerID) {
             try sessions.setBreakpoints(effectiveBreakpoints(for: fileURL), in: fileURL)
         }
     }
@@ -2446,7 +2451,8 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
                         condition: $0.condition
                     )
                 },
-                for: activeFileURL
+                for: activeFileURL,
+                adapterProviderID: providerID
             )
         } catch {
             record(error)
@@ -2465,7 +2471,8 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
                         hitCondition: $0.hitCondition
                     )
                 },
-                for: activeFileURL
+                for: activeFileURL,
+                adapterProviderID: providerID
             )
         } catch {
             record(error)
@@ -2488,7 +2495,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     private func synchronizeDataBreakpoints() {
         guard let activeFileURL else { return }
         do {
-            try sessions.setDataBreakpoints(coreDataBreakpoints, for: activeFileURL)
+            try sessions.setDataBreakpoints(coreDataBreakpoints, for: activeFileURL, adapterProviderID: providerID)
         } catch {
             record(error)
         }

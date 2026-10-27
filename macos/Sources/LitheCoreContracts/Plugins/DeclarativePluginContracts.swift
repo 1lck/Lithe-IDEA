@@ -679,6 +679,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 id: $0.id,
                 displayName: $0.displayName,
                 adapterID: $0.adapterID ?? $0.id,
+                requests: Set($0.requests.compactMap(DebugRequestKind.init(rawValue:))),
                 languageIDs: $0.languageIDs,
                 fileLaunchLanguageIDs: $0.fileLaunchLanguageIDs,
                 consoleCommands: $0.consoleCommands,
@@ -1225,6 +1226,8 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 let icon: PluginUIIcon?
             }
             struct ProviderRun: Decodable {
+                struct Debug: Decodable { let adapter: String }
+                let debug: Debug?
                 struct Targets: Decodable { let tags: [String] }
                 let id: String
                 let source: String?
@@ -1295,7 +1298,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                     declaresProvider: declaresProvider,
                     testDiscovery: test?.discovery ?? false,
                     providerRuns: run.filter { $0.source == "provider" }.map {
-                        .init(id: $0.id, displayName: $0.name ?? $0.id, targetTags: $0.fromTargets?.tags ?? [])
+                        .init(id: $0.id, displayName: $0.name ?? $0.id, targetTags: $0.fromTargets?.tags ?? [], debugAdapter: $0.debug?.adapter)
                     }
                 )
             }
@@ -1366,6 +1369,7 @@ public struct DeclarativeDebugAdapter: Equatable, Sendable {
     public let displayName: String
     /// The `adapterID` of the DAP `initialize` request.
     public let adapterID: String
+    public let requests: Set<DebugRequestKind>
     /// Every language a selector of the adapter names, whatever the request or
     /// target kind. It says which languages the plugin has a debugger for, so a
     /// debug-only declaration is recognised; it does not choose the adapter for
@@ -1393,6 +1397,7 @@ public struct DeclarativeDebugAdapter: Equatable, Sendable {
         id: String,
         displayName: String,
         adapterID: String,
+        requests: Set<DebugRequestKind> = [.launch, .attach],
         languageIDs: [String],
         fileLaunchLanguageIDs: [String]? = nil,
         consoleCommands: [DebugConsoleCommand] = [],
@@ -1403,6 +1408,7 @@ public struct DeclarativeDebugAdapter: Equatable, Sendable {
         self.id = id
         self.displayName = displayName
         self.adapterID = adapterID
+        self.requests = requests
         self.languageIDs = languageIDs
         self.fileLaunchLanguageIDs = fileLaunchLanguageIDs ?? languageIDs
         self.consoleCommands = consoleCommands
@@ -1505,13 +1511,16 @@ public struct DeclarativeDebugStartRequest: Equatable, Sendable {
     /// The program the host found for a launch whose adapter binds `program` to
     /// `target.executable`; an absolute path the host has checked is runnable.
     public let executable: String?
+    public let arguments: [String]?
+    public let environment: [String: String]?
     public let registrationGeneration: Int
     public let currentRegistrationGeneration: Int
 
     public init(
         request: Request, targetKind: String, path: String? = nil, processID: Int? = nil,
         workingDirectory: String? = nil, executable: String? = nil,
-        registrationGeneration: Int, currentRegistrationGeneration: Int
+        registrationGeneration: Int, currentRegistrationGeneration: Int,
+        arguments: [String]? = nil, environment: [String: String]? = nil
     ) {
         self.request = request
         self.targetKind = targetKind
@@ -1519,6 +1528,8 @@ public struct DeclarativeDebugStartRequest: Equatable, Sendable {
         self.processID = processID
         self.workingDirectory = workingDirectory
         self.executable = executable
+        self.arguments = arguments
+        self.environment = environment
         self.registrationGeneration = registrationGeneration
         self.currentRegistrationGeneration = currentRegistrationGeneration
     }

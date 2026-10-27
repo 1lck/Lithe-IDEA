@@ -135,6 +135,7 @@ package final class BuildSystemService: ObservableObject {
     private let runner: any BuildCommandRunning
     private let providers: (any BuildProviderRequesting)?
     private let runLauncher: (any BuildRunLaunching)?
+    private var preparingDebugID: UUID?
     private var preparedApplication: (source: BuildSystemPluginSource, operationID: String)?
     private let settings: @MainActor (String) -> [String: ToolingJSONValue]
     private let waitForRedetection: @Sendable () async throws -> Void
@@ -692,29 +693,58 @@ package final class BuildSystemService: ObservableObject {
 
     package func cancelRun(_ id: UUID) { if runID == id { stopRun() } }
 
+    package func cancelDebugPreparation() { if let id = preparingDebugID { cancelRun(id) } }
+
+    /// Debug owns the launched session; this service owns only preparation.
+    @discardableResult
+    package func debugApplication(_ entryID: String, request: BuildRunRequest, title: String,
+                                  launch: @escaping @MainActor (BuildSystemPluginSource, BuildDebugPreparation) throws -> Void) -> UUID? {
+        prepareApplication(entryID, request: request, title: title, debugLaunch: launch)
+    }
+
+    @discardableResult
+    package func debugProviderConfiguration(_ configuration: RunConfiguration, workspace: URL,
+                                  launch: @escaping @MainActor (BuildSystemPluginSource, BuildDebugPreparation) throws -> Void) -> UUID? {
+        guard workspace.standardizedFileURL == workspaceURL, let reference = configuration.buildProvider,
+              let entry = entries.first(where: { $0.instance.pluginID == reference.pluginID
+                && $0.instance.buildSystemID == reference.buildSystemID && $0.instance.root == reference.root }) else { return nil }
+        return debugApplication(entry.id, request: reference.request, title: configuration.name, launch: launch)
+    }
+
     /// The provider owns build/launch facts; the Run host owns the application.
     @discardableResult
     package func runApplication(_ entryID: String, request: BuildRunRequest, title: String, configuration: RunConfiguration? = nil) -> UUID? {
+        prepareApplication(entryID, request: request, title: title, configuration: configuration)
+    }
+
+    private func prepareApplication(_ entryID: String, request: BuildRunRequest, title: String,
+                                    configuration: RunConfiguration? = nil,
+                                    debugLaunch: (@MainActor (BuildSystemPluginSource, BuildDebugPreparation) throws -> Void)? = nil) -> UUID? {
         guard let workspaceURL, let entry = entry(entryID), let model = entry.model,
               !entry.isReloadRequired, entry.modelState == .loaded,
               let project = model.projects.first(where: { $0.id == request.projectID }),
               let target = model.targets.first(where: { $0.id == request.targetID && $0.projectID == project.id }),
-              entry.declaration.providerRuns.contains(where: { $0.id == request.run }) else { return nil }
+              entry.declaration.providerRuns.contains(where: { $0.id == request.run && (debugLaunch == nil || $0.debugAdapter != nil) }) else { return nil }
         let origin = configuration ?? RunConfiguration(id: "build:" + entryID + ":" + request.run + ":" + request.targetID,
             name: title, kind: .process(provider: "build.provider"), execution: .application, modulePath: nil, mainClass: nil,
             buildProvider: BuildProviderRunReference(pluginID: entry.instance.pluginID, buildSystemID: entry.instance.buildSystemID,
                 root: entry.instance.root, run: request.run, projectID: request.projectID, targetID: request.targetID,
                 userArguments: request.userArguments))
-        stopPreparedApplication()
+        if debugLaunch == nil { stopPreparedApplication() }
         let sourceRevision = fileRevision
         return startRun(entryID, title: title) { service, run in
-            guard let providers = service.providers, let launcher = service.runLauncher else {
+            guard let providers = service.providers, debugLaunch != nil || service.runLauncher != nil else {
                 throw BuildSystemServiceError(Self.providerUnsupportedMessage)
             }
             let context = try service.planContext(entry, workspaceURL: workspaceURL)
-            let planned = try service.planner.prepareRunPlan(entry.target, context: context, run: request.run,
-                project: BuildSelection(project: project), selectedTarget: BuildSelection(target: target),
-                userArguments: request.userArguments)
+            let planned: BuildProviderRequest
+            if debugLaunch != nil {
+                planned = try service.planner.prepareDebugPlan(entry.target, context: context, run: request.run,
+                    project: BuildSelection(project: project), selectedTarget: BuildSelection(target: target), userArguments: request.userArguments)
+            } else {
+                planned = try service.planner.prepareRunPlan(entry.target, context: context, run: request.run,
+                    project: BuildSelection(project: project), selectedTarget: BuildSelection(target: target), userArguments: request.userArguments)
+            }
             let validConfiguration = service.runValidity(.provider(planned), entry: entry, workspaceURL: workspaceURL, run: run)
             let isValid: @MainActor @Sendable () -> Bool = { [weak service] in
                 guard let service else { return false }
@@ -722,24 +752,42 @@ package final class BuildSystemService: ObservableObject {
                     && service.entry(entryID)?.model == model && service.entry(entryID)?.modelState == .loaded
                     && service.entry(entryID)?.isReloadRequired == false
             }
+            if debugLaunch != nil { service.preparingDebugID = run.id }
+            defer { if service.preparingDebugID == run.id { service.preparingDebugID = nil } }
             service.providerRunID = run.id
             service.preparingApplicationID = run.id
             defer { if service.preparingApplicationID == run.id { service.preparingApplicationID = nil } }
             defer { if service.providerRunID == run.id { service.providerRunID = nil } }
             let resolved = try await service.providerRequestWithTool(planned, entry: entry, workspaceURL: workspaceURL, run: run)
             guard isValid() else { throw CancellationError() }
-            let result = try await providers.prepareRun(resolved, on: Self.providerTarget(entry, workspaceURL: workspaceURL),
-                                                       timeout: .seconds(3600)) { [weak service] progress in
+            let progress: @MainActor @Sendable (BuildProviderProgress) -> Void = { [weak service] progress in
                 guard let service, isValid() else { return }
                 if let output = progress.output { service.appendOutput(output, in: service.outputDirectory(entry)) }
                 else if let message = progress.message { service.appendOutput(message + "\n", in: service.outputDirectory(entry)) }
             }
+            let providerTarget = Self.providerTarget(entry, workspaceURL: workspaceURL)
+            let result: ToolingJSONValue
+            if debugLaunch != nil {
+                result = try await providers.prepareDebug(resolved, on: providerTarget, timeout: .seconds(3600), progress: progress)
+            } else {
+                result = try await providers.prepareRun(resolved, on: providerTarget, timeout: .seconds(3600), progress: progress)
+            }
             guard isValid() else { throw CancellationError() }
             let planner = service.planner
+            if let debugLaunch {
+                let preparation = try await Task.detached(priority: .userInitiated) {
+                    try planner.decodeDebugPreparation(entry.target, workspaceURL: workspaceURL, root: context.root,
+                                                       run: request.run, result: result)
+                }.value
+                guard isValid() else { throw CancellationError() }
+                try debugLaunch(entry.source, preparation)
+                return 0
+            }
             let preparation = try await Task.detached(priority: .userInitiated) {
                 try planner.decodeRunPreparation(entry.target, workspaceURL: workspaceURL, root: context.root, result: result)
             }.value
             guard isValid() else { throw CancellationError() }
+            guard let launcher = service.runLauncher else { throw BuildSystemServiceError(Self.providerUnsupportedMessage) }
             let operationID = try launcher.launchPreparedRun(preparation, workspaceURL: workspaceURL, title: title, configuration: origin)
             service.preparedApplication = (entry.source, operationID)
             service.applicationLaunched.send(entryID)

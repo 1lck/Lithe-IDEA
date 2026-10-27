@@ -75,7 +75,7 @@ extension AppModel {
                 scope: target.scope)
             return
         }
-        Task { [weak self] in await self?.startDebuggingAfterActivation() }
+        runWorkflowCoordinator.startModuleOperation { [weak self] in await self?.startDebuggingAfterActivation() }
     }
 
     func startOrRestartDebugging() {
@@ -173,6 +173,18 @@ extension AppModel {
             }
             return
         }
+        if selectedConfiguration.buildProvider != nil {
+            guard await saveAllDocuments(), isCurrentWorkspace(identity), !Task.isCancelled,
+                  let feature = buildSystemsFeatureIfActive else { return }
+            let started = feature.debugProviderConfiguration(selectedConfiguration, workspace: identity.url) { [weak self] source, preparation in
+                guard let self, self.isCurrentWorkspace(identity), !Task.isCancelled else { throw CancellationError() }
+                try self.launchPreparedProviderDebug(source: source, preparation: preparation,
+                                                     workspaceURL: identity.url, title: selectedConfiguration.name)
+            }
+            if started != nil { showToolWindow(.buildOutput) }
+            else { showNotification("The build provider's debug program or adapter is unavailable. Build it again and check that the plugin is enabled.") }
+            return
+        }
         let activeDocumentIsLaunchable = selectedConfiguration.usesCurrentEditorFile
             ? await isLaunchableJavaEntrypoint(activeDocument, in: workspaceURL)
             : false
@@ -223,7 +235,34 @@ extension AppModel {
         await startGenericDebuggingAfterActivation(fileURL: sourceURL, document: document)
     }
 
+    func debugBuildProviderApplication(entryID: String, request: BuildRunRequest, title: String) {
+        runWorkflowCoordinator.startModuleOperation { [weak self] in
+            guard let self, let identity = currentWorkspaceIdentity,
+                  await saveAllDocuments(), isCurrentWorkspace(identity),
+                  await activateDebugModule() != nil, isCurrentWorkspace(identity),
+                  !Task.isCancelled, let feature = buildSystemsFeatureIfActive else { return }
+            if feature.debugApplication(entryID, request: request, title: title, launch: { [weak self] source, preparation in
+                guard let self, self.isCurrentWorkspace(identity), !Task.isCancelled else { throw CancellationError() }
+                try self.launchPreparedProviderDebug(source: source, preparation: preparation, workspaceURL: identity.url, title: title)
+            }) != nil { showToolWindow(.buildOutput) }
+        }
+    }
+
+    private func launchPreparedProviderDebug(source: BuildSystemPluginSource, preparation: BuildDebugPreparation,
+                                            workspaceURL: URL, title: String) throws {
+        guard let feature = genericDebugFeatureIfActive else { throw CancellationError() }
+        let configuration = try debugLaunchConfigurationResolver.resolveProvider(source: source, preparation: preparation,
+                                                                                 workspaceURL: workspaceURL, title: title)
+        guard feature.startAdditional(fileURL: workspaceURL.appendingPathComponent(preparation.program),
+                                      rootURL: workspaceURL, configuration: configuration) else {
+            throw NSError(domain: "BuildProviderDebug", code: 1, userInfo: [NSLocalizedDescriptionKey: feature.errorMessage
+                ?? L10n.string("The build provider's debug program or adapter is unavailable. Build it again and check that the plugin is enabled.")])
+        }
+        showToolWindow(.debug)
+    }
+
     func stopDebugging() {
+        buildSystemsFeatureIfActive?.cancelDebugPreparation()
         runWorkflowCoordinator.cancelModuleOperation()
         cancelJavaTestDebugLaunch()
         guard let feature = genericDebugFeatureIfActive else {

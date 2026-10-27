@@ -1114,6 +1114,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `build.decodeTestDiscovery` | Validate, deduplicate and order Provider test selectors |
 | `build.prepareRunPlan` | Plan Provider-owned application preparation from a model target |
 | `build.decodeRunPreparation` | Validate portable launch data before the native Run host starts a process |
+| `build.prepareDebugPlan` | Plan same-plugin native debug preparation (Provider v5) |
+| `build.decodeDebugPreparation` | Validate an existing instance-contained native debug program and bounded process facts |
 | `build.dependencyPlan` | Expand the command that prints a project's dependency tree, or the request a build provider answers |
 | `build.decodeModel` | Decode model output or a provider result into projects, targets, tasks, content roots, option values, and run entries |
 | `build.decodeTestResults` | Decode a test run's reports and output into per-case results and a summary |
@@ -2576,7 +2578,7 @@ provider-sourced `build.taskPlan`/`build.testPlan`, `build.testDiscoveryPlan`, o
 `lithe/build/execute`, version 3 adds `lithe/build/test` with the same bounded
 execution lifecycle and `lithe/build/discoverTests` with the raw result lifecycle.
 Version 4 adds `lithe/build/prepareRun`, with execution progress but a raw launch
-plan passed to `build.decodeRunPreparation` before native process startup.
+plan passed to `build.decodeRunPreparation` before native process startup. Version 5 adds `lithe/build/prepareDebug`: raw native executable facts pass through `build.decodeDebugPreparation` and the existing DebugAdapter Registry, not private functions or a second DAP engine.
 Other methods are `invalid_request`; tasks on version 1
 and tests on versions 1/2 or run preparation on versions 1/2/3 are `not_supported`.
 Every session offers
@@ -3445,6 +3447,8 @@ and the directories are absolute host paths used only as substitution text.
 | `build.decodeTestDiscovery` | common plan fields plus canonical `result` | `discovery.tests` with validated `{id, suite, case, project?, target?}` selectors; bounded at 10,000 items/32 MiB, deterministic and exactly runnable; malformed replies reject in full |
 | `build.prepareRunPlan` | common plan fields, `run`, required `project`/`target`, `userArguments?`; no output file | `plan.provider` for `lithe/build/prepareRun` (Provider v4), selected declaration/tags/paths/options validated |
 | `build.decodeRunPreparation` | `workspaceRoot`, instance `root`, raw `result` | `launch` with portable `{executable:{kind,value},arguments,workingDirectory,environment}`; bounded strings and workspace directory containment, `plugin.build.invalidOutput` on invalid result |
+| `build.prepareDebugPlan` | same selected fields as `build.prepareRunPlan`; run declares same-plugin `debug.adapter` | `plan.provider` for `lithe/build/prepareDebug` (v5); no cross-package reference |
+| `build.decodeDebugPreparation` | `workspaceRoot`, instance `root`, selected `run`, raw `result` | `preparation` with declaration-owned `adapter`, normalized `root`, `program`, `arguments`, `workingDirectory`, `environment`; program is an existing regular file contained in the instance after canonicalization |
 | `build.decodeModel` | `{ workspaceRoot, root, output?, outputFile?, result?, options? }`; `result` is the provider's JSON answer | `model`: `{ projects, targets, tasks, contentRoots, optionValues, run }`; `run` entries carry `buildSystem: { id, root, projectID, targetID?, optionFingerprint }` |
 | `build.decodeTestResults` | `{ workspaceRoot, root, project?, projects?, output, notBeforeMillis?, suite? }`; without `project` the reports of the root and every listed model project are read | `results`: `{ tests: [{ suite, case, status, message?, durationMillis?, path?, line?, invocations }], summary: { total, passed, failed, errors, skipped }, success }`; repeated invocations of one case merge into the most severe status |
 | `build.decodeDiagnostics` | `{ workspaceRoot, root, output }` | `diagnostics`: `[{ path, line, column?, severity, message }]`, deduplicated, inside the workspace only |

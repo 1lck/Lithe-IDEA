@@ -121,6 +121,19 @@ pub(crate) fn decode(
     {
         return Err(invalid());
     }
+    let mut fields = process_fields(request)?;
+    fields["executable"] = json!({"kind":kind,"value":name});
+    Ok(fields)
+}
+
+/// Common bounded arguments, environment and workspace-contained directory.
+pub(super) fn process_fields(request: &DecodeRunPreparationRequest) -> Validation<Value> {
+    let invalid = || decode::invalid_output("Invalid provider process preparation result.");
+    let value = &request.result;
+    if serde_json::to_vec(value).map_or(usize::MAX, |bytes| bytes.len()) > decode::MAX_OUTPUT_BYTES
+    {
+        return Err(invalid());
+    }
     let args = value["arguments"]
         .as_array()
         .filter(|args| args.len() <= MAX_ARGUMENTS)
@@ -164,8 +177,5 @@ pub(crate) fn decode(
             return Err(invalid());
         }
     }
-    Ok(
-        json!({"executable":{"kind":kind,"value":name},"arguments":args,
-        "workingDirectory":cwd,"environment":environment}),
-    )
+    Ok(json!({"arguments":args,"workingDirectory":cwd,"environment":environment}))
 }

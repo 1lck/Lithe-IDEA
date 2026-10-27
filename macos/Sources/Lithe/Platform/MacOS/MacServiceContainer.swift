@@ -187,6 +187,7 @@ final class MacServiceContainer {
         // debug. A language the host debugs itself keeps its own adapter.
         // Plugins that apply without a restart are in `livePlugins` instead.
         let registeredDebugAdapters = PluginDebugAdapterEntry.index(of: pluginStartup.registeredPlugins)
+        let registeredQualifiedDebugAdapters = PluginDebugAdapterEntry.qualifiedIndex(of: pluginStartup.registeredPlugins)
         let debugAdapterSessionsBox = DebugAdapterSessionsBox()
         let moduleEnablement = moduleStore
         let launchMode = moduleLaunchMode
@@ -220,12 +221,18 @@ final class MacServiceContainer {
             }
             return snapshot.state != .disabled && !snapshot.isQuarantined && !snapshot.isSuppressedBySafeMode
         }
-        let activeDebugAdapter: @MainActor (String) -> PluginDebugAdapterEntry? = { languageID in
-            if let entry = registeredDebugAdapters[languageID],
+        let qualifiedDebugAdapters: @MainActor () -> [String: PluginDebugAdapterEntry] = {
+            registeredQualifiedDebugAdapters.filter {
+                isLaunchRegisteredAdapterUsable($0.value.plugin.descriptor.id.rawValue)
+            }.merging(PluginDebugAdapterEntry.qualifiedIndex(of: liveSnapshotBox.snapshot.activePackages)) { _, live in live }
+        }
+        let activeDebugAdapter: @MainActor (String) -> PluginDebugAdapterEntry? = { providerID in
+            if providerID.contains("/") { return qualifiedDebugAdapters()[providerID] }
+            if let entry = registeredDebugAdapters[providerID],
                isLaunchRegisteredAdapterUsable(entry.plugin.descriptor.id.rawValue) {
                 return entry
             }
-            return liveSnapshotBox.snapshot.debugAdapters[languageID]
+            return liveSnapshotBox.snapshot.debugAdapters[providerID]
         }
         // A launch-registered plugin is not in the live registry, so turning its
         // debug module off reaches the running sessions through the module's
@@ -632,7 +639,13 @@ final class MacServiceContainer {
                         }
                     ]
                     let adapterSessions = DebugAdapterSessionManager(
-                        providersSource: { debugProviderCache.providers() },
+                        providersSource: {
+                            let languages = debugProviderCache.providers()
+                            let qualified = qualifiedDebugAdapters().sorted { $0.key < $1.key }.map {
+                                $0.value.provider(languages: languages)
+                            }
+                            return languages + qualified
+                        },
                         makeSession: { descriptor, _ in
                             if let factory = debugFactories[descriptor.id] { return factory() }
                             guard let entry = activeDebugAdapter(descriptor.id) else { return nil }
@@ -862,6 +875,11 @@ final class MacServiceContainer {
             languageProviderCatalogSnapshot: languageProviderCatalogSnapshot,
             debugLaunchConfigurationResolver: DebugLaunchConfigurationResolver(
                 javaTestLaunchResolver: rustCore,
+                providerLaunch: { source, preparation, workspaceURL, title in
+                    try MacBuildDebugLaunchResolver(planner: declarativePluginOperations,
+                        entry: { qualifiedDebugAdapters()[$0] }, generation: { liveSnapshotBox.snapshot.generation })
+                        .resolve(source: source, preparation: preparation, workspaceURL: workspaceURL, title: title)
+                },
                 javaExecutablePath: { [runtimeService] runtime in
                     runtimeService.javaExecutableURL(forDebugging: runtime)?.path
                 },
@@ -895,7 +913,8 @@ final class MacServiceContainer {
                     return DebugLaunchConfiguration(
                         name: documentURL.lastPathComponent,
                         request: .launch,
-                        arguments: arguments
+                        arguments: arguments,
+                        adapterProviderID: entry.providerID
                     )
                 }
             ),

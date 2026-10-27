@@ -41,7 +41,7 @@ public enum DebugAdapterState: String, Equatable, Sendable {
     case idle, initializing, ready, launching, running, paused, terminated, failed
 }
 
-public enum DebugRequestKind: String, Codable, Equatable, Sendable {
+public enum DebugRequestKind: String, Codable, Hashable, Sendable {
     case launch, attach
 }
 
@@ -50,17 +50,23 @@ public struct DebugLaunchConfiguration: Codable, Equatable, Sendable {
     public let request: DebugRequestKind
     public let arguments: [String: ToolingJSONValue]
     public let steppingFilters: DebugSteppingFilters?
+    /// Host-selected Registry identity (`pluginID/adapterID` for plugins).
+    /// A missing identity selects by source file; an unavailable explicit
+    /// identity must fail rather than select another adapter for that file.
+    public let adapterProviderID: String?
 
     public init(
         name: String,
         request: DebugRequestKind,
         arguments: [String: ToolingJSONValue],
-        steppingFilters: DebugSteppingFilters? = nil
+        steppingFilters: DebugSteppingFilters? = nil,
+        adapterProviderID: String? = nil
     ) {
         self.name = name
         self.request = request
         self.arguments = arguments
         self.steppingFilters = steppingFilters
+        self.adapterProviderID = adapterProviderID
     }
 
     public func applying(steppingFilters: DebugSteppingFilters) -> Self {
@@ -68,7 +74,8 @@ public struct DebugLaunchConfiguration: Codable, Equatable, Sendable {
             name: name,
             request: request,
             arguments: arguments,
-            steppingFilters: steppingFilters
+            steppingFilters: steppingFilters,
+            adapterProviderID: adapterProviderID
         )
     }
 }
