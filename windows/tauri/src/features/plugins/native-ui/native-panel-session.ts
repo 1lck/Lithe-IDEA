@@ -19,6 +19,8 @@ export interface NativePanelState extends NativeSavedState {
   validating: boolean;
   epoch: number;
   error?: string;
+  message?: string;
+  progress?: { message?: string; percentage?: number } | null;
 }
 const defaults = (ui: NativeUI) =>
   Object.fromEntries((ui.controls ?? []).map((control) => [control.id, control.value]));
@@ -41,6 +43,7 @@ export class NativePanelSession {
   private revision = 0;
   private readonly pending = new Set<AbortController>();
   private editOwner?: AbortController;
+  private releaseProgress?: () => void;
   constructor(
     readonly identity: NativePanelIdentity,
     readonly ui: NativeUI,
@@ -110,6 +113,7 @@ export class NativePanelSession {
   private invalidate(): number {
     ++this.revision;
     for (const pending of this.pending) pending.abort();
+    this.emit({ progress: null });
     return this.revision;
   }
   private replaceNodes(nodes: NativeNode[]): void {
@@ -128,6 +132,10 @@ export class NativePanelSession {
     this.emit({ nodes, expanded, rows, selection });
   }
   async open(): Promise<void> {
+    if (this.closed) return;
+    this.releaseProgress ??= this.port.functions?.subscribeProgress?.((progress) => {
+      if (this.state.busy) this.emit({ progress });
+    });
     const revision = this.invalidate();
     const saved = this.store.read(this.identity);
     this.emit({ phase: "loading", epoch: this.state.epoch + 1, error: undefined });
@@ -264,7 +272,7 @@ export class NativePanelSession {
     if (!this.owns(epoch) || !action || !this.canPerform(action)) return;
     if (action.kind === "refresh") return this.refresh();
     const revision = this.revision;
-    this.emit({ busy: true, error: undefined });
+    this.emit({ busy: true, error: undefined, message: undefined });
     try {
       // Local text drafts are intentionally unvalidated while typing. Before
       // any form values cross the function boundary, let Core check the whole
@@ -279,9 +287,18 @@ export class NativePanelSession {
         );
         if (!this.current(revision)) return;
       }
-      await this.request((signal) => this.port.functions!.invoke(action, this.context(), signal));
+      const result = await this.request((signal) =>
+        this.port.functions!.invoke(action, this.context(), signal),
+      );
       if (this.current(revision)) {
-        this.emit({ busy: false });
+        const message =
+          result &&
+          typeof result === "object" &&
+          "message" in result &&
+          typeof result.message === "string"
+            ? Array.from(result.message).slice(0, 1024).join("")
+            : undefined;
+        this.emit({ busy: false, message });
         await this.refresh();
       }
     } catch (error) {
@@ -333,13 +350,25 @@ export class NativePanelSession {
       validating: false,
       busy: false,
       error: undefined,
+      message: undefined,
     });
     await this.open();
+  }
+  cancel(): void {
+    if (this.closed) return;
+    this.invalidate();
+    this.emit({
+      busy: false,
+      validating: false,
+      epoch: this.state.epoch + 1,
+      error: "pluginNative.cancelled",
+    });
   }
   close(): void {
     if (this.closed) return;
     this.invalidate();
     this.closed = true;
+    this.releaseProgress?.();
     this.state = {
       ...this.state,
       phase: "closed",

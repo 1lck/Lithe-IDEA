@@ -65,8 +65,10 @@ pub(super) struct Status {
     pub error: Option<Error>,
 }
 pub(super) struct Operation {
+    pub(super) native: Mutex<Option<super::native::Call>>,
     pub review: Review,
     pub(super) owner: Arc<WindowOwner>,
+    pub(super) scope_revision: u64,
     params: Mutex<Value>,
     directory: PathBuf,
     pub status: Mutex<Status>,
@@ -91,8 +93,10 @@ impl Operation {
         owner: Arc<WindowOwner>,
     ) -> Self {
         Self {
+            native: Mutex::new(None),
             review,
             owner,
+            scope_revision: 0,
             params: Mutex::new(json!({})),
             directory,
             status: Mutex::new(Status {
@@ -166,7 +170,7 @@ impl Operation {
             retired: Arc::downgrade(retired),
         });
     }
-    fn retire_clean(self: &Arc<Self>) {
+    pub(super) fn retire_clean(self: &Arc<Self>) {
         if !self.retire_requested.load(Ordering::Acquire) || !self.clean() {
             return;
         }
@@ -195,6 +199,7 @@ impl Operation {
                 }
             }
             operations.remove(id);
+            super::native::release(self);
         }
     }
     fn cleanup_after_completion(self: &Arc<Self>) {
@@ -488,10 +493,11 @@ async fn invoke(app: &AppHandle, entry: &Arc<Operation>) -> Reply<Value> {
                         if !event["error"].is_null() {
                             return Err(Error::core(&event["error"]));
                         }
-                        return event["result"]
+                        let value = event["result"]
                             .get("value")
                             .cloned()
-                            .ok_or_else(|| Error::new("plugin.function.invalidResult"));
+                            .ok_or_else(|| Error::new("plugin.function.invalidResult"))?;
+                        return super::native::result(entry, value);
                     }
                     _ => {}
                 }

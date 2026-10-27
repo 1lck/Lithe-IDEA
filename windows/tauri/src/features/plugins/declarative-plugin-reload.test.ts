@@ -242,3 +242,83 @@ test("reloading one plugin preserves the pending reload of another", async () =>
   expect(calls).toEqual([receipt]);
   expect(owner.state(other.pluginId)?.receipt).toBe(other);
 }, 1000);
+
+test("global and distinct project incarnations retain separate reload owners", async () => {
+  const calls: PluginReloadReceipt[] = [];
+  const owner = new PluginSettingsReloads({
+    reload: async (value) => {
+      calls.push(value);
+    },
+    refresh: async () => {},
+  });
+  const project = {
+    ...receipt,
+    scope: "project" as const,
+    project: { workspaceId: "workspace-a", registration: 1, windowIncarnation: 1 },
+  };
+  const reopened = { ...project, project: { ...project.project, registration: 2 } };
+  owner.require(receipt);
+  owner.require(project);
+  owner.require(reopened);
+  expect(owner.states()).toHaveLength(3);
+  await owner.confirm(owner.key(project));
+  expect(calls).toEqual([project]);
+  expect(owner.state(receipt.pluginId)?.receipt).toBe(receipt);
+  expect(owner.state(owner.key(reopened))?.receipt).toBe(reopened);
+}, 1000);
+
+test("saving either layer advances both receipts for the same native project only", () => {
+  const owner = new PluginSettingsReloads({ reload: async () => {}, refresh: async () => {} });
+  const project = {
+    ...receipt,
+    scope: "project" as const,
+    project: { workspaceId: "workspace-a", registration: 1, windowIncarnation: 1 },
+  };
+  const global = { ...project, scope: "global" as const };
+  const old = { ...project, project: { ...project.project, registration: 2 } };
+  owner.require(project);
+  owner.require(global);
+  owner.require(old);
+  owner.saved({ ...project, expectedIdentity: "saved-again" }, false);
+  expect(owner.state(owner.key(project))?.receipt.expectedIdentity).toBe("saved-again");
+  expect(owner.state(owner.key(global))?.receipt.expectedIdentity).toBe("saved-again");
+  expect(owner.state(owner.key(old))?.receipt.expectedIdentity).toBe("saved-bytes");
+}, 1000);
+
+test("cancel during model reload keeps the owner until cleanup finishes", async () => {
+  const gate = deferred<void>();
+  let signal: AbortSignal | undefined;
+  const owner = new PluginSettingsReloads({
+    reload: async (_receipt, _approve, current, modelPhase) => {
+      signal = current;
+      modelPhase?.();
+      await gate.promise;
+      if (current?.aborted) throw new Error("plugin.settings.reloadCancelled");
+    },
+    refresh: async () => {
+      throw new Error("must not refresh cancelled work");
+    },
+  });
+  const project = {
+    ...receipt,
+    scope: "project" as const,
+    project: { workspaceId: "workspace-a", registration: 1, windowIncarnation: 1 },
+  };
+  owner.require(project);
+  const key = owner.key(project);
+  const pending = owner.confirm(key);
+  try {
+    owner.cancel(key);
+    expect(signal?.aborted).toBe(true);
+    expect(owner.state(key)?.busy).toBe(true);
+    owner.postpone(key);
+    expect(owner.state(key)).toBeDefined();
+    gate.resolve();
+    await pending;
+    expect(owner.state(key)?.error).toContain("reloadCancelled");
+    expect(owner.canPostpone(key)).toBe(true);
+  } finally {
+    gate.resolve();
+    await pending;
+  }
+}, 1000);

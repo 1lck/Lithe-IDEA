@@ -77,7 +77,7 @@ impl ReadOperation {
         }
     }
 }
-fn validate_path(path: &str) -> Result<(), String> {
+pub(super) fn validate_path(path: &str) -> Result<(), String> {
     if path.is_empty()
         || path.len() > 32768
         || path.contains(['\\', ':', '\0'])
@@ -100,7 +100,7 @@ fn reparse(metadata: &std::fs::Metadata) -> bool {
         metadata.file_type().is_symlink()
     }
 }
-fn ordinary_chain(workspace: &Path, path: &Path) -> Result<(), String> {
+pub(super) fn ordinary_chain(workspace: &Path, path: &Path) -> Result<(), String> {
     let relative = path
         .strip_prefix(workspace)
         .map_err(|_| "vcs.provider.pathUnavailable")?;

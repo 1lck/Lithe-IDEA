@@ -71,6 +71,7 @@ pub(super) struct ModelOperation {
     pub run: Option<super::run::PreparedRun>,
     pub dependencies: Option<super::dependencies::PreparedDependencies>,
     pub provider: Option<super::provider::ProviderOperation>,
+    pub settings_reload: Mutex<Option<super::super::settings::reload::Receipt>>,
     created: Instant,
     cancelled: AtomicBool,
     running: AtomicBool,
@@ -102,6 +103,7 @@ impl ModelOperation {
             run: None,
             dependencies: None,
             provider: None,
+            settings_reload: Mutex::new(None),
             created: Instant::now(),
             cancelled: AtomicBool::new(false),
             running: AtomicBool::new(false),
@@ -384,14 +386,22 @@ impl BuildOperations {
         &self,
         predicate: impl Fn(&ModelOperation) -> bool,
     ) -> Vec<Arc<ModelOperation>> {
+        let entries = self.matching(predicate);
+        for operation in &entries {
+            operation.cancel();
+        }
+        entries
+    }
+
+    pub fn matching(
+        &self,
+        predicate: impl Fn(&ModelOperation) -> bool,
+    ) -> Vec<Arc<ModelOperation>> {
         let entries = self.entries.lock().expect("build operation mutex");
         entries
             .values()
             .filter(|operation| predicate(operation))
-            .map(|operation| {
-                operation.cancel();
-                operation.clone()
-            })
+            .cloned()
             .collect()
     }
 }

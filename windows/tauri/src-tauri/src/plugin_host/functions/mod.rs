@@ -1,6 +1,7 @@
 //! Consent-bound settings actions. Core owns negotiation, JSON-RPC, function
 //! references, progress and cancellation. Every action has an isolated Core
 //! process owner, never an editor/build binding that another consumer owns.
+pub mod native;
 mod runtime;
 #[cfg(test)]
 mod tests;
@@ -89,12 +90,14 @@ pub struct Review {
 
 #[derive(Default)]
 pub struct FunctionsState {
+    native: native::Panels,
     operations: Arc<Mutex<HashMap<String, Arc<Operation>>>>,
     retired: Arc<Mutex<HashMap<String, ReceiptOwner>>>,
 }
 impl FunctionsState {
     fn retire_window(&self, owner: &Arc<WindowOwner>) -> Vec<Arc<Operation>> {
         owner.alive.store(false, Ordering::Release);
+        self.native.revoke(|binding| binding.owner.id == owner.id);
         let entries: Vec<_> = self
             .operations
             .lock()
@@ -194,7 +197,8 @@ fn check_context(app: &AppHandle, operation: &Operation) -> Reply<()> {
     if operation.cancelled() || !operation.owner.alive.load(Ordering::Acquire) {
         return Err(Error::new("plugin.function.staleContext"));
     }
-    check_scope(app, operation)
+    check_scope(app, operation)?;
+    native::check(app, operation)
 }
 fn check_scope(app: &AppHandle, operation: &Operation) -> Reply<()> {
     if app
@@ -205,6 +209,14 @@ fn check_scope(app: &AppHandle, operation: &Operation) -> Reply<()> {
             &operation.review.context.window,
             &operation.review.context.workspace_path,
         )? != operation.review.context.generation
+        || app
+            .state::<super::build::BuildHostState>()
+            .function_scope_revision(
+                &operation.review.context.window,
+                &operation.review.context.workspace_path,
+                &operation.review.context.plugin_id,
+            )
+            .map_or(true, |revision| revision != operation.scope_revision)
     {
         return Err(Error::new("plugin.function.staleContext"));
     }
@@ -369,6 +381,29 @@ pub async fn declarative_plugins_function_prepare(
     expected_identity: String,
     operation_id: String,
 ) -> Reply<Review> {
+    prepare_owned(
+        app,
+        window,
+        plugin_id,
+        action_id,
+        workspace_path,
+        expected_identity,
+        operation_id,
+        None,
+    )
+    .await
+}
+
+async fn prepare_owned(
+    app: AppHandle,
+    window: WebviewWindow,
+    plugin_id: String,
+    action_id: String,
+    workspace_path: String,
+    expected_identity: String,
+    operation_id: String,
+    native: Option<native::Call>,
+) -> Reply<Review> {
     if operation_id.len() > 128
         || operation_id.is_empty()
         || !operation_id
@@ -379,6 +414,12 @@ pub async fn declarative_plugins_function_prepare(
     }
     let label = window.label().to_string();
     let owner = native_window_owner(&window.as_ref().window());
+    // Capture before the blocking lookup. A scoped reload may finish while
+    // that worker is still preparing; the old revision must stay revoked.
+    let scope_revision = app
+        .state::<super::build::BuildHostState>()
+        .function_scope_revision(&label, &workspace_path, &plugin_id)
+        .map_err(|_| Error::new("plugin.function.staleContext"))?;
     tauri::async_runtime::spawn_blocking(move || {
         let generation = generation(&app, &label, &workspace_path)?;
         let lease = app
@@ -390,7 +431,11 @@ pub async fn declarative_plugins_function_prepare(
         if snapshot.identity != expected_identity {
             return Err(Error::new("plugin.settings.conflict"));
         }
-        let (action, build) = selection(&snapshot.manifest, &action_id)?;
+        let (action, build) = if let Some(call) = &native {
+            call.selection(&snapshot.manifest)?
+        } else {
+            selection(&snapshot.manifest, &action_id)?
+        };
         let package = launch::verified_package_by_id(&app, &plugin_id)
             .map_err(|_| Error::new("plugin.function.staleContext"))?;
         let directory = store::plugin_state_directory(&app, &plugin_id)
@@ -438,7 +483,13 @@ pub async fn declarative_plugins_function_prepare(
             launch_plan: plan,
             program,
         };
-        let entry = Arc::new(Operation::new(review.clone(), directory, lease, owner));
+        let mut operation = Operation::new(review.clone(), directory, lease, owner);
+        operation.scope_revision = scope_revision;
+        let entry = Arc::new(operation);
+        if let Some(call) = native {
+            entry.set_params(call.params.clone());
+            *entry.native.lock().expect("native function call") = Some(call);
+        }
         check(&app, &entry)?;
         let state = app.state::<FunctionsState>();
         entry.bind_registry(&state.operations, &state.retired);
@@ -500,6 +551,7 @@ fn remove_clean(app: &AppHandle, entry: &Arc<Operation>) {
                 }
             }
             entries.remove(&entry.review.context.operation_id);
+            native::release(entry);
         }
     }
 }
@@ -519,7 +571,7 @@ pub async fn declarative_plugins_function_confirm(
     if entry.review.context.action_id.starts_with("__web__:") {
         web::confirm(&app, &entry, window.label())?;
     } else {
-        entry.begin()?;
+        native::begin(&app, &entry)?;
     }
     tauri::async_runtime::spawn(runtime::run(app, entry));
     Ok(())
@@ -546,6 +598,7 @@ pub async fn declarative_plugins_function_state(
     }
     tauri::async_runtime::spawn_blocking(move || {
         check_scope(&app, &entry)?;
+        native::check(&app, &entry)?;
         if matches!(entry.phase(), Phase::Succeeded | Phase::Failed) {
             check_snapshot(&app, &entry)?;
         }
@@ -603,8 +656,14 @@ async fn close_matching(
     app: &AppHandle,
     predicate: impl Fn(&Context) -> bool,
 ) -> Result<(), String> {
-    let entries: Vec<_> = app
-        .state::<FunctionsState>()
+    drain_matching(&app.state::<FunctionsState>(), predicate).await
+}
+
+async fn drain_matching(
+    state: &FunctionsState,
+    predicate: impl Fn(&Context) -> bool,
+) -> Result<(), String> {
+    let entries: Vec<_> = state
         .operations
         .lock()
         .map_err(|_| "plugin.function.unavailable")?
@@ -618,10 +677,9 @@ async fn close_matching(
     let tasks: Vec<_> = entries
         .into_iter()
         .map(|entry| {
-            let app = app.clone();
             tauri::async_runtime::spawn(async move {
                 runtime::cleanup(&entry).await?;
-                remove_clean(&app, &entry);
+                entry.retire_clean();
                 Ok::<(), Error>(())
             })
         })
@@ -637,6 +695,9 @@ async fn close_matching(
     error.map_or(Ok(()), Err)
 }
 pub async fn close_plugin(app: &AppHandle, plugin: &str) -> Result<(), String> {
+    app.state::<FunctionsState>()
+        .native
+        .revoke(|binding| binding.plugin_id == plugin);
     close_matching(app, |context| context.plugin_id == plugin).await
 }
 /// Retire the exact native window before any await. Label reuse cannot change
@@ -656,8 +717,32 @@ pub fn window_destroyed(window: &tauri::Window) {
     });
 }
 pub async fn close_workspace(app: &AppHandle, window: &str, root: &str) -> Result<(), String> {
+    app.state::<FunctionsState>()
+        .native
+        .revoke(|binding| binding.window == window && binding.workspace == root);
     close_matching(app, |context| {
         context.window == window && context.workspace_path == root
+    })
+    .await
+}
+
+/// A project settings reload retires only this plugin in this workspace.
+/// The build registry has already raised its scoped admission revision before
+/// this snapshot; cleanup failures retain the original owner for retry.
+pub(crate) async fn close_scope(
+    app: &AppHandle,
+    window: &str,
+    root: &str,
+    plugin: &str,
+) -> Result<(), String> {
+    app.state::<super::web::WebPageHostState>()
+        .functions
+        .revoke_scope(window, root, plugin);
+    app.state::<FunctionsState>().native.revoke(|binding| {
+        binding.window == window && binding.workspace == root && binding.plugin_id == plugin
+    });
+    close_matching(app, |context| {
+        context.window == window && context.workspace_path == root && context.plugin_id == plugin
     })
     .await
 }

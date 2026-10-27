@@ -91542,6 +91542,13 @@
       ]
     },
     {
+      "id": "plugins.settings.reloadProjectInfo",
+      "description": "Windows UI: project-scoped plugin settings reload help",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
       "id": "plugins.settings.effect.projectReloadUnavailable",
       "description": "Windows plugin settings reload confirmation and state",
       "platforms": [
@@ -92229,6 +92236,194 @@
       "parameters": {
         "file": "string"
       }
+    },
+    {
+      "id": "vcs.actions.checkin",
+      "description": "Windows snapshot-bound VCS selection and confirmation",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.actions.checkinRemote",
+      "description": "Windows snapshot-bound VCS selection and confirmation",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.actions.rollback",
+      "description": "Windows snapshot-bound VCS selection and confirmation",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.actions.update",
+      "description": "Windows snapshot-bound VCS selection and confirmation",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.actions.message",
+      "description": "Windows snapshot-bound VCS selection and confirmation",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.actions.cancel",
+      "description": "Windows snapshot-bound VCS selection and confirmation",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.actions.confirm",
+      "description": "Windows snapshot-bound VCS selection and confirmation",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.actions.count",
+      "description": "Windows snapshot-bound VCS selection and confirmation",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "vcs.actions.running",
+      "description": "Windows snapshot-bound VCS selection and confirmation",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.actions.completed",
+      "description": "Windows snapshot-bound VCS selection and confirmation",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.actions.unknown",
+      "description": "Windows snapshot-bound VCS selection and confirmation",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.actions.conflicts",
+      "description": "Windows snapshot-bound VCS selection and confirmation",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "count": "integer"
+      }
+    },
+    {
+      "id": "vcs.actions.risk.checkin",
+      "description": "Windows snapshot-bound VCS selection and confirmation",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.actions.risk.rollback",
+      "description": "Windows snapshot-bound VCS selection and confirmation",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.actions.risk.update",
+      "description": "Windows snapshot-bound VCS selection and confirmation",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.actions.error.vcs.authentication.failed",
+      "description": "Windows snapshot-bound VCS selection and confirmation",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.actions.error.vcs.conflict",
+      "description": "Windows snapshot-bound VCS selection and confirmation",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.actions.error.vcs.outOfDate",
+      "description": "Windows snapshot-bound VCS selection and confirmation",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.actions.error.vcs.tool.unavailable",
+      "description": "Windows snapshot-bound VCS selection and confirmation",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.actions.error.vcs.workingCopy.locked",
+      "description": "Windows snapshot-bound VCS selection and confirmation",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.actions.error.vcs.workingCopy.unsupported",
+      "description": "Windows snapshot-bound VCS selection and confirmation",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.actions.error.vcs.capability.unsupported",
+      "description": "Windows snapshot-bound VCS selection and confirmation",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.actions.error.vcs.provider.pathUnavailable",
+      "description": "Windows snapshot-bound VCS selection and confirmation",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.actions.error.requestTimeout",
+      "description": "Windows snapshot-bound VCS selection and confirmation",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.actions.error.requestCancelled",
+      "description": "Windows snapshot-bound VCS selection and confirmation",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.actions.wholeCopy",
+      "description": "Windows VCS update confirmation scope",
+      "platforms": [
+        "windows"
+      ]
     }
   ]
 }

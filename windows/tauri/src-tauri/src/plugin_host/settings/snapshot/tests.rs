@@ -163,6 +163,61 @@ fn core_validation_rejects_unknown_scope_and_invalid_values() {
 }
 
 #[test]
+fn core_resolves_all_effects_without_conflating_empty_project_values_and_inheritance() {
+    let mut manifest: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../shared/contracts/plugins/v1/fixtures/settings-v2.plugin.json"
+    )))
+    .unwrap();
+    manifest["settings"].as_array_mut().unwrap().push(json!({
+        "id":"modelLabel", "type":"text", "title":"Model label", "default":"default-label", "pattern":".*",
+        "scope":"project", "effect":"reload"
+    }));
+    let global = BTreeMap::from([
+        ("modelLabel".into(), json!("global-label")),
+        ("dialyzer".into(), json!(true)),
+        ("mixEnv".into(), json!("test")),
+        ("checks".into(), json!([])),
+    ]);
+    let project = BTreeMap::from([
+        ("modelLabel".into(), json!("")),
+        ("dialyzer".into(), json!(false)),
+    ]);
+    let effective = resolved(&manifest, &global, &project).unwrap();
+    let value = |id: &str| {
+        effective
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"] == id)
+            .unwrap()
+    };
+    assert_eq!(value("modelLabel")["value"], "");
+    assert_eq!(value("modelLabel")["source"], "project");
+    assert_eq!(value("dialyzer")["value"], false);
+    assert_eq!(value("mixEnv")["value"], "test");
+    assert_eq!(value("checks")["value"], json!([]));
+    let inherited = resolved(&manifest, &global, &BTreeMap::new()).unwrap();
+    let label = inherited
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["id"] == "modelLabel")
+        .unwrap();
+    assert_eq!(label["value"], "global-label");
+    assert_eq!(label["source"], "global");
+    assert_eq!(
+        manifest["settings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["effect"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["immediate", "restart", "nextRun", "reload"]
+    );
+}
+
+#[test]
 fn read_only_source_remains_readable_but_cannot_be_replaced() {
     struct RestorePermissions(PathBuf, std::fs::Permissions);
     impl Drop for RestorePermissions {
@@ -243,6 +298,7 @@ fn reload_fixture(
         project_path: None,
         identity: identity.into(),
         package_identity: package_identity.into(),
+        reload_context: None,
         global_store: store.clone(),
         project_store: store,
     };

@@ -380,6 +380,77 @@ async fn known_cleanup_failure_remains_owned_and_is_retryable() {
     }
 }
 
+#[tokio::test]
+async fn scoped_reload_drain_retains_failed_owner_and_never_cancels_other_scopes() {
+    let core = Arc::new(ScriptedCore::default());
+    core.fail_destroy.store(true, Ordering::SeqCst);
+    let target = fixture(core.clone());
+    target.status.lock().unwrap().session = Some("owned-session".into());
+    let registry = publish(&target);
+    let mut others = Vec::new();
+    for scope in ["plugin", "window", "workspace"] {
+        let other_core = Arc::new(ScriptedCore::default());
+        let mut other = fixture(other_core.clone());
+        let context = &mut Arc::get_mut(&mut other).unwrap().review.context;
+        context.operation_id = format!("other-{scope}");
+        match scope {
+            "plugin" => context.plugin_id = "other.plugin".into(),
+            "window" => context.window = "workspace-other".into(),
+            _ => context.workspace_path = "C:/fixture/other".into(),
+        }
+        other.bind_registry(&registry.operations, &registry.retired);
+        registry
+            .operations
+            .lock()
+            .unwrap()
+            .insert(other.review.context.operation_id.clone(), other.clone());
+        others.push((other, other_core));
+    }
+    let selected = |context: &super::super::Context| {
+        context.window == target.review.context.window
+            && context.workspace_path == target.review.context.workspace_path
+            && context.plugin_id == target.review.context.plugin_id
+    };
+    assert!(tokio::time::timeout(
+        Duration::from_secs(2),
+        super::super::drain_matching(&registry, selected),
+    )
+    .await
+    .unwrap()
+    .is_err());
+    assert!(registry
+        .operations
+        .lock()
+        .unwrap()
+        .contains_key("operation-one"));
+    assert!(target.lease.lock().unwrap().is_some());
+    assert!(target.cancelled());
+    core.fail_destroy.store(false, Ordering::SeqCst);
+    tokio::time::timeout(
+        Duration::from_secs(2),
+        super::super::drain_matching(&registry, selected),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(!registry
+        .operations
+        .lock()
+        .unwrap()
+        .contains_key("operation-one"));
+    assert!(target.lease.lock().unwrap().is_none());
+    assert_eq!(core.destroy_calls.load(Ordering::SeqCst), 2);
+    for (other, other_core) in others {
+        assert!(!other.cancelled());
+        assert!(registry
+            .operations
+            .lock()
+            .unwrap()
+            .contains_key(&other.review.context.operation_id));
+        assert_eq!(other_core.destroy_calls.load(Ordering::SeqCst), 0);
+    }
+}
+
 #[test]
 fn isolated_launch_offers_no_host_services_and_keeps_its_plugin_identity() {
     let entry = fixture(Arc::new(ScriptedCore::default()));

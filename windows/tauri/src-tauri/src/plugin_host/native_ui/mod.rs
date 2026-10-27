@@ -11,7 +11,7 @@ pub async fn declarative_plugins_native_windows(app: AppHandle) -> Result<Vec<Va
         .map_err(|error| error.to_string())?
 }
 
-fn catalog(app: &AppHandle) -> Result<Vec<Value>, String> {
+pub(crate) fn catalog(app: &AppHandle) -> Result<Vec<Value>, String> {
     let mut windows = Vec::new();
     for candidate in app.state::<super::PluginHostState>().packages() {
         if candidate.entry.status != "accepted" || !candidate.entry.enabled {

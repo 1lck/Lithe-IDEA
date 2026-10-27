@@ -61,6 +61,44 @@ pub struct BuildHostState {
 }
 
 impl BuildHostState {
+    /// VCS owns its own workspace admission and does not require a detected
+    /// build model. It shares only settings-reload invalidation with builds.
+    pub(crate) fn settings_scope_revision(
+        &self,
+        window: &str,
+        root: &str,
+        plugin: &str,
+    ) -> Result<u64, String> {
+        self.registry
+            .try_lock()
+            .map_err(|_| "plugin.settings.staleContext")?
+            .settings_scope_revision(window, root, plugin)
+    }
+
+    /// Bind function preparation to one plugin's settings incarnation without
+    /// invalidating other plugins or another window's workspace.
+    pub(crate) fn function_scope_revision(
+        &self,
+        window: &str,
+        root: &str,
+        plugin: &str,
+    ) -> Result<u64, String> {
+        self.registry
+            .try_lock()
+            .map_err(|_| "plugin.function.staleContext")?
+            .function_scope_revision(window, root, plugin)
+    }
+
+    /// Function consumers retain the same detected instance, including its
+    /// option revision; they cannot grant themselves a workspace by IPC.
+    pub(crate) fn function_context_is_current(
+        &self,
+        context: &super::build_registry::BuildModelContext,
+    ) -> bool {
+        self.registry
+            .lock()
+            .is_ok_and(|registry| registry.context_is_current(context))
+    }
     /// Read the workspace incarnation already registered by the native build
     /// router. A settings action cannot create a scope by supplying a path.
     pub(crate) fn function_generation(&self, window: &str, root: &str) -> Result<u64, String> {
@@ -575,7 +613,126 @@ async fn stop_build_operations(
         .state::<BuildHostState>()
         .operations
         .cancel_matching(predicate);
-    host::drain(operations).await
+    host::drain(app, operations).await
+}
+
+/// Settings use the existing model owner and its retryable cleanup. No
+/// package-wide lifecycle event or persistent enable-state change is needed.
+pub(crate) async fn reload_settings_models(
+    app: AppHandle,
+    label: String,
+    receipt: super::settings::reload::Receipt,
+) -> Result<super::build_registry::BuildView, String> {
+    let preflight_app = app.clone();
+    let preflight_label = label.clone();
+    let preflight = receipt.clone();
+    let (generation, operations) = tauri::async_runtime::spawn_blocking(move || {
+        super::settings::reload::check_owner(&preflight_app, &preflight_label, &preflight)?;
+        let state = preflight_app.state::<BuildHostState>();
+        let mut registry = state
+            .registry
+            .lock()
+            .map_err(|_| "plugin.settings.unavailable")?;
+        // A failed drain still owns the original operations. Reclaim them
+        // before checking a later settings conflict, as the global barrier does.
+        if !registry.settings_reload_pending(
+            &preflight_label,
+            &preflight.workspace_path,
+            &preflight.plugin_id,
+        ) {
+            super::settings::reload::check(&preflight_app, &preflight_label, &preflight)?;
+        }
+        let generation = registry.begin_settings_reload(
+            &preflight_label,
+            &preflight.workspace_path,
+            &preflight.plugin_id,
+        )?;
+        // Capture original owners while admission is still locked. A delayed
+        // drain must never select a replacement workspace by its reused label.
+        let operations = state.operations.matching(|operation| {
+            operation.context.window_label == preflight_label
+                && operation.context.workspace_root == preflight.workspace_path
+                && operation.context.plugin_id == preflight.plugin_id
+        });
+        Ok::<_, String>((generation, operations))
+    })
+    .await
+    .map_err(|_| "plugin.settings.unavailable")??;
+    for operation in &operations {
+        operation.cancel();
+    }
+    let function_cleanup =
+        super::functions::close_scope(&app, &label, &receipt.workspace_path, &receipt.plugin_id)
+            .await;
+    let vcs_cleanup =
+        super::vcs::close_scope(&app, &label, &receipt.workspace_path, &receipt.plugin_id).await;
+    let build_cleanup = host::drain(&app, operations).await;
+    function_cleanup
+        .and(vcs_cleanup)
+        .and(build_cleanup)
+        .map_err(|error| format!("plugin.settings.reloadStopFailed: {error}"))?;
+    let checkpoint_app = app.clone();
+    run_build_task(app, move |registry, packages, persistence| {
+        let checkpoint =
+            || super::settings::reload::check(&checkpoint_app, &label, &receipt).map(|_| ());
+        let result = registry.reload_settings(
+            &HostCoreExecutor,
+            packages,
+            persistence,
+            &label,
+            &receipt.workspace_path,
+            generation,
+            &receipt.plugin_id,
+            &checkpoint,
+        );
+        if result.as_ref().is_err_and(|error| {
+            error == "plugin.settings.conflict" || error == "plugin.settings.staleContext"
+        }) {
+            registry.finish_settings_reload(&label, generation, &receipt.plugin_id);
+        }
+        result
+    })
+    .await
+}
+
+/// Bind the ordinary explicit model preparation to the original saved receipt.
+/// Its normal execution guard rechecks this binding before start/publication.
+pub(crate) async fn prepare_settings_reload_model(
+    app: AppHandle,
+    label: String,
+    receipt: super::settings::reload::Receipt,
+    system: String,
+    root: String,
+    runtimes: std::collections::BTreeMap<String, String>,
+) -> Result<BuildModelReview, String> {
+    let check_app = app.clone();
+    let check_label = label.clone();
+    let expected = receipt.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        super::settings::reload::check(&check_app, &check_label, &expected)
+    })
+    .await
+    .map_err(|_| "plugin.settings.unavailable")??;
+    let review = host::prepare_with_refresh(
+        app.clone(),
+        label.clone(),
+        receipt.workspace_path.clone(),
+        receipt.plugin_id.clone(),
+        system,
+        root,
+        runtimes,
+        true,
+    )
+    .await?;
+    let operation = app
+        .state::<BuildHostState>()
+        .operations
+        .get(&label, &review.operation_id)?;
+    *operation
+        .settings_reload
+        .lock()
+        .map_err(|_| "plugin.settings.unavailable")? = Some(receipt);
+    Ok(review)
 }
 
 struct BuildExecutionSuspension {

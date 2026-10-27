@@ -5,7 +5,7 @@ import { VcsHistoryPanel } from "./vcs-history-panel";
 import type { VcsRootController } from "./vcs-root-controller";
 import type { VcsRoot } from "./vcs-root-types";
 
-const MAX_VISIBLE_STATUS_CHANGES = 500;
+import { VcsActionsPanel, MAX_VISIBLE_STATUS_CHANGES } from "./vcs-actions-panel";
 
 /** Provider replies stay in the independent VCS projection. Reading status
  * is explicit and ends its native session before the snapshot is published. */
@@ -18,6 +18,7 @@ export function VcsStatusPanel({
 }) {
   const { t } = useTranslation();
   const state = useSyncExternalStore(controller.status.subscribe, controller.status.getSnapshot);
+  useSyncExternalStore(controller.actions.subscribe, controller.actions.getSnapshot);
   const query = useSyncExternalStore(controller.query.subscribe, controller.query.getSnapshot);
   const busy =
     state.phase === "loading" || state.phase === "stopping" || state.phase === "cancelFailed";
@@ -34,6 +35,7 @@ export function VcsStatusPanel({
         <Button
           size="xs"
           disabled={
+            controller.actions.busy ||
             busy ||
             query.phase === "loading" ||
             query.phase === "stopping" ||
@@ -64,16 +66,6 @@ export function VcsStatusPanel({
       {snapshot && (
         <>
           {snapshot.result.changes.length === 0 && <p role="status">{t("vcs.status.empty")}</p>}
-          <ul className="max-h-48 overflow-auto" aria-label={t("vcs.status.changes")}>
-            {snapshot.result.changes.slice(0, MAX_VISIBLE_STATUS_CHANGES).map((change) => (
-              <li key={change.path} className="flex gap-2">
-                <span>{t(`vcs.status.kind.${change.status}`)}</span>
-                <span className="truncate" title={change.path}>
-                  {change.path}
-                </span>
-              </li>
-            ))}
-          </ul>
           {snapshot.result.changes.length > MAX_VISIBLE_STATUS_CHANGES && (
             <p role="status">
               {t("vcs.status.visibleLimit", {
@@ -85,6 +77,12 @@ export function VcsStatusPanel({
           {snapshot.result.truncated && <p role="status">{t("vcs.status.truncated")}</p>}
         </>
       )}
+      <VcsActionsPanel
+        controller={controller}
+        root={root}
+        snapshot={snapshot}
+        readBusy={busy || controller.query.busy}
+      />
       <VcsHistoryPanel
         controller={controller}
         root={root}

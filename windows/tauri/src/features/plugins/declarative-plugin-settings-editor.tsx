@@ -53,7 +53,7 @@ export function DeclarativePluginSettingsEditor({
   const [invalid, setInvalid] = useState(false);
   const [pluginRevision, setPluginRevision] = useState(0);
   useSyncExternalStore(pluginSettingsReloads.subscribe, pluginSettingsReloads.revision);
-  const pendingReload = pluginSettingsReloads.state(pluginId);
+  const reloadBusy = pluginSettingsReloads.busy(pluginId);
   const session = useRef<DeclarativeSettingsSession | null>(null);
   useEffect(() => {
     let stale = false;
@@ -103,13 +103,15 @@ export function DeclarativePluginSettingsEditor({
               pluginId,
               configuration: declarativeWorkspaceConfiguration,
               push: pushDeclarativeWorkspaceConfiguration,
-              savedForReload: (saved, requiresReload) =>
+              savedForReload: (saved, requiresReload, savedScope) =>
                 pluginSettingsReloads.saved(
                   {
                     pluginId,
                     workspacePath: workspacePath ?? "",
                     expectedIdentity: saved.identity,
                     expectedPackageIdentity: saved.packageIdentity,
+                    scope: savedScope,
+                    project: saved.reloadContext,
                   },
                   requiresReload,
                 ),
@@ -165,6 +167,7 @@ export function DeclarativePluginSettingsEditor({
             activateOnClick={false}
           >
             <SettingsSelect
+              aria-label={t("plugins.settings.storage")}
               value={layer}
               disabled={state.busy || invalid}
               options={[
@@ -205,12 +208,12 @@ export function DeclarativePluginSettingsEditor({
                   const raw = scope === "project" ? snapshot.projectValues : snapshot.globalValues;
                   const disabled =
                     state.busy ||
-                    !!pendingReload?.busy ||
+                    reloadBusy ||
                     invalid ||
                     recoveryRequired ||
                     (layer === "project" && setting.scope !== "project");
                   return (
-                    <div key={setting.id} className="space-y-1">
+                    <div key={setting.id} data-plugin-setting={setting.id} className="space-y-1">
                       <SettingRow
                         label={setting.title}
                         description={setting.description ?? undefined}
@@ -239,6 +242,7 @@ export function DeclarativePluginSettingsEditor({
                       <div className="flex justify-end gap-2">
                         <Button
                           size="sm"
+                          aria-label={`${setting.title}: ${t("ui.save")}`}
                           disabled={disabled || !dirty}
                           onClick={() => void session.current?.save(setting, scope)}
                         >
@@ -246,6 +250,7 @@ export function DeclarativePluginSettingsEditor({
                         </Button>
                         <Button
                           size="sm"
+                          aria-label={`${setting.title}: ${t("ui.cancel")}`}
                           disabled={disabled || !dirty}
                           onClick={() => session.current?.cancel(setting.id, scope)}
                         >
@@ -253,6 +258,7 @@ export function DeclarativePluginSettingsEditor({
                         </Button>
                         <Button
                           size="sm"
+                          aria-label={`${setting.title}: ${t("plugins.settings.inherit")}`}
                           disabled={
                             disabled || !Object.prototype.hasOwnProperty.call(raw, setting.id)
                           }
@@ -273,7 +279,7 @@ export function DeclarativePluginSettingsEditor({
                     action={action}
                     workspacePath={workspacePath}
                     identity={snapshot.identity}
-                    disabled={invalid || state.busy || !!pendingReload?.busy}
+                    disabled={invalid || state.busy || reloadBusy}
                   />
                 ))}
             </Section>

@@ -1,4 +1,4 @@
-//! Native composition for a detected plugin root's read-only status. The
+//! Native composition for typed requests against a detected plugin root. The
 //! package's existing install approval covers its declared VCS program/tool;
 //! no build consent token or plugin-function identity is accepted here.
 use super::{
@@ -19,15 +19,21 @@ struct Prepared {
     plan: Value,
     state_directory: PathBuf,
 }
+struct Admission {
+    plugin_id: String,
+    revision: u64,
+}
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StatusSnapshot {
     request_id: String,
     generation: u64,
     root_id: String,
+    root_identity: String,
     vcs: String,
     result: Value,
     operation: String,
+    capabilities: Value,
 }
 fn request_id(id: &str) -> Result<(), String> {
     if id.is_empty() || id.len() > 128 || id.chars().any(|c| !c.is_ascii_alphanumeric() && c != '-')
@@ -60,6 +66,51 @@ fn plan(
     }
     Ok(response["plan"].clone())
 }
+fn settings_revision(
+    app: &AppHandle,
+    host: &str,
+    scope: &Scope,
+    plugin: &str,
+) -> Result<u64, String> {
+    app.state::<super::super::build::BuildHostState>()
+        .settings_scope_revision(host, &scope.workspace_root, plugin)
+        .map_err(|_| registry::STALE.into())
+}
+// Capture before the command's first await: a blocked preparation must not
+// silently adopt new settings after a scoped reload has already completed.
+fn admission(
+    app: &AppHandle,
+    host: &str,
+    scope: &Scope,
+    generation: u64,
+    root_id: &str,
+) -> Result<Admission, String> {
+    let (snapshot, _, _) = app
+        .state::<VcsHostState>()
+        .registry
+        .lock()
+        .expect("VCS registry")
+        .capture(host, scope, generation)?;
+    let root = snapshot
+        .detection
+        .roots
+        .iter()
+        .find(|root| root.id == root_id)
+        .ok_or(registry::STALE)?;
+    let plugin_id = snapshot
+        .detection
+        .providers
+        .iter()
+        .find(|provider| provider["vcs"] == root.vcs && provider["origin"]["kind"] == "plugin")
+        .and_then(|provider| provider["origin"]["pluginID"].as_str())
+        .ok_or("vcs.provider.unavailable")?
+        .to_string();
+    let revision = settings_revision(app, host, scope, &plugin_id)?;
+    Ok(Admission {
+        plugin_id,
+        revision,
+    })
+}
 fn prepare(
     app: &AppHandle,
     host: &str,
@@ -67,8 +118,12 @@ fn prepare(
     generation: u64,
     root_id: String,
     id: String,
+    admission: Admission,
 ) -> Result<Prepared, String> {
     live(app, host)?;
+    if settings_revision(app, host, &scope, &admission.plugin_id)? != admission.revision {
+        return Err(registry::STALE.into());
+    }
     let (snapshot, expected, registration) = app
         .state::<VcsHostState>()
         .registry
@@ -105,6 +160,9 @@ fn prepare(
     let plugin_id = provider["origin"]["pluginID"]
         .as_str()
         .ok_or("invalidResponse")?;
+    if plugin_id != admission.plugin_id {
+        return Err(registry::STALE.into());
+    }
     let lease = app
         .state::<lifecycle::LifecycleState>()
         .acquire(plugin_id)?;
@@ -124,9 +182,11 @@ fn prepare(
             generation,
             registration,
             request_id: id,
+            root_identity: super::mappings::directory_identity(std::path::Path::new(&root.path))?,
             root,
             plugin_id: plugin_id.into(),
             package_identity: identity,
+            settings_revision: admission.revision,
         },
         expected,
         package,
@@ -141,6 +201,11 @@ fn current(app: &AppHandle, owner: &session::Owner) -> Result<(), String> {
 }
 fn active(app: &AppHandle, context: &session::Context) -> Result<(), String> {
     live(app, &context.host)?;
+    if settings_revision(app, &context.host, &context.scope, &context.plugin_id)?
+        != context.settings_revision
+    {
+        return Err(registry::STALE.into());
+    }
     if app
         .state::<lifecycle::LifecycleState>()
         .blocked(&context.plugin_id)
@@ -160,7 +225,12 @@ fn unchanged(
     expected: &[registry::Package],
     frozen_plan: &Value,
 ) -> Result<registry::Snapshot, String> {
-    live(app, &context.host)?;
+    active(app, context)?;
+    if super::mappings::directory_identity(std::path::Path::new(&context.root.path))?
+        != context.root_identity
+    {
+        return Err(registry::STALE.into());
+    }
     let (snapshot, captured, registration) = app
         .state::<VcsHostState>()
         .registry
@@ -276,6 +346,33 @@ pub(super) fn cleanup_later(sessions: Arc<session::Sessions>, owner: Arc<session
     });
 }
 
+/// Cleanup failure retains its owner, but cannot erase a definitive rejection.
+/// A successful write still waits for cleanup proof before it can be published.
+pub(super) fn complete_request(
+    result: session::Reply,
+    cleaned: Result<(), String>,
+    write: bool,
+    uncertain: bool,
+) -> session::Reply {
+    match (result, cleaned) {
+        (Ok(value), Ok(())) => Ok(value),
+        (result, cleaned) => {
+            let awaiting_success_cleanup = write && result.is_ok() && cleaned.is_err();
+            let error = match (result, cleaned) {
+                (Err(error), Err(cleanup)) if write => format!("{error};{cleanup}"),
+                (_, Err(cleanup)) => cleanup,
+                (Err(error), Ok(())) => error,
+                (Ok(_), Ok(())) => unreachable!(),
+            };
+            Err(if uncertain || awaiting_success_cleanup {
+                format!("vcs.provider.outcomeUnknown:{error}")
+            } else {
+                error
+            })
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn declarative_plugins_vcs_status(
     app: AppHandle,
@@ -306,17 +403,42 @@ pub(super) async fn read(
     request_id: String,
     operation: super::query::ReadOperation,
 ) -> Result<StatusSnapshot, String> {
+    run(
+        app, caller, scope, generation, root_id, request_id, operation, None,
+    )
+    .await
+}
+
+pub(super) async fn run(
+    app: AppHandle,
+    caller: WebviewWindow,
+    scope: Scope,
+    generation: u64,
+    root_id: String,
+    request_id: String,
+    operation: super::query::ReadOperation,
+    write: Option<(String, super::actions::WriteOperation)>,
+) -> Result<StatusSnapshot, String> {
     operation.validate()?;
     live(&app, caller.label())?;
     validate(&scope)?;
     self::request_id(&request_id)?;
+    let admission = admission(&app, caller.label(), &scope, generation, &root_id)?;
     let worker_app = app.clone();
     let host = caller.label().to_string();
     let preparation_operation = operation.clone();
-    let prepared = tokio::time::timeout(
+    let (prepared, claim) = tokio::time::timeout(
         registry::READ_TIMEOUT,
         tauri::async_runtime::spawn_blocking(move || {
-            let prepared = prepare(&worker_app, &host, scope, generation, root_id, request_id)?;
+            let prepared = prepare(
+                &worker_app,
+                &host,
+                scope,
+                generation,
+                root_id,
+                request_id,
+                admission,
+            )?;
             let (snapshot, _, _) = worker_app
                 .state::<VcsHostState>()
                 .registry
@@ -329,13 +451,38 @@ pub(super) async fn read(
                 &prepared.context.root,
                 &preparation_operation,
             )?;
-            Ok::<_, String>(prepared)
+            let claim = if let Some((status_id, action)) = write {
+                self::request_id(&status_id)?;
+                let published = worker_app
+                    .state::<VcsHostState>()
+                    .actions
+                    .lock()
+                    .expect("VCS actions")
+                    .take(&host, &prepared.context.scope, &status_id)?;
+                if !super::actions::same_source(&published, &prepared.context) {
+                    return Err(registry::STALE.into());
+                }
+                let expanded = super::actions::targets(
+                    &super::Core,
+                    &snapshot,
+                    &prepared.context.root,
+                    &published,
+                    &action,
+                )?;
+                Some((published, action, expanded))
+            } else {
+                None
+            };
+            Ok::<_, String>((prepared, claim))
         }),
     )
     .await
     .map_err(|_| "requestTimeout")?
     .map_err(|_| "internalError")??;
     let owner = session::Owner::new(prepared.context.clone(), prepared.lease);
+    if claim.is_some() {
+        owner.mark_mutation();
+    }
     let sessions = app.state::<VcsHostState>().sessions.clone();
     sessions.insert(owner.clone(), || current(&app, &owner).is_ok())?;
     let mut guard = RequestGuard {
@@ -434,13 +581,89 @@ pub(super) async fn read(
                 Ok((payload, tool))
             })
             .await?;
-        owner.read(&operation, || current(&app, &owner)).await
+        let status = owner.read(&operation, || current(&app, &owner)).await?;
+        if let Some((published, action, expanded)) = &claim {
+            if status != published.raw || owner.capabilities() != published.capabilities {
+                return Err(registry::STALE.into());
+            }
+            let worker_app = app.clone();
+            let worker_owner = owner.clone();
+            let worker_expected = expected.clone();
+            let worker_plan = frozen_plan.clone();
+            let published = published.clone();
+            let selection = action.clone();
+            owner
+                .write(
+                    expanded,
+                    move || {
+                        let snapshot = unchanged(
+                            &worker_app,
+                            &worker_owner.context,
+                            &worker_expected,
+                            &worker_plan,
+                        )?;
+                        super::actions::targets(
+                            &super::Core,
+                            &snapshot,
+                            &worker_owner.context.root,
+                            &published,
+                            &selection,
+                        )?;
+                        worker_app
+                            .state::<VcsHostState>()
+                            .registry
+                            .lock()
+                            .expect("VCS registry")
+                            .begin_write(
+                                &worker_owner.context.host,
+                                &worker_owner.context.scope,
+                                worker_owner.context.generation,
+                            )?;
+                        worker_owner.current()
+                    },
+                    || current(&app, &owner),
+                )
+                .await
+        } else {
+            Ok(status)
+        }
     }
     .await;
+    let capabilities = owner.capabilities();
+    let uncertain = owner.uncertain();
     let cleaned = sessions.cleanup(owner).await;
     guard.armed = false;
-    cleaned?;
-    let result = result?;
+    let result = complete_request(result, cleaned, claim.is_some(), uncertain)?;
+    if let Some((_, action, _)) = claim {
+        // A successful write is still not publishable into a replacement root.
+        let worker_app = app.clone();
+        let worker_context = context.clone();
+        let final_check = async {
+            tokio::time::timeout(
+                registry::READ_TIMEOUT,
+                tauri::async_runtime::spawn_blocking(move || {
+                    unchanged(&worker_app, &worker_context, &expected, &frozen_plan).map(|_| ())
+                }),
+            )
+            .await
+            .map_err(|_| "requestTimeout")?
+            .map_err(|_| "internalError")??;
+            active(&app, &context)
+        }
+        .await;
+        final_check.map_err(|error| format!("vcs.provider.outcomeUnknown:{error}"))?;
+        return Ok(StatusSnapshot {
+            request_id: context.request_id,
+            generation: context.generation,
+            root_identity: context.root_identity,
+            root_id: context.root.id,
+            vcs: context.root.vcs,
+            result,
+            operation: action.name().into(),
+            capabilities,
+        });
+    }
+    let raw = result.clone();
     // Cleanup may wait for a late launch worker or process descendant. Re-read
     // identities and ownership after that wait so it cannot publish stale data.
     let worker_app = app.clone();
@@ -468,13 +691,27 @@ pub(super) async fn read(
     if sessions.cancelled(&context) {
         return Err(session::CANCELLED.into());
     }
+    if matches!(operation, super::query::ReadOperation::Status) {
+        app.state::<VcsHostState>()
+            .actions
+            .lock()
+            .expect("VCS actions")
+            .publish(super::actions::Published {
+                context: context.clone(),
+                raw,
+                projected: result.clone(),
+                capabilities: capabilities.clone(),
+            });
+    }
     Ok(StatusSnapshot {
         request_id: context.request_id,
         generation: context.generation,
+        root_identity: context.root_identity,
         root_id: context.root.id,
         vcs: context.root.vcs,
         result,
         operation: operation.name().into(),
+        capabilities,
     })
 }
 

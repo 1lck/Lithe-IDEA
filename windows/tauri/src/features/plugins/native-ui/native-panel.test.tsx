@@ -14,6 +14,7 @@ import type {
 import controlsFixture from "../../../../../../shared/contracts/plugins/v1/fixtures/native-controls.plugin.json";
 import treeFixture from "../../../../../../shared/contracts/plugins/v1/fixtures/native-panel.plugin.json";
 import formFixture from "../../../../../../shared/contracts/plugins/v1/fixtures/native-form.plugin.json";
+import { deferred, nativeFunctionFixture } from "./native-functions.test-support";
 
 const restoreDom = installHappyDom();
 afterAll(restoreDom);
@@ -115,14 +116,15 @@ function panel(
 test("the real native-controls form renders shared controls and IME Enter commits all current fields once", async () => {
   const ui = controlsFixture.ui.toolWindows[0].native as unknown as NativeUI;
   const invocations: NativeCallContext[] = [];
+  const binding = nativeFunctionFixture(identity, ui);
+  const prepare = binding.deps.prepare;
+  binding.deps.prepare = (...args) => {
+    if (args[1]) invocations.push(args[2]);
+    return prepare(...args);
+  };
   const port: NativePanelPort = {
     validate,
-    functions: {
-      load: async () => ({ nodes: [] }),
-      invoke: async (_action, context) => {
-        invocations.push(context);
-      },
-    },
+    functions: binding.port,
   };
   const mounted = await mount(panel(ui, port));
   try {
@@ -166,6 +168,7 @@ test("the real native-controls form renders shared controls and IME Enter commit
     expect(invocations[0].values?.[disabled.id]).toBe(disabled.value);
   } finally {
     await mounted.close();
+    await binding.close();
   }
 }, 3000);
 
@@ -176,9 +179,9 @@ test("the real native tree fixture virtualizes long results and keeps keyboard s
     label: index === 0 ? "Branch" : `Node ${index}`,
     ...(index === 0 ? { children: [{ id: "child", label: "Child row" }] } : {}),
   }));
-  const mounted = await mount(
-    panel(ui, { validate, functions: { load: async () => ({ nodes }), invoke: async () => {} } }),
-  );
+  const binding = nativeFunctionFixture(identity, ui);
+  binding.setRead(async (context) => ({ context, phase: "succeeded", result: { nodes } }));
+  const mounted = await mount(panel(ui, { validate, functions: binding.port }));
   try {
     const tree = mounted.host.querySelector<HTMLDivElement>("[role=tree]")!;
     expect(tree).not.toBeNull();
@@ -200,15 +203,24 @@ test("the real native tree fixture virtualizes long results and keeps keyboard s
     expect(
       mounted.host.querySelector('[role=treeitem][aria-selected="true"]')?.textContent,
     ).toContain("Branch");
+    await act(async () => {
+      mounted.host.querySelector<HTMLButtonElement>('button[aria-label="Inspect"]')!.click();
+    });
+    expect(binding.calls.find((call) => call.actionId === "inspect")?.context.selectedID).toBe(
+      "node-0",
+    );
   } finally {
     await mounted.close();
+    await binding.close();
   }
 }, 3000);
 
 test("the real native-form fixture restores a local draft after hide and reset restores its declared value", async () => {
   const ui = formFixture.ui.toolWindows[0].native as unknown as NativeUI;
   const store = new NativePanelStateStore();
-  const mounted = await mount(panel(ui, { validate }, store));
+  const binding = nativeFunctionFixture(identity, ui);
+  const port = { validate, functions: binding.port };
+  const mounted = await mount(panel(ui, port, store));
   const input = () =>
     mounted.host.querySelector<HTMLInputElement>(`input[aria-label="${ui.controls![0].label}"]`)!;
   try {
@@ -216,7 +228,7 @@ test("the real native-form fixture restores a local draft after hide and reset r
       inputValue(input(), "保存草稿 😀");
     });
     await mounted.render(<div />);
-    await mounted.render(panel(ui, { validate }, store));
+    await mounted.render(panel(ui, port, store));
     expect(input().value).toBe("保存草稿 😀");
     await act(async () => {
       mounted.host
@@ -225,10 +237,11 @@ test("the real native-form fixture restores a local draft after hide and reset r
     });
     expect(input().value).toBe(ui.controls![0].value as string);
     await mounted.render(<div />);
-    await mounted.render(panel(ui, { validate }, store));
+    await mounted.render(panel(ui, port, store));
     expect(input().value).toBe(ui.controls![0].value as string);
   } finally {
     await mounted.close();
+    await binding.close();
   }
 }, 3000);
 
@@ -283,5 +296,196 @@ test("replacing a mounted package cancels its load and rejects its late rows", a
   } finally {
     resolve({ nodes: [] });
     await mounted.close();
+  }
+}, 3000);
+
+test("public selectors, segmented choices, checkbox, stepper, search and form buttons reach the typed port with all current values", async () => {
+  const ui = controlsFixture.ui.toolWindows[0].native as unknown as NativeUI;
+  const binding = nativeFunctionFixture(identity, ui);
+  binding.setRead(async (context) => ({
+    context,
+    phase: "succeeded",
+    result:
+      context.functionId === ui.source!.function
+        ? { nodes: [] }
+        : { message: "Stored current values" },
+  }));
+  const mounted = await mount(panel(ui, { validate, functions: binding.port }));
+  const control = (kind: string) =>
+    ui.controls!.find((control) => control.kind === kind && control.enabled !== false)!;
+  const lastAction = () => binding.calls.filter((call) => !!call.actionId).slice(-1)[0];
+  try {
+    const search = control("search");
+    const input = mounted.host.querySelector<HTMLInputElement>(
+      `input[aria-label="${search.label}"]`,
+    )!;
+    await act(async () => inputValue(input, "query 😀"));
+    expect(binding.calls.filter((call) => !!call.actionId)).toHaveLength(0);
+    await act(async () => {
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+    expect(lastAction().context.values?.[search.id]).toBe("query 😀");
+
+    const checkbox = control("checkbox");
+    await act(async () =>
+      mounted.host
+        .querySelector<HTMLButtonElement>(`[role=checkbox][aria-label="${checkbox.label}"]`)!
+        .click(),
+    );
+    expect(lastAction().context.values?.[checkbox.id]).toBe(!checkbox.value);
+
+    const segmented = control("segmented");
+    const choice = segmented.options!.find((option) => option.id !== segmented.value)!;
+    const group = mounted.host.querySelector<HTMLElement>(`[aria-label="${segmented.label}"]`)!;
+    await act(async () =>
+      [...group.querySelectorAll<HTMLButtonElement>("button")]
+        .find((button) => button.textContent === choice.label)!
+        .click(),
+    );
+    expect(lastAction().context.values?.[segmented.id]).toBe(choice.id);
+
+    const stepper = control("stepper");
+    const number = mounted.host.querySelector<HTMLInputElement>(
+      `input[aria-label="${stepper.label}"]`,
+    )!;
+    await act(async () =>
+      number
+        .parentElement!.querySelector<HTMLButtonElement>('button[aria-label="Increase value"]')!
+        .click(),
+    );
+    expect(lastAction().context.values?.[stepper.id]).toBe(Number(stepper.value) + stepper.step!);
+
+    const select = control("select");
+    const option = select.options!.find((option) => option.id !== select.value)!;
+    await act(async () =>
+      mounted.host
+        .querySelector<HTMLButtonElement>(`[role=combobox][aria-label="${select.label}"]`)!
+        .click(),
+    );
+    await act(async () =>
+      [...document.querySelectorAll<HTMLElement>("[role=option]")]
+        .find((node) => node.textContent === option.label)!
+        .click(),
+    );
+    expect(lastAction().context.values?.[select.id]).toBe(option.id);
+
+    const button = ui.buttons!.find((button) => button.primary && button.enabled !== false)!;
+    await act(async () =>
+      [...mounted.host.querySelectorAll<HTMLButtonElement>("button")]
+        .find((node) => node.textContent === button.label)!
+        .click(),
+    );
+    expect(lastAction().actionId).toBe(button.action);
+    expect(Object.keys(lastAction().context.values!)).toHaveLength(ui.controls!.length);
+    expect(mounted.host.textContent).toContain("Stored current values");
+    expect(binding.owners.size).toBe(0);
+  } finally {
+    await mounted.close();
+    await binding.close();
+  }
+}, 3000);
+
+test("a source form without a refresh action retries unavailable registration and cancels pending consent through public controls", async () => {
+  const ui = controlsFixture.ui.toolWindows[0].native as unknown as NativeUI;
+  expect(ui.actions.some((action) => action.kind === "refresh")).toBe(false);
+  const binding = nativeFunctionFixture(identity, ui);
+  const open = binding.deps.open;
+  let attempts = 0;
+  binding.deps.open = (...args) => {
+    if (++attempts === 1)
+      return Promise.reject({ code: "plugin.function.providerUnavailable", message: "missing" });
+    return open(...args);
+  };
+  const entered = deferred<void>();
+  const accepted = deferred<boolean>();
+  binding.setApproval(async () => {
+    entered.resolve();
+    return accepted.promise;
+  });
+  const mounted = await mount(panel(ui, { validate, functions: binding.port }));
+  const button = (label: string) =>
+    [...mounted.host.querySelectorAll<HTMLButtonElement>("button")].find(
+      (node) => node.textContent === label,
+    )!;
+  try {
+    expect(mounted.host.querySelector("[role=alert]")?.textContent).toBe(
+      "Plugin functions are currently unavailable for this panel.",
+    );
+    await act(async () => {
+      button("Retry").click();
+      await entered.promise;
+    });
+    expect(attempts).toBe(2);
+    expect(button("Cancel")).toBeTruthy();
+    await act(async () => button("Cancel").click());
+    expect(binding.confirmed).toHaveLength(0);
+    expect(mounted.host.querySelector("[role=alert]")?.textContent).toBeTruthy();
+    await act(async () => {
+      accepted.resolve(true);
+      await Promise.all(binding.sessions.map((session) => session.cancel()));
+    });
+    expect(binding.confirmed).toHaveLength(0);
+    binding.setApproval(async () => true);
+    await act(async () => button("Retry").click());
+    expect(binding.confirmed).toHaveLength(1);
+    expect(mounted.host.querySelector("[role=alert]")).toBeNull();
+    expect(binding.owners.size).toBe(0);
+  } finally {
+    entered.resolve();
+    accepted.resolve(false);
+    await mounted.close();
+    await binding.close();
+  }
+}, 3000);
+
+test("running native progress is visible and cancelling it prevents a late action message", async () => {
+  const ui = controlsFixture.ui.toolWindows[0].native as unknown as NativeUI;
+  const binding = nativeFunctionFixture(identity, ui);
+  const entered = deferred<void>();
+  const resume = deferred<void>();
+  binding.setWait(async () => {
+    entered.resolve();
+    await resume.promise;
+  });
+  let running = true;
+  binding.setRead(async (context) => {
+    if (context.functionId === ui.source!.function)
+      return { context, phase: "succeeded", result: { nodes: [] } };
+    return running
+      ? {
+          context,
+          phase: "running",
+          progress: { message: "Working on current form", percentage: 42 },
+        }
+      : { context, phase: "succeeded", result: { message: "Late old success" } };
+  });
+  const mounted = await mount(panel(ui, { validate, functions: binding.port }));
+  try {
+    const primary = ui.buttons!.find((button) => button.primary && button.enabled !== false)!;
+    await act(async () => {
+      [...mounted.host.querySelectorAll<HTMLButtonElement>("button")]
+        .find((button) => button.textContent === primary.label)!
+        .click();
+      await entered.promise;
+    });
+    expect(mounted.host.textContent).toContain("Working on current form 42%");
+    await act(async () => {
+      [...mounted.host.querySelectorAll<HTMLButtonElement>("button")]
+        .find((button) => button.textContent === "Cancel")!
+        .click();
+    });
+    await act(async () => {
+      running = false;
+      resume.resolve();
+      await Promise.all(binding.sessions.map((session) => session.cancel()));
+    });
+    expect(mounted.host.textContent).not.toContain("Working on current form");
+    expect(mounted.host.textContent).not.toContain("Late old success");
+    expect(binding.owners.size).toBe(0);
+  } finally {
+    entered.resolve();
+    resume.resolve();
+    await mounted.close();
+    await binding.close();
   }
 }, 3000);

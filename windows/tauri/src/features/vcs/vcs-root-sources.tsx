@@ -13,6 +13,7 @@ import { Button } from "@/ui/button";
 export function VcsRootSources({ controller }: { controller: VcsRootController }) {
   const { t } = useTranslation();
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
+  useSyncExternalStore(controller.actions.subscribe, controller.actions.getSnapshot);
   const status = useSyncExternalStore(controller.status.subscribe, controller.status.getSnapshot);
   const activeFile = useBufferStore((state) => {
     const buffer = state.buffers.find((buffer) => buffer.id === state.activeBufferId);
@@ -88,11 +89,13 @@ export function VcsRootSources({ controller }: { controller: VcsRootController }
         size="xs"
         value={selectedRoot ? `root:${selectedRoot.id}` : ""}
         disabled={
+          controller.actions.busy ||
           status.phase === "loading" ||
           status.phase === "stopping" ||
           status.phase === "cancelFailed"
         }
         onChange={(value) => {
+          controller.actions.invalidate();
           controller.status.invalidate();
           controller.query.invalidate();
           setSelected(value);

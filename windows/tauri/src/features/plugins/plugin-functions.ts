@@ -10,6 +10,7 @@ import {
 } from "./plugin-function-session";
 
 interface FunctionCleanupOwner {
+  readonly title?: string;
   readonly key?: string;
   readonly input: Pick<FunctionInput, "pluginId" | "actionId" | "operationId">;
   readonly state: Pick<FunctionState, "phase" | "error">;
@@ -148,6 +149,7 @@ export function createPluginFunctionSession(
   input: FunctionInput,
   assertCurrent: () => void,
   publish: (state: FunctionState) => void,
+  overrides: Partial<Pick<FunctionPorts, "prepare">> = {},
 ) {
   const ports: FunctionPorts = {
     prepare: (value) =>
@@ -172,9 +174,14 @@ export function createPluginFunctionSession(
       return () => clearTimeout(timer);
     },
   };
-  return new PluginFunctionSession(input, ports, publish, (owner, retained) => {
-    if (retained) owners.add(owner);
-    else owners.delete(owner);
-    changed();
-  });
+  return new PluginFunctionSession(
+    input,
+    { ...ports, ...overrides },
+    publish,
+    (owner, retained) => {
+      if (retained) owners.add(owner);
+      else owners.delete(owner);
+      changed();
+    },
+  );
 }

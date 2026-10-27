@@ -282,6 +282,8 @@ pub struct SettingSnapshot {
     pub project_path: Option<String>,
     pub identity: String,
     pub package_identity: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reload_context: Option<super::reload::ProjectContext>,
     #[serde(skip)]
     global_store: Store,
     #[serde(skip)]
@@ -446,6 +448,7 @@ fn snapshot_package(
             .then(|| project_store_path(root).to_string_lossy().into_owned()),
         identity,
         package_identity,
+        reload_context: None,
         global_store,
         project_store,
     })

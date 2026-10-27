@@ -1,3 +1,4 @@
+import type { VcsWriteAction, VcsWriteSnapshot } from "./vcs-action-types";
 import type { VcsQuerySnapshot, VcsReadQuery } from "./vcs-query-types";
 /** Read-only host binding of the existing vcs.detectRoots/ownerOf results. */
 export interface VcsScope {
@@ -70,6 +71,15 @@ export interface VcsRootPort {
   ): Promise<VcsStatusSnapshot>;
   cancelStatus?(scope: VcsScope, requestId: string): Promise<void>;
   statusDeadline?(callback: () => void): () => void;
+  write?(
+    scope: VcsScope,
+    generation: number,
+    rootId: string,
+    requestId: string,
+    statusId: string,
+    action: VcsWriteAction,
+  ): Promise<VcsWriteSnapshot>;
+  writeDeadline?(callback: () => void): () => void;
   query?(
     scope: VcsScope,
     generation: number,
@@ -83,7 +93,9 @@ export interface VcsStatusSnapshot {
   generation: number;
   rootId: string;
   vcs: string;
+  rootIdentity?: string;
   operation?: "status";
+  capabilities?: Record<string, number>;
   result: {
     head: {
       revision: { id: string; display: string; kind: string } | null;

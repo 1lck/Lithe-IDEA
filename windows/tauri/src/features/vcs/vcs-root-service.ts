@@ -24,6 +24,19 @@ const native: VcsRootPort = {
   close: (scope) => invoke("declarative_plugins_vcs_close", { scope }),
   status: (scope, generation, rootId, requestId) =>
     invoke("declarative_plugins_vcs_status", { scope, generation, rootId, requestId }),
+  write: (scope, generation, rootId, requestId, statusId, action) =>
+    invoke("declarative_plugins_vcs_write", {
+      scope,
+      generation,
+      rootId,
+      requestId,
+      statusId,
+      action,
+    }),
+  writeDeadline: (callback) => {
+    const timer = setTimeout(callback, 720_000);
+    return () => clearTimeout(timer);
+  },
   query: (scope, generation, rootId, requestId, query) =>
     invoke("declarative_plugins_vcs_query", { scope, generation, rootId, requestId, query }),
   cancelStatus: (scope, requestId) =>

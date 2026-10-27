@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useActiveWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { useTranslation } from "@/i18n/locale-provider";
@@ -7,10 +7,17 @@ import { useDeclarativePluginUI } from "../declarative-plugin-ui";
 import { nativePanelStates, nativeViewId } from "./native-contributions";
 import { nativeUIValidator } from "./native-ui-core";
 import { NativePanel } from "./native-panel";
-import type { NativeFunctionPort, NativePanelPort } from "./native-ui.types";
+import { createNativeFunctionPort } from "./native-functions";
+import { nativePanelKey } from "./native-panel-state";
+import type {
+  NativeFunctionPort,
+  NativePanelIdentity,
+  NativePanelPort,
+  NativeContribution,
+} from "./native-ui.types";
 
-/** Production contribution body. Function execution is deliberately injected
- * by the shared function bridge; absent bindings remain unavailable. */
+/** A mounted contribution owns its typed function bridge and exact native
+ * handle; provider discovery and execution remain in the shared host owner. */
 export default function NativeToolWindow({
   view,
   onClose,
@@ -25,10 +32,6 @@ export default function NativeToolWindow({
     state.nativeWindows?.find((entry) => nativeViewId(entry) === view),
   );
   const workspaceId = useActiveWorkspaceId();
-  const port = useMemo<NativePanelPort>(
-    () => ({ validate: nativeUIValidator(), functions }),
-    [functions],
-  );
   const identity = useMemo(
     () =>
       entry
@@ -52,6 +55,34 @@ export default function NativeToolWindow({
         </p>
       </SidebarPanel>
     );
+  return (
+    <BoundNativePanel
+      key={nativePanelKey(identity)}
+      identity={identity}
+      entry={entry}
+      functions={functions}
+      onClose={onClose}
+    />
+  );
+}
+
+function BoundNativePanel({
+  identity,
+  entry,
+  functions,
+  onClose,
+}: {
+  identity: NativePanelIdentity;
+  entry: NativeContribution;
+  functions?: NativeFunctionPort;
+  onClose(): void;
+}) {
+  const [owned] = useState(() => (functions ? undefined : createNativeFunctionPort(identity)));
+  useEffect(() => () => owned?.dispose(), [owned]);
+  const port = useMemo<NativePanelPort>(
+    () => ({ validate: nativeUIValidator(), functions: functions ?? owned }),
+    [functions, owned],
+  );
   return (
     <NativePanel
       identity={identity}

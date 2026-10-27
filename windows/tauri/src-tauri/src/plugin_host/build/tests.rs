@@ -459,6 +459,54 @@ fn operation_slot_stays_busy_until_execution_owner_drains_and_is_window_bound() 
         .is_ok());
 }
 
+#[tokio::test]
+async fn scoped_drain_retries_exact_owners_and_drains_siblings_after_one_cleanup_failure() {
+    let fixture = Fixture::new();
+    fixture.file("go.mod", "module example.test/app");
+    let declaration = manifest("build-command-stdout.plugin.json");
+    let (_, _, context) = context(&fixture, &declaration, "go");
+    let first = std::sync::Arc::new(operation(&fixture, context.clone(), json!({})));
+    let second = std::sync::Arc::new(operation(&fixture, context, json!({})));
+    let owners = vec![first.clone(), second.clone()];
+    let seen = RefCell::new(Vec::new());
+    let fail = Cell::new(true);
+    let cleanup = |owner: std::sync::Arc<ModelOperation>| {
+        assert!(std::sync::Arc::ptr_eq(&owner, &first) || std::sync::Arc::ptr_eq(&owner, &second));
+        seen.borrow_mut().push(owner.id.clone());
+        owner.cancel();
+        std::future::ready(if fail.get() && std::sync::Arc::ptr_eq(&owner, &first) {
+            Err("plugin.build.cleanupFailed".into())
+        } else {
+            Ok(())
+        })
+    };
+    let first_drain = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        super::host::drain_with(owners.clone(), &cleanup),
+    )
+    .await
+    .expect("controlled cleanup must finish");
+    assert_eq!(first_drain.unwrap_err(), "plugin.build.cleanupFailed");
+    assert_eq!(*seen.borrow(), vec![first.id.clone(), second.id.clone()]);
+    fail.set(false);
+    tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        super::host::drain_with(owners, &cleanup),
+    )
+    .await
+    .expect("controlled retry must finish")
+    .unwrap();
+    assert_eq!(
+        *seen.borrow(),
+        vec![
+            first.id.clone(),
+            second.id.clone(),
+            first.id.clone(),
+            second.id.clone()
+        ]
+    );
+}
+
 #[test]
 fn explicit_path_with_spaces_is_frozen_and_invalid_path_never_falls_back() {
     let fixture = Fixture::new();

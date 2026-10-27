@@ -99,6 +99,19 @@ impl ModelExecutionGuard for HostGuard<'_> {
             return Err("plugin.build.staleContext".into());
         }
         verified_identity(self.app, &self.operation.context)?;
+        if let Some(receipt) = self
+            .operation
+            .settings_reload
+            .lock()
+            .map_err(|_| "plugin.settings.unavailable")?
+            .as_ref()
+        {
+            super::super::settings::reload::check(
+                self.app,
+                &self.operation.context.window_label,
+                receipt,
+            )?;
+        }
         let directory = WindowsBuildToolResolver::instance_directory(
             &self.operation.invocation,
             &PathBuf::from(&self.operation.context.workspace_root),
@@ -318,21 +331,49 @@ pub(super) async fn cancel(
         // is idempotent and never operates on another window's process owner.
         return Ok(());
     };
+    cancel_owned(&app, &operation).await
+}
+
+async fn cancel_owned(app: &AppHandle, operation: &Arc<ModelOperation>) -> Result<(), String> {
     operation.cancel();
     if let Some(provider) = &operation.provider {
-        super::super::provider::drain_initialization(&app, &window_label, provider.review.token)
-            .await
-            .map_err(|_| "plugin.build.cleanupFailed".to_string())?;
+        super::super::provider::drain_initialization(
+            app,
+            &operation.context.window_label,
+            provider.review.token,
+        )
+        .await
+        .map_err(|_| "plugin.build.cleanupFailed".to_string())?;
         operation.finish_provider_cleanup();
     }
     operation.wait_finished().await
 }
 
-pub(super) async fn drain(operations: Vec<Arc<ModelOperation>>) -> Result<(), String> {
+pub(super) async fn drain(
+    app: &AppHandle,
+    operations: Vec<Arc<ModelOperation>>,
+) -> Result<(), String> {
+    drain_with(operations, |operation| async move {
+        cancel_owned(app, &operation).await
+    })
+    .await
+}
+
+pub(super) async fn drain_with<F, Cleanup>(
+    operations: Vec<Arc<ModelOperation>>,
+    mut cleanup: F,
+) -> Result<(), String>
+where
+    F: FnMut(Arc<ModelOperation>) -> Cleanup,
+    Cleanup: std::future::Future<Output = Result<(), String>>,
+{
+    let mut failure = None;
     for operation in operations {
-        operation.wait_finished().await?;
+        if let Err(error) = cleanup(operation).await {
+            failure.get_or_insert(error);
+        }
     }
-    Ok(())
+    failure.map_or(Ok(()), Err)
 }
 
 pub(super) struct WindowBuildOutput(pub AppHandle);

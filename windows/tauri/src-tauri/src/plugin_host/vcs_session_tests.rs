@@ -65,9 +65,44 @@ fn context() -> Context {
                 .into_owned(),
             mapped: false,
         },
+        root_identity: "fixture-directory-identity".into(),
         plugin_id: "fixture.plugin".into(),
         package_identity: "whole-package-digest".into(),
+        settings_revision: 0,
     }
+}
+
+#[test]
+fn scoped_settings_reload_revokes_only_its_plugin_and_original_workspace_window() {
+    let sessions = Sessions::default();
+    let original = context();
+    let mut contexts = vec![original.clone(); 4];
+    contexts[1].host = "another-window".into();
+    contexts[2].plugin_id = "another.plugin".into();
+    contexts[2].root.path.push_str("-another-plugin");
+    contexts[3]
+        .scope
+        .workspace_root
+        .push_str("-another-workspace");
+    contexts[3].root.path.push_str("-another-workspace");
+    let mut owners = Vec::new();
+    for (index, mut context) in contexts.into_iter().enumerate() {
+        context.request_id = format!("scope-request-{index}");
+        let owner = owner(context, Arc::new(ScriptedRuntime::default()));
+        sessions.insert(owner.clone(), || true).unwrap();
+        owners.push(owner);
+    }
+    let revoked = sessions.matching(|context| {
+        context.settings_scope(
+            &original.host,
+            &original.scope.workspace_root,
+            &original.plugin_id,
+        )
+    });
+    assert_eq!(revoked.len(), 1);
+    assert!(Arc::ptr_eq(&revoked[0], &owners[0]));
+    assert_eq!(owners[0].current().unwrap_err(), CANCELLED);
+    assert!(owners[1..].iter().all(|owner| owner.current().is_ok()));
 }
 fn owner(context: Context, runtime: Arc<dyn Runtime>) -> Arc<Owner> {
     let lifecycle = LifecycleState::default();
@@ -641,4 +676,221 @@ fn product_pages_cannot_drain_write_or_destroy_a_private_native_vcs_session() {
         "lsp.startServer",
         &json!({"providerId":"vcsProvider:fixture:svn:request"})
     ));
+}
+
+#[tokio::test]
+async fn writes_use_typed_core_requests_real_decoder_and_never_redispatch_on_cleanup_retry() {
+    tokio::time::timeout(DEADLINE, async {
+        for (operation, reply) in [
+            (super::super::actions::WriteOperation::Checkin { paths: vec!["after.txt".into(), "before.txt".into()], message: "Fix selected".into() }, json!({"revision":{"id":"r2"}})),
+            (super::super::actions::WriteOperation::Rollback { paths: vec!["gone.txt".into()] }, json!({})),
+            (super::super::actions::WriteOperation::Update, json!({"revision":null,"conflicts":["a.txt"]})),
+        ] {
+            let runtime = Arc::new(ScriptedRuntime::default());
+            let mut negotiation = ready("svn");
+            negotiation[0]["result"]["capabilities"]["update"] = json!(1);
+            runtime.events.lock().unwrap().extend([negotiation, vec![json!({"type":"requestCompleted","sessionId":"fixture-session","operationId":"fixture-request","result":{"value":{"changes":[]}}})],
+                vec![json!({"type":"requestCompleted","sessionId":"fixture-session","operationId":"fixture-request-write","result":{"value":reply}})]]);
+            let owner = owner(context(), runtime.clone());
+            owner.mark_mutation();
+            owner.start(|| Ok((json!({}), None))).await.unwrap();
+            owner.status(|| Ok(())).await.unwrap();
+            let result = owner.write(&operation, || Ok(()), || Ok(())).await.unwrap();
+            assert!(!owner.uncertain());
+            if operation.name() == "update" { assert_eq!(result["conflicts"], json!(["a.txt"])); }
+            // Exercise the public Core request boundary too; the controlled
+            // transport has no real session, so Core must reject that identity.
+            let request = runtime.calls.lock().unwrap().iter().rev().find(|(command, _)| command == "lsp.vcsRequest").unwrap().1.clone();
+            assert_eq!(request["operation"], operation.name());
+            assert_eq!(request["arguments"], operation.arguments());
+            assert_eq!(request["operationId"], "fixture-request-write");
+            let rejected = crate::plugin_host::scan::core_execute("lsp.vcsRequest", request);
+            assert!(rejected.is_err());
+            runtime.reject_disposal.store(true, Ordering::Release);
+            assert!(!owner.dispose_once().await);
+            assert!(owner.lease.lock().unwrap().is_some());
+            runtime.reject_disposal.store(false, Ordering::Release);
+            owner.stop().await.unwrap();
+            assert!(owner.write(&operation, || Ok(()), || Ok(())).await.is_err());
+            assert_eq!(runtime.calls.lock().unwrap().iter().filter(|(command, payload)| command == "lsp.vcsRequest" && payload["operation"] == operation.name()).count(), 1);
+        }
+    }).await.expect("bounded writes and cleanup");
+}
+#[tokio::test]
+async fn replacement_preflight_cancellation_and_lost_write_reply_never_replay_side_effects() {
+    tokio::time::timeout(DEADLINE, async {
+        for preflight_rejected in [true, false] {
+            let runtime = Arc::new(ScriptedRuntime::default());
+            runtime.events.lock().unwrap().extend([ready("svn"), vec![json!({"type":"requestCompleted","sessionId":"fixture-session","operationId":"fixture-request","result":{"value":{"changes":[]}}})]]);
+            let owner = owner(context(), runtime.clone());
+            owner.start(|| Ok((json!({}), None))).await.unwrap();
+            owner.status(|| Ok(())).await.unwrap();
+            let operation = super::super::actions::WriteOperation::Rollback { paths: vec!["a.txt".into()] };
+            assert!(owner.write(&operation, move || if preflight_rejected { Err("requestCancelled".into()) } else { Ok(()) }, || Ok(())).await.is_err());
+            assert_eq!(owner.uncertain(), !preflight_rejected);
+            assert_eq!(runtime.calls.lock().unwrap().iter().filter(|(command, payload)| command == "lsp.vcsRequest" && payload["operation"] == "rollback").count(), usize::from(!preflight_rejected));
+            owner.stop().await.unwrap();
+        }
+    }).await.expect("bounded uncertain write");
+}
+
+#[tokio::test]
+async fn definitive_write_rejections_survive_failed_destroy_and_same_owner_cleanup_retry() {
+    tokio::time::timeout(DEADLINE, async {
+        for code in ["requestCancelled", "vcs.authentication.failed", "vcs.outOfDate"] {
+            let runtime = Arc::new(ScriptedRuntime::default());
+            runtime.events.lock().unwrap().extend([
+                ready("svn"),
+                vec![json!({"type":"requestCompleted","sessionId":"fixture-session","operationId":"fixture-request","result":{"value":{"changes":[]}}})],
+                vec![json!({"type":"requestCompleted","sessionId":"fixture-session","operationId":"fixture-request-write","error":{"code":code}})],
+            ]);
+            let owner = owner(context(), runtime.clone());
+            owner.mark_mutation();
+            let sessions = Sessions::default();
+            sessions.insert(owner.clone(), || true).unwrap();
+            owner.start(|| Ok((json!({}), None))).await.unwrap();
+            owner.status(|| Ok(())).await.unwrap();
+            let operation = super::super::actions::WriteOperation::Checkin {
+                paths: vec!["a.txt".into()], message: "Selected only".into(),
+            };
+            let result = owner.write(&operation, move || {
+                if code == "requestCancelled" { Err(code.into()) } else { Ok(()) }
+            }, || Ok(())).await;
+            assert_eq!(result.as_ref().unwrap_err(), code);
+            assert!(!owner.uncertain());
+            runtime.reject_disposal.store(true, Ordering::Release);
+            owner.revoke();
+            // Drive one controlled destroy attempt instead of waiting through
+            // the production cleanup retry deadline in this regression.
+            assert!(!owner.dispose_once().await);
+            let error = super::super::status::complete_request(
+                result.clone(), Err(CLEANUP_FAILED.into()), true, owner.uncertain(),
+            ).unwrap_err();
+            assert_eq!(error, format!("{code};{CLEANUP_FAILED}"));
+            assert!(owner.lease.lock().unwrap().is_some());
+            assert!(sessions.0.lock().unwrap().running.values().any(|entry| Arc::ptr_eq(entry, &owner)));
+            runtime.reject_disposal.store(false, Ordering::Release);
+            let cleaned = sessions.cleanup(owner.clone()).await;
+            assert_eq!(super::super::status::complete_request(result, cleaned, true, owner.uncertain()).unwrap_err(), code);
+            assert!(owner.lease.lock().unwrap().is_none());
+            assert!(sessions.0.lock().unwrap().running.is_empty());
+            let writes = runtime.calls.lock().unwrap().iter().filter(|(command, payload)| command == "lsp.vcsRequest" && payload["operation"] == "checkin").count();
+            assert_eq!(writes, usize::from(code != "requestCancelled"));
+        }
+    }).await.expect("bounded definitive write cleanup retry");
+}
+
+#[tokio::test]
+async fn successful_or_unanswered_writes_require_cleanup_proof_before_publication() {
+    tokio::time::timeout(DEADLINE, async {
+        for answered in [false, true] {
+            let runtime = Arc::new(ScriptedRuntime::default());
+            runtime.events.lock().unwrap().extend([
+                ready("svn"),
+                vec![json!({"type":"requestCompleted","sessionId":"fixture-session","operationId":"fixture-request","result":{"value":{"changes":[]}}})],
+            ]);
+            if answered {
+                runtime.events.lock().unwrap().push_back(vec![json!({"type":"requestCompleted","sessionId":"fixture-session","operationId":"fixture-request-write","result":{"value":{"revision":{"id":"r2"}}}})]);
+            }
+            let owner = owner(context(), runtime.clone());
+            let sessions = Sessions::default();
+            sessions.insert(owner.clone(), || true).unwrap();
+            owner.start(|| Ok((json!({}), None))).await.unwrap();
+            owner.status(|| Ok(())).await.unwrap();
+            let operation = super::super::actions::WriteOperation::Checkin {
+                paths: vec!["a.txt".into()], message: "Selected only".into(),
+            };
+            let result = owner.write(&operation, || Ok(()), || Ok(())).await;
+            assert_eq!(result.is_ok(), answered);
+            assert_eq!(owner.uncertain(), !answered);
+            runtime.reject_disposal.store(true, Ordering::Release);
+            owner.revoke();
+            assert!(!owner.dispose_once().await);
+            let error = super::super::status::complete_request(result, Err(CLEANUP_FAILED.into()), true, owner.uncertain()).unwrap_err();
+            assert!(error.starts_with("vcs.provider.outcomeUnknown:"));
+            assert!(error.contains(CLEANUP_FAILED));
+            assert!(owner.lease.lock().unwrap().is_some());
+            runtime.reject_disposal.store(false, Ordering::Release);
+            sessions.cleanup(owner.clone()).await.unwrap();
+            assert!(owner.lease.lock().unwrap().is_none());
+            assert!(sessions.0.lock().unwrap().running.is_empty());
+            assert_eq!(runtime.calls.lock().unwrap().iter().filter(|(command, payload)| command == "lsp.vcsRequest" && payload["operation"] == "checkin").count(), 1);
+        }
+    }).await.expect("bounded write publication cleanup proof");
+}
+
+#[tokio::test]
+async fn delayed_mutation_watch_callback_after_cleanup_waits_for_the_next_explicit_scan() {
+    tokio::time::timeout(DEADLINE, async {
+        let runtime = Arc::new(ScriptedRuntime::default());
+        let mut negotiation = ready("svn");
+        negotiation[0]["result"]["capabilities"]["update"] = json!(1);
+        runtime.events.lock().unwrap().extend([
+            negotiation,
+            vec![json!({"type":"requestCompleted","sessionId":"fixture-session","operationId":"fixture-request","result":{"value":{"changes":[]}}})],
+            vec![json!({"type":"requestCompleted","sessionId":"fixture-session","operationId":"fixture-request-write","result":{"value":{}}})],
+        ]);
+        let mut registry = super::super::registry::Registry::default();
+        let mut context = context();
+        let now = std::time::Instant::now();
+        let first = registry.begin(&context.host, context.scope.clone(), context.registration, now).unwrap();
+        let detection: super::super::registry::Detection = serde_json::from_value(json!({
+            "providers":[], "roots":[], "ambiguous":[], "unusedMappings":[],
+            "truncated":false, "rejected":[], "conflicts":[],
+        })).unwrap();
+        registry.publish(&first, detection.clone(), vec![], now).unwrap();
+        context.generation = first.generation;
+        let other = registry.begin("other-window", context.scope.clone(), context.registration, now).unwrap();
+        registry.publish(&other, detection.clone(), vec![], now).unwrap();
+        let sessions = Sessions::default();
+        let owner = owner(context.clone(), runtime);
+        owner.mark_mutation();
+        sessions.insert(owner.clone(), || true).unwrap();
+        owner.start(|| Ok((json!({}), None))).await.unwrap();
+        owner.status(|| Ok(())).await.unwrap();
+        registry.begin_write(&context.host, &context.scope, context.generation).unwrap();
+        owner.write(&super::super::actions::WriteOperation::Update, || Ok(()), || Ok(())).await.unwrap();
+        sessions.cleanup(owner).await.unwrap();
+        assert!(sessions.0.lock().unwrap().running.is_empty());
+
+        // Deliver the queued metadata event only after the process owner has
+        // gone. The original reply stays publishable; another window does not.
+        assert!(!registry.invalidate_generation(&context.host, &context.scope, context.generation));
+        assert!(registry.capture(&context.host, &context.scope, context.generation).is_ok());
+        assert!(registry.invalidate_generation("other-window", &context.scope, other.generation));
+        let next = registry.begin(&context.host, context.scope.clone(), context.registration, now).unwrap();
+        registry.publish(&next, detection, vec![], now).unwrap();
+        assert!(!registry.invalidate_generation(&context.host, &context.scope, context.generation));
+        assert!(registry.invalidate_generation(&context.host, &context.scope, next.generation));
+    }).await.expect("bounded mutation refresh fence");
+}
+
+#[tokio::test]
+async fn invalidation_after_a_valid_write_reply_still_requires_unknown_outcome_handling() {
+    tokio::time::timeout(DEADLINE, async {
+        let runtime = Arc::new(ScriptedRuntime::default());
+        let mut negotiation = ready("svn");
+        negotiation[0]["result"]["capabilities"]["update"] = json!(1);
+        runtime.events.lock().unwrap().extend([
+            negotiation,
+            vec![json!({"type":"requestCompleted","sessionId":"fixture-session","operationId":"fixture-request","result":{"value":{"changes":[]}}})],
+            vec![json!({"type":"requestCompleted","sessionId":"fixture-session","operationId":"fixture-request-write","result":{"value":{"revision":{"id":"r2"}}}})],
+        ]);
+        let owner = owner(context(), runtime.clone());
+        owner.start(|| Ok((json!({}), None))).await.unwrap();
+        owner.status(|| Ok(())).await.unwrap();
+        // Invalidate at the public decoder completion boundary, after the
+        // provider has acknowledged success but before final publication.
+        let result = owner.write(&super::super::actions::WriteOperation::Update, || Ok(()), || {
+            if runtime.calls.lock().unwrap().iter().any(|(command, payload)| {
+                command == "vcs.decodeReply" && payload["operation"] == "update"
+            }) { Err(CANCELLED.into()) } else { Ok(()) }
+        }).await;
+        assert_eq!(result.unwrap_err(), CANCELLED);
+        assert!(owner.uncertain());
+        owner.stop().await.unwrap();
+        assert_eq!(runtime.calls.lock().unwrap().iter().filter(|(command, payload)| {
+            command == "lsp.vcsRequest" && payload["operation"] == "update"
+        }).count(), 1);
+    }).await.expect("bounded reply invalidation");
 }

@@ -19,6 +19,7 @@ export function VcsHistoryPanel({
 }) {
   const { t } = useTranslation();
   const state = useSyncExternalStore(controller.query.subscribe, controller.query.getSnapshot);
+  useSyncExternalStore(controller.actions.subscribe, controller.actions.getSnapshot);
   const status = useSyncExternalStore(controller.status.subscribe, controller.status.getSnapshot);
   const [compareBusy, setCompareBusy] = useState(false);
   const [selectedPath, setSelectedPath] = useState("");
@@ -82,6 +83,7 @@ export function VcsHistoryPanel({
   const busy =
     state.phase === "loading" || state.phase === "stopping" || state.phase === "cancelFailed";
   const readBlocked =
+    controller.actions.busy ||
     busy ||
     status.phase === "loading" ||
     status.phase === "stopping" ||

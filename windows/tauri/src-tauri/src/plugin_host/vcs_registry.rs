@@ -92,6 +92,9 @@ pub(super) struct Ticket {
 struct Entry {
     ticket: Ticket,
     snapshot: Option<(Snapshot, Vec<Package>)>,
+    // Survives process cleanup until the next explicit scan replaces this
+    // entry. Delayed events from our own write cannot revoke its reply.
+    awaiting_write_refresh: bool,
 }
 #[derive(Default)]
 pub(super) struct Registry {
@@ -147,6 +150,7 @@ impl Registry {
             Entry {
                 ticket: ticket.clone(),
                 snapshot: None,
+                awaiting_write_refresh: false,
             },
         );
         Ok(ticket)
@@ -230,6 +234,19 @@ impl Registry {
             entry.snapshot = None;
         }
     }
+    pub fn begin_write(
+        &mut self,
+        host: &str,
+        scope: &Scope,
+        generation: u64,
+    ) -> Result<(), String> {
+        self.capture(host, scope, generation)?;
+        self.entries
+            .get_mut(&(host.into(), scope.workspace_id.clone()))
+            .ok_or(STALE)?
+            .awaiting_write_refresh = true;
+        Ok(())
+    }
     pub fn invalidate_generation(&mut self, host: &str, scope: &Scope, generation: u64) -> bool {
         let Some(entry) = self
             .entries
@@ -238,6 +255,9 @@ impl Registry {
         else {
             return false;
         };
+        if entry.awaiting_write_refresh {
+            return false;
+        }
         entry.ticket.generation = 0;
         entry.snapshot = None;
         true

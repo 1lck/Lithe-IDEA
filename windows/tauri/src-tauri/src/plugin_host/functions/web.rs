@@ -38,6 +38,7 @@ struct Pending {
     page_label: String,
     identity: BridgeIdentity,
     package_identity: String,
+    scope_revision: u64,
     instance: String,
     function: Option<String>,
     params: Value,
@@ -64,6 +65,7 @@ impl Pending {
     }
     fn check(&self, app: &AppHandle) -> Result<(), String> {
         self.check_outcome()?;
+        self.check_scope(app)?;
         if app
             .state::<super::super::lifecycle::LifecycleState>()
             .blocked(&self.identity.plugin_id)
@@ -76,6 +78,23 @@ impl Pending {
             &self.identity,
             || Ok(()),
         )
+    }
+    fn check_scope(&self, app: &AppHandle) -> Result<(), String> {
+        if app
+            .state::<super::super::build::BuildHostState>()
+            .function_scope_revision(
+                &self.identity.host_label,
+                &self.identity.workspace_path,
+                &self.identity.plugin_id,
+            )
+            .map_or(true, |revision| revision != self.scope_revision)
+        {
+            return Err(bridge_error(
+                "plugin.function.staleContext",
+                "function scope was reloaded",
+            ));
+        }
+        Ok(())
     }
     fn verify_package(&self, app: &AppHandle) -> Result<(), String> {
         self.check(app)?;
@@ -216,6 +235,16 @@ impl Calls {
         }
         ledger.used.retain(|(page, _), _| !labels.contains(page));
     }
+    pub(super) fn revoke_scope(&self, window: &str, root: &str, plugin: &str) {
+        let ledger = self.0.lock().expect("web function ledger");
+        for pending in ledger.pending.values().filter(|pending| {
+            pending.identity.host_label == window
+                && pending.identity.workspace_path == root
+                && pending.identity.plugin_id == plugin
+        }) {
+            pending.cancel();
+        }
+    }
 }
 
 pub(super) fn confirm(app: &AppHandle, entry: &Arc<Operation>, host: &str) -> Reply<()> {
@@ -304,6 +333,19 @@ pub(crate) async fn request(
         }
         return Ok(json!({}));
     }
+    let scope_revision = app
+        .state::<super::super::build::BuildHostState>()
+        .function_scope_revision(
+            &identity.host_label,
+            &identity.workspace_path,
+            &identity.plugin_id,
+        )
+        .map_err(|_| {
+            bridge_error(
+                "plugin.function.staleContext",
+                "function scope was reloaded",
+            )
+        })?;
     let instance = parameters.instance.clone().ok_or_else(|| {
         bridge_error(
             "plugin.function.unavailable",
@@ -342,6 +384,7 @@ pub(crate) async fn request(
         page_label: page_label.into(),
         identity,
         package_identity,
+        scope_revision,
         instance,
         function: parameters.function,
         params: parameters.params.unwrap_or_else(|| json!({})),
@@ -353,6 +396,7 @@ pub(crate) async fn request(
     });
     let state = app.state::<WebPageHostState>();
     with_page_owner(&state, page_label, &pending.identity, || {
+        pending.check_scope(app)?;
         state.functions.admit(pending.clone())
     })?;
     if let Err(error) = app.emit_to(
@@ -500,6 +544,7 @@ mod tests {
             page_label: page.into(),
             identity: identity(page, generation),
             package_identity: "package-bytes".into(),
+            scope_revision: 0,
             instance: "mix@root".into(),
             function: Some("snapshot.refresh".into()),
             params: json!({}),
@@ -537,6 +582,33 @@ mod tests {
         calls.cancel_call("page", 1, "waiting");
         assert!(!calls.active(&entry.operation_id, "page"));
         assert!(entry.cancelled.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn project_settings_reload_cancels_only_its_plugin_window_and_workspace_calls() {
+        let calls = Calls::default();
+        let target = pending("target", 1, "call");
+        let mut other_plugin = pending("other-plugin", 1, "call");
+        Arc::get_mut(&mut other_plugin).unwrap().identity.plugin_id = "other.plugin".into();
+        let mut other_window = pending("other-window", 1, "call");
+        Arc::get_mut(&mut other_window).unwrap().identity.host_label = "workspace-other".into();
+        let mut other_workspace = pending("other-workspace", 1, "call");
+        Arc::get_mut(&mut other_workspace)
+            .unwrap()
+            .identity
+            .workspace_path = "C:/fixture/other".into();
+        for entry in [&target, &other_plugin, &other_window, &other_workspace] {
+            calls.admit(entry.clone()).unwrap();
+        }
+        calls.revoke_scope("main", "C:/fixture/project", "example.plugin");
+        assert!(!calls.active(&target.operation_id, &target.page_label));
+        for entry in [&other_plugin, &other_window, &other_workspace] {
+            assert!(calls.active(&entry.operation_id, &entry.page_label));
+        }
+        assert!(
+            calls.admit(pending("target", 1, "call")).is_err(),
+            "reload must not re-enable a used call ID in the same page incarnation"
+        );
     }
 
     #[test]

@@ -306,6 +306,242 @@ fn detect_reads_the_static_model_and_describes_options() {
 }
 
 #[test]
+fn project_settings_reload_invalidates_only_its_original_window_and_retries_the_same_owner() {
+    let workspace = standard_workspace("settings-reload-scope");
+    let packages = FixedPackages::one(static_fixture());
+    let options = TempOptions::new("settings-reload-scope");
+    let mut registry = BuildRegistry::new();
+    let first = registry
+        .refresh(&RealCore, &packages, &options, "main", &workspace.root())
+        .unwrap();
+    let other = registry
+        .refresh(
+            &RealCore,
+            &packages,
+            &options,
+            "workspace-other",
+            &workspace.root(),
+        )
+        .unwrap();
+    let old = registry
+        .model_context(
+            "main",
+            &workspace.root(),
+            packages.plugin_id(),
+            "cargo",
+            ".",
+        )
+        .unwrap();
+    let untouched = registry
+        .model_context(
+            "workspace-other",
+            &workspace.root(),
+            packages.plugin_id(),
+            "cargo",
+            ".",
+        )
+        .unwrap();
+    let generation = registry
+        .begin_settings_reload("main", &workspace.root(), packages.plugin_id())
+        .unwrap();
+    assert!(!registry.context_is_current(&old));
+    assert!(registry.context_is_current(&untouched));
+    assert!(registry
+        .model_context(
+            "main",
+            &workspace.root(),
+            packages.plugin_id(),
+            "cargo",
+            "."
+        )
+        .is_err());
+    // A failed drain performs no publication or release. Retrying does not
+    // advance another workspace's generation or borrow its process owner.
+    assert_eq!(
+        registry
+            .begin_settings_reload("main", &workspace.root(), packages.plugin_id())
+            .unwrap(),
+        generation
+    );
+    let result = registry
+        .reload_settings(
+            &RealCore,
+            &packages,
+            &options,
+            "main",
+            &workspace.root(),
+            generation,
+            packages.plugin_id(),
+            &|| Ok(()),
+        )
+        .unwrap();
+    assert_eq!(result.generation, first.generation);
+    assert!(!registry.context_is_current(&old));
+    assert_eq!(
+        view_json(&registry.view("workspace-other")),
+        view_json(&other)
+    );
+    assert!(registry.context_is_current(&untouched));
+    assert!(registry
+        .model_context(
+            "main",
+            &workspace.root(),
+            packages.plugin_id(),
+            "cargo",
+            "."
+        )
+        .is_ok());
+}
+
+#[test]
+fn settings_reload_function_revision_survives_completion_and_is_scoped_to_one_plugin_window() {
+    let workspace = standard_workspace("settings-reload-function-scope");
+    let packages = FixedPackages::one(static_fixture());
+    let options = TempOptions::new("settings-reload-function-scope");
+    let mut registry = BuildRegistry::new();
+    assert_eq!(
+        registry
+            .settings_scope_revision("main", &workspace.root(), packages.plugin_id())
+            .unwrap(),
+        0
+    );
+    for label in ["main", "workspace-other"] {
+        registry
+            .refresh(&RealCore, &packages, &options, label, &workspace.root())
+            .unwrap();
+    }
+    let revision = |registry: &BuildRegistry, label, plugin| {
+        registry.function_scope_revision(label, &workspace.root(), plugin)
+    };
+    let old = revision(&registry, "main", packages.plugin_id()).unwrap();
+    let other_window = revision(&registry, "workspace-other", packages.plugin_id()).unwrap();
+    let other_plugin = revision(&registry, "main", "other.plugin").unwrap();
+    let generation = registry
+        .begin_settings_reload("main", &workspace.root(), packages.plugin_id())
+        .unwrap();
+    assert!(revision(&registry, "main", packages.plugin_id()).is_err());
+    assert_eq!(
+        revision(&registry, "workspace-other", packages.plugin_id()).unwrap(),
+        other_window
+    );
+    assert_eq!(
+        revision(&registry, "main", "other.plugin").unwrap(),
+        other_plugin
+    );
+    registry
+        .begin_settings_reload("main", &workspace.root(), packages.plugin_id())
+        .unwrap();
+    registry.finish_settings_reload("main", generation, packages.plugin_id());
+    assert_eq!(
+        revision(&registry, "main", packages.plugin_id()).unwrap(),
+        old + 1
+    );
+    assert_eq!(
+        revision(&registry, "main", "other.plugin").unwrap(),
+        other_plugin
+    );
+}
+
+#[test]
+fn project_settings_reload_refuses_late_close_reopen_and_failed_receipt_check() {
+    let workspace = standard_workspace("settings-reload-stale");
+    let packages = FixedPackages::one(static_fixture());
+    let options = TempOptions::new("settings-reload-stale");
+    let mut registry = BuildRegistry::new();
+    registry
+        .refresh(&RealCore, &packages, &options, "main", &workspace.root())
+        .unwrap();
+    let generation = registry
+        .begin_settings_reload("main", &workspace.root(), packages.plugin_id())
+        .unwrap();
+    let before = view_json(&registry.view("main"));
+    let failed = registry.reload_settings(
+        &RealCore,
+        &packages,
+        &options,
+        "main",
+        &workspace.root(),
+        generation,
+        packages.plugin_id(),
+        &|| Err("plugin.settings.conflict".into()),
+    );
+    assert_eq!(failed.unwrap_err(), "plugin.settings.conflict");
+    assert_eq!(view_json(&registry.view("main")), before);
+    registry.close_workspace("main", &workspace.root());
+    registry
+        .refresh(&RealCore, &packages, &options, "main", &workspace.root())
+        .unwrap();
+    let reopened = view_json(&registry.view("main"));
+    assert!(registry
+        .reload_settings(
+            &RealCore,
+            &packages,
+            &options,
+            "main",
+            &workspace.root(),
+            generation,
+            packages.plugin_id(),
+            &|| Ok(())
+        )
+        .is_err());
+    registry.finish_settings_reload("main", generation, packages.plugin_id());
+    assert_eq!(view_json(&registry.view("main")), reopened);
+}
+
+#[test]
+fn project_settings_reload_preserves_core_ownership_and_unrelated_model_contexts() {
+    struct Packages(Vec<BuildPackageInput>);
+    impl BuildPackageSource for Packages {
+        fn accepted_packages(&self) -> Vec<BuildPackageInput> {
+            self.0.clone()
+        }
+        fn package(&self, id: &str) -> Option<BuildPackageInput> {
+            self.0
+                .iter()
+                .find(|package| package.plugin_id == id)
+                .cloned()
+        }
+    }
+    let workspace = standard_workspace("settings-reload-ownership");
+    let options = TempOptions::new("settings-reload-ownership");
+    let mut winner = FixedPackages::one(static_fixture()).input().unwrap();
+    winner.manifest["buildSystems"][0]["detection"]["priority"] = json!(1);
+    let mut loser = winner.clone();
+    loser.plugin_id = "io.example.shadowed".into();
+    loser.manifest["id"] = json!(loser.plugin_id);
+    loser.manifest["buildSystems"][0]["detection"]["priority"] = json!(0);
+    let packages = Packages(vec![winner.clone(), loser.clone()]);
+    let mut registry = BuildRegistry::new();
+    let before = registry
+        .refresh(&RealCore, &packages, &options, "main", &workspace.root())
+        .unwrap();
+    let context = registry
+        .model_context("main", &workspace.root(), &winner.plugin_id, "cargo", ".")
+        .unwrap();
+    let generation = registry
+        .begin_settings_reload("main", &workspace.root(), &loser.plugin_id)
+        .unwrap();
+    let after = registry
+        .reload_settings(
+            &RealCore,
+            &packages,
+            &options,
+            "main",
+            &workspace.root(),
+            generation,
+            &loser.plugin_id,
+            &|| Ok(()),
+        )
+        .unwrap();
+    assert!(registry.context_is_current(&context));
+    assert_eq!(view_json(&before), view_json(&after));
+    assert!(after
+        .instances
+        .iter()
+        .all(|instance| instance["pluginID"] != loser.plugin_id));
+}
+
+#[test]
 fn rejected_manifest_uses_its_original_request_index_for_the_plugin_id() {
     struct MixedPackages(Vec<BuildPackageInput>);
     impl BuildPackageSource for MixedPackages {

@@ -1,6 +1,8 @@
-//! Native VCS root queries and isolated, short-lived read-only status sessions.
+//! Native VCS root queries and isolated, short-lived typed provider sessions.
 //! Accepted package bytes use the existing trust and mutation lease; Core owns
 //! detection and ownership. Snapshots live only in memory and never in a bundle.
+#[path = "vcs_actions.rs"]
+pub(crate) mod actions;
 #[path = "vcs_mappings.rs"]
 pub(crate) mod mappings;
 #[path = "vcs_query.rs"]
@@ -31,6 +33,7 @@ pub struct VcsHostState {
     reads: Arc<Semaphore>,
     sessions: Arc<session::Sessions>,
     watches: watch::Watches,
+    actions: Mutex<actions::Actions>,
 }
 impl Default for VcsHostState {
     fn default() -> Self {
@@ -39,6 +42,7 @@ impl Default for VcsHostState {
             reads: Arc::new(Semaphore::new(4)),
             sessions: Arc::new(session::Sessions::default()),
             watches: watch::Watches::default(),
+            actions: Mutex::new(actions::Actions::default()),
         }
     }
 }
@@ -346,6 +350,11 @@ pub async fn declarative_plugins_vcs_close(
     app.state::<VcsHostState>()
         .watches
         .remove(caller.label(), &scope);
+    app.state::<VcsHostState>()
+        .actions
+        .lock()
+        .expect("VCS actions")
+        .retire(|context| context.host == caller.label() && context.scope == scope);
     status::close_matching(&app, |context| {
         context.host == caller.label() && context.scope == scope
     })
@@ -355,8 +364,30 @@ pub async fn plugin_changing(app: &AppHandle, plugin_id: &str) -> Result<(), Str
     if let Some(state) = app.try_state::<VcsHostState>() {
         state.registry.lock().expect("VCS registry").invalidate();
         state.watches.clear();
+        state.actions.lock().expect("VCS actions").retire(|_| true);
     }
     status::close_matching(app, |context| context.plugin_id == plugin_id).await
+}
+
+/// Settings reload drains only this plugin in its original workspace window.
+/// The shared settings revision rejects late preparation across this drain.
+pub(crate) async fn close_scope(
+    app: &AppHandle,
+    host: &str,
+    workspace: &str,
+    plugin: &str,
+) -> Result<(), String> {
+    if let Some(state) = app.try_state::<VcsHostState>() {
+        state
+            .actions
+            .lock()
+            .expect("VCS actions")
+            .retire(|context| context.settings_scope(host, workspace, plugin));
+    }
+    status::close_matching(app, |context| {
+        context.settings_scope(host, workspace, plugin)
+    })
+    .await
 }
 pub fn window_destroyed(app: &AppHandle, host: &str) {
     if let Some(state) = app.try_state::<VcsHostState>() {
@@ -367,6 +398,11 @@ pub fn window_destroyed(app: &AppHandle, host: &str) {
                 .expect("VCS registry")
                 .close_window(host);
         });
+        state
+            .actions
+            .lock()
+            .expect("VCS actions")
+            .retire(|context| context.host == host);
         let sessions = state.sessions.clone();
         for owner in sessions.matching(|context| context.host == host) {
             status::cleanup_later(sessions.clone(), owner);
@@ -404,6 +440,8 @@ fn redetect(
 fn metadata_changed(app: &AppHandle, host: &str, scope: &Scope, generation: u64) {
     use tauri::Emitter;
     let state = app.state::<VcsHostState>();
+    // The registry's write fence lasts through process cleanup and delayed
+    // callbacks until the action controller's explicit scan replaces it.
     if !state
         .registry
         .lock()

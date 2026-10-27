@@ -101,6 +101,7 @@ export class VcsQueryController {
     const statusPhase = this.roots.status.getSnapshot().phase;
     if (
       this.#closed ||
+      this.roots.actions.busy ||
       this.#attempt ||
       ["loading", "stopping", "cancelFailed"].includes(statusPhase) ||
       !source ||

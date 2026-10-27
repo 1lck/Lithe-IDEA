@@ -195,11 +195,13 @@ export interface DeclarativeSettingSnapshot {
   projectPath: string | null;
   identity: string;
   packageIdentity: string;
+  reloadContext?: { workspaceId: string; registration: number; windowIncarnation: number };
 }
 export function loadDeclarativeSettingSnapshot(pluginId: string, workspacePath: string) {
   return invoke<DeclarativeSettingSnapshot>("declarative_plugins_setting_snapshot", {
     pluginId,
     workspacePath,
+    workspaceId: workspaceRuntimeRegistry.getActiveWorkspaceId(),
   });
 }
 
@@ -234,6 +236,7 @@ export function storeDeclarativeSetting(
     workspacePath,
     value,
     expectedIdentity,
+    workspaceId: workspaceRuntimeRegistry.getActiveWorkspaceId(),
   });
 }
 

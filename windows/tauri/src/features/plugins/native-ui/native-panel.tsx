@@ -128,12 +128,36 @@ function MountedNativePanel({ identity, title, ui, port, store, onClose }: Nativ
       {state.busy && (
         <div role="status" className="px-3">
           <Spinner />
+          {state.progress?.message}
+          {typeof state.progress?.percentage === "number" && ` ${state.progress.percentage}%`}
           <span className="sr-only">{t("pluginNative.loading")}</span>
+          <Button size="sm" onClick={() => owner.cancel()}>
+            {t("ui.cancel")}
+          </Button>
         </div>
       )}
       {state.error && (
-        <p role="alert" className="break-words px-3 py-2 text-destructive">
-          {t(state.error)}
+        <div className="px-3 py-2">
+          <p role="alert" className="break-words text-destructive">
+            {t(state.error)}
+          </p>
+          {!state.busy &&
+            !state.validating &&
+            (state.phase === "failed" || (ui.source && port.functions)) && (
+              <Button
+                size="sm"
+                onClick={() => {
+                  void (state.phase === "failed" ? owner.open() : owner.refresh());
+                }}
+              >
+                {t("ui.retry")}
+              </Button>
+            )}
+        </div>
+      )}
+      {state.message && (
+        <p role="status" className="break-words px-3 py-2">
+          {state.message}
         </p>
       )}
       {unavailable && !port.functions && state.error !== "pluginNative.unavailable" && (

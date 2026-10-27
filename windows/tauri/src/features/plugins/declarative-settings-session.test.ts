@@ -429,7 +429,7 @@ describe("declarative settings effect reporting", () => {
     }
   }, 1000);
 
-  test("reload queues only a saved global receipt; project edits never stop other workspaces", async () => {
+  test("reload queues the saved scope without executing either reload during save", async () => {
     const queued: DeclarativeSettingSnapshot[] = [];
     const ports = {
       pluginId: "example.plugin",
@@ -457,9 +457,10 @@ describe("declarative settings effect reporting", () => {
         ports,
         "project",
       ),
-    ).toBe("projectReloadUnavailable");
+    ).toBe("reloadRequired");
     expect(queued.map((saved) => [saved.identity, saved.packageIdentity])).toEqual([
       ["saved", "accepted-package"],
+      ["project-saved", "accepted-package"],
     ]);
   }, 1000);
   test("only a matching ready LSP receiving configuration counts as immediate", async () => {

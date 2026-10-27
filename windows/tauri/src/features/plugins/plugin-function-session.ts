@@ -63,6 +63,9 @@ export function functionFailure(error: unknown): FunctionFailure {
 /** One UI action incarnation. Its cleanup owner outlives the page, and joins
  * late prepare/confirm replies before releasing the exact native receipt. */
 export class PluginFunctionSession {
+  get title(): string {
+    return this.state.review?.title || this.input.actionId;
+  }
   state: FunctionState = { phase: "idle", review: null, progress: null, error: null };
   private closed = false;
   private disposed = false;

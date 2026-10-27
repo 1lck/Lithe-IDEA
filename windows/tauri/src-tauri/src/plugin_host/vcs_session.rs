@@ -1,4 +1,4 @@
-//! One native owner per typed read-only VCS request. Core owns framing,
+//! One native owner per typed VCS request. Core owns framing,
 //! negotiation, reply validation and the process tree; failed disposal retains
 //! the same package lease and can be retried through the native request ID.
 use super::registry::{Root, Scope};
@@ -34,8 +34,15 @@ pub(super) struct Context {
     pub registration: u64,
     pub request_id: String,
     pub root: Root,
+    pub root_identity: String,
     pub plugin_id: String,
     pub package_identity: String,
+    pub settings_revision: u64,
+}
+impl Context {
+    pub fn settings_scope(&self, host: &str, workspace: &str, plugin: &str) -> bool {
+        self.host == host && self.scope.workspace_root == workspace && self.plugin_id == plugin
+    }
 }
 #[derive(Default)]
 struct State {
@@ -44,6 +51,10 @@ struct State {
     disposal_running: bool,
     disposed: bool,
     tool: Option<String>,
+    capabilities: Value,
+    mutation: bool,
+    write_attempted: bool,
+    write_answered: bool,
 }
 pub(super) struct Owner {
     pub context: Context,
@@ -212,6 +223,16 @@ impl Owner {
         self.read(&super::query::ReadOperation::Status, current)
             .await
     }
+    pub fn mark_mutation(&self) {
+        self.state.lock().expect("VCS session").mutation = true;
+    }
+    pub fn capabilities(&self) -> Value {
+        self.state.lock().expect("VCS session").capabilities.clone()
+    }
+    pub fn uncertain(&self) -> bool {
+        let state = self.state.lock().expect("VCS session");
+        state.write_attempted && !state.write_answered
+    }
     pub async fn read(
         self: &Arc<Self>,
         operation: &super::query::ReadOperation,
@@ -245,59 +266,140 @@ impl Owner {
                     }
                 }
             }
-            let capabilities = negotiation.ok_or("vcs.provider.unavailable")?;
-            if capabilities[operation.name()] != 1 { return Err("vcs.capability.unsupported".into()); }
-            current()?;
-            self.current()?;
-            let tool = self.state.lock().expect("VCS session").tool.clone();
-            let arguments = operation.arguments();
-            self.call(
-                "lsp.vcsRequest",
-                json!({"sessionId":session,"operationId":self.context.request_id,
-                "vcs":self.context.root.vcs,"operation":operation.name(),"root":self.context.root.path,
-                "tool":tool,"arguments":arguments,"timeoutMilliseconds":30000}),
+            self.state.lock().expect("VCS session").capabilities =
+                negotiation.ok_or("vcs.provider.unavailable")?;
+            self.request(
+                operation.name(),
+                operation.arguments(),
+                false,
+                || Ok(()),
+                current,
             )
-            .await?;
-            loop {
-                current()?;
-                for event in self.events().await? {
-                    if event["sessionId"] != session {
-                        continue;
-                    }
-                    if event["type"] == "stateChanged"
-                        && matches!(
-                            event["state"].as_str(),
-                            Some("failed" | "stopped" | "stopping")
-                        )
-                    {
-                        return Err(failure(&event));
-                    }
-                    if event["type"] == "requestCompleted"
-                        && event["operationId"] == self.context.request_id
-                    {
-                        let value = completed(&event)?;
-                        let decoded = self
-                            .call(
-                                "vcs.decodeReply",
-                                json!({"operation":operation.name(),"capabilities":capabilities,
-                            "request":arguments,"reply":value}),
-                            )
-                            .await?;
-                        current()?;
-                        self.current()?;
-                        if decoded["status"] != "ok" {
-                            return Err("plugin.vcs.invalidOutput".into());
-                        }
-                        return decoded
-                            .get("result")
-                            .cloned()
-                            .ok_or_else(|| "invalidResponse".into());
-                    }
-                }
-            }
+            .await
         })
         .await
         .map_err(|_| "requestTimeout")?
+    }
+    pub async fn write(
+        self: &Arc<Self>,
+        operation: &super::actions::WriteOperation,
+        preflight: impl FnOnce() -> Result<(), String> + Send + 'static,
+        current: impl Fn() -> Result<(), String>,
+    ) -> Reply {
+        tokio::time::timeout(
+            Duration::from_secs(615),
+            self.request(
+                operation.name(),
+                operation.arguments(),
+                true,
+                preflight,
+                current,
+            ),
+        )
+        .await
+        .map_err(|_| "requestTimeout")?
+    }
+    async fn request(
+        self: &Arc<Self>,
+        name: &'static str,
+        arguments: Value,
+        write: bool,
+        preflight: impl FnOnce() -> Result<(), String> + Send + 'static,
+        current: impl Fn() -> Result<(), String>,
+    ) -> Reply {
+        let capabilities = self.capabilities();
+        if capabilities[name] != 1 {
+            return Err("vcs.capability.unsupported".into());
+        }
+        current()?;
+        self.current()?;
+        let session = self.session().ok_or("vcs.provider.failed")?;
+        let tool = self.state.lock().expect("VCS session").tool.clone();
+        // Status and mutation use distinct Core operation IDs in the same short
+        // session. A late status completion cannot acknowledge the write.
+        let id = if write {
+            format!("{}-write", self.context.request_id)
+        } else {
+            self.context.request_id.clone()
+        };
+        let payload = json!({"sessionId":session,"operationId":id,
+            "vcs":self.context.root.vcs,"operation":name,"root":self.context.root.path,
+            "tool":tool,"arguments":arguments,"timeoutMilliseconds":if write {600000} else {30000}});
+        let owner = self.clone();
+        tokio::time::timeout(
+            Duration::from_secs(15),
+            tauri::async_runtime::spawn_blocking(move || {
+                preflight()?;
+                owner.current()?;
+                if write {
+                    let mut state = owner.state.lock().expect("VCS session");
+                    // No retry path may ever dispatch this owner's write twice.
+                    if state.write_attempted {
+                        return Err("requestCancelled".into());
+                    }
+                    state.write_attempted = true;
+                }
+                owner.runtime.execute("lsp.vcsRequest", payload)
+            }),
+        )
+        .await
+        .map_err(|_| "requestTimeout")?
+        .map_err(|_| "internalError")??;
+        loop {
+            current()?;
+            for event in self.events().await? {
+                if event["sessionId"] != session {
+                    continue;
+                }
+                if event["type"] == "stateChanged"
+                    && matches!(
+                        event["state"].as_str(),
+                        Some("failed" | "stopped" | "stopping")
+                    )
+                {
+                    return Err(failure(&event));
+                }
+                if event["type"] != "requestCompleted" || event["operationId"] != id {
+                    continue;
+                }
+                let value = match completed(&event) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        // A provider failure is a known failure. Transport loss,
+                        // cancellation and invalid replies can hide side effects.
+                        if write
+                            && !matches!(
+                                error.as_str(),
+                                "requestTimeout"
+                                    | "requestCancelled"
+                                    | "plugin.vcs.invalidOutput"
+                                    | "vcs.provider.failed"
+                            )
+                        {
+                            self.state.lock().expect("VCS session").write_answered = true;
+                        }
+                        return Err(error);
+                    }
+                };
+                let decoded = self
+                    .call(
+                        "vcs.decodeReply",
+                        json!({"operation":name,"capabilities":capabilities,
+                    "request":arguments,"reply":value}),
+                    )
+                    .await?;
+                if decoded["status"] != "ok" {
+                    return Err("plugin.vcs.invalidOutput".into());
+                }
+                let result = decoded.get("result").cloned().ok_or("invalidResponse")?;
+                current()?;
+                self.current()?;
+                if write {
+                    self.state.lock().expect("VCS session").write_answered = true;
+                }
+                return Ok(result);
+            }
+        }
     }
     /// Success is proof that both the launch worker and Core's owned process
     /// tree have ended. Neither a timeout nor a frontend cancellation is proof.
@@ -404,9 +506,12 @@ impl Sessions {
         }
         let context = &owner.context;
         if entries.running.values().any(|old| {
-            old.context.host == context.host
+            (old.context.host == context.host
                 && (old.context.request_id == context.request_id
-                    || old.context.root.path == context.root.path)
+                    || old.context.root.path == context.root.path))
+                || old.context.root.path == context.root.path
+                    && (old.state.lock().expect("VCS session").mutation
+                        || owner.state.lock().expect("VCS session").mutation)
         }) {
             return Err(CLEANUP_FAILED.into());
         }

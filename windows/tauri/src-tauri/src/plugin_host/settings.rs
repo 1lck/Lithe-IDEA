@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
+pub(crate) mod reload;
 mod snapshot;
 pub(crate) use snapshot::read as read_snapshot;
 pub use snapshot::SettingSnapshot;
@@ -19,12 +20,17 @@ pub(crate) use snapshot::{read_object_snapshot, write_object_snapshot};
 #[tauri::command]
 pub async fn declarative_plugins_setting_snapshot(
     app: AppHandle,
+    window: tauri::WebviewWindow,
     plugin_id: String,
     workspace_path: String,
+    workspace_id: Option<String>,
 ) -> Result<SettingSnapshot, String> {
-    tauri::async_runtime::spawn_blocking(move || snapshot::read(&app, &plugin_id, &workspace_path))
-        .await
-        .map_err(|_| "plugin.settings.unavailable".to_string())?
+    tauri::async_runtime::spawn_blocking(move || {
+        let snapshot = snapshot::read(&app, &plugin_id, &workspace_path)?;
+        reload::bind(&app, &window, &workspace_path, workspace_id, snapshot)
+    })
+    .await
+    .map_err(|_| "plugin.settings.unavailable".to_string())?
 }
 
 /// Global values of one plugin, persisted as
@@ -219,15 +225,17 @@ pub async fn declarative_plugins_resolve_settings(
 #[tauri::command]
 pub async fn declarative_plugins_store_setting(
     app: AppHandle,
+    window: tauri::WebviewWindow,
     plugin_id: String,
     setting_id: String,
     scope: String,
     workspace_path: String,
     value: Option<Value>,
     expected_identity: Option<String>,
+    workspace_id: Option<String>,
 ) -> Result<SettingSnapshot, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        snapshot::store(
+        let snapshot = snapshot::store(
             &app,
             &plugin_id,
             &setting_id,
@@ -237,7 +245,8 @@ pub async fn declarative_plugins_store_setting(
             expected_identity
                 .as_deref()
                 .ok_or("plugin.settings.snapshotRequired")?,
-        )
+        )?;
+        reload::bind(&app, &window, &workspace_path, workspace_id, snapshot)
     })
     .await
     .map_err(|_| "plugin.settings.unavailable".to_string())?
@@ -255,14 +264,29 @@ pub async fn declarative_plugins_reload_settings(
     scope: String,
     expected_identity: String,
     expected_package_identity: String,
-) -> Result<SettingSnapshot, String> {
+    project: Option<reload::ProjectContext>,
+) -> Result<Value, String> {
     if !(window.label() == "main" || window.label().starts_with("workspace-")) {
         return Err("plugin.settings.staleContext".into());
     }
-    // M1 owns a package-wide barrier. A project-only reload must first gain a
-    // scoped barrier in every native owner, rather than stopping other roots.
+    if scope == "project" {
+        let receipt = reload::Receipt {
+            plugin_id,
+            workspace_path,
+            expected_identity,
+            expected_package_identity,
+            project: project.ok_or("plugin.settings.staleContext")?,
+        };
+        reload::check_caller(&window, &receipt)?;
+        return super::build::reload_settings_models(app, window.label().into(), receipt)
+            .await
+            .and_then(|view| {
+                serde_json::to_value(reload::ProjectReload { view })
+                    .map_err(|_| "plugin.settings.unavailable".into())
+            });
+    }
     if scope != "global" {
-        return Err("plugin.settings.projectReloadUnavailable".into());
+        return Err("plugin.settings.invalidScope".into());
     }
     if !app
         .state::<super::lifecycle::LifecycleState>()
@@ -306,11 +330,13 @@ pub async fn declarative_plugins_reload_settings(
         // Let the user read the concurrent values instead of trapping a stale
         // receipt behind revocation. Normal launch still rechecks live trust.
         mutation.complete(true);
-        return snapshot;
+        return snapshot.and_then(|snapshot| {
+            serde_json::to_value(snapshot).map_err(|_| "plugin.settings.unavailable".into())
+        });
     }
     let snapshot = snapshot?;
     mutation.complete(true);
-    Ok(snapshot)
+    serde_json::to_value(snapshot).map_err(|_| "plugin.settings.unavailable".into())
 }
 
 /// Tauri command: a running language server's `workspaceConfiguration`

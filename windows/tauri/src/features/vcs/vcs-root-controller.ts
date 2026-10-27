@@ -1,3 +1,4 @@
+import { VcsActionController } from "./vcs-action-controller";
 import type {
   VcsOwnership,
   VcsRootPort,
@@ -27,6 +28,7 @@ export class VcsRootController {
   #watchError: string | null = null;
   #latestGeneration = 0;
   #queue: VcsRefreshQueue;
+  readonly actions: VcsActionController;
   readonly status: VcsStatusController;
   readonly query: VcsQueryController;
   readonly mappings: VcsMappingController;
@@ -34,6 +36,7 @@ export class VcsRootController {
     readonly scope: VcsScope,
     private readonly port: VcsRootPort,
   ) {
+    this.actions = new VcsActionController(this, port);
     this.status = new VcsStatusController(this, port);
     this.query = new VcsQueryController(this, port);
     this.mappings = new VcsMappingController(this);
@@ -102,6 +105,7 @@ export class VcsRootController {
   }
   invalidate(preserveScan = false) {
     if (!preserveScan) this.#queue.reset();
+    this.actions.invalidate();
     this.status.invalidate();
     this.query.invalidate();
     ++this.#epoch;
@@ -221,6 +225,11 @@ export class VcsRootController {
       // Native close must still run when an individual status cleanup failed;
       // it revokes every owner in this exact workspace incarnation.
       let failure: unknown;
+      try {
+        await this.actions.close();
+      } catch (error) {
+        failure = error;
+      }
       try {
         await this.status.close();
       } catch (error) {

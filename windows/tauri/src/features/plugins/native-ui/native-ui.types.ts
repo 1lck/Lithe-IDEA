@@ -77,8 +77,11 @@ export interface NativeCallContext {
 /** Binding must cancel its native request when signal aborts. No implicit
  * build-instance selection, consent, or execution is supplied by the renderer. */
 export interface NativeFunctionPort {
+  subscribeProgress?(
+    listener: (progress: { message?: string; percentage?: number } | null | undefined) => void,
+  ): () => void;
   load(context: NativeCallContext, signal: AbortSignal): Promise<unknown>;
-  invoke(action: NativeAction, context: NativeCallContext, signal: AbortSignal): Promise<void>;
+  invoke(action: NativeAction, context: NativeCallContext, signal: AbortSignal): Promise<unknown>;
 }
 export interface NativePanelPort {
   validate(ui: NativeUI, data: unknown, signal: AbortSignal): Promise<NativeNode[]>;

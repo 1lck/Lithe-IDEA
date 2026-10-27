@@ -18,7 +18,7 @@ export function PluginFunctionCleanupNotices() {
           data-plugin-function-cleanup=""
         >
           <span>
-            {owner.input.pluginId} · {owner.input.actionId} ·{" "}
+            {owner.input.pluginId} · {owner.title ?? owner.input.actionId} ·{" "}
             {t(`plugins.functions.phase.${owner.state.phase}`)}
           </span>
           <Button

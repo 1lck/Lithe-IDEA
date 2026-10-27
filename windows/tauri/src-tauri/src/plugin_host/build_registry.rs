@@ -15,6 +15,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
+mod settings_reload;
+
 /// One verified package as the build pipeline should see it. The version
 /// comes from the same trust check as the manifest, so a session can detect
 /// a package replacement between operations.
@@ -106,8 +108,10 @@ impl BuildSession {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 struct WindowState {
+    settings_reloads: BTreeSet<String>,
+    settings_revisions: BTreeMap<String, u64>,
     execution_suspended: usize,
     /// A queued whole-window detection also depends on plugins that have not
     /// produced sessions yet, so revocation must invalidate this request too.
@@ -161,6 +165,36 @@ pub(crate) struct BuildModelContext {
 }
 
 impl BuildRegistry {
+    pub(crate) fn function_scope_revision(
+        &self,
+        label: &str,
+        root: &str,
+        plugin: &str,
+    ) -> Result<u64, String> {
+        let generation = self.function_generation(label, root)?;
+        self.check_read_snapshot(label, root, generation)?;
+        self.settings_scope_revision(label, root, plugin)
+    }
+
+    pub(crate) fn settings_scope_revision(
+        &self,
+        label: &str,
+        root: &str,
+        plugin: &str,
+    ) -> Result<u64, String> {
+        let Some(window) = self
+            .windows
+            .get(label)
+            .filter(|window| window.workspace_root.as_deref() == Some(root))
+        else {
+            return Ok(0);
+        };
+        if window.settings_reloads.contains(plugin) {
+            return Err("plugin.build.staleContext".into());
+        }
+        Ok(window.settings_revisions.get(plugin).copied().unwrap_or(0))
+    }
+
     pub(crate) fn function_generation(&self, label: &str, root: &str) -> Result<u64, String> {
         let generation = self
             .windows
@@ -207,6 +241,7 @@ impl BuildRegistry {
             .get(window_label)
             .ok_or("plugin.build.staleContext")?;
         if window.execution_suspended > 0
+            || window.settings_reloads.contains(plugin_id)
             || window.workspace_root.as_deref() != Some(workspace_root)
         {
             return Err("plugin.build.staleContext".into());
@@ -240,6 +275,7 @@ impl BuildRegistry {
             return false;
         };
         if window.execution_suspended > 0
+            || window.settings_reloads.contains(&context.plugin_id)
             || window.generation != context.generation
             || window.workspace_root.as_deref() != Some(context.workspace_root.as_str())
         {
@@ -337,6 +373,7 @@ impl BuildRegistry {
     pub(crate) fn close_window(&mut self, window_label: &str) {
         if let Some(window) = self.windows.get_mut(window_label) {
             window.sessions.clear();
+            window.settings_reloads.clear();
             window.issues.clear();
             window.workspace_root = None;
             window.refresh_pending = false;
@@ -463,6 +500,29 @@ impl BuildRegistry {
         workspace_root: &str,
         checkpoint: &dyn Fn() -> Result<(), String>,
     ) -> Result<BuildView, String> {
+        self.refresh_selected_checked(
+            core,
+            packages,
+            persistence,
+            window_label,
+            workspace_root,
+            checkpoint,
+            None,
+        )
+    }
+
+    /// Core sees every package for build-system ownership. A scoped reload
+    /// resolves and persists only the selected plugin's detected instances.
+    fn refresh_selected_checked(
+        &mut self,
+        core: &dyn BuildCoreExecutor,
+        packages: &dyn BuildPackageSource,
+        persistence: &dyn BuildOptionsPersistence,
+        window_label: &str,
+        workspace_root: &str,
+        checkpoint: &dyn Fn() -> Result<(), String>,
+        plugin: Option<&str>,
+    ) -> Result<BuildView, String> {
         checkpoint()?;
         {
             let window = self.windows.entry(window_label.to_string()).or_default();
@@ -529,6 +589,9 @@ impl BuildRegistry {
             issues.push(issue);
         }
 
+        if let Some(plugin) = plugin {
+            issues.retain(|issue| issue["pluginID"] == plugin);
+        }
         let mut sessions = BTreeMap::new();
         for instance in detection["instances"]
             .as_array()
@@ -536,6 +599,9 @@ impl BuildRegistry {
             .unwrap_or_default()
         {
             let plugin_id = instance["pluginID"].as_str().unwrap_or_default();
+            if plugin.is_some_and(|plugin| plugin != plugin_id) {
+                continue;
+            }
             let build_system_id = instance["buildSystemID"].as_str().unwrap_or_default();
             let root = instance["root"].as_str().unwrap_or_default();
             if plugin_id.is_empty() || build_system_id.is_empty() || root.is_empty() {
@@ -651,6 +717,7 @@ impl BuildRegistry {
         }
         window.sessions = sessions;
         window.issues = issues;
+        window.settings_reloads.clear();
         Ok(self.view(window_label))
     }
 
@@ -909,6 +976,7 @@ impl BuildRegistry {
     /// sessions of the removed plugin can no longer revive it.
     pub fn drop_plugin(&mut self, plugin_id: &str) {
         for window in self.windows.values_mut() {
+            window.settings_reloads.remove(plugin_id);
             let before = window.sessions.len();
             window
                 .sessions
@@ -933,6 +1001,7 @@ impl BuildRegistry {
             window.workspace_root = None;
             window.refresh_pending = false;
             window.sessions.clear();
+            window.settings_reloads.clear();
             window.issues.clear();
             window.generation += 1;
         }

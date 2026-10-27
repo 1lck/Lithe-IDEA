@@ -9,8 +9,7 @@ export type SettingEffectResult =
   | "immediate"
   | "nextStart"
   | "reloadUnavailable"
-  | "reloadRequired"
-  | "projectReloadUnavailable";
+  | "reloadRequired";
 export interface SettingsSessionPorts {
   read(): Promise<DeclarativeSettingSnapshot>;
   write(
@@ -164,16 +163,18 @@ export async function applySettingEffect(
       configuration: unknown;
     }): Promise<boolean>;
     pluginId: string;
-    savedForReload?(snapshot: DeclarativeSettingSnapshot, requiresReload: boolean): void;
+    savedForReload?(
+      snapshot: DeclarativeSettingSnapshot,
+      requiresReload: boolean,
+      scope: "global" | "project",
+    ): void;
   },
   scope: "global" | "project" = "global",
 ): Promise<SettingEffectResult> {
   ports.assertCurrent();
-  // Every successful save has a newer CAS baseline, even when only an earlier
-  // saved field requires reload. Project saves never create a global reload.
-  ports.savedForReload?.(snapshot, setting.effect === "reload" && scope === "global");
+  // Every successful save advances the CAS baseline of this exact scope.
+  ports.savedForReload?.(snapshot, setting.effect === "reload", scope);
   if (setting.effect === "reload") {
-    if (scope === "project") return "projectReloadUnavailable";
     if (!ports.savedForReload) return "reloadUnavailable";
     return "reloadRequired";
   }
