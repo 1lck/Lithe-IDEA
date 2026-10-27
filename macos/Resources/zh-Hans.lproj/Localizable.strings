@@ -1145,6 +1145,8 @@
 "Disconnect" = "断开连接";
 "Disconnected" = "已断开";
 "Discover MCP servers" = "发现 MCP 服务器";
+"Discover Tests" = "发现测试";
+"Discovered Tests" = "已发现的测试";
 "Discovering Maven…" = "正在检测 Maven…";
 "Discovering…" = "正在检测…";
 "Disk" = "磁盘";
@@ -1902,6 +1904,7 @@
 "Load Project Model" = "加载项目模型";
 "Load more" = "加载更多";
 "Load more commits" = "加载更多提交";
+"Load or reload the project model before running all tests, so subproject reports are collected." = "运行全部测试前，请加载或重新加载项目模型，以便收集子项目的测试报告。";
 "Load the %@ model" = "加载 %@ 的模型";
 "Load the dependencies again" = "重新加载依赖";
 "Load the dependencies of %@" = "加载 %@ 的依赖";
@@ -2322,6 +2325,7 @@
 "No subagents yet" = "暂无子代理";
 "No tasks yet" = "暂无任务";
 "No test runner is configured for %@." = "没有为 %@ 配置测试运行器。";
+"No tests discovered." = "未发现测试。";
 "No textual diff available" = "没有可用的文本 Diff";
 "No textual difference" = "没有文本差异";
 "No tools running" = "暂无工具运行";
@@ -5368,6 +5372,8 @@
 "native.disconnect" = "断开连接";
 "native.disconnected" = "已断开";
 "native.discoverMcpServers" = "发现 MCP 服务器";
+"native.discoverTests" = "发现测试";
+"native.discoveredTests" = "已发现的测试";
 "native.discovering" = "正在检测…";
 "native.discoveringMaven" = "正在检测 Maven…";
 "native.disk" = "磁盘";
@@ -6274,6 +6280,7 @@
 "native.llds" = "%1$lld秒";
 "native.load" = "加载";
 "native.loadDiskVersion" = "加载磁盘版本";
+"native.loadModelBeforeWorkspaceTests" = "运行全部测试前，请加载或重新加载项目模型，以便收集子项目的测试报告。";
 "native.loadMore" = "加载更多";
 "native.loadMore2" = "加载更多";
 "native.loadMoreCommits" = "加载更多提交";
@@ -6711,6 +6718,7 @@
 "native.noSubagentsYet" = "暂无子代理";
 "native.noTasksYet" = "暂无任务";
 "native.noTestRunnerIsConfiguredFor" = "没有为 %1$@ 配置测试运行器。";
+"native.noTestsDiscovered" = "未发现测试。";
 "native.noTextualDiffAvailable" = "没有可用的文本 Diff";
 "native.noTextualDifference" = "没有文本差异";
 "native.noToolsRunning" = "暂无工具运行";

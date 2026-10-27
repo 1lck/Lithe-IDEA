@@ -1393,12 +1393,14 @@ struct BuildSystemServiceTests {
     }
 
     /// Configuration may change while the final decode is off the main actor.
-    @Test
-    func providerTaskOptionsCancelDuringDiagnosticDecode() async throws {
+    @Test(arguments: [false, true])
+    func providerTaskOptionsCancelDuringDiagnosticDecode(tests: Bool) async throws {
         let planner = FakeBuildPlanner()
         planner.fingerprint = "o"
         planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "provider")])
-        planner.providerRequest = Self.providerRequest(method: "lithe/build/execute")
+        planner.providerRequest = Self.providerRequest(method: tests ? "lithe/build/test" : "lithe/build/execute")
+        let stale = try Self.diagnostic("stale provider diagnostic")
+        planner.diagnostics = [stale]
         let gate = GatedBuildDecode()
         planner.diagnosticsGate = gate
         let providers = FakeBuildProviders()
@@ -1406,23 +1408,25 @@ struct BuildSystemServiceTests {
         defer { gate.releaseDecode(); harness.service.stop() }
         harness.service.reset(workspaceURL: Self.workspace)
         try #require(await harness.waitForEntries { !$0.isEmpty })
-        harness.service.runTask(Self.instanceID, request: BuildTaskRequest(task: "build"), title: "Build")
+        if tests { harness.service.runTests(Self.instanceID, request: BuildTestRequest(), title: "Tests") }
+        else { harness.service.runTask(Self.instanceID, request: BuildTaskRequest(task: "build"), title: "Build") }
         try #require(await gate.entered.waitUntilOpen())
         harness.service.setOption(Self.instanceID, optionID: "release", value: .bool(true))
         #expect(harness.service.runState == .cancelled)
         gate.releaseDecode()
         try #require(await gate.finished.waitUntilOpen())
+        #expect(await harness.waitsForStaleDiagnostics([stale]) == false)
         #expect(harness.service.diagnostics.isEmpty)
     }
 
     /// A backend may drain after cancellation; no output or result may reach
     /// the replacement workspace or the new effective configuration.
-    @Test(arguments: ["stop", "workspace", "options", "disable"])
-    func providerTaskLateOutputCannotCrossItsOwner(change: String) async throws {
+    @Test(arguments: ["stop", "workspace", "options", "disable"], [false, true])
+    func providerTaskLateOutputCannotCrossItsOwner(change: String, tests: Bool) async throws {
         let planner = FakeBuildPlanner()
         planner.fingerprint = "o"
         planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "provider")])
-        planner.providerRequest = Self.providerRequest(method: "lithe/build/execute")
+        planner.providerRequest = Self.providerRequest(method: tests ? "lithe/build/test" : "lithe/build/execute")
         let providers = FakeBuildProviders()
         let release = BuildTestGate()
         providers.replyGate = release
@@ -1430,7 +1434,8 @@ struct BuildSystemServiceTests {
         defer { release.open(); harness.service.stop() }
         harness.service.reset(workspaceURL: Self.workspace)
         try #require(await harness.waitForEntries { !$0.isEmpty })
-        harness.service.runTask(Self.instanceID, request: BuildTaskRequest(task: "build"), title: "Build")
+        if tests { harness.service.runTests(Self.instanceID, request: BuildTestRequest(), title: "Tests") }
+        else { harness.service.runTask(Self.instanceID, request: BuildTaskRequest(task: "build"), title: "Build") }
         try #require(await providers.requestStarted.waitUntilOpen())
         providers.executionProgress?(BuildProviderProgress(output: "early"))
         #expect(harness.service.output.contains("early"))
@@ -1446,6 +1451,179 @@ struct BuildSystemServiceTests {
         #expect(!harness.service.output.contains("late"))
         #expect(!harness.service.output.contains("completed"))
         #expect(harness.service.runState != .succeeded)
+    }
+
+    @Test(arguments: [Int32(0), Int32(3)])
+    func providerTestsDecodeReportsWithoutStartingAHostCommand(exitCode: Int32) async throws {
+        let planner = FakeBuildPlanner()
+        planner.fingerprint = "o"
+        planner.detection = BuildDetection(instances: [
+            try Self.instance(modelSource: "static", model: Self.model(name: "loaded"))
+        ])
+        planner.providerRequest = Self.providerRequest(method: "lithe/build/test")
+        planner.testPlanDeclaresResults = true
+        let expected = try Self.testResults("assertion failed")
+        planner.decodedTestResults = expected
+        let providers = FakeBuildProviders()
+        providers.executionResult = BuildProviderExecutionResult(exitCode: exitCode, output: "test output")
+        let runner = FakeBuildRunner()
+        let harness = Harness(planner: planner, runner: runner, providers: providers)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        harness.service.runTests(Self.instanceID, request: BuildTestRequest(projects: ["app"]), title: "Tests")
+        try #require(await harness.waitForRunState { $0 != .running })
+        #expect(providers.sent.map(\.request.method) == ["lithe/build/test"])
+        #expect(runner.requests.isEmpty)
+        #expect(harness.service.testResults == expected)
+        #expect(planner.diagnosticOutputs == ["test output"])
+        if exitCode == 0 { #expect(harness.service.runState == .succeeded) }
+        else { if case .failed = harness.service.runState {} else { Issue.record("Expected failed test exit") } }
+    }
+
+    /// The provider operation remains cancellable while its reports decode.
+    @Test
+    func providerTestOptionsCancelDuringReportDecode() async throws {
+        let planner = FakeBuildPlanner()
+        planner.fingerprint = "o"
+        planner.detection = BuildDetection(instances: [
+            try Self.instance(modelSource: "static", model: Self.model(name: "loaded"))
+        ])
+        planner.providerRequest = Self.providerRequest(method: "lithe/build/test")
+        planner.testPlanDeclaresResults = true
+        let stale = try Self.testResults("stale")
+        planner.decodedTestResults = stale
+        let gate = GatedBuildDecode()
+        planner.testResultsGate = gate
+        let harness = Harness(planner: planner, providers: FakeBuildProviders())
+        defer { gate.releaseDecode(); harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        harness.service.runTests(Self.instanceID, request: BuildTestRequest(), title: "Tests")
+        try #require(await gate.entered.waitUntilOpen())
+        harness.service.setOption(Self.instanceID, optionID: "release", value: .bool(true))
+        #expect(harness.service.runState == .cancelled)
+        gate.releaseDecode()
+        try #require(await gate.finished.waitUntilOpen())
+        #expect(await harness.waitsForStaleTestResults(stale) == false)
+        #expect(harness.service.testResults == nil)
+    }
+
+    @Test(arguments: ["source", "settings", "options"])
+    func discoveredTestsRunExactSelectorsAndSourceEditsRevokeThem(change: String) async throws {
+        let planner = FakeBuildPlanner()
+        planner.fingerprint = "o"
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "provider")])
+        planner.providerRequest = Self.providerRequest(method: "lithe/build/discoverTests")
+        let discovered = try decode(BuildTestDiscovery.self, #"{"tests":[{"id":"exact","suite":"Suite","case":"case with spaces","project":{"name":"app","path":"app","tags":[],"properties":{}}}]}"#)
+        planner.discovery = discovered
+        let providers = FakeBuildProviders()
+        let runner = FakeBuildRunner()
+        var providerSettings: [String: ToolingJSONValue] = [:]
+        let harness = Harness(planner: planner, runner: runner, sources: [fixtureSource(testDiscovery: true)], providers: providers,
+                              settings: { _ in providerSettings })
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        harness.service.discoverTests(Self.instanceID)
+        try #require(await harness.waitForRunState { $0 == .succeeded })
+        #expect(harness.service.testDiscovery(Self.instanceID) == .loaded(discovered))
+        #expect(runner.requests.isEmpty)
+        planner.providerRequest = Self.providerRequest(method: "lithe/build/test")
+        try #require(harness.service.runDiscoveredTest(Self.instanceID, testID: "exact", title: "Test") != nil)
+        try #require(await harness.waitForRunState { $0 == .succeeded })
+        #expect(planner.testRequests == [discovered.tests[0].request])
+        #expect(providers.sent.map(\.request.method) == ["lithe/build/discoverTests", "lithe/build/test"])
+        // A source edit, not just a build-file edit, revokes the cached selector.
+        if change == "source" {
+            harness.service.workspaceFilesChanged([Self.workspace.appendingPathComponent("src/Test.java")])
+        } else if change == "settings" { providerSettings = ["providerHeapMB": .integer(2048)] }
+        else {
+            harness.service.setOption(Self.instanceID, optionID: "release", value: .bool(true))
+            harness.service.setOption(Self.instanceID, optionID: "release", value: nil)
+        }
+        #expect(harness.service.testDiscovery(Self.instanceID) == nil)
+        #expect(harness.service.runDiscoveredTest(Self.instanceID, testID: "exact", title: "Test") == nil)
+    }
+
+    @Test
+    func queuedDiscoveryCannotPublishAfterItWasReplaced() async throws {
+        let planner = FakeBuildPlanner()
+        planner.fingerprint = "o"
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "provider")])
+        planner.providerRequest = Self.providerRequest(method: "lithe/build/discoverTests")
+        planner.discovery = try decode(BuildTestDiscovery.self, #"{"tests":[]}"#)
+        let providers = FakeBuildProviders()
+        let harness = Harness(planner: planner, sources: [fixtureSource(testDiscovery: true)], providers: providers)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        harness.service.discoverTests(Self.instanceID)
+        // Both actions run on the main actor before the queued task can start.
+        harness.service.stopRun()
+        planner.providerRequest = Self.providerRequest(method: "lithe/build/execute")
+        harness.service.runTask(Self.instanceID, request: BuildTaskRequest(task: "build"), title: "Build")
+        try #require(await harness.waitForRunState { $0 == .succeeded })
+        #expect(providers.sent.map(\.request.method) == ["lithe/build/execute"])
+        #expect(harness.service.testDiscovery(Self.instanceID) == nil)
+    }
+
+    @Test(arguments: [false, true])
+    func discoveryFailureIsVisibleAndNeverStartsAHostCommand(hasProvider: Bool) async throws {
+        let planner = FakeBuildPlanner()
+        planner.fingerprint = "o"
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "provider")])
+        planner.providerRequest = Self.providerRequest(method: "lithe/build/discoverTests")
+        let providers = FakeBuildProviders()
+        providers.failure = BuildSystemServiceTestsError(message: "discovery failed")
+        let runner = FakeBuildRunner()
+        let harness = Harness(planner: planner, runner: runner, sources: [fixtureSource(testDiscovery: true)],
+                              providers: hasProvider ? providers : nil)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        harness.service.discoverTests(Self.instanceID)
+        try #require(await harness.waitForRunState { if case .failed = $0 { return true }; return false })
+        guard case .failed(let message) = harness.service.testDiscovery(Self.instanceID) else {
+            Issue.record("Discovery failure must be visible and retryable"); return
+        }
+        if hasProvider { #expect(message.contains("discovery failed")) }
+        #expect(runner.requests.isEmpty)
+    }
+
+    @Test(arguments: ["stop", "workspace", "options", "source", "disable"])
+    func discoveryDecodeCannotPublishAfterItsOwnerChanges(change: String) async throws {
+        let planner = FakeBuildPlanner()
+        planner.fingerprint = "o"
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "provider")])
+        planner.providerRequest = Self.providerRequest(method: "lithe/build/discoverTests")
+        planner.discovery = try decode(BuildTestDiscovery.self, #"{"tests":[]}"#)
+        let gate = GatedBuildDecode()
+        planner.discoveryGate = gate
+        let harness = Harness(planner: planner, sources: [fixtureSource(testDiscovery: true)], providers: FakeBuildProviders())
+        defer { gate.releaseDecode(); harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        harness.service.discoverTests(Self.instanceID)
+        try #require(await gate.entered.waitUntilOpen())
+        switch change {
+        case "workspace": harness.service.reset(workspaceURL: URL(fileURLWithPath: "/workspace/next"))
+        case "options": harness.service.setOption(Self.instanceID, optionID: "release", value: .bool(true))
+        case "source": harness.service.workspaceFilesChanged([Self.workspace.appendingPathComponent("src/Test.java")])
+        case "disable": harness.sources = []; harness.service.pluginsChanged()
+        default: harness.service.stopRun()
+        }
+        gate.releaseDecode()
+        try #require(await gate.finished.waitUntilOpen())
+        // Observe publication rather than assuming the worker's return already
+        // passed through the main actor. The bounded negative assertion covers it.
+        let published = BuildTestGate()
+        let observation = harness.service.objectWillChange.sink {
+            if case .loaded = harness.service.testDiscovery(Self.instanceID) { published.open() }
+        }
+        defer { observation.cancel() }
+        #expect(await published.waitUntilOpen(timeout: .milliseconds(500)) == false)
+        #expect(harness.service.testDiscovery(Self.instanceID) == nil)
     }
 
     // MARK: Provider
@@ -1817,14 +1995,14 @@ struct BuildSystemServiceTests {
     }
 }
 
-private func fixtureSource(pluginID: String = "dev.example") -> BuildSystemPluginSource {
+private func fixtureSource(pluginID: String = "dev.example", testDiscovery: Bool = false) -> BuildSystemPluginSource {
     BuildSystemPluginSource(
         pluginID: pluginID,
         manifest: Data("{}".utf8),
         packageURL: URL(fileURLWithPath: "/plugins/\(pluginID)"),
         buildSystems: [DeclarativeBuildSystem(
             id: "fixture", displayName: "Fixture", modelSource: .command, tasks: [],
-            testScopes: [], dependencyScopes: []
+            testScopes: [], dependencyScopes: [], testDiscovery: testDiscovery
         )]
     )
 }
@@ -2027,6 +2205,9 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         var detectGate: GatedBuildDecode?
         var decodedTestResults: BuildTestResults?
         var testPlanDeclaresResults = false
+        var discovery: BuildTestDiscovery?
+        var discoveryGate: GatedBuildDecode?
+        var testRequests: [BuildTestRequest] = []
         var optionsResolution: BuildOptionsResolution?
         var loadedOptionsResolution: BuildOptionsResolution?
         var dynamicOptions = false
@@ -2107,6 +2288,15 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         get { access { $0.decodedTestResults } }
         set { access { $0.decodedTestResults = newValue } }
     }
+    var discovery: BuildTestDiscovery? {
+        get { access { $0.discovery } }
+        set { access { $0.discovery = newValue } }
+    }
+    var discoveryGate: GatedBuildDecode? {
+        get { access { $0.discoveryGate } }
+        set { access { $0.discoveryGate = newValue } }
+    }
+    var testRequests: [BuildTestRequest] { access { $0.testRequests } }
     var testPlanDeclaresResults: Bool {
         get { access { $0.testPlanDeclaresResults } }
         set { access { $0.testPlanDeclaresResults = newValue } }
@@ -2228,11 +2418,27 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
 
     func testPlan(_ target: BuildSystemTarget, context: BuildPlanContext, request: BuildTestRequest) throws
         -> BuildTestPlan {
+        access { $0.testRequests.append(request) }
         let declaresResults = access { $0.testPlanDeclaresResults }
         return BuildTestPlan(
-            process: plan(["test"], output: nil),
+            execution: providerRequest.map(BuildOutputPlan.provider) ?? .process(plan(["test"], output: nil)),
             results: declaresResults ? .reports(decoder: "junitXml", patterns: []) : nil
         )
+    }
+
+    func testDiscoveryPlan(_ target: BuildSystemTarget, context: BuildPlanContext) throws -> BuildProviderRequest {
+        guard let providerRequest else { throw CancellationError() }
+        return providerRequest
+    }
+
+    func decodeTestDiscovery(_ target: BuildSystemTarget, context: BuildPlanContext, result: ToolingJSONValue) throws -> BuildTestDiscovery {
+        if let gate = access({ let gate = $0.discoveryGate; $0.discoveryGate = nil; return gate }) {
+            gate.entered.open()
+            guard gate.waitForRelease() else { throw GatedDecodeError.releaseTimedOut }
+            gate.finished.open()
+        }
+        guard let discovery else { throw CancellationError() }
+        return discovery
     }
 
     func dependencyPlan(

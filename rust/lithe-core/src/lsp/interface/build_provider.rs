@@ -15,7 +15,7 @@ use serde_json::{json, Value};
 const EXPERIMENTAL_KEY: &str = "litheBuild";
 
 /// Build-provider protocol versions this client speaks, in preference order.
-const SUPPORTED_VERSIONS: [u64; 2] = [2, 1];
+const SUPPORTED_VERSIONS: [u64; 3] = [3, 2, 1];
 
 /// Feature name recorded in the session's server capabilities once a
 /// provider answered a supported version.
@@ -23,6 +23,12 @@ pub(crate) const BUILD_PROVIDER_FEATURE: &str = "litheBuild";
 
 /// Version 2 uses the same workspace session and operation lifecycle.
 pub(crate) const EXECUTE_METHOD: &str = "lithe/build/execute";
+/// Version 3 adds tests while retaining the bounded execution lifecycle.
+pub(crate) const TEST_METHOD: &str = "lithe/build/test";
+/// Version 3 returns exact selectors; decoding remains a separate Core command.
+pub(crate) const DISCOVER_TESTS_METHOD: &str = "lithe/build/discoverTests";
+/// Feature required before writing a version 3 test request.
+pub(crate) const TEST_EXECUTION_FEATURE: &str = "litheBuildTestExecution";
 /// Progress never uses caller-chosen host operation IDs.
 pub(crate) const PROGRESS_METHOD: &str = "lithe/build/progress";
 /// Separate feature so version 1 cannot accidentally execute version 2 tasks.
@@ -48,7 +54,14 @@ pub(crate) fn negotiated(capabilities: &Value) -> bool {
 
 /// Whether `method` is a request of the negotiated protocol.
 pub(crate) fn is_build_method(method: &str) -> bool {
-    VERSION_1_METHODS.contains(&method) || method == EXECUTE_METHOD
+    VERSION_1_METHODS.contains(&method)
+        || is_execution_method(method)
+        || method == DISCOVER_TESTS_METHOD
+}
+
+/// Whether the method shares bounded output, progress, and final result handling.
+pub(crate) fn is_execution_method(method: &str) -> bool {
+    matches!(method, EXECUTE_METHOD | TEST_METHOD)
 }
 
 /// True only for the execution protocol, not merely any negotiated provider.
@@ -56,7 +69,15 @@ pub(crate) fn execution_negotiated(capabilities: &Value) -> bool {
     capabilities
         .pointer("/experimental/litheBuild/version")
         .and_then(Value::as_u64)
-        == Some(2)
+        .is_some_and(|version| matches!(version, 2 | 3))
+}
+
+/// Tests require an explicit version 3 agreement, independent of task support.
+pub(crate) fn tests_negotiated(capabilities: &Value) -> bool {
+    capabilities
+        .pointer("/experimental/litheBuild/version")
+        .and_then(Value::as_u64)
+        == Some(3)
 }
 
 /// Normalizes bounded progress; the engine checks the pending request identity.
@@ -128,7 +149,7 @@ mod tests {
             &json!({ "experimental": { "litheBuild": {} } })
         ));
         assert!(!negotiated(
-            &json!({ "experimental": { "litheBuild": { "version": 3 } } })
+            &json!({ "experimental": { "litheBuild": { "version": 4 } } })
         ));
         assert!(!negotiated(
             &json!({ "experimental": { "litheBuild": { "version": "1" } } })
@@ -143,8 +164,20 @@ mod tests {
         assert!(is_build_method("lithe/build/model"));
         assert!(is_build_method("lithe/build/dependencies"));
         assert!(is_build_method("lithe/build/execute"));
+        assert!(is_build_method("lithe/build/test"));
         assert!(!is_build_method("workspace/executeCommand"));
     }
+    #[test]
+    fn test_protocol_does_not_remove_task_support() {
+        let capabilities = json!({"experimental":{"litheBuild":{"version":3}}});
+        assert!(negotiated(&capabilities));
+        assert!(execution_negotiated(&capabilities));
+        assert!(tests_negotiated(&capabilities));
+        assert!(!tests_negotiated(
+            &json!({"experimental":{"litheBuild":{"version":2}}})
+        ));
+    }
+
     #[test]
     fn execution_replies_and_progress_match_the_shared_contract() {
         let fixture: Value = serde_json::from_str(include_str!(

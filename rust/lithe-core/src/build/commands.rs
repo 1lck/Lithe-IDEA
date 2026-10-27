@@ -16,6 +16,7 @@ use super::outputs::{
     DecodeTestResultsRequest, SyncFingerprintRequest,
 };
 use super::plans::{self, OutputPlanRequest, TaskPlanRequest, TestPlanRequest};
+use super::test_discovery::{self, DecodeTestDiscoveryRequest};
 use crate::plugins::declarative::{
     decode_payload, outcome, validate_manifest_value, DeclarativePluginManifest, PluginRejection,
     Validation,
@@ -167,6 +168,30 @@ pub(crate) fn build_test_plan_command(payload: Value) -> Result<Value, CoreError
         "build.testPlan",
         "plan",
         |build_system, request: &TestPlanRequest| plans::test_plan(build_system, request),
+    )
+}
+
+/// `build.testDiscoveryPlan`: a typed request for provider-owned test discovery.
+pub(crate) fn build_test_discovery_plan_command(payload: Value) -> Result<Value, CoreError> {
+    with_build_system(
+        payload,
+        "build.testDiscoveryPlan",
+        "plan",
+        |build_system, request: &OutputPlanRequest| {
+            plans::test_discovery_plan(build_system, request)
+        },
+    )
+}
+
+/// `build.decodeTestDiscovery`: validated, deterministic selectors for native UI.
+pub(crate) fn build_decode_test_discovery_command(payload: Value) -> Result<Value, CoreError> {
+    with_build_system(
+        payload,
+        "build.decodeTestDiscovery",
+        "discovery",
+        |build_system, request: &DecodeTestDiscoveryRequest| {
+            test_discovery::decode(build_system, request)
+        },
     )
 }
 

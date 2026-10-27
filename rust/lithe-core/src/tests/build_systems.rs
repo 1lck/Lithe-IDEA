@@ -5,9 +5,10 @@ use super::support::temporary_root;
 use crate::build::{
     build_check_tool_version_command, build_decode_dependencies_command,
     build_decode_diagnostics_command, build_decode_model_command,
-    build_decode_test_results_command, build_dependency_plan_command, build_detect_command,
-    build_invocation_plan_command, build_model_plan_command, build_resolve_options_command,
-    build_sync_fingerprint_command, build_task_plan_command, build_test_plan_command,
+    build_decode_test_discovery_command, build_decode_test_results_command,
+    build_dependency_plan_command, build_detect_command, build_invocation_plan_command,
+    build_model_plan_command, build_resolve_options_command, build_sync_fingerprint_command,
+    build_task_plan_command, build_test_discovery_plan_command, build_test_plan_command,
 };
 use crate::plugins::declarative::{language_server_launch_plan_command, validate_command};
 use crate::plugins::marketplace::install_review_command;
@@ -1849,4 +1850,167 @@ fn provider_execution_tasks_are_typed_and_version_gated() {
         result["plan"]["provider"]["params"]["options"]["offline"],
         true
     );
+}
+
+/// Test selection remains typed and report paths reuse the existing decoder;
+/// no test selector is interpolated into a host command.
+#[test]
+fn provider_tests_preserve_filters_and_report_ownership() {
+    let manifest: Value =
+        serde_json::from_str(contract_file!("fixtures/build-provider-tests.plugin.json")).unwrap();
+    let fixture: Value =
+        serde_json::from_str(contract_file!("fixtures/build-test-protocol.json")).unwrap();
+    assert_eq!(validate(manifest.clone())["status"], "ok");
+    let plan = build_test_plan_command(
+        json!({"manifest": manifest, "buildSystemID":"gradle", "request":fixture["request"]}),
+    )
+    .unwrap();
+    assert_eq!(plan["status"], "ok", "{plan}");
+    assert_eq!(plan["plan"]["provider"], fixture["provider"]);
+    assert_eq!(plan["plan"]["results"], fixture["results"]);
+    assert!(plan["plan"].get("arguments").is_none());
+    let review = install_review_command(json!({"manifest":manifest})).unwrap();
+    let program = review["review"]["programs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|program| program["kind"] == "buildSystem")
+        .unwrap();
+    assert_eq!(
+        program["test"],
+        json!({"source":"provider","arguments":[],"discovery":true})
+    );
+
+    // A case-only filter is a typed value, not a CLI expression needing a suite.
+    let case_only = build_test_plan_command(json!({"manifest":manifest,"buildSystemID":"gradle",
+        "request":{"root":".","case":"exact"}}))
+    .unwrap();
+    assert_eq!(case_only["status"], "ok", "{case_only}");
+    for request in [
+        json!({"root":"app","project":{"name":"escape","path":"../escape"}}),
+        json!({"root":".","target":{"name":"orphan","path":"app"}}),
+        json!({"root":".","suite":"bad\u{0}filter"}),
+        json!({"root":".","userArguments":vec!["arg";65]}),
+    ] {
+        let rejected = build_test_plan_command(
+            json!({"manifest":manifest,"buildSystemID":"gradle","request":request}),
+        )
+        .unwrap();
+        assert_eq!(rejected["status"], "rejected", "{rejected}");
+    }
+    let mut unsupported = manifest.clone();
+    unsupported["buildSystems"][0]["test"]["filters"] = json!([]);
+    assert_eq!(
+        build_test_plan_command(json!({"manifest":unsupported,"buildSystemID":"gradle",
+        "request":fixture["request"]}))
+        .unwrap()["status"],
+        "rejected"
+    );
+}
+
+/// Older hosts/processes must reject provider tests rather than silently run
+/// every test or fall back to host-owned business logic.
+#[test]
+fn provider_tests_require_version_three_and_an_owned_process() {
+    let manifest: Value =
+        serde_json::from_str(contract_file!("fixtures/build-provider-tests.plugin.json")).unwrap();
+    for version in [1, 2] {
+        let mut old = manifest.clone();
+        old["requires"]["buildProviders"] = json!(version);
+        assert_eq!(validate(old)["status"], "rejected");
+    }
+    let refused = validate_command(json!({"manifest":manifest,"hostCapabilities":{
+        "buildProviders":[1,2],"buildSystems":[1],"serverProcess":[1],"settings":[1]}}))
+    .unwrap();
+    assert_eq!(refused["error"]["field"], "requires.buildProviders");
+    for (field, value) in [
+        ("arguments", json!(["test"])),
+        ("source", json!("command")),
+        ("results", json!({"decoder":"hostIntegration"})),
+    ] {
+        let mut invalid = manifest.clone();
+        invalid["buildSystems"][0]["test"][field] = value;
+        assert_eq!(validate(invalid)["status"], "rejected");
+    }
+    // A provider used only for tests is valid; removing it must be rejected.
+    let mut only_tests = manifest.clone();
+    for field in ["model", "dependencies", "tasks"] {
+        only_tests["buildSystems"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove(field);
+    }
+    assert_eq!(validate(only_tests.clone())["status"], "ok");
+    only_tests["buildSystems"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("provider");
+    assert_eq!(validate(only_tests)["status"], "rejected");
+    let mut shared = manifest;
+    shared["buildSystems"][0]["provider"] =
+        json!({"languageServer":"java", "executesProjectCode":true,"mayUseNetwork":false});
+    assert_eq!(validate(shared)["status"], "rejected");
+}
+
+/// Discovery produces only exactly runnable selectors, preserving module
+/// identity and rejecting malformed lists instead of silently hiding tests.
+#[test]
+fn provider_test_discovery_is_bounded_deterministic_and_runnable() {
+    let manifest: Value =
+        serde_json::from_str(contract_file!("fixtures/build-provider-tests.plugin.json")).unwrap();
+    let fixture: Value =
+        serde_json::from_str(contract_file!("fixtures/build-test-discovery.json")).unwrap();
+    let plan =
+        build_test_discovery_plan_command(json!({"manifest":manifest,"buildSystemID":"gradle",
+        "request":{"root":".","refresh":true}}))
+        .unwrap();
+    assert_eq!(plan["status"], "ok", "{plan}");
+    assert_eq!(
+        plan["plan"]["provider"]["method"],
+        "lithe/build/discoverTests"
+    );
+    assert_eq!(plan["plan"]["provider"]["params"]["refresh"], true);
+    let decode = |result: Value| {
+        build_decode_test_discovery_command(json!({"manifest":manifest,
+        "buildSystemID":"gradle","request":{"root":".","result":result}}))
+        .unwrap()
+    };
+    let original = decode(fixture["result"].clone());
+    assert_eq!(original["status"], "ok", "{original}");
+    let tests = original["discovery"]["tests"].as_array().unwrap();
+    assert_eq!(tests.len(), 2);
+    assert_ne!(tests[0]["id"], tests[1]["id"]);
+    let mut reordered = fixture["result"].clone();
+    reordered["tests"].as_array_mut().unwrap().reverse();
+    reordered["tests"]
+        .as_array_mut()
+        .unwrap()
+        .push(fixture["result"]["tests"][0].clone());
+    assert_eq!(decode(reordered), original);
+    for test in tests {
+        let mut request = test.clone();
+        request.as_object_mut().unwrap().remove("id");
+        request["root"] = json!(".");
+        let runnable = build_test_plan_command(
+            json!({"manifest":manifest,"buildSystemID":"gradle","request":request}),
+        )
+        .unwrap();
+        assert_eq!(runnable["status"], "ok", "{runnable}");
+    }
+    for invalid in [
+        json!({"format":"litheTestDiscovery","version":2,"tests":[]}),
+        json!({"format":"litheTestDiscovery","version":1,"tests":vec![json!({});10001]}),
+        json!({"format":"litheTestDiscovery","version":1,"tests":[{"suite":"a"}]}),
+        json!({"format":"litheTestDiscovery","version":1,"tests":[{"suite":"a","case":"b","project":{"name":"escape","path":"../escape"}}]}),
+        json!({"format":"litheTestDiscovery","version":1,"tests":[{"suite":"a","case":"bad\u{0}"}]}),
+    ] {
+        let rejected = decode(invalid);
+        assert_eq!(
+            rejected["error"]["code"], "plugin.build.invalidOutput",
+            "{rejected}"
+        );
+    }
+    let mut missing_filter = manifest;
+    missing_filter["buildSystems"][0]["test"]["filters"] = json!(["suite"]);
+    assert_eq!(validate(missing_filter)["status"], "rejected");
 }

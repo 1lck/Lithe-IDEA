@@ -684,6 +684,12 @@ pub(crate) struct TestDeclaration {
     pub(crate) target_tags: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) filters: Vec<TestFilter>,
+    /// Omitted for argv templates; provider sends a typed test request.
+    #[serde(default, skip_serializing_if = "TaskSource::is_command")]
+    pub(crate) source: TaskSource,
+    /// The provider can enumerate exact selectors for the native test tree.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) discovery: bool,
     pub(crate) arguments: Vec<BuildArgument>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) results: Option<TestResultsSource>,
@@ -1030,7 +1036,14 @@ fn program(build_system: &BuildSystemDeclaration) -> Value {
         "options": options,
         "tasks": tasks,
         "run": build_system.run,
-        "test": build_system.test.as_ref().map(|test| json!({ "arguments": test.arguments })),
+        "test": build_system.test.as_ref().map(|test| {
+            let mut review = json!({ "arguments": test.arguments });
+            if test.source == TaskSource::Provider {
+                review["source"] = json!("provider");
+            }
+            if test.discovery { review["discovery"] = json!(true); }
+            review
+        }),
         "model": model,
         "dependencies": dependencies,
     });
@@ -1297,8 +1310,13 @@ impl BuildSystemDeclaration {
     }
 
     fn validate_provider(&self, field: &str, context: &DeclarationContext<'_>) -> Validation<()> {
+        let provider_tests = self
+            .test
+            .as_ref()
+            .is_some_and(|test| test.source == TaskSource::Provider);
         let uses = matches!(self.model, Some(ModelSource::Provider))
             || matches!(self.dependencies, Some(DependenciesSource::Provider { .. }))
+            || provider_tests
             || self
                 .tasks
                 .iter()
@@ -1313,13 +1331,17 @@ impl BuildSystemDeclaration {
         if !uses {
             return Err(invalid(
                 field,
-                "No model, dependencies or task source uses the provider.",
+                "No model, dependencies, task or test source uses the provider.",
             ));
         }
-        if self
-            .tasks
-            .iter()
-            .any(|task| task.source == TaskSource::Provider)
+        if provider_tests && context.build_providers_version < 3 {
+            return Err(invalid(&field, "Provider tests require buildProviders 3."));
+        }
+        if provider_tests
+            || self
+                .tasks
+                .iter()
+                .any(|task| task.source == TaskSource::Provider)
         {
             if context.build_providers_version < 2 {
                 return Err(invalid(&field, "Provider tasks require buildProviders 2."));
@@ -1327,7 +1349,7 @@ impl BuildSystemDeclaration {
             if !matches!(provider, ProviderDeclaration::Process(_)) {
                 return Err(invalid(
                     &field,
-                    "Provider tasks require a plugin-owned provider process.",
+                    "Provider execution requires a plugin-owned provider process.",
                 ));
             }
         }
@@ -1866,21 +1888,42 @@ impl BuildSystemDeclaration {
         check_target_tags(&mut test.target_tags, &test.scopes, &field)?;
         test.filters.sort();
         test.filters.dedup();
-        check_argument_count(&test.arguments, &format!("{field}.arguments"))?;
-        template::validate_arguments(
-            &test.arguments,
-            &Allowed {
-                root: true,
-                project: availability(&test.scopes, Scope::Project),
-                target: availability(&test.scopes, Scope::Target),
-                test: true,
-                user_arguments: true,
-                conditions: true,
-                options: Some(options),
-                ..Allowed::none()
-            },
-            &format!("{field}.arguments"),
-        )?;
+        if test.discovery
+            && (test.source != TaskSource::Provider
+                || !test.filters.contains(&TestFilter::Suite)
+                || !test.filters.contains(&TestFilter::Case))
+        {
+            return Err(invalid(
+                &field,
+                "Test discovery requires a provider and suite/case filters.",
+            ));
+        }
+        if test.source == TaskSource::Provider {
+            if !test.arguments.is_empty()
+                || matches!(test.results, Some(TestResultsSource::HostIntegration))
+            {
+                return Err(invalid(
+                    &field,
+                    "Provider tests require empty arguments and plugin-owned reports.",
+                ));
+            }
+        } else {
+            check_argument_count(&test.arguments, &format!("{field}.arguments"))?;
+            template::validate_arguments(
+                &test.arguments,
+                &Allowed {
+                    root: true,
+                    project: availability(&test.scopes, Scope::Project),
+                    target: availability(&test.scopes, Scope::Target),
+                    test: true,
+                    user_arguments: true,
+                    conditions: true,
+                    options: Some(options),
+                    ..Allowed::none()
+                },
+                &format!("{field}.arguments"),
+            )?;
+        }
         match &mut test.results {
             Some(TestResultsSource::JunitXml { reports })
             | Some(TestResultsSource::LitheTestResults { reports }) => {

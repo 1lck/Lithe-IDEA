@@ -81,6 +81,7 @@ struct BuildSystemToolWindowView: View {
         .onChange(of: rootNodeIDs) { _ in expandNewRoots() }
         .onChange(of: entries.map(\.model)) { _ in clearSelection(); resetOptionEditor() }
         .onChange(of: entries.map(\.id)) { _ in clearSelection(); resetOptionEditor() }
+        .onChange(of: entries.map { feature.testDiscovery($0.id) }) { _ in clearSelection() }
         .onChange(of: feature.workspaceURL) { _ in clearSelection(); optionEntryID = nil; resetOptionEditor() }
         .sheet(item: $argumentsPrompt) { prompt in
             BuildArgumentsSheet(prompt: prompt) { arguments in
@@ -499,6 +500,9 @@ struct BuildSystemToolWindowView: View {
                 iconPath: "expui/nodes/testGroup.svg", entryID: entry.id, project: project, runnable: tests
             )
         }
+        if entry.declaration.testDiscovery, project == nil || isRoot {
+            discoveredTestsNode(entry, ownerID: ownerID)
+        }
         if let scope = dependencyScope(entry, project: project, isRoot: isRoot) {
             dependencyNode(entry, project: scope.project, ownerID: ownerID)
         }
@@ -688,6 +692,44 @@ struct BuildSystemToolWindowView: View {
             ),
             title: Self.title(L10n.string("Tests"), scope: scope)
         )
+    }
+
+    private func discoveredTestsNode(_ entry: BuildSystemEntry, ownerID: String) -> LitheTreeListNode {
+        let nodeID = ownerID + ":discovered-tests"
+        let state = feature.testDiscovery(entry.id)
+        let discover = { feature.discoverTests(entry.id) }
+        return treeNode(id: nodeID, title: L10n.string("Discovered Tests"), iconPath: "expui/nodes/testGroup.svg",
+                        isLoading: state == .loading, onToggle: {
+            let opening = !expandedNodeIDs.contains(nodeID)
+            toggleNode(nodeID)
+            if opening, state == nil, !feature.isRunning { discover() }
+        }, menu: {
+            [.action("Discover Tests", isEnabled: !feature.isRunning, action: discover)]
+        }) {
+            switch state {
+            case .loaded(let discovery):
+                if discovery.tests.isEmpty {
+                    LitheTreeListNode(id: nodeID + ":empty", isSelectable: false) { Text("No tests discovered.") }
+                }
+                for test in discovery.tests {
+                    let title = [test.project?.path, test.target?.name, test.suite, test.testCase]
+                        .compactMap { $0 }.joined(separator: " · ")
+                    leafRow(id: nodeID + ":" + test.id, title: title,
+                            help: test.project?.path, iconPath: "expui/nodes/testGroup.svg", entryID: entry.id, project: nil,
+                            runnable: .discoveredTest(test.id, title: title))
+                }
+            case .failed(let message):
+                LitheTreeListNode(id: nodeID + ":failed", isSelectable: false) {
+                    Text(verbatim: message).foregroundStyle(LitheTheme.warning)
+                }
+                actionRow(id: nodeID + ":retry", title: L10n.string("Discover Tests"),
+                          iconPath: "expui/general/refresh.svg") { if !feature.isRunning { discover() } }
+            case .loading: []
+            case nil:
+                actionRow(id: nodeID + ":load", title: L10n.string("Discover Tests"),
+                          iconPath: "expui/general/refresh.svg") { if !feature.isRunning { discover() } }
+            }
+        }
     }
 
     // MARK: Dependencies
@@ -886,6 +928,7 @@ struct BuildSystemToolWindowView: View {
     private enum Runnable: Equatable {
         case task(BuildTaskRequest, title: String, needsArguments: Bool)
         case tests(BuildTestRequest, title: String)
+        case discoveredTest(String, title: String)
     }
 
     private struct Selection: Equatable {
@@ -914,6 +957,8 @@ struct BuildSystemToolWindowView: View {
             feature.runTask(entryID, request: request, title: title)
         case .tests(let request, let title):
             feature.runTests(entryID, request: request, title: title)
+        case .discoveredTest(let testID, let title):
+            feature.runDiscoveredTest(entryID, testID: testID, title: title)
         }
         model.showToolWindow(.buildOutput)
     }

@@ -397,6 +397,11 @@ fn check_user_arguments(arguments: &[String], declared: &[BuildArgument]) -> Val
     if !template::uses(declared, &template::Variable::UserArguments) {
         return Err(invalid_selection("This command takes no extra arguments."));
     }
+    check_argument_limits(arguments)
+}
+
+/// Provider calls accept raw argument values without a CLI placeholder.
+fn check_argument_limits(arguments: &[String]) -> Validation<()> {
     if arguments.len() > MAX_USER_ARGUMENTS
         || arguments
             .iter()
@@ -464,16 +469,7 @@ pub(crate) fn task_plan(
         ))
     })?;
     if declaration.source == TaskSource::Provider {
-        if request.user_arguments.len() > MAX_USER_ARGUMENTS
-            || request
-                .user_arguments
-                .iter()
-                .any(|argument| argument.contains('\0') || argument.len() > MAX_USER_ARGUMENT)
-        {
-            return Err(invalid_selection(
-                "The extra arguments are too long or contain NUL.",
-            ));
-        }
+        check_argument_limits(&request.user_arguments)?;
     } else {
         check_user_arguments(&request.user_arguments, &declaration.arguments)?;
     }
@@ -579,6 +575,32 @@ fn check_test_text(value: &Option<String>, what: &str) -> Validation<()> {
     Ok(())
 }
 
+/// Discovers the instance's tests; individual selectors are validated on decode.
+pub(crate) fn test_discovery_plan(
+    build_system: &BuildSystemDeclaration,
+    request: &OutputPlanRequest,
+) -> Validation<Value> {
+    if !build_system
+        .test
+        .as_ref()
+        .is_some_and(|test| test.discovery)
+    {
+        return Err(unavailable(build_system, "test discovery"));
+    }
+    if request.project.is_some() || request.output_file.is_some() {
+        return Err(invalid_selection(
+            "Test discovery addresses the whole instance.",
+        ));
+    }
+    let context = PlanContext::new(build_system, &request.base)?;
+    Ok(context.provider_plan(
+        declared_provider(build_system)?,
+        "lithe/build/discoverTests",
+        "litheTestDiscovery",
+        provider_hints(request)?,
+    ))
+}
+
 /// `build.testPlan`: the command and where its results will be.
 /// Whether a selected target carries one of the declared tags; no tags
 /// accept every target.
@@ -595,7 +617,11 @@ pub(crate) fn test_plan(
         .as_ref()
         .ok_or_else(|| unavailable(build_system, "tests"))?;
     let context = PlanContext::new(build_system, &request.base)?;
-    check_user_arguments(&request.user_arguments, &test.arguments)?;
+    if test.source == TaskSource::Provider {
+        check_argument_limits(&request.user_arguments)?;
+    } else {
+        check_user_arguments(&request.user_arguments, &test.arguments)?;
+    }
     check_test_text(&request.suite, "test suite")?;
     check_test_text(&request.case, "test case")?;
     for (requested, filter) in [
@@ -658,7 +684,10 @@ pub(crate) fn test_plan(
             "this test case without its suite",
         ),
     ] {
-        if requested && !template::applies_any(&test.arguments, &values, variables) {
+        if test.source != TaskSource::Provider
+            && requested
+            && !template::applies_any(&test.arguments, &values, variables)
+        {
             return Err(invalid_selection(format!(
                 "{} cannot select {what}.",
                 build_system.display_name
@@ -698,6 +727,38 @@ pub(crate) fn test_plan(
     };
     let mut extra = Map::new();
     extra.insert("results".to_string(), results);
+    if test.source == TaskSource::Provider {
+        let mut params = Map::new();
+        params.insert("userArguments".to_string(), json!(request.user_arguments));
+        // Filters stay separate values; the owning backend interprets them
+        // using its upstream test engine, never a host-generated CLI string.
+        for (name, value) in [("suite", &request.suite), ("case", &request.case)] {
+            if let Some(value) = value {
+                params.insert(name.to_string(), json!(value));
+            }
+        }
+        for (name, selected) in [("project", &project), ("target", &target)] {
+            if let Some(selected) = selected {
+                params.insert(
+                    name.to_string(),
+                    json!({
+                        "name": selected.name, "path": selected.path,
+                        "tags": selected.tags, "properties": selected.properties
+                    }),
+                );
+            }
+        }
+        let mut plan = context.provider_plan(
+            declared_provider(build_system)?,
+            "lithe/build/test",
+            "execution",
+            params,
+        );
+        plan.as_object_mut()
+            .expect("provider plan is an object")
+            .extend(extra);
+        return Ok(plan);
+    }
     context.plan(&test.arguments, &values, BuildExecution::Task, extra)
 }
 

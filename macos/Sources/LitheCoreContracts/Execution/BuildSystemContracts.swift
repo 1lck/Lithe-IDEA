@@ -102,6 +102,7 @@ public struct DeclarativeBuildSystem: Equatable, Sendable {
     public let testScopes: [BuildScope]
     /// Tags a target must carry to run its tests.
     public let testTargetTags: [String]
+    public let testDiscovery: Bool
     /// Empty when the build system lists no dependencies.
     public let dependencyScopes: [BuildScope]
     /// The build system declares a provider launch. Installation verifies
@@ -111,12 +112,13 @@ public struct DeclarativeBuildSystem: Equatable, Sendable {
     public init(
         id: String, displayName: String, icon: PluginUIIcon? = nil, modelSource: ModelSource?,
         options: [Option] = [], tasks: [Task], testScopes: [BuildScope], testTargetTags: [String] = [],
-        dependencyScopes: [BuildScope], declaresProvider: Bool = false
+        dependencyScopes: [BuildScope], declaresProvider: Bool = false, testDiscovery: Bool = false
     ) {
         self.id = id; self.displayName = displayName; self.icon = icon; self.modelSource = modelSource
         self.options = options; self.tasks = tasks
         self.testScopes = testScopes; self.testTargetTags = testTargetTags; self.dependencyScopes = dependencyScopes
         self.declaresProvider = declaresProvider
+        self.testDiscovery = testDiscovery
     }
 
     public func option(_ id: String) -> Option? {
@@ -613,7 +615,7 @@ package struct BuildPlanContext: Equatable, Sendable {
 }
 
 /// A project, target, or model task a plan addresses.
-package struct BuildSelection: Equatable, Sendable, Encodable {
+package struct BuildSelection: Equatable, Sendable, Codable {
     package let name: String
     /// Workspace-relative directory.
     package let path: String?
@@ -676,6 +678,26 @@ package struct BuildTestRequest: Equatable, Sendable {
         self.project = project; self.target = target; self.suite = suite; self.testCase = testCase
         self.userArguments = userArguments; self.projects = projects
     }
+}
+
+/// Exact, Core-validated selectors owned by a plugin's upstream test engine.
+package struct BuildTestDiscovery: Decodable, Equatable, Sendable {
+    package struct Item: Decodable, Equatable, Identifiable, Sendable {
+        package let id: String
+        package let suite: String
+        package let testCase: String
+        package let project: BuildSelection?
+        package let target: BuildSelection?
+
+        private enum CodingKeys: String, CodingKey {
+            case id, suite, testCase = "case", project, target
+        }
+
+        package var request: BuildTestRequest {
+            BuildTestRequest(project: project, target: target, suite: suite, testCase: testCase)
+        }
+    }
+    package let tests: [Item]
 }
 
 /// An argv the host runs as Core expanded it.
@@ -761,11 +783,11 @@ package struct BuildTestPlan: Equatable, Sendable {
         case hostIntegration
     }
 
-    package let process: BuildProcessPlan
+    package let execution: BuildOutputPlan
     package let results: Results?
 
-    package init(process: BuildProcessPlan, results: Results?) {
-        self.process = process; self.results = results
+    package init(execution: BuildOutputPlan, results: Results?) {
+        self.execution = execution; self.results = results
     }
 }
 
@@ -950,6 +972,10 @@ package protocol BuildSystemPlanning: Sendable {
         -> BuildOutputPlan
     func testPlan(_ target: BuildSystemTarget, context: BuildPlanContext, request: BuildTestRequest) throws
         -> BuildTestPlan
+    func testDiscoveryPlan(_ target: BuildSystemTarget, context: BuildPlanContext) throws -> BuildProviderRequest
+    func decodeTestDiscovery(
+        _ target: BuildSystemTarget, context: BuildPlanContext, result: ToolingJSONValue
+    ) throws -> BuildTestDiscovery
     func dependencyPlan(
         _ target: BuildSystemTarget,
         context: BuildPlanContext,

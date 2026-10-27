@@ -11,21 +11,21 @@ import Testing
 struct MacBuildProviderSessionsTests {
     /// Native execution and model requests share the same process; no page
     /// or plugin-function negotiation participates.
-    @Test
-    func nativeExecutionReusesTheWorkspaceProviderAndDeliversProgress() async throws {
+    @Test(arguments: ["lithe/build/execute", "lithe/build/test"])
+    func nativeExecutionReusesTheWorkspaceProviderAndDeliversProgress(method: String) async throws {
         let fixture = try ProviderFixture()
         defer { fixture.remove() }
         let packageBefore = try fixture.packageSnapshot()
         _ = try await fixture.load()
         let received = BuildProgressRecorder()
         let result = try await fixture.sessions.execute(BuildProviderRequest(
-            method: "lithe/build/execute", params: .object([:]), optionFingerprint: "",
+            method: method, params: .object([:]), optionFingerprint: "",
             executesProjectCode: true, mayUseNetwork: true
         ), on: fixture.target, timeout: .seconds(5)) { received.values.append($0) }
         #expect(result == BuildProviderExecutionResult(exitCode: 0, output: "built"))
         #expect(received.values == [BuildProviderProgress(percentage: 50, output: "building")])
         #expect(fixture.core.startCalls.count == 1)
-        #expect(fixture.core.buildRequests == ["lithe/build/model", "lithe/build/execute"])
+        #expect(fixture.core.buildRequests == ["lithe/build/model", method])
         let otherRoot = fixture.root.appendingPathComponent("other-workspace")
         try FileManager.default.createDirectory(at: otherRoot, withIntermediateDirectories: true)
         let other = BuildProviderTarget(
@@ -33,7 +33,7 @@ struct MacBuildProviderSessionsTests {
             buildSystemID: "gradle", workspaceURL: otherRoot
         )
         _ = try await fixture.sessions.execute(BuildProviderRequest(
-            method: "lithe/build/execute", params: .object([:]), optionFingerprint: "",
+            method: method, params: .object([:]), optionFingerprint: "",
             executesProjectCode: true, mayUseNetwork: true
         ), on: other, timeout: .seconds(5)) { _ in }
         #expect(fixture.core.startCalls.count == 2)
@@ -672,13 +672,13 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
             _buildRequests.append(method)
             _buildParams.append(params)
             let operationID = "\(sessionID)-\(_buildRequests.count)"
-            if method == "lithe/build/execute" {
+            if ["lithe/build/execute", "lithe/build/test"].contains(method) {
                 events[sessionID, default: []].append(LanguageServerRuntimeEvent(
                     type: "requestProgress", operationID: operationID,
                     result: .object(["percentage": .integer(50), "output": .string("building")])
                 ))
             }
-            let value: ToolingJSONValue = method == "lithe/build/execute"
+            let value: ToolingJSONValue = ["lithe/build/execute", "lithe/build/test"].contains(method)
                 ? .object(["exitCode": .integer(0), "output": .string("built")])
                 : .object(["session": .string(sessionID)])
             events[sessionID, default: []].append(LanguageServerRuntimeEvent(

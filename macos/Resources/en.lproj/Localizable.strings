@@ -1145,6 +1145,8 @@
 "Disconnect" = "Disconnect";
 "Disconnected" = "Disconnected";
 "Discover MCP servers" = "Discover MCP servers";
+"Discover Tests" = "Discover Tests";
+"Discovered Tests" = "Discovered Tests";
 "Discovering Maven…" = "Discovering Maven…";
 "Discovering…" = "Discovering…";
 "Disk" = "Disk";
@@ -1902,6 +1904,7 @@
 "Load Project Model" = "Load Project Model";
 "Load more" = "Load more";
 "Load more commits" = "Load more commits";
+"Load or reload the project model before running all tests, so subproject reports are collected." = "Load or reload the project model before running all tests, so subproject reports are collected.";
 "Load the %@ model" = "Load the %@ model";
 "Load the dependencies again" = "Load the dependencies again";
 "Load the dependencies of %@" = "Load the dependencies of %@";
@@ -2322,6 +2325,7 @@
 "No subagents yet" = "No subagents yet";
 "No tasks yet" = "No tasks yet";
 "No test runner is configured for %@." = "No test runner is configured for %@.";
+"No tests discovered." = "No tests discovered.";
 "No textual diff available" = "No textual diff available";
 "No textual difference" = "No textual difference";
 "No tools running" = "No tools running";
@@ -5368,6 +5372,8 @@
 "native.disconnect" = "Disconnect";
 "native.disconnected" = "Disconnected";
 "native.discoverMcpServers" = "Discover MCP servers";
+"native.discoverTests" = "Discover Tests";
+"native.discoveredTests" = "Discovered Tests";
 "native.discovering" = "Discovering…";
 "native.discoveringMaven" = "Discovering Maven…";
 "native.disk" = "Disk";
@@ -6274,6 +6280,7 @@
 "native.llds" = "%1$llds";
 "native.load" = "Load";
 "native.loadDiskVersion" = "Load Disk Version";
+"native.loadModelBeforeWorkspaceTests" = "Load or reload the project model before running all tests, so subproject reports are collected.";
 "native.loadMore" = "Load More";
 "native.loadMore2" = "Load more";
 "native.loadMoreCommits" = "Load more commits";
@@ -6711,6 +6718,7 @@
 "native.noSubagentsYet" = "No subagents yet";
 "native.noTasksYet" = "No tasks yet";
 "native.noTestRunnerIsConfiguredFor" = "No test runner is configured for %1$@.";
+"native.noTestsDiscovered" = "No tests discovered.";
 "native.noTextualDiffAvailable" = "No textual diff available";
 "native.noTextualDifference" = "No textual difference";
 "native.noToolsRunning" = "No tools running";

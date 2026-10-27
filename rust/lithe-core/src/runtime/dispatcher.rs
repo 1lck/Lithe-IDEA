@@ -255,6 +255,16 @@ fn execute(request: &str) -> CoreResponse {
         CoreCommand::BuildTestPlan => {
             plugin_response(id, parsed.payload, crate::build::build_test_plan_command)
         }
+        CoreCommand::BuildTestDiscoveryPlan => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_test_discovery_plan_command,
+        ),
+        CoreCommand::BuildDecodeTestDiscovery => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_decode_test_discovery_command,
+        ),
         CoreCommand::BuildDependencyPlan => plugin_response(
             id,
             parsed.payload,

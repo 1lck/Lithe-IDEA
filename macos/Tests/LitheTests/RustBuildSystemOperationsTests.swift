@@ -121,6 +121,51 @@ struct RustBuildSystemOperationsTests {
     }
 
     @Test
+    func providerTestPlanKeepsTypedFiltersAndReportPatterns() throws {
+        let target = try Self.target("build-provider-tests", "gradle")
+        let plan = try operations.testPlan(
+            target, context: BuildPlanContext(root: ".", options: ["offline": .bool(true)]),
+            request: BuildTestRequest(project: BuildSelection(name: "app", path: "app"),
+                                      suite: "Suite", testCase: "case with spaces", userArguments: ["--rerun-tasks"])
+        )
+        guard case .provider(let request) = plan.execution, case .object(let params) = request.params else {
+            Issue.record("Expected a provider test plan"); return
+        }
+        #expect(request.method == "lithe/build/test")
+        #expect(params["suite"] == .string("Suite"))
+        #expect(params["case"] == .string("case with spaces"))
+        #expect(params["userArguments"] == .array([.string("--rerun-tasks")]))
+        #expect(plan.results == .reports(decoder: "junitXml", patterns: ["app/build/test-results/**/*.xml"]))
+    }
+
+    @Test
+    func discoveredSelectorsRoundTripThroughTheRealCore() throws {
+        let descriptor = try Self.descriptor("build-provider-tests")
+        #expect(descriptor.buildSystems.first?.testDiscovery == true)
+        #expect(try Self.descriptor("build-static-file").buildSystems.first?.testDiscovery == false)
+        let target = try Self.target("build-provider-tests", "gradle")
+        let context = BuildPlanContext(root: ".", options: ["offline": .bool(true)])
+        let plan = try operations.testDiscoveryPlan(target, context: context)
+        #expect(plan.method == "lithe/build/discoverTests")
+        let fixture = try JSONDecoder().decode(ToolingJSONValue.self, from: Data(contentsOf:
+            DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-test-discovery.json")))
+        guard case .object(let object) = fixture, let result = object["result"] else {
+            Issue.record("Missing discovery result"); return
+        }
+        let discovery = try operations.decodeTestDiscovery(target, context: context, result: result)
+        #expect(discovery.tests.count == 2)
+        #expect(Set(discovery.tests.map(\.id)).count == 2)
+        for test in discovery.tests {
+            let execution = try operations.testPlan(target, context: context, request: test.request)
+            guard case .provider(let request) = execution.execution, case .object(let params) = request.params else {
+                Issue.record("Discovery selector must remain a provider test"); return
+            }
+            #expect(params["suite"] == .string(test.suite))
+            #expect(params["case"] == .string(test.testCase))
+        }
+    }
+
+    @Test
     func taskAndTestPlansCarryOptionsAndSelection() throws {
         let target = try Self.target("build-static-file", "cargo")
         let project = BuildModel.Project(id: "cargo:demo", path: "crates/demo", name: "demo")
@@ -145,7 +190,10 @@ struct RustBuildSystemOperationsTests {
                 projects: ["crates/demo"]
             )
         )
-        #expect(tests.process.arguments == ["test", "--release", "--test", "integration"])
+        guard case .process(let process) = tests.execution else {
+            Issue.record("Expected a command test plan"); return
+        }
+        #expect(process.arguments == ["test", "--release", "--test", "integration"])
 
         #expect(throws: DeclarativePluginRejection.self) {
             try operations.taskPlan(target, context: context, request: BuildTaskRequest(task: "missing"))

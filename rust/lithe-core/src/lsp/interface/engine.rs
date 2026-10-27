@@ -2101,7 +2101,7 @@ impl RuntimeSession {
                 )
                 .with_details(super::build_provider::BUILD_PROVIDER_FEATURE));
             }
-            if request.method == super::build_provider::EXECUTE_METHOD
+            if super::build_provider::is_execution_method(&request.method)
                 && !state
                     .client
                     .server_capabilities
@@ -2114,8 +2114,23 @@ impl RuntimeSession {
                 )
                 .with_details("plugin.build.unavailable"));
             }
+            if matches!(
+                request.method.as_str(),
+                super::build_provider::TEST_METHOD | super::build_provider::DISCOVER_TESTS_METHOD
+            ) && !state
+                .client
+                .server_capabilities
+                .iter()
+                .any(|feature| feature == super::build_provider::TEST_EXECUTION_FEATURE)
+            {
+                return Err(CoreError::new(
+                    ErrorCode::NotSupported,
+                    "The provider did not negotiate test execution.",
+                )
+                .with_details("plugin.build.unavailable"));
+            }
             let mut params = request.params;
-            if request.method == super::build_provider::EXECUTE_METHOD {
+            if super::build_provider::is_execution_method(&request.method) {
                 let object = params.as_object_mut().ok_or_else(|| {
                     CoreError::new(
                         ErrorCode::InvalidRequest,
@@ -3150,7 +3165,7 @@ impl RuntimeSession {
                 }
                 Some(PendingKind::Feature)
                     if pending_before.as_ref().is_some_and(|pending| {
-                        pending.method == super::build_provider::EXECUTE_METHOD
+                        super::build_provider::is_execution_method(&pending.method)
                     }) =>
                 {
                     if let Some(pending) = pending_before.as_ref() {
@@ -5573,13 +5588,14 @@ fn push_build_progress_locked(
     let Some(pending) = state.pending.get(id) else {
         return;
     };
-    if pending.method != super::build_provider::EXECUTE_METHOD {
+    if !super::build_provider::is_execution_method(&pending.method) {
         return;
     }
     let Some(operation_id) = pending.operation_id.clone() else {
         return;
     };
     progress["operationID"] = json!(operation_id);
+    let method = pending.method.clone();
     let sequence = take_sequence(state);
     enqueue_runtime_event(
         session,
@@ -5591,7 +5607,7 @@ fn push_build_progress_locked(
             session_id: session.id.clone(),
             state: None,
             operation_id: Some(operation_id),
-            method: Some(super::build_provider::EXECUTE_METHOD.to_string()),
+            method: Some(method),
             uri: None,
             version: None,
             diagnostics: None,
@@ -11227,188 +11243,220 @@ public class Main {
             .all(|message| message["method"] != "lithe/build/execute"));
     }
 
+    #[test]
+    fn provider_test_execution_requires_version_three() {
+        for version in [1, 2] {
+            for method in ["lithe/build/test", "lithe/build/discoverTests"] {
+                let harness = plugin_backend(json!({"litheBuild":{"version":version}}));
+                let error = build_request(&harness, method, json!({}), None).unwrap_err();
+                assert!(matches!(error.code, ErrorCode::NotSupported));
+                assert!(harness
+                    .server
+                    .messages()
+                    .iter()
+                    .all(|message| message["method"] != method));
+            }
+        }
+    }
+
+    #[test]
+    fn provider_test_discovery_uses_the_existing_request_lifecycle() {
+        let mut harness = plugin_backend(json!({"litheBuild":{"version":3}}));
+        let operation = build_request(
+            &harness,
+            "lithe/build/discoverTests",
+            json!({"root":"."}),
+            None,
+        )
+        .unwrap();
+        let id = harness
+            .server
+            .await_request("lithe/build/discoverTests")
+            .unwrap();
+        let result = json!({"format":"litheTestDiscovery","version":1,"tests":[]});
+        harness
+            .server
+            .send(json!({"jsonrpc":"2.0","id":id,"result":result}));
+        let event = harness.await_event(|event| {
+            event.kind == "requestCompleted"
+                && event.operation_id.as_deref() == Some(operation.as_str())
+        });
+        assert_eq!(event.result.as_ref().unwrap()["value"], result);
+        assert!(harness.snapshot().pending_operation_ids.is_empty());
+    }
+
     /// Ordered messages use a completed round trip as a barrier: old progress
     /// and replies are drained before checking that cancellation stayed final.
     #[test]
     fn provider_execution_progress_cancel_and_late_results_are_isolated() {
-        let mut harness = Harness::start(|_| {});
-        harness
-            .server
-            .complete_initialize(json!({"experimental":{"litheBuild":{"version":2}}}));
-        harness.await_state(LspLifecycleState::Ready);
-        let operation = build_request(
-            &harness,
-            "lithe/build/execute",
-            json!({"operationID":"spoof"}),
-            None,
-        )
-        .unwrap();
-        let id = harness.server.await_request("lithe/build/execute").unwrap();
-        assert_eq!(harness.written_request(&id)["params"]["operationID"], id);
-        harness
-            .server
-            .send(json!({"jsonrpc":"2.0","method":"lithe/build/progress",
-            "params":{"operationID":id,"output":"first","percentage":20}}));
-        let progress = harness
-            .await_event(|event| event.kind == "requestProgress")
-            .clone();
-        assert_eq!(progress.operation_id.as_deref(), Some(operation.as_str()));
-        assert_eq!(progress.result.unwrap()["output"], "first");
-        harness.session().cancel_operation(&operation).unwrap();
-        let ended = harness
-            .await_event(|event| {
-                event.kind == "requestCompleted"
-                    && event.operation_id.as_deref() == Some(operation.as_str())
-            })
-            .clone();
-        assert_eq!(ended.error.unwrap().code, "requestCancelled");
-        harness
-            .server
-            .send(json!({"jsonrpc":"2.0","method":"lithe/build/progress",
-            "params":{"operationID":id,"output":"late"}}));
-        harness
-            .server
-            .send(json!({"jsonrpc":"2.0","id":id,"result":{"exitCode":0,"output":"late"}}));
-        let barrier = build_request(&harness, "lithe/build/model", json!({}), None).unwrap();
-        let barrier_id = harness.server.await_request("lithe/build/model").unwrap();
-        harness
-            .server
-            .send(json!({"jsonrpc":"2.0","id":barrier_id,"result":{}}));
-        harness.await_event(|event| {
-            event.kind == "requestCompleted"
-                && event.operation_id.as_deref() == Some(barrier.as_str())
-        });
-        assert_eq!(
+        for (version, method) in [(2, "lithe/build/execute"), (3, "lithe/build/test")] {
+            let mut harness = Harness::start(|_| {});
             harness
-                .events
-                .iter()
-                .filter(|event| event.kind == "requestProgress")
-                .count(),
-            1
-        );
-        assert_eq!(
-            harness
-                .events
-                .iter()
-                .filter(|event| event.kind == "requestCompleted"
-                    && event.operation_id.as_deref() == Some(operation.as_str()))
-                .count(),
-            1
-        );
-    }
-
-    /// Host operation IDs may be reused; only the current wire request ID
-    /// may contribute progress to that new call.
-    #[test]
-    fn provider_execution_reused_host_ids_reject_old_wire_progress() {
-        let mut harness = plugin_backend(json!({"litheBuild":{"version":2}}));
-        let operation = "reused-build".to_string();
-        let send = |harness: &Harness| {
-            harness
-                .session()
-                .build_request(
-                    BuildProviderRequest {
-                        session_id: harness.session_id.clone(),
-                        operation_id: Some(operation.clone()),
-                        method: "lithe/build/execute".to_string(),
-                        params: json!({}),
-                        timeout_milliseconds: None,
-                    },
-                    operation.clone(),
-                )
-                .unwrap()
-        };
-        send(&harness);
-        let old = harness.server.await_request("lithe/build/execute").unwrap();
-        harness.session().cancel_operation(&operation).unwrap();
-        harness.await_event(|event| {
-            event.kind == "requestCompleted"
-                && event.operation_id.as_deref() == Some(operation.as_str())
-        });
-        send(&harness);
-        let current = harness
-            .server
-            .await_request_at("lithe/build/execute", 1)
-            .unwrap();
-        assert_ne!(old, current);
-        for (id, output) in [(old, "old"), (current, "current")] {
+                .server
+                .complete_initialize(json!({"experimental":{"litheBuild":{"version":version}}}));
+            harness.await_state(LspLifecycleState::Ready);
+            let operation =
+                build_request(&harness, method, json!({"operationID":"spoof"}), None).unwrap();
+            let id = harness.server.await_request(method).unwrap();
+            assert_eq!(harness.written_request(&id)["params"]["operationID"], id);
             harness
                 .server
                 .send(json!({"jsonrpc":"2.0","method":"lithe/build/progress",
-                "params":{"operationID":id,"output":output}}));
-        }
-        harness.await_event(|event| {
-            event.kind == "requestProgress"
-                && event
-                    .result
-                    .as_ref()
-                    .is_some_and(|result| result["output"] == "current")
-        });
-        assert!(harness
-            .events
-            .iter()
-            .filter(|event| event.kind == "requestProgress")
-            .all(|event| event.result.as_ref().unwrap()["output"] != "old"));
-        harness.session().cancel_operation(&operation).unwrap();
-    }
-
-    #[test]
-    fn provider_execution_validates_results_and_expires_without_sleeping() {
-        let mut harness = Harness::start(|_| {});
-        harness
-            .server
-            .complete_initialize(json!({"experimental":{"litheBuild":{"version":2}}}));
-        harness.await_state(LspLifecycleState::Ready);
-        for (index, (reply, code)) in [
-            (json!({"exitCode":7,"output":"failed build"}), None),
-            (
-                json!({"exitCode":"bad"}),
-                Some("plugin.build.invalidResult"),
-            ),
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            let operation =
-                build_request(&harness, "lithe/build/execute", json!({}), None).unwrap();
-            let id = harness
-                .server
-                .await_request_at("lithe/build/execute", index)
-                .unwrap();
-            harness
-                .server
-                .send(json!({"jsonrpc":"2.0","id":id,"result":reply}));
+            "params":{"operationID":id,"output":"first","percentage":20}}));
+            let progress = harness
+                .await_event(|event| event.kind == "requestProgress")
+                .clone();
+            assert_eq!(progress.operation_id.as_deref(), Some(operation.as_str()));
+            assert_eq!(progress.result.unwrap()["output"], "first");
+            harness.session().cancel_operation(&operation).unwrap();
             let ended = harness
                 .await_event(|event| {
                     event.kind == "requestCompleted"
                         && event.operation_id.as_deref() == Some(operation.as_str())
                 })
                 .clone();
-            assert_eq!(ended.error.as_ref().map(|error| error.code.as_str()), code);
-            if code.is_none() {
-                assert_eq!(ended.result.unwrap()["value"], reply);
-            }
-        }
-        let operation =
-            build_request(&harness, "lithe/build/execute", json!({}), Some(1000)).unwrap();
-        harness
-            .server
-            .await_request_at("lithe/build/execute", 2)
-            .unwrap();
-        harness
-            .session()
-            .expire_deadlines_at(Instant::now() + Duration::from_secs(2));
-        assert_eq!(
+            assert_eq!(ended.error.unwrap().code, "requestCancelled");
             harness
-                .await_event(|event| event.kind == "requestCompleted"
-                    && event.operation_id.as_deref() == Some(operation.as_str()))
-                .error
-                .as_ref()
-                .unwrap()
-                .code,
-            "requestTimeout"
-        );
-        assert!(harness.snapshot().pending_operation_ids.is_empty());
+                .server
+                .send(json!({"jsonrpc":"2.0","method":"lithe/build/progress",
+            "params":{"operationID":id,"output":"late"}}));
+            harness
+                .server
+                .send(json!({"jsonrpc":"2.0","id":id,"result":{"exitCode":0,"output":"late"}}));
+            let barrier = build_request(&harness, "lithe/build/model", json!({}), None).unwrap();
+            let barrier_id = harness.server.await_request("lithe/build/model").unwrap();
+            harness
+                .server
+                .send(json!({"jsonrpc":"2.0","id":barrier_id,"result":{}}));
+            harness.await_event(|event| {
+                event.kind == "requestCompleted"
+                    && event.operation_id.as_deref() == Some(barrier.as_str())
+            });
+            assert_eq!(
+                harness
+                    .events
+                    .iter()
+                    .filter(|event| event.kind == "requestProgress")
+                    .count(),
+                1
+            );
+            assert_eq!(
+                harness
+                    .events
+                    .iter()
+                    .filter(|event| event.kind == "requestCompleted"
+                        && event.operation_id.as_deref() == Some(operation.as_str()))
+                    .count(),
+                1
+            );
+        }
+    }
+
+    /// Host operation IDs may be reused; only the current wire request ID
+    /// may contribute progress to that new call.
+    #[test]
+    fn provider_execution_reused_host_ids_reject_old_wire_progress() {
+        for (version, method) in [(2, "lithe/build/execute"), (3, "lithe/build/test")] {
+            let mut harness = plugin_backend(json!({"litheBuild":{"version":version}}));
+            let operation = "reused-build".to_string();
+            let send = |harness: &Harness| {
+                harness
+                    .session()
+                    .build_request(
+                        BuildProviderRequest {
+                            session_id: harness.session_id.clone(),
+                            operation_id: Some(operation.clone()),
+                            method: method.to_string(),
+                            params: json!({}),
+                            timeout_milliseconds: None,
+                        },
+                        operation.clone(),
+                    )
+                    .unwrap()
+            };
+            send(&harness);
+            let old = harness.server.await_request(method).unwrap();
+            harness.session().cancel_operation(&operation).unwrap();
+            harness.await_event(|event| {
+                event.kind == "requestCompleted"
+                    && event.operation_id.as_deref() == Some(operation.as_str())
+            });
+            send(&harness);
+            let current = harness.server.await_request_at(method, 1).unwrap();
+            assert_ne!(old, current);
+            for (id, output) in [(old, "old"), (current, "current")] {
+                harness
+                    .server
+                    .send(json!({"jsonrpc":"2.0","method":"lithe/build/progress",
+                "params":{"operationID":id,"output":output}}));
+            }
+            harness.await_event(|event| {
+                event.kind == "requestProgress"
+                    && event
+                        .result
+                        .as_ref()
+                        .is_some_and(|result| result["output"] == "current")
+            });
+            assert!(harness
+                .events
+                .iter()
+                .filter(|event| event.kind == "requestProgress")
+                .all(|event| event.result.as_ref().unwrap()["output"] != "old"));
+            harness.session().cancel_operation(&operation).unwrap();
+        }
+    }
+
+    #[test]
+    fn provider_execution_validates_results_and_expires_without_sleeping() {
+        for (version, method) in [(2, "lithe/build/execute"), (3, "lithe/build/test")] {
+            let mut harness = Harness::start(|_| {});
+            harness
+                .server
+                .complete_initialize(json!({"experimental":{"litheBuild":{"version":version}}}));
+            harness.await_state(LspLifecycleState::Ready);
+            for (index, (reply, code)) in [
+                (json!({"exitCode":7,"output":"failed build"}), None),
+                (
+                    json!({"exitCode":"bad"}),
+                    Some("plugin.build.invalidResult"),
+                ),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let operation = build_request(&harness, method, json!({}), None).unwrap();
+                let id = harness.server.await_request_at(method, index).unwrap();
+                harness
+                    .server
+                    .send(json!({"jsonrpc":"2.0","id":id,"result":reply}));
+                let ended = harness
+                    .await_event(|event| {
+                        event.kind == "requestCompleted"
+                            && event.operation_id.as_deref() == Some(operation.as_str())
+                    })
+                    .clone();
+                assert_eq!(ended.error.as_ref().map(|error| error.code.as_str()), code);
+                if code.is_none() {
+                    assert_eq!(ended.result.unwrap()["value"], reply);
+                }
+            }
+            let operation = build_request(&harness, method, json!({}), Some(1000)).unwrap();
+            harness.server.await_request_at(method, 2).unwrap();
+            harness
+                .session()
+                .expire_deadlines_at(Instant::now() + Duration::from_secs(2));
+            assert_eq!(
+                harness
+                    .await_event(|event| event.kind == "requestCompleted"
+                        && event.operation_id.as_deref() == Some(operation.as_str()))
+                    .error
+                    .as_ref()
+                    .unwrap()
+                    .code,
+                "requestTimeout"
+            );
+            assert!(harness.snapshot().pending_operation_ids.is_empty());
+        }
     }
 
     /// A process that answered build-provider protocol version 1.
@@ -11457,7 +11505,7 @@ public class Main {
             .expect("initialize should have been written");
         assert_eq!(
             initialize["params"]["capabilities"]["experimental"]["litheBuild"],
-            json!({ "versions": [2, 1] })
+            json!({ "versions": [3, 2, 1] })
         );
 
         let error = build_request(&harness, "lithe/build/model", json!({}), None)
@@ -11964,7 +12012,7 @@ public class Main {
         assert_eq!(
             initialize["params"]["capabilities"]["experimental"],
             json!({
-                "litheBuild": { "versions": [2, 1] },
+                "litheBuild": { "versions": [3, 2, 1] },
                 "litheFunctions": { "versions": [1, 2] },
                 "litheVcs": { "versions": [1] }
             })

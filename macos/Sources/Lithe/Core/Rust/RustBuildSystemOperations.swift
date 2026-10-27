@@ -106,7 +106,37 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
             request: TestRequest(context: context, request: request)
         )
         let plan = outcome.value.plan
-        return BuildTestPlan(process: try plan.processPlan(), results: plan.results?.results)
+        return BuildTestPlan(execution: try plan.outputPlan(), results: plan.results?.results)
+    }
+
+    func testDiscoveryPlan(_ target: BuildSystemTarget, context: BuildPlanContext) throws -> BuildProviderRequest {
+        let outcome: Outcome<PlanResult> = try execute(
+            "build.testDiscoveryPlan", target: target,
+            request: OutputRequest(context: context, project: nil, outputFile: nil, hints: BuildProviderHints(reason: .refresh))
+        )
+        guard case .provider(let request) = try outcome.value.plan.outputPlan() else {
+            throw DeclarativePluginRejection(code: "plugin.build.unavailable", message: "Expected a provider test discovery plan.")
+        }
+        return request
+    }
+
+    func decodeTestDiscovery(
+        _ target: BuildSystemTarget, context: BuildPlanContext, result: ToolingJSONValue
+    ) throws -> BuildTestDiscovery {
+        struct Request: Encodable {
+            let root: String
+            let options: [String: ToolingJSONValue]
+            let result: ToolingJSONValue
+            let pluginDirectory: String?
+            let workspaceStateDirectory: String?
+        }
+        struct Reply: Decodable { let discovery: BuildTestDiscovery }
+        let outcome: Outcome<Reply> = try execute(
+            "build.decodeTestDiscovery", target: target,
+            request: Request(root: context.root, options: context.options, result: result,
+                             pluginDirectory: context.pluginDirectory?.path, workspaceStateDirectory: context.workspaceStateDirectory?.path)
+        )
+        return outcome.value.discovery
     }
 
     func dependencyPlan(

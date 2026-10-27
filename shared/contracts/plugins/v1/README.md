@@ -406,7 +406,7 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 | `settings` | `settings[]` and `settingActions[]` | `1`, `2` (adds [placement, scope, effect, page buttons](#settings-v2-placement-scope-effect-and-page-buttons)) |
 | `ui` | `ui` | `1`, `2` (adds [web content](#web-content-ui-2)) |
 | `buildSystems` | Declarative build detection, models, and command plans | `1` |
-| `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers; version 2 adds provider task execution | `1`, `2` |
+| `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers; version 2 adds task execution, version 3 test execution | `1`, `2`, `3` |
 | `vcsProviders` | `vcsProviders[]` | `1` |
 | `debugAdapters` | [`debugAdapters[]`](#api-level-4-debug-adapters) | `1` |
 | `projectGenerators` | [`projectGenerators[]`](#project-generators): entries of the New Project window | `1` |
@@ -454,17 +454,13 @@ in `plugins.declarative.validate`, `plugins.marketplace.validateIndex`, and
   therefore offered on a host that cannot run them.
 - `hostCapabilities` has no effect on levels 1 and 2.
 
-The macOS host runs levels 1 to 3 and sends its capability table, including
-`buildSystems: [1]`, with all three commands. It does not implement build
-providers and does not declare `buildProviders`. Provider plugins are therefore
-filtered from the market and refused by declarative validation and install
-review; template-only build plugins remain available. It does not declare
-`vcsProviders` either, so VCS provider plugins are filtered the same way until
-the macOS host starts providers. It declares `backend: [1]`: it starts
-plugin backends and serves their credentials from the Keychain. Core supports `backend: 1`, `buildProviders: 1`, and
-`vcsProviders: 1` for validation and plans without a host table. Windows has
-no declarative plugin host and sends no `hostCapabilities`, so it offers no
-level 3 version.
+The macOS host sends its capability table with validation, marketplace filtering
+and install review. It advertises `buildSystems: [1, 2]` and
+`buildProviders: [1, 2, 3]`; native Provider models, dependencies, tasks and tests
+share workspace-owned sessions. Backend and VCS support use their own entries
+in the same table. Core validates supported versions without a host table,
+but admission must use the actual host table. Windows does not yet advertise
+Build Provider orchestration; Core protocol support alone does not enable it.
 
 Rules for publishing across levels and capability versions:
 
@@ -888,7 +884,7 @@ older hosts. Output that does not fit its decoder is `plugin.build.invalidOutput
 
 ### Provider task execution (buildProviders 2)
 
-A task with `source: "provider"` requires `requires.buildProviders: 2`.
+A task with `source: "provider"` requires `requires.buildProviders: 2` or newer.
 It keeps the ordinary task ID, scopes, target tags and model selection, but
 `arguments` must be `[]` and `execution` must be `task`. Application/service
 launch and test discovery are separate capabilities. Provider model-task
@@ -909,7 +905,7 @@ same invocation resolver; explicit invalid tool/runtime selection is a failure,
 never permission for independent discovery. It must reject stale project facts
 rather than guess a target.
 
-The host offers `litheBuild.versions: [2, 1]`. Version 2 adds only execution
+The host offers `litheBuild.versions: [3, 2, 1]`. Version 2 adds task execution
 and its progress notification to the two version 1 methods. A process that
 chooses version 1 cannot receive execution; unsupported negotiation fails
 explicitly. A plugin that needs this behavior declares capability version 2
@@ -945,6 +941,73 @@ Only public typed results may cross domain boundaries.
 Canonical examples: `fixtures/build-provider-execution.plugin.json` and
 `fixtures/build-execution-protocol.json`. Protocol v2 is a construction
 primitive for #1495; it does not by itself migrate Maven or Java consumers.
+
+### Provider test execution (buildProviders 3)
+
+A build system's `test` may declare `source: "provider"` with
+`requires.buildProviders: 3`. It retains the existing scopes, target tags and
+supported filters, but `arguments` must be `[]`. It requires a plugin-owned
+Provider process; `results` may be omitted or use `junitXml`/`litheTestResults`
+reports. `hostIntegration` is refused: the plugin owns test execution and
+report production, and the host reuses the existing report decoder.
+
+`build.testPlan` returns `provider: { method: "lithe/build/test", params }`
+and the usual `results` metadata instead of argv. The effective
+`buildSystemID`, `root`, `options`, `optionArguments`, `environment`, bounded
+`userArguments`, optional `project`/`target`, and optional `suite`/`case` are
+typed fields. A case filter does not require a suite when the provider
+supports it; providers must reject selectors they cannot honor rather than
+widening the test run. Paths, scopes and declared filters are validated before
+the request is sent. The host's report project list only resolves report globs;
+it is not a second backend project model.
+
+Only a process choosing protocol version 3 receives `lithe/build/test`.
+Versions 1 and 2 explicitly refuse tests. Version 3 retains every version 2
+task behavior. Tests use the same Core-assigned operation identity,
+`lithe/build/progress`, tool hint, bounded `{ exitCode, output }` result,
+timeout, cancellation and late-result rules as task execution. Reports are
+read after execution using the existing freshness, path and size checks.
+Workspace-wide reports still require a current project model when the build
+system has one. Configuration validity is retained through diagnostic and
+report decoding; late results cannot update a changed workspace/configuration.
+
+Java/Maven migration remains separate. No new resource/cache location is introduced.
+Canonical examples: `fixtures/build-provider-tests.plugin.json` and
+`fixtures/build-test-protocol.json`.
+
+#### Test discovery
+
+Provider tests may additionally declare `discovery: true`. This requires both
+`suite` and `case` filters: every discovered selector must be exactly runnable.
+`build.testDiscoveryPlan` accepts the common plan fields and optional `refresh`
+and `tool`, returning a request for the whole instance:
+`lithe/build/discoverTests` with its effective options. Project/output-file
+selection is refused. This method also requires protocol version 3 and uses
+the existing bounded request/cancellation lifecycle, without execution progress.
+
+The provider returns `{ "format": "litheTestDiscovery", "version": 1,
+"tests": [{ "suite", "case", "project"?, "target"? }] }`. Project and target
+are the usual typed selections with workspace-relative paths. There may be at
+most 10,000 items and 32 MiB UTF-8 JSON. Unknown document/item fields are
+ignored; malformed selectors, invalid paths/scopes, unsupported versions and
+oversized lists reject the entire result with `plugin.build.invalidOutput`.
+An empty array is a successful discovery with no tests.
+
+The host passes the reply and original plan configuration to
+`build.decodeTestDiscovery`. Core validates every selector through the same
+test-plan rules, deterministically orders the list, collapses exact duplicates,
+and derives an opaque `id` including project/target identity. Equal suite/case
+names in sibling modules therefore remain distinct. The returned `discovery`
+contains `tests: [{ id, suite, case, project?, target? }]`. No source parsing,
+framework detection, or second project graph occurs in the host/Core.
+
+Native discovery starts only on a user action, reuses the workspace Provider,
+and is independent of plugin pages. Source edits, configuration changes,
+package changes and workspace teardown revoke the cached list and in-flight
+discovery. A native action must revalidate the selected ID against the current
+list before submitting its exact selectors to `lithe/build/test`; stale
+toolbar selections cannot run. The backend must reject a selector whose facts
+have become stale externally. Canonical example: `fixtures/build-test-discovery.json`.
 
 ### Build providers
 
@@ -998,10 +1061,10 @@ The manifest only says how to start the provider and which sources use it.
 Everything else is negotiated in the LSP `initialize` exchange, so a provider
 can add optional data within a negotiated protocol version:
 
-- The host sends `capabilities.experimental.litheBuild: { "versions": [2, 1] }`,
+- The host sends `capabilities.experimental.litheBuild: { "versions": [3, 2, 1] }`,
   the build-provider protocol versions it speaks. Version 1 is the two
   requests above with the params and result formats of this section;
-  version 2 adds the typed execution described above.
+  version 2 adds typed task execution; version 3 adds typed test execution.
 - The provider answers `capabilities.experimental.litheBuild: { "version": 1 }`
   with the version it chose from that list. A provider that answers no
   version, or one the host did not offer, is not used for build requests; a

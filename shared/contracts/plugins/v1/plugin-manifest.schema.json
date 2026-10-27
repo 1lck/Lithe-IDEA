@@ -28,7 +28,7 @@
       "additionalProperties": false,
       "properties": {
         "backend": { "description": "Required exactly when backend is present: the plugin's own process serving its web pages.", "enum": [1] },
-        "buildProviders": { "description": "Required exactly when any buildSystems[].provider is present, including own-process and shared language-server providers. Declares host support for Provider orchestration, independent of declarative buildSystems and serverProcess launch support.", "enum": [1, 2] },
+        "buildProviders": { "description": "Required exactly when any buildSystems[].provider is present, including own-process and shared language-server providers. Declares host support for Provider orchestration, independent of declarative buildSystems and serverProcess launch support; version 2 adds task execution and version 3 test execution.", "enum": [1, 2, 3] },
         "buildSystems": { "description": "Declarative build detection, models, and command plans; does not imply buildProviders support.", "enum": [1, 2] },
         "debugAdapters": { "description": "Required exactly when debugAdapters is non-empty. The DAP session itself is negotiated by the adapter in initialize.", "enum": [1] },
         "executableResolution": { "enum": [1], "description": "Shared executable candidate ordering and strict selection." },
@@ -2375,6 +2375,14 @@
             "arguments"
           ],
           "properties": {
+            "discovery": {
+              "type": "boolean",
+              "description": "Opt in to lithe/build/discoverTests; requires provider test source and suite/case filters."
+            },
+            "source": {
+              "description": "Omitted expands argv; provider sends lithe/build/test, requires buildProviders 3, empty arguments, and plugin-owned report decoding.",
+              "enum": ["provider"]
+            },
             "scopes": {
               "$ref": "#/$defs/buildScopes"
             },

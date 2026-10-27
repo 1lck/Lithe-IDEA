@@ -9296,7 +9296,11 @@
     "native.size": "Size",
     "native.thisFolderCannotBeRead": "This folder cannot be read.",
     "native.thisFolderIsEmpty": "This folder is empty",
-    "native.theLanguageServerThisBuildSystemUsesIsNotAvailable": "The language server this build system uses is not available. Open a file of the language and try again."
+    "native.theLanguageServerThisBuildSystemUsesIsNotAvailable": "The language server this build system uses is not available. Open a file of the language and try again.",
+    "native.loadModelBeforeWorkspaceTests": "Load or reload the project model before running all tests, so subproject reports are collected.",
+    "native.discoverTests": "Discover Tests",
+    "native.discoveredTests": "Discovered Tests",
+    "native.noTestsDiscovered": "No tests discovered."
   },
   "overrides": {
     "windows": {

@@ -88270,6 +88270,50 @@
         "key": "The language server this build system uses is not available. Open a file of the language and try again.",
         "arguments": []
       }
+    },
+    {
+      "id": "native.loadModelBeforeWorkspaceTests",
+      "description": "Native UI: Load or reload the project model before running all tests, so subproject reports are collected.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Load or reload the project model before running all tests, so subproject reports are collected.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.discoverTests",
+      "description": "Native UI: Discover Tests",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Discover Tests",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.discoveredTests",
+      "description": "Native UI: Discovered Tests",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Discovered Tests",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noTestsDiscovered",
+      "description": "Native UI: No tests discovered.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No tests discovered.",
+        "arguments": []
+      }
     }
   ]
 }

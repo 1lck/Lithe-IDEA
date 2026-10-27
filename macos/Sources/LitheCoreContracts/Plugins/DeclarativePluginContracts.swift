@@ -1038,6 +1038,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             struct Test: Decodable {
                 let scopes: [BuildScope]
                 let targetTags: [String]?
+                let discovery: Bool?
             }
 
             let id: String
@@ -1093,7 +1094,8 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                     // A host integration lists the whole instance and each
                     // project; the other sources declare their scopes.
                     dependencyScopes: dependencies.map { $0.scopes ?? [.workspace, .project] } ?? [],
-                    declaresProvider: declaresProvider
+                    declaresProvider: declaresProvider,
+                    testDiscovery: test?.discovery ?? false
                 )
             }
         }

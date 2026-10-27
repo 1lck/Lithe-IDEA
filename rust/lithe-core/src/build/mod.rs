@@ -28,6 +28,7 @@ mod outputs;
 mod plans;
 mod select;
 mod template;
+mod test_discovery;
 
 pub(crate) use commands::*;
 pub(crate) use invocation::host_runtime_version_arguments;

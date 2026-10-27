@@ -68,6 +68,11 @@ package final class BuildSystemsFeatureModel: ObservableObject {
     package func runTests(_ entryID: String, request: BuildTestRequest, title: String) -> UUID? {
         service.runTests(entryID, request: request, title: title)
     }
+    package func testDiscovery(_ entryID: String) -> BuildTestDiscoveryState? { service.testDiscovery(entryID) }
+    package func discoverTests(_ entryID: String) { service.discoverTests(entryID) }
+    package func runDiscoveredTest(_ entryID: String, testID: String, title: String) {
+        service.runDiscoveredTest(entryID, testID: testID, title: title)
+    }
     package func loadDependencies(
         _ entryID: String, project: BuildModel.Project?, reason: BuildLoadReason = .initial
     ) {
