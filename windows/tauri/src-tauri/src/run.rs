@@ -700,8 +700,18 @@ pub fn run_resolve_launch(args: ResolveLaunchArgs) -> Result<ResolvedLaunch, Str
             environment.insert(key, text);
         }
     }
-    if let Some(home) = maven_java_home.or(java_home) {
-        environment.entry("JAVA_HOME".into()).or_insert(home);
+    // For a Maven launch (#1216), an explicitly configured Maven JDK must
+    // win over the automatic/project JDK. The previous or_insert only
+    // applied when no JAVA_HOME was already set, so a resolved automatic
+    // JDK (for example the machine env JDK 1.8) silently shadowed a
+    // configured Maven JDK (for example project JDK 21). When no Maven
+    // JDK was requested, keep the previous precedence: an explicit
+    // environment JAVA_HOME, then the automatic/project JDK, then the
+    // inherited environment.
+    if !args.maven_java_home_path.trim().is_empty() {
+        if let Some(home) = &maven_java_home {
+            environment.insert("JAVA_HOME".into(), home.clone());
+        }
     }
     prepend_runtime_paths(
         &mut environment,
@@ -3466,6 +3476,53 @@ mod tests {
         assert_eq!(
             resolve_environment_value(&json!("debug"), Some(r"C:\jdk"), None).as_deref(),
             Some("debug")
+        );
+    }
+
+    #[test]
+    fn maven_launch_uses_configured_maven_jdk_over_automatic_jdk() {
+        // Regression for #1216: a Maven sidebar compile with an automatic
+        // JDK 1.8 and a configured Maven JDK 21 must run Maven under 21,
+        // not silently under the automatic JDK. With no Maven JDK
+        // configured, the automatic/project JDK is unchanged.
+        let root = temp_project();
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                fs::remove_dir_all(&self.0).ok();
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        for jdk in ["jdk8", "jdk21"] {
+            fs::create_dir_all(root.join(jdk).join("bin")).unwrap();
+            fs::write(root.join(jdk).join("bin").join("java"), b"").unwrap();
+        }
+        fs::write(root.join("mvn"), b"").unwrap();
+        let args = |maven_java_home_path: &str| ResolveLaunchArgs {
+            root: root.clone(),
+            executable: LaunchExecutable {
+                toolchain: Some("project-maven".to_string()),
+                command: None,
+                tool: None,
+            },
+            working_directory: String::new(),
+            java_home_path: "jdk8".to_string(),
+            maven_executable_path: "mvn".to_string(),
+            maven_java_home_path: maven_java_home_path.to_string(),
+            runtime_executable_paths: HashMap::new(),
+            environment: Map::new(),
+        };
+        let resolved = run_resolve_launch(args("jdk21")).expect("resolve Maven launch");
+        assert_eq!(
+            resolved.environment.get("JAVA_HOME"),
+            Some(&normalize_path(&root.join("jdk21")).to_string_lossy().into_owned()),
+            "configured Maven JDK must win over the automatic JDK"
+        );
+        let resolved = run_resolve_launch(args("")).expect("resolve Maven launch without Maven JDK");
+        assert_eq!(
+            resolved.environment.get("JAVA_HOME"),
+            Some(&normalize_path(&root.join("jdk8")).to_string_lossy().into_owned()),
+            "with no Maven JDK, the automatic/project JDK is unchanged"
         );
     }
 

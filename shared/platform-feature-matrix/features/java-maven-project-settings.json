@@ -23,7 +23,8 @@
       "windows/tauri/src/features/settings/components/tabs/maven-settings-panel.test.tsx",
       "windows/tauri/src/features/run/stores/run.store.ts",
       "windows/tauri/src/features/run/stores/run-maven-context.test.ts",
-      "windows/tauri/src/features/settings/components/project-environment-settings.tsx"
+      "windows/tauri/src/features/settings/components/project-environment-settings.tsx",
+      "windows/tauri/src-tauri/src/run.rs"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
