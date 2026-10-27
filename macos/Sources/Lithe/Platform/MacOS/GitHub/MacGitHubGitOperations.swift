@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 import LitheCoreContracts
 
 struct MacGitHubGitOperations: GitHubGitOperations, Sendable {
@@ -42,7 +43,7 @@ struct MacGitHubGitOperations: GitHubGitOperations, Sendable {
         guard result.exitCode == 0 else {
             let message = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
             throw GitError.commandFailed(
-                message.isEmpty ? String(localized: "The branch could not be published") : message
+                message.isEmpty ? L10n.string("The branch could not be published") : message
             )
         }
     }

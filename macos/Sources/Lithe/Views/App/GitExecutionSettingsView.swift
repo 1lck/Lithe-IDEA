@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import AppKit
 import SwiftUI
 import LitheGitModule
@@ -511,7 +512,7 @@ private struct GitConfigurationRow: View {
         let font = LitheTheme.uiNSFont(size: LitheDropdownMetrics.fontSize)
         let widest = ([""] + field.choices).reduce(CGFloat.zero) { widest, choice in
             let key = choice.isEmpty ? "Inherit" : GitConfigurationText.choiceKey(field.key, choice)
-            let title = String(localized: String.LocalizationValue(key), locale: locale)
+            let title = L10n.string(String.LocalizationValue(key), locale: locale)
             return max(widest, ceil((title as NSString).size(withAttributes: [.font: font]).width))
         }
         return min(max(150, widest + 40), 230)

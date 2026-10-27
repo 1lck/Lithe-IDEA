@@ -22,6 +22,13 @@ public struct AgentContextUsage: Codable, Equatable, Sendable {
         self = usage
     }
 
+    /// The same occupancy against a smaller window the user chose. A larger limit
+    /// never widens what the Agent reported.
+    public func capped(to limit: UInt64?) -> Self {
+        guard let limit, limit > 0, limit < capacityTokens else { return self }
+        return Self(usedTokens: usedTokens, capacityTokens: limit) ?? self
+    }
+
     /// Preserve the reported values even if occupancy exceeds the window size.
     public var fraction: Double { Double(usedTokens) / Double(capacityTokens) }
 

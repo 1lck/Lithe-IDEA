@@ -164,7 +164,7 @@ pub(super) fn resolve(
         // and silently select a different account than the one the user chose.
         return Err("The Codex account directory must be an absolute path".into());
     }
-    let mut config = codex_session_config(None);
+    let mut config = codex_session_config(None, launch.context_limits);
     config["model_provider"] = json!("openai");
     // Empty disables a saved openai_base_url override in Codex.
     config["openai_base_url"] = json!("");

@@ -28,6 +28,16 @@ pub struct CreateSessionRequest {
     /// Whether the native host can launch adapter-requested processes in a terminal.
     #[serde(default)]
     pub supports_run_in_terminal_request: bool,
+    /// Whether the native host can open a child debug session for an adapter
+    /// `startDebugging` reverse request (for example Node worker or child processes).
+    #[serde(default)]
+    pub supports_start_debugging_request: bool,
+    /// Standard DAP capabilities a plugin declared it disables (`capabilities.disabled`).
+    #[serde(default)]
+    pub disabled_capabilities: Vec<String>,
+    /// The session whose adapter asked for this one through `startDebugging`.
+    #[serde(default)]
+    pub parent_session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -364,6 +374,8 @@ pub enum DebugInspectKind {
     ExceptionInfo,
     StepInTargets,
     GotoTargets,
+    /// Debug Console completion proposals for the text typed so far.
+    Completions,
     /// Java Debug Server hot replacement; mutates classes in the debuggee.
     RedefineClasses,
 }
@@ -379,6 +391,7 @@ impl DebugInspectKind {
             Self::ExceptionInfo => "exceptionInfo",
             Self::StepInTargets => "stepInTargets",
             Self::GotoTargets => "gotoTargets",
+            Self::Completions => "completions",
             Self::RedefineClasses => "redefineClasses",
         }
     }
@@ -424,6 +437,9 @@ pub struct InspectRequest {
     pub count: Option<i64>,
     #[serde(default)]
     pub expression: Option<String>,
+    /// DAP evaluate context: `watch` (default), `hover`, `repl`, `clipboard` or `variables`.
+    #[serde(default)]
+    pub context: Option<String>,
     #[serde(default)]
     pub source_path: Option<String>,
     #[serde(default)]
@@ -471,9 +487,31 @@ pub struct DebugRunInTerminalRequest {
     pub args_can_be_interpreted_by_shell: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Normalized adapter request to start a child debug session.
+pub struct DebugStartDebuggingRequest {
+    /// Whether the child session launches or attaches to its debuggee.
+    pub request: DebugRequestKind,
+    /// Adapter-provided child configuration with the `request` key removed.
+    /// It is passed through verbatim so adapter-specific fields survive.
+    pub configuration: serde_json::Map<String, serde_json::Value>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-/// Completes one pending `runInTerminal` reverse request from the native host.
+/// Completes one pending `startDebugging` reverse request from the native host.
+pub struct DebugStartDebuggingResponseRequest {
+    pub session_id: String,
+    pub request_id: String,
+    pub success: bool,
+    #[serde(default)]
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Completes one pending `runInTerminal' reverse request from the native host.
 pub struct DebugRunInTerminalResponseRequest {
     pub session_id: String,
     pub request_id: String,
@@ -518,6 +556,7 @@ pub struct DebugCapabilities {
     pub supports_exception_info_request: bool,
     pub supports_step_in_targets_request: bool,
     pub supports_goto_targets_request: bool,
+    pub supports_completions_request: bool,
     pub exception_breakpoint_filters: Vec<DebugExceptionBreakpointFilter>,
 }
 
@@ -565,6 +604,8 @@ pub enum DebugEventBody {
         reason: String,
         thread_id: Option<i64>,
         description: Option<String>,
+        /// Increments on every stop, resume and termination; stale references compare against it.
+        stop_generation: u64,
     },
     Continued {
         thread_id: Option<i64>,
@@ -578,6 +619,19 @@ pub enum DebugEventBody {
     RunInTerminalRequested {
         request_id: String,
         request: DebugRunInTerminalRequest,
+    },
+    /// The adapter asks the host to open a child debug session.
+    StartDebuggingRequested {
+        request_id: String,
+        request: DebugStartDebuggingRequest,
+    },
+    /// Projection version 2 of the same state, emitted beside the v1 result events.
+    Projection {
+        projection: super::projection_v2::SessionProjection,
+    },
+    /// This session is disconnecting, so the host must disconnect the listed child.
+    ChildSessionStopRequested {
+        child_session_id: String,
     },
     OperationCompleted {
         operation_id: String,
@@ -598,6 +652,8 @@ pub enum DebugOperationFailureCode {
     AdapterRejected,
     Cancelled,
     TimedOut,
+    /// The reply used a frame or variables reference from before the latest resume or stop.
+    StaleReference,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -648,6 +704,24 @@ pub enum DebugOperationResult {
     GotoTargets {
         targets: Vec<DebugGotoTarget>,
     },
+    Completions {
+        items: Vec<DebugCompletionItem>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// One Debug Console proposal. `start`/`length` select the typed text the
+/// proposal replaces, in UTF-16 units from 0; absent means the word at the caret.
+pub struct DebugCompletionItem {
+    pub label: String,
+    /// Text inserted in place of the replaced range; the label when the adapter sends none.
+    pub text: String,
+    pub detail: Option<String>,
+    /// The adapter's DAP `CompletionItemType` (`method`, `variable`, ...).
+    pub kind: Option<String>,
+    pub start: Option<i64>,
+    pub length: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -709,6 +783,11 @@ pub struct DebugStackFrame {
     pub id: i64,
     pub name: String,
     pub source_path: Option<String>,
+    /// The adapter's `sourceReference` when it serves this frame's source itself, such as
+    /// the disassembly of a function without debug info. `source_path` then names no file
+    /// on disk, even when it looks like an absolute path.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_reference: Option<i64>,
     pub line: i64,
     pub column: i64,
     /// True when the active portable stepping policy matches this frame.

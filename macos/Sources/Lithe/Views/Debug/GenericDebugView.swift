@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import SwiftUI
 import AppKit
 import LitheCoreContracts
@@ -122,7 +123,6 @@ struct GenericDebugView: View {
                 if let sessionTitle = debugSessionTitle {
                     debugSessionTab(sessionTitle).padding(.horizontal, 4)
                 }
-                if feature.sessionSummaries.count > 1 { sessionPicker }
             }
             Spacer(minLength: 12)
             debugOptionsMenu.padding(.horizontal, 2)
@@ -175,42 +175,27 @@ struct GenericDebugView: View {
         .modifier(LitheToolWindowTabStyle(isSelected: true, isActive: debugToolActive))
     }
 
-    private var sessionPicker: some View {
-        LitheMenu {
-            LitheContextMenuItem.heading("Sessions")
-
-            for summary in feature.sessionSummaries {
-                LitheContextMenuItem.action(
-                    sessionLabel(summary) + " · " + summary.state.title,
-                    systemImage: summary.id == feature.activeSessionID
-                        ? "checkmark.circle.fill" : "circle"
-                ) {
-                    _ = feature.selectSession(summary.id)
-                }
-            }
-
-            if feature.sessionSummaries.count > 1 {
-                LitheContextMenuItem.separator
-                LitheContextMenuItem.heading("Close other sessions")
-
-                for summary in (feature.sessionSummaries.filter { $0.id != feature.activeSessionID }) {
-                    LitheContextMenuItem.action("Stop \(sessionLabel(summary))", role: .destructive) {
-                        feature.stopSession(summary.id)
-                    }
-                }
-
-            }
-        } label: {
-            LitheIDEAIcon(
-                resourcePath: "debugger/threads.svg",
-                size: 14,
-                fallbackSystemImage: "square.stack.3d.up",
-                preservesOriginalColors: true
-            )
+    /// Sessions in display order: every child directly follows its parent.
+    private var orderedSessionSummaries: [DebugSessionSummary] {
+        let all = feature.sessionSummaries
+        let ids = Set(all.map(\.id))
+        var ordered: [DebugSessionSummary] = []
+        func append(_ summary: DebugSessionSummary) {
+            ordered.append(summary)
+            for child in all where child.parentID == summary.id { append(child) }
         }
-        .litheIconButton()
-        .help("Debug sessions")
-        .accessibilityLabel("Debug sessions")
+        // A child whose parent is already gone is shown as a root.
+        for root in all where root.parentID.map({ !ids.contains($0) }) ?? true { append(root) }
+        return ordered
+    }
+
+    private func sessionStateColor(_ state: DebugAdapterState) -> Color {
+        switch state {
+        case .paused: .orange
+        case .running, .launching, .initializing, .ready: .green
+        case .failed: .red
+        case .idle, .terminated: .gray
+        }
     }
 
     private func sessionLabel(_ summary: DebugSessionSummary) -> String {
@@ -344,16 +329,18 @@ struct GenericDebugView: View {
         let title: String
         switch action {
         case .restartOrStart:
-            title = feature.isSessionActive ? "Rerun" : feature.canRetry ? "Retry debugging" : "Start debugging"
-        case .stop: title = "Stop debugging"
-        case .resume: title = "Resume"
-        case .pause: title = "Pause"
-        case .stepOver: title = "Step over"
-        case .stepInto: title = "Step into"
-        case .stepOut: title = "Step out"
-        case .viewBreakpoints: title = "View breakpoints"
+            title = L10n.string(
+                feature.isSessionActive ? "Rerun" : feature.canRetry ? "Retry debugging" : "Start debugging"
+            )
+        case .stop: title = L10n.string("Stop debugging")
+        case .resume: title = L10n.string("Resume")
+        case .pause: title = L10n.string("Pause")
+        case .stepOver: title = L10n.string("Step over")
+        case .stepInto: title = L10n.string("Step into")
+        case .stepOut: title = L10n.string("Step out")
+        case .viewBreakpoints: title = L10n.string("View breakpoints")
         case .muteBreakpoints:
-            title = feature.areBreakpointsMuted ? "Enable breakpoints" : "Mute breakpoints"
+            title = L10n.string(feature.areBreakpointsMuted ? "Enable breakpoints" : "Mute breakpoints")
         }
         guard let commandID = debugToolbarCommandID(for: action),
               let shortcut = model.keyboardShortcutFeature.displayText(for: commandID),
@@ -624,6 +611,21 @@ struct GenericDebugView: View {
 
     private var threadPicker: some View {
         LitheMenu {
+            if feature.sessionSummaries.count > 1 {
+                LitheContextMenuItem.heading(L10n.string("Sessions"))
+                for summary in orderedSessionSummaries {
+                    LitheContextMenuItem.action(
+                        (summary.parentID != nil ? "↳ " : "") + sessionLabel(summary)
+                            + " · " + summary.state.title,
+                        systemImage: summary.id == feature.activeSessionID
+                            ? "checkmark.circle.fill" : "circle"
+                    ) {
+                        _ = feature.selectSession(summary.id)
+                    }
+                }
+                LitheContextMenuItem.separator
+                LitheContextMenuItem.heading("Threads")
+            }
             if feature.threads.isEmpty {
                 LitheContextMenuItem.action("Load threads") { feature.inspectThreads() }
             } else {
@@ -644,15 +646,25 @@ struct GenericDebugView: View {
             }
         } label: {
             HStack(spacing: 7) {
+                if feature.sessionSummaries.count > 1, let active = activeSessionSummary {
+                    Circle()
+                        .fill(sessionStateColor(active.state))
+                        .frame(width: 7, height: 7)
+                    Text(active.targetTitle?.isEmpty == false
+                        ? active.targetTitle! : active.providerDisplayName)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Text(verbatim: "·").foregroundStyle(LitheTheme.secondaryText)
+                }
                 if let thread = selectedThread {
                     Text(thread.name)
                         .lineLimit(1)
                         .truncationMode(.middle)
-                    Text(feature.state == .paused ? "Paused" : feature.state.title)
+                    Text(feature.state.title)
                         .font(LitheTheme.uiFont(size: 13))
                         .foregroundStyle(LitheTheme.secondaryText)
                 } else {
-                    Text(feature.threads.isEmpty ? "Load threads" : "Select thread")
+                    Text(feature.threads.isEmpty ? LocalizedStringKey("Load threads") : LocalizedStringKey("Select thread"))
                 }
                 LitheIDEAIcon(resourcePath: "expui/general/chevronDown.svg", size: 16,
                               preservesOriginalColors: true)
@@ -670,6 +682,13 @@ struct GenericDebugView: View {
         .accessibilityLabel("Debugger thread")
         .litheContextMenu {
             var items: [LitheContextMenuItem] = []
+            if feature.sessionSummaries.count > 1 {
+                for summary in orderedSessionSummaries {
+                    items.append(.action(String(format: L10n.string("Stop %@"), sessionLabel(summary)), role: .destructive) {
+                        feature.stopSession(summary.id)
+                    })
+                }
+            }
             if let thread = selectedThread {
                 items.append(.action("Copy Thread Name", action: { copyToPasteboard(thread.name) }))
                 if feature.capabilities.supportsSingleThreadExecutionRequests {
@@ -683,6 +702,10 @@ struct GenericDebugView: View {
             }
             return items
         }
+    }
+
+    private var activeSessionSummary: DebugSessionSummary? {
+        feature.sessionSummaries.first { $0.id == feature.activeSessionID }
     }
 
     private var selectedThread: DebugThread? {
@@ -866,7 +889,7 @@ struct GenericDebugView: View {
                             .font(LitheTheme.uiFont(size: 13, design: .monospaced))
                             .lineLimit(2)
                         } else {
-                            Text(feature.state == .paused ? "Evaluating…" : "Not available")
+                            Text(feature.state == .paused ? LocalizedStringKey("Evaluating…") : LocalizedStringKey("Not available"))
                                 .font(LitheTheme.uiFont(size: 13))
                                 .foregroundStyle(LitheTheme.secondaryText)
                         }
@@ -935,8 +958,8 @@ struct GenericDebugView: View {
                               size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true)
             }
             .litheToolbarIconButton()
-            .help(showsVariableJSON ? "Show as tree" : "Show as JSON")
-            .accessibilityLabel(showsVariableJSON ? "Show as tree" : "Show as JSON")
+            .help(showsVariableJSON ? LocalizedStringKey("Show as tree") : LocalizedStringKey("Show as JSON"))
+            .accessibilityLabel(showsVariableJSON ? LocalizedStringKey("Show as tree") : LocalizedStringKey("Show as JSON"))
             .accessibilityIdentifier("debug-variable-view-toggle")
         }
         .padding(.horizontal, 10)
@@ -993,7 +1016,7 @@ struct GenericDebugView: View {
                             .font(LitheTheme.uiFont(size: 8))
                             .foregroundStyle(LitheTheme.secondaryText)
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(cause.fullTypeName ?? cause.typeName ?? "Nested exception")
+                            Text(cause.fullTypeName ?? cause.typeName ?? L10n.string("Nested exception"))
                                 .font(LitheTheme.uiFont(size: 13, weight: .medium, design: .monospaced))
                             if let message = cause.message, !message.isEmpty {
                                 Text(message)
@@ -1024,10 +1047,10 @@ struct GenericDebugView: View {
 
     private func exceptionBreakModeTitle(_ breakMode: String) -> String {
         switch breakMode {
-        case "always": "Always break"
-        case "unhandled": "Unhandled"
-        case "userUnhandled": "User-unhandled"
-        case "never": "Never break"
+        case "always": L10n.string("Always break")
+        case "unhandled": L10n.string("Unhandled")
+        case "userUnhandled": L10n.string("User-unhandled")
+        case "never": L10n.string("Never break")
         default: breakMode
         }
     }
@@ -1121,26 +1144,42 @@ struct GenericDebugView: View {
             }
             DebugConsoleWithPerformance(feature: model.debugPerformanceFeature,
                 isExpanded: $performanceExpanded, width: $performanceWidth) {
-            DebugConsoleOutputView(
-                presentation: feature.outputPresentation,
-                consolePresentation: consolePresentation,
-                wrapsLines: $consoleWrapsLines,
-                onClearOutput: feature.clearOutput,
-                standardInputSessionID: feature.activeSessionID?.rawValue,
-                onSubmitStandardInput: feature.isSessionActive && model.isDebugStandardInputAvailable
-                    ? { model.sendDebugStandardInput($0) } : nil,
-                searchRoots: model.runFeatureIfActive?.sourceSearchRoots
-                    ?? model.workspaceURL.map { [$0] }
-                    ?? [],
-                fileExists: { model.fileExists(at: $0) },
-                onOpenLocation: { url, line, column in
-                    model.openSourceLocation(url: url, line: line, column: column)
-                }
-            )
+                debugConsolePane
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .litheWorkbenchSurface(LitheTheme.editor)
+    }
+
+    private var debugConsolePane: some View {
+        DebugConsolePane(
+            feature: feature,
+            fontSize: consolePresentation.fontSize,
+            onSubmitRejected: { model.showNotification("Pause the program to run debugger commands") },
+            output: { debugConsoleOutput }
+        )
+    }
+
+    private var debugConsoleOutput: some View {
+        let standardInput: ((String) -> Bool)? = feature.isSessionActive && model.isDebugStandardInputAvailable
+            ? { model.sendDebugStandardInput($0) }
+            : nil
+        let searchRoots: [URL] = model.runFeatureIfActive?.sourceSearchRoots
+            ?? model.workspaceURL.map { [$0] }
+            ?? []
+        return DebugConsoleOutputView(
+            presentation: feature.outputPresentation,
+            consolePresentation: consolePresentation,
+            wrapsLines: $consoleWrapsLines,
+            onClearOutput: feature.clearOutput,
+            standardInputSessionID: feature.activeSessionID?.rawValue,
+            onSubmitStandardInput: standardInput,
+            searchRoots: searchRoots,
+            fileExists: { model.fileExists(at: $0) },
+            onOpenLocation: { url, line, column in
+                model.openSourceLocation(url: url, line: line, column: column)
+            }
+        )
     }
 
     private var debugConsoleStatus: some View {
@@ -1290,7 +1329,7 @@ struct GenericDebugView: View {
                         preservesOriginalColors: true
                     )
                 }
-                Text(isLoading ? "Loading…" : "Load \(nextCount) more")
+                Text(isLoading ? LocalizedStringKey("Loading…") : LocalizedStringKey("Load \(nextCount) more"))
                     .font(LitheTheme.smallFont)
                 if let remainingCount, !isLoading {
                     Text("\(remainingCount) remaining")
@@ -1307,7 +1346,7 @@ struct GenericDebugView: View {
         }
         .buttonStyle(.litheNoPress)
         .disabled(isLoading)
-        .accessibilityLabel(isLoading ? "Loading debugger variables" : "Load more debugger variables")
+        .accessibilityLabel(isLoading ? LocalizedStringKey("Loading debugger variables") : LocalizedStringKey("Load more debugger variables"))
     }
 
     private var divider: some View {
@@ -1576,8 +1615,8 @@ struct DebugBreakpointManagerView: View {
                 }
             }
             .buttonStyle(.litheNoPress)
-            .help(breakpoint.enabled ? "Disable breakpoint" : "Enable breakpoint")
-            .accessibilityLabel(breakpoint.enabled ? "Disable breakpoint" : "Enable breakpoint")
+            .help(breakpoint.enabled ? LocalizedStringKey("Disable breakpoint") : LocalizedStringKey("Enable breakpoint"))
+            .accessibilityLabel(breakpoint.enabled ? LocalizedStringKey("Disable breakpoint") : LocalizedStringKey("Enable breakpoint"))
             Button {
                 model.openSourceLocation(
                     url: breakpoint.fileURL,
@@ -1824,38 +1863,53 @@ struct DebugBreakpointManagerView: View {
 
     private func breakpointDetail(_ breakpoint: GenericDebugBreakpoint) -> String? {
         if let logMessage = breakpoint.logMessage {
-            return String(format: String(localized: "Log: %@"), logMessage)
+            return String(format: L10n.string("Log: %@"), logMessage)
         }
         if let condition = breakpoint.condition {
-            return String(format: String(localized: "If: %@"), condition)
+            return String(format: L10n.string("If: %@"), condition)
         }
         if let hitCondition = breakpoint.hitCondition {
-            return String(format: String(localized: "Hit: %@"), hitCondition)
+            return String(format: L10n.string("Hit: %@"), hitCondition)
         }
         return breakpoint.message
-            ?? String(localized: breakpoint.verified ? "Verified" : "Pending verification")
+            ?? L10n.string(breakpoint.verified ? "Verified" : "Pending verification")
     }
 
     private func functionBreakpointDetail(
         _ breakpoint: GenericDebugFunctionBreakpoint
     ) -> String? {
         if let condition = breakpoint.condition {
-            return String(format: String(localized: "If: %@"), condition)
+            return String(format: L10n.string("If: %@"), condition)
         }
         if let hitCondition = breakpoint.hitCondition {
-            return String(format: String(localized: "Hit: %@"), hitCondition)
+            return String(format: L10n.string("Hit: %@"), hitCondition)
         }
         return breakpoint.message
-            ?? String(localized: breakpoint.verified ? "Verified" : "Pending verification")
+            ?? L10n.string(breakpoint.verified ? "Verified" : "Pending verification")
+    }
+
+    /// The DAP access type as a label; types this host does not know stay as the adapter sent them.
+    private func dataBreakpointAccessTitle(_ accessType: String?) -> String {
+        switch accessType {
+        case nil: L10n.string("Access")
+        case "read": L10n.string("Read")
+        case "write": L10n.string("Write")
+        case "readWrite": L10n.string("Read/Write")
+        case let other?: other
+        }
     }
 
     private func dataBreakpointDetail(_ breakpoint: GenericDebugDataBreakpoint) -> String {
-        var parts = [breakpoint.accessType ?? "access"]
-        if let condition = breakpoint.condition { parts.append("if \(condition)") }
-        if let hitCondition = breakpoint.hitCondition { parts.append("hit \(hitCondition)") }
+        var parts = [dataBreakpointAccessTitle(breakpoint.accessType)]
+        if let condition = breakpoint.condition {
+            parts.append(String(format: L10n.string("If: %@"), condition))
+        }
+        if let hitCondition = breakpoint.hitCondition {
+            parts.append(String(format: L10n.string("Hit: %@"), hitCondition))
+        }
         if let message = breakpoint.message { parts.append(message) }
         if breakpoint.message == nil {
-            parts.append(breakpoint.verified ? "verified" : "pending verification")
+            parts.append(L10n.string(breakpoint.verified ? "Verified" : "Pending verification"))
         }
         return parts.joined(separator: " · ")
     }
@@ -2090,7 +2144,7 @@ private struct FunctionBreakpointEditorView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text(breakpoint == nil ? "Add Method Breakpoint" : "Edit Method Breakpoint")
+                Text(breakpoint == nil ? LocalizedStringKey("Add Method Breakpoint") : LocalizedStringKey("Edit Method Breakpoint"))
                     .font(LitheTheme.uiFont(size: 14, weight: .semibold))
                 Spacer()
                 Toggle("Enabled", isOn: $enabled)
@@ -2124,7 +2178,7 @@ private struct FunctionBreakpointEditorView: View {
         .litheWorkbenchSurface(LitheTheme.editor)
     }
 
-    private func functionEditorRow(_ title: String, text: Binding<String>) -> some View {
+    private func functionEditorRow(_ title: LocalizedStringKey, text: Binding<String>) -> some View {
         GridRow {
             Text(title)
                 .font(LitheTheme.uiFont(size: 11))
@@ -2176,7 +2230,7 @@ private struct ExceptionBreakpointEditorView: View {
                     .toggleStyle(.checkbox)
             }
             TextField(
-                breakpoint.conditionDescription ?? "Exception condition",
+                breakpoint.conditionDescription ?? L10n.string("Exception condition"),
                 text: $condition
             )
             .textFieldStyle(.roundedBorder)
@@ -2252,19 +2306,19 @@ struct BreakpointEditorView: View {
                     "Condition",
                     text: $condition,
                     isSupported: supportsCondition,
-                    help: "The active debug adapter does not support conditional breakpoints."
+                    help: L10n.string("The active debug adapter does not support conditional breakpoints.")
                 )
                 editorRow(
                     "Hit count",
                     text: $hitCondition,
                     isSupported: supportsHitCondition,
-                    help: "The active debug adapter does not support hit-count breakpoints."
+                    help: L10n.string("The active debug adapter does not support hit-count breakpoints.")
                 )
                 editorRow(
                     "Log message",
                     text: $logMessage,
                     isSupported: supportsLogMessage,
-                    help: "The active debug adapter does not support logpoints."
+                    help: L10n.string("The active debug adapter does not support logpoints.")
                 )
             }
             Spacer(minLength: 0)
@@ -2290,7 +2344,7 @@ struct BreakpointEditorView: View {
     }
 
     private func editorRow(
-        _ title: String,
+        _ title: LocalizedStringKey,
         text: Binding<String>,
         isSupported: Bool,
         help: String
@@ -2304,7 +2358,7 @@ struct BreakpointEditorView: View {
                 .font(LitheTheme.uiFont(size: 11, design: .monospaced))
                 .frame(minWidth: 300)
                 .disabled(!isSupported)
-                .help(isSupported ? title : help)
+                .help(isSupported ? Text(title) : Text(verbatim: help))
         }
         .opacity(isSupported ? 1 : 0.55)
     }
@@ -2390,7 +2444,7 @@ private struct DataBreakpointEditorView: View {
         .litheWorkbenchSurface(LitheTheme.editor)
     }
 
-    private func dataEditorRow(_ title: String, text: Binding<String>) -> some View {
+    private func dataEditorRow(_ title: LocalizedStringKey, text: Binding<String>) -> some View {
         GridRow {
             Text(title)
                 .font(LitheTheme.uiFont(size: 11))
@@ -2424,7 +2478,7 @@ private struct DebugConsoleOutputView: View {
             output: presentation.text,
             searchRoots: searchRoots,
             fileExists: fileExists,
-            emptyMessage: onSubmitStandardInput == nil ? "Waiting for Debug Adapter output…" : "",
+            emptyMessage: L10n.string("Waiting for Debug Adapter output…"),
             wrapsLines: wrapsLines,
             showsConsoleToolbar: true,
             onClearOutput: onClearOutput,
@@ -2458,7 +2512,7 @@ private struct WatchEditorView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(watch == nil ? "Add Watch" : "Edit Watch")
+            Text(watch == nil ? LocalizedStringKey("Add Watch") : LocalizedStringKey("Edit Watch"))
                 .font(LitheTheme.uiFont(size: 14, weight: .semibold))
             LitheSearchField("Expression", text: $expression, focus: $expressionFocused)
                 .onSubmit { save() }
@@ -2525,16 +2579,17 @@ private struct VariableValueEditorView: View {
 }
 
 private extension DebugAdapterState {
+    /// Shown to the user, so it is localized here rather than by the `Text` that displays it.
     var title: String {
         switch self {
-        case .idle: "Ready"
-        case .initializing: "Initializing Adapter"
-        case .ready: "Adapter Ready"
-        case .launching: "Launching"
-        case .running: "Running"
-        case .paused: "Paused"
-        case .terminated: "Finished"
-        case .failed: "Failed"
+        case .idle: L10n.string("Ready")
+        case .initializing: L10n.string("Initializing Adapter")
+        case .ready: L10n.string("Adapter Ready")
+        case .launching: L10n.string("Launching")
+        case .running: L10n.string("Running")
+        case .paused: L10n.string("Paused")
+        case .terminated: L10n.string("Finished")
+        case .failed: L10n.string("Failed")
         }
     }
 }

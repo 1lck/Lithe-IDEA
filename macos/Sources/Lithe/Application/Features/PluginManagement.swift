@@ -2,6 +2,18 @@ import Foundation
 import LitheCoreContracts
 import LitheModuleAPI
 
+/// What the host found for the program a plugin's debug adapter launches.
+enum DebugExecutableLookup: Equatable, Sendable {
+    /// A runnable program. `isConfigured` is true when the user chose it in
+    /// the plugin's settings and false when the host discovered it.
+    case found(path: String, isConfigured: Bool)
+    /// The user chose a program that is not there or cannot run. Falling
+    /// back to a discovered one would debug something the user did not pick.
+    case configuredUnusable(path: String)
+    /// Nothing is configured and none of the plugin's candidates is runnable.
+    case notFound(searched: [String])
+}
+
 /// A plugin setting together with the value the next launch will use and
 /// the stored layers it came from.
 struct PluginSettingState: Equatable, Sendable, Identifiable {
@@ -13,6 +25,9 @@ struct PluginSettingState: Equatable, Sendable, Identifiable {
     var globalValue: ToolingJSONValue? = nil
     /// The open project's override; only project-scoped settings have one.
     var projectValue: ToolingJSONValue? = nil
+    /// What the host found for a setting that names a program the plugin runs;
+    /// nil for every other setting. Shown beside the value, never stored.
+    var discovery: DebugExecutableLookup? = nil
 
     var id: String { declaration.id }
     var isDefault: Bool { value == declaration.defaultValue }
@@ -118,6 +133,18 @@ struct PluginManagementSnapshot: Equatable, Sendable, Identifiable {
         snapshot.permissions = permissions
         snapshot.programs = programs
         snapshot.previousVersion = previousVersion
+        return snapshot
+    }
+
+    /// Attaches the host's finding to each setting it was made for.
+    func withSettingDiscoveries(_ discoveries: [String: DebugExecutableLookup]) -> PluginManagementSnapshot {
+        guard !discoveries.isEmpty else { return self }
+        var snapshot = self
+        snapshot.settings = settings.map {
+            var setting = $0
+            setting.discovery = discoveries[$0.id]
+            return setting
+        }
         return snapshot
     }
 
@@ -252,6 +279,11 @@ extension PluginManaging {
         set {}
     }
 
+    var settingsActiveFileURL: URL? {
+        get { nil }
+        set {}
+    }
+
     func workspaceConfiguration(forPlugin _: PluginID, languageID _: String) -> ToolingJSONValue? { nil }
 }
 
@@ -274,6 +306,9 @@ protocol PluginManaging: AnyObject {
     ) throws
     /// The project whose overrides settings show and change; nil without one.
     var settingsProjectRootURL: URL? { get set }
+    /// The file open in the editor. Settings that name a program built from
+    /// it (`main.c` → `main`) look for that program here; nil without one.
+    var settingsActiveFileURL: URL? { get set }
     /// What the plugin's server for `languageID` reads through
     /// `workspace/configuration` with the current values; nil when it
     /// declares none.

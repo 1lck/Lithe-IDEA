@@ -62,6 +62,7 @@ fn custom_launch(command: &str, provider: ProviderCredentials) -> AgentLaunch {
         observe_subagents: false,
         process_scope: None,
         claude_config_dir: None,
+        context_limits: Default::default(),
         codex_home: None,
     }
 }
@@ -986,7 +987,7 @@ fn management_status_matches_the_shared_fixture() {
             npm: Some(tool("10.2.4", "npm")),
             used_login_shell: true,
         },
-        &|command| (command == "codex").then(|| tool("0.156.1", "codex")),
+        &|command| (command == "codex").then(|| tool("0.160.1", "codex")),
         &|cli| {
             Some(
                 serde_json::from_value(
@@ -3216,6 +3217,7 @@ fn catalog_agents_resolve_to_their_install_and_key_delivery() {
         observe_subagents: false,
         process_scope: None,
         claude_config_dir: None,
+        context_limits: Default::default(),
         codex_home: None,
     };
     let anthropic = ProviderCredentials {
@@ -3225,11 +3227,11 @@ fn catalog_agents_resolve_to_their_install_and_key_delivery() {
     };
     let codex_cli = |command: &str| match command {
         "codex" => Some(environment::DetectedTool {
-            version: "0.156.1".into(),
+            version: "0.160.1".into(),
             path: "/opt/example/bin/codex".into(),
         }),
         "claude" => Some(environment::DetectedTool {
-            version: "2.1.282".into(),
+            version: "2.1.310".into(),
             path: "/opt/example/bin/claude".into(),
         }),
         _ => None,
@@ -3360,7 +3362,7 @@ fn catalog_agents_resolve_to_their_install_and_key_delivery() {
     })
     .err()
     .unwrap();
-    assert!(old_cli.contains("0.156.0 or later"), "{old_cli}");
+    assert!(old_cli.contains("0.160.1 or later"), "{old_cli}");
     assert!(!with_model
         .env
         .iter()
@@ -3538,7 +3540,24 @@ async fn selected_files_reach_the_agent_as_acp_resource_links() {
             .expect("prompt content");
         let files = fixture["commands"][name]["files"].as_array().unwrap();
         let offset = usize::from(name == "promptWithFiles");
-        assert_eq!(content.len(), files.len() + offset + 1);
+        // A percent-encoded path is repeated once, in readable form, after the links.
+        let decoded_paths: Vec<_> = files
+            .iter()
+            .filter_map(|file| url::Url::parse(file["uri"].as_str()?).ok())
+            .filter(|uri| uri.path().contains('%'))
+            .filter_map(|uri| uri.to_file_path().ok())
+            .map(|path| format!("📎 {}", path.display()))
+            .collect();
+        assert_eq!(
+            content.len(),
+            files.len() + offset + 1 + usize::from(!decoded_paths.is_empty())
+        );
+        if !decoded_paths.is_empty() {
+            assert_eq!(
+                content[offset + files.len()]["text"],
+                decoded_paths.join("\n")
+            );
+        }
         if offset == 1 {
             assert_eq!(
                 content[0],
@@ -4021,6 +4040,7 @@ fn model_call_events_use_the_fixture_shape() {
             mcp_tool_count: 40,
             scaled_to_usage: true,
         }),
+        auxiliary: false,
     };
     let event = AgentEvent::ModelCall {
         session_id: Some("session-1".into()),
@@ -4220,6 +4240,7 @@ fn claude_subscription_launches_the_signed_in_cli_without_a_route() {
         observe_subagents: false,
         process_scope: None,
         claude_config_dir: None,
+        context_limits: Default::default(),
         codex_home: None,
     };
     let claude_cli = |command: &str| {
@@ -4353,4 +4374,117 @@ async fn claude_subscription_rejects_only_a_signed_out_cli() {
         claude_subscription::ensure_signed_in(&mut silent_rx).await,
         Ok(None)
     );
+}
+
+// The user's context sizing reaches each Agent in the form that Agent understands.
+#[test]
+fn context_limits_are_delivered_as_codex_config_and_claude_environment() {
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let data = std::env::temp_dir().join(format!("lithe-context-limits-{}", std::process::id()));
+    let _cleanup = Cleanup(data.clone());
+    let _ = std::fs::remove_dir_all(&data);
+    fake_install(&data, "codex-acp");
+    fake_install(&data, "claude-acp");
+    let cli = |command: &str| match command {
+        "codex" => Some(environment::DetectedTool {
+            version: "0.160.1".into(),
+            path: "/opt/example/bin/codex".into(),
+        }),
+        "claude" => Some(environment::DetectedTool {
+            version: "2.1.310".into(),
+            path: "/opt/example/bin/claude".into(),
+        }),
+        _ => None,
+    };
+    let launch = |agent_id: &str, limits: ContextLimits| AgentLaunch {
+        agent_id: Some(agent_id.into()),
+        command: None,
+        args: vec![],
+        cwd: std::env::temp_dir(),
+        data_directory: Some(data.clone()),
+        provider: Some(if agent_id == "claude-acp" {
+            ProviderCredentials {
+                protocol: ProviderProtocol::AnthropicMessages,
+                base_url: "https://api.example/v1/messages".into(),
+                ..provider()
+            }
+        } else {
+            provider()
+        }),
+        authentication: AgentAuthentication::ApiKey,
+        observe_model_calls: false,
+        observe_subagents: false,
+        process_scope: None,
+        claude_config_dir: None,
+        context_limits: limits,
+        codex_home: None,
+    };
+    let env = |resolved: &ResolvedLaunch, name: &str| {
+        resolved
+            .env
+            .iter()
+            .find(|(key, _)| key == name)
+            .map(|(_, value)| value.clone())
+    };
+    let both = ContextLimits {
+        window_tokens: Some(200_000),
+        auto_compact_tokens: Some(150_000),
+    };
+
+    // Codex keeps both numbers as native configuration.
+    let codex = resolve_with(launch("codex-acp", both), &cli).unwrap();
+    let config: Value = serde_json::from_str(&env(&codex, "CODEX_CONFIG").unwrap()).unwrap();
+    assert_eq!(config["model_context_window"], 200_000);
+    assert_eq!(config["model_auto_compact_token_limit"], 150_000);
+    let unset = resolve_with(launch("codex-acp", ContextLimits::default()), &cli).unwrap();
+    let config: Value = serde_json::from_str(&env(&unset, "CODEX_CONFIG").unwrap()).unwrap();
+    assert!(config.get("model_context_window").is_none());
+    assert!(config.get("model_auto_compact_token_limit").is_none());
+    // A zero is "not set", never a window of nothing.
+    let zero = ContextLimits {
+        window_tokens: Some(0),
+        auto_compact_tokens: Some(0),
+    };
+    let zeroed = resolve_with(launch("codex-acp", zero), &cli).unwrap();
+    let config: Value = serde_json::from_str(&env(&zeroed, "CODEX_CONFIG").unwrap()).unwrap();
+    assert!(config.get("model_context_window").is_none());
+
+    // Claude Code has one knob: the threshold wins, else the context length.
+    let claude = resolve_with(launch("claude-acp", both), &cli).unwrap();
+    assert_eq!(
+        env(&claude, "CLAUDE_CODE_AUTO_COMPACT_WINDOW").as_deref(),
+        Some("150000")
+    );
+    let window_only = ContextLimits {
+        window_tokens: Some(200_000),
+        auto_compact_tokens: None,
+    };
+    let claude = resolve_with(launch("claude-acp", window_only), &cli).unwrap();
+    assert_eq!(
+        env(&claude, "CLAUDE_CODE_AUTO_COMPACT_WINDOW").as_deref(),
+        Some("200000")
+    );
+    let claude = resolve_with(launch("claude-acp", ContextLimits::default()), &cli).unwrap();
+    assert_eq!(env(&claude, "CLAUDE_CODE_AUTO_COMPACT_WINDOW"), None);
+
+    // The product sends camelCase JSON; omitted fields keep the Agent default.
+    let parsed: AgentLaunch = serde_json::from_value(serde_json::json!({
+        "cwd": "/tmp", "contextLimits": { "windowTokens": 123, "autoCompactTokens": 45 }
+    }))
+    .unwrap();
+    assert_eq!(
+        parsed.context_limits,
+        ContextLimits {
+            window_tokens: Some(123),
+            auto_compact_tokens: Some(45)
+        }
+    );
+    let omitted: AgentLaunch =
+        serde_json::from_value(serde_json::json!({ "cwd": "/tmp" })).unwrap();
+    assert_eq!(omitted.context_limits, ContextLimits::default());
 }

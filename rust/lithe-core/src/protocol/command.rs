@@ -82,6 +82,10 @@ pub enum CoreCommand {
     PluginsDeclarativeTestPlan,
     /// Expands a declarative plugin's language-server launch (`plugins.declarative.languageServerLaunchPlan`).
     PluginsDeclarativeLanguageServerLaunchPlan,
+    /// Checks a debug start and returns the adapter's DAP arguments (`debug.adapters.startArguments`).
+    DebugAdaptersStartArguments,
+    /// Says where to look for the program a launch debugs (`debug.adapters.executablePlan`).
+    DebugAdaptersExecutablePlan,
     /// Compares a launch runtime's version output with its requirement (`plugins.declarative.checkRuntimeVersion`).
     PluginsDeclarativeCheckRuntimeVersion,
     /// Merges a plugin's stored setting layers into effective values (`plugins.declarative.resolveSettings`).
@@ -244,6 +248,8 @@ pub enum CoreCommand {
     DebugReceive,
     /// Completes one adapter-requested terminal launch (`debug.runInTerminalResponse`).
     DebugRunInTerminalResponse,
+    /// Completes one adapter-requested child session start (`debug.startDebuggingResponse`).
+    DebugStartDebuggingResponse,
     /// Begins the DAP disconnect handshake (`debug.disconnect`).
     DebugDisconnect,
     /// Removes all state for a debug session (`debug.destroySession`).
@@ -502,6 +508,8 @@ impl CoreCommand {
             "plugins.declarative.languageServerLaunchPlan" => {
                 Some(Self::PluginsDeclarativeLanguageServerLaunchPlan)
             }
+            "debug.adapters.startArguments" => Some(Self::DebugAdaptersStartArguments),
+            "debug.adapters.executablePlan" => Some(Self::DebugAdaptersExecutablePlan),
             "plugins.declarative.checkRuntimeVersion" => {
                 Some(Self::PluginsDeclarativeCheckRuntimeVersion)
             }
@@ -587,6 +595,7 @@ impl CoreCommand {
             "debug.inspect" => Some(Self::DebugInspect),
             "debug.receive" => Some(Self::DebugReceive),
             "debug.runInTerminalResponse" => Some(Self::DebugRunInTerminalResponse),
+            "debug.startDebuggingResponse" => Some(Self::DebugStartDebuggingResponse),
             "debug.disconnect" => Some(Self::DebugDisconnect),
             "debug.destroySession" => Some(Self::DebugDestroySession),
             "lsp.applyTextEdits" => Some(Self::LspApplyTextEdits),
@@ -801,6 +810,7 @@ mod tests {
             "debug.inspect",
             "debug.receive",
             "debug.runInTerminalResponse",
+            "debug.startDebuggingResponse",
             "debug.disconnect",
             "debug.destroySession",
         ] {

@@ -28,6 +28,10 @@ macOS 设置侧栏现在只有七个一级入口：外观与行为、插件、�
 
 AI 分组内按“AI 服务商 → Agent 管理 → 指令 → 技能 → Hooks → MCP 配置 → AI 与提交”排列：先放基础配置，再放行为规则和扩展能力，最后放具体应用功能。顺序仍只在 `SettingsGroup.categories` 中声明，搜索过滤后的侧栏也沿用这一顺序。
 
+### 二级折叠：AI › 资源库
+
+AI 分组里，Agent 可加载的资源（指令、技能、Hooks、MCP 配置）收进可折叠的“资源库”，与 AI 服务商、Agents、AI 与提交并列。二级折叠由 `SettingsSubgroup` 声明，页面仍归父分组所有：`SettingsGroup.categories` 保持完整平铺列表，`SettingsGroup.entries` 决定侧栏行顺序，面包屑为“AI › 资源库 › 页面”，搜索命中或跳转到其中的页面时自动展开。只有同类资源达到三个以上页面时才新增二级折叠。Windows 目前没有指令、技能页，暂不引入此层级。
+
 ### 插件注册的页面
 
 插件可以在清单里把设置和按钮放到“语言与框架 › <语言>”或“构建、执行、部署 › <构建系统>”。这些页面不是 `SettingsCategory` 的 case，而是由 `PluginSettingsRegistry` 从已启用插件的声明推导，跟在对应分组的静态页面后面；面包屑和搜索同样从注册结果推导。宿主不为任何具体语言或构建工具写专用页面，规则见 [插件设置的通用注册面与生效方式](../architecture/2026-10-21-plugin-settings-surfaces.md)。
@@ -36,6 +40,10 @@ AI 分组内按“AI 服务商 → Agent 管理 → 指令 → 技能 → Hooks 
 
 - 新设置页：在 `SettingsCategory` 增加 case，把它加进 `SettingsGroup.categories`（或确实是插件管理这类一级页面时加进 `SettingsSidebarItem.layout`），补 `SettingsSearchVocabulary` 的检索词和中英文文案。不需要再改侧栏、展开逻辑和面包屑。
 - 新分组：只有上表没有任何一行能容纳时才新增，并先更新本 Note。
+
+### 页面宽度
+
+设置页内容区随窗口宽度伸缩，页面不要再自带 `maxWidth: 900/860/760` 之类的上限，否则调大设置窗口后右侧出现空白条。需要限制宽度的是单个控件（输入框、选择器的固定宽度），不是整页。
 
 ### 不要这样做
 

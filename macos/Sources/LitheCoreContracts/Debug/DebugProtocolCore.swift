@@ -35,6 +35,7 @@ public struct DebugCoreEvent: Decodable, Equatable, Sendable {
     public let capabilities: DebugCoreCapabilities?
     public let requestID: String?
     public let request: DebugRunInTerminalRequest?
+    public let startDebuggingRequest: DebugStartDebuggingRequest?
     public let operationID: String?
     public let result: DebugCoreOperationResult?
     public let command: String?
@@ -61,6 +62,43 @@ public struct DebugCoreEvent: Decodable, Equatable, Sendable {
         case code
         case message
     }
+
+    /// `request` carries a different payload for each reverse request, so it is
+    /// decoded by event type instead of being forced into one shape.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        sequence = try container.decode(UInt64.self, forKey: .sequence)
+        type = try container.decode(String.self, forKey: .type)
+        state = try container.decodeIfPresent(DebugCoreSessionState.self, forKey: .state)
+        category = try container.decodeIfPresent(String.self, forKey: .category)
+        output = try container.decodeIfPresent(String.self, forKey: .output)
+        reason = try container.decodeIfPresent(String.self, forKey: .reason)
+        threadID = try container.decodeIfPresent(Int.self, forKey: .threadID)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        exitCode = try container.decodeIfPresent(Int.self, forKey: .exitCode)
+        breakpoint = try container.decodeIfPresent(DebugCoreBreakpoint.self, forKey: .breakpoint)
+        capabilities = try container.decodeIfPresent(DebugCoreCapabilities.self, forKey: .capabilities)
+        requestID = try container.decodeIfPresent(String.self, forKey: .requestID)
+        switch type {
+        case "runInTerminalRequested":
+            request = try container.decodeIfPresent(DebugRunInTerminalRequest.self, forKey: .request)
+            startDebuggingRequest = nil
+        case "startDebuggingRequested":
+            request = nil
+            startDebuggingRequest = try container.decodeIfPresent(
+                DebugStartDebuggingRequest.self,
+                forKey: .request
+            )
+        default:
+            request = nil
+            startDebuggingRequest = nil
+        }
+        operationID = try container.decodeIfPresent(String.self, forKey: .operationID)
+        result = try container.decodeIfPresent(DebugCoreOperationResult.self, forKey: .result)
+        command = try container.decodeIfPresent(String.self, forKey: .command)
+        code = try container.decodeIfPresent(String.self, forKey: .code)
+        message = try container.decodeIfPresent(String.self, forKey: .message)
+    }
 }
 
 public struct DebugCoreCapabilities: Decodable, Equatable, Sendable {
@@ -81,6 +119,7 @@ public struct DebugCoreCapabilities: Decodable, Equatable, Sendable {
     public let supportsExceptionInfoRequest: Bool
     public let supportsStepInTargetsRequest: Bool
     public let supportsGotoTargetsRequest: Bool
+    public let supportsCompletionsRequest: Bool
     public let exceptionBreakpointFilters: [DebugExceptionBreakpointFilter]
 }
 
@@ -99,12 +138,22 @@ public struct DebugCoreOperationResult: Decodable, Equatable, Sendable {
     public let canPersist: Bool?
     public let targets: [DebugCoreTarget]?
     public let changedClasses: [String]?
+    public let items: [DebugCoreCompletionItem]?
 
     private enum CodingKeys: String, CodingKey {
         case kind, command, threads, stackFrames, scopes, variables, variable, exceptionInfo
         case dataID = "dataId"
-        case description, accessTypes, canPersist, targets, changedClasses
+        case description, accessTypes, canPersist, targets, changedClasses, items
     }
+}
+
+public struct DebugCoreCompletionItem: Decodable, Equatable, Sendable {
+    public let label: String
+    public let text: String
+    public let detail: String?
+    public let kind: String?
+    public let start: Int?
+    public let length: Int?
 }
 
 public struct DebugCoreTarget: Decodable, Equatable, Sendable {
@@ -144,6 +193,8 @@ public struct DebugCoreStackFrame: Decodable, Equatable, Sendable {
     public let id: Int
     public let name: String
     public let sourcePath: String?
+    /// Set when the adapter serves the source itself, so `sourcePath` is not a file on disk.
+    public let sourceReference: Int?
     public let line: Int
     public let column: Int
     public let isFiltered: Bool
@@ -152,6 +203,7 @@ public struct DebugCoreStackFrame: Decodable, Equatable, Sendable {
         id: Int,
         name: String,
         sourcePath: String?,
+        sourceReference: Int? = nil,
         line: Int,
         column: Int,
         isFiltered: Bool = false
@@ -159,13 +211,14 @@ public struct DebugCoreStackFrame: Decodable, Equatable, Sendable {
         self.id = id
         self.name = name
         self.sourcePath = sourcePath
+        self.sourceReference = sourceReference
         self.line = line
         self.column = column
         self.isFiltered = isFiltered
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, sourcePath, line, column, isFiltered
+        case id, name, sourcePath, sourceReference, line, column, isFiltered
     }
 
     public init(from decoder: any Decoder) throws {
@@ -173,6 +226,7 @@ public struct DebugCoreStackFrame: Decodable, Equatable, Sendable {
         id = try container.decode(Int.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)
         sourcePath = try container.decodeIfPresent(String.self, forKey: .sourcePath)
+        sourceReference = try container.decodeIfPresent(Int.self, forKey: .sourceReference)
         line = try container.decode(Int.self, forKey: .line)
         column = try container.decode(Int.self, forKey: .column)
         isFiltered = try container.decodeIfPresent(Bool.self, forKey: .isFiltered) ?? false
@@ -282,7 +336,10 @@ public protocol DebugProtocolCore: DebugSteppingFilterResolving, Sendable {
         sessionID: String,
         adapterID: String,
         rootPath: String,
-        supportsRunInTerminalRequest: Bool
+        supportsRunInTerminalRequest: Bool,
+        supportsStartDebuggingRequest: Bool,
+        disabledCapabilities: [String],
+        parentSessionID: String?
     ) throws -> DebugCoreUpdate
     func launchDebugSession(
         sessionID: String,
@@ -344,6 +401,7 @@ public protocol DebugProtocolCore: DebugSteppingFilterResolving, Sendable {
         start: Int?,
         count: Int?,
         expression: String?,
+        context: String?,
         sourcePath: String?,
         line: Int?,
         column: Int?
@@ -353,6 +411,11 @@ public protocol DebugProtocolCore: DebugSteppingFilterResolving, Sendable {
         sessionID: String,
         requestID: String,
         result: Result<DebugRunInTerminalResponse, Error>
+    ) throws -> DebugCoreUpdate
+    func completeDebugStartDebuggingRequest(
+        sessionID: String,
+        requestID: String,
+        result: Result<Void, Error>
     ) throws -> DebugCoreUpdate
     func disconnectDebugSession(sessionID: String) throws -> DebugCoreUpdate
     func destroyDebugSession(sessionID: String)

@@ -17,7 +17,9 @@
       "shared/contracts/remote-workspace-protocol-v1.md",
       ".agents/notes/implemented/feature/2026-10-24-remote-ssh-connections.md",
       ".agents/notes/implemented/architecture/2026-10-24-remote-workspace-routing.md",
-      ".agents/notes/proposed/architecture/2026-10-24-remote-development-workspace-host.md"
+      ".agents/notes/proposed/architecture/2026-10-24-remote-development-workspace-host.md",
+      "macos/Sources/Lithe/Views/Workspace/OpenProjectPanel.swift",
+      "macos/Sources/Lithe/Views/Components/LitheSettingsControls.swift"
     ],
     "implementationStatus": "partial",
     "verificationStatus": "pending"
@@ -30,5 +32,5 @@
     "verificationStatus": "not-applicable"
   },
   "owner": "Workspace",
-  "verification": "欢迎页点“远程开发”：新建一条 Linux SSH 连接（分别试 SSH Agent、私钥和密码，密码主机再试一次 2FA），测试连接后核对主机信息卡片，手动查询地区；点“打开”后文件树列出远端目录，打开、编辑并保存一个文件，在远端用其他方式修改同一文件后再次保存应提示冲突。远程 Mac、容器、Git、搜索、终端、构建和文件监听尚未接入远程工作区。Rust 后端由 scripts/verify-remote-workspace.sh 验证。"
+  "verification": "欢迎页点“远程开发”：新建一条 Linux SSH 连接（分别试 SSH Agent、私钥和密码，密码主机再试一次 2FA），测试连接后核对主机信息卡片，手动查询地区；点“打开”后文件树列出远端目录，打开、编辑并保存一个文件，在远端用其他方式修改同一文件后再次保存应提示冲突。远程 Mac、容器、Git、搜索、终端、构建和文件监听尚未接入远程工作区。Rust 后端由 scripts/verify-remote-workspace.sh 验证。 远程开发窗口与 Open 面板的尺寸随父窗口缩小（远程开发最小 640×420），在 800×650 窗口中确认主机卡片的地址行分两行显示、位置信息换行完整、架构标签与底部按钮不被裁掉，连续编辑字段尺寸不再变化。"
 }

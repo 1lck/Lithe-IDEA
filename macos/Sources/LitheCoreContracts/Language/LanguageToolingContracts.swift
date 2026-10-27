@@ -166,6 +166,26 @@ package struct LanguageProviderDescriptor: Identifiable, Hashable, Sendable {
         self.languageServerInstallation = languageServerInstallation
     }
 
+    /// The descriptor as a language server session sees it: whether a debugger
+    /// exists changes nothing about how the server runs.
+    package var withoutDebugAdapter: LanguageProviderDescriptor {
+        guard capabilities.contains(.debugAdapter) else { return self }
+        return LanguageProviderDescriptor(
+            id: id,
+            displayName: displayName,
+            fileExtensions: fileExtensions,
+            fileNames: fileNames,
+            fileNamePrefixes: fileNamePrefixes,
+            capabilities: capabilities.subtracting(.debugAdapter),
+            activationPolicy: activationPolicy,
+            languageIdentifier: languageIdentifier,
+            languageIdentifiersByExtension: languageIdentifiersByExtension,
+            languageIdentifiersByFileName: languageIdentifiersByFileName,
+            languageServerLaunch: languageServerLaunch,
+            languageServerInstallation: languageServerInstallation
+        )
+    }
+
     package func handles(fileURL: URL) -> Bool {
         let fileName = fileURL.lastPathComponent.lowercased()
         return fileExtensions.contains(fileURL.pathExtension.lowercased())
@@ -200,17 +220,17 @@ package struct LanguageProviderCatalog: Sendable {
         ),
         LanguageProviderDescriptor(
             id: "go", displayName: "Go", fileExtensions: ["go"],
-            capabilities: [.run, .languageServer, .debugAdapter, .formatting, .testing],
+            capabilities: [.run, .languageServer, .formatting, .testing],
             activationPolicy: .onDemand
         ),
         LanguageProviderDescriptor(
             id: "python", displayName: "Python", fileExtensions: ["py", "pyw"],
-            capabilities: [.run, .languageServer, .debugAdapter, .formatting, .testing],
+            capabilities: [.run, .languageServer, .formatting, .testing],
             activationPolicy: .onDemand
         ),
         LanguageProviderDescriptor(
             id: "node", displayName: "Node.js", fileExtensions: ["js", "jsx", "ts", "tsx", "mjs", "cjs"],
-            capabilities: [.run, .languageServer, .debugAdapter, .formatting, .testing],
+            capabilities: [.run, .languageServer, .formatting, .testing],
             activationPolicy: .onDemand,
             languageIdentifier: "javascript",
             languageIdentifiersByExtension: [
@@ -221,7 +241,7 @@ package struct LanguageProviderCatalog: Sendable {
         ),
         LanguageProviderDescriptor(
             id: "rust", displayName: "Rust", fileExtensions: ["rs"],
-            capabilities: [.run, .languageServer, .debugAdapter, .formatting, .testing],
+            capabilities: [.run, .languageServer, .formatting, .testing],
             activationPolicy: .onDemand
         ),
     ])
@@ -735,7 +755,7 @@ package struct LanguageServerSessionStartError: LocalizedError, Sendable {
     }
 
     package var errorDescription: String? {
-        failure.message ?? "Language server failed to start."
+        failure.message ?? L10n.string("Language server failed to start.")
     }
 }
 
@@ -1129,9 +1149,9 @@ private enum LanguageServerFeatureUnavailable: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .javaNavigation: "Java navigation is not supported by this language server."
-        case .javaTests: "Java test discovery is not supported by this language server."
-        case .javaMainMethods: "Java main-method discovery is not supported by this language server."
+        case .javaNavigation: L10n.string("Java navigation is not supported by this language server.")
+        case .javaTests: L10n.string("Java test discovery is not supported by this language server.")
+        case .javaMainMethods: L10n.string("Java main-method discovery is not supported by this language server.")
         }
     }
 }

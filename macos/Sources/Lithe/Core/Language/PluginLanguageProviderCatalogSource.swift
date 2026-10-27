@@ -8,19 +8,24 @@ import LitheModuleAPI
 struct PluginLanguageProviderCatalogSource: LanguageProviderCatalogSource {
     private let base: any LanguageProviderCatalogSource
     private let languageSupports: [LanguageSupportDeclaration]
+    /// Declarations of plugins that take effect without a restart. Read on
+    /// every load, so the catalog follows installation and enablement.
+    private let liveLanguageSupports: @Sendable () -> [LanguageSupportDeclaration]
 
     init(
         base: any LanguageProviderCatalogSource,
-        languageSupports: [LanguageSupportDeclaration]
+        languageSupports: [LanguageSupportDeclaration],
+        liveLanguageSupports: @escaping @Sendable () -> [LanguageSupportDeclaration] = { [] }
     ) {
         self.base = base
         self.languageSupports = languageSupports.sorted { $0.id < $1.id }
+        self.liveLanguageSupports = liveLanguageSupports
     }
 
     func load(workspaceURL: URL? = nil) -> LanguageProviderCatalogSnapshot {
         let snapshot = base.load(workspaceURL: workspaceURL)
         return LanguageProviderCatalogSnapshot(
-            catalog: snapshot.catalog.applying(languageSupports: languageSupports),
+            catalog: snapshot.catalog.applying(languageSupports: languageSupports + liveLanguageSupports()),
             schemaVersion: snapshot.schemaVersion,
             origin: snapshot.origin,
             issues: snapshot.issues
@@ -37,7 +42,12 @@ extension LanguageProviderCatalog {
             uniqueKeysWithValues: merged.enumerated().map { ($0.element.id, $0.offset) }
         )
 
-        for support in languageSupports.sorted(by: { $0.id < $1.id }) {
+        // Debug-only declarations go last: they add to what the owning package
+        // declared, and an owner applied after them would erase their debugger.
+        let ordered = languageSupports.sorted {
+            ($0.isDebugOnly ? 1 : 0, $0.id) < ($1.isDebugOnly ? 1 : 0, $1.id)
+        }
+        for support in ordered {
             let existingIndex = indicesByID[support.id]
             let existing = existingIndex.map { merged[$0] }
             var capabilities = existing?.capabilities ?? []
@@ -45,7 +55,13 @@ extension LanguageProviderCatalog {
             // Process-backed capabilities declared by a language package are
             // authoritative. This prevents a shared fallback catalog from
             // silently running tools after the package module is disabled.
-            capabilities.subtract([.run, .languageServer, .debugAdapter, .testing])
+            // A debug-only declaration adds a debugger to a language another
+            // package or the catalog already provides; it must not take that
+            // language's server, run, or test features away.
+            let isDebugOnly = support.isDebugOnly && existing != nil
+            if !isDebugOnly {
+                capabilities.subtract([.run, .languageServer, .debugAdapter, .testing])
+            }
             if support.languageServerModuleID != nil { capabilities.insert(.languageServer) }
             if support.executionModuleID != nil { capabilities.insert(.run) }
             if support.testingModuleID != nil { capabilities.insert(.testing) }
@@ -60,13 +76,18 @@ extension LanguageProviderCatalog {
 
             let descriptor = LanguageProviderDescriptor(
                 id: support.id,
-                displayName: support.displayName,
+                // A debugger's own spelling of the language ("C/C++") must not
+                // rename the language the owning package or catalog declared.
+                displayName: isDebugOnly ? existing?.displayName ?? support.displayName : support.displayName,
                 fileExtensions: Set(support.fileExtensions).union(existing?.fileExtensions ?? []),
                 fileNames: Set(support.fileNames).union(existing?.fileNames ?? []),
                 fileNamePrefixes: existing?.fileNamePrefixes ?? [],
                 capabilities: capabilities,
                 activationPolicy: existing?.activationPolicy ?? .onDemand,
-                languageIdentifier: existing?.languageIdentifier ?? support.id,
+                // A debug-only declaration leaves the language exactly as its
+                // owner described it, so adding a debugger never changes what
+                // the language server session is built from.
+                languageIdentifier: isDebugOnly ? existing?.languageIdentifier : existing?.languageIdentifier ?? support.id,
                 languageIdentifiersByExtension: existing?.languageIdentifiersByExtension ?? [:],
                 languageIdentifiersByFileName: existing?.languageIdentifiersByFileName ?? [:],
                 // The extension owns whether the process may run, while the

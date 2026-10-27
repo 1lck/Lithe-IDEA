@@ -1,6 +1,7 @@
 import AppKit
 import CryptoKit
 import Foundation
+import LitheModuleAPI
 
 enum StableRollbackState: Equatable {
     case idle, downloading, preparing, cancelling, ready(String), requestingTermination, installing, failed(String)
@@ -117,7 +118,7 @@ final class MacStableRollback: ObservableObject {
                 Task { @MainActor in
                     guard let self else { return }
                     self.helper = nil
-                    self.state = .failed(String(localized: "The stable installer stopped. Your current app has been preserved. Try again or download the stable release manually."))
+                    self.state = .failed(L10n.string("The stable installer stopped. Your current app has been preserved. Try again or download the stable release manually."))
                 }
             }
             try process.run()
@@ -143,11 +144,11 @@ enum StableRollbackFailure: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidPublisherSignature:
-            return String(localized: "The stable release is missing a valid publisher signature. Nothing was installed. Try a newer release or install manually from a trusted source.")
+            return L10n.string("The stable release is missing a valid publisher signature. Nothing was installed. Try a newer release or install manually from a trusted source.")
         case .cannotReplace:
-            return String(localized: "Lithe cannot replace this app in its current folder. Move it to a writable Applications folder or install the stable release manually.")
+            return L10n.string("Lithe cannot replace this app in its current folder. Move it to a writable Applications folder or install the stable release manually.")
         case .invalidBundle:
-            return String(localized: "The downloaded app does not match the selected stable release. Nothing was installed.")
+            return L10n.string("The downloaded app does not match the selected stable release. Nothing was installed.")
         }
     }
 }

@@ -30,6 +30,8 @@ const MIX_PROVIDER_FIXTURE: &str =
     contract_file!("fixtures/build-provider-language-server.plugin.json");
 const SETTINGS_V2_FIXTURE: &str = contract_file!("fixtures/settings-v2.plugin.json");
 const BACKEND_FIXTURE: &str = contract_file!("fixtures/backend.plugin.json");
+const DEBUG_ADAPTER_FIXTURE: &str = contract_file!("fixtures/debug-adapter.plugin.json");
+const DEBUG_ADAPTER_REJECTIONS: &str = contract_file!("fixtures/debug-adapter-rejections.json");
 const INVALID_MANIFESTS: &str = contract_file!("fixtures/invalid-manifests.json");
 const COMMAND_PLANS: &str = contract_file!("fixtures/command-plans.json");
 const RUNTIME_VERSIONS: &str = contract_file!("fixtures/runtime-versions.json");
@@ -54,6 +56,7 @@ fn fixture(name: &str) -> Value {
         "build-provider-language-server.plugin.json" => MIX_PROVIDER_FIXTURE,
         "settings-v2.plugin.json" => SETTINGS_V2_FIXTURE,
         "backend.plugin.json" => BACKEND_FIXTURE,
+        "debug-adapter.plugin.json" => DEBUG_ADAPTER_FIXTURE,
         other => panic!("unknown fixture {other}"),
     };
     serde_json::from_str(source).expect("fixture manifest is JSON")
@@ -73,6 +76,7 @@ fn contract_fixtures_and_official_plugins_validate() {
         JAVA_FIXTURE,
         NODE_RUNTIME_FIXTURE,
         BACKEND_FIXTURE,
+        DEBUG_ADAPTER_FIXTURE,
         OFFICIAL_JAVA,
     ] {
         let outcome = validate(serde_json::from_str(source).unwrap());
@@ -1077,4 +1081,386 @@ fn settings_v2_rejects_unsafe_setting_use() {
     let mut v1 = settings_v2_manifest();
     v1["requires"]["settings"] = json!(1);
     rejected(v1);
+}
+
+/// Runs one case of the shared debug adapter rejection fixture through the
+/// layer it names, so every host reports the same code and location.
+fn debug_rejection(baseline: &Value, case: &Value) -> (String, String) {
+    use crate::debug::adapters::{
+        check_package_resources, plan, DebugAdapterDeclaration, DebugRequest, PackageResource,
+        StartFacts,
+    };
+    let mut input = baseline.clone();
+    for edit in case["edits"].as_array().unwrap() {
+        apply_edit(&mut input, edit);
+    }
+    let metadata = &input["context"]["manifestMetadata"];
+    let adapters = input["block"]["debugAdapters"].clone();
+    let events: Vec<String> = adapters
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|adapter| format!("onDebug:{}", adapter["id"].as_str().unwrap()))
+        .collect();
+    let mut manifest = fixture("debug-adapter.plugin.json");
+    manifest["pluginAPIVersion"] = metadata["pluginAPIVersion"].clone();
+    match metadata.get("requires") {
+        Some(requires) => manifest["requires"] = requires.clone(),
+        None => {
+            manifest.as_object_mut().unwrap().remove("requires");
+        }
+    }
+    manifest["permissions"] = metadata["permissions"].clone();
+    manifest["activationEvents"] = json!(events);
+    // The fixture's own settings belong to its own adapters; a case declares the
+    // settings it needs in `block`.
+    manifest.as_object_mut().unwrap().remove("settings");
+    for (key, value) in input["block"].as_object().unwrap() {
+        manifest[key] = value.clone();
+    }
+    let outcome = validate_command(
+        json!({ "manifest": manifest, "hostCapabilities": input["context"]["hostCapabilities"] }),
+    )
+    .expect("payload is well formed");
+    let layer = case["layer"].as_str().unwrap();
+    if outcome["status"] == "rejected" {
+        assert!(
+            matches!(layer, "schema" | "coreManifest"),
+            "{}: manifest rejected in layer {layer}: {outcome}",
+            case["id"]
+        );
+        let error = &outcome["error"];
+        return (
+            error["code"].as_str().unwrap().into(),
+            error["field"].as_str().unwrap_or_default().into(),
+        );
+    }
+    let plugin = &outcome["plugin"];
+    let adapter: DebugAdapterDeclaration =
+        serde_json::from_value(plugin["debugAdapters"][0].clone()).unwrap();
+    let rejection = match layer {
+        "corePlan" => {
+            let facts: StartFacts = serde_json::from_value(json!({
+                "registration": input["context"]["registration"],
+                "runtimeSelection": input["context"]["runtimeSelection"],
+                "target": input["context"]["target"],
+            }))
+            .unwrap();
+            plan(&adapter, DebugRequest::Launch, &facts)
+        }
+        "coreInstall" => {
+            let resources: Vec<PackageResource> =
+                serde_json::from_value(input["context"]["packageResources"].clone()).unwrap();
+            check_package_resources(
+                &serde_json::from_value::<Vec<DebugAdapterDeclaration>>(
+                    plugin["debugAdapters"].clone(),
+                )
+                .unwrap(),
+                &resources,
+            )
+        }
+        other => panic!(
+            "{}: layer {other} accepted the manifest: {outcome}",
+            case["id"]
+        ),
+    };
+    let rejection = rejection.expect_err("the case must be rejected");
+    (
+        rejection.code().into(),
+        rejection.field().unwrap_or_default().into(),
+    )
+}
+
+#[test]
+fn debug_adapter_rejection_fixtures_report_their_code_and_field() {
+    let fixtures: Value = serde_json::from_str(DEBUG_ADAPTER_REJECTIONS).unwrap();
+    for case in fixtures["cases"].as_array().unwrap() {
+        let (code, field) = debug_rejection(&fixtures["baseline"], case);
+        assert_eq!(code, case["expected"]["code"], "{}", case["id"]);
+        // Serde decode errors name the field only in their message.
+        if case["layer"] != "schema" {
+            assert_eq!(field, case["expected"]["field"], "{}", case["id"]);
+        }
+    }
+}
+
+#[test]
+fn debug_adapter_executable_may_be_a_link_to_a_file_inside_the_package() {
+    use crate::debug::adapters::{
+        check_package_resources, DebugAdapterDeclaration, PackageResource,
+    };
+    let outcome = validate(fixture("debug-adapter.plugin.json"));
+    let adapters: Vec<DebugAdapterDeclaration> =
+        serde_json::from_value(outcome["plugin"]["debugAdapters"].clone()).unwrap();
+    let resources: Vec<PackageResource> = serde_json::from_value(json!([
+        {"path": "bin/example-dap", "kind": "symlink", "target": "../libexec/dap"},
+        {"path": "libexec/dap", "kind": "file"},
+        {"path": "schemas/launch.json", "kind": "file"},
+    ]))
+    .unwrap();
+    check_package_resources(&adapters, &resources)
+        .expect("a link to a packaged file is installable");
+
+    // The same file declared in a non-canonical form is still the same file.
+    let mut plain = serde_json::to_value(&adapters).unwrap();
+    plain[0]["launch"]["process"]["launch"]["path"] = json!("./bin//example-dap");
+    let adapters: Vec<DebugAdapterDeclaration> = serde_json::from_value(plain).unwrap();
+    check_package_resources(&adapters, &resources).expect("path forms name one file");
+}
+
+#[test]
+fn debug_adapter_fixture_is_accepted_with_normalized_requests() {
+    let outcome = validate(fixture("debug-adapter.plugin.json"));
+    assert_eq!(outcome["status"], "ok", "{outcome}");
+    let adapter = &outcome["plugin"]["debugAdapters"][0];
+    assert_eq!(adapter["requests"], json!(["launch", "attach"]));
+    assert_eq!(adapter["launch"]["transport"], "stdio");
+}
+
+#[test]
+fn debug_adapter_console_commands_are_sorted_for_the_host() {
+    let outcome = validate(fixture("debug-adapter.plugin.json"));
+    assert_eq!(outcome["status"], "ok", "{outcome}");
+    let console = &outcome["plugin"]["debugAdapters"][0]["console"];
+    assert_eq!(
+        console["commands"],
+        json!([
+            { "name": "breakpoint set", "description": "Set a breakpoint" },
+            { "name": "frame variable" },
+        ])
+    );
+    assert_eq!(console["commandPrefix"], "`");
+}
+
+fn debug_start(request: &str, target: Value) -> Value {
+    crate::plugins::declarative::debug_start_arguments_command(json!({
+        "manifest": fixture("debug-adapter.plugin.json"),
+        "adapterID": "example",
+        "request": request,
+        "facts": {
+            "registration": { "generation": 3, "currentGeneration": 3 },
+            "target": target,
+        },
+    }))
+    .expect("payload is well formed")
+}
+
+#[test]
+fn debug_adapter_launch_plan_carries_the_process_and_the_descriptor() {
+    let plan = language_server_launch_plan_command(json!({
+        "manifest": fixture("debug-adapter.plugin.json"),
+        "debugAdapterID": "example",
+        "request": {
+            "pluginDirectory": "/plugins/example",
+            "stateDirectory": "/state/example",
+            "architecture": "arm64"
+        },
+    }))
+    .expect("payload is well formed");
+    assert_eq!(plan["status"], "ok", "{plan}");
+    assert_eq!(
+        plan["plan"]["launch"],
+        json!({ "kind": "packaged", "path": "bin/example-dap" })
+    );
+    assert_eq!(plan["plan"]["arguments"], json!(["--stdio"]));
+    let descriptor = &plan["plan"]["debugAdapter"];
+    assert_eq!(
+        descriptor["providerID"],
+        "dev.lithe.fixture.debug-adapter/example"
+    );
+    assert_eq!(descriptor["adapterID"], "example-dap");
+    assert_eq!(descriptor["transport"], "stdio");
+    assert_eq!(
+        descriptor["disabledCapabilities"],
+        json!(["supportsStepBack"])
+    );
+}
+
+#[test]
+fn debug_adapter_launch_plan_refuses_unknown_adapters_and_mixed_selectors() {
+    let request = json!({
+        "pluginDirectory": "/plugins/example",
+        "stateDirectory": "/state/example",
+        "architecture": "arm64"
+    });
+    let missing = language_server_launch_plan_command(json!({
+        "manifest": fixture("debug-adapter.plugin.json"),
+        "debugAdapterID": "missing",
+        "request": request,
+    }))
+    .expect("payload is well formed");
+    assert_eq!(missing["error"]["code"], "plugin.launch.unavailable");
+    assert!(language_server_launch_plan_command(json!({
+        "manifest": fixture("debug-adapter.plugin.json"),
+        "debugAdapterID": "example",
+        "backend": true,
+        "request": request,
+    }))
+    .is_err());
+}
+
+#[test]
+fn debug_start_arguments_fill_bindings_without_overriding_defaults() {
+    let launch = debug_start(
+        "launch",
+        json!({ "kind": "file", "path": "/work/main.ex", "workingDirectory": "/work" }),
+    );
+    assert_eq!(launch["status"], "ok", "{launch}");
+    assert_eq!(
+        launch["arguments"],
+        json!({ "stopOnEntry": false, "program": "/work/main.ex", "cwd": "/work" })
+    );
+    let attach = debug_start("attach", json!({ "kind": "process", "processID": 42 }));
+    assert_eq!(attach["arguments"], json!({ "processId": 42 }));
+}
+
+fn debug_start_native(target: Value) -> Value {
+    crate::plugins::declarative::debug_start_arguments_command(json!({
+        "manifest": fixture("debug-adapter.plugin.json"),
+        "adapterID": "native",
+        "request": "launch",
+        "facts": {
+            "registration": { "generation": 3, "currentGeneration": 3 },
+            "target": target,
+        },
+    }))
+    .expect("payload is well formed")
+}
+
+fn debug_executable_plan(adapter: &str, extra: Value) -> Value {
+    let mut payload = json!({
+        "manifest": fixture("debug-adapter.plugin.json"),
+        "adapterID": adapter,
+    });
+    for (key, value) in extra.as_object().unwrap() {
+        payload[key] = value.clone();
+    }
+    crate::plugins::declarative::debug_executable_plan_command(payload)
+        .expect("payload is well formed")
+}
+
+#[test]
+fn debug_start_arguments_bind_program_to_the_resolved_executable() {
+    // The host resolves a native path, and "absolute" depends on the platform.
+    let executable = if cfg!(windows) {
+        r"C:\work\main"
+    } else {
+        "/work/main"
+    };
+    let launch = debug_start_native(json!({
+        "kind": "file",
+        "path": "/work/main.c",
+        "workingDirectory": "/work",
+        "executable": executable,
+    }));
+    assert_eq!(launch["status"], "ok", "{launch}");
+    // The source file is never the program: the host resolved the binary.
+    assert_eq!(
+        launch["arguments"],
+        json!({ "stopOnEntry": false, "program": executable, "cwd": "/work" })
+    );
+}
+
+#[test]
+fn debug_start_arguments_need_an_absolute_resolved_executable() {
+    for executable in [None, Some(""), Some("main"), Some("./main")] {
+        let mut target = json!({
+            "kind": "file",
+            "path": "/work/main.c",
+            "workingDirectory": "/work",
+        });
+        if let Some(executable) = executable {
+            target["executable"] = json!(executable);
+        }
+        let refused = debug_start_native(target);
+        assert_eq!(
+            refused["error"]["code"], "debug.target.invalid",
+            "{refused}"
+        );
+        assert_eq!(refused["error"]["field"], "target.executable", "{refused}");
+    }
+}
+
+#[test]
+fn debug_executable_plan_lists_the_configured_path_and_ordered_candidates() {
+    let plan = debug_executable_plan(
+        "native",
+        json!({
+            "workspace": "/work/",
+            "targetPath": "/work/src/main.c",
+            "settings": { "program": "/global/app" },
+            "projectSettings": { "program": "/work/out/app" },
+        }),
+    );
+    assert_eq!(plan["status"], "ok", "{plan}");
+    assert_eq!(
+        plan["plan"],
+        json!({
+            "setting": "program",
+            // A project value wins over the global one and says where it came from.
+            "configured": { "path": "/work/out/app", "source": "project" },
+            "candidates": ["/work/src/main", "/work/build/main"],
+        })
+    );
+}
+
+#[test]
+fn debug_executable_plan_reports_no_configured_path_when_the_setting_is_empty() {
+    let plan = debug_executable_plan(
+        "native",
+        json!({ "workspace": "/work", "targetPath": "/work/main.c" }),
+    );
+    assert_eq!(plan["plan"]["configured"], Value::Null, "{plan}");
+    let global = debug_executable_plan(
+        "native",
+        json!({
+            "workspace": "/work",
+            "targetPath": "/work/main.c",
+            "settings": { "program": "/opt/app" },
+        }),
+    );
+    assert_eq!(
+        global["plan"]["configured"],
+        json!({ "path": "/opt/app", "source": "global" })
+    );
+}
+
+#[test]
+fn debug_executable_plan_skips_candidates_it_has_no_facts_for() {
+    // The settings page has a project but no source file: a candidate named
+    // after the file cannot be looked for, so it is left out, not guessed.
+    let plan = debug_executable_plan("native", json!({ "workspace": "/work" }));
+    assert_eq!(plan["plan"]["candidates"], json!([]), "{plan}");
+    let no_project = debug_executable_plan("native", json!({ "targetPath": "/work/main.c" }));
+    assert_eq!(
+        no_project["plan"]["candidates"],
+        json!(["/work/main"]),
+        "{no_project}"
+    );
+}
+
+#[test]
+fn debug_executable_plan_is_empty_for_an_adapter_without_a_lookup() {
+    let plan = debug_executable_plan("example", json!({ "workspace": "/work" }));
+    assert_eq!(plan["status"], "ok", "{plan}");
+    assert_eq!(plan["plan"], Value::Null);
+    let missing = debug_executable_plan("absent", json!({}));
+    assert_eq!(missing["error"]["code"], "plugin.launch.unavailable");
+}
+
+#[test]
+fn debug_start_arguments_refuse_stale_registrations_and_missing_target_facts() {
+    let missing = debug_start("launch", json!({ "kind": "file" }));
+    assert_eq!(missing["error"]["code"], "debug.target.invalid");
+    let stale = crate::plugins::declarative::debug_start_arguments_command(json!({
+        "manifest": fixture("debug-adapter.plugin.json"),
+        "adapterID": "example",
+        "request": "launch",
+        "facts": {
+            "registration": { "generation": 2, "currentGeneration": 3 },
+            "target": { "kind": "file", "path": "/work/main.ex" },
+        },
+    }))
+    .expect("payload is well formed");
+    assert_eq!(stale["error"]["code"], "debug.provider.stale");
 }

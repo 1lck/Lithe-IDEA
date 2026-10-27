@@ -1,8 +1,11 @@
 //! Transport-neutral Debug Adapter Protocol state and normalized debugger models.
 
+pub(crate) mod adapters;
 mod breakpoint_relocation;
+mod capabilities;
 mod engine;
 mod java_test;
+mod projection_v2;
 mod protocol;
 mod types;
 

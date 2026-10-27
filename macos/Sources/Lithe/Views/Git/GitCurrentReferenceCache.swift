@@ -6,7 +6,7 @@ import LitheGitModule
 /// single body pass, and each ask was a linear scan of every branch, remote
 /// branch, and tag in the repository.
 ///
-/// A reference box in `@State`, like `EditorViewportStore`, so caching cannot
+/// A reference box in `@State` so caching cannot
 /// invalidate the view that reads it.
 @MainActor
 final class GitCurrentReferenceCache {

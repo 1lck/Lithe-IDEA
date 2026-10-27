@@ -34,7 +34,7 @@ struct TerminalShortcutInputPolicyTests {
 
     @Test
     func otherRespondersKeepTheirControlChords() {
-        let editor = CodeTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 120))
+        let editor = NSTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 120))
         #expect(!MacShortcutInputPolicy.shouldDeferToTerminal(editor, modifierFlags: [.control]))
         #expect(!MacShortcutInputPolicy.shouldDeferToTerminal(nil, modifierFlags: [.control]))
     }

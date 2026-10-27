@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import SwiftUI
 
 /// ExpandStripeButtonUI presentation shared with Git Log's Branches stripe.
@@ -20,7 +21,7 @@ struct LitheCollapsedActionStripe: View {
                     .fixedSize()
                     .rotationEffect(.degrees(expandsToward == .leading ? 90 : -90))
                     .frame(width: LitheTheme.ActionStripe.buttonSize,
-                        height: max(58, (String(localized: String.LocalizationValue(title)) as NSString)
+                        height: max(58, (L10n.string(String.LocalizationValue(title)) as NSString)
                             .size(withAttributes: [.font: LitheTheme.uiNSFont(size: 11)]).width))
             }
             .padding(.top, 8)

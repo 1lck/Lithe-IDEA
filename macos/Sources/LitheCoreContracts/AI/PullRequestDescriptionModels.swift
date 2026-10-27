@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 
 public enum PullRequestDescriptionFormat: String, CaseIterable, Codable, Identifiable, Sendable {
     case standard
@@ -70,11 +71,11 @@ public enum PullRequestDescriptionGenerationError: LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
         case .emptyComparison:
-            String(localized: "The selected branches have no textual changes to summarize.")
+            L10n.string("The selected branches have no textual changes to summarize.")
         case .invalidResponse:
-            String(localized: "The AI provider returned an unexpected pull request description.")
+            L10n.string("The AI provider returned an unexpected pull request description.")
         case .emptyResponse:
-            String(localized: "The AI provider returned an empty pull request description.")
+            L10n.string("The AI provider returned an empty pull request description.")
         }
     }
 }

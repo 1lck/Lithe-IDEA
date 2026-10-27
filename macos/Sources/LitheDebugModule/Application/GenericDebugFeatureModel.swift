@@ -230,6 +230,8 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     @Published public private(set) var serviceUpdateFailed = false
     @Published public private(set) var updatingServiceSessionID: DebugSessionID?
     private var javaUpdateTargets: [DebugSessionID: JavaDebugLaunchTarget] = [:]
+    /// Sessions whose cleanup already ran, so re-entrant state callbacks cannot repeat it.
+    private var forgottenSessionIDs: Set<DebugSessionID> = []
 
     public func registerJavaUpdateTarget(_ target: JavaDebugLaunchTarget) {
         guard let id = activeSessionID else { return }
@@ -308,7 +310,12 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     @Published public private(set) var activeSessionID: DebugSessionID?
     @Published public private(set) var sessionSummaries: [DebugSessionSummary] = []
     @Published public private(set) var targetTitle: String?
-    @Published public private(set) var state: DebugAdapterState = .idle
+    @Published public private(set) var state: DebugAdapterState = .idle {
+        didSet {
+            // Suggestions come from a paused adapter, so they go when it resumes.
+            if state != .paused { consolePrompt.dismiss() }
+        }
+    }
     /// The complete console value used by diagnostics and session snapshots.
     /// UI consumers observe `outputPresentation` so chatty processes do not
     /// invalidate the whole Debug view for every transport chunk.
@@ -392,6 +399,9 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     private var activeFileURL: URL?
     private var lastStartRequest: GenericDebugStartRequest?
     private var sessionSnapshots: [DebugSessionID: GenericDebugSessionSnapshot] = [:]
+    /// Suggestion popup state for the Debug Console prompt.
+    public let consolePrompt = DebugConsolePromptModel()
+    private var consoleCompletionGeneration = 0
     private var consoleHistoryBySession: [DebugSessionID: [String]] = [:]
     private var consoleHistoryCursorBySession: [DebugSessionID: Int] = [:]
     private var consoleHistoryDraftBySession: [DebugSessionID: String] = [:]
@@ -419,6 +429,9 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         self.breakpointRelocator = breakpointRelocator
         self.steppingFilterResolver = steppingFilterResolver
         self.steppingFilterPersistence = steppingFilterPersistence
+        consolePrompt.provider = { [weak self] text, caret, completion in
+            self?.requestConsoleCompletions(text: text, caret: caret, completion: completion)
+        }
         sessionSummaries = sessions.sessionSummaries
         sessions.onSessionStateChange = { [weak self] sessionID, providerID, state in
             guard let self else { return }
@@ -426,7 +439,10 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             if self.sessionSummaries != summaries {
                 self.sessionSummaries = summaries
             }
-            if self.activeSessionID == sessionID {
+            if self.activeSessionID == sessionID, !summaries.contains(where: { $0.id == sessionID }) {
+                // The manager already closed this session (its parent ended).
+                self.reconcileRemovedSessions()
+            } else if self.activeSessionID == sessionID {
                 self.providerID = providerID
                 self.state = state
                 if state != .paused {
@@ -446,6 +462,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
                     state: state
                 )
             }
+            self.reconcileRemovedSessions()
         }
         sessions.onSessionEvent = { [weak self] sessionID, providerID, event in
             guard let self else { return }
@@ -640,10 +657,60 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             stop()
             return
         }
+        let children = sessions.childSessionIDs(of: sessionID)
         sessions.stop(sessionID: sessionID)
-        sessionSnapshots[sessionID] = nil
+        for stoppedID in children.reversed() + [sessionID] { forgetStoppedSession(stoppedID) }
         sessionSummaries = sessions.sessionSummaries
+        // Stopping a parent may close the child the user was looking at.
+        reconcileRemovedSessions()
+    }
+
+    private func forgetStoppedSession(_ sessionID: DebugSessionID) {
+        guard forgottenSessionIDs.insert(sessionID).inserted else { return }
+        javaUpdateTargets[sessionID] = nil
+        sessionSnapshots[sessionID] = nil
         onSessionStopped?(sessionID)
+    }
+
+    /// Selects the most recent remaining session after the active one went away.
+    /// Returns false when no session is left.
+    @discardableResult
+    private func selectReplacementSession() -> Bool {
+        sessionSummaries = sessions.sessionSummaries
+        guard let replacement = sessionSummaries.last,
+              sessions.select(sessionID: replacement.id) else { return false }
+        activeSessionID = replacement.id
+        providerID = replacement.providerID
+        onSessionSelectionChanged?(replacement.id)
+        publishConsoleHistory(for: replacement.id)
+        restoreSessionSnapshot(replacement.id, summary: replacement)
+        resetInspectionState()
+        if state == .paused {
+            let generation = inspectionGeneration
+            loadStoppedContext(
+                threadID: nil,
+                generation: generation,
+                shouldLoadExceptionInfo: false
+            )
+        }
+        return true
+    }
+
+    /// Releases per-session state for sessions the manager closed on its own, such as the
+    /// children of a parent that ended, and moves selection off a session that is gone.
+    private func reconcileRemovedSessions() {
+        let live = Set(sessions.sessionSummaries.map(\.id))
+        for gone in sessionSnapshots.keys where !live.contains(gone) && gone != activeSessionID {
+            forgetStoppedSession(gone)
+        }
+        sessionSummaries = sessions.sessionSummaries
+        guard let activeSessionID, !live.contains(activeSessionID) else { return }
+        forgetStoppedSession(activeSessionID)
+        if !selectReplacementSession() {
+            // Nothing is left: clear the active session first so stop() only resets the view state.
+            self.activeSessionID = nil
+            stop()
+        }
     }
 
     private func startSession(
@@ -739,29 +806,17 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             try? sessions.setDataBreakpoints(coreDataBreakpoints, for: activeFileURL)
         }
         if let activeSessionID {
+            let children = sessions.childSessionIDs(of: activeSessionID)
             sessions.stop(sessionID: activeSessionID)
-            sessionSnapshots[activeSessionID] = nil
-            onSessionStopped?(activeSessionID)
+            for childID in children.reversed() { forgetStoppedSession(childID) }
+            forgetStoppedSession(activeSessionID)
+            sessionSummaries = sessions.sessionSummaries
+            // The state callback fired while stopping may already have selected a
+            // replacement or reset the view; do not repeat that work.
+            guard self.activeSessionID == activeSessionID else { return }
         }
         sessionSummaries = sessions.sessionSummaries
-        if let replacement = sessionSummaries.last,
-           sessions.select(sessionID: replacement.id) {
-            activeSessionID = replacement.id
-            providerID = replacement.providerID
-            onSessionSelectionChanged?(replacement.id)
-            publishConsoleHistory(for: replacement.id)
-            restoreSessionSnapshot(replacement.id, summary: replacement)
-            resetInspectionState()
-            if state == .paused {
-                let generation = inspectionGeneration
-                loadStoppedContext(
-                    threadID: nil,
-                    generation: generation,
-                    shouldLoadExceptionInfo: false
-                )
-            }
-            return
-        }
+        if selectReplacementSession() { return }
         activeSessionID = nil
         onSessionSelectionChanged?(nil)
         consoleHistory = []
@@ -789,6 +844,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
 
     public func reset() {
         javaUpdateTargets.removeAll()
+        forgottenSessionIDs.removeAll()
         serviceUpdateMessage = nil
         serviceUpdateFailed = false
         invalidateInspectionRequests()
@@ -1674,6 +1730,75 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             case .success(let variable):
                 self?.append("\(value) = \(variable.value)\n")
             case .failure(let error): self?.record(error)
+            }
+        }
+    }
+
+    /// Runs one line typed into the Debug Console. A paused session evaluates it in the
+    /// adapter's repl, so debugger commands work as they do in a gdb or lldb prompt.
+    /// Returns false when the line was not accepted, so the caller keeps the draft.
+    public func submitConsoleInput(_ line: String) -> Bool {
+        let value = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return true }
+        guard state == .paused, let session = activeSession else { return false }
+        recordConsoleExpression(value)
+        append("> \(value)\n")
+        session.evaluateInConsole(value, frameID: selectedFrameID) { [weak self] result in
+            switch result {
+            case .success(let variable):
+                let text = variable.value
+                guard !text.isEmpty else { return }
+                self?.append(text.hasSuffix("\n") ? text : text + "\n")
+            case .failure(let error):
+                self?.append(error.localizedDescription + "\n")
+            }
+        }
+        return true
+    }
+
+    /// Suggestions for the Debug Console line `text` with the caret at `caret`
+    /// (UTF-16 offset from 0). Merges what the adapter proposes with the commands its
+    /// plugin declared, so an adapter without a completions request still completes.
+    /// Calls back on the main actor; a reply made stale by a newer request is dropped.
+    public func requestConsoleCompletions(
+        text: String,
+        caret: Int,
+        completion: @escaping ([DebugConsoleCompletion.Suggestion]) -> Void
+    ) {
+        consoleCompletionGeneration += 1
+        let generation = consoleCompletionGeneration
+        guard state == .paused, let session = activeSession,
+              !text.trimmingCharacters(in: .whitespaces).isEmpty else {
+            completion([])
+            return
+        }
+        let declared = session.consoleCommands
+        func finish(_ items: [DebugCompletionItem]) {
+            guard consoleCompletionGeneration == generation else { return }
+            completion(DebugConsoleCompletion.suggestions(
+                text: text,
+                caret: caret,
+                adapterItems: items,
+                declared: declared
+            ))
+        }
+        guard session.capabilities.supportsCompletionsRequest else {
+            finish([])
+            return
+        }
+        // An adapter that reads a bare word as an expression is asked about the line as a
+        // debugger command, and its answer is moved back onto what the user typed.
+        let request = DebugConsoleCompletion.adapterRequest(
+            text: text,
+            caret: caret,
+            commandPrefix: session.consoleCommandPrefix
+        )
+        session.requestCompletions(request.text, column: request.caret, frameID: selectedFrameID) { result in
+            // A failed request still leaves the declared commands to offer.
+            if case .success(let items) = result {
+                finish(DebugConsoleCompletion.restoring(items, shift: request.shift))
+            } else {
+                finish([])
             }
         }
     }

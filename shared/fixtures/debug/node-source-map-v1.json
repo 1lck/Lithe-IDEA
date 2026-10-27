@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "note": "A Node adapter maps TypeScript sources to generated JavaScript itself. Core must pass the TypeScript path through unchanged in both directions and keep the requested line when the adapter resolves a different one.",
+  "sourcePath": "/workspace/src/app.ts",
+  "requestedLine": 10,
+  "response": {
+    "id": 51,
+    "verified": true,
+    "line": 12,
+    "source": {"path": "/workspace/src/app.ts"}
+  },
+  "expectedBreakpoint": {
+    "sourcePath": "/workspace/src/app.ts",
+    "requestedLine": 10,
+    "line": 12,
+    "verified": true
+  },
+  "stackFrames": [
+    {
+      "id": 1,
+      "name": "handler",
+      "source": {"path": "/workspace/src/app.ts", "origin": "inlined content from source map"},
+      "line": 12,
+      "column": 3
+    }
+  ],
+  "expectedFrame": {"sourcePath": "/workspace/src/app.ts", "line": 12, "column": 3}
+}

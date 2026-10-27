@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import AppKit
 import LitheSearchModule
 import SwiftUI
@@ -244,7 +245,7 @@ private struct SearchEverywhereContent: View {
                 .strokeBorder(LitheTheme.SearchEverywhere.border, lineWidth: 1)
         }
         .background(LitheCenteredPopup(isPresented: $editingExclusions,
-            dialogTitle: String(localized: "Search exclusions", locale: locale), focusFirstTextField: true) {
+            dialogTitle: L10n.string("Search exclusions", locale: locale), focusFirstTextField: true) {
             SearchEverywhereExclusionsEditor(settings: settings, dismiss: { editingExclusions = false })
         }.frame(width: 0, height: 0).allowsHitTesting(false))
         .onAppear {

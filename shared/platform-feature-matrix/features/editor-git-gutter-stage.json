@@ -7,7 +7,8 @@
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
     "evidence": [
-      "macos/Sources/Lithe/Views/Editor/CodeEditorView.swift"
+      "macos/Sources/Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift",
+      "frontend/editor/src/workbench.ts"
     ]
   },
   "windows": {

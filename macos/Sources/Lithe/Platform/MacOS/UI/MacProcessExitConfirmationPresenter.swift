@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import AppKit
 import LitheTerminalModule
 import SwiftUI
@@ -16,12 +17,12 @@ final class MacProcessExitConfirmationPresenter: ProcessExitConfirmationPresenti
     func confirmTerminalOnQuit(_ terminal: TerminalExitCandidate, position: Int, count: Int) async -> TerminalExitAnswer {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = String(format: String(localized: "Terminal “%@” is still running"), terminal.title)
+        alert.messageText = String(format: L10n.string("Terminal “%@” is still running"), terminal.title)
         alert.informativeText = Self.progress(position, count) + "\n\n" + Self.describe(terminal)
-            + "\n\n" + String(localized: "Quitting Lithe ends these programs.")
-        alert.addButton(withTitle: String(localized: "End This Terminal"))
-        alert.addButton(withTitle: String(localized: "Show Terminal"))
-        alert.addButton(withTitle: String(localized: "Cancel Quit"))
+            + "\n\n" + L10n.string("Quitting Lithe ends these programs.")
+        alert.addButton(withTitle: L10n.string("End This Terminal"))
+        alert.addButton(withTitle: L10n.string("Show Terminal"))
+        alert.addButton(withTitle: L10n.string("Cancel Quit"))
         switch alert.runModal() {
         case .alertFirstButtonReturn: return .terminate
         case .alertSecondButtonReturn: return .reveal
@@ -32,27 +33,27 @@ final class MacProcessExitConfirmationPresenter: ProcessExitConfirmationPresenti
     func confirmTerminalClose(_ terminal: TerminalExitCandidate) async -> Bool {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = String(format: String(localized: "Close terminal “%@”?"), terminal.title)
+        alert.messageText = String(format: L10n.string("Close terminal “%@”?"), terminal.title)
         alert.informativeText = Self.describe(terminal)
-            + "\n\n" + String(localized: "Closing the terminal ends these programs.")
-        alert.addButton(withTitle: String(localized: "Close Terminal"))
-        alert.addButton(withTitle: String(localized: "Cancel"))
+            + "\n\n" + L10n.string("Closing the terminal ends these programs.")
+        alert.addButton(withTitle: L10n.string("Close Terminal"))
+        alert.addButton(withTitle: L10n.string("Cancel"))
         return alert.runModal() == .alertFirstButtonReturn
     }
 
     func confirmStopRunServices(_ services: [RunServiceExitCandidate], purpose: RunServiceStopPurpose) async -> Bool {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = String(localized: "Run services are still running")
+        alert.messageText = L10n.string("Run services are still running")
         let consequence = purpose == .quit
-            ? String(localized: "Quitting Lithe stops these services and the processes they started.")
-            : String(localized: "Closing the project stops these services and the processes they started.")
+            ? L10n.string("Quitting Lithe stops these services and the processes they started.")
+            : L10n.string("Closing the project stops these services and the processes they started.")
         alert.informativeText = services.map { service in
-            let title = service.title.isEmpty ? String(localized: "Unnamed service") : service.title
+            let title = service.title.isEmpty ? L10n.string("Unnamed service") : service.title
             return service.projectName.isEmpty ? "• \(title)" : "• \(title) — \(service.projectName)"
         }.joined(separator: "\n") + "\n\n" + consequence
-        alert.addButton(withTitle: purpose == .quit ? String(localized: "Stop and Quit") : String(localized: "Stop and Close"))
-        alert.addButton(withTitle: String(localized: "Cancel"))
+        alert.addButton(withTitle: purpose == .quit ? L10n.string("Stop and Quit") : L10n.string("Stop and Close"))
+        alert.addButton(withTitle: L10n.string("Cancel"))
         return alert.runModal() == .alertFirstButtonReturn
     }
 
@@ -129,24 +130,24 @@ final class MacProcessExitConfirmationPresenter: ProcessExitConfirmationPresenti
         let alert = NSAlert()
         alert.alertStyle = .informational
         if purpose == .startupSweep {
-            alert.messageText = String(localized: "Lithe closed unexpectedly last time and left programs running")
-            alert.informativeText = String(localized: "These programs were started in Lithe before it closed unexpectedly. Checked items are ended now; unchecked items keep running and are not tracked anymore.")
+            alert.messageText = L10n.string("Lithe closed unexpectedly last time and left programs running")
+            alert.informativeText = L10n.string("These programs were started in Lithe before it closed unexpectedly. Checked items are ended now; unchecked items keep running and are not tracked anymore.")
         } else {
-            alert.messageText = String(localized: "Background services started in Lithe are still running")
-            alert.informativeText = String(localized: "These processes left their terminal or tool to keep running in the background, like daemons and dev servers. Checked items end when Lithe quits; unchecked items keep running.")
+            alert.messageText = L10n.string("Background services started in Lithe are still running")
+            alert.informativeText = L10n.string("These processes left their terminal or tool to keep running in the background, like daemons and dev servers. Checked items end when Lithe quits; unchecked items keep running.")
         }
 
         let selectionView = BackgroundResourceSelectionView(resources: resources)
         alert.accessoryView = selectionView
 
         if purpose == .startupSweep {
-            alert.addButton(withTitle: String(localized: "End Checked"))
-            alert.addButton(withTitle: String(localized: "End All"))
-            alert.addButton(withTitle: String(localized: "Keep All"))
+            alert.addButton(withTitle: L10n.string("End Checked"))
+            alert.addButton(withTitle: L10n.string("End All"))
+            alert.addButton(withTitle: L10n.string("Keep All"))
         } else {
-            alert.addButton(withTitle: String(localized: "Quit with Selection"))
-            alert.addButton(withTitle: String(localized: "End All and Quit"))
-            alert.addButton(withTitle: String(localized: "Cancel Quit"))
+            alert.addButton(withTitle: L10n.string("Quit with Selection"))
+            alert.addButton(withTitle: L10n.string("End All and Quit"))
+            alert.addButton(withTitle: L10n.string("Cancel Quit"))
         }
         let response = alert.runModal()
         let selected: Set<String>
@@ -164,19 +165,19 @@ final class MacProcessExitConfirmationPresenter: ProcessExitConfirmationPresenti
     private static func describe(_ terminal: TerminalExitCandidate) -> String {
         var lines: [String] = []
         if !terminal.projectName.isEmpty {
-            lines.append(String(format: String(localized: "Project: %@"), terminal.projectName))
+            lines.append(String(format: L10n.string("Project: %@"), terminal.projectName))
         }
         if !terminal.workingDirectory.isEmpty {
-            lines.append(String(format: String(localized: "Directory: %@"), terminal.workingDirectory))
+            lines.append(String(format: L10n.string("Directory: %@"), terminal.workingDirectory))
         }
         for program in terminal.programs {
             var line = "• " + program.commandLine
             if !program.listeningPorts.isEmpty {
-                line += "  " + String(format: String(localized: "ports %@"),
+                line += "  " + String(format: L10n.string("ports %@"),
                                       program.listeningPorts.map(String.init).joined(separator: ", "))
             }
             if let startedAt = program.startedAt {
-                line += "  " + String(format: String(localized: "running for %@"), duration(since: startedAt))
+                line += "  " + String(format: L10n.string("running for %@"), duration(since: startedAt))
             }
             lines.append(line)
         }
@@ -184,7 +185,7 @@ final class MacProcessExitConfirmationPresenter: ProcessExitConfirmationPresenti
     }
 
     private static func progress(_ position: Int, _ count: Int) -> String {
-        String(format: String(localized: "%lld of %lld"), position, count)
+        String(format: L10n.string("%lld of %lld"), position, count)
     }
 
     private static func duration(since date: Date) -> String {

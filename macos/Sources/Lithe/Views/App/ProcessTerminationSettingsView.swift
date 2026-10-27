@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import SwiftUI
 
 // Note: 统一子进程生命周期见 .agents/notes/proposed/architecture/2026-10-16-unified-child-process-lifecycle.md
@@ -104,7 +105,7 @@ struct ProcessTerminationSettingsView: View {
                         step: 1,
                         width: 126,
                         accessibilityLabel: "Time to exit",
-                        title: { String(format: String(localized: "%lld s"), $0) }
+                        title: { String(format: L10n.string("%lld s"), $0) }
                     )
                 }
             }
@@ -132,7 +133,7 @@ struct ProcessTerminationSettingsView: View {
                 }
             }
         }
-        .frame(maxWidth: 760, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func row<Content: View>(

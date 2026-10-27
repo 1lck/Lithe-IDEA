@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 2,
+  "id": "dev.lithe.fixture.debug-adapter",
+  "displayName": "Debug Adapter Fixture",
+  "version": "0.1.0",
+  "pluginAPIVersion": 4,
+  "requires": { "debugAdapters": 1, "serverProcess": 1, "settings": 2 },
+  "vendor": {
+    "id": "org.example",
+    "displayName": "Example",
+    "signatureRequirement": "publisherPackage"
+  },
+  "permissions": [
+    "debug.attach",
+    "debug.launch"
+  ],
+  "activationEvents": [
+    "onDebug:example",
+    "onDebug:native"
+  ],
+  "languages": [],
+  "settings": [
+    {
+      "id": "program",
+      "type": "file",
+      "title": "Program",
+      "description": "The program to debug. Build it with debug information first, for example cc -g main.c -o main.",
+      "default": "",
+      "placeholder": "Found next to the open file",
+      "scope": "project",
+      "effect": "nextRun"
+    }
+  ],
+  "debugAdapters": [
+    {
+      "id": "example",
+      "displayName": "Example Debugger",
+      "adapterID": "example-dap",
+      "requests": ["launch", "attach"],
+      "selectors": [{ "targetKinds": ["file"], "languageIDs": ["example"] }],
+      "configurationTypes": ["example"],
+      "configurations": {
+        "launch": {
+          "arguments": { "stopOnEntry": false },
+          "parametersSchema": "schemas/launch.json",
+          "targetBindings": { "program": "target.path", "cwd": "target.workingDirectory" }
+        },
+        "attach": {
+          "targetBindings": { "processId": "target.processID" }
+        }
+      },
+      "capabilities": { "disabled": ["supportsStepBack"] },
+      "console": {
+        "commandPrefix": "`",
+        "commands": [
+          { "name": "breakpoint set", "description": "Set a breakpoint" },
+          { "name": "frame variable" }
+        ]
+      },
+      "launch": {
+        "process": {
+          "launch": { "kind": "packaged", "path": "bin/example-dap" },
+          "arguments": ["--stdio"]
+        },
+        "transport": "stdio"
+      }
+    },
+    {
+      "id": "native",
+      "displayName": "Native Debugger",
+      "adapterID": "native-dap",
+      "requests": ["launch"],
+      "selectors": [{ "targetKinds": ["file"], "languageIDs": ["example"] }],
+      "configurationTypes": ["native"],
+      "configurations": {
+        "launch": {
+          "arguments": { "stopOnEntry": false },
+          "targetBindings": { "program": "target.executable", "cwd": "target.workingDirectory" },
+          "executable": {
+            "setting": "program",
+            "candidates": [
+              "${fileDirectory}/${fileBasenameNoExtension}",
+              "${workspaceFolder}/build/${fileBasenameNoExtension}"
+            ]
+          }
+        }
+      },
+      "launch": {
+        "process": {
+          "launch": { "kind": "systemCommand", "commands": ["native-dap"] }
+        },
+        "transport": "stdio"
+      }
+    }
+  ]
+}

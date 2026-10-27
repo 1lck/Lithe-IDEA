@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import LitheCoreContracts
 
@@ -9,11 +10,11 @@ package enum LanguageTestPlanError: LocalizedError, Equatable, Sendable {
     package var errorDescription: String? {
         switch self {
         case .unsupportedProvider(let provider):
-            return "No test runner is configured for \(provider)."
+            return L10n.string("No test runner is configured for \(provider).")
         case .extensionNotActive(let provider):
-            return "\(provider) testing extension is not active."
+            return L10n.string("\(provider) testing extension is not active.")
         case .fileOutsideWorkspace(let url):
-            return "The test file is outside the current workspace: \(url.path)"
+            return L10n.string("The test file is outside the current workspace: \(url.path)")
         }
     }
 }

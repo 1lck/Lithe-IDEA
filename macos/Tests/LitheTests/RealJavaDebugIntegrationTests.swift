@@ -428,7 +428,6 @@ struct RealJavaDebugIntegrationTests {
         feature.onRunInTerminalRequest = debugTerminals.handle
         let launchService = JavaTestDebugLaunchService(
             configurationResolver: DebugLaunchConfigurationResolver(
-                fileExists: { fileManager.fileExists(atPath: $0.path) },
                 javaTestLaunchResolver: core
             ),
             resultServerFactory: { MacJavaTestResultServer() }

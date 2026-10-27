@@ -21,14 +21,27 @@ pub struct PromptFile {
     pub name: String,
 }
 
+/// A native slash command is one `/word` token, not an absolute path such as
+/// `/Users/me/main.rs`, whose first token contains further separators.
+fn is_slash_command(text: &str) -> bool {
+    let Some(rest) = text.trim_start().strip_prefix('/') else {
+        return false;
+    };
+    let word = rest.split_whitespace().next().unwrap_or_default();
+    !word.is_empty() && !word.contains(['/', '\\'])
+}
+
 pub(crate) fn content(text: String, files: Vec<PromptFile>) -> Result<Vec<ContentBlock>, String> {
     if files.len() > MAXIMUM_FILES {
         return Err("Attach up to 32 files per message.".into());
     }
+    let text_is_command = is_slash_command(&text);
     let mut content = Vec::with_capacity(files.len() + 1);
     if !text.trim().is_empty() {
         content.push(ContentBlock::Text(TextContent::new(text)));
     }
+    // Paths a model cannot read back from the percent-encoded link, one per line.
+    let mut decoded_paths = Vec::new();
     for file in files {
         let uri = url::Url::parse(&file.uri)
             .map_err(|_| "Only local files can be attached to an Agent message.".to_string())?;
@@ -42,8 +55,26 @@ pub(crate) fn content(text: String, files: Vec<PromptFile>) -> Result<Vec<Conten
         if !local_file || file.name.trim().is_empty() {
             return Err("Only local files can be attached to an Agent message.".into());
         }
+        // Adapters hand the link to the model verbatim, and a model that reads
+        // `Pasted%20image.png` literally fails to open the file. Repeat the real
+        // path in the `📎 /path` form the transcript already recognises and hides.
+        if uri.path().contains('%') {
+            if let Ok(path) = uri.to_file_path() {
+                let path = path.display().to_string();
+                // A decoded newline would start a prompt line the user never wrote.
+                if !path.chars().any(char::is_control) {
+                    decoded_paths.push(format!("📎 {path}"));
+                }
+            }
+        }
         content.push(ContentBlock::ResourceLink(ResourceLink::new(
             file.name, file.uri,
+        )));
+    }
+    // A native slash command must reach the adapter exactly as typed.
+    if !decoded_paths.is_empty() && !text_is_command {
+        content.push(ContentBlock::Text(TextContent::new(
+            decoded_paths.join("\n"),
         )));
     }
     if content.is_empty() {
@@ -114,5 +145,65 @@ mod tests {
             )
             .is_err());
         }
+    }
+
+    #[test]
+    fn encoded_paths_are_repeated_in_readable_form_for_the_model() {
+        let path = std::env::temp_dir()
+            .join("lithe-prompt-test")
+            .join("Pasted image 1.png");
+        let uri = url::Url::from_file_path(&path).expect("absolute native path");
+        let content = content(
+            "see this".into(),
+            vec![
+                PromptFile {
+                    uri: uri.into(),
+                    name: "Pasted image 1.png".into(),
+                },
+                PromptFile {
+                    uri: "file:///example/plain.png".into(),
+                    name: "plain.png".into(),
+                },
+            ],
+        )
+        .expect("local file URIs");
+        let ContentBlock::Text(text) = content.last().expect("path block") else {
+            panic!("the readable paths follow the links as text");
+        };
+        // Only the encoded path needs repeating; a plain path is already readable.
+        assert_eq!(text.text, format!("📎 {}", path.display()));
+        assert_eq!(content.len(), 4);
+    }
+
+    #[test]
+    fn native_slash_commands_are_never_followed_by_extra_text() {
+        let path = std::env::temp_dir()
+            .join("lithe-prompt-test")
+            .join("Pasted image.png");
+        let content = content(
+            "/status".into(),
+            vec![PromptFile {
+                uri: url::Url::from_file_path(path)
+                    .expect("absolute native path")
+                    .into(),
+                name: "Pasted image.png".into(),
+            }],
+        )
+        .expect("local file URI");
+        assert!(matches!(
+            content.as_slice(),
+            [ContentBlock::Text(_), ContentBlock::ResourceLink(_)]
+        ));
+    }
+
+    #[test]
+    fn only_a_single_slash_word_is_a_native_command() {
+        assert!(is_slash_command("/compact"));
+        assert!(is_slash_command("  /review src"));
+        assert!(!is_slash_command(
+            "/Users/me/proj/main.rs why does this fail?"
+        ));
+        assert!(!is_slash_command("/"));
+        assert!(!is_slash_command("hello /compact"));
     }
 }

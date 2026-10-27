@@ -213,6 +213,16 @@ fn execute(request: &str) -> CoreResponse {
             parsed.payload,
             crate::plugins::declarative::language_server_launch_plan_command,
         ),
+        CoreCommand::DebugAdaptersStartArguments => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::declarative::debug_start_arguments_command,
+        ),
+        CoreCommand::DebugAdaptersExecutablePlan => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::declarative::debug_executable_plan_command,
+        ),
         CoreCommand::PluginsDeclarativeCheckRuntimeVersion => plugin_response(
             id,
             parsed.payload,
@@ -1240,6 +1250,27 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::DebugStartDebuggingResponse => {
+            match serde_json::from_value::<crate::debug::DebugStartDebuggingResponseRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid debug start-debugging response",
+                )
+                .with_details(error.to_string())
+            })
+            .and_then(crate::debug::start_debugging_response)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("Debug start-debugging response update should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::DebugDisconnect => {
             match serde_json::from_value::<crate::debug::SessionRequest>(parsed.payload)
                 .map_err(|error| {
@@ -1269,7 +1300,10 @@ fn execute(request: &str) -> CoreResponse {
                 })
                 .and_then(crate::debug::destroy_session)
             {
-                Ok(()) => CoreResponse::success(id, json!({"destroyed": true})),
+                Ok(destroyed_children) => CoreResponse::success(
+                    id,
+                    json!({"destroyed": true, "destroyedChildSessionIds": destroyed_children}),
+                ),
                 Err(error) => CoreResponse::failure(id, error),
             }
         }

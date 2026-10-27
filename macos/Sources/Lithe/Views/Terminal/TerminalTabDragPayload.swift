@@ -12,8 +12,8 @@ enum TerminalTabDragPayload {
         activeDrag.store(sessionID)
         let data = Data(sessionID.uuidString.utf8)
         // AppKit needs a concrete standard representation to establish the
-        // native drag session. CodeTextView explicitly rejects providers that
-        // also advertise the private terminal-tab type.
+        // native drag session; the private representation identifies terminal
+        // tabs to the receiving workbench.
         let provider = NSItemProvider(object: "Terminal" as NSString)
         provider.registerDataRepresentation(
             forTypeIdentifier: type.identifier,

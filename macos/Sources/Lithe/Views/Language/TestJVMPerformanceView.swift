@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import SwiftUI
 
 struct TestJVMPerformanceView: View {
@@ -66,7 +67,7 @@ struct TestJVMPerformanceView: View {
         }
         .background(LitheCenteredPopup(isPresented: Binding(
             get: { feature.report != nil }, set: { if !$0 { feature.report = nil } }
-        ), dialogTitle: String(localized: "Performance Results", locale: locale)) {
+        ), dialogTitle: L10n.string("Performance Results", locale: locale)) {
             VStack(spacing: 10) {
                 OutputTextView(output: feature.report ?? "", searchRoots: [], fileExists: { _ in false },
                     emptyMessage: "No profiling events were recorded.", wrapsLines: false) { _, _, _ in }

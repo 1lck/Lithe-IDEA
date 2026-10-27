@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 
 package struct LanguageRunContext: Equatable, Sendable {
@@ -68,11 +69,11 @@ package enum LanguageRunPlanError: LocalizedError, Equatable, Sendable {
     package var errorDescription: String? {
         switch self {
         case .noProvider(let fileExtension):
-            return "No language run provider handles .\(fileExtension) files."
+            return L10n.string("No language run provider handles .\(fileExtension) files.")
         case .fileOutsideWorkspace(let url):
-            return "The current file is outside the workspace: \(url.path)"
+            return L10n.string("The current file is outside the workspace: \(url.path)")
         case .unsupportedCurrentFile(let provider):
-            return "\(provider) does not support running the current file directly. Use a project run configuration."
+            return L10n.string("\(provider) does not support running the current file directly. Use a project run configuration.")
         }
     }
 }

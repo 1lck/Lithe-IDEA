@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import LitheCoreContracts
 import LitheExecutionModule
 import SwiftUI
@@ -113,7 +114,7 @@ private struct RunServiceDependencySidebarContent: View {
                     Text(service.displayName).font(
                         LitheTheme.uiFont(size: LitheTheme.Metrics.treeFontSize, weight: .semibold))
                     Text(
-                        hasCustomConfiguration(service) ? String(localized: "Configured") : service.providerDisplayName
+                        hasCustomConfiguration(service) ? L10n.string("Configured") : service.providerDisplayName
                     )
                     .font(LitheTheme.uiFont(size: 9.5)).foregroundStyle(LitheTheme.secondaryText).lineLimit(1)
                 }
@@ -338,7 +339,7 @@ private struct DependencyTreeNodeView: View {
         .help(node.subtitle ?? node.title)
         .litheContextMenu(items: {
             guard let path = dependencyPath else { return [] }
-            return [.action(String(localized: "Exclude from dependency tree")) { onExclude(path) }]
+            return [.action(L10n.string("Exclude from dependency tree")) { onExclude(path) }]
         })
     }
 
@@ -793,7 +794,7 @@ private struct DependencyFolderBrowser: View {
                 HStack(spacing: 6) {
                     LitheSystemIcon(systemImage: isDirectory ? "folder" : "shippingbox")
                         .foregroundStyle(LitheTheme.secondaryText)
-                    Text(isCurrent ? String(localized: "This Folder") : url.lastPathComponent)
+                    Text(isCurrent ? L10n.string("This Folder") : url.lastPathComponent)
                         .font(LitheTheme.uiFont(size: 11))
                         .lineLimit(1)
                         .truncationMode(.middle)

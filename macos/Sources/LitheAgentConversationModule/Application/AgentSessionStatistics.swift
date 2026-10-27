@@ -49,14 +49,14 @@ public struct AgentSessionStatistics: Equatable, Sendable {
         toolDuration = (baseline?.toolDuration ?? 0) + turns.reduce(0) { $0 + $1.toolDuration }
         var calls = baseline?.modelCalls ?? AgentModelCallTotals()
         calls.add(conversation.modelCalls)
-        let observed = calls.callCount > 0 ? calls : nil
+        let observed = calls.requestCount > 0 ? calls : nil
         modelCalls = observed
         if let observed, observed.hasUsage {
             tokens = AgentSessionTokens(source: .modelCalls, uncachedInputTokens: observed.inputTokens,
                                         cacheReadTokens: observed.cacheReadTokens,
                                         cacheWriteTokens: observed.cacheWriteTokens,
                                         outputTokens: observed.outputTokens, reasoningTokens: observed.reasoningTokens,
-                                        callsMissingUsage: observed.callCount - observed.callsWithUsage)
+                                        callsMissingUsage: observed.callsMissingUsage)
         } else {
             tokens = (turns.last(where: { $0.usage != nil })?.usage ?? baseline?.latestUsage).map(Self.agentTokens)
         }
@@ -110,7 +110,7 @@ public struct AgentSessionStatisticsRecord: Codable, Equatable, Sendable {
     }
 
     /// Nothing to keep: no finished turn, observed call, or reported occupancy.
-    var isEmpty: Bool { turnCount == 0 && modelCalls.callCount == 0 && contextUsage == nil }
+    var isEmpty: Bool { turnCount == 0 && modelCalls.requestCount == 0 && contextUsage == nil }
 
     func hasSameTotals(as other: Self) -> Bool {
         var other = other

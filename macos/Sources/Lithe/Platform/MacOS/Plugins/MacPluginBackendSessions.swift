@@ -169,7 +169,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting {
         guard let package = packages[pluginID], !disabledPluginIDs.contains(pluginID) else {
             throw PluginFunctionFailure(
                 code: "plugin.function.unavailable",
-                message: String(localized: "This plugin has no backend that can run now.")
+                message: L10n.string("This plugin has no backend that can run now.")
             )
         }
         let settings = launchResolver.backendSettingValues(forPlugin: pluginID)
@@ -280,11 +280,11 @@ final class MacPluginBackendSessions: PluginBackendRequesting {
                     finish(.success(()))
                 case .failed(let failure):
                     finish(.failure(UnavailableError(
-                        message: failure.message ?? String(localized: "The plugin backend failed to start.")
+                        message: failure.message ?? L10n.string("The plugin backend failed to start.")
                     )))
                 case .stopped:
                     finish(.failure(UnavailableError(
-                        message: String(localized: "The plugin backend stopped before it was ready.")
+                        message: L10n.string("The plugin backend stopped before it was ready.")
                     )))
                 case .startingProcess, .initializing, .stopping:
                     break
@@ -330,7 +330,7 @@ final class MacPluginBackendSessions: PluginBackendRequesting {
         let versionChecker = versionChecker
         let resolved = try await tools.resolve(
             invocation,
-            displayName: String(localized: "Plugin backend"),
+            displayName: L10n.string("Plugin backend"),
             workspaceURL: directory,
             checkVersion: { [requirement] _, output in
                 guard let requirement else { return BuildVersionCheck(satisfied: true, version: nil) }

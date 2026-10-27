@@ -127,6 +127,24 @@ struct AgentThoughtTranscriptTests {
         }
     }
 
+    @Test
+    func expansionChoicesLiveInASharedStoreSoRowsRecreatedByScrollingKeepThem() {
+        let store = AgentThoughtExpansionStore()
+        var opened = AgentThoughtExpansion()
+        opened.toggle(isStreaming: false, isSearching: false)
+        store.set(opened, in: "first", id: "thought-1")
+        // A row destroyed by the lazy stack and rebuilt reads its choice back.
+        #expect(store.value(in: "first", id: "thought-1").isExpanded(isStreaming: false, isSearching: false))
+        #expect(!store.value(in: "second", id: "thought-1").isExpanded(isStreaming: false, isSearching: false))
+        #expect(!store.value(in: nil, id: "thought-1").isExpanded(isStreaming: false, isSearching: false))
+        // Removed messages and closed sessions release their choices.
+        store.retain(messageIDs: ["other"], in: "first")
+        #expect(!store.value(in: "first", id: "thought-1").isExpanded(isStreaming: false, isSearching: false))
+        store.set(opened, in: "first", id: "thought-2")
+        store.retain(sessions: ["second"])
+        #expect(!store.hasPreferences(in: "first"))
+    }
+
     private func withTranscript(
         _ run: (AgentConnectionModel, NSHostingView<AnyView>, NSWindow) async throws -> Void
     ) async throws {

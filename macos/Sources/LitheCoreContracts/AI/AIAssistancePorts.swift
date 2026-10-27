@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 
 @MainActor
 public protocol AICommitMessageGenerating: AnyObject {
@@ -85,23 +86,23 @@ public enum CommitMessageGenerationError: LocalizedError, Sendable {
     public var errorDescription: String? {
         switch self {
         case .noProviderConfigured:
-            return String(localized: "Configure an AI provider in Settings first.")
+            return L10n.string("Configure an AI provider in Settings first.")
         case .invalidProvider:
-            return String(localized: "The selected AI provider has an invalid API URL or model.")
+            return L10n.string("The selected AI provider has an invalid API URL or model.")
         case .insecureEndpoint:
-            return String(localized: "HTTP is disabled for this provider. Enable the insecure HTTP option or use HTTPS.")
+            return L10n.string("HTTP is disabled for this provider. Enable the insecure HTTP option or use HTTPS.")
         case .missingAPIKey:
-            return String(localized: "The selected AI provider has no API key.")
+            return L10n.string("The selected AI provider has no API key.")
         case .emptyDiff:
-            return String(localized: "The staged changes have no textual diff to summarize.")
+            return L10n.string("The staged changes have no textual diff to summarize.")
         case .sensitiveFileExcluded:
-            return String(localized: "Sensitive files are not sent to an AI provider.")
+            return L10n.string("Sensitive files are not sent to an AI provider.")
         case .httpFailure(let statusCode):
-            return "\(String(localized: "The AI provider returned an HTTP error.")) (\(statusCode))"
+            return "\(L10n.string("The AI provider returned an HTTP error.")) (\(statusCode))"
         case .invalidResponse:
-            return String(localized: "The AI provider returned an unexpected response.")
+            return L10n.string("The AI provider returned an unexpected response.")
         case .emptyResponse:
-            return String(localized: "The AI provider returned an empty commit message.")
+            return L10n.string("The AI provider returned an empty commit message.")
         }
     }
 }

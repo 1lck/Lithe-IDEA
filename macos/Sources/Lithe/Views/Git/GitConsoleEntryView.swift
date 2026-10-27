@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import AppKit
 import SwiftUI
 import LitheGitModule
@@ -136,7 +137,7 @@ struct GitConsoleEntryView: View {
     private func commandPreview(_ fragment: GitConsolePresentation.CommandFragment) -> String {
         if !fragment.preview.isEmpty { return fragment.preview }
         let key = fragment.kind == "files" ? "… %lld more files" : "… %lld more references"
-        return String(format: NSLocalizedString(key, comment: "Git argument disclosure"), fragment.count)
+        return String(format: L10n.string(key: key), fragment.count)
     }
 
     private var command: AttributedString {
@@ -152,7 +153,7 @@ struct GitConsoleEntryView: View {
                     part.link = URL(string: "lithe-git-console://fragment/" + fragment.id)
                     part.backgroundColor = LitheTheme.accent.opacity(0.12)
                     if !expanded.contains(fragment.id), fragment.matches > 0 {
-                        part.append(AttributedString(String(format: NSLocalizedString(" · %lld matches", comment: "Hidden search matches"), fragment.matches)))
+                        part.append(AttributedString(String(format: L10n.string(key: " · %lld matches"), fragment.matches)))
                     }
                 }
                 if selectedHit?.recordId == entry.id.uuidString, selectedHit?.fragmentId == fragment.id {

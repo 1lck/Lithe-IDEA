@@ -145,7 +145,7 @@ final class NewProjectFeatureModel: ObservableObject {
 
     var showsEmptyProject: Bool {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        return query.isEmpty || String(localized: "Empty Project").localizedCaseInsensitiveContains(query)
+        return query.isEmpty || L10n.string("Empty Project").localizedCaseInsensitiveContains(query)
     }
 
     func icon(for entry: ProjectGeneratorEntry) -> PluginUIIconResources? {

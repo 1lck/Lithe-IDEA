@@ -258,6 +258,7 @@ struct AgentDesktopWidgetWebView: NSViewRepresentable {
         configuration.userContentController.add(WeakMessageHandler(context.coordinator), name: Self.messageName)
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator
+        webView.uiDelegate = WebMediaCaptureDenier.shared
         webView.setValue(false, forKey: "drawsBackground")
         webView.loadHTMLString(Self.document(code: code, isDark: isDark), baseURL: nil)
         context.coordinator.loadedDark = isDark

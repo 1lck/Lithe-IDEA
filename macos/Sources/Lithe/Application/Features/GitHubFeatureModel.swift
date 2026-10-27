@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import LitheModuleAPI
 import LitheCoreContracts
 
 @MainActor
@@ -281,7 +282,7 @@ final class GitHubFeatureModel: ObservableObject {
     ) async -> String? {
         let branch = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !branch.isEmpty else {
-            branchPublicationError = String(localized: "Enter a branch name before publishing.")
+            branchPublicationError = L10n.string("Enter a branch name before publishing.")
             return nil
         }
         isPublishingPullRequestBranch = true

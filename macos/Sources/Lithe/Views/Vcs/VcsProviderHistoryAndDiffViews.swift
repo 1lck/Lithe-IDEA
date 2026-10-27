@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import LitheCoreContracts
 import LitheGitModule // DiffRow, the shared diff row model
 import LitheLocalHistoryModule
@@ -28,12 +29,12 @@ struct VcsHistoryListView: View {
                 if let failure {
                     LitheBanner(status: .error, layout: .editor) {
                         Text(verbatim: failure).lineLimit(6).textSelection(.enabled)
-                        Button(String(localized: "Retry")) { Task { await load() } }
+                        Button(L10n.string("Retry")) { Task { await load() } }
                     }
                 } else if isLoading {
                     ProgressView().controlSize(.small).frame(maxWidth: .infinity).padding(12)
                 } else if nextCursor != nil {
-                    Button(String(localized: "Load More")) { Task { await load() } }
+                    Button(L10n.string("Load More")) { Task { await load() } }
                         .buttonStyle(.link)
                         .frame(maxWidth: .infinity)
                         .padding(12)
@@ -191,7 +192,7 @@ struct VcsFileDiffSheet: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer()
-                Button(String(localized: "Open File"), action: openFile)
+                Button(L10n.string("Open File"), action: openFile)
                     .disabled(diff.current == nil && !diff.isBinary && !diff.isTooLarge)
                 Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
             }
@@ -207,14 +208,14 @@ struct VcsFileDiffSheet: View {
     @ViewBuilder
     private var content: some View {
         if diff.isBinary {
-            message(String(localized: "Binary files cannot be compared."))
+            message(L10n.string("Binary files cannot be compared."))
         } else if diff.isTooLarge {
-            message(String(localized: "The file is too large to compare."))
+            message(L10n.string("The file is too large to compare."))
         } else if isOverLimit {
             HStack(alignment: .top, spacing: 0) {
-                textColumn(String(localized: "Base revision"), text: diff.base ?? "")
+                textColumn(L10n.string("Base revision"), text: diff.base ?? "")
                 Rectangle().fill(LitheTheme.divider).frame(width: 1)
-                textColumn(String(localized: "Local"), text: diff.current ?? "")
+                textColumn(L10n.string("Local"), text: diff.current ?? "")
             }
         } else if let rows {
             DiffPaneView(rows: rows, fileExtension: (diff.path as NSString).pathExtension,

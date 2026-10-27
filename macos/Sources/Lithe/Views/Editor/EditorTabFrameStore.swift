@@ -10,7 +10,7 @@ import SwiftUI
 /// passes re-evaluate the whole editor area; a reference box records them
 /// without invalidating anything.
 ///
-/// Follows the same pattern as `EditorViewportStore` and `LithePointerCursor`.
+/// Follows the same pattern as `LithePointerCursor`.
 @MainActor
 final class EditorTabFrameStore {
     private(set) var frames: [EditorTabItem: CGRect] = [:]

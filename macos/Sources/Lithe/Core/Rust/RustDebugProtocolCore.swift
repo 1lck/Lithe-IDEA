@@ -46,7 +46,10 @@ extension RustCoreBridge: DebugProtocolCore {
         sessionID: String,
         adapterID: String,
         rootPath: String,
-        supportsRunInTerminalRequest: Bool
+        supportsRunInTerminalRequest: Bool,
+        supportsStartDebuggingRequest: Bool,
+        disabledCapabilities: [String],
+        parentSessionID: String?
     ) throws -> DebugCoreUpdate {
         try executeResult(
             command: "debug.createSession",
@@ -54,7 +57,10 @@ extension RustCoreBridge: DebugProtocolCore {
                 sessionID: sessionID,
                 adapterID: adapterID,
                 rootPath: rootPath,
-                supportsRunInTerminalRequest: supportsRunInTerminalRequest
+                supportsRunInTerminalRequest: supportsRunInTerminalRequest,
+                supportsStartDebuggingRequest: supportsStartDebuggingRequest,
+                disabledCapabilities: disabledCapabilities,
+                parentSessionID: parentSessionID
             )
         ).get()
     }
@@ -218,6 +224,7 @@ extension RustCoreBridge: DebugProtocolCore {
         start: Int?,
         count: Int?,
         expression: String?,
+        context: String?,
         sourcePath: String?,
         line: Int?,
         column: Int?
@@ -235,6 +242,7 @@ extension RustCoreBridge: DebugProtocolCore {
                 start: start,
                 count: count,
                 expression: expression,
+                context: context,
                 sourcePath: sourcePath,
                 line: line,
                 column: column
@@ -282,6 +290,24 @@ extension RustCoreBridge: DebugProtocolCore {
         return try executeResult(
             command: "debug.runInTerminalResponse",
             payload: payload
+        ).get()
+    }
+
+    func completeDebugStartDebuggingRequest(
+        sessionID: String,
+        requestID: String,
+        result: Result<Void, Error>
+    ) throws -> DebugCoreUpdate {
+        let failure: Error?
+        if case .failure(let error) = result { failure = error } else { failure = nil }
+        return try executeResult(
+            command: "debug.startDebuggingResponse",
+            payload: DebugStartDebuggingResponsePayload(
+                sessionID: sessionID,
+                requestID: requestID,
+                success: failure == nil,
+                message: failure?.localizedDescription
+            )
         ).get()
     }
 
@@ -353,11 +379,28 @@ private struct DebugCreateSessionPayload: Encodable {
     let adapterID: String
     let rootPath: String
     let supportsRunInTerminalRequest: Bool
+    let supportsStartDebuggingRequest: Bool
+    let disabledCapabilities: [String]
+    let parentSessionID: String?
 
     private enum CodingKeys: String, CodingKey {
         case sessionID = "sessionId"
         case adapterID = "adapterId"
-        case rootPath, supportsRunInTerminalRequest
+        case parentSessionID = "parentSessionId"
+        case rootPath, supportsRunInTerminalRequest, supportsStartDebuggingRequest, disabledCapabilities
+    }
+}
+
+private struct DebugStartDebuggingResponsePayload: Encodable {
+    let sessionID: String
+    let requestID: String
+    let success: Bool
+    let message: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionID = "sessionId"
+        case requestID = "requestId"
+        case success, message
     }
 }
 
@@ -521,6 +564,7 @@ private struct DebugInspectPayload: Encodable {
     let start: Int?
     let count: Int?
     let expression: String?
+    let context: String?
     let sourcePath: String?
     let line: Int?
     let column: Int?
@@ -533,7 +577,7 @@ private struct DebugInspectPayload: Encodable {
         case frameID = "frameId"
         case variablesReference
         case variableFilter, start, count
-        case expression
+        case expression, context
         case sourcePath, line, column
     }
 }

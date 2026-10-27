@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 
 struct ResolvedRunToolchain: Sendable {
     let executableURL: URL
@@ -78,7 +79,7 @@ final class RunToolchainRegistry {
     ) throws -> ResolvedRunToolchain {
         guard let provider = providersByIdentifier[identifier] else {
             throw RunExecutableResolutionError(
-                message: String(format: String(localized: "No resolver is registered for toolchain %@."), identifier)
+                message: String(format: L10n.string("No resolver is registered for toolchain %@."), identifier)
             )
         }
         return try provider.resolve(
@@ -177,7 +178,7 @@ private final class GradleRunToolchainProvider: RunToolchainProvider {
     ) throws -> ResolvedRunToolchain {
         guard let executable = runtimeService.gradleExecutable(at: projectURL) else {
             throw RunExecutableResolutionError(
-                message: String(localized: "No Gradle wrapper or Gradle executable was found.")
+                message: L10n.string("No Gradle wrapper or Gradle executable was found.")
             )
         }
         return ResolvedRunToolchain(
@@ -200,7 +201,7 @@ private final class JavaRunToolchainProvider: RunToolchainProvider {
     ) throws -> ResolvedRunToolchain {
         guard let executable = runtimeService.javaExecutableURL(overridePath: options.javaHomePath) else {
             throw RunExecutableResolutionError(
-                message: String(localized: "No Java runtime was found. Set JAVA_HOME or install a JDK.")
+                message: L10n.string("No Java runtime was found. Set JAVA_HOME or install a JDK.")
             )
         }
         return ResolvedRunToolchain(
@@ -229,7 +230,7 @@ private final class MavenRunToolchainProvider: RunToolchainProvider {
             overridePath: options.mavenExecutablePath
         ) else {
             throw RunExecutableResolutionError(
-                message: String(localized: "No Maven executable was found. Edit this service configuration.")
+                message: L10n.string("No Maven executable was found. Edit this service configuration.")
             )
         }
         return ResolvedRunToolchain(

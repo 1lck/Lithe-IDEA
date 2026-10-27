@@ -47,6 +47,35 @@ struct GitWorktreeAppearanceTests {
     }
 
     @Test
+    func pathExpansionUsesStashStyleAndClearsOutsideThePath() throws {
+        let item = item(String(repeating: "long-feature-", count: 8))
+        let view = GitWorktreeListNSView(frame: CGRect(x: 0, y: 0, width: 600, height: 160))
+        view.update(items: [item], selectedWorktreeID: item.id, onSelect: { _ in })
+        let content = GitWorktreeListNSView.contentRect(in: CGRect(x: 0, y: 4, width: 600, height: 72))
+        let highlight = LitheTreeListAppearance.highlightRect(CGRect(x: 0, y: 4, width: 600, height: 72))
+        #expect(content.minX - highlight.minX == LitheTheme.Tree.horizontalInset)
+        #expect(highlight.maxX - content.maxX == LitheTheme.Tree.horizontalInset)
+        func hover(_ point: CGPoint) throws {
+            let event = try #require(NSEvent.mouseEvent(with: .mouseMoved, location: view.convert(point, to: nil),
+                modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+                eventNumber: 0, clickCount: 0, pressure: 0))
+            view.mouseMoved(with: event)
+        }
+        try hover(CGPoint(x: content.minX + 10, y: content.minY + 28))
+        let expansion = view.expansionFrame(withFrame: view.bounds)
+        #expect(view.allowsExpansionToolTips)
+        #expect(expansion.minX == content.minX)
+        #expect(expansion.width > GitWorktreeListScrollView.pathMaximumWidth)
+        let fullWidth = ceil((item.worktree.path as NSString).size(withAttributes: [.font: LitheTheme.uiNSFont(size: 12.5)]).width)
+        #expect(expansion.width == fullWidth)
+        // A wide pane must still cap the path's hover target, and the branch is a separate row.
+        try hover(CGPoint(x: content.minX + GitWorktreeListScrollView.pathMaximumWidth + 1, y: content.minY + 28))
+        #expect(view.expansionFrame(withFrame: view.bounds).isEmpty)
+        try hover(CGPoint(x: content.minX + 10, y: content.minY + 48))
+        #expect(view.expansionFrame(withFrame: view.bounds).isEmpty)
+    }
+
+    @Test
     func listHeightTracksRowCountAtTheSameWidth() throws {
         let items = (0..<20).map { item("branch-\($0)") }
         let scroll = GitWorktreeListScrollView.makeScrollView(
@@ -99,7 +128,7 @@ struct GitWorktreeAppearanceTests {
             .environment(\.locale, Locale(identifier: "en"))
         let host = NSHostingView(rootView: content)
         host.sizingOptions = []
-        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1400, height: 620),
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 1400, height: 900),
                               styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
@@ -115,10 +144,22 @@ struct GitWorktreeAppearanceTests {
         }
         let original = try #require(list(), "Worktree projection did not mount before the deadline")
         for width: CGFloat in [1400, 1000, 760] {
-            window.setContentSize(CGSize(width: width, height: 620))
+            window.setContentSize(CGSize(width: width, height: 900))
             host.layoutSubtreeIfNeeded()
             #expect(list() === original)
             #expect(original.bounds.width >= 286)
+            let open = try await AgentNativeControlTestSupport.frame(of: "worktree-action-Open in Current Window", in: host)
+            let newWindow = try await AgentNativeControlTestSupport.frame(of: "worktree-action-Open in New Window", in: host)
+            let finder = try await AgentNativeControlTestSupport.frame(of: "worktree-action-Show in Finder", in: host)
+            let copy = try await AgentNativeControlTestSupport.frame(of: "worktree-action-Copy Path", in: host)
+            #expect(abs(open.minX - finder.minX) < 0.5)
+            #expect(abs(newWindow.minX - open.maxX - LitheTheme.ActionButton.spacing) < 0.5)
+            #expect(abs(copy.minX - finder.maxX - LitheTheme.ActionButton.spacing) < 0.5)
+            #expect(abs(open.midY - newWindow.midY) < 0.5)
+            #expect(abs(finder.midY - copy.midY) < 0.5)
+            #expect(abs(open.height - LitheTheme.ActionButton.height) < 0.5)
+            #expect(open.width > finder.width, "Actions keep their natural label widths, rather than equal grid cells")
+            #expect([open, newWindow, finder, copy].allSatisfy { host.bounds.contains($0) })
             if let directory = ProcessInfo.processInfo.environment["LITHE_WORKTREE_CAPTURE_DIR"] {
                 let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
                 host.cacheDisplay(in: host.bounds, to: bitmap)

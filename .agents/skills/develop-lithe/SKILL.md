@@ -384,6 +384,70 @@ The decision and owning components are recorded in
   from the system. When a new page or row needs an explanation, add it to ⓘ
   and to the zh-Hans strings in the same change.
 
+### Source-backed settings
+
+When creating, changing, or reviewing settings, read
+`.agents/notes/implemented/architecture/2026-10-25-settings-native-configuration-editing.md`.
+Use this default interaction for non-sensitive tool configuration:
+
+- Discover the actual source using the tool's supported configuration precedence
+  and platform adapters; opening a page is read-only. Distinguish a missing file,
+  an upstream default, a read failure, and a local override instead of inventing values.
+- Populate editable controls with the current non-sensitive values, not only
+  placeholder hints. Identify the source and scope with compact state badges;
+  keep explanations in the existing info tips. Effective inherited values must
+  remain distinguishable from an explicitly saved override.
+- Editing creates a draft. Before replacing native configuration, require an
+  explicit Save/Apply confirmation identifying the target and scope. Never
+  write native configuration on keystrokes, focus loss, page exit, or page open.
+  Cancel performs no writes; unchanged values must not create an override.
+- Write to the confirmed native source, not a parallel application preference
+  that leaves the actual tool unchanged. Preserve unrelated content, permissions,
+  comments where supported, and secret fields; use guarded atomic replacement
+  and reject stale snapshots rather than overwriting external edits.
+- Re-read the native/effective configuration after a successful write and render
+  that result. Report any higher-priority override or reconnect requirement;
+  a failed save retains the draft and does not claim success. External reloads
+  and Restore Defaults must not be undone by stale focus-loss/page-exit commits.
+- Never echo passwords, tokens, private keys, or credential-bearing fields into
+  ordinary inputs, logs, previews, or fixtures. Do not re-save a redaction marker
+  as a secret. Packaged resources remain read-only; an inherited/read-only source
+  needs an explicitly selected writable override, not a silent privileged write.
+
+Prefer the upstream tool's configuration reader/writer or existing adapters over
+implementing another precedence model. A genuinely Lithe-owned preference may
+stay in the application store; explain its scope rather than pretending it edits
+the tool. Do not bulk-migrate unrelated pages merely because these rules changed.
+Cover discovery -> populated controls -> edit -> confirm/cancel -> guarded save ->
+read-back -> reopen, plus secrets, conflicts, read failures, and reset lifecycle.
+Record actual implementation evidence in the platform matrix; changing this
+policy does not mean existing pages have all been migrated or runtime-verified.
+
+### 界面文案与 i18n
+
+所有面向用户显示的文字都必须走共享 i18n 接口，词条只在 `shared/i18n/` 定义。这是硬性规则，
+不是风格偏好：硬编码文案在系统语言与应用语言不一致时会漏出错误的语言，而且很难事后定位。
+
+- 视图里的字面量交给 SwiftUI（`Text("…")`、`Button("…")`、`.help("…")` 等）按环境语言查表；
+  字面量必须在 `shared/i18n` 里有词条，缺词条会在所有语言下显示英文。
+- 视图之外（`errorDescription`、`NSAlert` 的标题与按钮、`NSLocalizedDescriptionKey`、通知、
+  状态文本、以 `String` 传入的 `title:`/`help:`/`message:` 等参数）统一使用
+  `L10n.string("…")`（`LitheModuleAPI`）；运行时才确定的格式键用 `L10n.string(key:)`。
+- 禁止：直接调用 `String(localized:)` / `NSLocalizedString`、只传 `locale:`、在 Service/Core/Platform
+  里拼接英文句子后直接显示、用字符串拼接拆分一句话（语序在中文里不同，用带参数的词条）。
+  调用方显式注入自己的语言包（测试或 Agent 的语言包）是仅有的例外。
+- 新增或修改文案时，同一次改动里：
+  1. 在 `shared/i18n/messages.json` 声明词条（macOS 原生 key、参数与类型；`Int32` 用 `macos.formats` 声明 `d`），
+     在 `locales/en-US.json` 与 `locales/zh-CN.json` 补齐译文，参数写成 `{argN}`，不要重排参数；
+  2. 运行 `node scripts/generate-i18n.mjs` 并提交生成结果；
+  3. 运行 `node scripts/verify-app-language-localization.mjs`、`node scripts/generate-i18n.mjs --check`
+     和 `node --test --test-timeout=60000 scripts/test-i18n.mjs`。
+- 检查失败时修正代码或补词条。不得放宽 `scripts/verify-app-language-localization.mjs`、扩大它的豁免名单、
+  把文案藏进变量以躲过静态检查，或为了通过检查改成 `Text(verbatim:)`。确实不需要翻译的内容
+  （产品名、示例值、标识符）才允许进入豁免，并在 PR 中说明理由。
+- 上游诊断、用户代码、Agent 返回内容、日志标识不属于界面翻译，保持原文。
+- Windows 端同样不得硬编码文案，使用 `windows/tauri/src/i18n` 的接口并在 `shared/i18n` 补词条。
+
 ### Rust
 
 - Run `cargo fmt` and follow existing crate and module conventions.
@@ -487,6 +551,7 @@ before handoff.
 
 | Change | Minimum relevant validation |
 | --- | --- |
+| 任何用户可见文案 | `node scripts/verify-app-language-localization.mjs`、`node scripts/generate-i18n.mjs --check`、`node --test --test-timeout=60000 scripts/test-i18n.mjs` |
 | Agent Notes or architecture decision migration | `./scripts/verify-agent-notes.sh` |
 | Test code or test infrastructure | `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`, then the affected platform timing harness from `write-stable-tests` |
 | Swift application or tests | `./scripts/test-macos.sh` |

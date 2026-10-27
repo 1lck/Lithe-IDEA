@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Combine
 import Foundation
 import LitheCoreContracts
@@ -11,9 +12,9 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
         var errorDescription: String? {
             switch self {
             case .readOnly:
-                "This document is read-only"
+                L10n.string("This document is read-only")
             case .editorNotSynchronized:
-                "Wait for the editor to synchronize before saving"
+                L10n.string("Wait for the editor to synchronize before saving")
             }
         }
     }

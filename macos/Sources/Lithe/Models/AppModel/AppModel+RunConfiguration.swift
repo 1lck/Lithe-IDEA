@@ -423,7 +423,7 @@ extension AppModel {
                 workspaceURL: workspaceURL
               ) else {
             throw RunConfigurationOperationFailure(
-                message: "The Java source for \(configuration.name) could not be resolved."
+                message: L10n.string("The Java source for \(configuration.name) could not be resolved.")
             )
         }
         let sessions = try await languageSessionsForWorkspaceMaintenance(for: identity)
