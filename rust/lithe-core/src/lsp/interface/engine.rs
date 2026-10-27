@@ -2129,8 +2129,21 @@ impl RuntimeSession {
                 )
                 .with_details("plugin.build.unavailable"));
             }
+            if request.method == super::build_provider::PREPARE_RUN_METHOD
+                && !state
+                    .client
+                    .server_capabilities
+                    .iter()
+                    .any(|feature| feature == super::build_provider::RUN_PREPARATION_FEATURE)
+            {
+                return Err(CoreError::new(
+                    ErrorCode::NotSupported,
+                    "The provider did not negotiate run preparation.",
+                )
+                .with_details("plugin.build.unavailable"));
+            }
             let mut params = request.params;
-            if super::build_provider::is_execution_method(&request.method) {
+            if super::build_provider::is_progress_method(&request.method) {
                 let object = params.as_object_mut().ok_or_else(|| {
                     CoreError::new(
                         ErrorCode::InvalidRequest,
@@ -5588,7 +5601,7 @@ fn push_build_progress_locked(
     let Some(pending) = state.pending.get(id) else {
         return;
     };
-    if !super::build_provider::is_execution_method(&pending.method) {
+    if !super::build_provider::is_progress_method(&pending.method) {
         return;
     }
     let Some(operation_id) = pending.operation_id.clone() else {
@@ -11260,6 +11273,39 @@ public class Main {
     }
 
     #[test]
+    fn provider_run_preparation_requires_version_four_and_returns_raw_plan() {
+        for version in [1, 2, 3] {
+            let harness = plugin_backend(json!({"litheBuild":{"version":version}}));
+            let error =
+                build_request(&harness, "lithe/build/prepareRun", json!({}), None).unwrap_err();
+            assert!(matches!(error.code, ErrorCode::NotSupported));
+            assert!(harness
+                .server
+                .messages()
+                .iter()
+                .all(|message| message["method"] != "lithe/build/prepareRun"));
+        }
+        let mut harness = plugin_backend(json!({"litheBuild":{"version":4}}));
+        let operation = build_request(&harness, "lithe/build/prepareRun", json!({}), None).unwrap();
+        let id = harness
+            .server
+            .await_request("lithe/build/prepareRun")
+            .unwrap();
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../../../shared/contracts/plugins/v1/fixtures/build-run-preparation.json"
+        ))
+        .unwrap();
+        harness
+            .server
+            .send(json!({"jsonrpc":"2.0","id":id,"result":fixture["result"]}));
+        let event = harness.await_event(|event| {
+            event.kind == "requestCompleted"
+                && event.operation_id.as_deref() == Some(operation.as_str())
+        });
+        assert_eq!(event.result.as_ref().unwrap()["value"], fixture["result"]);
+    }
+
+    #[test]
     fn provider_test_discovery_uses_the_existing_request_lifecycle() {
         let mut harness = plugin_backend(json!({"litheBuild":{"version":3}}));
         let operation = build_request(
@@ -11289,7 +11335,11 @@ public class Main {
     /// and replies are drained before checking that cancellation stayed final.
     #[test]
     fn provider_execution_progress_cancel_and_late_results_are_isolated() {
-        for (version, method) in [(2, "lithe/build/execute"), (3, "lithe/build/test")] {
+        for (version, method) in [
+            (2, "lithe/build/execute"),
+            (3, "lithe/build/test"),
+            (4, "lithe/build/prepareRun"),
+        ] {
             let mut harness = Harness::start(|_| {});
             harness
                 .server
@@ -11356,7 +11406,11 @@ public class Main {
     /// may contribute progress to that new call.
     #[test]
     fn provider_execution_reused_host_ids_reject_old_wire_progress() {
-        for (version, method) in [(2, "lithe/build/execute"), (3, "lithe/build/test")] {
+        for (version, method) in [
+            (2, "lithe/build/execute"),
+            (3, "lithe/build/test"),
+            (4, "lithe/build/prepareRun"),
+        ] {
             let mut harness = plugin_backend(json!({"litheBuild":{"version":version}}));
             let operation = "reused-build".to_string();
             let send = |harness: &Harness| {
@@ -11408,7 +11462,11 @@ public class Main {
 
     #[test]
     fn provider_execution_validates_results_and_expires_without_sleeping() {
-        for (version, method) in [(2, "lithe/build/execute"), (3, "lithe/build/test")] {
+        for (version, method) in [
+            (2, "lithe/build/execute"),
+            (3, "lithe/build/test"),
+            (4, "lithe/build/prepareRun"),
+        ] {
             let mut harness = Harness::start(|_| {});
             harness
                 .server
@@ -11435,6 +11493,8 @@ public class Main {
                             && event.operation_id.as_deref() == Some(operation.as_str())
                     })
                     .clone();
+                // Preparation returns raw launch data; the build decoder validates it.
+                let code = if version == 4 { None } else { code };
                 assert_eq!(ended.error.as_ref().map(|error| error.code.as_str()), code);
                 if code.is_none() {
                     assert_eq!(ended.result.unwrap()["value"], reply);
@@ -11505,7 +11565,7 @@ public class Main {
             .expect("initialize should have been written");
         assert_eq!(
             initialize["params"]["capabilities"]["experimental"]["litheBuild"],
-            json!({ "versions": [3, 2, 1] })
+            json!({ "versions": [4, 3, 2, 1] })
         );
 
         let error = build_request(&harness, "lithe/build/model", json!({}), None)
@@ -12012,7 +12072,7 @@ public class Main {
         assert_eq!(
             initialize["params"]["capabilities"]["experimental"],
             json!({
-                "litheBuild": { "versions": [3, 2, 1] },
+                "litheBuild": { "versions": [4, 3, 2, 1] },
                 "litheFunctions": { "versions": [1, 2] },
                 "litheVcs": { "versions": [1] }
             })

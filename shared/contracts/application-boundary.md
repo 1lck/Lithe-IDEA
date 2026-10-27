@@ -809,3 +809,16 @@ current conversation has used a skill. Explicit create/import operations write
 only to native user/project directories and preserve existing skills. Explicit toggles write native settings: Codex by discovered path via its official App Server API, Claude by name via skillOverrides in user or project-local settings. Claude states are configured visibility, not effective managed/session policy. Never persist a separate Lithe enabled flag, move packages to simulate disablement, or claim that a change revokes already loaded session content. File
 contents remain untrusted document data. Settings discovery and file management
 must not create conversations, send prompts, or interrupt existing Agent work.
+
+Build-provider application preparation and execution have separate owners. The
+workspace Build session validates a current target and prepares it; the native
+Run host owns the application process, output and stop. Explicit persistence
+uses the existing local Run v2 layer and stores a typed selector rather than
+launch facts. Reopening or restarting re-resolves that selector in the enabled
+workspace Provider and prepares afresh. Save-before-run completes before taking
+the preparation snapshot; source/configuration changes revoke pending results.
+The public Run operation ID spans preparation and process handoff, so UI and Agent
+queries keep one execution identity. Stop targets the owned preparation ID before
+launch and the owned native process ID afterward. Missing or stale references fail without a CLI or old domain fallback.
+A Provider application's native output remains visible even without generated
+Run configurations. See `../fixtures/run-configuration/build-provider.json`.

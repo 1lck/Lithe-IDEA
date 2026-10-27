@@ -5,10 +5,11 @@ use super::support::temporary_root;
 use crate::build::{
     build_check_tool_version_command, build_decode_dependencies_command,
     build_decode_diagnostics_command, build_decode_model_command,
-    build_decode_test_discovery_command, build_decode_test_results_command,
-    build_dependency_plan_command, build_detect_command, build_invocation_plan_command,
-    build_model_plan_command, build_resolve_options_command, build_sync_fingerprint_command,
-    build_task_plan_command, build_test_discovery_plan_command, build_test_plan_command,
+    build_decode_run_preparation_command, build_decode_test_discovery_command,
+    build_decode_test_results_command, build_dependency_plan_command, build_detect_command,
+    build_invocation_plan_command, build_model_plan_command, build_prepare_run_plan_command,
+    build_resolve_options_command, build_sync_fingerprint_command, build_task_plan_command,
+    build_test_discovery_plan_command, build_test_plan_command,
 };
 use crate::plugins::declarative::{language_server_launch_plan_command, validate_command};
 use crate::plugins::marketplace::install_review_command;
@@ -2013,4 +2014,112 @@ fn provider_test_discovery_is_bounded_deterministic_and_runnable() {
     let mut missing_filter = manifest;
     missing_filter["buildSystems"][0]["test"]["filters"] = json!(["suite"]);
     assert_eq!(validate(missing_filter)["status"], "rejected");
+}
+
+/// Preparation is a typed provider request, never an empty argv configuration.
+#[test]
+fn provider_run_preparation_selects_targets_and_validates_launch_data() {
+    let manifest: Value = serde_json::from_str(contract_file!(
+        "fixtures/build-provider-run-preparation.plugin.json"
+    ))
+    .unwrap();
+    let fixture: Value =
+        serde_json::from_str(contract_file!("fixtures/build-run-preparation.json")).unwrap();
+    assert_eq!(validate(manifest.clone())["status"], "ok");
+    let plan = |request: Value| {
+        build_prepare_run_plan_command(
+            json!({"manifest":manifest,"buildSystemID":"gradle","request":request}),
+        )
+        .unwrap()
+    };
+    let prepared = plan(fixture["request"].clone());
+    assert_eq!(prepared["status"], "ok", "{prepared}");
+    assert_eq!(
+        prepared["plan"]["provider"]["method"],
+        "lithe/build/prepareRun"
+    );
+    assert_eq!(
+        prepared["plan"]["provider"]["params"]["userArguments"],
+        json!(["a b"])
+    );
+    assert_eq!(
+        prepared["plan"]["provider"]["params"]["target"]["tags"],
+        json!(["application"])
+    );
+    assert!(prepared["plan"].get("arguments").is_none());
+    for (field, value) in [
+        (
+            "target",
+            json!({"name":"Other","path":"app","tags":["test"]}),
+        ),
+        ("project", json!({"name":"escape","path":"../escape"})),
+        ("userArguments", json!(["bad\u{0}"])),
+        ("outputFile", json!("out.json")),
+    ] {
+        let mut invalid = fixture["request"].clone();
+        invalid[field] = value;
+        assert_eq!(plan(invalid)["status"], "rejected");
+    }
+    for version in [1, 2, 3] {
+        let mut old = manifest.clone();
+        old["requires"]["buildProviders"] = json!(version);
+        assert_eq!(validate(old)["status"], "rejected");
+    }
+    for (field, value) in [
+        ("fromTasks", json!({"templates":["run"]})),
+        ("arguments", json!(["Main"])),
+        ("execution", json!("service")),
+        ("extension", json!({"main":"Main"})),
+    ] {
+        let mut invalid = manifest.clone();
+        invalid["buildSystems"][0]["run"][0][field] = value;
+        assert_eq!(validate(invalid)["status"], "rejected");
+    }
+    let workspace = TemporaryWorkspace::new("provider-run-launch");
+    workspace.write("app/Main.java", "class Main {}");
+    let decode = |result: Value| {
+        build_decode_run_preparation_command(json!({"manifest":manifest,"buildSystemID":"gradle",
+        "request":{"workspaceRoot":workspace.root(),"root":"app","result":result}}))
+        .unwrap()
+    };
+    let valid = decode(fixture["result"].clone());
+    assert_eq!(valid["status"], "ok", "{valid}");
+    assert_eq!(valid["launch"], fixture["result"]);
+    for (field, value) in [
+        ("executable", json!({"kind":"command","value":"/bin/java"})),
+        ("executable", json!({"kind":"absolute","value":"java"})),
+        ("arguments", json!(["bad\u{0}"])),
+        ("arguments", json!(vec!["arg"; 1025])),
+        ("workingDirectory", json!("../escape")),
+        ("workingDirectory", json!(".")),
+        ("workingDirectory", json!("app/missing")),
+        ("environment", json!({"1INVALID":"x"})),
+        ("environment", json!({"A":"bad\u{0}"})),
+        ("environment", json!({"A":1})),
+    ] {
+        let mut invalid = fixture["result"].clone();
+        invalid[field] = value;
+        let result = decode(invalid);
+        assert_eq!(
+            result["error"]["code"], "plugin.build.invalidOutput",
+            "{result}"
+        );
+    }
+}
+
+/// A workspace alias cannot make a launch execute from outside the workspace.
+#[cfg(unix)]
+#[test]
+fn provider_run_working_directory_rejects_external_symlinks() {
+    let workspace = TemporaryWorkspace::new("provider-run-symlink");
+    let outside = TemporaryWorkspace::new("provider-run-outside");
+    std::os::unix::fs::symlink(&outside.0, workspace.0.join("escape")).unwrap();
+    let manifest: Value = serde_json::from_str(contract_file!(
+        "fixtures/build-provider-run-preparation.plugin.json"
+    ))
+    .unwrap();
+    let result=build_decode_run_preparation_command(json!({"manifest":manifest,"buildSystemID":"gradle",
+        "request":{"workspaceRoot":workspace.root(),"root":".","result":{"executable":{"kind":"command","value":"java"},
+            "arguments":[],"workingDirectory":"escape","environment":{}}}})).unwrap();
+    assert_eq!(result["error"]["code"], "plugin.build.invalidOutput");
 }

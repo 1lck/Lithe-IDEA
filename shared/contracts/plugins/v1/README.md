@@ -961,7 +961,7 @@ widening the test run. Paths, scopes and declared filters are validated before
 the request is sent. The host's report project list only resolves report globs;
 it is not a second backend project model.
 
-Only a process choosing protocol version 3 receives `lithe/build/test`.
+Only a process choosing protocol version 3 or 4 receives `lithe/build/test`.
 Versions 1 and 2 explicitly refuse tests. Version 3 retains every version 2
 task behavior. Tests use the same Core-assigned operation identity,
 `lithe/build/progress`, tool hint, bounded `{ exitCode, output }` result,
@@ -982,7 +982,7 @@ Provider tests may additionally declare `discovery: true`. This requires both
 `build.testDiscoveryPlan` accepts the common plan fields and optional `refresh`
 and `tool`, returning a request for the whole instance:
 `lithe/build/discoverTests` with its effective options. Project/output-file
-selection is refused. This method also requires protocol version 3 and uses
+selection is refused. This method also requires protocol version 3 or 4 and uses
 the existing bounded request/cancellation lifecycle, without execution progress.
 
 The provider returns `{ "format": "litheTestDiscovery", "version": 1,
@@ -1008,6 +1008,72 @@ discovery. A native action must revalidate the selected ID against the current
 list before submitting its exact selectors to `lithe/build/test`; stale
 toolbar selections cannot run. The backend must reject a selector whose facts
 have become stale externally. Canonical example: `fixtures/build-test-discovery.json`.
+
+### Provider run preparation (buildProviders 4)
+
+A run declaration may use `source: "provider"` with
+`requires.buildProviders: 4`. This increment supports application targets only:
+`fromTargets.tags` is required; `fromTasks`, service execution, nonempty
+`arguments`, and extension templates are refused. The optional `name` is a
+literal display name. `workingDirectory` is supplied by the prepared result;
+the declaration's command-source default has no effect. These declarations
+never generate empty command-based persisted Run entries.
+
+`build.prepareRunPlan` validates a selected `run` declaration ID, required
+`project` and `target` selections, effective options, and bounded
+`userArguments`. It returns a provider request for `lithe/build/prepareRun`,
+with the common instance fields, options/option arguments/environment,
+`run`, `project`, `target`, and `userArguments`. An output file is refused.
+The host may add the resolved build tool hint. The provider owns upstream
+synchronization, build, classpath and launch facts; Core does not reconstruct
+those facts from source files or build configuration.
+
+Only protocol version 4 accepts this method. Version 4 retains task and test
+support. Preparation shares the Core-assigned wire `operationID`, progress,
+timeout, cancellation and stale-result handling of execution. It ends when
+preparation finishes; the application is a separate host-owned process.
+A JSON-RPC error aborts preparation and cannot launch an application. It retains
+the common LSP `serverError` category; it is not an execution exit-code result
+and does not forward a private-function `pluginErrorCode`.
+
+The successful result is a portable launch plan:
+
+```json
+{
+  "executable": { "kind": "toolchain", "value": "project-jdk" },
+  "arguments": ["-cp", "classes", "example.Main"],
+  "workingDirectory": "app",
+  "environment": {}
+}
+```
+
+The executable is either a host toolchain identifier (`toolchain`) or a bare
+command resolved by the host (`command`); absolute paths and shell command
+strings are refused. Arguments are separate strings, at most 1,024 entries
+and 64 KiB UTF-8 each, without NUL. The environment has at most 64 entries;
+keys match `[A-Za-z_][A-Za-z0-9_]*` with at most 128 bytes, values are strings
+of at most 64 KiB without NUL. The complete JSON is bounded at 32 MiB.
+`workingDirectory` must be an existing workspace-relative directory inside
+the selected instance, including after resolving filesystem aliases.
+Unknown fields are ignored. The host calls `build.decodeRunPreparation`
+with its workspace root, instance root and raw result; any malformed plan
+fails as `plugin.build.invalidOutput` before executable resolution.
+
+The native Build tree re-resolves model IDs before preparation. Source/model,
+option, settings, package and workspace changes revoke a pending preparation.
+After validation the existing Run host resolves the executable and owns output,
+stop, exit status, and argument-resource cleanup. Workspace teardown and plugin
+disable stop the application by its exact host operation ID; an old owner
+cannot stop a replacement process. The Run host can explicitly save a selector to the existing local Run v2 layer
+as `provider: "build.provider"` with `extensions.build`. The reference contains
+`pluginID`, `buildSystemID`, instance `root`, `run`, `projectID`, `targetID`, and
+raw `userArguments`, never an executable, environment, or cached classpath.
+Every restart re-resolves the enabled instance/model and sends a fresh preparation.
+Missing plugins/targets/models fail explicitly; there is no command fallback.
+Saving and running work before detector-generated Run configurations exist.
+Service coordination, debug target registration and Java/Maven migration remain
+separate. See `fixtures/build-provider-run-preparation.plugin.json`
+and `fixtures/build-run-preparation.json`.
 
 ### Build providers
 
@@ -1061,10 +1127,11 @@ The manifest only says how to start the provider and which sources use it.
 Everything else is negotiated in the LSP `initialize` exchange, so a provider
 can add optional data within a negotiated protocol version:
 
-- The host sends `capabilities.experimental.litheBuild: { "versions": [3, 2, 1] }`,
+- The host sends `capabilities.experimental.litheBuild: { "versions": [4, 3, 2, 1] }`,
   the build-provider protocol versions it speaks. Version 1 is the two
   requests above with the params and result formats of this section;
-  version 2 adds typed task execution; version 3 adds typed test execution.
+  version 2 adds typed task execution; version 3 adds typed test execution
+  and discovery; version 4 adds application run preparation.
 - The provider answers `capabilities.experimental.litheBuild: { "version": 1 }`
   with the version it chose from that list. A provider that answers no
   version, or one the host did not offer, is not used for build requests; a

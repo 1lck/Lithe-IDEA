@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-构建插件现在可以在自己的工作区 Provider（提供构建能力的后端进程）里执行任务、发现和运行测试，而不是把每个操作都展开为宿主命令。原生 Build 窗口复用现有工作区会话、输出、诊断、取消和进程清理，测试报告复用现有解析器，不要求插件增加网页或调用私有函数。这是 [#1495](https://github.com/1lck/Lithe-IDEA/issues/1495) 阶段 C 的构建与测试能力；Maven/Java 业务迁移、运行准备与公共调试注册接入仍须另行完成。
+构建插件现在可以在自己的工作区 Provider（提供构建能力的后端进程）里执行任务、发现和运行测试，而不是把每个操作都展开为宿主命令。原生 Build 窗口复用现有工作区会话、输出、诊断、取消和进程清理，测试报告复用现有解析器，不要求插件增加网页或调用私有函数。这是 [#1495](https://github.com/1lck/Lithe-IDEA/issues/1495) 阶段 C 的构建、测试与应用启动准备基础能力；Maven/Java 业务迁移、多服务编排，以及运行准备与既有调试适配器注册表的衔接不在本决策已实现的范围内。
 
 ## 问题
 
@@ -62,6 +62,32 @@ Core 用 JSON-RPC 请求 ID 作为后端看到的 `operationID`，进度按仍�
 
 不要这样做：宿主通过 `functions.invoke("maven.build")` 猜测 Maven 私有函数；Provider 超时后再启动旧 `MavenService`；为获取工作区进程而创建空网页。它们分别绕过领域契约、保留旧业务回退和错误绑定页面生命周期。
 
+### 应用准备与应用进程分别管理
+
+`buildProviders: 4` 与进程协商版本 4 增加应用启动准备。Provider 先使用自己的上游工程状态完成同步、构建并给出启动计划；Core 只检查目标身份、作用范围、参数大小、可执行工具引用与工作目录。比如后端从自己的工程引擎取得 classpath，返回分开的参数；宿主不要解析 POM 或源码再算另一份 classpath，也不要把启动命令拼成 shell 字符串。
+
+本批只开放模型目标上的应用入口。运行入口不再生成一个空命令配置：Build 树按目标标签列出入口，点击时重新查询当前模型 ID。准备过程仍在 Build Output 显示进度，成功后交给现有 RunService，并切到 Run 窗口。RunService 继续持有进程、工具解析器、输出和 Java 长参数临时文件的租约；应用退出、停止或启动失败时释放租约。Provider 回复只是准备完成，不代表应用已经结束。
+
+准备中的源码、模型、配置、插件或工作区变化使旧结果失效，解码完成后也要再次检查。应用启动后不因普通源码编辑就终止；停用所属插件或关闭工作区才按对应操作 ID 停止，旧操作 ID 不能停止新进程。运行目录只能是工作区内、属于当前实例的已有目录；符号链接解析后的目录也必须满足这一限制。没有新增运行资源目录、下载或跨工作树缓存，既有平台进程与临时参数 adapter 继续负责可写位置，安装包保持只读。
+
+首次从 Build 树运行仍在 Build 窗口管理准备；从 Run 重启时，Run 的停止动作取消对应准备 ID，成功启动后改由进程 ID 管理。应用输出不再要求旧式检测器先生成 Run 配置，也不会因缺少 generated.json 被配置引导页遮住。多服务编排与调试目标注册仍未接入，不能把此增量表述为阶段 C 或 Java/Maven 迁移全部完成。
+
+### 保存选择器，重启时重新准备
+
+用户可以把当前 Provider 入口显式保存到已有 `.lithe/run/local.json`，不另建最近运行数据库或镜像设置。Core 只生成文档变更，平台适配器检查原文件快照后原子写入，并补齐本地文件的忽略规则；写入后重新读取，失败明确报告。相同插件/实例/目标/声明重复保存会更新原条目并保留 ID，不产生重复配置，也不改动其他条目和 JDK 默认值。
+
+保存的是“由哪个插件的哪个实例准备哪个模型目标”，加上原始参数数组，不是后端上一次返回的 classpath、命令或环境。比如保存 `Main` 后重启，宿主重新查找当前已启用的插件和模型 ID，再发送 `prepareRun`；不能直接执行上次的 `java -cp ...`。首次保存不需要生成器建立一份空模型，读取时仅对明确保存的 Provider 入口允许空生成层；其他未识别工程保留原缺失语义。
+
+原生点击和重启先等待工作区文档保存，保存失败或工作区代次改变便停止，不发送准备请求。准备失败、用户停止、插件停用和工作区切换各自终结对应身份；旧准备完成不能启动进程，旧终止事件不能结束替换准备。应用仍使用单个主运行槽，不宣称已经提供通用 Services 或多应用并行编排。
+
+### SDK 使用同一组类型化入口
+
+配套 Node/Java SDK 源码在独立的 `lithe-plugin-docs` 仓库实现任务、测试、发现与运行准备处理器，不复制进主仓库。SDK 选择宿主明确提供的最高共同协议版本；版本 1 不能调用执行、版本 2 不能调用测试、版本 3 不能调用运行准备，即使后端注册了对应处理器也一样。清单能力准入与进程协商是两层独立检查，SDK 不用私有函数代替领域方法。
+
+执行、测试和运行准备的上下文保留 Core 分配的线缆操作身份，进度只带这份身份。处理器改动自己的参数对象不能换掉进度归属；取消和结束后不再报告。Node 的类型声明与 Java 的具名入口共同表达这条边界，Core 继续负责选择器、工作区路径与领域输出校验，SDK 不再维护一份工程引擎。
+
+两套无页面示例使用虚构引擎展示协议，端到端回归通过真实 Core 检查构建退出码、精确筛选、运行前构建与准备计划、并行工作区隔离、取消后的工具清理，以及包含 SDK/JAR 的完整包字节不变。SDK 处理器属于开发中的源码，不代表已发布 SDK 或现有 Maven/Java 插件完成迁移；发布契约副本仍必须等主仓库合并后运行同步工具。
+
 ## 考虑过的备选方案
 
 - **扩展独立页面 backend。** 它是全应用范围的私有服务；改为工作区服务需要重复已有 Provider 的作用域和清理。执行首先复用现有工作区机制。
@@ -77,7 +103,13 @@ Core 用 JSON-RPC 请求 ID 作为后端看到的 `operationID`，进度按仍�
 
 ## 验证
 
-共享 fixture 覆盖声明准入、请求/结果与无效输入。Core 回归验证版本 1 拒绝、版本 2 执行、进度映射、取消与迟到结果隔离，以及注入时间的超时。macOS 回归覆盖真实 Core 计划解码、原生服务不启动命令、非零退出码、配置/停用/工作区失效、同工作区会话复用及不同工作区隔离，读取与执行前后包资源字节不变。脚本化运行时验证不等于真实安装包或 Maven/Java 工程验收。
+共享 fixture 覆盖版本准入、类型化请求/回复、路径与大小限制，以及本地 Run 选择器。Core 回归使用独立计时进程验证旧协议拒绝新方法、进度映射、取消、注入时间的超时和晚到结果；保存回归验证不生成空模型、重复保存保留 ID、其他命名空间的元数据和工具链不丢失、缺省参数归一化、非法进程字段明确拒绝。
+
+macOS 使用固定的 Swift 6.3.3 工具链和原生计时 harness。相关服务回归控制准备开始、解码暂停、停止或工作区切换的顺序；原生存储用真实 Core 和隔离临时目录验证保存后读回。Run 的对外操作身份从准备到应用退出保持不变，底层准备/进程各自按身份取消；Agent 启动返回同一主运行记录，授权仍沿用既有入口。插件停用、进程替换和工作区切换不能留下旧输出、订阅或可操作的旧主运行记录。
+
+Agent 入口回归从真实本地 Run 配置读取选择器，用可控 Provider 准备与进程替身依次验证启动、准备中停止、重启、输出和退出状态。准备到进程的交接不得更换公开操作 ID；重启产生新 ID，旧 ID 的停止请求必须报告失效，不能取消新准备。替身不启动系统工具，这项证据不代替真实插件后端的端到端验收。
+
+可复验的检查入口：
 
 ```bash
 ./scripts/verify-agent-notes.sh
@@ -87,24 +119,37 @@ Core 用 JSON-RPC 请求 ID 作为后端看到的 `operationID`，进度按仍�
 ./scripts/verify-windows-boundaries.sh
 ./scripts/verify-rust-core-comments.sh
 ./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh
-./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'BuildSystemServiceTests|MacBuildProviderSessionsTests|RustBuildSystemOperationsTests|BuildToolProviderResolutionTests|PluginWebBridgeTests'
+./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --jobs 6 --filter 'BuildSystemServiceTests|ExecutionModuleTests|MacBuildProviderSessionsTests|RustBuildSystemOperationsTests|BuildToolProviderResolutionTests|PluginWebBridgeTests|BuildSystemToolWindowTests|RunConfigurationIntegrationTests|RunWorkflowCoordinatorTests|IdeCapabilitiesTests'
+cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib build_systems
+cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib run_configuration
+cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib lsp
 ```
 
-2026-10-26 本地验证：macOS 116 项与相关 Core/LSP/插件/构建 190 项通过，单项计时分别在 `macos-swift.json`、`core-provider-focused.json`；新增测试最长 74 毫秒。官方 SDK 工具对当前 Core 临时 Git 快照的 Node/Java/Rust 示例共 4 项端到端检查通过；这验证现有 SDK 的协议兼容，不代表 SDK 已有新执行处理器。i18n 35 项、共享契约、Rust 注释、Windows 边界、包只读静态检查和功能矩阵门禁均通过。
+当前本地逐项计时证据为 `saved-provider-complete-macos.json`、`saved-provider-core.json`、`provider-sdk-unit.json` 与 `provider-sdk-native.json`，对应 HTML/JUnit 保存在 `.artifacts/test-stability/`。SDK 兼容场景另外使用契约锁定的 Core，原生工作流场景使用显式工作区源码快照，不能把日志里的基线 SHA 当作完整已提交实现。Java 产物检查 Java 8 字节码；本地运行时和 Windows 实机证据分别记录，不能用编译替代运行。
 
-测试执行补充验证：macOS 119 项与相关 Core 194 项通过，计时分别记录于 `provider-tests-macos.json` 和 `core-provider-focused.json`。原生入口覆盖零/非零退出码、报告发布、报告解析期间改选项，以及任务/测试共用的取消和迟到输出隔离；会话回归对两个方法分别验证跨工作区隔离和包字节不变。诊断解析后的反向订阅断言对两个入口各观察 500 毫秒，聚合测试约 1.025 秒；报告解析对应断言约 520 毫秒，不使用睡眠同步。
+在 `lithe-plugin-docs` 运行以下入口可以复验 SDK 部分：
 
-官方 SDK 工具在 `lithe-plugin-docs@2215a62b4d748a627bc5bb00ccec8bbf3e6ac749` 对当前 Core 的隔离快照完成 4 项端到端检查，已有版本 1 的模型/依赖及函数示例继续可用；这仍是兼容性证据，不代表三个 SDK 已提供版本 3 的测试处理器。i18n 35 项通过，功能矩阵继续保留真实安装包与 Windows 待验收状态。新增测试路径没有增加下载物或缓存资源，资源复用清单不变。
+```bash
+node --test sdk/node/test/*.test.mjs scripts/*.test.mjs
+npm ci --prefix sdk/node --ignore-scripts
+npm run --prefix sdk/node test:types
+mvn -B -ntp -f sdk/java/pom.xml verify
+node scripts/sdk-e2e.mjs
+node scripts/sdk-e2e.mjs --source /path/to/Lithe-IDEA --working-tree --build-workflows
+```
 
-2026-10-27 测试发现先完成 macOS 167 项与 Core 196 项回归；合入 `preview@32021a86f0c6c4ad2964dbbe3c2bb7854d84ad67` 后，macOS 197 项、相关 Core 207 项、SDK 端到端 4 项与 i18n 35 项通过。`pr1517-merged-macos.json` 与 `pr1517-merged-core.json` 记录逐项计时，同时覆盖调试适配器与插件热激活能力。发现清单往返真实 Core、原生精确运行、源码/设置/选项失效、排队后立即替换、无后端/后端失败，以及解码期间取消/停用/切换工作区均有回归。五种迟到清单的反向订阅各观察 500 毫秒，聚合约 2.526 秒；这是有界的不应发布断言，不是靠睡眠等待成功。首次完整重编译在链接测试包前达到 600 秒套件期限，未开始执行测试；保留缓存、使用相同期限重跑后通过，原始超时记录保留。SDK 工具使用 `lithe-plugin-docs@aa9c4433cf3af268c506b1279391488f47703f3e` 对合并源码的隔离快照验证，SDK 源码与前述版本一致；协议 3 的真实插件/SDK 处理器与发行包实机验收不包含在这项兼容性证据中。
+工作区快照工具只复制 `rust/` 和 `shared/` 的暂存、未暂存与未跟踪源码，源目录和 Git index 保持只读，忽略的构建缓存不复制。SDK 验证使用独立构建目录，不与主工作树共享可变 Cargo 状态；这些临时验证输入不是产品运行资源或可跨工作树复用缓存。
 
-`verify-service-boundaries.sh` 仍报告本次未修改、基线已存在的 `macos/Sources/Lithe/Services/Java/RunLaunchEnvironment.swift:50` 硬编码系统路径，未放宽规则。真实发行包工作流与 Windows 实机验收未执行，矩阵继续保持 `pending`。契约副本合并后同步；新执行 SDK 与 Maven/Java 消费者继续单独迁移。
+这些证据不替代真实插件工程、发行包和 Windows 实机验收，功能矩阵保持 `pending`。没有新增下载物或产品资源目录；本地用户配置不属于可跨工作树共享的构建缓存。新增目录或依赖时仍须遵循资源复用和安装包只读规则。
 
 ## 适用范围
 
 - `rust/lithe-core/src/build/`、`rust/lithe-core/src/lsp/interface/`、`rust/lithe-core/src/plugins/`
+- `rust/lithe-core/src/execution/configuration.rs`
 - `macos/Sources/LitheCoreContracts/Execution/BuildSystemContracts.swift`
 - `macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift`
+- `macos/Sources/LitheExecutionModule/Services/RunService.swift`
+- `macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift`
 - `macos/Sources/LitheExecutionModule/Application/BuildSystemsFeatureModel.swift`
 - `macos/Sources/Lithe/Views/Run/BuildSystemToolWindowView.swift`
 - `macos/Sources/LitheLanguageIntelligenceModule/Runtime/LanguageServerSession.swift`
@@ -112,3 +157,7 @@ Core 用 JSON-RPC 请求 ID 作为后端看到的 `operationID`，进度按仍�
 - `macos/Sources/Lithe/Core/Rust/RustBuildSystemOperations.swift`
 - `shared/contracts/plugins/v1/`
 - `shared/platform-feature-matrix/features/build-system-plugins.json`
+- `shared/contracts/run-configuration-v2.schema.json`
+- `shared/fixtures/run-configuration/build-provider.json`
+- `macos/Sources/Lithe/Platform/MacOS/RunConfiguration/MacRunConfigurationStore.swift`
+- `macos/Sources/Lithe/Application/Features/IdeCapabilitiesFeatureModel.swift`

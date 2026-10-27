@@ -102,6 +102,15 @@ public struct DeclarativeBuildSystem: Equatable, Sendable {
     public let testScopes: [BuildScope]
     /// Tags a target must carry to run its tests.
     public let testTargetTags: [String]
+    public struct ProviderRun: Equatable, Identifiable, Sendable {
+        public let id: String
+        public let displayName: String
+        public let targetTags: [String]
+        public init(id: String, displayName: String, targetTags: [String]) {
+            self.id = id; self.displayName = displayName; self.targetTags = targetTags
+        }
+    }
+    public let providerRuns: [ProviderRun]
     public let testDiscovery: Bool
     /// Empty when the build system lists no dependencies.
     public let dependencyScopes: [BuildScope]
@@ -112,13 +121,14 @@ public struct DeclarativeBuildSystem: Equatable, Sendable {
     public init(
         id: String, displayName: String, icon: PluginUIIcon? = nil, modelSource: ModelSource?,
         options: [Option] = [], tasks: [Task], testScopes: [BuildScope], testTargetTags: [String] = [],
-        dependencyScopes: [BuildScope], declaresProvider: Bool = false, testDiscovery: Bool = false
+        dependencyScopes: [BuildScope], declaresProvider: Bool = false, testDiscovery: Bool = false, providerRuns: [ProviderRun] = []
     ) {
         self.id = id; self.displayName = displayName; self.icon = icon; self.modelSource = modelSource
         self.options = options; self.tasks = tasks
         self.testScopes = testScopes; self.testTargetTags = testTargetTags; self.dependencyScopes = dependencyScopes
         self.declaresProvider = declaresProvider
         self.testDiscovery = testDiscovery
+        self.providerRuns = providerRuns
     }
 
     public func option(_ id: String) -> Option? {
@@ -661,6 +671,59 @@ package struct BuildTaskRequest: Equatable, Sendable {
     }
 }
 
+/// Model identities are resolved again immediately before preparing a launch.
+package struct BuildRunRequest: Equatable, Sendable {
+    package let run: String
+    package let projectID: String
+    package let targetID: String
+    package var userArguments: [String] = []
+    package init(run: String, projectID: String, targetID: String, userArguments: [String] = []) {
+        self.run = run; self.projectID = projectID; self.targetID = targetID; self.userArguments = userArguments
+    }
+}
+
+/// A persisted selector. Every launch asks the current Provider to prepare again.
+package struct BuildProviderRunReference: Codable, Hashable, Sendable {
+    package let pluginID: String
+    package let buildSystemID: String
+    package let root: String
+    package let run: String
+    package let projectID: String
+    package let targetID: String
+    package let userArguments: [String]
+    package init(pluginID: String, buildSystemID: String, root: String, run: String,
+                 projectID: String, targetID: String, userArguments: [String] = []) {
+        self.pluginID = pluginID; self.buildSystemID = buildSystemID; self.root = root; self.run = run
+        self.projectID = projectID; self.targetID = targetID; self.userArguments = userArguments
+    }
+    package var request: BuildRunRequest {
+        BuildRunRequest(run: run, projectID: projectID, targetID: targetID, userArguments: userArguments)
+    }
+}
+
+/// Only Core-validated, portable process data crosses into the Run host.
+package struct BuildRunPreparation: Codable, Equatable, Sendable {
+    package struct Executable: Codable, Equatable, Sendable {
+        package enum Kind: String, Codable, Sendable { case command, toolchain }
+        package let kind: Kind
+        package let value: String
+    }
+    package let executable: Executable
+    package let arguments: [String]
+    package let workingDirectory: String
+    package let environment: [String: String]
+    package var launchPlan: SharedLaunchPlan {
+        SharedLaunchPlan(executable: executable.kind == .command ? .command(executable.value) : .toolchain(executable.value),
+                         arguments: arguments, workingDirectory: workingDirectory, environment: environment)
+    }
+}
+
+@MainActor
+package protocol BuildRunLaunching: AnyObject {
+    func launchPreparedRun(_ plan: BuildRunPreparation, workspaceURL: URL, title: String, configuration: RunConfiguration?) throws -> String
+    func stopPreparedRun(_ operationID: String)
+}
+
 package struct BuildTestRequest: Equatable, Sendable {
     package let project: BuildSelection?
     package let target: BuildSelection?
@@ -972,6 +1035,10 @@ package protocol BuildSystemPlanning: Sendable {
         -> BuildOutputPlan
     func testPlan(_ target: BuildSystemTarget, context: BuildPlanContext, request: BuildTestRequest) throws
         -> BuildTestPlan
+    func prepareRunPlan(_ target: BuildSystemTarget, context: BuildPlanContext, run: String,
+                        project: BuildSelection, selectedTarget: BuildSelection, userArguments: [String]) throws -> BuildProviderRequest
+    func decodeRunPreparation(_ target: BuildSystemTarget, workspaceURL: URL, root: String,
+                              result: ToolingJSONValue) throws -> BuildRunPreparation
     func testDiscoveryPlan(_ target: BuildSystemTarget, context: BuildPlanContext) throws -> BuildProviderRequest
     func decodeTestDiscovery(
         _ target: BuildSystemTarget, context: BuildPlanContext, result: ToolingJSONValue
@@ -1061,6 +1128,9 @@ package protocol BuildProviderRequesting: AnyObject {
         to target: BuildProviderTarget,
         timeout: Duration
     ) async throws -> ToolingJSONValue
+    /// Prepares portable launch data, retaining execution progress and cancellation.
+    func prepareRun(_ request: BuildProviderRequest, on target: BuildProviderTarget, timeout: Duration,
+                    progress: @escaping @MainActor @Sendable (BuildProviderProgress) -> Void) async throws -> ToolingJSONValue
     /// Runs a typed provider task in the same workspace session.
     func execute(
         _ request: BuildProviderRequest, on target: BuildProviderTarget, timeout: Duration,

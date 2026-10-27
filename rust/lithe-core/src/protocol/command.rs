@@ -106,6 +106,10 @@ pub enum CoreCommand {
     BuildTaskPlan,
     /// Expands a build test run and its result location (`build.testPlan`).
     BuildTestPlan,
+    /// Plans typed provider run preparation (`build.prepareRunPlan`).
+    BuildPrepareRunPlan,
+    /// Validates prepared launch data (`build.decodeRunPreparation`).
+    BuildDecodeRunPreparation,
     /// Plans provider-owned test discovery (`build.testDiscoveryPlan`).
     BuildTestDiscoveryPlan,
     /// Validates provider-owned test selectors (`build.decodeTestDiscovery`).
@@ -528,6 +532,8 @@ impl CoreCommand {
             "build.modelPlan" => Some(Self::BuildModelPlan),
             "build.taskPlan" => Some(Self::BuildTaskPlan),
             "build.testPlan" => Some(Self::BuildTestPlan),
+            "build.prepareRunPlan" => Some(Self::BuildPrepareRunPlan),
+            "build.decodeRunPreparation" => Some(Self::BuildDecodeRunPreparation),
             "build.testDiscoveryPlan" => Some(Self::BuildTestDiscoveryPlan),
             "build.decodeTestDiscovery" => Some(Self::BuildDecodeTestDiscovery),
             "build.dependencyPlan" => Some(Self::BuildDependencyPlan),

@@ -1940,6 +1940,7 @@
 "Load more debugger variables" = "加载更多调试变量";
 "Load or reload the project model before running all tests, so subproject reports are collected." = "运行全部测试前，请加载或重新加载项目模型，以便收集子项目的测试报告。";
 "Load the %@ model" = "加载 %@ 的模型";
+"Load the current build model and enable its provider before running this configuration." = "请先加载当前构建模型并启用对应提供方，再运行此配置。";
 "Load the dependencies again" = "重新加载依赖";
 "Load the dependencies of %@" = "加载 %@ 的依赖";
 "Load the project model" = "加载项目模型";
@@ -3101,6 +3102,7 @@
 "Run another ACP Agent you installed yourself. It must support signing in with a custom API key gateway." = "运行你自行安装的其他 ACP Agent。它必须支持通过自定义 API 密钥网关登录。";
 "Run checked configurations without restarting running services" = "启动勾选的配置，已运行的服务保持运行";
 "Run configuration" = "运行配置";
+"Run configuration changed while saving. Reload and try again." = "保存期间运行配置已更改。请重新加载后再试。";
 "Run configurations" = "运行配置";
 "Run configurations and Maven goals started in Lithe. They always stop when their project or window closes or Lithe quits, together with the processes they started; this only decides whether Lithe lists them and asks first." = "在 Lithe 中启动的运行配置和 Maven 目标。项目或窗口关闭、或退出 Lithe 时，它们总会连同自己启动的进程一起停止；这里只决定 Lithe 是否先列出并询问。";
 "Run configurations are unavailable. Enable the execution module and try again." = "运行配置暂不可用，请启用执行模块后重试。";
@@ -3168,6 +3170,7 @@
 "Save local changes with" = "本地更改保存方式";
 "Save message" = "保存信息";
 "Save or discard unsaved files before deleting this item" = "删除此项目之前，请先保存或丢弃未保存的文件";
+"Save provider run configuration to .lithe/run/local.json" = "将提供方运行配置保存到 .lithe/run/local.json";
 "Save scope" = "保存范围";
 "Save shared instructions" = "保存共享指令";
 "Save the active document" = "保存当前文档";
@@ -3181,6 +3184,7 @@
 "Saved only for this project on this computer in .lithe/run/local.json and excluded from Git." = "仅为这台电脑上的此项目保存在 .lithe/run/local.json，并已从 Git 中排除。";
 "Saved to %@" = "已保存到 %@";
 "Saves, connects, and opens the remote folder in this window." = "保存、连接，并在当前窗口打开远程文件夹。";
+"Saving build provider run configurations is unavailable." = "当前无法保存构建提供方运行配置。";
 "Saving replaces the current GitHub metadata." = "保存后将替换当前 GitHub 元数据。";
 "Saving writes to" = "保存将写入";
 "Scala Support" = "Scala 支持";
@@ -3704,6 +3708,7 @@
 "The branch now contains the completed plan. Its original history remains available through the recovery reference." = "操作计划已执行完成。仍可通过恢复引用查看分支的原始历史。";
 "The breakdown needs Model call statistics (on by default). After turning it on, reconnect and send a message." = "分项需要开启“模型调用统计”（默认开启）。开启后请重新连接并发送消息。";
 "The build provider failed to start." = "构建 Provider 启动失败。";
+"The build provider returned an invalid launch plan." = "构建提供方返回了无效的启动计划。";
 "The build provider stopped before it was ready." = "构建 Provider 在就绪前已停止。";
 "The build tool exited with code %lld." = "构建工具已退出，退出码 %lld。";
 "The build tool output is too large or not UTF-8." = "构建工具的输出过大或不是 UTF-8 编码。";
@@ -3840,6 +3845,7 @@
 "The repository will be opened in detached HEAD state." = "仓库将以 detached HEAD 状态打开。";
 "The request has no secret." = "请求不包含密钥。";
 "The response stopped at the model's token limit." = "回复已达到模型的 token 上限，已停止。";
+"The saved provider run configuration is unavailable." = "已保存的提供方运行配置不可用。";
 "The selected AI provider has an invalid API URL or model." = "所选 AI 服务商的 API 地址或模型无效。";
 "The selected AI provider has no API key." = "所选 AI 服务商没有 API 密钥。";
 "The selected background image authorization is invalid." = "所选背景图片的授权无效。";
@@ -6156,6 +6162,7 @@
 "native.interface" = "界面";
 "native.interrupt" = "中断";
 "native.interrupted" = "已中断";
+"native.invalidBuildProviderLaunchPlan" = "构建提供方返回了无效的启动计划。";
 "native.invalidGitTagName" = "Git 标签名称无效。";
 "native.invalidHookFileGuards" = "Hook 文件校验信息无效。";
 "native.invalidIdeApiRequest" = "IDE API 请求无效";
@@ -6398,6 +6405,7 @@
 "native.loadMoreCommits" = "加载更多提交";
 "native.loadMoreDebuggerVariables" = "加载更多调试变量";
 "native.loadProjectModel" = "加载项目模型";
+"native.loadProviderModelBeforeRun" = "请先加载当前构建模型并启用对应提供方，再运行此配置。";
 "native.loadTheDependenciesAgain" = "重新加载依赖";
 "native.loadTheDependenciesOf" = "加载 %1$@ 的依赖";
 "native.loadTheModel" = "加载 %1$@ 的模型";
@@ -7210,6 +7218,8 @@
 "native.providerDetails" = "服务商详情";
 "native.providerName" = "服务商名称";
 "native.providerRequiresAnAPIKey" = "服务商需要 API 密钥";
+"native.providerRunSaveConflict" = "保存期间运行配置已更改。请重新加载后再试。";
+"native.providerRunSavingUnavailable" = "当前无法保存构建提供方运行配置。";
 "native.providers" = "供应商管理";
 "native.provides" = "提供";
 "native.pruneStaleRecords" = "清理陈旧记录";
@@ -7629,6 +7639,7 @@
 "native.saveMetadata" = "保存元数据";
 "native.saveOrDiscardUnsavedFilesBeforeDeletingThisItem" = "删除此项目之前，请先保存或丢弃未保存的文件";
 "native.savePatch" = "保存补丁…";
+"native.saveProviderRunConfiguration" = "将提供方运行配置保存到 .lithe/run/local.json";
 "native.saveScope" = "保存范围";
 "native.saveSharedInstructions" = "保存共享指令";
 "native.saveTheActiveDocument" = "保存当前文档";
@@ -7640,6 +7651,7 @@
 "native.savedInLitheRunConfigurationsJsonForTheWholeTeamLocalJDKPathsAreNeverShared" = "保存在 .lithe/run/configurations.json，供整个团队使用。本机 JDK 路径不会共享。";
 "native.savedInLitheRunLocalJsonAndExcludedFromGit" = "保存在 .lithe/run/local.json，并已从 Git 中排除。";
 "native.savedOnlyForThisProjectOnThisComputerInLitheRunLocalJsonAndExcludedFromGit" = "仅为这台电脑上的此项目保存在 .lithe/run/local.json，并已从 Git 中排除。";
+"native.savedProviderRunUnavailable" = "已保存的提供方运行配置不可用。";
 "native.savedTo" = "已保存到 %1$@";
 "native.savesConnectsAndOpensTheRemoteFolderInThisWindow" = "保存、连接，并在当前窗口打开远程文件夹。";
 "native.savingReplacesTheCurrentGitHubMetadata" = "保存后将替换当前 GitHub 元数据。";

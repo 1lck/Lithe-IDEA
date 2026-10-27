@@ -89210,6 +89210,72 @@
       "parameters": {
         "arg1": "string"
       }
+    },
+    {
+      "id": "native.invalidBuildProviderLaunchPlan",
+      "description": "Native UI: Invalid build provider launch plan",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The build provider returned an invalid launch plan.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.saveProviderRunConfiguration",
+      "description": "Native UI: Save provider run configuration to .lithe/run/local.json",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Save provider run configuration to .lithe/run/local.json",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.providerRunSavingUnavailable",
+      "description": "Native UI: Saving build provider run configurations is unavailable.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Saving build provider run configurations is unavailable.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.loadProviderModelBeforeRun",
+      "description": "Native UI: Load the current build model and enable its provider before running this configuration.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Load the current build model and enable its provider before running this configuration.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.providerRunSaveConflict",
+      "description": "Native UI: Provider run save conflict",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Run configuration changed while saving. Reload and try again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.savedProviderRunUnavailable",
+      "description": "Native UI: Saved provider selection unavailable",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The saved provider run configuration is unavailable.",
+        "arguments": []
+      }
     }
   ]
 }

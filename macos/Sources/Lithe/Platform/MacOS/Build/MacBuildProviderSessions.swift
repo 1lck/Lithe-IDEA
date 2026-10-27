@@ -130,6 +130,14 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
         return try JSONDecoder().decode(BuildProviderExecutionResult.self, from: JSONEncoder().encode(value))
     }
 
+    func prepareRun(_ request: BuildProviderRequest, on target: BuildProviderTarget, timeout: Duration,
+                    progress: @escaping @MainActor @Sendable (BuildProviderProgress) -> Void) async throws -> ToolingJSONValue {
+        let session = try await ownedSession(for: target)
+        try Task.checkCancellation()
+        return try await session.buildRequest(method: request.method, params: request.params,
+                                              timeout: Self.seconds(timeout), progress: progress)
+    }
+
     func pluginFunctions(of target: BuildProviderTarget) async throws -> [String] {
         try await ownedSession(for: target).functionIDs
     }

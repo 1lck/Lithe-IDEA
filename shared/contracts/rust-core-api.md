@@ -1112,6 +1112,8 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `build.testPlan` | Plan a test run for a scope, suite, or case and say where its reports will be |
 | `build.testDiscoveryPlan` | Plan opt-in Provider test discovery for an instance |
 | `build.decodeTestDiscovery` | Validate, deduplicate and order Provider test selectors |
+| `build.prepareRunPlan` | Plan Provider-owned application preparation from a model target |
+| `build.decodeRunPreparation` | Validate portable launch data before the native Run host starts a process |
 | `build.dependencyPlan` | Expand the command that prints a project's dependency tree, or the request a build provider answers |
 | `build.decodeModel` | Decode model output or a provider result into projects, targets, tasks, content roots, option values, and run entries |
 | `build.decodeTestResults` | Decode a test run's reports and output into per-case results and a summary |
@@ -2568,14 +2570,17 @@ and virtual-location representation as ordinary navigation.
 `lsp.buildRequest` accepts `{ sessionId, operationId?, method, params,
 timeoutMilliseconds? }` and returns `{ operationId }`. `method` and `params`
 are the `provider` field of a `build.modelPlan`, `build.dependencyPlan` or
-provider-sourced `build.taskPlan`/`build.testPlan` result. Version 1 accepts
+provider-sourced `build.taskPlan`/`build.testPlan`, `build.testDiscoveryPlan`, or
+`build.prepareRunPlan` result. Version 1 accepts
 `lithe/build/model` and `lithe/build/dependencies`; version 2 adds
 `lithe/build/execute`, version 3 adds `lithe/build/test` with the same bounded
 execution lifecycle and `lithe/build/discoverTests` with the raw result lifecycle.
+Version 4 adds `lithe/build/prepareRun`, with execution progress but a raw launch
+plan passed to `build.decodeRunPreparation` before native process startup.
 Other methods are `invalid_request`; tasks on version 1
-and tests on versions 1/2 are `not_supported`.
+and tests on versions 1/2 or run preparation on versions 1/2/3 are `not_supported`.
 Every session offers
-`capabilities.experimental.litheBuild: { versions: [3, 2, 1] }` in `initialize`; a
+`capabilities.experimental.litheBuild: { versions: [4, 3, 2, 1] }` in `initialize`; a
 session whose process did not answer one of those versions rejects the request
 with `not_supported`, so a shared provider that does not speak the protocol
 still serves its language. `timeoutMilliseconds` replaces the session's request
@@ -2997,6 +3002,21 @@ object in the local layer (e.g.
 provides defaults for every configuration's `extensions.java.*`. A non-empty
 per-configuration toolchain path overrides the corresponding project default.
 
+Provider applications can be explicitly saved with `runConfig.createUserConfiguration`
+using `{root,scope:"local",name,type:"buildProvider",build:{pluginID,buildSystemID,
+root,run,projectID,targetID,userArguments?}}`. Core upserts the existing local
+reference by selector identity and retains its `user:` ID, unrelated configurations
+and project toolchain defaults. `extensions.build` in Run v2 holds the typed
+reference; process commands, top-level args/environment/toolchains/debug are
+refused for `build.provider`. Current model membership is revalidated by the
+native build workflow before every preparation. No generated document is needed:
+`runConfig.inspect` recognizes explicit saved local references and `runConfig.resolve`
+merges them against an empty generated layer. A workspace without generated data
+or an explicit saved Provider reference retains the existing missing state.
+The platform guards the source snapshot, atomically writes only the local layer,
+then re-reads the result. `shared/fixtures/run-configuration/build-provider.json`
+is the canonical persistence example.
+
 `runConfig.updateOptions` and `runConfig.createUserConfiguration` are pure
 document transformations. They validate scope, paths, supported types, stable
 IDs, main classes, modules, and argument parsing, then return UTF-8 JSON in the
@@ -3376,11 +3396,11 @@ each process, the host runs it with the discovered executable, and Core
 decodes what it printed or wrote.
 
 A build system with a `provider` requires `buildProviders: 1`, version 2 when
-a task uses `source: "provider"`, or version 3 when tests do.
-Core validates and plans all three versions;
+a task uses `source: "provider"`, version 3 when tests do, or version 4 for
+provider application run preparation. Core validates and plans all four versions;
 a host advertises each only after implementing its lifecycle and requests.
-macOS advertises all three and routes provider tasks and tests through the existing workspace
-session. Windows does not yet advertise Provider lifecycle support.
+macOS advertises all four and routes provider tasks, tests and run preparation through
+the existing workspace session. Prepared applications use the existing native Run host. Windows does not yet advertise Provider lifecycle support.
 
 Except `build.detect`, every command accepts
 `{ manifest, buildSystemID, request }`, revalidates the manifest, and answers
@@ -3423,6 +3443,8 @@ and the directories are absolute host paths used only as substitution text.
 | `build.testPlan` | plan fields plus `project?`, `target?`, `suite?`, `case?`, `userArguments?`, `projects?` (the model's project directories) | command plan or `provider: {method: "lithe/build/test", params}` (buildProviders 3), plus `results`: `null`, `{ decoder, reports }` with workspace-relative globs (for the selected project, or for the root and every listed project when none is selected), or command-only `{ decoder: "hostIntegration" }`. Command filters that templates cannot place, such as a case without its suite when the tool only addresses `Suite#case`, are `plugin.build.invalidSelection`; Provider filters remain separate typed values and must be declared supported |
 | `build.testDiscoveryPlan` | common plan fields plus `refresh?`, `tool?`; no project/output file | `plan.provider` for `lithe/build/discoverTests`, only with `test.discovery: true` (Provider v3), using the same effective options and effect metadata |
 | `build.decodeTestDiscovery` | common plan fields plus canonical `result` | `discovery.tests` with validated `{id, suite, case, project?, target?}` selectors; bounded at 10,000 items/32 MiB, deterministic and exactly runnable; malformed replies reject in full |
+| `build.prepareRunPlan` | common plan fields, `run`, required `project`/`target`, `userArguments?`; no output file | `plan.provider` for `lithe/build/prepareRun` (Provider v4), selected declaration/tags/paths/options validated |
+| `build.decodeRunPreparation` | `workspaceRoot`, instance `root`, raw `result` | `launch` with portable `{executable:{kind,value},arguments,workingDirectory,environment}`; bounded strings and workspace directory containment, `plugin.build.invalidOutput` on invalid result |
 | `build.decodeModel` | `{ workspaceRoot, root, output?, outputFile?, result?, options? }`; `result` is the provider's JSON answer | `model`: `{ projects, targets, tasks, contentRoots, optionValues, run }`; `run` entries carry `buildSystem: { id, root, projectID, targetID?, optionFingerprint }` |
 | `build.decodeTestResults` | `{ workspaceRoot, root, project?, projects?, output, notBeforeMillis?, suite? }`; without `project` the reports of the root and every listed model project are read | `results`: `{ tests: [{ suite, case, status, message?, durationMillis?, path?, line?, invocations }], summary: { total, passed, failed, errors, skipped }, success }`; repeated invocations of one case merge into the most severe status |
 | `build.decodeDiagnostics` | `{ workspaceRoot, root, output }` | `diagnostics`: `[{ path, line, column?, severity, message }]`, deduplicated, inside the workspace only |

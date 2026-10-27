@@ -1,5 +1,6 @@
 import Foundation
 import LitheCoreContracts
+import LitheModuleAPI
 
 /// Typed `build.*` operations. Rust Core owns detection, command expansion,
 /// and every decoder for both products; this adapter only translates
@@ -118,6 +119,37 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
             throw DeclarativePluginRejection(code: "plugin.build.unavailable", message: "Expected a provider test discovery plan.")
         }
         return request
+    }
+
+    func prepareRunPlan(_ target: BuildSystemTarget, context: BuildPlanContext, run: String,
+                        project: BuildSelection, selectedTarget: BuildSelection, userArguments: [String]) throws -> BuildProviderRequest {
+        struct Request: Encodable {
+            let root: String
+            let pluginDirectory: String?
+            let workspaceStateDirectory: String?
+            let options: [String: ToolingJSONValue]
+            let run: String
+            let project: BuildSelection
+            let target: BuildSelection
+            let userArguments: [String]
+        }
+        let outcome: Outcome<PlanResult> = try execute("build.prepareRunPlan", target: target,
+            request: Request(root: context.root, pluginDirectory: context.pluginDirectory?.path,
+                             workspaceStateDirectory: context.workspaceStateDirectory?.path, options: context.options, run: run,
+                             project: project, target: selectedTarget, userArguments: userArguments))
+        guard case .provider(let request) = try outcome.value.plan.outputPlan() else {
+            throw DeclarativePluginRejection(code: "plugin.build.invalidOutput", message: L10n.string("The build provider returned an invalid launch plan."))
+        }
+        return request
+    }
+
+    func decodeRunPreparation(_ target: BuildSystemTarget, workspaceURL: URL, root: String,
+                              result: ToolingJSONValue) throws -> BuildRunPreparation {
+        struct Request: Encodable { let workspaceRoot: String; let root: String; let result: ToolingJSONValue }
+        struct Reply: Decodable { let launch: BuildRunPreparation }
+        let outcome: Outcome<Reply> = try execute("build.decodeRunPreparation", target: target,
+            request: Request(workspaceRoot: workspaceURL.path, root: root, result: result))
+        return outcome.value.launch
     }
 
     func decodeTestDiscovery(

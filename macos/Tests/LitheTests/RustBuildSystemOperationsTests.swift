@@ -121,6 +121,29 @@ struct RustBuildSystemOperationsTests {
     }
 
     @Test
+    func providerRunPreparationRoundTripsThroughRealCore() throws {
+        let descriptor = try Self.descriptor("build-provider-run-preparation")
+        #expect(descriptor.buildSystems.first?.providerRuns.map(\.id) == ["application"])
+        let target = try Self.target("build-provider-run-preparation", "gradle")
+        let workspace = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: workspace) }
+        try FileManager.default.createDirectory(at: workspace.appendingPathComponent("app"), withIntermediateDirectories: true)
+        let plan = try operations.prepareRunPlan(target, context: BuildPlanContext(root: ".", options: ["offline": .bool(true)]),
+            run: "application", project: BuildSelection(name: "app", path: "app"),
+            selectedTarget: BuildSelection(name: "Main", path: "app", tags: ["application"]), userArguments: ["a b"])
+        #expect(plan.method == "lithe/build/prepareRun")
+        guard case .object(let params) = plan.params else { Issue.record("Missing provider params"); return }
+        #expect(params["userArguments"] == .array([.string("a b")]))
+        let result: ToolingJSONValue = .object(["executable": .object(["kind": .string("toolchain"), "value": .string("project-jdk")]),
+            "arguments": .array([.string("Main"), .string("a b")]), "workingDirectory": .string("app"), "environment": .object([:])])
+        let launch = try operations.decodeRunPreparation(target, workspaceURL: workspace, root: ".", result: result)
+        #expect(launch.executable.kind == .toolchain)
+        #expect(launch.executable.value == "project-jdk")
+        #expect(launch.arguments == ["Main", "a b"])
+        #expect(launch.workingDirectory == "app")
+    }
+
+    @Test
     func providerTestPlanKeepsTypedFiltersAndReportPatterns() throws {
         let target = try Self.target("build-provider-tests", "gradle")
         let plan = try operations.testPlan(

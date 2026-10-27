@@ -83,6 +83,9 @@ struct BuildSystemToolWindowView: View {
         .onChange(of: entries.map(\.id)) { _ in clearSelection(); resetOptionEditor() }
         .onChange(of: entries.map { feature.testDiscovery($0.id) }) { _ in clearSelection() }
         .onChange(of: feature.workspaceURL) { _ in clearSelection(); optionEntryID = nil; resetOptionEditor() }
+        .onReceive(feature.applicationLaunched) { entryID in
+            if entries.contains(where: { $0.id == entryID }) { model.showToolWindow(.run) }
+        }
         .sheet(item: $argumentsPrompt) { prompt in
             BuildArgumentsSheet(prompt: prompt) { arguments in
                 argumentsPrompt = nil
@@ -518,12 +521,19 @@ struct BuildSystemToolWindowView: View {
             !$0.fromModel && $0.scopes.contains(.target) && Self.matches(target, tags: $0.targetTags)
         }
         let testable = declaration.testScopes.contains(.target) && Self.matches(target, tags: declaration.testTargetTags)
-        if !tasks.isEmpty || testable {
+        let runs = declaration.providerRuns.filter { Self.matches(target, tags: $0.targetTags) }
+        if !tasks.isEmpty || testable || !runs.isEmpty {
             treeNode(
                     id: nodeID, title: target.name,
                     subtitle: target.tags.isEmpty ? nil : target.tags.joined(separator: ", "),
                     iconPath: "expui/nodes/runnableMark.svg"
                 ) {
+                    for run in runs {
+                        leafRow(id: nodeID + ":run:" + run.id, title: run.displayName, help: nil,
+                            iconPath: "expui/run/run.svg", entryID: entry.id, project: project,
+                            runnable: .application(BuildRunRequest(run: run.id, projectID: project.id, targetID: target.id),
+                                                   title: Self.title(run.displayName, scope: target.name)), target: target)
+                    }
                     if testable {
                         leafRow(
                             id: nodeID + ":tests", title: L10n.string("Run Tests"), help: nil,
@@ -929,6 +939,7 @@ struct BuildSystemToolWindowView: View {
         case task(BuildTaskRequest, title: String, needsArguments: Bool)
         case tests(BuildTestRequest, title: String)
         case discoveredTest(String, title: String)
+        case application(BuildRunRequest, title: String)
     }
 
     private struct Selection: Equatable {
@@ -957,6 +968,8 @@ struct BuildSystemToolWindowView: View {
             feature.runTask(entryID, request: request, title: title)
         case .tests(let request, let title):
             feature.runTests(entryID, request: request, title: title)
+        case .application(let request, let title):
+            model.runBuildProviderApplication(entryID: entryID, request: request, title: title)
         case .discoveredTest(let testID, let title):
             feature.runDiscoveredTest(entryID, testID: testID, title: title)
         }

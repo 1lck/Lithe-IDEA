@@ -500,6 +500,22 @@ final class MacServiceContainer {
                         toolchainRegistry: runToolchainRegistry,
                         metadataResolver: ProcessRunToolchainMetadataResolver(processRunner: processRunner)
                     )
+                    let runService = RunService(
+                        runtime: runtimeService,
+                        process: MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution),
+                        processFactory: { MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution) },
+                        fileAccess: MacRunFileAccess(storage: fileStorage),
+                        preferences: MacRunPreferenceStore(store: store),
+                        serverPortParser: javaMavenOperations,
+                        runConfigurationOperations: providedRunConfigurationOperations ?? runConfigurationStore,
+                        executableResolver: executableResolver,
+                        languageProviderCatalog: languagePackRegistry.catalog,
+                        languageRunProviders: languagePackRegistry.runProviders,
+                        extensionRequiredLanguageIDs: runExtensionLanguageIDs,
+                        languageSupports: installedLanguageSupports,
+                        dependencyStore: MacWorkspaceDependencyStore(storage: fileStorage),
+                        javaLaunchArgumentPreparer: rustCore
+                    )
                     let buildSystemPlugins = pluginStartup.registeredPlugins.filter { !$0.descriptor.buildSystems.isEmpty }
                     let buildSystems = buildSystemPlugins.isEmpty ? nil : BuildSystemService(
                         planner: RustBuildSystemOperations(core: rustCore),
@@ -515,6 +531,7 @@ final class MacServiceContainer {
                         ),
                         runner: MacBuildCommandRunner(processRegistry: processRegistry),
                         providers: buildProviderSessions,
+                        runLauncher: runService,
                         settings: { pluginSettings.values(forPlugin: $0) },
                         sources: {
                             // Enablement is read on every detection, so turning a
@@ -543,22 +560,7 @@ final class MacServiceContainer {
                             configurationStore: MacMavenConfigurationStore(storage: fileStorage),
                             dependencyOutputs: MacMavenDependencyOutputStore()
                         ),
-                        run: RunService(
-                            runtime: runtimeService,
-                            process: MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution),
-                            processFactory: { MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution) },
-                            fileAccess: MacRunFileAccess(storage: fileStorage),
-                            preferences: MacRunPreferenceStore(store: store),
-                            serverPortParser: javaMavenOperations,
-                            runConfigurationOperations: providedRunConfigurationOperations ?? runConfigurationStore,
-                            executableResolver: executableResolver,
-                            languageProviderCatalog: languagePackRegistry.catalog,
-                            languageRunProviders: languagePackRegistry.runProviders,
-                            extensionRequiredLanguageIDs: runExtensionLanguageIDs,
-                            languageSupports: installedLanguageSupports,
-                            dependencyStore: MacWorkspaceDependencyStore(storage: fileStorage),
-                            javaLaunchArgumentPreparer: rustCore
-                        ),
+                        run: runService,
                         tests: LanguageTestService(
                             catalog: languagePackRegistry.catalog,
                             registry: languagePackRegistry.testProviders,

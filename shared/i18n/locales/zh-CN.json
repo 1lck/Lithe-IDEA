@@ -9374,7 +9374,13 @@
     "native.loadModelBeforeWorkspaceTests": "运行全部测试前，请加载或重新加载项目模型，以便收集子项目的测试报告。",
     "native.discoverTests": "发现测试",
     "native.discoveredTests": "已发现的测试",
-    "native.noTestsDiscovered": "未发现测试。"
+    "native.noTestsDiscovered": "未发现测试。",
+    "native.invalidBuildProviderLaunchPlan": "构建提供方返回了无效的启动计划。",
+    "native.saveProviderRunConfiguration": "将提供方运行配置保存到 .lithe/run/local.json",
+    "native.providerRunSavingUnavailable": "当前无法保存构建提供方运行配置。",
+    "native.loadProviderModelBeforeRun": "请先加载当前构建模型并启用对应提供方，再运行此配置。",
+    "native.providerRunSaveConflict": "保存期间运行配置已更改。请重新加载后再试。",
+    "native.savedProviderRunUnavailable": "已保存的提供方运行配置不可用。"
   },
   "overrides": {
     "macos": {

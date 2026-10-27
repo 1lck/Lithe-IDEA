@@ -134,6 +134,8 @@ package final class BuildSystemService: ObservableObject {
     private let stateLocator: any BuildSystemStateLocating
     private let runner: any BuildCommandRunning
     private let providers: (any BuildProviderRequesting)?
+    private let runLauncher: (any BuildRunLaunching)?
+    private var preparedApplication: (source: BuildSystemPluginSource, operationID: String)?
     private let settings: @MainActor (String) -> [String: ToolingJSONValue]
     private let waitForRedetection: @Sendable () async throws -> Void
     private let sources: @MainActor () -> [BuildSystemPluginSource]
@@ -152,6 +154,7 @@ package final class BuildSystemService: ObservableObject {
     private var fileRevision = 0
     private var providerConfigurationRevision = 0
     private var providerRunID: UUID?
+    private var preparingApplicationID: UUID?
     private var detectionTask: Task<Void, Never>?
     private var redetectTask: Task<Void, Never>?
     private var runTask: Task<Void, Never>?
@@ -196,6 +199,7 @@ package final class BuildSystemService: ObservableObject {
         stateLocator: any BuildSystemStateLocating,
         runner: any BuildCommandRunning,
         providers: (any BuildProviderRequesting)? = nil,
+        runLauncher: (any BuildRunLaunching)? = nil,
         settings: @escaping @MainActor (String) -> [String: ToolingJSONValue] = { _ in [:] },
         waitForRedetection: @escaping @Sendable () async throws -> Void = {
             try await Task.sleep(for: .milliseconds(500))
@@ -208,6 +212,7 @@ package final class BuildSystemService: ObservableObject {
         self.stateLocator = stateLocator
         self.runner = runner
         self.providers = providers
+        self.runLauncher = runLauncher
         self.settings = settings
         self.waitForRedetection = waitForRedetection
         self.sources = sources
@@ -216,6 +221,7 @@ package final class BuildSystemService: ObservableObject {
     /// Every run that ends, stopped or superseded runs included, so a caller
     /// that started one can tell how its own run ended.
     package let runEnded = PassthroughSubject<BuildRunEnd, Never>()
+    package let applicationLaunched = PassthroughSubject<String, Never>()
 
     /// The task or test run in progress; nil when none runs.
     package var currentRunID: UUID? { runID }
@@ -387,12 +393,14 @@ package final class BuildSystemService: ObservableObject {
     /// Ends what a now disabled plugin started and detects again with the
     /// plugins enabled now, so its instances leave the tool window.
     package func pluginsChanged() {
+        if preparingApplicationID != nil { stopRun() }
         if let runEntryID, testDiscoveries[runEntryID] == .loading { stopRun() }
         testDiscoveries = [:]
         discoverySnapshots = [:]
         let enabled = Set(sources().map(\.pluginID))
         let removed = Set(entries.filter { !enabled.contains($0.instance.pluginID) }.map(\.id))
         if let runEntryID, removed.contains(runEntryID) { stopRun() }
+        if let preparedApplication, !sources().contains(preparedApplication.source) { stopPreparedApplication() }
         for key in Array(modelTasks.keys) where removed.contains(key) {
             modelTasks.removeValue(forKey: key)?.cancel()
         }
@@ -413,6 +421,7 @@ package final class BuildSystemService: ObservableObject {
         // A load can read a subproject file before the model lists it, so any
         // reported change invalidates a model load that is in flight.
         fileRevision += 1
+        if preparingApplicationID != nil { stopRun() }
         let root = workspaceURL.path.hasSuffix("/") ? workspaceURL.path : workspaceURL.path + "/"
         let changed = Set(urls.compactMap { url -> String? in
             let path = url.standardizedFileURL.path
@@ -554,6 +563,7 @@ package final class BuildSystemService: ObservableObject {
     /// may answer from its own snapshot.
     package func loadModel(_ entryID: String, reason: BuildLoadReason = .initial) {
         guard let workspaceURL, let entry = entry(entryID) else { return }
+        if preparingApplicationID != nil, runEntryID == entryID { stopRun() }
         switch entry.instance.modelSource {
         case .static?, .hostIntegration?:
             detect()
@@ -670,6 +680,77 @@ package final class BuildSystemService: ObservableObject {
     }
 
     // MARK: Tasks and tests
+
+    /// Saved references resolve against the currently enabled plugin and model.
+    @discardableResult
+    package func runProviderConfiguration(_ configuration: RunConfiguration, workspace: URL) -> UUID? {
+        guard workspace.standardizedFileURL == workspaceURL, let reference = configuration.buildProvider,
+              let entry = entries.first(where: { $0.instance.pluginID == reference.pluginID
+                && $0.instance.buildSystemID == reference.buildSystemID && $0.instance.root == reference.root }) else { return nil }
+        return runApplication(entry.id, request: reference.request, title: configuration.name, configuration: configuration)
+    }
+
+    package func cancelRun(_ id: UUID) { if runID == id { stopRun() } }
+
+    /// The provider owns build/launch facts; the Run host owns the application.
+    @discardableResult
+    package func runApplication(_ entryID: String, request: BuildRunRequest, title: String, configuration: RunConfiguration? = nil) -> UUID? {
+        guard let workspaceURL, let entry = entry(entryID), let model = entry.model,
+              !entry.isReloadRequired, entry.modelState == .loaded,
+              let project = model.projects.first(where: { $0.id == request.projectID }),
+              let target = model.targets.first(where: { $0.id == request.targetID && $0.projectID == project.id }),
+              entry.declaration.providerRuns.contains(where: { $0.id == request.run }) else { return nil }
+        let origin = configuration ?? RunConfiguration(id: "build:" + entryID + ":" + request.run + ":" + request.targetID,
+            name: title, kind: .process(provider: "build.provider"), execution: .application, modulePath: nil, mainClass: nil,
+            buildProvider: BuildProviderRunReference(pluginID: entry.instance.pluginID, buildSystemID: entry.instance.buildSystemID,
+                root: entry.instance.root, run: request.run, projectID: request.projectID, targetID: request.targetID,
+                userArguments: request.userArguments))
+        stopPreparedApplication()
+        let sourceRevision = fileRevision
+        return startRun(entryID, title: title) { service, run in
+            guard let providers = service.providers, let launcher = service.runLauncher else {
+                throw BuildSystemServiceError(Self.providerUnsupportedMessage)
+            }
+            let context = try service.planContext(entry, workspaceURL: workspaceURL)
+            let planned = try service.planner.prepareRunPlan(entry.target, context: context, run: request.run,
+                project: BuildSelection(project: project), selectedTarget: BuildSelection(target: target),
+                userArguments: request.userArguments)
+            let validConfiguration = service.runValidity(.provider(planned), entry: entry, workspaceURL: workspaceURL, run: run)
+            let isValid: @MainActor @Sendable () -> Bool = { [weak service] in
+                guard let service else { return false }
+                return validConfiguration() && service.fileRevision == sourceRevision
+                    && service.entry(entryID)?.model == model && service.entry(entryID)?.modelState == .loaded
+                    && service.entry(entryID)?.isReloadRequired == false
+            }
+            service.providerRunID = run.id
+            service.preparingApplicationID = run.id
+            defer { if service.preparingApplicationID == run.id { service.preparingApplicationID = nil } }
+            defer { if service.providerRunID == run.id { service.providerRunID = nil } }
+            let resolved = try await service.providerRequestWithTool(planned, entry: entry, workspaceURL: workspaceURL, run: run)
+            guard isValid() else { throw CancellationError() }
+            let result = try await providers.prepareRun(resolved, on: Self.providerTarget(entry, workspaceURL: workspaceURL),
+                                                       timeout: .seconds(3600)) { [weak service] progress in
+                guard let service, isValid() else { return }
+                if let output = progress.output { service.appendOutput(output, in: service.outputDirectory(entry)) }
+                else if let message = progress.message { service.appendOutput(message + "\n", in: service.outputDirectory(entry)) }
+            }
+            guard isValid() else { throw CancellationError() }
+            let planner = service.planner
+            let preparation = try await Task.detached(priority: .userInitiated) {
+                try planner.decodeRunPreparation(entry.target, workspaceURL: workspaceURL, root: context.root, result: result)
+            }.value
+            guard isValid() else { throw CancellationError() }
+            let operationID = try launcher.launchPreparedRun(preparation, workspaceURL: workspaceURL, title: title, configuration: origin)
+            service.preparedApplication = (entry.source, operationID)
+            service.applicationLaunched.send(entryID)
+            return 0
+        }
+    }
+
+    private func stopPreparedApplication() {
+        if let preparedApplication { runLauncher?.stopPreparedRun(preparedApplication.operationID) }
+        preparedApplication = nil
+    }
 
     /// Discovery is user-triggered and independent of a plugin page. Cached
     /// selectors are visible/runnable only for their exact configuration.
@@ -817,6 +898,7 @@ package final class BuildSystemService: ObservableObject {
         runTask?.cancel()
         runTask = nil
         providerRunID = nil
+        preparingApplicationID = nil
         runID = nil
         runEntryID = nil
         if runState == .running {
@@ -827,6 +909,7 @@ package final class BuildSystemService: ObservableObject {
 
     /// Ends every process this service started.
     package func stop() {
+        stopPreparedApplication()
         detectionTask?.cancel(); detectionTask = nil
         detectionID = nil
         redetectTask?.cancel(); redetectTask = nil

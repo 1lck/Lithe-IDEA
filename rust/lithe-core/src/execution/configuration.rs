@@ -191,6 +191,62 @@ pub struct CreateUserConfigurationRequest {
     pub module: String,
     #[serde(default)]
     pub main_class: String,
+    /// A typed selector, never a cached executable or classpath.
+    #[serde(default)]
+    pub build: Option<BuildProviderRunReference>,
+}
+
+/// Persisted workspace identity for re-preparing a build-provider application.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BuildProviderRunReference {
+    #[serde(rename = "pluginID")]
+    pub plugin_id: String,
+    #[serde(rename = "buildSystemID")]
+    pub build_system_id: String,
+    pub root: String,
+    pub run: String,
+    #[serde(rename = "projectID")]
+    pub project_id: String,
+    #[serde(rename = "targetID")]
+    pub target_id: String,
+    #[serde(default)]
+    pub user_arguments: Vec<String>,
+}
+
+impl BuildProviderRunReference {
+    /// Persistence validates identities only; current model membership is checked at launch.
+    fn validate(&self) -> Result<(), CoreError> {
+        let identifier = |value: &str| {
+            !value.is_empty()
+                && value.len() <= 200
+                && value
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
+        };
+        if !identifier(&self.plugin_id)
+            || !identifier(&self.build_system_id)
+            || !identifier(&self.run)
+            || [&self.project_id, &self.target_id]
+                .iter()
+                .any(|id| id.is_empty() || id.len() > 2048 || id.contains('\0'))
+            || self.user_arguments.len() > 64
+            || self
+                .user_arguments
+                .iter()
+                .any(|arg| arg.len() > 4096 || arg.contains('\0'))
+            || invalid_relative_path(&self.root)
+            || self.root.is_empty()
+            || self.root.contains('\\')
+            || self.root.contains('\0')
+        {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Invalid build provider run reference",
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -507,7 +563,7 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
         }
     }
     Ok(json!({
-        "status": if generated.is_some() { "ready" } else { "missing" },
+        "status": if generated.is_some() || has_saved_build_run(&local) { "ready" } else { "missing" },
         "generated": generated,
         "toolchainRequirements": requirements,
         "localToolchains": local_toolchains,
@@ -1097,15 +1153,19 @@ fn is_nested_checkout_path(value: &str) -> bool {
 /// Merges generated, team, and local layers and selects compatible toolchains.
 pub fn resolve(request: ResolveRequest) -> Result<Value, CoreError> {
     let root = existing_root(&request.root)?;
-    let generated = read_document_value(&root, "run/generated.json")?.ok_or_else(|| {
-        CoreError::new(
-            ErrorCode::WorkspaceNotFound,
-            "Run configuration has not been generated",
-        )
-    })?;
     let team = read_document_value(&root, "run/configurations.json")?
         .unwrap_or_else(|| json!({"version": VERSION, "configurations": []}));
     let local = local_layer_document(&root, request.local_document)?;
+    let generated = match read_document_value(&root, "run/generated.json")? {
+        Some(document) => document,
+        None if has_saved_build_run(&local) => json!({"version": VERSION, "configurations": []}),
+        None => {
+            return Err(CoreError::new(
+                ErrorCode::WorkspaceNotFound,
+                "Run configuration has not been generated",
+            ))
+        }
+    };
     let local_toolchains = read_local_toolchains(&root)?;
     let manifest = read_document_value(&root, "project.json")?;
     validate_version_value(&generated)?;
@@ -1141,6 +1201,23 @@ pub fn resolve(request: ResolveRequest) -> Result<Value, CoreError> {
     )?);
     for configuration in &mut configurations {
         validate_configuration(configuration)?;
+        if configuration.provider == "build.provider" {
+            // Materialize optional defaults in the shared output so native
+            // consumers receive the same shape as a newly saved selector.
+            let reference: BuildProviderRunReference = serde_json::from_value(
+                configuration.extensions["build"].clone(),
+            )
+            .map_err(|_| {
+                CoreError::new(
+                    ErrorCode::ParseFailed,
+                    "Invalid build provider run reference",
+                )
+            })?;
+            configuration.extensions.insert(
+                "build".to_string(),
+                serde_json::to_value(reference).expect("reference encodes"),
+            );
+        }
         if configuration.disabled {
             diagnostics.push(json!({
                 "id": configuration.id,
@@ -1562,11 +1639,133 @@ fn remove_maven_skip_tests_override(configuration: &mut serde_json::Map<String, 
     maven.remove("skipTests");
 }
 
+/// Only explicit provider references make an ungenerated workspace runnable.
+fn has_saved_build_run(document: &Value) -> bool {
+    document["configurations"].as_array().is_some_and(|items| {
+        items.iter().any(|item| {
+            item["provider"] == "build.provider"
+                && item["id"]
+                    .as_str()
+                    .is_some_and(|id| id.starts_with("user:"))
+        })
+    })
+}
+
+/// Upserts a local reference while preserving unrelated settings and stable IDs.
+fn create_build_provider_configuration(
+    root: &Path,
+    request: &CreateUserConfigurationRequest,
+) -> Result<Value, CoreError> {
+    if request.scope != "local" {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Build provider references must be saved locally",
+        ));
+    }
+    let reference = request.build.as_ref().ok_or_else(|| {
+        CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Missing build provider run reference",
+        )
+    })?;
+    reference.validate()?;
+    normalize_project_directory(root, &reference.root)?;
+    let name = request.name.trim();
+    if name.is_empty() || name.len() > 256 || name.contains('\0') {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Invalid run configuration name",
+        ));
+    }
+    let mut document = read_document_value(root, "run/local.json")?
+        .unwrap_or_else(|| json!({"version":VERSION,"configurations":[]}));
+    validate_version_value(&document)?;
+    let mut ids: std::collections::BTreeSet<String> =
+        configuration_ids(&document)?.into_keys().collect();
+    for relative in ["run/generated.json", "run/configurations.json"] {
+        if let Some(other) = read_document_value(root, relative)? {
+            validate_version_value(&other)?;
+            ids.extend(configuration_ids(&other)?.into_keys());
+        }
+    }
+    let encoded = serde_json::to_value(reference).expect("reference encodes");
+    let mut identity = encoded.clone();
+    identity.as_object_mut().unwrap().remove("userArguments");
+    let items = document["configurations"]
+        .as_array_mut()
+        .ok_or_else(|| CoreError::new(ErrorCode::ParseFailed, "configurations must be an array"))?;
+    let existing = items.iter().position(|item| {
+        if item["provider"] != "build.provider" {
+            return false;
+        }
+        let mut saved = item["extensions"]["build"].clone();
+        if let Some(object) = saved.as_object_mut() {
+            object.remove("userArguments");
+        }
+        saved == identity
+    });
+    let id = existing
+        .and_then(|index| items[index]["id"].as_str())
+        .map(str::to_string)
+        .unwrap_or_else(|| unique_user_configuration_id(name, &ids));
+    let mut configuration = existing
+        .map(|index| items[index].clone())
+        .unwrap_or_else(|| json!({}));
+    let object = configuration.as_object_mut().ok_or_else(|| {
+        CoreError::new(
+            ErrorCode::ParseFailed,
+            "Run configuration must be an object",
+        )
+    })?;
+    let managed = json!({"id":id,"name":name,"provider":"build.provider","execution":"application",
+        "cwd":reference.root,"confidence":"declared"});
+    object.extend(
+        managed
+            .as_object()
+            .expect("managed fields are an object")
+            .clone(),
+    );
+    // Other namespaces may hold user/plugin metadata; replacing the whole
+    // entry would erase data unrelated to this selector update.
+    let extensions = object
+        .entry("extensions")
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        .ok_or_else(|| {
+            CoreError::new(
+                ErrorCode::ParseFailed,
+                "Run configuration extensions must be an object",
+            )
+        })?;
+    extensions.insert("build".to_string(), encoded);
+    let typed: RunConfiguration = serde_json::from_value(configuration.clone())
+        .map_err(|_| CoreError::new(ErrorCode::ParseFailed, "Invalid saved run configuration"))?;
+    validate_configuration(&typed)?;
+    if let Some(index) = existing {
+        items[index] = configuration;
+    } else {
+        items.push(configuration);
+    }
+    items.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
+    Ok(
+        json!({"id":id,"document":serde_json::to_string_pretty(&document).expect("document encodes")}),
+    )
+}
+
 /// Creates a user configuration while preserving stable IDs in existing layers.
 pub fn create_user_configuration(
     request: CreateUserConfigurationRequest,
 ) -> Result<Value, CoreError> {
     let root = existing_root(&request.root)?;
+    if request.kind == "buildProvider" {
+        return create_build_provider_configuration(&root, &request);
+    }
+    if request.build.is_some() {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Build reference requires a buildProvider configuration",
+        ));
+    }
     let relative = scope_document(&request.scope)?;
     let name = request.name.trim();
     if name.is_empty() {
@@ -2550,6 +2749,34 @@ fn validate_configuration(configuration: &RunConfiguration) -> Result<(), CoreEr
             "Unsupported run configuration provider",
         )
         .with_details(configuration.provider.clone()));
+    }
+    if configuration.provider == "build.provider" {
+        let reference: BuildProviderRunReference = serde_json::from_value(
+            configuration
+                .extensions
+                .get("build")
+                .cloned()
+                .unwrap_or(Value::Null),
+        )
+        .map_err(|_| {
+            CoreError::new(
+                ErrorCode::ParseFailed,
+                "Invalid build provider run reference",
+            )
+        })?;
+        reference.validate()?;
+        if configuration.command.is_some()
+            || !configuration.args.is_empty()
+            || !configuration.env.is_empty()
+            || !configuration.toolchains.is_empty()
+            || configuration.debug.is_some()
+            || configuration.execution != Execution::Application
+        {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Build provider configurations store selectors, not process launch data",
+            ));
+        }
     }
     let module = configuration.module().unwrap_or_else(|| ".".to_string());
     for (field, value) in [

@@ -144,6 +144,10 @@ private final class ProviderRequestRecorder: BuildProviderRequesting {
         return BuildProviderExecutionResult(exitCode: 0, output: "")
     }
 
+    func prepareRun(_ request: BuildProviderRequest, on target: BuildProviderTarget, timeout: Duration,
+                    progress: @escaping @MainActor @Sendable (BuildProviderProgress) -> Void) async throws -> ToolingJSONValue {
+        try await send(request, to: target, timeout: timeout)
+    }
     func retainProviders(_ keep: (BuildProviderTarget) -> Bool) {}
 }
 

@@ -1343,6 +1343,122 @@ struct BuildSystemServiceTests {
         })
     }
 
+    @Test
+    func providerRunHandsValidatedPlanToNativeRunAndStopsOnDisable() async throws {
+        let (planner, providers, launcher, harness) = try Self.runPreparationHarness()
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        try #require(harness.service.runApplication(Self.instanceID, request: Self.runRequest, title: "Main") != nil)
+        try #require(await harness.waitForRunState { $0 == .succeeded })
+        #expect(providers.sent.map(\.request.method) == ["lithe/build/prepareRun"])
+        #expect(launcher.launched.count == 1)
+        #expect(launcher.launched.first?.arguments == ["example.Main", "a b"])
+        #expect(planner.diagnosticOutputs.isEmpty)
+        harness.sources = []
+        // Detection may already have removed the model before plugin disable
+        // is delivered. Process ownership must survive that disappearance.
+        harness.service.detect()
+        try #require(await harness.waitForEntries { $0.isEmpty })
+        harness.service.pluginsChanged()
+        #expect(launcher.stopped == ["prepared-app"])
+    }
+
+    @Test
+    func savedRunRoutesOnlyToItsEnabledWorkspaceInstance() async throws {
+        let (_, providers, launcher, harness) = try Self.runPreparationHarness()
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        let reference = BuildProviderRunReference(pluginID: "dev.example", buildSystemID: "fixture", root: "app",
+            run: "application", projectID: "p", targetID: "t", userArguments: ["a b"])
+        let configuration = RunConfiguration(id: "user:main", name: "Saved Main", kind: .process(provider: "build.provider"),
+            modulePath: nil, mainClass: nil, buildProvider: reference)
+        #expect(harness.service.runProviderConfiguration(configuration, workspace: URL(fileURLWithPath: "/other")) == nil)
+        try #require(harness.service.runProviderConfiguration(configuration, workspace: Self.workspace) != nil)
+        try #require(await harness.waitForRunState { $0 == .succeeded })
+        #expect(launcher.lastConfiguration == configuration)
+        #expect(providers.sent.count == 1)
+        harness.sources = []
+        harness.service.pluginsChanged()
+        try #require(await harness.waitForEntries { $0.isEmpty })
+        #expect(harness.service.runProviderConfiguration(configuration, workspace: Self.workspace) == nil)
+        #expect(providers.sent.count == 1)
+    }
+
+    /// A reply from a cancelled or outdated build must never start an application.
+    @Test(arguments: ["stop", "workspace", "options", "disable", "source", "reload"])
+    func providerRunLateReplyCannotLaunch(change: String) async throws {
+        let (_, providers, launcher, harness) = try Self.runPreparationHarness()
+        let release = BuildTestGate()
+        providers.replyGate = release
+        defer { release.open(); harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        harness.service.runApplication(Self.instanceID, request: Self.runRequest, title: "Main")
+        try #require(await providers.requestStarted.waitUntilOpen())
+        switch change {
+        case "workspace": harness.service.reset(workspaceURL: URL(fileURLWithPath: "/other"))
+        case "options": harness.service.setOption(Self.instanceID, optionID: "release", value: .bool(true))
+        case "disable": harness.sources = []; harness.service.pluginsChanged()
+        case "source": harness.service.workspaceFilesChanged([Self.workspace.appendingPathComponent("app/Main.java")])
+        case "reload": harness.service.loadModel(Self.instanceID, reason: .refresh)
+        default: harness.service.stopRun()
+        }
+        providers.executionProgress?(BuildProviderProgress(output: "stale launch output"))
+        release.open()
+        try #require(await providers.requestFinished.waitUntilOpen())
+        #expect(await launcher.didLaunch.waitUntilOpen(timeout: .milliseconds(200)) == false)
+        #expect(launcher.launched.isEmpty)
+        #expect(!harness.service.output.contains("stale launch output"))
+    }
+
+    @Test
+    func providerRunCancellationDuringCoreDecodePreventsHandoff() async throws {
+        let (planner, _, launcher, harness) = try Self.runPreparationHarness()
+        let gate = GatedBuildDecode()
+        planner.runPreparationGate = gate
+        defer { gate.releaseDecode(); harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        harness.service.runApplication(Self.instanceID, request: Self.runRequest, title: "Main")
+        try #require(await gate.entered.waitUntilOpen())
+        harness.service.stopRun()
+        gate.releaseDecode()
+        try #require(await gate.finished.waitUntilOpen())
+        #expect(await launcher.didLaunch.waitUntilOpen(timeout: .milliseconds(200)) == false)
+    }
+
+    @Test
+    func providerRunRejectsStaleTargetAndPreparationFailure() async throws {
+        let (_, providers, launcher, harness) = try Self.runPreparationHarness()
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        #expect(harness.service.runApplication(Self.instanceID,
+            request: BuildRunRequest(run: "application", projectID: "p", targetID: "gone"), title: "Main") == nil)
+        providers.failure = BuildSystemServiceTestsError(message: "build failed")
+        harness.service.runApplication(Self.instanceID, request: Self.runRequest, title: "Main")
+        try #require(await harness.waitForRunState { if case .failed = $0 { true } else { false } })
+        #expect(launcher.launched.isEmpty)
+        #expect(harness.service.output.contains("build failed"))
+    }
+
+    private static let runRequest = BuildRunRequest(run: "application", projectID: "p", targetID: "t")
+    private static func runPreparationHarness() throws -> (FakeBuildPlanner, FakeBuildProviders, FakeBuildRunLauncher, Harness) {
+        let planner = FakeBuildPlanner()
+        planner.fingerprint = "o"
+        planner.detection = BuildDetection(instances: [try instance(modelSource: "provider", model:
+            #"{"projects":[{"id":"p","name":"app","path":"app"}],"targets":[{"id":"t","projectID":"p","name":"Main","path":"app","tags":["application"]}]}"#)])
+        planner.providerRequest = providerRequest(method: "lithe/build/prepareRun")
+        let providers = FakeBuildProviders()
+        providers.reply = try decode(ToolingJSONValue.self,
+            #"{"executable":{"kind":"command","value":"java"},"arguments":["example.Main","a b"],"workingDirectory":"app","environment":{}}"#)
+        let launcher = FakeBuildRunLauncher()
+        let source = fixtureSource(providerRuns: [.init(id: "application", displayName: "Run", targetTags: ["application"])])
+        return (planner, providers, launcher, Harness(planner: planner, sources: [source], providers: providers, runLauncher: launcher))
+    }
+
     @Test(arguments: [Int32(0), Int32(7)])
     func providerTaskRunsWithoutPageOrHostCommand(exitCode: Int32) async throws {
         let planner = FakeBuildPlanner()
@@ -1995,14 +2111,14 @@ struct BuildSystemServiceTests {
     }
 }
 
-private func fixtureSource(pluginID: String = "dev.example", testDiscovery: Bool = false) -> BuildSystemPluginSource {
+private func fixtureSource(pluginID: String = "dev.example", testDiscovery: Bool = false, providerRuns: [DeclarativeBuildSystem.ProviderRun] = []) -> BuildSystemPluginSource {
     BuildSystemPluginSource(
         pluginID: pluginID,
         manifest: Data("{}".utf8),
         packageURL: URL(fileURLWithPath: "/plugins/\(pluginID)"),
         buildSystems: [DeclarativeBuildSystem(
             id: "fixture", displayName: "Fixture", modelSource: .command, tasks: [],
-            testScopes: [], dependencyScopes: [], testDiscovery: testDiscovery
+            testScopes: [], dependencyScopes: [], testDiscovery: testDiscovery, providerRuns: providerRuns
         )]
     )
 }
@@ -2030,6 +2146,7 @@ private final class Harness {
         runner: any BuildCommandRunning = FakeBuildRunner(),
         sources: [BuildSystemPluginSource] = [fixtureSource()],
         providers: (any BuildProviderRequesting)? = nil,
+        runLauncher: (any BuildRunLaunching)? = nil,
         settings: @escaping @MainActor (String) -> [String: ToolingJSONValue] = { _ in [:] },
         waitForRedetection: @escaping @Sendable () async throws -> Void = {}
     ) {
@@ -2042,6 +2159,7 @@ private final class Harness {
             stateLocator: stateLocator,
             runner: runner,
             providers: providers,
+            runLauncher: runLauncher,
             settings: settings,
             waitForRedetection: waitForRedetection,
             sources: { enabledSources.value }
@@ -2207,6 +2325,7 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         var testPlanDeclaresResults = false
         var discovery: BuildTestDiscovery?
         var discoveryGate: GatedBuildDecode?
+        var runPreparationGate: GatedBuildDecode?
         var testRequests: [BuildTestRequest] = []
         var optionsResolution: BuildOptionsResolution?
         var loadedOptionsResolution: BuildOptionsResolution?
@@ -2241,6 +2360,10 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
     var providerRequest: BuildProviderRequest? {
         get { access { $0.providerRequest } }
         set { access { $0.providerRequest = newValue } }
+    }
+    var runPreparationGate: GatedBuildDecode? {
+        get { access { $0.runPreparationGate } }
+        set { access { $0.runPreparationGate = newValue } }
     }
     var decodedDependencyOutputs: [BuildCommandOutput] { access { $0.decodedDependencyOutputs } }
     var diagnostics: [BuildDiagnostic] {
@@ -2424,6 +2547,22 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
             execution: providerRequest.map(BuildOutputPlan.provider) ?? .process(plan(["test"], output: nil)),
             results: declaresResults ? .reports(decoder: "junitXml", patterns: []) : nil
         )
+    }
+
+    func prepareRunPlan(_ target: BuildSystemTarget, context: BuildPlanContext, run: String,
+                        project: BuildSelection, selectedTarget: BuildSelection, userArguments: [String]) throws -> BuildProviderRequest {
+        guard let providerRequest else { throw CancellationError() }
+        return providerRequest
+    }
+
+    func decodeRunPreparation(_ target: BuildSystemTarget, workspaceURL: URL, root: String,
+                              result: ToolingJSONValue) throws -> BuildRunPreparation {
+        if let gate = access({ let gate = $0.runPreparationGate; $0.runPreparationGate = nil; return gate }) {
+            gate.entered.open()
+            guard gate.waitForRelease() else { throw GatedDecodeError.releaseTimedOut }
+            gate.finished.open()
+        }
+        return try JSONDecoder().decode(BuildRunPreparation.self, from: JSONEncoder().encode(result))
     }
 
     func testDiscoveryPlan(_ target: BuildSystemTarget, context: BuildPlanContext) throws -> BuildProviderRequest {
@@ -2785,6 +2924,12 @@ private final class FakeBuildProviders: BuildProviderRequesting {
         return executionResult
     }
 
+    func prepareRun(_ request: BuildProviderRequest, on target: BuildProviderTarget, timeout: Duration,
+                    progress: @escaping @MainActor @Sendable (BuildProviderProgress) -> Void) async throws -> ToolingJSONValue {
+        executionProgress = progress
+        return try await send(request, to: target, timeout: timeout)
+    }
+
     func retainProviders(_ keep: (BuildProviderTarget) -> Bool) {
         for target in running where !keep(target) {
             running.remove(target)
@@ -2796,4 +2941,19 @@ private final class FakeBuildProviders: BuildProviderRequesting {
 private struct BuildSystemServiceTestsError: LocalizedError {
     let message: String
     var errorDescription: String? { message }
+}
+
+@MainActor
+private final class FakeBuildRunLauncher: BuildRunLaunching {
+    var lastConfiguration: RunConfiguration?
+    var launched: [BuildRunPreparation] = []
+    let didLaunch = BuildTestGate()
+    var stopped: [String] = []
+    func launchPreparedRun(_ plan: BuildRunPreparation, workspaceURL: URL, title: String, configuration: RunConfiguration?) throws -> String {
+        lastConfiguration = configuration
+        launched.append(plan)
+        didLaunch.open()
+        return "prepared-app"
+    }
+    func stopPreparedRun(_ operationID: String) { stopped.append(operationID) }
 }

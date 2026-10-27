@@ -26,6 +26,7 @@ mod model;
 mod options;
 mod outputs;
 mod plans;
+mod run_preparation;
 mod select;
 mod template;
 mod test_discovery;

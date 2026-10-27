@@ -632,6 +632,9 @@ fn task_execution() -> BuildExecution {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct RunDeclaration {
     pub(crate) id: String,
+    /// Provider runs prepare a launch plan; they never become empty argv entries.
+    #[serde(default, skip_serializing_if = "TaskSource::is_command")]
+    pub(crate) source: TaskSource,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) from_targets: Option<FromTargets>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1310,11 +1313,16 @@ impl BuildSystemDeclaration {
     }
 
     fn validate_provider(&self, field: &str, context: &DeclarationContext<'_>) -> Validation<()> {
+        let provider_runs = self
+            .run
+            .iter()
+            .any(|run| run.source == TaskSource::Provider);
         let provider_tests = self
             .test
             .as_ref()
             .is_some_and(|test| test.source == TaskSource::Provider);
         let uses = matches!(self.model, Some(ModelSource::Provider))
+            || provider_runs
             || matches!(self.dependencies, Some(DependenciesSource::Provider { .. }))
             || provider_tests
             || self
@@ -1337,7 +1345,14 @@ impl BuildSystemDeclaration {
         if provider_tests && context.build_providers_version < 3 {
             return Err(invalid(&field, "Provider tests require buildProviders 3."));
         }
-        if provider_tests
+        if provider_runs && context.build_providers_version < 4 {
+            return Err(invalid(
+                &field,
+                "Provider run preparation requires buildProviders 4.",
+            ));
+        }
+        if provider_runs
+            || provider_tests
             || self
                 .tasks
                 .iter()
@@ -1774,6 +1789,29 @@ impl BuildSystemDeclaration {
                     format!("{field}.id"),
                     "Run IDs are unique identifiers that start with a letter.",
                 ));
+            }
+            if run.source == TaskSource::Provider {
+                let valid_targets = run.from_targets.as_ref().is_some_and(|from| {
+                    !from.tags.is_empty()
+                        && from.tags.len() <= MAX_LIST
+                        && from.tags.iter().all(|tag| is_tag(tag))
+                });
+                if !valid_targets
+                    || run.from_tasks.is_some()
+                    || !run.arguments.is_empty()
+                    || !run.extension.is_empty()
+                    || run
+                        .execution
+                        .is_some_and(|execution| execution != BuildExecution::Application)
+                    || run.name.as_ref().is_some_and(|name| {
+                        name.trim().is_empty() || name.len() > MAX_TEXT || name.contains("${")
+                    })
+                {
+                    return Err(invalid(&field, "Provider runs require target tags, application execution, and no host command templates."));
+                }
+                let from = run.from_targets.as_mut().expect("validated target source");
+                from.tags = sorted_unique(std::mem::take(&mut from.tags));
+                continue;
             }
             let from_tasks = match (&mut run.from_targets, &mut run.from_tasks) {
                 (Some(targets), None) => {

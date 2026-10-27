@@ -42,6 +42,24 @@ struct MacBuildProviderSessionsTests {
         #expect(fixture.core.stopCalls.count == 2)
     }
 
+    @Test
+    func nativeRunPreparationReusesProviderAndKeepsPackageReadOnly() async throws {
+        let fixture = try ProviderFixture()
+        defer { fixture.remove() }
+        let before = try fixture.packageSnapshot()
+        _ = try await fixture.load()
+        let progress = BuildProgressRecorder()
+        let result = try await fixture.sessions.prepareRun(BuildProviderRequest(
+            method: "lithe/build/prepareRun", params: .object([:]), optionFingerprint: "",
+            executesProjectCode: true, mayUseNetwork: true), on: fixture.target, timeout: .seconds(5)) { progress.values.append($0) }
+        #expect(result == .object(["executable": .object(["kind": .string("command"), "value": .string("java")]),
+                                   "arguments": .array([]), "workingDirectory": .string("."), "environment": .object([:])]))
+        #expect(progress.values == [BuildProviderProgress(percentage: 50, output: "building")])
+        #expect(fixture.core.startCalls.count == 1)
+        #expect(fixture.core.buildRequests == ["lithe/build/model", "lithe/build/prepareRun"])
+        #expect(try fixture.packageSnapshot() == before)
+    }
+
     /// A second request reuses the process; stopping the plugin's providers,
     /// which the plugin manager does before replacing its package, ends it
     /// and the next request starts a new one.
@@ -672,13 +690,15 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
             _buildRequests.append(method)
             _buildParams.append(params)
             let operationID = "\(sessionID)-\(_buildRequests.count)"
-            if ["lithe/build/execute", "lithe/build/test"].contains(method) {
+            if ["lithe/build/execute", "lithe/build/test", "lithe/build/prepareRun"].contains(method) {
                 events[sessionID, default: []].append(LanguageServerRuntimeEvent(
                     type: "requestProgress", operationID: operationID,
                     result: .object(["percentage": .integer(50), "output": .string("building")])
                 ))
             }
-            let value: ToolingJSONValue = ["lithe/build/execute", "lithe/build/test"].contains(method)
+            let launch: ToolingJSONValue = .object(["executable": .object(["kind": .string("command"), "value": .string("java")]),
+                                                   "arguments": .array([]), "workingDirectory": .string("."), "environment": .object([:])])
+            let value: ToolingJSONValue = method == "lithe/build/prepareRun" ? launch : ["lithe/build/execute", "lithe/build/test"].contains(method)
                 ? .object(["exitCode": .integer(0), "output": .string("built")])
                 : .object(["session": .string(sessionID)])
             events[sessionID, default: []].append(LanguageServerRuntimeEvent(

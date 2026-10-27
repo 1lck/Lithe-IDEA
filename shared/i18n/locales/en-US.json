@@ -9374,7 +9374,13 @@
     "native.loadModelBeforeWorkspaceTests": "Load or reload the project model before running all tests, so subproject reports are collected.",
     "native.discoverTests": "Discover Tests",
     "native.discoveredTests": "Discovered Tests",
-    "native.noTestsDiscovered": "No tests discovered."
+    "native.noTestsDiscovered": "No tests discovered.",
+    "native.invalidBuildProviderLaunchPlan": "The build provider returned an invalid launch plan.",
+    "native.saveProviderRunConfiguration": "Save provider run configuration to .lithe/run/local.json",
+    "native.providerRunSavingUnavailable": "Saving build provider run configurations is unavailable.",
+    "native.loadProviderModelBeforeRun": "Load the current build model and enable its provider before running this configuration.",
+    "native.providerRunSaveConflict": "Run configuration changed while saving. Reload and try again.",
+    "native.savedProviderRunUnavailable": "The saved provider run configuration is unavailable."
   },
   "overrides": {
     "windows": {

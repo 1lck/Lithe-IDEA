@@ -154,7 +154,7 @@ pub(crate) struct ProviderTool {
 /// Validates what the host adds to a provider request and returns the
 /// params it contributes: `refresh` only when set and `tool` only when
 /// resolved, so a request without them matches a host that predates both.
-fn provider_hints(request: &OutputPlanRequest) -> Validation<Map<String, Value>> {
+pub(crate) fn provider_hints(request: &OutputPlanRequest) -> Validation<Map<String, Value>> {
     let mut params = Map::new();
     if request.refresh {
         params.insert("refresh".to_string(), json!(true));
@@ -349,7 +349,7 @@ impl<'a> PlanContext<'a> {
     /// would contribute to a command line, so the provider can hand either
     /// to the tool. `params` already holds the source's own fields and the
     /// host's `refresh` and `tool` hints.
-    fn provider_plan(
+    pub(crate) fn provider_plan(
         &self,
         provider: &ProviderDeclaration,
         method: &str,
@@ -401,7 +401,7 @@ fn check_user_arguments(arguments: &[String], declared: &[BuildArgument]) -> Val
 }
 
 /// Provider calls accept raw argument values without a CLI placeholder.
-fn check_argument_limits(arguments: &[String]) -> Validation<()> {
+pub(crate) fn check_argument_limits(arguments: &[String]) -> Validation<()> {
     if arguments.len() > MAX_USER_ARGUMENTS
         || arguments
             .iter()
@@ -979,6 +979,11 @@ pub(crate) fn run_entries(
         .collect();
     let mut parts = Vec::new();
     for run in &build_system.run {
+        // A provider-owned launch is prepared on demand; it must not be
+        // persisted as a command or emitted with an empty argument list.
+        if run.source == TaskSource::Provider {
+            continue;
+        }
         if let Some(from) = &run.from_targets {
             for target in model
                 .targets

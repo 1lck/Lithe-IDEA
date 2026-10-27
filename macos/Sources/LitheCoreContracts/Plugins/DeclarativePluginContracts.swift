@@ -1224,6 +1224,13 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 let presentation: String?
                 let icon: PluginUIIcon?
             }
+            struct ProviderRun: Decodable {
+                struct Targets: Decodable { let tags: [String] }
+                let id: String
+                let source: String?
+                let name: String?
+                let fromTargets: Targets?
+            }
             struct Test: Decodable {
                 let scopes: [BuildScope]
                 let targetTags: [String]?
@@ -1237,6 +1244,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             let model: Source?
             let tasks: [Task]
             let test: Test?
+            let run: [ProviderRun]
             let dependencies: Source?
             let declaresProvider: Bool
 
@@ -1249,12 +1257,13 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 model = try values.decodeIfPresent(Source.self, forKey: .model)
                 tasks = try values.decodeIfPresent([Task].self, forKey: .tasks) ?? []
                 test = try values.decodeIfPresent(Test.self, forKey: .test)
+                run = try values.decodeIfPresent([ProviderRun].self, forKey: .run) ?? []
                 dependencies = try values.decodeIfPresent(Source.self, forKey: .dependencies)
                 declaresProvider = values.contains(.provider)
             }
 
             private enum CodingKeys: String, CodingKey {
-                case id, displayName, icon, options, model, tasks, test, dependencies, provider
+                case id, displayName, icon, options, model, tasks, test, dependencies, provider, run
             }
 
             func declaration() -> DeclarativeBuildSystem {
@@ -1284,7 +1293,10 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                     // project; the other sources declare their scopes.
                     dependencyScopes: dependencies.map { $0.scopes ?? [.workspace, .project] } ?? [],
                     declaresProvider: declaresProvider,
-                    testDiscovery: test?.discovery ?? false
+                    testDiscovery: test?.discovery ?? false,
+                    providerRuns: run.filter { $0.source == "provider" }.map {
+                        .init(id: $0.id, displayName: $0.name ?? $0.id, targetTags: $0.fromTargets?.tags ?? [])
+                    }
                 )
             }
         }

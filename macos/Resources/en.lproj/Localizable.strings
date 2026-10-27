@@ -1940,6 +1940,7 @@
 "Load more debugger variables" = "Load more debugger variables";
 "Load or reload the project model before running all tests, so subproject reports are collected." = "Load or reload the project model before running all tests, so subproject reports are collected.";
 "Load the %@ model" = "Load the %@ model";
+"Load the current build model and enable its provider before running this configuration." = "Load the current build model and enable its provider before running this configuration.";
 "Load the dependencies again" = "Load the dependencies again";
 "Load the dependencies of %@" = "Load the dependencies of %@";
 "Load the project model" = "Load the project model";
@@ -3101,6 +3102,7 @@
 "Run another ACP Agent you installed yourself. It must support signing in with a custom API key gateway." = "Run another ACP Agent you installed yourself. It must support signing in with a custom API key gateway.";
 "Run checked configurations without restarting running services" = "Run checked configurations without restarting running services";
 "Run configuration" = "Run configuration";
+"Run configuration changed while saving. Reload and try again." = "Run configuration changed while saving. Reload and try again.";
 "Run configurations" = "Run configurations";
 "Run configurations and Maven goals started in Lithe. They always stop when their project or window closes or Lithe quits, together with the processes they started; this only decides whether Lithe lists them and asks first." = "Run configurations and Maven goals started in Lithe. They always stop when their project or window closes or Lithe quits, together with the processes they started; this only decides whether Lithe lists them and asks first.";
 "Run configurations are unavailable. Enable the execution module and try again." = "Run configurations are unavailable. Enable the execution module and try again.";
@@ -3168,6 +3170,7 @@
 "Save local changes with" = "Save local changes with";
 "Save message" = "Save message";
 "Save or discard unsaved files before deleting this item" = "Save or discard unsaved files before deleting this item";
+"Save provider run configuration to .lithe/run/local.json" = "Save provider run configuration to .lithe/run/local.json";
 "Save scope" = "Save scope";
 "Save shared instructions" = "Save shared instructions";
 "Save the active document" = "Save the active document";
@@ -3181,6 +3184,7 @@
 "Saved only for this project on this computer in .lithe/run/local.json and excluded from Git." = "Saved only for this project on this computer in .lithe/run/local.json and excluded from Git.";
 "Saved to %@" = "Saved to %@";
 "Saves, connects, and opens the remote folder in this window." = "Saves, connects, and opens the remote folder in this window.";
+"Saving build provider run configurations is unavailable." = "Saving build provider run configurations is unavailable.";
 "Saving replaces the current GitHub metadata." = "Saving replaces the current GitHub metadata.";
 "Saving writes to" = "Saving writes to";
 "Scala Support" = "Scala Support";
@@ -3704,6 +3708,7 @@
 "The branch now contains the completed plan. Its original history remains available through the recovery reference." = "The branch now contains the completed plan. Its original history remains available through the recovery reference.";
 "The breakdown needs Model call statistics (on by default). After turning it on, reconnect and send a message." = "The breakdown needs Model call statistics (on by default). After turning it on, reconnect and send a message.";
 "The build provider failed to start." = "The build provider failed to start.";
+"The build provider returned an invalid launch plan." = "The build provider returned an invalid launch plan.";
 "The build provider stopped before it was ready." = "The build provider stopped before it was ready.";
 "The build tool exited with code %lld." = "The build tool exited with code %lld.";
 "The build tool output is too large or not UTF-8." = "The build tool output is too large or not UTF-8.";
@@ -3840,6 +3845,7 @@
 "The repository will be opened in detached HEAD state." = "The repository will be opened in detached HEAD state.";
 "The request has no secret." = "The request has no secret.";
 "The response stopped at the model's token limit." = "The response stopped at the model's token limit.";
+"The saved provider run configuration is unavailable." = "The saved provider run configuration is unavailable.";
 "The selected AI provider has an invalid API URL or model." = "The selected AI provider has an invalid API URL or model.";
 "The selected AI provider has no API key." = "The selected AI provider has no API key.";
 "The selected background image authorization is invalid." = "The selected background image authorization is invalid.";
@@ -6156,6 +6162,7 @@
 "native.interface" = "Interface";
 "native.interrupt" = "Interrupt";
 "native.interrupted" = "Interrupted";
+"native.invalidBuildProviderLaunchPlan" = "The build provider returned an invalid launch plan.";
 "native.invalidGitTagName" = "Invalid Git tag name.";
 "native.invalidHookFileGuards" = "Invalid Hook file guards.";
 "native.invalidIdeApiRequest" = "Invalid IDE API request";
@@ -6398,6 +6405,7 @@
 "native.loadMoreCommits" = "Load more commits";
 "native.loadMoreDebuggerVariables" = "Load more debugger variables";
 "native.loadProjectModel" = "Load Project Model";
+"native.loadProviderModelBeforeRun" = "Load the current build model and enable its provider before running this configuration.";
 "native.loadTheDependenciesAgain" = "Load the dependencies again";
 "native.loadTheDependenciesOf" = "Load the dependencies of %1$@";
 "native.loadTheModel" = "Load the %1$@ model";
@@ -7210,6 +7218,8 @@
 "native.providerDetails" = "Provider details";
 "native.providerName" = "Provider name";
 "native.providerRequiresAnAPIKey" = "Provider requires an API key";
+"native.providerRunSaveConflict" = "Run configuration changed while saving. Reload and try again.";
+"native.providerRunSavingUnavailable" = "Saving build provider run configurations is unavailable.";
 "native.providers" = "Providers";
 "native.provides" = "Provides";
 "native.pruneStaleRecords" = "Prune Stale Records";
@@ -7629,6 +7639,7 @@
 "native.saveMetadata" = "Save Metadata";
 "native.saveOrDiscardUnsavedFilesBeforeDeletingThisItem" = "Save or discard unsaved files before deleting this item";
 "native.savePatch" = "Save Patch…";
+"native.saveProviderRunConfiguration" = "Save provider run configuration to .lithe/run/local.json";
 "native.saveScope" = "Save scope";
 "native.saveSharedInstructions" = "Save shared instructions";
 "native.saveTheActiveDocument" = "Save the active document";
@@ -7640,6 +7651,7 @@
 "native.savedInLitheRunConfigurationsJsonForTheWholeTeamLocalJDKPathsAreNeverShared" = "Saved in .lithe/run/configurations.json for the whole team. Local JDK paths are never shared.";
 "native.savedInLitheRunLocalJsonAndExcludedFromGit" = "Saved in .lithe/run/local.json and excluded from Git.";
 "native.savedOnlyForThisProjectOnThisComputerInLitheRunLocalJsonAndExcludedFromGit" = "Saved only for this project on this computer in .lithe/run/local.json and excluded from Git.";
+"native.savedProviderRunUnavailable" = "The saved provider run configuration is unavailable.";
 "native.savedTo" = "Saved to %1$@";
 "native.savesConnectsAndOpensTheRemoteFolderInThisWindow" = "Saves, connects, and opens the remote folder in this window.";
 "native.savingReplacesTheCurrentGitHubMetadata" = "Saving replaces the current GitHub metadata.";

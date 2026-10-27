@@ -66,7 +66,7 @@ pub(crate) const EXECUTABLE_RESOLUTION: &str = "executableResolution";
 /// capability keeps the meaning its section had at API level 2.
 pub const SUPPORTED_CAPABILITIES: &[(&str, &[u32])] = &[
     (BACKEND, &[1]),
-    (BUILD_PROVIDERS, &[1, 2, 3]),
+    (BUILD_PROVIDERS, &[1, 2, 3, 4]),
     (BUILD_SYSTEMS, &[1, 2]),
     (DEBUG_ADAPTERS, &[1]),
     (EXECUTION_PROVIDERS, &[1]),
