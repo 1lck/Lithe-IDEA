@@ -1,0 +1,118 @@
+# Bot PR via GitHub App identity
+#
+# Purpose: submit small pilot PRs as lithe-claude-coding[bot] without
+# needing a fresh transient PEM upload for every run. The App private
+# key lives once in GitHub Secrets; this workflow mints a short-lived
+# installation token and opens the PR.
+#
+# Guardrails, matching the repo's v1 bot rules:
+# - Trigger is workflow_dispatch ONLY (maintainer explicitly triggers;
+#   no webhook, no automatic Issue-comment trigger, no bot-to-bot run).
+# - Base branch MUST be `preview`. Any other base fails the job.
+# - No auto-merge, no "mark ready" step. `draft: true` (default) keeps
+#   the PR a draft; `draft: false` creates it open/ready for review
+#   and merge by a human, per the finished-work rule.
+# - The workflow creates one branch and one PR per run; it never
+#   pushes to preview or main directly.
+# - Small pilot patches only: the reviewed unified diff is passed as
+#   the `patch` workflow_dispatch input. Large diffs, binary files,
+#   and refactors stay on the transient-PEM path.
+# - This workflow does NOT run Codex, does NOT claim Issues, and
+#   does NOT review PRs. Those steps are separate.
+#
+# Required repository Secrets (set by the repo owner in Settings):
+#   APP_ID          - GitHub App ID for Lithe Claude Coding
+#   APP_PRIVATE_KEY - whole .pem contents for that App
+#
+name: Bot PR (GitHub App identity)
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "New branch name, e.g. bot/issue-1216-desc"
+        required: true
+        type: string
+      base:
+        description: "PR target branch — must be preview"
+        required: false
+        default: "preview"
+        type: string
+      title:
+        description: "PR title"
+        required: true
+        type: string
+      body:
+        description: "PR body (include: source Issue, changes, tests, and 'not verified on a real Windows machine' when applicable)"
+        required: true
+        type: string
+      draft:
+        description: "true = draft PR (unfinished work); false = open PR ready for review/merge by a human"
+        required: false
+        default: true
+        type: boolean
+      patch:
+        description: "Reviewed unified diff to apply (small pilot patches only)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  submit-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enforce preview as the only PR target
+        if: ${{ inputs.base != 'preview' }}
+        run: |
+          echo "Refusing: base must be preview, got '${{ inputs.base }}'" >&2
+          exit 1
+
+      - name: Mint GitHub App installation token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          # Token is scoped by the App installation: 1lck/Lithe-IDEA only.
+
+      - name: Check out preview and create the feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: preview
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Refuse if the branch already exists
+        run: |
+          if git ls-remote --heads origin "${{ inputs.branch }}" | grep -q .; then
+            echo "Branch ${{ inputs.branch }} already exists — refusing to avoid a duplicate run" >&2
+            exit 1
+          fi
+          git checkout -b "${{ inputs.branch }}"
+
+      - name: Apply the reviewed patch
+        env:
+          PATCH: ${{ inputs.patch }}
+        run: |
+          printf '%s\n' "$PATCH" > /tmp/reviewed.patch
+          git apply --check /tmp/reviewed.patch
+          git apply /tmp/reviewed.patch
+          git add -A
+          git -c user.name="lithe-claude-coding[bot]" commit -m "${{ inputs.title }}"
+
+      - name: Push branch with the App token
+        run: git push origin "${{ inputs.branch }}"
+
+      - name: Open the PR as the App bot (no merge step exists)
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          if [ "${{ inputs.draft }}" = "true" ]; then
+            gh pr create --base preview --head "${{ inputs.branch }}" \
+              --title "${{ inputs.title }}" --body "${{ inputs.body }}" --draft
+          else
+            gh pr create --base preview --head "${{ inputs.branch }}" \
+              --title "${{ inputs.title }}" --body "${{ inputs.body }}"
+          fi
