@@ -286,6 +286,28 @@
                 "local": { "$ref": "#/$defs/debugArgumentPath" },
                 "remote": { "$ref": "#/$defs/debugArgumentPath" }
               }
+            },
+            {
+              "description": "An object at `argument` with one root as the key and the other as the value, keyed by the `keyedBy` side. A target with the same root twice on that side is refused.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["shape", "argument", "keyedBy"],
+              "properties": {
+                "shape": { "const": "dictionary" },
+                "argument": { "$ref": "#/$defs/debugArgumentPath" },
+                "keyedBy": { "enum": ["local", "remote"] }
+              }
+            },
+            {
+              "description": "A list of two-element arrays at `argument`, the roots in the given `order`.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["shape", "argument", "order"],
+              "properties": {
+                "shape": { "const": "pairs" },
+                "argument": { "$ref": "#/$defs/debugArgumentPath" },
+                "order": { "enum": ["remoteLocal", "localRemote"] }
+              }
             }
           ]
         }

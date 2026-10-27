@@ -175,7 +175,8 @@ Java 是宿主里最后一个内置 Provider（`debugFactories["java"]`、`MacJa
 | 决定 | 内容 | 原因 |
 | --- | --- | --- |
 | 绑定的值是**目标参数路径** | `host`、`port`（须成对）、`address`（一个 `host:port` 字符串，IPv6 带方括号）、可选 `pathMappings`，值是适配器参数里的点分路径（最多 4 段）。事实来源是封闭的：`target.host`、`target.port`、`target.pathMappings` | 适配器给这些参数起的名字和嵌套都不同：java-debug 是 `hostName`/`port`，debugpy 是 `connect.host`/`connect.port`，js-debug 是 `address`/`port`，gdb 是一个 `target` 字符串。若沿用 `program`/`processId` 的写法（键是固定的目标参数名），就得宿主为每个适配器记名字，也就回到按名字分支。这些参数名只是设计参考，Core 不内置任何一个，具体以各适配器文档和对应插件的验收为准 |
-| 路径映射有两种形状 | `objects`：写一个对象列表，`argument` 是列表名，`localKey`/`remoteKey` 是每项的键（debugpy 的 `pathMappings`）；`first`：只取第一条映射写成两个字符串（js-debug 的 `localRoot`/`remoteRoot`） | 这两种覆盖了目前评估过的适配器，且声明仍是纯数据 |
+| 路径映射有四种形状 | `objects`：对象列表，`argument` 是列表名，`localKey`/`remoteKey` 是每项的键（debugpy 的 `pathMappings`、delve 的 `substitutePath`，后者键是 `from`/`to`）；`first`：唯一一条映射写成两个字符串（js-debug 的 `localRoot`/`remoteRoot`）；`dictionary`：以 `keyedBy`（`local` 或 `remote`）一侧为键的对象（CodeLLDB 的 `sourceMap`、PHP 的 `pathMappings`，都以远端路径为键）；`pairs`：二元数组列表，`order` 是 `remoteLocal` 或 `localRemote`（lldb-dap 的 `sourceMap`，`[源, 目标]`） | 按 2026-10-27 对主流适配器文档的核对，映射参数就这四种写法（见下面的兼容性审计），且声明仍是纯数据 |
+| 形状装不下的映射**拒绝**，不截断 | `first` 只接受一条映射，`dictionary` 在键的一侧不能出现两次同一个根，违反返回 `debug.target.invalid`（`target.pathMappings`）；`plan.debugAdapter.remoteAttach.maxPathMappings` 告诉宿主最多可以放几行（`first` 为 1，其余 16，无映射为 0） | 和下一行同一理由：悄悄丢掉用户填的一条映射，断点就对不上源码。首版的 `first` 曾只取第一条，审计时发现与此原则矛盾，已改为拒绝 |
 | 声明时拒绝目的地冲突 | 目的地路径与另一个目的地、`processId`/`cwd` 参数，或同一配置 `arguments` 里已有的名字相同、包含或被包含，清单就是 `plugin.manifest.invalid` | 启动参数里“默认值优先”。如果插件默认值里已经写了 `hostName`，宿主让用户确认的主机会被默认值盖掉，适配器连到用户没有确认的地方。这个风险必须在声明期堵死，运行期再检查只是兜底（`set_argument` 只写空位） |
 | 回环判断只看字面量 | `localhost`（不分大小写）、`127.0.0.0/8`、`::1` 是 `remote: false`；其余全是 `remote: true`，包括 `0.0.0.0`、`::ffff:127.0.0.1`、`localhost.example.org` | Core 不解析域名、不开 socket。名字本身证明不了它在本机，把不确定的当成远端只会多问一次，反过来则会静默连出去 |
 | 不新增权限 | `debug.attach` 已覆盖；`debug.attach` 的说明里写明它包含连接远程主机和端口 | 新权限只是把同一件事换个名字，安装审查已经能看到这个适配器会 attach |
@@ -183,14 +184,65 @@ Java 是宿主里最后一个内置 Provider（`debugFactories["java"]`、`MacJa
 | 路径映射被不支持的适配器**拒绝**而不是忽略 | 适配器没有 `pathMappings` 绑定，目标却带了映射，返回 `debug.target.invalid`（`target.pathMappings`） | 悄悄丢掉用户填的映射，会话能启动但断点对不上源码，比启动失败更难排查 |
 | 主机与路径的输入校验 | 主机是 DNS 名或 IP 字面量（1–253 字符，标签不超过 63 且不以 `-` 开头或结尾），不接受 scheme、端口、方括号、空白、用户名；全数字点分必须是合法 IPv4；端口 1–65535；映射最多 16 条，每个根 1–1024 字符且无控制字符，本地根必须是绝对路径，远程根不限制形状（它是远端的路径） | 这些字符串最终会进入适配器参数，宁可严格；远端的路径风格由对方决定，Core 不替它判断 |
 
-`plan.debugAdapter.remoteAttach` 返回 `{ pathMappings: bool }` 或 `null`，宿主据此决定显示“连接到远程主机”和映射列表，不必按适配器名字判断。
+`plan.debugAdapter.remoteAttach` 返回 `{ pathMappings: bool, maxPathMappings: n }` 或 `null`，宿主据此决定显示“连接到远程主机”和映射列表以及最多几行，不必按适配器名字判断。
 
-这一轮不做，且不是遗漏：
-- lldb 的 `sourceMap`（成对数组）：形状不同于上面两种，等 lldb 插件真正需要时再加第三种形状，不为猜测的需求扩大契约。
+这一轮不做，且不是遗漏（需要契约的缺口统一在下面的兼容性审计里编号、写明触发条件）：
 - IPv6 zone ID（`fe80::1%en0`）和国际化域名：后者用 punycode；前者依赖本机网卡，写进可分享的配置不可移植。
 - SSH 隧道：用户先自己建隧道再连 `127.0.0.1` 已经可用，由宿主管理隧道要先解决密钥、主机指纹和进程所有权，另开提案。
 - 适配器运行在远端：不是不做，而是它需要下面这一节的几样新东西（Core 路径翻译、用户提供的 ssh 目的地、独立权限与每次确认），不适合塞进这个契约 PR。
 - 绑定键等于参数名的写法：见上表第一行，已否决。
+
+#### 兼容性审计：契约能装下哪些调试器，缺口在哪
+
+2026-10-27 按各调试器的上游文档逐项核对“附加到远端程序”的参数写法，要回答的是“这个契约装不装得下主流调试器”，而不是等某个插件撞上缺口再改契约。结论分两半：**参数写法**这一半，核对过的适配器都能用“默认 `arguments` + 三类绑定（`host`/`port`/`address`、`pathMappings`）”表达；**连接方式**这一半有几处装不下，下面逐条编号。
+
+“核对状态”一列区分来源：**已核对**是读到了上游文档或 README 的参数表；**待核验**来自记忆或搜索摘要，没有读到原文，只能当设计参考，对应插件落地时必须按文档重新核对，这一列不是验收结论。参数名同样不由 Core 内置，具体以适配器文档和插件验收为准。
+
+| 调试器（适配器） | 附加到远端程序的参数写法 | 契约现状 | 核对状态 |
+| --- | --- | --- | --- |
+| Java（java-debug，JDWP） | `hostName`、`port` | 覆盖：平铺 `host`/`port`；没有路径映射参数 | 已核对 |
+| Python（debugpy） | `connect: { host, port }`，`pathMappings: [{ localRoot, remoteRoot }]` | 覆盖：嵌套路径加 `objects`。IDE 一侧监听、被调试程序主动连入的写法见 G4 | 已核对；反向写法待核验 |
+| Node（js-debug） | `address`、`port`、`localRoot`、`remoteRoot`、`processId`、`websocketAddress` | 覆盖：平铺加 `first`。`websocketAddress` 见 G5 | 已核对 |
+| 浏览器（js-debug chrome） | `address`、`port`、`pathMapping`、`webRoot`、`urlFilter` | 连接部分可表达，页面 URL 与 `webRoot` 不可，见 G7 | 已核对 |
+| Go（delve） | `mode: "remote"`、`host`、`port`、`substitutePath: [{ from: 本地, to: 远端 }]` | 覆盖：`mode` 放默认 `arguments`，其余走平铺加 `objects`（`localKey: from`、`remoteKey: to`）。直连远端的 `dlv dap --listen`（不起本地适配器）见 G2 | 参数已核对；本地适配器连远端的组合待 Go 插件实测 |
+| C/C++/Rust（lldb-dap） | `sourceMap: [[源, 目标], …]`；gdb-remote 的主机字段名在其 README 里前后不一 | 映射覆盖：`pairs`（`remoteLocal`）。主机字段名未定 | 映射已核对；主机字段名待核验 |
+| C/C++/Rust（CodeLLDB） | `sourceMap: { 远端: 本地 }`；连 gdbserver 用 `processCreateCommands: ["gdb-remote host:port"]` | 映射覆盖：`dictionary`（`keyedBy: remote`）。主机端口嵌在命令字符串里，写不进，见 G6 | 已核对 |
+| GDB（`gdb -i=dap`） | attach 接受 `pid` 或 `target` 字符串 | 覆盖：`address` 绑定写入 `target`。是否需要 `remote ` 之类的前缀没读到 | `target` 字段已核对；前缀待核验 |
+| .NET（netcoredbg） | `--interpreter=vscode`（stdio）；TCP 模式 `--server[=port]`，默认 4711，不宣告实际端口 | stdio 覆盖；TCP 需要宿主分配空闲端口，见 G1 | 已核对 |
+| PHP（Xdebug 适配器） | 适配器**监听** 9003，等 PHP 进程连进来；`pathMappings: { 服务器路径: 本地路径 }`；`hostname` 是监听地址 | 映射覆盖：`dictionary`（`keyedBy: remote`）。监听方向见 G4 | 已核对 |
+| Dart / Flutter | stdio；attach 用 `vmServiceUri` 或 `vmServiceInfoFile` | stdio 覆盖；URI 目标见 G5 | 已核对 |
+| Godot | 编辑器内置 DAP 服务器，端口 6006，没有适配器进程 | 见 G2 | 已核对 |
+| C/C++（cpptools） | `pipeTransport` 加 `sourceFileMap` | 这是“适配器在远端”的先例，由下一节和独立 Note 承接；导入规则见 G10 | 已核对 |
+| Ruby（rdbg）、Kotlin 适配器、PowerShell Editor Services、Scala（Metals） | 来自记忆：rdbg 的 DAP 配置、Kotlin 适配器参数、PSES 的命名管道、Metals 经 LSP 命令取得适配器端点 | 未判断，涉及 G3、G8 | 待核验 |
+
+缺口只记录，不预先实现。每一条写明现状、决定和触发条件，避免下一个写插件的人重新猜：
+
+| 编号 | 缺口 | 现状 | 决定 | 触发条件 |
+| --- | --- | --- | --- | --- |
+| G1 | 适配器的 TCP 模式需要空闲端口且不宣告（netcoredbg 的 `--server=<port>`） | `tcpPort` 只接受清单里写死的回环端口，固定端口会冲突 | 以后加“宿主分配空闲回环端口、替换参数里的 `{port}` 占位符”的传输 | 第一个只能走 TCP 的适配器。它们大多也支持 stdio，所以不阻塞 |
+| G2 | 连接一个已经在运行的 DAP 服务器，没有适配器进程（Godot 编辑器、用户自己启动的 `dlv dap --listen`） | `launch.process` 对除 `tcpLanguageServer` 外的传输必填 | 以后加 `tcpConnect` 传输，端点来自 `connection` 目标（用户填写的主机和端口），清单不得写死地址；它是 `remote: true` 的典型场景，必须沿用“每个非回环端点单独确认” | 第一个 Godot 或 delve 直连插件 |
+| G3 | Unix socket、Windows 命名管道 | 只有 stdio 和回环 TCP | 不做：它们是新的传输种类，命名管道还要平台各自实现 | 有适配器只提供这种传输 |
+| G4 | 反向 / 监听 attach：适配器监听、被调试程序连进来（PHP Xdebug、debugpy 的 `--connect`、JDWP 的 `server=n`） | `connection` 的 `host`/`port` 是“连出去”的语义 | 单独建模：需要“只有端口”的绑定，默认只绑回环，绑定非回环地址要单独确认，因为这是在本机开放端口；不给 `host` 加一个反向开关，两种方向的安全语义不同 | 第一个 PHP 插件。这是 Xdebug 的标准用法，不是边角，优先级高于其他缺口 |
+| G5 | 目标是 URI 而不是主机端口（Dart 的 `vmServiceUri`、js-debug 的 `websocketAddress`） | `connection` 只有主机端口 | 以后加 `uri` 绑定和 `target.uri` 事实，scheme 白名单（`ws`、`wss`、`http`、`https`），回环仍只按字面量判断；不尝试从 URI 里拆主机端口 | 第一个 Dart 或需要 websocket 的插件 |
+| G6 | 主机端口嵌在命令字符串里（CodeLLDB 的 `processCreateCommands`） | 绑定的值写成一个独立参数 | 以后加 `template`（如 `"gdb-remote {address}"`），占位符封闭为 `{host}`、`{port}`、`{address}`，且路径要支持数组下标；写入的值已经过主机校验 | CodeLLDB 插件 |
+| G7 | 浏览器调试（`url`、`webRoot`、`urlFilter`，目标是页面不是进程或端口） | 没有 `url` 目标种类 | 不在本契约内：它是新的目标种类，页面地址涉及隐私和权限，另开提案 | 有人要做浏览器调试插件 |
+| G8 | 启动适配器要带参数的 LSP 命令（Metals 一类） | `tcpLanguageServer.command` 只有命令名，没有参数 | 若插件确实需要，扩展“清单里写死的固定参数”，让用户随安装一起审查；不允许宿主在运行时拼接参数 | 先核验 Metals 的真实调用方式，再决定 |
+| G9 | TCP 子会话（多进程 Python 的 debugpy 通过 `connect` 开子会话） | 子会话端点被忽略，已记录在上面 P1 的“多会话”一节 | 属于 DAP 会话层，不是本契约；由具体语言插件覆盖 `makeChildSession` | Python 插件要求多进程调试时 |
+| G10 | 导入 VS Code `launch.json` 里的远程字段（`pipeTransport`、`miDebuggerServerAddress`、`debugServer`、`listen`） | 导入器还不存在 | 导入时**拒绝并说明**是哪个字段、为什么、该用哪个入口，不悄悄忽略；与“映射装不下就拒绝”同一原则 | 做导入器时 |
+| G11 | 许可条款限制使用场景的适配器 | 契约不内置任何适配器 | 不在契约层处理：能否随插件分发、能否由用户自行安装，是插件作者和用户的合规判断；插件作者应在插件说明里写明适配器的来源和许可 | 无 |
+
+所以“兼容所有调试器”的准确说法是：核对过的主流适配器的 attach 参数写法都能装下（四种映射形状加平铺 / 嵌套 / 联合地址），连接方式的缺口（G1–G6）已编号并写明触发条件，不能保证表里没有核对到的适配器。
+
+后续路线，按“先做对应调试器标准用法的缺口”排序：
+
+| 顺序 | 内容 | 依赖 |
+| --- | --- | --- |
+| 1 | 本 PR：契约、Core 校验、四种映射形状、拒绝 fixtures | 无 |
+| 2 | macOS 宿主接入 `attach`，通用“附加到远程”对话框取代仅限 Java 的 `JavaAttachView`，非回环端点确认 | 本 PR 合并 |
+| 3 | 适配器在远端（SSH + stdio） | 独立 Note 里的四项默认选择由用户确认 |
+| 4 | G4（监听 attach）与 G2（`tcpConnect`） | 第一个 PHP / Godot 插件出现；两者都涉及网络暴露，各自单独确认 |
+| 5 | G1、G5、G6、G8 | 对应插件出现，且已按文档核对参数 |
+| 6 | Windows 宿主 | Windows 的 P2–P4 先开始 |
 
 #### 下一步：适配器在远端（SSH + stdio）
 

@@ -24,7 +24,7 @@ use crate::plugins::declarative::{
 use crate::plugins::settings::DeclaredSettings;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{json, Map, Value};
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::net::IpAddr;
 
 /// Most adapters one plugin may declare.
@@ -295,8 +295,7 @@ pub(crate) struct DebugConnectionBinding {
     pub(crate) path_mappings: Option<DebugPathMappingBinding>,
 }
 
-/// The two ways adapters take source roots: a list of objects with a local and
-/// a remote key, or one local and one remote string.
+/// The ways adapters take source roots: where they go and in what form.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "shape", rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) enum DebugPathMappingBinding {
@@ -310,13 +309,42 @@ pub(crate) enum DebugPathMappingBinding {
     /// The first mapping only, as two strings: `local` and `remote` are the
     /// destination arguments.
     First { local: String, remote: String },
+    /// `{ <root>: <other root>, … }` at `argument`, keyed by one side.
+    #[serde(rename_all = "camelCase")]
+    Dictionary {
+        argument: String,
+        keyed_by: MappingRoot,
+    },
+    /// `[[<root>, <other root>], …]` at `argument`, in the declared order.
+    Pairs {
+        argument: String,
+        order: MappingOrder,
+    },
+}
+
+/// Which side of a mapping a dictionary is keyed by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum MappingRoot {
+    Local,
+    Remote,
+}
+
+/// Which root comes first in a pair.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum MappingOrder {
+    RemoteLocal,
+    LocalRemote,
 }
 
 impl DebugPathMappingBinding {
     /// Destination paths the binding writes, with the field each belongs to.
     fn destinations(&self) -> Vec<(&'static str, &str)> {
         match self {
-            Self::Objects { argument, .. } => vec![("pathMappings.argument", argument)],
+            Self::Objects { argument, .. }
+            | Self::Dictionary { argument, .. }
+            | Self::Pairs { argument, .. } => vec![("pathMappings.argument", argument)],
             Self::First { local, remote } => {
                 vec![
                     ("pathMappings.local", local),
@@ -336,7 +364,18 @@ impl DebugPathMappingBinding {
                 ("pathMappings.localKey", local_key),
                 ("pathMappings.remoteKey", remote_key),
             ],
-            Self::First { .. } => Vec::new(),
+            Self::First { .. } | Self::Dictionary { .. } | Self::Pairs { .. } => Vec::new(),
+        }
+    }
+
+    /// How many mappings the adapter can take. A shape that holds one mapping
+    /// refuses more rather than keeping the first and dropping the rest.
+    fn limit(&self) -> usize {
+        match self {
+            Self::First { .. } => 1,
+            Self::Objects { .. } | Self::Dictionary { .. } | Self::Pairs { .. } => {
+                MAX_PATH_MAPPINGS
+            }
         }
     }
 }
@@ -1566,7 +1605,13 @@ fn bind_connection(
         };
         set_argument(arguments, address, Value::from(joined))?;
     }
-    if let (Some(mappings), Some(first)) = (&binding.path_mappings, target.path_mappings.first()) {
+    // `plan` has already checked the mappings against this shape: their number
+    // fits it, and a dictionary has no key twice.
+    if let (Some(mappings), false) = (&binding.path_mappings, target.path_mappings.is_empty()) {
+        let roots = |mapping: &PathMapping, order: MappingOrder| match order {
+            MappingOrder::RemoteLocal => (mapping.remote.clone(), mapping.local.clone()),
+            MappingOrder::LocalRemote => (mapping.local.clone(), mapping.remote.clone()),
+        };
         match mappings {
             DebugPathMappingBinding::Objects {
                 argument,
@@ -1586,8 +1631,36 @@ fn bind_connection(
                 set_argument(arguments, argument, Value::Array(entries))?;
             }
             DebugPathMappingBinding::First { local, remote } => {
-                set_argument(arguments, local, Value::from(first.local.clone()))?;
-                set_argument(arguments, remote, Value::from(first.remote.clone()))?;
+                for first in target.path_mappings.iter().take(1) {
+                    set_argument(arguments, local, Value::from(first.local.clone()))?;
+                    set_argument(arguments, remote, Value::from(first.remote.clone()))?;
+                }
+            }
+            DebugPathMappingBinding::Dictionary { argument, keyed_by } => {
+                let order = match keyed_by {
+                    MappingRoot::Remote => MappingOrder::RemoteLocal,
+                    MappingRoot::Local => MappingOrder::LocalRemote,
+                };
+                let entries = target
+                    .path_mappings
+                    .iter()
+                    .map(|mapping| {
+                        let (key, value) = roots(mapping, order);
+                        (key, Value::from(value))
+                    })
+                    .collect();
+                set_argument(arguments, argument, Value::Object(entries))?;
+            }
+            DebugPathMappingBinding::Pairs { argument, order } => {
+                let entries = target
+                    .path_mappings
+                    .iter()
+                    .map(|mapping| {
+                        let (first, second) = roots(mapping, *order);
+                        Value::Array(vec![Value::from(first), Value::from(second)])
+                    })
+                    .collect();
+                set_argument(arguments, argument, Value::Array(entries))?;
             }
         }
     }
@@ -1708,15 +1781,22 @@ fn is_loopback_host(host: &str) -> bool {
             .is_ok_and(|address| address.is_loopback())
 }
 
-/// Checks the path mappings the host sends along with a remote target.
-fn check_path_mappings(mappings: &[PathMapping]) -> Validation<()> {
+/// Checks the path mappings the host sends along with a remote target against
+/// the shape the adapter takes them in.
+fn check_path_mappings(
+    mappings: &[PathMapping],
+    shape: &DebugPathMappingBinding,
+) -> Validation<()> {
     let invalid_mapping = |message: String| {
         PluginRejection::at("debug.target.invalid", "target.pathMappings", message)
     };
-    if mappings.len() > MAX_PATH_MAPPINGS {
-        return Err(invalid_mapping(format!(
-            "A target has up to {MAX_PATH_MAPPINGS} path mappings."
-        )));
+    // A shape that holds fewer mappings than the user gave would start a
+    // session with some source lines silently unmapped.
+    if mappings.len() > shape.limit() {
+        return Err(invalid_mapping(match shape.limit() {
+            1 => "The adapter takes one path mapping.".to_string(),
+            limit => format!("A target has up to {limit} path mappings."),
+        }));
     }
     for mapping in mappings {
         let sound = |root: &str| {
@@ -1735,6 +1815,26 @@ fn check_path_mappings(mappings: &[PathMapping]) -> Validation<()> {
             return Err(invalid_mapping(
                 "A path mapping's local root is an absolute path.".to_string(),
             ));
+        }
+    }
+    // A dictionary holds one value per key; two mappings from the same root
+    // cannot both be sent, and keeping either would drop the other unseen.
+    if let DebugPathMappingBinding::Dictionary { keyed_by, .. } = shape {
+        let mut keys = HashSet::new();
+        for mapping in mappings {
+            let key = match keyed_by {
+                MappingRoot::Local => &mapping.local,
+                MappingRoot::Remote => &mapping.remote,
+            };
+            if !keys.insert(key.as_str()) {
+                return Err(invalid_mapping(format!(
+                    "The adapter takes one path mapping per {} root.",
+                    match keyed_by {
+                        MappingRoot::Local => "local",
+                        MappingRoot::Remote => "remote",
+                    }
+                )));
+            }
         }
     }
     Ok(())
@@ -1756,9 +1856,11 @@ impl DebugAdapterDeclaration {
             "endpoint": self.launch.endpoint,
             "disabledCapabilities": self.capabilities.as_ref().map(|c| c.disabled.clone()).unwrap_or_default(),
             // Present exactly when the adapter attaches to a remote host and
-            // port; says whether the host may offer path mappings.
+            // port; says whether the host may offer path mappings and how many
+            // the adapter can take (0 when it takes none).
             "remoteAttach": self.connection_binding().map(|binding| json!({
                 "pathMappings": binding.path_mappings.is_some(),
+                "maxPathMappings": binding.path_mappings.as_ref().map_or(0, DebugPathMappingBinding::limit),
             })),
         })
     }
@@ -1854,8 +1956,8 @@ pub(crate) fn plan(
     }
     if let Some(connection) = &bindings.connection {
         connection_endpoint(target)?;
-        if connection.path_mappings.is_some() {
-            check_path_mappings(&target.path_mappings)?;
+        if let Some(shape) = &connection.path_mappings {
+            check_path_mappings(&target.path_mappings, shape)?;
         } else if !target.path_mappings.is_empty() {
             // Dropping a mapping the user typed would let the session start
             // with source lines that silently do not match.

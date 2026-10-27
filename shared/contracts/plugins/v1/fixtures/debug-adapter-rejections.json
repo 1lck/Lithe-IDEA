@@ -420,7 +420,7 @@
     {
       "id": "connection-path-mapping-unknown-shape",
       "layer": "schema",
-      "edits": [{"op": "set", "path": "/block/debugAdapters/0/requests", "value": ["attach"]}, {"op": "set", "path": "/context/manifestMetadata/permissions", "value": ["debug.attach", "debug.launch"]}, {"op": "set", "path": "/block/debugAdapters/0/configurations", "value": {"attach": {"targetBindings": {"connection": {"host": "connect.host", "port": "connect.port", "pathMappings": {"shape": "pairs", "argument": "sourceMap"}}}}}}],
+      "edits": [{"op": "set", "path": "/block/debugAdapters/0/requests", "value": ["attach"]}, {"op": "set", "path": "/context/manifestMetadata/permissions", "value": ["debug.attach", "debug.launch"]}, {"op": "set", "path": "/block/debugAdapters/0/configurations", "value": {"attach": {"targetBindings": {"connection": {"host": "connect.host", "port": "connect.port", "pathMappings": {"shape": "triples", "argument": "sourceMap"}}}}}}],
       "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].configurations.attach.targetBindings.connection.pathMappings"}
     },
     {
@@ -476,6 +476,42 @@
       "layer": "corePlan",
       "edits": [{"op": "set", "path": "/block/debugAdapters/0/requests", "value": ["attach"]}, {"op": "set", "path": "/context/manifestMetadata/permissions", "value": ["debug.attach", "debug.launch"]}, {"op": "set", "path": "/block/debugAdapters/0/configurations", "value": {"attach": {"targetBindings": {"connection": {"host": "hostName", "port": "port"}}}}}, {"op": "set", "path": "/block/debugAdapters/0/requests", "value": ["launch", "attach"]}, {"op": "set", "path": "/context/target", "value": {"kind": "connection", "host": "build.example.org", "port": 5005}}],
       "expected": {"code": "debug.target.invalid", "field": "target.kind"}
+    },
+    {
+      "id": "connection-path-mapping-dictionary-unknown-side",
+      "layer": "schema",
+      "edits": [{"op": "set", "path": "/block/debugAdapters/0/requests", "value": ["attach"]}, {"op": "set", "path": "/context/manifestMetadata/permissions", "value": ["debug.attach", "debug.launch"]}, {"op": "set", "path": "/block/debugAdapters/0/configurations", "value": {"attach": {"targetBindings": {"connection": {"host": "connect.host", "port": "connect.port", "pathMappings": {"shape": "dictionary", "argument": "sourceMap", "keyedBy": "both"}}}}}}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].configurations.attach.targetBindings.connection.pathMappings"}
+    },
+    {
+      "id": "connection-path-mapping-pairs-unknown-order",
+      "layer": "schema",
+      "edits": [{"op": "set", "path": "/block/debugAdapters/0/requests", "value": ["attach"]}, {"op": "set", "path": "/context/manifestMetadata/permissions", "value": ["debug.attach", "debug.launch"]}, {"op": "set", "path": "/block/debugAdapters/0/configurations", "value": {"attach": {"targetBindings": {"connection": {"host": "connect.host", "port": "connect.port", "pathMappings": {"shape": "pairs", "argument": "sourceMap", "order": "sideBySide"}}}}}}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].configurations.attach.targetBindings.connection.pathMappings"}
+    },
+    {
+      "id": "connection-path-mapping-dictionary-overlaps-endpoint",
+      "layer": "coreManifest",
+      "edits": [{"op": "set", "path": "/block/debugAdapters/0/requests", "value": ["attach"]}, {"op": "set", "path": "/context/manifestMetadata/permissions", "value": ["debug.attach", "debug.launch"]}, {"op": "set", "path": "/block/debugAdapters/0/configurations", "value": {"attach": {"targetBindings": {"connection": {"host": "connect.host", "port": "connect.port", "pathMappings": {"shape": "dictionary", "argument": "connect.host", "keyedBy": "remote"}}}}}}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].configurations.attach.targetBindings.connection.pathMappings.argument"}
+    },
+    {
+      "id": "connection-path-mapping-pairs-overlaps-endpoint",
+      "layer": "coreManifest",
+      "edits": [{"op": "set", "path": "/block/debugAdapters/0/requests", "value": ["attach"]}, {"op": "set", "path": "/context/manifestMetadata/permissions", "value": ["debug.attach", "debug.launch"]}, {"op": "set", "path": "/block/debugAdapters/0/configurations", "value": {"attach": {"targetBindings": {"connection": {"host": "connect.host", "port": "connect.port", "pathMappings": {"shape": "pairs", "argument": "connect", "order": "localRemote"}}}}}}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].configurations.attach.targetBindings.connection.pathMappings.argument"}
+    },
+    {
+      "id": "remote-target-mappings-share-a-keyed-root",
+      "layer": "corePlan",
+      "edits": [{"op": "set", "path": "/block/debugAdapters/0/requests", "value": ["attach"]}, {"op": "set", "path": "/context/manifestMetadata/permissions", "value": ["debug.attach", "debug.launch"]}, {"op": "set", "path": "/block/debugAdapters/0/configurations", "value": {"attach": {"targetBindings": {"connection": {"host": "connect.host", "port": "connect.port", "pathMappings": {"shape": "dictionary", "argument": "sourceMap", "keyedBy": "remote"}}}}}}, {"op": "set", "path": "/context/request", "value": "attach"}, {"op": "set", "path": "/context/target", "value": {"kind": "connection", "host": "build.example.org", "port": 5005, "pathMappings": [{"local": "/work/src", "remote": "/srv/app"}, {"local": "/work/lib", "remote": "/srv/app"}]}}],
+      "expected": {"code": "debug.target.invalid", "field": "target.pathMappings"}
+    },
+    {
+      "id": "remote-target-more-mappings-than-a-single-root-takes",
+      "layer": "corePlan",
+      "edits": [{"op": "set", "path": "/block/debugAdapters/0/requests", "value": ["attach"]}, {"op": "set", "path": "/context/manifestMetadata/permissions", "value": ["debug.attach", "debug.launch"]}, {"op": "set", "path": "/block/debugAdapters/0/configurations", "value": {"attach": {"targetBindings": {"connection": {"host": "connect.host", "port": "connect.port", "pathMappings": {"shape": "first", "local": "localRoot", "remote": "remoteRoot"}}}}}}, {"op": "set", "path": "/context/request", "value": "attach"}, {"op": "set", "path": "/context/target", "value": {"kind": "connection", "host": "build.example.org", "port": 5005, "pathMappings": [{"local": "/work/src", "remote": "/srv/app"}, {"local": "/work/lib", "remote": "/srv/lib"}]}}],
+      "expected": {"code": "debug.target.invalid", "field": "target.pathMappings"}
     }
   ]
 }

@@ -18,7 +18,9 @@
     "onDebug:flat",
     "onDebug:nested",
     "onDebug:scalar",
-    "onDebug:joined"
+    "onDebug:joined",
+    "onDebug:keyed",
+    "onDebug:paired"
   ],
   "languages": [],
   "debugAdapters": [
@@ -118,6 +120,62 @@
       "launch": {
         "process": {
           "launch": { "kind": "packaged", "path": "bin/joined-dap" }
+        },
+        "transport": "stdio"
+      }
+    },
+    {
+      "id": "keyed",
+      "displayName": "Keyed Source Map Remote Debugger",
+      "adapterID": "keyed-dap",
+      "requests": ["attach"],
+      "selectors": [{ "targetKinds": ["connection"] }],
+      "configurations": {
+        "attach": {
+          "targetBindings": {
+            "connection": {
+              "host": "connect.host",
+              "port": "connect.port",
+              "pathMappings": {
+                "shape": "dictionary",
+                "argument": "sourceMap",
+                "keyedBy": "remote"
+              }
+            }
+          }
+        }
+      },
+      "launch": {
+        "process": {
+          "launch": { "kind": "packaged", "path": "bin/keyed-dap" }
+        },
+        "transport": "stdio"
+      }
+    },
+    {
+      "id": "paired",
+      "displayName": "Paired Source Map Remote Debugger",
+      "adapterID": "paired-dap",
+      "requests": ["attach"],
+      "selectors": [{ "targetKinds": ["connection"] }],
+      "configurations": {
+        "attach": {
+          "targetBindings": {
+            "connection": {
+              "host": "hostName",
+              "port": "port",
+              "pathMappings": {
+                "shape": "pairs",
+                "argument": "sourceMap",
+                "order": "remoteLocal"
+              }
+            }
+          }
+        }
+      },
+      "launch": {
+        "process": {
+          "launch": { "kind": "packaged", "path": "bin/paired-dap" }
         },
         "transport": "stdio"
       }

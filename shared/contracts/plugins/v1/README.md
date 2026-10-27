@@ -1075,12 +1075,22 @@ and a user-supplied destination and is not declared in this version.
   `host:port` string, with an IPv6 host in brackets (`[2001:db8::1]:2345`); it
   stands in for `host` and `port`, or is a further destination beside them.
   At least one of the two forms is required.
-- `pathMappings` is optional and has two shapes. `objects` fills a list of
-  objects, one per mapping: `argument` names the list, `localKey` and
-  `remoteKey` the keys of each object. `first` is for an adapter with a single
-  pair of roots and fills `local` and `remote` from the first mapping. An
-  adapter whose mapping is something else (lldb `sourceMap` pairs) declares
-  none, and a start that sends mappings to it is refused.
+- `pathMappings` is optional and has four shapes, one per way adapters take
+  source roots:
+  - `objects` fills a list of objects, one per mapping: `argument` names the
+    list, `localKey` and `remoteKey` the keys of each object
+    (`[{ "localRoot": …, "remoteRoot": … }]`).
+  - `first` is for an adapter with a single pair of roots and fills `local`
+    and `remote` from the one mapping. It takes exactly one: a target with
+    more is refused rather than truncated.
+  - `dictionary` fills an object at `argument` whose keys are the roots of one
+    side and whose values are the other (`"keyedBy": "remote"` gives
+    `{ "<remote>": "<local>" }`). A target with the same root twice on the
+    keyed side is refused, since an object holds one value per key.
+  - `pairs` fills a list of two-element arrays at `argument`, in the order
+    `"order": "remoteLocal"` (`[["<remote>", "<local>"]]`) or `"localRemote"`.
+  An adapter whose mapping is none of these declares no `pathMappings`, and a
+  start that sends mappings to it is refused.
 - A destination may not equal, contain, or sit inside another destination, the
   `processId` or `cwd` argument a declared binding of the same configuration
   fills, or a name that the configuration's own `arguments` already sets. Defaults win over bindings, so without this rule
@@ -1107,9 +1117,10 @@ Core can prove local from the text: `localhost` (any case), `127.0.0.0/8`, and
 `remote` endpoint it has not been told to trust, and does not remember the
 answer by default. `debug.attach` covers remote attach; there is no separate
 permission. `plan.debugAdapter.remoteAttach` in the launch plan is
-`{ "pathMappings": boolean }` for an adapter that takes a connection and `null`
-otherwise, so a host knows whether to offer the host-and-port form and the
-mapping list.
+`{ "pathMappings": boolean, "maxPathMappings": number }` for an adapter that
+takes a connection (`maxPathMappings` is 0 without mappings, 1 for `first`, and
+16 otherwise) and `null` otherwise, so a host knows whether to offer the
+host-and-port form and the mapping list, and how many rows the list may hold.
 
 The cases in `fixtures/debug-adapter-rejections.json` state the stable code and
 field for each refusal and the layer that reports it: `schema`,
@@ -1118,7 +1129,7 @@ selection, a target missing a fact a binding reads; the request defaults to
 `launch` and `context.request` sets `attach`), and `coreInstall`
 (a `parametersSchema` that is missing or links outside the package).
 `fixtures/debug-adapter.plugin.json` is a valid example, and
-`fixtures/debug-adapter-remote-attach.plugin.json` declares four adapters that
+`fixtures/debug-adapter-remote-attach.plugin.json` declares six adapters that
 differ in how they take a connection.
 
 ## Plugin backend

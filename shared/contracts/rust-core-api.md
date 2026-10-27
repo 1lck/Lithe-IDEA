@@ -3338,8 +3338,12 @@ the argument paths that receive each fact, so Core writes `hostName`,
 text; every other host is `true`, including `0.0.0.0` and `::ffff:127.0.0.1`.
 Core does not resolve names and opens no socket; the host asks the user before it
 connects to a `remote` endpoint and does not remember the answer by default. The
-launch plan's `debugAdapter.remoteAttach` is `{ pathMappings }` for an adapter
-that takes a connection and `null` otherwise.
+launch plan's `debugAdapter.remoteAttach` is `{ pathMappings, maxPathMappings }`
+for an adapter that takes a connection and `null` otherwise. The mappings reach
+the adapter in the shape its binding declares (`objects`, `first`, `dictionary`,
+or `pairs`); a shape that cannot hold them all (`first` takes one, a
+`dictionary` takes each root once on its keyed side) refuses the target with
+`target.pathMappings` instead of dropping some.
 
 `debug.adapters.executablePlan` accepts `{ manifest, adapterID, settings?,
 projectSettings?, workspace?, targetPath? }` and returns `{ status: "ok",

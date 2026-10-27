@@ -1587,8 +1587,10 @@ fn debug_start_arguments_map_source_roots_in_the_shape_the_adapter_takes() {
             { "localRoot": local, "remoteRoot": "/opt/lib" },
         ])
     );
-    // An adapter with one local and one remote root takes the first mapping.
-    let scalar = remote_start("scalar", target);
+    // An adapter with one local and one remote root takes one mapping.
+    let mut single = connection_target("build.example.org", 5678);
+    single["pathMappings"] = json!([{ "local": local, "remote": "/srv/app" }]);
+    let scalar = remote_start("scalar", single);
     assert_eq!(
         scalar["arguments"],
         json!({
@@ -1598,9 +1600,29 @@ fn debug_start_arguments_map_source_roots_in_the_shape_the_adapter_takes() {
             "remoteRoot": "/srv/app",
         })
     );
+    // A dictionary is keyed by the side the binding names; the other root is
+    // the value.
+    let keyed = remote_start("keyed", target.clone());
+    assert_eq!(keyed["status"], "ok", "{keyed}");
+    assert_eq!(
+        keyed["arguments"]["sourceMap"],
+        json!({ "/srv/app": local, "/opt/lib": local })
+    );
+    // Pairs keep the order of the mappings and the roots within each pair.
+    let paired = remote_start("paired", target);
+    assert_eq!(paired["status"], "ok", "{paired}");
+    assert_eq!(
+        paired["arguments"]["sourceMap"],
+        json!([["/srv/app", local], ["/opt/lib", local]])
+    );
     // No mapping means no argument, not an empty one.
-    let none = remote_start("nested", connection_target("build.example.org", 5678));
-    assert!(none["arguments"].get("pathMappings").is_none(), "{none}");
+    for adapter in ["nested", "keyed", "paired"] {
+        let none = remote_start(adapter, connection_target("build.example.org", 5678));
+        assert_eq!(none["status"], "ok", "{adapter}: {none}");
+        for name in ["pathMappings", "sourceMap"] {
+            assert!(none["arguments"].get(name).is_none(), "{adapter}: {none}");
+        }
+    }
 }
 
 #[test]
@@ -1696,6 +1718,42 @@ fn debug_start_arguments_refuse_path_mappings_the_adapter_cannot_use() {
         );
         assert_eq!(refused["error"]["field"], "target.pathMappings", "{name}");
     }
+    // A shape that cannot hold everything the user gave is refused, not
+    // trimmed: `scalar` takes one mapping, and a dictionary keyed by the remote
+    // root has no room for two mappings from the same remote root.
+    let mut two = connection_target("build.example.org", 5678);
+    two["pathMappings"] = json!([
+        { "local": local, "remote": "/srv/app" },
+        { "local": local, "remote": "/opt/lib" },
+    ]);
+    let refused = remote_start("scalar", two);
+    assert_eq!(
+        refused["error"]["code"], "debug.target.invalid",
+        "{refused}"
+    );
+    assert_eq!(
+        refused["error"]["field"], "target.pathMappings",
+        "{refused}"
+    );
+    let mut same_remote = connection_target("build.example.org", 5678);
+    same_remote["pathMappings"] = json!([
+        { "local": local, "remote": "/srv/app" },
+        { "local": format!("{local}/other"), "remote": "/srv/app" },
+    ]);
+    let refused = remote_start("keyed", same_remote.clone());
+    assert_eq!(
+        refused["error"]["code"], "debug.target.invalid",
+        "{refused}"
+    );
+    assert_eq!(
+        refused["error"]["field"], "target.pathMappings",
+        "{refused}"
+    );
+    // Pairs and objects hold the same root twice without loss.
+    for adapter in ["paired", "nested"] {
+        let kept = remote_start(adapter, same_remote.clone());
+        assert_eq!(kept["status"], "ok", "{adapter}: {kept}");
+    }
     // `flat` declares no mapping argument: dropping the mapping silently would
     // start a session whose breakpoints do not line up.
     let mut target = connection_target("build.example.org", 5005);
@@ -1751,19 +1809,21 @@ fn debug_adapter_launch_plan_says_which_adapters_attach_to_a_remote_endpoint() {
         plan["plan"]["debugAdapter"]["remoteAttach"].clone()
     };
     let remote = "debug-adapter-remote-attach.plugin.json";
-    assert_eq!(descriptor(remote, "flat"), json!({ "pathMappings": false }));
-    assert_eq!(
-        descriptor(remote, "joined"),
-        json!({ "pathMappings": false })
-    );
-    assert_eq!(
-        descriptor(remote, "nested"),
-        json!({ "pathMappings": true })
-    );
-    assert_eq!(
-        descriptor(remote, "scalar"),
-        json!({ "pathMappings": true })
-    );
+    // The host offers as many mapping rows as the adapter can hold.
+    for (adapter, mappings, limit) in [
+        ("flat", false, 0),
+        ("joined", false, 0),
+        ("nested", true, 16),
+        ("scalar", true, 1),
+        ("keyed", true, 16),
+        ("paired", true, 16),
+    ] {
+        assert_eq!(
+            descriptor(remote, adapter),
+            json!({ "pathMappings": mappings, "maxPathMappings": limit }),
+            "{adapter}"
+        );
+    }
     assert_eq!(
         descriptor("debug-adapter.plugin.json", "example"),
         Value::Null
