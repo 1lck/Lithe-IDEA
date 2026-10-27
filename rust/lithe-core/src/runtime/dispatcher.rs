@@ -213,6 +213,16 @@ fn execute(request: &str) -> CoreResponse {
             parsed.payload,
             crate::plugins::declarative::language_server_launch_plan_command,
         ),
+        CoreCommand::DebugAdaptersStartArguments => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::declarative::debug_start_arguments_command,
+        ),
+        CoreCommand::DebugAdaptersExecutablePlan => plugin_response(
+            id,
+            parsed.payload,
+            crate::plugins::declarative::debug_executable_plan_command,
+        ),
         CoreCommand::PluginsDeclarativeCheckRuntimeVersion => plugin_response(
             id,
             parsed.payload,

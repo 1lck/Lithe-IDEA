@@ -314,6 +314,11 @@ public extension ModuleID {
         ModuleID("\(pluginID).vcs-providers")
     }
 
+    /// The debug adapters one declarative plugin declares, enabled together.
+    static func debugAdaptersExtension(_ pluginID: String) -> ModuleID {
+        ModuleID("\(pluginID).debug-adapters")
+    }
+
     /// The New Project entries one declarative plugin declares, enabled
     /// together. Nothing runs while it is enabled; it only gates the entries.
     static func projectGeneratorsExtension(_ pluginID: String) -> ModuleID {
