@@ -16,6 +16,7 @@
   "windows": {
     "evidence": [
       "windows/tauri/src/features/spring",
+      "windows/tauri/src/features/quick-open",
       "shared/fixtures/spring",
       "windows/tauri/src/features/spring/hooks/use-spring-index.ts",
       "windows/tauri/src/features/spring/hooks/use-spring-index.test.tsx",
@@ -29,6 +30,6 @@
     "verificationStatus": "pending"
   },
   "owner": "Java / Spring",
-  "verification": "使用 Spring fixture 对比配置、Bean、Endpoint 索引、刷新和失效处理。 Windows配置补全：打开Java/Spring项目的application.properties及profile配置，验证依赖属性补全、前缀替换、持续编辑与Java导入完成后的元数据刷新；注释、值、续行及其他项目不得提供错误建议。 Windows实际 Spring hook 回归以真实 LSP store 的 serviceReady 触发依赖元数据刷新，兼容 fullyReady 且同一 ready 阶段不重复刷新；覆盖恢复后的重新就绪、其他/已退役工作区和真实订阅卸载，使用手动调度而非计时等待。 资源边界：持续编辑时同一工作区只允许一个 Spring 索引在途，期间的触发合并为一次补充刷新；切换工作区或卸载会取消在途 Core 请求；并发请求共享同一次依赖仓库扫描，取消或超时能在扫描途中释放工作线程。",
-  "notes": "Windows通过既有Core Spring索引提供Monaco配置键补全，保留元数据仓库并在JDT导入完成后刷新。Core 对同一依赖仓库的元数据扫描做 single-flight，并在工作区源码与归档扫描中响应协作式取消，避免持续编辑产生多份并发全量索引。此能力不修复资源复制到target/classes的新鲜度。"
+  "verification": "使用 Spring fixture 对比配置、Bean、Endpoint 索引、刷新和失效处理。 Windows配置补全：打开Java/Spring项目的application.properties及profile配置，验证依赖属性补全、前缀替换、持续编辑与Java导入完成后的元数据刷新；注释、值、续行及其他项目不得提供错误建议。 Windows Quick Open：双击 Shift 后输入接口路由、控制器或处理方法，确认接口结果与文件结果共用键盘导航，回车打开控制器并定位到注解行；输入 @ 或 # 时不混入接口结果。 Windows实际 Spring hook 回归以真实 LSP store 的 serviceReady 触发依赖元数据刷新，兼容 fullyReady 且同一 ready 阶段不重复刷新；覆盖恢复后的重新就绪、其他/已退役工作区和真实订阅卸载，使用手动调度而非计时等待。 资源边界：持续编辑时同一工作区只允许一个 Spring 索引在途，期间的触发合并为一次补充刷新；切换工作区或卸载会取消在途 Core 请求；并发请求共享同一次依赖仓库扫描，取消或超时能在扫描途中释放工作线程。",
+  "notes": "Windows通过既有Core Spring索引提供Monaco配置键补全，保留元数据仓库并在JDT导入完成后刷新。Quick Open 直接筛选同一份Endpoint索引，按路由精确/前缀/包含、控制器或处理方法排序，不新增注解解析器；索引未就绪时文件搜索仍可用。Core 对同一依赖仓库的元数据扫描做 single-flight，并在工作区源码与归档扫描中响应协作式取消，避免持续编辑产生多份并发全量索引。此能力不修复资源复制到target/classes的新鲜度。"
 }
