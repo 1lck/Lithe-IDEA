@@ -2,6 +2,7 @@ import type { VcsRootController } from "./vcs-root-controller";
 import type { VcsRootPort, VcsSnapshot, VcsStatusSnapshot } from "./vcs-root-types";
 import {
   reviewPaths,
+  permitsWholeCopy,
   type VcsReview,
   type VcsWriteAction,
   type VcsWriteSnapshot,
@@ -77,16 +78,22 @@ export class VcsActionController {
       return;
     try {
       const paths = reviewPaths(status, action);
-      // update v1 cannot restrict itself to a subdirectory of a working copy.
+      // Neither v1 update nor cleanup can restrict itself to a subdirectory.
       if (
-        action.operation === "update" &&
-        (root.id !== "" || source.detection.roots.length !== 1 || source.detection.ambiguous.length)
+        (action.operation === "update" || action.operation === "cleanup") &&
+        !permitsWholeCopy(source, root.id)
       )
         throw new Error("vcs.provider.pathUnavailable");
       this.#publish({
         phase: "confirming",
         rootId: root.id,
-        review: { status, action: structuredClone(action), rootPath: root.path, paths },
+        review: {
+          status,
+          statusId: status.requestId,
+          action: structuredClone(action),
+          rootPath: root.path,
+          paths,
+        },
         error: null,
         result: null,
       });
@@ -129,15 +136,16 @@ export class VcsActionController {
     });
   }
   async confirm(): Promise<void> {
+    if (this.#attempt) return;
     const review = this.#state.review;
     const source = this.roots.getSnapshot().snapshot;
     if (
       this.#closed ||
-      this.#attempt ||
       this.#state.phase !== "confirming" ||
       !review ||
       !source ||
       this.roots.status.getSnapshot().snapshot !== review.status ||
+      review.status.requestId !== review.statusId ||
       source.generation !== review.status.generation
     ) {
       this.invalidate();
@@ -164,7 +172,7 @@ export class VcsActionController {
             source.generation,
             review.status.rootId,
             attempt.id,
-            review.status.requestId,
+            review.statusId,
             review.action,
           );
         },

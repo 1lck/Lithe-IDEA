@@ -325,6 +325,22 @@ try {
     assert.equal(await fs.readFile(source, "utf8"), "controlled build fixture bytes");
     await assert.rejects(fs.access(path.join(targetRoot, fixture)));
   });
+  await test("settings/functions plans and snapshots cannot transfer install approval", { timeout: 15000 }, async () => {
+    for (const fixture of [
+      ".artifacts/plugin-host-acceptance/settings-functions-fixture/settings-functions-plan.json",
+      ".artifacts/plugin-host-acceptance/settings-functions-fixture/settings-1.0.0.zip",
+      ".artifacts/plugin-host-acceptance/evidence/settings-functions/resources-before.json",
+    ]) {
+      const source = path.join(sourceRoot, fixture);
+      await fs.mkdir(path.dirname(source), { recursive: true });
+      await fs.writeFile(source, "run-owned settings/functions bytes");
+      const refused = reuse(["--resource", "plugin-host-acceptance-state"]);
+      assert.notEqual(refused.status, 0);
+      assert.match(diagnostics(refused), /plugin-host-acceptance-state.*cannot be reused/);
+      assert.equal(await fs.readFile(source, "utf8"), "run-owned settings/functions bytes");
+      await assert.rejects(fs.access(path.join(targetRoot, fixture)));
+    }
+  });
   await test("retained MCP filters and native review screenshots remain user/run state", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const policies = registry.excludedResources.find(item => item.id === "mcp-tool-probe-state");

@@ -9862,7 +9862,11 @@
     "debugger.memory.changedBytes": "{arg1} bytes changed",
     "debugger.step.overInstruction": "Step Over Instruction",
     "debugger.step.intoInstruction": "Step Into Instruction",
-    "debugger.disassembly.stepsByLine": "This adapter cannot step by instruction; steps still move by line"
+    "debugger.disassembly.stepsByLine": "This adapter cannot step by instruction; steps still move by line",
+    "vcs.actions.resolve": "Mark as Resolved",
+    "vcs.actions.cleanup": "Clean Up Working Copy",
+    "vcs.actions.risk.resolve": "These conflict files will be marked as resolved using their current saved contents. Review every listed file before continuing; this changes working copy conflict metadata.",
+    "vcs.actions.risk.cleanup": "This asks the provider to clean up the entire displayed working copy, including paths with no status changes. It may change working copy metadata and locks; wait for it to finish before running another VCS client."
   },
   "overrides": {
     "windows": {

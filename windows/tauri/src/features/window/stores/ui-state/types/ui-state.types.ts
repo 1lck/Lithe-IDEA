@@ -19,6 +19,7 @@ export type SettingsTab =
   | "file-explorer";
 
 export type BottomPaneTab =
+  | `plugin-native:${string}`
   | "terminal"
   | "debugger"
   | "diagnostics"

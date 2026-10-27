@@ -308,7 +308,8 @@ impl Owner {
         current: impl Fn() -> Result<(), String>,
     ) -> Reply {
         let capabilities = self.capabilities();
-        if capabilities[name] != 1 {
+        let capability = if name == "resolve" { "conflicts" } else { name };
+        if capabilities[capability] != 1 {
             return Err("vcs.capability.unsupported".into());
         }
         current()?;
@@ -368,13 +369,14 @@ impl Owner {
                         // A provider failure is a known failure. Transport loss,
                         // cancellation and invalid replies can hide side effects.
                         if write
-                            && !matches!(
-                                error.as_str(),
-                                "requestTimeout"
-                                    | "requestCancelled"
-                                    | "plugin.vcs.invalidOutput"
-                                    | "vcs.provider.failed"
-                            )
+                            && (event["error"]["code"] == "vcs.provider.failed"
+                                || !matches!(
+                                    error.as_str(),
+                                    "requestTimeout"
+                                        | "requestCancelled"
+                                        | "plugin.vcs.invalidOutput"
+                                        | "vcs.provider.failed"
+                                ))
                         {
                             self.state.lock().expect("VCS session").write_answered = true;
                         }
@@ -595,3 +597,7 @@ impl Sessions {
 #[cfg(test)]
 #[path = "vcs_session_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "vcs_session_core_tests.rs"]
+mod core_tests;

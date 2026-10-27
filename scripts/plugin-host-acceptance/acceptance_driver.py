@@ -1076,9 +1076,12 @@ def main() -> int:
     add_arguments(parser)
     from build_acceptance import add_arguments as add_build_arguments, validate_arguments as validate_build_arguments
     add_build_arguments(parser)
+    from settings_functions_acceptance import add_arguments as add_settings_arguments, validate_arguments as validate_settings_arguments
+    add_settings_arguments(parser)
     args = parser.parse_args()
     validate_arguments(parser, args)
     validate_build_arguments(parser, args)
+    validate_settings_arguments(parser, args)
 
     artifact_root = args.artifact_root.resolve()
     artifact_root.mkdir(parents=True, exist_ok=True)
@@ -1103,7 +1106,11 @@ def main() -> int:
         )
     reporter.document_pending("roadmap M5 build-system provider acceptance",
                               "Provider execution is outside the non-provider build fixture lane and remains pending.")
-    immutable_before = hash_tree(args.run_image.resolve())
+    resource_snapshot = hash_tree
+    if args.settings_functions_fixture_root:
+        from settings_functions_acceptance import snapshot_resources
+        resource_snapshot = snapshot_resources
+    immutable_before = resource_snapshot(args.run_image.resolve())
     write_json(artifact_root / "resource-hashes-before.json", immutable_before)
     session: AppSession | None = None
     reporter.capture_failure = lambda: capture_session_failure(session, artifact_root)
@@ -1128,6 +1135,28 @@ def main() -> int:
             assert "host-acceptance" in args.executable.name.lower()
 
         with sync_playwright() as playwright:
+            if args.settings_functions_fixture_root:
+                from settings_functions_acceptance import SettingsFunctionsAcceptance
+
+                def restart_settings(workspace):
+                    nonlocal session
+                    if session is not None:
+                        cleanup_evidence.append(session.stop(require_graceful=True))
+                        session = None
+                    session = AppSession(playwright, args.executable.resolve(), workspace,
+                                         args.webview_data.resolve(), artifact_root / "logs", len(cleanup_evidence) + 1)
+                    current = session.start()
+                    finish_onboarding(current)
+                    return current, session
+
+                try:
+                    SettingsFunctionsAcceptance(sys.modules[__name__], args, reporter, restart_settings).run()
+                finally:
+                    if session is not None:
+                        cleanup_evidence.append(session.stop(require_graceful=True))
+                        session = None
+                raise RuntimeError("M10 settings subset finished; real functions package/Provider prerequisites remain blocked. See settings-functions report rows.")
+
             with reporter.step("cancelled review discards its private snapshot"):
                 session = AppSession(
                     playwright,
@@ -1468,7 +1497,7 @@ def main() -> int:
             failure = failure or RuntimeError("; ".join(cleanup_errors))
         try:
             with reporter.step("release executable and packaged resources remain byte-identical"):
-                immutable_after = hash_tree(args.run_image.resolve())
+                immutable_after = resource_snapshot(args.run_image.resolve())
                 write_json(artifact_root / "resource-hashes-after.json", immutable_after)
                 added = sorted(set(immutable_after) - set(immutable_before))
                 removed = sorted(set(immutable_before) - set(immutable_after))
@@ -1521,6 +1550,17 @@ def main() -> int:
             from build_fixture import load_plan
             record_build_cases(reporter, load_plan(args.build_fixture_root), source_capabilities(),
                                official=bool(args.build_official_maven_package), reason="No success is inferred from helper tests or source presence.")
+        if args.settings_functions_fixture_root:
+            from settings_functions_acceptance import record_unreached_cases as record_settings_cases
+            from settings_functions_fixture import load_plan as load_settings_plan
+            try:
+                record_settings_cases(reporter, load_settings_plan(args.settings_functions_fixture_root))
+            except Exception as error:
+                # A missing/tampered plan must not prevent final report output
+                # after the native owner has completed bounded process cleanup.
+                reporter.tests.append({"name": "settings/functions input identity", "suite": "plugin-host-acceptance / settings-functions",
+                    "status": "failed", "durationMs": 0, "maxMs": 10000, "details": str(error)})
+                failure = failure or error
         write_json(
             args.report,
             {

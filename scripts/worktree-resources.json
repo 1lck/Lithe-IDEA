@@ -53,7 +53,7 @@
         "<windows-local-app-data>/app.lithe.windows.host-acceptance/",
         "<windows-roaming-app-data>/app.lithe.windows.host-acceptance/"
       ],
-      "identity": "One isolated native acceptance invocation owns its generated marketplace ZIPs/indexes, build-fixture packages/tools/workspaces/plan, run image, reports, profiles and mutable installation state. Deterministic fixture hashes verify the selected test bytes, not a reusable source/platform/architecture/toolchain build stamp.",
+      "identity": "One isolated native acceptance invocation owns its generated marketplace ZIPs/indexes, build-fixture packages/tools/workspaces/plan, settings-functions-fixture packages/workspaces/identity plan and resource snapshots, run image, reports, profiles and mutable installation state. Deterministic fixture hashes verify the selected test bytes, not a reusable source/platform/architecture/toolchain build stamp.",
       "reason": "Regenerate fixtures in the target worktree. Never copy or share the run image, user profile, downloaded packages or TLS private keys through resource reuse. The driver owns bounded listeners and process handles, closes them on every path and removes its isolated app data; diagnostic artifacts remain with that run. Native HTTPS uses an existing trusted certificate without copying keys or mutating client trust. No writes enter published resources, signatures or update baselines."
     },
     {

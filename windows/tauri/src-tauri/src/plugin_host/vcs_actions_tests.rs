@@ -355,3 +355,187 @@ fn windows_case_aliases_cannot_hide_nested_roots_or_implicit_parent_changes() {
         );
     }
 }
+
+#[test]
+fn resolve_requires_real_core_ownership_of_existing_ordinary_conflict_endpoints() {
+    let fixture = Fixture::new();
+    std::fs::create_dir_all(fixture.0.join("folder")).unwrap();
+    std::fs::create_dir_all(fixture.0.join("nested/.git")).unwrap();
+    std::fs::create_dir_all(fixture.0.join("mixed/.svn")).unwrap();
+    std::fs::create_dir_all(fixture.0.join("mixed/.git")).unwrap();
+    for path in [
+        "conflict.txt",
+        "tree.txt",
+        "clean.txt",
+        "nested/a.txt",
+        "mixed/a.txt",
+    ] {
+        std::fs::write(fixture.0.join(path), "fixture").unwrap();
+    }
+    let snapshot = fixture.snapshot(&fixture.0);
+    let root = &snapshot.detection.roots[0];
+    let mut status = fixture.status(&snapshot, json!([
+        {"path":"conflict.txt","status":"conflicted"},
+        {"path":"tree.txt","oldPath":"absent-old.txt","status":"renamed","flags":["treeConflict"]},
+        {"path":"clean.txt","status":"modified"},
+        {"path":"folder","status":"conflicted"},
+        {"path":"missing.txt","status":"conflicted"},
+        {"path":"nested/a.txt","status":"conflicted"},
+        {"path":"mixed/a.txt","status":"conflicted"}
+    ]));
+    // The operation is named resolve, but its real negotiated capability is conflicts.
+    status.capabilities["conflicts"] = json!(1);
+    let action = WriteOperation::Resolve {
+        paths: vec!["tree.txt".into(), "conflict.txt".into(), "tree.txt".into()],
+    };
+    assert_eq!(
+        targets(&super::super::Core, &snapshot, root, &status, &action)
+            .unwrap()
+            .arguments(),
+        json!({"paths":["conflict.txt","tree.txt"]})
+    );
+    for path in [
+        "clean.txt",
+        "folder",
+        "missing.txt",
+        "nested/a.txt",
+        "mixed/a.txt",
+        "unlisted.txt",
+        "../outside.txt",
+    ] {
+        assert!(
+            targets(
+                &super::super::Core,
+                &snapshot,
+                root,
+                &status,
+                &WriteOperation::Resolve {
+                    paths: vec![path.into()]
+                }
+            )
+            .is_err(),
+            "{path}"
+        );
+    }
+    for parent in ["added", "replaced", "renamed", "copied"] {
+        std::fs::create_dir_all(fixture.0.join(parent)).unwrap();
+        std::fs::write(fixture.0.join(parent).join("child.txt"), "fixture").unwrap();
+        let mut scheduled = fixture.status(
+            &snapshot,
+            json!([
+                {"path":parent,"status":parent},
+                {"path":format!("{parent}/child.txt"),"status":"conflicted"}
+            ]),
+        );
+        scheduled.capabilities["conflicts"] = json!(1);
+        assert_eq!(
+            targets(
+                &super::super::Core,
+                &snapshot,
+                root,
+                &scheduled,
+                &WriteOperation::Resolve {
+                    paths: vec![format!("{parent}/child.txt")]
+                }
+            )
+            .unwrap_err(),
+            "vcs.provider.pathUnavailable"
+        );
+    }
+    status.capabilities = json!({"resolve":1});
+    assert_eq!(
+        targets(&super::super::Core, &snapshot, root, &status, &action).unwrap_err(),
+        "vcs.capability.unsupported"
+    );
+}
+
+#[test]
+fn cleanup_requires_complete_receipt_and_exact_whole_root_without_nested_or_ambiguous_roots() {
+    let fixture = Fixture::new();
+    let mut snapshot = fixture.snapshot(&fixture.0);
+    let mut status = fixture.status(&snapshot, json!([]));
+    status.capabilities["cleanup"] = json!(1);
+    let check = |snapshot: &registry::Snapshot, status: &Published| {
+        targets(
+            &super::super::Core,
+            snapshot,
+            &snapshot.detection.roots[0],
+            status,
+            &WriteOperation::Cleanup {},
+        )
+    };
+    assert_eq!(check(&snapshot, &status).unwrap().arguments(), json!({}));
+    status.raw["truncated"] = json!(true);
+    assert!(check(&snapshot, &status).is_err());
+    status.raw["truncated"] = json!(false);
+    status.projected["truncated"] = json!(true);
+    assert!(check(&snapshot, &status).is_err());
+    status.projected["truncated"] = json!(false);
+    snapshot.detection.truncated = true;
+    assert!(check(&snapshot, &status).is_err());
+    snapshot.detection.truncated = false;
+    status.capabilities["cleanup"] = json!(0);
+    assert_eq!(
+        check(&snapshot, &status).unwrap_err(),
+        "vcs.capability.unsupported"
+    );
+    status.capabilities["cleanup"] = json!(1);
+    std::fs::create_dir_all(fixture.0.join("inside")).unwrap();
+    assert!(check(&fixture.snapshot(&fixture.0.join("inside")), &status).is_err());
+    std::fs::create_dir_all(fixture.0.join("mixed/.git")).unwrap();
+    std::fs::create_dir_all(fixture.0.join("mixed/.svn")).unwrap();
+    assert!(check(&fixture.snapshot(&fixture.0), &status).is_err());
+    std::fs::create_dir_all(fixture.0.join("nested/.git")).unwrap();
+    assert!(check(&fixture.snapshot(&fixture.0), &status).is_err());
+}
+
+#[test]
+fn resolve_and_cleanup_deserialize_only_the_frozen_v1_arguments() {
+    assert_eq!(
+        serde_json::from_value::<WriteOperation>(json!({"operation":"resolve","paths":["a.txt"]}))
+            .unwrap()
+            .arguments(),
+        json!({"paths":["a.txt"]})
+    );
+    assert_eq!(
+        serde_json::from_value::<WriteOperation>(json!({"operation":"cleanup"}))
+            .unwrap()
+            .arguments(),
+        json!({})
+    );
+    for input in [
+        json!({"operation":"resolve","paths":["a.txt"],"accept":"working"}),
+        json!({"operation":"cleanup","paths":["a.txt"]}),
+        json!({"operation":"cleanup","revision":"r2"}),
+    ] {
+        assert!(serde_json::from_value::<WriteOperation>(input).is_err());
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn resolve_rejects_windows_case_aliases_before_lexical_core_ownership() {
+    let fixture = Fixture::new();
+    std::fs::create_dir_all(fixture.0.join("nested/.git")).unwrap();
+    std::fs::write(fixture.0.join("nested/file.txt"), "fixture").unwrap();
+    let snapshot = fixture.snapshot(&fixture.0);
+    let mut status = fixture.status(
+        &snapshot,
+        json!([{"path":"NESTED/file.txt","status":"conflicted"}]),
+    );
+    status.capabilities["conflicts"] = json!(1);
+    assert!(fixture.0.join("NESTED/file.txt").is_file());
+    assert_eq!(
+        targets(
+            &super::super::Core,
+            &snapshot,
+            &snapshot.detection.roots[0],
+            &status,
+            &WriteOperation::Resolve {
+                paths: vec!["NESTED/file.txt".into()]
+            }
+        )
+        .unwrap_err(),
+        "vcs.provider.pathUnavailable"
+    );
+}

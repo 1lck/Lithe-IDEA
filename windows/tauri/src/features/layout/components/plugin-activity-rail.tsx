@@ -2,7 +2,7 @@ import { useBuildSystemsCatalogStore } from "@/features/build-systems/build-syst
 import { toggleBuildSystemWindow } from "@/features/build-systems/actions/build-system-tool-window-actions";
 import { useDeclarativePluginUI } from "@/features/plugins/declarative-plugin-ui";
 import { openDeclarativeWebWindow } from "@/features/plugins/declarative-plugin-launch";
-import { openNativeContribution } from "@/features/plugins/native-ui/native-contributions";
+import { NativeContributionButton } from "@/features/plugins/native-ui/native-contribution-button";
 import type { NativeContribution } from "@/features/plugins/native-ui/native-ui.types";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { AgentTrigger } from "@/features/agent/components/agent-trigger";
@@ -105,17 +105,11 @@ export function PluginActivityRail() {
       ))}
       <NotificationsTrigger className={STRIPE_BUTTON_CLASS_NAME} />
       {nativeWindows.map((entry) => (
-        <Button
+        <NativeContributionButton
           key={`${entry.pluginId}:${entry.windowId}`}
-          variant="ghost"
-          size="icon-sm"
           className={STRIPE_BUTTON_CLASS_NAME}
-          tooltip={entry.title}
-          aria-label={entry.title}
-          onClick={() => openNativeContribution(entry)}
-        >
-          <PuzzlePieceIcon className="size-5" />
-        </Button>
+          entry={entry}
+        />
       ))}
       <AgentTrigger className={STRIPE_BUTTON_CLASS_NAME} />
       {isMavenAvailable ? (

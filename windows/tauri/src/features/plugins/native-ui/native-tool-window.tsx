@@ -46,12 +46,12 @@ export default function NativeToolWindow({
         : undefined,
     [entry, workspaceId],
   );
-  if (!entry || !identity || entry.placement !== "right")
+  if (!entry || !identity)
     return (
       <SidebarPanel>
         <SidebarTitleBar title={entry?.title ?? t("pluginNative.title")} />
         <p role="alert" className="p-3">
-          {t(entry ? "pluginNative.placementUnavailable" : "pluginNative.unavailable")}
+          {t("pluginNative.unavailable")}
         </p>
       </SidebarPanel>
     );

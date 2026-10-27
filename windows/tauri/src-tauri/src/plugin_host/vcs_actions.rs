@@ -13,6 +13,10 @@ pub enum WriteOperation {
     Checkin { paths: Vec<String>, message: String },
     Rollback { paths: Vec<String> },
     Update,
+    Resolve { paths: Vec<String> },
+    // An empty struct makes deny_unknown_fields reject narrower path/revision
+    // arguments; internally tagged unit variants would silently ignore them.
+    Cleanup {},
 }
 impl WriteOperation {
     pub(super) fn name(&self) -> &'static str {
@@ -20,13 +24,21 @@ impl WriteOperation {
             Self::Checkin { .. } => "checkin",
             Self::Rollback { .. } => "rollback",
             Self::Update => "update",
+            Self::Resolve { .. } => "resolve",
+            Self::Cleanup { .. } => "cleanup",
+        }
+    }
+    pub(super) fn capability(&self) -> &'static str {
+        match self {
+            Self::Resolve { .. } => "conflicts",
+            _ => self.name(),
         }
     }
     pub(super) fn arguments(&self) -> Value {
         match self {
             Self::Checkin { paths, message } => json!({"paths":paths,"message":message}),
-            Self::Rollback { paths } => json!({"paths":paths}),
-            Self::Update => json!({}),
+            Self::Rollback { paths } | Self::Resolve { paths } => json!({"paths":paths}),
+            Self::Update | Self::Cleanup { .. } => json!({}),
         }
     }
 }
@@ -104,10 +116,13 @@ pub(super) fn targets(
     status: &Published,
     operation: &WriteOperation,
 ) -> Result<WriteOperation, String> {
-    if snapshot.detection.truncated || status.projected["truncated"] != false {
+    if snapshot.detection.truncated
+        || status.raw["truncated"] != false
+        || status.projected["truncated"] != false
+    {
         return Err("vcs.provider.incompleteRoots".into());
     }
-    if status.capabilities[operation.name()] != 1 {
+    if status.capabilities[operation.capability()] != 1 {
         return Err("vcs.capability.unsupported".into());
     }
     let workspace = Path::new(&snapshot.workspace_root)
@@ -116,8 +131,11 @@ pub(super) fn targets(
     let root_path = Path::new(&root.path)
         .canonicalize()
         .map_err(|_| registry::STALE)?;
-    if matches!(operation, WriteOperation::Update) {
-        // v1 update has no path scope. Never update an enclosing working copy
+    if matches!(
+        operation,
+        WriteOperation::Update | WriteOperation::Cleanup { .. }
+    ) {
+        // v1 update/cleanup have no path scope. Never mutate an enclosing working copy
         // or one containing nested/ambiguous roots from a narrower window.
         if root_path != workspace
             || snapshot.detection.roots.len() != 1
@@ -141,7 +159,7 @@ pub(super) fn targets(
             }
             (paths, Some(message))
         }
-        WriteOperation::Rollback { paths } => (paths, None),
+        WriteOperation::Rollback { paths } | WriteOperation::Resolve { paths } => (paths, None),
         _ => unreachable!(),
     };
     if selected.is_empty() || selected.len() > 10000 {
@@ -158,12 +176,26 @@ pub(super) fn targets(
     for path in selected {
         query::validate_path(path)?;
         let row = rows.get(path.as_str()).ok_or(registry::STALE)?;
-        if row["status"] == "ignored" || (message.is_none() && row["status"] == "unversioned") {
+        if row["status"] == "ignored"
+            || (matches!(operation, WriteOperation::Rollback { .. })
+                && row["status"] == "unversioned")
+        {
+            return Err("invalidRequest".into());
+        }
+        if matches!(operation, WriteOperation::Resolve { .. })
+            && row["status"] != "conflicted"
+            && !row["flags"]
+                .as_array()
+                .is_some_and(|flags| flags.iter().any(|flag| flag == "treeConflict"))
+        {
             return Err("invalidRequest".into());
         }
         paths.insert(path.clone());
-        if let Some(old) = row["oldPath"].as_str() {
-            paths.insert(old.into());
+        // macOS resolve marks the selected conflict path, never its oldPath.
+        if !matches!(operation, WriteOperation::Resolve { .. }) {
+            if let Some(old) = row["oldPath"].as_str() {
+                paths.insert(old.into());
+            }
         }
     }
     if paths.len() > 10000 {
@@ -200,7 +232,7 @@ pub(super) fn targets(
         {
             return Err("vcs.provider.pathUnavailable".into());
         }
-        if message.is_some() {
+        if message.is_some() || matches!(operation, WriteOperation::Resolve { .. }) {
             let mut ancestor = path.as_str();
             while let Some((parent, _)) = ancestor.rsplit_once('/') {
                 // Providers may include scheduled parent additions/replacements
@@ -231,6 +263,7 @@ pub(super) fn targets(
         .collect::<Result<_, _>>()?;
     let owners = registry::owners(core, snapshot, &relative)?;
     if !owners.complete
+        || owners.owners.len() != relative.len()
         || owners
             .owners
             .iter()
@@ -243,6 +276,9 @@ pub(super) fn targets(
             paths,
             message: message.clone(),
         },
+        None if matches!(operation, WriteOperation::Resolve { .. }) => {
+            WriteOperation::Resolve { paths }
+        }
         None => WriteOperation::Rollback { paths },
     })
 }

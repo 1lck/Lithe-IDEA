@@ -751,10 +751,15 @@ Windows 命令模型的 `<windows-app-local-data>/plugin-state/<plugin-id>/build
 按 `official-plugin-packages` 排除路由处理：由当前窗口、工作区代次和操作独占，确认后以
 `create_new` 创建，进程树清理完成后删除；清理失败时与原 owner 一起保留，崩溃遗留由插件状态/卸载流程回收。
 二者均无版本/平台/工具链复用身份，不跨工作树复制，不改变发行资源、签名或增量更新基线。
-原生插件验收的 `.artifacts/plugin-host-acceptance/`（含市场 ZIP/索引、构建夹具的包、工具、工作区及 plan、隔离运行镜像和报告）及
+原生插件验收的 `.artifacts/plugin-host-acceptance/`（含市场 ZIP/索引、构建夹具的包、工具、工作区及 plan、`settings-functions-fixture*` 的包/工作区/身份 plan、设置与函数验收资源快照、隔离运行镜像和报告）及
 `app.lithe.windows.host-acceptance` 用户配置走 `plugin-host-acceptance-state` 排除路由：
 每次在目标工作树重新生成，无可复用 identity，不跨 worktree 复制；驱动回收监听器、进程和隔离用户数据，
 报告留在本次验证目录。HTTPS 使用已有可信证书，不复制私钥或改系统信任，也不改发行资源及签名基线。
+设置/函数入口先运行 `python -B scripts/plugin-host-acceptance/settings_functions_fixture.py --output .artifacts/plugin-host-acceptance/settings-functions-fixture`，
+再用 `settings_functions_acceptance.py --fixture-root <该目录> --report <报告路径>` 做离线预检（pending 返回 2，输入错误返回 1，不启动产品）。
+真实执行由已有 `test-windows-declarative-plugin-host.ps1 -SkipBuild -SettingsFunctions -SettingsFunctionsFixtureRoot <该目录>` 消费隔离宿主 identity；
+plan、当前 checkout 和隔离宿主的提交标识必须一致；切换提交后重新生成输入，不得清理该输入目录后冒用旧 plan。
+驱动在插件详情验证普通设置，再经已注册的语言设置页保存 reload；受控设置子集通过不会把缺少兼容签名包、关闭中的 Provider 能力、arm64 或人工视觉验收算作通过。
 Windows 项目生成器的 `<workspace-parent>/.<project-name>.lithe-creating-<token>/` 暂存及最终用户项目
 走 `plugin-generator-transactions` 排除路由：由当前窗口和原生操作独占，先在用户选择的目标旁生成，
 验证后原子不覆盖发布；取消或失败清理同一 staging，清理失败保留操作与 NativeLease 供重试。

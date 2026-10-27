@@ -92999,6 +92999,34 @@
         "key": "This adapter cannot step by instruction; steps still move by line",
         "arguments": []
       }
+    },
+    {
+      "id": "vcs.actions.resolve",
+      "description": "Windows VCS action: vcs.actions.resolve",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.actions.cleanup",
+      "description": "Windows VCS action: vcs.actions.cleanup",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.actions.risk.resolve",
+      "description": "Windows VCS action: vcs.actions.risk.resolve",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.actions.risk.cleanup",
+      "description": "Windows VCS action: vcs.actions.risk.cleanup",
+      "platforms": [
+        "windows"
+      ]
     }
   ]
 }

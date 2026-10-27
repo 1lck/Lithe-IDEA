@@ -171,6 +171,20 @@
       "gapDetail": "Windows 经 Core 命令消费展开结果；bundled_php_contract_package_expands_plans 实测了 runPlan/testPlan 展开但用的是 PHP 契约包而非本 golden。发现/测试/launchPlan 作用域的宿主行为测试属 M5。"
     },
     {
+      "path": "debug-adapter-language-server.plugin.json",
+      "category": "valid-manifest",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/declarative_plugins.rs:1314 debug_adapter_inside_the_language_server_has_no_process_of_its_own",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:1356 debug_adapter_inside_the_language_server_is_a_reviewed_program",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:1377 debug_adapter_inside_the_language_server_rejects_inconsistent_launches"
+      ],
+      "windowsEvidence": [],
+      "windowsStatus": "unwired",
+      "gapStage": "followup",
+      "gapDetail": "Core 已覆盖 tcpLanguageServer 声明、语言服务器启动计划与安装审查，但 Windows host_capabilities 未声明 debugAdapters；此夹具不在合法/能力门控清单，也没有对应 decoder 或宿主会话测试。复用语言服务器执行端点命令、连接调试端口及准确回收的产品链需在冻结路线图后的调试器接入阶段实现并验收；现有通用清单校验与内置 TCP 调试不等于本能力已接线。"
+    },
+    {
       "path": "debug-adapter-rejections.json",
       "category": "invalid-edits",
       "outcome": "rejection",
@@ -181,6 +195,22 @@
       "windowsStatus": "unwired",
       "gapStage": "followup",
       "gapDetail": "preview #1510 新增 API 4 调试器声明拒绝金样。Windows 尚未接入 debugAdapters 宿主能力或此夹具的拒绝回归；保持已知缺口，不据 Core 单测宣称 Windows 支持。"
+    },
+    {
+      "path": "debug-adapter-remote-attach.plugin.json",
+      "category": "valid-manifest",
+      "outcome": "success",
+      "coreEvidence": [
+        "rust/lithe-core/src/tests/declarative_plugins.rs:1512 debug_adapter_remote_attach_fixture_validates_and_keeps_its_bindings",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:1537 debug_start_arguments_put_a_remote_endpoint_where_each_adapter_reads_it",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:1574 debug_start_arguments_map_source_roots_in_the_shape_the_adapter_takes",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:1650 debug_start_arguments_refuse_a_remote_target_without_a_usable_endpoint",
+        "rust/lithe-core/src/tests/declarative_plugins.rs:1796 debug_adapter_launch_plan_says_which_adapters_attach_to_a_remote_endpoint"
+      ],
+      "windowsEvidence": [],
+      "windowsStatus": "unwired",
+      "gapStage": "followup",
+      "gapDetail": "Core 已覆盖远端 attach 的 endpoint、targetBindings 和多种源码映射形状，Windows host_capabilities 仍未声明 debugAdapters；此夹具不在合法/能力门控清单，也没有读取它的宿主测试。远端目标到插件调试器参数的解码、注册与连接生命周期需在冻结路线图后的调试器接入阶段完成；既有通用 DAP/TCP 连接或非法清单循环不能证明该声明式远端接入已实现。"
     },
     {
       "path": "debug-adapter.plugin.json",

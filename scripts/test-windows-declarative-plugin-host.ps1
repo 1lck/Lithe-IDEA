@@ -7,6 +7,8 @@ param(
     [string]$ResourceSource = "",
     [switch]$Marketplace,
     [switch]$LspLifecycle,
+    [switch]$SettingsFunctions,
+    [string]$SettingsFunctionsFixtureRoot = "",
     [string]$MarketplaceFixtureRoot = "",
     [string]$MarketplaceTlsCert = "",
     [string]$MarketplaceTlsKey = "",
@@ -17,6 +19,15 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 if (-not $IsWindows) { throw "The declarative plugin host acceptance requires Windows." }
 if ($SkipBuild -and $ResumeBuild) { throw "Choose either -SkipBuild or -ResumeBuild." }
+if ($SettingsFunctions -ne (-not [string]::IsNullOrWhiteSpace($SettingsFunctionsFixtureRoot))) {
+    throw "Use -SettingsFunctions and -SettingsFunctionsFixtureRoot together (generate settings_functions_fixture.py inputs first)."
+}
+if ($SettingsFunctions -and ($Marketplace -or $LspLifecycle)) {
+    throw "Settings/functions is a focused invocation; run marketplace/LSP acceptance separately."
+}
+if ($SettingsFunctions -and -not $SkipBuild) {
+    throw "Settings/functions consumes an existing isolated host: use -SkipBuild to preserve its generated inputs and build identity."
+}
 $controlledMarketplaceArguments = @($MarketplaceFixtureRoot, $MarketplaceTlsCert, $MarketplaceTlsKey)
 $providedMarketplaceArguments = @($controlledMarketplaceArguments | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
 if ($providedMarketplaceArguments.Count -gt 0 -and (-not $Marketplace -or $providedMarketplaceArguments.Count -ne 3)) {
@@ -247,7 +258,10 @@ Invoke-NativeChecked -Executable "python" -Arguments @(
     (Join-Path $fixtureRoot "lsp_lifecycle_acceptance.py"),
     (Join-Path $fixtureRoot "lsp_lifecycle_acceptance_test.py"),
     (Join-Path $fixtureRoot "marketplace_fixture.py"),
-    (Join-Path $fixtureRoot "generate_packages.py")
+    (Join-Path $fixtureRoot "generate_packages.py"),
+    (Join-Path $fixtureRoot "settings_functions_fixture.py"),
+    (Join-Path $fixtureRoot "settings_functions_acceptance.py"),
+    (Join-Path $fixtureRoot "settings_functions_acceptance_test.py")
 ) -FailureMessage "A plugin host acceptance Python source file has invalid syntax"
 
 & (Join-Path $root ".agents/skills/write-stable-tests/scripts/verify-test-stability.ps1") -Platform windows
@@ -273,6 +287,11 @@ Invoke-NativeChecked -Executable "python" -Arguments @(
     (Join-Path $fixtureRoot "lsp_lifecycle_acceptance_test.py"),
     "--report", (Join-Path $stabilityRoot "plugin-lsp-lifecycle-driver.json")
 ) -FailureMessage "The LSP lifecycle event and initialization gate unit checks failed"
+
+Invoke-NativeChecked -Executable "python" -Arguments @(
+    "-B", (Join-Path $fixtureRoot "settings_functions_acceptance_test.py"),
+    "--report", (Join-Path $stabilityRoot "plugin-settings-functions-driver.json")
+) -FailureMessage "The settings/functions acceptance self-checks failed"
 
 $zsh = Get-Command zsh -ErrorAction SilentlyContinue
 $immutabilityReport = Join-Path $stabilityRoot "plugin-host-acceptance-source-guard.json"
@@ -476,6 +495,12 @@ try {
     )
     if ($Marketplace) { $driverArguments += "--marketplace" }
     if ($LspLifecycle) { $driverArguments += "--lsp-lifecycle" }
+    if ($SettingsFunctions) {
+        $driverArguments += @(
+            "--settings-functions-fixture-root", ([IO.Path]::GetFullPath($SettingsFunctionsFixtureRoot)),
+            "--settings-functions-host-identity", $identityMarker
+        )
+    }
     if ($providedMarketplaceArguments.Count -eq 3) {
         $driverArguments += @(
             "--marketplace-fixture-root", ([IO.Path]::GetFullPath($MarketplaceFixtureRoot)),

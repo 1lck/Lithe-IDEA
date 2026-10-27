@@ -358,6 +358,31 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
 
+      - name: Test plugin docking and VCS write boundaries in isolation
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          $runner = ".agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs"
+          $suites = @(
+            "src/features/plugins/native-ui/native-docking.test.tsx",
+            "src/features/plugins/native-ui/native-panel.test.tsx",
+            "src/features/plugins/native-ui/native-functions.test.ts",
+            "src/features/layout/components/plugin-activity-rail.test.ts",
+            "src/features/layout/components/bottom-pane/bottom-pane-terminal-lifecycle.test.tsx",
+            "src/features/layout/actions/workbench-tool-window-actions.test.ts",
+            "src/features/layout/actions/right-tool-window-actions.test.ts",
+            "src/features/layout/utils/sidebar-pane-utils.test.ts",
+            "src/features/vcs/vcs-resolve-cleanup.test.ts",
+            "src/features/vcs/vcs-action-controller.test.ts",
+            "src/features/vcs/vcs-actions-panel.test.tsx"
+          )
+          $index = 0
+          foreach ($suite in $suites) {
+            $index += 1
+            node $runner --suite-timeout-ms 60000 --report ".artifacts/test-stability/windows-plugin-docking-vcs-$index.json" -- "./$suite"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
       - name: Set up Python for plugin acceptance driver checks
         uses: actions/setup-python@v6
         with:
@@ -374,6 +399,8 @@ jobs:
           python -B scripts/plugin-host-acceptance/marketplace_acceptance_test.py --report .artifacts/test-stability/plugin-marketplace-driver.json --dom-browser msedge
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -B scripts/plugin-host-acceptance/lsp_lifecycle_acceptance_test.py --report .artifacts/test-stability/plugin-lsp-lifecycle-driver.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -B scripts/plugin-host-acceptance/settings_functions_acceptance_test.py --report .artifacts/test-stability/plugin-settings-functions-driver.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Test Agent panel and capability gate
@@ -796,6 +823,12 @@ jobs:
         shell: pwsh
         timeout-minutes: 20
         run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope WindowsRust -SuiteTimeoutSeconds 1080
+
+      - name: Test plugin VCS through real Core stdio
+        if: needs.changes.outputs.windows_rust == 'true'
+        shell: pwsh
+        timeout-minutes: 20
+        run: node scripts/test-windows-plugin-vcs-core.mjs
 
       - name: Generate combined Windows Rust test report
         if: always()

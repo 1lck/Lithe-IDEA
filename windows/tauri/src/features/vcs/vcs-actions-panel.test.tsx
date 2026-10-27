@@ -1,8 +1,13 @@
 import { afterAll, afterEach, expect, mock, test } from "bun:test";
 import { act, type ReactNode } from "react";
 import { installHappyDom } from "@/test-utils/happy-dom";
-import { LocaleProvider } from "@/i18n/locale-provider";
 import { actionFixture, flushActions } from "./vcs-action-test-fixture";
+import { createTranslator } from "@/i18n/locale";
+const t = createTranslator("en-US");
+mock.module("@/features/settings/stores/settings.store", () => ({
+  useSettingsStore: (select: (state: { settings: { displayLanguage: "en-US" } }) => unknown) =>
+    select({ settings: { displayLanguage: "en-US" } }),
+}));
 mock.module("@/ui/button", () => ({
   Button: (p: { disabled?: boolean; onClick(): void; children: ReactNode }) => (
     <button disabled={p.disabled} onClick={p.onClick}>
@@ -43,10 +48,13 @@ mock.module("@/ui/dialog", () => ({
   ),
 }));
 const restore = installHappyDom();
-const actGlobal = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
+const actGlobal = globalThis as typeof globalThis & {
+  IS_REACT_ACT_ENVIRONMENT?: boolean;
+};
 const previous = actGlobal.IS_REACT_ACT_ENVIRONMENT;
 actGlobal.IS_REACT_ACT_ENVIRONMENT = true;
 const { createRoot } = await import("react-dom/client");
+const { LocaleProvider } = await import("@/i18n/locale-provider");
 const { VcsActionsPanel } = await import("./vcs-actions-panel");
 const cleanups: Array<() => void | Promise<void>> = [];
 afterEach(async () => {
@@ -57,9 +65,10 @@ afterAll(() => {
   else actGlobal.IS_REACT_ACT_ENVIRONMENT = previous;
   restore();
 });
-async function fixture() {
+async function fixture(configure?: (f: Awaited<ReturnType<typeof actionFixture>>) => void) {
   const f = await actionFixture();
   cleanups.push(f.close);
+  configure?.(f);
   const container = document.createElement("div");
   document.body.append(container);
   const root = createRoot(container);
@@ -129,5 +138,80 @@ test("update confirmation describes whole root and invalidation removes pending 
   );
   await act(async () => f.controller.invalidate());
   expect(f.container.querySelector('[role="dialog"]')).toBeNull();
+  expect(f.calls).toEqual([]);
+});
+
+test("resolve confirmation lists every conflict endpoint and cleanup confirms the whole root", async () => {
+  const f = await fixture((f) => {
+    const snapshot = f.controller.status.getSnapshot().snapshot!;
+    snapshot.capabilities = {
+      ...snapshot.capabilities,
+      conflicts: 1,
+      cleanup: 1,
+    };
+    snapshot.result.changes.push(
+      { path: "conflict.txt", oldPath: null, status: "conflicted", flags: [] },
+      {
+        path: "tree.txt",
+        oldPath: null,
+        status: "modified",
+        flags: ["treeConflict"],
+      },
+    );
+  });
+  expect(f.button(t("vcs.actions.resolve")).disabled).toBe(true);
+  for (const path of ["conflict.txt", "tree.txt"])
+    await act(async () =>
+      (f.container.querySelector(`input[aria-label="${path}"]`) as HTMLInputElement).click(),
+    );
+  await act(async () => f.button(t("vcs.actions.resolve")).click());
+  let dialog = f.container.querySelector('[role="dialog"]')!;
+  for (const text of [
+    "C:/fixture/workspace",
+    "2 paths affected",
+    "conflict.txt",
+    "tree.txt",
+    t("vcs.actions.risk.resolve"),
+  ])
+    expect(dialog.textContent).toContain(text);
+  expect(f.calls).toEqual([]);
+  await act(async () => f.button("Cancel").click());
+  await act(async () => f.button(t("vcs.actions.cleanup")).click());
+  dialog = f.container.querySelector('[role="dialog"]')!;
+  for (const text of [
+    "C:/fixture/workspace",
+    "Entire working copy (all files)",
+    t("vcs.actions.risk.cleanup"),
+  ])
+    expect(dialog.textContent).toContain(text);
+  await act(async () => f.button("Confirm and run").click());
+  await act(flushActions);
+  expect(f.calls.filter((call) => call.kind === "write")).toHaveLength(1);
+  expect(f.calls[0]?.action).toEqual({ operation: "cleanup" });
+});
+
+test("resolve and cleanup entry points follow negotiated capabilities and native root scope", async () => {
+  const unsupported = await fixture();
+  expect(unsupported.button(t("vcs.actions.resolve"))).toBeUndefined();
+  expect(unsupported.button(t("vcs.actions.cleanup"))).toBeUndefined();
+  const f = await fixture((f) => {
+    const snapshot = f.controller.status.getSnapshot().snapshot!;
+    snapshot.capabilities = {
+      ...snapshot.capabilities,
+      conflicts: 1,
+      cleanup: 1,
+    };
+    f.view.detection.roots.push({
+      id: "nested",
+      path: `${f.scope.workspaceRoot}/nested`,
+      vcs: "git",
+      mapped: false,
+    });
+  });
+  expect(f.button(t("vcs.actions.cleanup")).disabled).toBe(true);
+  await act(async () =>
+    (f.container.querySelector('input[aria-label="new.txt"]') as HTMLInputElement).click(),
+  );
+  expect(f.button(t("vcs.actions.resolve")).disabled).toBe(true);
   expect(f.calls).toEqual([]);
 });

@@ -40,6 +40,7 @@ import { ResizablePane } from "./resizable-pane";
 import { MainSidebar, SidebarActivityRail } from "./sidebar/main-sidebar";
 import { COLLAPSED_ACTIVITY_RAIL_WIDTH } from "@/features/layout/constants/activity-rail";
 import { PluginActivityRail } from "./plugin-activity-rail";
+import { NativeToolWindowSlot } from "@/features/plugins/native-ui/native-tool-window-slot";
 import { PluginFunctionCleanupNotices } from "@/features/plugins/plugin-function-cleanup-notices";
 import { WelcomeScreen } from "./welcome-screen";
 import { AppUpdateDetailsDialog } from "./app-update-details-dialog";
@@ -79,7 +80,6 @@ const AgentPane = lazy(() =>
     default: module.AgentPanel,
   })),
 );
-const NativePluginPane = lazy(() => import("@/features/plugins/native-ui/native-tool-window"));
 
 export function MainLayout() {
   const { t } = useTranslation();
@@ -297,7 +297,9 @@ export function MainLayout() {
                     hidden={!isSidebarVisible}
                     reservedWidth={leftPaneReservedWidth}
                   >
-                    <MainSidebar />
+                    <NativeToolWindowSlot placement="left">
+                      <MainSidebar />
+                    </NativeToolWindowSlot>
                   </ResizablePane>
                 }
                 editor={
@@ -339,16 +341,7 @@ export function MainLayout() {
                         />
                       </Suspense>
                     ) : null}
-                    {isNativePluginVisible ? (
-                      <Suspense fallback={null}>
-                        <NativePluginPane
-                          view={activeRightSidebarView}
-                          onClose={() =>
-                            applyRightToolWindowIntent(activeRightSidebarView, "close")
-                          }
-                        />
-                      </Suspense>
-                    ) : null}
+                    {isNativePluginVisible ? <NativeToolWindowSlot placement="right" /> : null}
                   </ResizablePane>
                 }
                 panel={

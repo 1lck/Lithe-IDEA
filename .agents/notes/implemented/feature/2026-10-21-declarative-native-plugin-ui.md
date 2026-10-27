@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-插件可以声明树、列表、输入框、下拉选择、复选框、工具栏按钮和右键菜单，由 macOS 使用 Lithe 共享控件显示。开发者只提供数据与函数，不必开发前端样式。本轮复用现有插件函数调用和跨项目生命周期，不增加后端执行系统；Windows 原生渲染留待后续独立实现和验证。
+插件可以声明树、列表、输入框、下拉选择、复选框、工具栏按钮和右键菜单，由宿主使用 Lithe 公共控件显示；开发者只提供数据与函数，不必开发前端样式。macOS 已接入原生工作台，Windows 已接入保留准入门控的渲染器、类型化函数通道及左、下、右三侧面板，继续复用既有执行和清理机制。Windows 的 `ui:3` 准入仍关闭，位置覆盖仅保存在当前宿主窗口和工作区的内存中；完整产品、WebView2（Windows 网页视图运行时）及与 macOS 六组停靠的对齐仍未验收。
 
 ## 问题
 
@@ -14,7 +14,7 @@
 
 在 ui 能力版本 3 下引入独立版本的原生声明，首版支持一棵树、一个列表或一个表单及其面板动作。共享 Core 同时负责初始声明与刷新数据的结构、所有权和预算校验（原生适配器不复制节点规则），应用功能模型负责选择、展开、数据替换和事件，视图只使用已有标题栏、工具栏按钮、菜单、行样式和滚动条。声明不能携带颜色、字体或脚本。树/列表的行容器在共享行背景外提供 Tree.horizontalInset 的左右留白，让悬停与选中保持同一外边界；文字内部仅保留层级缩进。键盘区域复用 litheFocusEffectHidden 关闭系统矩形焦点环，仍通过共享行的活动/非活动选中配色表达焦点，保留方向键和无障碍。
 
-数据源和动作复用现有插件函数入口：它负责授权、工作区和插件范围、超时及取消。原生窗口使用与网页相同的会话登记表，插件停用、替换及关闭项目时同步取消请求。隐藏窗口也释放请求，重开从已有状态存储恢复选择和展开。发布包与插件包只读，状态只写平台提供的原有可写存储，不改变签名或 Sparkle 增量更新基线；没有新增可跨工作树复用的缓存资源。
+数据源和动作复用现有插件函数入口：它负责授权、工作区和插件范围、超时及取消。原生窗口使用与网页相同的会话登记表，插件停用、替换及关闭项目时同步取消请求。隐藏窗口也释放请求，重开从已有状态存储恢复选择和展开。发布包与插件包只读，macOS 状态使用平台提供的原有可写存储，Windows 面板草稿与位置覆盖只保存在内存中，不改变签名或 Sparkle 增量更新基线；没有新增可跨工作树复用的缓存资源。
 
 正确做法：插件声明树和刷新动作，函数只返回稳定节点 ID 与标签。不要这样做：按插件名在工作台增加视图分支，或为了渲染树另建后端进程与生命周期。
 
@@ -150,6 +150,18 @@ Git未跟踪目录摘要和可见行缓存；这些界面仍使用完整公共�
 
 本次同步后的验证：macOS 323项/56套件通过（10.561s），覆盖公共按钮、实际声明式挂载、输入/树列表、设置、Git及HTML预览；Rust Core全量1106项通过。UI Lab源码及打包后的SDK检查通过。完整产品人工视觉验收仍pending。
 
+### Windows 渲染、函数通道与三侧面板
+
+Windows 的树、列表和表单复用已有公共控件与虚拟列表，由共享 Core 校验声明、字段草稿和返回节点。面板通过类型化函数接口 `NativeFunctionPort` 加载数据和执行动作，复用设置及网页已有的 Core 函数会话、审批和清理提示；前端不能自行挑选函数、程序或构建实例。原生登记由可信插件目录绑定包内容身份、面板、宿主窗口实例、工作区和唯一构建实例。渲染与函数接线已存在，但不因此开放 `ui:3`；正常插件准入仍保留门控。
+
+左、下、右三侧显示接入既有 `MainLayout`、`BottomPane`、`TerminalDockLayout` 和 `ResizablePane`。声明位置是首次打开的默认值，入口右键菜单允许移动到另两侧；移动只关闭同一贡献原来的槽，其他工具的选择和可见状态不受影响。同一贡献只挂载一个面板，每个挂载实例持有准确的原生句柄；隐藏、移动、同槽替换和工作区切换均释放该句柄，晚到的旧登记不能释放后来的所有者。关闭按钮只有在包、工作区、选中贡献和位置仍匹配时才关闭，并把焦点还给对应入口；过期回调不能关闭新工作区的面板。
+
+位置覆盖按当前宿主窗口和工作区保存在内存中，面板的选择、展开和字段草稿还按包内容身份隔离。隐藏重开、在三侧之间移动及返回同一工作区可以恢复现有草稿；包替换不能继承旧包草稿。位置覆盖可以跨同一窗口内的暂时移除保留，但不是重启恢复契约，也不写入插件包、发行目录或跨工作树缓存。
+
+正确做法：把当前贡献从右侧移动到底部，复用现有分隔布局并释放原槽持有的句柄。不要这样做：为三个位置分别创建函数执行器，或让旧面板的关闭回调直接修改当前活动项目；前者会重复执行，后者会关闭无关工作区的工具。三侧接入也不代表已经具备 macOS 六组停靠、自由拖动、入口重排或持久布局。
+
+R13 的 `native-docking.test.tsx` 在集成树独立进程中实跑 10 项、137 项断言通过（5.54s，最慢 218ms）。测试组合真实 `TerminalDockLayout`、`ResizablePane`、`BottomPane`、`NativeToolWindow` 和 `NativePanel`，覆盖三侧挂载与移动、精确释放、隐藏重开、关闭后焦点、工作区及包隔离、长树、窄窗口和组合输入；插件目录、UI 状态动作及原生宿主使用替身。该证据不能代替真实 `MainLayout` 产品、完整包、双窗口与 WebView2 的视觉、输入法及浅深色验收，Windows 状态继续保持 `partial` / `pending`。
+
 ## 验证
 
 - `./scripts/verify-shared-contracts.sh`
@@ -159,6 +171,8 @@ Git未跟踪目录摘要和可见行缓存；这些界面仍使用完整公共�
 - `./scripts/verify-service-boundaries.sh`
 - `./scripts/verify-runtime-bundle-immutability.sh`
 - `./scripts/verify-platform-feature-matrix.sh`
+- Windows 组件测试分别在独立进程运行，避免模块替身互相污染：`bun test --timeout 15000 src/features/plugins/native-ui/native-panel-session.test.ts`、`bun test --timeout 15000 src/features/plugins/native-ui/native-panel.test.tsx`、`bun test --timeout 15000 src/features/plugins/native-ui/native-functions.test.ts`、`bun test --timeout 15000 src/features/plugins/native-ui/native-docking.test.tsx`（工作目录 `windows/tauri`）。
+- Windows 原生登记与函数边界：运行 Tauri 宿主的 `plugin_host::native_ui` 和 `plugin_host::functions::native` 定向测试；组件结果不代替宿主或完整产品验收。
 
 ## 适用范围
 
@@ -168,6 +182,11 @@ Git未跟踪目录摘要和可见行缓存；这些界面仍使用完整公共�
 - `macos/Sources/Lithe/Application/Features/PluginNativeUIFeature.swift`
 - `macos/Sources/Lithe/Views/Workbench/PluginNativeToolWindowView.swift`
 - `macos/Tests/Fixtures/native-ui-lab/`（宿主验收 fixture，打包使用外部官方 SDK）
+- `windows/tauri/src/features/plugins/native-ui/`
+- `windows/tauri/src/features/layout/components/main-layout.tsx`
+- `windows/tauri/src/features/layout/components/bottom-pane/bottom-pane.tsx`
+- `windows/tauri/src-tauri/src/plugin_host/native_ui/`
+- `windows/tauri/src-tauri/src/plugin_host/functions/native.rs`
 
 ## 2026-10-23 SDK 迁移后的验收归属
 

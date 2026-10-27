@@ -6,6 +6,7 @@ import Textarea from "@/ui/textarea";
 import AppDialog from "@/ui/dialog";
 import type { VcsRootController } from "./vcs-root-controller";
 import type { VcsRoot, VcsStatusSnapshot } from "./vcs-root-types";
+import { isConflict, permitsWholeCopy } from "./vcs-action-types";
 
 export const MAX_VISIBLE_STATUS_CHANGES = 500;
 export function VcsActionsPanel({
@@ -37,6 +38,7 @@ export function VcsActionsPanel({
   const changes = snapshot?.result.changes ?? [];
   const canWrite = !!snapshot && !snapshot.result.truncated && !readBusy && !busy;
   const capabilities = snapshot?.capabilities ?? {};
+  const wholeCopy = permitsWholeCopy(controller.getSnapshot().snapshot, root.id);
   const review = state.rootId === root.id ? state.review : null;
   const error = String(state.error ?? "");
   const code = [
@@ -111,25 +113,48 @@ export function VcsActionsPanel({
                 )
               }
               onClick={() =>
-                controller.actions.prepare(snapshot, { operation: "rollback", paths: selection })
+                controller.actions.prepare(snapshot, {
+                  operation: "rollback",
+                  paths: selection,
+                })
               }
             >
               {t("vcs.actions.rollback")}
             </Button>
           )}
-          {capabilities.update === 1 && (
+          {capabilities.conflicts === 1 && (
             <Button
               size="xs"
               disabled={
                 !canWrite ||
-                root.id !== "" ||
-                controller.getSnapshot().snapshot?.detection.roots.length !== 1 ||
-                !!controller.getSnapshot().snapshot?.detection.ambiguous.length
+                !selection.length ||
+                selection.some((path) => {
+                  const change = changes.find((change) => change.path === path);
+                  return !change || !isConflict(change);
+                })
               }
-              onClick={() => controller.actions.prepare(snapshot, { operation: "update" })}
+              onClick={() =>
+                controller.actions.prepare(snapshot, {
+                  operation: "resolve",
+                  paths: selection,
+                })
+              }
             >
-              {t("vcs.actions.update")}
+              {t("vcs.actions.resolve")}
             </Button>
+          )}
+          {(["update", "cleanup"] as const).map(
+            (operation) =>
+              capabilities[operation] === 1 && (
+                <Button
+                  key={operation}
+                  size="xs"
+                  disabled={!canWrite || !wholeCopy}
+                  onClick={() => controller.actions.prepare(snapshot, { operation })}
+                >
+                  {t(`vcs.actions.${operation}`)}
+                </Button>
+              ),
           )}
         </>
       )}
@@ -166,7 +191,9 @@ export function VcsActionsPanel({
               {t("vcs.actions.completed")}
               {state.result?.revision?.display ? ` ${state.result.revision.display}` : ""}
               {!!state.result?.conflicts?.length &&
-                t("vcs.actions.conflicts", { count: state.result.conflicts.length })}
+                t("vcs.actions.conflicts", {
+                  count: state.result.conflicts.length,
+                })}
             </p>
           )}
         </>
@@ -198,7 +225,7 @@ export function VcsActionsPanel({
         >
           <p className="break-all">{review.rootPath}</p>
           <p>
-            {review.action.operation === "update"
+            {review.action.operation === "update" || review.action.operation === "cleanup"
               ? t("vcs.actions.wholeCopy")
               : t("vcs.actions.count", { count: review.paths.length })}
           </p>

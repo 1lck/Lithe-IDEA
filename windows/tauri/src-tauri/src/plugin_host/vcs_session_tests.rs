@@ -685,10 +685,14 @@ async fn writes_use_typed_core_requests_real_decoder_and_never_redispatch_on_cle
             (super::super::actions::WriteOperation::Checkin { paths: vec!["after.txt".into(), "before.txt".into()], message: "Fix selected".into() }, json!({"revision":{"id":"r2"}})),
             (super::super::actions::WriteOperation::Rollback { paths: vec!["gone.txt".into()] }, json!({})),
             (super::super::actions::WriteOperation::Update, json!({"revision":null,"conflicts":["a.txt"]})),
+            (super::super::actions::WriteOperation::Resolve { paths: vec!["conflict.txt".into()] }, json!({})),
+            (super::super::actions::WriteOperation::Cleanup {}, json!({})),
         ] {
             let runtime = Arc::new(ScriptedRuntime::default());
             let mut negotiation = ready("svn");
             negotiation[0]["result"]["capabilities"]["update"] = json!(1);
+            negotiation[0]["result"]["capabilities"]["conflicts"] = json!(1);
+            negotiation[0]["result"]["capabilities"]["cleanup"] = json!(1);
             runtime.events.lock().unwrap().extend([negotiation, vec![json!({"type":"requestCompleted","sessionId":"fixture-session","operationId":"fixture-request","result":{"value":{"changes":[]}}})],
                 vec![json!({"type":"requestCompleted","sessionId":"fixture-session","operationId":"fixture-request-write","result":{"value":reply}})]]);
             let owner = owner(context(), runtime.clone());
@@ -716,6 +720,96 @@ async fn writes_use_typed_core_requests_real_decoder_and_never_redispatch_on_cle
         }
     }).await.expect("bounded writes and cleanup");
 }
+
+#[tokio::test]
+async fn resolve_and_cleanup_never_dispatch_without_their_actual_negotiated_capability() {
+    tokio::time::timeout(DEADLINE, async {
+        for operation in [
+            super::super::actions::WriteOperation::Resolve { paths: vec!["a.txt".into()] },
+            super::super::actions::WriteOperation::Cleanup {},
+        ] {
+            let runtime = Arc::new(ScriptedRuntime::default());
+            let mut negotiation = ready("svn");
+            // A capability named after the operation is not a conflicts negotiation.
+            negotiation[0]["result"]["capabilities"]["resolve"] = json!(1);
+            runtime.events.lock().unwrap().extend([negotiation,
+                vec![json!({"type":"requestCompleted","sessionId":"fixture-session","operationId":"fixture-request","result":{"value":{"changes":[]}}})]]);
+            let owner = owner(context(), runtime.clone());
+            owner.start(|| Ok((json!({}), None))).await.unwrap();
+            owner.status(|| Ok(())).await.unwrap();
+            let result = owner.write(&operation, || Ok(()), || Ok(())).await;
+            assert_eq!(result.unwrap_err(), "vcs.capability.unsupported");
+            assert!(!owner.uncertain());
+            assert!(!runtime.calls.lock().unwrap().iter().any(|(name, payload)| name == "lsp.vcsRequest" && payload["operation"] == operation.name()));
+            owner.stop().await.unwrap();
+        }
+    }).await.expect("bounded negotiated resolve/cleanup");
+}
+
+#[tokio::test]
+async fn resolve_cleanup_outcomes_and_failed_disposal_keep_the_original_owner_without_replay() {
+    tokio::time::timeout(DEADLINE, async {
+        for operation in [
+            super::super::actions::WriteOperation::Resolve { paths: vec!["a.txt".into()] },
+            super::super::actions::WriteOperation::Cleanup {},
+        ] {
+            for outcome in ["preflight", "provider", "providerGeneric", "success", "lost"] {
+                let runtime = Arc::new(ScriptedRuntime::default());
+                let mut negotiation = ready("svn");
+                negotiation[0]["result"]["capabilities"][operation.capability()] = json!(1);
+                runtime.events.lock().unwrap().extend([negotiation,
+                    vec![json!({"type":"requestCompleted","sessionId":"fixture-session","operationId":"fixture-request","result":{"value":{"changes":[]}}})]]);
+                let completion = match outcome {
+                    "provider" => Some(json!({"error":{"code":"vcs.workingCopy.locked"}})),
+                    "providerGeneric" => Some(json!({"error":{"code":"vcs.provider.failed"}})),
+                    "success" => Some(json!({"result":{"value":{}}})),
+                    _ => None,
+                };
+                if let Some(mut event) = completion {
+                    event["type"] = json!("requestCompleted");
+                    event["sessionId"] = json!("fixture-session");
+                    event["operationId"] = json!("fixture-request-write");
+                    runtime.events.lock().unwrap().push_back(vec![event]);
+                }
+                let owner = owner(context(), runtime.clone());
+                owner.mark_mutation();
+                let sessions = Sessions::default();
+                sessions.insert(owner.clone(), || true).unwrap();
+                owner.start(|| Ok((json!({}), None))).await.unwrap();
+                owner.status(|| Ok(())).await.unwrap();
+                let result = owner.write(&operation, move || {
+                    if outcome == "preflight" { Err(super::super::registry::STALE.into()) } else { Ok(()) }
+                }, || Ok(())).await;
+                assert_eq!(result.is_ok(), outcome == "success");
+                assert_eq!(owner.uncertain(), outcome == "lost");
+                runtime.reject_disposal.store(true, Ordering::Release);
+                owner.revoke();
+                assert!(!owner.dispose_once().await);
+                let error = super::super::status::complete_request(result.clone(), Err(CLEANUP_FAILED.into()), true, owner.uncertain()).unwrap_err();
+                assert_eq!(error.starts_with("vcs.provider.outcomeUnknown:"), matches!(outcome, "success" | "lost"));
+                assert!(owner.lease.lock().unwrap().is_some());
+                // Another window cannot mutate the same root until disposal is proved.
+                let mut other_context = context();
+                other_context.host = "another-window".into();
+                let other = self::owner(other_context, Arc::new(ScriptedRuntime::default()));
+                other.mark_mutation();
+                assert_eq!(sessions.insert(other.clone(), || true).unwrap_err(), CLEANUP_FAILED);
+                runtime.reject_disposal.store(false, Ordering::Release);
+                sessions.cleanup(owner.clone()).await.unwrap();
+                assert!(owner.lease.lock().unwrap().is_none());
+                sessions.insert(other.clone(), || true).unwrap();
+                // A late old cleanup must neither remove nor stop the replacement owner.
+                sessions.cleanup(owner.clone()).await.unwrap();
+                assert!(other.current().is_ok());
+                assert!(other.lease.lock().unwrap().is_some());
+                sessions.cleanup(other).await.unwrap();
+                assert_eq!(runtime.calls.lock().unwrap().iter().filter(|(name, payload)|
+                    name == "lsp.vcsRequest" && payload["operation"] == operation.name()).count(), usize::from(outcome != "preflight"));
+            }
+        }
+    }).await.expect("bounded resolve/cleanup outcomes and original owner");
+}
+
 #[tokio::test]
 async fn replacement_preflight_cancellation_and_lost_write_reply_never_replay_side_effects() {
     tokio::time::timeout(DEADLINE, async {
