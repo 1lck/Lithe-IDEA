@@ -310,7 +310,8 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             if startAdditional(fileURL: request.fileURL, rootURL: request.rootURL,
                      configuration: DebugLaunchConfiguration(
                         name: request.configuration.name, request: request.configuration.request,
-                        arguments: arguments, steppingFilters: request.configuration.steppingFilters)) {
+                        arguments: arguments, steppingFilters: request.configuration.steppingFilters,
+                        adapterEndpoint: request.configuration.adapterEndpoint)) {
                 registerJavaUpdateTarget(target)
             }
         } catch {
@@ -2194,6 +2195,11 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         watches = watches.map {
             GenericDebugWatch(expression: $0.expression, value: nil, type: nil, error: nil)
         }
+    }
+
+    /// Whether an installed debug provider handles this file.
+    public func hasDebugProvider(for fileURL: URL) -> Bool {
+        sessions.provider(for: fileURL) != nil
     }
 
     private func sessionsProviderID(for fileURL: URL) -> String? {

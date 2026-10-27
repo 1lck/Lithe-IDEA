@@ -1,0 +1,3149 @@
+{
+  "version": 1,
+  "description": "Scripted byte-stream lifecycle scenarios. Each step feeds one event to a fresh transport and expects the exact step Core answers with. Timer ids are allocated 1, 2, ... per transport and never reused; write ids likewise. Platform adapters reuse these scenarios to prove they execute the effects Core returns.",
+  "scenarios": [
+    {
+      "name": "frames queued during discovery flush once connected, then a clean EOF terminates with 0",
+      "steps": [
+        {
+          "event": {
+            "type": "start"
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "discovering",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 1,
+                "purpose": "discovery",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "discoverEndpoint"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "send",
+            "bytes": 10
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "discovering",
+            "outcome": "applied",
+            "effects": []
+          }
+        },
+        {
+          "event": {
+            "type": "endpointResolved",
+            "generation": 1,
+            "host": "127.0.0.1",
+            "port": 5005
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "connecting",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 1
+              },
+              {
+                "kind": "armTimer",
+                "timerId": 2,
+                "purpose": "connect",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "connect",
+                "host": "127.0.0.1",
+                "port": 5005
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "dataReceived",
+            "generation": 1
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "connecting",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "deliverData"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "connectionReady",
+            "generation": 1
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "ready",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 2
+              },
+              {
+                "kind": "armTimer",
+                "timerId": 3,
+                "purpose": "write",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "write",
+                "writeId": 1,
+                "bytes": 10
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "dataReceived",
+            "generation": 1
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "ready",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "deliverData"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "writeCompleted",
+            "generation": 1,
+            "writeId": 1
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "ready",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 3
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "peerClosed",
+            "generation": 1
+          },
+          "expect": {
+            "generation": 2,
+            "phase": "stopped",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "close"
+              },
+              {
+                "kind": "notifyTermination",
+                "exitCode": 0
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "dataReceived",
+            "generation": 1
+          },
+          "expect": {
+            "generation": 2,
+            "phase": "stopped",
+            "outcome": "ignored",
+            "effects": []
+          }
+        },
+        {
+          "event": {
+            "type": "peerClosed",
+            "generation": 1
+          },
+          "expect": {
+            "generation": 2,
+            "phase": "stopped",
+            "outcome": "ignored",
+            "effects": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "discovery that never finds an endpoint times out once",
+      "steps": [
+        {
+          "event": {
+            "type": "start"
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "discovering",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 1,
+                "purpose": "discovery",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "discoverEndpoint"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "timerFired",
+            "generation": 1,
+            "timerId": 1
+          },
+          "expect": {
+            "generation": 2,
+            "phase": "stopped",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "close"
+              },
+              {
+                "kind": "reportFailure",
+                "reason": "startupTimedOut"
+              },
+              {
+                "kind": "notifyTermination",
+                "exitCode": 1
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "endpointResolved",
+            "generation": 1,
+            "host": "127.0.0.1",
+            "port": 5005
+          },
+          "expect": {
+            "generation": 2,
+            "phase": "stopped",
+            "outcome": "ignored",
+            "effects": []
+          }
+        },
+        {
+          "event": {
+            "type": "timerFired",
+            "generation": 1,
+            "timerId": 1
+          },
+          "expect": {
+            "generation": 2,
+            "phase": "stopped",
+            "outcome": "ignored",
+            "effects": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "a connect that never completes times out on its own budget, not the discovery remainder",
+      "steps": [
+        {
+          "event": {
+            "type": "start"
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "discovering",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 1,
+                "purpose": "discovery",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "discoverEndpoint"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "endpointResolved",
+            "generation": 1,
+            "host": "127.0.0.1",
+            "port": 5005
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "connecting",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 1
+              },
+              {
+                "kind": "armTimer",
+                "timerId": 2,
+                "purpose": "connect",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "connect",
+                "host": "127.0.0.1",
+                "port": 5005
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "timerFired",
+            "generation": 1,
+            "timerId": 1
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "connecting",
+            "outcome": "ignored",
+            "effects": []
+          }
+        },
+        {
+          "event": {
+            "type": "timerFired",
+            "generation": 1,
+            "timerId": 2
+          },
+          "expect": {
+            "generation": 2,
+            "phase": "stopped",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "close"
+              },
+              {
+                "kind": "reportFailure",
+                "reason": "startupTimedOut"
+              },
+              {
+                "kind": "notifyTermination",
+                "exitCode": 1
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "a connect failure reports the host message and terminates with 1",
+      "steps": [
+        {
+          "event": {
+            "type": "start"
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "discovering",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 1,
+                "purpose": "discovery",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "discoverEndpoint"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "endpointResolved",
+            "generation": 1,
+            "host": "127.0.0.1",
+            "port": 5005
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "connecting",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 1
+              },
+              {
+                "kind": "armTimer",
+                "timerId": 2,
+                "purpose": "connect",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "connect",
+                "host": "127.0.0.1",
+                "port": 5005
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "failed",
+            "generation": 1,
+            "message": "connection refused"
+          },
+          "expect": {
+            "generation": 2,
+            "phase": "stopped",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 2
+              },
+              {
+                "kind": "close"
+              },
+              {
+                "kind": "reportFailure",
+                "reason": "host",
+                "message": "connection refused"
+              },
+              {
+                "kind": "notifyTermination",
+                "exitCode": 1
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "failed",
+            "generation": 1,
+            "message": "late"
+          },
+          "expect": {
+            "generation": 2,
+            "phase": "stopped",
+            "outcome": "ignored",
+            "effects": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "a port above 65535 from the provider fails before any connect",
+      "steps": [
+        {
+          "event": {
+            "type": "start"
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "discovering",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 1,
+                "purpose": "discovery",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "discoverEndpoint"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "endpointResolved",
+            "generation": 1,
+            "host": "127.0.0.1",
+            "port": 70000
+          },
+          "expect": {
+            "generation": 2,
+            "phase": "stopped",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 1
+              },
+              {
+                "kind": "close"
+              },
+              {
+                "kind": "reportFailure",
+                "reason": "invalidEndpoint"
+              },
+              {
+                "kind": "notifyTermination",
+                "exitCode": 1
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "port zero from the provider fails before any connect",
+      "steps": [
+        {
+          "event": {
+            "type": "start"
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "discovering",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 1,
+                "purpose": "discovery",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "discoverEndpoint"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "endpointResolved",
+            "generation": 1,
+            "host": "127.0.0.1",
+            "port": 0
+          },
+          "expect": {
+            "generation": 2,
+            "phase": "stopped",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 1
+              },
+              {
+                "kind": "close"
+              },
+              {
+                "kind": "reportFailure",
+                "reason": "invalidEndpoint"
+              },
+              {
+                "kind": "notifyTermination",
+                "exitCode": 1
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "a negative port from the provider fails before any connect",
+      "steps": [
+        {
+          "event": {
+            "type": "start"
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "discovering",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 1,
+                "purpose": "discovery",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "discoverEndpoint"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "endpointResolved",
+            "generation": 1,
+            "host": "127.0.0.1",
+            "port": -1
+          },
+          "expect": {
+            "generation": 2,
+            "phase": "stopped",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 1
+              },
+              {
+                "kind": "close"
+              },
+              {
+                "kind": "reportFailure",
+                "reason": "invalidEndpoint"
+              },
+              {
+                "kind": "notifyTermination",
+                "exitCode": 1
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "an empty host from the provider fails before any connect",
+      "steps": [
+        {
+          "event": {
+            "type": "start"
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "discovering",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 1,
+                "purpose": "discovery",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "discoverEndpoint"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "endpointResolved",
+            "generation": 1,
+            "host": "",
+            "port": 5005
+          },
+          "expect": {
+            "generation": 2,
+            "phase": "stopped",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 1
+              },
+              {
+                "kind": "close"
+              },
+              {
+                "kind": "reportFailure",
+                "reason": "invalidEndpoint"
+              },
+              {
+                "kind": "notifyTermination",
+                "exitCode": 1
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "an endpoint reported twice or for a stale generation is ignored",
+      "steps": [
+        {
+          "event": {
+            "type": "start"
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "discovering",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 1,
+                "purpose": "discovery",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "discoverEndpoint"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "endpointResolved",
+            "generation": 9,
+            "host": "127.0.0.1",
+            "port": 5005
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "discovering",
+            "outcome": "ignored",
+            "effects": []
+          }
+        },
+        {
+          "event": {
+            "type": "endpointResolved",
+            "generation": 1,
+            "host": "127.0.0.1",
+            "port": 5005
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "connecting",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 1
+              },
+              {
+                "kind": "armTimer",
+                "timerId": 2,
+                "purpose": "connect",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "connect",
+                "host": "127.0.0.1",
+                "port": 5005
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "endpointResolved",
+            "generation": 1,
+            "host": "127.0.0.1",
+            "port": 5005
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "connecting",
+            "outcome": "ignored",
+            "effects": []
+          }
+        },
+        {
+          "event": {
+            "type": "connectionReady",
+            "generation": 9
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "connecting",
+            "outcome": "ignored",
+            "effects": []
+          }
+        },
+        {
+          "event": {
+            "type": "connectionReady",
+            "generation": 1
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "ready",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 2
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "connectionReady",
+            "generation": 1
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "ready",
+            "outcome": "ignored",
+            "effects": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "a cancelled startup timer that fires anyway cannot fail a ready stream",
+      "steps": [
+        {
+          "event": {
+            "type": "start"
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "discovering",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 1,
+                "purpose": "discovery",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "discoverEndpoint"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "endpointResolved",
+            "generation": 1,
+            "host": "127.0.0.1",
+            "port": 5005
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "connecting",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 1
+              },
+              {
+                "kind": "armTimer",
+                "timerId": 2,
+                "purpose": "connect",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "connect",
+                "host": "127.0.0.1",
+                "port": 5005
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "connectionReady",
+            "generation": 1
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "ready",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 2
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "timerFired",
+            "generation": 1,
+            "timerId": 2
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "ready",
+            "outcome": "ignored",
+            "effects": []
+          }
+        },
+        {
+          "event": {
+            "type": "timerFired",
+            "generation": 1,
+            "timerId": 1
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "ready",
+            "outcome": "ignored",
+            "effects": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "a stalled write times out and terminates with 1",
+      "steps": [
+        {
+          "event": {
+            "type": "start"
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "discovering",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 1,
+                "purpose": "discovery",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "discoverEndpoint"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "endpointResolved",
+            "generation": 1,
+            "host": "127.0.0.1",
+            "port": 5005
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "connecting",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 1
+              },
+              {
+                "kind": "armTimer",
+                "timerId": 2,
+                "purpose": "connect",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "connect",
+                "host": "127.0.0.1",
+                "port": 5005
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "connectionReady",
+            "generation": 1
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "ready",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 2
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "send",
+            "bytes": 10
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "ready",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 3,
+                "purpose": "write",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "write",
+                "writeId": 1,
+                "bytes": 10
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "timerFired",
+            "generation": 1,
+            "timerId": 3
+          },
+          "expect": {
+            "generation": 2,
+            "phase": "stopped",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "close"
+              },
+              {
+                "kind": "reportFailure",
+                "reason": "writeTimedOut"
+              },
+              {
+                "kind": "notifyTermination",
+                "exitCode": 1
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "writeCompleted",
+            "generation": 1,
+            "writeId": 1
+          },
+          "expect": {
+            "generation": 2,
+            "phase": "stopped",
+            "outcome": "ignored",
+            "effects": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "custom limits shape the armed deadlines",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "limits": {
+              "discoveryMilliseconds": 120000,
+              "connectMilliseconds": 500,
+              "writeMilliseconds": 250
+            }
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "discovering",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 1,
+                "purpose": "discovery",
+                "afterMilliseconds": 120000
+              },
+              {
+                "kind": "discoverEndpoint"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "endpointResolved",
+            "generation": 1,
+            "host": "127.0.0.1",
+            "port": 5005
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "connecting",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 1
+              },
+              {
+                "kind": "armTimer",
+                "timerId": 2,
+                "purpose": "connect",
+                "afterMilliseconds": 500
+              },
+              {
+                "kind": "connect",
+                "host": "127.0.0.1",
+                "port": 5005
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "connectionReady",
+            "generation": 1
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "ready",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 2
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "send",
+            "bytes": 1
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "ready",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 3,
+                "purpose": "write",
+                "afterMilliseconds": 250
+              },
+              {
+                "kind": "write",
+                "writeId": 1,
+                "bytes": 1
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "only one write is in flight and frames go out in order",
+      "steps": [
+        {
+          "event": {
+            "type": "start"
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "discovering",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 1,
+                "purpose": "discovery",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "discoverEndpoint"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "endpointResolved",
+            "generation": 1,
+            "host": "127.0.0.1",
+            "port": 5005
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "connecting",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 1
+              },
+              {
+                "kind": "armTimer",
+                "timerId": 2,
+                "purpose": "connect",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "connect",
+                "host": "127.0.0.1",
+                "port": 5005
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "connectionReady",
+            "generation": 1
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "ready",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 2
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "send",
+            "bytes": 5
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "ready",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 3,
+                "purpose": "write",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "write",
+                "writeId": 1,
+                "bytes": 5
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "send",
+            "bytes": 7
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "ready",
+            "outcome": "applied",
+            "effects": []
+          }
+        },
+        {
+          "event": {
+            "type": "send",
+            "bytes": 0
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "ready",
+            "outcome": "applied",
+            "effects": []
+          }
+        },
+        {
+          "event": {
+            "type": "writeCompleted",
+            "generation": 1,
+            "writeId": 2
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "ready",
+            "outcome": "ignored",
+            "effects": []
+          }
+        },
+        {
+          "event": {
+            "type": "writeCompleted",
+            "generation": 1,
+            "writeId": 1
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "ready",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 3
+              },
+              {
+                "kind": "armTimer",
+                "timerId": 4,
+                "purpose": "write",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "write",
+                "writeId": 2,
+                "bytes": 7
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "writeCompleted",
+            "generation": 1,
+            "writeId": 1
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "ready",
+            "outcome": "ignored",
+            "effects": []
+          }
+        },
+        {
+          "event": {
+            "type": "writeCompleted",
+            "generation": 1,
+            "writeId": 2
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "ready",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 4
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "exceeding the queued frame count fails the stream and refuses further sends",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "limits": {
+              "bufferedWrites": 2
+            }
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "discovering",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 1,
+                "purpose": "discovery",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "discoverEndpoint"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "send",
+            "bytes": 1
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "discovering",
+            "outcome": "applied",
+            "effects": []
+          }
+        },
+        {
+          "event": {
+            "type": "send",
+            "bytes": 1
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "discovering",
+            "outcome": "applied",
+            "effects": []
+          }
+        },
+        {
+          "event": {
+            "type": "send",
+            "bytes": 1
+          },
+          "expect": {
+            "generation": 2,
+            "phase": "stopped",
+            "outcome": "rejectedBufferLimit",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 1
+              },
+              {
+                "kind": "close"
+              },
+              {
+                "kind": "reportFailure",
+                "reason": "bufferLimit"
+              },
+              {
+                "kind": "notifyTermination",
+                "exitCode": 1
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "send",
+            "bytes": 1
+          },
+          "expect": {
+            "generation": 2,
+            "phase": "stopped",
+            "outcome": "rejectedNotRunning",
+            "effects": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "exceeding the queued byte budget fails the stream, but filling it exactly is allowed",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "limits": {
+              "bufferedBytes": 100
+            }
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "discovering",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 1,
+                "purpose": "discovery",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "discoverEndpoint"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "send",
+            "bytes": 60
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "discovering",
+            "outcome": "applied",
+            "effects": []
+          }
+        },
+        {
+          "event": {
+            "type": "send",
+            "bytes": 40
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "discovering",
+            "outcome": "applied",
+            "effects": []
+          }
+        },
+        {
+          "event": {
+            "type": "send",
+            "bytes": 1
+          },
+          "expect": {
+            "generation": 2,
+            "phase": "stopped",
+            "outcome": "rejectedBufferLimit",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 1
+              },
+              {
+                "kind": "close"
+              },
+              {
+                "kind": "reportFailure",
+                "reason": "bufferLimit"
+              },
+              {
+                "kind": "notifyTermination",
+                "exitCode": 1
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "completed writes free their share of the byte budget",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "limits": {
+              "bufferedBytes": 100
+            }
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "discovering",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 1,
+                "purpose": "discovery",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "discoverEndpoint"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "endpointResolved",
+            "generation": 1,
+            "host": "127.0.0.1",
+            "port": 5005
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "connecting",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 1
+              },
+              {
+                "kind": "armTimer",
+                "timerId": 2,
+                "purpose": "connect",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "connect",
+                "host": "127.0.0.1",
+                "port": 5005
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "connectionReady",
+            "generation": 1
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "ready",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 2
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "send",
+            "bytes": 100
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "ready",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 3,
+                "purpose": "write",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "write",
+                "writeId": 1,
+                "bytes": 100
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "send",
+            "bytes": 1
+          },
+          "expect": {
+            "generation": 2,
+            "phase": "stopped",
+            "outcome": "rejectedBufferLimit",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 3
+              },
+              {
+                "kind": "close"
+              },
+              {
+                "kind": "reportFailure",
+                "reason": "bufferLimit"
+              },
+              {
+                "kind": "notifyTermination",
+                "exitCode": 1
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "a completed write makes room for the next frame",
+      "steps": [
+        {
+          "event": {
+            "type": "start",
+            "limits": {
+              "bufferedBytes": 100
+            }
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "discovering",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 1,
+                "purpose": "discovery",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "discoverEndpoint"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "endpointResolved",
+            "generation": 1,
+            "host": "127.0.0.1",
+            "port": 5005
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "connecting",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 1
+              },
+              {
+                "kind": "armTimer",
+                "timerId": 2,
+                "purpose": "connect",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "connect",
+                "host": "127.0.0.1",
+                "port": 5005
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "connectionReady",
+            "generation": 1
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "ready",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 2
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "send",
+            "bytes": 100
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "ready",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 3,
+                "purpose": "write",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "write",
+                "writeId": 1,
+                "bytes": 100
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "writeCompleted",
+            "generation": 1,
+            "writeId": 1
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "ready",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 3
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "send",
+            "bytes": 100
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "ready",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 4,
+                "purpose": "write",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "write",
+                "writeId": 2,
+                "bytes": 100
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "a user stop is silent and invalidates every outstanding callback",
+      "steps": [
+        {
+          "event": {
+            "type": "start"
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "discovering",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 1,
+                "purpose": "discovery",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "discoverEndpoint"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "endpointResolved",
+            "generation": 1,
+            "host": "127.0.0.1",
+            "port": 5005
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "connecting",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 1
+              },
+              {
+                "kind": "armTimer",
+                "timerId": 2,
+                "purpose": "connect",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "connect",
+                "host": "127.0.0.1",
+                "port": 5005
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "stop"
+          },
+          "expect": {
+            "generation": 2,
+            "phase": "stopped",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 2
+              },
+              {
+                "kind": "close"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "stop"
+          },
+          "expect": {
+            "generation": 2,
+            "phase": "stopped",
+            "outcome": "ignored",
+            "effects": []
+          }
+        },
+        {
+          "event": {
+            "type": "send",
+            "bytes": 1
+          },
+          "expect": {
+            "generation": 2,
+            "phase": "stopped",
+            "outcome": "rejectedNotRunning",
+            "effects": []
+          }
+        },
+        {
+          "event": {
+            "type": "connectionReady",
+            "generation": 1
+          },
+          "expect": {
+            "generation": 2,
+            "phase": "stopped",
+            "outcome": "ignored",
+            "effects": []
+          }
+        },
+        {
+          "event": {
+            "type": "timerFired",
+            "generation": 1,
+            "timerId": 2
+          },
+          "expect": {
+            "generation": 2,
+            "phase": "stopped",
+            "outcome": "ignored",
+            "effects": []
+          }
+        },
+        {
+          "event": {
+            "type": "failed",
+            "generation": 1,
+            "message": "late"
+          },
+          "expect": {
+            "generation": 2,
+            "phase": "stopped",
+            "outcome": "ignored",
+            "effects": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "a stopped transport can start again and ignores the previous run's callbacks",
+      "steps": [
+        {
+          "event": {
+            "type": "start"
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "discovering",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 1,
+                "purpose": "discovery",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "discoverEndpoint"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "stop"
+          },
+          "expect": {
+            "generation": 2,
+            "phase": "stopped",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 1
+              },
+              {
+                "kind": "close"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "start"
+          },
+          "expect": {
+            "generation": 3,
+            "phase": "discovering",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 2,
+                "purpose": "discovery",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "discoverEndpoint"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "endpointResolved",
+            "generation": 1,
+            "host": "127.0.0.1",
+            "port": 5005
+          },
+          "expect": {
+            "generation": 3,
+            "phase": "discovering",
+            "outcome": "ignored",
+            "effects": []
+          }
+        },
+        {
+          "event": {
+            "type": "timerFired",
+            "generation": 1,
+            "timerId": 1
+          },
+          "expect": {
+            "generation": 3,
+            "phase": "discovering",
+            "outcome": "ignored",
+            "effects": []
+          }
+        },
+        {
+          "event": {
+            "type": "endpointResolved",
+            "generation": 3,
+            "host": "127.0.0.1",
+            "port": 5005
+          },
+          "expect": {
+            "generation": 3,
+            "phase": "connecting",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 2
+              },
+              {
+                "kind": "armTimer",
+                "timerId": 3,
+                "purpose": "connect",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "connect",
+                "host": "127.0.0.1",
+                "port": 5005
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "starting twice keeps the running lifecycle",
+      "steps": [
+        {
+          "event": {
+            "type": "start"
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "discovering",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 1,
+                "purpose": "discovery",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "discoverEndpoint"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "start"
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "discovering",
+            "outcome": "ignored",
+            "effects": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "finishing a stream with queued frames drains them silently once the last write completes",
+      "steps": [
+        {
+          "event": {
+            "type": "start"
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "discovering",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 1,
+                "purpose": "discovery",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "discoverEndpoint"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "endpointResolved",
+            "generation": 1,
+            "host": "127.0.0.1",
+            "port": 5005
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "connecting",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 1
+              },
+              {
+                "kind": "armTimer",
+                "timerId": 2,
+                "purpose": "connect",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "connect",
+                "host": "127.0.0.1",
+                "port": 5005
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "connectionReady",
+            "generation": 1
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "ready",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 2
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "send",
+            "bytes": 4
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "ready",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 3,
+                "purpose": "write",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "write",
+                "writeId": 1,
+                "bytes": 4
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "send",
+            "bytes": 6
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "ready",
+            "outcome": "applied",
+            "effects": []
+          }
+        },
+        {
+          "event": {
+            "type": "finishSendingAndStop"
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "draining",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 4,
+                "purpose": "drain",
+                "afterMilliseconds": 1000
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "dataReceived",
+            "generation": 1
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "draining",
+            "outcome": "ignored",
+            "effects": []
+          }
+        },
+        {
+          "event": {
+            "type": "send",
+            "bytes": 1
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "draining",
+            "outcome": "rejectedNotRunning",
+            "effects": []
+          }
+        },
+        {
+          "event": {
+            "type": "finishSendingAndStop"
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "draining",
+            "outcome": "ignored",
+            "effects": []
+          }
+        },
+        {
+          "event": {
+            "type": "writeCompleted",
+            "generation": 1,
+            "writeId": 1
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "draining",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 3
+              },
+              {
+                "kind": "armTimer",
+                "timerId": 5,
+                "purpose": "write",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "write",
+                "writeId": 2,
+                "bytes": 6
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "writeCompleted",
+            "generation": 1,
+            "writeId": 2
+          },
+          "expect": {
+            "generation": 2,
+            "phase": "stopped",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 5
+              },
+              {
+                "kind": "cancelTimer",
+                "timerId": 4
+              },
+              {
+                "kind": "close"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "the drain deadline closes a stream whose peer stopped reading, without a termination",
+      "steps": [
+        {
+          "event": {
+            "type": "start"
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "discovering",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 1,
+                "purpose": "discovery",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "discoverEndpoint"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "endpointResolved",
+            "generation": 1,
+            "host": "127.0.0.1",
+            "port": 5005
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "connecting",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 1
+              },
+              {
+                "kind": "armTimer",
+                "timerId": 2,
+                "purpose": "connect",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "connect",
+                "host": "127.0.0.1",
+                "port": 5005
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "connectionReady",
+            "generation": 1
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "ready",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 2
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "send",
+            "bytes": 4
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "ready",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 3,
+                "purpose": "write",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "write",
+                "writeId": 1,
+                "bytes": 4
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "finishSendingAndStop"
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "draining",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 4,
+                "purpose": "drain",
+                "afterMilliseconds": 1000
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "timerFired",
+            "generation": 1,
+            "timerId": 4
+          },
+          "expect": {
+            "generation": 2,
+            "phase": "stopped",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 3
+              },
+              {
+                "kind": "close"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "writeCompleted",
+            "generation": 1,
+            "writeId": 1
+          },
+          "expect": {
+            "generation": 2,
+            "phase": "stopped",
+            "outcome": "ignored",
+            "effects": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "a failure while draining stays silent",
+      "steps": [
+        {
+          "event": {
+            "type": "start"
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "discovering",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 1,
+                "purpose": "discovery",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "discoverEndpoint"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "endpointResolved",
+            "generation": 1,
+            "host": "127.0.0.1",
+            "port": 5005
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "connecting",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 1
+              },
+              {
+                "kind": "armTimer",
+                "timerId": 2,
+                "purpose": "connect",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "connect",
+                "host": "127.0.0.1",
+                "port": 5005
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "connectionReady",
+            "generation": 1
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "ready",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 2
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "send",
+            "bytes": 4
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "ready",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 3,
+                "purpose": "write",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "write",
+                "writeId": 1,
+                "bytes": 4
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "finishSendingAndStop"
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "draining",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 4,
+                "purpose": "drain",
+                "afterMilliseconds": 1000
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "failed",
+            "generation": 1,
+            "message": "reset"
+          },
+          "expect": {
+            "generation": 2,
+            "phase": "stopped",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 4
+              },
+              {
+                "kind": "cancelTimer",
+                "timerId": 3
+              },
+              {
+                "kind": "close"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "a write timeout while draining stays silent",
+      "steps": [
+        {
+          "event": {
+            "type": "start"
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "discovering",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 1,
+                "purpose": "discovery",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "discoverEndpoint"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "endpointResolved",
+            "generation": 1,
+            "host": "127.0.0.1",
+            "port": 5005
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "connecting",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 1
+              },
+              {
+                "kind": "armTimer",
+                "timerId": 2,
+                "purpose": "connect",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "connect",
+                "host": "127.0.0.1",
+                "port": 5005
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "connectionReady",
+            "generation": 1
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "ready",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 2
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "send",
+            "bytes": 4
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "ready",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 3,
+                "purpose": "write",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "write",
+                "writeId": 1,
+                "bytes": 4
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "finishSendingAndStop"
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "draining",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 4,
+                "purpose": "drain",
+                "afterMilliseconds": 1000
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "timerFired",
+            "generation": 1,
+            "timerId": 3
+          },
+          "expect": {
+            "generation": 2,
+            "phase": "stopped",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 4
+              },
+              {
+                "kind": "close"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "finishing with nothing queued, or before the stream is ready, closes immediately",
+      "steps": [
+        {
+          "event": {
+            "type": "start"
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "discovering",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 1,
+                "purpose": "discovery",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "discoverEndpoint"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "endpointResolved",
+            "generation": 1,
+            "host": "127.0.0.1",
+            "port": 5005
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "connecting",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 1
+              },
+              {
+                "kind": "armTimer",
+                "timerId": 2,
+                "purpose": "connect",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "connect",
+                "host": "127.0.0.1",
+                "port": 5005
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "send",
+            "bytes": 3
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "connecting",
+            "outcome": "applied",
+            "effects": []
+          }
+        },
+        {
+          "event": {
+            "type": "finishSendingAndStop"
+          },
+          "expect": {
+            "generation": 2,
+            "phase": "stopped",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 2
+              },
+              {
+                "kind": "close"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "finishSendingAndStop"
+          },
+          "expect": {
+            "generation": 2,
+            "phase": "stopped",
+            "outcome": "ignored",
+            "effects": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "finishing a ready stream with an empty queue closes immediately",
+      "steps": [
+        {
+          "event": {
+            "type": "start"
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "discovering",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 1,
+                "purpose": "discovery",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "discoverEndpoint"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "endpointResolved",
+            "generation": 1,
+            "host": "127.0.0.1",
+            "port": 5005
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "connecting",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 1
+              },
+              {
+                "kind": "armTimer",
+                "timerId": 2,
+                "purpose": "connect",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "connect",
+                "host": "127.0.0.1",
+                "port": 5005
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "connectionReady",
+            "generation": 1
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "ready",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 2
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "finishSendingAndStop"
+          },
+          "expect": {
+            "generation": 2,
+            "phase": "stopped",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "close"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "starting while a drain is pending replaces it and ignores the old drain's callbacks",
+      "steps": [
+        {
+          "event": {
+            "type": "start"
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "discovering",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 1,
+                "purpose": "discovery",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "discoverEndpoint"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "endpointResolved",
+            "generation": 1,
+            "host": "127.0.0.1",
+            "port": 5005
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "connecting",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 1
+              },
+              {
+                "kind": "armTimer",
+                "timerId": 2,
+                "purpose": "connect",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "connect",
+                "host": "127.0.0.1",
+                "port": 5005
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "connectionReady",
+            "generation": 1
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "ready",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 2
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "send",
+            "bytes": 4
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "ready",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 3,
+                "purpose": "write",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "write",
+                "writeId": 1,
+                "bytes": 4
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "finishSendingAndStop"
+          },
+          "expect": {
+            "generation": 1,
+            "phase": "draining",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "armTimer",
+                "timerId": 4,
+                "purpose": "drain",
+                "afterMilliseconds": 1000
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "start"
+          },
+          "expect": {
+            "generation": 3,
+            "phase": "discovering",
+            "outcome": "applied",
+            "effects": [
+              {
+                "kind": "cancelTimer",
+                "timerId": 4
+              },
+              {
+                "kind": "cancelTimer",
+                "timerId": 3
+              },
+              {
+                "kind": "close"
+              },
+              {
+                "kind": "armTimer",
+                "timerId": 5,
+                "purpose": "discovery",
+                "afterMilliseconds": 10000
+              },
+              {
+                "kind": "discoverEndpoint"
+              }
+            ]
+          }
+        },
+        {
+          "event": {
+            "type": "writeCompleted",
+            "generation": 1,
+            "writeId": 1
+          },
+          "expect": {
+            "generation": 3,
+            "phase": "discovering",
+            "outcome": "ignored",
+            "effects": []
+          }
+        },
+        {
+          "event": {
+            "type": "timerFired",
+            "generation": 1,
+            "timerId": 4
+          },
+          "expect": {
+            "generation": 3,
+            "phase": "discovering",
+            "outcome": "ignored",
+            "effects": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "events for a stream that never started are ignored or refused",
+      "steps": [
+        {
+          "event": {
+            "type": "send",
+            "bytes": 1
+          },
+          "expect": {
+            "generation": 0,
+            "phase": "stopped",
+            "outcome": "rejectedNotRunning",
+            "effects": []
+          }
+        },
+        {
+          "event": {
+            "type": "dataReceived",
+            "generation": 0
+          },
+          "expect": {
+            "generation": 0,
+            "phase": "stopped",
+            "outcome": "ignored",
+            "effects": []
+          }
+        },
+        {
+          "event": {
+            "type": "peerClosed",
+            "generation": 0
+          },
+          "expect": {
+            "generation": 0,
+            "phase": "stopped",
+            "outcome": "ignored",
+            "effects": []
+          }
+        },
+        {
+          "event": {
+            "type": "stop"
+          },
+          "expect": {
+            "generation": 0,
+            "phase": "stopped",
+            "outcome": "ignored",
+            "effects": []
+          }
+        },
+        {
+          "event": {
+            "type": "finishSendingAndStop"
+          },
+          "expect": {
+            "generation": 0,
+            "phase": "stopped",
+            "outcome": "ignored",
+            "effects": []
+          }
+        }
+      ]
+    }
+  ]
+}
