@@ -3549,6 +3549,7 @@
 "Stop service" = "Stop service";
 "Stop test run" = "Stop test run";
 "Stop the current debug session" = "Stop the current debug session";
+"Stop the current debug session before connecting to a debug adapter." = "Stop the current debug session before connecting to a debug adapter.";
 "Stop the current run" = "Stop the current run";
 "Stop without asking" = "Stop without asking";
 "Stopped moving the remaining items to Trash" = "Stopped moving the remaining items to Trash";
@@ -3741,6 +3742,7 @@
 "The debug adapter %@ needs %@, which was not found. Install it, then try again." = "The debug adapter %@ needs %@, which was not found. Install it, then try again.";
 "The debug adapter %@ uses the %@ transport, which Lithe cannot start yet. Only stdio and language server hosted adapters are supported." = "The debug adapter %@ uses the %@ transport, which Lithe cannot start yet. Only stdio and language server hosted adapters are supported.";
 "The debug adapter at %@ can access your debugging data. Plain TCP is not encrypted or authenticated. Connect only over a trusted network or a tunnel you configured." = "The debug adapter at %@ can access your debugging data. Plain TCP is not encrypted or authenticated. Connect only over a trusted network or a tunnel you configured.";
+"The debug adapter connection could not be started." = "The debug adapter connection could not be started.";
 "The debug adapter connection is stopped." = "The debug adapter connection is stopped.";
 "The debug adapter connection timed out." = "The debug adapter connection timed out.";
 "The debug adapter connection was not approved." = "The debug adapter connection was not approved.";
@@ -4395,7 +4397,9 @@
 "debug.tcp.launchRequest" = "Launch Request";
 "debug.tcp.menu" = "Connect to Debug Adapter…";
 "debug.tcp.name" = "External Debug Adapter";
+"debug.tcp.notStarted" = "The debug adapter connection could not be started.";
 "debug.tcp.request" = "Request";
+"debug.tcp.sessionActive" = "Stop the current debug session before connecting to a debug adapter.";
 "debug.tcp.startupTimedOut" = "The debug adapter connection timed out.";
 "debug.tcp.title" = "Connect to Debug Adapter";
 "debug.tcp.writeTimedOut" = "The debug adapter did not accept outgoing data in time.";

@@ -17,12 +17,12 @@ macOS 的普通 TCP 调试连接现在共用一个传输实现：语言服务器
 ## 决策
 
 - 复用 Apple Network 的 `NWConnection` 建立 TCP、解析主机并收发字节，不实现另一套 socket、DNS 或代理协议栈。Rust Core 仍负责已有的 DAP 帧、请求顺序与操作超时；平台只管理网络字节流。
-- `MacTCPDebugAdapterTransport` 管理端点解析与建连的合计期限、单个在途写入的期限、待发字节和消息数量预算。不设置会话总时长或空闲读取期限：用户停在断点上不是网络失败。写入完成只表示本机网络栈接受数据，不能据此声称适配器已处理请求。
-- 直连的默认准备和写入分别为 10 秒；语言服务器冷启动与项目导入的端点发现允许 120 秒。显式外部 DAP 另有包含建连的 10 秒初始化期限，避免误连到非 DAP 服务后永久停在初始化；这些期限都不限制已建立会话的空闲时间。待发队列含在途数据最多 8 MiB、1024 次写入。超限或超时结束该连接，不静默丢帧、不重连或重放。失联不承诺立即可知，DAP 请求仍受原有操作期限约束。
+- `MacTCPDebugAdapterTransport` 管理端点发现期限、建连期限（两段各自独立计时，发现用时不挤占建连预算）、单个在途写入的期限、待发字节和消息数量预算。不设置会话总时长或空闲读取期限：用户停在断点上不是网络失败。写入完成只表示本机网络栈接受数据，不能据此声称适配器已处理请求。
+- 直连的默认端点发现、建连和写入各为 10 秒；语言服务器冷启动与项目导入的端点发现单独允许 120 秒，端点确定后建连仍只有 10 秒，所以冷启动不会拉长对死端口的等待。Network 框架会把被拒绝或不可达的连接停在 `.waiting` 并不断重试，不会进入 `.failed`；传输把“连接被拒绝、主机或网络不可达”视为确定失败并立即结束，附上系统给出的原因，其余 `.waiting`（如暂时没有路由）仍等建连期限。显式外部 DAP 的会话初始化期限为 10 秒建连加 10 秒握手，会话计时从传输启动开始，必须比建连预算更长，避免误连到非 DAP 服务后永久停在初始化，同时不能抢在建连期限前结束；这些期限都不限制已建立会话的空闲时间。待发队列含在途数据最多 8 MiB、1024 次写入。超限或超时结束该连接，不静默丢帧、不重连或重放。失联不承诺立即可知，DAP 请求仍受原有操作期限约束。
 - 用户停止会话时，先把已有 DAP disconnect 帧按原顺序交给网络栈，再关闭连接，最多等 1 秒；这不是等待远端确认，不能保证远端必然收到。传输的显式 `stop()` 仍立即中止，EOF、读写失败和超时也立即清理；不会为排空而启动尚未建立的连接。排空期间拒绝新数据、不向已结束会话投影晚到消息，超时由有界计时器持有并回收 socket。
 - 停止、EOF、读写失败和超时先撤销连接代次，再取消解析任务、计时器和 socket，清空回调与缓冲。旧连接回调以及旧写入完成不能影响新连接。显式停止由会话层投影结果，传输不重复发送终止通知。
 - `DebugAdapterConnectionProviding` 是未来代理的替换点：返回尚未启动、可取消的连接，握手纳入已有启动期限；停止必须释放它自己拥有的资源。本次唯一实现为直连，不提前增加代理配置、密码或进程字段。
-- `tcpLanguageServer` 仍只解析同插件语言服务器返回的回环端口。外部入口在 Debug 的更多操作中，由当前文件选择已安装的调试提供方，单独填写 DAP 地址、请求种类和适配器 JSON 参数；不猜测语言协议，不启动本地替代进程。Core 先校验地址，非回环端点每次连接前确认，明确警告裸 TCP 没有加密或认证；确认时间不计入网络建连期限。
+- `tcpLanguageServer` 仍只解析同插件语言服务器返回的回环端口。外部入口在 Debug 的更多操作中，由当前文件选择已安装的调试提供方（当前文件没有提供方时菜单项不可用），单独填写 DAP 地址、请求种类和适配器 JSON 参数；不猜测语言协议，不启动本地替代进程。连接对话框在连接启动前保持打开：被拒绝的地址、未获批准的确认、已有活动会话或连接失败都留在对话框里显示原因，已填的主机、端口和参数不丢失，用户取消会同时取消尚在进行的连接。Core 先校验地址，非回环端点每次连接前确认，明确警告裸 TCP 没有加密或认证；确认时间不计入网络建连期限。
 - 外部服务只归用户所有。关闭 socket 不停止共享语言服务器、外部适配器、目标程序或用户隧道；DAP `attach` 的目标结束策略仍由现有协议层负责。配置不持久化，源码映射继续由适配器参数表达。
 
 正确：把用户已配置的隧道最终地址填为 DAP 端点，Lithe 只连接它，停止时只关闭自己的连接。
@@ -46,7 +46,7 @@ macOS 的普通 TCP 调试连接现在共用一个传输实现：语言服务器
 ## 验证
 
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`。
-- `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'TCPDebugAdapterTests|PluginDebugAdapterTests|DebugModuleTests'`：覆盖可控时钟、队列预算、取消与晚到回调、确认顺序、会话选路；临时回环监听器验证双向字节以及真实 Core 的 initialize/attach 帧往返，监听服务不随客户端停止。
+- `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'TCPDebugAdapterTests|PluginDebugAdapterTests|DebugModuleTests'`：覆盖可控时钟、队列预算、取消与晚到回调、确认顺序、会话选路；临时回环监听器验证双向字节以及真实 Core 的 initialize/attach 帧往返，监听服务不随客户端停止；真实连接到已释放的回环端口必须在远小于建连期限的时间内以系统原因结束，发现与建连的两段期限由可控时钟分别断言。
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core debug_adapter_endpoint` 和 `cargo test --manifest-path rust/Cargo.toml -p lithe-core dap_endpoint_contract`：共享 fixture 校验及 JSON dispatcher 边界。
 - `./scripts/verify-shared-contracts.sh`、`./scripts/verify-runtime-bundle-immutability.sh`、`./scripts/verify-agent-notes.sh`。
 

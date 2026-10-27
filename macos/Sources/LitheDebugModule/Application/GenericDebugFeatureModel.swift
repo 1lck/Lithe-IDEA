@@ -2069,6 +2069,11 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         }
     }
 
+    /// Whether an installed debug provider handles this file.
+    public func hasDebugProvider(for fileURL: URL) -> Bool {
+        sessions.provider(for: fileURL) != nil
+    }
+
     private func sessionsProviderID(for fileURL: URL) -> String? {
         sessions.provider(for: fileURL)?.id
     }

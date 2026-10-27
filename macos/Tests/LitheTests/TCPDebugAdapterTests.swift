@@ -234,6 +234,7 @@ struct TCPDebugAdapterTests {
         socket.onReady?()
         #expect(socket.writes == [Data([1])])
         #expect(scheduler.deadlines[0].cancelled)
+        #expect(scheduler.deadlines[1].cancelled)
         let secondWrite = TCPTestEvent()
         socket.onWrite = { secondWrite.fire() }
         socket.completeWrite(.success(()))
@@ -312,13 +313,14 @@ struct TCPDebugAdapterTests {
         transport.onTermination = { codes.append($0) }
         try transport.start(rootURL: root)
         #expect(await socket.started.wait(timeout: .seconds(5)))
-        let expiredStartup = scheduler.deadlines[0].action
+        // Discovery and connect each armed a startup deadline; the connect one is live.
+        let expiredStartup = scheduler.deadlines[1].action
         socket.onReady?()
         expiredStartup()
         #expect(transport.isRunning)
-        #expect(scheduler.deadlines.count == 1)
+        #expect(scheduler.deadlines.count == 2)
         try transport.send(Data([1]))
-        scheduler.deadlines[1].fire()
+        scheduler.deadlines[2].fire()
         #expect(codes == [1])
         #expect(socket.stopCount == 1)
     }
@@ -331,9 +333,32 @@ struct TCPDebugAdapterTests {
         defer { transport.stop() }
         try transport.start(rootURL: root)
         #expect(await socket.started.wait(timeout: .seconds(5)))
-        scheduler.deadlines[0].fire()
+        scheduler.deadlines[1].fire()
         #expect(!transport.isRunning)
         #expect(socket.stopCount == 1)
+    }
+
+    @Test
+    func theConnectBudgetRestartsAfterDiscoveryInsteadOfSharingIt() async throws {
+        let socket = ControlledDebugSocket()
+        let scheduler = TCPTestScheduler()
+        let transport = make(
+            socket: socket, scheduler: scheduler,
+            limits: .init(discoveryMilliseconds: 120_000, connectMilliseconds: 10_000)
+        )
+        defer { transport.stop() }
+        var codes: [Int] = []
+        transport.onTermination = { codes.append($0) }
+        try transport.start(rootURL: root)
+        #expect(await socket.started.wait(timeout: .seconds(5)))
+        #expect(scheduler.deadlines.map(\.milliseconds) == [120_000, 10_000])
+        // A late discovery deadline must not end the connect that replaced it.
+        #expect(scheduler.deadlines[0].cancelled)
+        scheduler.deadlines[0].fire()
+        #expect(transport.isRunning)
+        #expect(codes.isEmpty)
+        scheduler.deadlines[1].fire()
+        #expect(codes == [1])
     }
 
     @Test(arguments: ["eof", "read", "write"])
@@ -485,6 +510,27 @@ struct TCPDebugAdapterTests {
     }
 
     @Test
+    func aRefusedRealConnectionFailsFastWithAReadableReason() async throws {
+        // Network.framework parks a refused connect in .waiting and keeps retrying,
+        // so this only ends inside the wait if the transport fails it on purpose.
+        let port = try Self.unusedLoopbackPort()
+        let transport = MacTCPDebugAdapterTransport(endpointResolver: { _ in
+            DebugAdapterEndpoint(host: "127.0.0.1", port: Int(port))
+        })
+        defer { transport.stop() }
+        let ended = TCPTestEvent()
+        var codes: [Int] = []
+        var output = ""
+        transport.onErrorOutput = { output += String(decoding: $0, as: UTF8.self) }
+        transport.onTermination = { codes.append($0); ended.fire() }
+        try transport.start(rootURL: root)
+        #expect(await ended.wait(timeout: .seconds(5)))
+        #expect(codes == [1])
+        #expect(output.contains(String(cString: strerror(ECONNREFUSED))))
+        #expect(!transport.isRunning)
+    }
+
+    @Test
     func realTCPRunsCoreInitializeAndAttachWithFragmentedDAPResponses() async throws {
         let server = try TCPTestServer()
         defer { server.stop() }
@@ -552,6 +598,28 @@ struct TCPDebugAdapterTests {
         #expect(server.isReady)
     }
 
+    /// A loopback port that was just bound and released, so nothing listens on it.
+    private static func unusedLoopbackPort() throws -> UInt16 {
+        let descriptor = socket(AF_INET, SOCK_STREAM, 0)
+        guard descriptor >= 0 else { throw TCPTestError.failed }
+        defer { close(descriptor) }
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_addr.s_addr = UInt32(INADDR_LOOPBACK).bigEndian
+        let size = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let bound = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(descriptor, $0, size) }
+        }
+        guard bound == 0 else { throw TCPTestError.failed }
+        var length = size
+        let named = withUnsafeMutablePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(descriptor, $0, &length) }
+        }
+        guard named == 0 else { throw TCPTestError.failed }
+        return UInt16(bigEndian: address.sin_port)
+    }
+
     private func make(
         socket: ControlledDebugSocket,
         scheduler: TCPTestScheduler? = nil,
@@ -603,8 +671,8 @@ private final class TCPTestConnectionProvider: DebugAdapterConnectionProviding {
 @MainActor
 private final class TCPTestScheduler: DebugOperationDeadlineScheduling {
     var deadlines: [TCPTestDeadline] = []
-    func schedule(afterMilliseconds _: Int, action: @escaping @MainActor () -> Void) -> any DebugOperationDeadline {
-        let deadline = TCPTestDeadline(action: action)
+    func schedule(afterMilliseconds milliseconds: Int, action: @escaping @MainActor () -> Void) -> any DebugOperationDeadline {
+        let deadline = TCPTestDeadline(milliseconds: milliseconds, action: action)
         deadlines.append(deadline)
         return deadline
     }
@@ -612,9 +680,13 @@ private final class TCPTestScheduler: DebugOperationDeadlineScheduling {
 
 @MainActor
 private final class TCPTestDeadline: DebugOperationDeadline {
+    let milliseconds: Int
     var action: @MainActor () -> Void
     var cancelled = false
-    init(action: @escaping @MainActor () -> Void) { self.action = action }
+    init(milliseconds: Int, action: @escaping @MainActor () -> Void) {
+        self.milliseconds = milliseconds
+        self.action = action
+    }
     func cancel() { cancelled = true; action = {} }
     func fire() { if !cancelled { action() } }
 }

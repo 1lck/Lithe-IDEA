@@ -89379,6 +89379,28 @@
         "key": "Launch Request",
         "arguments": []
       }
+    },
+    {
+      "id": "debug.tcp.sessionActive",
+      "description": "External DAP connect sheet failures",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Stop the current debug session before connecting to a debug adapter.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debug.tcp.notStarted",
+      "description": "External DAP connect sheet failures",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The debug adapter connection could not be started.",
+        "arguments": []
+      }
     }
   ]
 }

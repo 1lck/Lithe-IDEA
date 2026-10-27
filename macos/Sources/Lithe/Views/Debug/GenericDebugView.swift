@@ -53,7 +53,7 @@ struct GenericDebugView: View {
         }
         .sheet(item: $externalAdapterSource) { source in
             ExternalDebugAdapterView { configuration in
-                model.connectExternalDebugAdapter(configuration: configuration, fileURL: source.url)
+                await model.connectExternalDebugAdapter(configuration: configuration, fileURL: source.url)
             }
         }
         .sheet(isPresented: $isJavaSteppingSettingsPresented) {
@@ -409,7 +409,10 @@ struct GenericDebugView: View {
                     externalAdapterSource = ExternalAdapterSource(url: url)
                 }
             }
-            .disabled(model.activeDocument?.url == nil || feature.isSessionActive)
+            .disabled(
+                feature.isSessionActive
+                    || !(model.activeDocument.map { feature.hasDebugProvider(for: $0.url) } ?? false)
+            )
             LitheContextMenuItem.action("Clear Console") { feature.clearOutput() }
                 .disabled(!feature.hasOutput)
         } label: {

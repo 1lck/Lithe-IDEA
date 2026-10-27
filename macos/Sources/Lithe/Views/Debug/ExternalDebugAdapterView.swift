@@ -9,7 +9,10 @@ struct ExternalDebugAdapterView: View {
     @State private var request = DebugRequestKind.attach
     @State private var arguments = "{}"
     @State private var errorMessage: String?
-    let onConnect: (DebugLaunchConfiguration) -> Void
+    @State private var connectTask: Task<Void, Never>?
+    let onConnect: (DebugLaunchConfiguration) async -> String?
+
+    private var trimmedHost: String { host.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     private var parsedPort: Int? {
         guard let value = Int(port), (1...65_535).contains(value) else { return nil }
@@ -41,11 +44,14 @@ struct ExternalDebugAdapterView: View {
             }
             HStack(spacing: LitheTheme.ActionButton.spacing) {
                 Spacer()
-                Button("Cancel", role: .cancel) { dismiss() }
+                Button("Cancel", role: .cancel) {
+                    connectTask?.cancel()
+                    dismiss()
+                }
                     .buttonStyle(LitheActionButtonStyle()).keyboardShortcut(.cancelAction)
                 Button("Connect") { connect() }
                     .buttonStyle(LitheActionButtonStyle(isPrimary: true))
-                    .disabled(parsedPort == nil || host.isEmpty)
+                    .disabled(parsedPort == nil || trimmedHost.isEmpty || connectTask != nil)
             }
         }
         .padding(18)
@@ -54,12 +60,22 @@ struct ExternalDebugAdapterView: View {
 
     private func connect() {
         guard let parsedPort else { return }
+        errorMessage = nil
+        let configuration: DebugLaunchConfiguration
         do {
-            let configuration = try ExternalDebugAdapterConfiguration.make(
-                host: host, port: parsedPort, request: request, argumentsJSON: arguments
+            configuration = try ExternalDebugAdapterConfiguration.make(
+                host: trimmedHost, port: parsedPort, request: request, argumentsJSON: arguments
             )
-            onConnect(configuration)
-            dismiss()
-        } catch { errorMessage = error.localizedDescription }
+        } catch {
+            errorMessage = error.localizedDescription
+            return
+        }
+        // Stay open until the connection has started, so a rejected endpoint or a
+        // declined consent leaves the host, port and arguments editable.
+        connectTask = Task {
+            let failure = await onConnect(configuration)
+            connectTask = nil
+            if let failure { errorMessage = failure } else { dismiss() }
+        }
     }
 }

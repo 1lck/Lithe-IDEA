@@ -10,17 +10,11 @@ import LitheCoreContracts
 final class MacHostedPortDebugAdapterTransport: DebugAdapterDrainingTransport {
     enum TransportError: LocalizedError {
         case languageIntelligenceUnavailable
-        case connectionFailed(String)
-        case stopped
 
         var errorDescription: String? {
             switch self {
             case .languageIntelligenceUnavailable:
                 return L10n.string("The language service that hosts the debug adapter is unavailable.")
-            case .connectionFailed(let message):
-                return L10n.string("Could not connect to the Debug Adapter: \(message)")
-            case .stopped:
-                return L10n.string("The debug adapter connection is stopped.")
             }
         }
     }
@@ -54,8 +48,9 @@ final class MacHostedPortDebugAdapterTransport: DebugAdapterDrainingTransport {
                 return DebugAdapterEndpoint(host: "127.0.0.1", port: Int(port))
             },
             // A cold JDT/project import is endpoint discovery, not a TCP
-            // connect. Keep it bounded without applying the direct-host budget.
-            limits: .init(startupMilliseconds: 120_000),
+            // connect. Keep it bounded without applying the direct-host budget;
+            // the connect to the discovered port keeps the default short budget.
+            limits: .init(discoveryMilliseconds: 120_000),
             socketFactory: { socketFactory($0.host, UInt16($0.port)) }
         )
     }

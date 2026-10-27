@@ -9388,7 +9388,9 @@
     "debug.tcp.argumentsHelp": "输入此适配器所需的启动或附加参数，必要时包含源码路径映射。这些参数独立于 DAP 服务的 TCP 地址。",
     "debug.tcp.invalidArguments": "请输入不超过 256 KiB 的适配器参数 JSON 对象。",
     "debug.tcp.attachRequest": "附加请求",
-    "debug.tcp.launchRequest": "启动请求"
+    "debug.tcp.launchRequest": "启动请求",
+    "debug.tcp.sessionActive": "请先停止当前调试会话，再连接调试适配器。",
+    "debug.tcp.notStarted": "无法启动调试适配器连接。"
   },
   "overrides": {
     "macos": {

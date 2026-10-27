@@ -100,21 +100,28 @@ extension AppModel {
         }
     }
 
-    func connectExternalDebugAdapter(configuration: DebugLaunchConfiguration, fileURL: URL) {
-        guard let identity = currentWorkspaceIdentity, let workspaceURL else { return }
-        Task { [weak self] in
-            guard let self,
-                  let feature = await self.activateDebugModule()?.genericFeature,
-                  self.isCurrentWorkspace(identity), !Task.isCancelled,
-                  !feature.isSessionActive else { return }
-            // The selected source chooses an installed provider, not a wire
-            // protocol guessed from the port. A failed connection stays visible
-            // in Debug, rather than restoring an older session over its error.
-            _ = feature.start(
-                fileURL: fileURL, rootURL: workspaceURL, configuration: configuration
-            )
-            self.showDebugToolWindow()
+    /// Returns the reason the connection could not be started, or nil once it has
+    /// started (or the request was cancelled). The caller keeps its form open on
+    /// a message, so the user's host, port and arguments are not lost.
+    func connectExternalDebugAdapter(
+        configuration: DebugLaunchConfiguration, fileURL: URL
+    ) async -> String? {
+        let notReady = L10n.string("The debug adapter connection could not be started.")
+        guard let identity = currentWorkspaceIdentity, let workspaceURL else { return notReady }
+        guard let feature = await activateDebugModule()?.genericFeature else { return notReady }
+        guard !Task.isCancelled else { return nil }
+        guard isCurrentWorkspace(identity) else { return notReady }
+        guard !feature.isSessionActive else {
+            return L10n.string("Stop the current debug session before connecting to a debug adapter.")
         }
+        // The selected source chooses an installed provider, not a wire
+        // protocol guessed from the port. A failed connection stays visible
+        // in Debug, rather than restoring an older session over its error.
+        let started = feature.start(
+            fileURL: fileURL, rootURL: workspaceURL, configuration: configuration
+        )
+        showDebugToolWindow()
+        return started ? nil : (feature.errorMessage ?? notReady)
     }
 
     private func attachJavaDebuggerAfterActivation(host: String, port: Int) async {

@@ -714,7 +714,12 @@ final class MacServiceContainer {
                             ),
                             core: rustCore,
                             deadlineScheduler: MacDebugOperationDeadlineScheduler(),
-                            initializationTimeoutMilliseconds: 10_000
+                            // The session clock starts before the socket exists, so it must
+                            // outlast the transport's connect budget and still leave a full
+                            // DAP handshake window; the transport deadline then reports a
+                            // slow connect as itself, not as a failed `initialize`.
+                            initializationTimeoutMilliseconds:
+                                MacTCPDebugAdapterTransport.Limits().connectMilliseconds + 10_000
                         )
                         if let entry {
                             debugAdapterSessionsBox.record(session, pluginID: entry.plugin.descriptor.id.rawValue)

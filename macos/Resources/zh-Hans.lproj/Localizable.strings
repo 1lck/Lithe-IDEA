@@ -3549,6 +3549,7 @@
 "Stop service" = "停止服务";
 "Stop test run" = "停止测试运行";
 "Stop the current debug session" = "停止当前调试会话";
+"Stop the current debug session before connecting to a debug adapter." = "请先停止当前调试会话，再连接调试适配器。";
 "Stop the current run" = "停止当前运行";
 "Stop without asking" = "直接停止";
 "Stopped moving the remaining items to Trash" = "已停止将剩余项目移到废纸篓";
@@ -3741,6 +3742,7 @@
 "The debug adapter %@ needs %@, which was not found. Install it, then try again." = "调试适配器 %@ 需要 %@，但未找到。请先安装，然后重试。";
 "The debug adapter %@ uses the %@ transport, which Lithe cannot start yet. Only stdio and language server hosted adapters are supported." = "调试适配器 %@ 使用 %@ 传输方式，Lithe 暂时无法启动。目前只支持 stdio 和由语言服务器承载的适配器。";
 "The debug adapter at %@ can access your debugging data. Plain TCP is not encrypted or authenticated. Connect only over a trusted network or a tunnel you configured." = "位于 %@ 的调试适配器可以访问你的调试数据。普通 TCP 不提供加密或身份认证。请仅通过可信网络或你自行配置的隧道连接。";
+"The debug adapter connection could not be started." = "无法启动调试适配器连接。";
 "The debug adapter connection is stopped." = "调试适配器的连接已停止。";
 "The debug adapter connection timed out." = "调试适配器连接超时。";
 "The debug adapter connection was not approved." = "未批准连接调试适配器。";
@@ -4395,7 +4397,9 @@
 "debug.tcp.launchRequest" = "启动请求";
 "debug.tcp.menu" = "连接调试适配器…";
 "debug.tcp.name" = "外部调试适配器";
+"debug.tcp.notStarted" = "无法启动调试适配器连接。";
 "debug.tcp.request" = "请求";
+"debug.tcp.sessionActive" = "请先停止当前调试会话，再连接调试适配器。";
 "debug.tcp.startupTimedOut" = "调试适配器连接超时。";
 "debug.tcp.title" = "连接调试适配器";
 "debug.tcp.writeTimedOut" = "调试适配器未能及时接收待发送数据。";

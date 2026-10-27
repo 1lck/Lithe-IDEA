@@ -14,6 +14,20 @@ protocol DebugAdapterSocketConnection: AnyObject {
     func stop()
 }
 
+/// NWError renders as an opaque "Network.NWError error 1"; carry the OS reason users act on.
+struct DebugAdapterConnectError: LocalizedError {
+    let reason: String
+
+    init(_ error: NWError) {
+        if case .posix(let code) = error { reason = String(cString: strerror(code.rawValue)) }
+        else { reason = error.localizedDescription }
+    }
+
+    var errorDescription: String? {
+        L10n.string("Could not connect to the Debug Adapter: \(reason)")
+    }
+}
+
 @MainActor
 final class NetworkDebugAdapterSocketConnection: DebugAdapterSocketConnection {
     private let connection: NWConnection
@@ -23,6 +37,7 @@ final class NetworkDebugAdapterSocketConnection: DebugAdapterSocketConnection {
     var onFailure: ((Error) -> Void)?
     var onComplete: (() -> Void)?
     private var stopped = false
+    private var reachedReady = false
 
     init(host: String, port: UInt16) {
         connection = NWConnection(
@@ -34,9 +49,17 @@ final class NetworkDebugAdapterSocketConnection: DebugAdapterSocketConnection {
             Task { @MainActor [weak self] in
                 guard let self, !self.stopped else { return }
                 switch state {
-                case .ready: self.onReady?()
-                case .failed(let error): self.onFailure?(error)
-                case .cancelled: break
+                case .ready:
+                    self.reachedReady = true
+                    self.onReady?()
+                case .waiting(let error) where Self.isDefinitive(error):
+                    // Network.framework parks a refused or unreachable connect in
+                    // .waiting and retries on path changes. A debugger gains
+                    // nothing from silent retries, so report the cause now. Other
+                    // causes (for example a pending Local Network prompt) keep
+                    // waiting until the transport's connect deadline.
+                    self.fail(error)
+                case .failed(let error): self.fail(error)
                 default: break
                 }
             }
@@ -44,6 +67,16 @@ final class NetworkDebugAdapterSocketConnection: DebugAdapterSocketConnection {
     }
 
     deinit { connection.cancel() }
+
+    private static func isDefinitive(_ error: NWError) -> Bool {
+        guard case .posix(let code) = error else { return false }
+        return [.ECONNREFUSED, .EHOSTUNREACH, .ENETUNREACH].contains(code)
+    }
+
+    private func fail(_ error: NWError) {
+        // Only a failed connect is a "could not connect"; later I/O errors stay raw.
+        onFailure?(reachedReady ? error : DebugAdapterConnectError(error))
+    }
 
     func start() {
         guard !stopped else { return }

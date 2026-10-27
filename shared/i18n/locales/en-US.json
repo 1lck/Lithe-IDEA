@@ -9388,7 +9388,9 @@
     "debug.tcp.argumentsHelp": "Enter the launch or attach arguments required by this adapter, including its source path mappings if needed. These are separate from the DAP server's TCP address.",
     "debug.tcp.invalidArguments": "Enter a JSON object of adapter arguments no larger than 256 KiB.",
     "debug.tcp.attachRequest": "Attach Request",
-    "debug.tcp.launchRequest": "Launch Request"
+    "debug.tcp.launchRequest": "Launch Request",
+    "debug.tcp.sessionActive": "Stop the current debug session before connecting to a debug adapter.",
+    "debug.tcp.notStarted": "The debug adapter connection could not be started."
   },
   "overrides": {
     "windows": {

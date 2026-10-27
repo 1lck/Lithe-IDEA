@@ -18,8 +18,9 @@ struct DirectDebugAdapterConnectionProvider: DebugAdapterConnectionProviding {
 }
 
 /// One owned TCP stream. DAP framing, requests and their deadlines stay in Core.
-/// A startup deadline covers endpoint discovery and connection establishment;
-/// write deadlines cover a stalled peer, never the duration of a debug session.
+/// Endpoint discovery and connection establishment each get their own deadline,
+/// so a slow language-server start never lengthens a dead-port connect. Write
+/// deadlines cover a stalled peer, never the duration of a debug session.
 // Note: .agents/notes/implemented/architecture/2026-10-27-debug-tcp-transport-lifecycle.md
 @MainActor
 final class MacTCPDebugAdapterTransport: DebugAdapterDrainingTransport {
@@ -39,7 +40,10 @@ final class MacTCPDebugAdapterTransport: DebugAdapterDrainingTransport {
     }
 
     struct Limits {
-        var startupMilliseconds = 10_000
+        /// Endpoint discovery, such as a cold language-server start.
+        var discoveryMilliseconds = 10_000
+        /// Establishing the socket once the endpoint is known.
+        var connectMilliseconds = 10_000
         var writeMilliseconds = 10_000
         var bufferedBytes = 8 * 1_024 * 1_024
         var bufferedWrites = 1_024
@@ -76,7 +80,8 @@ final class MacTCPDebugAdapterTransport: DebugAdapterDrainingTransport {
         limits: Limits = Limits(),
         socketFactory: (@MainActor (DebugAdapterEndpoint) throws -> any DebugAdapterSocketConnection)? = nil
     ) {
-        precondition(limits.startupMilliseconds > 0 && limits.writeMilliseconds > 0)
+        precondition(limits.discoveryMilliseconds > 0 && limits.connectMilliseconds > 0)
+        precondition(limits.writeMilliseconds > 0)
         precondition(limits.bufferedBytes > 0 && limits.bufferedWrites > 0)
         precondition(limits.drainMilliseconds > 0)
         resolveEndpoint = endpointResolver
@@ -94,10 +99,7 @@ final class MacTCPDebugAdapterTransport: DebugAdapterDrainingTransport {
         generation = UUID()
         let token = generation
         running = true
-        startupDeadline = scheduler.schedule(afterMilliseconds: limits.startupMilliseconds) { [weak self] in
-            guard let self, self.isCurrent(token), !self.ready else { return }
-            self.finish(error: TransportError.startupTimedOut)
-        }
+        armStartupDeadline(afterMilliseconds: limits.discoveryMilliseconds, token: token)
         let resolveEndpoint = resolveEndpoint
         startupTask = Task { @MainActor [weak self] in
             do {
@@ -148,7 +150,17 @@ final class MacTCPDebugAdapterTransport: DebugAdapterDrainingTransport {
 
     private func isCurrent(_ token: UUID) -> Bool { running && generation == token }
 
+    private func armStartupDeadline(afterMilliseconds milliseconds: Int, token: UUID) {
+        startupDeadline?.cancel()
+        startupDeadline = scheduler.schedule(afterMilliseconds: milliseconds) { [weak self] in
+            guard let self, self.isCurrent(token), !self.ready else { return }
+            self.finish(error: TransportError.startupTimedOut)
+        }
+    }
+
     private func connect(_ endpoint: DebugAdapterEndpoint, token: UUID) throws {
+        // Discovery is over. The connect phase gets its own, shorter budget.
+        armStartupDeadline(afterMilliseconds: limits.connectMilliseconds, token: token)
         let connection = try makeSocket(endpoint)
         socket = connection
         connection.onReady = { [weak self] in
