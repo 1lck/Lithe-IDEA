@@ -12,6 +12,7 @@ export function filterSpringEndpoints(
       endpoint.controller,
       endpoint.method,
       endpoint.httpMethods.join(" "),
+      ...endpoint.httpMethods.map((method) => `${method} ${endpoint.route}`),
     ];
     return searchableFields.some((field) => field.toLowerCase().includes(value));
   });
@@ -31,6 +32,9 @@ function endpointSearchScore(endpoint: SpringEndpoint, query: string): number {
   return Math.max(
     matchScore(route, query, 1000, 900, 800),
     matchScore(combined, query, 750, 700, 650),
+    ...endpoint.httpMethods.map((method) =>
+      matchScore(`${method.toLowerCase()} ${route}`, query, 750, 700, 650),
+    ),
     matchScore(endpoint.controller, query, 600, 550, 500),
     matchScore(endpoint.method, query, 450, 400, 350),
   );

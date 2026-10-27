@@ -160,6 +160,39 @@ describe("useQuickOpen endpoint results", () => {
     expect(quickOpen?.endpointResults).toEqual([]);
   });
 
+  test("hides endpoints after a same-root refresh fails", async () => {
+    await act(async () => {
+      workspaceRuntimeRegistry.activateWorkspace({ id: WORKSPACE_ID, name: "Quick open" }, "ready");
+      useFileSystemStore.setState({ rootFolderPath: ROOT, handleFileSelect: async () => "buffer" });
+      useSpringStore.setState({
+        requestedRoot: ROOT,
+        root: ROOT,
+        loadedRoot: ROOT,
+        index: endpointIndex(),
+        phase: "ready",
+        error: null,
+        isIndexing: false,
+      });
+      useUIState.setState({ isQuickOpenVisible: true });
+      root.render(<Probe />);
+    });
+
+    await act(async () => {
+      quickOpen?.setQuery("/api/users");
+    });
+    expect(quickOpen?.endpointResults).toHaveLength(1);
+
+    await act(async () => {
+      useSpringStore.setState({
+        phase: "failed",
+        error: { category: "indexFailed", detail: "refresh failed" },
+        isIndexing: false,
+      });
+    });
+
+    expect(quickOpen?.endpointResults).toEqual([]);
+  });
+
   test("ignores endpoints loaded for another workspace root", async () => {
     await act(async () => {
       workspaceRuntimeRegistry.activateWorkspace({ id: WORKSPACE_ID, name: "Quick open" }, "ready");

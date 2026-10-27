@@ -43,6 +43,17 @@ describe("filterSpringEndpoints", () => {
     expect(filterSpringEndpoints([multiMethod], "get post")).toEqual([multiMethod]);
   });
 
+  test("matches each HTTP method combined with the route", () => {
+    const multiMethod = {
+      ...endpoints[0],
+      id: "multi",
+      httpMethods: ["GET", "POST"],
+      route: "/api/multi",
+    };
+    expect(filterSpringEndpoints([multiMethod], "GET /api/multi")).toEqual([multiMethod]);
+    expect(filterSpringEndpoints([multiMethod], "POST /api/multi")).toEqual([multiMethod]);
+  });
+
   test("is case-insensitive and trims the query", () => {
     expect(filterSpringEndpoints(endpoints, "  UsErS  ")).toEqual([endpoints[0]]);
   });
@@ -72,6 +83,17 @@ describe("searchSpringEndpoints", () => {
   test("searches the combined HTTP method and route", () => {
     expect(searchSpringEndpoints(endpoints, "post /api/orders", limit)).toEqual([endpoints[1]]);
     expect(searchSpringEndpoints(endpoints, "get", limit)).toEqual([endpoints[0]]);
+  });
+
+  test("searches each HTTP method combined with the route", () => {
+    const multiMethod = {
+      ...endpoints[0],
+      id: "multi",
+      httpMethods: ["GET", "POST"],
+      route: "/api/multi",
+    };
+    expect(searchSpringEndpoints([multiMethod], "GET /api/multi", limit)).toEqual([multiMethod]);
+    expect(searchSpringEndpoints([multiMethod], "POST /api/multi", limit)).toEqual([multiMethod]);
   });
 
   test("matches controller and handler names and honors the result limit", () => {

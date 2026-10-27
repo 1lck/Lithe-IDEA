@@ -8,10 +8,18 @@ import { toQuickOpenEndpointResults } from "../utils/endpoint-results";
 export const useEndpointSearch = (query: string, isActive: boolean) => {
   const endpoints = useSpringStore.use.index().endpoints;
   const loadedRoot = useSpringStore.use.loadedRoot();
+  const phase = useSpringStore.use.phase();
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
 
   return useMemo(() => {
-    if (!isActive || !rootFolderPath || !isSameSpringRoot(loadedRoot, rootFolderPath)) return [];
+    if (
+      !isActive ||
+      phase !== "ready" ||
+      !rootFolderPath ||
+      !isSameSpringRoot(loadedRoot, rootFolderPath)
+    ) {
+      return [];
+    }
     return toQuickOpenEndpointResults(endpoints, rootFolderPath, query, MAX_ENDPOINT_RESULTS);
-  }, [endpoints, isActive, loadedRoot, query, rootFolderPath]);
+  }, [endpoints, isActive, loadedRoot, phase, query, rootFolderPath]);
 };
