@@ -909,7 +909,11 @@ pub fn workspace_repositories(
             let entry = entry.map_err(repository_scan_error)?;
             let name = entry.file_name().to_string_lossy().to_string();
             if name == ".git" {
-                discovered_repositories.insert(canonical_directory.clone());
+                // Only openable repositories join the workspace list; a dangling gitfile
+                // entry must not poison status and reference loads for sibling roots.
+                if git_entry_opens_as_repository(&entry.path()) {
+                    discovered_repositories.insert(canonical_directory.clone());
+                }
                 continue;
             }
             if !repository_scan_directory_is_visible(&name) {
@@ -4251,6 +4255,41 @@ fn repository_scan_error(error: std::io::Error) -> CoreError {
         "Could not complete workspace repository discovery",
     )
     .with_details(error.to_string())
+}
+
+/// Resolves the gitdir a `.git` gitfile points at, mirroring Git's `read_gitfile`:
+/// the target may be absolute or relative to the gitfile's own directory.
+/// Returns `None` when the file is not a valid gitfile Git would open.
+fn resolve_gitfile_gitdir(gitfile: &Path, contents: &str) -> Option<PathBuf> {
+    let line = contents.lines().next()?;
+    let target = line.strip_prefix("gitdir:")?.trim().trim_matches('"');
+    if target.is_empty() {
+        return None;
+    }
+    let target_path = Path::new(target);
+    if target_path.is_absolute() {
+        return Some(target_path.to_path_buf());
+    }
+    Some(gitfile.parent()?.join(target_path))
+}
+
+/// A discovered `.git` entry only counts as a repository when Git can open it:
+/// a directory needs `HEAD`, and a gitfile pointer must resolve to a gitdir that
+/// holds `HEAD`. Stale submodule or worktree pointers (for example a leftover
+/// submodule gitfile whose `.git/modules` directory was removed) would otherwise
+/// be listed as a workspace repository and fail every status or reference load
+/// for the healthy sibling repositories.
+fn git_entry_opens_as_repository(git_path: &Path) -> bool {
+    if git_path.is_dir() {
+        return git_path.join("HEAD").is_file();
+    }
+    let contents = match std::fs::read_to_string(git_path) {
+        Ok(contents) => contents,
+        Err(_) => return false,
+    };
+    resolve_gitfile_gitdir(git_path, &contents)
+        .map(|gitdir| gitdir.join("HEAD").is_file())
+        .unwrap_or(false)
 }
 
 fn discover_containing_repository(root: &Path) -> Result<Option<PathBuf>, CoreError> {

@@ -1228,7 +1228,12 @@ errors remain visible. In particular, Windows may reject an over-MAX_PATH Git
 working directory at process creation even when filesystem lookup succeeds;
 this is reported as `process_start_failed`, not a missing repository. Shared examples live in `shared/fixtures/git/windows-paths.json`.
 Core treats both
-`.git` directories and `.git` files as repository markers. The default traversal
+`.git` directories and `.git` files as repository markers, but a marker only
+becomes a listed repository when Git can open it: a `.git` directory needs
+`HEAD`, and a `.git` file must resolve to a gitdir (absolute, or relative to
+the marker's directory) that exists and holds `HEAD`. A stale submodule or
+worktree pointer whose gitdir was removed is not listed, because status and
+reference loads for the whole workspace would otherwise fail for it. The default traversal
 skips dot-prefixed descendant directories and the built-in workspace hidden
 directory names (including `.build`, `node_modules`, `target`, `build`,
 `DerivedData`, `dist` and `coverage`). `.worktree` and `.worktrees` remain
