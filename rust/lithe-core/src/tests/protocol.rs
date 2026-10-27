@@ -27,6 +27,41 @@ fn debug_adapter_endpoint_validation_crosses_the_json_boundary() {
 }
 
 #[test]
+fn debug_transport_commands_cross_the_json_boundary() {
+    let call = |command: &str, payload: Value| -> Value {
+        let request =
+            serde_json::json!({"id": "transport", "command": command, "payload": payload});
+        serde_json::from_str(&execute_json(&request.to_string()))
+            .expect("transport response is JSON")
+    };
+    let policy = call("debug.transport.policy", serde_json::json!({}));
+    assert_eq!(policy["ok"], true);
+    assert_eq!(policy["data"]["initializationMilliseconds"], 20_000);
+
+    let id = "protocol-test-transport";
+    let started = call(
+        "debug.transport.handle",
+        serde_json::json!({"transportId": id, "event": {"type": "start"}}),
+    );
+    assert_eq!(started["ok"], true);
+    assert_eq!(started["data"]["phase"], "discovering");
+    assert_eq!(started["data"]["effects"][1]["kind"], "discoverEndpoint");
+
+    let rejected = call(
+        "debug.transport.handle",
+        serde_json::json!({"transportId": id, "event": {"type": "start", "limits": {"writeMilliseconds": 0}}}),
+    );
+    assert_eq!(rejected["ok"], false);
+    assert_eq!(rejected["error"]["code"], "invalid_request");
+
+    let released = call(
+        "debug.transport.release",
+        serde_json::json!({"transportId": id}),
+    );
+    assert_eq!(released["data"]["released"], true);
+}
+
+#[test]
 fn ping_exposes_protocol_version() {
     let response: Value = serde_json::from_str(&execute_json(
         r#"{"id":"test-1","command":"core.ping","payload":{}}"#,

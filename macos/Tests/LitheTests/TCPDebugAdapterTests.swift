@@ -18,7 +18,7 @@ struct TCPDebugAdapterTests {
         let scheduler = TCPTestScheduler()
         var sockets = [first, second]
         let transport = MacTCPDebugAdapterTransport(
-            endpointResolver: { _ in endpoint }, deadlineScheduler: scheduler,
+            endpointResolver: { _ in endpoint }, core: RustCoreBridge(), deadlineScheduler: scheduler,
             socketFactory: { _ in sockets.removeFirst() }
         )
         defer { transport.stop() }
@@ -113,7 +113,8 @@ struct TCPDebugAdapterTests {
         let second = ControlledDebugSocket()
         var sockets = [first, second]
         let transport = MacTCPDebugAdapterTransport(
-            endpointResolver: { _ in endpoint }, socketFactory: { _ in sockets.removeFirst() }
+            endpointResolver: { _ in endpoint }, core: RustCoreBridge(),
+            socketFactory: { _ in sockets.removeFirst() }
         )
         defer { transport.onErrorOutput = nil; transport.stop() }
         transport.onErrorOutput = { _ in
@@ -169,6 +170,7 @@ struct TCPDebugAdapterTests {
         let socket = ControlledDebugSocket()
         let transport = MacTCPDebugAdapterTransport(
             endpointResolver: { _ in connecting ? endpoint : try await gate.resolve() },
+            core: RustCoreBridge(),
             socketFactory: { _ in socket }
         )
         defer { transport.stop(); gate.finish(endpoint) }
@@ -192,7 +194,7 @@ struct TCPDebugAdapterTests {
         let scheduler = TCPTestScheduler()
         let ended = TCPTestEvent()
         let transport = MacTCPDebugAdapterTransport(
-            endpointResolver: { _ in endpoint }, deadlineScheduler: scheduler,
+            endpointResolver: { _ in endpoint }, core: RustCoreBridge(), deadlineScheduler: scheduler,
             socketFactory: { _ in throw TCPTestError.failed }
         )
         defer { transport.stop() }
@@ -212,6 +214,7 @@ struct TCPDebugAdapterTests {
             endpoint: .init(host: "127.0.0.1", port: 5678),
             validate: { .init(host: $0.host, port: $0.port, remote: false) },
             confirm: { _ in Issue.record("Loopback prompted for remote consent"); return false },
+            core: RustCoreBridge(),
             connectionProvider: provider
         )
         defer { transport.stop() }
@@ -287,6 +290,7 @@ struct TCPDebugAdapterTests {
         var opened = 0
         let transport = MacTCPDebugAdapterTransport(
             endpointResolver: { _ in try await gate.resolve() },
+            core: RustCoreBridge(),
             deadlineScheduler: scheduler,
             socketFactory: { _ in opened += 1; return ControlledDebugSocket() }
         )
@@ -406,6 +410,7 @@ struct TCPDebugAdapterTests {
         var sockets = [first, second]
         let transport = MacTCPDebugAdapterTransport(
             endpointResolver: { _ in endpoint },
+            core: RustCoreBridge(),
             socketFactory: { _ in sockets.removeFirst() }
         )
         defer { transport.stop() }
@@ -453,6 +458,7 @@ struct TCPDebugAdapterTests {
                     #expect(input == endpoint)
                     return approved
                 },
+                core: RustCoreBridge(),
                 connectionProvider: provider
             )
         }
@@ -481,6 +487,7 @@ struct TCPDebugAdapterTests {
                 endpoint: endpoint,
                 validate: { _ in throw TCPTestError.failed },
                 confirm: { _ in Issue.record("Invalid endpoint reached consent"); return true },
+                core: RustCoreBridge(),
                 connectionProvider: provider
             )
         }
@@ -495,7 +502,7 @@ struct TCPDebugAdapterTests {
         let port = try #require(server.port)
         let transport = MacTCPDebugAdapterTransport(endpointResolver: { _ in
             DebugAdapterEndpoint(host: "127.0.0.1", port: Int(port))
-        })
+        }, core: RustCoreBridge())
         defer { transport.stop() }
         let received = TCPTestEvent()
         var bytes = Data()
@@ -516,7 +523,7 @@ struct TCPDebugAdapterTests {
         let port = try Self.unusedLoopbackPort()
         let transport = MacTCPDebugAdapterTransport(endpointResolver: { _ in
             DebugAdapterEndpoint(host: "127.0.0.1", port: Int(port))
-        })
+        }, core: RustCoreBridge())
         defer { transport.stop() }
         let ended = TCPTestEvent()
         var codes: [Int] = []
@@ -538,7 +545,7 @@ struct TCPDebugAdapterTests {
         let port = try #require(server.port)
         let transport = MacTCPDebugAdapterTransport(endpointResolver: { _ in
             DebugAdapterEndpoint(host: "127.0.0.1", port: Int(port))
-        })
+        }, core: RustCoreBridge())
         defer { transport.stop() }
         let session = CoreDebugAdapterProtocolSession(
             adapterID: "python", transport: transport, core: RustCoreBridge(),
@@ -626,7 +633,7 @@ struct TCPDebugAdapterTests {
         limits: MacTCPDebugAdapterTransport.Limits = .init()
     ) -> MacTCPDebugAdapterTransport {
         MacTCPDebugAdapterTransport(
-            endpointResolver: { _ in endpoint }, deadlineScheduler: scheduler,
+            endpointResolver: { _ in endpoint }, core: RustCoreBridge(), deadlineScheduler: scheduler,
             limits: limits, socketFactory: { _ in socket }
         )
     }

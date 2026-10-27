@@ -38,6 +38,7 @@ final class MacHostedPortDebugAdapterTransport: DebugAdapterDrainingTransport {
 
     init(
         portResolver: @escaping PortResolver,
+        core: any DebugTransportLifecycleCore,
         socketFactory: @escaping @MainActor (String, UInt16) -> any DebugAdapterSocketConnection = {
             NetworkDebugAdapterSocketConnection(host: $0, port: $1)
         }
@@ -47,6 +48,7 @@ final class MacHostedPortDebugAdapterTransport: DebugAdapterDrainingTransport {
                 let port = try await portResolver(root)
                 return DebugAdapterEndpoint(host: "127.0.0.1", port: Int(port))
             },
+            core: core,
             // A cold JDT/project import is endpoint discovery, not a TCP
             // connect. Keep it bounded without applying the direct-host budget;
             // the connect to the discovered port keeps the default short budget.

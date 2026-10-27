@@ -622,7 +622,8 @@ final class MacServiceContainer {
                                         return try await capability.sessions.startJavaDebugServer(
                                             rootURL: rootURL
                                         )
-                                    }
+                                    },
+                                    core: rustCore
                                 ),
                                 core: rustCore,
                                 deadlineScheduler: MacDebugOperationDeadlineScheduler()
@@ -652,6 +653,7 @@ final class MacServiceContainer {
                                         )
                                     },
                                     makeProcess: { MacRawProcessSession() },
+                                    core: rustCore,
                                     findCommand: { commands in
                                         commands.lazy.compactMap { command in
                                             runtimeService.executableCandidates(command)
@@ -710,16 +712,17 @@ final class MacServiceContainer {
                                     } catch let error as RustCoreBridge.CoreCallError where error.code == "invalid_request" {
                                         throw MacTCPDebugAdapterTransport.TransportError.invalidEndpoint
                                     }
-                                }
+                                },
+                                core: rustCore
                             ),
                             core: rustCore,
                             deadlineScheduler: MacDebugOperationDeadlineScheduler(),
-                            // The session clock starts before the socket exists, so it must
-                            // outlast the transport's connect budget and still leave a full
-                            // DAP handshake window; the transport deadline then reports a
+                            // The session clock starts before the socket exists, so Core sizes
+                            // it to outlast the transport's connect budget and still leave a
+                            // full DAP handshake window; the transport deadline then reports a
                             // slow connect as itself, not as a failed `initialize`.
                             initializationTimeoutMilliseconds:
-                                MacTCPDebugAdapterTransport.Limits().connectMilliseconds + 10_000
+                                try rustCore.debugTransportPolicy().initializationMilliseconds
                         )
                         if let entry {
                             debugAdapterSessionsBox.record(session, pluginID: entry.plugin.descriptor.id.rawValue)

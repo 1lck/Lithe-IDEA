@@ -17,10 +17,11 @@ struct DirectDebugAdapterConnectionProvider: DebugAdapterConnectionProviding {
     }
 }
 
-/// One owned TCP stream. DAP framing, requests and their deadlines stay in Core.
-/// Endpoint discovery and connection establishment each get their own deadline,
-/// so a slow language-server start never lengthens a dead-port connect. Write
-/// deadlines cover a stalled peer, never the duration of a debug session.
+/// One owned TCP stream. The lifecycle rules live in Rust Core: this adapter
+/// reports what the socket, the resolver and the system timers observed, then runs
+/// the effects Core returns. It owns the socket, the pending frames' bytes, the
+/// timer handles and nothing that decides when to give up. DAP framing, requests
+/// and their deadlines stay in Core as well.
 // Note: .agents/notes/implemented/architecture/2026-10-27-debug-tcp-transport-lifecycle.md
 @MainActor
 final class MacTCPDebugAdapterTransport: DebugAdapterDrainingTransport {
@@ -39,35 +40,34 @@ final class MacTCPDebugAdapterTransport: DebugAdapterDrainingTransport {
         }
     }
 
-    struct Limits {
-        /// Endpoint discovery, such as a cold language-server start.
-        var discoveryMilliseconds = 10_000
-        /// Establishing the socket once the endpoint is known.
-        var connectMilliseconds = 10_000
-        var writeMilliseconds = 10_000
-        var bufferedBytes = 8 * 1_024 * 1_024
-        var bufferedWrites = 1_024
-        var drainMilliseconds = 1_000
-    }
+    /// Per-transport overrides of Core's deadline and queue defaults.
+    typealias Limits = DebugTransportLimitOverrides
 
     typealias EndpointResolver = @MainActor (URL) async throws -> DebugAdapterEndpoint
     private let resolveEndpoint: EndpointResolver
     private let makeSocket: @MainActor (DebugAdapterEndpoint) throws -> any DebugAdapterSocketConnection
     private let scheduler: any DebugOperationDeadlineScheduling
+    private let core: any DebugTransportLifecycleCore
     private let limits: Limits
+    private let transportID = UUID().uuidString
+    private var rootURL: URL?
     private var startupTask: Task<Void, Never>?
-    private var startupDeadline: (any DebugOperationDeadline)?
-    private var writeDeadline: (any DebugOperationDeadline)?
-    private var drainDeadline: (any DebugOperationDeadline)?
     private var socket: (any DebugAdapterSocketConnection)?
+    /// Frames Core has budgeted but not yet told us to write. Core never sees the bytes.
     private var writes: [Data] = []
-    private var bufferedBytes = 0
-    private var activeWrite: UUID?
-    private var generation = UUID()
-    private var ready = false
-    private var running = false
-    private var draining = false
-    var isRunning: Bool { running && !draining }
+    /// System timers Core armed, keyed by Core's timer id.
+    private var timers: [UInt64: any DebugOperationDeadline] = [:]
+    /// Mirrors of Core's last answer; Core stays the authority.
+    private var generation: UInt64 = 0
+    private var phase = DebugTransportPhase.stopped
+    /// Nonzero while effects run, so an inline callback does not recurse into Core.
+    private var effectDepth = 0
+    var isRunning: Bool {
+        switch phase {
+        case .discovering, .connecting, .ready: return true
+        case .stopped, .draining: return false
+        }
+    }
 
     var onData: ((Data) -> Void)?
     var onErrorOutput: ((Data) -> Void)?
@@ -75,167 +75,208 @@ final class MacTCPDebugAdapterTransport: DebugAdapterDrainingTransport {
 
     init(
         endpointResolver: @escaping EndpointResolver,
+        core: any DebugTransportLifecycleCore,
         connectionProvider: (any DebugAdapterConnectionProviding)? = nil,
         deadlineScheduler: (any DebugOperationDeadlineScheduling)? = nil,
         limits: Limits = Limits(),
         socketFactory: (@MainActor (DebugAdapterEndpoint) throws -> any DebugAdapterSocketConnection)? = nil
     ) {
-        precondition(limits.discoveryMilliseconds > 0 && limits.connectMilliseconds > 0)
-        precondition(limits.writeMilliseconds > 0)
-        precondition(limits.bufferedBytes > 0 && limits.bufferedWrites > 0)
-        precondition(limits.drainMilliseconds > 0)
         resolveEndpoint = endpointResolver
         let provider = connectionProvider ?? DirectDebugAdapterConnectionProvider()
         makeSocket = socketFactory ?? { try provider.makeConnection(to: $0) }
         scheduler = deadlineScheduler ?? MacDebugOperationDeadlineScheduler()
+        self.core = core
         self.limits = limits
     }
 
-    isolated deinit { cleanUp() }
+    isolated deinit {
+        // Core's state for this transport goes with it; no event is needed.
+        closeConnection()
+        try? core.releaseDebugTransport(transportID: transportID)
+    }
 
     func start(rootURL: URL) throws {
-        if draining { cleanUp() }
-        guard !isRunning else { return }
-        generation = UUID()
-        let token = generation
-        running = true
-        armStartupDeadline(afterMilliseconds: limits.discoveryMilliseconds, token: token)
+        let step = try core.handleDebugTransportEvent(transportID: transportID, event: .start(limits))
+        if step.outcome == .applied { self.rootURL = rootURL.standardizedFileURL }
+        apply(step)
+    }
+
+    func send(_ data: Data) throws {
+        // The effect that writes this frame can arrive in the same step.
+        if !data.isEmpty { writes.append(data) }
+        let step: DebugTransportStep
+        do {
+            step = try core.handleDebugTransportEvent(transportID: transportID, event: .send(bytes: data.count))
+        } catch {
+            if !data.isEmpty { writes.removeLast() }
+            throw error
+        }
+        switch step.outcome {
+        case .rejectedNotRunning:
+            if !data.isEmpty { writes.removeLast() }
+            throw TransportError.stopped
+        case .rejectedBufferLimit:
+            // The step fails the stream, reports it and clears the queue.
+            apply(step)
+            throw TransportError.bufferLimit
+        case .applied, .ignored:
+            apply(step)
+        }
+    }
+
+    func stop() { dispatch(.stop) }
+
+    func finishSendingAndStop() { dispatch(.finishSendingAndStop) }
+
+    /// Reports an event to Core and runs the answer. A Core failure is a bridge
+    /// fault, not a lifecycle outcome, so it fails the stream locally.
+    private func dispatch(_ event: DebugTransportEvent, inbound: Data? = nil) {
+        do {
+            apply(try core.handleDebugTransportEvent(transportID: transportID, event: event), inbound: inbound)
+        } catch {
+            abort(after: error)
+        }
+    }
+
+    private func apply(_ step: DebugTransportStep, inbound: Data? = nil) {
+        generation = step.generation
+        phase = step.phase
+        effectDepth += 1
+        defer { effectDepth -= 1 }
+        for effect in step.effects {
+            // A callback or an observer may have stopped or restarted the stream
+            // while an earlier effect ran; the rest of this step is stale.
+            guard generation == step.generation else { return }
+            run(effect, generation: step.generation, inbound: inbound)
+        }
+    }
+
+    private func run(_ effect: DebugTransportEffect, generation: UInt64, inbound: Data?) {
+        switch effect {
+        case .discoverEndpoint:
+            discoverEndpoint(generation: generation)
+        case .armTimer(let timerID, let purpose, let afterMilliseconds):
+            armTimer(timerID, purpose: purpose, afterMilliseconds: afterMilliseconds, generation: generation)
+        case .cancelTimer(let timerID):
+            timers.removeValue(forKey: timerID)?.cancel()
+        case .connect(let host, let port):
+            connect(DebugAdapterEndpoint(host: host, port: Int(port)), generation: generation)
+        case .write(let writeID, let bytes):
+            write(writeID, bytes: bytes, generation: generation)
+        case .deliverData:
+            if let inbound { onData?(inbound) }
+        case .close:
+            closeConnection()
+        case .reportFailure(let reason, let message):
+            onErrorOutput?(Data((failureText(reason, message: message) + "\n").utf8))
+        case .notifyTermination(let exitCode):
+            onTermination?(exitCode)
+        }
+    }
+
+    private func failureText(_ reason: DebugTransportFailureReason, message: String?) -> String {
+        switch reason {
+        case .startupTimedOut: return TransportError.startupTimedOut.localizedDescription
+        case .writeTimedOut: return TransportError.writeTimedOut.localizedDescription
+        case .bufferLimit: return TransportError.bufferLimit.localizedDescription
+        case .invalidEndpoint: return TransportError.invalidEndpoint.localizedDescription
+        case .host: return message ?? ""
+        }
+    }
+
+    private func discoverEndpoint(generation: UInt64) {
+        guard let rootURL else { return }
         let resolveEndpoint = resolveEndpoint
         startupTask = Task { @MainActor [weak self] in
             do {
-                let endpoint = try await resolveEndpoint(rootURL.standardizedFileURL)
+                let endpoint = try await resolveEndpoint(rootURL)
                 try Task.checkCancellation()
-                guard let self, self.isCurrent(token) else { return }
-                // User endpoints are validated by Core before reaching this layer.
-                // Keep the native numeric conversion safe for every provider.
-                guard !endpoint.host.isEmpty, (1...65_535).contains(endpoint.port) else {
-                    throw TransportError.invalidEndpoint
-                }
-                try self.connect(endpoint, token: token)
+                self?.dispatch(.endpointResolved(generation: generation, host: endpoint.host, port: endpoint.port))
             } catch {
-                guard let self, self.isCurrent(token) else { return }
-                self.finish(error: error)
+                guard !Task.isCancelled else { return }
+                self?.dispatch(.failed(generation: generation, message: error.localizedDescription))
             }
         }
     }
 
-    func send(_ data: Data) throws {
-        guard isRunning else { throw TransportError.stopped }
-        guard !data.isEmpty else { return }
-        guard writes.count < limits.bufferedWrites,
-              data.count <= limits.bufferedBytes - bufferedBytes else {
-            finish(error: TransportError.bufferLimit)
-            throw TransportError.bufferLimit
-        }
-        writes.append(data)
-        bufferedBytes += data.count
-        sendNext(token: generation)
+    private func armTimer(
+        _ timerID: UInt64,
+        purpose: DebugTransportTimerPurpose,
+        afterMilliseconds: Int,
+        generation: UInt64
+    ) {
+        // The bounded drain owns the transport: the session manager can release it
+        // right after asking to finish, and the queued disconnect still gets its window.
+        let fire: @MainActor () -> Void = purpose == .drain
+            ? { [self] in timerFired(timerID, generation: generation) }
+            : { [weak self] in self?.timerFired(timerID, generation: generation) }
+        timers[timerID] = scheduler.schedule(afterMilliseconds: afterMilliseconds, action: fire)
     }
 
-    func stop() { cleanUp() }
-
-    func finishSendingAndStop() {
-        guard running, !draining else { return }
-        guard ready, !writes.isEmpty else { cleanUp(); return }
-        draining = true
-        let token = generation
-        // The session manager can release its session immediately. The bounded
-        // drain owns itself until the queued disconnect is accepted or expires.
-        drainDeadline = scheduler.schedule(afterMilliseconds: limits.drainMilliseconds) { [self] in
-            guard isCurrent(token), draining else { return }
-            cleanUp()
-        }
-        sendNext(token: generation)
+    private func timerFired(_ timerID: UInt64, generation: UInt64) {
+        // Core takes the fired timer's slot itself; only the handle is ours to drop.
+        // Cancelling a timer that already fired is a no-op that releases whatever
+        // the handle still retains, such as the drain timer's strong owner.
+        let handle = timers.removeValue(forKey: timerID)
+        dispatch(.timerFired(generation: generation, timerID: timerID))
+        handle?.cancel()
     }
 
-    private func isCurrent(_ token: UUID) -> Bool { running && generation == token }
-
-    private func armStartupDeadline(afterMilliseconds milliseconds: Int, token: UUID) {
-        startupDeadline?.cancel()
-        startupDeadline = scheduler.schedule(afterMilliseconds: milliseconds) { [weak self] in
-            guard let self, self.isCurrent(token), !self.ready else { return }
-            self.finish(error: TransportError.startupTimedOut)
+    private func connect(_ endpoint: DebugAdapterEndpoint, generation: UInt64) {
+        startupTask = nil
+        let connection: any DebugAdapterSocketConnection
+        do {
+            connection = try makeSocket(endpoint)
+        } catch {
+            dispatch(.failed(generation: generation, message: error.localizedDescription))
+            return
         }
-    }
-
-    private func connect(_ endpoint: DebugAdapterEndpoint, token: UUID) throws {
-        // Discovery is over. The connect phase gets its own, shorter budget.
-        armStartupDeadline(afterMilliseconds: limits.connectMilliseconds, token: token)
-        let connection = try makeSocket(endpoint)
         socket = connection
         connection.onReady = { [weak self] in
-            guard let self, self.isCurrent(token), !self.ready else { return }
-            self.ready = true
-            self.startupDeadline?.cancel()
-            self.startupDeadline = nil
-            self.startupTask = nil
-            self.sendNext(token: token)
+            self?.dispatch(.connectionReady(generation: generation))
         }
         connection.onData = { [weak self] data in
-            guard let self, self.isCurrent(token), !self.draining else { return }
-            self.onData?(data)
+            self?.dispatch(.dataReceived(generation: generation), inbound: data)
         }
         connection.onFailure = { [weak self] error in
-            guard let self, self.isCurrent(token) else { return }
-            self.finish(error: error)
+            self?.dispatch(.failed(generation: generation, message: error.localizedDescription))
         }
         connection.onComplete = { [weak self] in
-            guard let self, self.isCurrent(token) else { return }
-            self.finish(error: nil)
+            self?.dispatch(.peerClosed(generation: generation))
         }
         connection.start()
     }
 
-    private func sendNext(token: UUID) {
-        guard isCurrent(token), ready, activeWrite == nil,
-              let data = writes.first, let socket else { return }
-        let writeID = UUID()
-        activeWrite = writeID
-        writeDeadline = scheduler.schedule(afterMilliseconds: limits.writeMilliseconds) { [weak self] in
-            guard let self, self.isCurrent(token), self.activeWrite == writeID else { return }
-            self.finish(error: TransportError.writeTimedOut)
+    private func write(_ writeID: UInt64, bytes: Int, generation: UInt64) {
+        guard let socket, !writes.isEmpty else {
+            assertionFailure("Core asked for a write the adapter has no frame or socket for")
+            return
         }
+        let data = writes.removeFirst()
+        assert(data.count == bytes, "Core's frame size disagrees with the queued frame")
         socket.send(data) { [weak self] result in
-            guard let self, self.isCurrent(token), self.activeWrite == writeID else { return }
-            self.writeDeadline?.cancel()
-            self.writeDeadline = nil
-            self.activeWrite = nil
+            guard let self else { return }
+            let event: DebugTransportEvent
             switch result {
-            case .success:
-                self.bufferedBytes -= self.writes.removeFirst().count
-                if self.draining, self.writes.isEmpty { self.cleanUp(); return }
-                // Do not recurse if a provider completes writes synchronously.
-                Task { @MainActor [weak self] in self?.sendNext(token: token) }
-            case .failure(let error): self.finish(error: error)
+            case .success: event = .writeCompleted(generation: generation, writeID: writeID)
+            case .failure(let error): event = .failed(generation: generation, message: error.localizedDescription)
+            }
+            // A provider may complete inline; never recurse through the queue.
+            if effectDepth > 0 {
+                Task { @MainActor [weak self] in self?.dispatch(event) }
+            } else {
+                dispatch(event)
             }
         }
     }
 
-    private func finish(error: Error?) {
-        guard running else { return }
-        if draining { cleanUp(); return }
-        // Invalidate before calling native stop or client callbacks: both can reenter.
-        cleanUp()
-        let finishedGeneration = generation
-        if let error { onErrorOutput?(Data((error.localizedDescription + "\n").utf8)) }
-        // An error observer can stop or restart the owner synchronously. Never
-        // deliver the old termination into that replacement lifecycle.
-        guard generation == finishedGeneration else { return }
-        onTermination?(error == nil ? 0 : 1)
-    }
-
-    private func cleanUp() {
-        generation = UUID()
-        running = false
-        draining = false
-        drainDeadline?.cancel()
-        drainDeadline = nil
-        startupDeadline?.cancel()
-        startupDeadline = nil
-        writeDeadline?.cancel()
-        writeDeadline = nil
+    /// Releases the socket, the discovery task, the queued frames and every timer
+    /// still armed. Detach the callbacks first: native stop can reenter.
+    private func closeConnection() {
         startupTask?.cancel()
         startupTask = nil
+        for deadline in timers.values { deadline.cancel() }
+        timers.removeAll()
         let connection = socket
         socket = nil
         connection?.onReady = nil
@@ -244,8 +285,18 @@ final class MacTCPDebugAdapterTransport: DebugAdapterDrainingTransport {
         connection?.onComplete = nil
         connection?.stop()
         writes = []
-        bufferedBytes = 0
-        activeWrite = nil
-        ready = false
+    }
+
+    /// Core could not be reached. Fall back to a local, silent-to-Core teardown so
+    /// the socket and timers do not outlive the failure, then tell the owner once.
+    private func abort(after error: Error) {
+        let wasRunning = isRunning
+        phase = .stopped
+        generation &+= 1
+        closeConnection()
+        try? core.releaseDebugTransport(transportID: transportID)
+        guard wasRunning else { return }
+        onErrorOutput?(Data((error.localizedDescription + "\n").utf8))
+        onTermination?(1)
     }
 }

@@ -6,6 +6,7 @@
   "macos": {
     "evidence": [
       "macos/Sources/Lithe/Platform/MacOS/Debug/MacTCPDebugAdapterTransport.swift",
+      "macos/Sources/Lithe/Core/Rust/RustDebugTransportCore.swift",
       "macos/Sources/Lithe/Platform/MacOS/Debug/MacExternalDebugAdapterTransport.swift",
       "macos/Sources/Lithe/Platform/MacOS/Debug/MacHostedPortDebugAdapterTransport.swift",
       "macos/Sources/Lithe/Views/Debug/ExternalDebugAdapterView.swift",
@@ -22,12 +23,14 @@
   "windows": {
     "evidence": [
       "rust/lithe-core/src/debug/endpoint.rs",
-      "shared/fixtures/debug/adapter-endpoints-v1.json"
+      "rust/lithe-core/src/debug/transport_lifecycle.rs",
+      "shared/fixtures/debug/adapter-endpoints-v1.json",
+      "shared/fixtures/debug/transport-lifecycle-v1.json"
     ],
     "implementationStatus": "missing",
     "verificationStatus": "not-applicable"
   },
   "owner": "Debug",
   "verification": "macOS：在有已安装调试提供方的源码文件上，从 Debug 更多操作打开连接调试适配器，填写已运行的 DAP 服务地址、launch/attach 与适配器参数。分别验证回环、IPv4/IPv6/DNS 外部地址、非回环默认取消的逐次确认、错误 JSON 与非法端点。确认 IDE 到 DAP 的地址不覆盖适配器到 debuggee 的地址，既有 stdio 与 tcpLanguageServer 回环限制不变。验证端点发现与建连两段独立超时（冷启动发现不缩短也不拉长建连）、被拒绝/不可达端口立即以系统原因结束、连接失败/未获批准/已有活动会话时对话框保持打开并保留已填内容、当前文件无调试提供方时菜单项不可用、单个在途写入、字节/消息预算、写入超时、EOF、解析/建连/已连接时取消和旧回调隔离；停止时断开帧最多排空 1 秒且 attach 的 terminateDebuggee 为 false，超时仍回收；停止后外部服务、共享 LSP、attach 目标与用户隧道仍存活。真实回环测试覆盖 Core initialize/attach 帧；真实 JVM/debugpy/GDB 和界面全链路仍待验收。Windows 未接入此 TCP 宿主。",
-  "notes": "复用 Apple Network 与 Rust DAP 引擎；用户端点独立于 attach 目标。入口复用当前文件的提供方索引，尚不发现仅附加或非文件型插件。仅直连，有可替换的连接工厂但没有代理、SSH、转发、凭据、自动重连、持久化配置或 tcpPort/tcpAnnounced 托管进程支持。运行时不写发行资源。"
+  "notes": "复用 Apple Network 与 Rust DAP 引擎；连接生命周期（状态、代次、期限、队列预算、单个在途写入）由 Rust Core 的独立状态机持有，macOS 只做 NWConnection、解析与系统计时器并执行 Core 返回的效果，Windows 接入时复用同一状态机与 fixture 但尚无宿主 TCP 实现；用户端点独立于 attach 目标。入口复用当前文件的提供方索引，尚不发现仅附加或非文件型插件。仅直连，有可替换的连接工厂但没有代理、SSH、转发、凭据、自动重连、持久化配置或 tcpPort/tcpAnnounced 托管进程支持。运行时不写发行资源。"
 }

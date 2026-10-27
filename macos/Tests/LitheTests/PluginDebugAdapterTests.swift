@@ -47,6 +47,7 @@ struct PluginDebugAdapterTests {
             adapterID: "lldb",
             resolve: { _ in Self.process(.commands(["lldb-dap"])) },
             makeProcess: { Issue.record("No process starts for a missing command."); fatalError() },
+            core: RustCoreBridge(),
             findCommand: { _ in nil }
         )
         #expect(throws: MacPluginDebugAdapterTransport.TransportError.commandNotFound(adapterID: "lldb", commands: ["lldb-dap"])) {
@@ -60,7 +61,8 @@ struct PluginDebugAdapterTests {
         let transport = MacPluginDebugAdapterTransport(
             adapterID: "lldb",
             resolve: { _ in throw ResolveFailure() },
-            makeProcess: { Issue.record("No process starts when the plan is rejected."); fatalError() }
+            makeProcess: { Issue.record("No process starts when the plan is rejected."); fatalError() },
+            core: RustCoreBridge()
         )
         #expect(throws: ResolveFailure()) {
             try transport.start(rootURL: URL(fileURLWithPath: "/tmp/workspace", isDirectory: true))
@@ -273,6 +275,7 @@ struct PluginDebugAdapterTests {
             adapterID: "example",
             resolve: { _ in Self.hostedLaunch() },
             makeProcess: { Issue.record("A hosted adapter starts no process of its own."); fatalError() },
+            core: RustCoreBridge(),
             startHostedPort: { languageID, command, rootURL in
                 probe.recordPortRequest(languageID: languageID, command: command, rootURL: rootURL)
                 return 4711
@@ -311,6 +314,7 @@ struct PluginDebugAdapterTests {
             adapterID: "example",
             resolve: { _ in Self.hostedLaunch() },
             makeProcess: { Issue.record("A hosted adapter starts no process of its own."); fatalError() },
+            core: RustCoreBridge(),
             startHostedPort: { _, _, _ in throw Unavailable() },
             socketFactory: { host, port in
                 Issue.record("No socket opens without a port.")
@@ -338,7 +342,8 @@ struct PluginDebugAdapterTests {
         let transport = MacPluginDebugAdapterTransport(
             adapterID: "example",
             resolve: { _ in Self.hostedLaunch() },
-            makeProcess: { Issue.record("A hosted adapter starts no process of its own."); fatalError() }
+            makeProcess: { Issue.record("A hosted adapter starts no process of its own."); fatalError() },
+            core: RustCoreBridge()
         )
         defer { transport.stop() }
         transport.onErrorOutput = { probe.recordErrorOutput($0) }

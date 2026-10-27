@@ -1219,6 +1219,7 @@ struct RunConfigurationIntegrationTests {
         let endpointRecorder = DebugEndpointRecorder()
         let transport = MacHostedPortDebugAdapterTransport(
             portResolver: { rootURL in try await portGate.resolve(rootURL: rootURL) },
+            core: RustCoreBridge(),
             socketFactory: { host, port in
                 endpointRecorder.record(host: host, port: port)
                 return socket
@@ -1252,6 +1253,7 @@ struct RunConfigurationIntegrationTests {
         let endpointRecorder = DebugEndpointRecorder()
         let transport = MacHostedPortDebugAdapterTransport(
             portResolver: { rootURL in try await portGate.resolve(rootURL: rootURL) },
+            core: RustCoreBridge(),
             socketFactory: { host, port in
                 endpointRecorder.record(host: host, port: port)
                 return socket

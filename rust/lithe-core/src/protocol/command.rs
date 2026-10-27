@@ -88,6 +88,13 @@ pub enum CoreCommand {
     DebugValidateAdapterEndpoint,
     /// Says where to look for the program a launch debugs (`debug.adapters.executablePlan`).
     DebugAdaptersExecutablePlan,
+    /// Returns the default byte-stream deadlines and queue budgets (`debug.transport.policy`).
+    DebugTransportPolicy,
+    /// Applies one platform event to a byte-stream lifecycle and returns the effects to run
+    /// (`debug.transport.handle`).
+    DebugTransportHandle,
+    /// Forgets the lifecycle of a stopped byte stream (`debug.transport.release`).
+    DebugTransportRelease,
     /// Compares a launch runtime's version output with its requirement (`plugins.declarative.checkRuntimeVersion`).
     PluginsDeclarativeCheckRuntimeVersion,
     /// Merges a plugin's stored setting layers into effective values (`plugins.declarative.resolveSettings`).
@@ -513,6 +520,9 @@ impl CoreCommand {
             "debug.adapters.startArguments" => Some(Self::DebugAdaptersStartArguments),
             "debug.validateAdapterEndpoint" => Some(Self::DebugValidateAdapterEndpoint),
             "debug.adapters.executablePlan" => Some(Self::DebugAdaptersExecutablePlan),
+            "debug.transport.policy" => Some(Self::DebugTransportPolicy),
+            "debug.transport.handle" => Some(Self::DebugTransportHandle),
+            "debug.transport.release" => Some(Self::DebugTransportRelease),
             "plugins.declarative.checkRuntimeVersion" => {
                 Some(Self::PluginsDeclarativeCheckRuntimeVersion)
             }
@@ -816,6 +826,9 @@ mod tests {
             "debug.startDebuggingResponse",
             "debug.disconnect",
             "debug.destroySession",
+            "debug.transport.policy",
+            "debug.transport.handle",
+            "debug.transport.release",
         ] {
             assert!(CoreCommand::parse(command).is_some(), "missing {command}");
         }

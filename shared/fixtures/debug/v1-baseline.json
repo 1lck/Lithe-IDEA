@@ -480,6 +480,30 @@
         }
       ],
       "gaps": []
+    },
+    {
+      "id": "adapter-tcp-lifecycle",
+      "behavior": "The TCP byte-stream lifecycle (state transitions, generation tokens, finish-once, connect/write/drain deadlines, queue budgets, single in-flight write) is decided by Rust Core and replayed from a shared fixture; platforms only run the returned effects",
+      "status": "covered",
+      "evidence": [
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/debug/transport_lifecycle.rs",
+          "test": "lifecycle_fixture_scenarios_match_expected_steps",
+          "fixture": "shared/fixtures/debug/transport-lifecycle-v1.json"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheTests/TCPDebugAdapterTests.swift",
+          "test": "terminalEventsCleanUpExactlyOnceAndRevokeCallbacks"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheTests/TCPDebugAdapterTests.swift",
+          "test": "restartRejectsOldSocketCallbacksAndWriteCompletions"
+        }
+      ],
+      "gaps": []
     }
   ]
 }

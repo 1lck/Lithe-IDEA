@@ -31,6 +31,7 @@ final class MacPluginDebugAdapterTransport: DebugAdapterDrainingTransport {
     private let resolve: @MainActor (URL) throws -> MacPluginLanguageServerLaunchResolver.DebugAdapterLaunch
     private let adapterID: String
     private let makeProcess: @MainActor () -> any RawProcessSession
+    private let core: any DebugTransportLifecycleCore
     /// Finds a system command by tool discovery. Never a project-local copy.
     private let findCommand: @MainActor ([String]) -> URL?
     private let startHostedPort: HostedPortStarter
@@ -45,6 +46,7 @@ final class MacPluginDebugAdapterTransport: DebugAdapterDrainingTransport {
         adapterID: String,
         resolve: @escaping @MainActor (URL) throws -> MacPluginLanguageServerLaunchResolver.DebugAdapterLaunch,
         makeProcess: @escaping @MainActor () -> any RawProcessSession,
+        core: any DebugTransportLifecycleCore,
         findCommand: @escaping @MainActor ([String]) -> URL? = { _ in nil },
         startHostedPort: @escaping HostedPortStarter = { _, _, _ in
             throw MacHostedPortDebugAdapterTransport.TransportError.languageIntelligenceUnavailable
@@ -57,6 +59,7 @@ final class MacPluginDebugAdapterTransport: DebugAdapterDrainingTransport {
         self.findCommand = findCommand
         self.resolve = resolve
         self.makeProcess = makeProcess
+        self.core = core
         self.startHostedPort = startHostedPort
         self.socketFactory = socketFactory
     }
@@ -72,6 +75,7 @@ final class MacPluginDebugAdapterTransport: DebugAdapterDrainingTransport {
             let startHostedPort = startHostedPort
             transport = MacHostedPortDebugAdapterTransport(
                 portResolver: { rootURL in try await startHostedPort(languageID, command, rootURL) },
+                core: core,
                 socketFactory: socketFactory
             )
         }
