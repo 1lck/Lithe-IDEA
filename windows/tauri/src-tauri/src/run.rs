@@ -708,7 +708,18 @@ pub fn run_resolve_launch(args: ResolveLaunchArgs) -> Result<ResolvedLaunch, Str
     // JDK was requested, keep the previous precedence: an explicit
     // environment JAVA_HOME, then the automatic/project JDK, then the
     // inherited environment.
-    if !args.maven_java_home_path.trim().is_empty() {
+    //
+    // P1 narrowing (PR #1537 review): this override applies ONLY to the
+    // current launch when its executable is Maven
+    // (executable.toolchain == "project-maven"). A non-Maven launch that
+    // happens to carry a Maven JDK value (for example a Gradle task whose
+    // shared config was filled with a Maven JDK default) must keep the
+    // project JDK and explicit environment priority above; otherwise a
+    // project JDK 21 / Maven JDK 8 Gradle task would silently run under
+    // JDK 8. Do not judge Maven usage by whether the whole config uses
+    // Maven: a Java main process and a Maven pre-step can share a config.
+    let is_maven_launch = args.executable.toolchain.as_deref() == Some("project-maven");
+    if is_maven_launch && !args.maven_java_home_path.trim().is_empty() {
         if let Some(home) = &maven_java_home {
             environment.insert("JAVA_HOME".into(), home.clone());
         }
@@ -3523,6 +3534,59 @@ mod tests {
             resolved.environment.get("JAVA_HOME"),
             Some(&normalize_path(&root.join("jdk8")).to_string_lossy().into_owned()),
             "with no Maven JDK, the automatic/project JDK is unchanged"
+        );
+    }
+
+    #[test]
+    fn non_maven_launch_keeps_project_jdk_over_configured_maven_jdk() {
+        // P1 regression for PR #1537 review: a non-Maven launch must NOT
+        // have JAVA_HOME overwritten by a configured Maven JDK, even when
+        // that Maven JDK value is carried on a shared config. Project
+        // JDK 21 + Maven JDK 8 + a project-jdk (e.g. Gradle) executable
+        // must stay on 21, and an explicit environment JAVA_HOME must
+        // still win over both.
+        let root = temp_project();
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                fs::remove_dir_all(&self.0).ok();
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        for jdk in ["jdk8", "jdk21"] {
+            fs::create_dir_all(root.join(jdk).join("bin")).unwrap();
+            fs::write(root.join(jdk).join("bin").join("java"), b"").unwrap();
+        }
+        let args = |environment: Map<String, Value>| ResolveLaunchArgs {
+            root: root.clone(),
+            executable: LaunchExecutable {
+                toolchain: Some("project-jdk".to_string()),
+                command: None,
+                tool: None,
+            },
+            working_directory: String::new(),
+            java_home_path: "jdk21".to_string(),
+            maven_executable_path: String::new(),
+            maven_java_home_path: "jdk8".to_string(),
+            runtime_executable_paths: HashMap::new(),
+            environment,
+        };
+        let resolved = run_resolve_launch(args(Map::new())).expect("resolve non-Maven launch");
+        assert_eq!(
+            resolved.environment.get("JAVA_HOME"),
+            Some(&normalize_path(&root.join("jdk21")).to_string_lossy().into_owned()),
+            "non-Maven launch must keep project JDK 21, not Maven JDK 8"
+        );
+        let mut explicit = Map::new();
+        explicit.insert(
+            "JAVA_HOME".to_string(),
+            Value::String("explicit-jdk".to_string()),
+        );
+        let resolved = run_resolve_launch(args(explicit)).expect("resolve non-Maven launch with explicit env");
+        assert_eq!(
+            resolved.environment.get("JAVA_HOME"),
+            Some(&"explicit-jdk".to_string()),
+            "explicit environment JAVA_HOME must survive a carried Maven JDK value"
         );
     }
 
