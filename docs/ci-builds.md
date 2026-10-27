@@ -598,6 +598,21 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
   官方插件归档由 `.github/workflows/release-official-plugins.yml` 按插件独立 tag 发布，
   不进入 app 构建或工作树缓存。
 
+- Windows 项目生成器归档事务：用户选择可写父目录后，原生事务独占创建同级
+  `.<project-name>.lithe-creating-<operation-id>/`，仅在其内通过 `create_new` 写入
+  `.lithe-project-archive-<nonce>.zip`。每次受限 HTTPS 下载把重定向响应体计入同一个
+  128 MiB 预算、使用最长 120 秒的下载期限和同一取消 token；同步调用既有 Core
+  `project.extractArchive` 时保留原 operation ID 与操作剩余期限。Core 在写入前校验路径、
+  链接及显式/隐式目录预算，展开内容最多 512 MiB、20,000 个路径节点、64 层，累计路径
+  UTF-8 字节最多 16 MiB。ZIP 描述符关闭后即删除；全部写入者结束、校验通过后才原子
+  不覆盖发布。失败或取消清理失败时保留 staging 与插件租约重试，无法确认写入者结束时
+  不能删除目录或声称清理完成。`excludedResources.project-generator-transactions` 在任何
+  工作树访问或复制前直接拒绝；HTTPS 内容没有固定摘要、版本、平台、架构或工具链
+  identity stamp，不能复用、共享、软链接或打包。运行
+  `node --test --test-timeout=60000 scripts/test-reuse-worktree-resources.mjs` 验证排除路由。
+  全程只写用户选择的目录，不改动安装资源、代码签名或 Sparkle delta 基线。
+  capability 仍关闭，完整 Windows 原生及实机验证仍待完成。
+
 - 本地社区插件磁盘安装：`MacServiceContainer` 把 `fileStorage.temporaryDirectory()`
   注入 `MacPluginDiskPackageImporter`，每次选择 ZIP 或解包目录后，先在该平台可写根下创建
   私有的 `lithe-plugin-disk-<UUID>/`（权限 `0700`）。ZIP 的 `archive.zip` 和复制/解压后的

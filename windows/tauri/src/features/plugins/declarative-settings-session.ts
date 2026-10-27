@@ -8,7 +8,9 @@ export type SettingEffectResult =
   | "nextRun"
   | "immediate"
   | "nextStart"
-  | "reloadUnavailable";
+  | "reloadUnavailable"
+  | "reloadRequired"
+  | "projectReloadUnavailable";
 export interface SettingsSessionPorts {
   read(): Promise<DeclarativeSettingSnapshot>;
   write(
@@ -20,6 +22,7 @@ export interface SettingsSessionPorts {
   effect(
     setting: DeclarativePluginSetting,
     snapshot: DeclarativeSettingSnapshot,
+    scope: "global" | "project",
   ): Promise<SettingEffectResult>;
   assertCurrent(): void;
 }
@@ -123,7 +126,7 @@ export class DeclarativeSettingsSession {
           delete drafts[draftKey];
       }
       this.emit({ snapshot: next, drafts });
-      const effect = await this.ports.effect(setting, next);
+      const effect = await this.ports.effect(setting, next, scope);
       if (this.current(generation)) this.emit({ effect });
     } catch (error) {
       if (!this.disposed && this.generation === generation) this.emit({ error: String(error) });
@@ -161,10 +164,19 @@ export async function applySettingEffect(
       configuration: unknown;
     }): Promise<boolean>;
     pluginId: string;
+    savedForReload?(snapshot: DeclarativeSettingSnapshot, requiresReload: boolean): void;
   },
+  scope: "global" | "project" = "global",
 ): Promise<SettingEffectResult> {
   ports.assertCurrent();
-  if (setting.effect === "reload") return "reloadUnavailable";
+  // Every successful save has a newer CAS baseline, even when only an earlier
+  // saved field requires reload. Project saves never create a global reload.
+  ports.savedForReload?.(snapshot, setting.effect === "reload" && scope === "global");
+  if (setting.effect === "reload") {
+    if (scope === "project") return "projectReloadUnavailable";
+    if (!ports.savedForReload) return "reloadUnavailable";
+    return "reloadRequired";
+  }
   if (setting.effect !== "immediate") return setting.effect === "nextRun" ? "nextRun" : "restart";
   if (!workspacePath) return "nextStart";
   const servers = Array.isArray(snapshot.manifest.languageServers)

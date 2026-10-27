@@ -23,6 +23,24 @@ struct DebugModuleTests {
         #expect(feature.canUpdateJavaService)
     }
 
+    /// A host that registers debug adapters while it runs hands back its current
+    /// set on each lookup, so a debugger installed later is found without
+    /// rebuilding the manager.
+    @Test
+    func providerLookupFollowsTheProvidersSourceAtEveryCall() {
+        var providers: [DebugProviderDescriptor] = []
+        let manager = DebugAdapterSessionManager(providersSource: { providers }) { _, _ in nil }
+        let source = URL(fileURLWithPath: "/workspace/main.c")
+
+        #expect(manager.provider(for: source) == nil)
+
+        providers = [DebugProviderDescriptor(id: "clangd", displayName: "C/C++", fileExtensions: ["c"])]
+        #expect(manager.provider(for: source)?.id == "clangd")
+
+        providers = []
+        #expect(manager.provider(for: source) == nil)
+    }
+
     @Test
     func hotUpdateRestartKeepsOtherDebugSessionsAlive() async throws {
         let descriptor = DebugProviderDescriptor(id: "java", displayName: "Java", fileExtensions: ["java"])
@@ -49,6 +67,37 @@ struct DebugModuleTests {
         #expect(!createdSessions[1].isRunning)
         #expect(feature.sessionSummaries.contains { $0.id == firstID })
         #expect(feature.sessionSummaries.count == 2)
+    }
+
+    /// A plugin that goes away ends its own sessions. Another plugin's session
+    /// of the same language, which a language-keyed stop would also end, keeps
+    /// running.
+    @Test
+    func stoppingSessionsByOwnerLeavesOtherSessionsOfTheSameLanguageRunning() throws {
+        let descriptor = DebugProviderDescriptor(id: "zig", displayName: "Zig", fileExtensions: ["zig"])
+        var createdSessions: [DeferredInspectionDebugSession] = []
+        let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in
+            let session = DeferredInspectionDebugSession()
+            createdSessions.append(session)
+            return session
+        }
+        let feature = GenericDebugFeatureModel(sessions: manager)
+        defer { feature.reset() }
+        let root = URL(fileURLWithPath: "/workspace/owned-sessions", isDirectory: true)
+        let source = root.appendingPathComponent("src/main.zig")
+        let configuration = DebugLaunchConfiguration(name: "main", request: .launch, arguments: [:])
+        #expect(feature.start(fileURL: source, rootURL: root, configuration: configuration))
+        #expect(feature.startAdditional(fileURL: source, rootURL: root, configuration: configuration))
+        #expect(createdSessions.count == 2)
+        #expect(createdSessions[0].isRunning)
+        #expect(createdSessions[1].isRunning)
+        let withdrawn = createdSessions[0]
+
+        manager.stopSessions { $0 === withdrawn }
+
+        #expect(!withdrawn.isRunning)
+        #expect(createdSessions[1].isRunning)
+        #expect(feature.sessionSummaries.count == 1)
     }
 
     @Test
@@ -382,6 +431,53 @@ struct DebugModuleTests {
     }
 
     @Test
+    func consoleInputRunsDebuggerCommandsOnlyWhilePaused() throws {
+        let session = DeferredInspectionDebugSession()
+        let descriptor = DebugProviderDescriptor(
+            id: "c",
+            displayName: "C",
+            fileExtensions: ["c"]
+        )
+        let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in session }
+        let feature = GenericDebugFeatureModel(sessions: manager)
+        let root = URL(fileURLWithPath: "/tmp/c-debug-console-input", isDirectory: true)
+        #expect(feature.start(
+            fileURL: root.appendingPathComponent("main.c"),
+            rootURL: root,
+            configuration: DebugLaunchConfiguration(name: "main", request: .launch, arguments: [:])
+        ))
+        defer { feature.stop() }
+
+        // A running program cannot answer debugger commands, so the draft stays.
+        session.transition(to: .running)
+        #expect(!feature.submitConsoleInput("bt"))
+        #expect(session.evaluateExpressions.isEmpty)
+
+        session.transition(to: .paused)
+        #expect(feature.submitConsoleInput("  bt  "))
+        #expect(session.evaluateExpressions == ["bt"])
+        #expect(feature.output.hasSuffix("> bt\n"))
+
+        session.completeEvaluation(
+            at: 0,
+            with: .success(DebugVariable(
+                id: "bt",
+                name: "bt",
+                value: "frame #0: main",
+                type: nil,
+                evaluateName: nil,
+                variablesReference: 0
+            ))
+        )
+        #expect(feature.output.hasSuffix("> bt\nframe #0: main\n"))
+        #expect(feature.previousConsoleExpression(current: "") == "bt")
+
+        // Blank lines are consumed without reaching the adapter.
+        #expect(feature.submitConsoleInput("   "))
+        #expect(session.evaluateExpressions == ["bt"])
+    }
+
+    @Test
     func featureSwitchesSessionsWithoutMixingTheirConsoleState() throws {
         let descriptor = DebugProviderDescriptor(
             id: "java",
@@ -551,6 +647,25 @@ struct DebugModuleTests {
     }
 
     @Test
+    func coreProtocolSessionReportsTheCapabilitiesAPluginDisabled() throws {
+        let transport = RecordingTransport()
+        let core = RecordingDebugProtocolCore()
+        let session = CoreDebugAdapterProtocolSession(
+            adapterID: "lldb",
+            disabledCapabilities: ["supportsStepBack", "supportsRestartRequest"],
+            transport: transport,
+            core: core,
+            sessionID: "lldb-session",
+            deadlineScheduler: RecordingDebugDeadlineScheduler()
+        )
+        defer { session.stop() }
+
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/lldb-core", isDirectory: true))
+
+        #expect(core.lastDisabledCapabilities == ["supportsStepBack", "supportsRestartRequest"])
+    }
+
+    @Test
     func coreProtocolSessionProjectsRustUpdatesThroughInjectedTransport() throws {
         let transport = RecordingTransport()
         let core = RecordingDebugProtocolCore()
@@ -592,6 +707,7 @@ struct DebugModuleTests {
                 "supportsExceptionInfoRequest": true,
                 "supportsStepInTargetsRequest": true,
                 "supportsGotoTargetsRequest": true,
+                "supportsCompletionsRequest": true,
                 "exceptionBreakpointFilters": [[
                     "filter": "caught",
                     "label": "Caught Exceptions",
@@ -778,6 +894,163 @@ struct DebugModuleTests {
         #expect(session.state == .idle)
         #expect(core.destroyedSessionIDs == ["java-session"])
         #expect(transport.stopCalls == 1)
+    }
+
+    @Test
+    func coreProtocolSessionRequestsConsoleCompletionsAtTheCaret() throws {
+        let transport = RecordingTransport()
+        let core = RecordingDebugProtocolCore()
+        let session = CoreDebugAdapterProtocolSession(
+            adapterID: "lldb-dap",
+            consoleCommands: [DebugConsoleCommand(name: "frame variable", detail: "Show locals")],
+            transport: transport,
+            core: core,
+            sessionID: "lldb-completions",
+            deadlineScheduler: RecordingDebugDeadlineScheduler()
+        )
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/lldb-completions", isDirectory: true))
+        core.enqueueReceive(sessionID: "lldb-completions", state: "ready", events: [[
+            "sequence": 2,
+            "type": "stateChanged",
+            "state": "ready"
+        ], [
+            "sequence": 3,
+            "type": "capabilities",
+            "capabilities": [
+                "supportsConfigurationDone": false,
+                "supportsConditionalBreakpoints": false,
+                "supportsHitConditionalBreakpoints": false,
+                "supportsLogPoints": false,
+                "supportsFunctionBreakpoints": false,
+                "supportsDataBreakpoints": false,
+                "supportsExceptionOptions": false,
+                "supportsExceptionFilterOptions": false,
+                "supportsSetVariable": false,
+                "supportsCancelRequest": false,
+                "supportsSingleThreadExecutionRequests": false,
+                "supportsRestartRequest": false,
+                "supportsTerminateRequest": false,
+                "supportsStepBack": false,
+                "supportsExceptionInfoRequest": false,
+                "supportsStepInTargetsRequest": false,
+                "supportsGotoTargetsRequest": false,
+                "supportsCompletionsRequest": true,
+                "exceptionBreakpointFilters": []
+            ]
+        ]])
+        transport.emitData(Data("initialize-response".utf8))
+        #expect(session.capabilities.supportsCompletionsRequest)
+        #expect(session.consoleCommands.map(\.name) == ["frame variable"])
+
+        var result: Result<[DebugCompletionItem], Error>?
+        session.requestCompletions("fra", column: 3, frameID: 7) { result = $0 }
+        let request = try #require(core.inspectionRequests.last)
+        #expect(request.kind == "completions")
+        #expect(request.frameID == 7)
+        #expect(request.expression == "fra")
+        // The wire column counts from 1, the caret from 0.
+        #expect(request.column == 4)
+        core.enqueueReceive(sessionID: "lldb-completions", state: "paused", events: [[
+            "sequence": 4,
+            "type": "operationCompleted",
+            "operationId": request.operationID,
+            "result": [
+                "kind": "completions",
+                "items": [["label": "frame -- Select frames", "text": "frame", "start": 0, "length": 3]]
+            ]
+        ]])
+        transport.emitData(Data("completions-response".utf8))
+        let item = try #require(try result?.get().first)
+        #expect(item.label == "frame -- Select frames")
+        #expect(item.text == "frame")
+        #expect(item.start == 0)
+        #expect(item.length == 3)
+        session.stop()
+    }
+
+    @Test
+    func consoleCompletionsMergeAdapterProposalsWithDeclaredCommands() throws {
+        let session = DeferredInspectionDebugSession(
+            capabilities: DebugAdapterCapabilities(negotiated: true, supportsCompletionsRequest: true)
+        )
+        session.consoleCommands = [
+            DebugConsoleCommand(name: "frame variable", detail: "Show locals"),
+            DebugConsoleCommand(name: "breakpoint set", detail: nil)
+        ]
+        let feature = makeDeferredFeature(session: session, rootPath: "/workspace/console-completions")
+        defer { feature.stop() }
+        session.emit(.stopped(reason: "breakpoint", threadID: 1, description: nil))
+
+        var suggestions: [DebugConsoleCompletion.Suggestion]?
+        feature.requestConsoleCompletions(text: "fra", caret: 3) { suggestions = $0 }
+        #expect(session.completionRequests.map(\.text) == ["fra"])
+        #expect(session.completionRequests.map(\.column) == [3])
+        session.completeCompletions(at: 0, with: [DebugCompletionItem(label: "frame", text: "frame")])
+        #expect(suggestions?.map(\.insertion) == ["frame", "frame variable"])
+        #expect(suggestions?.last?.detail == "Show locals")
+    }
+
+    @Test
+    func consoleCompletionsAskTheAdapterForCommandsWhenThePluginDeclaredAPrefix() throws {
+        let session = DeferredInspectionDebugSession(
+            capabilities: DebugAdapterCapabilities(negotiated: true, supportsCompletionsRequest: true)
+        )
+        session.consoleCommandPrefix = "`"
+        let feature = makeDeferredFeature(session: session, rootPath: "/workspace/console-completions-prefix")
+        defer { feature.stop() }
+        session.emit(.stopped(reason: "breakpoint", threadID: 1, description: nil))
+
+        var suggestions: [DebugConsoleCompletion.Suggestion]?
+        feature.requestConsoleCompletions(text: "fr", caret: 2) { suggestions = $0 }
+        // The adapter reads the line as a command; the caret moves with the prefix.
+        #expect(session.completionRequests.map(\.text) == ["`fr"])
+        #expect(session.completionRequests.map(\.column) == [3])
+        session.completeCompletions(at: 0, with: [DebugCompletionItem(label: "frame -- Commands for frames", text: "frame")])
+        // The user's own line never contains the prefix, so the proposal replaces `fr`.
+        let suggestion = try #require(suggestions?.first)
+        #expect(suggestion.insertion == "frame")
+        #expect(DebugConsoleCompletion.apply(suggestion, to: "fr").text == "frame")
+    }
+
+    @Test
+    func consoleCompletionsDropRepliesMadeStaleByNewerTyping() {
+        let session = DeferredInspectionDebugSession(
+            capabilities: DebugAdapterCapabilities(negotiated: true, supportsCompletionsRequest: true)
+        )
+        let feature = makeDeferredFeature(session: session, rootPath: "/workspace/console-completions-stale")
+        defer { feature.stop() }
+        session.emit(.stopped(reason: "breakpoint", threadID: 1, description: nil))
+
+        var delivered: [[String]] = []
+        feature.requestConsoleCompletions(text: "f", caret: 1) { delivered.append($0.map(\.insertion)) }
+        feature.requestConsoleCompletions(text: "fr", caret: 2) { delivered.append($0.map(\.insertion)) }
+        session.completeCompletions(at: 0, with: [DebugCompletionItem(label: "finish", text: "finish")])
+        #expect(delivered.isEmpty)
+        session.completeCompletions(at: 1, with: [DebugCompletionItem(label: "frame", text: "frame")])
+        #expect(delivered == [["frame"]])
+    }
+
+    @Test
+    func consoleCompletionsFallBackToDeclaredCommandsWithoutAdapterSupport() {
+        let session = DeferredInspectionDebugSession()
+        session.consoleCommands = [DebugConsoleCommand(name: "frame variable", detail: nil)]
+        let feature = makeDeferredFeature(session: session, rootPath: "/workspace/console-completions-declared")
+        defer { feature.stop() }
+
+        session.transition(to: .running)
+        var beforePause: [DebugConsoleCompletion.Suggestion]?
+        feature.requestConsoleCompletions(text: "fra", caret: 3) { beforePause = $0 }
+        #expect(beforePause?.isEmpty == true)
+
+        session.transition(to: .paused)
+        var declared: [DebugConsoleCompletion.Suggestion]?
+        feature.requestConsoleCompletions(text: "fra", caret: 3) { declared = $0 }
+        #expect(session.completionRequests.isEmpty)
+        #expect(declared?.map(\.insertion) == ["frame variable"])
+
+        var blank: [DebugConsoleCompletion.Suggestion]?
+        feature.requestConsoleCompletions(text: "  ", caret: 2) { blank = $0 }
+        #expect(blank?.isEmpty == true)
     }
 
     @Test
@@ -1268,6 +1541,7 @@ struct DebugModuleTests {
                 "supportsExceptionInfoRequest": true,
                 "supportsStepInTargetsRequest": false,
                 "supportsGotoTargetsRequest": false,
+                "supportsCompletionsRequest": false,
                 "exceptionBreakpointFilters": []
             ]
         ], [
@@ -2439,6 +2713,7 @@ struct DebugModuleTests {
                 "supportsExceptionInfoRequest": false,
                 "supportsStepInTargetsRequest": false,
                 "supportsGotoTargetsRequest": false,
+                "supportsCompletionsRequest": false,
                 "exceptionBreakpointFilters": [[
                     "filter": "caught",
                     "label": "Caught Exceptions",
@@ -3150,6 +3425,8 @@ private struct RecordingDebugInspectionRequest: Equatable {
     let variableFilter: DebugVariableFilter?
     let start: Int?
     let count: Int?
+    let expression: String?
+    let column: Int?
 }
 
 private struct RecordingDebugVariablePageRequest: Equatable {
@@ -3174,6 +3451,13 @@ private final class DeferredInspectionDebugSession: DebugAdapterControllingSessi
     private(set) var breakpointUpdates: [[DebugSourceBreakpoint]] = []
     private(set) var executionCommands: [DebugExecutionCommand] = []
     var failNextLaunch = false
+    var consoleCommands: [DebugConsoleCommand] = []
+    var consoleCommandPrefix: String?
+    private(set) var completionRequests: [(
+        text: String,
+        column: Int?,
+        completion: (Result<[DebugCompletionItem], Error>) -> Void
+    )] = []
     var onStateChange: ((DebugAdapterState) -> Void)?
     var onEvent: ((DebugAdapterEvent) -> Void)?
     var onRunInTerminalRequest: DebugRunInTerminalRequestHandler?
@@ -3316,6 +3600,19 @@ private final class DeferredInspectionDebugSession: DebugAdapterControllingSessi
         evaluateRequests.append((expression, frameID, completion))
     }
 
+    func requestCompletions(
+        _ text: String,
+        column: Int?,
+        frameID _: Int?,
+        completion: @escaping (Result<[DebugCompletionItem], Error>) -> Void
+    ) {
+        completionRequests.append((text, column, completion))
+    }
+
+    func completeCompletions(at index: Int, with items: [DebugCompletionItem]) {
+        completionRequests[index].completion(.success(items))
+    }
+
     // This double deliberately delivers responses after cancellation to model
     // adapters and callback queues that cannot retract an already-sent result.
     func cancelPendingOperations() {}
@@ -3368,6 +3665,7 @@ private final class RecordingDebugProtocolCore: DebugProtocolCore {
     private(set) var lastSupportsRunInTerminalRequest: Bool?
     private(set) var lastSupportsStartDebuggingRequest: Bool?
     private(set) var lastParentSessionID: String?
+    private(set) var lastDisabledCapabilities: [String] = []
     private(set) var startDebuggingResults: [(requestID: String, succeeded: Bool)] = []
     private(set) var runInTerminalCompletions: [RecordingRunInTerminalCompletion] = []
     let defaultSteppingFilters = DebugSteppingFilters(
@@ -3391,8 +3689,10 @@ private final class RecordingDebugProtocolCore: DebugProtocolCore {
         rootPath _: String,
         supportsRunInTerminalRequest: Bool,
         supportsStartDebuggingRequest: Bool,
+        disabledCapabilities: [String],
         parentSessionID: String?
     ) throws -> DebugCoreUpdate {
+        lastDisabledCapabilities = disabledCapabilities
         lastParentSessionID = parentSessionID
         lastSupportsRunInTerminalRequest = supportsRunInTerminalRequest
         lastSupportsStartDebuggingRequest = supportsStartDebuggingRequest
@@ -3508,10 +3808,11 @@ private final class RecordingDebugProtocolCore: DebugProtocolCore {
         variableFilter: DebugVariableFilter?,
         start: Int?,
         count: Int?,
-        expression _: String?,
+        expression: String?,
+        context _: String?,
         sourcePath _: String?,
         line _: Int?,
-        column _: Int?
+        column: Int?
     ) throws -> DebugCoreUpdate {
         lastInspectionOperationID = operationID
         inspectionRequests.append(RecordingDebugInspectionRequest(
@@ -3522,7 +3823,9 @@ private final class RecordingDebugProtocolCore: DebugProtocolCore {
             variablesReference: variablesReference,
             variableFilter: variableFilter,
             start: start,
-            count: count
+            count: count,
+            expression: expression,
+            column: column
         ))
         return update(sessionID: sessionID, state: "paused")
     }

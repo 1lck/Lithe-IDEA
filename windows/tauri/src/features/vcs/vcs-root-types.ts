@@ -40,6 +40,29 @@ export interface VcsRootPort {
   owners(scope: VcsScope, generation: number, paths: string[]): Promise<VcsOwnership>;
   close(scope: VcsScope): Promise<void>;
   deadline(callback: () => void): () => void;
+  status?(
+    scope: VcsScope,
+    generation: number,
+    rootId: string,
+    requestId: string,
+  ): Promise<VcsStatusSnapshot>;
+  cancelStatus?(scope: VcsScope, requestId: string): Promise<void>;
+  statusDeadline?(callback: () => void): () => void;
+}
+export interface VcsStatusSnapshot {
+  requestId: string;
+  generation: number;
+  rootId: string;
+  vcs: string;
+  result: {
+    head: {
+      revision: { id: string; display: string; kind: string } | null;
+      branch: string | null;
+      location: string | null;
+    } | null;
+    changes: Array<{ path: string; oldPath: string | null; status: string; flags: string[] }>;
+    truncated: boolean;
+  };
 }
 export interface VcsRootState {
   status: "idle" | "loading" | "ready" | "failed";

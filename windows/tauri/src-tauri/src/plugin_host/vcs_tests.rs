@@ -290,6 +290,8 @@ fn plugin_private_pages_cannot_invoke_the_native_vcs_snapshot_commands() {
         "declarative_plugins_vcs_detect",
         "declarative_plugins_vcs_owners",
         "declarative_plugins_vcs_close",
+        "declarative_plugins_vcs_status",
+        "declarative_plugins_vcs_cancel_status",
     ] {
         assert!(acl
             .resolve_access(command, "plugin-web-fixture", "plugin-web-fixture", &origin)

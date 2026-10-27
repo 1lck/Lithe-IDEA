@@ -1,8 +1,12 @@
-//! Passive VCS root queries. No provider/runtime/tool process is started here.
+//! Native VCS root queries and isolated, short-lived read-only status sessions.
 //! Accepted package bytes use the existing trust and mutation lease; Core owns
 //! detection and ownership. Snapshots live only in memory and never in a bundle.
 #[path = "vcs_registry.rs"]
 mod registry;
+#[path = "vcs_session.rs"]
+mod session;
+#[path = "vcs_status.rs"]
+pub(crate) mod status;
 #[cfg(test)]
 #[path = "vcs_tests.rs"]
 mod tests;
@@ -19,12 +23,14 @@ use tokio::sync::Semaphore;
 pub struct VcsHostState {
     registry: Mutex<Registry>,
     reads: Arc<Semaphore>,
+    sessions: Arc<session::Sessions>,
 }
 impl Default for VcsHostState {
     fn default() -> Self {
         Self {
             registry: Mutex::new(Registry::default()),
             reads: Arc::new(Semaphore::new(4)),
+            sessions: Arc::new(session::Sessions::default()),
         }
     }
 }
@@ -136,6 +142,12 @@ pub async fn declarative_plugins_vcs_detect(
             return Err("requestTimeout".into());
         }
         let registration = project_registration(&worker_app, &host, &scope)?;
+        let sessions = worker_app.state::<VcsHostState>().sessions.clone();
+        for owner in sessions.matching(|context| {
+            context.host == host && context.scope.workspace_id == scope.workspace_id
+        }) {
+            status::cleanup_later(sessions.clone(), owner);
+        }
         let owned = worker_app
             .state::<VcsHostState>()
             .registry
@@ -252,7 +264,7 @@ pub async fn declarative_plugins_vcs_owners(
 }
 
 #[tauri::command]
-pub fn declarative_plugins_vcs_close(
+pub async fn declarative_plugins_vcs_close(
     app: AppHandle,
     caller: WebviewWindow,
     scope: Scope,
@@ -263,12 +275,17 @@ pub fn declarative_plugins_vcs_close(
         .registry
         .lock()
         .map_err(|_| "internalError")?
-        .retire(caller.label(), &scope)
+        .retire(caller.label(), &scope)?;
+    status::close_matching(&app, |context| {
+        context.host == caller.label() && context.scope == scope
+    })
+    .await
 }
-pub fn plugin_changing(app: &AppHandle) {
+pub async fn plugin_changing(app: &AppHandle, plugin_id: &str) -> Result<(), String> {
     if let Some(state) = app.try_state::<VcsHostState>() {
         state.registry.lock().expect("VCS registry").invalidate();
     }
+    status::close_matching(app, |context| context.plugin_id == plugin_id).await
 }
 pub fn window_destroyed(app: &AppHandle, host: &str) {
     if let Some(state) = app.try_state::<VcsHostState>() {
@@ -277,5 +294,19 @@ pub fn window_destroyed(app: &AppHandle, host: &str) {
             .lock()
             .expect("VCS registry")
             .close_window(host);
+        let sessions = state.sessions.clone();
+        for owner in sessions.matching(|context| context.host == host) {
+            status::cleanup_later(sessions.clone(), owner);
+        }
     }
+}
+
+/// Native VCS transports never expose a generic JSON-RPC tunnel or event
+/// queue to a product/web page, even one from the same native window.
+pub(crate) fn private_core_request(app: &AppHandle, command: &str, payload: &Value) -> bool {
+    command == "lsp.vcsRequest"
+        || app
+            .state::<VcsHostState>()
+            .sessions
+            .private_session(command, payload)
 }

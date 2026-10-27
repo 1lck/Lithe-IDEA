@@ -38,11 +38,19 @@
       "windows/tauri/src/features/settings/components/settings-dialog.tsx",
       "windows/tauri/src/features/settings/components/settings-hierarchy.test.tsx",
       "windows/tauri/src/features/plugins/details/plugin-details-view.tsx",
-      "windows/tauri/src/features/plugins/details/plugin-details-view.test.tsx"
+      "windows/tauri/src/features/plugins/details/plugin-details-view.test.tsx",
+      "windows/tauri/src/features/plugins/declarative-plugin-reload.ts",
+      "windows/tauri/src/features/plugins/declarative-plugin-reload.test.ts",
+      "windows/tauri/src/features/plugins/declarative-plugin-reload-notices.tsx",
+      "windows/tauri/src/features/plugins/plugin-lifecycle-listener.test.ts",
+      "windows/tauri/src/features/plugins/declarative-plugin-ui.ts",
+      "windows/tauri/src/features/plugins/declarative-plugin-ui.test.ts",
+      "windows/tauri/src-tauri/src/plugin_host/lifecycle.rs",
+      "windows/tauri/src/features/plugins/declarative-plugin-reload-notices.test.tsx"
     ],
     "implementationStatus": "partial",
     "verificationStatus": "pending"
   },
   "owner": "Plugin Platform",
-  "verification": "macOS：打开设置 › 插件，选中 Java Support，切到“设置”页签，确认显示“最大内存”（默认 1024 MB）和“语言服务器日志级别”（默认全部消息）。把最大内存改成 3072：输入 3072 后点“重启语言服务器”，用 ps 查看 JDT LS 的 java 进程参数，确认 -Xmx3072m 且只出现一次；输入 100 时出现范围提示且没有保存，失焦后回到上一个合法值。把日志级别改成“仅错误”并重启，确认进程参数里是 -Dlog.level=SEVERE。点“恢复默认值”后重启，确认回到 -Xmx1024m 和 -Dlog.level=ALL。退出并重新打开 Lithe，确认修改过的值仍在。卸载并恢复 Java Support，值仍在。Windows：契约设置页与双层存储已接入，须完成下述实机验证。 Windows：启动契约语言服务器，修改 immediate 设置，确认 lsp.startServer 和即时更新都带独立 pluginId，已启动会话收到 workspace/didChangeConfiguration；禁用后旧会话不能继续接收。设置双层持久化和界面验收仍 pending。 Windows R8：按 page.languageID/buildSystemID 注册到语言/构建分组，section 分组，无 page 的设置保留插件详情；打开只读，逐项草稿、保存/取消、选择全局或工作区、空值与继承重置、外部字节快照冲突、写回重读已接入。依赖独立的前端状态测试通过，完整组件、原生存储及实机验收仍 pending。实机须验证真实 app-data/工作区路径、全局值被项目覆盖的标记、外部修改拒绝覆盖、禁用/升级/切工作区后的旧结果失效、重开一致、发行目录不变。restart/nextRun 等待下次启动/运行；immediate 仅匹配的活动会话收到配置才显示即时应用。reload 缺少安全自动模型重载端口，settingActions 缺少 M6 Provider 函数链，均明确不可用，未伪造生效。"
+  "verification": "macOS：打开设置 › 插件，选中 Java Support，切到“设置”页签，确认显示“最大内存”（默认 1024 MB）和“语言服务器日志级别”（默认全部消息）。把最大内存改成 3072：输入 3072 后点“重启语言服务器”，用 ps 查看 JDT LS 的 java 进程参数，确认 -Xmx3072m 且只出现一次；输入 100 时出现范围提示且没有保存，失焦后回到上一个合法值。把日志级别改成“仅错误”并重启，确认进程参数里是 -Dlog.level=SEVERE。点“恢复默认值”后重启，确认回到 -Xmx1024m 和 -Dlog.level=ALL。退出并重新打开 Lithe，确认修改过的值仍在。卸载并恢复 Java Support，值仍在。Windows：契约设置页与双层存储已接入，须完成下述实机验证。 Windows：启动契约语言服务器，修改 immediate 设置，确认 lsp.startServer 和即时更新都带独立 pluginId，已启动会话收到 workspace/didChangeConfiguration；禁用后旧会话不能继续接收。设置双层持久化和界面验收仍 pending。 Windows R8：按 page.languageID/buildSystemID 注册到语言/构建分组，section 分组，无 page 的设置保留插件详情；打开只读，逐项草稿、保存/取消、选择全局或工作区、空值与继承重置、外部字节快照冲突、写回重读已接入。依赖独立的前端状态测试通过，完整组件、原生存储及实机验收仍 pending。实机须验证真实 app-data/工作区路径、全局值被项目覆盖的标记、外部修改拒绝覆盖、禁用/升级/切工作区后的旧结果失效、重开一致、发行目录不变。restart/nextRun 等待下次启动/运行；immediate 仅匹配的活动会话收到配置才显示即时应用。Windows R9：global reload 在 CAS 保存后单独确认，通过 M1 插件级跨窗口屏障撤销贡献、取消操作并等待运行进程、语言服务及原生租约退出；不写持久 enabled 状态。随后重新扫描已接受包、验签并读取有效设置，匹配保存快照及 packageIdentity 后恢复贡献，语言服务按需重新启动。停止失败保留包与旧租约，公共设置区保留可重试入口；其他插件不受影响。包字节变化保持撤销；纯设置冲突仅在发布已重新验证的目录后恢复并要求读取新基线。主窗口前端与 Tauri 宿主逐项计时回归、完整 TypeScript 检查和 Windows x64 Release 构建通过；新增混合生效方式连续保存会刷新旧 reload receipt，包变化或 busy 不覆盖原凭据。完整安装包、实际多窗口 reload、失败恢复及发行目录哈希实机验证仍 pending。project reload 明确不可用，须先实现原生 scoped admission/revocation barrier，不能用前端 workspace filter 冒充。settingActions 仍缺少 M6 Provider 函数链，明确不可用。"
 }

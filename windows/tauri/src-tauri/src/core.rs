@@ -8,6 +8,11 @@ pub async fn core_execute(
     tauri::async_runtime::spawn_blocking(move || {
         let parsed = serde_json::from_str::<serde_json::Value>(&request).ok();
         if let Some(parsed) = &parsed {
+            if crate::plugin_host::vcs::private_core_request(&app, parsed["command"].as_str().unwrap_or_default(), &parsed["payload"]) {
+                return serde_json::json!({"id":parsed["id"],"ok":false,"error":{
+                    "code":"invalid_request","message":"VCS request requires its native owner","details":"vcs.provider.unavailable"
+                }}).to_string();
+            }
             if let Some(result) = crate::plugin_host::provider::core_preflight(
                 &app,
                 &window_label,

@@ -241,6 +241,76 @@ pub async fn declarative_plugins_store_setting(
     .map_err(|_| "plugin.settings.unavailable".to_string())?
 }
 
+/// Reloads an already saved global setting. This never mutates installation
+/// state or package bytes; a failed drain leaves the existing package revoked
+/// and the same snapshot receipt can be retried through the mutation owner.
+#[tauri::command]
+pub async fn declarative_plugins_reload_settings(
+    app: AppHandle,
+    window: tauri::WebviewWindow,
+    plugin_id: String,
+    workspace_path: String,
+    scope: String,
+    expected_identity: String,
+    expected_package_identity: String,
+) -> Result<SettingSnapshot, String> {
+    if !(window.label() == "main" || window.label().starts_with("workspace-")) {
+        return Err("plugin.settings.staleContext".into());
+    }
+    // M1 owns a package-wide barrier. A project-only reload must first gain a
+    // scoped barrier in every native owner, rather than stopping other roots.
+    if scope != "global" {
+        return Err("plugin.settings.projectReloadUnavailable".into());
+    }
+    if !app
+        .state::<super::lifecycle::LifecycleState>()
+        .blocked(&plugin_id)
+    {
+        let preflight_app = app.clone();
+        let preflight_plugin = plugin_id.clone();
+        let preflight_root = workspace_path.clone();
+        let current = tauri::async_runtime::spawn_blocking(move || {
+            snapshot::read(&preflight_app, &preflight_plugin, &preflight_root)
+        })
+        .await
+        .map_err(|_| "plugin.settings.unavailable".to_string())??;
+        if current.package_identity != expected_package_identity {
+            return Err("plugin.settings.packageChanged".into());
+        }
+        if current.identity != expected_identity {
+            return Err("plugin.settings.conflict".into());
+        }
+    }
+    let mutation = super::lifecycle::begin(&app, &plugin_id)
+        .await
+        .map_err(|error| format!("plugin.settings.reloadStopFailed: {error}"))?;
+    let (mutation, snapshot) = tauri::async_runtime::spawn_blocking(move || {
+        let snapshot = snapshot::reload(
+            &app,
+            &mutation,
+            &workspace_path,
+            &expected_identity,
+            &expected_package_identity,
+        );
+        (mutation, snapshot)
+    })
+    .await
+    .map_err(|_| "plugin.settings.unavailable".to_string())?;
+    if snapshot
+        .as_ref()
+        .is_err_and(|error| error == "plugin.settings.conflict")
+    {
+        // Every old owner has stopped and the newly scanned package validated.
+        // Let the user read the concurrent values instead of trapping a stale
+        // receipt behind revocation. Normal launch still rechecks live trust.
+        mutation.complete(true);
+        return snapshot;
+    }
+    let snapshot = snapshot?;
+    mutation.complete(true);
+    Ok(snapshot)
+}
+
 /// Tauri command: a running language server's `workspaceConfiguration`
 /// expanded with the current values, for `immediate` effect changes.
 #[tauri::command]

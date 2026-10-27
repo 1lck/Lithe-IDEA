@@ -478,6 +478,12 @@ export function generatorErrorKey(code: string): string {
   switch (code) {
     case "generator.archiveUnavailable":
       return "generator.archiveUnavailable";
+    case "generator.downloadFailed":
+      return "generator.downloadFailed";
+    case "generator.archiveInvalid":
+      return "generator.archiveInvalid";
+    case "generator.outputLimit":
+      return "generator.outputLimit";
     case "generator.cleanupFailed":
       return "generator.cleanupFailed";
     case "generator.destinationExists":

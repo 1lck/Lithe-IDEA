@@ -5,6 +5,7 @@ import type {
   VcsScope,
   VcsSnapshot,
 } from "./vcs-root-types";
+import { VcsStatusController } from "./vcs-status-controller";
 
 /** Presentation/lifecycle owner only. All root assignment stays in native Core. */
 export class VcsRootController {
@@ -14,10 +15,13 @@ export class VcsRootController {
   #listeners = new Set<() => void>();
   #reads = new Set<() => void>();
   #closing: Promise<void> | null = null;
+  readonly status: VcsStatusController;
   constructor(
     readonly scope: VcsScope,
     private readonly port: VcsRootPort,
-  ) {}
+  ) {
+    this.status = new VcsStatusController(this, port);
+  }
   getSnapshot = () => this.#state;
   subscribe = (listener: () => void) => {
     this.#listeners.add(listener);
@@ -64,6 +68,7 @@ export class VcsRootController {
     });
   }
   invalidate() {
+    this.status.invalidate();
     ++this.#epoch;
     for (const cancel of [...this.#reads]) cancel();
     this.#publish({ status: "idle", snapshot: null, error: null });
@@ -121,7 +126,25 @@ export class VcsRootController {
     this.#closed = true;
     this.invalidate();
     this.#listeners.clear();
-    this.#closing = this.#read(() => this.port.close(this.scope));
+    this.#closing = (async () => {
+      // Native close must still run when an individual status cleanup failed;
+      // it revokes every owner in this exact workspace incarnation.
+      let failure: unknown;
+      try {
+        await this.status.close();
+      } catch (error) {
+        failure = error;
+      }
+      try {
+        await this.#read(() => this.port.close(this.scope));
+      } catch (error) {
+        failure = error;
+      }
+      if (failure) throw failure;
+    })();
+    void this.#closing.catch(() => {
+      this.#closing = null;
+    });
     return this.#closing;
   }
 }

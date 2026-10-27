@@ -3,6 +3,7 @@ import { enableMapSet } from "immer";
 import { createRequire } from "node:module";
 import hello from "../../../../../shared/contracts/plugins/v1/fixtures/hello-lithe.plugin.json";
 import { useUIExtensionStore } from "@/extensions/ui/stores/ui-extension-store";
+import { setPluginActive } from "./declarative-plugin-lifecycle";
 enableMapSet();
 // Zustand's Bun CJS adapter loads the CommonJS Immer export. Enable its
 // MapSet plugin as well as the ESM export used by the product bundler.
@@ -25,10 +26,27 @@ mock.module("./declarative-plugin-launch", () => ({
 const { refreshDeclarativeUI, removeDeclarativeUI, useDeclarativePluginUI } =
   await import("./declarative-plugin-ui");
 afterEach(() => {
+  setPluginActive(hello.id, true);
   removeDeclarativeUI(hello.id);
   open.mockClear();
   manifestGate = null;
 });
+
+test("a later catalog refresh cannot restore a plugin whose global reload failed", async () => {
+  await refreshDeclarativeUI();
+  setPluginActive(hello.id, false);
+  removeDeclarativeUI(hello.id);
+  await refreshDeclarativeUI();
+  expect(useDeclarativePluginUI.getState().windows).toEqual([]);
+  expect(
+    [...useUIExtensionStore.getState().commands.values()].some(
+      (command) => command.extensionId === `declarative:${hello.id}`,
+    ),
+  ).toBe(false);
+  setPluginActive(hello.id, true);
+  await refreshDeclarativeUI();
+  expect(useDeclarativePluginUI.getState().windows).toHaveLength(1);
+}, 1000);
 
 test("hello ui1 contributes a text window and all three command placements and revokes them", async () => {
   await refreshDeclarativeUI();

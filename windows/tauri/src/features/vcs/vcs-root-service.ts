@@ -10,6 +10,14 @@ const native: VcsRootPort = {
   owners: (scope, generation, paths) =>
     invoke("declarative_plugins_vcs_owners", { scope, generation, paths }),
   close: (scope) => invoke("declarative_plugins_vcs_close", { scope }),
+  status: (scope, generation, rootId, requestId) =>
+    invoke("declarative_plugins_vcs_status", { scope, generation, rootId, requestId }),
+  cancelStatus: (scope, requestId) =>
+    invoke("declarative_plugins_vcs_cancel_status", { scope, requestId }),
+  statusDeadline: (callback) => {
+    const timer = setTimeout(callback, 90_000);
+    return () => clearTimeout(timer);
+  },
   deadline: (callback) => {
     const timer = setTimeout(callback, 16_000);
     return () => clearTimeout(timer);
@@ -69,7 +77,7 @@ export function workspaceVcsRoots(workspaceId: string): VcsRootController | null
 export async function closeWorkspaceVcsRoots(workspaceId: string): Promise<void> {
   const entry = roots.get(workspaceId);
   if (!entry) return;
-  roots.delete(workspaceId);
-  if (!roots.size) stopObserving?.();
   await entry.controller.close();
+  if (roots.get(workspaceId) === entry) roots.delete(workspaceId);
+  if (!roots.size) stopObserving?.();
 }

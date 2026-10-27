@@ -82,6 +82,10 @@ pub enum CoreCommand {
     PluginsDeclarativeTestPlan,
     /// Expands a declarative plugin's language-server launch (`plugins.declarative.languageServerLaunchPlan`).
     PluginsDeclarativeLanguageServerLaunchPlan,
+    /// Checks a debug start and returns the adapter's DAP arguments (`debug.adapters.startArguments`).
+    DebugAdaptersStartArguments,
+    /// Says where to look for the program a launch debugs (`debug.adapters.executablePlan`).
+    DebugAdaptersExecutablePlan,
     /// Compares a launch runtime's version output with its requirement (`plugins.declarative.checkRuntimeVersion`).
     PluginsDeclarativeCheckRuntimeVersion,
     /// Merges a plugin's stored setting layers into effective values (`plugins.declarative.resolveSettings`).
@@ -504,6 +508,8 @@ impl CoreCommand {
             "plugins.declarative.languageServerLaunchPlan" => {
                 Some(Self::PluginsDeclarativeLanguageServerLaunchPlan)
             }
+            "debug.adapters.startArguments" => Some(Self::DebugAdaptersStartArguments),
+            "debug.adapters.executablePlan" => Some(Self::DebugAdaptersExecutablePlan),
             "plugins.declarative.checkRuntimeVersion" => {
                 Some(Self::PluginsDeclarativeCheckRuntimeVersion)
             }

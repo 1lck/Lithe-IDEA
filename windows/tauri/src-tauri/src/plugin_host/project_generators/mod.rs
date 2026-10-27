@@ -1,4 +1,5 @@
 //! Generic, consent-bound Windows execution of Core project generation plans.
+mod archive;
 #[cfg(test)]
 mod tests;
 mod transaction;
@@ -97,6 +98,7 @@ struct Operation {
     plugin: String,
     target: PathBuf,
     cancelled: AtomicBool,
+    download_cancel: super::marketplace_download::CancelToken,
     publication: Mutex<()>,
     finished: AtomicBool,
     changed: tokio::sync::Notify,
@@ -116,6 +118,7 @@ impl Operation {
     fn cancel(&self) {
         let _order = self.publication.lock().expect("generator publication");
         self.cancelled.store(true, Ordering::Release);
+        self.download_cancel.cancel();
     }
     fn checkpoint(&self, deadline: Instant) -> Result<()> {
         if self.cancelled.load(Ordering::Acquire) {
@@ -253,12 +256,6 @@ fn plan(app: &AppHandle, request: &Request) -> Result<(super::ScannedPackage, Va
         "packagePath":package.root,"form":request.form}),
         "plan",
     )?;
-    if plan["steps"]
-        .as_array()
-        .is_some_and(|steps| steps.iter().any(|step| step["kind"] == "archive"))
-    {
-        return Err(Error::new("generator.archiveUnavailable"));
-    }
     Ok((package, plan))
 }
 
@@ -379,8 +376,33 @@ pub async fn declarative_plugins_generator_prepare(
 struct NativeExecutor<'a> {
     review: &'a Review,
     operation: &'a Operation,
+    operation_id: &'a str,
 }
 impl Executor for NativeExecutor<'_> {
+    fn archive(
+        &self,
+        step: &Value,
+        stage: &Path,
+        deadline: Instant,
+        checkpoint: &dyn Fn() -> Result<()>,
+    ) -> Result<()> {
+        if step["format"] != "zip" {
+            return Err(Error::new("generator.invalidPlan"));
+        }
+        let transport = super::marketplace_download::ReqwestTransport::new()
+            .map_err(|_| Error::new("generator.downloadFailed"))?;
+        archive::execute(
+            &transport,
+            step["url"]
+                .as_str()
+                .ok_or_else(|| Error::new("generator.invalidPlan"))?,
+            stage,
+            self.operation_id,
+            &self.operation.download_cancel,
+            deadline,
+            checkpoint,
+        )
+    }
     fn command(
         &self,
         index: usize,
@@ -505,7 +527,11 @@ fn generate(app: &AppHandle, review: &Review, operation: &Operation, id: &str) -
         transaction::execute(
             &mut transaction,
             &fresh,
-            &NativeExecutor { review, operation },
+            &NativeExecutor {
+                review,
+                operation,
+                operation_id: &format!("generator-{id}"),
+            },
             deadline,
             &checkpoint,
         )?;
@@ -627,6 +653,7 @@ pub async fn declarative_plugins_generator_generate(
             plugin: review.request.plugin_id.clone(),
             target,
             cancelled: AtomicBool::new(false),
+            download_cancel: super::marketplace_download::CancelToken::new(),
             publication: Mutex::new(()),
             finished: AtomicBool::new(false),
             changed: tokio::sync::Notify::new(),
@@ -761,6 +788,7 @@ pub fn window_destroyed(app: &AppHandle, owner: &str) {
         .filter(|operation| operation.owner == owner)
     {
         operation.cancelled.store(true, Ordering::Release);
+        operation.download_cancel.cancel();
     }
 }
 

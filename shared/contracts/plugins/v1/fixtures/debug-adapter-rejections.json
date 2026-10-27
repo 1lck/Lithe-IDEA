@@ -36,6 +36,10 @@
         "serverProcess": [
           1,
           2
+        ],
+        "settings": [
+          1,
+          2
         ]
       },
       "registration": {
@@ -162,10 +166,118 @@
       "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].capabilities.disabled[0]"}
     },
     {
+      "id": "empty-console",
+      "layer": "coreManifest",
+      "edits": [{"op": "set", "path": "/block/debugAdapters/0/console", "value": {}}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].console.commands"}
+    },
+    {
+      "id": "empty-console-commands",
+      "layer": "coreManifest",
+      "edits": [{"op": "set", "path": "/block/debugAdapters/0/console", "value": {"commands": []}}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].console.commands"}
+    },
+    {
+      "id": "padded-console-command-name",
+      "layer": "coreManifest",
+      "edits": [{"op": "set", "path": "/block/debugAdapters/0/console", "value": {"commands": [{"name": " frame"}]}}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].console.commands[0].name"}
+    },
+    {
+      "id": "multiline-console-command-description",
+      "layer": "coreManifest",
+      "edits": [{"op": "set", "path": "/block/debugAdapters/0/console", "value": {"commands": [{"name": "frame", "description": "one\ntwo"}]}}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].console.commands[0].description"}
+    },
+    {
+      "id": "duplicate-console-command",
+      "layer": "coreManifest",
+      "edits": [{"op": "set", "path": "/block/debugAdapters/0/console", "value": {"commands": [{"name": "frame"}, {"name": "frame", "description": "again"}]}}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].console.commands"}
+    },
+    {
+      "id": "spaced-console-command-prefix",
+      "layer": "coreManifest",
+      "edits": [{"op": "set", "path": "/block/debugAdapters/0/console", "value": {"commandPrefix": "` "}}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].console.commandPrefix"}
+    },
+    {
+      "id": "unknown-console-field",
+      "layer": "schema",
+      "edits": [{"op": "set", "path": "/block/debugAdapters/0/console", "value": {"commands": [{"name": "frame"}], "script": "complete.js"}}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].console.script"}
+    },
+    {
       "id": "missing-target-path",
       "layer": "corePlan",
       "edits": [{"op": "set", "path": "/block/debugAdapters/0/configurations", "value": {"launch": {"targetBindings": {"program": "target.path"}}}}],
       "expected": {"code": "debug.target.invalid", "field": "target.path"}
+    },
+    {
+      "id": "executable-without-binding",
+      "layer": "coreManifest",
+      "edits": [{"op": "set", "path": "/block/settings", "value": [{"id": "program", "type": "file", "title": "Program", "default": "", "scope": "project", "effect": "nextRun"}]}, {"op": "set", "path": "/context/manifestMetadata/requires/settings", "value": 2}, {"op": "set", "path": "/block/debugAdapters/0/configurations", "value": {"launch": {"executable": {"setting": "program", "candidates": ["${workspaceFolder}/build/app"]}}}}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].configurations.launch.executable"}
+    },
+    {
+      "id": "executable-binding-without-lookup",
+      "layer": "coreManifest",
+      "edits": [{"op": "set", "path": "/block/settings", "value": [{"id": "program", "type": "file", "title": "Program", "default": "", "scope": "project", "effect": "nextRun"}]}, {"op": "set", "path": "/context/manifestMetadata/requires/settings", "value": 2}, {"op": "set", "path": "/block/debugAdapters/0/configurations", "value": {"launch": {"targetBindings": {"program": "target.executable"}}}}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].configurations.launch.executable"}
+    },
+    {
+      "id": "executable-undeclared-setting",
+      "layer": "coreManifest",
+      "edits": [{"op": "set", "path": "/block/debugAdapters/0/configurations", "value": {"launch": {"targetBindings": {"program": "target.executable"}, "executable": {"setting": "missing", "candidates": []}}}}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].configurations.launch.executable.setting"}
+    },
+    {
+      "id": "executable-setting-not-file",
+      "layer": "coreManifest",
+      "edits": [{"op": "set", "path": "/block/settings", "value": [{"id": "program", "type": "boolean", "title": "Program", "default": false}]}, {"op": "set", "path": "/context/manifestMetadata/requires/settings", "value": 1}, {"op": "set", "path": "/block/debugAdapters/0/configurations", "value": {"launch": {"targetBindings": {"program": "target.executable"}, "executable": {"setting": "program", "candidates": ["${workspaceFolder}/build/app"]}}}}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].configurations.launch.executable.setting"}
+    },
+    {
+      "id": "executable-candidate-outside-roots",
+      "layer": "coreManifest",
+      "edits": [{"op": "set", "path": "/block/settings", "value": [{"id": "program", "type": "file", "title": "Program", "default": "", "scope": "project", "effect": "nextRun"}]}, {"op": "set", "path": "/context/manifestMetadata/requires/settings", "value": 2}, {"op": "set", "path": "/block/debugAdapters/0/configurations", "value": {"launch": {"targetBindings": {"program": "target.executable"}, "executable": {"setting": "program", "candidates": ["/usr/local/bin/app"]}}}}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].configurations.launch.executable.candidates[0]"}
+    },
+    {
+      "id": "executable-candidate-parent-directory",
+      "layer": "coreManifest",
+      "edits": [{"op": "set", "path": "/block/settings", "value": [{"id": "program", "type": "file", "title": "Program", "default": "", "scope": "project", "effect": "nextRun"}]}, {"op": "set", "path": "/context/manifestMetadata/requires/settings", "value": 2}, {"op": "set", "path": "/block/debugAdapters/0/configurations", "value": {"launch": {"targetBindings": {"program": "target.executable"}, "executable": {"setting": "program", "candidates": ["${workspaceFolder}/../app"]}}}}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].configurations.launch.executable.candidates[0]"}
+    },
+    {
+      "id": "executable-candidate-unknown-variable",
+      "layer": "coreManifest",
+      "edits": [{"op": "set", "path": "/block/settings", "value": [{"id": "program", "type": "file", "title": "Program", "default": "", "scope": "project", "effect": "nextRun"}]}, {"op": "set", "path": "/context/manifestMetadata/requires/settings", "value": 2}, {"op": "set", "path": "/block/debugAdapters/0/configurations", "value": {"launch": {"targetBindings": {"program": "target.executable"}, "executable": {"setting": "program", "candidates": ["${workspaceFolder}/${env:HOME}"]}}}}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].configurations.launch.executable.candidates[0]"}
+    },
+    {
+      "id": "executable-duplicate-candidates",
+      "layer": "coreManifest",
+      "edits": [{"op": "set", "path": "/block/settings", "value": [{"id": "program", "type": "file", "title": "Program", "default": "", "scope": "project", "effect": "nextRun"}]}, {"op": "set", "path": "/context/manifestMetadata/requires/settings", "value": 2}, {"op": "set", "path": "/block/debugAdapters/0/configurations", "value": {"launch": {"targetBindings": {"program": "target.executable"}, "executable": {"setting": "program", "candidates": ["${workspaceFolder}/app", "${workspaceFolder}/app"]}}}}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].configurations.launch.executable.candidates"}
+    },
+    {
+      "id": "executable-too-many-candidates",
+      "layer": "coreManifest",
+      "edits": [{"op": "set", "path": "/block/settings", "value": [{"id": "program", "type": "file", "title": "Program", "default": "", "scope": "project", "effect": "nextRun"}]}, {"op": "set", "path": "/context/manifestMetadata/requires/settings", "value": 2}, {"op": "set", "path": "/block/debugAdapters/0/configurations", "value": {"launch": {"targetBindings": {"program": "target.executable"}, "executable": {"setting": "program", "candidates": ["${workspaceFolder}/c0", "${workspaceFolder}/c1", "${workspaceFolder}/c2", "${workspaceFolder}/c3", "${workspaceFolder}/c4", "${workspaceFolder}/c5", "${workspaceFolder}/c6", "${workspaceFolder}/c7", "${workspaceFolder}/c8"]}}}}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].configurations.launch.executable.candidates"}
+    },
+    {
+      "id": "executable-on-attach",
+      "layer": "coreManifest",
+      "edits": [{"op": "set", "path": "/block/settings", "value": [{"id": "program", "type": "file", "title": "Program", "default": "", "scope": "project", "effect": "nextRun"}]}, {"op": "set", "path": "/context/manifestMetadata/requires/settings", "value": 2}, {"op": "set", "path": "/block/debugAdapters/0/requests", "value": ["launch", "attach"]}, {"op": "set", "path": "/context/manifestMetadata/permissions", "value": ["debug.attach", "debug.launch"]}, {"op": "set", "path": "/block/debugAdapters/0/configurations", "value": {"attach": {"targetBindings": {"program": "target.executable"}, "executable": {"setting": "program", "candidates": ["${workspaceFolder}/build/app"]}}}}],
+      "expected": {"code": "plugin.manifest.invalid", "field": "debugAdapters[0].configurations.attach.executable"}
+    },
+    {
+      "id": "missing-target-executable",
+      "layer": "corePlan",
+      "edits": [{"op": "set", "path": "/block/settings", "value": [{"id": "program", "type": "file", "title": "Program", "default": "", "scope": "project", "effect": "nextRun"}]}, {"op": "set", "path": "/context/manifestMetadata/requires/settings", "value": 2}, {"op": "set", "path": "/block/debugAdapters/0/configurations", "value": {"launch": {"targetBindings": {"program": "target.executable"}, "executable": {"setting": "program", "candidates": ["${workspaceFolder}/build/app"]}}}}],
+      "expected": {"code": "debug.target.invalid", "field": "target.executable"}
     },
     {
       "id": "escaping-parameters-schema",

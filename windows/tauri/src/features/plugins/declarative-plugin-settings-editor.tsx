@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "@/i18n/locale-provider";
 import Switch from "@/ui/switch";
 import { Checkbox } from "@/ui/checkbox";
@@ -10,6 +10,7 @@ import Section, { SettingRow } from "@/features/settings/components/settings-sec
 import { pushDeclarativeWorkspaceConfiguration } from "@/platform/lsp-core-adapter";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { pluginPlanGuard, subscribePluginActivity } from "./declarative-plugin-lifecycle";
+import { pluginSettingsReloads } from "./declarative-plugin-reload";
 import {
   applySettingEffect,
   DeclarativeSettingsSession,
@@ -49,6 +50,9 @@ export function DeclarativePluginSettingsEditor({
   });
   const [layer, setLayer] = useState<"global" | "project">("global");
   const [invalid, setInvalid] = useState(false);
+  const [pluginRevision, setPluginRevision] = useState(0);
+  useSyncExternalStore(pluginSettingsReloads.subscribe, pluginSettingsReloads.revision);
+  const pendingReload = pluginSettingsReloads.state(pluginId);
   const session = useRef<DeclarativeSettingsSession | null>(null);
   useEffect(() => {
     let stale = false;
@@ -74,7 +78,10 @@ export function DeclarativePluginSettingsEditor({
       session.current?.dispose();
     };
     const releasePlugin = subscribePluginActivity((id) => {
-      if (id === pluginId) invalidate();
+      if (id === pluginId) {
+        invalidate();
+        setPluginRevision((revision) => revision + 1);
+      }
     });
     const releaseWorkspace = workspaceRuntimeRegistry.subscribe(() => {
       if (!sameWorkspace()) invalidate();
@@ -85,13 +92,29 @@ export function DeclarativePluginSettingsEditor({
         write: (id, scope, value, identity) =>
           storeDeclarativeSetting(pluginId, id, scope, workspacePath ?? "", value, identity),
         assertCurrent,
-        effect: (setting, snapshot) =>
-          applySettingEffect(setting, snapshot, workspacePath, {
-            assertCurrent,
-            pluginId,
-            configuration: declarativeWorkspaceConfiguration,
-            push: pushDeclarativeWorkspaceConfiguration,
-          }),
+        effect: (setting, snapshot, scope) =>
+          applySettingEffect(
+            setting,
+            snapshot,
+            workspacePath,
+            {
+              assertCurrent,
+              pluginId,
+              configuration: declarativeWorkspaceConfiguration,
+              push: pushDeclarativeWorkspaceConfiguration,
+              savedForReload: (saved, requiresReload) =>
+                pluginSettingsReloads.saved(
+                  {
+                    pluginId,
+                    workspacePath: workspacePath ?? "",
+                    expectedIdentity: saved.identity,
+                    expectedPackageIdentity: saved.packageIdentity,
+                  },
+                  requiresReload,
+                ),
+            },
+            scope,
+          ),
       },
       setState,
     );
@@ -106,7 +129,7 @@ export function DeclarativePluginSettingsEditor({
       releaseWorkspace();
       if (session.current === owned) session.current = null;
     };
-  }, [pluginId, workspacePath, languageId]);
+  }, [pluginId, workspacePath, languageId, pluginRevision]);
 
   const snapshot = state.snapshot;
   const recoveryRequired = state.error?.includes("plugin.settings.recoveryRequired") ?? false;
@@ -181,6 +204,7 @@ export function DeclarativePluginSettingsEditor({
                   const raw = scope === "project" ? snapshot.projectValues : snapshot.globalValues;
                   const disabled =
                     state.busy ||
+                    !!pendingReload?.busy ||
                     invalid ||
                     recoveryRequired ||
                     (layer === "project" && setting.scope !== "project");

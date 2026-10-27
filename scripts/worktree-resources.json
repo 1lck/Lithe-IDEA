@@ -434,6 +434,17 @@
       ],
       "identity": "Global and workspace plugin preferences and their compare-and-swap snapshots are user-owned runtime state. Replacement temporaries and recovery backups belong to one guarded save, without a transferable version/platform/architecture/toolchain identity stamp.",
       "reason": "Never copy settings, transaction temporaries or recovery backups between worktrees. Opening settings only reads the real stores. Confirmed saves preserve unrelated values and permissions, reject stale byte snapshots, atomically replace the selected source and reread it. Delete owned temporaries on failure; preserve the only surviving backup when restoration cannot be proven. The writable app-data/workspace stores do not alter installed resources, signatures or update baselines."
+    },
+    {
+      "id": "project-generator-transactions",
+      "reusable": false,
+      "locations": [
+        "<user-selected-parent>/.<project-name>.lithe-creating-<operation-id>/",
+        "<user-selected-parent>/.<project-name>.lithe-creating-<operation-id>/.lithe-project-archive-<nonce>.zip",
+        "<process-memory>/project-generators/{reviews,operations}"
+      ],
+      "identity": "One Windows project-generation review and operation, its selected writable parent and untrusted HTTPS archive. No checksum or sealed version/platform/architecture/toolchain identity stamp; neither HTTPS nor Core ZIP validation makes user-selected project content a reusable build resource.",
+      "reason": "The native transaction owns same-parent exclusive staging and create_new ZIP files. A 128 MiB total redirect/body budget and 120-second fetch deadline share the operation cancellation token; synchronous Core extraction retains the original operation ID and remaining deadline. Core bounds explicit and implicit paths, path bytes and extracted bytes. The ZIP is removed after the synchronous extractor closes; failed/cancelled staging is deleted only after all writers finish. Cleanup failures retain staging and the plugin lease for retry, and an uncertain writer never loses ownership. Atomic no-replace publication transfers the completed directory to the user. Never copy, symlink, bundle or share at any worktree stage; installed resources and Sparkle baselines remain read-only."
     }
   ]
 }

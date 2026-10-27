@@ -5,7 +5,7 @@ import test from "node:test";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { publishDirectory } from "./reuse-worktree-resources.mjs";
 
@@ -363,6 +363,24 @@ try {
       await assert.rejects(fs.access(missingTarget), { code: "ENOENT" });
     }
   });
+  await test("project archive transactions are rejected before resolving either worktree", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "project-generator-transactions");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.includes("<user-selected-parent>/.<project-name>.lithe-creating-<operation-id>/"));
+    assert.ok(resource.locations.includes("<user-selected-parent>/.<project-name>.lithe-creating-<operation-id>/.lithe-project-archive-<nonce>.zip"));
+    const listed = run(process.execPath, [reuseScript, "--list"]);
+    assertSucceeded(listed);
+    assert.ok(!listed.stdout.includes(resource.id));
+    const missingSource = path.join(testRoot, "unopened-generator-source");
+    const missingTarget = path.join(testRoot, "unopened-generator-target");
+    const refused = run(process.execPath, [reuseScript, "--source", missingSource, "--target", missingTarget,
+      "--resource", "jdtls", "--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /project-generator-transactions is isolated.*cannot be reused/);
+    await assert.rejects(fs.access(missingSource), { code: "ENOENT" });
+    await assert.rejects(fs.access(missingTarget), { code: "ENOENT" });
+  });
   await test("Windows plugin indexes downloads and build options are isolated runtime state", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const resource = registry.excludedResources.find(item => item.id === "plugin-marketplace-state");
@@ -420,11 +438,11 @@ try {
 
   const staleLock = path.join(targetRoot, ".artifacts", ".reuse-worktree-resources.lock");
   await fs.mkdir(staleLock, { recursive: true });
-  const exitedProcess = spawn(process.execPath, ["-e", ""], { stdio: "ignore" });
-  await new Promise((resolve, reject) => {
-    exitedProcess.once("error", reject);
-    exitedProcess.once("exit", resolve);
-  });
+  // The synchronous helper has a deadline and closes the process handle before
+  // publishing its PID. Windows may still observe an exited async child's
+  // handle as live before its close event, making the stale-lock test race.
+  const exitedProcess = run(process.execPath, ["-e", ""]);
+  assertSucceeded(exitedProcess);
   await fs.writeFile(
     path.join(staleLock, "owner.json"),
     `${JSON.stringify({ pid: exitedProcess.pid, startedAt: new Date().toISOString() })}\n`,

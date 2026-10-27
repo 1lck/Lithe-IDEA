@@ -8,6 +8,11 @@ extension AppModel {
         if services.pluginManager.settingsProjectRootURL != workspaceURL {
             services.pluginManager.settingsProjectRootURL = workspaceURL
         }
+        // A setting that names the program built from the open file looks for it here.
+        let activeFileURL = activeDocument?.url
+        if services.pluginManager.settingsActiveFileURL != activeFileURL {
+            services.pluginManager.settingsActiveFileURL = activeFileURL
+        }
         return services.pluginManager.snapshots
     }
 

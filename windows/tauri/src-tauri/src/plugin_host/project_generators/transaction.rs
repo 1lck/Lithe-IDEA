@@ -267,6 +267,9 @@ impl Transaction {
 }
 
 pub(super) trait Executor {
+    fn archive(&self, _: &Value, _: &Path, _: Instant, _: &dyn Fn() -> Result<()>) -> Result<()> {
+        Err(Error::new("generator.archiveUnavailable"))
+    }
     fn command(
         &self,
         index: usize,
@@ -287,10 +290,6 @@ pub(super) fn execute(
     let steps = plan["steps"]
         .as_array()
         .ok_or_else(|| Error::new("generator.invalidPlan"))?;
-    // Unsupported downloads must fail before creating or running any step.
-    if steps.iter().any(|step| step["kind"] == "archive") {
-        return Err(Error::new("generator.archiveUnavailable"));
-    }
     for (index, step) in steps.iter().enumerate() {
         checkpoint()?;
         transaction.check()?;
@@ -311,6 +310,17 @@ pub(super) fn execute(
                             .as_bytes(),
                     )?;
                 }
+            }
+            Some("archive") => {
+                // A download can outlive a rename/replacement of staging. Every
+                // archive checkpoint must revalidate its original directory owner
+                // before creating the ZIP or dispatching synchronous Core writes.
+                let archive_checkpoint = || {
+                    checkpoint()?;
+                    transaction.check()
+                };
+                executor.archive(step, &transaction.stage, deadline, &archive_checkpoint)?;
+                transaction.validate(checkpoint)?;
             }
             Some("command") => {
                 executor.command(index, step, &transaction.stage, deadline, checkpoint)?;

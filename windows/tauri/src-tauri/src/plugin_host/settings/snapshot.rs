@@ -213,6 +213,7 @@ pub struct SettingSnapshot {
     pub global_path: String,
     pub project_path: Option<String>,
     pub identity: String,
+    pub package_identity: String,
     #[serde(skip)]
     global_store: Store,
     #[serde(skip)]
@@ -269,6 +270,15 @@ fn resolved(
 
 fn snapshot(app: &AppHandle, plugin: &str, root: &str) -> Result<SettingSnapshot, String> {
     let package = super::super::launch::verified_package_by_id(app, plugin)?;
+    snapshot_package(app, plugin, root, package)
+}
+
+fn snapshot_package(
+    app: &AppHandle,
+    plugin: &str,
+    root: &str,
+    package: super::super::ScannedPackage,
+) -> Result<SettingSnapshot, String> {
     workspace(root)?;
     let global_path = global_store_path(app, plugin)?;
     for path in [
@@ -328,6 +338,15 @@ fn snapshot(app: &AppHandle, plugin: &str, root: &str) -> Result<SettingSnapshot
     };
     let digest = super::super::signature::content_digest(&package.root)
         .map_err(|error| error.code().to_string())?;
+    let package_identity = format!(
+        "{:x}",
+        Sha256::digest(
+            serde_json::to_vec(&json!({
+                "plugin": plugin, "manifest": normalized, "digest": digest,
+            }))
+            .map_err(|error| error.to_string())?
+        )
+    );
     let identity = format!(
         "{:x}",
         Sha256::digest(
@@ -358,9 +377,75 @@ fn snapshot(app: &AppHandle, plugin: &str, root: &str) -> Result<SettingSnapshot
         project_path: (!root.is_empty())
             .then(|| project_store_path(root).to_string_lossy().into_owned()),
         identity,
+        package_identity,
         global_store,
         project_store,
     })
+}
+
+/// Only the owner of the mutation barrier may read while launches are
+/// revoked. Discovery rechecks the acceptance record and live signature;
+/// settings are read again without re-enabling the plugin to get a lease.
+pub(super) fn reload(
+    app: &AppHandle,
+    mutation: &super::super::lifecycle::Mutation,
+    root: &str,
+    expected: &str,
+    expected_package: &str,
+) -> Result<SettingSnapshot, String> {
+    let plugin = mutation.plugin_id();
+    let _write = WRITES.lock().map_err(|_| "plugin.settings.unavailable")?;
+    let host = app.state::<super::super::PluginHostState>();
+    publish_reload(&host, plugin, expected, expected_package, || {
+        let fresh = super::super::scan::build_catalog(app)?
+            .into_iter()
+            .find(|package| {
+                package.entry.plugin_id == plugin
+                    && package.entry.enabled
+                    && package.entry.status == "accepted"
+            })
+            .ok_or("plugin.settings.reloadRejected")?;
+        let next = snapshot_package(app, plugin, root, fresh.clone())?;
+        Ok((fresh, next))
+    })
+}
+
+// Publish only the reverified target, preserving concurrent changes to other
+// plugins. Settings conflicts may resume after this fresh catalog is visible;
+// changed package bytes must stay revoked until explicit package recovery.
+fn publish_reload(
+    host: &super::super::PluginHostState,
+    plugin: &str,
+    expected: &str,
+    expected_package: &str,
+    verified: impl FnOnce() -> Result<(super::super::ScannedPackage, SettingSnapshot), String>,
+) -> Result<SettingSnapshot, String> {
+    let mut result = None;
+    host.refresh(|| {
+        let (fresh, next) = verified()?;
+        if fresh.entry.plugin_id != plugin
+            || !fresh.entry.enabled
+            || fresh.entry.status != "accepted"
+        {
+            return Err("plugin.settings.reloadRejected".into());
+        }
+        if next.package_identity != expected_package {
+            return Err("plugin.settings.packageChanged".into());
+        }
+        let mut packages = host.packages();
+        let entry = packages
+            .iter_mut()
+            .find(|package| package.entry.plugin_id == plugin)
+            .ok_or("plugin.settings.reloadRejected")?;
+        *entry = fresh;
+        result = Some(if next.identity == expected {
+            Ok(next)
+        } else {
+            Err("plugin.settings.conflict".into())
+        });
+        Ok(packages)
+    })?;
+    result.ok_or_else(|| "plugin.settings.reloadRejected".to_string())?
 }
 
 pub(super) fn read(

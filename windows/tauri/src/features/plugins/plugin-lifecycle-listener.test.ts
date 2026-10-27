@@ -6,6 +6,11 @@ const select = mock(async (..._args: unknown[]) => undefined);
 let root = "C:/a";
 let workspaceId = "workspace-a";
 let editorOpened = true;
+let windowLabel = "workspace-owner";
+const stoppedRuns: unknown[][] = [];
+const stoppedLsp: unknown[][] = [];
+const removedUI: string[] = [];
+let refreshes = 0;
 let resolveFile = async (_path: string, _root: string) => "C:/a/file.txt";
 mock.module("@tauri-apps/api/event", () => ({
   listen: async (event: string, handler: (event: any) => Promise<void>, options: unknown) => {
@@ -18,7 +23,7 @@ mock.module("@tauri-apps/api/event", () => ({
   },
 }));
 mock.module("@tauri-apps/api/window", () => ({
-  getCurrentWindow: () => ({ label: "workspace-owner" }),
+  getCurrentWindow: () => ({ label: windowLabel }),
 }));
 mock.module("@/platform/tauri-core", () => ({ invoke }));
 mock.module("@/features/file-system/stores/file-system.store", () => ({
@@ -50,15 +55,29 @@ mock.module("./plugin-web-build", () => ({
   initializePluginWebBuildListener: async () => releaseBuildListener,
 }));
 mock.module("./declarative-plugin-ui", () => ({
-  removeDeclarativeUI: () => {},
-  refreshDeclarativeUI: async () => {},
+  removeDeclarativeUI: (id: string) => {
+    removedUI.push(id);
+  },
+  refreshDeclarativeUI: async () => {
+    refreshes++;
+  },
 }));
 let stopRuns = async () => {};
 let stopLsp = async () => {};
 mock.module("./declarative-plugin-process-owner", () => ({
-  declarativePluginProcessOwner: { stop: () => stopRuns() },
+  declarativePluginProcessOwner: {
+    stop: (...args: unknown[]) => {
+      stoppedRuns.push(args);
+      return stopRuns();
+    },
+  },
 }));
-mock.module("@/platform/lsp-core-adapter", () => ({ invokeLsp: () => stopLsp() }));
+mock.module("@/platform/lsp-core-adapter", () => ({
+  invokeLsp: (...args: unknown[]) => {
+    stoppedLsp.push(args);
+    return stopLsp();
+  },
+}));
 const { initializePluginWebListeners } = await import("./plugin-web-open-file");
 const { assertPluginActive, setPluginActive } = await import("./declarative-plugin-lifecycle");
 let dispose: (() => void) | undefined;
@@ -71,6 +90,11 @@ afterEach(() => {
   root = "C:/a";
   workspaceId = "workspace-a";
   editorOpened = true;
+  windowLabel = "workspace-owner";
+  stoppedRuns.length = 0;
+  stoppedLsp.length = 0;
+  removedUI.length = 0;
+  refreshes = 0;
   setPluginActive("test.plugin", true);
 });
 const request = {
@@ -119,6 +143,60 @@ test("mutation acknowledgement waits for both process owners and carries failure
     stopLsp = async () => {};
   }
 }, 5000);
+
+test("global reload drains each product window without filtering the workspace or other plugins", async () => {
+  windowLabel = "main";
+  const releaseFirst = await initializePluginWebListeners();
+  const first = handlers.get("declarative-plugin-lifecycle")!;
+  expect(targets.get("declarative-plugin-lifecycle")).toEqual({
+    target: { kind: "Window", label: "main" },
+  });
+  windowLabel = "workspace-second";
+  const releaseSecond = await initializePluginWebListeners();
+  const second = handlers.get("declarative-plugin-lifecycle")!;
+  expect(targets.get("declarative-plugin-lifecycle")).toEqual({
+    target: { kind: "Window", label: "workspace-second" },
+  });
+  const gates: Array<() => void> = [];
+  stopRuns = () =>
+    new Promise<void>((resolve) => {
+      gates.push(resolve);
+    });
+  const payload = { pluginId: "test.plugin", active: false, operationId: "global-reload" };
+  const drainingFirst = first({ payload });
+  root = "C:/different-workspace";
+  workspaceId = "workspace-b";
+  const drainingSecond = second({ payload });
+  try {
+    expect(stoppedRuns).toEqual([
+      [undefined, "test.plugin"],
+      [undefined, "test.plugin"],
+    ]);
+    expect(stoppedLsp).toEqual([
+      ["lsp_stop_for_provider", { providerId: "test.plugin" }],
+      ["lsp_stop_for_provider", { providerId: "test.plugin" }],
+    ]);
+    expect(removedUI).toEqual(["test.plugin", "test.plugin"]);
+    expect(() => assertPluginActive("unrelated.plugin")).not.toThrow();
+    expect(invoke).not.toHaveBeenCalled();
+    gates[0]!();
+    await drainingFirst;
+    expect(invoke).toHaveBeenCalledTimes(1);
+    gates[1]!();
+    await drainingSecond;
+    expect(invoke).toHaveBeenCalledTimes(2);
+    expect(refreshes).toBe(0);
+    await first({ payload: { pluginId: "test.plugin", active: true } });
+    expect(refreshes).toBe(1);
+    expect(stoppedRuns).toHaveLength(2);
+  } finally {
+    for (const release of gates) release();
+    await Promise.all([drainingFirst, drainingSecond]);
+    stopRuns = async () => {};
+    releaseFirst();
+    releaseSecond();
+  }
+}, 1000);
 
 test("openFile rejects another workspace and a workspace switch during canonicalization", async () => {
   dispose = await initializePluginWebListeners();

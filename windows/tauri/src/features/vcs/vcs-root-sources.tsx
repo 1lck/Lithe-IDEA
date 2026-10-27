@@ -4,12 +4,14 @@ import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { getRelativePath, pathStartsWithRoot } from "@/utils/path-helpers";
 import Select from "@/ui/select";
 import type { VcsRootController } from "./vcs-root-controller";
+import { VcsStatusPanel } from "./vcs-status-panel";
 
 /** A passive source selector in the ordinary Version Control pane.
  * Selecting a plugin root only inspects it; no Git path/action is replaced. */
 export function VcsRootSources({ controller }: { controller: VcsRootController }) {
   const { t } = useTranslation();
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
+  const status = useSyncExternalStore(controller.status.subscribe, controller.status.getSnapshot);
   const activeFile = useBufferStore((state) => {
     const buffer = state.buffers.find((buffer) => buffer.id === state.activeBufferId);
     return buffer?.type === "editor" ? buffer.path : null;
@@ -70,7 +72,15 @@ export function VcsRootSources({ controller }: { controller: VcsRootController }
       <Select
         size="xs"
         value={selectedRoot ? `root:${selectedRoot.id}` : ""}
-        onChange={setSelected}
+        disabled={
+          status.phase === "loading" ||
+          status.phase === "stopping" ||
+          status.phase === "cancelFailed"
+        }
+        onChange={(value) => {
+          controller.status.invalidate();
+          setSelected(value);
+        }}
         aria-label={t("vcs.roots.sources")}
         placeholder={t("vcs.roots.sources")}
         options={pluginRoots.map((root) => ({
@@ -79,6 +89,7 @@ export function VcsRootSources({ controller }: { controller: VcsRootController }
         }))}
       />
       {selectedRoot && <p className="text-subtle-foreground">{t("vcs.roots.passive")}</p>}
+      {selectedRoot && <VcsStatusPanel controller={controller} root={selectedRoot} />}
       {detection!.ambiguous.map((directory) => (
         <p key={directory.id} role="status">
           {t("vcs.roots.ambiguous", { path: directory.id || controller.scope.workspaceRoot })}

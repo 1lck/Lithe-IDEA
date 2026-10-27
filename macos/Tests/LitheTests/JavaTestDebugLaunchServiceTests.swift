@@ -24,7 +24,6 @@ struct JavaTestDebugLaunchServiceTests {
         let core = TestJavaTestLaunchCore(result: .success(expectedConfiguration))
         let service = JavaTestDebugLaunchService(
             configurationResolver: DebugLaunchConfigurationResolver(
-                fileExists: { _ in true },
                 javaTestLaunchResolver: core
             ),
             resultServerFactory: { resultServer }
@@ -61,7 +60,6 @@ struct JavaTestDebugLaunchServiceTests {
         let resultServer = TestJavaTestResultServer(port: 43_128)
         let service = JavaTestDebugLaunchService(
             configurationResolver: DebugLaunchConfigurationResolver(
-                fileExists: { _ in true },
                 javaTestLaunchResolver: TestJavaTestLaunchCore(
                     result: .failure(TestJavaTestDebugError.configurationFailed)
                 )

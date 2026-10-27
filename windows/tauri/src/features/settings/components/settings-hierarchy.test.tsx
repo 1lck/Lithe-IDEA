@@ -126,6 +126,7 @@ test("settings search excludes fields absent from the current panels", () => {
 
 test("hierarchical navigation preserves drafts through empty search, automatic results and explicit navigation until Close", async () => {
   const registry = spyOn(pluginPages, "useDeclarativeSettingsPages").mockReturnValue({
+    revision: 0,
     pages: [],
     error: null,
   });

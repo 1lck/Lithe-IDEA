@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { useUIExtensionStore } from "@/extensions/ui/stores/ui-extension-store";
+import { assertPluginActive } from "./declarative-plugin-lifecycle";
 import {
   listDeclarativePlugins,
   listDeclarativeWebWindows,
@@ -52,6 +53,13 @@ export async function refreshDeclarativeUI(): Promise<void> {
   const actions = useUIExtensionStore.getState().actions;
   const pluginIds = new Set([...registered, ...plugins.map((plugin) => plugin.pluginId)]);
   for (const pluginId of pluginIds) {
+    // A new refresh can start after revocation (for example another plugin's
+    // successful reload). A catalog entry alone does not grant admission.
+    try {
+      assertPluginActive(pluginId);
+    } catch {
+      continue;
+    }
     // Revoking B must neither resurrect B nor cancel an unrelated refresh of A.
     if (
       (observedRevisions.get(pluginId) ?? 0) !== (revisions.get(pluginId) ?? 0) ||

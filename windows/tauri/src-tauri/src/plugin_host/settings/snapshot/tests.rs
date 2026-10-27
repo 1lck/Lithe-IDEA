@@ -202,3 +202,108 @@ fn pending_recovery_cannot_be_mistaken_for_missing_defaults() {
     );
     assert!(!path.exists());
 }
+
+fn reload_fixture(
+    plugin: &str,
+    identity: &str,
+    package_identity: &str,
+) -> (super::super::super::ScannedPackage, SettingSnapshot) {
+    let package = super::super::super::ScannedPackage {
+        entry: super::super::super::CatalogEntry {
+            plugin_id: plugin.into(),
+            display_name: plugin.into(),
+            version: "1.0.0".into(),
+            api_version: 1,
+            source: "installed",
+            enabled: true,
+            status: "accepted",
+            languages: vec![],
+            declared_settings: vec![],
+            declares_tests: false,
+            primary_language_id: None,
+            rejection: None,
+        },
+        root: PathBuf::from("fixture-package"),
+        manifest: json!({"id": plugin, "marker": identity}),
+        trust: None,
+    };
+    let store = Store {
+        values: Map::new(),
+        identity: None,
+    };
+    let snapshot = SettingSnapshot {
+        manifest: package.manifest.clone(),
+        settings: vec![],
+        setting_actions: vec![],
+        global_values: BTreeMap::new(),
+        project_values: BTreeMap::new(),
+        resolved_global: json!([]),
+        resolved_project: json!([]),
+        global_path: "fixture-preferences.json".into(),
+        project_path: None,
+        identity: identity.into(),
+        package_identity: package_identity.into(),
+        global_store: store.clone(),
+        project_store: store,
+    };
+    (package, snapshot)
+}
+
+#[test]
+fn global_reload_publishes_reverified_target_and_preserves_other_plugins() {
+    let host = super::super::super::PluginHostState::default();
+    let old = reload_fixture("target.plugin", "old", "approved").0;
+    let other = reload_fixture("other.plugin", "unrelated", "other-approved").0;
+    host.set_packages(vec![old, other]);
+    let result = publish_reload(&host, "target.plugin", "saved", "approved", || {
+        Ok(reload_fixture("target.plugin", "saved", "approved"))
+    })
+    .expect("saved settings and approved package reload");
+    assert_eq!(result.identity, "saved");
+    let catalog = host.packages();
+    assert_eq!(catalog[0].manifest["marker"], "saved");
+    assert_eq!(catalog[1].manifest["marker"], "unrelated");
+}
+
+#[test]
+fn settings_conflict_resumes_only_after_the_reverified_catalog_is_published() {
+    let host = super::super::super::PluginHostState::default();
+    host.set_packages(vec![reload_fixture("target.plugin", "old", "approved").0]);
+    let result = publish_reload(&host, "target.plugin", "saved", "approved", || {
+        Ok(reload_fixture(
+            "target.plugin",
+            "external-settings",
+            "approved",
+        ))
+    });
+    assert_eq!(result.err().unwrap(), "plugin.settings.conflict");
+    assert_eq!(host.packages()[0].manifest["marker"], "external-settings");
+}
+
+#[test]
+fn changed_or_rejected_packages_preserve_the_old_catalog_until_recovery() {
+    let host = super::super::super::PluginHostState::default();
+    host.set_packages(vec![reload_fixture("target.plugin", "old", "approved").0]);
+    let changed = publish_reload(&host, "target.plugin", "saved", "approved", || {
+        Ok(reload_fixture("target.plugin", "saved", "different-bytes"))
+    });
+    assert_eq!(changed.err().unwrap(), "plugin.settings.packageChanged");
+    let rejected = publish_reload(&host, "target.plugin", "saved", "approved", || {
+        let (mut package, snapshot) = reload_fixture("target.plugin", "saved", "approved");
+        package.entry.status = "rejected";
+        Ok((package, snapshot))
+    });
+    assert_eq!(rejected.err().unwrap(), "plugin.settings.reloadRejected");
+    let disabled = publish_reload(&host, "target.plugin", "saved", "approved", || {
+        let (mut package, snapshot) = reload_fixture("target.plugin", "saved", "approved");
+        package.entry.enabled = false;
+        Ok((package, snapshot))
+    });
+    assert_eq!(disabled.err().unwrap(), "plugin.settings.reloadRejected");
+    assert_eq!(host.packages()[0].manifest["marker"], "old");
+    let failed = publish_reload(&host, "target.plugin", "saved", "approved", || {
+        Err("signature failed".into())
+    });
+    assert_eq!(failed.err().unwrap(), "signature failed");
+    assert_eq!(host.packages()[0].manifest["marker"], "old");
+}

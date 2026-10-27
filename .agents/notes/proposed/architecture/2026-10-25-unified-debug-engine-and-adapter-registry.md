@@ -133,7 +133,14 @@ macOS 多会话（本阶段）：宿主在 `DebugAdapterSessionManager` 里实�
 
 `makeChildSession` 是可选覆盖：默认子会话就是 provider 的 `makeSession` 再开一个会话，宿主因此总会声明 `supportsStartDebuggingRequest`。这是有意取舍：旧调试内核要整体被替换，不为兼容旧行为保留休眠开关。代价是 debugpy 这类通过 `connect` 主机和端口附加的适配器，在没有 TCP 子会话传输前，子会话会被忽略该端点，多进程 Python 调试暂时不可用；由具体语言插件覆盖 `makeChildSession` 补上。Swift 侧仍未消费 `projection`、`childSession*` 与 `disabledCapabilities`。
 
-P3 的声明层已在 Rust Core 落地：`plugin.json.debugAdapters[]` 作为插件 API 4 进入正式契约（`shared/contracts/plugins/v1/`），`debug/adapters.rs` 校验声明、安装包资源和启动计划，C01–C09、S01–S02 拒绝用例由 `fixtures/debug-adapter-rejections.json` 驱动 Core 测试。启动计划与安装检查暂无非测试调用方，由下一步 macOS 声明式 Provider（先 stdio）接入。
+P3 的声明层已在 Rust Core 落地：`plugin.json.debugAdapters[]` 作为插件 API 4 进入正式契约（`shared/contracts/plugins/v1/`），`debug/adapters.rs` 校验声明、安装包资源和启动计划，C01–C09、S01–S02 拒绝用例由 `fixtures/debug-adapter-rejections.json` 驱动 Core 测试。启动计划与安装检查由 macOS 声明式 Provider 接入（先 stdio + launch）。
+
+macOS 声明式 Provider：
+- Rust Core 新增 `languageServerLaunchPlan` 的 `debugAdapterID` 选择器和 `debug.adapters.startArguments` 命令；后者按 manifest、adapterID、request 与事实（注册代次、目标、运行时选择）返回启动参数，拒绝码为 `debug.provider.stale`、`debug.request.unsupported`、`debug.runtime.stale`、`debug.target.invalid`、`plugin.launch.unavailable`。
+- 宿主启用模块 `<pluginID>.debug-adapters`（只承载启用、隔离与安全模式状态）。容器按语言 ID 建立插件适配器会话；Java 等内置语言优先，宿主不按插件名字分支。
+- 启动计划在会话 `start(rootURL:)` 时才解析，因为启动依赖工作区；被拒绝的计划就是启动错误。`adapterID` 声明时默认等于 `id`，会话创建时即需要（DAP `initialize.adapterId`），所以随描述符提前提供。
+- 首版只允许启动插件包内的可执行文件，system-command、运行时可执行文件、TCP、attach 和 `runSelectedRuntime` 之后再做。
+- 生命周期与所有权：适配器进程归会话，随会话停止。适配器状态目录是 Application Support 下的 `<插件状态目录>/debug-adapters/<adapterID>`，不写 app bundle 或插件包，不影响代码签名和 Sparkle 增量更新；`${workspaceStateDir}` 按工作区摘要隔离。被调试程序的启动配置由 `startArguments` 生成，宿主只在没有内置 provider 处理时回落到它。
 
 P0–P5 完成后关闭 #1210。可选扩展、插件依赖和私有 resolver 都不是关闭条件。
 

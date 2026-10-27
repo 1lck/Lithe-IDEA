@@ -8,6 +8,7 @@ import type {
   DeclarativePluginSetting,
   DeclarativeSettingSnapshot,
 } from "./declarative-plugin-launch";
+import { PluginSettingsReloads, type PluginReloadReceipt } from "./declarative-plugin-reload";
 
 const setting: DeclarativePluginSetting = {
   id: "option",
@@ -20,6 +21,7 @@ const setting: DeclarativePluginSetting = {
 function snapshot(identity = "baseline"): DeclarativeSettingSnapshot {
   return {
     identity,
+    packageIdentity: "accepted-package",
     manifest: { languageServers: [{ languageID: "fixture" }] },
     settings: [setting],
     settingActions: [],
@@ -245,6 +247,221 @@ describe("declarative settings draft lifecycle", () => {
 });
 
 describe("declarative settings effect reporting", () => {
+  test.each(["restart", "nextRun", "immediate"] as const)(
+    "a saved reload receipt advances after a subsequent %s save before confirmation",
+    async (effect) => {
+      const pluginId = "example.plugin";
+      const workspacePath = "/fixture/workspace";
+      const reloadSetting = { ...setting, id: "reloadOption", effect: "reload" as const };
+      const otherSetting = { ...setting, id: "otherOption", effect };
+      const declarations = [reloadSetting, otherSetting];
+      let persisted: DeclarativeSettingSnapshot = {
+        ...snapshot(),
+        settings: declarations,
+        resolvedGlobal: declarations.map((item) => ({
+          id: item.id,
+          value: item.default,
+          source: "default",
+        })),
+      };
+      const writeGate = deferred<void>();
+      const reloadGate = deferred<void>();
+      const writes: unknown[][] = [];
+      const reloadCalls: PluginReloadReceipt[] = [];
+      let pushes = 0;
+      const reloads = new PluginSettingsReloads({
+        reload: async (receipt) => {
+          reloadCalls.push(receipt);
+          // Keep the native CAS contract: the entire latest saved snapshot
+          // must match before the separate confirmation can begin its drain.
+          if (receipt.expectedIdentity !== persisted.identity)
+            throw new Error("plugin.settings.conflict");
+          if (receipt.expectedPackageIdentity !== persisted.packageIdentity)
+            throw new Error("plugin.settings.packageChanged");
+          await reloadGate.promise;
+        },
+        refresh: async () => {},
+      });
+      const f = fixture({
+        read: async () => persisted,
+        write: async (...args) => {
+          writes.push(args);
+          if (args[3] !== persisted.identity) throw new Error("plugin.settings.conflict");
+          if (writes.length === 2) await writeGate.promise;
+          const values = { ...persisted.globalValues, [args[0]]: args[2] };
+          persisted = {
+            ...persisted,
+            identity: `saved-${writes.length}`,
+            globalValues: values,
+            resolvedGlobal: declarations.map((item) => ({
+              id: item.id,
+              value: values[item.id] ?? item.default,
+              source: Object.prototype.hasOwnProperty.call(values, item.id) ? "global" : "default",
+            })),
+          };
+          return persisted;
+        },
+        effect: (declaration, saved, scope) =>
+          applySettingEffect(
+            declaration,
+            saved,
+            workspacePath,
+            {
+              pluginId,
+              assertCurrent() {},
+              configuration: async () => ({ status: "ok", configuration: {} }),
+              push: async () => {
+                pushes++;
+                return true;
+              },
+              savedForReload: (accepted, requiresReload) =>
+                reloads.saved(
+                  {
+                    pluginId,
+                    workspacePath,
+                    expectedIdentity: accepted.identity,
+                    expectedPackageIdentity: accepted.packageIdentity,
+                  },
+                  requiresReload,
+                ),
+            },
+            scope,
+          ),
+      });
+      let saving: Promise<void> | undefined;
+      let confirming: Promise<void> | undefined;
+      try {
+        await f.session.reload();
+        f.session.edit(reloadSetting.id, "global", "first");
+        await f.session.save(reloadSetting, "global");
+        expect(reloads.state(pluginId)?.receipt.expectedIdentity).toBe("saved-1");
+        f.session.edit(otherSetting.id, "global", "second");
+        saving = f.session.save(otherSetting, "global");
+        expect(writes[1]).toEqual([otherSetting.id, "global", "second", "saved-1"]);
+        expect(reloads.state(pluginId)?.receipt.expectedIdentity).toBe("saved-1");
+        expect(reloadCalls).toEqual([]);
+        writeGate.resolve();
+        await saving;
+        expect(f.session.state.error).toBeNull();
+        expect(f.session.state.effect).toBe(effect);
+        expect(reloads.state(pluginId)?.receipt.expectedIdentity).toBe("saved-2");
+        expect(reloads.state(pluginId)?.receipt.expectedPackageIdentity).toBe("accepted-package");
+        expect(pushes).toBe(effect === "immediate" ? 1 : 0);
+        confirming = reloads.confirm(pluginId);
+        expect(reloadCalls).toEqual([
+          {
+            pluginId,
+            workspacePath,
+            expectedIdentity: "saved-2",
+            expectedPackageIdentity: "accepted-package",
+          },
+        ]);
+        expect(reloads.state(pluginId)?.busy).toBe(true);
+        reloadGate.resolve();
+        await confirming;
+        expect(reloads.states()).toEqual([]);
+      } finally {
+        f.session.dispose();
+        writeGate.resolve();
+        reloadGate.resolve();
+        await Promise.all([saving, confirming]);
+      }
+    },
+    1000,
+  );
+
+  test("cancel and CAS conflict cannot enqueue reload; a saved read-back still needs confirmation", async () => {
+    let conflict = true;
+    let reloadCalls = 0;
+    const reloads = new PluginSettingsReloads({
+      reload: async () => {
+        reloadCalls++;
+      },
+      refresh: async () => {},
+    });
+    const reloadSetting = { ...setting, effect: "reload" as const };
+    const f = fixture({
+      write: async () => {
+        if (conflict) throw new Error("plugin.settings.conflict");
+        return snapshot("saved-read-back");
+      },
+      effect: (declaration, saved, scope) =>
+        applySettingEffect(
+          declaration,
+          saved,
+          "/fixture/workspace",
+          {
+            pluginId: "example.plugin",
+            assertCurrent() {},
+            configuration: async () => ({ status: "ok" }),
+            push: async () => false,
+            savedForReload: (accepted, requiresReload) =>
+              reloads.saved(
+                {
+                  pluginId: "example.plugin",
+                  workspacePath: "/fixture/workspace",
+                  expectedIdentity: accepted.identity,
+                  expectedPackageIdentity: accepted.packageIdentity,
+                },
+                requiresReload,
+              ),
+          },
+          scope,
+        ),
+    });
+    try {
+      await f.session.reload();
+      f.session.edit(setting.id, "global", "draft");
+      f.session.cancel(setting.id, "global");
+      await f.session.save(reloadSetting, "global");
+      expect(reloads.states()).toEqual([]);
+      f.session.edit(setting.id, "global", "draft");
+      await f.session.save(reloadSetting, "global");
+      expect(reloads.states()).toEqual([]);
+      conflict = false;
+      await f.session.save(reloadSetting, "global");
+      expect(reloads.state("example.plugin")?.receipt.expectedIdentity).toBe("saved-read-back");
+      expect(reloadCalls).toBe(0);
+      await reloads.confirm("example.plugin");
+      expect(reloadCalls).toBe(1);
+    } finally {
+      f.session.dispose();
+    }
+  }, 1000);
+
+  test("reload queues only a saved global receipt; project edits never stop other workspaces", async () => {
+    const queued: DeclarativeSettingSnapshot[] = [];
+    const ports = {
+      pluginId: "example.plugin",
+      assertCurrent() {},
+      configuration: async () => ({ status: "ok" }),
+      push: async () => false,
+      savedForReload: (saved: DeclarativeSettingSnapshot, requiresReload: boolean) => {
+        if (requiresReload) queued.push(saved);
+      },
+    };
+    expect(
+      await applySettingEffect(
+        { ...setting, effect: "reload" },
+        snapshot("saved"),
+        "/fixture",
+        ports,
+        "global",
+      ),
+    ).toBe("reloadRequired");
+    expect(
+      await applySettingEffect(
+        { ...setting, effect: "reload" },
+        snapshot("project-saved"),
+        "/fixture",
+        ports,
+        "project",
+      ),
+    ).toBe("projectReloadUnavailable");
+    expect(queued.map((saved) => [saved.identity, saved.packageIdentity])).toEqual([
+      ["saved", "accepted-package"],
+    ]);
+  }, 1000);
   test("only a matching ready LSP receiving configuration counts as immediate", async () => {
     const pushed: unknown[] = [];
     let live = false;

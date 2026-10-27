@@ -24,6 +24,7 @@ mod setup;
 mod untracked_directories;
 
 pub use fetch::{plan as fetch_plan, GitFetchOptions, GitFetchPlanRequest};
+#[cfg(test)]
 pub(crate) use untracked_directories::UNTRACKED_DIRECTORY_SUMMARY_THRESHOLD;
 pub use untracked_directories::{untracked_directory, GitUntrackedDirectoryRequest};
 
@@ -3481,7 +3482,7 @@ fn create_line_history_scratch() -> Result<ScopedLineHistoryDirectory, CoreError
         let candidate = std::env::temp_dir().join(format!("{prefix}-{stamp}"));
         let builder = std::fs::DirBuilder::new();
         #[cfg(unix)]
-        let mut builder = {
+        let builder = {
             use std::os::unix::fs::DirBuilderExt;
             let mut builder = builder;
             builder.mode(0o700);

@@ -1,9 +1,9 @@
 import { afterAll, afterEach, expect, mock, test } from "bun:test";
-import { act } from "react";
+import { act, type ReactNode } from "react";
 import { installHappyDom } from "@/test-utils/happy-dom";
 import { LocaleProvider } from "@/i18n/locale-provider";
 import { VcsRootController } from "./vcs-root-controller";
-import type { VcsOwnership, VcsRootPort, VcsSnapshot } from "./vcs-root-types";
+import type { VcsOwnership, VcsRootPort, VcsSnapshot, VcsStatusSnapshot } from "./vcs-root-types";
 
 let activeFile = "C:/fixture/vcs/legacy/a.txt";
 mock.module("@/features/editor/stores/buffer.store", () => ({
@@ -18,6 +18,7 @@ mock.module("@/features/editor/stores/buffer.store", () => ({
 mock.module("@/ui/select", () => ({
   default: (props: {
     value: string;
+    disabled?: boolean;
     onChange(value: string): void;
     options: Array<{ value: string; label: string }>;
     "aria-label": string;
@@ -25,6 +26,7 @@ mock.module("@/ui/select", () => ({
     <select
       aria-label={props["aria-label"]}
       value={props.value}
+      disabled={props.disabled}
       onChange={(event) => props.onChange(event.target.value)}
     >
       {props.options.map((option) => (
@@ -33,6 +35,13 @@ mock.module("@/ui/select", () => ({
         </option>
       ))}
     </select>
+  ),
+}));
+mock.module("@/ui/button", () => ({
+  Button: (props: { disabled?: boolean; onClick(): void; children: ReactNode }) => (
+    <button disabled={props.disabled} onClick={props.onClick}>
+      {props.children}
+    </button>
   ),
 }));
 const restore = installHappyDom();
@@ -85,7 +94,10 @@ async function fixture() {
     },
   };
   const controller = new VcsRootController(scope, port);
-  cleanups.push(() => controller.close());
+  cleanups.push(() => {
+    port.cancelStatus = async () => {};
+    return controller.close();
+  });
   await controller.refresh();
   const host = document.createElement("div");
   document.body.append(host);
@@ -147,4 +159,69 @@ test("revocation clears the source selector and ownership display immediately", 
   await act(async () => f.controller.invalidate());
   expect(f.host.querySelector('[data-testid="vcs-root-sources"]')).toBeNull();
   expect(f.host.textContent).not.toContain("Subversion");
+});
+
+test("the ordinary source pane reads status explicitly and renders only its independent read-only projection", async () => {
+  const f = await fixture();
+  const calls: unknown[][] = [];
+  f.port.status = async (...args) => {
+    calls.push(args);
+    return {
+      requestId: args[3],
+      generation: args[1],
+      rootId: args[2],
+      vcs: "svn",
+      result: {
+        head: null,
+        changes: [{ path: "a.txt", oldPath: null, status: "modified", flags: [] }],
+        truncated: true,
+      },
+    };
+  };
+  f.port.cancelStatus = async () => {};
+  await f.render();
+  expect(calls).toHaveLength(0);
+  const read = f.host.querySelector("button")!;
+  expect(read.textContent).toBe("Read status");
+  await act(async () => read.click());
+  expect(calls[0]?.slice(0, 3)).toEqual([f.controller.scope, 1, "legacy"]);
+  expect(f.host.textContent).toContain("Modified");
+  expect(f.host.textContent).toContain("a.txt");
+  expect(f.host.textContent).toContain("The provider returned an incomplete change list");
+  expect([...f.host.querySelectorAll("button")].map((button) => button.textContent)).toEqual([
+    "Read status",
+  ]);
+});
+
+test("failed cleanup keeps Stop retry visible and prevents another status read", async () => {
+  const f = await fixture();
+  let release!: (value: VcsStatusSnapshot) => void;
+  const pending = new Promise<VcsStatusSnapshot>((resolve) => {
+    release = resolve;
+  });
+  cleanups.push(() =>
+    release({
+      requestId: "late",
+      generation: 1,
+      rootId: "legacy",
+      vcs: "svn",
+      result: { head: null, changes: [], truncated: false },
+    }),
+  );
+  f.port.status = () => pending;
+  f.port.cancelStatus = async () => {
+    throw new Error("vcs.provider.cleanupFailed");
+  };
+  await f.render();
+  await act(async () => f.host.querySelector("button")!.click());
+  expect(f.host.textContent).toContain("Reading changes…");
+  expect(f.host.querySelector("select")!.disabled).toBe(true);
+  await act(async () => f.host.querySelectorAll("button")[1].click());
+  expect(f.host.textContent).toContain("Provider cleanup could not be confirmed");
+  expect(f.host.querySelector("button")!.disabled).toBe(true);
+  expect(f.host.querySelectorAll("button")[1].textContent).toBe("Retry cleanup");
+  f.port.cancelStatus = async () => {};
+  await act(async () => f.host.querySelectorAll("button")[1].click());
+  expect(f.host.querySelector("button")!.disabled).toBe(false);
+  expect(f.host.textContent).not.toContain("Provider cleanup could not be confirmed");
 });

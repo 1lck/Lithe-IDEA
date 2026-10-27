@@ -429,12 +429,12 @@
       "category": "template-assets",
       "outcome": "success",
       "coreEvidence": [
-        "rust/lithe-core/src/tests/project_generators.rs:65 golden_project_plans_match (plan.rs collect_files walks the templates directory)"
+        "shared/contracts/plugins/v1/fixtures/project-generator-templates/.gitattributes:1 * -text preserves template bytes in Git; not a generated project file"
       ],
       "windowsEvidence": [],
       "windowsStatus": "indirect-core",
       "gapStage": "M8",
-      "gapDetail": "模板字节稳定性标记（* -text），经 plan.rs 递归读取被 Core golden 测试消费；Windows 归档解压/模板生成接入属 M8。"
+      "gapDetail": "Git 模板字节策略（* -text），不属于 files 步骤生成产物；Windows 未单独验证跨检出模板字节稳定性，保留 M8/M10 验收缺口。"
     },
     {
       "path": "project-generator-templates/app/README.md",
@@ -443,10 +443,12 @@
       "coreEvidence": [
         "rust/lithe-core/src/tests/project_generators.rs:65 golden_project_plans_match (plan.rs collect_files walks the templates directory)"
       ],
-      "windowsEvidence": [],
+      "windowsEvidence": [
+        "windows/tauri/src-tauri/src/plugin_host/project_generators/tests.rs"
+      ],
       "windowsStatus": "indirect-core",
       "gapStage": "M8",
-      "gapDetail": "files 步骤模板，经 plan.rs 递归读取被 Core golden 测试消费；Windows 生成链路接入属 M8。"
+      "gapDetail": "Windows 宿主测试通过 fixture 默认 app 计划调用真实 Core 并生成/检查 README.md、.gitignore；模板逐字节 golden 仍由 Core 拥有。projectGenerators 门控关闭，真实安装包向导及创建后构建闭环待 M8/M10。"
     },
     {
       "path": "project-generator-templates/app/dot-gitignore",
@@ -455,10 +457,12 @@
       "coreEvidence": [
         "rust/lithe-core/src/tests/project_generators.rs:65 golden_project_plans_match (plan.rs collect_files walks the templates directory)"
       ],
-      "windowsEvidence": [],
+      "windowsEvidence": [
+        "windows/tauri/src-tauri/src/plugin_host/project_generators/tests.rs"
+      ],
       "windowsStatus": "indirect-core",
       "gapStage": "M8",
-      "gapDetail": "files 步骤模板（dot-gitignore 命名规避 git 忽略），经 plan.rs 递归读取被 Core golden 测试消费；Windows 生成链路接入属 M8。"
+      "gapDetail": "Windows 宿主测试通过 fixture 默认 app 计划调用真实 Core 并生成/检查 README.md、.gitignore；模板逐字节 golden 仍由 Core 拥有。projectGenerators 门控关闭，真实安装包向导及创建后构建闭环待 M8/M10。"
     },
     {
       "path": "project-generator-templates/main/Main.java",
@@ -470,7 +474,7 @@
       "windowsEvidence": [],
       "windowsStatus": "indirect-core",
       "gapStage": "M8",
-      "gapDetail": "files 步骤模板（Main.java 带条件占位符），经 plan.rs 递归读取被 Core golden 测试消费；Windows 生成链路接入属 M8。"
+      "gapDetail": "条件模板由 Core golden 测试验证；现有 Windows 宿主默认 app 计划未激活 buildSystem=maven 且 sample=true 的 main 分支，仍缺该产物的宿主验证（M8/M10）。"
     },
     {
       "path": "project-generator.plugin.json",
@@ -483,10 +487,14 @@
         "rust/lithe-core/src/tests/project_generators.rs:327 project_generators_need_api_level_3",
         "rust/lithe-core/src/tests/project_generators.rs:339 generator_commands_require_install_review_again"
       ],
-      "windowsEvidence": [],
-      "windowsStatus": "unwired",
+      "windowsEvidence": [
+        "windows/tauri/src-tauri/src/plugin_host/project_generators/tests.rs",
+        "windows/tauri/src-tauri/src/plugin_host/project_generators/archive.rs",
+        "windows/tauri/src/features/project-generators/generation-session.test.ts"
+      ],
+      "windowsStatus": "indirect-core",
       "gapStage": "M8",
-      "gapDetail": "Windows 侧零引用；新建项目窗口、生成计划与 staging 清理未接入。"
+      "gapDetail": "R9 已通过真实 Core 表单/计划、files/command/archive 事务、取消与原目录清理回归。projectGenerators 门控仍关闭；需求插件启用/市场跳转、segmented 字段及真实安装包向导闭环仍待 M8/M10，不把内部测试记为完整 fixture 产品验收。"
     },
     {
       "path": "project-plans.json",
@@ -495,10 +503,12 @@
       "coreEvidence": [
         "rust/lithe-core/src/tests/project_generators.rs:65 golden_project_plans_match"
       ],
-      "windowsEvidence": [],
+      "windowsEvidence": [
+        "windows/tauri/src-tauri/src/plugin_host/project_generators/tests.rs"
+      ],
       "windowsStatus": "indirect-core",
       "gapStage": "M8",
-      "gapDetail": "Windows 经 Core 命令消费生成计划；宿主生成协调器与失败清理测试属 M8。"
+      "gapDetail": "Windows 宿主回归调用与此 golden 相同的 Core 计划命令并执行默认 app 产物，但未读取/逐 case 比对此 JSON；完整 golden 仍由 Core 测试消费。其余生成分支与真实安装包闭环待 M8/M10。"
     },
     {
       "path": "runtime-versions.json",
@@ -523,11 +533,14 @@
       ],
       "windowsEvidence": [
         "windows/tauri/src-tauri/src/plugin_host/tests.rs:112 valid_fixtures_validate_without_host_capabilities",
-        "windows/tauri/src-tauri/src/plugin_host/tests.rs:128 host_v0_capabilities_gate_unimplemented_sections"
+        "windows/tauri/src-tauri/src/plugin_host/tests.rs:128 host_v0_capabilities_gate_unimplemented_sections",
+        "windows/tauri/src-tauri/src/plugin_host/settings/snapshot/tests.rs",
+        "windows/tauri/src/features/plugins/declarative-settings-session.test.ts",
+        "windows/tauri/src/features/plugins/declarative-plugin-reload.test.ts"
       ],
-      "windowsStatus": "validated-only",
-      "gapStage": "M4",
-      "gapDetail": "settings 2/languageServers 2 已在宿主能力声明内，但该 fixture 同时 requires buildSystems/buildProviders，v0 宿主因此整体门控（tests.rs:149 的注释把门控原因写成'settings 2 与 languageServers 2 未声明'，与 host_capabilities 实际声明不符，属过时注释）。注册设置页、settingActions 与分层覆盖的宿主行为测试缺 settings-v2 fixture 级覆盖（M4/M6 补齐；现有覆盖走声明式设置编辑器与 settings_tests）。"
+      "windowsStatus": "indirect-core",
+      "gapStage": "M6",
+      "gapDetail": "真实 fixture 用于 scope/value 校验；分层存储、CAS 保存和 global reload 另有通用状态/存储回归，并非此完整 fixture 的端到端链路。该包 requires buildSystems/buildProviders，正式安装仍受门控；settingActions、project scoped reload 与该完整包实机验收待 M6/M10。"
     },
     {
       "path": "signature-vectors.json",
@@ -551,10 +564,14 @@
         "rust/lithe-core/src/tests/vcs.rs:147 a_launch_plan_names_the_vcs_provider_it_starts",
         "rust/lithe-core/src/tests/vcs.rs:196 root_detection_matches_the_contract_cases"
       ],
-      "windowsEvidence": [],
-      "windowsStatus": "unwired",
+      "windowsEvidence": [
+        "windows/tauri/src-tauri/src/plugin_host/vcs_tests.rs",
+        "windows/tauri/src-tauri/src/plugin_host/vcs_status_tests.rs",
+        "windows/tauri/src-tauri/src/plugin_host/vcs_session_tests.rs"
+      ],
+      "windowsStatus": "indirect-core",
       "gapStage": "M9",
-      "gapDetail": "Windows 侧零引用；VCS Provider 会话、根识别与宿主入口未接入。macOS 宿主已声明 vcsProviders:[1]（PluginTypes.swift:502）且矩阵 vcs-subversion-and-plugin-providers 记 macOS partial/验证 pending（VcsProviderHostTests 覆盖根识别、监听与生命周期自动化）；对齐 macOS 已有子能力属 M9。"
+      "gapDetail": "R9 已使用真实 fixture 验证根检测、Core 归属/解码及宿主只读 status 投影；独立短会话、协商事件、取消与迟到启动/销毁清理有受控 runtime 回归。vcsProviders 门控仍关闭；真实安装 Provider/客户端/进程树闭环、映射/监控与后续写操作待 M9/M10。"
     },
     {
       "path": "web-panel.plugin.json",

@@ -329,16 +329,18 @@ struct GenericDebugView: View {
         let title: String
         switch action {
         case .restartOrStart:
-            title = feature.isSessionActive ? "Rerun" : feature.canRetry ? "Retry debugging" : "Start debugging"
-        case .stop: title = "Stop debugging"
-        case .resume: title = "Resume"
-        case .pause: title = "Pause"
-        case .stepOver: title = "Step over"
-        case .stepInto: title = "Step into"
-        case .stepOut: title = "Step out"
-        case .viewBreakpoints: title = "View breakpoints"
+            title = L10n.string(
+                feature.isSessionActive ? "Rerun" : feature.canRetry ? "Retry debugging" : "Start debugging"
+            )
+        case .stop: title = L10n.string("Stop debugging")
+        case .resume: title = L10n.string("Resume")
+        case .pause: title = L10n.string("Pause")
+        case .stepOver: title = L10n.string("Step over")
+        case .stepInto: title = L10n.string("Step into")
+        case .stepOut: title = L10n.string("Step out")
+        case .viewBreakpoints: title = L10n.string("View breakpoints")
         case .muteBreakpoints:
-            title = feature.areBreakpointsMuted ? "Enable breakpoints" : "Mute breakpoints"
+            title = L10n.string(feature.areBreakpointsMuted ? "Enable breakpoints" : "Mute breakpoints")
         }
         guard let commandID = debugToolbarCommandID(for: action),
               let shortcut = model.keyboardShortcutFeature.displayText(for: commandID),
@@ -658,11 +660,11 @@ struct GenericDebugView: View {
                     Text(thread.name)
                         .lineLimit(1)
                         .truncationMode(.middle)
-                    Text(feature.state == .paused ? "Paused" : feature.state.title)
+                    Text(feature.state.title)
                         .font(LitheTheme.uiFont(size: 13))
                         .foregroundStyle(LitheTheme.secondaryText)
                 } else {
-                    Text(feature.threads.isEmpty ? "Load threads" : "Select thread")
+                    Text(feature.threads.isEmpty ? LocalizedStringKey("Load threads") : LocalizedStringKey("Select thread"))
                 }
                 LitheIDEAIcon(resourcePath: "expui/general/chevronDown.svg", size: 16,
                               preservesOriginalColors: true)
@@ -887,7 +889,7 @@ struct GenericDebugView: View {
                             .font(LitheTheme.uiFont(size: 13, design: .monospaced))
                             .lineLimit(2)
                         } else {
-                            Text(feature.state == .paused ? "Evaluating…" : "Not available")
+                            Text(feature.state == .paused ? LocalizedStringKey("Evaluating…") : LocalizedStringKey("Not available"))
                                 .font(LitheTheme.uiFont(size: 13))
                                 .foregroundStyle(LitheTheme.secondaryText)
                         }
@@ -956,8 +958,8 @@ struct GenericDebugView: View {
                               size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true)
             }
             .litheToolbarIconButton()
-            .help(showsVariableJSON ? "Show as tree" : "Show as JSON")
-            .accessibilityLabel(showsVariableJSON ? "Show as tree" : "Show as JSON")
+            .help(showsVariableJSON ? LocalizedStringKey("Show as tree") : LocalizedStringKey("Show as JSON"))
+            .accessibilityLabel(showsVariableJSON ? LocalizedStringKey("Show as tree") : LocalizedStringKey("Show as JSON"))
             .accessibilityIdentifier("debug-variable-view-toggle")
         }
         .padding(.horizontal, 10)
@@ -1014,7 +1016,7 @@ struct GenericDebugView: View {
                             .font(LitheTheme.uiFont(size: 8))
                             .foregroundStyle(LitheTheme.secondaryText)
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(cause.fullTypeName ?? cause.typeName ?? "Nested exception")
+                            Text(cause.fullTypeName ?? cause.typeName ?? L10n.string("Nested exception"))
                                 .font(LitheTheme.uiFont(size: 13, weight: .medium, design: .monospaced))
                             if let message = cause.message, !message.isEmpty {
                                 Text(message)
@@ -1045,10 +1047,10 @@ struct GenericDebugView: View {
 
     private func exceptionBreakModeTitle(_ breakMode: String) -> String {
         switch breakMode {
-        case "always": "Always break"
-        case "unhandled": "Unhandled"
-        case "userUnhandled": "User-unhandled"
-        case "never": "Never break"
+        case "always": L10n.string("Always break")
+        case "unhandled": L10n.string("Unhandled")
+        case "userUnhandled": L10n.string("User-unhandled")
+        case "never": L10n.string("Never break")
         default: breakMode
         }
     }
@@ -1142,26 +1144,42 @@ struct GenericDebugView: View {
             }
             DebugConsoleWithPerformance(feature: model.debugPerformanceFeature,
                 isExpanded: $performanceExpanded, width: $performanceWidth) {
-            DebugConsoleOutputView(
-                presentation: feature.outputPresentation,
-                consolePresentation: consolePresentation,
-                wrapsLines: $consoleWrapsLines,
-                onClearOutput: feature.clearOutput,
-                standardInputSessionID: feature.activeSessionID?.rawValue,
-                onSubmitStandardInput: feature.isSessionActive && model.isDebugStandardInputAvailable
-                    ? { model.sendDebugStandardInput($0) } : nil,
-                searchRoots: model.runFeatureIfActive?.sourceSearchRoots
-                    ?? model.workspaceURL.map { [$0] }
-                    ?? [],
-                fileExists: { model.fileExists(at: $0) },
-                onOpenLocation: { url, line, column in
-                    model.openSourceLocation(url: url, line: line, column: column)
-                }
-            )
+                debugConsolePane
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .litheWorkbenchSurface(LitheTheme.editor)
+    }
+
+    private var debugConsolePane: some View {
+        DebugConsolePane(
+            feature: feature,
+            fontSize: consolePresentation.fontSize,
+            onSubmitRejected: { model.showNotification("Pause the program to run debugger commands") },
+            output: { debugConsoleOutput }
+        )
+    }
+
+    private var debugConsoleOutput: some View {
+        let standardInput: ((String) -> Bool)? = feature.isSessionActive && model.isDebugStandardInputAvailable
+            ? { model.sendDebugStandardInput($0) }
+            : nil
+        let searchRoots: [URL] = model.runFeatureIfActive?.sourceSearchRoots
+            ?? model.workspaceURL.map { [$0] }
+            ?? []
+        return DebugConsoleOutputView(
+            presentation: feature.outputPresentation,
+            consolePresentation: consolePresentation,
+            wrapsLines: $consoleWrapsLines,
+            onClearOutput: feature.clearOutput,
+            standardInputSessionID: feature.activeSessionID?.rawValue,
+            onSubmitStandardInput: standardInput,
+            searchRoots: searchRoots,
+            fileExists: { model.fileExists(at: $0) },
+            onOpenLocation: { url, line, column in
+                model.openSourceLocation(url: url, line: line, column: column)
+            }
+        )
     }
 
     private var debugConsoleStatus: some View {
@@ -1311,7 +1329,7 @@ struct GenericDebugView: View {
                         preservesOriginalColors: true
                     )
                 }
-                Text(isLoading ? "Loading…" : "Load \(nextCount) more")
+                Text(isLoading ? LocalizedStringKey("Loading…") : LocalizedStringKey("Load \(nextCount) more"))
                     .font(LitheTheme.smallFont)
                 if let remainingCount, !isLoading {
                     Text("\(remainingCount) remaining")
@@ -1328,7 +1346,7 @@ struct GenericDebugView: View {
         }
         .buttonStyle(.litheNoPress)
         .disabled(isLoading)
-        .accessibilityLabel(isLoading ? "Loading debugger variables" : "Load more debugger variables")
+        .accessibilityLabel(isLoading ? LocalizedStringKey("Loading debugger variables") : LocalizedStringKey("Load more debugger variables"))
     }
 
     private var divider: some View {
@@ -1597,8 +1615,8 @@ struct DebugBreakpointManagerView: View {
                 }
             }
             .buttonStyle(.litheNoPress)
-            .help(breakpoint.enabled ? "Disable breakpoint" : "Enable breakpoint")
-            .accessibilityLabel(breakpoint.enabled ? "Disable breakpoint" : "Enable breakpoint")
+            .help(breakpoint.enabled ? LocalizedStringKey("Disable breakpoint") : LocalizedStringKey("Enable breakpoint"))
+            .accessibilityLabel(breakpoint.enabled ? LocalizedStringKey("Disable breakpoint") : LocalizedStringKey("Enable breakpoint"))
             Button {
                 model.openSourceLocation(
                     url: breakpoint.fileURL,
@@ -1870,13 +1888,28 @@ struct DebugBreakpointManagerView: View {
             ?? L10n.string(breakpoint.verified ? "Verified" : "Pending verification")
     }
 
+    /// The DAP access type as a label; types this host does not know stay as the adapter sent them.
+    private func dataBreakpointAccessTitle(_ accessType: String?) -> String {
+        switch accessType {
+        case nil: L10n.string("Access")
+        case "read": L10n.string("Read")
+        case "write": L10n.string("Write")
+        case "readWrite": L10n.string("Read/Write")
+        case let other?: other
+        }
+    }
+
     private func dataBreakpointDetail(_ breakpoint: GenericDebugDataBreakpoint) -> String {
-        var parts = [breakpoint.accessType ?? "access"]
-        if let condition = breakpoint.condition { parts.append("if \(condition)") }
-        if let hitCondition = breakpoint.hitCondition { parts.append("hit \(hitCondition)") }
+        var parts = [dataBreakpointAccessTitle(breakpoint.accessType)]
+        if let condition = breakpoint.condition {
+            parts.append(String(format: L10n.string("If: %@"), condition))
+        }
+        if let hitCondition = breakpoint.hitCondition {
+            parts.append(String(format: L10n.string("Hit: %@"), hitCondition))
+        }
         if let message = breakpoint.message { parts.append(message) }
         if breakpoint.message == nil {
-            parts.append(breakpoint.verified ? "verified" : "pending verification")
+            parts.append(L10n.string(breakpoint.verified ? "Verified" : "Pending verification"))
         }
         return parts.joined(separator: " · ")
     }
@@ -2111,7 +2144,7 @@ private struct FunctionBreakpointEditorView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text(breakpoint == nil ? "Add Method Breakpoint" : "Edit Method Breakpoint")
+                Text(breakpoint == nil ? LocalizedStringKey("Add Method Breakpoint") : LocalizedStringKey("Edit Method Breakpoint"))
                     .font(LitheTheme.uiFont(size: 14, weight: .semibold))
                 Spacer()
                 Toggle("Enabled", isOn: $enabled)
@@ -2145,7 +2178,7 @@ private struct FunctionBreakpointEditorView: View {
         .litheWorkbenchSurface(LitheTheme.editor)
     }
 
-    private func functionEditorRow(_ title: String, text: Binding<String>) -> some View {
+    private func functionEditorRow(_ title: LocalizedStringKey, text: Binding<String>) -> some View {
         GridRow {
             Text(title)
                 .font(LitheTheme.uiFont(size: 11))
@@ -2197,7 +2230,7 @@ private struct ExceptionBreakpointEditorView: View {
                     .toggleStyle(.checkbox)
             }
             TextField(
-                breakpoint.conditionDescription ?? "Exception condition",
+                breakpoint.conditionDescription ?? L10n.string("Exception condition"),
                 text: $condition
             )
             .textFieldStyle(.roundedBorder)
@@ -2311,7 +2344,7 @@ struct BreakpointEditorView: View {
     }
 
     private func editorRow(
-        _ title: String,
+        _ title: LocalizedStringKey,
         text: Binding<String>,
         isSupported: Bool,
         help: String
@@ -2325,7 +2358,7 @@ struct BreakpointEditorView: View {
                 .font(LitheTheme.uiFont(size: 11, design: .monospaced))
                 .frame(minWidth: 300)
                 .disabled(!isSupported)
-                .help(isSupported ? title : help)
+                .help(isSupported ? Text(title) : Text(verbatim: help))
         }
         .opacity(isSupported ? 1 : 0.55)
     }
@@ -2411,7 +2444,7 @@ private struct DataBreakpointEditorView: View {
         .litheWorkbenchSurface(LitheTheme.editor)
     }
 
-    private func dataEditorRow(_ title: String, text: Binding<String>) -> some View {
+    private func dataEditorRow(_ title: LocalizedStringKey, text: Binding<String>) -> some View {
         GridRow {
             Text(title)
                 .font(LitheTheme.uiFont(size: 11))
@@ -2445,7 +2478,7 @@ private struct DebugConsoleOutputView: View {
             output: presentation.text,
             searchRoots: searchRoots,
             fileExists: fileExists,
-            emptyMessage: onSubmitStandardInput == nil ? "Waiting for Debug Adapter output…" : "",
+            emptyMessage: L10n.string("Waiting for Debug Adapter output…"),
             wrapsLines: wrapsLines,
             showsConsoleToolbar: true,
             onClearOutput: onClearOutput,
@@ -2479,7 +2512,7 @@ private struct WatchEditorView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(watch == nil ? "Add Watch" : "Edit Watch")
+            Text(watch == nil ? LocalizedStringKey("Add Watch") : LocalizedStringKey("Edit Watch"))
                 .font(LitheTheme.uiFont(size: 14, weight: .semibold))
             LitheSearchField("Expression", text: $expression, focus: $expressionFocused)
                 .onSubmit { save() }
@@ -2546,16 +2579,17 @@ private struct VariableValueEditorView: View {
 }
 
 private extension DebugAdapterState {
+    /// Shown to the user, so it is localized here rather than by the `Text` that displays it.
     var title: String {
         switch self {
-        case .idle: "Ready"
-        case .initializing: "Initializing Adapter"
-        case .ready: "Adapter Ready"
-        case .launching: "Launching"
-        case .running: "Running"
-        case .paused: "Paused"
-        case .terminated: "Finished"
-        case .failed: "Failed"
+        case .idle: L10n.string("Ready")
+        case .initializing: L10n.string("Initializing Adapter")
+        case .ready: L10n.string("Adapter Ready")
+        case .launching: L10n.string("Launching")
+        case .running: L10n.string("Running")
+        case .paused: L10n.string("Paused")
+        case .terminated: L10n.string("Finished")
+        case .failed: L10n.string("Failed")
         }
     }
 }

@@ -194,6 +194,7 @@ export interface DeclarativeSettingSnapshot {
   globalPath: string;
   projectPath: string | null;
   identity: string;
+  packageIdentity: string;
 }
 export function loadDeclarativeSettingSnapshot(pluginId: string, workspacePath: string) {
   return invoke<DeclarativeSettingSnapshot>("declarative_plugins_setting_snapshot", {
