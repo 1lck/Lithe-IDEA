@@ -51,34 +51,37 @@ struct LanguageIntelligenceModuleCoordinatorTests {
             await session.awaitShutdown()
             await runtime.shutdownAll()
             session.stopObserving()
-        }) { _ in
-            let old = try await coordinator.activate().sessions
-            teardownPending = true
-            session.beginShutdown()
-            try #require(await started.waitUntilOpen())
-            // Keep old capabilities cached while cleanup is suspended, as on
-            // startup. Neither the cache nor the maintenance path may bypass it.
-            request = Task { @MainActor in
-                defer { finished.open() }
-                if maintenance { return try await coordinator.sessionsForMaintenance() }
-                return try await coordinator.activate().sessions
-            }
-            #expect(await joined.waitUntilOpen(), "Language activation bypassed workspace cleanup")
-            #expect(!finished.isOpen)
-            #expect(graphs.count == 1)
-            if cancel { request?.cancel() }
-            release.open()
-            let request = try #require(request)
-            if cancel {
-                await #expect(throws: CancellationError.self) { try await request.value }
+        }) { scope in
+            defer { release.open(); request?.cancel() }
+            try await scope.run("language activation across workspace teardown") {
+                let old = try await coordinator.activate().sessions
+                teardownPending = true
+                session.beginShutdown()
+                try #require(await started.waitUntilOpen())
+                // Keep old capabilities cached while cleanup is suspended, as on
+                // startup. Neither the cache nor the maintenance path may bypass it.
+                request = Task { @MainActor in
+                    defer { finished.open() }
+                    if maintenance { return try await coordinator.sessionsForMaintenance() }
+                    return try await coordinator.activate().sessions
+                }
+                #expect(await joined.waitUntilOpen(), "Language activation bypassed workspace cleanup")
+                #expect(!finished.isOpen)
                 #expect(graphs.count == 1)
-            } else {
-                let current = try await request.value
-                #expect(current !== old)
-                #expect(graphs.count == 2)
-                #expect(graphs[0].stopped)
-                #expect(try #require(graphs.last).stopped == false)
-                #expect(store.capability(.languageIntelligence, as: LanguageIntelligenceCapability.self)?.sessions === current)
+                if cancel { request?.cancel() }
+                release.open()
+                let request = try #require(request)
+                if cancel {
+                    await #expect(throws: CancellationError.self) { try await request.value }
+                    #expect(graphs.count == 1)
+                } else {
+                    let current = try await request.value
+                    #expect(current !== old)
+                    #expect(graphs.count == 2)
+                    #expect(graphs[0].stopped)
+                    #expect(try #require(graphs.last).stopped == false)
+                    #expect(store.capability(.languageIntelligence, as: LanguageIntelligenceCapability.self)?.sessions === current)
+                }
             }
         }
     }
