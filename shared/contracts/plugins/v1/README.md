@@ -1042,12 +1042,25 @@ A manifest below level 4 may not declare `debugAdapters`, and a level 3 manifest
 ### Remote attach
 
 An adapter that attaches to a debuggee on another machine (a JVM started with
-`-agentlib:jdwp`, debugpy behind `--listen`, a Node inspector, gdbserver) is an
+`-agentlib:jdwp`, a Node inspector, gdbserver) is an
 ordinary `attach` adapter whose `targetBindings` carry a `connection`. The
 adapter itself still runs on this machine, stdio or loopback as before; only
-the debuggee is remote. `connection` does not cover an adapter that runs on the
-remote machine (for example `ssh host gdb -i=dap`); that needs path translation
-and a user-supplied destination and is not declared in this version.
+the debuggee is remote. This is the adapter-to-debuggee endpoint, not the
+IDE-to-adapter DAP endpoint. By default, debugpy `--listen` starts a DAP adapter
+on the target machine: the IDE must connect to that adapter, not start another
+local adapter and merely pass it `connect.host` and `connect.port`.
+
+`connection` does not declare an external DAP endpoint or remote adapter
+execution (for example `ssh host gdb -i=dap`). These require separate host
+integration; this contract and its validation do not establish that support.
+The current transport scope is ordinary TCP connection and lifecycle, reusing
+the existing socket implementation and retaining stdio. It does not add proxy,
+tunnel, port-forwarding or SSH execution settings, or relax the loopback rule
+for language-server-provided DAP endpoints. Adapter-native source mapping should
+be reused where applicable, without translating the same path pair again in Core.
+
+The following illustrates nested argument binding and mapping shape, not a
+complete debugpy `--listen` connection configuration:
 
 ```json
 "configurations": {
@@ -1067,8 +1080,8 @@ and a user-supplied destination and is not declared in this version.
 
 - The values of `connection` are paths into the adapter's `arguments`, because
   adapters name and nest them differently: java-debug takes `hostName` and
-  `port`, debugpy `connect.host` and `connect.port`, js-debug `address` and
-  `port`, gdb one `host:port` string. A path is 1–4 dot-separated names of
+  `port`, nested arguments may use `connect.host` and `connect.port`, js-debug
+  `address` and `port`, gdb one `host:port` string. A path is 1–4 dot-separated names of
   letters, digits, `_`, and `-` (up to 64 characters each) and Core creates the
   intermediate objects.
 - `host` and `port` are declared together. `address` takes the endpoint as one
