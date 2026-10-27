@@ -52,7 +52,7 @@ public struct GenericDebugInstructionBreakpoint: Identifiable, Equatable, Sendab
     }
 }
 
-/// One page of debuggee bytes. Lines are labelled with their byte offset from `address`
+/// One page of debuggee bytes. Lines are labelled with their byte offset from `reference`
 /// so the host does not do address arithmetic.
 public struct GenericDebugMemoryDump: Equatable, Sendable {
     public static let pageSize = 256
@@ -243,8 +243,7 @@ public final class GenericDebugDisassemblyModel: ObservableObject {
 
     /// The debuggee resumed or the stack was thrown away, so every address is stale.
     public func invalidate() {
-        disassemblyGeneration &+= 1
-        memoryGeneration &+= 1
+        suspendRequests()
         currentAddress = nil
         rows = []
         isLoading = false
@@ -252,6 +251,15 @@ public final class GenericDebugDisassemblyModel: ObservableObject {
         memory = nil
         memoryChangedIndices = []
         memoryFailure = nil
+        isLoadingMemory = false
+    }
+
+    /// Retires callbacks before the session cancels operations synchronously. A step keeps
+    /// the displayed bytes and instructions, but no response may mutate the previous stop.
+    public func suspendRequests() {
+        disassemblyGeneration &+= 1
+        memoryGeneration &+= 1
+        isLoading = false
         isLoadingMemory = false
     }
 
@@ -289,6 +297,7 @@ public final class GenericDebugDisassemblyModel: ObservableObject {
         loadFailure = nil
         request(
             session: session,
+            generation: token,
             reference: anchor,
             offset: -Self.instructionsBefore,
             count: Self.initialInstructionCount,
@@ -316,6 +325,7 @@ public final class GenericDebugDisassemblyModel: ObservableObject {
         loadFailure = nil
         request(
             session: session,
+            generation: token,
             reference: edge.address,
             offset: direction == .before ? -Self.pageInstructionCount : 1,
             count: Self.pageInstructionCount,
@@ -337,6 +347,7 @@ public final class GenericDebugDisassemblyModel: ObservableObject {
     /// at the instruction pointer instead of failing the whole view.
     private func request(
         session: any DebugAdapterControllingSession,
+        generation: Int,
         reference: String,
         offset: Int,
         count: Int,
@@ -349,13 +360,15 @@ public final class GenericDebugDisassemblyModel: ObservableObject {
             instructionOffset: offset,
             instructionCount: count
         ) { [weak self] result in
+            guard let self, self.disassemblyGeneration == generation else { return }
             switch result {
             case .success(let instructions):
                 onSuccess(instructions)
             case .failure(let error):
-                if retriesForward, offset < 0, let self {
+                if retriesForward, offset < 0 {
                     self.request(
                         session: session,
+                        generation: generation,
                         reference: reference,
                         offset: 0,
                         count: count,

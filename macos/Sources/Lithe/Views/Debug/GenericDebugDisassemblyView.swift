@@ -68,8 +68,7 @@ struct GenericDebugDisassemblyView: View {
     }
 
     private var characterWidth: CGFloat {
-        NSFont(name: "JetBrainsMono-Regular", size: Self.fontSize)?.maximumAdvancement.width
-            ?? Self.fontSize * 0.6
+        LitheTheme.editorFont(size: Self.fontSize).maximumAdvancement.width
     }
 
     var body: some View {
@@ -329,8 +328,7 @@ struct GenericDebugMemoryView: View {
 
     private var inputRow: some View {
         HStack(spacing: 7) {
-            TextField("Address or expression", text: $input)
-                .textFieldStyle(.plain)
+            LitheTextField("Address or expression", text: $input)
                 .font(LitheTheme.uiFont(size: 12, design: .monospaced))
                 .onSubmit { disassembly.readMemory(from: input) }
                 .accessibilityLabel("Memory address or expression")
@@ -544,11 +542,11 @@ struct GenericDebugMemoryView: View {
         }
     }
 
-    /// The address the offsets count from, kept outside the scrolling rows so it can never
+    /// The reference the offsets count from, kept outside the scrolling rows so it can never
     /// cover the first one, and a count of the bytes that moved since the last stop.
     private func baseStrip(_ memory: GenericDebugMemoryDump, changedCount: Int) -> some View {
         HStack(spacing: 10) {
-            Text("Offsets relative to \(memory.address)")
+            Text("Offsets relative to \(memory.reference)")
                 .foregroundStyle(LitheTheme.Tree.secondaryText)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -674,7 +672,7 @@ struct GenericDebugMemoryView: View {
     private static let rowHeight: CGFloat = 20
 
     private static var characterWidth: CGFloat {
-        NSFont(name: "JetBrainsMono-Regular", size: 12)?.maximumAdvancement.width ?? 7.2
+        LitheTheme.editorFont(size: 12).maximumAdvancement.width
     }
 
     /// `+0x0010` relative to the address that was asked for; the host never adds to an address.

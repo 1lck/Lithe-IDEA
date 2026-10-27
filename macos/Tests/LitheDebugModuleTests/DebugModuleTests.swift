@@ -4137,6 +4137,72 @@ struct DebugModuleTests {
     }
 
     @Test
+    func thePreviousTreeStaysReadOnlyBeforeTheNewScopesArrive() async throws {
+        let session = DeferredInspectionDebugSession()
+        let (feature, point) = makeSteppableStop(session: session, rootPath: "/tmp/debug-step-scope-gap")
+        defer { feature.stop() }
+        let requestsBefore = session.variableReferences.count
+
+        feature.execute(.next)
+        session.transition(to: .running)
+        landStep(session)
+        #expect(feature.isRefreshingVariables)
+        feature.toggleVariableExpansion(point)
+        feature.loadMoreVariables(parentVariableID: nil)
+        #expect(feature.isVariableExpanded(point))
+        #expect(session.variableReferences.count == requestsBefore)
+        await #expect(throws: CancellationError.self) {
+            _ = try await feature.variableJSONSnapshot()
+        }
+
+        session.completeThreads(at: 0, with: [DebugThread(id: 1, name: "main")])
+        session.completeStackTrace(at: 1, with: [DebugStackFrame(
+            id: 80, name: "main", sourceURL: nil, line: 0, column: 0
+        )])
+        feature.toggleVariableExpansion(point)
+        #expect(feature.isVariableExpanded(point))
+        #expect(session.variableReferences.count == requestsBefore)
+    }
+
+    @Test
+    func cancellingInspectionForAStepKeepsMemoryAndDoesNotRetryOldDisassembly() throws {
+        let session = DeferredInspectionDebugSession(capabilities: Self.disassemblyCapabilities)
+        let (feature, _) = makeSourcelessStop(session: session, rootPath: "/tmp/debug-step-cancel-inspection")
+        defer { feature.stop() }
+        feature.disassembly.readMemory(reference: "0x1000", pageOffset: 0)
+        session.completeMemory(at: 0, with: .success(DebugMemoryRead(
+            address: "0x1000", unreadableBytes: 0, data: Data([1, 2, 3])
+        )))
+        feature.disassembly.readMemory(reference: "0x1000", pageOffset: 0)
+        session.onCancelPendingOperations = {
+            session.completeDisassembly(at: 0, with: .failure(DebugAdapterProtocolError.cancelled("disassemble")))
+            session.completeMemory(at: 1, with: .failure(DebugAdapterProtocolError.cancelled("readMemory")))
+        }
+
+        feature.execute(.next)
+        session.transition(to: .running)
+        #expect(session.disassemblyOffsets.count == 1, "Cancellation must not retry the previous stop's request")
+        #expect(feature.disassembly.loadFailure == nil)
+        #expect(feature.disassembly.memoryFailure == nil)
+        #expect(feature.disassembly.memory?.data == Data([1, 2, 3]))
+        #expect(!feature.disassembly.isLoading)
+        #expect(!feature.disassembly.isLoadingMemory)
+    }
+
+    @Test
+    func aLateDisassemblyFailureCannotRetryInAnotherSession() throws {
+        let session = DeferredInspectionDebugSession(capabilities: Self.disassemblyCapabilities)
+        let (feature, _) = makeSourcelessStop(session: session, rootPath: "/tmp/debug-disassembly-late-failure")
+        defer { feature.stop() }
+
+        feature.disassembly.activate(sessionID: DebugSessionID())
+        session.completeDisassembly(at: 0, with: .failure(DebugAdapterProtocolError.cancelled("disassemble")))
+        #expect(session.disassemblyOffsets.count == 1)
+        #expect(feature.disassembly.rows.isEmpty)
+        #expect(feature.disassembly.loadFailure == nil)
+    }
+
+    @Test
     func continuingStillClearsTheStoppedInspection() throws {
         let session = DeferredInspectionDebugSession()
         let (feature, _) = makeSteppableStop(session: session, rootPath: "/tmp/debug-step-continue")
@@ -4168,6 +4234,28 @@ struct DebugModuleTests {
         #expect(!feature.isRefreshingVariables)
         #expect(feature.stackFrames.isEmpty)
         #expect(feature.presentedVariables.isEmpty)
+    }
+
+    @Test
+    func failingWhileSteppingClearsTheRetainedInspectionAndLateReplies() throws {
+        let session = DeferredInspectionDebugSession(capabilities: Self.disassemblyCapabilities)
+        let (feature, _) = makeSourcelessStop(session: session, rootPath: "/tmp/debug-step-failure")
+        defer { feature.stop() }
+        session.completeDisassembly(at: 0, with: .success([instruction("0x19b5f2a4c", "nop")]))
+        feature.disassembly.readMemory(reference: "0x1000", pageOffset: 0)
+        session.completeMemory(at: 0, with: .success(DebugMemoryRead(
+            address: "0x1000", unreadableBytes: 0, data: Data([1, 2, 3])
+        )))
+        feature.execute(.next)
+        session.transition(to: .running)
+        session.fail()
+        session.completeDisassembly(at: 0, with: .success([instruction("0x19b5f2a4c", "nop")]))
+        #expect(feature.state == .failed)
+        #expect(feature.stackFrames.isEmpty)
+        #expect(feature.selectedFrameID == nil)
+        #expect(feature.disassembly.rows.isEmpty)
+        #expect(feature.disassembly.memory == nil)
+        #expect(!feature.isRefreshingVariables)
     }
 
     @Test
@@ -4862,7 +4950,12 @@ private final class DeferredInspectionDebugSession: DebugAdapterControllingSessi
 
     // This double deliberately delivers responses after cancellation to model
     // adapters and callback queues that cannot retract an already-sent result.
-    func cancelPendingOperations() {}
+    var onCancelPendingOperations: (() -> Void)?
+    func cancelPendingOperations() {
+        let callback = onCancelPendingOperations
+        onCancelPendingOperations = nil
+        callback?()
+    }
 
     func emit(_ event: DebugAdapterEvent) {
         onEvent?(event)

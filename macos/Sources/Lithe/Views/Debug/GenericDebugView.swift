@@ -519,8 +519,12 @@ struct GenericDebugView: View {
                 dividerColor: LitheTheme.toolWindowBorder(for: colorScheme),
                 onCommit: { inspectorWidth = $0 }) {
                 executionInspector
+                    .disabled(feature.isInspectionStale || feature.isRefreshingVariables)
+                    .opacity(feature.isInspectionStale || feature.isRefreshingVariables ? 0.6 : 1)
             } flexible: {
                 data
+                    .disabled(feature.isInspectionStale || feature.isRefreshingVariables)
+                    .opacity(feature.isInspectionStale || feature.isRefreshingVariables ? 0.6 : 1)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

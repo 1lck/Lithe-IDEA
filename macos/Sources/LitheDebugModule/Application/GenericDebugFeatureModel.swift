@@ -505,8 +505,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
                     self.suspendOrClearStoppedInspection()
                 }
                 if state == .terminated || state == .failed {
-                    self.retainsInspectionForStep = false
-                    self.staleVariables = nil
+                    self.clearStoppedInspection()
                     self.outputPresentation.flush()
                 }
                 self.saveActiveSessionSnapshot()
@@ -2034,6 +2033,9 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             clearStoppedInspection()
             return
         }
+        // Freeze at resume, not when scopes arrive: old references must stay read-only
+        // throughout the threads -> stack -> scopes refresh, including its paused interval.
+        if staleVariables == nil { staleVariables = captureVariableTree() }
         // Answers still in flight belong to the stop being left and must not land in the new one.
         invalidateInspectionRequests()
         if !loadingVariablePageIDs.isEmpty { loadingVariablePageIDs = [] }
@@ -2211,10 +2213,11 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         case .stopped(let reason, let threadID, let description):
             outputPresentation.flush()
             isExecutionRequestPending = false
-            let generation = beginInspectionTransition()
             // A step lands a few instructions or lines away, so the panels keep the previous
             // stop and are replaced in place as each answer arrives instead of blanking first.
             let preserving = canRetainInspection
+            if preserving, staleVariables == nil { staleVariables = captureVariableTree() }
+            let generation = beginInspectionTransition()
             if let threadID {
                 stoppedThreadIDs.insert(threadID)
             } else {
@@ -2394,6 +2397,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
 
     private func beginInspectionTransition() -> Int {
         inspectionGeneration &+= 1
+        disassembly.suspendRequests()
         activeSession?.cancelPendingOperations()
         return inspectionGeneration
     }
