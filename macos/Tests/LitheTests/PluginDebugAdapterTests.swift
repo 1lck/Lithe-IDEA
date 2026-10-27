@@ -1,6 +1,9 @@
 import Foundation
+import LitheApplicationKernel
 import LitheCoreContracts
 import LitheDebugModule
+import LitheLanguageIntelligenceModule
+import LitheModuleAPI
 import Testing
 @testable import Lithe
 
@@ -203,6 +206,63 @@ struct PluginDebugAdapterTests {
 
     // MARK: - Language server hosted transport
 
+    @Test(arguments: [false, true], [false, true])
+    func aHostedAdapterActivatesItsLanguageModuleWithoutAnOpenDocument(disabled: Bool, foreign: Bool) async throws {
+        let pluginID = "dev.example.debugger"
+        let languageID = "example"
+        let runtime = ModuleRuntime()
+        let factory = HostedLanguageRuntimeFactory()
+        let sessions = LanguageToolingSessionManager(runtimeFactory: factory)
+        let support = LanguageSupportDeclaration(
+            id: languageID, displayName: "Example", fileExtensions: ["ex"],
+            languageServerModuleID: .languageServerExtension(languageID)
+        )
+        let manifest = ModuleManifest(
+            id: .languageServerExtension(languageID), displayName: "Example", scope: .workspace,
+            providedCapabilities: [.languageServerExtension(languageID)]
+        )
+        let configuration = LanguageServerExtensionConfiguration(
+            languageID: languageID, displayName: "Example", executableNames: ["example-ls"],
+            languageIdentifier: languageID,
+            launchSource: .init(
+                pluginID: foreign ? "dev.example.other" : pluginID, languageID: languageID,
+                manifest: Data(), packageURL: URL(fileURLWithPath: "/plugins/example")
+            )
+        )
+        try runtime.register(ModuleFactory(manifest: manifest) {
+            BundledLanguageServerModule(manifest: manifest, configuration: configuration)
+        }, enabled: !disabled)
+        var prepared: [String] = []
+
+        try await WorkbenchTestScope.withCleanup({
+            sessions.stopAllLanguageServers()
+            await runtime.shutdownAll()
+        }) { _ in
+            #expect(sessions.languageServerExtensionDescriptor(languageID: languageID) == nil)
+            let prepare = {
+                try await MacServiceContainer.prepareHostedDebugAdapterLanguageServer(
+                    languageID: languageID, pluginID: pluginID, supports: [support],
+                    runtime: runtime, sessions: sessions,
+                    prepareTools: { prepared.append($0.id) }
+                )
+            }
+            if disabled || foreign {
+                await #expect(throws: LanguageToolingSessionError.languageServerNotOwnedByPlugin(languageID: languageID)) {
+                    try await prepare()
+                }
+                #expect(factory.calls == 0)
+                #expect(prepared.isEmpty)
+            } else {
+                try await prepare()
+                try await prepare()
+                #expect(factory.calls == 1)
+                #expect(prepared == [languageID, languageID])
+                #expect(sessions.languageServerExtensionDescriptor(languageID: languageID)?
+                    .languageServerLaunch?.launchSource?.pluginID == pluginID)
+            }
+        }
+    }
+
     /// The event order is: the transport asks the language module for the port
     /// of the declared command, opens a loopback socket to it, and releases
     /// the bytes queued meanwhile only once that socket is ready.
@@ -291,6 +351,26 @@ struct PluginDebugAdapterTests {
         let unavailable = MacHostedPortDebugAdapterTransport.TransportError.languageIntelligenceUnavailable
         #expect(probe.errorOutput == unavailable.localizedDescription + "\n")
     }
+}
+
+@MainActor
+private final class HostedLanguageRuntimeFactory: LanguageProviderRuntimeFactory {
+    private(set) var calls = 0
+    func makeRuntime(for _: LanguageProviderDescriptor) -> (any LanguageProviderRuntime)? { nil }
+    func makeRuntime(
+        for descriptor: LanguageProviderDescriptor,
+        languageServerLaunch _: LanguageServerLaunchDescriptor,
+        ownerModuleID _: ModuleID
+    ) -> (any LanguageProviderRuntime)? {
+        calls += 1
+        return HostedLanguageRuntime(descriptor: descriptor)
+    }
+}
+
+@MainActor
+private final class HostedLanguageRuntime: LanguageProviderRuntime {
+    let descriptor: LanguageProviderDescriptor
+    init(descriptor: LanguageProviderDescriptor) { self.descriptor = descriptor }
 }
 
 /// What a language server hosted adapter did, in the order it happened.
