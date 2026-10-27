@@ -365,6 +365,7 @@ jobs:
           $runner = ".agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs"
           $suites = @(
             "src/features/plugins/native-ui/native-docking.test.tsx",
+            "src/features/plugins/native-ui/native-main-layout.test.tsx",
             "src/features/plugins/native-ui/native-panel.test.tsx",
             "src/features/plugins/native-ui/native-functions.test.ts",
             "src/features/layout/components/plugin-activity-rail.test.ts",
@@ -373,6 +374,7 @@ jobs:
             "src/features/layout/actions/right-tool-window-actions.test.ts",
             "src/features/layout/utils/sidebar-pane-utils.test.ts",
             "src/features/vcs/vcs-resolve-cleanup.test.ts",
+            "src/features/vcs/vcs-file-operations.test.ts",
             "src/features/vcs/vcs-action-controller.test.ts",
             "src/features/vcs/vcs-actions-panel.test.tsx"
           )

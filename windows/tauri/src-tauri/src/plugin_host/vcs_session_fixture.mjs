@@ -5,9 +5,7 @@ const [receipt, expectedRoot] = process.argv.slice(2);
 let input = Buffer.alloc(0);
 function send(id, result, error) {
   const body = Buffer.from(
-    JSON.stringify(
-      error ? { jsonrpc: "2.0", id, error } : { jsonrpc: "2.0", id, result },
-    ),
+    JSON.stringify(error ? { jsonrpc: "2.0", id, error } : { jsonrpc: "2.0", id, result }),
   );
   process.stdout.write(`Content-Length: ${body.length}\r\n\r\n`);
   process.stdout.write(body);
@@ -29,6 +27,7 @@ function handle({ id, method, params }) {
               rollback: 1,
               conflicts: 1,
               cleanup: 1,
+              fileOperations: 1,
             },
           },
         },
@@ -39,17 +38,23 @@ function handle({ id, method, params }) {
     return send(id, {
       changes: [{ path: "conflict.txt", status: "conflicted" }],
     });
-  if (method === "lithe/vcs/resolve" || method === "lithe/vcs/cleanup") {
+  if (["lithe/vcs/resolve", "lithe/vcs/cleanup", "lithe/vcs/fileOperation"].includes(method)) {
     appendFileSync(receipt, `${JSON.stringify({ method, params })}\n`);
-    const expected = method.endsWith("/resolve")
-      ? ["paths", "root", "tool"]
-      : ["root", "tool"];
+    const fileOperation = method.endsWith("/fileOperation");
+    const expected = fileOperation
+      ? ["kind", "paths", "root", "tool"]
+      : method.endsWith("/resolve")
+        ? ["paths", "root", "tool"]
+        : ["root", "tool"];
     if (
       JSON.stringify(Object.keys(params).sort()) !== JSON.stringify(expected) ||
       params.root.path !== expectedRoot ||
       params.tool !== null ||
-      (method.endsWith("/resolve") &&
-        JSON.stringify(params.paths) !== '["conflict.txt"]')
+      (fileOperation &&
+        (!["add", "delete"].includes(params.kind) ||
+          JSON.stringify(params.paths) !==
+            (params.kind === "add" ? '["new.txt"]' : '["after.txt","before.txt"]'))) ||
+      (method.endsWith("/resolve") && JSON.stringify(params.paths) !== '["conflict.txt"]')
     )
       return send(id, null, {
         code: -32602,
@@ -65,9 +70,7 @@ process.stdin.on("data", (chunk) => {
   while (true) {
     const end = input.indexOf("\r\n\r\n");
     if (end < 0) return;
-    const match = /^Content-Length: (\d+)$/im.exec(
-      input.subarray(0, end).toString(),
-    );
+    const match = /^Content-Length: (\d+)$/im.exec(input.subarray(0, end).toString());
     if (!match) return process.exit(2);
     const length = Number(match[1]);
     if (input.length < end + 4 + length) return;

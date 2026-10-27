@@ -9,7 +9,10 @@ import { parseArguments, run } from "../.agents/skills/write-stable-tests/script
 import { runProcess } from "../.agents/skills/write-stable-tests/scripts/test-timing-lib.mjs";
 
 const REPOSITORY_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const TEST_NAME = "plugin_host::vcs::session::core_tests::real_core_stdio_resolve_and_cleanup_use_only_the_frozen_typed_arguments";
+const TEST_NAME = "plugin_host::vcs::session::core_tests::real_core_stdio_optional_writes_use_only_the_frozen_typed_arguments";
+// Four operations each bound request work to 5s and owner cleanup to 13s.
+// The case watchdog includes those paths plus fixture setup; the suite stays bounded.
+const TEST_BUDGET_MS = 90000;
 
 async function runVcsCoreProcess(request) {
   if (request.args.includes("--list")) {
@@ -47,7 +50,7 @@ async function main() {
   const options = parseArguments([
     "--manifest", path.join(REPOSITORY_ROOT, "windows/tauri/src-tauri/Cargo.toml"),
     "--report", path.join(REPOSITORY_ROOT, ".artifacts/test-stability/windows-plugin-vcs-core.json"),
-    "--test-budget", `${TEST_NAME}=45000`,
+    "--test-budget", `${TEST_NAME}=${TEST_BUDGET_MS}`,
     ...arguments_,
   ]);
   // Keep the shared runner's 20-minute suite/build budgets, report formats,
@@ -58,7 +61,7 @@ async function main() {
     report.tests?.length !== 1 ||
     report.tests[0].name !== TEST_NAME ||
     report.tests[0].status !== "passed" ||
-    report.tests[0].maxMs !== 45000
+    report.tests[0].maxMs !== TEST_BUDGET_MS
   ) {
     throw new Error("The real Core VCS stdio integration must report exactly one passed case; skipped tests do not verify it.");
   }

@@ -9866,7 +9866,11 @@
     "vcs.actions.resolve": "标记为已解决",
     "vcs.actions.cleanup": "清理工作副本",
     "vcs.actions.risk.resolve": "将使用当前已保存内容把列出的冲突文件标记为已解决。继续前请逐一检查文件；此操作会更改工作副本的冲突元数据。",
-    "vcs.actions.risk.cleanup": "这会请求提供方清理显示的整个工作副本，包括状态列表中没有变更的路径。它可能修改工作副本元数据和锁；完成前请勿运行其他版本控制客户端。"
+    "vcs.actions.risk.cleanup": "这会请求提供方清理显示的整个工作副本，包括状态列表中没有变更的路径。它可能修改工作副本元数据和锁；完成前请勿运行其他版本控制客户端。",
+    "vcs.actions.add": "将所选文件加入版本控制",
+    "vcs.actions.delete": "通过版本控制删除所选文件",
+    "vcs.actions.risk.add": "仅允许添加此根目录直属的现存普通文件。目录和隐式添加父目录的操作均会被拒绝。",
+    "vcs.actions.risk.delete": "此操作请求删除列出的每一个工作区文件，包括重命名或复制的两个端点。磁盘删除由 Provider 执行；请求不包含保留本地文件选项，Lithe 也不会备份。继续前请检查文件内容。"
   },
   "overrides": {
     "macos": {

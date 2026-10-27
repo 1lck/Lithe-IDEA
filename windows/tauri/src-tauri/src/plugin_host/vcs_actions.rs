@@ -14,6 +14,8 @@ pub enum WriteOperation {
     Rollback { paths: Vec<String> },
     Update,
     Resolve { paths: Vec<String> },
+    Add { paths: Vec<String> },
+    Delete { paths: Vec<String> },
     // An empty struct makes deny_unknown_fields reject narrower path/revision
     // arguments; internally tagged unit variants would silently ignore them.
     Cleanup {},
@@ -26,11 +28,20 @@ impl WriteOperation {
             Self::Update => "update",
             Self::Resolve { .. } => "resolve",
             Self::Cleanup { .. } => "cleanup",
+            Self::Add { .. } => "add",
+            Self::Delete { .. } => "delete",
+        }
+    }
+    pub(super) fn request_name(&self) -> &'static str {
+        match self {
+            Self::Add { .. } | Self::Delete { .. } => "fileOperation",
+            _ => self.name(),
         }
     }
     pub(super) fn capability(&self) -> &'static str {
         match self {
             Self::Resolve { .. } => "conflicts",
+            Self::Add { .. } | Self::Delete { .. } => "fileOperations",
             _ => self.name(),
         }
     }
@@ -39,8 +50,43 @@ impl WriteOperation {
             Self::Checkin { paths, message } => json!({"paths":paths,"message":message}),
             Self::Rollback { paths } | Self::Resolve { paths } => json!({"paths":paths}),
             Self::Update | Self::Cleanup { .. } => json!({}),
+            Self::Add { paths } => json!({"kind":"add","paths":paths}),
+            Self::Delete { paths } => json!({"kind":"delete","paths":paths}),
         }
     }
+}
+
+/// UI selection rules are intentionally narrower than v1: it offers neither
+/// recursion control nor a keep-local switch. Disk metadata is checked later;
+/// a status row alone never proves an ordinary file.
+fn file_operation_row(operation: &WriteOperation, path: &str, row: &Value) -> bool {
+    (match operation {
+        // No parent can be implicitly scheduled when the file is directly in
+        // the detected root. v1 cannot prove a clean-looking parent is tracked.
+        WriteOperation::Add { .. } => {
+            !path.contains('/') && row["status"] == "unversioned" && row["oldPath"].is_null()
+        }
+        WriteOperation::Delete { .. } => matches!(
+            row["status"].as_str(),
+            Some(
+                "modified"
+                    | "added"
+                    | "renamed"
+                    | "copied"
+                    | "replaced"
+                    | "typeChanged"
+                    | "switched"
+            )
+        ),
+        _ => return true,
+    }) && !row["flags"].as_array().is_some_and(|flags| {
+        flags.iter().any(|flag| {
+            matches!(
+                flag.as_str(),
+                Some("external" | "submodule" | "treeConflict")
+            )
+        })
+    })
 }
 #[derive(Clone)]
 pub(super) struct Published {
@@ -159,7 +205,10 @@ pub(super) fn targets(
             }
             (paths, Some(message))
         }
-        WriteOperation::Rollback { paths } | WriteOperation::Resolve { paths } => (paths, None),
+        WriteOperation::Rollback { paths }
+        | WriteOperation::Resolve { paths }
+        | WriteOperation::Add { paths }
+        | WriteOperation::Delete { paths } => (paths, None),
         _ => unreachable!(),
     };
     if selected.is_empty() || selected.len() > 10000 {
@@ -176,6 +225,9 @@ pub(super) fn targets(
     for path in selected {
         query::validate_path(path)?;
         let row = rows.get(path.as_str()).ok_or(registry::STALE)?;
+        if !file_operation_row(operation, path, row) {
+            return Err("vcs.provider.pathUnavailable".into());
+        }
         if row["status"] == "ignored"
             || (matches!(operation, WriteOperation::Rollback { .. })
                 && row["status"] == "unversioned")
@@ -204,6 +256,16 @@ pub(super) fn targets(
     let paths: Vec<String> = paths.into_iter().collect();
     for path in &paths {
         query::validate_path(path)?;
+        // A rename/copy's old endpoint may also have an independent status row
+        // (for example, a recreated unversioned file). Expansion must not bypass
+        // the same delete eligibility applied to explicitly selected rows.
+        if matches!(operation, WriteOperation::Delete { .. })
+            && rows
+                .get(path.as_str())
+                .is_some_and(|row| !file_operation_row(operation, path, row))
+        {
+            return Err("vcs.provider.pathUnavailable".into());
+        }
         let target = root_path.join(path);
         query::ordinary_chain(&workspace, &target)?;
         let canonical = target
@@ -232,7 +294,12 @@ pub(super) fn targets(
         {
             return Err("vcs.provider.pathUnavailable".into());
         }
-        if message.is_some() || matches!(operation, WriteOperation::Resolve { .. }) {
+        if message.is_some()
+            || matches!(
+                operation,
+                WriteOperation::Resolve { .. } | WriteOperation::Delete { .. }
+            )
+        {
             let mut ancestor = path.as_str();
             while let Some((parent, _)) = ancestor.rsplit_once('/') {
                 // Providers may include scheduled parent additions/replacements
@@ -241,7 +308,17 @@ pub(super) fn targets(
                     matches!(
                         row["status"].as_str(),
                         Some("added" | "replaced" | "renamed" | "copied")
-                    )
+                    ) || (matches!(operation, WriteOperation::Delete { .. })
+                        && (row["status"] == "unversioned"
+                            || row["status"] == "ignored"
+                            || row["flags"].as_array().is_some_and(|flags| {
+                                flags.iter().any(|flag| {
+                                    matches!(
+                                        flag.as_str(),
+                                        Some("external" | "submodule" | "treeConflict")
+                                    )
+                                })
+                            })))
                 }) {
                     return Err("vcs.provider.pathUnavailable".into());
                 }
@@ -278,6 +355,10 @@ pub(super) fn targets(
         },
         None if matches!(operation, WriteOperation::Resolve { .. }) => {
             WriteOperation::Resolve { paths }
+        }
+        None if matches!(operation, WriteOperation::Add { .. }) => WriteOperation::Add { paths },
+        None if matches!(operation, WriteOperation::Delete { .. }) => {
+            WriteOperation::Delete { paths }
         }
         None => WriteOperation::Rollback { paths },
     })

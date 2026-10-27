@@ -93027,6 +93027,34 @@
       "platforms": [
         "windows"
       ]
+    },
+    {
+      "id": "vcs.actions.add",
+      "description": "Windows VCS file operation: vcs.actions.add",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.actions.delete",
+      "description": "Windows VCS file operation: vcs.actions.delete",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.actions.risk.add",
+      "description": "Windows VCS file operation: vcs.actions.risk.add",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.actions.risk.delete",
+      "description": "Windows VCS file operation: vcs.actions.risk.delete",
+      "platforms": [
+        "windows"
+      ]
     }
   ]
 }

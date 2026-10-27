@@ -8,6 +8,7 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -200,8 +201,9 @@ class SettingsFunctionsHelperTests(unittest.TestCase):
         args.run_image.mkdir()
         reporter, driver, page = Reporter(), Mock(), Mock()
         driver.run_bounded_process.return_value = SimpleNamespace(returncode=0, stdout="v22.0.0")
-        page.evaluate.return_value = {"calls": [], "dropped": 0}
-        lane = acceptance.SettingsFunctionsAcceptance(driver, args, reporter, Mock(return_value=(page, Mock())))
+        page.evaluate.return_value = {"calls": [], "dropped": 0, "pending": 0, "originalInvokeRestored": True}
+        stop = Mock()
+        lane = acceptance.SettingsFunctionsAcceptance(driver, args, reporter, Mock(return_value=(page, Mock())), stop)
         def fail_install(_):
             (args.run_image / "illegal-runtime-write").write_bytes(b"mutation")
             raise RuntimeError("controlled install failure")
@@ -210,6 +212,7 @@ class SettingsFunctionsHelperTests(unittest.TestCase):
             with self.assertRaisesRegex(AssertionError, "read-only resource mutation"):
                 lane.run()
         self.assertTrue(any(".stop()" in call.args[0] for call in page.evaluate.call_args_list))
+        stop.assert_called_once_with()
         self.assertEqual([row["status"] for row in reporter.tests], ["failed", "passed", "failed"])
         self.assertIn("controlled install failure", reporter.tests[0]["details"])
         self.assertIn("read-only resource mutation", reporter.tests[2]["details"])
@@ -221,10 +224,11 @@ class SettingsFunctionsHelperTests(unittest.TestCase):
                                settings_functions_host_identity=self.directory / "identity.json", executable=self.directory / "host.exe")
         args.run_image.mkdir()
         page, second = Mock(), Mock()
-        page.evaluate.return_value = second.evaluate.return_value = {"calls": [], "dropped": 0}
+        page.evaluate.return_value = second.evaluate.return_value = {"calls": [], "dropped": 0, "pending": 0, "originalInvokeRestored": True}
         driver = Mock()
         driver.run_bounded_process.return_value = SimpleNamespace(returncode=0, stdout="v22.0.0")
-        lane = acceptance.SettingsFunctionsAcceptance(driver, args, Reporter(), Mock(return_value=(page, Mock())))
+        stop = Mock()
+        lane = acceptance.SettingsFunctionsAcceptance(driver, args, Reporter(), Mock(return_value=(page, Mock())), stop)
         lane.second = second
         lane.install = Mock(side_effect=RuntimeError("install failed"))
         with patch.object(acceptance, "verify_host", return_value={}), contextlib.redirect_stdout(io.StringIO()):
@@ -232,6 +236,7 @@ class SettingsFunctionsHelperTests(unittest.TestCase):
                 lane.run()
         for observer in (page, second):
             self.assertTrue(any(".stop()" in call.args[0] for call in observer.evaluate.call_args_list))
+        stop.assert_called_once_with()
         def first_failed(expression):
             raise RuntimeError("closed first window")
         page.evaluate.side_effect = first_failed
@@ -239,6 +244,120 @@ class SettingsFunctionsHelperTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "closed first window"):
             lane.stop_observers()
         self.assertTrue(any(".stop()" in call.args[0] for call in second.evaluate.call_args_list))
+
+    def test_native_shutdown_failure_is_reported_and_final_resource_hashes_include_shutdown_writes(self):
+        from acceptance_driver import Reporter
+        args = SimpleNamespace(settings_functions_fixture_root=self.root, artifact_root=self.directory / "evidence",
+                               run_image=self.directory / "image", app_local_data=self.directory / "app",
+                               settings_functions_host_identity=self.directory / "identity.json", executable=self.directory / "host.exe")
+        args.run_image.mkdir()
+        page, driver, reporter = Mock(), Mock(), Reporter()
+        page.evaluate.return_value = {"calls": [], "dropped": 0, "pending": 0, "originalInvokeRestored": True}
+        driver.run_bounded_process.return_value = SimpleNamespace(returncode=0, stdout="v22.0.0")
+        def stop():
+            self.assertTrue(any(".stop()" in call.args[0] for call in page.evaluate.call_args_list))
+            (args.run_image / "shutdown-write").write_bytes(b"forbidden")
+            raise RuntimeError("native graceful quit failed")
+        lane = acceptance.SettingsFunctionsAcceptance(driver, args, reporter, Mock(return_value=(page, Mock())), stop)
+        for name in ("install", "explicit_save", "two_windows", "reload", "lifecycle"):
+            setattr(lane, name, Mock())
+        with patch.object(acceptance, "verify_host", return_value={}), contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(AssertionError, "read-only resource mutation"):
+                lane.run()
+        self.assertEqual([row["status"] for row in reporter.tests], ["passed"] * 6 + ["failed", "failed"])
+        self.assertIn("native graceful quit failed", reporter.tests[-2]["details"])
+        self.assertIn("shutdown-write", reporter.tests[-1]["details"])
+
+    def test_failed_shutdown_cannot_pass_resource_invariance_when_hashes_match(self):
+        from acceptance_driver import Reporter
+        args = SimpleNamespace(settings_functions_fixture_root=self.root, artifact_root=self.directory / "evidence",
+                               run_image=self.directory / "image", app_local_data=self.directory / "app",
+                               settings_functions_host_identity=self.directory / "identity.json", executable=self.directory / "host.exe")
+        args.run_image.mkdir()
+        page, driver, reporter = Mock(), Mock(), Reporter()
+        page.evaluate.return_value = {"calls": [], "dropped": 0, "pending": 0, "originalInvokeRestored": True}
+        driver.run_bounded_process.return_value = SimpleNamespace(returncode=0, stdout="v22.0.0")
+        stop = Mock(side_effect=RuntimeError("native graceful quit failed"))
+        lane = acceptance.SettingsFunctionsAcceptance(driver, args, reporter, Mock(return_value=(page, Mock())), stop)
+        for name in ("install", "explicit_save", "two_windows", "reload", "lifecycle"):
+            setattr(lane, name, Mock())
+        with patch.object(acceptance, "verify_host", return_value={}), contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(AssertionError, "native shutdown did not complete"):
+                lane.run()
+        self.assertEqual([row["status"] for row in reporter.tests[-2:]], ["failed", "failed"])
+        self.assertIn("native graceful quit failed", reporter.tests[-2]["details"])
+
+    def test_observer_pending_deadline_is_failed_and_does_not_skip_the_other_window(self):
+        args = SimpleNamespace(settings_functions_fixture_root=self.root, artifact_root=self.directory / "evidence")
+        driver, page, second = Mock(), Mock(), Mock()
+        lane = acceptance.SettingsFunctionsAcceptance(driver, args, Mock(), Mock(), Mock())
+        lane.page, lane.second = page, second
+        page.evaluate.return_value = {"calls": [{"settled": False}], "dropped": 0, "pending": 1, "originalInvokeRestored": True}
+        second.evaluate.return_value = {"calls": [], "dropped": 0, "pending": 0, "originalInvokeRestored": True}
+        with self.assertRaisesRegex(RuntimeError, "unsettled native calls"):
+            lane.stop_observers()
+        self.assertTrue(any(".stop()" in call.args[0] for call in second.evaluate.call_args_list))
+        self.assertTrue(any(call.args[1].get("pending") == 1 for call in driver.write_json.call_args_list))
+
+    def test_real_javascript_observer_drains_late_replies_and_bounds_unsettled_calls(self):
+        node = shutil.which("node")
+        self.assertIsNotNone(node, "Node is required by the acceptance helper CI lane")
+        script = r"""
+const assert=require('node:assert/strict'), vm=require('node:vm');
+const source=JSON.parse(require('node:fs').readFileSync(0,'utf8'));
+function setup(original) {
+  const timers=new Map(); let sequence=0;
+  const window={__TAURI_INTERNALS__:{invoke:original}};
+  vm.runInNewContext('('+source+')()', {window,
+    setTimeout:(callback,ms)=>{assert.equal(ms,10000);timers.set(++sequence,callback);return sequence;},
+    clearTimeout:id=>timers.delete(id)});
+  return {window,timers,state:window.__litheSettingsAcceptance};
+}
+(async()=>{
+  let success, failure;
+  const original=function(command,args) {
+    assert.equal(this,normal.window.__TAURI_INTERNALS__);
+    if(command==='declarative_plugins_sync') throw new Error('sync failure');
+    if(command==='declarative_plugins_success') return new Promise(resolve=>{success=resolve;});
+    if(command==='declarative_plugins_failure') return new Promise((_,reject)=>{failure=reject;});
+    return Promise.resolve(args);
+  };
+  const normal=setup(original), internals=normal.window.__TAURI_INTERNALS__;
+  assert.equal(await internals.invoke('unobserved',42),42);
+  assert.throws(()=>internals.invoke('declarative_plugins_sync'),/sync failure/);
+  const succeeded=internals.invoke('declarative_plugins_success').then(value=>assert.equal(value,'late result'));
+  const failed=internals.invoke('declarative_plugins_failure').then(()=>assert.fail('failure became success'),error=>assert.equal(error.message,'late error'));
+  let finished=false;
+  const stopping=normal.state.stop().then(result=>{finished=true;return result;});
+  assert.equal(internals.invoke,original);
+  await Promise.resolve(); assert.equal(finished,false);
+  success('late result'); failure(new Error('late error'));
+  await Promise.all([succeeded,failed]);
+  const final=await stopping;
+  assert.equal(final.originalInvokeRestored,true); assert.equal(final.pending,0);
+  assert.equal(final.calls.length,3); assert.ok(final.calls.every(call=>call.settled));
+  assert.equal(final.calls[1].value,'late result'); assert.equal(final.calls[2].error,'Error: late error');
+  assert.equal(normal.timers.size,0); assert.equal(normal.window.__litheSettingsAcceptance,undefined);
+  let release;
+  const stalled=setup(()=>new Promise(resolve=>{release=resolve;}));
+  const outstanding=stalled.window.__TAURI_INTERNALS__.invoke('declarative_plugins_stalled');
+  try {
+    const stop=stalled.state.stop();
+    assert.equal(stalled.timers.size,1);
+    [...stalled.timers.values()][0](); // Advance the injected deadline; never sleep.
+    const timed=await stop;
+    assert.equal(timed.originalInvokeRestored,true); assert.equal(timed.pending,1);
+    assert.equal(timed.calls[0].settled,false); assert.equal(stalled.timers.size,0);
+  } finally {release(null);await outstanding;}
+  const changed=setup(()=>Promise.resolve(null)), replacement=()=>{};
+  changed.window.__TAURI_INTERNALS__.invoke=replacement;
+  await assert.rejects(changed.state.stop(),/native invoke changed/);
+  assert.equal(changed.window.__TAURI_INTERNALS__.invoke,replacement);
+})().catch(error=>{console.error(error);process.exitCode=1;});
+"""
+        result = subprocess.run([node, "-e", script], input=json.dumps(acceptance.OBSERVER),
+                                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=3)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_pending_registration_keeps_existing_failures(self):
         name = "controlled-settings / trusted-install-review"

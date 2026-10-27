@@ -15,7 +15,7 @@ impl Drop for Fixture {
 
 #[tokio::test]
 #[ignore = "native integration; unified Windows lane supplies LITHE_VCS_TEST_NODE"]
-async fn real_core_stdio_resolve_and_cleanup_use_only_the_frozen_typed_arguments() {
+async fn real_core_stdio_optional_writes_use_only_the_frozen_typed_arguments() {
     let node =
         PathBuf::from(std::env::var_os("LITHE_VCS_TEST_NODE").expect("explicit integration Node"));
     assert!(node.is_absolute() && node.is_file());
@@ -24,6 +24,12 @@ async fn real_core_stdio_resolve_and_cleanup_use_only_the_frozen_typed_arguments
             paths: vec!["conflict.txt".into()],
         },
         super::super::actions::WriteOperation::Cleanup {},
+        super::super::actions::WriteOperation::Add {
+            paths: vec!["new.txt".into()],
+        },
+        super::super::actions::WriteOperation::Delete {
+            paths: vec!["after.txt".into(), "before.txt".into()],
+        },
     ] {
         let fixture = Fixture(std::env::temp_dir().join(format!(
             "lithe-vcs-core-{}-{}",
@@ -101,7 +107,11 @@ async fn real_core_stdio_resolve_and_cleanup_use_only_the_frozen_typed_arguments
         assert_eq!(writes.len(), 1);
         assert_eq!(
             writes[0]["method"],
-            format!("lithe/vcs/{}", operation.name())
+            format!("lithe/vcs/{}", operation.request_name())
         );
+        let mut expected = operation.arguments();
+        expected["root"] = json!({"path":root});
+        expected["tool"] = Value::Null;
+        assert_eq!(writes[0]["params"], expected);
     }
 }

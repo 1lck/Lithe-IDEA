@@ -539,3 +539,280 @@ fn resolve_rejects_windows_case_aliases_before_lexical_core_ownership() {
         "vcs.provider.pathUnavailable"
     );
 }
+
+#[test]
+fn file_operations_use_existing_ordinary_files_and_real_core_owners_without_parent_expansion() {
+    let fixture = Fixture::new();
+    for directory in [
+        "folder",
+        "parent",
+        "nested/.git",
+        "mixed/.git",
+        "mixed/.svn",
+    ] {
+        std::fs::create_dir_all(fixture.0.join(directory)).unwrap();
+    }
+    for path in [
+        "new.txt",
+        "after.txt",
+        "before.txt",
+        "parent/child.txt",
+        "nested/a.txt",
+        "mixed/a.txt",
+    ] {
+        std::fs::write(fixture.0.join(path), "fixture").unwrap();
+    }
+    let snapshot = fixture.snapshot(&fixture.0);
+    let root = &snapshot.detection.roots[0];
+    let mut status = fixture.status(
+        &snapshot,
+        json!([
+            {"path":"new.txt","status":"unversioned"},
+            {"path":"after.txt","oldPath":"before.txt","status":"renamed"},
+            {"path":"parent/child.txt","status":"unversioned"},
+            {"path":"folder","status":"unversioned"},
+            {"path":"missing","status":"unversioned"},
+            {"path":"nested/a.txt","status":"modified"},
+            {"path":"mixed/a.txt","status":"modified"}
+        ]),
+    );
+    status.capabilities["fileOperations"] = json!(1);
+    let add = WriteOperation::Add {
+        paths: vec!["new.txt".into(), "new.txt".into()],
+    };
+    let delete = WriteOperation::Delete {
+        paths: vec!["after.txt".into()],
+    };
+    assert_eq!(
+        targets(&super::super::Core, &snapshot, root, &status, &add)
+            .unwrap()
+            .arguments(),
+        json!({"kind":"add","paths":["new.txt"]})
+    );
+    assert_eq!(
+        targets(&super::super::Core, &snapshot, root, &status, &delete)
+            .unwrap()
+            .arguments(),
+        json!({"kind":"delete","paths":["after.txt","before.txt"]})
+    );
+    for path in [
+        "parent/child.txt",
+        "folder",
+        "missing",
+        "after.txt",
+        "unlisted.txt",
+    ] {
+        assert!(
+            targets(
+                &super::super::Core,
+                &snapshot,
+                root,
+                &status,
+                &WriteOperation::Add {
+                    paths: vec![path.into()]
+                }
+            )
+            .is_err(),
+            "{path}"
+        );
+    }
+    for path in [
+        "new.txt",
+        "folder",
+        "missing",
+        "nested/a.txt",
+        "mixed/a.txt",
+    ] {
+        assert!(
+            targets(
+                &super::super::Core,
+                &snapshot,
+                root,
+                &status,
+                &WriteOperation::Delete {
+                    paths: vec![path.into()]
+                }
+            )
+            .is_err(),
+            "{path}"
+        );
+    }
+    // Both confirmed endpoints need disk proof, even when a status row claims
+    // a rename and omits all descendant information about the absent endpoint.
+    std::fs::remove_file(fixture.0.join("before.txt")).unwrap();
+    assert!(targets(&super::super::Core, &snapshot, root, &status, &delete).is_err());
+    status.capabilities = json!({"add":1,"delete":1,"fileOperation":1});
+    assert_eq!(
+        targets(&super::super::Core, &snapshot, root, &status, &add).unwrap_err(),
+        "vcs.capability.unsupported"
+    );
+}
+
+#[test]
+fn delete_checks_independent_old_endpoint_rows_regardless_of_order_or_repeated_selection() {
+    let fixture = Fixture::new();
+    for path in ["after.txt", "before.txt"] {
+        std::fs::write(fixture.0.join(path), "fixture").unwrap();
+    }
+    let snapshot = fixture.snapshot(&fixture.0);
+    let root = &snapshot.detection.roots[0];
+    for kind in ["renamed", "copied"] {
+        for (old_status, flags) in [
+            ("unversioned", json!([])),
+            ("ignored", json!([])),
+            ("conflicted", json!([])),
+            ("modified", json!(["external"])),
+            ("modified", json!(["submodule"])),
+            ("modified", json!(["treeConflict"])),
+            ("modified", json!([])),
+        ] {
+            let current = json!({"path":"after.txt","oldPath":"before.txt","status":kind});
+            let old = json!({"path":"before.txt","status":old_status,"flags":flags});
+            for changes in [json!([current, old]), json!([old, current])] {
+                let mut status = fixture.status(&snapshot, changes);
+                status.capabilities["fileOperations"] = json!(1);
+                for selected in [
+                    vec!["after.txt"],
+                    vec!["after.txt", "after.txt"],
+                    vec!["before.txt", "after.txt", "before.txt"],
+                    vec!["after.txt", "before.txt"],
+                ] {
+                    let result = targets(
+                        &super::super::Core,
+                        &snapshot,
+                        root,
+                        &status,
+                        &WriteOperation::Delete {
+                            paths: selected.into_iter().map(String::from).collect(),
+                        },
+                    );
+                    if old_status == "modified" && flags == json!([]) {
+                        assert_eq!(
+                            result.unwrap().arguments(),
+                            json!({"kind":"delete","paths":["after.txt","before.txt"]})
+                        );
+                    } else {
+                        assert_eq!(result.unwrap_err(), "vcs.provider.pathUnavailable");
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn file_operations_reject_incomplete_receipts_unsafe_flags_and_implicit_scheduled_ancestors() {
+    let fixture = Fixture::new();
+    std::fs::write(fixture.0.join("new.txt"), "fixture").unwrap();
+    std::fs::create_dir_all(fixture.0.join("parent")).unwrap();
+    std::fs::write(fixture.0.join("parent/child.txt"), "fixture").unwrap();
+    let snapshot = fixture.snapshot(&fixture.0);
+    let root = &snapshot.detection.roots[0];
+    for parent in [
+        "added",
+        "replaced",
+        "renamed",
+        "copied",
+        "unversioned",
+        "ignored",
+    ] {
+        let mut status = fixture.status(
+            &snapshot,
+            json!([
+                {"path":"parent","status":parent}, {"path":"parent/child.txt","status":"modified"}
+            ]),
+        );
+        status.capabilities["fileOperations"] = json!(1);
+        assert!(
+            targets(
+                &super::super::Core,
+                &snapshot,
+                root,
+                &status,
+                &WriteOperation::Delete {
+                    paths: vec!["parent/child.txt".into()]
+                }
+            )
+            .is_err(),
+            "{parent}"
+        );
+    }
+    for (kind, row_status) in [("add", "unversioned"), ("delete", "modified")] {
+        let action: WriteOperation =
+            serde_json::from_value(json!({"operation":kind,"paths":["new.txt"]})).unwrap();
+        for flag in ["external", "submodule", "treeConflict"] {
+            let mut status = fixture.status(
+                &snapshot,
+                json!([{"path":"new.txt","status":row_status,"flags":[flag]}]),
+            );
+            status.capabilities["fileOperations"] = json!(1);
+            assert!(targets(&super::super::Core, &snapshot, root, &status, &action).is_err());
+        }
+        let mut status = fixture.status(&snapshot, json!([{"path":"new.txt","status":row_status}]));
+        status.capabilities["fileOperations"] = json!(1);
+        for field in ["raw", "projected"] {
+            if field == "raw" {
+                status.raw["truncated"] = json!(true);
+            } else {
+                status.projected["truncated"] = json!(true);
+            }
+            assert!(targets(&super::super::Core, &snapshot, root, &status, &action).is_err());
+            status.raw["truncated"] = json!(false);
+        }
+    }
+}
+
+#[test]
+fn add_delete_deserialize_no_keep_local_recursion_or_arbitrary_provider_arguments() {
+    for kind in ["add", "delete"] {
+        let action: WriteOperation =
+            serde_json::from_value(json!({"operation":kind,"paths":["a.txt"]})).unwrap();
+        assert_eq!(action.name(), kind);
+        assert_eq!(action.request_name(), "fileOperation");
+        assert_eq!(action.capability(), "fileOperations");
+        assert_eq!(action.arguments(), json!({"kind":kind,"paths":["a.txt"]}));
+        for field in [
+            "keepLocal",
+            "recursive",
+            "depth",
+            "force",
+            "root",
+            "tool",
+            "kind",
+        ] {
+            let mut input = json!({"operation":kind,"paths":["a.txt"]});
+            input[field] = json!(true);
+            assert!(
+                serde_json::from_value::<WriteOperation>(input).is_err(),
+                "{field}"
+            );
+        }
+    }
+    assert!(serde_json::from_value::<WriteOperation>(
+        json!({"operation":"move","from":"a","to":"b"})
+    )
+    .is_err());
+}
+
+#[cfg(windows)]
+#[test]
+fn add_delete_reject_windows_case_aliases_before_core_lexical_ownership() {
+    let fixture = Fixture::new();
+    std::fs::write(fixture.0.join("MixedCase.txt"), "fixture").unwrap();
+    let snapshot = fixture.snapshot(&fixture.0);
+    let root = &snapshot.detection.roots[0];
+    for (kind, row_status) in [("add", "unversioned"), ("delete", "modified")] {
+        let mut status = fixture.status(
+            &snapshot,
+            json!([{"path":"mixedcase.txt","status":row_status}]),
+        );
+        status.capabilities["fileOperations"] = json!(1);
+        let action: WriteOperation =
+            serde_json::from_value(json!({"operation":kind,"paths":["mixedcase.txt"]})).unwrap();
+        assert!(fixture.0.join("mixedcase.txt").is_file());
+        assert_eq!(
+            targets(&super::super::Core, &snapshot, root, &status, &action).unwrap_err(),
+            "vcs.provider.pathUnavailable"
+        );
+    }
+}

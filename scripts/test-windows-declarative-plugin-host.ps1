@@ -44,6 +44,7 @@ $profileRoot = [IO.Path]::GetFullPath(
 )
 $sourceExecutable = Join-Path $profileRoot "lithe-windows.exe"
 $identityMarker = Join-Path $artifactRoot "build-identity.json"
+$customConfig = Join-Path $artifactRoot "tauri.host-acceptance.conf.json"
 $acceptanceIdentifier = "app.lithe.windows.host-acceptance"
 
 function Assert-OwnedPath {
@@ -221,8 +222,12 @@ if (-not $SkipBuild -and -not $ResumeBuild) {
     if ($SkipBuild) {
         $priorIdentity = Get-Content -LiteralPath $identityMarker -Raw | ConvertFrom-Json
         if ($priorIdentity.identifier -ne $acceptanceIdentifier -or
+            $priorIdentity.rustTarget -ne $RustTarget -or
+            $priorIdentity.gitRevision -ne (& git -C $root rev-parse HEAD).Trim() -or
+            -not (Test-Path -LiteralPath $customConfig -PathType Leaf) -or
+            $priorIdentity.configSha256 -ne (Get-FileHash -Algorithm SHA256 -LiteralPath $customConfig).Hash.ToLowerInvariant() -or
             $priorIdentity.executableSha256 -ne (Get-FileHash -Algorithm SHA256 -LiteralPath $sourceExecutable).Hash.ToLowerInvariant()) {
-            throw "The prior executable no longer matches its isolated application identity marker."
+            throw "The prior executable, source revision or config no longer matches its isolated application identity marker."
         }
     }
 }
@@ -236,12 +241,13 @@ foreach ($directory in @($runImage, $packages, $workspaces, $runtimeRoot, $evide
     Reset-OwnedDirectory -Path $directory
 }
 
-$customConfig = Join-Path $artifactRoot "tauri.host-acceptance.conf.json"
-@{
-    '$schema' = "https://schema.tauri.app/config/2"
-    productName = "Lithe Host Acceptance"
-    identifier = $acceptanceIdentifier
-} | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $customConfig -Encoding utf8NoBOM
+if (-not $SkipBuild) {
+    @{
+        '$schema' = "https://schema.tauri.app/config/2"
+        productName = "Lithe Host Acceptance"
+        identifier = $acceptanceIdentifier
+    } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $customConfig -Encoding utf8NoBOM
+}
 
 Invoke-NativeChecked -Executable "node" -Arguments @("--check", (Join-Path $fixtureRoot "fake-lsp-server.mjs")) `
     -FailureMessage "The controlled language-server fixture has invalid JavaScript"

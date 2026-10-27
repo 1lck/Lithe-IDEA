@@ -9866,7 +9866,11 @@
     "vcs.actions.resolve": "Mark as Resolved",
     "vcs.actions.cleanup": "Clean Up Working Copy",
     "vcs.actions.risk.resolve": "These conflict files will be marked as resolved using their current saved contents. Review every listed file before continuing; this changes working copy conflict metadata.",
-    "vcs.actions.risk.cleanup": "This asks the provider to clean up the entire displayed working copy, including paths with no status changes. It may change working copy metadata and locks; wait for it to finish before running another VCS client."
+    "vcs.actions.risk.cleanup": "This asks the provider to clean up the entire displayed working copy, including paths with no status changes. It may change working copy metadata and locks; wait for it to finish before running another VCS client.",
+    "vcs.actions.add": "Add selected files to version control",
+    "vcs.actions.delete": "Delete selected files through version control",
+    "vcs.actions.risk.add": "Only existing ordinary files directly in this root can be added. Directories and implicit parent additions are refused.",
+    "vcs.actions.risk.delete": "This requests deletion of every listed working file, including both rename or copy endpoints. The provider controls disk deletion; no keep-local option is sent and Lithe keeps no backup. Review file contents before continuing."
   },
   "overrides": {
     "windows": {

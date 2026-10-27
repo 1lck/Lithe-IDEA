@@ -4,6 +4,23 @@ import { installHappyDom } from "@/test-utils/happy-dom";
 import { actionFixture, flushActions } from "./vcs-action-test-fixture";
 import { createTranslator } from "@/i18n/locale";
 const t = createTranslator("en-US");
+// Proposed catalog entries belong to the integration lane. Inject them here
+// to exercise the real confirmation component without editing shared i18n.
+const fileOperationCopy: Record<string, string> = {
+  "vcs.actions.add": "Add selected files to version control",
+  "vcs.actions.delete": "Delete selected files through version control",
+  "vcs.actions.risk.add":
+    "Only existing ordinary files directly in this root can be added. Directories and implicit parent additions are refused.",
+  "vcs.actions.risk.delete":
+    "This requests deletion of every listed working file, including both rename or copy endpoints. The provider controls disk deletion; no keep-local option is sent and Lithe keeps no backup. Review file contents before continuing.",
+};
+mock.module("@/i18n/locale-provider", () => ({
+  useTranslation: () => ({
+    t: (key: string, values?: Record<string, string | number>) =>
+      fileOperationCopy[key] ?? t(key, values),
+  }),
+  LocaleProvider: ({ children }: { children: ReactNode }) => children,
+}));
 mock.module("@/features/settings/stores/settings.store", () => ({
   useSettingsStore: (select: (state: { settings: { displayLanguage: "en-US" } }) => unknown) =>
     select({ settings: { displayLanguage: "en-US" } }),
@@ -213,5 +230,65 @@ test("resolve and cleanup entry points follow negotiated capabilities and native
     (f.container.querySelector('input[aria-label="new.txt"]') as HTMLInputElement).click(),
   );
   expect(f.button(t("vcs.actions.resolve")).disabled).toBe(true);
+  expect(f.calls).toEqual([]);
+});
+
+test("add confirmation names the root and exact files and cancel never dispatches", async () => {
+  const f = await fixture((f) => {
+    f.controller.status.getSnapshot().snapshot!.capabilities!.fileOperations = 1;
+  });
+  expect(f.button(fileOperationCopy["vcs.actions.add"]!).disabled).toBe(true);
+  await act(async () =>
+    (f.container.querySelector('input[aria-label="untracked.txt"]') as HTMLInputElement).click(),
+  );
+  expect(f.button(fileOperationCopy["vcs.actions.delete"]!).disabled).toBe(true);
+  await act(async () => f.button(fileOperationCopy["vcs.actions.add"]!).click());
+  const dialog = f.container.querySelector('[role="dialog"]')!;
+  for (const text of [
+    "C:/fixture/workspace",
+    "1 paths affected",
+    "untracked.txt",
+    "implicit parent additions are refused",
+  ])
+    expect(dialog.textContent).toContain(text);
+  expect(f.calls).toEqual([]);
+  await act(async () => f.button("Cancel").click());
+  expect(f.calls).toEqual([]);
+});
+
+test("delete confirmation exposes local file deletion and all rename endpoints before one dispatch", async () => {
+  const f = await fixture((f) => {
+    f.controller.status.getSnapshot().snapshot!.capabilities!.fileOperations = 1;
+  });
+  await act(async () =>
+    (f.container.querySelector('input[aria-label="after.txt"]') as HTMLInputElement).click(),
+  );
+  expect(f.button(fileOperationCopy["vcs.actions.add"]!).disabled).toBe(true);
+  await act(async () => f.button(fileOperationCopy["vcs.actions.delete"]!).click());
+  const dialog = f.container.querySelector('[role="dialog"]')!;
+  for (const text of [
+    "C:/fixture/workspace",
+    "2 paths affected",
+    "before.txt",
+    "after.txt",
+    "deletion of every listed working file",
+    "no keep-local option",
+    "no backup",
+  ])
+    expect(dialog.textContent).toContain(text);
+  expect(f.calls).toEqual([]);
+  await act(async () => {
+    f.button("Confirm and run").click();
+    f.button("Confirm and run")?.click();
+  });
+  await act(flushActions);
+  expect(f.calls.filter((call) => call.kind === "write")).toHaveLength(1);
+  expect(f.calls[0]?.action).toEqual({ operation: "delete", paths: ["after.txt"] });
+});
+
+test("add and delete entries stay absent without fileOperations negotiation", async () => {
+  const f = await fixture();
+  expect(f.button(fileOperationCopy["vcs.actions.add"]!)).toBeUndefined();
+  expect(f.button(fileOperationCopy["vcs.actions.delete"]!)).toBeUndefined();
   expect(f.calls).toEqual([]);
 });

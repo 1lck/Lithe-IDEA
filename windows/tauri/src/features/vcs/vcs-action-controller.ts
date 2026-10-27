@@ -187,6 +187,12 @@ export class VcsActionController {
       )
         return;
       if (
+        !result ||
+        typeof result !== "object" ||
+        Array.isArray(result) ||
+        !result.result ||
+        typeof result.result !== "object" ||
+        Array.isArray(result.result) ||
         result.requestId !== attempt.id ||
         result.rootId !== review.status.rootId ||
         result.generation !== source.generation ||

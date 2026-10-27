@@ -10,7 +10,7 @@ async function fixture() {
   const f = await actionFixture();
   cleanups.push(f.close);
   const status = f.controller.status.getSnapshot().snapshot!;
-  status.capabilities = { ...status.capabilities, conflicts: 1, cleanup: 1 };
+  status.capabilities = { ...status.capabilities, conflicts: 1, cleanup: 1, fileOperations: 1 };
   status.result.changes.push(
     { path: "conflict.txt", oldPath: null, status: "conflicted", flags: [] },
     {
@@ -25,6 +25,8 @@ async function fixture() {
 const actions: VcsWriteAction[] = [
   { operation: "resolve", paths: ["conflict.txt", "tree.txt"] },
   { operation: "cleanup" },
+  { operation: "add", paths: ["untracked.txt"] },
+  { operation: "delete", paths: ["after.txt"] },
 ];
 
 test("resolve uses conflicts negotiation and freezes exactly the selected conflict paths and receipt", async () => {
@@ -96,7 +98,7 @@ test("cleanup is unavailable for parent, subroot, nested, ambiguous and incomple
   }
 });
 
-test("resolve and cleanup confirm only once and refresh original status and file history", async () => {
+test("path and whole-root writes confirm only once and refresh original status and file history", async () => {
   for (const action of actions) {
     const f = await fixture();
     await f.controller.query.history("", "conflict.txt");
@@ -108,7 +110,7 @@ test("resolve and cleanup confirm only once and refresh original status and file
   }
 });
 
-test("resolve and cleanup retain definitive versus unknown outcomes through failed stop and cleanup retry", async () => {
+test("path and whole-root writes retain definitive versus unknown outcomes through failed stop and cleanup retry", async () => {
   for (const action of actions) {
     for (const code of [
       "vcs.provider.pathUnavailable",
@@ -144,7 +146,7 @@ test("resolve and cleanup retain definitive versus unknown outcomes through fail
   }
 });
 
-test("replacement, receipt mutation and cancellation before dispatch leave resolve and cleanup inert", async () => {
+test("replacement, receipt mutation and cancellation before dispatch leave all writes inert", async () => {
   for (const action of actions) {
     for (const boundary of ["replace", "receipt", "cancel"]) {
       const f = await fixture();
@@ -158,7 +160,7 @@ test("replacement, receipt mutation and cancellation before dispatch leave resol
   }
 });
 
-test("closing a running resolve or cleanup stops its owner without affecting another window or accepting a late reply", async () => {
+test("closing any running write stops its owner without affecting another window or accepting a late reply", async () => {
   for (const action of actions) {
     const f = await fixture();
     const other = await fixture();
@@ -182,7 +184,7 @@ test("closing a running resolve or cleanup stops its owner without affecting ano
   }
 });
 
-test("resolve and cleanup cancellation, deadline and replacement never accept or resend a late write", async () => {
+test("all write cancellation, deadline and replacement never accept or resend a late write", async () => {
   for (const action of actions) {
     for (const boundary of ["stop", "deadline", "replace"]) {
       const f = await fixture();

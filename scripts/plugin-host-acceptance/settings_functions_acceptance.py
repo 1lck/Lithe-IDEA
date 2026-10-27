@@ -135,8 +135,9 @@ def verify_host(identity_path: Path, executable: Path, plan: dict) -> dict:
 
 class SettingsFunctionsAcceptance:
     """Owned by acceptance_driver.AppSession; no independent launch/IPC truth."""
-    def __init__(self, driver, args, reporter, restart):
+    def __init__(self, driver, args, reporter, restart, stop):
         self.driver, self.args, self.reporter, self.restart = driver, args, reporter, restart
+        self.stop = stop
         self.root = args.settings_functions_fixture_root
         self.plan = load_plan(self.root)
         self.root = self.root.resolve()
@@ -225,7 +226,9 @@ class SettingsFunctionsAcceptance:
     def install(self, version):
         asset = self.plan["archives"][version]
         review = self.driver.import_review(self.page, self.session.process.pid, confined(self.root, asset["path"]))
-        if "Unverified publisher" not in review.inner_text(timeout=5000):
+        review_text = review.inner_text(timeout=5000)
+        self.driver.write_json(self.evidence / f"{version}-review.json", {"text": review_text, "archive": asset})
+        if "Unverified publisher" not in review_text:
             raise AssertionError("the controlled fixture was not shown as an unverified publisher")
         self.driver.confirm_review(self.page, review)
         self.wait(lambda: (row if (row := self.catalog(self.page)) and row["status"] == "accepted"
@@ -233,6 +236,7 @@ class SettingsFunctionsAcceptance:
         record = json.loads((self.args.app_local_data / "plugins" / PLUGIN_ID / "installation.json").read_text(encoding="utf-8"))
         if record["disk"]["archiveSha256"] != asset["sha256"] or record["disk"]["approvedPrograms"]:
             raise AssertionError("installed approval does not match the settings-only archive")
+        self.driver.write_json(self.evidence / f"{version}-installation.json", record)
         self.package_root = self.args.app_local_data / "plugins" / PLUGIN_ID / version
         before = snapshot_resources(self.package_root)
         self.package_baselines[version] = before
@@ -249,26 +253,34 @@ class SettingsFunctionsAcceptance:
             raise AssertionError("UI save did not persist the global value")
         # A real concurrent writer uses the production command; stale CAS must
         # reject without clobbering either store. Never edit the store on disk.
+        cas_error = None
         try:
             self.native(self.page, "declarative_plugins_store_setting", {"pluginId": PLUGIN_ID, "settingId": "message",
                 "scope": "global", "workspacePath": str(self.workspace), "value": "lost-update", "expectedIdentity": before["identity"]})
         except Exception as error:
             if "plugin.settings.conflict" not in str(error):
                 raise
+            cas_error = str(error)
         else:
             raise AssertionError("stale settings CAS was accepted")
         if self.snapshot(self.page, self.workspace) != saved:
             raise AssertionError("failed CAS changed settings")
         self.save(self.page, "message", "", "project")
-        if self.snapshot(self.page, self.workspace)["projectValues"].get("message") != "":
+        empty = self.snapshot(self.page, self.workspace)
+        if empty["projectValues"].get("message") != "":
             raise AssertionError("explicit empty project value was lost")
-        row = self.editor(self.page).locator("[data-plugin-setting='message']")
+        editor = self.editor(self.page)
+        row = editor.locator("[data-plugin-setting='message']")
         # Select the intended layer explicitly when revisiting the editor.
-        row_scope = self.page.locator(f"[data-plugin-settings='{PLUGIN_ID}']").get_by_role("combobox")
+        row_scope = editor.get_by_role("combobox")
         row_scope.click(timeout=10_000)
         self.page.get_by_role("option", name="this workspace", exact=True).click(timeout=10_000)
         row.get_by_role("button", name=re.compile(r": Use inherited value$")).click(timeout=10_000)
         self.wait(lambda: "message" not in self.snapshot(self.page, self.workspace)["projectValues"], "project reset")
+        self.driver.write_json(self.evidence / "explicit-save-empty-reset-CAS.json", {
+            "before": before, "saved": saved, "afterReset": self.snapshot(self.page, self.workspace),
+            "staleCasError": cas_error, "explicitEmptySnapshot": empty,
+        })
         self.compare_package("explicit-save")
 
     def two_windows(self):
@@ -325,6 +337,8 @@ class SettingsFunctionsAcceptance:
         self.wait(lambda: self.catalog(self.page) is None, "uninstall")
         if (self.args.app_local_data / "plugins" / PLUGIN_ID).exists() or (self.args.app_local_data / "plugin-state" / PLUGIN_ID).exists():
             raise AssertionError("uninstall retained package/state")
+        self.driver.write_json(self.evidence / "lifecycle.json", {"upgradedTo": "1.1.0", "disabled": True,
+            "enabledAgain": True, "uninstalled": True, "packageAndStateRemoved": True})
 
     def stop_observers(self):
         errors = []
@@ -340,7 +354,15 @@ class SettingsFunctionsAcceptance:
                 errors.append(f"window {index} snapshot: {error}")
             finally:
                 try:
-                    page.evaluate("() => window.__litheSettingsAcceptance?.stop()")
+                    final = page.evaluate("() => window.__litheSettingsAcceptance.stop()")
+                    self.driver.write_json(self.evidence / f"observed-calls-{index}.json", final)
+                    if not final or final.get("originalInvokeRestored") is not True:
+                        raise AssertionError("IPC observer did not restore the original native invoke")
+                    if final.get("pending") or any(not call.get("settled") for call in final["calls"]):
+                        raise AssertionError("IPC observer deadline exceeded with unsettled native calls")
+                    if final["dropped"]:
+                        raise AssertionError("acceptance observer truncated its evidence")
+                    self.driver.write_json(self.evidence / f"observer-cleanup-{index}.json", {"originalInvokeRestored": True, "pending": 0})
                 except Exception as error:
                     errors.append(f"window {index} observer cleanup: {error}")
         if errors:
@@ -349,6 +371,7 @@ class SettingsFunctionsAcceptance:
     def run(self):
         resources_before = snapshot_resources(self.args.run_image)
         self.driver.write_json(self.evidence / "resources-before.json", resources_before)
+        shutdown_completed = False
         try:
             with self.step("trusted-install-review"):
                 identity = verify_host(self.args.settings_functions_host_identity, self.args.executable, self.plan)
@@ -378,7 +401,13 @@ class SettingsFunctionsAcceptance:
         finally:
             try:
                 with self.step("observer-cleanup"):
-                    self.stop_observers()
+                    try:
+                        self.stop_observers()
+                    finally:
+                        # The native owner retains handles through graceful quit.
+                        # Resource invariance is checked after its final writers exit.
+                        self.stop()
+                        shutdown_completed = True
             finally:
                 with self.step("resource-invariance"):
                     after = snapshot_resources(self.args.run_image)
@@ -387,6 +416,8 @@ class SettingsFunctionsAcceptance:
                     assert_resources(resources_before, after)
                     if self.package_root is not None and self.package_root.exists():
                         self.compare_package("final")
+                    if not shutdown_completed:
+                        raise AssertionError("native shutdown did not complete before final resource snapshot")
         record_unreached_cases(self.reporter, self.plan)
         # No signed compatible real-functions archive/entry exists at this
         # frozen baseline. A successful controlled subset must still fail M10.
@@ -397,16 +428,36 @@ class SettingsFunctionsAcceptance:
 OBSERVER = r"""() => {
   if (window.__litheSettingsAcceptance) throw new Error('observer already active');
   const internals=window.__TAURI_INTERNALS__, original=internals.invoke;
-  const state={calls:[],dropped:0};
+  const state={calls:[],dropped:0}, pending=new Set();
   internals.invoke=function(command,args,...rest) {
     if (!command.startsWith('declarative_plugins_')) return original.call(this,command,args,...rest);
     const call={command,args,settled:false};
     if(state.calls.length<2048) state.calls.push(call); else state.dropped++;
-    return original.call(this,command,args,...rest).then(value=>{call.settled=true;call.value=value;return value;},
-      error=>{call.settled=true;call.error=String(error);throw error;});
+    let result;
+    try { result=original.call(this,command,args,...rest); }
+    catch(error) {call.settled=true;call.error=String(error);throw error;}
+    const response=Promise.resolve(result).then(value=>{
+      call.settled=true;call.value=value;pending.delete(response);return value;
+    }, error=>{call.settled=true;call.error=String(error);pending.delete(response);throw error;});
+    pending.add(response);
+    return response;
   };
   state.snapshot=()=>({calls:state.calls,dropped:state.dropped});
-  state.stop=()=>{internals.invoke=original;delete window.__litheSettingsAcceptance;};
+  const observed=internals.invoke;
+  state.stop=async()=>{
+    if(internals.invoke!==observed) throw new Error('native invoke changed while observer was active');
+    // Restore admission first, then retain the already observed promises until
+    // settlement or a local deadline. Late replies stay in the final evidence.
+    internals.invoke=original;
+    let deadline;
+    try {
+      await Promise.race([Promise.allSettled([...pending]),
+        new Promise(resolve=>{deadline=setTimeout(resolve,10000);})]);
+    } finally {clearTimeout(deadline);}
+    delete window.__litheSettingsAcceptance;
+    return {...state.snapshot(),pending:pending.size,
+      originalInvokeRestored:internals.invoke===original && !window.__litheSettingsAcceptance};
+  };
   window.__litheSettingsAcceptance=state;
 }"""
 

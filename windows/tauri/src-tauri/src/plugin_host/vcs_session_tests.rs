@@ -687,12 +687,15 @@ async fn writes_use_typed_core_requests_real_decoder_and_never_redispatch_on_cle
             (super::super::actions::WriteOperation::Update, json!({"revision":null,"conflicts":["a.txt"]})),
             (super::super::actions::WriteOperation::Resolve { paths: vec!["conflict.txt".into()] }, json!({})),
             (super::super::actions::WriteOperation::Cleanup {}, json!({})),
+            (super::super::actions::WriteOperation::Add { paths: vec!["new.txt".into()] }, json!({})),
+            (super::super::actions::WriteOperation::Delete { paths: vec!["after.txt".into(), "before.txt".into()] }, json!({})),
         ] {
             let runtime = Arc::new(ScriptedRuntime::default());
             let mut negotiation = ready("svn");
             negotiation[0]["result"]["capabilities"]["update"] = json!(1);
             negotiation[0]["result"]["capabilities"]["conflicts"] = json!(1);
             negotiation[0]["result"]["capabilities"]["cleanup"] = json!(1);
+            negotiation[0]["result"]["capabilities"]["fileOperations"] = json!(1);
             runtime.events.lock().unwrap().extend([negotiation, vec![json!({"type":"requestCompleted","sessionId":"fixture-session","operationId":"fixture-request","result":{"value":{"changes":[]}}})],
                 vec![json!({"type":"requestCompleted","sessionId":"fixture-session","operationId":"fixture-request-write","result":{"value":reply}})]]);
             let owner = owner(context(), runtime.clone());
@@ -705,7 +708,7 @@ async fn writes_use_typed_core_requests_real_decoder_and_never_redispatch_on_cle
             // Exercise the public Core request boundary too; the controlled
             // transport has no real session, so Core must reject that identity.
             let request = runtime.calls.lock().unwrap().iter().rev().find(|(command, _)| command == "lsp.vcsRequest").unwrap().1.clone();
-            assert_eq!(request["operation"], operation.name());
+            assert_eq!(request["operation"], operation.request_name());
             assert_eq!(request["arguments"], operation.arguments());
             assert_eq!(request["operationId"], "fixture-request-write");
             let rejected = crate::plugin_host::scan::core_execute("lsp.vcsRequest", request);
@@ -716,22 +719,25 @@ async fn writes_use_typed_core_requests_real_decoder_and_never_redispatch_on_cle
             runtime.reject_disposal.store(false, Ordering::Release);
             owner.stop().await.unwrap();
             assert!(owner.write(&operation, || Ok(()), || Ok(())).await.is_err());
-            assert_eq!(runtime.calls.lock().unwrap().iter().filter(|(command, payload)| command == "lsp.vcsRequest" && payload["operation"] == operation.name()).count(), 1);
+            assert_eq!(runtime.calls.lock().unwrap().iter().filter(|(command, payload)| command == "lsp.vcsRequest" && payload["operation"] == operation.request_name()).count(), 1);
         }
     }).await.expect("bounded writes and cleanup");
 }
 
 #[tokio::test]
-async fn resolve_and_cleanup_never_dispatch_without_their_actual_negotiated_capability() {
+async fn optional_writes_never_dispatch_without_their_actual_negotiated_capability() {
     tokio::time::timeout(DEADLINE, async {
         for operation in [
             super::super::actions::WriteOperation::Resolve { paths: vec!["a.txt".into()] },
             super::super::actions::WriteOperation::Cleanup {},
+            super::super::actions::WriteOperation::Add { paths: vec!["a.txt".into()] },
+            super::super::actions::WriteOperation::Delete { paths: vec!["a.txt".into()] },
         ] {
             let runtime = Arc::new(ScriptedRuntime::default());
             let mut negotiation = ready("svn");
             // A capability named after the operation is not a conflicts negotiation.
             negotiation[0]["result"]["capabilities"]["resolve"] = json!(1);
+            negotiation[0]["result"]["capabilities"]["fileOperation"] = json!(1);
             runtime.events.lock().unwrap().extend([negotiation,
                 vec![json!({"type":"requestCompleted","sessionId":"fixture-session","operationId":"fixture-request","result":{"value":{"changes":[]}}})]]);
             let owner = owner(context(), runtime.clone());
@@ -740,20 +746,22 @@ async fn resolve_and_cleanup_never_dispatch_without_their_actual_negotiated_capa
             let result = owner.write(&operation, || Ok(()), || Ok(())).await;
             assert_eq!(result.unwrap_err(), "vcs.capability.unsupported");
             assert!(!owner.uncertain());
-            assert!(!runtime.calls.lock().unwrap().iter().any(|(name, payload)| name == "lsp.vcsRequest" && payload["operation"] == operation.name()));
+            assert!(!runtime.calls.lock().unwrap().iter().any(|(name, payload)| name == "lsp.vcsRequest" && payload["operation"] == operation.request_name()));
             owner.stop().await.unwrap();
         }
     }).await.expect("bounded negotiated resolve/cleanup");
 }
 
 #[tokio::test]
-async fn resolve_cleanup_outcomes_and_failed_disposal_keep_the_original_owner_without_replay() {
+async fn optional_write_outcomes_and_failed_disposal_keep_the_original_owner_without_replay() {
     tokio::time::timeout(DEADLINE, async {
         for operation in [
             super::super::actions::WriteOperation::Resolve { paths: vec!["a.txt".into()] },
             super::super::actions::WriteOperation::Cleanup {},
+            super::super::actions::WriteOperation::Add { paths: vec!["a.txt".into()] },
+            super::super::actions::WriteOperation::Delete { paths: vec!["a.txt".into()] },
         ] {
-            for outcome in ["preflight", "provider", "providerGeneric", "success", "lost"] {
+            for outcome in ["preflight", "provider", "providerGeneric", "success", "successNull", "lost", "cancelled", "timeout", "invalidReply"] {
                 let runtime = Arc::new(ScriptedRuntime::default());
                 let mut negotiation = ready("svn");
                 negotiation[0]["result"]["capabilities"][operation.capability()] = json!(1);
@@ -763,6 +771,12 @@ async fn resolve_cleanup_outcomes_and_failed_disposal_keep_the_original_owner_wi
                     "provider" => Some(json!({"error":{"code":"vcs.workingCopy.locked"}})),
                     "providerGeneric" => Some(json!({"error":{"code":"vcs.provider.failed"}})),
                     "success" => Some(json!({"result":{"value":{}}})),
+                    // Core's empty-reply decoder accepts null as success; an
+                    // array is malformed and must leave the write uncertain.
+                    "successNull" => Some(json!({"result":{"value":null}})),
+                    "cancelled" => Some(json!({"error":{"code":"requestCancelled"}})),
+                    "timeout" => Some(json!({"error":{"code":"requestTimeout"}})),
+                    "invalidReply" => Some(json!({"result":{"value":[]}})),
                     _ => None,
                 };
                 if let Some(mut event) = completion {
@@ -780,13 +794,13 @@ async fn resolve_cleanup_outcomes_and_failed_disposal_keep_the_original_owner_wi
                 let result = owner.write(&operation, move || {
                     if outcome == "preflight" { Err(super::super::registry::STALE.into()) } else { Ok(()) }
                 }, || Ok(())).await;
-                assert_eq!(result.is_ok(), outcome == "success");
-                assert_eq!(owner.uncertain(), outcome == "lost");
+                assert_eq!(result.is_ok(), matches!(outcome, "success" | "successNull"), "{} {outcome}", operation.name());
+                assert_eq!(owner.uncertain(), matches!(outcome, "lost" | "cancelled" | "timeout" | "invalidReply"), "{} {outcome}", operation.name());
                 runtime.reject_disposal.store(true, Ordering::Release);
                 owner.revoke();
                 assert!(!owner.dispose_once().await);
                 let error = super::super::status::complete_request(result.clone(), Err(CLEANUP_FAILED.into()), true, owner.uncertain()).unwrap_err();
-                assert_eq!(error.starts_with("vcs.provider.outcomeUnknown:"), matches!(outcome, "success" | "lost"));
+                assert_eq!(error.starts_with("vcs.provider.outcomeUnknown:"), matches!(outcome, "success" | "successNull" | "lost" | "cancelled" | "timeout" | "invalidReply"), "{} {outcome}", operation.name());
                 assert!(owner.lease.lock().unwrap().is_some());
                 // Another window cannot mutate the same root until disposal is proved.
                 let mut other_context = context();
@@ -804,7 +818,7 @@ async fn resolve_cleanup_outcomes_and_failed_disposal_keep_the_original_owner_wi
                 assert!(other.lease.lock().unwrap().is_some());
                 sessions.cleanup(other).await.unwrap();
                 assert_eq!(runtime.calls.lock().unwrap().iter().filter(|(name, payload)|
-                    name == "lsp.vcsRequest" && payload["operation"] == operation.name()).count(), usize::from(outcome != "preflight"));
+                    name == "lsp.vcsRequest" && payload["operation"] == operation.request_name()).count(), usize::from(outcome != "preflight"));
             }
         }
     }).await.expect("bounded resolve/cleanup outcomes and original owner");

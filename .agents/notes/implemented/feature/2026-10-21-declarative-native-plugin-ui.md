@@ -162,6 +162,10 @@ Windows 的树、列表和表单复用已有公共控件与虚拟列表，由共
 
 R13 的 `native-docking.test.tsx` 在集成树独立进程中实跑 10 项、137 项断言通过（5.54s，最慢 218ms）。测试组合真实 `TerminalDockLayout`、`ResizablePane`、`BottomPane`、`NativeToolWindow` 和 `NativePanel`，覆盖三侧挂载与移动、精确释放、隐藏重开、关闭后焦点、工作区及包隔离、长树、窄窗口和组合输入；插件目录、UI 状态动作及原生宿主使用替身。该证据不能代替真实 `MainLayout` 产品、完整包、双窗口与 WebView2 的视觉、输入法及浅深色验收，Windows 状态继续保持 `partial` / `pending`。
 
+R14 的 `native-main-layout.test.tsx` 补齐真实 `MainLayout` 组合链：插件目录刷新与撤回、生产活动入口、UI 状态动作、三个布局槽、原生面板和类型化函数通道均保持真实；原生调用、审批、校验、终端内容及无关功能仍使用替身。集成树独立计时实跑 9 项、161 项断言通过（Bun 2.29s，最慢 329ms），覆盖三侧同时显示、终端挂载身份不变、逆序登记与迟到释放、同槽替换、工作区及包隔离、关闭后焦点，以及重建后的字段和树状态。
+
+重建测试保留当前进程的工作区存储，并使用内存会话仓库验证既有 UI 动作的保存与恢复；位置覆盖与草稿没有经历应用重启。切换宿主窗口标签后重建只证明模拟身份下草稿隔离与精确释放，没有同时启动两个真实窗口。这些组合证据仍不替代完整包、WebView2、真实输入法、浅深色和双窗口验收，也不开放 `ui:3` 或升级 `partial` / `pending`。
+
 ## 验证
 
 - `./scripts/verify-shared-contracts.sh`
@@ -173,6 +177,7 @@ R13 的 `native-docking.test.tsx` 在集成树独立进程中实跑 10 项、137
 - `./scripts/verify-platform-feature-matrix.sh`
 - Windows 组件测试分别在独立进程运行，避免模块替身互相污染：`bun test --timeout 15000 src/features/plugins/native-ui/native-panel-session.test.ts`、`bun test --timeout 15000 src/features/plugins/native-ui/native-panel.test.tsx`、`bun test --timeout 15000 src/features/plugins/native-ui/native-functions.test.ts`、`bun test --timeout 15000 src/features/plugins/native-ui/native-docking.test.tsx`（工作目录 `windows/tauri`）。
 - Windows 原生登记与函数边界：运行 Tauri 宿主的 `plugin_host::native_ui` 和 `plugin_host::functions::native` 定向测试；组件结果不代替宿主或完整产品验收。
+- Windows 真实工作台组合在独立进程运行 `bun test --timeout 15000 src/features/plugins/native-ui/native-main-layout.test.tsx`（工作目录 `windows/tauri`）；按前端计时 runner 生成每项 JUnit/HTML 报告，不与其他含模块替身的 suite 合并运行。
 
 ## 适用范围
 

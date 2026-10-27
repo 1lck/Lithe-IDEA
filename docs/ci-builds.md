@@ -759,6 +759,7 @@ Windows 命令模型的 `<windows-app-local-data>/plugin-state/<plugin-id>/build
 再用 `settings_functions_acceptance.py --fixture-root <该目录> --report <报告路径>` 做离线预检（pending 返回 2，输入错误返回 1，不启动产品）。
 真实执行由已有 `test-windows-declarative-plugin-host.ps1 -SkipBuild -SettingsFunctions -SettingsFunctionsFixtureRoot <该目录>` 消费隔离宿主 identity；
 plan、当前 checkout 和隔离宿主的提交标识必须一致；切换提交后重新生成输入，不得清理该输入目录后冒用旧 plan。
+`-SkipBuild` 同时检查目标架构、已冻结配置和可执行文件哈希，并保留该配置；配置或提交变化时重新构建隔离宿主。驱动先恢复原生 invoke 并有界等待已观测调用结束，再退出本次产品进程，最后比较资源快照；退出失败或调用未结束不能报告资源工作流通过。
 驱动在插件详情验证普通设置，再经已注册的语言设置页保存 reload；受控设置子集通过不会把缺少兼容签名包、关闭中的 Provider 能力、arm64 或人工视觉验收算作通过。
 Windows 项目生成器的 `<workspace-parent>/.<project-name>.lithe-creating-<token>/` 暂存及最终用户项目
 走 `plugin-generator-transactions` 排除路由：由当前窗口和原生操作独占，先在用户选择的目标旁生成，

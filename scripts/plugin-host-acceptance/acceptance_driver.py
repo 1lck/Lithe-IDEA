@@ -1149,12 +1149,16 @@ def main() -> int:
                     finish_onboarding(current)
                     return current, session
 
-                try:
-                    SettingsFunctionsAcceptance(sys.modules[__name__], args, reporter, restart_settings).run()
-                finally:
+                def stop_settings():
+                    nonlocal session
                     if session is not None:
                         cleanup_evidence.append(session.stop(require_graceful=True))
                         session = None
+
+                try:
+                    SettingsFunctionsAcceptance(sys.modules[__name__], args, reporter, restart_settings, stop_settings).run()
+                finally:
+                    stop_settings()
                 raise RuntimeError("M10 settings subset finished; real functions package/Provider prerequisites remain blocked. See settings-functions report rows.")
 
             with reporter.step("cancelled review discards its private snapshot"):

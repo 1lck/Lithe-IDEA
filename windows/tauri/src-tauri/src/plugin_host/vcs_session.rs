@@ -289,7 +289,7 @@ impl Owner {
         tokio::time::timeout(
             Duration::from_secs(615),
             self.request(
-                operation.name(),
+                operation.request_name(),
                 operation.arguments(),
                 true,
                 preflight,
@@ -308,7 +308,11 @@ impl Owner {
         current: impl Fn() -> Result<(), String>,
     ) -> Reply {
         let capabilities = self.capabilities();
-        let capability = if name == "resolve" { "conflicts" } else { name };
+        let capability = match name {
+            "resolve" => "conflicts",
+            "fileOperation" => "fileOperations",
+            _ => name,
+        };
         if capabilities[capability] != 1 {
             return Err("vcs.capability.unsupported".into());
         }

@@ -6,7 +6,7 @@ import Textarea from "@/ui/textarea";
 import AppDialog from "@/ui/dialog";
 import type { VcsRootController } from "./vcs-root-controller";
 import type { VcsRoot, VcsStatusSnapshot } from "./vcs-root-types";
-import { isConflict, permitsWholeCopy } from "./vcs-action-types";
+import { isConflict, permitsWholeCopy, permitsFileOperation } from "./vcs-action-types";
 
 export const MAX_VISIBLE_STATUS_CHANGES = 500;
 export function VcsActionsPanel({
@@ -143,6 +143,26 @@ export function VcsActionsPanel({
               {t("vcs.actions.resolve")}
             </Button>
           )}
+          {capabilities.fileOperations === 1 &&
+            (["add", "delete"] as const).map((operation) => (
+              <Button
+                key={operation}
+                size="xs"
+                disabled={
+                  !canWrite ||
+                  !selection.length ||
+                  selection.some((path) => {
+                    const change = changes.find((change) => change.path === path);
+                    return !change || !permitsFileOperation(change, operation);
+                  })
+                }
+                onClick={() =>
+                  controller.actions.prepare(snapshot, { operation, paths: selection })
+                }
+              >
+                {t(`vcs.actions.${operation}`)}
+              </Button>
+            ))}
           {(["update", "cleanup"] as const).map(
             (operation) =>
               capabilities[operation] === 1 && (
