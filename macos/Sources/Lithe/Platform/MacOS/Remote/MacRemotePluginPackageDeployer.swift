@@ -37,7 +37,7 @@ struct MacRemotePluginPackageDeployer: RemotePluginPackageDeploying {
             $0.descriptor.id.rawValue == pluginID && $0.packageURL.standardizedFileURL == packageURL.standardizedFileURL
         }) else { throw failure("plugin.remote.unapproved", L10n.string("The remote plugin package is not part of the approved installation.")) }
         let facts = try await host.pluginHost(session: session)
-        guard let platform = facts.platform, facts.features.contains("upload") else {
+        guard let platform = facts.platform, facts.features.contains("upload"), facts.features.contains("runDirectories") else {
             throw failure("plugin.remote.unsupported", L10n.string("This host cannot receive a compatible plugin package. Update the remote server."))
         }
         // Revalidate the original approval before using its source or programs.
@@ -116,29 +116,17 @@ struct MacRemotePluginPackageDeployer: RemotePluginPackageDeploying {
 
     private func transfer(_ snapshot: LocalSnapshot, session: String, facts: RemotePluginHost,
                           localCleanup: URL?) async throws -> RemoteDeployedPluginPackage {
-        var remoteRoot: String?
+        let directoryID = UUID().uuidString
         do {
-            guard let home = facts.homeDirectory, home.hasPrefix("/"), !home.contains("\0"),
-                  URL(fileURLWithPath: home).standardizedFileURL.path == home else {
+            // Know the identity before allocation: a lost response or cancelled
+            // transfer must still release the exact session-owned directory.
+            let allocated = try await host.pluginRequest("fs.createRunDirectory", params: .object([
+                "directoryId": .string(directoryID)]), session: session)
+            guard case .object(let value) = allocated, case .string(let root) = value["path"],
+                  root.hasPrefix("/"), !root.contains("\0"),
+                  URL(fileURLWithPath: root).standardizedFileURL.path == root else {
                 throw CocoaError(.fileReadCorruptFile)
             }
-            let parent = home + "/.lithe-server/plugin-runs"
-            _ = try await host.pluginRequest("fs.createDir", params: .object([
-                "path": .string(parent), "recursive": .bool(true), "mode": .integer(0o700)]), session: session)
-            for directory in [home + "/.lithe-server", parent] {
-                let metadata = try await host.pluginRequest("fs.stat", params: .object(["path": .string(directory)]), session: session)
-                guard case .object(let value) = metadata, value["kind"] == .string("directory"),
-                      case .integer(let mode) = value["mode"], mode & 0o077 == 0 else {
-                    throw CocoaError(.fileWriteNoPermission)
-                }
-            }
-            let resolved = try await host.pluginRequest("fs.realPath", params: .object(["path": .string(parent)]), session: session)
-            guard case .object(let value) = resolved, case .string(let canonical) = value["path"] else { throw CocoaError(.fileReadCorruptFile) }
-            // Keep the exact owned path before allocation: cancellation after
-            // the host creates it still has a known cleanup destination.
-            let root = canonical + "/" + UUID().uuidString
-            remoteRoot = root
-            _ = try await host.pluginRequest("fs.createDir", params: .object(["path": .string(root), "mode": .integer(0o700)]), session: session)
             let package = root + "/package"
             _ = try await host.pluginRequest("fs.createDir", params: .object(["path": .string(package), "mode": .integer(0o700)]), session: session)
             for entry in snapshot.entries {
@@ -158,23 +146,23 @@ struct MacRemotePluginPackageDeployer: RemotePluginPackageDeploying {
             if let localCleanup { await removeLocal(localCleanup) }
             return RemoteDeployedPluginPackage(packageURL: URL(fileURLWithPath: package, isDirectory: true),
                 manifest: snapshot.descriptor.normalizedManifest, architecture: facts.templateArchitecture) {
-                await release(root, session: session)
+                await release(directoryID, session: session)
             }
         } catch {
-            if let remoteRoot { await release(remoteRoot, session: session) }
+            await release(directoryID, session: session)
             if let localCleanup { await removeLocal(localCleanup) }
             throw error
         }
     }
 
-    private func release(_ root: String, session: String) async {
+    private func release(_ directoryID: String, session: String) async {
         // A cancelled build still needs an uncancelled cleanup operation on its
         // original host. Directories stay private and owner-writable for removal;
         // runtime state is always outside this snapshot and files are read-only.
         let cleanup = Task.detached {
             do {
                 do {
-                    _ = try await host.pluginRequest("fs.remove", params: .object(["path": .string(root), "recursive": .bool(true)]), session: session)
+                    _ = try await host.pluginRequest("fs.releaseRunDirectory", params: .object(["directoryId": .string(directoryID)]), session: session)
                 } catch let error as RemoteProbeFailure where error.code == "workspace_not_found" {
                     // Cancellation may have won before the allocation.
                 }

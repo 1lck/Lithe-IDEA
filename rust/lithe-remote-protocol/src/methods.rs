@@ -41,6 +41,16 @@ pub const FS_UPLOAD_START: &str = "fs.uploadStart";
 pub const FS_UPLOAD_CHUNK: &str = "fs.uploadChunk";
 pub const FS_UPLOAD_COMMIT: &str = "fs.uploadCommit";
 pub const FS_UPLOAD_ABORT: &str = "fs.uploadAbort";
+/// Private runtime snapshots owned by the session, not by a live connection.
+pub const FS_CREATE_RUN_DIRECTORY: &str = "fs.createRunDirectory";
+pub const FS_RELEASE_RUN_DIRECTORY: &str = "fs.releaseRunDirectory";
+
+/// Caller-generated opaque identity, known before allocation can be cancelled.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RunDirectoryParams {
+    pub directory_id: String,
+}
 
 /// Maximum decoded chunk, independent of the full file size.
 pub const MAX_UPLOAD_CHUNK_BYTES: usize = 256 * 1024;
@@ -269,6 +279,8 @@ pub enum Feature {
     Filesystem,
     /// Bounded staged uploads with SHA-256 and atomic no-replace publication.
     Upload,
+    /// Session-owned private run directories reclaimed when the session ends.
+    RunDirectories,
     /// `walk.*` methods and events.
     Walk,
     /// `watch.*` methods and events.

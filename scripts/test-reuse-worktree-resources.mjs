@@ -79,6 +79,8 @@ try {
     const state = registry.excludedResources.find(item => item.id === "remote-connection-state");
     assert.ok(state.locations.some(location => location.includes("session-and-binary-hash")));
     const snapshots = registry.excludedResources.find(item => item.id === "remote-workspace-session-state");
+    assert.match(snapshots.reason, /fs\.createRunDirectory/);
+    assert.match(snapshots.reason, /Forced server termination recovery remains unsupported/);
     assert.ok(snapshots.locations.some(location => location.includes("lithe-git-")));
     assert.ok(snapshots.locations.some(location => location.includes("<app-memory>")));
     assert.ok(snapshots.locations.some(location => location.includes(".lithe-copy-")));

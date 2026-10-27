@@ -63,6 +63,7 @@ pub(crate) struct Session {
     pub(crate) tunnels: TunnelTable,
     pub(crate) walks: WalkTable,
     pub(crate) uploads: crate::upload::UploadTable,
+    pub(crate) run_directories: crate::run_directory::RunDirectories,
     /// Requests running on worker threads, drained before the session ends.
     pub(crate) workers: InFlight,
     pub(crate) starts: Arc<PendingStarts>,
@@ -93,6 +94,9 @@ impl Session {
             tunnels: TunnelTable::new(),
             walks: WalkTable::new(),
             uploads: crate::upload::UploadTable::default(),
+            run_directories: crate::run_directory::RunDirectories::new(
+                crate::platform::current_account().home_directory,
+            ),
             workers: InFlight::default(),
             starts: Arc::default(),
             ending: AtomicBool::new(false),
@@ -171,5 +175,7 @@ impl Session {
             eprintln!("lithe-remote-server: {unfinished} requests did not finish");
         }
         self.uploads.clear();
+        // Processes must be stopped before their read-only runtime inputs go.
+        self.run_directories.clear();
     }
 }

@@ -229,6 +229,9 @@ fn handle(context: &Context, method: &str, params: Value) -> Result<Value, Remot
         method if method.starts_with("fs.upload") => {
             session.uploads.handle(context, method, params)
         }
+        methods::FS_CREATE_RUN_DIRECTORY | methods::FS_RELEASE_RUN_DIRECTORY => {
+            session.run_directories.handle(context, method, params)
+        }
         method if method.starts_with("fs.") => fs::handle(method, params),
         method if method.starts_with("walk.") => session.walks.handle(context, method, params),
         method if method.starts_with("watch.") => session.watches.handle(context, method, params),
@@ -306,6 +309,28 @@ enum ResourceOrder {
 
 impl ResourceOrder {
     fn prepare(session: &Arc<Session>, method: &str, params: &Value) -> Result<Self, RemoteError> {
+        if matches!(
+            method,
+            methods::FS_CREATE_RUN_DIRECTORY | methods::FS_RELEASE_RUN_DIRECTORY
+        ) {
+            let parsed: methods::RunDirectoryParams = parse(params.clone())?;
+            crate::run_directory::validate(&parsed)?;
+            return if method == methods::FS_CREATE_RUN_DIRECTORY {
+                Ok(Self::Start {
+                    guard: session
+                        .starts
+                        .reserve("runDirectory", &parsed.directory_id)?,
+                    close_method: methods::FS_RELEASE_RUN_DIRECTORY,
+                    close_params: params.clone(),
+                })
+            } else {
+                Ok(session
+                    .starts
+                    .cancel("runDirectory", &parsed.directory_id, params)
+                    .map(Self::After)
+                    .unwrap_or(Self::Independent))
+            };
+        }
         let (family, field, start) = match method {
             methods::PROCESS_SPAWN => ("process", "processId", true),
             methods::PROCESS_KILL => ("process", "processId", false),
@@ -383,6 +408,7 @@ impl ResourceOrder {
                             "lithe-remote-server: cancelled start cleanup failed: {:?}",
                             error.code
                         );
+                        guard.cleanup_failed(error);
                     }
                 }
             }

@@ -279,3 +279,48 @@ impl Drop for Cleanup {
         self.0.terminate_all();
     }
 }
+
+#[test]
+fn run_directory_cancellation_is_reserved_before_allocation_is_scheduled() {
+    let session = Session::new(true).unwrap();
+    let _cleanup = Cleanup(Arc::clone(&session));
+    let params = json!({"directoryId": "pending-run"});
+    let create =
+        ResourceOrder::prepare(&session, methods::FS_CREATE_RUN_DIRECTORY, &params).unwrap();
+    assert!(ResourceOrder::prepare(
+        &session,
+        methods::FS_RELEASE_RUN_DIRECTORY,
+        &json!({"directoryId": "pending-run", "unexpected": true})
+    )
+    .is_err());
+    let close =
+        ResourceOrder::prepare(&session, methods::FS_RELEASE_RUN_DIRECTORY, &params).unwrap();
+    assert!(close.wait(Duration::ZERO).is_err());
+    assert!(ResourceOrder::prepare(&session, methods::FS_CREATE_RUN_DIRECTORY, &params).is_err());
+    // A BUSY or cancelled allocation worker drops its reservation; the close
+    // waiter completes without needing to access a user-owned home directory.
+    drop(create);
+    close.wait(Duration::ZERO).unwrap();
+    ResourceOrder::prepare(&session, methods::FS_CREATE_RUN_DIRECTORY, &params).unwrap();
+}
+
+#[test]
+fn pending_close_reports_the_creators_cleanup_failure_instead_of_success() {
+    let session = Session::new(true).unwrap();
+    let _cleanup = Cleanup(Arc::clone(&session));
+    let params = json!({"directoryId": "failed-cleanup"});
+    let creation =
+        ResourceOrder::prepare(&session, methods::FS_CREATE_RUN_DIRECTORY, &params).unwrap();
+    let close =
+        ResourceOrder::prepare(&session, methods::FS_RELEASE_RUN_DIRECTORY, &params).unwrap();
+    let ResourceOrder::Start { guard, .. } = &creation else {
+        panic!("expected start reservation");
+    };
+    // Deterministically model a filesystem cleanup failure without changing
+    // user permissions or relying on a particular platform's I/O error.
+    let failure = RemoteError::new(ErrorCode::PermissionDenied, "cleanup denied");
+    guard.cleanup_failed(failure.clone());
+    drop(creation);
+    assert_eq!(close.wait(Duration::ZERO), Err(failure));
+    ResourceOrder::prepare(&session, methods::FS_CREATE_RUN_DIRECTORY, &params).unwrap();
+}

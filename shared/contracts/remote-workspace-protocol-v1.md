@@ -105,6 +105,8 @@ subscribe before creating the resource.
 | `fs.uploadChunk` | `uploadId`, `offset`, `data` | next `offset` |
 | `fs.uploadCommit` | `uploadId` | verified `size`, `sha256` |
 | `fs.uploadAbort` | `uploadId` | `null` |
+| `fs.createRunDirectory` | `directoryId` | private session-owned `path` |
+| `fs.releaseRunDirectory` | `directoryId` | `null`; idempotent release of this session's allocation |
 | `walk.start` | `walkId`, `root`, `excludeNames`, `maxEntries?` | `null`; entries follow as events |
 | `walk.cancel` | `walkId` | `null` |
 | `watch.start` | `watchId`, `root`, `excludeNames` | `watchedDirectories` (per-directory backends) |
@@ -159,6 +161,34 @@ Failed commits, aborts, disconnects, session shutdown and an absolute five-minut
 expiry remove staging files. Clients serialize chunks and commit only after
 the last acknowledgement. Interrupted clients may not know whether a completed
 commit published; owners must remove their allocated run directory separately.
+
+Upload registry locks do not cover file creation, writes, `fsync`, publication
+or deletion. Operations on one upload use a separate nonblocking lock (`BUSY`
+for concurrent operations on that upload). Abort, expiry and disconnect mark
+an in-flight upload cancelled without waiting for that lock; its worker retains
+staging cleanup responsibility. Independent uploads remain usable.
+
+The optional `runDirectories` feature owns complete runtime input snapshots,
+not just unpublished upload files. Clients choose a unique `directoryId` before
+allocation (1–64 ASCII letters, digits, `_` or `-`), so a cancelled or lost reply
+can still be released by identity. The host creates a fresh `0700` directory
+below its private `~/.lithe-server/plugin-runs/`; it never adopts an existing
+directory or accepts an arbitrary cleanup path. At most 256 allocations belong
+to a session. A later release is ordered after a pending allocation even when
+its worker has not started. Release is idempotent and affects only that
+session's allocation. A removal failure is returned to the waiting release
+request, and ownership remains registered so release can be retried. Existing
+parent directories must be real, owned by the host user and inaccessible to
+group/other users; allocation never changes their permissions.
+Clients stop the consuming process before release.
+
+Nonpersistent disconnect and session shutdown remove these directories after
+process teardown and worker drain. Persistent disconnect retains them for
+reconnection; an abandoned desktop's directories are removed at idle expiry.
+This is not crash recovery of a forcibly killed server: such directories remain
+until a future process-liveness-aware recovery mechanism or manual cleanup.
+No age-based scan deletes other sessions' snapshots. Installed resources and
+persistent provider state are never cleanup targets.
 
 `process.exit` and `terminal.exit` report the leader. The server keeps owning
 its session until no member is left, so members that outlive the leader can

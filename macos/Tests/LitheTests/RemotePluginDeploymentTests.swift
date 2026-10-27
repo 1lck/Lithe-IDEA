@@ -23,6 +23,7 @@ struct RemotePluginDeploymentTests {
         await result.release()
         #expect(host.removals.count == 1)
         #expect(host.removals.first?.session == "original")
+        #expect(host.removals.first?.directoryID == host.allocations.first)
         #expect(try PluginPackageSignature.contentDigest(packageAt: fixture.package.packageURL) == before)
     }
 
@@ -60,7 +61,7 @@ struct RemotePluginDeploymentTests {
         let fixture = try DeploymentFixture()
         defer { fixture.remove() }
         let host = DeploymentHostFixture()
-        host.facts = .init(os: "linux", arch: "aarch64", homeDirectory: "/host", features: ["upload"])
+        host.facts = .init(os: "linux", arch: "aarch64", homeDirectory: "/host", features: ["upload", "runDirectories"])
         let deployer = fixture.deployer(host)
         await #expect(throws: DeclarativePluginRejection.self) {
             _ = try await deployer.deploy(pluginID: fixture.id, packageURL: fixture.package.packageURL, session: "linux")
@@ -70,6 +71,39 @@ struct RemotePluginDeploymentTests {
         try Data("changed".utf8).write(to: fixture.package.packageURL.appendingPathComponent("server/run"))
         await #expect(throws: PluginPackageStoreError.self) {
             _ = try await deployer.deploy(pluginID: fixture.id, packageURL: fixture.package.packageURL, session: "changed")
+        }
+        #expect(host.uploads.isEmpty)
+        #expect(host.removals.isEmpty)
+        #expect(host.allocations.isEmpty)
+    }
+
+    @Test
+    func lostAllocationResponseReleasesTheIdentityKnownBeforeTheRequest() async throws {
+        let fixture = try DeploymentFixture()
+        defer { fixture.remove() }
+        let host = DeploymentHostFixture()
+        host.losesAllocationResponse = true
+        await #expect(throws: CocoaError.self) {
+            _ = try await fixture.deployer(host).deploy(pluginID: fixture.id,
+                packageURL: fixture.package.packageURL, session: "lost-response")
+        }
+        #expect(host.allocations.count == 1)
+        #expect(host.removals.count == 1)
+        #expect(host.removals.first?.directoryID == host.allocations.first)
+        #expect(host.removals.first?.session == "lost-response")
+        #expect(host.uploads.isEmpty)
+    }
+
+    @Test
+    func olderHostWithoutSessionOwnedDirectoriesNeverAllocatesOrUploads() async throws {
+        let fixture = try DeploymentFixture()
+        defer { fixture.remove() }
+        let host = DeploymentHostFixture()
+        host.facts = .init(os: "macos", arch: DeploymentHostFixture.currentHost.arch,
+            homeDirectory: "/host", features: ["upload"])
+        await #expect(throws: DeclarativePluginRejection.self) {
+            _ = try await fixture.deployer(host).deploy(pluginID: fixture.id,
+                packageURL: fixture.package.packageURL, session: "older-host")
         }
         #expect(host.uploads.isEmpty)
         #expect(host.removals.isEmpty)
@@ -127,29 +161,38 @@ private struct NoDeploymentNetwork: MacPluginMarketplaceTransport {
 
 private final class DeploymentHostFixture: RemotePluginFileAccess, @unchecked Sendable {
     struct Upload { let target: String; let mode: UInt32 }
-    struct Removal { let session: String }
+    struct Removal { let session: String; let directoryID: String }
     static let currentHost = RemotePluginHost(os: "macos",
         arch: MacPluginLanguageServerLaunchResolver.hostArchitecture == "arm64" ? "aarch64" : "x86_64",
-        homeDirectory: "/host", features: ["upload"])
+        homeDirectory: "/host", features: ["upload", "runDirectories"])
     private let lock = NSLock()
     // Scripted outcomes change only between awaited calls.
     var facts = currentHost
     var failsUpload = false
     var blocksUpload = false
+    var losesAllocationResponse = false
     private var sent: [Upload] = []
     private var removed: [Removal] = []
     private var cancelledCleanup = false
+    private var allocated: [String] = []
     let started = TestGate()
     let release = TestGate()
     var uploads: [Upload] { lock.withLock { sent } }
     var removals: [Removal] { lock.withLock { removed } }
     var cleanupWasCancelled: Bool { lock.withLock { cancelledCleanup } }
+    var allocations: [String] { lock.withLock { allocated } }
     func pluginHost(session: String) async throws -> RemotePluginHost { facts }
     func pluginRequest(_ method: String, params: ToolingJSONValue, session: String) async throws -> ToolingJSONValue {
         if method == "fs.stat" { return .object(["kind": .string("directory"), "mode": .integer(0o700)]) }
-        if method == "fs.realPath" { return .object(["path": .string("/host/.lithe-server/plugin-runs")]) }
-        if method == "fs.remove" {
-            lock.withLock { removed.append(.init(session: session)); cancelledCleanup = Task.isCancelled }
+        if method == "fs.createRunDirectory", case .object(let values) = params,
+           case .string(let id) = values["directoryId"] {
+            lock.withLock { allocated.append(id) }
+            if losesAllocationResponse { throw CocoaError(.fileReadUnknown) }
+            return .object(["path": .string("/host/.lithe-server/plugin-runs/" + id)])
+        }
+        if method == "fs.releaseRunDirectory", case .object(let values) = params,
+           case .string(let id) = values["directoryId"] {
+            lock.withLock { removed.append(.init(session: session, directoryID: id)); cancelledCleanup = Task.isCancelled }
         }
         return .null
     }

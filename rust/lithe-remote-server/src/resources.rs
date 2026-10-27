@@ -26,7 +26,7 @@ impl IdWatermark {
 /// A later close must wait for publication (or failure), not race an empty table.
 #[derive(Default)]
 pub(crate) struct PendingStarts {
-    entries: Mutex<BTreeMap<(&'static str, u64), Arc<StartCompletion>>>,
+    entries: Mutex<BTreeMap<(&'static str, String), Arc<StartCompletion>>>,
 }
 
 #[derive(Default)]
@@ -34,6 +34,7 @@ pub(crate) struct StartCompletion {
     finished: Mutex<bool>,
     changed: Condvar,
     close_params: Mutex<Option<Value>>,
+    cleanup_failure: Mutex<Option<RemoteError>>,
 }
 
 impl StartCompletion {
@@ -54,7 +55,10 @@ impl StartCompletion {
                 .unwrap_or_else(|error| error.into_inner())
                 .0;
         }
-        Ok(())
+        match crate::lock(&self.cleanup_failure).clone() {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
     }
 }
 
@@ -62,10 +66,10 @@ impl PendingStarts {
     pub(crate) fn reserve(
         self: &Arc<Self>,
         family: &'static str,
-        id: u64,
+        id: impl ToString,
     ) -> Result<StartGuard, RemoteError> {
         let mut entries = crate::lock(&self.entries);
-        let key = (family, id);
+        let key = (family, id.to_string());
         if entries.contains_key(&key) {
             return Err(RemoteError::new(
                 ErrorCode::ResourceIdInUse,
@@ -73,7 +77,7 @@ impl PendingStarts {
             ));
         }
         let completion = Arc::new(StartCompletion::default());
-        entries.insert(key, Arc::clone(&completion));
+        entries.insert(key.clone(), Arc::clone(&completion));
         Ok(StartGuard {
             starts: Arc::clone(self),
             key,
@@ -84,11 +88,11 @@ impl PendingStarts {
     pub(crate) fn cancel(
         &self,
         family: &'static str,
-        id: u64,
+        id: impl ToString,
         params: &Value,
     ) -> Option<Arc<StartCompletion>> {
         let entries = crate::lock(&self.entries);
-        let completion = entries.get(&(family, id))?;
+        let completion = entries.get(&(family, id.to_string()))?;
         let mut close = crate::lock(&completion.close_params);
         // Multiple cancellation attempts may strengthen, but never downgrade,
         // an explicit force kill while the child is still being created.
@@ -106,11 +110,16 @@ impl PendingStarts {
 /// worker scheduling failure, or panic. No lifecycle lock covers host I/O.
 pub(crate) struct StartGuard {
     starts: Arc<PendingStarts>,
-    key: (&'static str, u64),
+    key: (&'static str, String),
     completion: Arc<StartCompletion>,
 }
 
 impl StartGuard {
+    /// Preserve creator-owned cleanup errors for close requests waiting on it.
+    pub(crate) fn cleanup_failed(&self, error: RemoteError) {
+        *crate::lock(&self.completion.cleanup_failure) = Some(error);
+    }
+
     /// After publication, atomically transfers close ownership either to the
     /// creating worker or to a subsequent ordinary close request.
     pub(crate) fn take_cancellation(&self) -> Option<Value> {

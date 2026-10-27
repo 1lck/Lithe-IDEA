@@ -412,8 +412,10 @@ HTTP/SSE 响应体和 stdio 元数据限制为 2 MiB，原生文件由现有平�
 远端构建输出、插件运行快照和分块上传同样登记在 `remote-workspace-session-state`，
 没有跨工作树复制阶段。上传在目标父目录用 `.lithe-upload-<pid>-<sequence>` 暂存，
 按连接持有，失败、断线或五分钟期限后删除；SHA-256 与架构校验只授权本次运行。
-完整插件快照位于远端 `~/.lithe-server/plugin-runs/<UUID>/package`，进程销毁后释放；
-客户端崩溃或断线后的完整快照回收仍为 TODO。插件配置、索引等持久状态位于远端
+完整插件快照位于远端 `~/.lithe-server/plugin-runs/<UUID>/package`，由 `fs.createRunDirectory`
+登记为会话所有，进程销毁后按同一身份释放；非驻留断线、会话关闭和空闲到期时由服务端回收。
+常驻会话短暂断线保留快照；客户端崩溃后按会话空闲期限回收。远端服务被强制杀死后的安全回收仍为 TODO，
+不能按目录年龄删除其他会话或仍有进程使用的输入，也不接管旧版未登记目录。插件配置、索引等持久状态位于远端
 `~/.lithe-server/state/plugins/<plugin-hash>/<provider-scope>/<provider-hash>/workspaces/<root-hash>`，
 由该工作区和提供者持有，构建临时输出按运行清理。异平台包下载复用市场下载器，
 在平台临时目录解压，传输完成或失败后删除；校验来源包括市场归档 SHA-256、安装来源、

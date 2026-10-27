@@ -404,6 +404,8 @@ async function main() {
       // have execution/user ownership, never a build stamp or copy stage.
       // Build/provider state, approved plugin-run snapshots, upload staging and
       // native marketplace extraction also stay on that rejection route.
+      // Session-owned runDirectory identities survive persistent reconnects and
+      // expire with the session; they never authorize a resource-copy validator.
       // Includes plugin-disk-install-state: fileStorage temporary snapshots, install staging
       // and active/previous approvals are runtime-owned. Reject before resolving worktrees
       // or calling validatorArguments; a content digest is neither a build stamp nor consent.

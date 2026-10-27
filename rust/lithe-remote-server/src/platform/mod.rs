@@ -52,6 +52,7 @@ pub(crate) fn host_capabilities() -> HostCapabilities {
     let mut features = vec![
         Feature::Filesystem,
         Feature::Upload,
+        Feature::RunDirectories,
         Feature::Walk,
         Feature::Watch,
         Feature::Process,

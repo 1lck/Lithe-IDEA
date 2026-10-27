@@ -97,6 +97,8 @@ fn allowed_method(method: &str) -> bool {
             | methods::FS_UPLOAD_CHUNK
             | methods::FS_UPLOAD_COMMIT
             | methods::FS_UPLOAD_ABORT
+            | methods::FS_CREATE_RUN_DIRECTORY
+            | methods::FS_RELEASE_RUN_DIRECTORY
             | methods::ENVIRONMENT_RESOLVE
             | methods::PROCESS_WRITE_STDIN
             | methods::PROCESS_CLOSE_STDIN
@@ -546,6 +548,8 @@ mod request_tests {
         }
         for method in [
             methods::FS_STAT,
+            methods::FS_CREATE_RUN_DIRECTORY,
+            methods::FS_RELEASE_RUN_DIRECTORY,
             methods::ENVIRONMENT_RESOLVE,
             methods::PROCESS_WRITE_STDIN,
             methods::PROCESS_KILL,

@@ -3579,6 +3579,18 @@ Successful upload ownership transfers to the caller, which removes its run
 snapshot after the process has ended. The native source and installation remain
 read-only. See the staged upload limits in `remote-workspace-protocol-v1.md`.
 
+Plugin deployment requires both `upload` and `runDirectories` host features.
+Through `remote.hostRequest`, `fs.createRunDirectory` accepts a caller-generated
+`directoryId` and returns a fresh host `path`; `fs.releaseRunDirectory` accepts
+the same identity and is idempotent. Allocation may finish after Core cancellation,
+but the host owns it and orders a subsequent release after pending creation.
+The platform retains the original connection and the identity before allocation,
+releases after process destruction, and never falls back to unchecked `fs.remove`.
+Nonpersistent disconnect or session termination also collects full snapshots;
+persistent disconnect retains them until explicit release, shutdown or idle expiry.
+Forced server termination recovery remains unsupported, rather than risking
+deletion of inputs used by surviving processes.
+
 ### Git patch discovery and rebase amendment preconditions
 
 `git.patchExport` accepts optional `metadataOnly` (default false). In metadata

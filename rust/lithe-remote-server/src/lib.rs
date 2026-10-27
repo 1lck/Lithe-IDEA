@@ -29,6 +29,7 @@ mod platform;
 mod ports;
 mod process;
 mod resources;
+mod run_directory;
 mod session;
 mod spawner;
 mod terminal;
