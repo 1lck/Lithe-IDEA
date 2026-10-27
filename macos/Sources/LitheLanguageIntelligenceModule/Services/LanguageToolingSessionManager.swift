@@ -567,29 +567,29 @@ package final class LanguageToolingSessionManager: ObservableObject,
         command: String,
         rootURL: URL
     ) async throws -> UInt16 {
+        try Task.checkCancellation()
         guard extensionRuntimeIDs.contains(languageID),
               runtimesByID[languageID]?.descriptor.languageServerLaunch?.launchSource?.pluginID == pluginID else {
             throw LanguageToolingSessionError.languageServerNotOwnedByPlugin(languageID: languageID)
         }
         let root = rootURL.standardizedFileURL
         _ = try startLanguageServer(providerID: languageID, rootURL: root)
+        let identity = languageServerSessionIdentities[languageID]
         try await waitUntilLanguageServerReady(providerID: languageID, rootURL: root)
-        guard let session = languageServers[languageID], session.isRunning else {
+        try Task.checkCancellation()
+        guard runtimesByID[languageID]?.descriptor.languageServerLaunch?.launchSource?.pluginID == pluginID,
+              languageServerSessionIdentities[languageID] == identity,
+              languageServerRoots[languageID] == root,
+              let session = languageServers[languageID], session.isRunning else {
             throw LanguageToolingSessionError.languageServerNotOwnedByPlugin(languageID: languageID)
         }
         let commandRequest = LanguageServerCommand(title: command, command: command, arguments: [])
-        let value: ToolingJSONValue = try await withCheckedThrowingContinuation { continuation in
-            do {
-                // The session sends a workspace command without a document, so
-                // the file only names the root.
-                try session.executeReturningValue(
-                    commandRequest,
-                    fileURL: root.appendingPathComponent(".lithe-debug"),
-                    completion: { continuation.resume(with: $0) }
-                )
-            } catch {
-                continuation.resume(throwing: error)
-            }
+        let value = try await session.executeReturningValue(commandRequest, fileURL: root)
+        try Task.checkCancellation()
+        guard languageServerSessionIdentities[languageID] == identity,
+              languageServerRoots[languageID] == root,
+              languageServerStates[languageID] == .ready else {
+            throw LanguageToolingSessionError.languageServerNotOwnedByPlugin(languageID: languageID)
         }
         guard let port = Self.debugAdapterPort(from: value) else {
             throw LanguageToolingSessionError.invalidDebugAdapterPort(provider: languageID)

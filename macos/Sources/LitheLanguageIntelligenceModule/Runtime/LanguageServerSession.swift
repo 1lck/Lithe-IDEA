@@ -569,6 +569,50 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         }
     }
 
+    package func executeReturningValue(
+        _ command: LanguageServerCommand,
+        fileURL: URL
+    ) async throws -> ToolingJSONValue {
+        try Task.checkCancellation()
+        guard let sessionID, state == .ready else {
+            throw LanguageServerRuntimeSessionError.notReady
+        }
+        // Like build requests, workspace commands must not block the main
+        // actor on stdin and must register before cancellation can reach Core.
+        _ = fileURL
+        let operation: LanguageServerRuntimeOperation
+        switch await send(timeout: requestTimeout, { core in
+            core.requestLanguageServerOperation(
+                sessionID: sessionID, operation: .executeCommand, fileURL: nil,
+                virtualURI: nil, position: nil, newName: nil, range: nil,
+                diagnostics: [], completionItem: nil, codeAction: nil, command: command
+            )
+        }) {
+        case .success(let started): operation = started
+        case .failure(let error):
+            sendsInFlight -= 1
+            try Task.checkCancellation()
+            throw LanguageServerRuntimeSessionError.requestRejected(error.userMessage)
+        }
+        let value: ToolingJSONValue = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                registerPendingOperation(operation, name: LanguageServerOperation.executeCommand.rawValue) { result in
+                    continuation.resume(with: result.flatMap { event in
+                        guard case .object(let object)? = event.result, let value = object["value"] else {
+                            return .failure(LanguageServerRuntimeSessionError.missingResult)
+                        }
+                        return .success(value)
+                    })
+                }
+                sendsInFlight -= 1
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.cancelOffMain(operation.operationID) }
+        }
+        try Task.checkCancellation()
+        return value
+    }
+
     package func buildRequest(
         method: String,
         params: ToolingJSONValue,

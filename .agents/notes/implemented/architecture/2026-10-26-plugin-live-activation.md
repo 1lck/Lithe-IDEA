@@ -48,7 +48,7 @@
 - `languageIDs(requiringExtensionFor:)` 跳过 debug-only 声明，所以“这个语言缺少扩展”的宿主功能提示不会因为只装了调试器而消失或出现。
 - 同一个语言有多个调试插件时，按插件 id 排序取第一个；`java` 永远保留给宿主自带的适配器（`PluginDebugAdapterEntry.index(of:)` 跳过它）。
 - “把语言归给调试插件”和“选哪个适配器去启动文件”是两件事，用两份语言集合表示（`DeclarativeDebugAdapter`）：`languageIDs` 是所有 `selectors` 的并集，只用来给语言挂 `debugModuleID`、判断 `isDebugOnly`；`fileLaunchLanguageIDs` 只收“支持 launch 请求、且 `targetKinds` 覆盖 `file`（省略视为全部）”的 selector，是文件启动的唯一依据。选择器之间是“或”，同一个选择器内是“且”。只声明 `attach` 的适配器，或 `targetKinds` 只有 `process` 的适配器，仍然会让语言出现在语言目录里，但不会被选来启动当前文件。
-- 宿主目前只能拉起 `stdio` 传输的适配器。声明 `tcpPort` / `tcpAnnounced` 的适配器会通过 Core 的校验（契约允许），但 `MacPluginLanguageServerLaunchResolver.resolveDebugAdapter` 在启动进程之前就以 `plugin.launch.unsupportedTransport` 拒绝，并给出本地化说明。这样不会先起进程、再因为没人连接而挂起。启动计划里的 `transport` 字段由 Core 给出，宿主不自己解析清单。
+- 宿主支持 `stdio` 和同一插件语言服务器承载的 `tcpLanguageServer` 适配器；后者需要语言服务器贡献，因此不属于第一阶段的免重启插件。调试入口会主动激活并登记该语言模块，不依赖先打开源码；端口请求可以单独取消，不停止共享服务器。声明 `tcpPort` / `tcpAnnounced` 的适配器会通过 Core 的校验（契约允许），但 `MacPluginLanguageServerLaunchResolver.resolveDebugAdapter` 在启动进程之前就以 `plugin.launch.unsupportedTransport` 拒绝，并给出本地化说明。这样不会先起进程、再因为没人连接而挂起。启动计划里的 `transport` 字段由 Core 给出，宿主不自己解析清单。
 
 ### 4. 运行中的会话和语言服务器怎么处理
 
