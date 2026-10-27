@@ -212,7 +212,7 @@ test("parent-reference option is controlled by the shared owner and respects wor
   expect(checkbox().getAttribute("aria-checked")).toBe("false");
 });
 
-test("the selector keeps a fixed width with the actions pushed right, and the option text uses the caption size", async () => {
+test("the selector keeps the pinned width as its basis but yields space before the fixed action buttons", async () => {
   await act(async () =>
     root.render(
       <LocaleProvider language="en-US">
@@ -228,9 +228,15 @@ test("the selector keeps a fixed width with the actions pushed right, and the op
   const selectClass =
     container.querySelector<HTMLElement>('[aria-label="Active changelist"]')?.dataset.selectClass ??
     "";
+  // 156pt stays the preferred width, yet the selector shrinks first when the row overflows
+  // so the rename/delete buttons remain reachable in a narrow Commit panel.
   expect(selectClass).toContain("w-39");
-  expect(selectClass).toContain("shrink-0");
+  expect(selectClass).toContain("min-w-0");
+  expect(selectClass).not.toContain("shrink-0");
   expect(selectClass).not.toContain("flex-1");
+  for (const name of ["New changelist", "Rename changelist", "Delete changelist"]) {
+    expect(button(name).className).toContain("shrink-0");
+  }
   const label = container.querySelector<HTMLElement>('[role="checkbox"]')!.closest("label")!;
   expect(label.className).toContain("ui-text-caption");
 });

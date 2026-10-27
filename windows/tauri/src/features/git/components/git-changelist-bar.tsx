@@ -67,7 +67,9 @@ export function GitChangelistBar({
             variant="default"
             // macOS pins the selector to LitheDropdownMetrics.minimumRootWidth (156pt) and
             // pushes the icon buttons to the trailing edge instead of stretching the selector.
-            className="w-39 min-w-0 shrink-0"
+            // The panel can be narrower than that row, so the selector keeps the pinned width
+            // only as its basis and yields space first; the buttons already carry shrink-0.
+            className="w-39 min-w-0"
             triggerClassName="h-7 rounded-[4px] border border-control-border bg-checkbox-background"
             aria-label={t("git.changelists.active")}
             title={t("git.changelists.scope", { name: title(active) })}
