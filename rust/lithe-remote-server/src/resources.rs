@@ -1,9 +1,10 @@
 //! Shared bookkeeping for client-identified resources.
 
 use lithe_remote_protocol::{ErrorCode, RemoteError};
+use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Condvar, Mutex, MutexGuard};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 /// Highest resource id any client used in this session, so a reconnecting or
@@ -18,6 +19,117 @@ impl IdWatermark {
 
     pub(crate) fn next(&self) -> u64 {
         self.0.load(Ordering::Acquire) + 1
+    }
+}
+
+/// Starts are registered by the connection reader, before worker scheduling.
+/// A later close must wait for publication (or failure), not race an empty table.
+#[derive(Default)]
+pub(crate) struct PendingStarts {
+    entries: Mutex<BTreeMap<(&'static str, u64), Arc<StartCompletion>>>,
+}
+
+#[derive(Default)]
+pub(crate) struct StartCompletion {
+    finished: Mutex<bool>,
+    changed: Condvar,
+    close_params: Mutex<Option<Value>>,
+}
+
+impl StartCompletion {
+    pub(crate) fn wait(&self, timeout: Duration) -> Result<(), RemoteError> {
+        let deadline = Instant::now() + timeout;
+        let mut finished = crate::lock(&self.finished);
+        while !*finished {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(RemoteError::new(
+                    ErrorCode::Busy,
+                    "resource is still starting",
+                ));
+            }
+            finished = self
+                .changed
+                .wait_timeout(finished, remaining)
+                .unwrap_or_else(|error| error.into_inner())
+                .0;
+        }
+        Ok(())
+    }
+}
+
+impl PendingStarts {
+    pub(crate) fn reserve(
+        self: &Arc<Self>,
+        family: &'static str,
+        id: u64,
+    ) -> Result<StartGuard, RemoteError> {
+        let mut entries = crate::lock(&self.entries);
+        let key = (family, id);
+        if entries.contains_key(&key) {
+            return Err(RemoteError::new(
+                ErrorCode::ResourceIdInUse,
+                "resource is already starting",
+            ));
+        }
+        let completion = Arc::new(StartCompletion::default());
+        entries.insert(key, Arc::clone(&completion));
+        Ok(StartGuard {
+            starts: Arc::clone(self),
+            key,
+            completion,
+        })
+    }
+
+    pub(crate) fn cancel(
+        &self,
+        family: &'static str,
+        id: u64,
+        params: &Value,
+    ) -> Option<Arc<StartCompletion>> {
+        let entries = crate::lock(&self.entries);
+        let completion = entries.get(&(family, id))?;
+        let mut close = crate::lock(&completion.close_params);
+        // Multiple cancellation attempts may strengthen, but never downgrade,
+        // an explicit force kill while the child is still being created.
+        if close
+            .as_ref()
+            .is_none_or(|value| value.get("force") != Some(&Value::Bool(true)))
+        {
+            *close = Some(params.clone());
+        }
+        Some(Arc::clone(completion))
+    }
+}
+
+/// Dropping the worker's reservation releases waiters even after spawn failure,
+/// worker scheduling failure, or panic. No lifecycle lock covers host I/O.
+pub(crate) struct StartGuard {
+    starts: Arc<PendingStarts>,
+    key: (&'static str, u64),
+    completion: Arc<StartCompletion>,
+}
+
+impl StartGuard {
+    /// After publication, atomically transfers close ownership either to the
+    /// creating worker or to a subsequent ordinary close request.
+    pub(crate) fn take_cancellation(&self) -> Option<Value> {
+        crate::lock(&self.starts.entries).remove(&self.key);
+        crate::lock(&self.completion.close_params).take()
+    }
+}
+
+impl Drop for StartGuard {
+    fn drop(&mut self) {
+        let mut entries = crate::lock(&self.starts.entries);
+        *crate::lock(&self.completion.finished) = true;
+        if entries
+            .get(&self.key)
+            .is_some_and(|entry| Arc::ptr_eq(entry, &self.completion))
+        {
+            entries.remove(&self.key);
+        }
+        self.completion.changed.notify_all();
     }
 }
 

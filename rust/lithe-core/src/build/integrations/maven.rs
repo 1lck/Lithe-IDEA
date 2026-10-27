@@ -232,7 +232,7 @@ fn split_failure_name(name: &str) -> (String, String) {
 
 pub(super) fn test_results(
     workspace: &Workspace,
-    _root: &str,
+    root: &str,
     project: &str,
     request: &DecodeTestResultsRequest,
 ) -> Validation<TestResults> {
@@ -250,8 +250,36 @@ pub(super) fn test_results(
         reports,
     })
     .map_err(rejected)?;
-    let mut cases: Vec<TestCaseResult> = response
-        .test_cases
+    let mut reported_cases = response.test_cases;
+    if let Some(not_before_millis) = request.not_before_millis {
+        // Reactor runs write reports in each module, never just the aggregator.
+        // Keep text parsing once while reusing Maven's report locations per module.
+        for directory in super::super::outputs::report_directories(root, project, request)? {
+            if directory == project {
+                continue;
+            }
+            let module = maven_test_results(MavenTestResultsRequest {
+                root: workspace.path.to_string_lossy().into_owned(),
+                output: String::new(),
+                reports: Some(MavenTestReportsRequest {
+                    module: Some(directory),
+                    source_path: None,
+                    classes: request.suite.iter().cloned().collect(),
+                    not_before_millis,
+                }),
+            })
+            .map_err(rejected)?;
+            if reported_cases.len() + module.test_cases.len()
+                > super::super::outputs::MAX_TEST_CASES
+            {
+                return Err(decode::invalid_output(
+                    "The reactor has too many test cases.",
+                ));
+            }
+            reported_cases.extend(module.test_cases);
+        }
+    }
+    let mut cases: Vec<TestCaseResult> = reported_cases
         .into_iter()
         .map(|case| TestCaseResult {
             suite: case.class_name,
@@ -293,14 +321,12 @@ pub(super) fn test_results(
             }),
         }
     }
-    Ok(TestResults {
-        cases,
-        summary: Some(TestSummary {
-            total: response.tests_run,
-            passed: response.passed,
-            failed: response.failures,
-            errors: response.errors,
-            skipped: response.skipped,
-        }),
-    })
+    let summary = (response.tests_run > 0 || cases.is_empty()).then_some(TestSummary {
+        total: response.tests_run,
+        passed: response.passed,
+        failed: response.failures,
+        errors: response.errors,
+        skipped: response.skipped,
+    });
+    Ok(TestResults { cases, summary })
 }

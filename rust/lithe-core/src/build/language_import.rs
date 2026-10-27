@@ -81,9 +81,9 @@ pub(crate) fn language_import(
             let mut gradle = Map::new();
             gradle.insert(
                 "wrapperPresent".into(),
-                json!(workspace
-                    .read_path(&wrapper)
-                    .is_some_and(|path| path.is_file())),
+                json!(workspace.read_path(&wrapper).is_some_and(|path| {
+                    crate::remote::workspace_io::is_file(path).unwrap_or(false)
+                })),
             );
             gradle.insert(
                 "offline".into(),

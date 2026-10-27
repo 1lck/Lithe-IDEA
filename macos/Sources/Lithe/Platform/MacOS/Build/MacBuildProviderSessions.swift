@@ -34,6 +34,7 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
     private let versionChecker: any LanguageServerRuntimeVersionChecking
     private let runtime: any LanguageToolRuntimePort
     private let core: any LanguageServerRuntimeCore
+    private let remoteLaunches: MacRemotePluginLaunchPreparer?
     private weak var processRegistry: (any LanguageServerProcessRegistry)?
     /// Ends the processes carrying a backend's token; `immediately` skips the
     /// graceful stop. See `MacPluginBackendProcesses`.
@@ -47,11 +48,13 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
         let id = UUID()
         /// The plugin's setting values the launch was expanded with.
         let settings: [String: ToolingJSONValue]
+        let hostIdentity: String?
         var task: Task<LanguageServerRuntimeSession, Error>?
         var session: LanguageServerRuntimeSession?
 
-        init(settings: [String: ToolingJSONValue]) {
+        init(settings: [String: ToolingJSONValue], hostIdentity: String?) {
             self.settings = settings
+            self.hostIdentity = hostIdentity
         }
     }
 
@@ -62,6 +65,7 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
         runtime: any LanguageToolRuntimePort,
         core: any LanguageServerRuntimeCore,
         processRegistry: (any LanguageServerProcessRegistry)?,
+        remoteLaunches: MacRemotePluginLaunchPreparer? = nil,
         stuckSendGrace: Duration = .seconds(2),
         endBackendProcesses: @escaping @MainActor (_ token: String, _ immediately: Bool) -> Void = { token, immediately in
             MacPluginBackendProcesses.end(
@@ -75,6 +79,7 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
         self.versionChecker = versionChecker
         self.runtime = runtime
         self.core = core
+        self.remoteLaunches = remoteLaunches
         self.processRegistry = processRegistry
         self.endBackendProcesses = endBackendProcesses
         self.stuckSendGrace = stuckSendGrace
@@ -91,14 +96,10 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
         if let session = try await runningSession(for: target, settings: settings) {
             return try await session.buildRequest(method: request.method, params: request.params, timeout: seconds)
         }
-        switch try launchResolver.resolveBuildProvider(
-            pluginID: target.pluginID,
-            buildSystemID: target.buildSystemID,
-            manifest: target.manifest,
-            packageURL: target.packageURL,
-            workspaceRootURL: target.workspaceURL
-        ) {
+        let prepared = try await prepareLaunch(target)
+        switch prepared.launch {
         case .languageServer(let languageID):
+            await prepared.owner?.release()
             guard let sessions = languageSessions?() else {
                 throw UnavailableError(message: String(
                     localized: "The language server this build system uses is not available. Open a file of the language and try again."
@@ -113,7 +114,7 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
                 timeout: seconds
             )
         case .process(let process):
-            let session = try await startSession(for: target, process: process)
+            let session = try await startSession(for: target, process: process, owner: prepared.owner)
             try Task.checkCancellation()
             return try await session.buildRequest(method: request.method, params: request.params, timeout: seconds)
         }
@@ -144,20 +145,16 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
         try Task.checkCancellation()
         let settings = launchResolver.settingValues(forPlugin: target.pluginID, workspaceRootURL: target.workspaceURL)
         if let session = try await runningSession(for: target, settings: settings) { return session }
-        switch try launchResolver.resolveBuildProvider(
-            pluginID: target.pluginID,
-            buildSystemID: target.buildSystemID,
-            manifest: target.manifest,
-            packageURL: target.packageURL,
-            workspaceRootURL: target.workspaceURL
-        ) {
+        let prepared = try await prepareLaunch(target)
+        switch prepared.launch {
         case .languageServer:
+            await prepared.owner?.release()
             throw PluginFunctionFailure(
                 code: "plugin.function.unavailable",
                 message: L10n.string("This build system's provider runs in a shared language server, which serves no plugin functions.")
             )
         case .process(let process):
-            let session = try await startSession(for: target, process: process)
+            let session = try await startSession(for: target, process: process, owner: prepared.owner)
             try Task.checkCancellation()
             return session
         }
@@ -191,7 +188,7 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
         settings: [String: ToolingJSONValue]
     ) async throws -> LanguageServerRuntimeSession? {
         guard let entry = running[target], let task = entry.task else { return nil }
-        if entry.settings != settings {
+        if entry.settings != settings || entry.hostIdentity != remoteLaunches?.identity(target.workspaceURL) {
             stop(entry, for: target)
             return nil
         }
@@ -206,22 +203,33 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
 
     private func startSession(
         for target: BuildProviderTarget,
-        process: MacPluginLanguageServerLaunchResolver.BuildProviderProcess
+        process: MacPluginLanguageServerLaunchResolver.BuildProviderProcess,
+        owner: MacRemotePluginLaunchPreparer.Owner?
     ) async throws -> LanguageServerRuntimeSession {
         // Another request may have started the process while this one
         // resolved the launch.
-        if let session = try await runningSession(for: target, settings: process.settings) { return session }
-        try Task.checkCancellation()
-        let entry = Running(settings: process.settings)
+        do {
+            if let session = try await runningSession(for: target, settings: process.settings) {
+                await owner?.release()
+                return session
+            }
+            try Task.checkCancellation()
+            if let owner, !owner.isCurrent() { throw CancellationError() }
+        } catch { await owner?.release(); throw error }
+        let entry = Running(settings: process.settings, hostIdentity: remoteLaunches?.identity(target.workspaceURL))
         running[target] = entry
         // The start is shared by every request that arrives meanwhile, so no
         // single caller's cancellation cancels it; a failed start clears the
         // entry itself.
         let task = Task { @MainActor [weak self] () throws -> LanguageServerRuntimeSession in
-            guard let self else { throw CancellationError() }
+            guard let self else {
+                await owner?.release()
+                throw CancellationError()
+            }
             do {
-                return try await self.launch(process, for: target, entry: entry)
+                return try await self.launch(process, for: target, entry: entry, owner: owner)
             } catch {
+                if entry.session == nil { await owner?.release() }
                 if self.running[target] === entry { self.running[target] = nil }
                 throw error
             }
@@ -269,15 +277,16 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
     private func launch(
         _ process: MacPluginLanguageServerLaunchResolver.BuildProviderProcess,
         for target: BuildProviderTarget,
-        entry: Running
+        entry: Running,
+        owner: MacRemotePluginLaunchPreparer.Owner?
     ) async throws -> LanguageServerRuntimeSession {
         var (executableURL, environment) = try await resolveExecutable(process, workspaceURL: target.workspaceURL)
         try Task.checkCancellation()
-        guard running[target] === entry else { throw CancellationError() }
+        guard running[target] === entry, owner?.isCurrent() != false else { throw CancellationError() }
         // Every process the backend starts inherits this token, so what it
         // leaves behind can be ended when the backend is gone.
         let backendToken = UUID().uuidString
-        environment.merge(MacPluginBackendProcesses.environment(token: backendToken)) { _, token in token }
+        if owner == nil { environment.merge(MacPluginBackendProcesses.environment(token: backendToken)) { _, token in token } }
         let session = LanguageServerRuntimeSession(
             providerID: "buildProvider:\(target.pluginID):\(target.buildSystemID)",
             executableURL: executableURL,
@@ -285,17 +294,21 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
             environment: environment,
             initializationOptions: process.initializationOptions,
             initializeTimeout: 60,
-            core: core,
+            core: owner?.core ?? core,
             processRegistry: processRegistry,
             moduleID: .buildSystemsExtension(target.pluginID),
             pluginID: target.pluginID
         )
         let endBackendProcesses = endBackendProcesses
         session.stuckSendGrace = stuckSendGrace
-        session.terminateProcess = { endBackendProcesses(backendToken, true) }
-        session.onReleased = { endBackendProcesses(backendToken, false) }
+        if let owner { session.releaseResources = owner.release }
+        else {
+            session.terminateProcess = { endBackendProcesses(backendToken, true) }
+            session.onReleased = { endBackendProcesses(backendToken, false) }
+        }
         entry.session = session
-        try await waitUntilReady(session, rootURL: target.workspaceURL)
+        do { try await waitUntilReady(session, rootURL: target.workspaceURL) }
+        catch { session.stop(); throw error }
         // A queued ready event can race a stop while initialize is suspended.
         try Task.checkCancellation()
         guard running[target] === entry else { throw CancellationError() }
@@ -351,7 +364,10 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
         var requirement: LanguageServerExecutableVersionRequirement?
         switch process.executable {
         case .file(let url):
-            return (url, runtime.languageToolProcessEnvironment(runtimeTools: process.runtimeTools))
+            if remoteLaunches?.identity(workspaceURL) == nil {
+                return (url, runtime.languageToolProcessEnvironment(runtimeTools: process.runtimeTools))
+            }
+            invocation = BuildInvocation(executables: [.setting(id: "pluginPackage", path: url.path)], runtimeDependencies: runtimes)
         case .commands(let commands):
             invocation = BuildInvocation(executables: commands.map { .command($0) }, runtimeDependencies: runtimes)
         case .runtime(let tool, let versionRequirement):
@@ -378,6 +394,14 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
             }
         )
         return (resolved.executableURL, resolved.environment)
+    }
+
+    private func prepareLaunch(_ target: BuildProviderTarget) async throws -> (
+        launch: MacPluginLanguageServerLaunchResolver.BuildProviderLaunch, owner: MacRemotePluginLaunchPreparer.Owner?
+    ) {
+        if let prepared = try await remoteLaunches?.prepareBuild(target) { return (prepared.launch, prepared.owner) }
+        return (try launchResolver.resolveBuildProvider(pluginID: target.pluginID, buildSystemID: target.buildSystemID,
+            manifest: target.manifest, packageURL: target.packageURL, workspaceRootURL: target.workspaceURL), nil)
     }
 
     private static func seconds(_ duration: Duration) -> TimeInterval {

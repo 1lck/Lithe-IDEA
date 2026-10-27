@@ -51,11 +51,21 @@ uses this stream.
 - Field names are camelCase. Byte payloads (`data`) are standard Base64.
 - Paths are absolute paths on the remote host. Relative paths fail with
   `INVALID_PATH`.
-- Requests that change a running resource in order — `process.writeStdin`,
-  `process.closeStdin`, `process.kill`, `terminal.write`, `terminal.resize`,
-  `terminal.close`, `tunnel.write`, `tunnel.close`, `watch.stop`,
-  `walk.cancel` — are applied in the order sent. Other requests may complete
-  in any order.
+- Queued input and resize requests — `process.writeStdin`, `process.closeStdin`,
+  `terminal.write`, `terminal.resize`, `tunnel.write`, `tunnel.close`,
+  `walk.cancel` — are applied in the order sent. Potentially blocking creation
+  and teardown run on workers; other requests may complete in any order.
+- A `process.kill`, `terminal.close`, or `watch.stop` received while the same
+  resource is starting records teardown before worker scheduling. The creating
+  worker applies it after publication, even if the close worker is rejected as
+  `BUSY`, its caller times out, or the connection drops. A close waiter has a
+  60-second deadline; expiry does not abandon the recorded teardown. Malformed
+  controls never cancel creation. Forced kills cannot be downgraded by a later
+  non-forced kill. Unrelated resources remain independent and no registry lock
+  covers spawning, filesystem I/O, or process-tree termination.
+- A nonpersistent disconnect and every session shutdown also reclaim late
+  publications. Persistent disconnects alone retain resources for reconnection;
+  explicit shutdown or idle expiry must not leave a late-created resource alive.
 
 ## Resources and events
 
@@ -83,13 +93,18 @@ subscribe before creating the resource.
 | `fs.readDir` | `path` | `entries` sorted by name byte order, `skippedNonUtf8` |
 | `fs.readFile` | `path`, `offset`, `length` (≤ 8 MiB) | `data`, `eof`, `metadata` |
 | `fs.writeFile` | `path`, `data` (≤ 8 MiB), `expected?`, `overwrite`, `createParents` | metadata after the write |
-| `fs.createDir` | `path`, `recursive` | `null` |
+| `fs.createDir` | `path`, `recursive`, `mode?` (at most `0o7777`) | `null` |
 | `fs.remove` | `path`, `recursive` | `null`; links are removed, never followed |
 | `fs.rename` | `from`, `to`, `overwrite` | `null` |
 | `fs.copy` | `from`, `to`, `recursive`, `overwrite` | `skippedSpecialFiles`; links are copied as links |
+| `fs.trash` | `path` | `null`; moves the entry to the host account's recoverable system trash |
 | `fs.realPath` | `path` | `path` with links resolved |
 | `fs.setPermissions` | `path`, `mode` (≤ `0o7777`) | `null` |
 | `fs.volumeInfo` | `path` | `caseSensitive` (`null` when unknown) |
+| `fs.uploadStart` | `path`, `size`, `sha256`, `mode` | `uploadId` |
+| `fs.uploadChunk` | `uploadId`, `offset`, `data` | next `offset` |
+| `fs.uploadCommit` | `uploadId` | verified `size`, `sha256` |
+| `fs.uploadAbort` | `uploadId` | `null` |
 | `walk.start` | `walkId`, `root`, `excludeNames`, `maxEntries?` | `null`; entries follow as events |
 | `walk.cancel` | `walkId` | `null` |
 | `watch.start` | `watchId`, `root`, `excludeNames` | `watchedDirectories` (per-directory backends) |
@@ -114,6 +129,15 @@ directly, through a symbolic link in either direction or onto a hard link —
 and to copy a directory into itself after resolving links. Sockets, FIFOs and
 devices are never copied: at the top level the request fails with
 `UNSUPPORTED`, inside a tree they are skipped and counted.
+With `overwrite: false`, a private sibling staging directory holds the copy
+until an atomic no-replace rename publishes it. A concurrent destination
+creation fails with `ALREADY_EXISTS` and leaves that destination unchanged.
+
+`fs.trash` uses the host's native trash implementation (Freedesktop Trash on
+Linux and the system Trash on macOS). Recovery content and metadata belong to
+the remote account, never to the client placeholder or installation. A host
+without usable trash storage returns an error and retains the original entry;
+it does not fall back to permanent deletion.
 
 `fs.writeFile` replaces the file atomically through a temporary sibling and
 writes through symbolic links. With `expected` (`size`, `modifiedMs`) it fails
@@ -122,6 +146,19 @@ only replaced when `overwrite` is set. A write with neither `expected` nor
 `overwrite` only creates: when two such writes race, exactly one succeeds and
 the other fails with `ALREADY_EXISTS`. When a file is replaced, the temporary
 file never has broader permissions than the original.
+
+Hosts advertising `features: ["upload", ...]` accept staged uploads without
+increasing the frame limit. Upload IDs are server-assigned and owned by the
+connection that created them, including in a persistent session. At most four
+uploads are staged per server; each file is at most 2 GiB. Chunks contain
+1–256 KiB of decoded bytes and must name the exact acknowledged offset.
+`sha256` is a 64-character hexadecimal digest; `mode` permits only `0o000`–`0o777`.
+Staging uses a private `0600` sibling file. Commit verifies size and digest,
+syncs the file and atomically publishes without replacing an existing target.
+Failed commits, aborts, disconnects, session shutdown and an absolute five-minute
+expiry remove staging files. Clients serialize chunks and commit only after
+the last acknowledgement. Interrupted clients may not know whether a completed
+commit published; owners must remove their allocated run directory separately.
 
 `process.exit` and `terminal.exit` report the leader. The server keeps owning
 its session until no member is left, so members that outlive the leader can

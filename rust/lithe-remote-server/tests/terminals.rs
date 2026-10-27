@@ -76,11 +76,15 @@ fn commands_run_on_a_controlling_terminal() {
 fn resizing_changes_the_size_programs_see() {
     let (session, _events) = connect();
     let terminal = session.open_terminal(plain_shell()).unwrap();
+    // Wait for shell initialization and a complete command boundary. An
+    // interactive shell may otherwise restore its startup size after resize.
+    terminal.write(b"printf 'rea%s\\n' dy\n").unwrap();
+    read_until(&terminal, "ready");
     terminal.write(b"stty size\n").unwrap();
-    read_until(&terminal, "40 100");
+    read_until(&terminal, "40 100\r\n$ ");
     terminal.resize(132, 50).unwrap();
     terminal.write(b"stty size\n").unwrap();
-    read_until(&terminal, "50 132");
+    read_until(&terminal, "50 132\r\n$ ");
     terminal.close().unwrap();
     read_until_exit(&terminal);
     drop(terminal);

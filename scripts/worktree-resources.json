@@ -377,10 +377,31 @@
         "<user-preferences>/lithe.remote.ssh-connections.v1",
         "<keychain>/<remote service>/remote.ssh.<UUID>.secret",
         "<app-support>/Lithe/RemoteWorkspaces/<connection>/<path-hash>/<folder>",
-        "<remote-host>/~/.lithe-server/bin/<version>-<sha256-prefix>"
+        "<remote-host>/~/.lithe-server/bin/<version>-<sha256-prefix>",
+        "<remote-host>/~/.lithe-server/run/<session-and-binary-hash>.{sock,lock}",
+        "<remote-host>/~/.lithe-server/log/<session-and-binary-hash>.log"
       ],
       "identity": "User-owned SSH connection settings, remembered secrets, empty placeholder roots of opened remote workspaces, and servers installed on remote hosts; no build identity.",
-      "reason": "Connections and secrets belong to the user's profile and the keychain. Placeholder roots are empty directories that key per-project state for remote folders and hold no files. Remote installs live on the hosts and are verified by SHA-256 before reuse. None has a copy stage between worktrees, and none is written into the app bundle or installation directory."
+      "reason": "Connections and secrets belong to the user's profile and the keychain. Placeholder roots are empty directories that key per-project state for remote folders and hold no files. Remote installs live on the hosts and are verified by SHA-256 before reuse. Daemon socket, lock and log identity includes the session key and complete executable SHA-256, so rebuilding an unchanged version cannot reconnect to older code. None has a copy stage between worktrees, and none is written into the app bundle or installation directory."
+    },
+    {
+      "id": "remote-workspace-session-state",
+      "reusable": false,
+      "locations": [
+        "<remote-host>/<temporary-directory>/{lithe-git-snapshot,lithe-line-history}-<unique>",
+        "<remote-workspace>/<git-common-directory>/lithe-commit-<unique>",
+        "<remote-host>/<copy-destination-parent>/.lithe-copy-<pid>-<sequence>",
+        "<remote-host>/<account-or-volume-trash>/{files,info}",
+        "<remote-host>/<upload-parent>/.lithe-upload-<pid>-<sequence>",
+        "<remote-host>/~/.lithe-server/plugin-runs/<UUID>/package",
+        "<remote-host>/~/.lithe-server/state/plugins/<plugin-hash>/{build-systems,vcs-providers,language-servers}/<provider-hash>/workspaces/<root-hash>",
+        "<platform-temporary-directory>/lithe-plugin-download-<UUID>",
+        "<app-memory>/<connection-id>/remote-watch-subscriptions",
+        "<app-memory>/<connection-id>/remote-runtime-and-shell-snapshots",
+        "<app-memory>/<connection-id>/remote-git-executable-and-search-index"
+      ],
+      "identity": "Mutable per-operation Git/build scratch, private plugin snapshots, connection-owned upload staging, provider workspace state and per-connection runtime, shell, executable and search snapshots. They have no reusable version/platform/architecture/toolchain build identity.",
+      "reason": "The existing workspace engines own these records while generic host filesystem/process/PTY adapters perform I/O. Git/build scratch lives on its host and is never mirrored into the local placeholder. Upload staging expires or is removed on abort/disconnect; completed plugin runs are removed after process destruction, but crash/disconnect recovery of published runs remains TODO. Provider state persists on the host. Native marketplace extraction is deleted after transfer or failure. Package trust/hash/architecture checks authorize one execution and do not establish reusable build identity. Host discovery is memory-only and invalidated on explicit refresh or connection replacement. All reuse stages reject these entries before validation or copying. Runtime writes do not reach installed bundles, code signatures or Sparkle delta baselines."
     },
     {
       "id": "shared-i18n",

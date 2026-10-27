@@ -32,9 +32,19 @@ pub(crate) fn handle(method: &str, params: Value) -> Result<Value, RemoteError> 
         methods::FS_READ_FILE => to_value(read_file(parse(params)?)?),
         methods::FS_WRITE_FILE => to_value(write_file(parse(params)?)?),
         methods::FS_CREATE_DIR => create_dir(parse(params)?).map(|()| Value::Null),
+        methods::FS_TEMP_DIRECTORY => to_value(temp_directory(parse(params)?)?),
         methods::FS_REMOVE => remove(parse(params)?).map(|()| Value::Null),
         methods::FS_RENAME => rename(parse(params)?).map(|()| Value::Null),
         methods::FS_COPY => to_value(copy(parse(params)?)?),
+        methods::FS_TRASH => {
+            let params: PathParams = parse(params)?;
+            let path = host_path(&params.path)?;
+            trash::delete(path).map_err(|error| {
+                RemoteError::new(ErrorCode::Io, "could not move the item to the host trash")
+                    .with_details(json!({"reason": error.to_string()}))
+            })?;
+            Ok(Value::Null)
+        }
         methods::FS_REAL_PATH => {
             let params: PathParams = parse(params)?;
             let resolved = fs::canonicalize(host_path(&params.path)?)
@@ -119,6 +129,9 @@ fn describe(path: &Path, metadata: &fs::Metadata) -> FileMetadata {
         mode: metadata.mode() & 0o7777,
         symlink_target,
         symlink_target_kind,
+        symlink_target_mode: (kind == FileKind::Symlink)
+            .then(|| fs::metadata(path).ok().map(|target| target.mode() & 0o7777))
+            .flatten(),
     }
 }
 
@@ -306,12 +319,57 @@ fn create_temporary(path: &Path, replaced: Option<&fs::Metadata>) -> io::Result<
 
 fn create_dir(params: CreateDirParams) -> Result<(), RemoteError> {
     let path = host_path(&params.path)?;
-    let created = if params.recursive {
-        fs::create_dir_all(&path)
-    } else {
-        fs::create_dir(&path)
-    };
+    let mut builder = fs::DirBuilder::new();
+    builder.recursive(params.recursive);
+    if let Some(mode) = params.mode {
+        if mode > 0o7777 {
+            return Err(RemoteError::new(
+                ErrorCode::InvalidRequest,
+                "invalid directory mode",
+            ));
+        }
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(mode);
+    }
+    let created = builder.create(&path);
     created.map_err(|error| io_error(error, &params.path))
+}
+
+fn temp_directory(params: methods::TempDirectoryParams) -> Result<RealPathResult, RemoteError> {
+    if params.prefix.is_empty()
+        || params.prefix.len() > 64
+        || !params
+            .prefix
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    {
+        return Err(RemoteError::new(
+            ErrorCode::InvalidRequest,
+            "invalid temporary directory prefix",
+        ));
+    }
+    for _ in 0..128 {
+        let sequence = TEMPORARY_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "{}-{}-{sequence}",
+            params.prefix,
+            std::process::id()
+        ));
+        use std::os::unix::fs::DirBuilderExt;
+        match fs::DirBuilder::new().mode(0o700).create(&path) {
+            Ok(()) => {
+                return Ok(RealPathResult {
+                    path: path.to_string_lossy().into_owned(),
+                })
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(io_error(error, &path.to_string_lossy())),
+        }
+    }
+    Err(RemoteError::new(
+        ErrorCode::Io,
+        "could not allocate a private temporary directory",
+    ))
 }
 
 fn remove(params: RemoveParams) -> Result<(), RemoteError> {
@@ -390,6 +448,32 @@ fn copy(params: CopyParams) -> Result<CopyResult, RemoteError> {
         _ => {}
     }
     let mut result = CopyResult::default();
+    if !params.overwrite {
+        // Publish a complete copy with the same no-replace primitive as rename.
+        // An existence check alone can race another client and truncate its file.
+        let parent = to
+            .parent()
+            .ok_or_else(|| RemoteError::new(ErrorCode::InvalidPath, "cannot copy onto the root"))?;
+        let staging = parent.join(format!(
+            ".lithe-copy-{}-{}",
+            std::process::id(),
+            TEMPORARY_FILE_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        use std::os::unix::fs::DirBuilderExt;
+        fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&staging)
+            .map_err(|error| io_error(error, &params.to))?;
+        let copied = staging.join("content");
+        let outcome = copy_entry(&from, &copied, &source, &mut result)
+            .and_then(|()| platform::rename_no_replace(&copied, &to));
+        // This directory is owned solely by this request, never a user target.
+        if let Err(error) = fs::remove_dir_all(&staging) {
+            eprintln!("remote copy staging cleanup failed: {:?}", error.kind());
+        }
+        outcome.map_err(|error| io_error(error, &params.to))?;
+        return Ok(result);
+    }
     copy_entry(&from, &to, &source, &mut result).map_err(|error| io_error(error, &params.from))?;
     Ok(result)
 }
@@ -515,6 +599,30 @@ pub(crate) fn io_error(error: io::Error, path: &str) -> RemoteError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn link_metadata_reports_target_permissions_not_symlink_permissions() {
+        let directory = std::env::temp_dir().join(format!(
+            "lithe-remote-link-mode-{}-{}",
+            std::process::id(),
+            TEMPORARY_FILE_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        let _cleanup = RemoveOnDrop(directory.clone());
+        let target = directory.join("target");
+        let link = directory.join("link");
+        fs::write(&target, b"not executable").unwrap();
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o600)).unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let metadata = describe(&link, &fs::symlink_metadata(&link).unwrap());
+        assert_eq!(metadata.symlink_target_kind, Some(FileKind::File));
+        assert_eq!(metadata.symlink_target_mode, Some(0o600));
+        fs::remove_file(&target).unwrap();
+        assert_eq!(
+            describe(&link, &fs::symlink_metadata(&link).unwrap()).symlink_target_mode,
+            None
+        );
+    }
 
     // Other users must not be able to open the temporary file while it holds
     // the new content of an owner-only file; tightening the mode afterwards

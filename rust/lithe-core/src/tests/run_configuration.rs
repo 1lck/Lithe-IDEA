@@ -4255,6 +4255,15 @@ fn automatic_java_selection_uses_shared_fixture_and_current_requirements() {
                     .as_bool()
                     .unwrap()
             );
+            // A host-read snapshot uses identical semantics without reopening
+            // a remote document from a UI-thread selection call.
+            let snapshot: Value = serde_json::from_str(&execute_json(&serde_json::json!({
+                "id":"snapshot", "command":"runConfig.selectJava", "payload":{
+                    "requirements": document, "candidates": candidates, "fallbackId": case["fallbackId"]
+                }
+            }).to_string())).unwrap();
+            assert_eq!(snapshot["ok"], true, "{snapshot}");
+            assert_eq!(snapshot["data"], response["data"]);
         }
         assert_eq!(
             fs::read_to_string(&requirements).unwrap(),
@@ -4278,5 +4287,23 @@ fn automatic_java_selection_uses_shared_fixture_and_current_requirements() {
         if contents.is_none() {
             assert_eq!(response["data"]["id"], "env");
         }
+    }
+}
+
+#[test]
+fn java_selection_rejects_ambiguous_or_invalid_host_snapshots() {
+    for payload in [
+        serde_json::json!({"root":"/unused","requirements":{"version":1,"toolchains":{}},"candidates":[]}),
+        serde_json::json!({"requirements":{"version":999,"toolchains":{}},"candidates":[]}),
+        serde_json::json!({"requirements":{"toolchains":{}},"candidates":[]}),
+    ] {
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id":"snapshot","command":"runConfig.selectJava","payload":payload
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["ok"], false, "{response}");
     }
 }

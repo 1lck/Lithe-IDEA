@@ -9369,7 +9369,25 @@
     "native.openLocalFolder": "本地文件夹",
     "native.size": "大小",
     "native.thisFolderCannotBeRead": "无法读取此文件夹。",
-    "native.thisFolderIsEmpty": "此文件夹为空"
+    "native.thisFolderIsEmpty": "此文件夹为空",
+    "native.remoteTerminalAsyncStart": "远程终端需要异步启动。",
+    "native.remoteTerminalInvalidDirectory": "终端目录不在远程工作区内。",
+    "native.remoteTerminalClosedBeforeStart": "远程终端在启动完成前已关闭。",
+    "native.remoteTerminalInputBusy": "远程终端正忙，请稍后再发送输入。",
+    "native.remoteGitMixedHosts": "一次 Git 操作不能跨越不同的工作区主机。",
+    "native.remoteGitMixedLocal": "一次 Git 操作不能同时跨越本地和远程工作区。",
+    "native.runtimeDiscoveryFailed": "运行环境探测失败",
+    "native.remoteRuntimeDiscoveryFailed": "无法探测远程主机的运行环境，请检查连接后刷新。",
+    "native.runtimeDiscoveryRecovery": "请检查工作区连接并刷新可用运行环境。",
+    "native.remoteRuntimeToolMissing": "远程主机上没有可用的所需工具。",
+    "native.remoteRuntimeToolRecovery": "请在远程主机上安装工具并加入登录环境的 PATH，然后刷新可用运行环境。",
+    "native.remoteShellDiscoveryFailed": "无法探测远程主机上的 Shell。请检查连接后重试。",
+    "remote.copyIncomplete": "部分特殊文件未能复制",
+    "remote.pendingDocumentsLimit": "远程语言服务启动前的待同步文档已达到上限，请等待启动完成。",
+    "remote.pluginUnapproved": "远程插件包不属于已批准的安装。",
+    "remote.pluginHostUnsupported": "此主机无法接收兼容的插件包，请更新远程服务。",
+    "remote.pluginApprovalRequired": "远程插件包更改了已批准的命令或权限，请先安装并批准该版本。",
+    "remote.pluginPlatformUnavailable": "插件 {plugin} 没有适用于 {platform} 的已批准包，请安装兼容版本。"
   },
   "overrides": {
     "macos": {

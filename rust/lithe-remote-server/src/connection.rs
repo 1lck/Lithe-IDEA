@@ -8,6 +8,7 @@
 //! because finding every member of a session scans the process table.
 
 use crate::link::{Outbox, Outgoing};
+use crate::resources::{StartCompletion, StartGuard};
 use crate::session::Session;
 use crate::{environment, fs, parse, platform, ports, to_value};
 use lithe_remote_protocol::frame::{read_frame, write_frame};
@@ -17,9 +18,11 @@ use lithe_remote_protocol::methods::{
 use lithe_remote_protocol::{ErrorCode, Message, RemoteError, PREAMBLE, PROTOCOL_VERSION};
 use serde_json::{json, Value};
 use std::io::{self, Read, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::sync::Arc;
 use std::thread;
+use std::time::Duration;
 
 /// Messages buffered for the writer thread. A full queue blocks producers;
 /// see [`crate::link::Link::emit`].
@@ -39,6 +42,7 @@ pub(crate) struct Context {
     pub(crate) session: Arc<Session>,
     /// Owner of connection-bound resources such as tunnels.
     pub(crate) connection: u64,
+    pub(crate) closed: Arc<AtomicBool>,
 }
 
 pub(crate) fn serve(
@@ -57,6 +61,7 @@ pub(crate) fn serve(
     let context = Context {
         session: Arc::clone(session),
         connection: session.next_connection_id(),
+        closed: Arc::new(AtomicBool::new(false)),
     };
     let mut input = io::BufReader::new(input);
     let mut handshaken = false;
@@ -136,6 +141,7 @@ pub(crate) fn serve(
         }
     }
 
+    context.closed.store(true, Ordering::Release);
     session.link.detach(context.connection);
     session.release_connection_resources(context.connection);
     let _ = sender.send(Outgoing::Close);
@@ -206,7 +212,6 @@ fn is_inline(method: &str) -> bool {
             | methods::TUNNEL_WRITE
             | methods::TUNNEL_SHUTDOWN_WRITE
             | methods::TUNNEL_CLOSE
-            | methods::WATCH_STOP
             | methods::WALK_CANCEL
     )
 }
@@ -220,6 +225,9 @@ fn handle(context: &Context, method: &str, params: Value) -> Result<Value, Remot
             let params: AckParams = parse(params)?;
             session.link.acknowledge(params.seq);
             Ok(Value::Null)
+        }
+        method if method.starts_with("fs.upload") => {
+            session.uploads.handle(context, method, params)
         }
         method if method.starts_with("fs.") => fs::handle(method, params),
         method if method.starts_with("walk.") => session.walks.handle(context, method, params),
@@ -241,6 +249,15 @@ fn handle(context: &Context, method: &str, params: Value) -> Result<Value, Remot
 }
 
 fn dispatch_to_worker(context: &Context, id: u64, method: String, params: Value, outbox: &Outbox) {
+    // Reserve on the reader, not the worker: a close worker can otherwise run
+    // before the preceding creation worker has even entered its handler.
+    let order = match ResourceOrder::prepare(&context.session, &method, &params) {
+        Ok(order) => order,
+        Err(error) => {
+            outbox.send(Message::failure(id, error));
+            return;
+        }
+    };
     let workers = &context.session.workers;
     if !workers.try_acquire() {
         outbox.send(Message::failure(
@@ -254,7 +271,17 @@ fn dispatch_to_worker(context: &Context, id: u64, method: String, params: Value,
     let spawned = thread::Builder::new()
         .name("remote-worker".into())
         .spawn(move || {
-            let reply = handle(&worker_context, &method, params);
+            let reply = if matches!(&order, ResourceOrder::After(_)) {
+                // The creating worker owns teardown, including when this
+                // request times out or cannot acquire a worker slot.
+                order.wait(Duration::from_secs(60)).map(|()| Value::Null)
+            } else {
+                handle(&worker_context, &method, params)
+            };
+            order.finish(&worker_context);
+            // Release starts before replying: a blocked writer must not hold
+            // up cancellation of an already-published resource.
+            drop(order);
             worker_outbox.send(respond(id, reply));
             worker_context.session.workers.release();
         });
@@ -266,6 +293,105 @@ fn dispatch_to_worker(context: &Context, id: u64, method: String, params: Value,
         ));
     }
 }
+
+enum ResourceOrder {
+    Start {
+        guard: StartGuard,
+        close_method: &'static str,
+        close_params: Value,
+    },
+    After(Arc<StartCompletion>),
+    Independent,
+}
+
+impl ResourceOrder {
+    fn prepare(session: &Arc<Session>, method: &str, params: &Value) -> Result<Self, RemoteError> {
+        let (family, field, start) = match method {
+            methods::PROCESS_SPAWN => ("process", "processId", true),
+            methods::PROCESS_KILL => ("process", "processId", false),
+            methods::TERMINAL_OPEN => ("terminal", "terminalId", true),
+            methods::TERMINAL_CLOSE => ("terminal", "terminalId", false),
+            methods::WATCH_START => ("watch", "watchId", true),
+            methods::WATCH_STOP => ("watch", "watchId", false),
+            _ => return Ok(Self::Independent),
+        };
+        let Some(id) = params.get(field).and_then(Value::as_u64) else {
+            return Ok(Self::Independent); // The typed handler reports malformed parameters.
+        };
+        if !start {
+            match family {
+                "process" => {
+                    parse::<methods::KillParams>(params.clone())?;
+                }
+                "terminal" => {
+                    parse::<methods::TerminalParams>(params.clone())?;
+                }
+                _ => {
+                    parse::<methods::WatchParams>(params.clone())?;
+                }
+            }
+        }
+        if start {
+            Ok(Self::Start {
+                guard: session.starts.reserve(family, id)?,
+                close_method: match family {
+                    "terminal" => methods::TERMINAL_CLOSE,
+                    "watch" => methods::WATCH_STOP,
+                    _ => methods::PROCESS_KILL,
+                },
+                close_params: if family == "process" {
+                    json!({field: id, "force": true})
+                } else {
+                    json!({field: id})
+                },
+            })
+        } else {
+            Ok(session
+                .starts
+                .cancel(family, id, params)
+                .map(Self::After)
+                .unwrap_or(Self::Independent))
+        }
+    }
+
+    fn wait(&self, timeout: Duration) -> Result<(), RemoteError> {
+        match self {
+            Self::After(completion) => completion.wait(timeout),
+            _ => Ok(()),
+        }
+    }
+
+    fn finish(&self, context: &Context) {
+        if let Self::Start {
+            guard,
+            close_method,
+            close_params,
+        } = self
+        {
+            let requested = guard.take_cancellation();
+            let cancellation = if context.session.is_ending()
+                || (!context.session.persistent && context.closed.load(Ordering::Acquire))
+            {
+                Some(close_params.clone())
+            } else {
+                requested
+            };
+            if let Some(params) = cancellation {
+                if let Err(error) = handle(context, close_method, params) {
+                    if error.code != ErrorCode::UnknownResource {
+                        eprintln!(
+                            "lithe-remote-server: cancelled start cleanup failed: {:?}",
+                            error.code
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;
 
 fn write_loop(mut output: impl Write, receiver: Receiver<Outgoing>) -> io::Result<()> {
     while let Ok(Outgoing::Message(message)) = receiver.recv() {

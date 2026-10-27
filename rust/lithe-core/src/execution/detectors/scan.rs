@@ -1,8 +1,8 @@
 //! Bounded workspace traversal shared by all run-configuration detectors.
 
 use crate::protocol::{CoreError, ErrorCode};
+use crate::remote::workspace_io as fs;
 use std::collections::BTreeSet;
-use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Detectors only care about manifests near the top of a project. Anything
@@ -68,8 +68,11 @@ pub struct DirectoryContext {
 impl DirectoryContext {
     /// Captures the readable non-directory entries immediately below `path`.
     pub fn at(root: &Path, path: &Path) -> Result<Option<Self>, CoreError> {
-        let Ok(entries) = fs::read_dir(path) else {
-            return Ok(None);
+        let entries = match fs::read_dir(path) {
+            Ok(entries) => entries,
+            Err(_) if !crate::remote::workspace::is_remote() => return Ok(None),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
         };
         let files = entries
             .flatten()
@@ -144,8 +147,13 @@ pub fn scan(root: &Path) -> Result<Vec<DirectoryContext>, CoreError> {
         if results.len() >= MAX_DIRECTORIES {
             break;
         }
-        let Ok(entries) = fs::read_dir(&directory) else {
-            continue;
+        let entries = match fs::read_dir(&directory) {
+            Ok(entries) => entries,
+            // Local detection has historically skipped unreadable subtrees.
+            // A remote transport/permission error must not publish an empty model.
+            Err(_) if !crate::remote::workspace::is_remote() => continue,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error.into()),
         };
         let mut files = BTreeSet::new();
         let mut children = Vec::new();

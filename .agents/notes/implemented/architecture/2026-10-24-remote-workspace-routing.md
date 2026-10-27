@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-远程文件夹以“本地占位根目录”的身份打开成工作区：根目录是 `Application Support/Lithe/RemoteWorkspaces/` 下的一个空目录，工作台照常拿到一个文件 URL；这个根目录下面的所有文件都在远端。文件树和编辑器经过的两个端口 `WorkspaceOperations` 和 `WorkspaceFileOperations` 外面各包了一层路由：URL 落在远程根目录下就交给远端，其余原样交给本地实现。第一版只让文件树、打开、编辑和保存走远端；Git、搜索、构建、语言服务和终端在远程工作区里看到的仍是本地空目录。
+远程文件夹以“本地占位根目录”的身份打开成工作区：根目录是 `Application Support/Lithe/RemoteWorkspaces/` 下的一个空目录，工作台照常拿到一个文件 URL；这个根目录下面的文件在远端。文件树与编辑器通过文件端口访问主机，Git、搜索和构建保留现有 Core 引擎、替换底层读写，终端把远端伪终端（PTY，负责交互进程与窗口尺寸）的字节交给本机渲染。JDK、Maven 和 Shell 的发现读取对应主机环境；通用插件部署与 stdio 已接入，远程 Java/SVN、Agent 执行位置选择与完整 SSH 工作流仍待完成和验收。
 
 ## 问题
 
@@ -16,16 +16,30 @@
 - **注册表**：`RemoteWorkspaceRegistry` 记录每个占位根对应的连接、远程路径和 Core 会话 id。打开远程项目时登记，同一个根再次打开时，旧会话会被替换并断开。
 - **路由**：组合根（`MacServiceContainer`，负责组装依赖的地方）把本地实现包进 `RemoteRoutingWorkspaceOperations` 和 `RemoteRoutingFileOperations`。路由层对端口里的**每个**方法都显式转发：如果只覆盖一部分，没覆盖的方法会悄悄走协议扩展里的默认实现，本地文件的行为就变了。
 - **文档版本**：和本地一样，文档标识是读到的原始字节的 SHA-256。远端用大小和修改时间做冲突检测，所以路由层为每个读到的标识记住远端版本（最多 512 个），保存时把它作为 `expected` 传给 `remote.writeFile`；不认识的标识会先读当前内容比对哈希。文件变了就返回冲突，不覆盖。
+- **文件树变更**：新文件只创建，不覆盖已存在文件；重命名、目录复制和删除都使用同一会话的主机文件协议，跨本机与远端或不同会话的移动和复制明确失败。复制先在目标父目录的私有暂存目录完成，再原子发布且拒绝覆盖，避免并发创建目标时丢失内容。界面的“移到废纸篓”复用 `trash` 上游库，在 Linux 使用 Freedesktop Trash、在远程 Mac 使用系统 Trash；不可用时失败，不改成永久删除。需要按内容标识保护的 `trashDocument` 仍待单独适配，不能假装普通 Trash 操作具有原子身份保护。
+- **外部修改监听**：`RemoteDirectoryObservation` 在工作线程订阅主机原生 watcher，转换工作区内路径后交给已有文件树、Git、搜索索引和文档刷新流程。Git common directory 位于工作区外时保留主机路径并额外监听。订阅先于创建，启动和溢出要求重新扫描，根目录移除结束订阅；取消先屏蔽旧 generation，再通过 Core 的资源所有者停止主机 watcher。打开的文档共用其工作区根的订阅，列表缓存随文档变更清空。
 - **最近项目**：占位根目录不进“最近项目”，因为它离开连接就只是个空目录；重新打开要走“远程开发”窗口。
+- **Core 请求的主机身份**：桥接层只读取请求结构里明确的工作区根字段，附上注册表中的会话与两侧根目录；同一次 Git 操作涉及不同主机或本机与远端混合时拒绝执行。Core 在请求范围内持有这份身份，长期历史游标继续持有原连接，不依赖“当前选中主机”的全局变量。远端出错时返回失败，不访问本机占位目录或本机 Git。
+- **Git 与搜索继续复用现有引擎**：Git 参数、状态解析、提交、历史和搜索索引仍由原 Core 模块负责。文件与进程适配器只把请求送到项目所在主机；Git 可执行文件与版本按连接缓存，设置来源由同一主机 Git 返回。创建或管理 worktree、克隆时，仅映射类型化请求中明确的目标目录字段；原始 Git 参数、仓库地址和用户文本保持原样。搜索缓存增加连接身份，避免同一个占位 URL 曾经生成的本机空索引污染远端结果。远端服务不引入 Core、JDK、LSP 或 Agent Host；Linux musl 二进制各保持 1.5 MiB 上限与 panic unwind（线程出错时保留其他会话）。
+- **远端文件读写限制**：Core 一次装入内存的文件最多 32 MiB，分块读取还会核对版本、偏移与结束标记；流式快照哈希可读取更大的文件。原子写入沿用协议的 8 MiB 上限，超限在编码和发送前失败，不拆成会暴露半份内容的覆盖操作。文件或目录是否存在的查询必须保留权限、断线等失败，不能把它们当成“不存在”。临时目录清理失败记录错误类别，避免静默残留或把用户路径写入日志。
+- **终端确认与清理**：交互终端默认使用远端账户的 Shell，显式菜单选择保留独立 argv；调试进程按工作区身份选择主机，即使调试器给出的工作目录已经是远端绝对路径。启动在收到远端确认后才发布就绪与 PID，等待中的启动也算模块活动资源。重启先等待上次传输清理，输入按顺序发送，待发送尺寸只保留最新值；写入与缩放复用 Core 的操作取消，退出释放远程渲染标记，不把远端 PID 交给本机进程监控。
+- **运行时与 Shell 发现**：网络调用在平台工作线程运行，界面读取缓存；发现有数量、数据和时间限制，取消或切换工作区后丢弃旧结果，失败不发布部分结果或本机回退。Shell 从远端登录环境、`/etc/shells` 和文件权限发现，旧服务缺目标权限时再查询链接真实路径；本机终端设置里的可执行文件路径不作为远程默认值。
+- **资源生命周期**：Git 临时索引和源文件快照在远端临时目录或 Git common directory，由单次操作清理；探测、可执行文件与搜索缓存保存在客户端内存并按连接隔离。服务的 socket、锁和日志身份同时包含会话键与二进制 SHA-256，版本号相同但内容变化时不复用旧常驻进程。以上资源在 `scripts/worktree-resources.json` 中明确排除跨工作树复制，运行时不写安装资源，不改变签名和 Sparkle delta 基线。
+- **构建与插件运行**：构建扫描、工具探测、构建进程和报告读取使用原工作区的主机身份，stdout/stderr 分别增量解码。插件只部署经过原安装来源复核的包，异平台变体必须同版本、同声明且不增加批准程序；复用市场校验和下载器，不向小型服务引入包管理或语言引擎。目标文件通过带 SHA-256 的分块上传原子发布，普通文件只读、可执行文件只读可执行，可写状态位于远端用户目录。快照清理捕获原连接，在 Core 销毁进程后执行；完整快照的断线与崩溃回收仍待补齐，不能把上传暂存清理当成完整快照清理。
+- **stdio 与启动**：语言、构建和 VCS 提供者复用 Core 的协议引擎，远程通道保留有界输入输出与原连接。异步部署、工具探测和启动在工作线程进行，启动期间保留有界文档快照与文件变更，停止后到达的会话先销毁再删除包。仅映射协议定义的 URI 和 VCS 路径字段，参数、文本与插件自定义值保持原样。依赖本机原生集成的 Java 仍明确拒绝，不能伪装成通用 stdio 已支持。
+- **启动中取消不能依赖空资源表**：服务端的连接读取线程先登记进程、终端和监听的启动身份，再交给工作线程。后续关闭先记录在这个身份上，由创建者在发布资源后执行清理；即使关闭请求因工作线程已满返回 `BUSY`、客户端停止等待或断线，清理责任也不消失。关闭等待最多 60 秒，但到期不会撤销已经记录的清理；不同资源仍可并行，注册表锁不覆盖磁盘、启动或结束进程树。无效参数不能触发取消，后到的普通结束请求不能降低已请求的强制结束。这样修复的是所有通用后端的生命周期，不需要引入 Java/JDT 等语言专属语义。
+- **断线与会话结束不同**：常驻会话仅断线时保留终端和进程供重连；非驻留连接断开、显式关闭会话或空闲到期时，迟到发布的资源必须由创建者清理。结束标记在清理现有资源表之前设置，否则慢启动可能在清理后才出现，尤其是常驻会话不能再把它当成“等待重连”的合法资源。
 
 ### 正确做法
 
 新增一种需要读写工作区文件的能力时，通过这两个端口访问文件，远程工作区就会自动可用。
+例如搜索使用已有索引语义，通过主机文件适配器读取内容；终端接收 `started` 确认后再把远端 PID 返回给调试器。新增功能仍需逐个检查调用链，文件端口本身不能让本机进程自动变成远端进程。
 
 ### 不要这样做
 
 - 不要在功能代码里用 `FileManager` 直接读工作区下的文件：在远程工作区里它只会看到空目录。
 - 不要从占位根目录推导“这是远程项目”再写特殊分支，应该询问 `RemoteWorkspaceRegistry`。
+- 不要把本机签名插件包内的 macOS 可执行文件路径直接传给 Linux；包的目标平台、资源部署和可写状态目录尚未适配时，必须保留失败状态，不宣称插件可用。
 
 ## 考虑过的备选方案
 
@@ -37,16 +51,32 @@
 
 现有功能全都能直接用，但大项目同步慢、两边会不一致，构建和运行也会发生在本地而不是项目所在的机器上，和整体远程开发设计（构建、LSP 都在远端运行）相冲突。
 
+### 客户端取消时只重试关闭，或等待启动确认后才允许取消
+
+只重试关闭仍可能在资源登记前用尽客户端的两秒清理期限；无限等待启动确认又会拖住关闭窗口和模块停用。也不能把慢启动改成连接读取线程上的同步工作，那会阻塞其他会话。采用服务端先记住取消、创建者随后清理的方式，让客户端保持有界等待，同时不丢失最终清理责任。
+
 ## 后果
 
 - 远程工作区第一版：文件树按需列目录、打开和保存 UTF-8 文件（含 BOM）、保存时检测冲突。
-- 暂不支持：新建、删除、重命名、复制（报“不支持”）；外部修改监听；Git、搜索、构建、语言服务和远端终端。这些要逐个接到 `lithe-remote-client` 已有的远端能力上。
+- 新增适配覆盖：远端 PTY、按主机探测环境、Git 文件与进程 I/O、搜索索引与 Shift+Shift 的文件及内容查询。真实服务 fixture 已覆盖状态、暂存、分页历史、设置来源、worktree 创建和管理、克隆、保留无关暂存的选择文件提交，以及未保存缓冲区的行历史；不能据此把完整真实 SSH 产品流程标为已验收。
+- 文件树新建、复制、重命名、移到主机废纸篓和普通删除已接入；外部修改监听覆盖文件树与文档，真实 SSH 的原生 watcher 仍需产品验收。
+- 构建 I/O、工具与状态目录适配，以及通用插件部署和 stdio 提供者接入已有实现与 fixture；真实 SSH 的完整构建、插件启动与取消链路仍待验收。
+- 仍待完成：远程 Java 原生集成、SVN 的兼容目标包与完整 VCS 流程、Agent 执行位置选择、完整快照断线/崩溃回收，以及 stdio 断线、顺序、背压与取消的真实主机覆盖。当前分支按 Draft PR 分阶段评审，不关闭 #1507。
 - 连接在工作区关闭后仍保留，直到 App 退出。
+- 代价：主机调用增加往返时间，远端无有效工具或连接中断时必须明确失败；缓存与长期资源都需要保留原连接身份，不能复用本机路径命中的结果。
+- 当前限制：Git 原子写入仍保留 8 MiB 上限；新分块上传仅用于已批准插件文件，不代表 Git 大文件临时内容已经接入。
 
 ## 验证
 
 ```bash
 ./scripts/test-macos.sh --filter RemoteConnections
+./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'RemoteWorkspaceRoutingTests|RemoteDirectoryObservationTests'
+./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'RemoteRuntimeDiscoveryTests|RemoteShellDiscoveryTests|RemoteTerminalTransportTests|TerminalModuleTests'
+./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'RemotePluginDeploymentTests|RemotePluginLaunchPreparerTests|RemoteBuildExecutionTests|MacBuildProviderSessionsTests|MacVcsProviderSessionsTests'
+./scripts/verify-remote-workspace.sh
+node scripts/test-reuse-worktree-resources.mjs
+./scripts/verify-runtime-bundle-immutability.sh
+./scripts/verify-platform-feature-matrix.sh
 ./scripts/verify-service-boundaries.sh
 ```
 
@@ -56,3 +86,9 @@
 - `macos/Sources/Lithe/Platform/MacOS/Remote/MacRemoteWorkspaceRoots.swift`
 - `macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift`
 - `macos/Sources/Lithe/Models/AppModel/AppModel+RemoteConnections.swift`
+- `macos/Sources/Lithe/Platform/MacOS/Remote/MacRemoteTerminalTransport.swift`
+- `macos/Sources/Lithe/Platform/MacOS/Remote/MacRemoteRuntimeLocator.swift`
+- `macos/Sources/Lithe/Platform/MacOS/Remote/MacRemoteShellDiscovery.swift`
+- `rust/lithe-core/src/remote/workspace.rs`
+- `rust/lithe-core/src/remote/workspace_host.rs`
+- `rust/lithe-core/src/remote/workspace_io.rs`

@@ -2823,16 +2823,19 @@ pub(super) fn read_requirements(
         .join(".lithe")
         .join("toolchains")
         .join("requirements.json");
-    if !path.exists() {
-        return Ok(None);
-    }
-    let text = fs::read_to_string(path).map_err(|error| {
-        CoreError::new(
-            ErrorCode::PermissionDenied,
-            "Could not read toolchain requirements: .lithe/toolchains/requirements.json",
-        )
-        .with_details(error.to_string())
-    })?;
+    let text = match crate::remote::workspace_io::read_to_string(path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err({
+                CoreError::new(
+                    ErrorCode::PermissionDenied,
+                    "Could not read toolchain requirements: .lithe/toolchains/requirements.json",
+                )
+                .with_details(error.to_string())
+            })
+        }
+    };
     serde_json::from_str(&text).map(Some).map_err(|e| {
         CoreError::new(
             ErrorCode::ParseFailed,

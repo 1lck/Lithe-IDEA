@@ -18,6 +18,10 @@ use std::process::{Command, ExitStatus};
 use std::time::{Duration, Instant};
 
 pub(crate) mod sessions;
+pub(crate) mod upload;
+pub(crate) mod workspace;
+pub(crate) mod workspace_host;
+pub(crate) mod workspace_io;
 
 /// Seconds OpenSSH waits for the TCP connection when the profile sets none.
 const DEFAULT_CONNECT_TIMEOUT_SECONDS: u32 = 15;

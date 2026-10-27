@@ -3,7 +3,7 @@
 use crate::environment::EnvironmentCache;
 use crate::link::Link;
 use crate::process::ProcessTable;
-use crate::resources::{IdWatermark, InFlight};
+use crate::resources::{IdWatermark, InFlight, PendingStarts};
 use crate::spawner::Spawner;
 use crate::terminal::TerminalTable;
 use crate::tunnel::TunnelTable;
@@ -46,6 +46,7 @@ fn start_reaper(session: std::sync::Weak<Session>) -> std::io::Result<()> {
             };
             session.processes.reap();
             session.terminals.reap();
+            session.uploads.expire();
         })
         .map(|_| ())
 }
@@ -61,8 +62,13 @@ pub(crate) struct Session {
     pub(crate) watches: WatchTable,
     pub(crate) tunnels: TunnelTable,
     pub(crate) walks: WalkTable,
+    pub(crate) uploads: crate::upload::UploadTable,
     /// Requests running on worker threads, drained before the session ends.
     pub(crate) workers: InFlight,
+    pub(crate) starts: Arc<PendingStarts>,
+    /// Late publications must be reclaimed after shutdown starts, including
+    /// persistent sessions whose disconnected resources normally survive.
+    ending: AtomicBool,
     /// Whether any client completed a handshake before, which makes the
     /// next one a resumption.
     had_client: AtomicBool,
@@ -86,7 +92,10 @@ impl Session {
             watches: WatchTable::new(),
             tunnels: TunnelTable::new(),
             walks: WalkTable::new(),
+            uploads: crate::upload::UploadTable::default(),
             workers: InFlight::default(),
+            starts: Arc::default(),
+            ending: AtomicBool::new(false),
             had_client: AtomicBool::new(false),
             next_connection: AtomicU64::new(0),
             idle_timeout: Mutex::new(DEFAULT_IDLE_TIMEOUT),
@@ -102,9 +111,14 @@ impl Session {
 
     /// Called for `server.shutdown` before it is answered.
     pub(crate) fn begin_shutdown(&self) {
+        self.ending.store(true, Ordering::Release);
         if let Some(hook) = crate::lock(&self.shutdown_hook).take() {
             hook();
         }
+    }
+
+    pub(crate) fn is_ending(&self) -> bool {
+        self.ending.load(Ordering::Acquire)
     }
 
     pub(crate) fn next_connection_id(&self) -> u64 {
@@ -137,12 +151,14 @@ impl Session {
     /// local sockets are gone; walks end because their results would only
     /// fill the replay buffer.
     pub(crate) fn release_connection_resources(&self, connection: u64) {
+        self.uploads.release(connection);
         self.tunnels.close_owned_by(connection);
         self.walks.cancel_owned_by(connection);
     }
 
     /// Ends everything the session started.
     pub(crate) fn terminate_all(&self) {
+        self.ending.store(true, Ordering::Release);
         self.tunnels.close_all();
         self.walks.cancel_all();
         self.watches.stop_all();
@@ -154,5 +170,6 @@ impl Session {
         if unfinished > 0 {
             eprintln!("lithe-remote-server: {unfinished} requests did not finish");
         }
+        self.uploads.clear();
     }
 }

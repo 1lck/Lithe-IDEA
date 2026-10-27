@@ -14,6 +14,7 @@ lithe-remote-protocol = { path = "../lithe-remote-protocol" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
+trash = { version = "5.2.6", default-features = false, features = ["chrono"] }
 
 [dev-dependencies]
 lithe-remote-client = { path = "../lithe-remote-client" }

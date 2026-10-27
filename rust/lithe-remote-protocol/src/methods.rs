@@ -30,9 +30,48 @@ pub const FS_CREATE_DIR: &str = "fs.createDir";
 pub const FS_REMOVE: &str = "fs.remove";
 pub const FS_RENAME: &str = "fs.rename";
 pub const FS_COPY: &str = "fs.copy";
+/// Moves an entry to the host account's recoverable system trash.
+pub const FS_TRASH: &str = "fs.trash";
 pub const FS_REAL_PATH: &str = "fs.realPath";
 pub const FS_SET_PERMISSIONS: &str = "fs.setPermissions";
 pub const FS_VOLUME_INFO: &str = "fs.volumeInfo";
+pub const FS_TEMP_DIRECTORY: &str = "fs.tempDirectory";
+/// Connection-owned staging for large files, with verified no-replace publication.
+pub const FS_UPLOAD_START: &str = "fs.uploadStart";
+pub const FS_UPLOAD_CHUNK: &str = "fs.uploadChunk";
+pub const FS_UPLOAD_COMMIT: &str = "fs.uploadCommit";
+pub const FS_UPLOAD_ABORT: &str = "fs.uploadAbort";
+
+/// Maximum decoded chunk, independent of the full file size.
+pub const MAX_UPLOAD_CHUNK_BYTES: usize = 256 * 1024;
+/// Maximum staged file, matching the expanded plugin importer budget.
+pub const MAX_UPLOAD_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+
+/// A new upload's destination, expected bytes, integrity and final permissions.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UploadStartParams {
+    pub path: String,
+    pub size: u64,
+    pub sha256: String,
+    pub mode: u32,
+}
+
+/// One strictly ordered chunk of an existing upload.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UploadChunkParams {
+    pub upload_id: u64,
+    pub offset: u64,
+    pub data: String,
+}
+
+/// Identifies the upload being committed or aborted.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UploadParams {
+    pub upload_id: u64,
+}
 
 pub const WALK_START: &str = "walk.start";
 pub const WALK_CANCEL: &str = "walk.cancel";
@@ -228,6 +267,8 @@ pub enum WatchBackend {
 pub enum Feature {
     /// `fs.*` methods.
     Filesystem,
+    /// Bounded staged uploads with SHA-256 and atomic no-replace publication.
+    Upload,
     /// `walk.*` methods and events.
     Walk,
     /// `watch.*` methods and events.
@@ -319,6 +360,9 @@ pub struct FileMetadata {
     /// Kind of the resolved target; `None` for a dangling link.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub symlink_target_kind: Option<FileKind>,
+    /// Permissions of the resolved target, never the link's own mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub symlink_target_mode: Option<u32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
@@ -391,6 +435,17 @@ pub struct CreateDirParams {
     pub path: String,
     #[serde(default)]
     pub recursive: bool,
+    /// POSIX permissions applied during creation, before any content is written.
+    #[serde(default)]
+    pub mode: Option<u32>,
+}
+
+/// Creates a private disposable directory below the host's temporary root.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TempDirectoryParams {
+    /// Diagnostic name, restricted to ASCII letters, digits, `_` and `-`.
+    pub prefix: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
