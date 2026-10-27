@@ -34,6 +34,18 @@
   ],
   "excludedResources": [
     {
+      "id": "vcs-root-mappings",
+      "reusable": false,
+      "locations": [
+        "<windows-app-local-data>/vcs-roots/<native-workspace-identity-sha256>.json",
+        "<mapping-source>.json.<pid>-<sequence>.tmp",
+        "<mapping-source>.json.<pid>-<sequence>.backup",
+        "<process-memory>/vcs-root-watch-leases"
+      ],
+      "identity": "Lithe-owned user choices bind a native workspace directory identity and each selected root directory identity. Window, registration, incarnation and scan generation own active reads and watches. These are mutable runtime ownership identities, never version/platform/architecture/toolchain build stamps.",
+      "reason": "Never copy mappings, guarded-save temporaries, recovery backups or watch leases at any worktree stage. Opening is read-only; explicit Save preserves unknown fields and permissions and rejects external byte changes. Failed saves remove their own temporary and retain recovery evidence. Closing a window/workspace or revoking plugins drops its watch leases; directory replacement cannot inherit choices. Storage comes from the platform app-local-data adapter, outside signed packages and update baselines."
+    },
+    {
       "id": "plugin-host-acceptance-state",
       "reusable": false,
       "locations": [

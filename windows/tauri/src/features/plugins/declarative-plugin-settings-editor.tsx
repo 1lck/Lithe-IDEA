@@ -11,6 +11,7 @@ import { pushDeclarativeWorkspaceConfiguration } from "@/platform/lsp-core-adapt
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { pluginPlanGuard, subscribePluginActivity } from "./declarative-plugin-lifecycle";
 import { pluginSettingsReloads } from "./declarative-plugin-reload";
+import { PluginFunctionAction } from "./plugin-function-action";
 import {
   applySettingEffect,
   DeclarativeSettingsSession,
@@ -266,24 +267,17 @@ export function DeclarativePluginSettingsEditor({
               {declaredActions
                 .filter((item) => (item.section ?? "") === section)
                 .map((action) => (
-                  <SettingRow
+                  <PluginFunctionAction
                     key={action.id}
-                    label={action.title}
-                    description={action.description}
-                    activateOnClick={false}
-                  >
-                    <span title={t("plugins.settings.actionUnavailable")}>
-                      <Button disabled>{action.title}</Button>
-                    </span>
-                  </SettingRow>
+                    pluginId={pluginId}
+                    action={action}
+                    workspacePath={workspacePath}
+                    identity={snapshot.identity}
+                    disabled={invalid || state.busy || !!pendingReload?.busy}
+                  />
                 ))}
             </Section>
           ))}
-          {declaredActions.length > 0 && (
-            <p role="status" className="ui-text-sm">
-              {t("plugins.settings.actionUnavailable")}
-            </p>
-          )}
         </>
       )}
       <Button

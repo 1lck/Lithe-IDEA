@@ -198,6 +198,7 @@ pub async fn begin(app: &AppHandle, plugin_id: &str) -> Result<Mutation, String>
         .await
         .map_err(|error| error.code)?;
     super::vcs::plugin_changing(app, plugin_id).await?;
+    super::functions::close_plugin(app, plugin_id).await?;
     super::provider::close_plugin(app, plugin_id)
         .await
         .map_err(|error| error.detail)?;

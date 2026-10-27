@@ -81,7 +81,7 @@ fn prepare(
     if current != expected {
         return Err(registry::STALE.into());
     }
-    let fresh = registry::detect(&super::Core, &scope, &current)?;
+    let fresh = super::redetect(app, &scope, &current, &snapshot)?;
     if !registry::same_roots(&snapshot.detection, &fresh) {
         return Err(registry::STALE.into());
     }
@@ -180,7 +180,7 @@ fn unchanged(
     {
         return Err(registry::STALE.into());
     }
-    let fresh = registry::detect(&super::Core, &context.scope, &now)?;
+    let fresh = super::redetect(app, &context.scope, &now, &snapshot)?;
     if !registry::same_roots(&snapshot.detection, &fresh) {
         return Err(registry::STALE.into());
     }

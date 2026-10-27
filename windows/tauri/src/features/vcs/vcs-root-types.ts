@@ -28,6 +28,18 @@ export interface VcsSnapshot {
     rejected: unknown[];
     conflicts: unknown[];
   };
+  mappings?: {
+    source: string;
+    revision: string | null;
+    entries: Array<{ id: string; vcs: string }>;
+  };
+  watchError?: string | null;
+  mappingChoices?: Array<{ id: string; vcs: string[] }>;
+}
+export interface VcsInvalidation {
+  workspaceId: string;
+  incarnation: string;
+  generation: number;
 }
 export interface VcsOwnership {
   generation: number;
@@ -40,6 +52,15 @@ export interface VcsRootPort {
   owners(scope: VcsScope, generation: number, paths: string[]): Promise<VcsOwnership>;
   close(scope: VcsScope): Promise<void>;
   deadline(callback: () => void): () => void;
+  subscribe?(scope: VcsScope, changed: (event: VcsInvalidation) => void): Promise<() => void>;
+  debounce?(callback: () => void): () => void;
+  saveMapping?(
+    scope: VcsScope,
+    generation: number,
+    revision: string | null,
+    id: string,
+    vcs: string | null,
+  ): Promise<void>;
   status?(
     scope: VcsScope,
     generation: number,

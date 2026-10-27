@@ -12,7 +12,9 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
 mod snapshot;
+pub(crate) use snapshot::read as read_snapshot;
 pub use snapshot::SettingSnapshot;
+pub(crate) use snapshot::{read_object_snapshot, write_object_snapshot};
 
 #[tauri::command]
 pub async fn declarative_plugins_setting_snapshot(

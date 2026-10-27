@@ -38,6 +38,9 @@ impl Fixture {
         }];
         registry::Snapshot {
             generation: 1,
+            mappings: None,
+            watch_error: None,
+            mapping_choices: Vec::new(),
             workspace_id: scope.workspace_id.clone(),
             workspace_root: scope.workspace_root.clone(),
             detection: registry::detect(&super::super::Core, &scope, &packages).unwrap(),

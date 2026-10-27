@@ -91726,6 +91726,301 @@
         "count": "integer",
         "total": "integer"
       }
+    },
+    {
+      "id": "generator.disabled",
+      "description": "Windows project generator plugin interaction: disabled",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "generator.enableOwner",
+      "description": "Windows project generator plugin interaction: enableOwner",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "generator.enablePlugin",
+      "description": "Windows project generator plugin interaction: enablePlugin",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "generator.findPlugin",
+      "description": "Windows project generator plugin interaction: findPlugin",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "generator.advisoryRequirements",
+      "description": "Windows project generator plugin interaction: advisoryRequirements",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "generator.pluginUnavailable",
+      "description": "Windows project generator plugin interaction: pluginUnavailable",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "generator.pluginEnableFailed",
+      "description": "Windows project generator plugin interaction: pluginEnableFailed",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "generator.refresh",
+      "description": "Windows project generator plugin interaction: refresh",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "plugins.functions.newAttempt",
+      "description": "Windows settings plugin function: plugins.functions.newAttempt",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "plugins.functions.retryCleanup",
+      "description": "Windows settings plugin function: plugins.functions.retryCleanup",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "plugins.functions.review",
+      "description": "Windows settings plugin function: plugins.functions.review",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "plugins.functions.confirmAction",
+      "description": "Windows settings plugin function: plugins.functions.confirmAction",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "plugins.functions.workspace",
+      "description": "Windows settings plugin function: plugins.functions.workspace",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "plugins.functions.function",
+      "description": "Windows settings plugin function: plugins.functions.function",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "plugins.functions.projectCode",
+      "description": "Windows settings plugin function: plugins.functions.projectCode",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "plugins.functions.network",
+      "description": "Windows settings plugin function: plugins.functions.network",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "plugins.functions.confirm",
+      "description": "Windows settings plugin function: plugins.functions.confirm",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "plugins.functions.failed",
+      "description": "Windows settings plugin function: plugins.functions.failed",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "code": "string"
+      }
+    },
+    {
+      "id": "plugins.functions.yes",
+      "description": "Windows settings plugin function: plugins.functions.yes",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "plugins.functions.no",
+      "description": "Windows settings plugin function: plugins.functions.no",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "plugins.functions.phase.preparing",
+      "description": "Windows settings plugin function: plugins.functions.phase.preparing",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "plugins.functions.phase.review",
+      "description": "Windows settings plugin function: plugins.functions.phase.review",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "plugins.functions.phase.starting",
+      "description": "Windows settings plugin function: plugins.functions.phase.starting",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "plugins.functions.phase.running",
+      "description": "Windows settings plugin function: plugins.functions.phase.running",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "plugins.functions.phase.stopping",
+      "description": "Windows settings plugin function: plugins.functions.phase.stopping",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "plugins.functions.phase.cleanupFailed",
+      "description": "Windows settings plugin function: plugins.functions.phase.cleanupFailed",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "plugins.functions.phase.succeeded",
+      "description": "Windows settings plugin function: plugins.functions.phase.succeeded",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "plugins.functions.phase.failed",
+      "description": "Windows settings plugin function: plugins.functions.phase.failed",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "plugins.functions.phase.cancelled",
+      "description": "Windows settings plugin function: plugins.functions.phase.cancelled",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.mapping.source",
+      "description": "Windows Lithe-owned VCS root mappings and passive monitoring",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "path": "string"
+      }
+    },
+    {
+      "id": "vcs.mapping.sourceInfo",
+      "description": "Windows Lithe-owned VCS root mappings and passive monitoring",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.mapping.select",
+      "description": "Windows Lithe-owned VCS root mappings and passive monitoring",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "path": "string"
+      }
+    },
+    {
+      "id": "vcs.mapping.automatic",
+      "description": "Windows Lithe-owned VCS root mappings and passive monitoring",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.mapping.save",
+      "description": "Windows Lithe-owned VCS root mappings and passive monitoring",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.mapping.cancel",
+      "description": "Windows Lithe-owned VCS root mappings and passive monitoring",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.mapping.conflict",
+      "description": "Windows Lithe-owned VCS root mappings and passive monitoring",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.mapping.failed",
+      "description": "Windows Lithe-owned VCS root mappings and passive monitoring",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.watch.failed",
+      "description": "Windows Lithe-owned VCS root mappings and passive monitoring",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.roots.unavailable",
+      "description": "Windows passive VCS root read and cleanup retry",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.roots.refresh",
+      "description": "Windows passive VCS root read and cleanup retry",
+      "platforms": [
+        "windows"
+      ]
     }
   ]
 }

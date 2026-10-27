@@ -46,6 +46,9 @@ fn package() -> Package {
 fn snapshot(scope: &Scope, detection: Detection) -> Snapshot {
     Snapshot {
         generation: 1,
+        mappings: None,
+        watch_error: None,
+        mapping_choices: Vec::new(),
         workspace_id: scope.workspace_id.clone(),
         workspace_root: scope.workspace_root.clone(),
         detection,
@@ -289,6 +292,7 @@ fn plugin_private_pages_cannot_invoke_the_native_vcs_snapshot_commands() {
     for command in [
         "declarative_plugins_vcs_detect",
         "declarative_plugins_vcs_owners",
+        "declarative_plugins_vcs_save_mapping",
         "declarative_plugins_vcs_close",
         "declarative_plugins_vcs_status",
         "declarative_plugins_vcs_cancel_status",

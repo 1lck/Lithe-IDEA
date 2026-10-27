@@ -22,11 +22,18 @@
   },
   "windows": {
     "evidence": [
-      "shared/contracts/plugins/v1/README.md"
+      "shared/contracts/plugins/v1/README.md",
+      "windows/tauri/src-tauri/src/plugin_host/functions/mod.rs",
+      "windows/tauri/src-tauri/src/plugin_host/functions/runtime.rs",
+      "windows/tauri/src-tauri/src/plugin_host/functions/tests.rs",
+      "windows/tauri/src-tauri/src/plugin_host/functions/runtime/tests.rs",
+      "windows/tauri/src/features/plugins/plugin-function-session.ts",
+      "windows/tauri/src/features/plugins/plugin-function-session.test.ts",
+      "windows/tauri/src/features/plugins/plugin-function-action.tsx"
     ],
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable"
+    "implementationStatus": "partial",
+    "verificationStatus": "pending"
   },
   "owner": "Plugin Platform",
-  "verification": "macOS：先使用 Swift 6.3.3 构建 Release，确认插件页选择回调不触发编译器崩溃；在 Release 应用中选择插件设置页，确认其侧栏分组自动展开。macOS：安装一个声明了 settings 2 页面（page/section/scope/effect/settingActions）的插件并启用，确认设置侧栏的对应分组下出现该语言或构建系统页，页内按插件和 section 分组显示设置与按钮；搜索设置标题能定位到该页。打开项目后把 scope 为 project 的设置切到“此项目”并修改，确认项目下生成 .lithe/plugin-settings.json 且显示“已在此项目覆盖”，恢复默认后文件被删除。修改 effect 为 immediate 的设置，确认语言服务器不重启而配置生效；修改 restart 设置时出现重启提示。点击带 confirm 的按钮先弹确认，再调用插件函数并给出结果通知。停用插件后页面消失。macOS 布局回归：运行 PluginSettingsLayoutTests，检查 480/640/900 点宽、深浅主题的路径控件与选择按钮不重叠且留在容器内，点击选择按钮写入所选路径；在插件详情的窄设置页确认“选择…”文字完整。Windows：宿主仍只声明 settings/languageServers 1，需要 v2 的插件在市场中隐藏。"
+  "verification": "macOS：先使用 Swift 6.3.3 构建 Release，确认插件页选择回调不触发编译器崩溃；在 Release 应用中选择插件设置页，确认其侧栏分组自动展开。macOS：安装一个声明了 settings 2 页面（page/section/scope/effect/settingActions）的插件并启用，确认设置侧栏的对应分组下出现该语言或构建系统页，页内按插件和 section 分组显示设置与按钮；搜索设置标题能定位到该页。打开项目后把 scope 为 project 的设置切到“此项目”并修改，确认项目下生成 .lithe/plugin-settings.json 且显示“已在此项目覆盖”，恢复默认后文件被删除。修改 effect 为 immediate 的设置，确认语言服务器不重启而配置生效；修改 restart 设置时出现重启提示。点击带 confirm 的按钮先弹确认，再调用插件函数并给出结果通知。停用插件后页面消失。macOS 布局回归：运行 PluginSettingsLayoutTests，检查 480/640/900 点宽、深浅主题的路径控件与选择按钮不重叠且留在容器内，点击选择按钮写入所选路径；在插件详情的窄设置页确认“选择…”文字完整。Windows 已声明 settings/languageServers 1/2；完整包的 buildSystems/buildProviders/ui 等其它 requires 仍按实际能力门控，不代表注册页或函数的完整包已通过验收。 Windows R10：设置 action 从已接受、已启用且实时验签的归一化声明确认函数，以真实窗口、原生工作区代次、完整包与设置身份绑定确认票据；原生固定空对象参数并使用隔离 Core owned 会话，协商 litheFunctions、结果/进度、取消和单 owner 清理重试。共享编辑器或构建会话不被接管；无唯一独立 Provider 的 action 明确 unavailable；网页函数桥、通用 backend、host services 和完整真实包/实机验收仍 pending。能力门控保持关闭。主窗口已完成设置动作组件/会话、R9 reload/CAS 回归、完整 TypeScript 检查、Tauri 逐项原生测试及 Windows x64 Release；新增最后清理等待者退出后的迟到启动/销毁自动回收，以及结果凭据保留回归。真实安装包、网页桥、共享语言 Provider 私有函数及 host services 仍 pending。"
 }

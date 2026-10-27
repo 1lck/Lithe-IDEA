@@ -7,6 +7,7 @@ export interface GenerationForm {
 export interface GenerationRequest {
   pluginId: string;
   generatorId: string;
+  packageIdentity: string;
   form: GenerationForm;
   parent: string;
   createGit: boolean;

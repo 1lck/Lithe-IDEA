@@ -3,9 +3,21 @@ import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace
 import { subscribePluginActivity } from "@/features/plugins/declarative-plugin-lifecycle";
 import type { WorkspaceRuntime } from "@/features/workspace/types/workspace-runtime.types";
 import { VcsRootController } from "./vcs-root-controller";
-import type { VcsRootPort } from "./vcs-root-types";
+import type { VcsRootPort, VcsInvalidation } from "./vcs-root-types";
 
+const ROOT_REFRESH_DEBOUNCE_MS = 750;
+const MAX_RETIRED_CONTROLLERS = 16;
 const native: VcsRootPort = {
+  subscribe: async (_scope, changed) => {
+    const { listen } = await import("@tauri-apps/api/event");
+    return listen<VcsInvalidation>("vcs-roots-invalidated", (event) => changed(event.payload));
+  },
+  debounce: (callback) => {
+    const timer = setTimeout(callback, ROOT_REFRESH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  },
+  saveMapping: (scope, generation, revision, id, vcs) =>
+    invoke("declarative_plugins_vcs_save_mapping", { scope, generation, revision, id, vcs }),
   detect: (scope) => invoke("declarative_plugins_vcs_detect", { scope }),
   owners: (scope, generation, paths) =>
     invoke("declarative_plugins_vcs_owners", { scope, generation, paths }),
@@ -24,6 +36,9 @@ const native: VcsRootPort = {
   },
 };
 const roots = new Map<string, { runtime: WorkspaceRuntime; controller: VcsRootController }>();
+// A retired controller is never reusable, but its failed native cleanup owner
+// remains reachable. A replacement's first discovery drains these exact scopes.
+const retiring = new Map<string, Map<VcsRootController, Promise<void> | null>>();
 let stopObserving: (() => void) | null = null;
 function observe() {
   if (stopObserving) return;
@@ -37,7 +52,11 @@ function observe() {
         void closeWorkspaceVcsRoots(id).catch((error) =>
           console.warn("VCS root cleanup failed", error),
         );
-      } else if (runtime.status !== "ready") entry.controller.invalidate();
+      } else if (runtime.status !== "ready") {
+        void closeWorkspaceVcsRoots(id).catch((error) =>
+          console.warn("VCS root cleanup failed", error),
+        );
+      }
     }
   });
   const stopPlugins = subscribePluginActivity(() => {
@@ -66,9 +85,16 @@ export function workspaceVcsRoots(workspaceId: string): VcsRootController | null
     void closeWorkspaceVcsRoots(workspaceId).catch((error) =>
       console.warn("VCS root cleanup failed", error),
     );
+  if ((retiring.get(workspaceId)?.size ?? 0) >= MAX_RETIRED_CONTROLLERS) return null;
   const controller = new VcsRootController(
     { workspaceId, workspaceRoot: path, incarnation: crypto.randomUUID() },
-    native,
+    {
+      ...native,
+      detect: async (scope) => {
+        await drainRetired(workspaceId);
+        return native.detect(scope);
+      },
+    },
   );
   roots.set(workspaceId, { runtime, controller });
   observe();
@@ -76,8 +102,39 @@ export function workspaceVcsRoots(workspaceId: string): VcsRootController | null
 }
 export async function closeWorkspaceVcsRoots(workspaceId: string): Promise<void> {
   const entry = roots.get(workspaceId);
-  if (!entry) return;
-  await entry.controller.close();
-  if (roots.get(workspaceId) === entry) roots.delete(workspaceId);
-  if (!roots.size) stopObserving?.();
+  if (entry) {
+    roots.delete(workspaceId);
+    let group = retiring.get(workspaceId);
+    if (!group) {
+      group = new Map();
+      retiring.set(workspaceId, group);
+    }
+    group.set(entry.controller, null);
+  }
+  await drainRetired(workspaceId);
+}
+async function drainRetired(workspaceId: string): Promise<void> {
+  const group = retiring.get(workspaceId);
+  if (!group) return;
+  const attempts = [...group.keys()].map((controller) => {
+    let pending = group.get(controller);
+    if (!pending) {
+      pending = controller.close().then(
+        () => {
+          group.delete(controller);
+        },
+        (error) => {
+          group.set(controller, null);
+          throw error;
+        },
+      );
+      group.set(controller, pending);
+    }
+    return pending;
+  });
+  const outcomes = await Promise.allSettled(attempts);
+  if (!group.size && retiring.get(workspaceId) === group) retiring.delete(workspaceId);
+  if (!roots.size && !retiring.size) stopObserving?.();
+  const failed = outcomes.find((outcome) => outcome.status === "rejected");
+  if (failed?.status === "rejected") throw failed.reason;
 }

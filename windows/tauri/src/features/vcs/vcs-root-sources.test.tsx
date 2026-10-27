@@ -225,3 +225,74 @@ test("failed cleanup keeps Stop retry visible and prevents another status read",
   expect(f.host.querySelector("button")!.disabled).toBe(false);
   expect(f.host.textContent).not.toContain("Provider cleanup could not be confirmed");
 });
+
+test("mapping controls identify the Lithe source and only explicit Save sends a mapping write", async () => {
+  const f = await fixture();
+  f.view.mappings = {
+    source: "C:/fixture/app-data/vcs-roots/workspace.json",
+    revision: null,
+    entries: [],
+  };
+  f.view.mappingChoices = [{ id: "mixed", vcs: ["git", "svn"] }];
+  const writes: unknown[][] = [];
+  f.port.saveMapping = async (...args) => {
+    writes.push(args);
+    f.port.detect = async () => ({
+      ...f.view,
+      generation: 2,
+      mappings: { ...f.view.mappings!, revision: "saved", entries: [{ id: "mixed", vcs: "svn" }] },
+    });
+  };
+  await f.render();
+  expect(f.host.textContent).toContain("Lithe workspace mappings");
+  const panel = f.host.querySelector('[data-testid="vcs-root-mappings"]')!;
+  const select = panel.querySelector("select")!;
+  await act(async () => {
+    select.value = "svn";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  expect(writes).toHaveLength(0);
+  await act(async () =>
+    [...panel.querySelectorAll("button")]
+      .find((button) => button.textContent === "Save mapping")!
+      .click(),
+  );
+  expect(writes[0]).toEqual([f.controller.scope, 1, null, "mixed", "svn"]);
+  expect(f.controller.mappings.getSnapshot().drafts.size).toBe(0);
+});
+
+test("failed mapping saves retain a visible draft and cancellation performs no write", async () => {
+  const f = await fixture();
+  f.view.mappings = {
+    source: "C:/fixture/app-data/vcs-roots/workspace.json",
+    revision: "old",
+    entries: [],
+  };
+  f.view.mappingChoices = [{ id: "mixed", vcs: ["git", "svn"] }];
+  let writes = 0;
+  f.port.saveMapping = async () => {
+    ++writes;
+    throw new Error("vcs.mapping.conflict");
+  };
+  await f.render();
+  const panel = () => f.host.querySelector('[data-testid="vcs-root-mappings"]')!;
+  const select = panel().querySelector("select")!;
+  await act(async () => {
+    select.value = "svn";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await act(async () =>
+    [...panel().querySelectorAll("button")]
+      .find((button) => button.textContent === "Save mapping")!
+      .click(),
+  );
+  expect(f.host.textContent).toContain("Your draft is kept");
+  expect(panel().querySelector("select")!.value).toBe("svn");
+  await act(async () =>
+    [...panel().querySelectorAll("button")]
+      .find((button) => button.textContent === "Discard draft")!
+      .click(),
+  );
+  expect(panel().querySelector("select")!.value).toBe("");
+  expect(writes).toBe(1);
+});

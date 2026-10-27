@@ -161,6 +161,15 @@ pub(crate) struct BuildModelContext {
 }
 
 impl BuildRegistry {
+    pub(crate) fn function_generation(&self, label: &str, root: &str) -> Result<u64, String> {
+        let generation = self
+            .windows
+            .get(label)
+            .ok_or("plugin.build.staleContext")?
+            .generation;
+        self.check_read_snapshot(label, root, generation)?;
+        Ok(generation)
+    }
     pub fn new() -> Self {
         Self::default()
     }

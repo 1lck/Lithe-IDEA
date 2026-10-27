@@ -85,6 +85,51 @@ fn real_core_files_plan_publishes_a_complete_project_without_changing_package() 
     transaction.cleanup().unwrap();
 }
 
+#[cfg(windows)]
+#[test]
+fn activated_maven_sample_form_writes_main_java_through_the_windows_transaction() {
+    let fixture = Fixture::new();
+    let package =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../shared/contracts/plugins/v1/fixtures");
+    let manifest: Value = serde_json::from_str(
+        &fs::read_to_string(package.join("project-generator.plugin.json")).unwrap(),
+    )
+    .unwrap();
+    let form = json!({"projectName":"Example","values":{"buildSystem":"maven","sample":true,"groupId":"org.example"},
+        "edited":["groupId"],"runtimes":{"jdk":{"home":"C:/fixture/jdk","version":"21"}}});
+    let evaluation = core(
+        "project.generatorForm",
+        json!({"manifest":manifest,"generatorID":"app","form":form}),
+        "form",
+    )
+    .unwrap();
+    assert_eq!(evaluation["valid"], true);
+    assert!(evaluation["activeRequirements"]
+        .as_array()
+        .unwrap()
+        .contains(&json!(1)));
+    let plan = core(
+        "project.generationPlan",
+        json!({"manifest":manifest,"generatorID":"app","packagePath":package,"form":form}),
+        "plan",
+    )
+    .unwrap();
+    let mut transaction = fixture.transaction();
+    let (deadline, checkpoint) = bounded();
+    transaction::execute(&mut transaction, &plan, &NoCommand, deadline, &checkpoint).unwrap();
+    let target = transaction.publish(&checkpoint).unwrap();
+    assert!(target.join("src/org/example/Main.java").is_file());
+    assert!(fs::read_to_string(target.join("src/org/example/Main.java"))
+        .unwrap()
+        .contains("package org.example;"));
+    assert!(plan["openFiles"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("src/org/example/Main.java")));
+    assert!(!transaction.stage.exists());
+    transaction.cleanup().unwrap();
+}
+
 struct GenerateCollected;
 impl Executor for GenerateCollected {
     fn command(

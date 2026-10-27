@@ -62,6 +62,12 @@ impl FileWatcher {
       self.watch_path_with_mode(path, true, true)
    }
 
+   /// Metadata owners can observe an enclosing directory without recursively
+   /// claiming the user's entire parent working copy.
+   pub fn watch_directory_shallow(&self, path: String) -> Result<()> {
+      self.watch_path_with_mode(path, false, false)
+   }
+
    fn watch_path_with_mode(&self, path: String, recursive: bool, emit_opened: bool) -> Result<()> {
       let path_buf = PathBuf::from(&path);
 

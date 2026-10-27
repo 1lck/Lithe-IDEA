@@ -6,12 +6,16 @@ import type { VcsScope, VcsSnapshot } from "./vcs-root-types";
 const calls: Array<{ command: string; scope: VcsScope; generation?: number; paths?: string[] }> =
   [];
 let generation = 0;
+let closeHook: ((scope: VcsScope) => Promise<void>) | null = null;
+const releases: Array<() => void> = [];
+mock.module("@tauri-apps/api/event", () => ({ listen: async () => () => {} }));
 mock.module("@/platform/tauri-core", () => ({
   invoke: async (
     command: string,
     arguments_: { scope: VcsScope; generation?: number; paths?: string[] },
   ) => {
     calls.push({ command, ...arguments_ });
+    if (command === "declarative_plugins_vcs_close" && closeHook) await closeHook(arguments_.scope);
     if (command === "declarative_plugins_vcs_detect")
       return {
         generation: ++generation,
@@ -43,6 +47,8 @@ async function flush() {
   for (let turn = 0; turn < 16; turn++) await Promise.resolve();
 }
 afterEach(async () => {
+  for (const release of releases.splice(0)) release();
+  closeHook = null;
   for (const id of ids) await closeWorkspaceVcsRoots(id);
   ids.clear();
   workspaceRuntimeRegistry.resetForTests();
@@ -114,4 +120,77 @@ test("remote or unready workspaces do not enter the local passive registry", () 
   workspaceRuntimeRegistry.updateWorkspaceStatus(local, "opening");
   expect(workspaceVcsRoots(local)).toBeNull();
   expect(calls).toHaveLength(0);
+});
+
+test("leaving ready retires native watches and a later reopen gets a new incarnation", async () => {
+  const id = workspace(),
+    otherId = workspace("C:/fixture/other-vcs-service");
+  const first = workspaceVcsRoots(id)!,
+    other = workspaceVcsRoots(otherId)!;
+  await first.refresh();
+  await other.refresh();
+  const otherSnapshot = other.getSnapshot().snapshot;
+  workspaceRuntimeRegistry.updateWorkspaceStatus(id, "opening");
+  await flush();
+  expect(first.getSnapshot().snapshot).toBeNull();
+  expect(
+    calls.some(
+      (call) =>
+        call.command.endsWith("close") && call.scope.incarnation === first.scope.incarnation,
+    ),
+  ).toBe(true);
+  expect(other.getSnapshot().snapshot).toBe(otherSnapshot);
+  workspaceRuntimeRegistry.updateWorkspaceStatus(id, "ready");
+  const reopened = workspaceVcsRoots(id)!;
+  expect(reopened.scope.incarnation).not.toBe(first.scope.incarnation);
+});
+
+test("a rapid reopen creates a fresh controller and waits for the exact retired cleanup scope", async () => {
+  const id = workspace();
+  const first = workspaceVcsRoots(id)!;
+  await first.refresh();
+  let release!: () => void;
+  const closed = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  releases.push(release);
+  closeHook = () => closed;
+  workspaceRuntimeRegistry.updateWorkspaceStatus(id, "opening");
+  workspaceRuntimeRegistry.updateWorkspaceStatus(id, "ready");
+  const reopened = workspaceVcsRoots(id)!;
+  expect(reopened).not.toBe(first);
+  expect(reopened.scope.incarnation).not.toBe(first.scope.incarnation);
+  const refresh = reopened.refresh();
+  await flush();
+  expect(calls.filter((call) => call.command.endsWith("detect"))).toHaveLength(1);
+  release();
+  await refresh;
+  expect(reopened.getSnapshot().status).toBe("ready");
+  expect(
+    calls
+      .filter((call) => call.command.endsWith("close"))
+      .every((call) => call.scope.incarnation === first.scope.incarnation),
+  ).toBe(true);
+});
+
+test("failed retirement stays retryable and cannot return a permanently closed controller", async () => {
+  const id = workspace();
+  const first = workspaceVcsRoots(id)!;
+  await first.refresh();
+  closeHook = async () => {
+    throw new Error("fixture cleanup failed");
+  };
+  await expect(closeWorkspaceVcsRoots(id)).rejects.toThrow("fixture cleanup failed");
+  const reopened = workspaceVcsRoots(id)!;
+  expect(reopened.scope.incarnation).not.toBe(first.scope.incarnation);
+  await reopened.refresh();
+  expect(reopened.getSnapshot().status).toBe("failed");
+  closeHook = null;
+  await reopened.refresh();
+  expect(reopened.getSnapshot().status).toBe("ready");
+  expect(
+    calls
+      .filter((call) => call.command.endsWith("close"))
+      .every((call) => call.scope.incarnation === first.scope.incarnation),
+  ).toBe(true);
 });

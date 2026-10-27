@@ -60,6 +60,18 @@ pub struct BuildHostState {
     operations: operation::BuildOperations,
 }
 
+impl BuildHostState {
+    /// Read the workspace incarnation already registered by the native build
+    /// router. A settings action cannot create a scope by supplying a path.
+    pub(crate) fn function_generation(&self, window: &str, root: &str) -> Result<u64, String> {
+        let registry = self
+            .registry
+            .lock()
+            .map_err(|_| "plugin.function.staleContext")?;
+        registry.function_generation(window, root)
+    }
+}
+
 /// Executes Core through the shared host envelope.
 pub(super) struct HostCoreExecutor;
 
@@ -421,6 +433,7 @@ pub async fn declarative_plugins_build_close_workspace(
             None
         }
     };
+    super::functions::close_workspace(&app, &window_label, &workspace_root).await?;
     stop_build_operations(&app, |operation| {
         operation.context.window_label == window_label
             && operation.context.workspace_root == workspace_root

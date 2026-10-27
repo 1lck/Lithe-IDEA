@@ -405,6 +405,8 @@ async function main() {
       // Includes mcp-registry-metadata: responses have no copy stage; featured.json
       // and McpIcons follow Git source, never a downloaded/generated resource validator.
       // Includes plugin-web-state: per-window/workspace user JSON has no build identity or copy stage.
+      // Includes vcs-root-mappings: directory-bound user choices and watcher leases
+      // have no build stamp, validator, or copy stage; never share them across worktrees.
       // Includes plugin-settings-state: confirmed user preferences, replacement
       // temporaries and recovery backups have no validator or copy stage.
       // Includes plugin-generator-transactions: sibling staging and published user

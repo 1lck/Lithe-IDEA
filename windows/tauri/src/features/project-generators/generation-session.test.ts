@@ -9,6 +9,7 @@ import {
 const request: GenerationRequest = {
   pluginId: "fixture",
   generatorId: "template",
+  packageIdentity: "fixture-digest",
   parent: "fixture",
   createGit: false,
   form: { projectName: "Example", values: {}, edited: [], runtimes: {} },

@@ -471,10 +471,12 @@
       "coreEvidence": [
         "rust/lithe-core/src/tests/project_generators.rs:65 golden_project_plans_match (plan.rs collect_files walks the templates directory)"
       ],
-      "windowsEvidence": [],
+      "windowsEvidence": [
+        "windows/tauri/src-tauri/src/plugin_host/project_generators/tests.rs"
+      ],
       "windowsStatus": "indirect-core",
       "gapStage": "M8",
-      "gapDetail": "条件模板由 Core golden 测试验证；现有 Windows 宿主默认 app 计划未激活 buildSystem=maven 且 sample=true 的 main 分支，仍缺该产物的宿主验证（M8/M10）。"
+      "gapDetail": "Windows R10 新增并执行 maven + sample=true 的真实 Core 计划及事务生成回归，检查 Main.java 路径/内容与 collect 结果；完整正式包向导和创建后构建仍待 M8/M10。"
     },
     {
       "path": "project-generator.plugin.json",
@@ -494,7 +496,7 @@
       ],
       "windowsStatus": "indirect-core",
       "gapStage": "M8",
-      "gapDetail": "R9 已通过真实 Core 表单/计划、files/command/archive 事务、取消与原目录清理回归。projectGenerators 门控仍关闭；需求插件启用/市场跳转、segmented 字段及真实安装包向导闭环仍待 M8/M10，不把内部测试记为完整 fixture 产品验收。"
+      "gapDetail": "Windows R10 已接入显式启用、市场查询和 segmented 字段，使用真实 fixture 验证默认及 Maven/sample 生成分支、归档和事务清理。能力仍关闭，完整正式插件包/实机向导及创建后构建验收待 M8/M10。"
     },
     {
       "path": "project-plans.json",
@@ -536,11 +538,14 @@
         "windows/tauri/src-tauri/src/plugin_host/tests.rs:128 host_v0_capabilities_gate_unimplemented_sections",
         "windows/tauri/src-tauri/src/plugin_host/settings/snapshot/tests.rs",
         "windows/tauri/src/features/plugins/declarative-settings-session.test.ts",
-        "windows/tauri/src/features/plugins/declarative-plugin-reload.test.ts"
+        "windows/tauri/src/features/plugins/declarative-plugin-reload.test.ts",
+        "windows/tauri/src-tauri/src/plugin_host/functions/tests.rs",
+        "windows/tauri/src-tauri/src/plugin_host/functions/runtime/tests.rs",
+        "windows/tauri/src/features/plugins/plugin-function-session.test.ts"
       ],
       "windowsStatus": "indirect-core",
       "gapStage": "M6",
-      "gapDetail": "真实 fixture 用于 scope/value 校验；分层存储、CAS 保存和 global reload 另有通用状态/存储回归，并非此完整 fixture 的端到端链路。该包 requires buildSystems/buildProviders，正式安装仍受门控；settingActions、project scoped reload 与该完整包实机验收待 M6/M10。"
+      "gapDetail": "真实 fixture 用于 scope/value、action/page 及共享语言 Provider 拒绝校验；分层存储、CAS、global reload 及独立 Provider 设置动作另有状态/存储/会话回归。此 fixture 的 action 使用共享语言服务，当前仍明确 unavailable；buildSystems/buildProviders 门控、project reload 和完整包验收待 M6/M10。"
     },
     {
       "path": "signature-vectors.json",

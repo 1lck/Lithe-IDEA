@@ -49,12 +49,14 @@ function emptySessionState(): MarketplaceSessionState {
 export interface DeclarativeMarketplaceSectionProps {
   service?: DeclarativeMarketplaceService;
   installed?: MarketplaceInstalledProvider;
+  initialQuery?: string;
 }
 
 /** Mountable marketplace page; the host page provides the backend bindings. */
 export function DeclarativeMarketplaceSection({
   service,
   installed,
+  initialQuery,
 }: DeclarativeMarketplaceSectionProps) {
   const { t } = useTranslation();
   if (!service || !installed) {
@@ -71,20 +73,22 @@ export function DeclarativeMarketplaceSection({
       </section>
     );
   }
-  return <MarketplaceBrowser service={service} installed={installed} />;
+  return <MarketplaceBrowser service={service} installed={installed} initialQuery={initialQuery} />;
 }
 
 function MarketplaceBrowser({
   service,
   installed,
+  initialQuery,
 }: {
   service: DeclarativeMarketplaceService;
   installed: MarketplaceInstalledProvider;
+  initialQuery?: string;
 }) {
   const { t, language } = useTranslation();
   const [state, setState] = useState<MarketplaceSessionState>(emptySessionState);
   const [scope, setScope] = useState<string>(ALL_SOURCES);
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery ?? "");
   const sessionRef = useRef<MarketplaceSession | null>(null);
 
   useEffect(() => {
@@ -124,8 +128,7 @@ function MarketplaceBrowser({
         offer: selectMarketplaceOffer(offers, installedByPluginId.get(pluginId)),
       }))
       .filter(
-        (listing) =>
-          listing.offer !== null && marketplaceEntryMatches(listing.offer.entry, query),
+        (listing) => listing.offer !== null && marketplaceEntryMatches(listing.offer.entry, query),
       )
       .sort((left, right) => {
         const leftName = left.offer!.entry.name.toLowerCase();
@@ -223,7 +226,11 @@ function MarketplaceBrowser({
         </p>
       )}
       {state.installedFailed && (
-        <p role="alert" className="text-destructive ui-text-sm" data-testid="marketplace-installed-warning">
+        <p
+          role="alert"
+          className="text-destructive ui-text-sm"
+          data-testid="marketplace-installed-warning"
+        >
           {t(`${KEY_PREFIX}.installedWarning`)}
         </p>
       )}
@@ -232,9 +239,7 @@ function MarketplaceBrowser({
       )}
       {scopedSources.map(
         (status) =>
-          (status.problem !== null ||
-            status.refreshError !== null ||
-            status.rejectedCount > 0) && (
+          (status.problem !== null || status.refreshError !== null || status.rejectedCount > 0) && (
             <div
               key={status.sourceId}
               className="flex flex-wrap items-center gap-2"
@@ -252,11 +257,7 @@ function MarketplaceBrowser({
                 {status.problem !== null
                   ? describeOperationError(t, status.problem, `${KEY_PREFIX}.cacheProblem`)
                   : status.refreshError !== null
-                    ? describeOperationError(
-                        t,
-                        status.refreshError,
-                        `${KEY_PREFIX}.refreshFailed`,
-                      )
+                    ? describeOperationError(t, status.refreshError, `${KEY_PREFIX}.refreshFailed`)
                     : t(`${KEY_PREFIX}.rejectedCount`, { count: status.rejectedCount })}
               </p>
               {(status.problem !== null || status.refreshError !== null) && (
@@ -336,7 +337,7 @@ function MarketplacePluginRow({
   const version =
     entry.availability.status === "available"
       ? entry.availability.version
-      : entry.latestVersion ?? "";
+      : (entry.latestVersion ?? "");
   const busyPreparing = busy === "prepare";
   const busyConfirming = busy === "confirm";
   const canInstall =
@@ -471,7 +472,10 @@ function MarketplaceReviewCard({
           {t(`${KEY_PREFIX}.review.officialVerified`)}
         </p>
       ) : (
-        <p className="text-subtle-foreground ui-text-sm" data-testid="marketplace-unverified-notice">
+        <p
+          className="text-subtle-foreground ui-text-sm"
+          data-testid="marketplace-unverified-notice"
+        >
           {t(`${KEY_PREFIX}.review.unverifiedNotice`)}
         </p>
       )}

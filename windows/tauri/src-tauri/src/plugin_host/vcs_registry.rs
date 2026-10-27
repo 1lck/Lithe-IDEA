@@ -56,6 +56,11 @@ pub struct Snapshot {
     pub workspace_id: String,
     pub workspace_root: String,
     pub detection: Detection,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mappings: Option<super::mappings::MappingSnapshot>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub watch_error: Option<String>,
+    pub mapping_choices: Vec<Value>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -170,6 +175,9 @@ impl Registry {
             workspace_id: ticket.scope.workspace_id.clone(),
             workspace_root: ticket.scope.workspace_root.clone(),
             detection,
+            mappings: None,
+            watch_error: None,
+            mapping_choices: Vec::new(),
         };
         self.entries
             .get_mut(&(ticket.host.clone(), ticket.scope.workspace_id.clone()))
@@ -222,6 +230,36 @@ impl Registry {
             entry.snapshot = None;
         }
     }
+    pub fn invalidate_generation(&mut self, host: &str, scope: &Scope, generation: u64) -> bool {
+        let Some(entry) = self
+            .entries
+            .get_mut(&(host.into(), scope.workspace_id.clone()))
+            .filter(|entry| entry.ticket.scope == *scope && entry.ticket.generation == generation)
+        else {
+            return false;
+        };
+        entry.ticket.generation = 0;
+        entry.snapshot = None;
+        true
+    }
+    pub fn annotate(
+        &mut self,
+        ticket: &Ticket,
+        mappings: super::mappings::MappingSnapshot,
+        watch_error: Option<String>,
+        choices: Vec<Value>,
+    ) -> Result<Snapshot, String> {
+        self.entry(ticket)?;
+        let entry = self
+            .entries
+            .get_mut(&(ticket.host.clone(), ticket.scope.workspace_id.clone()))
+            .ok_or(STALE)?;
+        let (snapshot, _) = entry.snapshot.as_mut().ok_or(STALE)?;
+        snapshot.mappings = Some(mappings);
+        snapshot.watch_error = watch_error;
+        snapshot.mapping_choices = choices;
+        Ok(snapshot.clone())
+    }
     pub fn close_window(&mut self, host: &str) {
         let scopes: Vec<_> = self
             .entries
@@ -269,8 +307,16 @@ pub(super) fn detect(
     scope: &Scope,
     packages: &[Package],
 ) -> Result<Detection, String> {
+    detect_mapped(core, scope, packages, &[])
+}
+pub(super) fn detect_mapped(
+    core: &dyn VcsCore,
+    scope: &Scope,
+    packages: &[Package],
+    mappings: &[super::mappings::Mapping],
+) -> Result<Detection, String> {
     let response = core.execute("vcs.detectRoots", json!({"workspaceRoot":scope.workspace_root,
-        "plugins":packages.iter().map(|package| json!({"manifest":package.manifest})).collect::<Vec<_>>(), "mappings":[]}))?;
+        "plugins":packages.iter().map(|package| json!({"manifest":package.manifest})).collect::<Vec<_>>(), "mappings":mappings}))?;
     ok(&response)?;
     serde_json::from_value(response["detection"].clone()).map_err(|_| "invalidResponse".into())
 }

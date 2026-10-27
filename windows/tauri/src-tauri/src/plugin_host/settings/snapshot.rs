@@ -35,6 +35,9 @@ fn plain_source(path: &Path, writing: bool) -> Result<(), String> {
 }
 
 fn read_store(path: &Path) -> Result<Store, String> {
+    read_store_limited(path, None)
+}
+fn read_store_limited(path: &Path, limit: Option<u64>) -> Result<Store, String> {
     if let Some(parent) = path.parent() {
         plain_source(parent, false)?;
         match std::fs::read_dir(parent) {
@@ -68,7 +71,24 @@ fn read_store(path: &Path) -> Result<Store, String> {
         }
     }
     plain_source(path, false)?;
-    match std::fs::read(path) {
+    let bytes = (|| {
+        use std::io::Read;
+        let mut bytes = Vec::new();
+        let mut source = std::fs::File::open(path)?;
+        if let Some(limit) = limit {
+            source.take(limit + 1).read_to_end(&mut bytes)?;
+        } else {
+            source.read_to_end(&mut bytes)?;
+        }
+        if limit.is_some_and(|limit| bytes.len() as u64 > limit) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "JSON store limit",
+            ));
+        }
+        Ok(bytes)
+    })();
+    match bytes {
         Ok(bytes) => {
             let values = serde_json::from_slice::<Value>(&bytes)
                 .map_err(|_| "plugin.settings.corruptStore")?
@@ -92,21 +112,57 @@ pub(super) fn read_values(path: &Path) -> Result<Map<String, Value>, String> {
     read_store(path).map(|store| store.values)
 }
 
+/// Host-owned JSON consumers share the same conflict, ACL and recovery boundary.
+pub(crate) fn read_object_snapshot(
+    path: &Path,
+    limit: u64,
+) -> Result<(Map<String, Value>, Option<String>), String> {
+    read_store_limited(path, Some(limit)).map(|store| (store.values, store.identity))
+}
+
+pub(crate) fn write_object_snapshot(
+    path: &Path,
+    values: &Map<String, Value>,
+    revision: &Option<String>,
+    limit: u64,
+    preflight: impl Fn() -> Result<(), String>,
+    current: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    let _write = WRITES.lock().map_err(|_| "plugin.settings.unavailable")?;
+    let expected = read_store_limited(path, Some(limit))?;
+    if &expected.identity != revision {
+        return Err("plugin.settings.conflict".into());
+    }
+    write_guarded_checked(path, values, &expected, Some(limit), preflight, current)
+}
+
 // Compare the exact bytes from discovery again after preparing the replacement.
 // Internal writers are serialized; external edits are never merged from an old
 // UI snapshot. Atomic replacement reuses the host's Windows adapter.
 fn write_guarded(path: &Path, values: &Map<String, Value>, expected: &Store) -> Result<(), String> {
+    write_guarded_checked(path, values, expected, None, || Ok(()), || Ok(()))
+}
+fn write_guarded_checked(
+    path: &Path,
+    values: &Map<String, Value>,
+    expected: &Store,
+    limit: Option<u64>,
+    preflight: impl Fn() -> Result<(), String>,
+    current: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
     use std::io::Write;
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT: AtomicU64 = AtomicU64::new(0);
+    preflight()?;
     if let Some(parent) = path.parent() {
         plain_source(parent, true)?;
     }
     plain_source(path, true)?;
-    if read_store(path)?.identity != expected.identity {
+    if read_store_limited(path, limit)?.identity != expected.identity {
         return Err("plugin.settings.conflict".into());
     }
     if let Some(parent) = path.parent() {
+        preflight()?;
         std::fs::create_dir_all(parent).map_err(|_| "plugin.settings.writeFailed")?;
     }
     let temp = path.with_extension(format!(
@@ -114,12 +170,15 @@ fn write_guarded(path: &Path, values: &Map<String, Value>, expected: &Store) -> 
         std::process::id(),
         NEXT.fetch_add(1, Ordering::Relaxed)
     ));
+    let mut owned_temporary = false;
     let result = (|| {
+        preflight()?;
         let mut file = std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
             .open(&temp)
             .map_err(|_| "plugin.settings.writeFailed")?;
+        owned_temporary = true;
         serde_json::to_writer_pretty(&mut file, values)
             .map_err(|_| "plugin.settings.writeFailed")?;
         file.flush().map_err(|_| "plugin.settings.writeFailed")?;
@@ -129,14 +188,23 @@ fn write_guarded(path: &Path, values: &Map<String, Value>, expected: &Store) -> 
         }
         file.sync_all().map_err(|_| "plugin.settings.writeFailed")?;
         drop(file);
-        if read_store(path)?.identity != expected.identity {
+        current()?;
+        if read_store_limited(path, limit)?.identity != expected.identity {
             return Err("plugin.settings.conflict".to_string());
         }
         plain_source(path, true)?;
+        preflight()?;
         commit_replacement(&temp, path, expected.identity.is_some())
     })();
-    if result.is_err() {
-        let _ = std::fs::remove_file(&temp);
+    if result.is_err() && owned_temporary {
+        // A rejected preflight owns no file. If the storage path changed after
+        // creation, retain evidence instead of deleting through that new path.
+        preflight().map_err(|_| "plugin.settings.recoveryRequired")?;
+        match std::fs::remove_file(&temp) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return Err("plugin.settings.recoveryRequired".into()),
+        }
     }
     result
 }
@@ -448,7 +516,7 @@ fn publish_reload(
     result.ok_or_else(|| "plugin.settings.reloadRejected".to_string())?
 }
 
-pub(super) fn read(
+pub(crate) fn read(
     app: &AppHandle,
     plugin_id: &str,
     workspace_path: &str,

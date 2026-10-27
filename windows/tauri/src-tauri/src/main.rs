@@ -148,6 +148,7 @@ fn main() {
             app.manage(plugin_host::project_generators::GeneratorState::default());
             app.manage(plugin_host::vcs::VcsHostState::default());
             app.manage(plugin_host::provider::ProviderHostState::default());
+            app.manage(plugin_host::functions::FunctionsState::default());
             app.manage(plugin_host::build::BuildHostState::default());
             app.manage(plugin_host::web::WebPageHostState::default());
             app.manage(plugin_host::lifecycle::LifecycleState::default());
@@ -174,6 +175,9 @@ fn main() {
                 let build_app = window.app_handle().clone();
                 let build_window = window.label().to_owned();
                 tauri::async_runtime::spawn(async move {
+                    if let Err(error) = plugin_host::functions::close_window(&build_app, &build_window).await {
+                        eprintln!("Could not release plugin function owner: {error}");
+                    }
                     if let Err(error) = plugin_host::project_generators::close_window(&build_app, &build_window).await {
                         eprintln!("Could not release plugin project generation: {}", error.code);
                     }
@@ -344,6 +348,10 @@ fn main() {
                             plugin_host::install::declarative_plugins_rollback,
                             plugin_host::settings::declarative_plugins_resolve_settings,
                             plugin_host::settings::declarative_plugins_setting_snapshot,
+                            plugin_host::functions::declarative_plugins_function_prepare,
+                            plugin_host::functions::declarative_plugins_function_confirm,
+                            plugin_host::functions::declarative_plugins_function_state,
+                            plugin_host::functions::declarative_plugins_function_cancel,
                             plugin_host::settings::declarative_plugins_store_setting,
             plugin_host::settings::declarative_plugins_reload_settings,
                             plugin_host::settings::declarative_plugins_workspace_configuration,
@@ -366,6 +374,7 @@ fn main() {
                             plugin_host::project_generators::declarative_plugins_generator_cancel,
                             plugin_host::vcs::declarative_plugins_vcs_detect,
                             plugin_host::vcs::declarative_plugins_vcs_owners,
+                            plugin_host::vcs::mappings::declarative_plugins_vcs_save_mapping,
                             plugin_host::vcs::declarative_plugins_vcs_close,
                             plugin_host::vcs::status::declarative_plugins_vcs_status,
                             plugin_host::vcs::status::declarative_plugins_vcs_cancel_status,

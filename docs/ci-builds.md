@@ -731,6 +731,16 @@ Java Support（`dev.lithe.plugin.java-support`）是唯一随 Lithe.app 发行�
 任何复制阶段都不得复用或共享。`excludedResources.plugin-web-state` 通过复用脚本的
 排除路由直接拒绝，由 `scripts/test-reuse-worktree-resources.mjs` 验证，不能给它增加缓存校验器。
 
+Windows 的 Lithe 根映射保存在平台 adapter 返回的
+`<windows-app-local-data>/vcs-roots/<native-workspace-identity-sha256>.json`，
+只在用户明确保存时创建；每个来源最多 1 MiB、64 条选择。它保留未知 JSON 字段和权限，
+以原始字节版本拒绝外部冲突，复用设置 adapter 的同目录 `.tmp` 与 `.backup` 替换/恢复流程。
+工作区及选中根的原生目录身份防止相同路径的新目录继承旧选择；活动监听另按窗口、工作区登记、
+incarnation 与扫描代次隔离，关闭或插件撤销即释放。映射是 Lithe 自有偏好，不写 SVN/Git 配置。
+它们没有可复用的版本、平台、架构或工具链 stamp，`excludedResources.vcs-root-mappings`
+在任何复制阶段都由脚本排除路由拒绝；临时文件、恢复备份和内存监听 lease 同样禁止共享。
+平台可写应用数据与只读安装资源分离，因此不影响代码签名或 Sparkle delta 基线。
+
 如果后续新增可复用资源，必须同步更新注册表、校验器、脚本测试和本节说明。
 Windows 的插件源配置、按源与平台缓存的原始索引、摘要绑定的临时下载和按工作区保存的构建选项，
 同属 `plugin-marketplace-state` 排除路由：由运行时平台 adapter 注入用户可写根，

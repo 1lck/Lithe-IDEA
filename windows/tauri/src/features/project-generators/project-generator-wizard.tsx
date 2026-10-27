@@ -1,55 +1,33 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@/platform/tauri-core";
 import { openFolder } from "@/features/file-system/controllers/platform";
-import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import Input from "@/ui/input";
-import Select from "@/ui/select";
 import { Field, FieldDescription, FieldError, FieldLabel } from "@/ui/field";
 import { Spinner } from "@/ui/spinner";
 import { normalizePath } from "@/utils/path-helpers";
+import { setDeclarativePluginEnabled } from "@/features/plugins/declarative-plugin-launch";
+import { DeclarativeMarketplaceSection } from "@/features/plugins/marketplace/marketplace-section";
+import {
+  listMarketplaceInstalledPlugins,
+  marketplaceHostService,
+} from "@/features/plugins/marketplace/marketplace-host-service";
+import {
+  GeneratorFormSession,
+  canReview,
+  emptyFormState,
+  pluginActions,
+  type GeneratorFormState,
+} from "./generator-form-session";
+import { GeneratorEnumField } from "./generator-enum-field";
 import {
   GenerationSession,
   type CreatedProject,
-  type GenerationForm,
   type GenerationReview,
 } from "./generation-session";
 
-interface DeclarationField {
-  id: string;
-  type: "text" | "enum" | "boolean" | "multiSelect" | "runtime";
-  title: string;
-  description?: string;
-  advanced?: boolean;
-  placeholder?: string;
-  options?: { value: string; title: string; group?: string }[];
-}
-interface Entry {
-  pluginID: string;
-  pluginName: string;
-  pluginEnabled: boolean;
-  generator: {
-    id: string;
-    displayName: string;
-    description?: string;
-    section: string;
-    fields: DeclarationField[];
-  };
-  requirements: {
-    languageID?: string;
-    buildSystemID?: string;
-    providers: { pluginID: string; pluginName: string; enabled: boolean }[];
-  }[];
-}
-interface EvaluatedForm {
-  valid: boolean;
-  projectName: { problem?: string };
-  fields: { id: string; visible: boolean; value: unknown; problem?: string }[];
-  activeRequirements: number[];
-}
 const command = "declarative_plugins_generator_";
-const emptyForm = (): GenerationForm => ({ projectName: "", values: {}, edited: [], runtimes: {} });
 
 export default function ProjectGeneratorWizard({
   parent,
@@ -61,22 +39,20 @@ export default function ProjectGeneratorWizard({
   onClose(): void;
 }) {
   const { t } = useTranslation();
-  const [entries, setEntries] = useState<Entry[]>([]);
-  const [selected, setSelected] = useState<Entry>();
+  const [formState, setFormState] = useState<GeneratorFormState>(emptyFormState);
+  const { entries, selected, form, evaluation, loading, enabling } = formState;
+  const forms = useRef<GeneratorFormSession | null>(null);
   const [query, setQuery] = useState("");
-  const [form, setForm] = useState<GenerationForm>(emptyForm);
-  const [evaluation, setEvaluation] = useState<EvaluatedForm>();
-  const [evaluating, setEvaluating] = useState(false);
   const [location, setLocation] = useState(parent);
   const [git, setGit] = useState(false);
   const [advanced, setAdvanced] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [review, setReview] = useState<GenerationReview>();
   const [created, setCreated] = useState<CreatedProject>();
   const alive = useRef(false);
-  const formRevision = useRef(0);
+  const [marketplaceQuery, setMarketplaceQuery] = useState<string>();
+  const [marketplace] = useState(() => marketplaceHostService(() => {}));
   const session = useRef<GenerationSession | null>(null);
   const errorText = (error: unknown) => {
     const code =
@@ -96,49 +72,30 @@ export default function ProjectGeneratorWizard({
       cancel: (id) => invoke(command + "cancel", { id }),
     });
     session.current = owner;
-    let current = true;
-    void invoke<{ generators: Entry[] }>(command + "catalog")
-      .then((catalog) => {
-        if (current) setEntries(catalog.generators);
-      })
-      .catch((error) => {
-        if (current) setError(errorText(error));
-      })
-      .finally(() => {
-        if (current) setLoading(false);
-      });
+    const formOwner = new GeneratorFormSession(
+      {
+        catalog: async () =>
+          (await invoke<{ generators: GeneratorFormState["entries"] }>(command + "catalog"))
+            .generators,
+        evaluate: (entry, form) =>
+          invoke(command + "form", {
+            pluginId: entry.pluginID,
+            generatorId: entry.generator.id,
+            packageIdentity: entry.packageIdentity,
+            form,
+          }),
+        enable: (pluginID) => setDeclarativePluginEnabled(pluginID, true),
+      },
+      setFormState,
+    );
+    forms.current = formOwner;
+    void formOwner.reload();
     return () => {
-      current = false;
       alive.current = false;
+      formOwner.dispose();
       void owner.close().catch((error) => console.error("Project generator cleanup failed", error));
     };
   }, []);
-
-  useEffect(() => {
-    if (!selected) return;
-    const revision = ++formRevision.current;
-    setEvaluating(true);
-    void invoke<EvaluatedForm>(command + "form", {
-      pluginId: selected.pluginID,
-      generatorId: selected.generator.id,
-      form,
-    })
-      .then((next) => {
-        if (alive.current && revision === formRevision.current) {
-          setEvaluation(next);
-          setEvaluating(false);
-        }
-      })
-      .catch((error) => {
-        if (alive.current && revision === formRevision.current) {
-          setError(errorText(error));
-          setEvaluating(false);
-        }
-      });
-    return () => {
-      ++formRevision.current;
-    };
-  }, [selected, form]);
 
   const act = async (action: () => Promise<void>) => {
     if (busy) return;
@@ -154,14 +111,14 @@ export default function ProjectGeneratorWizard({
   };
   const update = (id: string, value: unknown) => {
     setError("");
-    setEvaluating(true);
-    setForm((form) => ({
+    void forms.current?.update({
       ...form,
       values: { ...form.values, [id]: value },
       edited: [...new Set([...form.edited, id])],
-    }));
+    });
   };
   const openCreated = async (project: CreatedProject) => {
+    const { useFileSystemStore } = await import("@/features/file-system/stores/file-system.store");
     const store = useFileSystemStore.getState();
     if (!(await store.handleOpenFolderByPath(normalizePath(project.root)))) {
       setError(t("newProject.errorCreatedButCouldNotOpen"));
@@ -174,23 +131,60 @@ export default function ProjectGeneratorWizard({
   const cancel = () =>
     act(async () => {
       await session.current?.cancel();
+      if (!alive.current) return;
       setReview(undefined);
-      onBack();
+      if (selected) await forms.current?.choose();
+      else onBack();
     });
-  const requirements =
-    evaluation?.activeRequirements
-      .map((index) => selected?.requirements[index])
-      .filter((entry) => entry && !entry.providers.some((provider) => provider.enabled)) ?? [];
+  const actions = pluginActions(formState);
+
+  if (marketplaceQuery !== undefined)
+    return (
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-4">
+        <Button
+          variant="ghost"
+          onClick={() => {
+            setMarketplaceQuery(undefined);
+            void forms.current?.reload();
+          }}
+        >
+          {t("generator.back")}
+        </Button>
+        <DeclarativeMarketplaceSection
+          key={marketplaceQuery}
+          initialQuery={marketplaceQuery}
+          service={marketplace}
+          installed={listMarketplaceInstalledPlugins}
+        />
+      </div>
+    );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-4">
       <div className="flex items-center justify-between gap-2">
         <h2>{t("generator.title")}</h2>
+        <Button
+          variant="ghost"
+          disabled={busy || enabling}
+          onClick={() =>
+            act(async () => {
+              await session.current?.cancel();
+              if (!alive.current) return;
+              setReview(undefined);
+              await forms.current?.reload();
+            })
+          }
+        >
+          {t("generator.refresh")}
+        </Button>
         <Button variant="ghost" onClick={cancel} disabled={busy && !review}>
           {t("generator.back")}
         </Button>
       </div>
       {error && <FieldError role="alert">{error}</FieldError>}
+      {formState.error != null && (
+        <FieldError role="alert">{errorText(formState.error)}</FieldError>
+      )}
       {loading && <Spinner />}
       {!selected && (
         <>
@@ -216,15 +210,14 @@ export default function ProjectGeneratorWizard({
                   <Button
                     key={`${entry.pluginID}/${entry.generator.id}`}
                     variant="ghost"
-                    disabled={!entry.pluginEnabled || busy}
+                    disabled={busy}
                     onClick={() => {
-                      setEvaluation(undefined);
-                      setSelected(entry);
-                      setForm(emptyForm());
+                      void forms.current?.choose(entry);
                       setError("");
                     }}
                   >
                     {entry.generator.displayName} · {entry.pluginName}
+                    {!entry.pluginEnabled && ` · ${t("generator.disabled")}`}
                   </Button>
                 ))}
             </section>
@@ -232,16 +225,16 @@ export default function ProjectGeneratorWizard({
         </>
       )}
       {selected && !review && !created && (
-        <fieldset disabled={busy} className="flex flex-col gap-3">
+        <fieldset disabled={busy || enabling || loading} className="flex flex-col gap-3">
           <h3>{selected.generator.displayName}</h3>
+          {!selected.pluginEnabled && <p role="status">{t("generator.enableOwner")}</p>}
           <Field>
             <FieldLabel htmlFor="generator-name">{t("newProject.projectName")}</FieldLabel>
             <Input
               id="generator-name"
               value={form.projectName}
               onChange={(event) => {
-                setEvaluating(true);
-                setForm({ ...form, projectName: event.target.value });
+                void forms.current?.update({ ...form, projectName: event.target.value });
               }}
             />
             {evaluation?.projectName.problem && (
@@ -301,13 +294,9 @@ export default function ProjectGeneratorWizard({
                   />
                 )}
                 {field.type === "enum" && (
-                  <Select
-                    id={id}
+                  <GeneratorEnumField
+                    field={field}
                     value={String(value ?? "")}
-                    options={(field.options ?? []).map((option) => ({
-                      value: option.value,
-                      label: option.title,
-                    }))}
                     onChange={(value) => update(field.id, value)}
                   />
                 )}
@@ -347,23 +336,38 @@ export default function ProjectGeneratorWizard({
                     <Button
                       id={id}
                       variant="ghost"
+                      disabled={!selected.pluginEnabled}
                       onClick={() =>
                         act(async () => {
+                          const owner = forms.current;
+                          const selection = owner?.state.selected;
+                          if (!owner || !selection) return;
                           const home = await openFolder();
-                          if (!alive.current || !home) return;
+                          if (
+                            !alive.current ||
+                            !home ||
+                            forms.current !== owner ||
+                            owner.state.selected !== selection
+                          )
+                            return;
                           const runtime = await invoke<{ homePath: string; version: string }>(
                             command + "runtime",
                             { pluginId: selected.pluginID, home },
                           );
-                          if (!alive.current) return;
-                          setEvaluating(true);
-                          setForm((form) => ({
-                            ...form,
+                          if (
+                            !alive.current ||
+                            forms.current !== owner ||
+                            owner.state.selected !== selection
+                          )
+                            return;
+                          const current = owner.state.form;
+                          await owner.update({
+                            ...current,
                             runtimes: {
-                              ...form.runtimes,
+                              ...current.runtimes,
                               [field.id]: { home: runtime.homePath, version: runtime.version },
                             },
-                          }));
+                          });
                         })
                       }
                     >
@@ -375,22 +379,42 @@ export default function ProjectGeneratorWizard({
               </Field>
             );
           })}
-          {requirements.length > 0 && (
-            <p>
-              {t("generator.requirements", {
-                names: requirements
-                  .map((entry) => entry?.languageID ?? entry?.buildSystemID ?? "")
-                  .join(", "),
-              })}
-            </p>
+          {actions.map((action) =>
+            action.kind === "enable" ? (
+              <Button
+                key={action.pluginID}
+                variant="ghost"
+                onClick={() => {
+                  void forms.current?.enable(action.pluginID);
+                }}
+              >
+                {t("generator.enablePlugin", { name: action.name })}
+              </Button>
+            ) : (
+              <Button
+                key={`market:${action.query}`}
+                variant="ghost"
+                onClick={() => {
+                  setMarketplaceQuery(action.query);
+                }}
+              >
+                {t("generator.findPlugin", { name: action.query })}
+              </Button>
+            ),
           )}
+          {actions.some(
+            (action) =>
+              action.kind === "marketplace" ||
+              (action.kind === "enable" && action.pluginID !== selected.pluginID),
+          ) && <p>{t("generator.advisoryRequirements")}</p>}
           <Button
-            disabled={!evaluation?.valid || evaluating || !location || busy}
+            disabled={!canReview(formState) || !location || busy}
             onClick={() =>
               act(async () => {
                 const next = await session.current?.prepare({
                   pluginId: selected.pluginID,
                   generatorId: selected.generator.id,
+                  packageIdentity: selected.packageIdentity,
                   form,
                   parent: location,
                   createGit: git,
@@ -496,6 +520,11 @@ export function generatorErrorKey(code: string): string {
       return "generator.toolMissing";
     case "generator.stale":
       return "generator.stale";
+    case "generator.untrusted":
+    case "generator.inactive":
+      return "generator.pluginUnavailable";
+    case "generator.pluginEnableFailed":
+      return "generator.pluginEnableFailed";
     case "generator.runtimeInvalid":
       return "generator.runtimeInvalid";
     case "generator.batchArgumentUnsupported":

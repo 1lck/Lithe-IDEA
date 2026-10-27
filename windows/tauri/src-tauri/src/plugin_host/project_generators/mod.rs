@@ -1,5 +1,6 @@
 //! Generic, consent-bound Windows execution of Core project generation plans.
 mod archive;
+mod catalog;
 #[cfg(test)]
 mod tests;
 mod transaction;
@@ -70,6 +71,7 @@ fn scope(window: &WebviewWindow) -> Result<String> {
 pub struct Request {
     plugin_id: String,
     generator_id: String,
+    package_identity: String,
     form: Value,
     parent: String,
     create_git: bool,
@@ -88,6 +90,7 @@ struct Review {
     request: Request,
     plan: Value,
     digest: String,
+    requirements: Value,
     package_root: PathBuf,
     parent: Parent,
     programs: BTreeMap<usize, Program>,
@@ -182,18 +185,9 @@ pub async fn declarative_plugins_generator_catalog(
 ) -> Result<Value> {
     scope(&window)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let plugins: Vec<_> = app
-            .state::<super::PluginHostState>()
-            .packages()
-            .into_iter()
-            .filter(|package| package.entry.status == "accepted")
-            .map(|package| json!({"manifest":package.manifest,"enabled":package.entry.enabled}))
-            .collect();
-        core(
-            "project.generatorCatalog",
-            json!({"plugins":plugins,"hostCapabilities":super::host_capabilities()}),
-            "catalog",
-        )
+        super::declarative_plugins_rescan(app.clone())
+            .map_err(|_| Error::new("generator.coreFailed"))?;
+        catalog::load(&app)
     })
     .await
     .map_err(|_| Error::new("generator.workerFailed"))?
@@ -205,6 +199,7 @@ pub async fn declarative_plugins_generator_form(
     window: WebviewWindow,
     plugin_id: String,
     generator_id: String,
+    package_identity: String,
     form: Value,
 ) -> Result<Value> {
     scope(&window)?;
@@ -213,12 +208,17 @@ pub async fn declarative_plugins_generator_form(
             .state::<super::lifecycle::LifecycleState>()
             .acquire(&plugin_id)
             .map_err(|_| Error::new("generator.inactive"))?;
-        let package = package(&app, &plugin_id)?;
-        core(
+        let (package, identity) = catalog::read(&app, &plugin_id)?;
+        if identity != package_identity {
+            return Err(Error::new("generator.stale"));
+        }
+        let mut form = core(
             "project.generatorForm",
             json!({"manifest":package.manifest,"generatorID":generator_id,"form":form}),
             "form",
-        )
+        )?;
+        form["packageIdentity"] = json!(identity);
+        Ok(form)
     })
     .await
     .map_err(|_| Error::new("generator.workerFailed"))?
@@ -249,7 +249,16 @@ pub async fn declarative_plugins_generator_runtime(
 }
 
 fn plan(app: &AppHandle, request: &Request) -> Result<(super::ScannedPackage, Value)> {
-    let package = package(app, &request.plugin_id)?;
+    // Preserve the launch trust gate, then refresh the installation state
+    // instead of relying on the scan cache's enabled flag.
+    package(app, &request.plugin_id)?;
+    let (package, identity) = catalog::read(app, &request.plugin_id)?;
+    if !package.entry.enabled {
+        return Err(Error::new("generator.inactive"));
+    }
+    if identity != request.package_identity {
+        return Err(Error::new("generator.stale"));
+    }
     let plan = core(
         "project.generationPlan",
         json!({"manifest":package.manifest,"generatorID":request.generator_id,
@@ -355,20 +364,21 @@ pub async fn declarative_plugins_generator_prepare(
             if step["kind"] == "command" { programs.insert(index, resolve_program(step)?); }
         }
         let digest = super::signature::content_digest(&package.root).map_err(|_| Error::new("generator.untrusted"))?;
+        let requirements = catalog::requirements(&app, &request, &package)?;
         let id = super::install::uuid_like_suffix();
         let displayed_steps: Vec<_> = plan["steps"].as_array().into_iter().flatten().map(|step| {
             if step["kind"] != "writeFiles" { return step.clone(); }
             json!({"kind":"writeFiles","files":step["files"].as_array().into_iter().flatten()
                 .map(|file| json!({"path":file["path"],"executable":file["executable"]})).collect::<Vec<_>>()})
         }).collect();
-        let response = json!({"id":id,"plan":{"steps":displayed_steps,"usesNetwork":plan["usesNetwork"],"runtimes":plan["runtimes"]},"destination":parent.path.join(name),
+        let response = json!({"id":id,"requirements":requirements,"plan":{"steps":displayed_steps,"usesNetwork":plan["usesNetwork"],"runtimes":plan["runtimes"]},"destination":parent.path.join(name),
             "programs":programs.values().map(|program| json!({"executable":program.executable,"arguments":program.arguments})).collect::<Vec<_>>()});
         let state = app.state::<GeneratorState>();
         let mut registry = state.0.lock().expect("generator reviews");
         if state.1.load(Ordering::Acquire) != 0 || registry.closed_owners.contains(&owner) { return Err(Error::new("generator.inactive")); }
         registry.reviews.retain(|_, review| review.created.elapsed() < REVIEW_TTL);
         if registry.reviews.len() >= 64 { return Err(Error::new("generator.busy")); }
-        registry.reviews.insert(id, Review { owner, request, plan, digest, package_root: package.root, parent, programs, created: Instant::now() });
+        registry.reviews.insert(id, Review { owner, request, plan, digest, requirements, package_root: package.root, parent, programs, created: Instant::now() });
         Ok(response)
     }).await.map_err(|_| Error::new("generator.workerFailed"))?
 }
@@ -494,6 +504,9 @@ fn generate(app: &AppHandle, review: &Review, operation: &Operation, id: &str) -
     let checkpoint = || operation.checkpoint(deadline);
     checkpoint()?;
     let (package, fresh) = plan(app, &review.request)?;
+    if catalog::requirements(app, &review.request, &package)? != review.requirements {
+        return Err(Error::new("generator.stale"));
+    }
     if fresh != review.plan
         || package.root != review.package_root
         || super::signature::content_digest(&package.root)

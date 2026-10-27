@@ -1,6 +1,8 @@
 //! Native VCS root queries and isolated, short-lived read-only status sessions.
 //! Accepted package bytes use the existing trust and mutation lease; Core owns
 //! detection and ownership. Snapshots live only in memory and never in a bundle.
+#[path = "vcs_mappings.rs"]
+pub(crate) mod mappings;
 #[path = "vcs_registry.rs"]
 mod registry;
 #[path = "vcs_session.rs"]
@@ -10,6 +12,8 @@ pub(crate) mod status;
 #[cfg(test)]
 #[path = "vcs_tests.rs"]
 mod tests;
+#[path = "vcs_watch.rs"]
+mod watch;
 
 pub use registry::{Ownership, Scope, Snapshot};
 use registry::{Package, Registry, VcsCore, READ_TIMEOUT, STALE};
@@ -24,6 +28,7 @@ pub struct VcsHostState {
     registry: Mutex<Registry>,
     reads: Arc<Semaphore>,
     sessions: Arc<session::Sessions>,
+    watches: watch::Watches,
 }
 impl Default for VcsHostState {
     fn default() -> Self {
@@ -31,6 +36,7 @@ impl Default for VcsHostState {
             registry: Mutex::new(Registry::default()),
             reads: Arc::new(Semaphore::new(4)),
             sessions: Arc::new(session::Sessions::default()),
+            watches: watch::Watches::default(),
         }
     }
 }
@@ -154,9 +160,28 @@ pub async fn declarative_plugins_vcs_detect(
             .lock()
             .map_err(|_| "internalError")?
             .begin(&host, scope.clone(), registration, started)?;
+        worker_app.state::<VcsHostState>().watches.remove_older(
+            &host,
+            &scope.workspace_id,
+            owned.generation,
+        );
         let result = (|| {
             let (inputs, _leases) = packages(&worker_app)?;
-            let detection = registry::detect(&Core, &scope, &inputs)?;
+            let mappings = if inputs.is_empty() {
+                None
+            } else {
+                Some(mappings::read(&worker_app, &scope)?)
+            };
+            let entries = mappings
+                .as_ref()
+                .map(|source| source.entries.as_slice())
+                .unwrap_or(&[]);
+            let detection = registry::detect_mapped(&Core, &scope, &inputs, entries)?;
+            let choices = if entries.is_empty() {
+                detection.ambiguous.clone()
+            } else {
+                registry::detect(&Core, &scope, &inputs)?.ambiguous
+            };
             if packages(&worker_app)?.0 != inputs {
                 return Err(STALE.into());
             }
@@ -169,8 +194,44 @@ pub async fn declarative_plugins_vcs_detect(
                 .registry
                 .lock()
                 .map_err(|_| "internalError")?
-                .publish(&owned, detection, inputs, Instant::now());
-            published
+                .publish(&owned, detection.clone(), inputs.clone(), Instant::now())?;
+            // With no accepted provider, keep the passive Git path independent
+            // of the gated mapping store and do not allocate VCS watches.
+            let Some(mappings) = mappings else {
+                return Ok(published);
+            };
+            worker_app
+                .state::<VcsHostState>()
+                .registry
+                .lock()
+                .map_err(|_| "internalError")?
+                .annotate(&owned, mappings.clone(), None, choices.clone())?;
+            let watch_error = watch::install(
+                &worker_app,
+                &host,
+                &scope,
+                owned.generation,
+                &detection,
+                &mappings.source,
+            )
+            .err();
+            if mappings::read(&worker_app, &scope)? != mappings
+                || !registry::same_roots(
+                    &detection,
+                    &registry::detect_mapped(&Core, &scope, &inputs, &mappings.entries)?,
+                )
+            {
+                return Err(STALE.into());
+            }
+            if Instant::now() >= owned.deadline {
+                return Err("requestTimeout".into());
+            }
+            worker_app
+                .state::<VcsHostState>()
+                .registry
+                .lock()
+                .map_err(|_| "internalError")?
+                .annotate(&owned, mappings, watch_error, choices)
         })();
         if result.is_err() {
             worker_app
@@ -179,6 +240,10 @@ pub async fn declarative_plugins_vcs_detect(
                 .lock()
                 .map_err(|_| "internalError")?
                 .discard(&owned);
+            worker_app
+                .state::<VcsHostState>()
+                .watches
+                .remove_generation(&host, &scope, owned.generation);
         }
         result
     });
@@ -238,7 +303,7 @@ pub async fn declarative_plugins_vcs_owners(
             // Static markers may have changed since the list was rendered.
             // Never report an enclosing owner after a new nested/ambiguous
             // root appears; the next explicit refresh replaces the snapshot.
-            let fresh = registry::detect(&Core, &scope, &current)?;
+            let fresh = redetect(&app, &scope, &current, &snapshot)?;
             if !registry::same_roots(&snapshot.detection, &fresh) {
                 return Err(STALE.into());
             }
@@ -276,6 +341,9 @@ pub async fn declarative_plugins_vcs_close(
         .lock()
         .map_err(|_| "internalError")?
         .retire(caller.label(), &scope)?;
+    app.state::<VcsHostState>()
+        .watches
+        .remove(caller.label(), &scope);
     status::close_matching(&app, |context| {
         context.host == caller.label() && context.scope == scope
     })
@@ -284,16 +352,19 @@ pub async fn declarative_plugins_vcs_close(
 pub async fn plugin_changing(app: &AppHandle, plugin_id: &str) -> Result<(), String> {
     if let Some(state) = app.try_state::<VcsHostState>() {
         state.registry.lock().expect("VCS registry").invalidate();
+        state.watches.clear();
     }
     status::close_matching(app, |context| context.plugin_id == plugin_id).await
 }
 pub fn window_destroyed(app: &AppHandle, host: &str) {
     if let Some(state) = app.try_state::<VcsHostState>() {
-        state
-            .registry
-            .lock()
-            .expect("VCS registry")
-            .close_window(host);
+        state.watches.retire_window(host, || {
+            state
+                .registry
+                .lock()
+                .expect("VCS registry")
+                .close_window(host);
+        });
         let sessions = state.sessions.clone();
         for owner in sessions.matching(|context| context.host == host) {
             status::cleanup_later(sessions.clone(), owner);
@@ -309,4 +380,41 @@ pub(crate) fn private_core_request(app: &AppHandle, command: &str, payload: &Val
             .state::<VcsHostState>()
             .sessions
             .private_session(command, payload)
+}
+
+/// Re-read the exact Lithe mapping source for every ownership/status check.
+fn redetect(
+    app: &AppHandle,
+    scope: &Scope,
+    packages: &[Package],
+    snapshot: &Snapshot,
+) -> Result<registry::Detection, String> {
+    if packages.is_empty() && snapshot.mappings.is_none() {
+        return registry::detect(&Core, scope, packages);
+    }
+    let mappings = mappings::read(app, scope)?;
+    if snapshot.mappings.as_ref() != Some(&mappings) {
+        return Err(STALE.into());
+    }
+    registry::detect_mapped(&Core, scope, packages, &mappings.entries)
+}
+
+fn metadata_changed(app: &AppHandle, host: &str, scope: &Scope, generation: u64) {
+    use tauri::Emitter;
+    let state = app.state::<VcsHostState>();
+    if !state
+        .registry
+        .lock()
+        .expect("VCS registry")
+        .invalidate_generation(host, scope, generation)
+    {
+        return;
+    }
+    let sessions = state.sessions.clone();
+    for owner in sessions.matching(|context| {
+        context.host == host && context.scope == *scope && context.generation == generation
+    }) {
+        status::cleanup_later(sessions.clone(), owner);
+    }
+    let _ = app.emit_to(host, "vcs-roots-invalidated", serde_json::json!({"workspaceId":scope.workspace_id,"incarnation":scope.incarnation,"generation":generation}));
 }

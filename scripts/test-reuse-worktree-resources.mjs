@@ -64,6 +64,18 @@ function reuse(extraArguments = []) {
 }
 
 try {
+  await test("VCS root choices and watcher ownership cannot be reused", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "vcs-root-mappings");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.some(location => location.includes("vcs-roots/")));
+    assert.ok(resource.locations.some(location => location.endsWith(".backup")));
+    assert.match(resource.identity, /directory identity/);
+    assert.match(resource.reason, /permissions/);
+    const refused = reuse(["--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /vcs-root-mappings.*cannot be reused/);
+  });
   await test("shared translations are regenerated locally rather than reused", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const resource = registry.excludedResources.find(item => item.id === "shared-i18n");

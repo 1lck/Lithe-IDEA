@@ -18,6 +18,7 @@ mod build_tests;
 pub mod details;
 #[cfg(test)]
 mod details_tests;
+pub mod functions;
 pub mod install;
 #[cfg(test)]
 mod install_tests;

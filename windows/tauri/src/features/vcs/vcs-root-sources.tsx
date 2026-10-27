@@ -5,6 +5,8 @@ import { getRelativePath, pathStartsWithRoot } from "@/utils/path-helpers";
 import Select from "@/ui/select";
 import type { VcsRootController } from "./vcs-root-controller";
 import { VcsStatusPanel } from "./vcs-status-panel";
+import { VcsMappingPanel } from "./vcs-mapping-panel";
+import { Button } from "@/ui/button";
 
 /** A passive source selector in the ordinary Version Control pane.
  * Selecting a plugin root only inspects it; no Git path/action is replaced. */
@@ -53,7 +55,20 @@ export function VcsRootSources({ controller }: { controller: VcsRootController }
     );
     return () => controllerAbort.abort();
   }, [controller, state.snapshot, relativeFile, hasPlugins]);
-  if (!hasPlugins) return null;
+  if (!hasPlugins)
+    return state.status === "failed" ? (
+      <div className="p-2 ui-text-sm">
+        <p role="alert">{t("vcs.roots.unavailable")}</p>
+        <Button
+          size="xs"
+          onClick={() => {
+            void controller.refresh();
+          }}
+        >
+          {t("vcs.roots.refresh")}
+        </Button>
+      </div>
+    ) : null;
   const pluginRoots = detection!.roots.filter((root) =>
     providers.some((provider) => provider.vcs === root.vcs),
   );
@@ -96,6 +111,26 @@ export function VcsRootSources({ controller }: { controller: VcsRootController }
         </p>
       ))}
       {detection!.truncated && <p role="status">{t("vcs.roots.incomplete")}</p>}
+      {state.snapshot?.watchError && (
+        <div>
+          <p role="alert">{t("vcs.watch.failed")}</p>
+          <Button
+            size="xs"
+            onClick={() => {
+              void controller.refresh();
+            }}
+          >
+            {t("vcs.roots.refresh")}
+          </Button>
+        </div>
+      )}
+      {state.snapshot && (
+        <VcsMappingPanel
+          key={`${state.snapshot.generation}`}
+          controller={controller}
+          snapshot={state.snapshot}
+        />
+      )}
       {relativeFile !== null && (
         <p role="status">
           {owned
