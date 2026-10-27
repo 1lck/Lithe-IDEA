@@ -17,6 +17,15 @@ param(
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 
+# Machines that installed PowerShell 7 can inherit a PSModulePath mixing both
+# editions; Windows PowerShell 5.1 then auto-loads the PS 7 copy of
+# Microsoft.PowerShell.Utility and loses cmdlets such as Get-FileHash. Drop the
+# PS 7 module directories for this process only.
+$env:PSModulePath = ((
+    $env:PSModulePath -split ';' |
+        Where-Object { $_ -and $_ -notmatch '(?i)powershell\\7\\Modules' }
+) -join ';')
+
 if ($BestEffort) {
     # Warnings must not abort the dev start; the build script reports the degraded
     # console host separately when the files are absent.

@@ -24,6 +24,9 @@ mod setup;
 mod untracked_directories;
 
 pub use fetch::{plan as fetch_plan, GitFetchOptions, GitFetchPlanRequest};
+// Re-exported for the cfg(test) integration tests only; production code reads the
+// threshold inside `untracked_directories` itself.
+#[cfg(test)]
 pub(crate) use untracked_directories::UNTRACKED_DIRECTORY_SUMMARY_THRESHOLD;
 pub use untracked_directories::{untracked_directory, GitUntrackedDirectoryRequest};
 
