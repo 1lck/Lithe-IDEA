@@ -9,22 +9,28 @@ import LitheModuleAPI
 final class LanguageIntelligenceModuleCoordinator {
     private let runtime: ModuleRuntime
     private let store: ModuleCapabilityStore
+    private let awaitShutdown: () async -> Void
     private let bind: (LanguageIntelligenceCapability) -> Void
     private let notify: @MainActor (String) -> Void
 
     init(
         runtime: ModuleRuntime,
         store: ModuleCapabilityStore,
+        awaitShutdown: @escaping () async -> Void,
         bind: @escaping (LanguageIntelligenceCapability) -> Void,
         notify: @escaping @MainActor (String) -> Void
     ) {
         self.runtime = runtime
         self.store = store
+        self.awaitShutdown = awaitShutdown
         self.bind = bind
         self.notify = notify
     }
 
     func activate() async throws -> LanguageIntelligenceCapability {
+        // A cached capability can still belong to the graph being torn down.
+        await awaitShutdown()
+        try Task.checkCancellation()
         if let cached: LanguageIntelligenceCapability = store.capability(.languageIntelligence) {
             return cached
         }
@@ -58,13 +64,8 @@ final class LanguageIntelligenceModuleCoordinator {
         resetWorkspaceState(feature)
     }
 
-    func sessionsForMaintenance(
-        current: LanguageToolingSessionManager?
-    ) async throws -> LanguageToolingSessionManager {
-        if let current {
-            return current
-        }
-        return try await activate().sessions
+    func sessionsForMaintenance() async throws -> LanguageToolingSessionManager {
+        try await activate().sessions
     }
 
     /// Activates the testing extension for every language support that claims
@@ -76,6 +77,8 @@ final class LanguageIntelligenceModuleCoordinator {
         testService: LanguageTestService,
         supports: @MainActor ([URL]) -> [LanguageSupportDeclaration]
     ) async -> Bool {
+        await awaitShutdown()
+        guard !Task.isCancelled else { return false }
         for support in supports(files) where support.testingModuleID != nil {
             do {
                 let value = try await runtime.activateCapability(

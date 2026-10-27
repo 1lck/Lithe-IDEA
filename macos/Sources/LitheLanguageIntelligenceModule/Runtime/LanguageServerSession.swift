@@ -201,21 +201,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             ([executableURL.path] + arguments).joined(separator: " "),
             nil
         )
-        let started = if let pluginID, !hostServices.isEmpty {
-            core.startPluginLanguageServer(
-                pluginID: pluginID,
-                providerID: providerID,
-                executableURL: executableURL,
-                arguments: arguments,
-                environment: environment,
-                rootURL: normalizedRoot,
-                initializationOptions: initializationOptions,
-                hostServices: hostServices,
-                initializeTimeout: initializeTimeout,
-                requestTimeout: requestTimeout,
-                shutdownTimeout: shutdownTimeout
-            )
-        } else if let pluginID {
+        let started = if let pluginID {
             core.startPluginLanguageServer(
                 pluginID: pluginID,
                 providerID: providerID,
@@ -225,6 +211,12 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
                 rootURL: normalizedRoot,
                 initializationOptions: initializationOptions,
                 workspaceConfiguration: workspaceConfiguration,
+                hostServices: hostServices,
+                hostIntegrationLaunch: hostIntegrationLaunch,
+                cacheDirectoryURL: cacheDirectoryURL,
+                workspaceFingerprint: workspaceFingerprint,
+                mavenContext: mavenContext,
+                javaGradle: javaGradle,
                 initializeTimeout: initializeTimeout,
                 requestTimeout: requestTimeout,
                 shutdownTimeout: shutdownTimeout

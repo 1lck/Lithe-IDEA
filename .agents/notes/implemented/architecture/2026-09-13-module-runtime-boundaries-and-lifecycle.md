@@ -96,6 +96,21 @@ MacServiceContainer
 查询全部为空。不要用睡眠或反复重新注入能力掩盖这个顺序；搜索排除回归与插件页面
 生命周期测试都使用同一个明确的完成边界。
 
+### 语言服务恢复必须等待工作区清理
+
+macOS 打开项目时会异步清理上一轮模块图；清理结束前，语言能力仍可能留在缓存中。
+#1524 曾让 Java 预热拿到旧能力，接着旧清理才执行到 Java 插件，取消刚启动的会话。
+`LanguageIntelligenceModuleCoordinator` 与执行、调试协调器共用
+`awaitModuleRuntimeShutdown()`：先等待整轮清理，再检查调用方取消状态，最后读取能力缓存或激活模块。
+后台维护入口也必须经过这个顺序，不能提前捕获 session 然后在等待后返回旧对象。
+同步文档入口在清理期间延后启动，恢复时重新检查工作区身份和文档是否仍打开；等待不会阻塞界面线程。
+
+Java 的准备状态是应用操作的投影。当前 operation ID 对应的 `.stopped` 到达后，
+取消该准备 owner 并回到 idle；旧 operation 的迟到事件不得清除较新准备状态。
+不能通过删除导航的就绪检查、增加固定延时或无限重试来掩盖清理顺序错误。
+`LanguageIntelligenceModuleCoordinatorTests` 用有截止的异步闸门暂停清理，覆盖普通激活、
+后台维护、缓存复用和等待期间取消；`JavaLanguageServerRuntimeTests` 覆盖停止后的状态收尾及迟到事件。
+
 ### 数据库视图在模块释放后的刷新
 
 退出应用或休眠数据库模块时，SwiftUI（macOS 的声明式界面框架）可能先刷新

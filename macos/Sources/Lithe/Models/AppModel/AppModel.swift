@@ -227,6 +227,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     lazy var languageIntelligenceModuleCoordinator = LanguageIntelligenceModuleCoordinator(
         runtime: services.moduleRuntime,
         store: moduleCapabilityStore,
+        awaitShutdown: { [weak self] in await self?.awaitModuleRuntimeShutdown() },
         bind: { [weak self] in self?.bindLanguageIntelligenceCapability($0) },
         notify: { [weak self] in self?.showNotification($0) }
     )
@@ -1359,6 +1360,16 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             )
             return false
         }
+        if moduleSessionCoordinator?.isShuttingDown == true {
+            Task { @MainActor [weak self, weak document] in
+                guard let self else { return }
+                await self.awaitModuleRuntimeShutdown()
+                guard let document, !Task.isCancelled, self.isCurrentWorkspace(identity),
+                      self.openDocuments.contains(where: { $0 === document }) else { return }
+                _ = self.activateLanguageServerIfAvailable(for: document)
+            }
+            return false
+        }
         if descriptor.id == "java" {
             switch prepareJavaLanguageServerRuntimeIfNeeded(for: document) {
             case .ready: break
@@ -1379,6 +1390,9 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
                 Task { [weak self, weak document] in
                     guard let self, let document else { return }
                     do {
+                        await self.awaitModuleRuntimeShutdown()
+                        guard !Task.isCancelled, self.isCurrentWorkspace(identity),
+                              self.openDocuments.contains(where: { $0 === document }) else { return }
                         _ = try await self.services.moduleRuntime.activateCapability(capabilityID)
                         guard self.isCurrentWorkspace(identity), !Task.isCancelled,
                               self.openDocuments.contains(where: { $0 === document }) else { return }
@@ -1439,9 +1453,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             Task { [weak self] in
                 guard let self else { return }
                 do {
-                    let value = try await self.services.moduleRuntime.activateCapability(.languageIntelligence)
-                    guard let capability = value as? LitheLanguageIntelligenceModule.LanguageIntelligenceCapability else { return }
-                    self.bindLanguageIntelligenceCapability(capability)
+                    _ = try await self.languageIntelligenceModuleCoordinator.activate()
                     guard self.isCurrentWorkspace(identity), !Task.isCancelled,
                           self.openDocuments.contains(where: { $0 === document }) else { return }
                     _ = self.activateLanguageServerIfAvailable(for: document)

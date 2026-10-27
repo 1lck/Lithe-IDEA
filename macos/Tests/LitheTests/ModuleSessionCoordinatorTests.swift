@@ -89,13 +89,16 @@ struct ModuleSessionCoordinatorTests {
             release.open()
             coordinator.stopObserving()
         }
+        #expect(!coordinator.isShuttingDown)
         coordinator.beginShutdown()
         coordinator.beginShutdown()
+        #expect(coordinator.isShuttingDown)
         #expect(await started.waitUntilOpen())
         #expect(shutdowns == 1)
 
         release.open()
         await coordinator.awaitShutdown()
+        #expect(!coordinator.isShuttingDown)
         #expect(shutdowns == 1)
 
         // A finished shutdown no longer counts as running.

@@ -63,6 +63,10 @@ JDK 也一样：`ProjectRuntimeService` 不再问“app 内置的 JDK 在哪”�
 
 新增一个集成时，只需要新增一个实现协议的类型并在注册处加一行；Rust Core 的契约校验仍然决定哪些 ID 可以被声明。
 
+插件身份与宿主集成必须同时传入 Core（#1523）：`StdioLanguageServerSession` 的插件启动入口携带 `hostIntegrationLaunch`、平台缓存目录、工作区指纹、Maven/Gradle 上下文，以及插件配置和 host services。不能因为存在 `pluginID` 就退回只传可执行文件和静态参数的入口，否则 JDT 会把 Equinox jar 当包装脚本，缺少 `-configuration`，随后退出并在发行目录写日志。继续复用 Core 的 `prepare_jdt_configuration_area`，从包内只读配置生成宿主缓存中的可写副本；没有新增资源目录或缓存所有者，也不改变应用签名和增量更新的发行基线。
+
+同一工作区的服务连续三次启动失败后，自动同步直接返回已有失败，直到显式停止/重启或切换工作区；进入 ready 后清零。这保留短暂故障后的重试，但阻止每次编辑器同步重新创建 JVM。这里选择有限尝试而非增加定时器和无限退避；代价是持续失败需要用户修复环境后重新启动服务。
+
 ### 4. 运行、测试、调试由插件声明后交还宿主
 
 插件一旦声明某个语言，宿主就认为这个语言的进程类能力归插件所有：能力目录（`PluginLanguageProviderCatalogSource`）去掉运行、测试、调试标记，语言包注册表（`LanguagePackRegistry`）不再创建内置的测试提供方，运行和测试服务要求必须有插件的执行模块。这条规则是为 PHP、Go 这类整套由插件提供的语言定的，目的是插件缺失或停用时宿主不偷偷退回内置工具。
