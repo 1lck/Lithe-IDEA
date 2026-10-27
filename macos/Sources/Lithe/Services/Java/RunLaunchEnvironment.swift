@@ -22,8 +22,7 @@ enum RunLaunchEnvironment {
     /// priority: a run configuration that sets `PATH` may pin its own
     /// toolchain, and the default Finder environment contains no `node`, so
     /// the appended directories are reached in both cases. Entries are
-    /// deduplicated case-insensitively because the default macOS volume is
-    /// case-insensitive.
+    /// deduplicated by exact spelling so case-sensitive volumes remain valid.
     ///
     /// Project-owned interpreters and launchers are never promoted: an
     /// untrusted repository must not capture the interpreter of every script
@@ -33,7 +32,8 @@ enum RunLaunchEnvironment {
         _ environment: [String: String],
         executableURL: URL,
         nodeCandidates: [RuntimeToolCandidate],
-        projectURL: URL
+        projectURL: URL,
+        defaultSearchPath: String? = nil
     ) -> [String: String] {
         var resolvedDirectories: [String] = []
         if let node = nodeCandidates.first(where: {
@@ -46,8 +46,8 @@ enum RunLaunchEnvironment {
         }
         guard !resolvedDirectories.isEmpty else { return environment }
 
-        // A missing PATH still has to resolve `env` and system tools for shebang launchers.
-        let existingDirectories = (environment["PATH"] ?? "/usr/bin:/bin")
+        // Only the platform adapter knows the system fallback; an explicitly empty PATH wins.
+        let existingDirectories = (environment["PATH"] ?? defaultSearchPath ?? "")
             .split(separator: ":")
             .map(String.init)
             .filter { !$0.isEmpty }

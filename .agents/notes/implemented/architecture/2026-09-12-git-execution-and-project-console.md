@@ -259,6 +259,13 @@ checkout/clone 完整流程用例 `git_write_executes_checkout_preflight_clone_a
 分支，覆盖干净、脏和未跟踪文件预检、智能/强制切换以及本地 clone，因此只为它在
 SharedRust 和真实 JDT 两个入口设置三十秒预算；不延长请求或整套期限，不重试失败断言。
 
+linked-worktree 的 Git 元数据路径回归在 Windows CI 40442602987 达到 15.419 秒
+时被截止，未报告断言失败。夹具先减少两个无关的 Git 配置进程，把所有 Git 子进程
+交给原生 Git Host，以十秒期限和进程树回收替代无界等待；Core 请求单独限时五秒。
+Windows ARM64 本地对比从 1.799 秒降到 1.362 秒，但这不代表托管 runner 的延迟上界。
+因此只为这个用例在 SharedRust 与真实 JDT 入口设置三十秒预算，不改普通测试和整套
+期限，不删除 linked git/common directory 区分、真实 worktree 或路径断言。
+
 取消模块的确定性回归核对 mutation 后正常读取保留原截止时间和取消能力，
 已取消或超时请求的独立读取仍受清理期限约束，错误和异常退出后恢复原状态。
 真实仓库 rebase 回归核对 edit、conflict、continue、skip、abort 和过期 amendment；

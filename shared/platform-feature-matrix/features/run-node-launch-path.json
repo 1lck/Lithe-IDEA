@@ -7,6 +7,7 @@
     "evidence": [
       "macos/Sources/Lithe/Services/Java/RunLaunchEnvironment.swift",
       "macos/Sources/Lithe/Services/Java/RunExecutableResolver.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Runtime/MacRuntimeLocator.swift",
       "macos/Tests/LitheTests/RunLaunchEnvironmentTests.swift"
     ],
     "implementationStatus": "implemented",
@@ -20,6 +21,6 @@
     "verificationStatus": "pending"
   },
   "owner": "Run",
-  "verification": "从 Finder 启动的 Lithe 打开 pnpm 或 npm 项目，在运行工具窗口执行 package.json 脚本（例如 `pnpm run clean`），确认不再出现 `env: node: No such file or directory`，脚本内部再调用 node 或 npm 仍解析到同一套工具；项目 `.lithe` 自带的 node 不会进入子进程 PATH。macOS 由 RunLaunchEnvironmentTests 覆盖补齐、去重、顺序与项目内排除；Windows 由 run.rs 的 prepend_runtime_paths 路径覆盖。",
+  "verification": "从 Finder 启动的 Lithe 打开 pnpm 或 npm 项目，在运行工具窗口执行 package.json 脚本（例如 `pnpm run clean`），确认不再出现 `env: node: No such file or directory`，脚本内部再调用 node 或 npm 仍解析到同一套工具；项目 `.lithe` 自带的 node 不会进入子进程 PATH。macOS 由 RunLaunchEnvironmentTests 覆盖补齐、去重、顺序、项目内排除、缺失 PATH 使用平台注入的默认值以及显式空 PATH 不被默认值覆盖，并确认其他进程的基础环境不变；Windows 由 run.rs 的 prepend_runtime_paths 路径覆盖。",
   "notes": "两端都会把已选运行时目录和解析出的可执行文件目录加入 PATH；Windows 前置，macOS 追加以保留运行配置里的显式 PATH 优先级，并排除项目根目录与项目内解释器。"
 }
