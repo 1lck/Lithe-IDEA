@@ -1,4 +1,4 @@
-//! One native owner per read-only VCS status request. Core owns framing,
+//! One native owner per typed read-only VCS request. Core owns framing,
 //! negotiation, reply validation and the process tree; failed disposal retains
 //! the same package lease and can be retried through the native request ID.
 use super::registry::{Root, Scope};
@@ -207,7 +207,17 @@ impl Owner {
             .cloned()
             .ok_or_else(|| "invalidResponse".into())
     }
+    #[cfg(test)]
     pub async fn status(self: &Arc<Self>, current: impl Fn() -> Result<(), String>) -> Reply {
+        self.read(&super::query::ReadOperation::Status, current)
+            .await
+    }
+    pub async fn read(
+        self: &Arc<Self>,
+        operation: &super::query::ReadOperation,
+        current: impl Fn() -> Result<(), String>,
+    ) -> Reply {
+        operation.validate()?;
         tokio::time::timeout(Duration::from_secs(45), async {
             let session = self.session().ok_or("vcs.provider.failed")?;
             let mut negotiation = None;
@@ -236,14 +246,15 @@ impl Owner {
                 }
             }
             let capabilities = negotiation.ok_or("vcs.provider.unavailable")?;
+            if capabilities[operation.name()] != 1 { return Err("vcs.capability.unsupported".into()); }
             current()?;
             self.current()?;
             let tool = self.state.lock().expect("VCS session").tool.clone();
-            let arguments = json!({"includeIgnored":false});
+            let arguments = operation.arguments();
             self.call(
                 "lsp.vcsRequest",
                 json!({"sessionId":session,"operationId":self.context.request_id,
-                "vcs":self.context.root.vcs,"operation":"status","root":self.context.root.path,
+                "vcs":self.context.root.vcs,"operation":operation.name(),"root":self.context.root.path,
                 "tool":tool,"arguments":arguments,"timeoutMilliseconds":30000}),
             )
             .await?;
@@ -268,7 +279,7 @@ impl Owner {
                         let decoded = self
                             .call(
                                 "vcs.decodeReply",
-                                json!({"operation":"status","capabilities":capabilities,
+                                json!({"operation":operation.name(),"capabilities":capabilities,
                             "request":arguments,"reply":value}),
                             )
                             .await?;

@@ -3,6 +3,8 @@
 //! detection and ownership. Snapshots live only in memory and never in a bundle.
 #[path = "vcs_mappings.rs"]
 pub(crate) mod mappings;
+#[path = "vcs_query.rs"]
+pub(crate) mod query;
 #[path = "vcs_registry.rs"]
 mod registry;
 #[path = "vcs_session.rs"]

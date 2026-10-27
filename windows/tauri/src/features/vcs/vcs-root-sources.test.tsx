@@ -4,6 +4,7 @@ import { installHappyDom } from "@/test-utils/happy-dom";
 import { LocaleProvider } from "@/i18n/locale-provider";
 import { VcsRootController } from "./vcs-root-controller";
 import type { VcsOwnership, VcsRootPort, VcsSnapshot, VcsStatusSnapshot } from "./vcs-root-types";
+import type { VcsQuerySnapshot } from "./vcs-query-types";
 
 let activeFile = "C:/fixture/vcs/legacy/a.txt";
 mock.module("@/features/editor/stores/buffer.store", () => ({
@@ -190,6 +191,9 @@ test("the ordinary source pane reads status explicitly and renders only its inde
   expect(f.host.textContent).toContain("The provider returned an incomplete change list");
   expect([...f.host.querySelectorAll("button")].map((button) => button.textContent)).toEqual([
     "Read status",
+    "Read history",
+    "Read file history",
+    "Compare with baseline",
   ]);
 });
 
@@ -224,6 +228,54 @@ test("failed cleanup keeps Stop retry visible and prevents another status read",
   await act(async () => f.host.querySelectorAll("button")[1].click());
   expect(f.host.querySelector("button")!.disabled).toBe(false);
   expect(f.host.textContent).not.toContain("Provider cleanup could not be confirmed");
+});
+
+test("switching the visible root cancels its query before a late history page can publish", async () => {
+  const f = await fixture();
+  f.view.detection.roots.push({
+    id: "other",
+    path: `${f.controller.scope.workspaceRoot}/other`,
+    vcs: "svn",
+    mapped: false,
+  });
+  const late: VcsQuerySnapshot = {
+    requestId: "late",
+    generation: 1,
+    rootId: "legacy",
+    vcs: "svn",
+    operation: "history",
+    result: { entries: [], nextCursor: "stale" },
+  };
+  let release!: (answer: VcsQuerySnapshot) => void;
+  const pending = new Promise<VcsQuerySnapshot>((resolve) => {
+    release = resolve;
+  });
+  cleanups.push(() => release(late));
+  let requestId = "";
+  const cancelled: string[] = [];
+  f.port.query = async (_scope, _generation, _rootId, id) => {
+    requestId = id;
+    return pending;
+  };
+  f.port.cancelStatus = async (_scope, id) => {
+    cancelled.push(id);
+  };
+  await f.render();
+  await act(() =>
+    [...f.host.querySelectorAll("button")]
+      .find((button) => button.textContent === "Read history")!
+      .click(),
+  );
+  expect(f.controller.query.busy).toBe(true);
+  await act(() => {
+    const selector = f.host.querySelector("select")!;
+    selector.value = "root:other";
+    selector.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await act(() => release({ ...late, requestId }));
+  expect(cancelled).toEqual([requestId]);
+  expect(f.controller.query.busy).toBe(false);
+  expect(f.controller.query.getSnapshot().nextCursor).toBeNull();
 });
 
 test("mapping controls identify the Lithe source and only explicit Save sends a mapping write", async () => {

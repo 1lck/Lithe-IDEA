@@ -31,6 +31,7 @@ async function mounted(body: (host: HTMLDivElement, calls: string[]) => Promise<
   ) => {
     const review: FunctionReview = {
       context: {
+        windowIncarnation: 7,
         window: "workspace-fixture",
         workspacePath: input.workspacePath,
         generation: 1,

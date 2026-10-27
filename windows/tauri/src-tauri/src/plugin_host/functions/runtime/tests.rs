@@ -52,6 +52,7 @@ fn fixture(core: Arc<ScriptedCore>) -> Arc<Operation> {
     let review = Review {
         context: super::super::Context {
             window: "workspace-one".into(),
+            window_incarnation: 7,
             workspace_path: if cfg!(windows) {
                 "C:/fixture/project"
             } else {
@@ -84,7 +85,11 @@ fn fixture(core: Arc<ScriptedCore>) -> Arc<Operation> {
     let lease = super::super::super::lifecycle::LifecycleState::default()
         .acquire("example.plugin")
         .unwrap();
-    let mut entry = Operation::new(review, PathBuf::from("/fixture/state"), lease);
+    let owner = Arc::new(WindowOwner {
+        id: 7,
+        alive: AtomicBool::new(true),
+    });
+    let mut entry = Operation::new(review, PathBuf::from("/fixture/state"), lease, owner);
     entry.core = core;
     Arc::new(entry)
 }
@@ -173,7 +178,7 @@ async fn a_start_finishing_after_the_last_window_cleanup_is_reaped_automatically
             .lock()
             .unwrap()
             .get("operation-one")
-            .map(String::as_str),
+            .map(|owner| owner.window.as_str()),
         Some("workspace-one")
     );
 }
@@ -199,6 +204,61 @@ async fn a_destroy_finishing_after_the_last_window_cleanup_keeps_its_success_pro
     release.0.take().unwrap().send(()).unwrap();
     await_retired(&entry, &registry).await;
     assert_eq!(core.destroy_calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn web_destroy_completion_retires_the_original_owner_without_a_tombstone() {
+    let core = Arc::new(ScriptedCore::default());
+    let (entered_tx, entered_rx) = oneshot::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    *core.entered.lock().unwrap() = Some(entered_tx);
+    *core.release.lock().unwrap() = Some(release_rx);
+    let mut release = ReleaseOnDrop(Some(release_tx));
+    let mut entry = fixture(core.clone());
+    Arc::get_mut(&mut entry).unwrap().review.context.action_id =
+        "__web__:fixture:snapshot.refresh".into();
+    let registry = publish(&entry);
+    entry.status.lock().unwrap().session = Some("owned-session".into());
+    entry.retire_requested.store(true, Ordering::Release);
+    assert!(cleanup_with_budget(&entry, Duration::ZERO).await.is_err());
+    tokio::time::timeout(Duration::from_secs(1), entered_rx)
+        .await
+        .unwrap()
+        .unwrap();
+    release.0.take().unwrap().send(()).unwrap();
+    await_retired(&entry, &registry).await;
+    assert!(registry.retired.lock().unwrap().is_empty());
+    assert_eq!(core.destroy_calls.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn late_old_window_cleanup_cannot_remove_or_cancel_a_new_owner_receipt() {
+    let old = fixture(Arc::new(ScriptedCore::default()));
+    let registry = publish(&old);
+    registry.retire_window(&old.owner);
+    let mut new = fixture(Arc::new(ScriptedCore::default()));
+    let new_mut = Arc::get_mut(&mut new).unwrap();
+    new_mut.owner = Arc::new(WindowOwner {
+        id: 8,
+        alive: AtomicBool::new(true),
+    });
+    new_mut.review.context.window_incarnation = 8;
+    new.bind_registry(&registry.operations, &registry.retired);
+    registry
+        .operations
+        .lock()
+        .unwrap()
+        .insert("operation-one".into(), new.clone());
+    assert!(!super::super::owns_operation(&old.owner, &new));
+    assert!(super::super::owns_operation(&new.owner, &new));
+    old.retire_requested.store(true, Ordering::Release);
+    old.retire_clean();
+    assert!(Arc::ptr_eq(
+        &registry.operations.lock().unwrap()["operation-one"],
+        &new
+    ));
+    assert!(!new.cancelled());
+    assert!(registry.retired.lock().unwrap().is_empty());
 }
 
 #[tokio::test]

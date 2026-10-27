@@ -74,7 +74,7 @@ export class VcsStatusController {
     });
   }
   async refresh(rootId: string): Promise<void> {
-    if (this.#closed || this.#attempt) return;
+    if (this.#closed || this.#attempt || this.roots.query.busy) return;
     const source = this.roots.getSnapshot().snapshot;
     const root = source?.detection.roots.find((root) => root.id === rootId);
     if (

@@ -40,6 +40,7 @@ import { ResizablePane } from "./resizable-pane";
 import { MainSidebar, SidebarActivityRail } from "./sidebar/main-sidebar";
 import { COLLAPSED_ACTIVITY_RAIL_WIDTH } from "@/features/layout/constants/activity-rail";
 import { PluginActivityRail } from "./plugin-activity-rail";
+import { PluginFunctionCleanupNotices } from "@/features/plugins/plugin-function-cleanup-notices";
 import { WelcomeScreen } from "./welcome-screen";
 import { AppUpdateDetailsDialog } from "./app-update-details-dialog";
 import { getUpdateControlVisibility } from "../utils/update-control-visibility";
@@ -72,14 +73,13 @@ const TerminalHost = lazy(() =>
 );
 const BottomPane = lazy(() => import("./bottom-pane/bottom-pane"));
 const MavenPane = lazy(() => import("@/features/maven/components/maven-pane"));
-const BuildSystemPane = lazy(
-  () => import("@/features/build-systems/components/build-system-pane"),
-);
+const BuildSystemPane = lazy(() => import("@/features/build-systems/components/build-system-pane"));
 const AgentPane = lazy(() =>
   import("@/features/agent/components/agent-panel").then((module) => ({
     default: module.AgentPanel,
   })),
 );
+const NativePluginPane = lazy(() => import("@/features/plugins/native-ui/native-tool-window"));
 
 export function MainLayout() {
   const { t } = useTranslation();
@@ -104,11 +104,16 @@ export function MainLayout() {
   const isMavenVisible = isRightSidebarVisible && isMavenSelected;
   const isAgentSelected = activeRightSidebarView === "agent";
   const isAgentVisible = isRightSidebarVisible && isAgentSelected;
-  const isBuildSystemSelected =
-    activeRightSidebarView?.startsWith("build-system:") ?? false;
+  const isBuildSystemSelected = activeRightSidebarView?.startsWith("build-system:") ?? false;
   const isBuildSystemVisible = isRightSidebarVisible && isBuildSystemSelected;
+  const isNativePluginVisible =
+    isRightSidebarVisible && (activeRightSidebarView?.startsWith("plugin-native:") ?? false);
   const isRightToolWindowVisible =
-    isNotificationsVisible || isMavenVisible || isAgentVisible || isBuildSystemVisible;
+    isNotificationsVisible ||
+    isMavenVisible ||
+    isAgentVisible ||
+    isBuildSystemVisible ||
+    isNativePluginVisible;
   const vimRelativeLineNumbers = useSettingsStore((state) => state.settings.vimRelativeLineNumbers);
   const relativeLineNumbers = useVimStore.use.relativeLineNumbers();
   const { setRelativeLineNumbers } = useVimStore.use.actions();
@@ -334,6 +339,16 @@ export function MainLayout() {
                         />
                       </Suspense>
                     ) : null}
+                    {isNativePluginVisible ? (
+                      <Suspense fallback={null}>
+                        <NativePluginPane
+                          view={activeRightSidebarView}
+                          onClose={() =>
+                            applyRightToolWindowIntent(activeRightSidebarView, "close")
+                          }
+                        />
+                      </Suspense>
+                    ) : null}
                   </ResizablePane>
                 }
                 panel={
@@ -353,6 +368,7 @@ export function MainLayout() {
         <WelcomeScreen />
       )}
 
+      <PluginFunctionCleanupNotices />
       <PendingBufferCloseDialog />
       <AppUpdateDetailsDialog />
 

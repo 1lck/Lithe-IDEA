@@ -12,6 +12,7 @@ import { declarativePluginProcessOwner } from "./declarative-plugin-process-owne
 import { resolvePluginWebFilePath } from "./plugin-web-path";
 import { initializePluginWebAppearanceSync } from "./plugin-web-appearance";
 import { initializePluginWebBuildListener } from "./plugin-web-build";
+import { initializePluginWebFunctionListener } from "./plugin-web-function";
 
 interface PluginWebOpenFilePayload {
   pluginId: string;
@@ -121,6 +122,7 @@ export async function initializePluginWebListeners(): Promise<() => void> {
     cleanups.push(await initializePluginWebOpenFileListener());
     cleanups.push(await initializePluginLifecycleListener());
     cleanups.push(await initializePluginWebBuildListener());
+    cleanups.push(await initializePluginWebFunctionListener());
     cleanups.push(initializePluginWebAppearanceSync());
     return () => {
       for (const cleanup of cleanups.splice(0).reverse()) cleanup();

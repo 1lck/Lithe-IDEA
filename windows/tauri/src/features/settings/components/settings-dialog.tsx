@@ -22,7 +22,6 @@ import { SettingsPanel, type SettingsCategory } from "./settings-panels";
 import { useDeclarativeSettingsPages } from "@/features/plugins/use-declarative-settings-pages";
 import { DeclarativePluginSettingsEditor } from "@/features/plugins/declarative-plugin-settings-editor";
 import { DeclarativePluginReloadNotices } from "@/features/plugins/declarative-plugin-reload-notices";
-import { PluginFunctionCleanupNotices } from "@/features/plugins/plugin-function-action";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { matchesSearchQuery } from "@/utils/search-match";
 
@@ -289,7 +288,6 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
               </p>
             )}
             <DeclarativePluginReloadNotices />
-            <PluginFunctionCleanupNotices />
             {/* Mount pages on first visit; retain drafts until the dialog closes. */}
             {visitedCategories.map((category) => (
               <div

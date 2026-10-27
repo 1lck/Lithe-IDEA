@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import { SettingRow } from "@/features/settings/components/settings-section";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { pluginPlanGuard, subscribePluginActivity } from "./declarative-plugin-lifecycle";
 import type { DeclarativeSettingAction } from "./declarative-plugin-launch";
-import { createPluginFunctionSession, pluginFunctionCleanup } from "./plugin-functions";
+import { createPluginFunctionSession } from "./plugin-functions";
 import type { FunctionState, PluginFunctionSession } from "./plugin-function-session";
 
 const initial: FunctionState = { phase: "idle", review: null, progress: null, error: null };
@@ -175,34 +175,5 @@ export function PluginFunctionAction({
         </p>
       )}
     </div>
-  );
-}
-
-/** Cleanup failures stay reachable after a settings page is removed. */
-export function PluginFunctionCleanupNotices() {
-  const { t } = useTranslation();
-  useSyncExternalStore(pluginFunctionCleanup.subscribe, pluginFunctionCleanup.revision);
-  return (
-    <>
-      {pluginFunctionCleanup.pending().map((owner) => (
-        <div
-          key={owner.input.operationId}
-          className="flex items-center justify-between px-4 ui-text-sm"
-          data-plugin-function-cleanup=""
-        >
-          <span>
-            {owner.input.pluginId} · {owner.input.actionId} ·{" "}
-            {t(`plugins.functions.phase.${owner.state.phase}`)}
-          </span>
-          <Button
-            size="sm"
-            disabled={owner.state.phase === "stopping"}
-            onClick={() => void owner.cancel()}
-          >
-            {t("plugins.functions.retryCleanup")}
-          </Button>
-        </div>
-      ))}
-    </>
   );
 }

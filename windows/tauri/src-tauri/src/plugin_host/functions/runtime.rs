@@ -1,6 +1,6 @@
 //! Isolated action owner around Core's transport. Unknown destroy outcomes
 //! retain their original join handle; retry never sends a duplicate destroy.
-use super::{check, check_context, Error, Reply, Review};
+use super::{check, check_context, Error, ReceiptOwner, Reply, Review, WindowOwner};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -66,6 +66,8 @@ pub(super) struct Status {
 }
 pub(super) struct Operation {
     pub review: Review,
+    pub(super) owner: Arc<WindowOwner>,
+    params: Mutex<Value>,
     directory: PathBuf,
     pub status: Mutex<Status>,
     cancelled: AtomicBool,
@@ -79,16 +81,19 @@ pub(super) struct Operation {
 }
 struct CleanupRegistry {
     operations: Weak<Mutex<HashMap<String, Arc<Operation>>>>,
-    retired: Weak<Mutex<HashMap<String, String>>>,
+    retired: Weak<Mutex<HashMap<String, ReceiptOwner>>>,
 }
 impl Operation {
     pub fn new(
         review: Review,
         directory: PathBuf,
         lease: super::super::lifecycle::NativeLease,
+        owner: Arc<WindowOwner>,
     ) -> Self {
         Self {
             review,
+            owner,
+            params: Mutex::new(json!({})),
             directory,
             status: Mutex::new(Status {
                 phase: Phase::Review,
@@ -145,10 +150,16 @@ impl Operation {
             error: status.error.clone(),
         }
     }
+    pub fn set_params(&self, params: Value) {
+        *self.params.lock().expect("function parameters") = params;
+    }
+    fn params(&self) -> Value {
+        self.params.lock().expect("function parameters").clone()
+    }
     pub(super) fn bind_registry(
         &self,
         operations: &Arc<Mutex<HashMap<String, Arc<Operation>>>>,
-        retired: &Arc<Mutex<HashMap<String, String>>>,
+        retired: &Arc<Mutex<HashMap<String, ReceiptOwner>>>,
     ) {
         *self.registry.lock().expect("function cleanup registry") = Some(CleanupRegistry {
             operations: Arc::downgrade(operations),
@@ -171,10 +182,18 @@ impl Operation {
             .get(id)
             .is_some_and(|current| Arc::ptr_eq(current, self))
         {
-            retired
-                .lock()
-                .expect("retired function operations")
-                .insert(id.clone(), self.review.context.window.clone());
+            if !self.review.context.action_id.starts_with("__web__:") {
+                let mut retired = retired.lock().expect("retired function operations");
+                if self.owner.alive.load(Ordering::Acquire) {
+                    retired.insert(
+                        id.clone(),
+                        ReceiptOwner {
+                            window: self.review.context.window.clone(),
+                            incarnation: self.owner.id,
+                        },
+                    );
+                }
+            }
             operations.remove(id);
         }
     }
@@ -479,6 +498,9 @@ async fn invoke(app: &AppHandle, entry: &Arc<Operation>) -> Reply<Value> {
             }
             if ready && finished && negotiated && functions.is_some() && !dispatched {
                 let functions = functions.as_ref().expect("function registry");
+                if entry.review.context.function_id.is_empty() {
+                    return Ok(functions.clone());
+                }
                 if !functions.as_array().is_some_and(|items| {
                     items
                         .iter()
@@ -488,7 +510,7 @@ async fn invoke(app: &AppHandle, entry: &Arc<Operation>) -> Reply<Value> {
                 }
                 verify(app, entry).await?;
                 call(entry,"lsp.functionRequest",json!({"sessionId":session,"operationId":entry.review.context.operation_id,
-                    "function":{"pluginID":entry.review.context.plugin_id,"functionID":entry.review.context.function_id},"params":{},"timeoutMilliseconds":120000})).await?;
+                    "function":{"pluginID":entry.review.context.plugin_id,"functionID":entry.review.context.function_id},"params":entry.params(),"timeoutMilliseconds":120000})).await?;
                 dispatched = true;
                 entry.status.lock().expect("function state").phase = Phase::Running;
             }

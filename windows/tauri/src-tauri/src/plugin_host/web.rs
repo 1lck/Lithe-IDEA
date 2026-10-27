@@ -46,6 +46,7 @@ pub struct WebPageHostState {
     open_files: Mutex<HashMap<String, PendingOpenFile>>,
     appearances: Mutex<HashMap<String, WebPageAppearance>>,
     builds: build::BuildRequests,
+    pub(super) functions: super::functions::web::Calls,
 }
 
 struct PendingOpenFile {
@@ -80,7 +81,7 @@ fn workspace_generation(state: &WebPageHostState, host: &str, workspace: &str) -
 
 /// Effects and revocation share the owners lock. A request cloned before
 /// close cannot recreate state or register an event after authority is gone.
-fn with_page_owner<T>(
+pub(crate) fn with_page_owner<T>(
     state: &WebPageHostState,
     label: &str,
     identity: &BridgeIdentity,
@@ -121,6 +122,7 @@ fn revoke_owners(
         .collect();
     owners.retain(|label, _| !labels.contains(label));
     state.builds.revoke_pages(&labels);
+    state.functions.revoke_pages(&labels);
     state
         .open_files
         .lock()
@@ -147,6 +149,7 @@ fn navigate_page(state: &WebPageHostState, label: &str) {
     if let Some(owner) = owners.get_mut(label) {
         owner.generation = OPEN_PAGE_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         state.builds.revoke_pages(&[label.to_string()]);
+        state.functions.revoke_pages(&[label.to_string()]);
         state
             .open_files
             .lock()
@@ -324,6 +327,7 @@ pub async fn declarative_plugins_open_web_window(
         let state = app.state::<WebPageHostState>();
         let mut owners = state.owners.lock().expect("page owners");
         state.builds.revoke_pages(&[label.clone()]);
+        state.functions.revoke_pages(&[label.clone()]);
         state
             .open_files
             .lock()
@@ -605,7 +609,7 @@ fn const_bridge_script() -> &'static str {
   const listeners = new Map();
   const invoke = (method, params) => window.__TAURI_INTERNALS__.invoke(
     "plugin:declarative-web|request",
-    { method, params },
+    { method, params, generation: __LITHE_PAGE_GENERATION__ },
   );
   const bridge = {
     context,
@@ -724,6 +728,8 @@ fn handle_bridge_request(invoke: tauri::ipc::Invoke<tauri::Wry>) {
 struct BridgeArgs {
     method: String,
     #[serde(default)]
+    generation: u64,
+    #[serde(default)]
     params: Option<Value>,
 }
 
@@ -732,9 +738,20 @@ async fn bridge_dispatch(
     webview: &tauri::Webview,
     args: BridgeArgs,
 ) -> Result<Value, String> {
-    let method = args.method.as_str();
-    let params = args.params.unwrap_or(Value::Null);
+    let BridgeArgs {
+        method,
+        generation,
+        params,
+    } = args;
+    let method = method.as_str();
+    let params = params.unwrap_or(Value::Null);
     let identity = bridge_identity(app, webview.label())?;
+    if generation != 0 && generation != identity.generation {
+        return Err(bridge_error(
+            "plugin.web.forbidden",
+            "the originating document was revoked",
+        ));
+    }
     let url = webview
         .url()
         .map_err(|error| bridge_error("plugin.web.forbidden", error.to_string()))?;
@@ -847,10 +864,9 @@ async fn bridge_dispatch(
         | "build.runTests" | "build.cancel" | "build.dependencies" => {
             build::request(app, webview.label(), identity, method, params).await
         }
-        "functions.list" | "functions.invoke" | "functions.cancel" => Err(bridge_error(
-            "plugin.web.unknownMethod",
-            format!("{method} needs the Windows build-system capability"),
-        )),
+        "functions.list" | "functions.invoke" | "functions.cancel" => {
+            super::functions::web::request(app, webview.label(), identity, method, params).await
+        }
         other => Err(bridge_error(
             "plugin.web.unknownMethod",
             format!("unknown method {other}"),
@@ -965,6 +981,13 @@ fn bridge_identity<R: tauri::Runtime>(
     })
 }
 
+pub(crate) fn page_identity<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+    label: &str,
+) -> Result<BridgeIdentity, String> {
+    bridge_identity(app, label)
+}
+
 fn declarative_windows_for<R: tauri::Runtime>(app: &AppHandle<R>) -> Vec<WebToolWindow> {
     let mut windows = Vec::new();
     for package in app.state::<super::PluginHostState>().packages() {
@@ -993,7 +1016,7 @@ fn hex_label_part(value: &str) -> String {
         .collect()
 }
 
-fn bridge_error(code: &str, message: impl Into<String>) -> String {
+pub(super) fn bridge_error(code: &str, message: impl Into<String>) -> String {
     json!({ "code": code, "message": message.into() }).to_string()
 }
 

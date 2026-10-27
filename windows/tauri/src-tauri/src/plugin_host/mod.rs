@@ -33,6 +33,7 @@ pub mod marketplace_sources;
 mod marketplace_sources_tests;
 #[cfg(test)]
 mod marketplace_tests;
+pub mod native_ui;
 pub mod project_generators;
 pub(crate) mod provider;
 pub mod run_plans;

@@ -18,6 +18,7 @@ function review(value = input): FunctionReview {
   return {
     context: {
       window: "workspace-one",
+      windowIncarnation: 7,
       pluginId: value.pluginId,
       actionId: value.actionId,
       functionId: "snapshot.refresh",

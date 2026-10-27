@@ -79,4 +79,77 @@ fn core_error_codes_and_plugin_error_codes_are_preserved() {
         &json!({"code":"plugin.function.failed","message":"backend rejected","pluginErrorCode":"fixture.failed"}),
     );
     assert_eq!(error.plugin_error_code.as_deref(), Some("fixture.failed"));
+    let error = Error::core(
+        &json!({"code":"processFailed", "details":"private OS diagnostics", "message":"transport failed"}),
+    );
+    assert_eq!(error.code, "processFailed");
+}
+
+#[test]
+fn retired_receipts_are_reclaimed_only_for_the_destroyed_native_window() {
+    let state = FunctionsState::default();
+    let mut first_window = tauri::ResourceTable::default();
+    let first = table_window_owner(&mut first_window);
+    assert_eq!(table_window_owner(&mut first_window).id, first.id);
+    for index in 0..4096 {
+        state.retired.lock().unwrap().insert(
+            format!("operation-{index}"),
+            ReceiptOwner {
+                window: "main".into(),
+                incarnation: first.id,
+            },
+        );
+    }
+    let mut replacement_window = tauri::ResourceTable::default();
+    let replacement = table_window_owner(&mut replacement_window);
+    assert_ne!(
+        first.id, replacement.id,
+        "reusing a label does not reuse native resources"
+    );
+    state.retired.lock().unwrap().insert(
+        "new-owner-receipt".into(),
+        ReceiptOwner {
+            window: "main".into(),
+            incarnation: replacement.id,
+        },
+    );
+    state.retire_window(&first);
+    assert!(!first.alive.load(Ordering::Acquire));
+    assert!(replacement.alive.load(Ordering::Acquire));
+    assert_eq!(state.retired.lock().unwrap().len(), 1);
+    state.retire_window(&first);
+    assert_eq!(
+        state.retired.lock().unwrap()["new-owner-receipt"].incarnation,
+        replacement.id
+    );
+}
+
+#[test]
+fn cleanup_retry_checks_the_real_native_incarnation_before_mutating_any_owner() {
+    let mut original_window = tauri::ResourceTable::default();
+    let original = table_window_owner(&mut original_window);
+    let mut replacement_window = tauri::ResourceTable::default();
+    let replacement = table_window_owner(&mut replacement_window);
+    assert!(check_expected_owner(&original, Some(original.id)).is_ok());
+    assert!(check_expected_owner(&replacement, Some(original.id)).is_err());
+    assert!(check_expected_owner(&replacement, Some(replacement.id)).is_ok());
+    original.alive.store(false, Ordering::Release);
+    assert!(check_expected_owner(&original, Some(original.id)).is_err());
+    assert!(replacement.alive.load(Ordering::Acquire));
+}
+
+#[test]
+fn web_selection_uses_only_the_requested_dedicated_provider_and_allows_registry_discovery() {
+    let (action, provider) = selection(&manifest(), "__web__:fixture:").unwrap();
+    assert_eq!(provider, "fixture");
+    assert_eq!(action["function"], "");
+    let (action, provider) = selection(&manifest(), "__web__:fixture:snapshot.refresh").unwrap();
+    assert_eq!(provider, "fixture");
+    assert_eq!(action["function"], "snapshot.refresh");
+    assert_eq!(
+        selection(&manifest(), "__web__:missing:snapshot.refresh")
+            .unwrap_err()
+            .code,
+        "plugin.function.providerUnavailable"
+    );
 }

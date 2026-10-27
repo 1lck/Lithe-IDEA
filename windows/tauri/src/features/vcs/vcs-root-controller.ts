@@ -9,6 +9,7 @@ import type {
 import { VcsRefreshQueue } from "./vcs-refresh-queue";
 import { VcsMappingController } from "./vcs-mapping-controller";
 import { VcsStatusController } from "./vcs-status-controller";
+import { VcsQueryController } from "./vcs-query-controller";
 
 /** Presentation/lifecycle owner only. All root assignment stays in native Core. */
 export class VcsRootController {
@@ -27,12 +28,14 @@ export class VcsRootController {
   #latestGeneration = 0;
   #queue: VcsRefreshQueue;
   readonly status: VcsStatusController;
+  readonly query: VcsQueryController;
   readonly mappings: VcsMappingController;
   constructor(
     readonly scope: VcsScope,
     private readonly port: VcsRootPort,
   ) {
     this.status = new VcsStatusController(this, port);
+    this.query = new VcsQueryController(this, port);
     this.mappings = new VcsMappingController(this);
     this.#queue = new VcsRefreshQueue(port.debounce ?? port.deadline, async () => {
       const generation = this.#latestGeneration;
@@ -100,6 +103,7 @@ export class VcsRootController {
   invalidate(preserveScan = false) {
     if (!preserveScan) this.#queue.reset();
     this.status.invalidate();
+    this.query.invalidate();
     ++this.#epoch;
     for (const cancel of [...this.#reads]) cancel();
     if (!preserveScan) for (const cancel of [...this.#scans]) cancel();
@@ -219,6 +223,11 @@ export class VcsRootController {
       let failure: unknown;
       try {
         await this.status.close();
+      } catch (error) {
+        failure = error;
+      }
+      try {
+        await this.query.close();
       } catch (error) {
         failure = error;
       }

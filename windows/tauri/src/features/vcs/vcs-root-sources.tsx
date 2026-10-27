@@ -94,6 +94,7 @@ export function VcsRootSources({ controller }: { controller: VcsRootController }
         }
         onChange={(value) => {
           controller.status.invalidate();
+          controller.query.invalidate();
           setSelected(value);
         }}
         aria-label={t("vcs.roots.sources")}

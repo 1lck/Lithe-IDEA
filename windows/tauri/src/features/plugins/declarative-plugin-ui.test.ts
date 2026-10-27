@@ -23,6 +23,11 @@ mock.module("./declarative-plugin-launch", () => ({
   },
   openDeclarativeWebWindow: open,
 }));
+mock.module("./native-ui/native-contributions", () => ({
+  listNativeContributions: async () => [],
+  nativePanelStates: { revoke: () => {} },
+  openNativeContribution: mock(() => {}),
+}));
 const { refreshDeclarativeUI, removeDeclarativeUI, useDeclarativePluginUI } =
   await import("./declarative-plugin-ui");
 afterEach(() => {

@@ -54,6 +54,10 @@ const releaseBuildListener = mock(() => {});
 mock.module("./plugin-web-build", () => ({
   initializePluginWebBuildListener: async () => releaseBuildListener,
 }));
+const releaseFunctionListener = mock(() => {});
+mock.module("./plugin-web-function", () => ({
+  initializePluginWebFunctionListener: async () => releaseFunctionListener,
+}));
 mock.module("./declarative-plugin-ui", () => ({
   removeDeclarativeUI: (id: string) => {
     removedUI.push(id);
@@ -85,6 +89,7 @@ afterEach(() => {
   dispose?.();
   dispose = undefined;
   releaseBuildListener.mockClear();
+  releaseFunctionListener.mockClear();
   invoke.mockClear();
   select.mockClear();
   root = "C:/a";

@@ -203,10 +203,14 @@
         "rust/lithe-core/src/lsp/interface/plugin_function.rs:648 outcomes_follow_the_fixture",
         "rust/lithe-core/src/lsp/interface/plugin_function.rs:703 host_requests_follow_the_fixture (protocol v2)"
       ],
-      "windowsEvidence": [],
+      "windowsEvidence": [
+        "windows/tauri/src-tauri/src/plugin_host/functions/runtime.rs",
+        "windows/tauri/src-tauri/src/plugin_host/functions/web.rs",
+        "windows/tauri/src/features/plugins/plugin-web-function.test.ts"
+      ],
       "windowsStatus": "indirect-core",
       "gapStage": "M6",
-      "gapDetail": "Windows 网页桥 v0 对 functions.* 返回 plugin.web.unknownMethod（web.rs 已知边界）；函数列表/调用/取消/进度的宿主接线属 M6。"
+      "gapDetail": "R10/R11 设置与网页函数入口已复用 Core 协商、调用、取消和解码；受控 runtime/页面 listener 回归覆盖归属、审批、结果与清理。共享协议向量仍由 Core 消费；真实签名包、动态注册/撤回与进程树的完整 Windows 包验收保持 M6/M10 pending。"
     },
     {
       "path": "hello-lithe.plugin.json",
@@ -376,10 +380,11 @@
       "coreEvidence": [
         "rust/lithe-core/src/tests/declarative_plugins.rs:827 native_public_controls_validate_types_ranges_info_and_buttons"
       ],
-      "windowsEvidence": [],
-      "windowsStatus": "unwired",
-      "gapStage": "M7",
-      "gapDetail": "Windows 侧零引用；ui:3 原生控件渲染未声明也未实现，不能用网页替代。"
+      "windowsEvidence": [
+        "windows/tauri/src/features/plugins/native-ui/native-panel.test.tsx the real native-controls form renders shared controls and IME Enter commits all current fields once"
+      ],
+      "windowsStatus": "wired",
+      "notes": "真实共享 fixture 已经进入 Windows 生产 renderer 的受控组件回归；ui 3 准入、完整函数和真实 Tauri/主题/布局视觉验收仍 pending。"
     },
     {
       "path": "native-form.plugin.json",
@@ -389,10 +394,11 @@
         "rust/lithe-core/src/tests/declarative_plugins.rs:721 native_ui_forms_validate_controls_values_actions_and_budgets",
         "rust/lithe-core/src/tests/declarative_plugins.rs:785 native_ui_form_grid_validates_columns_spans_and_scope"
       ],
-      "windowsEvidence": [],
-      "windowsStatus": "unwired",
-      "gapStage": "M7",
-      "gapDetail": "Windows 侧零引用；表单控件、值恢复与提交语义属 ui:3（M7）。"
+      "windowsEvidence": [
+        "windows/tauri/src/features/plugins/native-ui/native-panel.test.tsx the real native-form fixture restores a local draft after hide and reset restores its declared value"
+      ],
+      "windowsStatus": "wired",
+      "notes": "真实共享 fixture 已经进入 Windows 生产 renderer 的受控组件回归；ui 3 准入、完整函数和真实 Tauri/主题/布局视觉验收仍 pending。"
     },
     {
       "path": "native-panel.plugin.json",
@@ -402,10 +408,11 @@
         "rust/lithe-core/src/tests/declarative_plugins.rs:666 native_ui_validates_version_ownership_actions_and_budgets",
         "rust/lithe-core/src/tests/declarative_plugins.rs:785 native_ui_form_grid_validates_columns_spans_and_scope"
       ],
-      "windowsEvidence": [],
-      "windowsStatus": "unwired",
-      "gapStage": "M7",
-      "gapDetail": "Windows 侧零引用；原生树/列表/工具栏与状态恢复属 ui:3（M7）。"
+      "windowsEvidence": [
+        "windows/tauri/src/features/plugins/native-ui/native-panel.test.tsx the real native tree fixture virtualizes long results and keeps keyboard selection on expanded children"
+      ],
+      "windowsStatus": "wired",
+      "notes": "真实共享 fixture 已经进入 Windows 生产 renderer 的受控组件回归；ui 3 准入、完整函数和真实 Tauri/主题/布局视觉验收仍 pending。"
     },
     {
       "path": "node-runtime.plugin.json",
@@ -572,11 +579,13 @@
       "windowsEvidence": [
         "windows/tauri/src-tauri/src/plugin_host/vcs_tests.rs",
         "windows/tauri/src-tauri/src/plugin_host/vcs_status_tests.rs",
-        "windows/tauri/src-tauri/src/plugin_host/vcs_session_tests.rs"
+        "windows/tauri/src-tauri/src/plugin_host/vcs_session_tests.rs",
+        "windows/tauri/src-tauri/src/plugin_host/vcs_query_tests.rs",
+        "windows/tauri/src/features/vcs/vcs-history-panel.test.tsx"
       ],
       "windowsStatus": "indirect-core",
       "gapStage": "M9",
-      "gapDetail": "R9 已使用真实 fixture 验证根检测、Core 归属/解码及宿主只读 status 投影；独立短会话、协商事件、取消与迟到启动/销毁清理有受控 runtime 回归。vcsProviders 门控仍关闭；真实安装 Provider/客户端/进程树闭环、映射/监控与后续写操作待 M9/M10。"
+      "gapDetail": "R9-R11 使用真实 fixture 验证根检测、Core 归属/解码及只读 status/history/fileHistory/baseContent 宿主投影；短会话与监听映射、分页、原 owner 取消重试、缺失/重命名/二进制及 junction 路径边界有回归。vcsProviders 门控仍关闭；真实安装 Provider/客户端/进程树闭环与后续写操作待 M9/M10。"
     },
     {
       "path": "web-panel.plugin.json",
@@ -592,7 +601,7 @@
       ],
       "windowsStatus": "validated-only",
       "gapStage": "M6",
-      "gapDetail": "Windows 宿主已声明 ui:[1,2] 并具备 Web 工具窗口链路（web.rs 机制测试），但本 fixture 声明的包页面/入口没有被任何宿主测试打开；build.*/functions.* 桥方法按 v0 边界拒绝，接入属 M4/M6。"
+      "gapDetail": "Windows 宿主已声明 ui:[1,2] 并具备 Web 工具窗口、build.* 及 R11 functions.* 的机制接线和受控回归；本 fixture 的完整签名包页面/入口、真实 Provider 和进程树仍待 M6/M10 实机验收。"
     }
   ]
 }

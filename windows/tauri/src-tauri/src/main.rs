@@ -172,12 +172,10 @@ fn main() {
                 plugin_host::lifecycle::window_destroyed(window.app_handle(), window.label());
                 plugin_host::vcs::window_destroyed(window.app_handle(), window.label());
                 plugin_host::marketplace::window_destroyed(window.app_handle(), window.label());
+                plugin_host::functions::window_destroyed(window);
                 let build_app = window.app_handle().clone();
                 let build_window = window.label().to_owned();
                 tauri::async_runtime::spawn(async move {
-                    if let Err(error) = plugin_host::functions::close_window(&build_app, &build_window).await {
-                        eprintln!("Could not release plugin function owner: {error}");
-                    }
                     if let Err(error) = plugin_host::project_generators::close_window(&build_app, &build_window).await {
                         eprintln!("Could not release plugin project generation: {}", error.code);
                     }
@@ -352,6 +350,7 @@ fn main() {
                             plugin_host::functions::declarative_plugins_function_confirm,
                             plugin_host::functions::declarative_plugins_function_state,
                             plugin_host::functions::declarative_plugins_function_cancel,
+                            plugin_host::functions::declarative_plugins_web_function_prepare,
                             plugin_host::settings::declarative_plugins_store_setting,
             plugin_host::settings::declarative_plugins_reload_settings,
                             plugin_host::settings::declarative_plugins_workspace_configuration,
@@ -377,6 +376,7 @@ fn main() {
                             plugin_host::vcs::mappings::declarative_plugins_vcs_save_mapping,
                             plugin_host::vcs::declarative_plugins_vcs_close,
                             plugin_host::vcs::status::declarative_plugins_vcs_status,
+                            plugin_host::vcs::query::declarative_plugins_vcs_query,
                             plugin_host::vcs::status::declarative_plugins_vcs_cancel_status,
                             plugin_host::build::declarative_plugins_build_language_import,
                             plugin_host::build::declarative_plugins_build_refresh,
@@ -394,6 +394,7 @@ fn main() {
                             plugin_host::build::declarative_plugins_build_execute_run,
                             plugin_host::web::declarative_plugins_close_workspace_pages,
                             plugin_host::web::declarative_plugins_web_windows,
+                            plugin_host::native_ui::declarative_plugins_native_windows,
                             plugin_host::web::declarative_plugins_open_web_window,
                             plugin_host::web::declarative_plugins_close_web_window,
                             extension_store_placeholder::install_extension_from_url,

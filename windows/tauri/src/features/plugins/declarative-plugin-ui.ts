@@ -2,6 +2,12 @@ import { create } from "zustand";
 import { useUIExtensionStore } from "@/extensions/ui/stores/ui-extension-store";
 import { assertPluginActive } from "./declarative-plugin-lifecycle";
 import {
+  listNativeContributions,
+  nativePanelStates,
+  openNativeContribution,
+} from "./native-ui/native-contributions";
+import type { NativeContribution } from "./native-ui/native-ui.types";
+import {
   listDeclarativePlugins,
   listDeclarativeWebWindows,
   getDeclarativePluginManifest,
@@ -16,8 +22,12 @@ interface DeclaredCommand {
   placements: string[];
   order?: number;
 }
-export const useDeclarativePluginUI = create<{ windows: DeclarativeWebToolWindow[] }>(() => ({
+export const useDeclarativePluginUI = create<{
+  windows: DeclarativeWebToolWindow[];
+  nativeWindows: NativeContribution[];
+}>(() => ({
   windows: [],
+  nativeWindows: [],
 }));
 let refreshSequence = 0;
 const revisions = new Map<string, number>();
@@ -29,8 +39,10 @@ export function removeDeclarativeUI(pluginId: string): void {
   const owner = `declarative:${pluginId}`;
   useUIExtensionStore.getState().actions.cleanupExtension(owner);
   registered.delete(pluginId);
+  nativePanelStates.revoke(pluginId);
   useDeclarativePluginUI.setState((state) => ({
     windows: state.windows.filter((window) => window.pluginId !== pluginId),
+    nativeWindows: state.nativeWindows.filter((window) => window.pluginId !== pluginId),
   }));
 }
 
@@ -38,9 +50,10 @@ export function removeDeclarativeUI(pluginId: string): void {
 export async function refreshDeclarativeUI(): Promise<void> {
   const current = ++refreshSequence;
   const observedRevisions = new Map(revisions);
-  const [plugins, windows] = await Promise.all([
+  const [plugins, windows, nativeWindows] = await Promise.all([
     listDeclarativePlugins(),
     listDeclarativeWebWindows(),
+    listNativeContributions(),
   ]);
   const declarations = await Promise.all(
     plugins
@@ -74,8 +87,15 @@ export async function refreshDeclarativeUI(): Promise<void> {
     const ownedWindows = declaration
       ? windows.filter((window) => window.pluginId === pluginId)
       : [];
+    const ownedNativeWindows = declaration
+      ? nativeWindows.filter((window) => window.pluginId === pluginId)
+      : [];
     useDeclarativePluginUI.setState((state) => ({
       windows: [...state.windows.filter((window) => window.pluginId !== pluginId), ...ownedWindows],
+      nativeWindows: [
+        ...state.nativeWindows.filter((window) => window.pluginId !== pluginId),
+        ...ownedNativeWindows,
+      ],
     }));
     if (!declaration) continue;
     const { plugin, manifest } = declaration;
@@ -84,14 +104,19 @@ export async function refreshDeclarativeUI(): Promise<void> {
     for (const command of [...(ui?.commands ?? [])].sort(
       (a, b) => (a.order ?? 0) - (b.order ?? 0) || a.id.localeCompare(b.id),
     )) {
+      const native = ownedNativeWindows.find((window) => window.windowId === command.toolWindowID);
       if (
+        !native &&
         !windows.some(
           (window) =>
             window.pluginId === plugin.pluginId && window.windowId === command.toolWindowID,
         )
       )
         continue;
-      const execute = () => openDeclarativeWebWindow(plugin.pluginId, command.toolWindowID);
+      const execute = async () => {
+        if (native) openNativeContribution(native);
+        else await openDeclarativeWebWindow(plugin.pluginId, command.toolWindowID);
+      };
       const id = `${owner}:${command.id}`;
       actions.registerCommand({
         id,

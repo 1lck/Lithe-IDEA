@@ -4,17 +4,19 @@
 mod runtime;
 #[cfg(test)]
 mod tests;
+pub mod web;
 
 use super::{launch, settings, store};
 pub use runtime::Snapshot as FunctionSnapshot;
 use runtime::{Operation, Phase};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager, WebviewWindow};
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Error {
     pub code: String,
@@ -33,6 +35,16 @@ impl Error {
         Self {
             code: value["details"]
                 .as_str()
+                .filter(|code| {
+                    matches!(
+                        *code,
+                        "plugin.function.invalidReference"
+                            | "plugin.function.invalidParams"
+                            | "plugin.function.unavailable"
+                            | "plugin.function.wrongPlugin"
+                            | "plugin.function.unknown"
+                    )
+                })
                 .or_else(|| value["code"].as_str())
                 .unwrap_or("plugin.function.failed")
                 .into(),
@@ -52,6 +64,7 @@ pub(super) type Reply<T> = Result<T, Error>;
 #[serde(rename_all = "camelCase")]
 pub struct Context {
     pub window: String,
+    pub window_incarnation: u64,
     pub workspace_path: String,
     pub generation: u64,
     pub plugin_id: String,
@@ -77,7 +90,75 @@ pub struct Review {
 #[derive(Default)]
 pub struct FunctionsState {
     operations: Arc<Mutex<HashMap<String, Arc<Operation>>>>,
-    retired: Arc<Mutex<HashMap<String, String>>>,
+    retired: Arc<Mutex<HashMap<String, ReceiptOwner>>>,
+}
+impl FunctionsState {
+    fn retire_window(&self, owner: &Arc<WindowOwner>) -> Vec<Arc<Operation>> {
+        owner.alive.store(false, Ordering::Release);
+        let entries: Vec<_> = self
+            .operations
+            .lock()
+            .expect("function operations")
+            .values()
+            .filter(|entry| entry.owner.id == owner.id)
+            .cloned()
+            .collect();
+        for entry in &entries {
+            entry.cancel();
+        }
+        self.retired
+            .lock()
+            .expect("retired function operations")
+            .retain(|_, receipt| receipt.incarnation != owner.id);
+        entries
+    }
+}
+
+#[derive(Clone)]
+struct ReceiptOwner {
+    window: String,
+    incarnation: u64,
+}
+pub(super) struct WindowOwner {
+    id: u64,
+    alive: AtomicBool,
+}
+impl tauri::Resource for WindowOwner {}
+static NEXT_WINDOW_OWNER: AtomicU64 = AtomicU64::new(1);
+
+fn native_window_owner(window: &tauri::Window) -> Arc<WindowOwner> {
+    table_window_owner(&mut window.resources_table())
+}
+fn table_window_owner(table: &mut tauri::ResourceTable) -> Arc<WindowOwner> {
+    let existing = table
+        .names()
+        .find_map(|(id, _)| table.get::<WindowOwner>(id).ok());
+    existing.unwrap_or_else(|| {
+        let owner = Arc::new(WindowOwner {
+            id: NEXT_WINDOW_OWNER.fetch_add(1, Ordering::Relaxed),
+            alive: AtomicBool::new(true),
+        });
+        table.add_arc(owner.clone());
+        owner
+    })
+}
+
+fn caller_operation(app: &AppHandle, window: &WebviewWindow, id: &str) -> Reply<Arc<Operation>> {
+    let owner = native_window_owner(&window.as_ref().window());
+    let entry = operation(app, window.label(), id)?;
+    if !owns_operation(&owner, &entry) {
+        return Err(Error::new("plugin.function.staleContext"));
+    }
+    Ok(entry)
+}
+fn owns_operation(owner: &WindowOwner, entry: &Operation) -> bool {
+    owner.id == entry.review.context.window_incarnation && owner.alive.load(Ordering::Acquire)
+}
+fn check_expected_owner(owner: &WindowOwner, expected: Option<u64>) -> Reply<()> {
+    if !owner.alive.load(Ordering::Acquire) || expected.is_some_and(|id| id != owner.id) {
+        return Err(Error::new("plugin.function.staleContext"));
+    }
+    Ok(())
 }
 
 fn generation(app: &AppHandle, window: &str, root: &str) -> Reply<u64> {
@@ -110,7 +191,7 @@ fn check_snapshot(app: &AppHandle, operation: &Operation) -> Reply<()> {
     Ok(())
 }
 fn check_context(app: &AppHandle, operation: &Operation) -> Reply<()> {
-    if operation.cancelled() {
+    if operation.cancelled() || !operation.owner.alive.load(Ordering::Acquire) {
         return Err(Error::new("plugin.function.staleContext"));
     }
     check_scope(app, operation)
@@ -134,6 +215,25 @@ fn check_scope(app: &AppHandle, operation: &Operation) -> Reply<()> {
 /// function and its provider. Language-shared providers stay unavailable:
 /// their language owner may be in use by an editor or build operation.
 fn selection(manifest: &Value, action_id: &str) -> Reply<(Value, String)> {
+    if let Some(spec) = action_id.strip_prefix("__web__:") {
+        let (build_system, function) = spec
+            .split_once(':')
+            .filter(|(build_system, _)| !build_system.is_empty())
+            .ok_or_else(|| Error::new("plugin.function.invalidReference"))?;
+        let system = manifest["buildSystems"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|system| system["id"] == build_system)
+            .ok_or_else(|| Error::new("plugin.function.providerUnavailable"))?;
+        if !system["provider"].is_object() || system["provider"]["languageServer"].is_string() {
+            return Err(Error::new("plugin.function.providerUnavailable"));
+        }
+        return Ok((
+            json!({"id": action_id, "function": function, "title": function, "confirm": true}),
+            build_system.into(),
+        ));
+    }
     let action = manifest["settingActions"]
         .as_array()
         .into_iter()
@@ -163,6 +263,89 @@ fn selection(manifest: &Value, action_id: &str) -> Reply<(Value, String)> {
             .ok_or_else(|| Error::new("plugin.function.providerUnavailable"))?
             .into(),
     ))
+}
+
+/// Prepare a page-owned function using the same R10 operation owner. The page
+/// label is resolved from the native page registry; plugin, package, workspace
+/// and build instance are never accepted from page JSON as authority.
+#[tauri::command]
+pub async fn declarative_plugins_web_function_prepare(
+    app: AppHandle,
+    window: WebviewWindow,
+    page_label: String,
+    instance: String,
+    function_id: String,
+    operation_id: String,
+    params: Value,
+    list: bool,
+) -> Reply<Review> {
+    if !app
+        .state::<super::web::WebPageHostState>()
+        .functions
+        .active(&operation_id, &page_label)
+    {
+        return Err(Error::new("requestCancelled"));
+    }
+    let page = super::web::page_identity(&app, &page_label)
+        .map_err(|_| Error::new("plugin.web.forbidden"))?;
+    if page.host_label != window.label() {
+        return Err(Error::new("plugin.web.forbidden"));
+    }
+    let build_context = super::build::run_build_task(app.clone(), {
+        let page = page.clone();
+        let instance = instance.clone();
+        move |registry, source, _| {
+            let (view, contexts) = super::web::build::checked_view(registry, source, &page)
+                .map_err(|_| "plugin.web.forbidden".to_string())?;
+            super::web::build::selected_context(&view, &contexts, &instance)
+                .map(|(_, context)| context)
+                .map_err(|error| error)
+        }
+    })
+    .await
+    .map_err(|_| Error::new("plugin.web.forbidden"))?;
+    if build_context.plugin_id != page.plugin_id
+        || build_context.workspace_root != page.workspace_path
+        || (!list
+            && !function_id
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
+            || function_id.len() > 128)
+    {
+        return Err(Error::new("plugin.function.invalidReference"));
+    }
+    let snapshot = settings::read_snapshot(&app, &page.plugin_id, &page.workspace_path)
+        .map_err(|_| Error::new("plugin.function.unavailable"))?;
+    let action_id = format!("__web__:{}:{}", build_context.build_system_id, function_id);
+    let cancel_window = window.clone();
+    let review = declarative_plugins_function_prepare(
+        app.clone(),
+        window,
+        page.plugin_id.clone(),
+        action_id,
+        page.workspace_path.clone(),
+        snapshot.identity,
+        operation_id.clone(),
+    )
+    .await?;
+    if !app
+        .state::<super::web::WebPageHostState>()
+        .functions
+        .active(&operation_id, &page_label)
+    {
+        let _ = declarative_plugins_function_cancel(
+            app.clone(),
+            cancel_window,
+            operation_id.clone(),
+            None,
+            None,
+        )
+        .await;
+        return Err(Error::new("requestCancelled"));
+    }
+    let entry = operation(&app, &page.host_label, &operation_id)?;
+    entry.set_params(params);
+    Ok(review)
 }
 
 fn operation(app: &AppHandle, window: &str, id: &str) -> Reply<Arc<Operation>> {
@@ -195,6 +378,7 @@ pub async fn declarative_plugins_function_prepare(
         return Err(Error::new("plugin.function.invalidReference"));
     }
     let label = window.label().to_string();
+    let owner = native_window_owner(&window.as_ref().window());
     tauri::async_runtime::spawn_blocking(move || {
         let generation = generation(&app, &label, &workspace_path)?;
         let lease = app
@@ -230,6 +414,7 @@ pub async fn declarative_plugins_function_prepare(
         let review = Review {
             context: Context {
                 window: label,
+                window_incarnation: owner.id,
                 workspace_path,
                 generation,
                 plugin_id,
@@ -253,7 +438,7 @@ pub async fn declarative_plugins_function_prepare(
             launch_plan: plan,
             program,
         };
-        let entry = Arc::new(Operation::new(review.clone(), directory, lease));
+        let entry = Arc::new(Operation::new(review.clone(), directory, lease, owner));
         check(&app, &entry)?;
         let state = app.state::<FunctionsState>();
         entry.bind_registry(&state.operations, &state.retired);
@@ -302,14 +487,18 @@ fn remove_clean(app: &AppHandle, entry: &Arc<Operation>) {
             .get(&entry.review.context.operation_id)
             .is_some_and(|current| Arc::ptr_eq(current, entry))
         {
-            state
-                .retired
-                .lock()
-                .expect("retired function operations")
-                .insert(
-                    entry.review.context.operation_id.clone(),
-                    entry.review.context.window.clone(),
-                );
+            if !entry.review.context.action_id.starts_with("__web__:") {
+                let mut retired = state.retired.lock().expect("retired function operations");
+                if entry.owner.alive.load(Ordering::Acquire) {
+                    retired.insert(
+                        entry.review.context.operation_id.clone(),
+                        ReceiptOwner {
+                            window: entry.review.context.window.clone(),
+                            incarnation: entry.owner.id,
+                        },
+                    );
+                }
+            }
             entries.remove(&entry.review.context.operation_id);
         }
     }
@@ -321,13 +510,17 @@ pub async fn declarative_plugins_function_confirm(
     window: WebviewWindow,
     operation_id: String,
 ) -> Reply<()> {
-    let entry = operation(&app, window.label(), &operation_id)?;
+    let entry = caller_operation(&app, &window, &operation_id)?;
     let verify_app = app.clone();
     let verify = entry.clone();
     tauri::async_runtime::spawn_blocking(move || check(&verify_app, &verify))
         .await
         .map_err(|_| Error::new("plugin.function.unavailable"))??;
-    entry.begin()?;
+    if entry.review.context.action_id.starts_with("__web__:") {
+        web::confirm(&app, &entry, window.label())?;
+    } else {
+        entry.begin()?;
+    }
     tauri::async_runtime::spawn(runtime::run(app, entry));
     Ok(())
 }
@@ -337,8 +530,20 @@ pub async fn declarative_plugins_function_state(
     app: AppHandle,
     window: WebviewWindow,
     operation_id: String,
+    cleanup_only: Option<bool>,
+    expected_window_incarnation: Option<u64>,
 ) -> Reply<FunctionSnapshot> {
-    let entry = operation(&app, window.label(), &operation_id)?;
+    let owner = native_window_owner(&window.as_ref().window());
+    check_expected_owner(&owner, expected_window_incarnation)?;
+    let entry = caller_operation(&app, &window, &operation_id)?;
+    // A retained cleanup receipt outlives its workspace. This read is still
+    // authenticated by the caller's exact native window resource above.
+    if cleanup_only == Some(true) {
+        let mut snapshot = entry.snapshot();
+        snapshot.progress = None;
+        snapshot.result = None;
+        return Ok(snapshot);
+    }
     tauri::async_runtime::spawn_blocking(move || {
         check_scope(&app, &entry)?;
         if matches!(entry.phase(), Phase::Succeeded | Phase::Failed) {
@@ -355,18 +560,33 @@ pub async fn declarative_plugins_function_cancel(
     app: AppHandle,
     window: WebviewWindow,
     operation_id: String,
+    web_error: Option<Error>,
+    expected_window_incarnation: Option<u64>,
 ) -> Reply<()> {
+    let owner = native_window_owner(&window.as_ref().window());
+    check_expected_owner(&owner, expected_window_incarnation)?;
+    // A refusal can precede native prepare. Revoke the page receipt first so
+    // late preparation cannot publish or start a provider after cancellation.
+    let page_owned = app
+        .state::<super::web::WebPageHostState>()
+        .functions
+        .cancel_for_host(&operation_id, window.label(), web_error);
     // A completed receipt may already have been released by the same caller.
-    let entry = match operation(&app, window.label(), &operation_id) {
+    let entry = match caller_operation(&app, &window, &operation_id) {
         Ok(entry) => entry,
         Err(error) => {
-            if app
-                .state::<FunctionsState>()
-                .retired
-                .lock()
-                .map_err(|_| Error::new("plugin.function.unavailable"))?
-                .get(&operation_id)
-                .is_some_and(|owner| owner == window.label())
+            if page_owned
+                || app
+                    .state::<FunctionsState>()
+                    .retired
+                    .lock()
+                    .map_err(|_| Error::new("plugin.function.unavailable"))?
+                    .get(&operation_id)
+                    .is_some_and(|receipt| {
+                        receipt.window == window.label()
+                            && receipt.incarnation == owner.id
+                            && owner.alive.load(Ordering::Acquire)
+                    })
             {
                 return Ok(());
             }
@@ -419,8 +639,21 @@ async fn close_matching(
 pub async fn close_plugin(app: &AppHandle, plugin: &str) -> Result<(), String> {
     close_matching(app, |context| context.plugin_id == plugin).await
 }
-pub async fn close_window(app: &AppHandle, window: &str) -> Result<(), String> {
-    close_matching(app, |context| context.window == window).await
+/// Retire the exact native window before any await. Label reuse cannot change
+/// this resource or make its delayed cleanup select a replacement window.
+pub fn window_destroyed(window: &tauri::Window) {
+    let owner = native_window_owner(window);
+    let app = window.app_handle().clone();
+    let entries = app.state::<FunctionsState>().retire_window(&owner);
+    tauri::async_runtime::spawn(async move {
+        for entry in entries {
+            if let Err(error) = runtime::cleanup(&entry).await {
+                eprintln!("Could not release plugin function owner: {}", error.code);
+            } else {
+                remove_clean(&app, &entry);
+            }
+        }
+    });
 }
 pub async fn close_workspace(app: &AppHandle, window: &str, root: &str) -> Result<(), String> {
     close_matching(app, |context| {

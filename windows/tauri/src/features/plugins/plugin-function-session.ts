@@ -7,6 +7,7 @@ export interface FunctionInput {
 }
 export interface FunctionContext {
   window: string;
+  windowIncarnation: number;
   pluginId: string;
   actionId: string;
   functionId: string;
@@ -108,6 +109,8 @@ export class PluginFunctionSession {
         context.settingIdentity !== this.input.expectedIdentity ||
         !context.packageIdentity ||
         !context.window ||
+        !Number.isSafeInteger(context.windowIncarnation) ||
+        context.windowIncarnation <= 0 ||
         !Number.isSafeInteger(context.generation) ||
         context.generation < 0
       )

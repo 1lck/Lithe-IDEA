@@ -546,7 +546,7 @@ async fn read_view(
     .await
 }
 
-fn selected_context(
+pub(crate) fn selected_context(
     view: &BuildView,
     contexts: &[BuildModelContext],
     instance: &str,
@@ -598,7 +598,7 @@ impl BuildOptionsPersistence for CheckedPersistence<'_> {
     }
 }
 
-fn checked_view(
+pub(crate) fn checked_view(
     registry: &BuildRegistry,
     source: &dyn BuildPackageSource,
     identity: &BridgeIdentity,

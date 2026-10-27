@@ -1,3 +1,4 @@
+import type { VcsQuerySnapshot, VcsReadQuery } from "./vcs-query-types";
 /** Read-only host binding of the existing vcs.detectRoots/ownerOf results. */
 export interface VcsScope {
   workspaceId: string;
@@ -69,12 +70,20 @@ export interface VcsRootPort {
   ): Promise<VcsStatusSnapshot>;
   cancelStatus?(scope: VcsScope, requestId: string): Promise<void>;
   statusDeadline?(callback: () => void): () => void;
+  query?(
+    scope: VcsScope,
+    generation: number,
+    rootId: string,
+    requestId: string,
+    query: VcsReadQuery,
+  ): Promise<VcsQuerySnapshot>;
 }
 export interface VcsStatusSnapshot {
   requestId: string;
   generation: number;
   rootId: string;
   vcs: string;
+  operation?: "status";
   result: {
     head: {
       revision: { id: string; display: string; kind: string } | null;

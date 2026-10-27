@@ -27,6 +27,7 @@ pub struct StatusSnapshot {
     root_id: String,
     vcs: String,
     result: Value,
+    operation: String,
 }
 fn request_id(id: &str) -> Result<(), String> {
     if id.is_empty() || id.len() > 128 || id.chars().any(|c| !c.is_ascii_alphanumeric() && c != '-')
@@ -193,7 +194,7 @@ fn unchanged(
 }
 /// A provider reports its whole working copy. Only Core-owned paths inside
 /// this window's workspace enter the projection, including both ends of moves.
-fn project_status(
+pub(super) fn project_status(
     core: &dyn registry::VcsCore,
     snapshot: &registry::Snapshot,
     root: &registry::Root,
@@ -284,15 +285,51 @@ pub async fn declarative_plugins_vcs_status(
     root_id: String,
     request_id: String,
 ) -> Result<StatusSnapshot, String> {
+    read(
+        app,
+        caller,
+        scope,
+        generation,
+        root_id,
+        request_id,
+        super::query::ReadOperation::Status,
+    )
+    .await
+}
+
+pub(super) async fn read(
+    app: AppHandle,
+    caller: WebviewWindow,
+    scope: Scope,
+    generation: u64,
+    root_id: String,
+    request_id: String,
+    operation: super::query::ReadOperation,
+) -> Result<StatusSnapshot, String> {
+    operation.validate()?;
     live(&app, caller.label())?;
     validate(&scope)?;
     self::request_id(&request_id)?;
     let worker_app = app.clone();
     let host = caller.label().to_string();
+    let preparation_operation = operation.clone();
     let prepared = tokio::time::timeout(
         registry::READ_TIMEOUT,
         tauri::async_runtime::spawn_blocking(move || {
-            prepare(&worker_app, &host, scope, generation, root_id, request_id)
+            let prepared = prepare(&worker_app, &host, scope, generation, root_id, request_id)?;
+            let (snapshot, _, _) = worker_app
+                .state::<VcsHostState>()
+                .registry
+                .lock()
+                .expect("VCS registry")
+                .capture(&host, &prepared.context.scope, generation)?;
+            super::query::paths(
+                &super::Core,
+                &snapshot,
+                &prepared.context.root,
+                &preparation_operation,
+            )?;
+            Ok::<_, String>(prepared)
         }),
     )
     .await
@@ -313,14 +350,21 @@ pub async fn declarative_plugins_vcs_status(
     let worker_owner = owner.clone();
     let worker_expected = expected.clone();
     let worker_plan = frozen_plan.clone();
+    let launch_operation = operation.clone();
     let result = async {
         owner
             .start(move || {
-                unchanged(
+                let snapshot = unchanged(
                     &worker_app,
                     &worker_owner.context,
                     &worker_expected,
                     &worker_plan,
+                )?;
+                super::query::paths(
+                    &super::Core,
+                    &snapshot,
+                    &worker_owner.context.root,
+                    &launch_operation,
                 )?;
                 worker_owner.current()?;
                 let workspace_state = prepared.state_directory.join(store::workspace_state_key(
@@ -360,11 +404,17 @@ pub async fn declarative_plugins_vcs_status(
                         .server_path,
                     )
                 };
-                unchanged(
+                let snapshot = unchanged(
                     &worker_app,
                     &worker_owner.context,
                     &worker_expected,
                     &worker_plan,
+                )?;
+                super::query::paths(
+                    &super::Core,
+                    &snapshot,
+                    &worker_owner.context.root,
+                    &launch_operation,
                 )?;
                 worker_owner.current()?;
                 let root_uri =
@@ -384,7 +434,7 @@ pub async fn declarative_plugins_vcs_status(
                 Ok((payload, tool))
             })
             .await?;
-        owner.status(|| current(&app, &owner)).await
+        owner.read(&operation, || current(&app, &owner)).await
     }
     .await;
     let cleaned = sessions.cleanup(owner).await;
@@ -395,11 +445,20 @@ pub async fn declarative_plugins_vcs_status(
     // identities and ownership after that wait so it cannot publish stale data.
     let worker_app = app.clone();
     let worker_context = context.clone();
+    let projection_operation = operation.clone();
     let result = tokio::time::timeout(
         registry::READ_TIMEOUT,
         tauri::async_runtime::spawn_blocking(move || {
             let snapshot = unchanged(&worker_app, &worker_context, &expected, &frozen_plan)?;
-            project_status(&super::Core, &snapshot, &worker_context.root, result)
+            let result = super::query::project(
+                &super::Core,
+                &snapshot,
+                &worker_context.root,
+                &projection_operation,
+                result,
+            )?;
+            unchanged(&worker_app, &worker_context, &expected, &frozen_plan)?;
+            Ok::<_, String>(result)
         }),
     )
     .await
@@ -415,6 +474,7 @@ pub async fn declarative_plugins_vcs_status(
         root_id: context.root.id,
         vcs: context.root.vcs,
         result,
+        operation: operation.name().into(),
     })
 }
 

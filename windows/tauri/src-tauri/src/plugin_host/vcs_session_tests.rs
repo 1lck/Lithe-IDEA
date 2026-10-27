@@ -217,6 +217,44 @@ async fn a_different_negotiated_vcs_never_receives_a_status_request() {
 }
 
 #[tokio::test]
+async fn typed_history_file_history_and_baseline_reads_share_the_core_decoder_and_owner() {
+    use super::super::query::ReadOperation;
+    tokio::time::timeout(DEADLINE, async {
+        for (operation, reply) in [
+            (ReadOperation::History { cursor: Some("opaque-before".into()), limit: 2 },
+                json!({"entries":[{"revision":{"id":"9","kind":"number"},"changes":[]}],"nextCursor":"opaque-after"})),
+            (ReadOperation::FileHistory { path: "deleted.txt".into(), cursor: None, limit: 2 },
+                json!({"entries":[],"nextCursor":null})),
+            (ReadOperation::BaseContent { path: "old.txt".into(), current_path: "new.txt".into() },
+                json!({"content":null,"binary":false})),
+        ] {
+            let runtime = Arc::new(ScriptedRuntime::default());
+            let mut negotiated = ready("svn");
+            negotiated[0]["result"]["capabilities"][operation.name()] = json!(1);
+            runtime.events.lock().unwrap().extend([
+                negotiated,
+                vec![json!({"type":"requestCompleted","sessionId":"fixture-session",
+                    "operationId":"fixture-request","result":{"value":reply}})],
+            ]);
+            let owner = owner(context(), runtime.clone());
+            owner.start(|| Ok((json!({}), None))).await.unwrap();
+            let result = owner.read(&operation, || Ok(())).await.unwrap();
+            owner.stop().await.unwrap();
+            let calls = runtime.calls.lock().unwrap();
+            let request = &calls.iter().find(|(name, _)| name == "lsp.vcsRequest").unwrap().1;
+            assert_eq!(request["operation"], operation.name());
+            assert_eq!(request["arguments"], operation.arguments());
+            assert!(calls.iter().any(|(name, payload)| name == "vcs.decodeReply" && payload["operation"] == operation.name()));
+            assert!(calls.iter().any(|(name, _)| name == "lsp.destroyServer"));
+            if operation.name() == "history" {
+                assert_eq!(result["entries"][0]["revision"]["id"], "9");
+                assert_eq!(result["nextCursor"], "opaque-after");
+            }
+        }
+    }).await.expect("bounded typed VCS reads");
+}
+
+#[tokio::test]
 async fn malformed_status_is_rejected_by_core_and_never_becomes_a_snapshot() {
     tokio::time::timeout(DEADLINE,async {
         let runtime=Arc::new(ScriptedRuntime::default());

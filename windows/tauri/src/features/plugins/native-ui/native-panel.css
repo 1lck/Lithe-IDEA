@@ -1,0 +1,15 @@
+.plugin-native-form {
+  container-name: native-form;
+  container-type: inline-size;
+}
+.plugin-native-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: start;
+}
+.plugin-native-grid > * { min-width: 0; }
+@container native-form (min-width: 640px) {
+  .plugin-native-grid { grid-template-columns: repeat(var(--native-columns), minmax(0, 1fr)); }
+  .plugin-native-grid > * { grid-column: span var(--native-span); }
+}

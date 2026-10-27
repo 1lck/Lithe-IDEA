@@ -92021,6 +92021,214 @@
       "platforms": [
         "windows"
       ]
+    },
+    {
+      "id": "pluginNative.title",
+      "description": "Windows native plugin panel",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "pluginNative.placementUnavailable",
+      "description": "Windows native plugin UI",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "pluginNative.unavailable",
+      "description": "Windows native plugin UI",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "pluginNative.reset",
+      "description": "Windows native plugin UI",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "pluginNative.close",
+      "description": "Windows native plugin UI",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "pluginNative.loading",
+      "description": "Windows native plugin UI",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "pluginNative.stateLimit",
+      "description": "Windows native plugin UI",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "pluginNative.failed",
+      "description": "Windows native plugin UI",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "pluginNative.cancelled",
+      "description": "Windows native plugin UI",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "pluginNative.timeout",
+      "description": "Windows native plugin UI",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "pluginNative.invalidData",
+      "description": "Windows native plugin UI",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "pluginNative.info",
+      "description": "Windows native plugin UI",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "pluginNative.empty",
+      "description": "Windows native plugin UI",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "pluginNative.collapse",
+      "description": "Windows native plugin UI",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "pluginNative.expand",
+      "description": "Windows native plugin UI",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "name": "string"
+      }
+    },
+    {
+      "id": "vcs.history.read",
+      "description": "Windows read-only plugin VCS history",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.history.compareBase",
+      "description": "Windows read-only plugin VCS baseline comparison",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.history.readFile",
+      "description": "Windows read-only plugin file history",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.history.loading",
+      "description": "Windows read-only plugin VCS history",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.history.stopping",
+      "description": "Windows read-only plugin VCS history",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.history.cleanupFailed",
+      "description": "Windows read-only plugin VCS history",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.history.failed",
+      "description": "Windows read-only plugin VCS history",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.history.entries",
+      "description": "Windows read-only plugin VCS history",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.history.noMessage",
+      "description": "Windows read-only plugin VCS history",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.history.more",
+      "description": "Windows read-only plugin VCS history",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.history.limit",
+      "description": "Windows read-only plugin VCS history",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.history.empty",
+      "description": "Windows read-only plugin VCS history",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "vcs.history.compareTitle",
+      "description": "Windows read-only plugin VCS baseline comparison",
+      "platforms": [
+        "windows"
+      ],
+      "parameters": {
+        "file": "string"
+      }
     }
   ]
 }

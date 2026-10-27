@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
+import { VcsHistoryPanel } from "./vcs-history-panel";
 import type { VcsRootController } from "./vcs-root-controller";
 import type { VcsRoot } from "./vcs-root-types";
 
@@ -17,6 +18,7 @@ export function VcsStatusPanel({
 }) {
   const { t } = useTranslation();
   const state = useSyncExternalStore(controller.status.subscribe, controller.status.getSnapshot);
+  const query = useSyncExternalStore(controller.query.subscribe, controller.query.getSnapshot);
   const busy =
     state.phase === "loading" || state.phase === "stopping" || state.phase === "cancelFailed";
   const snapshot = state.snapshot?.rootId === root.id ? state.snapshot : null;
@@ -31,7 +33,12 @@ export function VcsStatusPanel({
       <div className="flex gap-1">
         <Button
           size="xs"
-          disabled={busy}
+          disabled={
+            busy ||
+            query.phase === "loading" ||
+            query.phase === "stopping" ||
+            query.phase === "cancelFailed"
+          }
           onClick={() => {
             void controller.status.refresh(root.id);
           }}
@@ -78,6 +85,11 @@ export function VcsStatusPanel({
           {snapshot.result.truncated && <p role="status">{t("vcs.status.truncated")}</p>}
         </>
       )}
+      <VcsHistoryPanel
+        controller={controller}
+        root={root}
+        changes={snapshot?.result.changes.slice(0, MAX_VISIBLE_STATUS_CHANGES) ?? []}
+      />
     </div>
   );
 }
