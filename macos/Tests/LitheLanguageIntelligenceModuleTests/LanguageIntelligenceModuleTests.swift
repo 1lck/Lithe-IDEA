@@ -1507,6 +1507,54 @@ struct LanguageIntelligenceModuleTests {
             EmptyWorkspaceModule()
         }
     }
+
+    // MARK: - Debug adapters hosted by a language server
+
+    /// The command's result is the loopback port: an integer, or the digits
+    /// of one in a string, within 1...65535. Anything else is no port.
+    @Test(arguments: [
+        (ToolingJSONValue.integer(5005), UInt16?.some(5005)),
+        (.integer(1), 1),
+        (.integer(65535), 65535),
+        (.string("5005"), 5005),
+        (.integer(0), nil),
+        (.integer(-1), nil),
+        (.integer(65536), nil),
+        (.string("65536"), nil),
+        (.string("port"), nil),
+        (.string(""), nil),
+        (.string("5005 "), nil),
+        (.number(5005.5), nil),
+        (.bool(true), nil),
+        (.null, nil),
+        (.array([.integer(5005)]), nil),
+        (.object(["port": .integer(5005)]), nil),
+    ])
+    func aDebugAdapterPortIsOnlyAnIntegerWithinTheTCPRange(
+        value: ToolingJSONValue,
+        expected: UInt16?
+    ) {
+        #expect(LanguageToolingSessionManager.debugAdapterPort(from: value) == expected)
+    }
+
+    /// Only the language server of the plugin that declared the adapter may
+    /// receive its command; a server the plugin did not register, here a
+    /// built-in one, is refused before anything starts.
+    @Test
+    func aHostedDebugAdapterIsRefusedForALanguageServerThePluginDoesNotOwn() async throws {
+        let root = URL(fileURLWithPath: "/workspace/hosted-adapter", isDirectory: true)
+        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: root.appendingPathComponent("Main.java")))
+        let session = WorkspaceStateLanguageServerSession()
+        let manager = LanguageToolingSessionManager(runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)])
+        defer { manager.stopAllLanguageServers() }
+
+        await #expect(throws: LanguageToolingSessionError.languageServerNotOwnedByPlugin(languageID: "java")) {
+            _ = try await manager.startHostedDebugAdapter(
+                languageID: "java", pluginID: "dev.lithe.fixture", command: "java.startDebugSession", rootURL: root
+            )
+        }
+        #expect(session.startCallCount == 0)
+    }
 }
 
 @MainActor

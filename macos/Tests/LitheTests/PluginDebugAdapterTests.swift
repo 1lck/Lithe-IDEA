@@ -10,16 +10,30 @@ struct PluginDebugAdapterTests {
     private struct ResolveFailure: Error, Equatable {}
 
     private static func process(_ executable: MacPluginLanguageServerLaunchResolver.BuildProviderProcess.Executable)
-        -> MacPluginLanguageServerLaunchResolver.DebugAdapterProcess
+        -> MacPluginLanguageServerLaunchResolver.DebugAdapterLaunch
     {
         .init(
-            process: .init(
+            host: .process(.init(
                 executable: executable, arguments: [], initializationOptions: nil, runtimeTools: [],
                 executesProjectCode: true, mayUseNetwork: false, settings: [:]
-            ),
+            )),
             adapter: .init(
                 id: "lldb", providerID: "acme/lldb", displayName: "LLDB", adapterID: "lldb-dap",
                 requests: ["launch"], languageIDs: ["rust"]
+            )
+        )
+    }
+
+    private static func hostedLaunch(
+        languageID: String = "example", command: String = "example.startDebugSession"
+    ) -> MacPluginLanguageServerLaunchResolver.DebugAdapterLaunch {
+        .init(
+            host: .languageServer(languageID: languageID, command: command),
+            adapter: .init(
+                id: "example", providerID: "acme/example", displayName: "Example Debugger",
+                adapterID: "example-dap", requests: ["launch"], languageIDs: [languageID],
+                transport: "tcpLanguageServer",
+                languageServerEndpoint: .init(languageID: languageID, command: command)
             )
         )
     }
@@ -56,17 +70,29 @@ struct PluginDebugAdapterTests {
     private func resolveNativeAdapter(
         transport: String,
         endpoint: [String: Any]? = nil
-    ) throws -> MacPluginLanguageServerLaunchResolver.DebugAdapterProcess {
+    ) throws -> MacPluginLanguageServerLaunchResolver.DebugAdapterLaunch {
+        try resolveFixtureAdapter(fixture: "debug-adapter", adapterID: "native") { launch in
+            launch["transport"] = transport
+            launch["endpoint"] = endpoint
+        }
+    }
+
+    /// Resolves one adapter of a contract fixture, after `editLaunch` changed
+    /// the `launch` object the fixture declares.
+    private func resolveFixtureAdapter(
+        fixture: String,
+        adapterID: String,
+        editLaunch: (inout [String: Any]) -> Void = { _ in }
+    ) throws -> MacPluginLanguageServerLaunchResolver.DebugAdapterLaunch {
         let url = DeclarativePluginTestSupport.repositoryRoot
-            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/debug-adapter.plugin.json")
+            .appendingPathComponent("shared/contracts/plugins/v1/fixtures/\(fixture).plugin.json")
         var manifest = try #require(
             try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]
         )
         var adapters = try #require(manifest["debugAdapters"] as? [[String: Any]])
-        let index = try #require(adapters.firstIndex { $0["id"] as? String == "native" })
+        let index = try #require(adapters.firstIndex { $0["id"] as? String == adapterID })
         var launch = try #require(adapters[index]["launch"] as? [String: Any])
-        launch["transport"] = transport
-        launch["endpoint"] = endpoint
+        editLaunch(&launch)
         adapters[index]["launch"] = launch
         manifest["debugAdapters"] = adapters
 
@@ -82,7 +108,7 @@ struct PluginDebugAdapterTests {
         )
         return try resolver.resolveDebugAdapter(
             pluginID: descriptor.id.rawValue,
-            adapterID: "native",
+            adapterID: adapterID,
             manifest: descriptor.normalizedManifest,
             packageURL: root.appendingPathComponent("package", isDirectory: true),
             workspaceRootURL: root.appendingPathComponent("workspace", isDirectory: true)
@@ -90,13 +116,43 @@ struct PluginDebugAdapterTests {
     }
 
     @Test
-    func aStdioAdapterResolvesToItsLaunch() throws {
+    func aStdioAdapterResolvesToItsOwnProcess() throws {
         let resolved = try resolveNativeAdapter(transport: "stdio")
         #expect(resolved.adapter.transport == "stdio")
+        guard case .process = resolved.host else {
+            Issue.record("A stdio adapter runs as a process of its own, got \(resolved.host).")
+            return
+        }
     }
 
-    /// The host only speaks stdio, so a TCP adapter would be started and never
-    /// reached; it is refused before any process exists.
+    /// The adapter lives inside the plugin's language server: nothing is
+    /// started for it here, and the host learns which server and which command.
+    @Test
+    func aLanguageServerHostedAdapterResolvesToItsServerAndCommand() throws {
+        let resolved = try resolveFixtureAdapter(fixture: "debug-adapter-language-server", adapterID: "example")
+        #expect(resolved.adapter.transport == "tcpLanguageServer")
+        #expect(resolved.adapter.languageServerEndpoint == .init(languageID: "example", command: "example.startDebugSession"))
+        #expect(resolved.host == .languageServer(languageID: "example", command: "example.startDebugSession"))
+    }
+
+    /// Without an endpoint there is no server to ask for a port, so Core
+    /// refuses the declaration before the host plans anything.
+    @Test
+    func aLanguageServerHostedAdapterWithoutAnEndpointIsRefused() {
+        do {
+            _ = try resolveFixtureAdapter(fixture: "debug-adapter-language-server", adapterID: "example") { launch in
+                launch["endpoint"] = nil
+            }
+            Issue.record("A tcpLanguageServer adapter without an endpoint must not resolve.")
+        } catch let rejection as DeclarativePluginRejection {
+            #expect(rejection.field?.hasSuffix(".endpoint") == true)
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
+    /// A TCP adapter a process would have to announce is not reachable from
+    /// the host, so it is refused before any process exists.
     @Test(arguments: ["tcpPort", "tcpAnnounced"])
     func aTCPAdapterIsRefusedBeforeItsProcessIsStarted(_ transport: String) {
         let endpoint: [String: Any] = transport == "tcpPort"
@@ -143,5 +199,186 @@ struct PluginDebugAdapterTests {
                 configurations: [], selectedConfiguration: nil, javaTarget: nil, options: { _ in RunOptions() }
             )
         }
+    }
+
+    // MARK: - Language server hosted transport
+
+    /// The event order is: the transport asks the language module for the port
+    /// of the declared command, opens a loopback socket to it, and releases
+    /// the bytes queued meanwhile only once that socket is ready.
+    @Test
+    func aLanguageServerHostedAdapterConnectsToThePortItsServerReports() async throws {
+        let probe = HostedAdapterProbe()
+        let transport = MacPluginDebugAdapterTransport(
+            adapterID: "example",
+            resolve: { _ in Self.hostedLaunch() },
+            makeProcess: { Issue.record("A hosted adapter starts no process of its own."); fatalError() },
+            startHostedPort: { languageID, command, rootURL in
+                probe.recordPortRequest(languageID: languageID, command: command, rootURL: rootURL)
+                return 4711
+            },
+            socketFactory: { host, port in probe.makeSocket(host: host, port: port) }
+        )
+        defer { transport.stop() }
+        let root = URL(fileURLWithPath: "/tmp/hosted-adapter", isDirectory: true)
+        let initializeFrame = Data("Content-Length: 2\r\n\r\n{}".utf8)
+
+        try transport.start(rootURL: root)
+        try transport.send(initializeFrame)
+        #expect(await probe.waitUntilConnected(), "The socket was not opened before the local deadline")
+
+        #expect(probe.portRequests == [
+            .init(languageID: "example", command: "example.startDebugSession", rootURL: root.standardizedFileURL)
+        ])
+        #expect(probe.endpoints == [.init(host: "127.0.0.1", port: 4711)])
+        #expect(probe.socket.startCount == 1)
+        #expect(probe.socket.sent.isEmpty)
+
+        probe.socket.onReady?()
+        #expect(probe.socket.sent == [initializeFrame])
+        transport.stop()
+        #expect(probe.socket.stopCount == 1)
+        #expect(!transport.isRunning)
+    }
+
+    /// A server that cannot start the adapter ends the session with its own
+    /// reason; no socket is opened without a port.
+    @Test
+    func aLanguageServerThatCannotHostTheAdapterEndsTheSessionWithItsReason() async throws {
+        struct Unavailable: LocalizedError { var errorDescription: String? { "The Example language server did not start." } }
+        let probe = HostedAdapterProbe()
+        let transport = MacPluginDebugAdapterTransport(
+            adapterID: "example",
+            resolve: { _ in Self.hostedLaunch() },
+            makeProcess: { Issue.record("A hosted adapter starts no process of its own."); fatalError() },
+            startHostedPort: { _, _, _ in throw Unavailable() },
+            socketFactory: { host, port in
+                Issue.record("No socket opens without a port.")
+                return probe.makeSocket(host: host, port: port)
+            }
+        )
+        defer { transport.stop() }
+        transport.onErrorOutput = { probe.recordErrorOutput($0) }
+        transport.onTermination = { probe.recordTermination($0) }
+
+        try transport.start(rootURL: URL(fileURLWithPath: "/tmp/hosted-adapter-failure", isDirectory: true))
+        #expect(await probe.waitUntilTerminated(), "The session did not end before the local deadline")
+
+        #expect(probe.terminationCodes == [1])
+        #expect(probe.errorOutput == "The Example language server did not start.\n")
+        #expect(probe.endpoints.isEmpty)
+        #expect(!transport.isRunning)
+    }
+
+    /// Without the language module the default starter refuses the adapter
+    /// instead of leaving the session waiting for a port.
+    @Test
+    func aLanguageServerHostedAdapterWithoutALanguageServiceEndsTheSession() async throws {
+        let probe = HostedAdapterProbe()
+        let transport = MacPluginDebugAdapterTransport(
+            adapterID: "example",
+            resolve: { _ in Self.hostedLaunch() },
+            makeProcess: { Issue.record("A hosted adapter starts no process of its own."); fatalError() }
+        )
+        defer { transport.stop() }
+        transport.onErrorOutput = { probe.recordErrorOutput($0) }
+        transport.onTermination = { probe.recordTermination($0) }
+
+        try transport.start(rootURL: URL(fileURLWithPath: "/tmp/hosted-adapter-unwired", isDirectory: true))
+        #expect(await probe.waitUntilTerminated(), "The session did not end before the local deadline")
+
+        #expect(probe.terminationCodes == [1])
+        let unavailable = MacHostedPortDebugAdapterTransport.TransportError.languageIntelligenceUnavailable
+        #expect(probe.errorOutput == unavailable.localizedDescription + "\n")
+    }
+}
+
+/// What a language server hosted adapter did, in the order it happened.
+@MainActor
+private final class HostedAdapterProbe {
+    struct PortRequest: Equatable {
+        let languageID: String
+        let command: String
+        let rootURL: URL
+    }
+
+    struct Endpoint: Equatable {
+        let host: String
+        let port: UInt16
+    }
+
+    let socket = HostedAdapterSocket()
+    private(set) var portRequests: [PortRequest] = []
+    private(set) var endpoints: [Endpoint] = []
+    private(set) var errorOutput = ""
+    private(set) var terminationCodes: [Int] = []
+    private let connected = EventLatch()
+    private let terminated = EventLatch()
+
+    func recordPortRequest(languageID: String, command: String, rootURL: URL) {
+        portRequests.append(PortRequest(languageID: languageID, command: command, rootURL: rootURL))
+    }
+
+    func makeSocket(host: String, port: UInt16) -> any DebugAdapterSocketConnection {
+        endpoints.append(Endpoint(host: host, port: port))
+        connected.fire()
+        return socket
+    }
+
+    func recordErrorOutput(_ data: Data) {
+        errorOutput += String(decoding: data, as: UTF8.self)
+    }
+
+    func recordTermination(_ code: Int) {
+        terminationCodes.append(code)
+        terminated.fire()
+    }
+
+    func waitUntilConnected() async -> Bool { await connected.wait(deadline: .seconds(8)) }
+    func waitUntilTerminated() async -> Bool { await terminated.wait(deadline: .seconds(8)) }
+}
+
+@MainActor
+private final class HostedAdapterSocket: DebugAdapterSocketConnection {
+    var onReady: (() -> Void)?
+    var onData: ((Data) -> Void)?
+    var onFailure: ((Error) -> Void)?
+    var onComplete: (() -> Void)?
+    private(set) var startCount = 0
+    private(set) var stopCount = 0
+    private(set) var sent: [Data] = []
+
+    func start() { startCount += 1 }
+    func send(_ data: Data) { sent.append(data) }
+    func stop() { stopCount += 1 }
+}
+
+/// Remembers that an event happened and resumes one waiter when it does. Both
+/// the event and the local deadline arrive on the main actor, so a passing run
+/// returns on the event and the deadline only bounds a failing one.
+@MainActor
+private final class EventLatch {
+    private var fired = false
+    private var waiter: CheckedContinuation<Bool, Never>?
+
+    func fire() {
+        fired = true
+        resume(true)
+    }
+
+    func wait(deadline: DispatchTimeInterval) async -> Bool {
+        if fired { return true }
+        return await withCheckedContinuation { continuation in
+            waiter = continuation
+            DispatchQueue.main.asyncAfter(deadline: .now() + deadline) { [weak self] in
+                MainActor.assumeIsolated { self?.resume(false) }
+            }
+        }
+    }
+
+    private func resume(_ value: Bool) {
+        guard let pending = waiter else { return }
+        waiter = nil
+        pending.resume(returning: value)
     }
 }

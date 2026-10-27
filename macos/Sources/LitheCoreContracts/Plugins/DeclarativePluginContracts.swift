@@ -462,14 +462,32 @@ public struct DeclarativeLanguageServerLaunchPlan: Equatable, Sendable {
         public let adapterID: String
         public let requests: [String]
         public let languageIDs: [String]
-        /// How the host reaches the adapter process: `stdio`, `tcpAnnounced` or
-        /// `tcpPort`. A host that only speaks stdio refuses the others before it
-        /// starts the process.
+        /// How the host reaches the adapter: `stdio`, `tcpAnnounced`, `tcpPort`
+        /// or `tcpLanguageServer`. A host refuses a transport it does not speak
+        /// before it starts any process.
         public let transport: String
+        /// Set for `tcpLanguageServer`: the plugin language server that hosts
+        /// the adapter and the command that makes it listen. The plan's process
+        /// is then that language server, not an adapter process.
+        public let languageServerEndpoint: LanguageServerEndpoint?
+
+        /// Where a language server announces the adapter it hosts.
+        public struct LanguageServerEndpoint: Equatable, Sendable {
+            public let languageID: String
+            /// The `workspace/executeCommand` command whose result is the
+            /// loopback port of the adapter.
+            public let command: String
+
+            public init(languageID: String, command: String) {
+                self.languageID = languageID
+                self.command = command
+            }
+        }
 
         public init(
             id: String, providerID: String, displayName: String, adapterID: String,
-            requests: [String], languageIDs: [String], transport: String = "stdio"
+            requests: [String], languageIDs: [String], transport: String = "stdio",
+            languageServerEndpoint: LanguageServerEndpoint? = nil
         ) {
             self.id = id
             self.providerID = providerID
@@ -478,6 +496,7 @@ public struct DeclarativeLanguageServerLaunchPlan: Equatable, Sendable {
             self.requests = requests
             self.languageIDs = languageIDs
             self.transport = transport
+            self.languageServerEndpoint = languageServerEndpoint
         }
     }
 

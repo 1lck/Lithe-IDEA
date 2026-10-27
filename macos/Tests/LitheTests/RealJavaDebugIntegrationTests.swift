@@ -105,7 +105,7 @@ struct RealJavaDebugIntegrationTests {
             CoreDebugAdapterProtocolSession(
                 adapterID: "java",
                 transport: RealJavaDebugRecordingTransport(
-                    wrapping: MacJavaDebugAdapterTransport(
+                    wrapping: MacHostedPortDebugAdapterTransport(
                         portResolver: { rootURL in
                             try await languageManager.startJavaDebugServer(rootURL: rootURL)
                         }
@@ -412,7 +412,7 @@ struct RealJavaDebugIntegrationTests {
             CoreDebugAdapterProtocolSession(
                 adapterID: "java",
                 transport: RealJavaDebugRecordingTransport(
-                    wrapping: MacJavaDebugAdapterTransport(
+                    wrapping: MacHostedPortDebugAdapterTransport(
                         portResolver: { rootURL in
                             try await languageManager.startJavaDebugServer(rootURL: rootURL)
                         }

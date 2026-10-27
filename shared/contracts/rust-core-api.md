@@ -3296,11 +3296,16 @@ build system, and a build system without a provider with
 `plugin.launch.unavailable`.
 
 A `debugAdapterID` selects a `debugAdapters[]` entry with a `serverProcess`
-(naming it together with another selector is the same `invalid_request`
-failure); the plan adds `debugAdapter: { id, providerID, displayName,
-adapterID, requests, selectors, configurationTypes, transport, endpoint?,
-disabledCapabilities }`. An adapter that starts on the selected runtime is
-refused with `plugin.launch.unavailable`. Core validates every declared
+or a `tcpLanguageServer` transport (naming it together with another selector is
+the same `invalid_request` failure); the plan adds `debugAdapter: { id,
+providerID, displayName, adapterID, requests, selectors, configurationTypes,
+transport, endpoint?, disabledCapabilities }`. An adapter that starts on the
+selected runtime is refused with `plugin.launch.unavailable`. A
+`tcpLanguageServer` adapter has no process of its own: its plan is the launch
+plan of the plugin language server that `endpoint.languageID` names, so the
+host starts that server as for editing, then sends `workspace/executeCommand`
+with `endpoint.command` and connects to the loopback port the server answers
+with (an integer or a numeric string from 1 to 65535). Core validates every declared
 `transport`, but a host starts only the transports it implements: the macOS host
 runs `stdio` and refuses `tcpPort` and `tcpAnnounced` before starting the
 process, with `plugin.launch.unsupportedTransport`.

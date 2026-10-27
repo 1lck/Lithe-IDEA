@@ -10,6 +10,8 @@ package enum LanguageToolingSessionError: LocalizedError, Equatable, Sendable {
     case toolingUnavailable(String)
     case capabilityUnavailable(provider: String, capability: String)
     case invalidJavaDebugServerPort
+    case invalidDebugAdapterPort(provider: String)
+    case languageServerNotOwnedByPlugin(languageID: String)
 
     package var errorDescription: String? {
         switch self {
@@ -25,6 +27,10 @@ package enum LanguageToolingSessionError: LocalizedError, Equatable, Sendable {
             return L10n.string("The \(provider) provider does not support \(capability).")
         case .invalidJavaDebugServerPort:
             return L10n.string("The Java Debug Server returned an invalid TCP port.")
+        case .invalidDebugAdapterPort(let provider):
+            return L10n.string("The \(provider) language server returned an invalid TCP port for its debug adapter.")
+        case .languageServerNotOwnedByPlugin(let languageID):
+            return L10n.string("The \(languageID) language server of this plugin is not available.")
         }
     }
 }
@@ -531,16 +537,64 @@ package final class LanguageToolingSessionManager: ObservableObject,
             arguments: [],
             rootURL: normalizedRoot
         )
+        guard let port = Self.debugAdapterPort(from: value) else {
+            throw LanguageToolingSessionError.invalidJavaDebugServerPort
+        }
+        return port
+    }
+
+    /// The loopback port a language server answers a debug-start command
+    /// with: an integer or a numeric string, 1...65535.
+    package static func debugAdapterPort(from value: ToolingJSONValue) -> UInt16? {
         let portValue: Int?
         switch value {
         case .integer(let value): portValue = value
         case .string(let value): portValue = Int(value)
         default: portValue = nil
         }
-        guard let portValue, (1...Int(UInt16.max)).contains(portValue) else {
-            throw LanguageToolingSessionError.invalidJavaDebugServerPort
-        }
+        guard let portValue, (1...Int(UInt16.max)).contains(portValue) else { return nil }
         return UInt16(portValue)
+    }
+
+    /// Starts or reuses the language server of `pluginID` for `languageID`,
+    /// runs the plugin's declared debug-start `command` on it, and returns the
+    /// loopback port the adapter it hosts listens on. Only the server of the
+    /// same plugin qualifies, as for build requests: another plugin may answer
+    /// for the same language, and must never receive this plugin's command.
+    package func startHostedDebugAdapter(
+        languageID: String,
+        pluginID: String,
+        command: String,
+        rootURL: URL
+    ) async throws -> UInt16 {
+        guard extensionRuntimeIDs.contains(languageID),
+              runtimesByID[languageID]?.descriptor.languageServerLaunch?.launchSource?.pluginID == pluginID else {
+            throw LanguageToolingSessionError.languageServerNotOwnedByPlugin(languageID: languageID)
+        }
+        let root = rootURL.standardizedFileURL
+        _ = try startLanguageServer(providerID: languageID, rootURL: root)
+        try await waitUntilLanguageServerReady(providerID: languageID, rootURL: root)
+        guard let session = languageServers[languageID], session.isRunning else {
+            throw LanguageToolingSessionError.languageServerNotOwnedByPlugin(languageID: languageID)
+        }
+        let commandRequest = LanguageServerCommand(title: command, command: command, arguments: [])
+        let value: ToolingJSONValue = try await withCheckedThrowingContinuation { continuation in
+            do {
+                // The session sends a workspace command without a document, so
+                // the file only names the root.
+                try session.executeReturningValue(
+                    commandRequest,
+                    fileURL: root.appendingPathComponent(".lithe-debug"),
+                    completion: { continuation.resume(with: $0) }
+                )
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+        guard let port = Self.debugAdapterPort(from: value) else {
+            throw LanguageToolingSessionError.invalidDebugAdapterPort(provider: languageID)
+        }
+        return port
     }
 
     /// Resolves the current Java source through JDT LS project metadata instead

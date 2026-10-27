@@ -611,12 +611,12 @@ final class MacServiceContainer {
                         "java": {
                             CoreDebugAdapterProtocolSession(
                                 adapterID: "java",
-                                transport: MacJavaDebugAdapterTransport(
+                                transport: MacHostedPortDebugAdapterTransport(
                                     portResolver: { rootURL in
                                         guard let capability = try await moduleRuntime
                                             .activateCapability(.languageIntelligence)
                                             as? LanguageIntelligenceCapability else {
-                                            throw MacJavaDebugAdapterTransport.TransportError
+                                            throw MacHostedPortDebugAdapterTransport.TransportError
                                                 .languageIntelligenceUnavailable
                                         }
                                         return try await capability.sessions.startJavaDebugServer(
@@ -657,6 +657,20 @@ final class MacServiceContainer {
                                             runtimeService.executableCandidates(command)
                                                 .first { $0.source != .project }?.executableURL
                                         }.first
+                                    },
+                                    startHostedPort: { languageID, command, rootURL in
+                                        guard let capability = try await moduleRuntime
+                                            .activateCapability(.languageIntelligence)
+                                            as? LanguageIntelligenceCapability else {
+                                            throw MacHostedPortDebugAdapterTransport.TransportError
+                                                .languageIntelligenceUnavailable
+                                        }
+                                        return try await capability.sessions.startHostedDebugAdapter(
+                                            languageID: languageID,
+                                            pluginID: pluginID,
+                                            command: command,
+                                            rootURL: rootURL
+                                        )
                                     }
                                 ),
                                 core: rustCore,
