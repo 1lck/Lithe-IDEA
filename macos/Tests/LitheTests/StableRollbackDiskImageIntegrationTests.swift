@@ -33,8 +33,10 @@ struct StableRollbackDiskImageIntegrationTests {
         // signed payload. This avoids a second test-only mount/copy/unmount
         // cycle; StableRollbackPackage.prepare still exercises the production
         // hdiutil mount and validates the complete disk-image contract.
+        // CI reached 98% before the 20s creation deadline; allow margin while
+        // reserving 15s of the isolated 45s test budget for mount and validation.
         try await runFixtureTool("/usr/sbin/diskutil", ["image", "create", "from", "--format", "UDRW",
-                                                         root.appendingPathComponent("payload").path, dmg.path], timeoutMilliseconds: 20_000)
+                                                         root.appendingPathComponent("payload").path, dmg.path], timeoutMilliseconds: 30_000)
         let archiveData = try Data(contentsOf: dmg)
         let checksum = SHA256.hash(data: archiveData).map { String(format: "%02x", $0) }.joined()
         let publisher = try Curve25519.Signing.PrivateKey(rawRepresentation: Data(repeating: 1, count: 32))
