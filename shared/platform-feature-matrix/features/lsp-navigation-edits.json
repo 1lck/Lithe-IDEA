@@ -6,7 +6,15 @@
   "macos": {
     "evidence": [
       "macos/Sources/Lithe/Core/Language",
-      "shared/contracts/rust-core-api.md"
+      "shared/contracts/rust-core-api.md",
+      "frontend/editor/src/workbench.ts",
+      "macos/Sources/Lithe/Models/AppModel/AppModel+CodeNavigation.swift",
+      "macos/Tests/LitheTests/LanguageNavigationCoordinatorTests.swift",
+      "macos/Experiments/Monaco/workbench.integration.ts",
+      "macos/EditorFrontend/main.ts",
+      "macos/Tests/LitheTests/MonacoWorkbenchThemeTests.swift",
+      "macos/Sources/Lithe/Views/Language/JavaReferencesView.swift",
+      "macos/Tests/LitheTests/ContextMenuCoverageTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -22,5 +30,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Language Tooling",
-  "verification": "验证定义、引用、语义标记和 UTF-16 文本编辑的坐标转换。 Windows 验证 Ctrl+点击临时失败后无需修改源码即可重试成功，服务重启或文档重新连接后不复用旧位置，切换编辑器时丢弃迟到结果。"
+  "verification": "验证定义、引用、语义标记和 UTF-16 文本编辑的坐标转换。 Windows 验证 Ctrl+点击临时失败后无需修改源码即可重试成功，服务重启或文档重新连接后不复用旧位置，切换编辑器时丢弃迟到结果。 macOS 验证 Command 悬停仅在定义可用时显示链接颜色、下划线和手形，松键/移出/切换文档后清除；点击单目标直接打开定义，同文件方法调用不误转实现查询，主/分屏均保留原生导航历史。 macOS 普通说明悬停 500 ms，Command 提示在语义解析后立即显示；深浅主题及透明编辑器背景下，说明面板复用共享 popup chrome 并保持不透明，代码和说明文字分别使用编程/UI 字体。 macOS 悬停生命周期回归：普通说明与 Command 提示分别拥有状态；松键仅关闭 Command 提示；Esc、滚动、编辑、模型切换和失焦清除提示，取消后迟到结果不得重开；鼠标进入面板仍可交互。Command 内边距对齐 IDEA 6/6/5/6，普通说明保留原排版。运行真实 WebKit 生命周期检查；完整应用人工视觉验收待补。 macOS 实现选择列表使用原生共享 litheDropdown，验证 Esc、点击外部、关闭后重开、选择目标与切换标签关闭，并清除旧导航操作。共享搜索框、行选择样式及外框，列表按结果数收缩；上下键与回车可操作，输入法组合不误导航。查询语义分流问题不在本轮布局修复范围内。"
 }

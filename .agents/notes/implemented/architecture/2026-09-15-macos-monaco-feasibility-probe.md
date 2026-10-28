@@ -105,6 +105,26 @@ macOS 保留用户接受的 `FindBarView` 外观。`EditorChromeModel` 有意不
 原编辑器的定义跳转和 Markdown 双向滚动继续走平台已有能力：
 - Cmd-click（Windows 为 Ctrl-click）、F12 和右键 Go to Definition 在主／分屏 view 使用同一条带 drain 的请求，
   发送该 view 捕获的 UTF-16 位置与 revision，关闭 hold 和切换 model 会取消请求；原生端复核后调用原有导航服务。
+- Command 悬停通过只读 `definitionHover` 请求查询现有 LSP/产品导航目标；不改变 caret、焦点、历史或结果面板。
+  手势复用锁定 Monaco 0.55.1 的 `ClickLinkGesture`，装饰复用 `goto-definition-link` 和宿主已注入的
+  `editorLink.activeForeground`，不另猜颜色。按键释放、拖动、滚动、移出、失焦、编辑、切换或销毁视图
+  使旧结果失效；失败不缓存，后续手势可重试。点击继续复用原生定义导航，单目标直接打开，多目标才选择。
+  同文件目标不等于自身声明：只有点击位置在返回的声明区间内才允许查询实现，否则应直接定位同文件方法。
+  对照 IDEA Community `24bab9a438efb41bd197b295b87136bb98b0b40c` 的
+  `platform/lang-impl/src/com/intellij/codeInsight/navigation/CtrlMouseHandler.kt`
+  （可导航时使用 `REFERENCE_HYPERLINK_COLOR` 与手形）及
+  `navigation/actions/GotoDeclarationOnlyHandler2.kt`（单目标直接导航、多目标选择）。
+  不启用 Monaco 完整 definition contribution：它要求提前加载目标文件到 Web 模型库，会绕开宿主的
+  虚拟文档、只读路径校验与历史所有权；也不复用依赖 Windows LSP store 的平台手势实现。
+  WebKit 回归验证装饰范围、实际 CSS、松键清除和悬停无导航副作用，Swift 回归保护同文件调用边界。
+  macOS 的悬停文档面板通过 `popupStyles` 消费 `lithePopupChrome` 同一组表面/边框/文字/阴影 token 和圆角指标，
+  不套用工具栏 `HoverTooltip` 的另一种视觉角色。正文读取共享 UI 字体，代码保持编程字体；现有只读 Fonts
+  adapter 允许随包已有的 Inter OTF，仍校验真实路径在字体目录内，不写发行资源、不影响签名或 delta。
+  普通悬停延迟为 500 ms，依据同 revision 的 `platform/ide-core-impl/src/com/intellij/openapi/editor/ex/EditorSettingsExternalizable.java`
+  的 `TOOLTIPS_DELAY_RANGE` 初始值，以及 `platform/lang-impl/src/com/intellij/openapi/editor/HoverPopupContext.kt` 的剩余延迟计算。
+  Command 导航提示沿 `CtrlMouseHandler.kt` 在语义结果返回后立即显示，复用 Monaco 文档面板的内容、屏幕定位、
+  滚动和键盘可访问性，不另建窗口或计时器；单目标导航会收起旧结果面板。Windows 宿主没有使用该 macOS 入口，未改其实现。
+
 - Markdown split 将原有 `MarkdownScrollPosition` binding 接回 Monaco，沿用来源与 revision 防回环；
   只在该视图启用滚动消息，33 ms 合并连续输入，切换文档或接收预览滚动时撤销旧回传。
   滚动消息不改文本或 undo；普通源码编辑不向原生工作台持续发送滚动状态。
@@ -640,6 +660,17 @@ Swift 同步桥接把内部位置字段编码为 `character`，Rust 要求 `utf1
 共用资源构建。代价是新增一条需要逐步收敛的 Web 桥接路径。独立宿主仍仅保存实验副本；
 工作台版通过 Lithe 保存真实文件，不能把两者的保存行为混淆。
 工作台同步字体大小、字体族、明暗外观、原生配色主题、背景透明状态及折行。
+
+macOS Java 导入区默认折叠使用 Monaco 0.55.1 `foldingImportsByDefault`，由宿主显式启用。
+`javaFolding` 桥接复用既有 `AppModel.javaStructure` / Core 的词法结构结果，把零基行号转换为 Monaco
+的一基范围；没有新增正则解析器，也不等待 JDTLS 初始化。Core 的 imports 范围要求至少两条导入，
+其余类体、方法和注释仅提供手动折叠范围，不默认收起。词法范围的精度沿用现有 Core，若将来需要
+完整语义折叠，应替换为已有 LSP foldingRange 能力，不在前端另做 Java 解析。
+Monaco 自身保存已应用默认折叠的标志和手动折叠状态，随已有标签页/分屏视图状态恢复；不在每次激活
+或输入后执行 foldAll。请求等待已有编辑同步链，原生与前端均拒绝版本、文件位置或模型生命周期已变化
+的结果。真实 WebKit 验证初始导入折叠、类体展开、手动展开后切换标签和源码不变；Swift 检查直接调用
+Core 验证普通/static 导入的范围及单条导入不产生折叠。Windows 入口未启用这个选项。
+
 默认字体跟随全局 JetBrains Mono 2.304。WebKit 的网页进程不会继承原生进程的
 CoreText 注册，因此 `MonacoWorkbenchAssets` 从安装包现有 `Fonts` 目录只读
 提供 TTF；编辑器 HTML 用 `@font-face` 引用同一字型，加载后重新度量 Monaco。
@@ -793,3 +824,33 @@ UTF-16 编辑、保存屏障、Worker 和迟到语义结果；Swift 串行回归
 - `macos/Sources/Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift`
 - `macos/Sources/Lithe/Models/Editor/EditorDocument.swift`
 - `macos/Sources/Lithe/Application/Features/DocumentFeatureModel.swift`
+
+
+### 悬停说明显隐回归（macOS）
+
+对照 Community `cdc10bf305a5ceb5377c1d919de33e5f009cf15d` 的
+`platform/lang-impl/src/com/intellij/codeInsight/navigation/CtrlMouseHandler.kt` 与
+`platform/lang-impl/src/com/intellij/openapi/editor/EditorMouseHoverPopupManager.java`：Command 提示与普通说明
+不是同一个显隐状态。已有普通说明时不新建 Command 提示；松开 Command 只关闭本次 Command 打开的提示。
+命令点击、Esc、编辑、切换模型、视口滚动、编辑器组件失焦和窗口失焦清理提示及未完成的导航悬停结果。
+鼠标进入说明面板、选择文字或点击链接继续交给 Monaco sticky hover 处理，避免用编辑区 mouseleave
+无条件关闭交互面板。所有窗口监听随编辑器销毁移除，迟到结果仍需通过 generation/文档快照检查。
+Command 提示采用上游信息标签的 6/6/5/6 内边距，去掉首尾段落额外外边距；外层依旧消费 Lithe 共享
+popup chrome，不复制另一套主题。普通说明维持 500ms 和 Monaco 文档排版。
+真实 WebKit 生命周期回归检查松键、Esc、滚动、失焦、编辑、切换模型、移入提示及普通说明不受松键影响，
+并检查取消后的请求不能重开面板。组件回归不等同于完整应用的人工视觉验收。
+
+
+### 实现选择器的原生弹窗生命周期（macOS）
+
+`LanguageImplementationChooserView` 原先直接叠在 EditorAreaView 上，既没有原生弹窗的外部点击/Esc
+关闭机制，也没有完整焦点归属。现在通过 `litheDropdown` 的持久锚点呈现，关闭 binding 统一调用
+`closeLanguageNavigationResults()`，同时重置导航 operation，迟到结果不能恢复已取消列表。
+选中目标后关闭，切换编辑标签同样关闭；键盘上下选择、Return 确认走已有 dropdown 键盘入口，
+搜索输入法组合期间不截获确认键。共享 presenter 负责外部点击、Esc、失焦、屏幕边界和监听清理。
+外框由共享 `litheContextMenuSurface` 唯一绘制；搜索框与结果行分别使用 `LitheSearchField` 和
+`LitheDropdownRowStyle`，去掉独立 7pt 圆角、缩放过渡和至少 220pt 的空白高度，列表按行数收缩。
+依据 IDEA Community 的 `platform/lang-impl/src/com/intellij/codeInsight/navigation/GotoTargetHandler.java`
+`showNotEmpty`：用 PopupChooserBuilder 呈现目标列表、选择后导航，并在取消回调中取消后台更新。
+本轮只修复选择器的承载和样式；声明/用法/实现的查询语义分流仍是独立待修问题，不能把布局修复当成语义已对齐。
+验证：原生共享弹窗回归覆盖深浅主题、菜单与自定义内容的 Esc、关闭后重开、点击外部关闭；相关导航测试同时运行。

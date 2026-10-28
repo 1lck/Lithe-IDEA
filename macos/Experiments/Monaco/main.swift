@@ -323,6 +323,10 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
                 replyHandler(["ok": true], nil)
             case "debugRequests":
                 replyHandler(["requests": debugRequests], nil)
+            case "javaFolding":
+                replyHandler(["ranges": body["id"] as? String == "default-import-fold" ? [["start": 3, "end": 5, "kind": "imports"], ["start": 7, "end": 9, "kind": "type"]] : []], nil)
+            case "definitionHover":
+                replyHandler(["available": true], nil)
             case "definition":
                 definitionRequests.append(body)
                 replyHandler(["ok": true], nil)

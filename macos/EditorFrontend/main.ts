@@ -99,6 +99,20 @@ const positionSoftWrapButton = (view: monacoEditor.IStandaloneCodeEditor) => {
 };
 const editorControlStyle = document.createElement("style");
 editorControlStyle.textContent = `
+  .monaco-editor :is(.monaco-hover,.monaco-resizable-hover) {
+    border-color:var(--lithe-popup-border);border-radius:var(--lithe-popup-radius);
+    background:var(--lithe-popup-background);color:var(--lithe-popup-foreground)}
+  .monaco-editor .monaco-resizable-hover {box-shadow:var(--lithe-popup-shadow)}
+  .monaco-editor .monaco-resizable-hover > .monaco-hover {border:0;box-shadow:none;overflow:hidden}
+  .monaco-editor .monaco-hover {font:var(--lithe-popup-font)}
+  .monaco-editor .monaco-hover :is(code,.code) {font-family:var(--monaco-monospace-font);background:transparent}
+  .monaco-editor .monaco-hover .hover-row .actions {background:var(--lithe-popup-background);border-color:var(--lithe-popup-border)}
+  .monaco-editor .monaco-hover a {color:var(--lithe-popup-link)}
+  /* IDEA CtrlMouseHandler: information label insets (top/right/bottom/left). */
+  .monaco-editor.lithe-command-hover .monaco-hover .hover-contents {padding:6px 6px 5px}
+  .monaco-editor.lithe-command-hover .monaco-hover .hover-contents > :first-child {margin-top:0}
+  .monaco-editor.lithe-command-hover .monaco-hover .hover-contents > :last-child {margin-bottom:0}
+
   .lithe-soft-wrap {position:fixed;top:8px;z-index:5;border:0;padding:0;cursor:pointer;
     width:var(--lithe-wrap-size);height:var(--lithe-wrap-size);border-radius:var(--lithe-wrap-radius);
     background:transparent url("data:image/svg+xml,${encodeURIComponent(softWrapIcon)}") center/16px 16px no-repeat}
@@ -199,6 +213,8 @@ document.head.append(breakpointStyle);
 const workbench = mountWorkbench({
   request: payload => window.webkit.messageHandlers.litheEditor.postMessage(payload),
   palette,
+  foldJavaImportsByDefault: true,
+  hoverDelay: 500, // IDEA EditorSettingsExternalizable.TOOLTIPS_DELAY_RANGE.initial
   javaNavigationIcons: { "up-interface": implementingMethod, "down-interface": implementedMethod,
     "up-inheritance": overridingMethod, "down-inheritance": overriddenMethod },
   lineNumbersFirst: true,
@@ -220,6 +236,8 @@ window.addEventListener("beforeunload", () => menus.dispose(), { once: true });
 const configureWorkbench = workbench.api.configure;
 window.lithe = Object.assign(workbench.api, {
   configure(payload: Parameters<typeof configureWorkbench>[0]) {
+    for (const [name, value] of Object.entries(payload.theme?.popupStyles ?? {}))
+      document.documentElement.style.setProperty(`--lithe-popup-${name}`, String(value));
     configureWorkbench(payload);
     for (const view of monacoEditor.getEditors()) positionSoftWrapButton(view);
   },

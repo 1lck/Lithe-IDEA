@@ -57,6 +57,30 @@ extension AppModel {
         performGenericNavigation(method: "textDocument/implementation", kind: .implementations)
     }
 
+    /// Resolve link availability without moving the caret, recording history, or
+    /// publishing a results panel. The bridge rejects stale document replies.
+    func requestDefinitionAvailability(
+        for document: EditorDocument, line: Int, utf16Column: Int,
+        completion: @escaping (Result<Bool, Error>) -> Void
+    ) {
+        guard documentFeature.editorDocuments.contains(where: { $0 === document }) else {
+            completion(.success(false)); return
+        }
+        if !productNavigationLocations(for: document.url, line: line, utf16Column: utf16Column).isEmpty {
+            completion(.success(true)); return
+        }
+        guard let sessions = languageToolingSessionsIfActive, let workspaceURL,
+              featureGraph.languageCapabilityPolicy.supports(
+                .definition, documentURL: document.url, sessions: sessions
+              ) else { completion(.success(false)); return }
+        do {
+            try sessions.navigate(
+                method: "textDocument/definition", fileURL: document.url, text: document.text,
+                position: LanguageServerPosition(line: line, utf16Column: utf16Column), rootURL: workspaceURL
+            ) { result in completion(result.map { !$0.isEmpty }) }
+        } catch { completion(.failure(error)) }
+    }
+
     func navigateToSymbol(line: Int, utf16Column: Int, in fileURL: URL) {
         let normalizedURL = fileURL.standardizedFileURL
         editorCaret = EditorCaret(
@@ -380,6 +404,7 @@ extension AppModel {
                         kind: kind,
                         values: values,
                         documentURL: document.url,
+                        position: request.position,
                         supportsImplementation: fallbackToImplementationsIfSelf
                             && self.featureGraph.languageCapabilityPolicy.supports(
                                 .implementation,
@@ -506,6 +531,7 @@ extension AppModel {
             onResults: { [weak self] locations in
                 guard let self else { return }
                 if navigateToSingleResult, locations.count == 1, let location = locations.first {
+                    self.isReferencesVisible = false
                     self.navigate(to: location)
                 } else {
                     self.presentLanguageNavigationResults(kind)
