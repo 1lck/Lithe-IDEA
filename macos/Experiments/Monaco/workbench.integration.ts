@@ -2654,6 +2654,34 @@ async function verify() {
       }
     }
   });
+  await check("Java comment delimiters use the same color as their comment text", async () => {
+    const id = "comment-colors", text = '// text\n/* text */\n/** text */\nint value = 4 / 2;';
+    await send({ type: "open", id, text });
+    await window.lithe.activate({ id, text, revision: 0, language: "java", readonly: false });
+    try {
+      for (const dark of [false, true]) {
+        window.lithe.configure({ dark, fontFamily: "monospace", fontSize: 13, wrap: false });
+        await withDeadline(window.lithe.tokenizationReady(), "comment tokens did not become ready");
+        const model = editor.getModel()!;
+        for (const lineNumber of [1, 2, 3]) {
+          const tokens = (model as any).tokenization.getLineTokens(lineNumber);
+          const line = model.getLineContent(lineNumber);
+          const body = tokens.findTokenIndexAtOffset(line.indexOf("text"));
+          for (const offset of [0, ...(lineNumber > 1 ? [line.length - 2, line.length - 1] : [1])]) {
+            const delimiter = tokens.findTokenIndexAtOffset(offset);
+            assert(tokens.getForeground(delimiter) === tokens.getForeground(body), "comment delimiter has a different foreground");
+            assert(tokens.getStandardTokenType(delimiter) === 1, "comment delimiter was classified as ordinary punctuation");
+          }
+        }
+        const code = (model as any).tokenization.getLineTokens(4);
+        assert(code.getStandardTokenType(code.findTokenIndexAtOffset(model.getLineContent(4).indexOf("/"))) === 0,
+          "division operator became a comment");
+      }
+    } finally {
+      window.lithe.configure({ dark: false, fontFamily: "monospace", fontSize: 13, wrap: false });
+      await window.lithe.retain([]);
+    }
+  });
   await check("TextMate worker updates multiline state after Unicode edits and releases models", async () => {
     const text = 'class Probe {\n/* 中文 😀\ncomment */ int value;\n}';
     await send({ type: "open", text });

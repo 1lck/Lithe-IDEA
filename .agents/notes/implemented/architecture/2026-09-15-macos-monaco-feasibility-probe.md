@@ -875,3 +875,9 @@ Java 首帧通过统一 `attachModel` 等待 Monaco `FoldingController.getFoldin
 这消除了先呈现全部 imports、随后异步收起的布局跳变，代价是首次内容呈现等待已有折叠计算；原生请求
 仍受现有桥接超时控制，finally 保证错误路径恢复可见性。真实 WebKit 通过折叠 provider 的显式闸门验证
 等待期间不可见，完成后的首个可见状态已经折叠，并继续覆盖手动展开状态的标签恢复。
+
+
+Java TextMate 的 `punctuation.definition.comment` 是注释边界，不是普通代码标点。
+共享 `tokenRole` 在通用 punctuation 之前将其映射为 comment，使 `//`、`/*`、`*/` 与正文
+使用相同主题色，也保持其注释 token 类型；除法运算符继续使用普通标点规则。
+真实 WebKit 在深浅主题验证行注释、块注释和文档注释的前景色及类型，不另外写 CSS 颜色覆盖。
