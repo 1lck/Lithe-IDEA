@@ -113,6 +113,16 @@ struct MacRuntimeToolDiscovery: RuntimeToolDiscovery {
             add(URL(fileURLWithPath: "/usr/bin/xcrun"), source: .xcode, detail: "Xcode toolchain lookup")
         }
 
+        // Tools such as lldb-dap ship only inside the Xcode or Command Line
+        // Tools toolchain and are never on PATH; `xcrun` resolves them there.
+        for directory in xcodeToolchainDirectories(environment: environment) {
+            add(
+                directory.appendingPathComponent(command),
+                source: .xcode,
+                detail: directory.path
+            )
+        }
+
         for directory in ["/usr/bin", "/bin", "/usr/sbin", "/sbin"] {
             add(
                 URL(fileURLWithPath: directory).appendingPathComponent(command),
@@ -121,6 +131,13 @@ struct MacRuntimeToolDiscovery: RuntimeToolDiscovery {
             )
         }
         return result
+    }
+
+    private func xcodeToolchainDirectories(environment: [String: String]) -> [URL] {
+        var roots: [String] = []
+        if let developerDir = environment["DEVELOPER_DIR"], !developerDir.isEmpty { roots.append(developerDir) }
+        roots += ["/Applications/Xcode.app/Contents/Developer", "/Library/Developer/CommandLineTools"]
+        return roots.map { URL(fileURLWithPath: $0).appendingPathComponent("usr/bin", isDirectory: true) }
     }
 
     func guidance(

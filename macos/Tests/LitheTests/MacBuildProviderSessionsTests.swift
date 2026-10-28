@@ -9,6 +9,51 @@ import Testing
 /// process a request reuses, and when the host stops or restarts it.
 @MainActor
 struct MacBuildProviderSessionsTests {
+    /// Cancellation reaches Core for the exact workspace command, while the
+    /// shared language server stays available for editing and later sessions.
+    @Test(arguments: [false, true])
+    func aHostedDebugStartCommandCompletesOrCancelsWithoutStoppingTheServer(cancel: Bool) async throws {
+        let core = ScriptedProviderCore()
+        let session = LanguageServerRuntimeSession(
+            providerID: "example", executableURL: URL(fileURLWithPath: "/tools/example-ls"),
+            arguments: [], environment: [:], core: core
+        )
+        let root = URL(fileURLWithPath: "/workspace/hosted-debug", isDirectory: true)
+        try session.start(rootURL: root, workspaceFingerprint: nil)
+        let finished = TestGate()
+        let request = Task { @MainActor () -> Result<ToolingJSONValue, Error> in
+            defer { finished.open() }
+            do {
+                return .success(try await session.executeReturningValue(
+                    .init(title: "Start", command: "example.startDebugSession", arguments: []), fileURL: root
+                ))
+            } catch { return .failure(error) }
+        }
+        defer { request.cancel(); session.stop() }
+        try #require(await core.commandStarted.waitUntilOpen(), "The workspace command never started")
+        if cancel {
+            request.cancel()
+            try #require(await core.functionCancelled.waitUntilOpen(), "Core never received command cancellation")
+        } else {
+            core.finishDebugStartCommand()
+        }
+        try #require(await finished.waitUntilOpen(), "The command did not finish before its local deadline")
+        switch await request.value {
+        case .success(let value):
+            #expect(!cancel)
+            #expect(value == .integer(4711))
+        case .failure(let error):
+            #expect(cancel)
+            #expect(error is CancellationError)
+        }
+        #expect(session.isRunning)
+        #expect(core.stopCalls.isEmpty)
+        // A response already in flight cannot resurrect a cancelled command.
+        if cancel { core.finishDebugStartCommand() }
+        session.stop()
+        try #require(await core.destroyed.waitUntilOpen(), "The language session did not release its resources")
+    }
+
     /// A second request reuses the process; stopping the plugin's providers,
     /// which the plugin manager does before replacing its package, ends it
     /// and the next request starts a new one.
@@ -435,6 +480,7 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
     let started = TestGate()
     let functionStarted = TestGate()
     let functionCancelled = TestGate()
+    let commandStarted = TestGate()
     let destroyed = TestGate()
     /// Opened when a `workspace.stuck` send is blocked; it stays blocked, as
     /// a write to a backend that stopped reading would, until `releaseStuckSend`.
@@ -639,12 +685,25 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
     func closeLanguageServerDocument(sessionID _: String, fileURL _: URL) {}
 
     func requestLanguageServerOperation(
-        sessionID _: String, operation _: LanguageServerOperation, fileURL _: URL?, virtualURI _: String?,
+        sessionID _: String, operation: LanguageServerOperation, fileURL _: URL?, virtualURI _: String?,
         position _: LanguageServerPosition?, newName _: String?, range _: LanguageServerRange?,
         diagnostics _: [LanguageServerDiagnostic], completionItem _: LanguageServerCompletionItem?,
-        codeAction _: LanguageServerCodeAction?, command _: LanguageServerCommand?
+        codeAction _: LanguageServerCodeAction?, command: LanguageServerCommand?
     ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
-        .success(LanguageServerRuntimeOperation(operationID: "unused"))
+        if operation == .executeCommand, command?.command == "example.startDebugSession" {
+            commandStarted.open()
+            return .success(LanguageServerRuntimeOperation(operationID: "debug-start"))
+        }
+        return .success(LanguageServerRuntimeOperation(operationID: "unused"))
+    }
+
+    func finishDebugStartCommand() {
+        lock.withLock {
+            events["provider-\(nextSession)", default: []].append(LanguageServerRuntimeEvent(
+                type: "requestCompleted", operationID: "debug-start",
+                result: .object(["value": .integer(4711)])
+            ))
+        }
     }
 
     func cancelLanguageServerOperation(sessionID: String, operationID: String) {

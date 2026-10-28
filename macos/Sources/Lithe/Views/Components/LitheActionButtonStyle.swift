@@ -7,7 +7,6 @@ struct LitheActionButtonStyle: ButtonStyle {
     @State private var isHovered = false
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.isFocused) private var isFocused
 
     func makeBody(configuration: Configuration) -> some View {
         let shape = RoundedRectangle(cornerRadius: LitheTheme.ActionButton.cornerRadius)
@@ -18,7 +17,6 @@ struct LitheActionButtonStyle: ButtonStyle {
         configuration.label
             .font(LitheTheme.uiFont(size: 13, weight: .regular))
             .foregroundStyle(isEnabled ? (isPrimary ? Color.white : destructive ? LitheTheme.error : LitheTheme.searchFieldText) : LitheTheme.ActionButton.disabledText)
-            .underline(isEnabled && isFocused)
             .padding(.horizontal, LitheTheme.ActionButton.horizontalPadding)
             .frame(minWidth: LitheTheme.ActionButton.minimumWidth,
                    minHeight: LitheTheme.ActionButton.height)
@@ -33,6 +31,5 @@ struct LitheActionButtonStyle: ButtonStyle {
             .contentShape(Rectangle())
             .onHover { isHovered = $0 }
             .lithePointer()
-            .litheFocusEffectHidden()
     }
 }

@@ -31,6 +31,10 @@ const MIX_PROVIDER_FIXTURE: &str =
 const SETTINGS_V2_FIXTURE: &str = contract_file!("fixtures/settings-v2.plugin.json");
 const BACKEND_FIXTURE: &str = contract_file!("fixtures/backend.plugin.json");
 const DEBUG_ADAPTER_FIXTURE: &str = contract_file!("fixtures/debug-adapter.plugin.json");
+const DEBUG_ADAPTER_LANGUAGE_SERVER_FIXTURE: &str =
+    contract_file!("fixtures/debug-adapter-language-server.plugin.json");
+const DEBUG_ADAPTER_REMOTE_ATTACH_FIXTURE: &str =
+    contract_file!("fixtures/debug-adapter-remote-attach.plugin.json");
 const DEBUG_ADAPTER_REJECTIONS: &str = contract_file!("fixtures/debug-adapter-rejections.json");
 const INVALID_MANIFESTS: &str = contract_file!("fixtures/invalid-manifests.json");
 const COMMAND_PLANS: &str = contract_file!("fixtures/command-plans.json");
@@ -57,6 +61,8 @@ fn fixture(name: &str) -> Value {
         "settings-v2.plugin.json" => SETTINGS_V2_FIXTURE,
         "backend.plugin.json" => BACKEND_FIXTURE,
         "debug-adapter.plugin.json" => DEBUG_ADAPTER_FIXTURE,
+        "debug-adapter-language-server.plugin.json" => DEBUG_ADAPTER_LANGUAGE_SERVER_FIXTURE,
+        "debug-adapter-remote-attach.plugin.json" => DEBUG_ADAPTER_REMOTE_ATTACH_FIXTURE,
         other => panic!("unknown fixture {other}"),
     };
     serde_json::from_str(source).expect("fixture manifest is JSON")
@@ -77,6 +83,7 @@ fn contract_fixtures_and_official_plugins_validate() {
         NODE_RUNTIME_FIXTURE,
         BACKEND_FIXTURE,
         DEBUG_ADAPTER_FIXTURE,
+        DEBUG_ADAPTER_REMOTE_ATTACH_FIXTURE,
         OFFICIAL_JAVA,
     ] {
         let outcome = validate(serde_json::from_str(source).unwrap());
@@ -1112,6 +1119,9 @@ fn debug_rejection(baseline: &Value, case: &Value) -> (String, String) {
     }
     manifest["permissions"] = metadata["permissions"].clone();
     manifest["activationEvents"] = json!(events);
+    // The fixture's own settings belong to its own adapters; a case declares the
+    // settings it needs in `block`.
+    manifest.as_object_mut().unwrap().remove("settings");
     for (key, value) in input["block"].as_object().unwrap() {
         manifest[key] = value.clone();
     }
@@ -1143,7 +1153,11 @@ fn debug_rejection(baseline: &Value, case: &Value) -> (String, String) {
                 "target": input["context"]["target"],
             }))
             .unwrap();
-            plan(&adapter, DebugRequest::Launch, &facts)
+            let request = match input["context"].get("request") {
+                Some(request) => serde_json::from_value(request.clone()).unwrap(),
+                None => DebugRequest::Launch,
+            };
+            plan(&adapter, request, &facts)
         }
         "coreInstall" => {
             let resources: Vec<PackageResource> =
@@ -1212,4 +1226,757 @@ fn debug_adapter_fixture_is_accepted_with_normalized_requests() {
     let adapter = &outcome["plugin"]["debugAdapters"][0];
     assert_eq!(adapter["requests"], json!(["launch", "attach"]));
     assert_eq!(adapter["launch"]["transport"], "stdio");
+}
+
+#[test]
+fn debug_adapter_console_commands_are_sorted_for_the_host() {
+    let outcome = validate(fixture("debug-adapter.plugin.json"));
+    assert_eq!(outcome["status"], "ok", "{outcome}");
+    let console = &outcome["plugin"]["debugAdapters"][0]["console"];
+    assert_eq!(
+        console["commands"],
+        json!([
+            { "name": "breakpoint set", "description": "Set a breakpoint" },
+            { "name": "frame variable" },
+        ])
+    );
+    assert_eq!(console["commandPrefix"], "`");
+}
+
+fn debug_start(request: &str, target: Value) -> Value {
+    crate::plugins::declarative::debug_start_arguments_command(json!({
+        "manifest": fixture("debug-adapter.plugin.json"),
+        "adapterID": "example",
+        "request": request,
+        "facts": {
+            "registration": { "generation": 3, "currentGeneration": 3 },
+            "target": target,
+        },
+    }))
+    .expect("payload is well formed")
+}
+
+#[test]
+fn debug_adapter_launch_plan_carries_the_process_and_the_descriptor() {
+    let plan = language_server_launch_plan_command(json!({
+        "manifest": fixture("debug-adapter.plugin.json"),
+        "debugAdapterID": "example",
+        "request": {
+            "pluginDirectory": "/plugins/example",
+            "stateDirectory": "/state/example",
+            "architecture": "arm64"
+        },
+    }))
+    .expect("payload is well formed");
+    assert_eq!(plan["status"], "ok", "{plan}");
+    assert_eq!(
+        plan["plan"]["launch"],
+        json!({ "kind": "packaged", "path": "bin/example-dap" })
+    );
+    assert_eq!(plan["plan"]["arguments"], json!(["--stdio"]));
+    let descriptor = &plan["plan"]["debugAdapter"];
+    assert_eq!(
+        descriptor["providerID"],
+        "dev.lithe.fixture.debug-adapter/example"
+    );
+    assert_eq!(descriptor["adapterID"], "example-dap");
+    assert_eq!(descriptor["transport"], "stdio");
+    assert_eq!(
+        descriptor["disabledCapabilities"],
+        json!(["supportsStepBack"])
+    );
+}
+
+#[test]
+fn debug_adapter_launch_plan_refuses_unknown_adapters_and_mixed_selectors() {
+    let request = json!({
+        "pluginDirectory": "/plugins/example",
+        "stateDirectory": "/state/example",
+        "architecture": "arm64"
+    });
+    let missing = language_server_launch_plan_command(json!({
+        "manifest": fixture("debug-adapter.plugin.json"),
+        "debugAdapterID": "missing",
+        "request": request,
+    }))
+    .expect("payload is well formed");
+    assert_eq!(missing["error"]["code"], "plugin.launch.unavailable");
+    assert!(language_server_launch_plan_command(json!({
+        "manifest": fixture("debug-adapter.plugin.json"),
+        "debugAdapterID": "example",
+        "backend": true,
+        "request": request,
+    }))
+    .is_err());
+}
+
+#[test]
+fn debug_adapter_inside_the_language_server_has_no_process_of_its_own() {
+    let outcome = validate(fixture("debug-adapter-language-server.plugin.json"));
+    assert_eq!(outcome["status"], "ok", "{outcome}");
+    let launch = &outcome["plugin"]["debugAdapters"][0]["launch"];
+    assert_eq!(
+        launch,
+        &json!({
+            "transport": "tcpLanguageServer",
+            "endpoint": { "languageID": "example", "command": "example.startDebugSession" },
+        })
+    );
+
+    // The adapter plans the plugin's language server, and the descriptor tells
+    // the host which command to ask it for the port.
+    let plan = language_server_launch_plan_command(json!({
+        "manifest": fixture("debug-adapter-language-server.plugin.json"),
+        "debugAdapterID": "example",
+        "request": {
+            "pluginDirectory": "/plugins/example",
+            "stateDirectory": "/state/example",
+            "architecture": "arm64"
+        },
+    }))
+    .expect("payload is well formed");
+    assert_eq!(plan["status"], "ok", "{plan}");
+    assert_eq!(
+        plan["plan"]["launch"],
+        json!({ "kind": "systemCommand", "commands": ["example-ls"] })
+    );
+    let descriptor = &plan["plan"]["debugAdapter"];
+    assert_eq!(
+        descriptor["providerID"],
+        "dev.lithe.fixture.debug-adapter-language-server/example"
+    );
+    assert_eq!(descriptor["transport"], "tcpLanguageServer");
+    assert_eq!(
+        descriptor["endpoint"],
+        json!({ "languageID": "example", "command": "example.startDebugSession" })
+    );
+}
+
+#[test]
+fn debug_adapter_inside_the_language_server_is_a_reviewed_program() {
+    let review = crate::plugins::marketplace::install_review_command(json!({
+        "manifest": fixture("debug-adapter-language-server.plugin.json"),
+    }))
+    .expect("payload is well formed");
+    let programs = review["review"]["programs"].as_array().unwrap();
+    let adapter = programs
+        .iter()
+        .find(|program| program["debugAdapter"] == "example")
+        .expect("the adapter is listed");
+    assert_eq!(adapter["kind"], "languageServerDebugAdapter");
+    assert_eq!(adapter["transport"], "tcpLanguageServer");
+    // Pointing the adapter at another command is a new program to approve.
+    assert_eq!(adapter["endpoint"]["command"], "example.startDebugSession");
+    // The server itself stays a program of its own, reviewed once.
+    assert!(programs
+        .iter()
+        .any(|program| program["languageID"] == "example"));
+}
+
+#[test]
+fn debug_adapter_inside_the_language_server_rejects_inconsistent_launches() {
+    let cases = [
+        (
+            "a process beside the language server",
+            json!({
+                "process": { "launch": { "kind": "systemCommand", "commands": ["x"] } },
+                "transport": "tcpLanguageServer",
+                "endpoint": { "languageID": "example", "command": "example.start" },
+            }),
+            "debugAdapters[0].launch.process",
+        ),
+        (
+            "no endpoint",
+            json!({ "transport": "tcpLanguageServer" }),
+            "debugAdapters[0].launch.endpoint",
+        ),
+        (
+            "a language server the plugin does not declare",
+            json!({
+                "transport": "tcpLanguageServer",
+                "endpoint": { "languageID": "absent", "command": "example.start" },
+            }),
+            "debugAdapters[0].launch.endpoint.languageID",
+        ),
+        (
+            "no language",
+            json!({
+                "transport": "tcpLanguageServer",
+                "endpoint": { "command": "example.start" },
+            }),
+            "debugAdapters[0].launch.endpoint.languageID",
+        ),
+        (
+            "a command with whitespace",
+            json!({
+                "transport": "tcpLanguageServer",
+                "endpoint": { "languageID": "example", "command": "example start" },
+            }),
+            "debugAdapters[0].launch.endpoint.command",
+        ),
+        (
+            "no command",
+            json!({
+                "transport": "tcpLanguageServer",
+                "endpoint": { "languageID": "example" },
+            }),
+            "debugAdapters[0].launch.endpoint.command",
+        ),
+        (
+            "a fixed port as well",
+            json!({
+                "transport": "tcpLanguageServer",
+                "endpoint": { "languageID": "example", "command": "example.start", "port": 5005 },
+            }),
+            "debugAdapters[0].launch.endpoint",
+        ),
+        (
+            "no process on stdio",
+            json!({ "transport": "stdio" }),
+            "debugAdapters[0].launch.process",
+        ),
+        (
+            "language server fields on a fixed port",
+            json!({
+                "process": { "launch": { "kind": "systemCommand", "commands": ["x"] } },
+                "transport": "tcpPort",
+                "endpoint": { "port": 5005, "command": "example.start" },
+            }),
+            "debugAdapters[0].launch.endpoint",
+        ),
+    ];
+    for (name, launch, field) in cases {
+        let mut manifest = fixture("debug-adapter-language-server.plugin.json");
+        manifest["debugAdapters"][0]["launch"] = launch;
+        let outcome = validate(manifest);
+        assert_eq!(outcome["status"], "rejected", "{name}: {outcome}");
+        assert_eq!(
+            outcome["error"]["code"], "plugin.manifest.invalid",
+            "{name}: {outcome}"
+        );
+        assert_eq!(outcome["error"]["field"], field, "{name}: {outcome}");
+    }
+}
+
+#[test]
+fn debug_start_arguments_fill_bindings_without_overriding_defaults() {
+    let launch = debug_start(
+        "launch",
+        json!({ "kind": "file", "path": "/work/main.ex", "workingDirectory": "/work" }),
+    );
+    assert_eq!(launch["status"], "ok", "{launch}");
+    assert_eq!(
+        launch["arguments"],
+        json!({ "stopOnEntry": false, "program": "/work/main.ex", "cwd": "/work" })
+    );
+    let attach = debug_start("attach", json!({ "kind": "process", "processID": 42 }));
+    assert_eq!(attach["arguments"], json!({ "processId": 42 }));
+}
+
+fn remote_start_with(manifest: Value, adapter: &str, request: &str, target: Value) -> Value {
+    crate::plugins::declarative::debug_start_arguments_command(json!({
+        "manifest": manifest,
+        "adapterID": adapter,
+        "request": request,
+        "facts": {
+            "registration": { "generation": 3, "currentGeneration": 3 },
+            "target": target,
+        },
+    }))
+    .expect("payload is well formed")
+}
+
+fn remote_start(adapter: &str, target: Value) -> Value {
+    remote_start_with(
+        fixture("debug-adapter-remote-attach.plugin.json"),
+        adapter,
+        "attach",
+        target,
+    )
+}
+
+/// A local source root, absolute on the platform the test runs on.
+fn local_root() -> &'static str {
+    if cfg!(windows) {
+        r"C:\work\src"
+    } else {
+        "/work/src"
+    }
+}
+
+fn connection_target(host: &str, port: u64) -> Value {
+    json!({ "kind": "connection", "host": host, "port": port })
+}
+
+#[test]
+fn debug_adapter_remote_attach_fixture_validates_and_keeps_its_bindings() {
+    let outcome = validate(fixture("debug-adapter-remote-attach.plugin.json"));
+    assert_eq!(outcome["status"], "ok", "{outcome}");
+    let nested = outcome["plugin"]["debugAdapters"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|adapter| adapter["id"] == "nested")
+        .expect("the fixture declares the nested adapter");
+    assert_eq!(
+        nested["configurations"]["attach"]["targetBindings"]["connection"],
+        json!({
+            "host": "connect.host",
+            "port": "connect.port",
+            "pathMappings": {
+                "shape": "objects",
+                "argument": "pathMappings",
+                "localKey": "localRoot",
+                "remoteKey": "remoteRoot",
+            },
+        })
+    );
+}
+
+#[test]
+fn debug_start_arguments_put_a_remote_endpoint_where_each_adapter_reads_it() {
+    let flat = remote_start("flat", connection_target("build.example.org", 5005));
+    assert_eq!(flat["status"], "ok", "{flat}");
+    // Defaults stay and the endpoint joins them.
+    assert_eq!(
+        flat["arguments"],
+        json!({ "timeout": 5000, "hostName": "build.example.org", "port": 5005 })
+    );
+    assert_eq!(
+        flat["connection"],
+        json!({ "host": "build.example.org", "port": 5005, "remote": true })
+    );
+    let nested = remote_start("nested", connection_target("build.example.org", 5678));
+    assert_eq!(
+        nested["arguments"],
+        json!({
+            "justMyCode": false,
+            "connect": { "host": "build.example.org", "port": 5678 },
+        })
+    );
+    let joined = remote_start("joined", connection_target("build.example.org", 2345));
+    assert_eq!(
+        joined["arguments"],
+        json!({ "request": "attach", "target": "build.example.org:2345" })
+    );
+}
+
+#[test]
+fn debug_start_arguments_bracket_an_ipv6_host_only_in_a_joined_address() {
+    let joined = remote_start("joined", connection_target("2001:db8::1", 2345));
+    assert_eq!(joined["arguments"]["target"], "[2001:db8::1]:2345");
+    let flat = remote_start("flat", connection_target("2001:db8::1", 2345));
+    assert_eq!(flat["arguments"]["hostName"], "2001:db8::1");
+    assert_eq!(flat["connection"]["host"], "2001:db8::1");
+}
+
+#[test]
+fn debug_start_arguments_map_source_roots_in_the_shape_the_adapter_takes() {
+    let local = local_root();
+    let mut target = connection_target("build.example.org", 5678);
+    target["pathMappings"] = json!([
+        { "local": local, "remote": "/srv/app" },
+        { "local": local, "remote": "/opt/lib" },
+    ]);
+    let nested = remote_start("nested", target.clone());
+    assert_eq!(nested["status"], "ok", "{nested}");
+    assert_eq!(
+        nested["arguments"]["pathMappings"],
+        json!([
+            { "localRoot": local, "remoteRoot": "/srv/app" },
+            { "localRoot": local, "remoteRoot": "/opt/lib" },
+        ])
+    );
+    // An adapter with one local and one remote root takes one mapping.
+    let mut single = connection_target("build.example.org", 5678);
+    single["pathMappings"] = json!([{ "local": local, "remote": "/srv/app" }]);
+    let scalar = remote_start("scalar", single);
+    assert_eq!(
+        scalar["arguments"],
+        json!({
+            "address": "build.example.org",
+            "port": 5678,
+            "localRoot": local,
+            "remoteRoot": "/srv/app",
+        })
+    );
+    // A dictionary is keyed by the side the binding names; the other root is
+    // the value.
+    let keyed = remote_start("keyed", target.clone());
+    assert_eq!(keyed["status"], "ok", "{keyed}");
+    assert_eq!(
+        keyed["arguments"]["sourceMap"],
+        json!({ "/srv/app": local, "/opt/lib": local })
+    );
+    // Pairs keep the order of the mappings and the roots within each pair.
+    let paired = remote_start("paired", target);
+    assert_eq!(paired["status"], "ok", "{paired}");
+    assert_eq!(
+        paired["arguments"]["sourceMap"],
+        json!([["/srv/app", local], ["/opt/lib", local]])
+    );
+    // No mapping means no argument, not an empty one.
+    for adapter in ["nested", "keyed", "paired"] {
+        let none = remote_start(adapter, connection_target("build.example.org", 5678));
+        assert_eq!(none["status"], "ok", "{adapter}: {none}");
+        for name in ["pathMappings", "sourceMap"] {
+            assert!(none["arguments"].get(name).is_none(), "{adapter}: {none}");
+        }
+    }
+}
+
+#[test]
+fn debug_start_arguments_tell_the_host_which_endpoints_may_leave_this_machine() {
+    for (host, remote) in [
+        ("localhost", false),
+        ("LocalHost", false),
+        ("127.0.0.1", false),
+        ("127.8.9.10", false),
+        ("::1", false),
+        ("10.0.0.5", true),
+        ("0.0.0.0", true),
+        ("build.example.org", true),
+        // A name is never proven local from its text.
+        ("localhost.example.org", true),
+        ("::ffff:127.0.0.1", true),
+    ] {
+        let started = remote_start("flat", connection_target(host, 5005));
+        assert_eq!(started["status"], "ok", "{host}: {started}");
+        assert_eq!(started["connection"]["remote"], remote, "{host}");
+    }
+}
+
+#[test]
+fn debug_start_arguments_refuse_a_remote_target_without_a_usable_endpoint() {
+    let too_long = format!("{}.example", "a".repeat(250));
+    for host in [
+        "",
+        "http://build.example.org",
+        "build.example.org:5005",
+        "[::1]",
+        "build example",
+        "user@build.example.org",
+        "build.example.org/path",
+        "-build.example.org",
+        "build..example.org",
+        "1.2.3",
+        "300.1.1.1.1",
+        too_long.as_str(),
+    ] {
+        let refused = remote_start("flat", connection_target(host, 5005));
+        assert_eq!(
+            refused["error"]["code"], "debug.target.invalid",
+            "{host}: {refused}"
+        );
+        assert_eq!(refused["error"]["field"], "target.host", "{host}");
+    }
+    let no_host = remote_start("flat", json!({ "kind": "connection", "port": 5005 }));
+    assert_eq!(no_host["error"]["field"], "target.host", "{no_host}");
+    let no_port = remote_start(
+        "flat",
+        json!({ "kind": "connection", "host": "build.example.org" }),
+    );
+    assert_eq!(no_port["error"]["field"], "target.port", "{no_port}");
+    for port in [0_u64, 65_536, 4_294_967_296] {
+        let refused = remote_start("flat", connection_target("build.example.org", port));
+        assert_eq!(
+            refused["error"]["code"], "debug.target.invalid",
+            "{port}: {refused}"
+        );
+        assert_eq!(refused["error"]["field"], "target.port", "{port}");
+    }
+}
+
+#[test]
+fn debug_start_arguments_refuse_path_mappings_the_adapter_cannot_use() {
+    let local = local_root();
+    let with = |mappings: Value| {
+        let mut target = connection_target("build.example.org", 5678);
+        target["pathMappings"] = mappings;
+        remote_start("nested", target)
+    };
+    let too_many: Vec<Value> = (0..17)
+        .map(|index| json!({ "local": local, "remote": format!("/srv/{index}") }))
+        .collect();
+    for (name, mappings) in [
+        ("too many", Value::Array(too_many)),
+        ("empty remote", json!([{ "local": local, "remote": "" }])),
+        ("empty local", json!([{ "local": "", "remote": "/srv" }])),
+        (
+            "multi-line remote",
+            json!([{ "local": local, "remote": "/srv\n/etc" }]),
+        ),
+        (
+            "relative local",
+            json!([{ "local": "src", "remote": "/srv" }]),
+        ),
+    ] {
+        let refused = with(mappings);
+        assert_eq!(
+            refused["error"]["code"], "debug.target.invalid",
+            "{name}: {refused}"
+        );
+        assert_eq!(refused["error"]["field"], "target.pathMappings", "{name}");
+    }
+    // A shape that cannot hold everything the user gave is refused, not
+    // trimmed: `scalar` takes one mapping, and a dictionary keyed by the remote
+    // root has no room for two mappings from the same remote root.
+    let mut two = connection_target("build.example.org", 5678);
+    two["pathMappings"] = json!([
+        { "local": local, "remote": "/srv/app" },
+        { "local": local, "remote": "/opt/lib" },
+    ]);
+    let refused = remote_start("scalar", two);
+    assert_eq!(
+        refused["error"]["code"], "debug.target.invalid",
+        "{refused}"
+    );
+    assert_eq!(
+        refused["error"]["field"], "target.pathMappings",
+        "{refused}"
+    );
+    let mut same_remote = connection_target("build.example.org", 5678);
+    same_remote["pathMappings"] = json!([
+        { "local": local, "remote": "/srv/app" },
+        { "local": format!("{local}/other"), "remote": "/srv/app" },
+    ]);
+    let refused = remote_start("keyed", same_remote.clone());
+    assert_eq!(
+        refused["error"]["code"], "debug.target.invalid",
+        "{refused}"
+    );
+    assert_eq!(
+        refused["error"]["field"], "target.pathMappings",
+        "{refused}"
+    );
+    // Pairs and objects hold the same root twice without loss.
+    for adapter in ["paired", "nested"] {
+        let kept = remote_start(adapter, same_remote.clone());
+        assert_eq!(kept["status"], "ok", "{adapter}: {kept}");
+    }
+    // `flat` declares no mapping argument: dropping the mapping silently would
+    // start a session whose breakpoints do not line up.
+    let mut target = connection_target("build.example.org", 5005);
+    target["pathMappings"] = json!([{ "local": local, "remote": "/srv" }]);
+    let refused = remote_start("flat", target);
+    assert_eq!(
+        refused["error"]["field"], "target.pathMappings",
+        "{refused}"
+    );
+}
+
+#[test]
+fn debug_start_arguments_keep_a_remote_target_to_adapters_that_attach_to_one() {
+    // The fixture's adapters attach only, so a launch is refused as before.
+    let launch = remote_start_with(
+        fixture("debug-adapter-remote-attach.plugin.json"),
+        "flat",
+        "launch",
+        connection_target("build.example.org", 5005),
+    );
+    assert_eq!(launch["error"]["code"], "debug.request.unsupported");
+    // An adapter that attaches to a process has nowhere to put host and port,
+    // and one that also launches may not be handed a connection to launch.
+    for request in ["attach", "launch"] {
+        let refused = remote_start_with(
+            fixture("debug-adapter.plugin.json"),
+            "example",
+            request,
+            connection_target("build.example.org", 5005),
+        );
+        assert_eq!(
+            refused["error"]["code"], "debug.target.invalid",
+            "{request}: {refused}"
+        );
+        assert_eq!(refused["error"]["field"], "target.kind", "{request}");
+    }
+}
+
+#[test]
+fn debug_adapter_launch_plan_says_which_adapters_attach_to_a_remote_endpoint() {
+    let descriptor = |manifest: &str, adapter: &str| {
+        let plan = language_server_launch_plan_command(json!({
+            "manifest": fixture(manifest),
+            "debugAdapterID": adapter,
+            "request": {
+                "pluginDirectory": "/plugins/example",
+                "stateDirectory": "/state/example",
+                "architecture": "arm64"
+            },
+        }))
+        .expect("payload is well formed");
+        assert_eq!(plan["status"], "ok", "{plan}");
+        plan["plan"]["debugAdapter"]["remoteAttach"].clone()
+    };
+    let remote = "debug-adapter-remote-attach.plugin.json";
+    // The host offers as many mapping rows as the adapter can hold.
+    for (adapter, mappings, limit) in [
+        ("flat", false, 0),
+        ("joined", false, 0),
+        ("nested", true, 16),
+        ("scalar", true, 1),
+        ("keyed", true, 16),
+        ("paired", true, 16),
+    ] {
+        assert_eq!(
+            descriptor(remote, adapter),
+            json!({ "pathMappings": mappings, "maxPathMappings": limit }),
+            "{adapter}"
+        );
+    }
+    assert_eq!(
+        descriptor("debug-adapter.plugin.json", "example"),
+        Value::Null
+    );
+}
+
+fn debug_start_native(target: Value) -> Value {
+    crate::plugins::declarative::debug_start_arguments_command(json!({
+        "manifest": fixture("debug-adapter.plugin.json"),
+        "adapterID": "native",
+        "request": "launch",
+        "facts": {
+            "registration": { "generation": 3, "currentGeneration": 3 },
+            "target": target,
+        },
+    }))
+    .expect("payload is well formed")
+}
+
+fn debug_executable_plan(adapter: &str, extra: Value) -> Value {
+    let mut payload = json!({
+        "manifest": fixture("debug-adapter.plugin.json"),
+        "adapterID": adapter,
+    });
+    for (key, value) in extra.as_object().unwrap() {
+        payload[key] = value.clone();
+    }
+    crate::plugins::declarative::debug_executable_plan_command(payload)
+        .expect("payload is well formed")
+}
+
+#[test]
+fn debug_start_arguments_bind_program_to_the_resolved_executable() {
+    // The host resolves a native path, and "absolute" depends on the platform.
+    let executable = if cfg!(windows) {
+        r"C:\work\main"
+    } else {
+        "/work/main"
+    };
+    let launch = debug_start_native(json!({
+        "kind": "file",
+        "path": "/work/main.c",
+        "workingDirectory": "/work",
+        "executable": executable,
+    }));
+    assert_eq!(launch["status"], "ok", "{launch}");
+    // The source file is never the program: the host resolved the binary.
+    assert_eq!(
+        launch["arguments"],
+        json!({ "stopOnEntry": false, "program": executable, "cwd": "/work" })
+    );
+}
+
+#[test]
+fn debug_start_arguments_need_an_absolute_resolved_executable() {
+    for executable in [None, Some(""), Some("main"), Some("./main")] {
+        let mut target = json!({
+            "kind": "file",
+            "path": "/work/main.c",
+            "workingDirectory": "/work",
+        });
+        if let Some(executable) = executable {
+            target["executable"] = json!(executable);
+        }
+        let refused = debug_start_native(target);
+        assert_eq!(
+            refused["error"]["code"], "debug.target.invalid",
+            "{refused}"
+        );
+        assert_eq!(refused["error"]["field"], "target.executable", "{refused}");
+    }
+}
+
+#[test]
+fn debug_executable_plan_lists_the_configured_path_and_ordered_candidates() {
+    let plan = debug_executable_plan(
+        "native",
+        json!({
+            "workspace": "/work/",
+            "targetPath": "/work/src/main.c",
+            "settings": { "program": "/global/app" },
+            "projectSettings": { "program": "/work/out/app" },
+        }),
+    );
+    assert_eq!(plan["status"], "ok", "{plan}");
+    assert_eq!(
+        plan["plan"],
+        json!({
+            "setting": "program",
+            // A project value wins over the global one and says where it came from.
+            "configured": { "path": "/work/out/app", "source": "project" },
+            "candidates": ["/work/src/main", "/work/build/main"],
+        })
+    );
+}
+
+#[test]
+fn debug_executable_plan_reports_no_configured_path_when_the_setting_is_empty() {
+    let plan = debug_executable_plan(
+        "native",
+        json!({ "workspace": "/work", "targetPath": "/work/main.c" }),
+    );
+    assert_eq!(plan["plan"]["configured"], Value::Null, "{plan}");
+    let global = debug_executable_plan(
+        "native",
+        json!({
+            "workspace": "/work",
+            "targetPath": "/work/main.c",
+            "settings": { "program": "/opt/app" },
+        }),
+    );
+    assert_eq!(
+        global["plan"]["configured"],
+        json!({ "path": "/opt/app", "source": "global" })
+    );
+}
+
+#[test]
+fn debug_executable_plan_skips_candidates_it_has_no_facts_for() {
+    // The settings page has a project but no source file: a candidate named
+    // after the file cannot be looked for, so it is left out, not guessed.
+    let plan = debug_executable_plan("native", json!({ "workspace": "/work" }));
+    assert_eq!(plan["plan"]["candidates"], json!([]), "{plan}");
+    let no_project = debug_executable_plan("native", json!({ "targetPath": "/work/main.c" }));
+    assert_eq!(
+        no_project["plan"]["candidates"],
+        json!(["/work/main"]),
+        "{no_project}"
+    );
+}
+
+#[test]
+fn debug_executable_plan_is_empty_for_an_adapter_without_a_lookup() {
+    let plan = debug_executable_plan("example", json!({ "workspace": "/work" }));
+    assert_eq!(plan["status"], "ok", "{plan}");
+    assert_eq!(plan["plan"], Value::Null);
+    let missing = debug_executable_plan("absent", json!({}));
+    assert_eq!(missing["error"]["code"], "plugin.launch.unavailable");
+}
+
+#[test]
+fn debug_start_arguments_refuse_stale_registrations_and_missing_target_facts() {
+    let missing = debug_start("launch", json!({ "kind": "file" }));
+    assert_eq!(missing["error"]["code"], "debug.target.invalid");
+    let stale = crate::plugins::declarative::debug_start_arguments_command(json!({
+        "manifest": fixture("debug-adapter.plugin.json"),
+        "adapterID": "example",
+        "request": "launch",
+        "facts": {
+            "registration": { "generation": 2, "currentGeneration": 3 },
+            "target": { "kind": "file", "path": "/work/main.ex" },
+        },
+    }))
+    .expect("payload is well formed");
+    assert_eq!(stale["error"]["code"], "debug.provider.stale");
 }

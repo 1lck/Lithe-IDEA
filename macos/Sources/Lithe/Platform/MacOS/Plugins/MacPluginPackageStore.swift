@@ -365,6 +365,27 @@ final class MacPluginPackageStore {
         }
     }
 
+    /// A scan worker reads the same plugin directories and the app's bundled
+    /// plugins as this store, but owns its decoder and file manager and never
+    /// writes: it has no state directories or credentials to clean up.
+    func makeScanStoreFactory() -> @Sendable () -> MacPluginPackageStore {
+        let rootURL = rootURL
+        let bundledRootURL = bundledRootURL
+        let hostVersion = hostVersion
+        let validator = validator
+        let verifier = verifier
+        return {
+            MacPluginPackageStore(
+                rootURL: rootURL,
+                bundledRootURL: bundledRootURL,
+                hostVersion: hostVersion,
+                validator: validator,
+                verifier: verifier,
+                fileManager: FileManager()
+            )
+        }
+    }
+
     /// Reads and validates a package's declaration without installing it.
     func inspectPackage(at packageURL: URL) throws -> DeclarativePluginDescriptor {
         try loadPackage(at: packageURL)

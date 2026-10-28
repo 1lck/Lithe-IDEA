@@ -82,6 +82,19 @@ pub enum CoreCommand {
     PluginsDeclarativeTestPlan,
     /// Expands a declarative plugin's language-server launch (`plugins.declarative.languageServerLaunchPlan`).
     PluginsDeclarativeLanguageServerLaunchPlan,
+    /// Checks a debug start and returns the adapter's DAP arguments (`debug.adapters.startArguments`).
+    DebugAdaptersStartArguments,
+    /// Validates an IDE-to-DAP TCP endpoint, not an attach target.
+    DebugValidateAdapterEndpoint,
+    /// Says where to look for the program a launch debugs (`debug.adapters.executablePlan`).
+    DebugAdaptersExecutablePlan,
+    /// Returns the default byte-stream deadlines and queue budgets (`debug.transport.policy`).
+    DebugTransportPolicy,
+    /// Applies one platform event to a byte-stream lifecycle and returns the effects to run
+    /// (`debug.transport.handle`).
+    DebugTransportHandle,
+    /// Forgets the lifecycle of a stopped byte stream (`debug.transport.release`).
+    DebugTransportRelease,
     /// Compares a launch runtime's version output with its requirement (`plugins.declarative.checkRuntimeVersion`).
     PluginsDeclarativeCheckRuntimeVersion,
     /// Merges a plugin's stored setting layers into effective values (`plugins.declarative.resolveSettings`).
@@ -228,6 +241,8 @@ pub enum CoreCommand {
     DebugSetExceptionBreakpoints,
     /// Replaces named function breakpoints for one debug session (`debug.setFunctionBreakpoints`).
     DebugSetFunctionBreakpoints,
+    /// Replaces instruction (address) breakpoints for one debug session (`debug.setInstructionBreakpoints`).
+    DebugSetInstructionBreakpoints,
     /// Resolves one adapter-owned data breakpoint identity (`debug.dataBreakpointInfo`).
     DebugDataBreakpointInfo,
     /// Replaces data breakpoints for one debug session (`debug.setDataBreakpoints`).
@@ -504,6 +519,12 @@ impl CoreCommand {
             "plugins.declarative.languageServerLaunchPlan" => {
                 Some(Self::PluginsDeclarativeLanguageServerLaunchPlan)
             }
+            "debug.adapters.startArguments" => Some(Self::DebugAdaptersStartArguments),
+            "debug.validateAdapterEndpoint" => Some(Self::DebugValidateAdapterEndpoint),
+            "debug.adapters.executablePlan" => Some(Self::DebugAdaptersExecutablePlan),
+            "debug.transport.policy" => Some(Self::DebugTransportPolicy),
+            "debug.transport.handle" => Some(Self::DebugTransportHandle),
+            "debug.transport.release" => Some(Self::DebugTransportRelease),
             "plugins.declarative.checkRuntimeVersion" => {
                 Some(Self::PluginsDeclarativeCheckRuntimeVersion)
             }
@@ -581,6 +602,7 @@ impl CoreCommand {
             "debug.setBreakpoints" => Some(Self::DebugSetBreakpoints),
             "debug.setExceptionBreakpoints" => Some(Self::DebugSetExceptionBreakpoints),
             "debug.setFunctionBreakpoints" => Some(Self::DebugSetFunctionBreakpoints),
+            "debug.setInstructionBreakpoints" => Some(Self::DebugSetInstructionBreakpoints),
             "debug.dataBreakpointInfo" => Some(Self::DebugDataBreakpointInfo),
             "debug.setDataBreakpoints" => Some(Self::DebugSetDataBreakpoints),
             "debug.setVariable" => Some(Self::DebugSetVariable),
@@ -796,6 +818,7 @@ mod tests {
             "debug.setBreakpoints",
             "debug.setExceptionBreakpoints",
             "debug.setFunctionBreakpoints",
+            "debug.setInstructionBreakpoints",
             "debug.dataBreakpointInfo",
             "debug.setDataBreakpoints",
             "debug.setVariable",
@@ -807,6 +830,9 @@ mod tests {
             "debug.startDebuggingResponse",
             "debug.disconnect",
             "debug.destroySession",
+            "debug.transport.policy",
+            "debug.transport.handle",
+            "debug.transport.release",
         ] {
             assert!(CoreCommand::parse(command).is_some(), "missing {command}");
         }

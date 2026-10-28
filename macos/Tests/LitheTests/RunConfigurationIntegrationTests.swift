@@ -442,7 +442,7 @@ struct RunConfigurationIntegrationTests {
         let provider = try #require(LanguageProviderCatalog.standard.provider(
             for: URL(fileURLWithPath: "/tmp/java-project/src/main/java/com/acme/Main.java")
         ))
-        let resolver = DebugLaunchConfigurationResolver(fileExists: { _ in true })
+        let resolver = DebugLaunchConfigurationResolver()
         let root = URL(fileURLWithPath: "/tmp/java-project", isDirectory: true)
         let configuration = try resolver.resolve(
             provider: provider,
@@ -484,7 +484,6 @@ struct RunConfigurationIntegrationTests {
         )
         var requested: [DebugJavaRuntime] = []
         let resolver = DebugLaunchConfigurationResolver(
-            fileExists: { _ in true },
             javaExecutablePath: { runtime in
                 requested.append(runtime)
                 return "/selected/bin/java"
@@ -539,7 +538,6 @@ struct RunConfigurationIntegrationTests {
         let document = URL(fileURLWithPath: "/tmp/java-project/src/main/java/com/acme/Main.java")
         let provider = try #require(LanguageProviderCatalog.standard.provider(for: document))
         let resolver = DebugLaunchConfigurationResolver(
-            fileExists: { _ in true },
             javaExecutablePath: { _ in nil }
         )
 
@@ -604,7 +602,7 @@ struct RunConfigurationIntegrationTests {
             programArguments: "--port 8080",
             environment: ["APP_ENV": "dev"]
         )
-        let resolver = DebugLaunchConfigurationResolver(fileExists: { _ in true })
+        let resolver = DebugLaunchConfigurationResolver()
         let configuration = try resolver.resolve(
             provider: provider,
             documentURL: root.appendingPathComponent("src/main/java/com/acme/Main.java"),
@@ -800,7 +798,6 @@ struct RunConfigurationIntegrationTests {
             testNGTestNames: ["example.UserServiceTest#logsIn"]
         )
         let resolver = DebugLaunchConfigurationResolver(
-            fileExists: { _ in true },
             javaTestLaunchResolver: core
         )
 
@@ -824,7 +821,6 @@ struct RunConfigurationIntegrationTests {
 
         var requested: [DebugJavaRuntime] = []
         let aligned = try DebugLaunchConfigurationResolver(
-            fileExists: { _ in true },
             javaTestLaunchResolver: core,
             javaExecutablePath: { runtime in
                 requested.append(runtime)
@@ -866,7 +862,7 @@ struct RunConfigurationIntegrationTests {
 
     @Test
     func javaAttachUsesTheSharedDAPSessionWithValidatedEndpointArguments() throws {
-        let resolver = DebugLaunchConfigurationResolver(fileExists: { _ in true })
+        let resolver = DebugLaunchConfigurationResolver()
 
         let configuration = try resolver.resolveJavaAttach(host: "  localhost ", port: 5005)
 
@@ -1217,80 +1213,13 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
-    func rustDebugLaunchResolvesTheClosestCargoBinaryArtifact() throws {
-        let root = URL(fileURLWithPath: "/tmp/rust-debug-workspace", isDirectory: true)
-        let source = root.appendingPathComponent("worker/src/main.rs")
-        let expectedExecutable = root.appendingPathComponent("worker/build/debug/worker-api")
-        let configuration = RunConfiguration(
-            id: "cargo.binary:worker/worker-api",
-            name: "worker-api",
-            kind: .process(provider: "cargo.binary"),
-            execution: .application,
-            modulePath: "worker",
-            mainClass: nil
-        )
-        let resolver = DebugLaunchConfigurationResolver { url in
-            url.standardizedFileURL == expectedExecutable.standardizedFileURL
-        }
-        let provider = try #require(LanguageProviderCatalog.standard.provider(for: source))
-
-        let launch = try resolver.resolve(
-            provider: provider,
-            documentURL: source,
-            workspaceURL: root,
-            configurations: [configuration],
-            selectedConfiguration: nil,
-            options: { _ in RunOptions(environment: ["CARGO_TARGET_DIR": "build"]) }
-        )
-
-        #expect(launch.name == "worker-api")
-        #expect(launch.arguments["program"] == .string(expectedExecutable.path))
-        #expect(launch.arguments["cwd"] == .string(root.appendingPathComponent("worker").path))
-    }
-
-    @Test
-    func rustDebugLaunchExplainsHowToBuildAMissingArtifact() throws {
-        let root = URL(fileURLWithPath: "/tmp/rust-debug-missing", isDirectory: true)
-        let source = root.appendingPathComponent("src/main.rs")
-        let configuration = RunConfiguration(
-            id: "cargo.binary:server",
-            name: "server",
-            kind: .process(provider: "cargo.binary"),
-            execution: .application,
-            modulePath: nil,
-            mainClass: nil
-        )
-        let resolver = DebugLaunchConfigurationResolver(fileExists: { _ in false })
-        let provider = try #require(LanguageProviderCatalog.standard.provider(for: source))
-
-        do {
-            _ = try resolver.resolve(
-                provider: provider,
-                documentURL: source,
-                workspaceURL: root,
-                configurations: [configuration],
-                selectedConfiguration: configuration,
-                options: { _ in RunOptions() }
-            )
-            Issue.record("Expected a missing Rust artifact error")
-        } catch let error as DebugLaunchConfigurationResolutionError {
-            guard case .rustExecutableNotBuilt(let url, let binary) = error else {
-                Issue.record("Unexpected resolver error: \(error)")
-                return
-            }
-            #expect(binary == "server")
-            #expect(url.path == root.appendingPathComponent("target/debug/server").path)
-            #expect(error.localizedDescription.contains("cargo build --bin server"))
-        }
-    }
-
-    @Test
     func javaTransportQueuesDAPBytesUntilJdtlsPortAndSocketAreReady() async throws {
         let portGate = JavaDebugPortGate()
         let socket = TestDebugSocketConnection()
         let endpointRecorder = DebugEndpointRecorder()
-        let transport = MacJavaDebugAdapterTransport(
+        let transport = MacHostedPortDebugAdapterTransport(
             portResolver: { rootURL in try await portGate.resolve(rootURL: rootURL) },
+            core: RustCoreBridge(),
             socketFactory: { host, port in
                 endpointRecorder.record(host: host, port: port)
                 return socket
@@ -1322,8 +1251,9 @@ struct RunConfigurationIntegrationTests {
         let portGate = JavaDebugPortGate()
         let socket = TestDebugSocketConnection()
         let endpointRecorder = DebugEndpointRecorder()
-        let transport = MacJavaDebugAdapterTransport(
+        let transport = MacHostedPortDebugAdapterTransport(
             portResolver: { rootURL in try await portGate.resolve(rootURL: rootURL) },
+            core: RustCoreBridge(),
             socketFactory: { host, port in
                 endpointRecorder.record(host: host, port: port)
                 return socket
@@ -2585,18 +2515,22 @@ struct RunConfigurationIntegrationTests {
 
     @Test
     func stoppingToolingSessionsClearsProjectScopedBreakpoints() throws {
-        let descriptor = try #require(LanguageProviderCatalog.standard.provider(
-            for: URL(fileURLWithPath: "/tmp/main.py")
-        ))
+        // Breakpoint cleanup must not depend on the product's installed debug providers.
+        let descriptor = LanguageProviderDescriptor(
+            id: "python", displayName: "Python", fileExtensions: ["py"],
+            capabilities: [.debugAdapter], activationPolicy: .onDemand
+        )
+        let catalog = LanguageProviderCatalog(descriptors: [descriptor])
         let runtime = TestDebugLanguageProviderRuntime(descriptor: descriptor)
         let manager = DebugAdapterSessionManager(
-            providers: LanguageProviderCatalog.standard.debugProviders,
+            providers: catalog.debugProviders,
             makeSession: { descriptor, rootURL in
                 descriptor.id == runtime.descriptor.id
                     ? runtime.makeSession()
                     : nil
             }
         )
+        defer { manager.stopAll() }
         let firstRoot = URL(fileURLWithPath: "/tmp/first-python-project")
         let firstSource = firstRoot.appendingPathComponent("main.py")
         try manager.setBreakpoints([DebugSourceBreakpoint(line: 12)], in: firstSource)
@@ -5130,7 +5064,10 @@ private final class TestDebugSocketConnection: DebugAdapterSocketConnection {
     private(set) var sent: [Data] = []
 
     func start() { startCount += 1 }
-    func send(_ data: Data) { sent.append(data) }
+    func send(_ data: Data, completion: @escaping @MainActor @Sendable (Result<Void, Error>) -> Void) {
+        sent.append(data)
+        completion(.success(()))
+    }
     func stop() { stopCount += 1 }
 }
 

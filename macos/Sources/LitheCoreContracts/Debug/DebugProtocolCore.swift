@@ -119,7 +119,67 @@ public struct DebugCoreCapabilities: Decodable, Equatable, Sendable {
     public let supportsExceptionInfoRequest: Bool
     public let supportsStepInTargetsRequest: Bool
     public let supportsGotoTargetsRequest: Bool
+    public let supportsCompletionsRequest: Bool
+    public let supportsDisassembleRequest: Bool
+    public let supportsSteppingGranularity: Bool
+    public let supportsInstructionBreakpoints: Bool
+    public let supportsReadMemoryRequest: Bool
     public let exceptionBreakpointFilters: [DebugExceptionBreakpointFilter]
+
+    private enum CodingKeys: String, CodingKey {
+        case supportsConfigurationDone, supportsConditionalBreakpoints
+        case supportsHitConditionalBreakpoints, supportsLogPoints
+        case supportsFunctionBreakpoints, supportsDataBreakpoints
+        case supportsExceptionOptions, supportsExceptionFilterOptions
+        case supportsSetVariable, supportsCancelRequest
+        case supportsSingleThreadExecutionRequests, supportsRestartRequest
+        case supportsTerminateRequest, supportsStepBack, supportsExceptionInfoRequest
+        case supportsStepInTargetsRequest, supportsGotoTargetsRequest
+        case supportsCompletionsRequest, supportsDisassembleRequest
+        case supportsSteppingGranularity, supportsInstructionBreakpoints
+        case supportsReadMemoryRequest, exceptionBreakpointFilters
+    }
+
+    /// The memory and instruction flags are newer than the first Core snapshot, so a
+    /// snapshot that omits them reads as "not supported" instead of failing to decode.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        supportsConfigurationDone = try container.decode(Bool.self, forKey: .supportsConfigurationDone)
+        supportsConditionalBreakpoints = try container.decode(Bool.self, forKey: .supportsConditionalBreakpoints)
+        supportsHitConditionalBreakpoints = try container.decode(Bool.self, forKey: .supportsHitConditionalBreakpoints)
+        supportsLogPoints = try container.decode(Bool.self, forKey: .supportsLogPoints)
+        supportsFunctionBreakpoints = try container.decode(Bool.self, forKey: .supportsFunctionBreakpoints)
+        supportsDataBreakpoints = try container.decode(Bool.self, forKey: .supportsDataBreakpoints)
+        supportsExceptionOptions = try container.decode(Bool.self, forKey: .supportsExceptionOptions)
+        supportsExceptionFilterOptions = try container.decode(Bool.self, forKey: .supportsExceptionFilterOptions)
+        supportsSetVariable = try container.decode(Bool.self, forKey: .supportsSetVariable)
+        supportsCancelRequest = try container.decode(Bool.self, forKey: .supportsCancelRequest)
+        supportsSingleThreadExecutionRequests = try container.decode(
+            Bool.self, forKey: .supportsSingleThreadExecutionRequests
+        )
+        supportsRestartRequest = try container.decode(Bool.self, forKey: .supportsRestartRequest)
+        supportsTerminateRequest = try container.decode(Bool.self, forKey: .supportsTerminateRequest)
+        supportsStepBack = try container.decode(Bool.self, forKey: .supportsStepBack)
+        supportsExceptionInfoRequest = try container.decode(Bool.self, forKey: .supportsExceptionInfoRequest)
+        supportsStepInTargetsRequest = try container.decode(Bool.self, forKey: .supportsStepInTargetsRequest)
+        supportsGotoTargetsRequest = try container.decode(Bool.self, forKey: .supportsGotoTargetsRequest)
+        supportsCompletionsRequest = try container.decode(Bool.self, forKey: .supportsCompletionsRequest)
+        supportsDisassembleRequest = try container.decodeIfPresent(
+            Bool.self, forKey: .supportsDisassembleRequest
+        ) ?? false
+        supportsSteppingGranularity = try container.decodeIfPresent(
+            Bool.self, forKey: .supportsSteppingGranularity
+        ) ?? false
+        supportsInstructionBreakpoints = try container.decodeIfPresent(
+            Bool.self, forKey: .supportsInstructionBreakpoints
+        ) ?? false
+        supportsReadMemoryRequest = try container.decodeIfPresent(
+            Bool.self, forKey: .supportsReadMemoryRequest
+        ) ?? false
+        exceptionBreakpointFilters = try container.decode(
+            [DebugExceptionBreakpointFilter].self, forKey: .exceptionBreakpointFilters
+        )
+    }
 }
 
 public struct DebugCoreOperationResult: Decodable, Equatable, Sendable {
@@ -137,12 +197,63 @@ public struct DebugCoreOperationResult: Decodable, Equatable, Sendable {
     public let canPersist: Bool?
     public let targets: [DebugCoreTarget]?
     public let changedClasses: [String]?
+    public let items: [DebugCoreCompletionItem]?
+    /// `disassemble` result.
+    public let instructions: [DebugCoreInstruction]?
+    /// `readMemory` result: the address actually read, bytes past it that could not be
+    /// read, and the bytes as base64.
+    public let address: String?
+    public let unreadableBytes: Int?
+    public let dataBase64: String?
 
     private enum CodingKeys: String, CodingKey {
         case kind, command, threads, stackFrames, scopes, variables, variable, exceptionInfo
         case dataID = "dataId"
-        case description, accessTypes, canPersist, targets, changedClasses
+        case description, accessTypes, canPersist, targets, changedClasses, items
+        case instructions, address, unreadableBytes, dataBase64
     }
+}
+
+public struct DebugCoreInstruction: Decodable, Equatable, Sendable {
+    public let address: String
+    public let instructionBytes: String?
+    public let instruction: String
+    public let symbol: String?
+    public let sourcePath: String?
+    public let line: Int?
+}
+
+/// Arguments of a `disassemble` or `readMemory` inspection. `reference` is the opaque
+/// address string; the host never parses it or does arithmetic on it.
+public struct DebugCoreMemoryQuery: Equatable, Sendable {
+    public let reference: String
+    public let offset: Int?
+    public let instructionOffset: Int?
+    public let instructionCount: Int?
+    public let resolveSymbols: Bool?
+
+    public init(
+        reference: String,
+        offset: Int? = nil,
+        instructionOffset: Int? = nil,
+        instructionCount: Int? = nil,
+        resolveSymbols: Bool? = nil
+    ) {
+        self.reference = reference
+        self.offset = offset
+        self.instructionOffset = instructionOffset
+        self.instructionCount = instructionCount
+        self.resolveSymbols = resolveSymbols
+    }
+}
+
+public struct DebugCoreCompletionItem: Decodable, Equatable, Sendable {
+    public let label: String
+    public let text: String
+    public let detail: String?
+    public let kind: String?
+    public let start: Int?
+    public let length: Int?
 }
 
 public struct DebugCoreTarget: Decodable, Equatable, Sendable {
@@ -161,6 +272,7 @@ public struct DebugCoreBreakpoint: Decodable, Equatable, Sendable {
     public let message: String?
     public let functionName: String?
     public let dataID: String?
+    public let instructionReference: String?
     public let sourcePath: String?
     public let requestedLine: Int?
     public let line: Int?
@@ -169,6 +281,7 @@ public struct DebugCoreBreakpoint: Decodable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id, verified, message, functionName
         case dataID = "dataId"
+        case instructionReference
         case sourcePath, requestedLine, line, column
     }
 }
@@ -182,6 +295,10 @@ public struct DebugCoreStackFrame: Decodable, Equatable, Sendable {
     public let id: Int
     public let name: String
     public let sourcePath: String?
+    /// Set when the adapter serves the source itself, so `sourcePath` is not a file on disk.
+    public let sourceReference: Int?
+    /// Address of the frame's current instruction; the anchor for a frame with no source.
+    public let instructionPointerReference: String?
     public let line: Int
     public let column: Int
     public let isFiltered: Bool
@@ -190,6 +307,8 @@ public struct DebugCoreStackFrame: Decodable, Equatable, Sendable {
         id: Int,
         name: String,
         sourcePath: String?,
+        sourceReference: Int? = nil,
+        instructionPointerReference: String? = nil,
         line: Int,
         column: Int,
         isFiltered: Bool = false
@@ -197,13 +316,16 @@ public struct DebugCoreStackFrame: Decodable, Equatable, Sendable {
         self.id = id
         self.name = name
         self.sourcePath = sourcePath
+        self.sourceReference = sourceReference
+        self.instructionPointerReference = instructionPointerReference
         self.line = line
         self.column = column
         self.isFiltered = isFiltered
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, sourcePath, line, column, isFiltered
+        case id, name, sourcePath, sourceReference, instructionPointerReference
+        case line, column, isFiltered
     }
 
     public init(from decoder: any Decoder) throws {
@@ -211,6 +333,10 @@ public struct DebugCoreStackFrame: Decodable, Equatable, Sendable {
         id = try container.decode(Int.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)
         sourcePath = try container.decodeIfPresent(String.self, forKey: .sourcePath)
+        sourceReference = try container.decodeIfPresent(Int.self, forKey: .sourceReference)
+        instructionPointerReference = try container.decodeIfPresent(
+            String.self, forKey: .instructionPointerReference
+        )
         line = try container.decode(Int.self, forKey: .line)
         column = try container.decode(Int.self, forKey: .column)
         isFiltered = try container.decodeIfPresent(Bool.self, forKey: .isFiltered) ?? false
@@ -223,9 +349,11 @@ public struct DebugCoreScope: Decodable, Equatable, Sendable {
     public let expensive: Bool
     public let namedVariables: Int
     public let indexedVariables: Int
+    public let presentationHint: String?
 
     private enum CodingKeys: String, CodingKey {
         case name, variablesReference, expensive, namedVariables, indexedVariables
+        case presentationHint
     }
 
     public init(from decoder: any Decoder) throws {
@@ -233,6 +361,7 @@ public struct DebugCoreScope: Decodable, Equatable, Sendable {
         name = try container.decode(String.self, forKey: .name)
         variablesReference = try container.decode(Int.self, forKey: .variablesReference)
         expensive = try container.decode(Bool.self, forKey: .expensive)
+        presentationHint = try container.decodeIfPresent(String.self, forKey: .presentationHint)
         namedVariables = max(0, try container.decodeIfPresent(Int.self, forKey: .namedVariables) ?? 0)
         indexedVariables = max(0, try container.decodeIfPresent(Int.self, forKey: .indexedVariables) ?? 0)
     }
@@ -322,6 +451,7 @@ public protocol DebugProtocolCore: DebugSteppingFilterResolving, Sendable {
         rootPath: String,
         supportsRunInTerminalRequest: Bool,
         supportsStartDebuggingRequest: Bool,
+        disabledCapabilities: [String],
         parentSessionID: String?
     ) throws -> DebugCoreUpdate
     func launchDebugSession(
@@ -341,6 +471,10 @@ public protocol DebugProtocolCore: DebugSteppingFilterResolving, Sendable {
     func setDebugFunctionBreakpoints(
         sessionID: String,
         breakpoints: [DebugFunctionBreakpoint]
+    ) throws -> DebugCoreUpdate
+    func setDebugInstructionBreakpoints(
+        sessionID: String,
+        breakpoints: [DebugInstructionBreakpoint]
     ) throws -> DebugCoreUpdate
     func debugDataBreakpointInfo(
         sessionID: String,
@@ -371,7 +505,8 @@ public protocol DebugProtocolCore: DebugSteppingFilterResolving, Sendable {
         command: DebugExecutionCommand,
         threadID: Int?,
         targetID: Int?,
-        singleThread: Bool
+        singleThread: Bool,
+        granularity: DebugSteppingGranularity?
     ) throws -> DebugCoreUpdate
     func inspectDebugSession(
         sessionID: String,
@@ -384,9 +519,11 @@ public protocol DebugProtocolCore: DebugSteppingFilterResolving, Sendable {
         start: Int?,
         count: Int?,
         expression: String?,
+        context: String?,
         sourcePath: String?,
         line: Int?,
-        column: Int?
+        column: Int?,
+        memory: DebugCoreMemoryQuery?
     ) throws -> DebugCoreUpdate
     func receiveDebugData(sessionID: String, data: Data) throws -> DebugCoreUpdate
     func completeDebugRunInTerminalRequest(

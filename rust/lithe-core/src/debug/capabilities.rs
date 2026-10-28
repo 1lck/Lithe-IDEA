@@ -31,6 +31,11 @@ pub(crate) const REGISTERED_ADAPTER_CAPABILITIES: &[&str] = &[
     "supportsExceptionInfoRequest",
     "supportsStepInTargetsRequest",
     "supportsGotoTargetsRequest",
+    "supportsCompletionsRequest",
+    "supportsDisassembleRequest",
+    "supportsSteppingGranularity",
+    "supportsInstructionBreakpoints",
+    "supportsReadMemoryRequest",
 ];
 
 /// The session cannot reach `configurationDone` ordering without this capability.
@@ -46,13 +51,14 @@ pub(crate) struct HostFeatures {
 /// Client capabilities for the DAP `initialize` request.
 ///
 /// Only extensions registered in this build may be declared; everything else stays
-/// `false` so adapters never send requests the Core cannot answer. Memory references and
-/// progress reporting have no registered extension yet.
+/// `false` so adapters never send requests the Core cannot answer. Memory references are
+/// declared because `readMemory` is registered (read-only: `writeMemory` has no extension);
+/// progress reporting has no registered extension yet.
 pub(crate) fn client_capabilities(host: HostFeatures) -> Value {
     json!({
         "supportsRunInTerminalRequest": host.run_in_terminal,
         "supportsStartDebuggingRequest": host.start_debugging,
-        "supportsMemoryReferences": false,
+        "supportsMemoryReferences": true,
         "supportsProgressReporting": false,
         "supportsInvalidatedEvent": false
     })
@@ -133,7 +139,7 @@ mod tests {
         let adapter = adapter(json!({
             "supportsSetVariable": true,
             "supportsRestartRequest": true,
-            "supportsReadMemoryRequest": true,
+            "supportsWriteMemoryRequest": true,
             "supportsTerminateRequest": false
         }));
         let disabled = validate_disabled(&["supportsRestartRequest".to_string()]).unwrap();
@@ -144,9 +150,9 @@ mod tests {
         assert!(!states["supportsRestartRequest"].authorized);
         assert!(!states["supportsRestartRequest"].supported);
         // Adapter offers it but no extension is registered, so the UI never sees it.
-        assert!(states["supportsReadMemoryRequest"].adapter);
-        assert!(!states["supportsReadMemoryRequest"].extension);
-        assert!(!states["supportsReadMemoryRequest"].supported);
+        assert!(states["supportsWriteMemoryRequest"].adapter);
+        assert!(!states["supportsWriteMemoryRequest"].extension);
+        assert!(!states["supportsWriteMemoryRequest"].supported);
         // Registered but not negotiated.
         assert!(states["supportsTerminateRequest"].extension);
         assert!(!states["supportsTerminateRequest"].supported);
@@ -158,19 +164,19 @@ mod tests {
     fn effective_body_clears_unsupported_flags_only() {
         let adapter = adapter(json!({
             "supportsSetVariable": true,
-            "supportsReadMemoryRequest": true,
+            "supportsWriteMemoryRequest": true,
             "exceptionBreakpointFilters": []
         }));
         let states = capability_states(&adapter, &BTreeSet::new());
         let body = effective_body(&adapter, &states);
         assert_eq!(body["supportsSetVariable"], true);
-        assert_eq!(body["supportsReadMemoryRequest"], false);
+        assert_eq!(body["supportsWriteMemoryRequest"], false);
         assert!(body["exceptionBreakpointFilters"].is_array());
     }
 
     #[test]
     fn disabling_rejects_unknown_and_mandatory_capabilities() {
-        assert!(validate_disabled(&["supportsReadMemoryRequest".to_string()]).is_err());
+        assert!(validate_disabled(&["supportsWriteMemoryRequest".to_string()]).is_err());
         assert!(validate_disabled(&["notACapability".to_string()]).is_err());
         assert!(validate_disabled(&["supportsConfigurationDoneRequest".to_string()]).is_err());
     }
@@ -183,6 +189,6 @@ mod tests {
         });
         assert_eq!(value["supportsRunInTerminalRequest"], true);
         assert_eq!(value["supportsStartDebuggingRequest"], false);
-        assert_eq!(value["supportsMemoryReferences"], false);
+        assert_eq!(value["supportsMemoryReferences"], true);
     }
 }

@@ -19,6 +19,10 @@ struct MacPluginStartupResult {
     /// `false` when the installed packages could not be scanned at all, so an
     /// empty `installedPlugins` means "unknown" rather than "none installed".
     var scanSucceeded = true
+    /// Accepted packages that take effect without a restart. They are not in
+    /// `registeredPlugins`: the live registry owns them for the whole process,
+    /// so installing, updating or removing one never touches the module graph.
+    var livePlugins: [InstalledPluginPackage] = []
 
     var installedManifests: [PluginManifest] {
         installedPlugins.map(\.manifest).sorted { $0.id < $1.id }
@@ -28,11 +32,21 @@ struct MacPluginStartupResult {
         registeredPlugins.map(\.manifest).sorted { $0.id < $1.id }
     }
 
+    /// Languages owned by launch-registered packages. A live package's
+    /// languages come from the live registry, which follows its enablement.
     var installedLanguageSupports: [LanguageSupportDeclaration] {
-        installedManifests
-            .flatMap { $0.languageSupports ?? [] }
+        installedPlugins
+            .filter { !$0.descriptor.canActivateWithoutRestart }
+            .flatMap { $0.manifest.languageSupports ?? [] }
             .sorted { $0.id < $1.id }
     }
+}
+
+/// The packages a load accepted, and why it rejected the rest.
+struct MacPluginAcceptance {
+    var accepted: [InstalledPluginPackage] = []
+    var issues: [PluginStartupIssue] = []
+    var iconResources: [String: PluginUIIconResources] = [:]
 }
 
 // Note: 声明式插件不加载任何插件代码，启动流程见 .agents/notes/implemented/architecture/2026-10-12-declarative-language-plugins.md
@@ -76,12 +90,33 @@ final class MacPluginStartupLoader {
             )
         }
 
-        var accepted: [InstalledPluginPackage] = []
-        var iconResources: [String: PluginUIIconResources] = [:]
         var issues = scan.issues.map {
             PluginStartupIssue(pluginID: $0.pluginID, message: $0.message)
         }
-        for installed in scan.packages.sorted(by: { $0.manifest.id < $1.manifest.id }) {
+        let acceptance = accept(scan.packages, alongside: [])
+        issues += acceptance.issues
+        Self.log(issues)
+        let live = acceptance.accepted.filter { $0.descriptor.canActivateWithoutRestart }
+        return MacPluginStartupResult(
+            installedPlugins: scan.packages,
+            registeredPlugins: acceptance.accepted.filter { !$0.descriptor.canActivateWithoutRestart },
+            issues: issues,
+            iconResources: acceptance.iconResources,
+            livePlugins: live
+        )
+    }
+
+    /// Decides which of `packages` join the module graph next to the built-in
+    /// and `registered` manifests. Candidates are checked one by one, in ID
+    /// order, so ownership collisions are rejected per package; the live
+    /// registry runs the same checks on its own scan. A rejected package
+    /// remains inspectable.
+    func accept(
+        _ packages: [InstalledPluginPackage],
+        alongside registered: [PluginManifest]
+    ) -> MacPluginAcceptance {
+        var result = MacPluginAcceptance()
+        for installed in packages.sorted(by: { $0.manifest.id < $1.manifest.id }) {
             // A removed bundled plugin stays listed so it can be restored and
             // keeps owning its language, but none of its modules are registered.
             guard installed.installation.status != .removed else { continue }
@@ -91,7 +126,8 @@ final class MacPluginStartupLoader {
                 let catalog = try ValidatedPluginCatalog(
                     manifests: BuiltInPluginCatalog.manifests
                         + BundledLanguagePluginCatalog.manifests
-                        + accepted.map(\.manifest)
+                        + registered
+                        + result.accepted.map(\.manifest)
                         + [installed.manifest],
                     hostVersion: hostVersion
                 )
@@ -99,10 +135,10 @@ final class MacPluginStartupLoader {
                 // construct its UI; a rejected package remains inspectable.
                 try validateUI(catalog)
                 let icons = try MacPluginUIIconLoader.load(installed.descriptor, at: installed.packageURL)
-                iconResources.merge(icons) { _, new in new }
-                accepted.append(installed)
+                result.iconResources.merge(icons) { _, new in new }
+                result.accepted.append(installed)
             } catch {
-                issues.append(PluginStartupIssue(
+                result.issues.append(PluginStartupIssue(
                     pluginID: installed.manifest.id,
                     message: error.localizedDescription
                 ))
@@ -113,25 +149,20 @@ final class MacPluginStartupLoader {
             try validateStaticGraph(
                 manifests: BuiltInPluginCatalog.manifests
                     + BundledLanguagePluginCatalog.manifests
-                    + accepted.map(\.manifest)
+                    + registered
+                    + result.accepted.map(\.manifest)
             )
         } catch {
-            issues.append(PluginStartupIssue(pluginID: nil, message: error.localizedDescription))
-            accepted.removeAll()
-            iconResources.removeAll()
+            result.issues.append(PluginStartupIssue(pluginID: nil, message: error.localizedDescription))
+            result.accepted.removeAll()
+            result.iconResources.removeAll()
         }
-
-        Self.log(issues)
-        return MacPluginStartupResult(
-            installedPlugins: scan.packages,
-            registeredPlugins: accepted,
-            issues: issues, iconResources: iconResources
-        )
+        return result
     }
 
     /// Rejected or failed plugins are otherwise only visible in Plugin
     /// Management, so record them in the unified log for diagnosis.
-    private static func log(_ issues: [PluginStartupIssue]) {
+    static func log(_ issues: [PluginStartupIssue]) {
         for issue in issues {
             NSLog(
                 "Lithe plugin startup issue [%@]: %@",

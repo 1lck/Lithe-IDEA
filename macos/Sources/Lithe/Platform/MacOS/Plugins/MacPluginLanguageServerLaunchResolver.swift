@@ -67,6 +67,14 @@ struct MacPluginStateDirectories: Sendable {
         pluginDirectory(pluginID: pluginID).appendingPathComponent("backend", isDirectory: true)
     }
 
+    /// `${stateDir}` of one debug adapter process. It goes with the plugin
+    /// directory on uninstall.
+    func debugAdapterStateDirectory(pluginID: String, adapterID: String) -> URL {
+        pluginDirectory(pluginID: pluginID)
+            .appendingPathComponent("debug-adapters", isDirectory: true)
+            .appendingPathComponent(adapterID, isDirectory: true)
+    }
+
     /// `${workspaceStateDir}` of one VCS provider.
     func vcsProviderWorkspaceStateDirectory(pluginID: String, vcs: String, workspaceRootURL: URL) -> URL {
         vcsProviderStateDirectory(pluginID: pluginID, vcs: vcs)
@@ -323,6 +331,94 @@ struct MacPluginLanguageServerLaunchResolver {
         // The session starts in this directory even when no argument names it.
         try fileManager.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
         return BackendProcess(process: process, hostServices: backend.hostServices, stateDirectory: stateDirectory)
+    }
+
+    /// How a debug adapter is reached once Core expanded its launch. The DAP
+    /// `adapterID` and the supported requests come from Rust Core's descriptor.
+    struct DebugAdapterLaunch: Equatable {
+        enum Host: Equatable {
+            /// A process of its own, with every package path verified and its
+            /// state directories created.
+            case process(BuildProviderProcess)
+            /// Hosted by the plugin's own language server: no process starts
+            /// here, the server's session does, and `command` makes it listen.
+            case languageServer(languageID: String, command: String)
+        }
+
+        let host: Host
+        let adapter: DeclarativeLanguageServerLaunchPlan.DebugAdapter
+    }
+
+    /// Expands the launch of one debug adapter for one workspace. A packaged
+    /// executable or a system command over stdio, or an adapter hosted by the
+    /// plugin's language server, is supported; the adapter never writes into
+    /// the package.
+    func resolveDebugAdapter(
+        pluginID: String,
+        adapterID: String,
+        manifest: Data,
+        packageURL: URL,
+        workspaceRootURL: URL
+    ) throws -> DebugAdapterLaunch {
+        let launchSettings = self.settingValues(forPlugin: pluginID, workspaceRootURL: workspaceRootURL)
+        let stateDirectory = directories.debugAdapterStateDirectory(pluginID: pluginID, adapterID: adapterID)
+        let request = DeclarativeLanguageServerLaunchRequest(
+            pluginDirectory: packageURL.standardizedFileURL,
+            stateDirectory: stateDirectory,
+            workspaceStateDirectory: stateDirectory
+                .appendingPathComponent("workspaces", isDirectory: true)
+                .appendingPathComponent(MacPluginStateDirectories.workspaceDigest(workspaceRootURL), isDirectory: true),
+            architecture: Self.hostArchitecture,
+            settings: settings.values(forPlugin: pluginID),
+            projectSettings: settings.projectValues(forPlugin: pluginID, projectRoot: workspaceRootURL)
+        )
+        let plan = try planner.debugAdapterLaunchPlan(manifest: manifest, adapterID: adapterID, request: request)
+        guard let adapter = plan.debugAdapter, adapter.id == adapterID else {
+            throw DeclarativePluginRejection(
+                code: "plugin.launch.unavailable",
+                message: L10n.string("The plugin does not provide the debug adapter \(adapterID).")
+            )
+        }
+        // The adapter lives inside the plugin's language server: the plan is
+        // that server's launch, which its own session performs, so nothing
+        // starts or is created here.
+        if adapter.transport == "tcpLanguageServer" {
+            guard let endpoint = adapter.languageServerEndpoint else {
+                throw DeclarativePluginRejection(
+                    code: "plugin.launch.unavailable",
+                    message: L10n.string("The debug adapter \(adapterID) names no language server to host it."),
+                    field: "debugAdapters.launch.endpoint"
+                )
+            }
+            return DebugAdapterLaunch(
+                host: .languageServer(languageID: endpoint.languageID, command: endpoint.command),
+                adapter: adapter
+            )
+        }
+        // Any other TCP adapter would be started and then never reached, so
+        // refuse before the process exists.
+        guard adapter.transport == "stdio" else {
+            throw DeclarativePluginRejection(
+                code: "plugin.launch.unsupportedTransport",
+                message: L10n.string(
+                    "The debug adapter \(adapterID) uses the \(adapter.transport) transport, which Lithe cannot start yet. Only stdio and language server hosted adapters are supported."
+                ),
+                field: "debugAdapters.launch.transport"
+            )
+        }
+        switch plan.executable {
+        case .packaged?, .systemCommand?: break
+        default:
+            throw DeclarativePluginRejection(
+                code: "plugin.launch.unavailable",
+                message: L10n.string("The debug adapter \(adapterID) must launch a packaged executable or a system command.")
+            )
+        }
+        let process = try providerProcess(
+            plan, request: request, packageURL: packageURL,
+            executesProjectCode: true, mayUseNetwork: false, settings: launchSettings
+        )
+        return DebugAdapterLaunch(host: .process(process), adapter: adapter)
     }
 
     /// The executable of a plan's own process, with its package paths

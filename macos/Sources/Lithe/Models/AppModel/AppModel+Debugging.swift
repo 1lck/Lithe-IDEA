@@ -100,6 +100,26 @@ extension AppModel {
         }
     }
 
+    /// Returns the reason initialization failed, or nil once it has completed
+    /// (or the request was cancelled). The caller keeps its form open on
+    /// a message, so the user's host, port and arguments are not lost.
+    func connectExternalDebugAdapter(
+        configuration: DebugLaunchConfiguration, fileURL: URL
+    ) async -> String? {
+        let notReady = L10n.string("The debug adapter connection could not be started.")
+        guard let identity = currentWorkspaceIdentity, let workspaceURL else { return notReady }
+        guard let feature = await activateDebugModule()?.genericFeature else { return notReady }
+        guard !Task.isCancelled else { return nil }
+        guard isCurrentWorkspace(identity) else { return notReady }
+        // The selected source chooses an installed provider, not a wire
+        // protocol guessed from the port. A failed connection stays visible
+        // in Debug, rather than restoring an older session over its error.
+        showDebugToolWindow()
+        return await ExternalDebugAdapterConnection.connect(
+            feature: feature, fileURL: fileURL, rootURL: workspaceURL, configuration: configuration
+        )
+    }
+
     private func attachJavaDebuggerAfterActivation(host: String, port: Int) async {
         guard let workspaceURL,
               await activateDebugModule() != nil else { return }
@@ -198,10 +218,10 @@ extension AppModel {
                 showNotification("Open a source file or choose a project Run configuration")
             return
         case .javaSourceUnavailable(let name):
-            showNotification("Could not find the Java source for \(name)")
+            showNotification("Could not find the Java source for %@", arguments: [name])
             return
         case .unsupported(let name):
-            showNotification("\(name) does not support Debug yet")
+            showNotification("%@ does not support Debug yet", arguments: [name])
             return
         }
 
@@ -212,7 +232,7 @@ extension AppModel {
         )
         guard case .ready = providerReadiness else {
             if case .unsupported(let fileName) = providerReadiness {
-                showNotification("Debug support is not available for \(fileName)")
+                showNotification("Debug support is not available for %@", arguments: [fileName])
             }
             showToolWindow(.debug)
             return
@@ -272,7 +292,10 @@ extension AppModel {
     func revealDebugLocation(url: URL, line: Int, column: Int?) {
         let normalizedURL = url.standardizedFileURL
         guard workspaceFeature.fileExists(at: normalizedURL) else {
-            showNotification("The stopped source file is no longer available: \(url.lastPathComponent)")
+            showNotification(
+                "The stopped source file is no longer available: %@",
+                arguments: [url.lastPathComponent]
+            )
             return
         }
         navigate(

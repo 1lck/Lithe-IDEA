@@ -10,7 +10,7 @@ enum DiffSyntaxHighlighter {
     }
 
     // Reuse the editor's configured syntax colors instead of UI status colors.
-    private static func syntaxColor(_ keyPath: KeyPath<SyntaxHighlightingPalette, NSColor>) -> Color {
+    static func syntaxColor(_ keyPath: KeyPath<SyntaxHighlightingPalette, NSColor>) -> Color {
         Color(nsColor: NSColor(name: nil) { appearance in
             let dark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
             let base = CodeEditorPalette(isDark: dark, theme: LitheTheme.activeTheme)

@@ -977,6 +977,10 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `maven.diagnostics` | Parse stable Maven compiler diagnostics from build output |
 | `maven.testResults` | Parse bounded JUnit/Surefire result summaries and failure locations |
 | `debug.createSession` | Create a transport-neutral DAP session and return its initialize frame |
+| `debug.validateAdapterEndpoint` | Validate an IDE-to-DAP TCP endpoint and classify whether remote consent is required; performs no DNS or network I/O |
+| `debug.transport.policy` | Return the default byte-stream deadlines, queue budgets and the session `initialize` deadline; creates no state |
+| `debug.transport.handle` | Apply one platform event to an IDE-to-adapter byte-stream lifecycle and return the effects the platform runs next |
+| `debug.transport.release` | Forget the lifecycle of a stopped byte stream once the platform dropped its handles |
 | `debug.launch` | Queue a launch or attach request, including during initialization |
 | `debug.javaTestLaunch` | Normalize JUnit or TestNG launch metadata into Java DAP arguments |
 | `debug.steppingFilters` | Return adapter defaults or normalize portable stepping filters |
@@ -986,6 +990,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `debug.setFunctionBreakpoints` | Replace and deterministically order one session's named function breakpoints |
 | `debug.dataBreakpointInfo` | Resolve an adapter-owned data breakpoint identity for a paused variable or field |
 | `debug.setDataBreakpoints` | Replace and deterministically order one session's resolved data breakpoints |
+| `debug.setInstructionBreakpoints` | Replace and deterministically order one session's machine-instruction breakpoints |
 | `debug.setVariable` | Replace one visible variable value in its adapter-owned parent container |
 | `debug.cancelOperation` | Cancel or time out one pending operation and ignore its late response |
 | `debug.execute` | Submit continue, pause, next, step-in, or step-out control |
@@ -1097,7 +1102,9 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `plugins.declarative.runPlan` | Expand a declarative plugin's run template for one workspace file |
 | `plugins.declarative.discoverTests` | List a declarative plugin's workspace and file test items |
 | `plugins.declarative.testPlan` | Expand a declarative plugin's test template for a workspace, file, or test case |
-| `plugins.declarative.languageServerLaunchPlan` | Expand a declarative plugin's language-server, build-provider, or VCS-provider launch with host directories and architecture |
+| `plugins.declarative.languageServerLaunchPlan` | Expand a declarative plugin's language-server, build-provider, VCS-provider, backend, or debug-adapter launch with host directories and architecture |
+| `debug.adapters.startArguments` | Check one debug start against a plugin's `debugAdapters[]` entry and return its DAP launch arguments |
+| `debug.adapters.executablePlan` | Say where to look for the program a launch debugs: the user's setting and the adapter's candidate paths |
 | `plugins.declarative.resolveSettings` | Merge a plugin's stored global and project setting layers into effective values with their source |
 | `plugins.declarative.workspaceConfiguration` | Expand a language server's `workspaceConfiguration` with the merged setting values |
 | `plugins.declarative.checkRuntimeVersion` | Decide whether a launch runtime's version output meets the declared minimum version |
@@ -2088,8 +2095,126 @@ scope, variable, evaluation, output, stop, continue, and termination events.
 Platforms own adapter discovery, JDT LS activation, sockets or process pipes,
 native process termination, persistence, and UI rendering.
 
+`debug.validateAdapterEndpoint` accepts exactly `{ host, port }`. `host` is a
+bare IPv4, unbracketed IPv6, or DNS name, not a URL, authority, credential,
+path, or scoped address; `port` is an integer from 1 through 65535. It returns
+`{ host, port, remote }`, preserving the input. `localhost` (case insensitive),
+127.0.0.0/8 and `::1` are loopback; every other spelling requires remote
+consent, without resolving DNS. Invalid inputs return `invalid_request`.
+Compatibility cases live in `shared/fixtures/debug/adapter-endpoints-v1.json`.
+The platform obtains approval before connecting a non-loopback endpoint, once
+per connection with no remembered approval, and warns that plain TCP provides
+neither authentication nor encryption. This endpoint is the **IDE-to-adapter**
+address, not a `targetBindings.connection` debuggee address.
+
+The macOS launch envelope may carry optional `adapterEndpoint: { host, port }`
+beside `arguments`. Its session manager selects an already-running DAP server
+instead of starting a local adapter. Missing platform support fails without a
+local fallback. This host-only field is not forwarded as DAP arguments: Core's
+launch configuration ignores it. `request` still independently chooses `launch`
+or `attach`. The provider's language-server port source remains loopback-only.
+Closing the byte stream never terminates the external server, shared language
+server or user-managed tunnel. DAP disconnect retains its request-specific
+ownership: an `attach` sends `terminateDebuggee: false`, while a `launch` can
+terminate the debuggee it launched. On user stop, the TCP host makes a
+bounded best-effort drain of queued frames (including disconnect) for up to one
+second before closing; this is local write completion, not a remote acknowledgement.
+Failure and explicit transport abort close immediately. There is no automatic reconnect or request
+replay. Proxy/tunnel implementations and plugin `tcpPort` / `tcpAnnounced`
+process hosting are not enabled by this API.
+
+The `debug.transport.*` commands hold the lifecycle rules of that byte stream
+so every platform network layer shares one rule set. They are separate from the
+DAP session state: Core never opens a socket, resolves DNS, reads a clock or
+sees the bytes. The platform keeps the socket, the DNS and system timers, and
+the queued frames; only byte counts cross the JSON boundary.
+
+`debug.transport.policy` ignores its payload and returns `{ limits,
+initializationMilliseconds }`. `limits` holds `discoveryMilliseconds` (10000,
+endpoint discovery such as a cold language-server start), `connectMilliseconds`
+(10000), `writeMilliseconds` (10000, one stalled write, never the length of a
+session), `bufferedBytes` (8 MiB), `bufferedWrites` (1024) and
+`drainMilliseconds` (1000). `initializationMilliseconds` is the connect budget
+plus 10000, the window a DAP `initialize` round trip gets, so a session never
+gives up before its transport does.
+
+`debug.transport.handle` accepts exactly `{ transportId, event }` and returns a
+step `{ generation, phase, outcome, effects }`. `transportId` is a host-chosen
+non-empty identifier of at most 512 bytes. Only a `start` event creates a
+transport. A callback for an unknown or released one is `ignored`, and `send`
+to it is `rejectedNotRunning`. `event.type` is one of:
+
+- `start { limits? }` begins a lifecycle; `limits` overrides any of the six
+  defaults with an integer from 1 through 2147483647, otherwise
+  `invalid_request`. A repeat while running is `ignored`. A `start` while the
+  previous lifecycle is draining replaces it.
+- `send { bytes }` queues one frame of that size. The host keeps the bytes in
+  first-in, first-out order. An empty frame is accepted and queued as nothing.
+- `stop {}` is a user cancel: silent teardown, no termination.
+- `finishSendingAndStop {}` flushes queued frames of a ready stream for at most
+  `drainMilliseconds`, then closes silently; with nothing queued or before the
+  stream is ready it closes at once. While draining, new `send` is
+  `rejectedNotRunning`, received data is `ignored` and any failure is silent
+  because the owner already released its session.
+- `endpointResolved { generation, host, port }`, `connectionReady`,
+  `dataReceived`, `peerClosed`, `failed { message }`, `writeCompleted {
+  writeId }` and `timerFired { timerId }`, each carrying the `generation` the
+  host captured when it started the work being answered. `port` is a signed
+  integer so that an out-of-range provider value fails the transport
+  (`invalidEndpoint`) instead of the request.
+
+Every event field is checked strictly: an unknown event, an unknown field or a
+missing field is `invalid_request`.
+
+`generation` rises whenever outstanding work is invalidated (a start, a finish,
+a stop). A callback whose generation is not the live one, or that arrives in
+the wrong phase, is `ignored`. Timer and write ids are unique per transport and
+never reused, so a timer the host failed to cancel and a write completion from
+a replaced write are `ignored` too. `phase` is `stopped`, `discovering`,
+`connecting`, `ready` or `draining`. `outcome` is `applied`, `ignored`,
+`rejectedNotRunning` or `rejectedBufferLimit`. The last one means the queue went
+over its byte or count budget: Core has already failed the transport and the host
+rejects that one `send`.
+
+`effects` is an ordered list the host runs top to bottom:
+
+- `discoverEndpoint` asks for the endpoint and reports `endpointResolved` or `failed`.
+- `armTimer { timerId, purpose, afterMilliseconds }` and `cancelTimer { timerId }`.
+  `purpose` is `discovery`, `connect`, `write` or `drain`. The host reports
+  `timerFired` when an armed timer elapses.
+- `connect { host, port }` opens the socket; `port` is already 1 through 65535.
+- `write { writeId, bytes }` sends the oldest queued frame, which has that size,
+  and reports `writeCompleted` or `failed`. At most one write is in flight.
+- `deliverData` forwards the received bytes to the owner.
+- `close` cancels pending discovery, unhooks and stops the socket and drops
+  queued frames.
+- `reportFailure { reason, message? }` shows the failure on the owner's error
+  output. `reason` is `startupTimedOut`, `writeTimedOut`, `bufferLimit`,
+  `invalidEndpoint` or `host`. The platform owns the localized text of the first
+  four; for `host` the message is the host's own upstream diagnostic, echoed
+  back unchanged.
+- `notifyTermination { exitCode }` ends the owner's session: 0 for a clean peer
+  close, 1 after a failure. It comes last, after `reportFailure`.
+
+A host that re-enters Core while it runs a step's effects, for example an error
+observer that restarts the transport, compares the live generation with the
+step's and abandons the remainder of the older step. `debug.transport.release`
+accepts `{ transportId }` and returns `{ released }`; hosts call it after `stop`
+once they dropped the socket. Releasing a registration resets its generation,
+timer and write counters. A host that restarts after releasing Core state must
+use a fresh `transportId` and reject callbacks from the previous registration
+before dispatching them or touching native timer handles. Host-side Core call
+failures must tear down native resources for `send` as well as callback events;
+an error observer restarting the stream invalidates the old termination too.
+Scripted scenarios, with the exact steps expected,
+live in `shared/fixtures/debug/transport-lifecycle-v1.json`; platform adapter
+tests can replay them.
+
 `debug.createSession` accepts `{ sessionId, adapterId, rootPath,
-supportsRunInTerminalRequest }`. It does not
+supportsRunInTerminalRequest, disabledCapabilities? }`.
+`disabledCapabilities` carries the plugin adapter's `capabilities.disabled`
+from the launch plan; Core forces those DAP capabilities off in the session's
+published capabilities, and a host that omits the field disables nothing. It does not
 open a socket or launch a process. It returns a session update in
 `initializing` state with an ordered `outboundFrames` array. Each frame is a
 complete Content-Length-framed byte sequence encoded as base64. Every Debug
@@ -2175,6 +2300,48 @@ disabled entries, and sends access type, condition, and hit count only when the
 adapter negotiated data-breakpoint support. Native clients must discard IDs
 whose `canPersist` is false when the debug session ends.
 
+`debug.setInstructionBreakpoints` replaces one session's instruction (address)
+breakpoints. Each entry carries an opaque `instructionReference` (the address
+string the adapter reported, never a JSON number, because a 64-bit address can
+exceed the JavaScript safe integer range), an optional byte `offset`, `enabled`,
+`condition`, and `hitCondition`. Core validates the reference text, sorts and
+deduplicates by reference and offset, keeps the set in the session, and sends DAP
+`setInstructionBreakpoints` only after the adapter advertised
+`supportsInstructionBreakpoints` and sent `initialized`. Clients keep the set per
+session and never persist or replay it: an address is only valid for one run of
+one process.
+
+`debug.execute` accepts an optional `granularity` of `statement`, `line`, or
+`instruction` on `next`, `stepIn`, `stepOut`, and `stepBack`. Core forwards it as
+the DAP `granularity` argument only when the adapter advertised
+`supportsSteppingGranularity`; otherwise it omits the field and the adapter steps
+by its default unit. Clients use `instruction` while a disassembly view is open.
+
+`debug.inspect` also accepts the kinds `disassemble` and `readMemory`. Both take
+an opaque `memoryReference` and are rejected unless the capability snapshot
+reports them supported (`adapter` and registered extension and `authorized`) and
+the session is paused. `disassemble` additionally takes `offset` (bytes),
+`instructionOffset` (negative asks for instructions before the reference),
+`instructionCount`, and `resolveSymbols` (default true), and returns
+`instructions` with `address`, `instructionBytes`, `instruction`, an optional
+`symbol` on the first instruction of a symbol, and an optional `sourcePath` and
+`line`. `readMemory` takes `offset` and `count` and returns `address`,
+`unreadableBytes`, and base64 `dataBase64`, like DAP. Core never does address
+arithmetic and never opens `writeMemory`: reading is the only memory operation,
+and writing would need its own authorization. Both results are tied to the
+`stopGeneration` they were requested in, so a late reply after the debuggee
+resumed is dropped as stale.
+
+A stack frame without debug info has no usable file or line. When the adapter
+sends neither a source path nor a `sourceReference`, Core reports
+`line` 0 and no `sourcePath` for it, and carries the adapter's
+`instructionPointerReference` so clients can anchor the disassembly on the frame
+instead of showing a made-up file or line 1. A scope whose DAP
+`presentationHint` is `registers` is passed through with that hint; the host has
+no register table of its own, so register names, groups, and values are the
+adapter's. The compatibility cases are in
+`shared/fixtures/debug/projection-v2-examples.json`.
+
 `debug.setVariable` accepts the selected variable's parent `variablesReference`,
 name, and replacement text. Core permits mutation only while paused and after
 the adapter advertises `supportsSetVariable`, then returns the adapter's
@@ -2207,7 +2374,7 @@ The successful DAP initialize response emits a normalized `capabilities` event.
 It includes conditional, hit-count, log, function, data, and exception
 breakpoint support; variable mutation; restart and terminate requests; step
 back; exception information; request cancellation; single-thread execution;
-step-in targets; goto targets; and ordered exception filters. Native UIs
+step-in targets; goto targets; console completions; and ordered exception filters. Native UIs
 must treat capability state as unknown until this event arrives and hide or
 disable unsupported actions after negotiation.
 
@@ -2223,6 +2390,27 @@ evaluations, and variable-mutation results include non-negative
 `namedVariables` and `indexedVariables` counts, using zero when the adapter
 omits or reports an invalid negative value. The compatibility cases are in
 `shared/fixtures/debug/variable-paging-v1.json`.
+
+An `evaluate` inspection may carry `context` (`watch`, `hover`, `repl`,
+`clipboard`, or `variables`) and defaults to `watch`. Native consoles send
+`repl`, which adapters such as lldb-dap use to run their own debugger commands
+(`bt`, `p total`) and answer with plain text in the evaluation result. Other
+inspection kinds ignore `context`; Core rejects any value outside that list.
+
+A `completions` inspection asks the adapter for Debug Console proposals. It
+carries the typed text in `expression`, an optional UTF-16 caret `column` that
+counts from 1 and defaults to the end of the text (Core rejects a caret outside
+the text), and an optional `frameId`. It is rejected unless the adapter
+advertised `supportsCompletionsRequest`. The result lists items with `label`,
+`text` (the label when the adapter sends none), optional `detail` and `kind`,
+and an optional `start`/`length` range of the typed text the item replaces, in
+zero-based UTF-16 units. Adapters such as lldb-dap send no range; the client
+then replaces the word ending at the caret. Items without a label are dropped.
+
+A normalized stack frame carries `sourceReference` when the adapter serves the
+frame's source itself (a positive DAP `source.sourceReference`, for example
+lldb-dap's `dyld\`start`). Such a frame has no file the editor can open, so
+native clients must not treat its `source.path` as a workspace file.
 
 Exception information is available only while
 paused and normalizes the exception type, description, break mode, optional
@@ -3268,6 +3456,68 @@ architecture or an empty directory is refused with
 `plugin.launch.invalidRequest`; a language without a server, an undeclared
 build system, and a build system without a provider with
 `plugin.launch.unavailable`.
+
+A `debugAdapterID` selects a `debugAdapters[]` entry with a `serverProcess`
+or a `tcpLanguageServer` transport (naming it together with another selector is
+the same `invalid_request` failure); the plan adds `debugAdapter: { id,
+providerID, displayName, adapterID, requests, selectors, configurationTypes,
+transport, endpoint?, disabledCapabilities }`. An adapter that starts on the
+selected runtime is refused with `plugin.launch.unavailable`. A
+`tcpLanguageServer` adapter has no process of its own: its plan is the launch
+plan of the plugin language server that `endpoint.languageID` names, so the
+host starts that server as for editing, then sends `workspace/executeCommand`
+with `endpoint.command` and connects to the loopback port the server answers
+with (an integer or a numeric string from 1 to 65535). Core validates every declared
+`transport`, but a host starts only the transports it implements: the macOS host
+runs `stdio` and refuses `tcpPort` and `tcpAnnounced` before starting the
+process, with `plugin.launch.unsupportedTransport`.
+
+`debug.adapters.startArguments` accepts `{ manifest, adapterID, request:
+"launch" | "attach", facts: { registration: { generation, currentGeneration },
+runtimeSelection?, target: { kind, path?, processID?, workingDirectory?,
+executable?, host?, port?, pathMappings? } } }`
+and returns `{ status: "ok", arguments, connection? }`: the request's configured
+`arguments` with each `targetBindings` name filled from the target unless the
+configuration already sets it. `program` is filled from `target.path`, or from
+`target.executable` (an absolute path the host found) when the configuration
+binds it to `target.executable`. Refusals use the `rejected` shape with
+`debug.provider.stale`, `debug.request.unsupported`, `debug.runtime.stale`, or
+`debug.target.invalid`.
+
+A target of `kind: "connection"` attaches to a debuggee on a host and port:
+`host` is a DNS name or IP literal, `port` is 1–65535, and `pathMappings` is up
+to 16 `{ local, remote }` source-root pairs whose `local` is an absolute path on
+the host's platform. It is accepted only for `attach` and only by an adapter
+whose attach configuration declares a `connection` binding; the binding names
+the argument paths that receive each fact, so Core writes `hostName`,
+`connect.host`, or a joined `host:port` string as that adapter reads it. A bad
+`host`, `port`, or `pathMappings` entry is `debug.target.invalid` with the field
+`target.host`, `target.port`, or `target.pathMappings`; so is
+`pathMappings` sent to an adapter that declares no mapping argument, and a
+`connection` target for a `launch` or an adapter without the binding
+(`target.kind`). The response then carries `connection: { host, port, remote }`.
+`remote` is `false` only for `localhost`, `127.0.0.0/8`, and `::1` read from the
+text; every other host is `true`, including `0.0.0.0` and `::ffff:127.0.0.1`.
+Core does not resolve names and opens no socket; the host asks the user before it
+connects to a `remote` endpoint and does not remember the answer by default. The
+launch plan's `debugAdapter.remoteAttach` is `{ pathMappings, maxPathMappings }`
+for an adapter that takes a connection and `null` otherwise. The mappings reach
+the adapter in the shape its binding declares (`objects`, `first`, `dictionary`,
+or `pairs`); a shape that cannot hold them all (`first` takes one, a
+`dictionary` takes each root once on its keyed side) refuses the target with
+`target.pathMappings` instead of dropping some.
+
+`debug.adapters.executablePlan` accepts `{ manifest, adapterID, settings?,
+projectSettings?, workspace?, targetPath? }` and returns `{ status: "ok",
+plan }`. `plan` is `null` when the adapter's launch configuration declares no
+`executable` lookup; otherwise `{ setting, configured, candidates }`.
+`configured` is `{ path, source }` when the lookup's `file` setting has a
+non-empty effective value (`source` being `project`, `global`, or `default`)
+and `null` otherwise. `candidates` are the absolute paths to try in order,
+expanded from `workspace` and `targetPath`; a candidate that needs a variable
+the host did not send is left out. Core never touches the file system: the host
+checks `configured` first, and a configured path that is not a runnable file is
+an error, not a reason to try the candidates.
 
 `plugins.declarative.resolveSettings` accepts
 `{ manifest, settings?, projectSettings? }` and returns `settings`: one
