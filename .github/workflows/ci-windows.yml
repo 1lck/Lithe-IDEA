@@ -290,6 +290,15 @@ jobs:
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-notifications.json -- src/features/notifications
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Test MCP delivery and authorization lifecycle
+        shell: pwsh
+        run: |
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --report .artifacts/test-stability/windows-mcp-lifecycle.json -- src/features/host-api/mcp-lifecycle.test.ts src/features/host-api/ide-capabilities.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The real Tauri event API must run without other suites' module mocks.
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --report .artifacts/test-stability/windows-mcp-events.json -- src/features/host-api/mcp-events.integration.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Test declarative plugin lifecycle and UI
         shell: pwsh
         timeout-minutes: 9

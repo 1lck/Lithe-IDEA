@@ -1,13 +1,17 @@
 import type { hostControl, IdeCapabilities, IdePermissions, IdeRequest } from "./ide-capabilities";
 
 type Capability = Pick<IdeCapabilities, "permissions" | "revoke" | "isCurrent" | "call">;
+export interface McpRequestError {
+  key: "settings.mcp.error.expired" | "settings.mcp.error.undelivered" | "settings.mcp.error.request" | "settings.mcp.error.transport";
+  detail?: string;
+}
 export interface McpConnection {
   hostID: string;
   configuration: string;
   api: Capability;
   closed: boolean;
   status: "waiting" | "active" | "failed";
-  error: string | null;
+  error: McpRequestError | null;
 }
 export interface McpConnectionState {
   connections: Record<string, McpConnection>;
@@ -24,12 +28,14 @@ interface Dependencies {
   ): Promise<{
     hostID: string;
     configuration: unknown;
+    dispose(): void | Promise<void>;
   }>;
 }
 interface Grant {
   api: Capability;
   connection?: McpConnection;
   ready: Promise<void>;
+  dispose?: () => void | Promise<void>;
 }
 
 /** Own pending opens as well as published connections so revocation cannot be undone by late IO. */
@@ -59,6 +65,17 @@ export class McpConnectionManager {
     }
   }
 
+  private async dispose(grant: Grant) {
+    const dispose = grant.dispose;
+    grant.dispose = undefined;
+    try {
+      await dispose?.();
+    } catch (error) {
+      this.error = String(error);
+      this.publish();
+    }
+  }
+
   async disable(workspaceID: string) {
     const grant = this.grants.get(workspaceID);
     if (!grant) return;
@@ -68,7 +85,10 @@ export class McpConnectionManager {
       grant.connection.closed = true;
     }
     this.publish();
-    if (grant.connection) await this.close(grant.connection.hostID);
+    if (grant.connection) {
+      await this.close(grant.connection.hostID);
+      await this.dispose(grant);
+    }
     // An open already in flight closes its own late native host before resolving.
     await grant.ready;
   }
@@ -149,20 +169,22 @@ export class McpConnectionManager {
             result,
           });
           if (!current()) return;
-          const failure = (result as { error?: { message?: string } } | null)?.error;
+          const failure = (result as { error?: { code?: string } } | null)?.error;
           connection.status = delivered && !failure ? "active" : "failed";
-          connection.error =
-            failure?.message ??
-            (delivered
-              ? null
-              : "The client no longer accepts this result. Inspect operations before retrying.");
+          // Protocol diagnostics stay unchanged for the caller. Product-owned
+          // UI errors are translated at render time, including language changes.
+          connection.error = failure?.code === "TIMEOUT"
+            ? { key: "settings.mcp.error.expired" }
+            : !delivered
+              ? { key: "settings.mcp.error.undelivered" }
+              : failure ? { key: "settings.mcp.error.request" } : null;
           this.publish();
         } catch (error) {
           if (!current()) return;
           // Delivery failure is not authorization revocation. A later request can
-          // succeed through the same channel; ambiguous mutations are never replayed.
+          // succeed through the same event subscription; ambiguous mutations are never replayed.
           connection.status = "failed";
-          connection.error = String(error);
+          connection.error = { key: "settings.mcp.error.transport", detail: String(error) };
           this.publish();
         }
       };
@@ -170,8 +192,10 @@ export class McpConnectionManager {
         { ...paths, workspaceKey: root, permissions },
         receive,
       );
+      grant.dispose = result.dispose;
       if (!current() || !grant.api.isCurrent()) {
         await this.close(result.hostID);
+        await this.dispose(grant);
         if (current()) throw new Error("The selected project was closed");
         return;
       }

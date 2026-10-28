@@ -71,7 +71,10 @@ export function McpSettings({ workspaceID, root }: { workspaceID: string; root: 
       )}
       {(connection?.error || error || copyError) && (
         <p role="alert" className="text-sm text-red-500">
-          {connection?.error || error || copyError}
+          {connection?.error ? <>
+            {t(connection.error.key)}
+            {connection.error.detail && <span className="block">{connection.error.detail}</span>}
+          </> : error || copyError}
         </p>
       )}
     </Section>

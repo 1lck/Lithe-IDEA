@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use tauri::ipc::Channel;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -24,7 +24,6 @@ pub async fn platform_invoke(
     mut args: Value,
     git_events: Option<tauri::ipc::JavaScriptChannelId>,
     agent_events: Option<tauri::ipc::JavaScriptChannelId>,
-    ide_events: Option<tauri::ipc::JavaScriptChannelId>,
     git_execution: Option<Value>,
 ) -> Result<Value, String> {
     let log_manager = webview
@@ -35,7 +34,7 @@ pub async fn platform_invoke(
     let log_started = std::time::Instant::now();
     let ide_owner = if bind_ide_host_owner(&command, &mut args, webview.window().label()) {
         let owner = webview.window().label().to_owned();
-        Some((webview.app_handle().clone(), owner))
+        Some((webview.clone(), owner))
     } else {
         None
     };
@@ -45,7 +44,6 @@ pub async fn platform_invoke(
     let git_events = git_events.map(|id| id.channel_on::<_, Value>(webview.clone()));
     // An adapter install reports its npm transfer on its own channel, so the
     // panel can show progress for as long as the download runs.
-    let ide_events = ide_events.map(|id| id.channel_on::<_, Value>(webview.clone()));
     let agent_events = agent_events.map(|id| id.channel_on::<_, Value>(webview));
     let preserve_history_rewrite = is_reviewed_history_rewrite(&command, &args);
     let preserve_stash_restore = command == "git_pull"
@@ -118,16 +116,20 @@ pub async fn platform_invoke(
             return lithe_core::execute_json_with_events(&request, events);
         }
         let response = lithe_core::execute_json(&request);
-        if let Some((app, owner)) = &ide_owner {
+        if let Some((webview, owner)) = &ide_owner {
             // Destruction can run before a blocking open registers its host. Clean
             // up here as well, even if the WebView's awaiting IPC future is gone.
-            if app.get_webview_window(owner).is_none() {
+            if webview.get_webview_window(owner).is_none() {
                 crate::core::close_ide_hosts(owner);
                 return json!({"ok":false,"error":{"message":"The authorized project window was closed"}}).to_string();
             }
         }
-        if let (Some((_, owner)), Some(channel)) = (&ide_owner, ide_events) {
-            return attach_ide_events(&response, owner, channel);
+        if let Some((webview, owner)) = ide_owner {
+            let target = tauri::EventTarget::webview(webview.label().to_owned());
+            return attach_ide_events(&response, &owner, move |event| {
+                webview.emit_to(target.clone(), "lithe-ide-request", event)
+                    .map_err(|error| error.to_string())
+            });
         }
         response
     })
@@ -158,9 +160,13 @@ pub async fn platform_invoke(
     )
 }
 
-// The channel is owned by the native broker, not by the lifetime of the open IPC.
-// Closing the host drops it. Notifications cannot execute work without a fresh claim.
-fn attach_ide_events(response: &str, owner: &str, channel: Channel<Value>) -> String {
+// Independent window events have no Channel sequence gap: losing one notification
+// must not block later requests. The broker owns this sink until authorization closes.
+fn attach_ide_events(
+    response: &str,
+    owner: &str,
+    send: impl Fn(Value) -> Result<(), String> + Send + Sync + 'static,
+) -> String {
     let Ok(envelope) = serde_json::from_str::<Value>(response) else {
         return response.into();
     };
@@ -174,11 +180,7 @@ fn attach_ide_events(response: &str, owner: &str, channel: Channel<Value>) -> St
     let result = lithe_core::attach_ide_request_dispatcher(
         host_id,
         owner,
-        Arc::new(move |request_id| {
-            channel
-                .send(json!({"hostID":event_host,"requestID":request_id}))
-                .map_err(|error| error.to_string())
-        }),
+        Arc::new(move |request_id| send(json!({"hostID":event_host,"requestID":request_id}))),
     );
     if let Err(error) = result {
         let cleanup = lithe_core::execute_json(
@@ -1005,12 +1007,11 @@ mod tests {
     }
 
     #[test]
-    fn mcp_native_channel_delivers_and_claims_without_frontend_polling() {
+    fn mcp_native_events_deliver_and_claim_without_frontend_polling() {
         use serde_json::{json, Value};
         use std::io::{Read, Write};
         use std::sync::{Arc, Mutex};
         use std::time::Duration;
-        use tauri::ipc::{Channel, InvokeResponseBody};
 
         fn control(action: &str, arguments: Value) -> Value {
             serde_json::from_str(&lithe_core::execute_json(&json!({"command":"ideHost.control", "payload":{ "action":action, "arguments":arguments }}).to_string())).unwrap()
@@ -1046,11 +1047,7 @@ mod tests {
         fixture.host = opened["data"]["hostID"].as_str().unwrap().into();
         let captured = Arc::new(Mutex::new(Vec::<Value>::new()));
         let recorder = captured.clone();
-        let channel = Channel::<Value>::new(move |body| {
-            let InvokeResponseBody::Json(text) = body else {
-                panic!("expected JSON")
-            };
-            let event: Value = serde_json::from_str(&text).unwrap();
+        let send = move |event: Value| {
             let claimed = control("claim", event.clone());
             assert_eq!(claimed["data"]["request"]["name"], "lithe_project_inspect");
             let delivered = control(
@@ -1060,11 +1057,11 @@ mod tests {
             assert_eq!(delivered["data"]["delivered"], true);
             recorder.lock().unwrap().push(event);
             Ok(())
-        });
+        };
         let attached: Value = serde_json::from_str(&super::attach_ide_events(
             &opened.to_string(),
             "fixture-window",
-            channel,
+            send,
         ))
         .unwrap();
         assert_eq!(attached["ok"], true, "{attached}");

@@ -1,5 +1,7 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { McpConnectionManager, type McpConnectionState } from "./mcp-lifecycle";
+import { ideRequestTime } from "@/platform/ide-request-events";
+import { createTranslator } from "@/i18n/locale";
 import type { hostControl, IdeRequest } from "./ide-capabilities";
 
 function deferred<T>() {
@@ -20,13 +22,14 @@ afterEach(async () => {
   }
 });
 
-function fixture() {
+function fixture(clock?: () => number) {
   let state: McpConnectionState = { connections: {}, error: null };
   const openStarted = deferred<void>();
   const finishOpen = deferred<void>();
   const claimStarted = deferred<void>();
   const finishClaim = deferred<void>();
   const closed: string[] = [];
+  const disposed: string[] = [];
   const calls: string[] = [];
   const responses: string[] = [];
   const apis: { revoked: boolean }[] = [];
@@ -37,6 +40,9 @@ function fixture() {
   const requests = new Map<string, IdeRequest>();
   let failClaim = false;
   let failRespond = false;
+  let delivered = true;
+  let apiResult: unknown = {};
+  const results: unknown[] = [];
   let sequence = 0;
   let now = 0;
   const control = async (action: string, args?: Record<string, unknown>): Promise<unknown> => {
@@ -56,7 +62,8 @@ function fixture() {
     if (action === "respond") {
       if (failRespond) throw new Error("Response delivery unknown");
       responses.push(String(args!.requestID));
-      return { delivered: true };
+      results.push(args!.result);
+      return { delivered };
     }
     throw new Error(`Unexpected action ${action}: no polling is allowed`);
   };
@@ -74,7 +81,7 @@ function fixture() {
           },
           call: async (name: string) => {
             calls.push(name);
-            return {};
+            return apiResult;
           },
         };
         apis.push(api);
@@ -82,13 +89,13 @@ function fixture() {
       },
       paths: async () => ({ directory: "fixture", helperPath: "fixture/helper" }),
       control: control as typeof hostControl,
-      now: () => now,
+      now: clock ?? (() => now),
       open: async (_args, receive) => {
         const hostID = String(++sequence);
         receivers.set(hostID, receive);
         openStarted.resolve();
         if (hostID === "1") await finishOpen.promise;
-        return { hostID, configuration: { hostID } };
+        return { hostID, configuration: { hostID }, dispose: () => { disposed.push(hostID); } };
       },
     },
     (next) => {
@@ -107,9 +114,12 @@ function fixture() {
     manager,
     apis,
     closed,
+    disposed,
     calls,
     responses,
-    openStarted,
+    results,
+    setResult: (result: unknown) => { apiResult = result; },
+    setDelivered: (value: boolean) => { delivered = value; },    openStarted,
     finishOpen,
     claimStarted,
     finishClaim,
@@ -145,6 +155,7 @@ test("closing during open revokes access and closes the late native host", async
   await Promise.all([opening, closing]);
   expect(f.state().connections).toEqual({});
   expect(f.closed).toEqual(["1"]);
+  expect(f.disposed).toEqual(["1"]);
 }, 1000);
 
 test("closing all includes opens that have not published configuration", async () => {
@@ -155,6 +166,7 @@ test("closing all includes opens that have not published configuration", async (
   f.finishOpen.resolve();
   await Promise.all([opening, closing]);
   expect(f.closed).toEqual(["1"]);
+  expect(f.disposed).toEqual(["1"]);
   expect(f.apis[0].revoked).toBe(true);
   expect(f.state().connections).toEqual({});
 }, 1000);
@@ -241,6 +253,7 @@ test("closing or replacing a grant while claim is pending prevents late executio
   expect(f.state().connections.project.status).toBe("waiting");
   expect(f.apis[1].revoked).toBe(false);
   expect(f.closed).toEqual(["1"]);
+  expect(f.disposed).toEqual(["1"]);
 }, 1000);
 
 test("suspending during claim delivery cannot start an expired mutation", async () => {
@@ -255,8 +268,67 @@ test("suspending during claim delivery cannot start an expired mutation", async 
   await receiving;
   expect(f.calls).toEqual([]);
   expect(f.state().connections.project.status).toBe("failed");
-  expect(f.state().connections.project.error).toContain("expired");
+  expect(f.state().connections.project.error?.key).toBe("settings.mcp.error.expired");
   f.queue("new");
   await f.receive("1", "new");
   expect(f.calls).toEqual(["lithe_run_start"]);
+}, 1000);
+
+
+test("wall clock rollback cannot extend the monotonic claim deadline", async () => {
+  const wall = spyOn(Date, "now").mockReturnValue(100000);
+  const monotonic = spyOn(performance, "now").mockReturnValue(10000);
+  const f = fixture(ideRequestTime);
+  try {
+    f.finishOpen.resolve();
+    await f.manager.enable("project", "fixture", permissions);
+    f.queue("expired");
+    const receiving = f.receive("1", "expired");
+    await f.claimStarted.promise;
+    // 1300ms elapsed, while a 600ms clock correction leaves a positive 700ms
+    // wall-clock difference that would incorrectly fit the 1000ms claim budget.
+    wall.mockReturnValue(100700);
+    monotonic.mockReturnValue(11300);
+    f.finishClaim.resolve();
+    await receiving;
+    expect(f.calls).toEqual([]);
+    const error = f.state().connections.project.error!;
+    expect(error.key).toBe("settings.mcp.error.expired");
+    expect(createTranslator("zh-CN")(error.key)).toContain("过期");
+    expect(createTranslator("en-US")(error.key)).toContain("expired");
+    await f.manager.disable("project");
+    await f.manager.disable("project");
+    expect(f.disposed).toEqual(["1"]);
+  } finally {
+    await f.cleanup();
+    wall.mockRestore();
+    monotonic.mockRestore();
+  }
+}, 1000);
+
+
+test("localized failure state preserves the original protocol result and delivery uncertainty", async () => {
+  const f = fixture();
+  f.finishOpen.resolve();
+  f.finishClaim.resolve();
+  await f.manager.enable("project", "fixture", permissions);
+  const result = { error: { code: "OPERATION_FAILED", message: "fixture upstream diagnostic" } };
+  f.setResult(result);
+  f.queue("failure");
+  await f.receive("1", "failure");
+  expect(f.results[0]).toBe(result);
+  expect(f.state().connections.project.error).toEqual({ key: "settings.mcp.error.request" });
+  f.setResult({});
+  f.setDelivered(false);
+  f.queue("unknown-result");
+  await f.receive("1", "unknown-result");
+  expect(f.state().connections.project.error).toEqual({ key: "settings.mcp.error.undelivered" });
+  expect(f.calls).toHaveLength(2);
+  for (const kind of ["expired", "undelivered", "request", "transport"]) {
+    const key = `settings.mcp.error.${kind}`;
+    const chinese = createTranslator("zh-CN")(key);
+    expect(chinese).toMatch(/[\u4e00-\u9fff]/);
+    expect(createTranslator("en-US")(key)).not.toBe(chinese);
+    expect(createTranslator("en-US")(key)).not.toBe(key);
+  }
 }, 1000);
