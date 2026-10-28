@@ -81,6 +81,8 @@ try {
     const bun = registry.resources.find(item => item.id === "bun");
     assert.match(bun.identity, /source-only lock migration invalidates/);
     const state = registry.excludedResources.find(item => item.id === "frontend-install-state");
+    assert.ok(state.locations.includes("<os-temp>/lithe Windows install */"));
+    assert.match(state.reason, /native-handle waiter/);
     assert.match(state.reason, /null digest cannot establish a binary reuse identity/);
     assert.ok(!registry.resources.some(item => /tree-sitter/.test(item.id)));
     const refused = reuse(["--resource", state.id]);

@@ -143,10 +143,11 @@
         "node_modules",
         "windows/tauri/node_modules",
         "frontend/editor/node_modules",
-        ".artifacts/bun-tmp"
+        ".artifacts/bun-tmp",
+        "<os-temp>/lithe Windows install */"
       ],
       "identity": "Mutable installation state tied to one worktree, OS, architecture, Bun version and lifecycle attempt; no sealed reusable identity stamp. Private installation-tool candidate metadata, tarballs, executables, route probes and SUBST aliases are diagnostics, never reusable build resources.",
-      "reason": "Each Windows install attempt owns its lifecycle processes in a worker Job Object. Release that tree before clearing partial dependencies or retrying. Never copy install temp data or node_modules across worktrees; only the sealed Bun download cache may be reused. tree-sitter-cli lifecycle executables remain here: npm tarball SRI does not authenticate the separate GitHub binary, and an official null digest cannot establish a binary reuse identity."
+      "reason": "Each Windows install attempt owns its lifecycle processes in a worker Job Object. Release that tree before clearing partial dependencies or retrying. Installer test scratch includes generated fake tools, the native-handle waiter, ownership token/port and process-identity receipts; each case retains original handles until exit is proven and closes its server, sockets and handles before removing scratch. These mutable test resources never enter a transferable cache. Never copy install temp data or node_modules across worktrees; only the sealed Bun download cache may be reused. tree-sitter-cli lifecycle executables remain here: npm tarball SRI does not authenticate the separate GitHub binary, and an official null digest cannot establish a binary reuse identity."
     },
     {
       "id": "jdt-maven-settings",

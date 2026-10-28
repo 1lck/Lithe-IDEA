@@ -375,8 +375,13 @@ Windows 安装 worker 为 tree-sitter-cli 的原始 `install.js` 加载专用代
 有 HTTPS 代理时要求 Node 22.21+ 或 24.5+，由 Node 的原生 `https.Agent({proxyEnv})`
 负责 CONNECT/TLS。适配器只在该生命周期进程中移除上游手动代理分支读取的两个变量，
 其它包与父进程环境不变，不禁用 TLS、SRI 或 lifecycle。无代理时沿用上游直连。
+代理变量按 Node 的 `https_proxy || HTTPS_PROXY` 选择；不支持的协议、非法 URL 或
+凭据编码会在变更前脱敏失败，修正配置后重试，不会静默改为直连。
 该适配器不下载、解压或缓存文件；输出仍归本次 Job-owned 安装状态，安装结束由既有
 流程封存允许复用的 Bun 下载缓存。运行时不写发行资源，不影响签名或增量更新基线。
+安装生命周期回归的 `<os-temp>/lithe Windows install */` 保存假工具、原生句柄等待器和
+进程身份凭据；每个 case 在对应子进程仍等待握手时保留其句柄，退出后关闭句柄、服务及
+连接才清理目录。这些临时生成物走 `frontend-install-state` 拒绝路由，所有阶段禁止复用。
 
 共享翻译源文件位于 `shared/i18n/`。每个工作树通过 Git 获取源文件和已提交的
 macOS 字符串表、`AppLanguage.generated.swift`、Windows `shared.generated.ts`，

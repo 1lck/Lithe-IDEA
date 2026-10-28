@@ -152,6 +152,12 @@ tree-sitter-cli 的两个上游 `install.js` 保持原样。Windows worker 只�
 不要因响应头为 200、增加超时或手工放置 EXE 就宣称修复。代理适配要求支持该能力的
 Node 22.21+ 或 24.5+，不新增下载器和长期二进制缓存。代价是代理安装的 Node 最低版本
 更明确；收益是复用上游原生连接管理，避免维护第二套 CONNECT/TLS 实现。
+代理选择遵循 Node 的 `https_proxy || HTTPS_PROXY` 优先级；不支持的协议、非法地址或
+凭据编码必须在替换 Agent 和删除环境变量前脱敏失败，不能让 Node 忽略配置后静默直连。
+复制安装 worker 的测试夹具也必须复制该 preload，不能只在正式构建准备夹具中登记。
+安装回归在 locker 子进程确认锁定前握手并保留原生进程句柄及创建身份；等待和失败清理
+都使用原句柄，不在 worker 退出后按历史 PID 重新查找或终止进程。等待线程退出后才关
+共享句柄，临时工具、身份凭据、服务和连接均随本 case 清理，不作为资源缓存复用。
 源码清单先解析模块的真实路径，再相对已解析的仓库根生成键；SUBST 导入路径和物理
 路径必须得到同一清单，不能因开发者用短路径避开 Windows 编译路径上限而拒绝构建。
 
@@ -200,6 +206,7 @@ R24 的真实 Node 24.15 子进程已验证两个 tree-sitter-cli 版本的 CONN
 
 ## 验证
 
+- R25 已在冻结提交 `2193e60a4cc3df484c4ee129dc437b992b330548` 完成官方来源的 frozen 全量安装、两个原始 CLI lifecycle 及当前源码 Windows x64 Release。正式入口共调用四次；前两次在构建准备中失败，第三次产品九阶段通过但报告聚合失败，修复原始 progress JSON 的归档位置后，第四次 `-ResumeBuild -TextWindow` 退出 0。最终受控 unsigned API3/ui:1 九阶段 9/9，通过完整源码库存、EXE/配置身份、精确 DOM/CSP/请求、计数器正控、回调排空及资源哈希检查；全部 owned 进程和 profile 已清理。不能把网络观察写成精确零 postMessage IPC，也不能扩大为 ui:3、VCS Provider、签名包、arm64 或完整 M10。该 lane 未能执行原 zsh 只读门禁，只通过等价源码扫描和真实资源不变检查；集成窗口另行执行原脚本并保留结果，不改写 lane 的原始记录。
 - 设置作用域回归：`declarative-plugin-settings-editor.test.tsx` 使用真实生产控件验证继承、全局项锁定、空值、保存/取消、重置与冲突；`declarative-plugin-reload-project.test.ts` 使用真实模型服务验证保存凭据、审批、不可取消预检与可取消模型阶段、清理失败重试和同路径重开拒绝迟到结果。`build_tests.rs`、`build/tests.rs` 和 `settings/snapshot/tests.rs` 覆盖目标窗口隔离、持久设置修订、真实窗口资源实例、精确原操作清理重试与 Core 归属。集成窗口已通过原生逐项计时测试；前端使用原生端口替身，真实双窗口 Provider 与发行目录哈希验收仍须另行完成。
 - 原生面板函数回归：`functions/native/tests.rs`、`functions/runtime/tests.rs` 和网页函数测试覆盖倒序打开、旧凭据清理、作用域隔离、晚审批和失败清理重试；`native-functions.test.ts` 与三个共享原生 fixture 的组件回归验证生产控件到 typed port 的完整调用。受影响 Rust 与 Frontend 计时测试、完整 TypeScript、格式和静态门禁已通过；这些证据不代替真实包、停靠布局和 WebView2 人工验收。
 - VCS 写入回归：`vcs_actions_tests.rs` 使用真实 Core decoder/ownerOf 覆盖普通文件、消失和双端移动端点拒绝、隐式父目录扩展、Windows 路径别名、跨根与歧义；`vcs_session_tests.rs` 的受控 runtime 检查 typed Core request、真实 reply decoder、最终复验拒绝、未知结果与精确作用域清理。R12 原生与前端计时回归已通过。R13 新增 resolve 的冲突能力/精确端点、cleanup 的完整整根范围，以及确定失败/未知结果经过清理重试后不变且不重发的回归；集成树 `vcs-resolve-cleanup.test.ts` 与 `vcs-actions-panel.test.tsx` 聚焦计时 13 项通过。新增原生回归已随最终宿主计时测试通过；`vcs_session_core_tests.rs` 的真实 Core stdio 夹具由 `node scripts/test-windows-plugin-vcs-core.mjs` 显式执行并通过。R14 将同一夹具扩展为 resolve/cleanup/add/delete 四个操作，单操作请求与清理各有 5 秒和 13 秒上限，入口为唯一用例设置 90 秒预算、绝对 `LITHE_VCS_TEST_NODE` 和 `--ignored`，四操作已显式运行并通过（1304ms），结束要求恰好一个通过结果；普通宿主测试中的 ignored 不能作为验证。正式 Provider、系统 SVN 客户端、生产包与进程树验收另行完成。
