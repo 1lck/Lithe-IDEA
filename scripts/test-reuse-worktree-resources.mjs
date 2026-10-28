@@ -337,6 +337,10 @@ try {
   });
   await test("settings/functions and web fallback plans cannot transfer install approval", { timeout: 15000 }, async () => {
     for (const fixture of [
+      ".artifacts/plugin-host-acceptance/text-window-fixture-first/plan.json",
+      ".artifacts/plugin-host-acceptance/text-window-fixture-first/literal-text.zip",
+      ".artifacts/plugin-host-acceptance/text-window-evidence-first/network-and-ui-events.json",
+      ".artifacts/plugin-host-acceptance/text-window-evidence-first/counter-final.json",
       ".artifacts/plugin-host-acceptance/web-bridge-fallback-fixture/plan.json",
       ".artifacts/plugin-host-acceptance/web-bridge-fallback-fixture/web-fallback.zip",
       ".artifacts/plugin-host-acceptance/evidence-r18/paused-requests.json",

@@ -240,6 +240,18 @@ test("native-controls primary and normal actions retain public button variants a
     )!;
   };
   try {
+    const ordered = ui.buttons!.map((entry) => button(entry.id));
+    expect(
+      [...ordered[0].parentElement!.parentElement!.children].map(
+        (row) => row.querySelector('button[data-slot="button"]')?.textContent,
+      ),
+    ).toEqual(ui.buttons!.map((entry) => entry.label));
+    // A host rerender must retain the same actions and their focused element.
+    // Actual width-dependent orientation is covered in the browser regression.
+    ordered[0].focus();
+    await mounted.render(panel(ui, port, store));
+    expect(ui.buttons!.map((entry) => button(entry.id))).toEqual(ordered);
+    expect(document.activeElement).toBe(ordered[0]);
     for (const id of ["primary-content", "primary-fill", "disabled-primary"])
       expect(button(id).getAttribute("data-variant")).toBe("accent");
     for (const id of ["secondary-content", "secondary-fill", "disabled-button"])

@@ -159,6 +159,10 @@ ui:2 网页桥的回退验收保持生产 transport（传输入口）原样：�
 
 Apache Subversion 1.15.0 官方源码（commit e49d66ef91dd33409c7d78f82160d2976a939120，SVN r1938480）的 move7 在单源、父目录命名空间稳定且四项布尔参数均为 FALSE 时，保留请求目标路径并关闭移入已有目录的重试；这只约束路径解释，不保证目标身份或禁止替换。目标检查先于工作副本写锁，写锁只约束遵守 SVN 协议的重叠写入，不能阻止普通文件系统外部写入。目标元数据复制、磁盘重命名、源元数据删除分阶段执行；WIN32 最终直接调用带 MOVEFILE_REPLACE_EXISTING 的 MoveFileExW，因而目标可能被替换，失败或取消也可能已有磁盘/元数据副作用。APR rename 不在该最终路径上，无需猜测 APR 版本；官方源码静态分析不证明 VisualSVN 二进制身份或真实竞态，不能作为 Windows move 准入依据。引用提取必须按 LF 物理行计数，不能把 C 源码中的换页符当作新行。
 
+ui:1 字面文本安全验收使用一次调用生成的完整 unsigned API3 包，仅声明 ui.contribute；计数服务先绑定 loopback 端口并做正向控制，再生成 ZIP 和绑定当前源码身份的 plan。正式入口必须冻结构建前后源码清单并绑定可执行文件、配置和提交，不能给旧二进制补造当前 identity。打开私有页面前订阅浏览器请求，用原始 Document 和桥脚本两条请求防止空迹通过；比较文本、DOM、CSP、冻结 transport、回调排空及包和发行镜像字节。浏览器请求观察只能证明其可见的网络请求，不能把未观察到请求或空回调 Map 写成精确零 postMessage IPC。辅助测试仅验证失败边界；R19 独立 lane 的正式构建超时，未产出验收 EXE，真实安装、文本页、隐藏重开和退出验收仍 pending，不能据此升级 M10。
+
+截至 R19 采样，官方 v0.1.0 prerelease 仅列出完整 Darwin 源码插件包及校验和，未列出 Windows 包。ZIP 的完整 14 文件、tag 字节和 7 个 SDK 锁哈希已核对；这不证明与当前宿主动态兼容。完整 manifest 要求 serverProcess:1、vcsProviders:1，固定 Windows 宿主尚未声明后者。该包为 unsigned Community 来源，需用户明确批准；Marketplace 不接受 unsigned，GitHub 来源与校验和不能代替发布者签名。双目标打包 patch 仅为未应用、未执行的上游提案；Windows 正式安装、依赖探测、initialize 和界面验收仍未执行，保持 partial/pending 与现有门控。
+
 ## 验证
 
 - 设置作用域回归：`declarative-plugin-settings-editor.test.tsx` 使用真实生产控件验证继承、全局项锁定、空值、保存/取消、重置与冲突；`declarative-plugin-reload-project.test.ts` 使用真实模型服务验证保存凭据、审批、不可取消预检与可取消模型阶段、清理失败重试和同路径重开拒绝迟到结果。`build_tests.rs`、`build/tests.rs` 和 `settings/snapshot/tests.rs` 覆盖目标窗口隔离、持久设置修订、真实窗口资源实例、精确原操作清理重试与 Core 归属。集成窗口已通过原生逐项计时测试；前端使用原生端口替身，真实双窗口 Provider 与发行目录哈希验收仍须另行完成。

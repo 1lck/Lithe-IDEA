@@ -755,6 +755,10 @@ Windows 命令模型的 `<windows-app-local-data>/plugin-state/<plugin-id>/build
 
 ui:2 Web 回退夹具由 `web_bridge_fallback_fixture.py --output .artifacts/plugin-host-acceptance/web-bridge-fallback-fixture` 在目标工作树重新生成。静态 unsigned ZIP、工作区、source plan、私有页 CDP paused-request 决定、transport descriptor/回调 Map 观察及资源快照均属于 `plugin-host-acceptance-state`，没有可迁移的安装审批或可复用构建 identity；所有复用阶段拒绝，不新增下载校验路由。显式 `web_bridge_fallback_acceptance.py --help` 的执行入口消费同基线的隔离 x64 Release identity，使用 AppSession 保留句柄和本地 deadline，在失败路径释放 Fetch/CDP、退出产品并移除隔离 profile。CDP 仅令一次精确 IPC POST 失败；不改写 JS transport，不写发行镜像和已安装包，签名及增量更新基线不变。受控 ui:2 子集通过仍保留完整 M10、其他能力和平台 pending。
 
+ui:1 字面文本验收由 `text_window_acceptance.py` 为本次已绑定端口的计数服务生成完整 unsigned API3 `requires.ui=1` 包。`text-window-fixture*` 的 ZIP、工作区、source plan，私有宿主文本页的 DOM/CSP、预加载请求、桥 descriptor/回调 Map 及计数器正向控制和零字面 URL 请求证据，均属于 `plugin-host-acceptance-state`；没有版本/平台/架构/工具链可复用 stamp，所有复制阶段拒绝，不新增下载校验器。计数服务、浏览器观察、产品与 profile 仅由本次调用所有，失败路径也有界收尾；证据随本地审查或 CI retention 回收。运行时不写发行镜像或插件安装包，不影响签名与增量更新；受控 x64 文本子集不代表签名完整包或完整 M10。
+
+执行入口为 `pwsh -NoProfile -File scripts/test-windows-declarative-plugin-host.ps1 -TextWindow`，与 marketplace/LSP/settings 模式互斥。入口保存构建前后的完整源码库存，确认相同后写入隔离宿主 identity；`-SkipBuild -TextWindow` 只能消费已有且源码、配置、EXE 哈希均匹配的 identity，旧 marker 缺失库存时必须重建，不能事后补填。源码扫描共用 300 秒截止时间，运行驱动由外层 900 秒 deadline 约束。浏览器网络观察不能计数原生 postMessage IPC，报告明确保留该限制，不能把回调排空解释为精确零 IPC。R19 仅完成工具及离线失败边界，lane 构建超时且未产出验收 EXE，真实产品步骤仍 pending。
+
 原生插件验收的 `.artifacts/plugin-host-acceptance/`（含市场 ZIP/索引、构建夹具的包、工具、工作区及 plan、`settings-functions-fixture*` 的包/工作区/身份 plan、设置与函数验收资源快照、隔离运行镜像和报告）及
 `app.lithe.windows.host-acceptance` 用户配置走 `plugin-host-acceptance-state` 排除路由：
 每次在目标工作树重新生成，无可复用 identity，不跨 worktree 复制；驱动回收监听器、进程和隔离用户数据，

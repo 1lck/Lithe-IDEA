@@ -67,10 +67,10 @@ def load_plan(root: Path) -> dict:
     return plan
 
 
-def source_inventory() -> dict:
+def source_inventory(*, deadline: float | None = None) -> dict:
     # Cover the entire Windows build graph and its contracts/tooling, including
     # root lock/config inputs. macOS-only sources are not compiled in this host.
-    deadline = time.monotonic() + 300
+    deadline = deadline if deadline is not None else time.monotonic() + 300
     result = subprocess.run(["git", "ls-files", "-z", "--", "windows", "frontend", "rust", "Plugins/win", "shared", "scripts",
                              "Cargo.lock", "Cargo.toml", "bun.lock", "bunfig.toml", "package.json"],
                             cwd=ROOT, capture_output=True, check=True, timeout=15)

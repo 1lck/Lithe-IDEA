@@ -1,5 +1,14 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import { Checkbox } from "@/ui/checkbox";
@@ -186,11 +195,11 @@ function MountedNativePanel({ identity, title, ui, port, store, onClose }: Nativ
                 />
               ))}
             </div>
-            <div className="mt-3 flex flex-wrap items-start gap-1.5">
+            <NativeActionGroup>
               {(ui.buttons ?? []).map((button) => {
                 const declared = ui.actions.find((action) => action.id === button.action)!;
                 return (
-                  <div key={button.id} className="flex min-w-0 items-center gap-1.5">
+                  <div key={button.id} className="flex w-max shrink-0 items-center gap-1.5">
                     <Button
                       variant={button.primary ? "accent" : "default"}
                       disabled={button.enabled === false || !owner.canPerform(declared)}
@@ -202,12 +211,52 @@ function MountedNativePanel({ identity, title, ui, port, store, onClose }: Nativ
                   </div>
                 );
               })}
-            </div>
+            </NativeActionGroup>
           </div>
         ) : (
           <NativeTree owner={owner} state={state} title={title} />
         ))}
     </SidebarPanel>
+  );
+}
+
+function NativeActionGroup({ children }: { children: ReactNode }) {
+  const group = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const element = group.current!;
+    const items = Array.from(element.children);
+    const measure = () => {
+      // Measure the same natural-width button/InfoTip rows in either direction.
+      // Switching only this container preserves controls, draft and focus.
+      const gap = Number.parseFloat(getComputedStyle(element).columnGap) || 0;
+      const rowWidth =
+        items.reduce((width, item) => width + item.getBoundingClientRect().width, 0) +
+        gap * Math.max(0, items.length - 1);
+      const direction = rowWidth > element.getBoundingClientRect().width ? "column" : "row";
+      if (element.style.flexDirection !== direction) element.style.flexDirection = direction;
+    };
+    measure();
+    let frame: number | null = null;
+    // A direction change also resizes the observed group. Defer that write
+    // beyond observer delivery and coalesce notifications into one frame.
+    const observer = new window.ResizeObserver(() => {
+      if (frame !== null) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = null;
+        measure();
+      });
+    });
+    observer.observe(element);
+    for (const item of items) observer.observe(item);
+    return () => {
+      observer.disconnect();
+      if (frame !== null) window.cancelAnimationFrame(frame);
+    };
+  }, [children]);
+  return (
+    <div ref={group} className="mt-3 flex items-start gap-1.5">
+      {children}
+    </div>
   );
 }
 

@@ -9,6 +9,7 @@ param(
     [switch]$LspLifecycle,
     [switch]$SettingsFunctions,
     [string]$SettingsFunctionsFixtureRoot = "",
+    [switch]$TextWindow,
     [string]$MarketplaceFixtureRoot = "",
     [string]$MarketplaceTlsCert = "",
     [string]$MarketplaceTlsKey = "",
@@ -27,6 +28,9 @@ if ($SettingsFunctions -and ($Marketplace -or $LspLifecycle)) {
 }
 if ($SettingsFunctions -and -not $SkipBuild) {
     throw "Settings/functions consumes an existing isolated host: use -SkipBuild to preserve its generated inputs and build identity."
+}
+if ($TextWindow -and ($Marketplace -or $LspLifecycle -or $SettingsFunctions)) {
+    throw "Text-window acceptance is a focused invocation; run marketplace/LSP/settings acceptance separately."
 }
 $controlledMarketplaceArguments = @($MarketplaceFixtureRoot, $MarketplaceTlsCert, $MarketplaceTlsKey)
 $providedMarketplaceArguments = @($controlledMarketplaceArguments | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
@@ -135,6 +139,34 @@ function Write-NormalizedReport {
     } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $Path -Encoding utf8NoBOM
 }
 
+function Save-TextWindowSourceInventory {
+    param([Parameter(Mandatory)][string]$Path)
+    $code = "import sys,json,pathlib; sys.path.insert(0,sys.argv[1]); from text_window_fixture import source_inventory; pathlib.Path(sys.argv[2]).write_text(json.dumps(source_inventory(),sort_keys=True),encoding='utf-8')"
+    $result = Invoke-BoundedDriver -Arguments @("-B", "-c", $code, $fixtureRoot, $Path) `
+        -LogPath (Join-Path $artifactRoot "text-window-source-inventory.log") -TimeoutSeconds 330
+    if ($result -ne 0) { throw "The complete text-window source inventory failed." }
+}
+
+function Assert-TextWindowSourceInventory {
+    param([Parameter(Mandatory)][string]$Path, [switch]$Identity)
+    # Compare dictionaries in Python, independent of PowerShell property order.
+    # A legacy marker without an inventory must never be upgraded after building.
+    $code = @'
+import sys,json,pathlib
+sys.path.insert(0,sys.argv[1])
+from text_window_fixture import source_inventory
+expected=json.loads(pathlib.Path(sys.argv[2]).read_text(encoding='utf-8-sig'))
+expected=expected.get('sourceInventory') if sys.argv[3]=='identity' else expected
+current=source_inventory()
+if not isinstance(expected,dict) or expected!=current:
+    raise ValueError('text-window build source inventory is missing or changed')
+'@
+    $kind = if ($Identity) { "identity" } else { "inventory" }
+    $result = Invoke-BoundedDriver -Arguments @("-B", "-c", $code, $fixtureRoot, $Path, $kind) `
+        -LogPath (Join-Path $artifactRoot "text-window-source-identity-check.log") -TimeoutSeconds 330
+    if ($result -ne 0) { throw "The text-window build source inventory is missing or changed." }
+}
+
 function Stop-OwnedAcceptanceProcesses {
     param([Parameter(Mandatory)][string]$StagedExecutable)
     $executablePath = [IO.Path]::GetFullPath($StagedExecutable)
@@ -229,6 +261,7 @@ if (-not $SkipBuild -and -not $ResumeBuild) {
             $priorIdentity.executableSha256 -ne (Get-FileHash -Algorithm SHA256 -LiteralPath $sourceExecutable).Hash.ToLowerInvariant()) {
             throw "The prior executable, source revision or config no longer matches its isolated application identity marker."
         }
+        if ($TextWindow) { Assert-TextWindowSourceInventory -Path $identityMarker -Identity }
     }
 }
 
@@ -267,7 +300,10 @@ Invoke-NativeChecked -Executable "python" -Arguments @(
     (Join-Path $fixtureRoot "generate_packages.py"),
     (Join-Path $fixtureRoot "settings_functions_fixture.py"),
     (Join-Path $fixtureRoot "settings_functions_acceptance.py"),
-    (Join-Path $fixtureRoot "settings_functions_acceptance_test.py")
+    (Join-Path $fixtureRoot "settings_functions_acceptance_test.py"),
+    (Join-Path $fixtureRoot "text_window_fixture.py"),
+    (Join-Path $fixtureRoot "text_window_acceptance.py"),
+    (Join-Path $fixtureRoot "text_window_acceptance_test.py")
 ) -FailureMessage "A plugin host acceptance Python source file has invalid syntax"
 
 & (Join-Path $root ".agents/skills/write-stable-tests/scripts/verify-test-stability.ps1") -Platform windows
@@ -298,6 +334,12 @@ Invoke-NativeChecked -Executable "python" -Arguments @(
     "-B", (Join-Path $fixtureRoot "settings_functions_acceptance_test.py"),
     "--report", (Join-Path $stabilityRoot "plugin-settings-functions-driver.json")
 ) -FailureMessage "The settings/functions acceptance self-checks failed"
+if ($TextWindow) {
+    Invoke-NativeChecked -Executable "python" -Arguments @(
+        "-B", (Join-Path $fixtureRoot "text_window_acceptance_test.py"),
+        "--report", (Join-Path $stabilityRoot "plugin-text-window-helpers.json")
+    ) -FailureMessage "The literal text-window helper checks failed"
+}
 
 $zsh = Get-Command zsh -ErrorAction SilentlyContinue
 $immutabilityReport = Join-Path $stabilityRoot "plugin-host-acceptance-source-guard.json"
@@ -346,6 +388,8 @@ if (-not $SkipBuild) {
     $previousToolchain = $env:RUSTUP_TOOLCHAIN
     $previousConpty = $env:LITHE_REQUIRE_CONPTY
     $transcriptStarted = $false
+    $sourceInventoryBefore = Join-Path $artifactRoot "text-window-source-before.json"
+    if ($TextWindow) { Save-TextWindowSourceInventory -Path $sourceInventoryBefore }
     try {
         $env:CARGO_BUILD_JOBS = "2"
         $env:RUSTUP_TOOLCHAIN = "stable-$RustTarget"
@@ -383,14 +427,19 @@ if (-not $SkipBuild) {
         if (-not (Test-Path -LiteralPath $sourceExecutable -PathType Leaf)) {
             throw "The isolated Windows executable was not produced: $sourceExecutable"
         }
-        @{
+        $buildIdentity = @{
             identifier = $acceptanceIdentifier
             rustTarget = $RustTarget
             sourceExecutable = $sourceExecutable
             gitRevision = (& git -C $root rev-parse HEAD).Trim()
             configSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $customConfig).Hash.ToLowerInvariant()
             executableSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $sourceExecutable).Hash.ToLowerInvariant()
-        } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $identityMarker -Encoding utf8NoBOM
+        }
+        if ($TextWindow) {
+            Assert-TextWindowSourceInventory -Path $sourceInventoryBefore
+            $buildIdentity.sourceInventory = Get-Content -LiteralPath $sourceInventoryBefore -Raw | ConvertFrom-Json
+        }
+        $buildIdentity | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $identityMarker -Encoding utf8NoBOM
     } finally {
         if ($transcriptStarted) { Stop-Transcript | Out-Null }
         $env:CARGO_BUILD_JOBS = $previousCargoJobs
@@ -471,6 +520,10 @@ $appRoamingData = Join-Path ([Environment]::GetFolderPath("ApplicationData")) $a
 $webviewData = Join-Path $runtimeRoot "webview2"
 $acceptanceReport = Join-Path $stabilityRoot "plugin-host-acceptance.json"
 $driverLog = Join-Path $artifactRoot "acceptance-driver.log"
+if ($TextWindow) {
+    $acceptanceReport = Join-Path $stabilityRoot "plugin-text-window-acceptance.json"
+    $driverLog = Join-Path $artifactRoot "text-window-driver.log"
+}
 
 @{
     schemaVersion = 1
@@ -520,6 +573,20 @@ try {
             "--marketplace-tls-cert", ([IO.Path]::GetFullPath($MarketplaceTlsCert)),
             "--marketplace-tls-key", ([IO.Path]::GetFullPath($MarketplaceTlsKey)),
             "--marketplace-listen-host", $MarketplaceListenHost
+        )
+    }
+    if ($TextWindow) {
+        $driverArguments = @(
+            "-B", (Join-Path $fixtureRoot "text_window_acceptance.py"),
+            "--fixture-root", (Join-Path $artifactRoot ("text-window-fixture-" + [guid]::NewGuid().ToString("N"))),
+            "--host-identity", $identityMarker,
+            "--executable", $stagedExecutable,
+            "--run-image", $runImage,
+            "--artifact-root", (Join-Path $evidenceRoot "text-window"),
+            "--report", $acceptanceReport,
+            "--app-local-data", $appLocalData,
+            "--app-roaming-data", $appRoamingData,
+            "--webview-data", $webviewData
         )
     }
     $driverExit = Invoke-BoundedDriver -LogPath $driverLog -Arguments $driverArguments

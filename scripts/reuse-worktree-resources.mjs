@@ -91,7 +91,8 @@ async function readRegistry() {
   // Native acceptance fixtures/profiles use plugin-host-acceptance-state's
   // refusal route, including build-fixture tools/workspaces and settings/functions
   // input plans, ZIPs and resource snapshots, plus ui:2 web fallback static ZIPs,
-  // private-target CDP traces and descriptor/callback snapshots; deterministic test ZIPs do not
+  // private-target CDP traces and descriptor/callback snapshots; ui:1 text-window
+  // ZIPs, host-page DOM/CSP/request traces and loopback-counter evidence are also run-owned; deterministic test ZIPs do not
   // establish a build identity or transfer native install approval.
   const excludedResources = registry.excludedResources ?? [];
   if (!Array.isArray(excludedResources)) throw new Error("Invalid excluded worktree resources");
