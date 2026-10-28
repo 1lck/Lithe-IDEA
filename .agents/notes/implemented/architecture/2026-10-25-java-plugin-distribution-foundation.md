@@ -48,6 +48,11 @@ JDT LS、JDK、Lombok、Debug 和 Test 扩展保持当前锁定版本。资源�
 
 打开 Java 文件或含 Java、Maven、Gradle 文件的项目时，无插件则显示每窗口会话一次的安装提示，支持前往市场和“从磁盘安装”的离线路径。新建项目页在 Java 插件缺失时提供模板安装入口，已有但禁用的插件继续走启用流程。离线或取消不重置设置，下一次会话可以重试。
 
+缺包判断必须同时读取包身份和安装状态。包管理器会保留已移除（`.removed`）的
+内置副本快照，用于用户主动恢复；重启后这类快照不能抑制安装提示。已安装、等待更新
+或等待卸载重启的副本仍走现有管理流程，即使用户禁用了模块，也不能显示缺包提示。
+例如卸载并重启后打开 Java 文件应提示恢复；不要只收集快照 ID 来推断包仍然存在。
+
 ### 精简应用以已发布索引为前提
 
 发布登记中的 `bundledUntilPublishedVersion: 1.1.0` 表示安全退出内置分发的最低插件版本。构建读取本工作树的官方索引：至少一个达到版本门槛的版本，其仓库、API、能力要求与当前插件一致，两个架构的 URL、平台与 SHA-256 齐全且唯一，才不再组装内置 Java，也不预下载 JDT/JDK。索引缺项仍带过渡副本，索引读写格式损坏直接中止构建，不能当作“无需内置”。后续插件源码升版时，兼容的旧下载仍可满足门槛，不要求下载版本等于当前源码版本。
@@ -88,6 +93,7 @@ JDT LS、JDK、Lombok、Debug 和 Test 扩展保持当前锁定版本。资源�
 - `./scripts/verify-rust-core-comments.sh`、`./scripts/verify-shared-contracts.sh`：契约、注释和共享输入一致。
 - Rust 的 `declarative_plugins` 与 `marketplace_plugins`：来源策略必须声明能力、非法组合拒绝、旧宿主在下载前拒绝。
 - `PluginBundledPublisherTrustTests`：真实 Core、生产包管理器及注入测试公钥验证签名安装、单一来源、包篡改、伪造来源和缺失运行时，比较安装资源内容。
+- 同一套包存储回归覆盖卸载后重新启动扫描得到 `.removed` 快照时的提示，状态矩阵保留禁用、暂存更新和待重启副本的管理流程；`PluginInstallationGuidancePresentationTests` 用真实原生视图核对深浅主题的缺包通知、模板入口及主动打开市场的按钮，不执行安装或工具。
 - `./scripts/verify-macos-package.sh --slim`：以临时完整索引构建精简 universal app，拒绝 JDT/JDK 下载输入，检查资源缺失、签名和 DMG；默认模式检查保留过渡包。
 - `node --test scripts/test-official-plugin-distribution.mjs`：完整与部分上架、来源/能力不匹配和后续版本门槛。
 - `node --test scripts/official-plugin-releases.test.mjs`：双架构索引、部分归档拒绝、历史标签元数据以及上游输入变更约束。

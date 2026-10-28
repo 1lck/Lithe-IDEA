@@ -8,7 +8,7 @@ extension AppModel {
         guard !hasSuggestedJavaPlugin,
               JavaPluginTransition.shouldSuggest(
                 files: files,
-                installedPluginIDs: Set(services.pluginManager.snapshots.map(\.id))
+                plugins: services.pluginManager.snapshots
               ) else { return }
         hasSuggestedJavaPlugin = true
         showNotification(

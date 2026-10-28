@@ -140,6 +140,12 @@ struct PluginBundledPublisherTrustTests {
         #expect(packages.count == 1)
         #expect(packages.first?.installation.origin == .bundled)
         #expect(packages.first?.installation.status == .removed)
+        let restarted = fixture.manager(store: store, configuration: configuration, packages: packages)
+        #expect(restarted.snapshots.first?.installationStatus == .removed)
+        for file in ["Main.java", "pom.xml"] {
+            #expect(JavaPluginTransition.shouldSuggest(files: [fixture.root.appendingPathComponent(file)],
+                                                       plugins: restarted.snapshots))
+        }
     }
 
     @Test
@@ -163,10 +169,27 @@ struct PluginBundledPublisherTrustTests {
     func missingJavaIsSuggestedOnlyWhenNeededAndNoPackageExists() {
         for name in ["Main.java", "pom.xml", "build.gradle", "build.gradle.kts"] {
             let files = [URL(fileURLWithPath: "/fixture/\(name)")]
-            #expect(JavaPluginTransition.shouldSuggest(files: files, installedPluginIDs: []))
-            #expect(!JavaPluginTransition.shouldSuggest(files: files, installedPluginIDs: [OfficialPluginCatalog.javaPluginID]))
+            #expect(JavaPluginTransition.shouldSuggest(files: files, plugins: []))
         }
-        #expect(!JavaPluginTransition.shouldSuggest(files: [URL(fileURLWithPath: "/fixture/README.md")], installedPluginIDs: []))
+        #expect(!JavaPluginTransition.shouldSuggest(files: [URL(fileURLWithPath: "/fixture/README.md")], plugins: []))
+    }
+
+    @Test(arguments: [PluginInstallationStatus.installed, .updateStaged, .uninstallPending, .removed], [false, true])
+    func installationStateControlsTheJavaSuggestion(status: PluginInstallationStatus, enabled: Bool) throws {
+        let manifest = try DeclarativePluginTestSupport.officialDescriptor("JavaSupport").pluginManifest
+        var snapshot = PluginManagementSnapshot(manifest: manifest, origin: .bundled, installationStatus: status,
+            isEnabled: enabled, isRequired: false, isRunning: false, isQuarantined: false,
+            isSuppressedBySafeMode: false, requiresRestart: status != .installed, canRollback: false,
+            statusMessage: "fixture", marketplace: nil)
+        for name in ["Main.java", "pom.xml", "build.gradle", "build.gradle.kts"] {
+            #expect(JavaPluginTransition.shouldSuggest(files: [URL(fileURLWithPath: "/fixture/\(name)")],
+                                                       plugins: [snapshot]) == (status == .removed))
+        }
+        #expect(!JavaPluginTransition.shouldSuggest(files: [URL(fileURLWithPath: "/fixture/README.md")], plugins: [snapshot]))
+        // A removed sealed copy can still be registered until this session
+        // restarts; only the next launch should offer to restore it.
+        snapshot.hasChangesPendingRestart = true
+        #expect(!JavaPluginTransition.shouldSuggest(files: [URL(fileURLWithPath: "/fixture/Main.java")], plugins: [snapshot]))
     }
     @Test
     func hostSealedCopyAndSignedInstalledUpdateUseOnePluginIdentity() throws {
