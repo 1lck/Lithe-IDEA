@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import SwiftUI
 
 /// Shows the runtime a launch would use in place of "automatic" or "inherited".
@@ -49,17 +50,17 @@ struct EffectiveRuntimeLabel: View {
         case .fallback(let invalidPath, let replacement)?:
             VStack(alignment: .leading, spacing: 6) {
                 problemCard(String(
-                    format: String(localized: "Cannot use %@; using the project JDK instead."),
+                    format: L10n.string("Cannot use %@; using the project JDK instead."),
                     invalidPath
                 ))
                 fallbackCard(replacement)
             }
         case .invalid(let path)?:
-            problemCard(String(format: String(localized: "Cannot be used: %@"), path))
+            problemCard(String(format: L10n.string("Cannot be used: %@"), path))
         case .notFound?:
             problemCard(kind == .java
-                ? String(localized: "No JDK found. Set JAVA_HOME, install a JDK, or choose a JDK directory.")
-                : String(localized: "No Maven found. Add a Maven Wrapper to the project or choose a Maven installation."))
+                ? L10n.string("No JDK found. Set JAVA_HOME, install a JDK, or choose a JDK directory.")
+                : L10n.string("No Maven found. Add a Maven Wrapper to the project or choose a Maven installation."))
         }
     }
 
@@ -67,17 +68,17 @@ struct EffectiveRuntimeLabel: View {
     private func fallbackCard(_ replacement: RuntimeChoice) -> some View {
         switch replacement {
         case .found(let url, _):
-            runtimeCard(url: url, source: .projectJDK, mode: String(localized: "Use Project JDK"))
+            runtimeCard(url: url, source: .projectJDK, mode: L10n.string("Use Project JDK"))
         case .warning(let url, _, let message):
-            runtimeCard(url: url, source: .projectJDK, mode: String(localized: "Use Project JDK"), warning: message)
+            runtimeCard(url: url, source: .projectJDK, mode: L10n.string("Use Project JDK"), warning: message)
         case .unavailable(let message):
             problemCard(message)
         case .invalid(let path), .fallback(let path, _):
-            problemCard(String(format: String(localized: "Cannot be used: %@"), path))
+            problemCard(String(format: L10n.string("Cannot be used: %@"), path))
         case .notFound:
             problemCard(kind == .java
-                ? String(localized: "No JDK found. Set JAVA_HOME, install a JDK, or choose a JDK directory.")
-                : String(localized: "No Maven found. Add a Maven Wrapper to the project or choose a Maven installation."))
+                ? L10n.string("No JDK found. Set JAVA_HOME, install a JDK, or choose a JDK directory.")
+                : L10n.string("No Maven found. Add a Maven Wrapper to the project or choose a Maven installation."))
         }
     }
 
@@ -192,10 +193,10 @@ struct EffectiveRuntimeLabel: View {
 
     private var modeTitle: String {
         switch mode {
-        case .automatic: String(localized: "Automatic")
-        case .inherited: String(localized: "Inherited from project")
-        case .projectJDK: String(localized: "Use Project JDK")
-        case .configured: String(localized: "Selected runtime")
+        case .automatic: L10n.string("Automatic")
+        case .inherited: L10n.string("Inherited from project")
+        case .projectJDK: L10n.string("Use Project JDK")
+        case .configured: L10n.string("Selected runtime")
         }
     }
 
@@ -210,10 +211,10 @@ struct EffectiveRuntimeLabel: View {
     private func sourceTitle(_ source: RuntimeChoiceSource) -> String? {
         switch source {
         case .configured, .projectSetting, .projectJDK: nil
-        case .javaHomeEnvironment: String(localized: "from JAVA_HOME")
-        case .detected: String(localized: "detected on this Mac")
-        case .mavenWrapper: String(localized: "project Maven Wrapper")
-        case .systemMaven: String(localized: "system Maven")
+        case .javaHomeEnvironment: L10n.string("from JAVA_HOME")
+        case .detected: L10n.string("detected on this Mac")
+        case .mavenWrapper: L10n.string("project Maven Wrapper")
+        case .systemMaven: L10n.string("system Maven")
         }
     }
 }

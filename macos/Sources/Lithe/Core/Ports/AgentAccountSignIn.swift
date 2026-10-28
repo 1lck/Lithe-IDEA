@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 
 /// Runs the official CLI login for one subscription account without a terminal.
 /// The CLI opens its own browser flow and keeps every credential; Lithe only
@@ -13,9 +14,9 @@ enum AgentAccountSignInError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .unsupported: String(localized: "This Agent has no account sign-in.")
-        case .failed: String(localized: "Sign-in did not finish. Check that the Agent's CLI is installed, then try again.")
-        case .timedOut: String(localized: "Sign-in timed out. Try again.")
+        case .unsupported: L10n.string("This Agent has no account sign-in.")
+        case .failed: L10n.string("Sign-in did not finish. Check that the Agent's CLI is installed, then try again.")
+        case .timedOut: L10n.string("Sign-in timed out. Try again.")
         }
     }
 }

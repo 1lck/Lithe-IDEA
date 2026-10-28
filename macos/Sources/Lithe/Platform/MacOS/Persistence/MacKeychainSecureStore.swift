@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import LocalAuthentication
 import Security
@@ -12,8 +13,8 @@ final class MacKeychainSecureStore: SecureStore, @unchecked Sendable {
         var errorDescription: String? {
             switch self {
             case let .unexpectedStatus(status):
-                let message = SecCopyErrorMessageString(status, nil) as String? ?? "Unknown Keychain error"
-                return "Keychain error \(status): \(message)"
+                let message = SecCopyErrorMessageString(status, nil) as String? ?? L10n.string("Unknown Keychain error")
+                return L10n.string("Keychain error \(String(status)): \(message)")
             }
         }
     }

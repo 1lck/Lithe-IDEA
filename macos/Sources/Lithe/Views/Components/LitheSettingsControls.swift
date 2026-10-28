@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import AppKit
 import SwiftUI
 
@@ -200,15 +201,20 @@ struct LitheSettingsPill: View {
 
     private let text: Text
     private let kind: Kind
+    /// A long value wraps onto more lines instead of keeping its full width,
+    /// so it cannot push the row past its container.
+    private let wraps: Bool
 
     init(_ title: LocalizedStringKey, kind: Kind = .neutral) {
         self.text = Text(title)
         self.kind = kind
+        self.wraps = false
     }
 
-    init(verbatim title: String, kind: Kind = .neutral) {
+    init(verbatim title: String, kind: Kind = .neutral, wraps: Bool = false) {
         self.text = Text(verbatim: title)
         self.kind = kind
+        self.wraps = wraps
     }
 
     var body: some View {
@@ -216,12 +222,15 @@ struct LitheSettingsPill: View {
             .font(kind == .value
                   ? LitheTheme.uiFont(size: 10.5, design: .monospaced)
                   : LitheTheme.uiFont(size: 10.5))
-            .lineLimit(1)
+            .lineLimit(wraps ? nil : 1)
+            .multilineTextAlignment(.leading)
             .foregroundStyle(foreground)
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
-            .background(Capsule().fill(background))
-            .fixedSize()
+            .background(
+                RoundedRectangle(cornerRadius: wraps ? 10 : 100, style: .continuous).fill(background)
+            )
+            .modifier(PillSizing(wraps: wraps))
     }
 
     private var foreground: Color {
@@ -239,6 +248,18 @@ struct LitheSettingsPill: View {
         case .project: LitheTheme.settingsProjectPill
         case .effect: LitheTheme.settingsEffectPill
         case .value: LitheTheme.settingsValuePill
+        }
+    }
+}
+
+private struct PillSizing: ViewModifier {
+    let wraps: Bool
+
+    func body(content: Content) -> some View {
+        if wraps {
+            content.fixedSize(horizontal: false, vertical: true)
+        } else {
+            content.fixedSize()
         }
     }
 }
@@ -515,7 +536,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
         return options.indices.filter { index in
             let text = searchText(options[index])
             let searchable = localizesTitles
-                ? String(localized: String.LocalizationValue(text), locale: locale)
+                ? L10n.string(String.LocalizationValue(text), locale: locale)
                 : text
             return LitheSettingsSelectSearch.matches(searchable, query: query)
         }
@@ -569,7 +590,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
         guard expandsToFitOptions else { return width }
         let font = LitheTheme.uiNSFont(size: SettingsSelectMetrics.fontSize)
         let titleWidth = options.reduce(CGFloat.zero) { widest, option in
-            let text = localizesTitles ? String(localized: String.LocalizationValue(title(option)), locale: locale) : title(option)
+            let text = localizesTitles ? L10n.string(String.LocalizationValue(title(option)), locale: locale) : title(option)
             return max(widest, (text as NSString).size(withAttributes: [.font: font]).width)
         }
         let chromeWidth = 2 * SettingsSelectMetrics.itemHorizontalPadding

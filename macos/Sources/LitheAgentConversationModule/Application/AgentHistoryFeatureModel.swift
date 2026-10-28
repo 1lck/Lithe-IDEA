@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import LitheModuleAPI
 import LitheCoreContracts
 
 /// Manages Lithe's history annotations and exports Agent-owned replayed messages.
@@ -146,16 +147,16 @@ public struct AgentHistoryDocument: Sendable {
     /// A portable transcript; tool messages retain their input, output and content.
     public static func markdown(_ documents: [Self]) -> String {
         documents.map { document in
-            let title = (document.title ?? String(localized: "Untitled conversation"))
+            let title = (document.title ?? L10n.string("Untitled conversation"))
                 .components(separatedBy: .newlines).joined(separator: " ")
             var sections = ["# \(title)", "Session ID: \(document.id)"]
             for message in document.messages where message.subagentSessionID == nil || message.role == .tool {
                 let role: String
                 switch message.role {
-                case .user: role = String(localized: "You")
+                case .user: role = L10n.string("You")
                 case .agent: role = "Agent"
-                case .thought: role = String(localized: "Thinking")
-                case .tool: role = String(localized: "Tool")
+                case .thought: role = L10n.string("Thinking")
+                case .tool: role = L10n.string("Tool")
                 }
                 // Reasoning is exported as a quote so it stays distinct from the reply.
                 // A replayed plan snapshot is exported as a task list.

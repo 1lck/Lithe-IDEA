@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import Network
 
@@ -71,9 +72,9 @@ final class MacJavaTestResultServer: JavaTestResultServing {
         var errorDescription: String? {
             switch self {
             case .startupFailed(let message):
-                "Could not start the Java test result listener: \(message)"
+                L10n.string("Could not start the Java test result listener: \(message)")
             case .startupTimedOut:
-                "The Java test result listener did not become ready in time."
+                L10n.string("The Java test result listener did not become ready in time.")
             }
         }
     }

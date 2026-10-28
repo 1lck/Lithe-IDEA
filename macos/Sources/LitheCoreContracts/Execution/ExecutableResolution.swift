@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 
 /// Core orders these before native discovery. Other plugin launch adapters can
 /// reuse the sources without adopting Build's protocol or trust policy.
@@ -60,7 +61,7 @@ package struct ExecutableCandidateResolver {
             guard path.hasPrefix("/"), path == path.trimmingCharacters(in: .whitespacesAndNewlines),
                   !path.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
                   isExecutable(URL(fileURLWithPath: path)) else {
-                return .terminalFailure(String(localized: "The configured build tool is not executable: \(path)"))
+                return .terminalFailure(L10n.string("The configured build tool is not executable: \(path)"))
             }
             return found([URL(fileURLWithPath: path)], terminal: true)
         }

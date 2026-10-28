@@ -120,6 +120,30 @@ struct AgentLaunchConfigurationResolverTests {
     }
 
     @Test
+    func contextLimitsAreDeliveredPerAgentForApiKeyAndSubscriptionLaunches() throws {
+        let settings = AppSettings(store: LaunchSettingsStore())
+        settings.agentConfigurations["codex-acp"] = AgentConfiguration(name: "Codex", providerID: nil,
+            authentication: .codexSubscription)
+        settings.agentContextLimits["codex-acp"] = AgentContextLimits(windowTokens: 200_000, autoCompactTokens: 150_000)
+        let resolver = AgentLaunchConfigurationResolver(settings: settings,
+            configurationSources: [LaunchConfigurationSource(snapshots: [])],
+            credentialResolver: LaunchCredentialResolver(key: "unused"))
+        #expect(try resolve(resolver, agentID: "codex-acp").contextLimits
+            == AgentContextLimits(windowTokens: 200_000, autoCompactTokens: 150_000))
+        settings.agentConfigurations["claude-acp"] = AgentConfiguration(name: "Claude", providerID: nil,
+            authentication: .claudeSubscription)
+        #expect(try resolve(resolver, agentID: "claude-acp").contextLimits.isEmpty)
+        // The limits survive a restart of the app, and Restore Defaults clears them.
+        let store = LaunchSettingsStore()
+        let first = AppSettings(store: store)
+        first.agentContextLimits["claude-acp"] = AgentContextLimits(autoCompactTokens: 120_000)
+        first.recordAgentContextDefault(agentID: "claude-acp", tokens: 1_000_000)
+        let second = AppSettings(store: store)
+        #expect(second.agentContextLimits["claude-acp"]?.autoCompactTokens == 120_000)
+        #expect(second.agentContextDefaults["claude-acp"] == 1_000_000)
+    }
+
+    @Test
     func subscriptionSkipsAPIConfigurationAndRejectsOtherAgents() throws {
         let settings = AppSettings(store: LaunchSettingsStore())
         settings.agentModelCallStatistics = false
@@ -155,8 +179,11 @@ struct AgentLaunchConfigurationResolverTests {
         let launch = try resolve(resolver, agentID: "claude-acp")
         #expect(launch.authentication == .claudeSubscription)
         #expect(launch.providerEndpoint.isEmpty && launch.apiKey.isEmpty && launch.model.isEmpty)
-        // Claude's account route has no observable endpoint; nothing is proxied.
-        #expect(!launch.observesModelCalls)
+        // The CLI's own requests are forwarded unchanged through the observation proxy
+        // while statistics are on; its credentials are never read.
+        #expect(launch.observesModelCalls)
+        settings.agentModelCallStatistics = false
+        #expect(try !resolve(resolver, agentID: "claude-acp").observesModelCalls)
         // Neither subscription may be handed to the other adapter.
         settings.agentConfigurations["codex-acp"] = AgentConfiguration(name: "Codex", providerID: nil,
             authentication: .claudeSubscription)

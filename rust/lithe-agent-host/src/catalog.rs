@@ -87,18 +87,18 @@ pub const CATALOG: &[CatalogAgent] = &[
         name: "Codex",
         description: "OpenAI Codex through its ACP adapter",
         package: "@agentclientprotocol/codex-acp",
-        version: "1.13.1",
+        version: "2.2.2",
         bin: "codex-acp",
         // `open@11`, a dependency of the adapter, requires Node.js 20.
         minimum_node_major: 20,
         protocol: ProviderProtocol::Responses,
         model_delivery: ModelDelivery::CodexConfig,
-        // `@openai/codex ^0.156.1` in the adapter; its platform binaries are
+        // `@openai/codex ^0.160.1` in the adapter; its platform binaries are
         // optional dependencies that the install skips.
         cli: Some(AgentCli {
             command: "codex",
             name: "Codex CLI",
-            minimum_version: "0.156.0",
+            minimum_version: "0.160.1",
             path_env: "CODEX_PATH",
             accepts_windows_shim: true,
             install_hint: "npm install -g @openai/codex",
@@ -112,18 +112,18 @@ pub const CATALOG: &[CatalogAgent] = &[
         name: "Claude",
         description: "Claude Agent through its ACP adapter",
         package: "@agentclientprotocol/claude-agent-acp",
-        version: "0.81.2",
+        version: "0.95.0",
         bin: "claude-agent-acp",
         minimum_node_major: 22,
         protocol: ProviderProtocol::AnthropicMessages,
         model_delivery: ModelDelivery::ClaudeSessionOptions,
-        // The Claude Agent SDK pairs with Claude Code 2.1.280. Its native
+        // The Claude Agent SDK pairs with Claude Code 2.1.309. Its native
         // binary is an optional dependency; Windows keeps it because npm's
         // `claude` shim is a `.cmd` file that the adapter cannot spawn.
         cli: Some(AgentCli {
             command: "claude",
             name: "Claude Code",
-            minimum_version: "2.1.280",
+            minimum_version: "2.1.309",
             path_env: "CLAUDE_CODE_EXECUTABLE",
             accepts_windows_shim: false,
             install_hint: "npm install -g @anthropic-ai/claude-code",

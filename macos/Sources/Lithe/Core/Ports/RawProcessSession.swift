@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 
 enum RawProcessSessionError: LocalizedError, Equatable, Sendable {
@@ -7,9 +8,9 @@ enum RawProcessSessionError: LocalizedError, Equatable, Sendable {
     var errorDescription: String? {
         switch self {
         case .notRunning:
-            "The process is not running."
+            L10n.string("The process is not running.")
         case .standardInputUnavailable:
-            "The process does not have an open standard-input pipe."
+            L10n.string("The process does not have an open standard-input pipe.")
         }
     }
 }

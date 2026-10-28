@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import LocalAuthentication
 import Security
@@ -16,8 +17,8 @@ final class MacPluginCredentialStore: PluginCredentialStoring, @unchecked Sendab
         var errorDescription: String? {
             switch self {
             case .unexpectedStatus(let status):
-                let message = SecCopyErrorMessageString(status, nil) as String? ?? "Unknown Keychain error"
-                return "Keychain error \(status): \(message)"
+                let message = SecCopyErrorMessageString(status, nil) as String? ?? L10n.string("Unknown Keychain error")
+                return L10n.string("Keychain error \(String(status)): \(message)")
             }
         }
     }

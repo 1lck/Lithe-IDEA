@@ -153,17 +153,6 @@ enum AgentHistoryPresentation {
             .compactMap { group in buckets[group].map { AgentHistorySection(group: group, sessions: $0) } }
     }
 
-    static func popupSessions(_ sessions: [AgentSessionSummary], openSessionIDs: [String],
-                              metadata: [String: AgentHistoryMetadata], selectedSessionID: String? = nil, locale: Locale = .current) -> [AgentSessionSummary] {
-        let listed = Self.sessions(sessions, metadata: metadata, query: "", filter: .all)
-        let knownIDs = Set(sessions.map(\.id))
-        let pending = openSessionIDs.reversed().filter {
-            !knownIDs.contains($0) && metadata[$0]?.isHidden != true
-        }.map { AgentSessionSummary(id: $0, title: AgentLocalization.string("New Chat", locale: locale)) }
-        let rows = pending + listed
-        return rows.filter { $0.id == selectedSessionID } + rows.filter { $0.id != selectedSessionID }
-    }
-
     /// The original management page also includes open chats that the Agent has
     /// not listed yet. Titles are derived for display without changing its history.
     static func managementSessions(_ sessions: [AgentSessionSummary], openSessionIDs: [String],
@@ -718,6 +707,8 @@ private struct AgentHistoryList: View, Equatable {
     }
 
     var body: some View {
+        // Without an archive group no row is a branch, so the tree must not
+        // reserve a disclosure column on every row (an empty left gutter).
         let visible = items + (archived.isEmpty ? [] : [.archiveHeader]
             + (isArchivedExpanded ? archived.map(AgentHistoryListItem.archivedRow) : []))
         LitheTreeList(visible, id: \.id, selection: Binding<Set<String>>(
@@ -732,7 +723,7 @@ private struct AgentHistoryList: View, Equatable {
                 case .row: .init(isSelectable: isSelecting)
                 case .archivedRow: .init(depth: 1, isSelectable: false)
                 }
-            }, onExpansion: { item, expanded in
+            }, onExpansion: archived.isEmpty ? nil : { item, expanded in
                 if case .archiveHeader = item, expanded != isArchivedExpanded { actions.toggleArchived() }
             }, multiline: true
         ) { item in

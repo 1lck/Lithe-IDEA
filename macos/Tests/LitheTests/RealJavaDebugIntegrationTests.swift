@@ -105,10 +105,11 @@ struct RealJavaDebugIntegrationTests {
             CoreDebugAdapterProtocolSession(
                 adapterID: "java",
                 transport: RealJavaDebugRecordingTransport(
-                    wrapping: MacJavaDebugAdapterTransport(
+                    wrapping: MacHostedPortDebugAdapterTransport(
                         portResolver: { rootURL in
                             try await languageManager.startJavaDebugServer(rootURL: rootURL)
-                        }
+                        },
+                        core: core
                     ),
                     trace: protocolTrace
                 ),
@@ -412,10 +413,11 @@ struct RealJavaDebugIntegrationTests {
             CoreDebugAdapterProtocolSession(
                 adapterID: "java",
                 transport: RealJavaDebugRecordingTransport(
-                    wrapping: MacJavaDebugAdapterTransport(
+                    wrapping: MacHostedPortDebugAdapterTransport(
                         portResolver: { rootURL in
                             try await languageManager.startJavaDebugServer(rootURL: rootURL)
-                        }
+                        },
+                        core: core
                     ),
                     trace: protocolTrace
                 ),
@@ -428,7 +430,6 @@ struct RealJavaDebugIntegrationTests {
         feature.onRunInTerminalRequest = debugTerminals.handle
         let launchService = JavaTestDebugLaunchService(
             configurationResolver: DebugLaunchConfigurationResolver(
-                fileExists: { fileManager.fileExists(atPath: $0.path) },
                 javaTestLaunchResolver: core
             ),
             resultServerFactory: { MacJavaTestResultServer() }

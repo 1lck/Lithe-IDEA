@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import SwiftUI
 
 private func logCategoryTitle(_ category: String) -> String {
@@ -74,7 +75,7 @@ struct ApplicationLogDiagnosticsView: View {
                 LitheInfoTip("Detailed diagnostics cover the selected module and expire after 15 minutes. Refresh to see the current status.")
             }
             if feature.diagnosticEnabled {
-                let module = String(localized: String.LocalizationValue(logCategoryTitle(feature.diagnosticCategory ?? "all")), locale: locale)
+                let module = L10n.string(String.LocalizationValue(logCategoryTitle(feature.diagnosticCategory ?? "all")), locale: locale)
                 Text("Detailed diagnostics: On (\(module))")
             } else {
                 Text("Detailed diagnostics: Off")

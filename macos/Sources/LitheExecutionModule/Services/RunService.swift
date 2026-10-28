@@ -561,7 +561,7 @@ package final class RunService: ObservableObject {
         javaDiscovery: JavaEntrypointDiscovery = .notJava
     ) async {
         guard recoveryAction != .upgradeApplication else {
-            generationState = .failed(String(localized: "Upgrade Lithe to use this run configuration version."))
+            generationState = .failed(L10n.string("Upgrade Lithe to use this run configuration version."))
             return
         }
         // Generation scans the file inventory this service holds, so a
@@ -877,7 +877,7 @@ package final class RunService: ObservableObject {
             return
         }
         if configuration.kind == .currentFile, currentFileURL == nil {
-            fail(String(localized: "Open a source file before running Current File."))
+            fail(L10n.string("Open a source file before running Current File."))
             return
         }
         let currentFile = currentFileURL.flatMap { relativePath(for: $0, root: projectURL) }
@@ -1026,7 +1026,7 @@ package final class RunService: ObservableObject {
     ) {
         let serviceConfigurations = configurations.filter { $0.execution == .service }
         guard !serviceConfigurations.isEmpty else {
-            fail(String(localized: "No runnable services were detected in this project."))
+            fail(L10n.string("No runnable services were detected in this project."))
             return
         }
         stopAllServices()

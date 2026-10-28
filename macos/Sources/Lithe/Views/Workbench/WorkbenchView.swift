@@ -1337,24 +1337,24 @@ struct WorkbenchView: View {
         let state = moduleUIRegistry.state(for: contribution, model: model)
         let hidden = workbench.contributionPreferences[contribution.id]?.isHidden == true
         var items: [LitheContextMenuItem] = [
-            .action(String(localized: contribution.kind == .toolWindow ? "Show" : "Show Entry"),
+            .action(L10n.string(contribution.kind == .toolWindow ? "Show" : "Show Entry"),
                     isEnabled: contribution.kind != .toolWindow || (state.isVisible && state.isEnabled && !state.isPending)) {
                 model.showContributionEntry(contribution)
             },
-            .action(String(localized: "Hide Entry"), isEnabled: !hidden) {
+            .action(L10n.string("Hide Entry"), isEnabled: !hidden) {
                 workbench.customizeContribution(contribution.id, isHidden: true)
             }
         ]
         if contribution.kind == .toolWindow {
             items += [
-                .action(String(localized: "Move to Left")) { workbench.customizeContribution(contribution.id, placement: .leftSidebar) },
-                .action(String(localized: "Move to Bottom")) { workbench.customizeContribution(contribution.id, placement: .activityBar) },
-                .action(String(localized: "Move to Right")) { workbench.customizeContribution(contribution.id, placement: .rightSidebar) }
+                .action(L10n.string("Move to Left")) { workbench.customizeContribution(contribution.id, placement: .leftSidebar) },
+                .action(L10n.string("Move to Bottom")) { workbench.customizeContribution(contribution.id, placement: .activityBar) },
+                .action(L10n.string("Move to Right")) { workbench.customizeContribution(contribution.id, placement: .rightSidebar) }
             ]
         }
         items += [
-            .action(String(localized: "Move Earlier")) { workbench.moveContribution(contribution.id, earlier: true) },
-            .action(String(localized: "Move Later")) { workbench.moveContribution(contribution.id, earlier: false) }
+            .action(L10n.string("Move Earlier")) { workbench.moveContribution(contribution.id, earlier: true) },
+            .action(L10n.string("Move Later")) { workbench.moveContribution(contribution.id, earlier: false) }
         ]
         return items
     }
@@ -1434,7 +1434,7 @@ struct WorkbenchView: View {
                     .litheContextMenu {
                         guard isToolAvailable(tool) else { return [] }
                         let editorItems: [LitheContextMenuItem] = renderer?.openInEditor.map { open in
-                            [.action(String(localized: "Open in Editor")) { open(model) }, .separator]
+                            [.action(L10n.string("Open in Editor")) { open(model) }, .separator]
                         } ?? []
                         return editorItems + (entry.map { contributionCustomizationItems($0) } ?? []) + DockAnchor.allCases.flatMap { anchor in
                             DockGroup.allCases.map { group in
@@ -1529,11 +1529,11 @@ struct WorkbenchView: View {
     private var runConfigurationSetupTitle: String {
         switch model.runFeatureIfActive?.configurationStatus ?? .missing {
         case .missing:
-            String(localized: "Project run configuration not found")
+            L10n.string("Project run configuration not found")
         case .invalid:
-            String(localized: "Project run configuration is invalid")
+            L10n.string("Project run configuration is invalid")
         case .ready:
-            String(localized: "Rescan the project for services")
+            L10n.string("Rescan the project for services")
         }
     }
 
@@ -1541,8 +1541,8 @@ struct WorkbenchView: View {
     /// the first case can claim Run is unavailable until it completes.
     private var runConfigurationSetupMessage: String {
         model.runFeatureIfActive?.configurationStatus == .ready
-            ? String(localized: "Lithe will look for services again and refresh .lithe/run/generated.json. Project and local overrides will not be changed.")
-            : String(localized: "Lithe needs to identify the project and generate .lithe/run/generated.json before Run and Debug are available. Project and local overrides will not be changed.")
+            ? L10n.string("Lithe will look for services again and refresh .lithe/run/generated.json. Project and local overrides will not be changed.")
+            : L10n.string("Lithe needs to identify the project and generate .lithe/run/generated.json before Run and Debug are available. Project and local overrides will not be changed.")
     }
 
     private func continueAfterRunConfigurationGeneration() {
@@ -2552,7 +2552,7 @@ struct WorkbenchBackgroundPicker: View {
 
                 Spacer(minLength: 0)
 
-                Text(model.workbenchBackgroundFeature.displayName ?? "No background image selected")
+                workbenchBackgroundNameText(model.workbenchBackgroundFeature.displayName)
                     .font(LitheTheme.uiFont(size: 10.5))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .lineLimit(1)

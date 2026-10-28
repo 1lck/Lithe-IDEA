@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Darwin
 import Foundation
 import LitheCoreContracts
@@ -146,11 +147,11 @@ private enum JavaLaunchArgumentError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidPlan:
-            "Rust Core returned an incomplete Java argument-file plan."
+            L10n.string("Rust Core returned an incomplete Java argument-file plan.")
         case .invalidEncoding:
-            "The Java argument file could not be encoded as UTF-8."
+            L10n.string("The Java argument file could not be encoded as UTF-8.")
         case .writeFailed(let path, let reason):
-            "Could not write Java launch argument file at \(path): \(reason)"
+            L10n.string("Could not write Java launch argument file at \(path): \(reason)")
         }
     }
 }

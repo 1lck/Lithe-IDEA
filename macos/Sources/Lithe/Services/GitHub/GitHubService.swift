@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import LitheCoreContracts
 
@@ -15,13 +16,13 @@ actor GitHubService {
         var errorDescription: String? {
             switch self {
             case .oauthClientNotConfigured:
-                "GitHub sign-in is unavailable in this build."
-            case .authorizationExpired: "The GitHub authorization code expired. Start again."
-            case .authorizationDenied: "GitHub authorization was cancelled."
-            case .authorizationFailed(let message): "GitHub authorization failed: \(message)"
-            case .invalidResponse: "GitHub returned an unexpected response"
-            case .noWorkspace: "Open a Git project before using pull requests"
-            case .missingToken: "Connect a GitHub account before continuing"
+                L10n.string("GitHub sign-in is unavailable in this build.")
+            case .authorizationExpired: L10n.string("The GitHub authorization code expired. Start again.")
+            case .authorizationDenied: L10n.string("GitHub authorization was cancelled.")
+            case .authorizationFailed(let message): L10n.string("GitHub authorization failed: \(message)")
+            case .invalidResponse: L10n.string("GitHub returned an unexpected response")
+            case .noWorkspace: L10n.string("Open a Git project before using pull requests")
+            case .missingToken: L10n.string("Connect a GitHub account before continuing")
             case .mergeRejected(let message): message
             }
         }

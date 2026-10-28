@@ -37,6 +37,11 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         SettingsGroup.allCases.first { $0.categories.contains(self) }
     }
 
+    /// The collapsible sub-group inside `group` that holds this page, if any.
+    var subgroup: SettingsSubgroup? {
+        SettingsSubgroup.allCases.first { $0.categories.contains(self) }
+    }
+
     var icon: String {
         switch self {
         case .general: "gearshape"
@@ -84,9 +89,45 @@ enum SettingsGroup: String, CaseIterable, Identifiable {
         case .build: [.project, .run]
         case .languages: [.lsp]
         case .tools: [.terminal, .diagnostics]
-        case .ai: [.providers, .agents, .instructions, .skills, .hooks, .mcp, .ai]
+        case .ai: [.providers, .agents] + SettingsSubgroup.library.categories + [.ai]
         }
     }
+
+    /// Sidebar rows in display order: pages and collapsible sub-groups mixed.
+    /// `categories` stays the flat list of every page the group owns.
+    var entries: [SettingsGroupEntry] {
+        switch self {
+        case .ai: [.page(.providers), .page(.agents), .subgroup(.library), .page(.ai)]
+        default: categories.map { .page($0) }
+        }
+    }
+}
+
+/// A collapsible folder nested inside a `SettingsGroup`. Its pages are still
+/// owned by the parent group for breadcrumbs and search expansion.
+enum SettingsSubgroup: String, CaseIterable, Identifiable {
+    case library = "Library"
+
+    var id: String { rawValue }
+
+    var parent: SettingsGroup {
+        switch self {
+        case .library: .ai
+        }
+    }
+
+    /// Pages in display order.
+    var categories: [SettingsCategory] {
+        switch self {
+        case .library: [.instructions, .skills, .hooks, .mcp]
+        }
+    }
+}
+
+/// One row of a settings group: a page, or a nested sub-group of pages.
+enum SettingsGroupEntry {
+    case page(SettingsCategory)
+    case subgroup(SettingsSubgroup)
 }
 
 /// One top-level row of the settings sidebar.

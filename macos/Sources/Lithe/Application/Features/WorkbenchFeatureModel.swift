@@ -102,6 +102,8 @@ final class WorkbenchFeatureModel: ObservableObject {
     @Published private(set) var settingsCategoryRequest = 0
     @Published var isCloneRepositoryPresented = false
     @Published var isRemoteConnectionsPresented = false
+    /// Asks whether Open should browse this Mac or a saved SSH host.
+    @Published var isOpenTargetChooserPresented = false
     /// The remote workspace whose connection was lost; the Remote Development
     /// window then reconnects that folder instead of opening a new one.
     @Published var remoteReconnect: RemoteConnectionLoss?
@@ -397,6 +399,7 @@ final class WorkbenchFeatureModel: ObservableObject {
         isCloneRepositoryPresented = false
         isNewProjectPresented = false
         isRemoteConnectionsPresented = false
+        isOpenTargetChooserPresented = false
     }
 
     func loadLayout(for workspaceURL: URL) -> WorkbenchLayout {

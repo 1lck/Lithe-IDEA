@@ -1,0 +1,32 @@
+{
+  "id": "file-open-selected",
+  "area": "工作区",
+  "group": "项目浏览",
+  "capability": "F4 打开焦点文件与搜索位置",
+  "macos": {
+    "implementationStatus": "missing",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Platform/MacOS/UI/ProjectTreeKeyboardCommands.swift"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "windows/tauri/src/features/keymaps/hooks/use-file-open-target.ts",
+      "windows/tauri/src/features/keymaps/commands/command-registry.ts",
+      "windows/tauri/src/features/keymaps/defaults/default-keymaps.ts",
+      "windows/tauri/src/features/file-explorer/components/file-explorer-tree.tsx",
+      "windows/tauri/src/features/file-explorer/components/file-navigator-sidebar.tsx",
+      "windows/tauri/src/features/global-search/components/global-search-buffer.tsx",
+      "windows/tauri/src/features/global-search/components/search-excerpt-results.tsx",
+      "windows/tauri/src/features/global-search/components/search-excerpt-code.tsx",
+      "windows/tauri/src/features/file-explorer/components/file-explorer-selection.test.tsx",
+      "windows/tauri/src/features/global-search/components/f4-file-navigation.integration.test.tsx",
+      ".agents/notes/implemented/bug-fix/2026-10-05-project-tree-selection-and-moves.md"
+    ]
+  },
+  "owner": "Workspace",
+  "verification": "Windows WebView2 中在项目树选择文件后按 F4，确认固定打开该文件；目录、空树、失效项、重命名和树搜索输入不误开。内容搜索查询框用方向键选择匹配后按 F4，确认保留一基行列；焦点移到另一文件行或片段后打开该文件自身的位置；同一片段选择第 8 行后 Tab 聚焦第 27 行按钮，F4 应打开第 27 行的匹配列，标题和容器焦点仍打开已选匹配。查询等待、空结果、替换和过滤框、编辑器、终端以及弹窗不得借用旧目标。设置中改绑或禁用打开所选文件，确认默认 F4 随之覆盖；查询框改绑两段式快捷键，确认完成、未匹配按键和超时后重置，替换框不执行，卸载清理计时器；编辑器开启 Vim 后文件区域仍可执行。完成四项修复后的完整 Windows 构建与真实焦点验收前保留 pending；macOS 需补齐同等命令后独立验证。"
+}

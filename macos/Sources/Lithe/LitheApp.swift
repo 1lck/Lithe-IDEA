@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import AppKit
 import SwiftUI
 
@@ -461,9 +462,9 @@ final class LitheAppDelegate: NSObject, NSApplicationDelegate {
         alert.alertStyle = .warning
         alert.messageText = context.messageText
         alert.informativeText = documentOwner.unsavedDocumentNames.joined(separator: ", ")
-        alert.addButton(withTitle: "Save All")
-        alert.addButton(withTitle: "Don't Save")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: L10n.string("Save All"))
+        alert.addButton(withTitle: L10n.string("Don't Save"))
+        alert.addButton(withTitle: L10n.string("Cancel"))
 
         switch alert.runModal() {
         case .alertFirstButtonReturn:
@@ -491,9 +492,9 @@ struct LitheApp: App {
             _ = try MacDevelopmentProfileMigration.prepare()
         } catch {
             let alert = NSAlert()
-            alert.messageText = String(localized: "Could not copy your Stable settings")
-            alert.informativeText = String(localized: "Your original settings and workspace data have been preserved. Restart Lithe-Dev to try again.") + "\n\n" + error.localizedDescription
-            alert.addButton(withTitle: String(localized: "Quit"))
+            alert.messageText = L10n.string("Could not copy your Stable settings")
+            alert.informativeText = L10n.string("Your original settings and workspace data have been preserved. Restart Lithe-Dev to try again.") + "\n\n" + error.localizedDescription
+            alert.addButton(withTitle: L10n.string("Quit"))
             alert.runModal()
             exit(1)
         }
@@ -1279,19 +1280,11 @@ enum SettingsWindowChrome {
 }
 
 private func settingsWindowTitle(for language: AppLanguage) -> String {
-    String(
-        localized: "Settings",
-        bundle: .main,
-        locale: language.locale
-    )
+    language.localizedString("Settings")
 }
 
 private func softwareUpdateWindowTitle(for language: AppLanguage) -> String {
-    String(
-        localized: "Software Update",
-        bundle: .main,
-        locale: language.locale
-    )
+    language.localizedString("Software Update")
 }
 
 extension AppThemePreference {

@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import LitheDebugModule
 
@@ -7,7 +8,7 @@ enum MacDebugBreakpointStoreError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidData:
-            "Saved breakpoints could not be read."
+            L10n.string("Saved breakpoints could not be read.")
         }
     }
 }

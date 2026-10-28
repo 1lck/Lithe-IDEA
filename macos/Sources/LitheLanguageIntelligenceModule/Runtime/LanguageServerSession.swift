@@ -569,6 +569,50 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         }
     }
 
+    package func executeReturningValue(
+        _ command: LanguageServerCommand,
+        fileURL: URL
+    ) async throws -> ToolingJSONValue {
+        try Task.checkCancellation()
+        guard let sessionID, state == .ready else {
+            throw LanguageServerRuntimeSessionError.notReady
+        }
+        // Like build requests, workspace commands must not block the main
+        // actor on stdin and must register before cancellation can reach Core.
+        _ = fileURL
+        let operation: LanguageServerRuntimeOperation
+        switch await send(timeout: requestTimeout, { core in
+            core.requestLanguageServerOperation(
+                sessionID: sessionID, operation: .executeCommand, fileURL: nil,
+                virtualURI: nil, position: nil, newName: nil, range: nil,
+                diagnostics: [], completionItem: nil, codeAction: nil, command: command
+            )
+        }) {
+        case .success(let started): operation = started
+        case .failure(let error):
+            sendsInFlight -= 1
+            try Task.checkCancellation()
+            throw LanguageServerRuntimeSessionError.requestRejected(error.userMessage)
+        }
+        let value: ToolingJSONValue = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                registerPendingOperation(operation, name: LanguageServerOperation.executeCommand.rawValue) { result in
+                    continuation.resume(with: result.flatMap { event in
+                        guard case .object(let object)? = event.result, let value = object["value"] else {
+                            return .failure(LanguageServerRuntimeSessionError.missingResult)
+                        }
+                        return .success(value)
+                    })
+                }
+                sendsInFlight -= 1
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.cancelOffMain(operation.operationID) }
+        }
+        try Task.checkCancellation()
+        return value
+    }
+
     package func buildRequest(
         method: String,
         params: ToolingJSONValue,
@@ -1347,23 +1391,23 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         var errorDescription: String? {
             switch self {
             case .notReady:
-                "Language server is not ready."
+                L10n.string("Language server is not ready.")
             case .startFailed(let message):
-                "Language server failed to start: \(message)"
+                L10n.string("Language server failed to start: \(message)")
             case .documentSyncFailed(let message):
-                "Language server document sync failed: \(message)"
+                L10n.string("Language server document sync failed: \(message)")
             case .documentNotSynchronized:
-                "The document is not synchronized with the language server."
+                L10n.string("The document is not synchronized with the language server.")
             case .requestRejected(let message):
-                "Language server request was rejected: \(message)"
+                L10n.string("Language server request was rejected: \(message)")
             case .unsupportedNavigation(let method):
-                "Language server navigation \(method) is not supported."
+                L10n.string("Language server navigation \(method) is not supported.")
             case .missingResult:
-                "Language server response did not include a result."
+                L10n.string("Language server response did not include a result.")
             case .sessionStopped:
-                "Language server session stopped before the request completed."
+                L10n.string("Language server session stopped before the request completed.")
             case .staleDocument:
-                "The document changed before Java navigation completed."
+                L10n.string("The document changed before Java navigation completed.")
             }
         }
     }

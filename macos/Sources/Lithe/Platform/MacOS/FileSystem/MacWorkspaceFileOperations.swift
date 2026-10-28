@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 
 struct MacWorkspaceFileOperations: WorkspaceFileOperations {
     private let moveToTrash: @Sendable (URL) throws -> URL
@@ -201,7 +202,7 @@ struct MacWorkspaceFileOperations: WorkspaceFileOperations {
         catch {
             // Preserve both versions if the original path has been recreated.
             throw CocoaError(.fileWriteUnknown, userInfo: [
-                NSLocalizedDescriptionKey: String(localized: "Rollback could not restore the changed file. It remains at \(trashed.path). Restore it manually before retrying."),
+                NSLocalizedDescriptionKey: L10n.string("Rollback could not restore the changed file. It remains at \(trashed.path). Restore it manually before retrying."),
                 NSUnderlyingErrorKey: error,
             ])
         }
@@ -212,7 +213,7 @@ struct MacWorkspaceFileOperations: WorkspaceFileOperations {
         try FileManager.default.trashItem(at: url, resultingItemURL: &resultingURL)
         guard let resultingURL else {
             throw CocoaError(.fileWriteUnknown, userInfo: [
-                NSLocalizedDescriptionKey: String(localized: "Rollback could not verify the moved file. Check the Trash before retrying."),
+                NSLocalizedDescriptionKey: L10n.string("Rollback could not verify the moved file. Check the Trash before retrying."),
             ])
         }
         return resultingURL as URL

@@ -26,6 +26,10 @@ struct LitheInfoTip: View {
         self.text = Text(verbatim: text)
     }
 
+    init(_ text: Text) {
+        self.text = text
+    }
+
     var body: some View {
         Button {
             isPinned.toggle()

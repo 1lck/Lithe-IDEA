@@ -85,6 +85,14 @@ fn respond(stream: &mut TcpStream, status: u16, models: Option<&mut Vec<String>>
         .nth(1)
         .unwrap();
     let is_message = path.split('?').next() == Some("/v1/messages");
+    // Claude Code asks for a session title on its own, while the first prompt is
+    // read (adapter 0.95 and later; 0.81 asked after the turn instead). It is a
+    // side request, not part of the retry budget these tests pin: always answer
+    // it successfully and leave it out of the request count.
+    let is_title = is_message
+        && String::from_utf8_lossy(&request[header_length..header_length + content_length])
+            .contains("You are naming a coding session");
+    let status = if is_title { 201 } else { status };
     let model = if is_message && models.is_some() {
         let body: serde_json::Value =
             serde_json::from_slice(&request[header_length..header_length + content_length])
@@ -189,7 +197,7 @@ fn respond(stream: &mut TcpStream, status: u16, models: Option<&mut Vec<String>>
     // Even a provider explicitly requesting a three-minute retry must not
     // extend Lithe's bounded recovery after native API retries are disabled.
     write!(stream, "HTTP/1.1 {status} Test\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nRetry-After: 180\r\nx-should-retry: true\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
-    is_message
+    is_message && !is_title
 }
 
 fn run_local_api_turn(status: u16) {
@@ -229,6 +237,7 @@ fn run_local_api_turn_with(status: u16, observe_model_calls: bool) {
             observe_subagents: false,
             process_scope: None,
             claude_config_dir: None,
+            context_limits: Default::default(),
             codex_home: None,
             provider: Some(ProviderCredentials {
                 protocol: ProviderProtocol::AnthropicMessages,
@@ -323,6 +332,12 @@ fn run_local_api_turn_with(status: u16, observe_model_calls: bool) {
                     404 => assert!(
                         message.contains("selected model"),
                         "expected model failure: {message}"
+                    ),
+                    // Adapter 0.95 reports rejected credentials as one typed
+                    // authentication error instead of echoing the HTTP number.
+                    401 | 403 => assert!(
+                        message.contains("Authentication required"),
+                        "expected authentication failure: {message}"
                     ),
                     _ => assert!(
                         message.contains(&status.to_string()),
@@ -423,7 +438,10 @@ fn run_local_api_turn_with(status: u16, observe_model_calls: bool) {
         // they are already present here without draining later events.
         let (id, call) = model_calls
             .iter()
-            .find(|(_, call)| call.usage.is_some())
+            // The session-title request carries no tools; the turn's own request does.
+            .find(|(_, call)| {
+                call.usage.is_some() && call.context.is_some_and(|context| context.tool_count > 0)
+            })
             .expect("the proxied message request is observed");
         assert_eq!(id, &session_id);
         assert!(call.streaming, "Claude streams through the proxy");
@@ -459,6 +477,7 @@ fn local_model_phase(
             observe_subagents: false,
             process_scope: None,
             claude_config_dir: None,
+            context_limits: Default::default(),
             codex_home: None,
             provider: Some(ProviderCredentials {
                 protocol: ProviderProtocol::AnthropicMessages,

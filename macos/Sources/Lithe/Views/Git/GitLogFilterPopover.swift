@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import SwiftUI
 import LitheGitModule
 
@@ -84,7 +85,7 @@ struct GitLogFilterFixedLabel: Hashable {
     /// Display text resolved in the main bundle. Unit tests run without the
     /// app strings bundle, where this resolves back to the key itself.
     var localizedTitle: String {
-        NSLocalizedString(key, comment: "Git Log filter fixed row")
+        L10n.string(key: key)
     }
 
     /// A query matches the English key or the localized display text.

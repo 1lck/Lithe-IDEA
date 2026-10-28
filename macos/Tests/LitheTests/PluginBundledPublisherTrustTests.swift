@@ -11,8 +11,8 @@ import Testing
 /// No fixture process executes, and all files belong to this test's root.
 @MainActor
 struct PluginBundledPublisherTrustTests {
-    @Test(arguments: [true, false])
-    func installingOverBundledCopyPreservesDefaultOrDisabledChoice(enabled: Bool) throws {
+    @Test(arguments: [true, false], ["direct", "marketplace", "disk"])
+    func installingOverBundledCopyPreservesDefaultOrDisabledChoice(enabled: Bool, source: String) async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
         let preferences = MigrationPreferences()
@@ -26,7 +26,37 @@ struct PluginBundledPublisherTrustTests {
         let original = try fixture.digest(of: fixture.bundled)
         try fixture.sign(fixture.download)
 
-        try manager.installPackage(at: fixture.download)
+        // All production entry points now share live-activation routing. Each
+        // must still migrate the sealed copy's choice only after validation.
+        let digest = try fixture.digest(of: fixture.download)
+        switch source {
+        case "marketplace":
+            try manager.installMarketplacePackage(at: fixture.download, origin: .marketplace,
+                provenance: PluginMarketplaceProvenance(sourceID: "official", sourceName: "Official",
+                    repository: "https://github.com/example/java-support", archiveSHA256: String(repeating: "0", count: 64),
+                    contentDigest: digest, approvedPrograms: []))
+        case "disk":
+            // Signed disk imports retain publisher trust. The community-only
+            // installDiskPackage entry point must never accept this official ID.
+            let transport = PluginMarketplaceTestSupport.LocalFileTransport(files: [:])
+            let service = MacPluginMarketplaceService(
+                evaluator: PluginMarketplaceTestSupport.evaluator,
+                packageStore: store,
+                downloader: MacPluginPackageDownloader(transport: transport, temporaryDirectory: fixture.root.appendingPathComponent("tmp")),
+                transport: transport,
+                applicationSupportDirectory: fixture.root.appendingPathComponent("support"),
+                cacheDirectory: fixture.root.appendingPathComponent("cache"),
+                bundledOfficialIndexURL: nil,
+                diskImporter: MacPluginDiskPackageImporter(temporaryDirectory: fixture.root.appendingPathComponent("tmp")),
+                allowsLocalDevelopmentPackages: false
+            )
+            let marketplace = PluginMarketplaceFeatureModel(service: service, pluginManager: manager)
+            await marketplace.installFromDisk(at: fixture.download)
+            #expect(marketplace.diskInstallError == nil)
+            #expect(marketplace.pendingConfirmation == nil)
+        default:
+            try manager.installPackage(at: fixture.download)
+        }
 
         #expect(configuration.enabledState(for: moduleID) == enabled)
         #expect(manager.snapshots.first?.isEnabled == enabled)

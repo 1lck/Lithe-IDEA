@@ -176,7 +176,20 @@ function preserveFailure(message) {
     activeTurn: turns.get(message.params.threadId) === message.params.turnId,
     sequence: ++sequence,
   } });
+  // Adapter 2.x answers a 401 with an authentication-required prompt error and
+  // publishes no failure update, so the host would never learn the failure is
+  // permanent and would wait out Codex's own Retry-After. The envelope above
+  // already carries the real category; hide it from the adapter so it reports a
+  // typed failure the way 1.x did.
+  if (unauthorized(error.codexErrorInfo)) error.codexErrorInfo = 'other';
   return message;
+}
+
+function unauthorized(info) {
+  if (info === 'unauthorized') return true;
+  if (!info || typeof info !== 'object') return false;
+  const details = Object.values(info)[0];
+  return !!details && typeof details === 'object' && details.httpStatusCode === 401;
 }
 
 function jsonLines(map) {

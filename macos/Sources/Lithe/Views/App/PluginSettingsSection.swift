@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import LitheCoreContracts
 import SwiftUI
 
@@ -188,6 +189,7 @@ private struct PluginSettingRow: View {
         ) {
             control
         } badges: {
+            discoveryPill
             scopePill
             PluginSettingEffectPill(effect: declaration.effect)
             Button { onChange(nil, layer) } label: {
@@ -203,6 +205,31 @@ private struct PluginSettingRow: View {
             .opacity(layerHasValue ? 1 : 0)
             .disabled(!layerHasValue)
         }
+    }
+
+    /// What the host found while no value is chosen, or why the chosen one cannot run.
+    /// Found paths are shown as the field's placeholder and never stored.
+    @ViewBuilder private var discoveryPill: some View {
+        switch setting.discovery {
+        case .found(_, isConfigured: false)?:
+            LitheSettingsPill(LocalizedStringKey("Found automatically"), kind: .value)
+        case .configuredUnusable?:
+            LitheSettingsPill(LocalizedStringKey("Not found"), kind: .effect)
+                .help(Text(LocalizedStringKey("The chosen file is missing or not executable.")))
+        case .notFound(let searched)?:
+            LitheSettingsPill(LocalizedStringKey("Not found"), kind: .effect)
+                .help(searched.isEmpty
+                      ? Text(LocalizedStringKey("No place to look yet. Open the file you want to debug, or choose the program yourself."))
+                      : Text(verbatim: String(format: L10n.string("Looked in: %@"), searched.joined(separator: ", "))))
+        case .found(_, isConfigured: true)?, nil:
+            EmptyView()
+        }
+    }
+
+    /// The path the host would run when nothing is chosen, else the plugin's own hint.
+    private func placeholder(_ declared: String?) -> String? {
+        if case .found(let path, isConfigured: false)? = setting.discovery { return path }
+        return declared
     }
 
     @ViewBuilder private var scopePill: some View {
@@ -279,7 +306,7 @@ private struct PluginSettingRow: View {
             HStack(spacing: 6) {
                 PluginTextSettingField(
                     value: shownString,
-                    placeholder: placeholder,
+                    placeholder: self.placeholder(placeholder),
                     width: 220,
                     isFlexible: true,
                     accessibilityLabel: declaration.title,
@@ -422,10 +449,7 @@ private struct PluginIntegerSettingField: View {
             if !isAcceptable {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(LitheTheme.warning)
-                    .help(Text(verbatim: String(format: NSLocalizedString(
-                        "Enter a whole number from %d to %d.",
-                        comment: "Plugin integer setting range hint"
-                    ), range.lowerBound, range.upperBound)))
+                    .help(Text(verbatim: String(format: L10n.string(key: "Enter a whole number from %d to %d."), range.lowerBound, range.upperBound)))
             }
         }
         .onAppear { text = storedNumber.map(String.init) ?? "" }

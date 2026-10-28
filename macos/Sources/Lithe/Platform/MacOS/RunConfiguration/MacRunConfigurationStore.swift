@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 
 enum MacRunConfigurationStoreError: LocalizedError, Sendable {
@@ -8,9 +9,9 @@ enum MacRunConfigurationStoreError: LocalizedError, Sendable {
 
     var errorDescription: String? {
         switch self {
-        case .invalidProject: "The project directory is unavailable."
-        case .generationFailed: "Project identification did not produce a run configuration."
-        case .writeFailed(let message): "Could not write project run configuration: \(message)"
+        case .invalidProject: L10n.string("The project directory is unavailable.")
+        case .generationFailed: L10n.string("Project identification did not produce a run configuration.")
+        case .writeFailed(let message): L10n.string("Could not write project run configuration: \(message)")
         case .invalidConfiguration(let message): message
         }
     }

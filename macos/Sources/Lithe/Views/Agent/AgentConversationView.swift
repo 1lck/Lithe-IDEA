@@ -62,6 +62,8 @@ struct AgentConversationView: View {
                         else { model.showAgentChatsInEditor() }
                     },
                     onFocusEditor: { model.showAgentChatsInEditor() },
+                    onOpenNewEditorTab: isEditor ? { model.openNewAgentEditorTab() } : nil,
+                    onSessionChanged: isEditor ? { model.reconcileAgentEditorTabs() } : nil,
                     isEditorLayout: isEditor
                 )
             } else {
@@ -259,6 +261,10 @@ struct AgentConfiguredConversationView: View {
     var chatsInEditor = false
     var onToggleLocation: (() -> Void)? = nil
     var onFocusEditor: (() -> Void)? = nil
+    /// Editor-hosted conversations open New Chat in a tab of its own.
+    var onOpenNewEditorTab: (() -> Void)? = nil
+    /// Tells the editor which session the Agent now shows, so tabs follow it.
+    var onSessionChanged: (() -> Void)? = nil
     var isEditorLayout = false
 
     var body: some View {
@@ -280,9 +286,11 @@ struct AgentConfiguredConversationView: View {
                 onSavePastedImage: onSavePastedImage,
                 historyOnly: historyOnly, showsChatActions: showsChatActions, chatsInEditor: chatsInEditor,
                 onToggleLocation: onToggleLocation, onFocusEditor: onFocusEditor,
+                onOpenNewEditorTab: onOpenNewEditorTab, onSessionChanged: onSessionChanged,
                 isEditorLayout: isEditorLayout
             )
             .id(agentID)
+            .onChange(of: feature.selectedAgentID) { _ in onSessionChanged?() }
         } else {
             AgentUnconfiguredConversationView(setupError: setupError, onOpenSettings: onOpenSettings,
                                               onHide: onHide, agents: availableAgents ?? AgentWelcomeVisit.builtInAgents,
@@ -387,6 +395,8 @@ private struct AgentConnectionView: View {
     var chatsInEditor = false
     var onToggleLocation: (() -> Void)? = nil
     var onFocusEditor: (() -> Void)? = nil
+    var onOpenNewEditorTab: (() -> Void)? = nil
+    var onSessionChanged: (() -> Void)? = nil
     var isEditorLayout = false
     @State private var localError: String?
     @State private var showsSearch = false
@@ -439,6 +449,7 @@ private struct AgentConnectionView: View {
                                  onReconnect: onConnect)
             }
         }
+        .environment(\.agentAutoCompactTokens, feature.autoCompactDisplayTokens)
         .alert("Rename Chat", isPresented: Binding(
             get: { renameSessionID != nil }, set: { if !$0 { renameSessionID = nil } }
         ), presenting: renameSessionID) { id in
@@ -461,6 +472,7 @@ private struct AgentConnectionView: View {
         } message: { _ in
             Text(String(format: AgentLocalization.string("Remove %d conversation(s) from history? You can restore them from Removed conversations. The Agent's original records will be kept.", locale: locale), 1))
         }
+        .onChange(of: feature.selectedSessionID) { _ in onSessionChanged?() }
         .task(id: shouldPollQuota) {
             guard shouldPollQuota else { return }
             while !Task.isCancelled {
@@ -711,6 +723,7 @@ private struct AgentConnectionView: View {
             return
         }
         guard !feature.isCreatingSession else { return }
+        onOpenNewEditorTab?()
         feature.startNewConversation()
         if feature.isCreatingSession {
             if historyOnly { onFocusEditor?() }
@@ -882,11 +895,38 @@ enum AgentSessionTitle {
 struct AgentEditorTabTitle: View {
     @Environment(\.locale) private var locale
     @ObservedObject var model: AppModel
+    @ObservedObject private var order: EditorTabOrderFeatureModel
+    let tab: UUID
+
+    init(model: AppModel, tab: UUID) {
+        self.model = model
+        self.tab = tab
+        _order = ObservedObject(wrappedValue: model.editorTabOrderFeature)
+    }
+
     var body: some View {
         if let feature = model.agentConversationFeatureIfActive,
-           let connection = feature.selectedConnection, let id = feature.selectedAgentID {
-            AgentEditorConnectionTitle(connection: connection, history: feature.history(for: id))
+           let id = order.agentConversation(of: tab)?.agentID ?? feature.selectedAgentID,
+           feature.agents.contains(where: { $0.id == id }) {
+            AgentEditorConnectionTitle(connection: feature.connection(for: id), history: feature.history(for: id),
+                                       sessionID: order.agentSession(of: tab))
         } else { Text("AI Chat").font(LitheTheme.uiFont(size: 13)) }
+    }
+}
+
+/// Stands in for an Agent tab whose conversation is not the one on screen.
+struct AgentInactiveConversationPane: View {
+    @ObservedObject var model: AppModel
+    let tab: UUID
+
+    var body: some View {
+        VStack(spacing: 12) {
+            AgentEditorTabTitle(model: model, tab: tab)
+            Button("Show conversation") { model.selectEditorTab(.agentConversation(tab)) }
+                .buttonStyle(LitheActionButtonStyle())
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .litheWorkbenchSurface(AgentPanelStyle.canvas)
     }
 }
 
@@ -894,8 +934,10 @@ private struct AgentEditorConnectionTitle: View {
     @Environment(\.locale) private var locale
     @ObservedObject var connection: AgentConnectionModel
     @ObservedObject var history: AgentHistoryFeatureModel
+    /// The session this tab presents; nil for a new, empty conversation.
+    let sessionID: String?
     var body: some View {
-        let id = connection.selectedSessionID
+        let id = sessionID
         let session = connection.sessions.first { $0.id == id }
         let title = session.map {
             AgentHistoryPresentation.popupTitle($0, metadata: history.metadata[$0.id], conversation: connection.conversations[$0.id], locale: locale)

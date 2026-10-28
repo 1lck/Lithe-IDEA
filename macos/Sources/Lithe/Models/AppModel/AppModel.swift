@@ -152,6 +152,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     private var featureObservationBinder: AppModelObservationBinder?
     private var fileVisibilityRulesObserverID: UUID?
     private var searchExclusionsObservation: AnyCancellable?
+    private var livePluginObservation: AnyCancellable?
     private var requestProjectOpen: ((URL) -> Void)?
     private var requestProjectOpenAtPlacement: ((URL, ProjectOpenPlacement) -> Void)?
     private var didCloseProject: (() -> Void)?
@@ -576,6 +577,11 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             guard let self, let root = self.workspaceURL else { return }
             self.searchFeatureIfActive?.invalidateIndex(at: root, visibilityRules: self.settings.searchEverywhereVisibilityRules.searchRules)
         }
+        // The language catalog follows plugins that apply without a restart, so
+        // a debugger installed now is offered now.
+        livePluginObservation = services.pluginRegistrationChanges?.sink { [weak self] in
+            self?.languageToolingFeature.refreshCatalog()
+        }
         suggestDatabasePluginIfNeeded()
         detectedAIConfigurations = loadAIConfigurations()
         let activeProviderHasAPIKey = settings.activeCommitMessageProvider
@@ -706,6 +712,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             self.fileVisibilityRulesObserverID = nil
         }
         searchExclusionsObservation = nil
+        livePluginObservation = nil
         await shutdownModuleRuntime()
         moduleSessionCoordinator?.stopObserving()
     }
@@ -850,8 +857,19 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         gitReferences.first(where: \.isCurrent)
     }
 
+    /// The Open action. With saved SSH connections it first asks whether the
+    /// folder is on this Mac or on a remote host; otherwise it goes straight
+    /// to the local folder chooser.
     func chooseProject() {
-        chooseProject(title: "Open a project", prompt: "Open")
+        if hasSavedRemoteConnections {
+            workbenchFeature.isOpenTargetChooserPresented = true
+        } else {
+            chooseLocalProject()
+        }
+    }
+
+    func chooseLocalProject() {
+        chooseProject(title: L10n.string("Open a project"), prompt: "Open")
     }
 
     func chooseProject(title: String, prompt: String) {
@@ -1339,8 +1357,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             languageToolingSessionsIfActive?.recordLanguageServerLog(
                 providerID: descriptor.id,
                 level: .info,
-                message: "Language server activation skipped",
-                detail: "Disabled in this workspace"
+                message: L10n.string("Language server activation skipped"),
+                detail: L10n.string("Disabled in this workspace")
             )
             return false
         }
@@ -1596,7 +1614,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         guard wasSelected else { return }
         let target = previous.flatMap { editorTabItems.contains($0) ? $0 : nil } ?? editorTabItems.last
         switch target {
-        case .agentConversation: showAgentChatsInEditor()
+        case .agentConversation(let tab): showAgentChatsInEditor(tab: tab)
         case .document(let id):
             if let document = openDocuments.first(where: { $0.id == id }) { selectEditorDocument(document) }
         case .terminal(let id):

@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import SwiftUI
 
 /// Settings › AI › MCP › project grant.
@@ -166,7 +167,7 @@ struct McpSettingsView: View {
         let names = McpAgent.allCases
             .filter { library.litheRegisteredAgents.contains($0) }
             .map(\.displayName)
-        return names.isEmpty ? String(localized: "no Agent") : ListFormatter.localizedString(byJoining: names)
+        return names.isEmpty ? L10n.string("no Agent") : ListFormatter.localizedString(byJoining: names)
     }
 
     private var configurationSection: some View {

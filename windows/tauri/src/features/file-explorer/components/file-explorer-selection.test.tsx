@@ -16,10 +16,15 @@ import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { workspaceRuntimeRegistry as registry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { LocaleProvider } from "@/i18n/locale-provider";
 import { installHappyDom } from "@/test-utils/happy-dom";
+import { useKeymaps } from "@/features/keymaps/hooks/use-keymaps";
+import { openFocusedFile } from "@/features/keymaps/hooks/use-file-open-target";
+import { registerDefaultKeymaps } from "@/features/keymaps/defaults/register-defaults";
+import { keymapRegistry } from "@/features/keymaps/utils/registry";
 import { FileExplorerPane } from "./file-explorer-pane";
 import * as sidebar from "@/ui/sidebar";
 
 const originalSidebar = { ...sidebar };
+const originalHandleFileOpen = useFileSystemStore.getState().handleFileOpen;
 // The tree owns selection; this controlled input isolates the popover's presentation lifecycle.
 const SearchInput = forwardRef<
   HTMLInputElement,
@@ -77,16 +82,29 @@ function setEditorPath(path?: string) {
   useBufferStore.setState({
     activeBufferId: path ?? null,
     buffers: path
-      ? [createPaneContent(path, { type: "editor", path, name: path.split("/").pop()!, content: "" })]
+      ? [
+          createPaneContent(path, {
+            type: "editor",
+            path,
+            name: path.split("/").pop()!,
+            content: "",
+          }),
+        ]
       : [],
   });
 }
 
-async function renderTree(editorPath?: string) {
+function FileNavigationKeymaps() {
+  useKeymaps();
+  return null;
+}
+
+async function renderTree(editorPath?: string, enableKeymaps = false) {
   await act(async () => {
     setEditorPath(editorPath);
     root.render(
       <LocaleProvider language="en-US">
+        {enableKeymaps ? <FileNavigationKeymaps /> : null}
         <FileExplorerPane />
       </LocaleProvider>,
     );
@@ -167,6 +185,8 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await act(async () => root.unmount());
+  keymapRegistry.clear();
+  useFileSystemStore.setState({ handleFileOpen: originalHandleFileOpen });
   container.remove();
   for (const spy of spies.splice(0)) spy.mockRestore();
   mock.module("@/ui/sidebar", () => originalSidebar);
@@ -248,6 +268,40 @@ test("search results and Enter navigation replace the previous clipboard selecti
   expect(useFileClipboardStore.getState().clipboard?.entries.map((entry) => entry.path)).toEqual([
     matches[1].path,
   ]);
+});
+
+test("F4 opens the focused tree file permanently and ignores directories, inputs and stale targets", async () => {
+  const open = mock(async (_path: string, _isDir: boolean) => {});
+  await act(async () => useFileSystemStore.setState({ handleFileOpen: open }));
+  keymapRegistry.registerCommand({
+    id: "file.openSelected",
+    title: "Open Selected File",
+    execute: openFocusedFile,
+  });
+  registerDefaultKeymaps();
+  await renderTree(readme, true);
+  const tree = container.querySelector<HTMLElement>('[role="tree"]')!;
+  await act(async () => tree.focus());
+  await click(directory);
+  await key(tree, "F4");
+  expect(open).not.toHaveBeenCalled();
+  await key(tree, "ArrowDown");
+  await key(tree, "F4");
+  expect(open).toHaveBeenCalledTimes(1);
+  expect(open).toHaveBeenLastCalledWith(child, false);
+
+  const input = document.createElement("input");
+  tree.append(input);
+  await act(async () => input.focus());
+  await key(input, "F4");
+  expect(open).toHaveBeenCalledTimes(1);
+  input.remove();
+  await act(async () => {
+    tree.focus();
+    useFileSystemStore.setState({ files: [] });
+  });
+  await key(tree, "F4");
+  expect(open).toHaveBeenCalledTimes(1);
 });
 
 test("right-clicking a selected descendant keeps the whole selection for copy and delete", async () => {

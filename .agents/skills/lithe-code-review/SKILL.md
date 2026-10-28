@@ -59,7 +59,7 @@ GitHub Actions 中的最终 PR 审查。它只在用户明确要求审查时触�
 读取并遵循：
 
 - [本地审查流程](references/local-review.md)
-- [统一审查政策](references/review-policy.md)
+- [统一审查政策](references/review-policy.md)（含“界面文案与 i18n”：用户可见文案必须走 `shared/i18n` 与 `L10n`，硬编码即问题）
 - [严重程度与证据规则](references/finding-severity.md)
 - [输出格式](references/output-template.md)
 

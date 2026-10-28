@@ -255,12 +255,20 @@ pub(crate) struct DeclaredSettings {
     /// Settings whose value must be a whole value or follow `name=`, because
     /// it is free text or a path.
     whole_value: BTreeSet<String>,
+    /// Settings that hold the path of one file, whatever their scope.
+    files: BTreeSet<String>,
 }
 
 impl DeclaredSettings {
     /// Whether the global file setting may select the build executable.
     pub(crate) fn is_executable(&self, id: &str) -> bool {
         self.executables.contains(id)
+    }
+
+    /// Whether the setting holds the path of one file, so a declaration can
+    /// read the file the user chose.
+    pub(crate) fn is_file(&self, id: &str) -> bool {
+        self.files.contains(id)
     }
 
     /// Whether a start-time template may name the setting.
@@ -638,6 +646,9 @@ impl SettingDeclaration {
 pub(crate) fn declared(settings: &[SettingDeclaration]) -> DeclaredSettings {
     let mut declared = DeclaredSettings::default();
     for setting in settings {
+        if setting.kind == SETTING_FILE {
+            declared.files.insert(setting.id.clone());
+        }
         if setting.kind == "file"
             && setting.scope() == SettingScope::Global
             && matches!(

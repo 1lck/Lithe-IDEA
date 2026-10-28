@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import AppKit
 import SwiftUI
 
@@ -56,8 +57,8 @@ struct AgentTaskExitConfirmationView: View {
 
     var title: String {
         purpose == .startupSweep
-            ? String(format: String(localized: "A task %@ started before Lithe last closed unexpectedly is still running"), task.agentName)
-            : String(format: String(localized: "%@ started a task that is still running"), task.agentName)
+            ? String(format: L10n.string("A task %@ started before Lithe last closed unexpectedly is still running"), task.agentName)
+            : String(format: L10n.string("%@ started a task that is still running"), task.agentName)
     }
 
     var body: some View {
@@ -66,7 +67,7 @@ struct AgentTaskExitConfirmationView: View {
             facts
             commandSection
             LitheBanner(status: .warning) {
-                Text(String(localized: "Agents may run deployments, migrations or long builds. Ending one halfway can leave data or services inconsistent. Keep it if you are not sure what it does."))
+                Text(L10n.string("Agents may run deployments, migrations or long builds. Ending one halfway can leave data or services inconsistent. Keep it if you are not sure what it does."))
                     .fixedSize(horizontal: false, vertical: true)
             }
             actions
@@ -86,7 +87,7 @@ struct AgentTaskExitConfirmationView: View {
                     .foregroundStyle(LitheTheme.primaryText)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityAddTraits(.isHeader)
-                Text(String(format: String(localized: "%lld of %lld"), position, count))
+                Text(String(format: L10n.string("%lld of %lld"), position, count))
                     .font(LitheTheme.uiFont(size: 13))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
@@ -99,7 +100,7 @@ struct AgentTaskExitConfirmationView: View {
                 FactCard(
                     iconPath: "expui/run/run.svg",
                     tint: LitheTheme.success,
-                    label: String(localized: "Status"),
+                    label: L10n.string("Status"),
                     value: statusText,
                     valueColor: LitheTheme.success
                 )
@@ -108,7 +109,7 @@ struct AgentTaskExitConfirmationView: View {
                     FactCard(
                         iconPath: "expui/nodes/folder.svg",
                         tint: LitheTheme.accent,
-                        label: String(localized: "Workspace"),
+                        label: L10n.string("Workspace"),
                         value: task.workspace,
                         truncatesMiddle: true
                     )
@@ -117,7 +118,7 @@ struct AgentTaskExitConfirmationView: View {
                     FactCard(
                         iconPath: "expui/general/history.svg",
                         tint: LitheTheme.secondaryText,
-                        label: String(localized: "Running Time"),
+                        label: L10n.string("Running Time"),
                         value: ProcessRunningTimeFormatter.string(from: startedAt, to: presentedAt),
                         tintsIcon: true
                     )
@@ -129,7 +130,7 @@ struct AgentTaskExitConfirmationView: View {
                 FactCard(
                     iconPath: "expui/nodes/folder.svg",
                     tint: LitheTheme.accent,
-                    label: String(localized: "Directory"),
+                    label: L10n.string("Directory"),
                     value: directory,
                     truncatesMiddle: true
                 )
@@ -139,9 +140,9 @@ struct AgentTaskExitConfirmationView: View {
     }
 
     private var statusText: String {
-        let running = String(localized: "Running")
+        let running = L10n.string("Running")
         guard task.processCount > 1 else { return running }
-        return running + " · " + String(format: String(localized: "%lld processes"), task.processCount)
+        return running + " · " + String(format: L10n.string("%lld processes"), task.processCount)
     }
 
     private var commandSection: some View {
@@ -149,7 +150,7 @@ struct AgentTaskExitConfirmationView: View {
             HStack(spacing: 8) {
                 LitheIDEAIcon(resourcePath: "terminal/terminal@20x20.svg", size: 16, preservesOriginalColors: true)
                     .accessibilityHidden(true)
-                Text(String(localized: "Command"))
+                Text(L10n.string("Command"))
                     .font(LitheTheme.uiFont(size: 13, weight: .semibold))
                     .foregroundStyle(LitheTheme.primaryText)
                 Spacer(minLength: 0)
@@ -169,8 +170,8 @@ struct AgentTaskExitConfirmationView: View {
                 }
                 .buttonStyle(LitheIconButtonStyle(size: 24))
                 .lithePointer()
-                .help(String(localized: "Copy Original Command"))
-                .accessibilityLabel(String(localized: "Copy Original Command"))
+                .help(L10n.string("Copy Original Command"))
+                .accessibilityLabel(L10n.string("Copy Original Command"))
             }
             ScrollView(.vertical) {
                 Text(Self.styled(command))
@@ -191,7 +192,7 @@ struct AgentTaskExitConfirmationView: View {
             .background(LitheTheme.editor)
             .clipShape(RoundedRectangle(cornerRadius: 6))
             .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(LitheTheme.divider, lineWidth: 1))
-            .accessibilityLabel(String(localized: "Command"))
+            .accessibilityLabel(L10n.string("Command"))
             .accessibilityValue(task.commandLine)
         }
         .padding(12)
@@ -201,14 +202,14 @@ struct AgentTaskExitConfirmationView: View {
     private var actions: some View {
         HStack(spacing: LitheTheme.ActionButton.spacing) {
             if purpose == .quit {
-                Button(String(localized: "Cancel Quit")) { onAnswer(.cancel) }
+                Button(L10n.string("Cancel Quit")) { onAnswer(.cancel) }
                     .buttonStyle(LitheActionButtonStyle())
                     .keyboardShortcut(.cancelAction)
             }
             Spacer(minLength: 0)
-            Button(String(localized: "End This Task")) { onAnswer(.terminate) }
+            Button(L10n.string("End This Task")) { onAnswer(.terminate) }
                 .buttonStyle(LitheActionButtonStyle())
-            Button(String(localized: "Keep Running")) { onAnswer(.keep) }
+            Button(L10n.string("Keep Running")) { onAnswer(.keep) }
                 .buttonStyle(LitheActionButtonStyle(isPrimary: true))
                 .keyboardShortcut(.defaultAction)
         }

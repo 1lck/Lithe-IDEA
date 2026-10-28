@@ -85,6 +85,52 @@ const GATEWAY_AUTH_METHOD: &str = "gateway";
 /// agent's tasks even after they left its process group.
 pub const AGENT_SCOPE_ENVIRONMENT: &str = "LITHE_AGENT_SCOPE";
 
+/// Context sizing the user chose for one Agent. `None` keeps the Agent's own default.
+///
+/// Codex takes both numbers as native configuration. Claude Code has one knob,
+/// its auto-compact window, so the threshold (or else the context length) is
+/// delivered as `CLAUDE_CODE_AUTO_COMPACT_WINDOW`; its model size stays model-defined.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextLimits {
+    /// Tokens of context the Agent may use.
+    #[serde(default)]
+    pub window_tokens: Option<u64>,
+    /// Tokens at which the Agent summarizes its context automatically.
+    #[serde(default)]
+    pub auto_compact_tokens: Option<u64>,
+}
+
+impl ContextLimits {
+    /// The threshold never exceeds the window: a threshold the context cannot
+    /// reach would never compact. The settings UI rejects it too, but other
+    /// callers reach this boundary directly.
+    fn auto_compact_within_window(self) -> Option<u64> {
+        let threshold = self.auto_compact_tokens.filter(|tokens| *tokens > 0)?;
+        Some(match self.window_tokens.filter(|tokens| *tokens > 0) {
+            Some(window) => threshold.min(window),
+            None => threshold,
+        })
+    }
+
+    /// The single window Claude Code is told about, if any. A threshold wins
+    /// because it is the point where Claude Code actually compacts.
+    fn claude_auto_compact_window(self) -> Option<u64> {
+        self.auto_compact_within_window()
+            .or(self.window_tokens)
+            .filter(|tokens| *tokens > 0)
+    }
+
+    fn codex_config(self, config: &mut serde_json::Value) {
+        if let Some(tokens) = self.window_tokens.filter(|tokens| *tokens > 0) {
+            config["model_context_window"] = serde_json::json!(tokens);
+        }
+        if let Some(tokens) = self.auto_compact_within_window() {
+            config["model_auto_compact_token_limit"] = serde_json::json!(tokens);
+        }
+    }
+}
+
 /// Launch configuration supplied by the owning desktop product.
 ///
 /// A catalog agent (`agentId`) is started from its Lithe-managed install and
@@ -127,6 +173,9 @@ pub struct AgentLaunch {
     /// to the quota probe. Only the Codex subscription mode accepts it.
     #[serde(default)]
     pub codex_home: Option<PathBuf>,
+    /// Context length and auto-compact threshold chosen for this Agent.
+    #[serde(default)]
+    pub context_limits: ContextLimits,
 }
 
 /// Subscription access is explicit: each mode is limited to its own installed adapter.
@@ -359,11 +408,14 @@ fn resolve_with(
     match agent.model_delivery {
         ModelDelivery::CodexConfig => env.push((
             "CODEX_CONFIG".to_owned(),
-            codex_session_config(model).to_string(),
+            codex_session_config(model, launch.context_limits).to_string(),
         )),
         // A process-wide Claude pin also overrides every restored session.
         // New-session defaults instead travel through session_routing.
         ModelDelivery::ClaudeSessionOptions => {}
+    }
+    if agent.id == "claude-acp" {
+        env.extend(claude_context_env(launch.context_limits));
     }
     Ok(ResolvedLaunch {
         command: install::installed_command(&data_directory, agent),
@@ -406,11 +458,22 @@ fn cli_path_env(
 /// it off; the adapter forwards its plan events only when the tool is available.
 /// This process-local override neither changes collaboration mode nor writes the
 /// user's CLI settings. Subscription and API launches must use the same default.
-fn codex_session_config(model: Option<&str>) -> serde_json::Value {
+/// Claude Code's own switch for how full the context gets before it summarizes.
+const CLAUDE_AUTO_COMPACT_WINDOW: &str = "CLAUDE_CODE_AUTO_COMPACT_WINDOW";
+
+/// Environment entry that applies the user's context sizing to Claude Code.
+fn claude_context_env(limits: ContextLimits) -> Option<(String, String)> {
+    limits
+        .claude_auto_compact_window()
+        .map(|tokens| (CLAUDE_AUTO_COMPACT_WINDOW.to_owned(), tokens.to_string()))
+}
+
+fn codex_session_config(model: Option<&str>, limits: ContextLimits) -> serde_json::Value {
     let mut config = serde_json::json!({ "tools": { "update_plan": { "enabled": true } } });
     if let Some(model) = model {
         config["model"] = serde_json::json!(model);
     }
+    limits.codex_config(&mut config);
     config
 }
 
@@ -961,6 +1024,13 @@ async fn run_agent(
                         .as_ref()
                         .map(|_| subscription::INFERENCE_ORIGIN.to_owned())
                 })
+                .or_else(|| {
+                    // The proxy forwards to the official origin only. A user who
+                    // reaches Claude through their own base URL keeps it.
+                    (launch.claude_subscription
+                        && !claude_subscription::has_custom_base_url(&launch))
+                    .then(|| claude_subscription::INFERENCE_ORIGIN.to_owned())
+                })
         })
         .flatten();
     let _model_calls = match observation_upstream {
@@ -984,13 +1054,16 @@ async fn run_agent(
                     let configured = if let Some(route) = launch.gateway.as_mut() {
                         route.base_url = proxy.base_url().to_owned();
                         true
+                    } else if launch.claude_subscription {
+                        claude_subscription::observe_model_calls(&mut launch, proxy.base_url());
+                        true
                     } else {
                         subscription::observe_model_calls(&mut launch, proxy.base_url()).is_ok()
                     };
                     if configured {
                         Some(proxy)
                     } else {
-                        eprintln!("Codex subscription statistics are unavailable");
+                        eprintln!("Subscription statistics are unavailable");
                         None
                     }
                 }

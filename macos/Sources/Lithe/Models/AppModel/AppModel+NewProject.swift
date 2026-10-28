@@ -10,7 +10,7 @@ extension AppModel {
 
     func showNewProject() {
         guard canCreateProjects else {
-            chooseProject(title: "New Project", prompt: "Choose Folder")
+            chooseProject(title: "New Project", prompt: L10n.string("Choose Folder"))
             return
         }
         workbenchFeature.isNewProjectPresented = true
@@ -59,7 +59,7 @@ extension AppModel {
             )
         }
         if let warning = project.gitWarning {
-            showNotification(String(format: String(localized: "The project was created, but Git could not be set up: %@"), warning))
+            showNotification(String(format: L10n.string("The project was created, but Git could not be set up: %@"), warning))
         }
         openProject(project.url)
     }

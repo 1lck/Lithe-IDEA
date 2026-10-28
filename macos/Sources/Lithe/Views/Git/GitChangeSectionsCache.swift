@@ -8,7 +8,7 @@ import LitheGitModule
 /// the empty-state check, so one body pass filtered the whole change list
 /// several times over and then partitioned it twice more.
 ///
-/// A reference box in `@State`, like `EditorViewportStore`, so caching cannot
+/// A reference box in `@State` so caching cannot
 /// invalidate the view that reads it.
 @MainActor
 final class GitChangeSectionsCache {

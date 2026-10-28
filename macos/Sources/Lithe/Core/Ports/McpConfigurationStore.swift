@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 
 /// Agent whose MCP configuration Lithe can discover and manage.
 enum McpAgent: String, CaseIterable, Identifiable, Sendable {
@@ -194,20 +195,20 @@ enum McpConfigurationError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .unavailable:
-            String(localized: "MCP configuration management is unavailable.")
+            L10n.string("MCP configuration management is unavailable.")
         case .unreadable(let path):
-            String(format: String(localized: "Could not read %@."), path)
+            String(format: L10n.string("Could not read %@."), path)
         case .tooLarge:
-            String(localized: "This configuration is larger than 1 MiB and is not edited by Lithe.")
+            L10n.string("This configuration is larger than 1 MiB and is not edited by Lithe.")
         case .changedOnDisk:
-            String(localized: "The configuration changed on disk. Refresh and try again.")
+            L10n.string("The configuration changed on disk. Refresh and try again.")
         case .rollbackFailed(let paths):
-            String(format: String(localized: "Some MCP configuration files could not be restored: %@. Refresh and check these files before retrying."), paths)
+            String(format: L10n.string("Some MCP configuration files could not be restored: %@. Refresh and check these files before retrying."), paths)
         case .notWritable(let path):
-            String(format: String(localized: "Could not write %@."), path)
+            String(format: L10n.string("Could not write %@."), path)
         case .retainedCopy(let destination, let retained):
             String(
-                format: String(localized: "Could not write %@. The previous contents were kept in %@."),
+                format: L10n.string("Could not write %@. The previous contents were kept in %@."),
                 destination,
                 retained
             )

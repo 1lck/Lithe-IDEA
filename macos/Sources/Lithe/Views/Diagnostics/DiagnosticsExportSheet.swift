@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -40,12 +41,12 @@ struct DiagnosticsExportSheet: View {
 
     private var moduleTitle: String {
         let key = ["all": "All modules", "application": "Application", "language": "Editor and language services", "run": "Build, run and debug", "git": "Git", "plugins": "Plugins", "performance": "Performance"][feature.exportQuery.category ?? "all"] ?? "All modules"
-        return String(localized: String.LocalizationValue(key), locale: locale)
+        return L10n.string(String.LocalizationValue(key), locale: locale)
     }
 
     private var sessionTitle: String {
         let key = ["current": "Current session", "previous": "Previous session", "all": "All sessions"][feature.exportQuery.session] ?? "Current session"
-        return String(localized: String.LocalizationValue(key), locale: locale)
+        return L10n.string(String.LocalizationValue(key), locale: locale)
     }
 
     @ViewBuilder

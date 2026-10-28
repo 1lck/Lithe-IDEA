@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import AppKit
 import SwiftUI
 
@@ -1248,7 +1249,7 @@ final class OutputSoftWrapMenuItem: NSMenuItem {
     init(isOn: Bool, onToggle: @escaping () -> Void) {
         self.onToggle = onToggle
         super.init(
-            title: String(localized: "Use soft wraps"),
+            title: L10n.string("Use soft wraps"),
             action: #selector(toggle),
             keyEquivalent: ""
         )

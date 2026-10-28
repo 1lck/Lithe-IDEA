@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import LitheModuleAPI
 
 // Note: SSH 连接配置与测试连接见 .agents/notes/implemented/feature/2026-10-24-remote-ssh-connections.md
 
@@ -275,7 +276,7 @@ final class RemoteConnectionsFeatureModel: ObservableObject {
                 try self.openWorkspace(connection, folder, session)
                 self.didOpenWorkspace = true
             } catch {
-                self.testState = .failed(String(format: String(localized: "Could not open the remote folder: %@"), error.localizedDescription))
+                self.testState = .failed(String(format: L10n.string("Could not open the remote folder: %@"), error.localizedDescription))
                 let sessions = self.sessions
                 Task { await sessions.disconnect(session: session.id) }
             }
@@ -327,7 +328,7 @@ final class RemoteConnectionsFeatureModel: ObservableObject {
         guard browser != nil else { return }
         let trimmed = path.trimmingCharacters(in: .whitespaces)
         guard trimmed.hasPrefix("/") else {
-            browser?.error = String(localized: "Enter an absolute path that starts with /.")
+            browser?.error = L10n.string("Enter an absolute path that starts with /.")
             return
         }
         loadBrowser(trimmed)
@@ -336,6 +337,27 @@ final class RemoteConnectionsFeatureModel: ObservableObject {
     func openBrowserEntry(_ entry: RemoteDirectoryEntry) {
         guard let browser, entry.isDirectory else { return }
         openBrowserPath((browser.path as NSString).appendingPathComponent(entry.name))
+    }
+
+    /// Opens the browsed folder as a workspace. The open session passes to the
+    /// workspace, so it is not disconnected here.
+    func openBrowsedFolder() {
+        guard let browser, !browser.isLoading else { return }
+        guard let connection = connections.first(where: { $0.id == browser.connectionID }) else {
+            self.browser?.error = String(
+                format: L10n.string("Could not open the remote folder: %@"), L10n.string("The connection failed.")
+            )
+            return
+        }
+        do {
+            try openWorkspace(connection, browser.path, browser.session)
+            browseTask?.cancel()
+            browseTask = nil
+            self.browser = nil
+            didOpenWorkspace = true
+        } catch {
+            self.browser?.error = String(format: L10n.string("Could not open the remote folder: %@"), error.localizedDescription)
+        }
     }
 
     /// Saves the browsed folder as the connection's project folder.
@@ -464,7 +486,7 @@ final class RemoteConnectionsFeatureModel: ObservableObject {
             saveError = nil
             return true
         } catch {
-            saveError = String(format: String(localized: "Could not save the connections: %@"), error.localizedDescription)
+            saveError = String(format: L10n.string("Could not save the connections: %@"), error.localizedDescription)
             return false
         }
     }

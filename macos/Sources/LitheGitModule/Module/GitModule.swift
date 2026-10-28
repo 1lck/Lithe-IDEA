@@ -83,7 +83,7 @@ public final class GitModule: LitheModule {
 public enum GitModuleSleepError: LocalizedError, Sendable {
     case activeWork
 
-    public var errorDescription: String? { "Git work is still active." }
+    public var errorDescription: String? { L10n.string("Git work is still active.") }
 }
 
 @MainActor

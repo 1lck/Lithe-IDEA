@@ -311,7 +311,7 @@ public enum LanguageExtensionHostError: Error, Equatable, LocalizedError, Sendab
     public var errorDescription: String? {
         switch self {
         case .missingExecutionHost(let languageID):
-            "The host cannot provide an execution session for \(languageID)."
+            L10n.string("The host cannot provide an execution session for \(languageID).")
         }
     }
 }
@@ -322,7 +322,7 @@ public enum LanguageExtensionRegistrationError: Error, Equatable, LocalizedError
     public var errorDescription: String? {
         switch self {
         case .invalidLanguageServerProvider(let displayName):
-            "\(displayName) returned an invalid language-server provider."
+            L10n.string("\(displayName) returned an invalid language-server provider.")
         }
     }
 }
@@ -333,7 +333,7 @@ public enum LanguageRunExtensionError: Error, Equatable, LocalizedError, Sendabl
     public var errorDescription: String? {
         switch self {
         case .invalidRelativePath:
-            "The selected file must be inside the current workspace."
+            L10n.string("The selected file must be inside the current workspace.")
         }
     }
 }
@@ -346,11 +346,11 @@ public enum LanguageTestExtensionError: Error, Equatable, LocalizedError, Sendab
     public var errorDescription: String? {
         switch self {
         case .invalidRelativePath:
-            "A test path must stay inside the current workspace."
+            L10n.string("A test path must stay inside the current workspace.")
         case .invalidTestIdentifier:
-            "The selected test identifier is invalid."
+            L10n.string("The selected test identifier is invalid.")
         case .unsupportedProject(let languageID):
-            "The workspace is not a supported \(languageID) test project."
+            L10n.string("The workspace is not a supported \(languageID) test project.")
         }
     }
 }

@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import LitheModuleAPI
 import LitheCoreContracts
 
 // Note: 构建系统插件契约见 .agents/notes/implemented/architecture/2026-10-17-build-system-plugin-contract.md
@@ -436,7 +437,7 @@ package final class BuildSystemService: ObservableObject {
                     try? await Task.sleep(for: .seconds(30))
                     guard !Task.isCancelled else { return }
                     self?.finishImportWaiter(id, result: .failure(BuildSystemServiceError(
-                        String(localized: "Build-system language import preparation timed out. Retry project loading.")
+                        L10n.string("Build-system language import preparation timed out. Retry project loading.")
                     )))
                 }
             }
@@ -608,7 +609,7 @@ package final class BuildSystemService: ObservableObject {
             let plan = try await outputPlan(entry, workspaceURL: workspaceURL, reason: reason, owner: owner) { hints in
                 try planner.modelPlan(entry.target, context: context, outputFile: outputFile, providerHints: hints)
             }
-            let title = String(localized: "Loading \(entry.instance.displayName) model")
+            let title = L10n.string("Loading \(entry.instance.displayName) model")
             let output = try await captureOutput(
                 plan,
                 entry: entry,
@@ -787,9 +788,9 @@ package final class BuildSystemService: ObservableObject {
                 if let exitCode {
                     state = exitCode == 0
                         ? .succeeded
-                        : .failed(String(localized: "The build tool exited with code \(Int(exitCode))."))
+                        : .failed(L10n.string("The build tool exited with code \(Int(exitCode))."))
                 } else {
-                    state = .failed(String(localized: "The build tool timed out."))
+                    state = .failed(L10n.string("The build tool timed out."))
                 }
             } catch is CancellationError {
                 state = .cancelled
@@ -920,7 +921,7 @@ package final class BuildSystemService: ObservableObject {
                 entry: entry,
                 workspaceURL: workspaceURL,
                 outputFile: outputFile,
-                title: String(localized: "Loading dependencies of \(name)"),
+                title: L10n.string("Loading dependencies of \(name)"),
                 timeout: Self.modelTimeout,
                 owner: owner
             )
@@ -970,7 +971,7 @@ package final class BuildSystemService: ObservableObject {
         guard let workspaceURL, let entry = entry(entryID) else {
             throw PluginFunctionFailure(
                 code: "plugin.function.unavailable",
-                message: String(localized: "The build-system instance is no longer detected.")
+                message: L10n.string("The build-system instance is no longer detected.")
             )
         }
         guard let providers else { throw BuildSystemServiceError(Self.providerUnsupportedMessage) }
@@ -1293,7 +1294,7 @@ package final class BuildSystemService: ObservableObject {
             if invocation.hasExplicitExecutableSelection || (error as? BuildToolResolutionError)?.terminal == true { throw error }
             if canAppend(owner) {
                 appendOutput(
-                    "\n" + String(localized: "The provider looks up the build tool itself: \(error.localizedDescription)") + "\n",
+                    "\n" + L10n.string("The provider looks up the build tool itself: \(error.localizedDescription)") + "\n",
                     in: outputDirectory(entry)
                 )
             }
@@ -1353,22 +1354,22 @@ package final class BuildSystemService: ObservableObject {
         }
         switch result.termination {
         case .timedOut:
-            throw BuildSystemServiceError(String(localized: "\(title) timed out."))
+            throw BuildSystemServiceError(L10n.string("\(title) timed out."))
         case .exited(let code) where code != 0:
             let detail = tail.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            let summary = String(localized: "The build tool exited with code \(Int(code)).")
+            let summary = L10n.string("The build tool exited with code \(Int(code)).")
             throw BuildSystemServiceError(detail.isEmpty ? summary : summary + "\n" + Self.lastLines(detail))
         case .exited:
             break
         }
         if capturesStandardOutput {
             guard let text = result.standardOutput else {
-                throw BuildSystemServiceError(String(localized: "The build tool output is too large or not UTF-8."))
+                throw BuildSystemServiceError(L10n.string("The build tool output is too large or not UTF-8."))
             }
             return .stdout(text)
         }
         guard let outputFile else {
-            throw BuildSystemServiceError(String(localized: "The build tool output is too large or not UTF-8."))
+            throw BuildSystemServiceError(L10n.string("The build tool output is too large or not UTF-8."))
         }
         return .outputFile(outputFile)
     }
@@ -1458,7 +1459,7 @@ package final class BuildSystemService: ObservableObject {
     }
 
     private static var providerUnsupportedMessage: String {
-        String(localized: "This build system answers through a provider process, which this build of Lithe cannot start.")
+        L10n.string("This build system answers through a provider process, which this build of Lithe cannot start.")
     }
 
     // MARK: Detection
@@ -1482,7 +1483,7 @@ package final class BuildSystemService: ObservableObject {
             return "\(pluginID): \(rejected.error.message)"
         }
         issues += detection.shadowed.map {
-            String(localized: "\($0.buildSystemID) of \($0.pluginID) is handled by \($0.by).")
+            L10n.string("\($0.buildSystemID) of \($0.pluginID) is handled by \($0.by).")
         }
         let entries = detection.instances.compactMap { instance -> BuildSystemEntry? in
             guard let source = sources.first(where: { $0.pluginID == instance.pluginID }),

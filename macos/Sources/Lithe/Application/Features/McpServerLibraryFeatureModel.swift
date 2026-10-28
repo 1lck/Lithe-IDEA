@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import LitheModuleAPI
 
 /// One discovered definition in one Agent configuration file.
 struct McpServerSource: Hashable, Identifiable {
@@ -110,9 +111,9 @@ struct McpServerDraft: Equatable {
     var setupMessage: String? {
         switch setup {
         case .bearerToken:
-            String(localized: "GitHub requires a personal access token. Set the Authorization header to Bearer followed by your token. It is stored in the Agent configuration file.")
+            L10n.string("GitHub requires a personal access token. Set the Authorization header to Bearer followed by your token. It is stored in the Agent configuration file.")
         case .allowedDirectories:
-            String(localized: "Add at least one absolute folder path after the package argument, one per line. Filesystem can read and write only in the folders you allow. Requires Node.js 24 or later.")
+            L10n.string("Add at least one absolute folder path after the package argument, one per line. Filesystem can read and write only in the folders you allow. Requires Node.js 24 or later.")
         case nil: nil
         }
     }
@@ -193,17 +194,17 @@ enum McpLibraryError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unavailable:
-            String(localized: "MCP configuration management is unavailable.")
+            L10n.string("MCP configuration management is unavailable.")
         case .agentHasNoGlobalConfiguration:
-            String(localized: "This Agent has no global MCP configuration file.")
+            L10n.string("This Agent has no global MCP configuration file.")
         case .notOwned(let name):
             String(
-                format: String(localized: "“%@” was created outside Lithe. Take ownership before changing it."),
+                format: L10n.string("“%@” was created outside Lithe. Take ownership before changing it."),
                 name
             )
         case .externallyModified(let name):
             String(
-                format: String(localized: "“%@” changed outside Lithe. Refresh and try again."),
+                format: L10n.string("“%@” changed outside Lithe. Refresh and try again."),
                 name
             )
         case .invalidDraft(let message):
@@ -311,7 +312,7 @@ final class McpServerLibraryFeatureModel: ObservableObject {
                 }
             } catch {
                 errors.append(String(
-                    format: String(localized: "Could not read %@: %@"),
+                    format: L10n.string("Could not read %@: %@"),
                     file.url.path,
                     error.localizedDescription
                 ))
@@ -364,7 +365,7 @@ final class McpServerLibraryFeatureModel: ObservableObject {
               let file = store.configurationFiles(workspace: nil).first(where: { $0.agent == .claudeCode && $0.scope == .global })
         else { throw McpLibraryError.unavailable }
         let servers = try store.parse(file, content: json)
-        guard !servers.isEmpty else { throw McpLibraryError.invalidDraft(String(localized: "Paste a JSON object containing mcpServers.")) }
+        guard !servers.isEmpty else { throw McpLibraryError.invalidDraft(L10n.string("Paste a JSON object containing mcpServers.")) }
         return servers.map(McpServerDraft.init(definition:))
     }
 
@@ -374,13 +375,13 @@ final class McpServerLibraryFeatureModel: ObservableObject {
     func validationMessage(for draft: McpServerDraft) -> String? {
         let name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
         if name.isEmpty {
-            return String(localized: "Enter a server name.")
+            return L10n.string("Enter a server name.")
         }
         if name.range(of: "^[A-Za-z0-9][A-Za-z0-9._-]*$", options: .regularExpression) == nil {
-            return String(localized: "Use letters, digits, dots, dashes or underscores. The name must start with a letter or digit.")
+            return L10n.string("Use letters, digits, dots, dashes or underscores. The name must start with a letter or digit.")
         }
         if draft.enabledAgents.isEmpty {
-            return String(localized: "Choose at least one Agent.")
+            return L10n.string("Choose at least one Agent.")
         }
         // Core writes the active transport's entries into an object or table,
         // which cannot repeat a key. Rejecting duplicates here gives the user a
@@ -390,17 +391,17 @@ final class McpServerLibraryFeatureModel: ObservableObject {
         case .http, .sse: hasDuplicateEntryNames(draft.headers)
         }
         if duplicateEntries {
-            return String(localized: "Environment variable and header names must be unique.")
+            return L10n.string("Environment variable and header names must be unique.")
         }
         switch draft.transport {
         case .stdio:
             if draft.command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return String(localized: "Enter the command that starts this server.")
+                return L10n.string("Enter the command that starts this server.")
             }
         case .http, .sse:
             let url = draft.url.trimmingCharacters(in: .whitespacesAndNewlines)
             guard let parsed = URL(string: url), parsed.scheme != nil, parsed.host != nil else {
-                return String(localized: "Enter a complete server URL.")
+                return L10n.string("Enter a complete server URL.")
             }
         }
         switch draft.setup {
@@ -408,12 +409,12 @@ final class McpServerLibraryFeatureModel: ObservableObject {
             let value = draft.headers.first { $0.key.lowercased() == "authorization" }?.value ?? ""
             let parts = value.split(whereSeparator: \.isWhitespace)
             if draft.transport == .stdio || parts.count != 2 || parts[0].lowercased() != "bearer" {
-                return String(localized: "Enter an Authorization header with Bearer and your GitHub token.")
+                return L10n.string("Enter an Authorization header with Bearer and your GitHub token.")
             }
         case .allowedDirectories:
             let folders = Array(draft.arguments.dropFirst(2))
             if draft.transport != .stdio || folders.isEmpty || folders.contains(where: { !$0.hasPrefix("/") }) {
-                return String(localized: "Add at least one absolute allowed folder path after the Filesystem package argument.")
+                return L10n.string("Add at least one absolute allowed folder path after the Filesystem package argument.")
             }
         case nil: break
         }
@@ -683,7 +684,7 @@ final class McpServerLibraryFeatureModel: ObservableObject {
             }
         } catch {
             messages.append(String(
-                format: String(localized: "Could not register Lithe MCP in %@: %@"),
+                format: L10n.string("Could not register Lithe MCP in %@: %@"),
                 workspace.path, error.localizedDescription
             ))
         }
@@ -760,7 +761,7 @@ final class McpServerLibraryFeatureModel: ObservableObject {
                 setLedger(updated, for: file)
             } catch {
                 messages.append(String(
-                    format: String(localized: "Could not remove Lithe MCP from %@: %@"),
+                    format: L10n.string("Could not remove Lithe MCP from %@: %@"),
                     file.url.path,
                     error.localizedDescription
                 ))

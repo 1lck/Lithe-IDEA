@@ -35,7 +35,7 @@ struct AgentInstructionsSettingsView: View {
             }
         }
         .font(LitheTheme.settingsFont)
-        .frame(maxWidth: 860, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .task {
             await feature.loadShared()
             await feature.loadAll()

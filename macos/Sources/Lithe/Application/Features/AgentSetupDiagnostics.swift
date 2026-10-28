@@ -134,7 +134,7 @@ extension AgentSetupDiagnostics {
         environment: AgentRuntimeEnvironment,
         hasProvider: Bool,
         authentication: AgentAuthentication = .apiKey,
-        bundle: Bundle = .main
+        bundle: Bundle = .appLanguage
     ) -> [AgentPreflightCheck] {
         var checks: [AgentPreflightCheck] = []
 

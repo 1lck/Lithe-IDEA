@@ -177,7 +177,7 @@ struct NewProjectView: View {
                     .help(Text(LocalizedStringKey("Choose…")))
                 }
             } footer: {
-                Text(String(format: String(localized: "Project will be created in: %@"), feature.destinationPath))
+                Text(String(format: L10n.string("Project will be created in: %@"), feature.destinationPath))
                     .font(LitheTheme.uiFont(size: 11.5))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .lineLimit(2)
@@ -191,7 +191,7 @@ struct NewProjectView: View {
     @ViewBuilder private var pluginNotices: some View {
         if let entry = feature.selectedEntry, !entry.pluginEnabled {
             pluginNotice(
-                Text(String(format: String(localized: "This template comes from %@, which is disabled."), entry.pluginName)),
+                Text(String(format: L10n.string("This template comes from %@, which is disabled."), entry.pluginName)),
                 actionTitle: "Enable",
                 pluginID: PluginID(entry.pluginID)
             )
@@ -200,7 +200,7 @@ struct NewProjectView: View {
             switch notice.action {
             case .enable(let pluginID, let name):
                 pluginNotice(
-                    Text(String(format: String(localized: "%@ is needed for this project but %@ is disabled."),
+                    Text(String(format: L10n.string("%@ is needed for this project but %@ is disabled."),
                                 Self.subjectName(notice.subject), name)),
                     actionTitle: "Enable",
                     pluginID: pluginID
@@ -209,7 +209,7 @@ struct NewProjectView: View {
                 HStack(spacing: 8) {
                     Image(systemName: "info.circle")
                         .foregroundStyle(LitheTheme.secondaryText)
-                    Text(String(format: String(localized: "No installed plugin supports %@ yet."),
+                    Text(String(format: L10n.string("No installed plugin supports %@ yet."),
                                 Self.subjectName(notice.subject)))
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 8)
@@ -308,7 +308,7 @@ struct NewProjectView: View {
         case .text:
             PluginTextSettingField(
                 value: feature.value(of: field).stringValue,
-                placeholder: field.placeholder.map { String(localized: String.LocalizationValue($0)) },
+                placeholder: field.placeholder.map { L10n.string(String.LocalizationValue($0)) },
                 width: 360,
                 isFlexible: true,
                 accessibilityLabel: field.title,

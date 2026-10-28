@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import AppKit
 import SwiftUI
 import LitheGitModule
@@ -592,7 +593,7 @@ struct GitLogView: View {
                             guard let currentReference else { return }
                             Task { await feature.updateCurrentBranch(currentReference) }
                         }
-                        branchStripeButton("expui/general/delete.svg", fallback: "trash", help: "Delete Selected Branch",
+                        branchStripeButton("expui/general/delete.svg", fallback: "trash", help: L10n.string("Delete Selected Branch"),
                                            isEnabled: checkoutReference != nil && !feature.isPerformingBranchOperation) {
                             guard let reference = checkoutReference else { return }
                             pendingBranchOperation = GitBranchOperationRequest(kind: .delete, reference: reference)
@@ -603,14 +604,14 @@ struct GitLogView: View {
                                            isEnabled: currentReference != nil && !feature.isLoadingBranchComparison) {
                             showPrimaryComparison()
                         }
-                        branchStripeButton("expui/general/search.svg", fallback: "magnifyingglass", help: "Find Branch") {
+                        branchStripeButton("expui/general/search.svg", fallback: "magnifyingglass", help: L10n.string("Find Branch")) {
                             branchSearchFocused = true
                         }
                         branchStripeButton("expui/vcs/fetch.svg", fallback: "arrow.down.circle", help: "Fetch",
                                            isEnabled: !feature.isPerformingBranchOperation) {
                             Task { await feature.fetchGit() }
                         }
-                        branchStripeButton("expui/general/locate.svg", fallback: "scope", help: "Navigate Log to Selected Branch",
+                        branchStripeButton("expui/general/locate.svg", fallback: "scope", help: L10n.string("Navigate Log to Selected Branch"),
                                            isEnabled: feature.selectedGitReference != nil && !feature.isLoadingGitHistory
                                                && !graphPresentation.rows.isEmpty) {
                             guard let commit = graphPresentation.rows.first?.commit else { return }
@@ -618,17 +619,17 @@ struct GitLogView: View {
                         }
                         Rectangle().fill(LitheTheme.divider).frame(width: 22, height: 1)
                             .padding(.vertical, 3)
-                        branchStripeButton("expui/general/settings.svg", fallback: "gearshape", help: "Branches Pane Settings") {
+                        branchStripeButton("expui/general/settings.svg", fallback: "gearshape", help: L10n.string("Branches Pane Settings")) {
                             showBranchesSettingsMenu()
                         }
-                        branchStripeButton("expui/general/expandAll.svg", fallback: "arrow.down.right.and.arrow.up.left", help: "Expand All Branches") {
+                        branchStripeButton("expui/general/expandAll.svg", fallback: "arrow.down.right.and.arrow.up.left", help: L10n.string("Expand All Branches")) {
                             localExpanded = true
                             remoteExpanded = true
                             tagsExpanded = true
                             collapsedReferenceGroups.removeAll()
                             collapsedRepositoryGroups.removeAll()
                         }
-                        branchStripeButton("expui/general/collapseAll.svg", fallback: "arrow.up.left.and.arrow.down.right", help: "Collapse All Branches") {
+                        branchStripeButton("expui/general/collapseAll.svg", fallback: "arrow.up.left.and.arrow.down.right", help: L10n.string("Collapse All Branches")) {
                             localExpanded = false
                             remoteExpanded = false
                             tagsExpanded = false
@@ -2898,8 +2899,8 @@ func gitLocalizedFormat(_ key: String, _ arguments: CVarArg..., locale: Locale, 
     return String(format: format, locale: locale, arguments: arguments)
 }
 
-/// IDEA FilterComponent: 2pt border + 2pt inner inset; hover changes only the name foreground.
-private struct GitLogFilterLabel: View {
+/// Git Log filter trigger with IDEA's 4pt inset and separate name/value colors.
+struct GitLogFilterLabel: View {
     let title: LocalizedStringKey
     let selection: String?
     let localizeSelection: Bool
@@ -2907,14 +2908,9 @@ private struct GitLogFilterLabel: View {
 
     var body: some View {
         HStack(spacing: 3) {
-            HStack(spacing: 0) {
-                (Text(title) + Text(selection == nil ? "" : ": "))
-                    .foregroundStyle(isHovered ? Color.white : LitheTheme.searchFieldPlaceholder)
-                if let selection {
-                    let value = localizeSelection ? Text(LocalizedStringKey(selection)) : Text(verbatim: selection)
-                    value.foregroundStyle(isHovered ? Color.white : LitheTheme.searchFieldText)
-                }
-            }
+            labelText
+                .lineLimit(1)
+                .truncationMode(.tail)
             if selection == nil {
                 LitheIDEAIcon(resourcePath: "expui/general/chevronDown.svg", size: 16,
                               fallbackSystemImage: "chevron.down", preservesOriginalColors: true)
@@ -2924,5 +2920,17 @@ private struct GitLogFilterLabel: View {
         .padding(4)
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
+    }
+
+    private var labelText: Text {
+        let nameColor = isHovered ? Color.white : LitheTheme.searchFieldPlaceholder
+        let name = Text(title).foregroundColor(nameColor)
+        guard let selection else { return name }
+        let value = localizeSelection ? Text(LocalizedStringKey(selection)) : Text(verbatim: selection)
+        let separator = Text(verbatim: ": ").foregroundColor(nameColor)
+        let selectedValue = value.foregroundColor(isHovered ? .white : LitheTheme.searchFieldText)
+        // One text layout truncates the complete label instead of letting the
+        // name and value compress independently and paint over one another.
+        return Text("\(name)\(separator)\(selectedValue)")
     }
 }

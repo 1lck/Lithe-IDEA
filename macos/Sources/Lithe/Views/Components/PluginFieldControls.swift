@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import SwiftUI
 
 /// A choice of an option field, shared by plugin settings and the fields of
@@ -19,7 +20,7 @@ struct PluginMultiSelectField: View {
 
     private var summary: String {
         let titles = options.filter { selected.contains($0.value) }.map(\.title)
-        if titles.isEmpty { return String(localized: "None") }
+        if titles.isEmpty { return L10n.string("None") }
         return titles.joined(separator: ", ")
     }
 

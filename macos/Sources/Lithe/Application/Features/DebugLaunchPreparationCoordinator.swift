@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 import LitheCoreContracts
 
@@ -14,7 +15,7 @@ final class DebugLaunchPreparationCoordinator {
         var errorDescription: String? {
             switch self {
             case .portUnavailable(let port):
-                return "Port \(port) is already in use. Stop the process using it or change server.port in the Run configuration."
+                return L10n.string("Port \(String(port)) is already in use. Stop the process using it or change server.port in the Run configuration.")
             }
         }
     }

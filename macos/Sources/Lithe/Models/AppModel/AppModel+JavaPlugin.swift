@@ -12,8 +12,8 @@ extension AppModel {
               ) else { return }
         hasSuggestedJavaPlugin = true
         showNotification(
-            String(localized: "Java Support is installed separately. Install it from the Marketplace, or use Install from Disk for an offline package. Your Java settings are kept."),
-            action: WorkbenchNotification.Action(title: String(localized: "Open Marketplace")) { [weak self] in
+            L10n.string("Java Support is installed separately. Install it from the Marketplace, or use Install from Disk for an offline package. Your Java settings are kept."),
+            action: WorkbenchNotification.Action(title: L10n.string("Open Marketplace")) { [weak self] in
                 self?.showPluginMarketplace(searching: "Java Support")
             }
         )

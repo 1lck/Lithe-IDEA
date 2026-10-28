@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 import UniformTypeIdentifiers
 import SwiftUI
 
@@ -231,9 +232,9 @@ struct RunConfigurationEditorView: View {
 
     private var sourceTitle: String {
         switch feature.source(for: configuration) {
-        case .generated: String(localized: "Automatically generated")
-        case .project: String(localized: "Project configuration")
-        case .local: String(localized: "This computer")
+        case .generated: L10n.string("Automatically generated")
+        case .project: L10n.string("Project configuration")
+        case .local: L10n.string("This computer")
         }
     }
 
@@ -519,7 +520,7 @@ struct RunConfigurationEditorView: View {
             if saveScope == .project {
                 guard let projectURL = model.workspaceURL,
                       let path = projectRelativePath(url.path, root: projectURL) else {
-                    saveError = String(localized: "Project paths must stay inside the current project.")
+                    saveError = L10n.string("Project paths must stay inside the current project.")
                     return
                 }
                 activePathPicker.assign(path, options: &options)
@@ -537,7 +538,7 @@ struct RunConfigurationEditorView: View {
     private func scopedOptionsForSave() -> RunOptions? {
         guard saveScope == .project else { return options }
         guard let projectURL = model.workspaceURL else {
-            saveError = String(localized: "Open a project before choosing project paths.")
+            saveError = L10n.string("Open a project before choosing project paths.")
             return nil
         }
         var scopedOptions = options
@@ -550,7 +551,7 @@ struct RunConfigurationEditorView: View {
             let value = scopedOptions[keyPath: keyPath].trimmingCharacters(in: .whitespacesAndNewlines)
             guard !value.isEmpty else { continue }
             guard let relativePath = projectRelativePath(value, root: projectURL) else {
-                saveError = String(localized: "Project paths must stay inside the current project.")
+                saveError = L10n.string("Project paths must stay inside the current project.")
                 return nil
             }
             scopedOptions[keyPath: keyPath] = relativePath

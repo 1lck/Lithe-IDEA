@@ -48,41 +48,41 @@ enum PluginPackageStoreError: Error, Equatable, LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .invalidPackageDirectory: "The plugin package directory is invalid."
-        case .unsafeIdentifier(let value): "Plugin package identifier is unsafe: \(value)."
-        case .manifestDoesNotMatchInstallation: "Plugin manifest does not match its installation record."
-        case .versionAlreadyInstalled(let version): "Plugin version \(version) is already installed."
-        case .missingInstallation(let id): "Plugin \(id) is not installed."
-        case .rollbackUnavailable(let id): "Plugin \(id) has no previous version to restore."
-        case .requiredPluginCannotBeUninstalled(let id): "Required plugin \(id) cannot be uninstalled."
-        case .missingPackageSignature: "The official plugin package signature is missing."
-        case .invalidPackageSignature(let detail): "The official plugin package signature is invalid: \(detail)"
+        case .invalidPackageDirectory: L10n.string("The plugin package directory is invalid.")
+        case .unsafeIdentifier(let value): L10n.string("Plugin package identifier is unsafe: \(value).")
+        case .manifestDoesNotMatchInstallation: L10n.string("Plugin manifest does not match its installation record.")
+        case .versionAlreadyInstalled(let version): L10n.string("Plugin version \(version) is already installed.")
+        case .missingInstallation(let id): L10n.string("Plugin \(id) is not installed.")
+        case .rollbackUnavailable(let id): L10n.string("Plugin \(id) has no previous version to restore.")
+        case .requiredPluginCannotBeUninstalled(let id): L10n.string("Required plugin \(id) cannot be uninstalled.")
+        case .missingPackageSignature: L10n.string("The official plugin package signature is missing.")
+        case .invalidPackageSignature(let detail): L10n.string("The official plugin package signature is invalid: \(detail)")
         case .officialSignatureRequirementMismatch(let id):
-            "Official plugin \(id) declares a signature policy that does not match the host trust policy."
-        case .retiredPlugin(let id): "Plugin \(id) has been removed from Lithe. Uninstall the old package."
+            L10n.string("Official plugin \(id) declares a signature policy that does not match the host trust policy.")
+        case .retiredPlugin(let id): L10n.string("Plugin \(id) has been removed from Lithe. Uninstall the old package.")
         case .developmentPackageNotAllowed(let id):
-            "Plugin \(id) is an unsigned development package. Only development builds of Lithe can load it."
+            L10n.string("Plugin \(id) is an unsigned development package. Only development builds of Lithe can load it.")
         case .legacyNativePackage(let id, let version):
-            "Plugin \(id) \(version) is a retired native package and is no longer loaded. Reinstall it from Plugin Management to update."
+            L10n.string("Plugin \(id) \(version) is a retired native package and is no longer loaded. Reinstall it from Plugin Management to update.")
         case .declarationRejected(_, let rejection):
             rejection.message
         case .languageServerLaunchMissing(let id, let path):
-            "Plugin \(id) is missing its language server or it is not executable: \(path)."
+            L10n.string("Plugin \(id) is missing its language server or it is not executable: \(path).")
         case .buildProviderLaunchMissing(let id, let buildSystemID, let path):
-            "Plugin \(id) is missing the \(buildSystemID) build provider's file or it is not usable: \(path)."
+            L10n.string("Plugin \(id) is missing the \(buildSystemID) build provider's file or it is not usable: \(path).")
         case .backendLaunchMissing(let id, let path):
-            "Plugin \(id) is missing its backend's file or it is not usable: \(path)."
+            L10n.string("Plugin \(id) is missing its backend's file or it is not usable: \(path).")
         case .hostSealRequired(let id):
-            "Plugin \(id) can only be trusted when it ships inside Lithe."
+            L10n.string("Plugin \(id) can only be trusted when it ships inside Lithe.")
         case .unsignedPackageNotAllowed(let id):
-            "Plugin \(id) has no Lithe signature. Community plugins require confirmation before installation."
+            L10n.string("Plugin \(id) has no Lithe signature. Community plugins require confirmation before installation.")
         case .communityContentChanged(let id):
-            "Community plugin \(id) differs from its approved contents. Select the package again or reinstall it from its plugin repository."
+            L10n.string("Community plugin \(id) differs from its approved contents. Select the package again or reinstall it from its plugin repository.")
         case .invalidInstalledPlugin(let id, let message):
             if let id {
-                "Installed plugin \(id) is invalid: \(message)"
+                L10n.string("Installed plugin \(id) is invalid: \(message)")
             } else {
-                "An installed plugin is invalid: \(message)"
+                L10n.string("An installed plugin is invalid: \(message)")
             }
         }
     }
@@ -363,6 +363,27 @@ final class MacPluginPackageStore {
         return {
             MacPluginPackageStore(
                 rootURL: rootURL,
+                hostVersion: hostVersion,
+                validator: validator,
+                verifier: verifier,
+                fileManager: FileManager()
+            )
+        }
+    }
+
+    /// A scan worker reads the same plugin directories and the app's bundled
+    /// plugins as this store, but owns its decoder and file manager and never
+    /// writes: it has no state directories or credentials to clean up.
+    func makeScanStoreFactory() -> @Sendable () -> MacPluginPackageStore {
+        let rootURL = rootURL
+        let bundledRootURL = bundledRootURL
+        let hostVersion = hostVersion
+        let validator = validator
+        let verifier = verifier
+        return {
+            MacPluginPackageStore(
+                rootURL: rootURL,
+                bundledRootURL: bundledRootURL,
                 hostVersion: hostVersion,
                 validator: validator,
                 verifier: verifier,

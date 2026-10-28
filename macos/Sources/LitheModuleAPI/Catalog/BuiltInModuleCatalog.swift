@@ -355,6 +355,23 @@ public enum LanguageExtensionModuleManifests {
         )
     }
 
+    /// One module for all debug adapters of a plugin. It owns no process: the
+    /// host starts an adapter only for a debug session while it is enabled.
+    public static func debugAdapters(
+        pluginID: String,
+        displayName: String,
+        enabledByDefault: Bool = false
+    ) -> ModuleManifest {
+        ModuleManifest(
+            id: .debugAdaptersExtension(pluginID),
+            displayName: "\(displayName) Debugging",
+            scope: .workspace,
+            defaultState: enabledByDefault ? .enabled : .disabled,
+            activationPolicy: .onDemand,
+            dependencies: [.module(.workspace)]
+        )
+    }
+
     /// One module for all project generators of a plugin. The New Project
     /// window runs without a workspace, so the module is application-scoped
     /// and owns no process: Core plans and the host creates the project.

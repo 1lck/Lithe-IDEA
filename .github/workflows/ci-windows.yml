@@ -363,6 +363,11 @@ jobs:
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-project-tree.json -- src/features/file-explorer/hooks/use-file-explorer-drag-drop.test.tsx src/features/file-explorer/components/file-explorer-selection.test.tsx src/features/file-explorer/components/file-explorer-reveal.test.tsx src/features/file-explorer/stores/directory-marks.test.ts src/features/sidebar/utils/tree-selection.test.ts src/utils/path-helpers.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Test F4 focused file navigation
+        shell: pwsh
+        timeout-minutes: 2
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-f4-file-navigation.json -- src/features/global-search/components/f4-file-navigation.integration.test.tsx
+
       - name: Test workspace open, replace, and close lifecycle
         shell: pwsh
         run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-workspace-lifecycle.json -- src/features/workspace/services/workspace-lifecycle.test.ts src/features/window/services/project-window-router.test.ts
@@ -799,6 +804,7 @@ jobs:
             --warn-ms 1000 `
             --max-ms 15000 `
             --test-budget git_paths_roundtrip_=60000 `
+            --test-budget watch_context_distinguishes_linked_worktree_git_and_common_directories=30000 `
             --test-budget lsp::interface::engine::real_jdt_tests::real_jdtls_discovers_builds_and_launches_java_25_entrypoints=600000 `
             --test-budget tests::git_history_rewrite::=30000 `
             --test-budget tests::git_history_rewrite::native_rebase_skip_omits_conflicted_message_from_later_squash=45000 `

@@ -82,7 +82,7 @@ struct AgentHooksSettingsView: View {
                     LitheInfoTip(key("Codex requires Hooks to be enabled and commands to be trusted in its native /hooks screen. Lithe saves configuration without granting trust. Editing a command requires approval again. A configured Hook is not proof it ran."))
                 }.font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
             }
-        }.font(LitheTheme.settingsFont).frame(maxWidth: 760, alignment: .leading)
+        }.font(LitheTheme.settingsFont).frame(maxWidth: .infinity, alignment: .leading)
             .task { await feature.load() }
             .onAppear { showsEditor = feature.draft != nil }
             .onDisappear { operation?.cancel() }

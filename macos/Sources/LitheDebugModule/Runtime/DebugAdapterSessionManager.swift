@@ -20,6 +20,8 @@ public struct DebugSessionSummary: Identifiable, Equatable, Sendable {
     public let rootURL: URL
     public let state: DebugAdapterState
     public let targetTitle: String?
+    /// The session whose adapter asked for this one; nil for a root session.
+    public let parentID: DebugSessionID?
 
     public var isRunning: Bool {
         ![.idle, .terminated, .failed].contains(state)
@@ -31,7 +33,8 @@ public struct DebugSessionSummary: Identifiable, Equatable, Sendable {
         providerDisplayName: String,
         rootURL: URL,
         state: DebugAdapterState,
-        targetTitle: String? = nil
+        targetTitle: String? = nil,
+        parentID: DebugSessionID? = nil
     ) {
         self.id = id
         self.providerID = providerID
@@ -39,6 +42,7 @@ public struct DebugSessionSummary: Identifiable, Equatable, Sendable {
         self.rootURL = rootURL
         self.state = state
         self.targetTitle = targetTitle
+        self.parentID = parentID
     }
 }
 
@@ -90,7 +94,31 @@ public final class DebugAdapterSessionManager: ObservableObject {
         }
     }
 
-    private let providers: [DebugProviderDescriptor]
+    /// Builds the adapter session for a `startDebugging` child of a running session.
+    /// A provider that understands its adapter's child configuration (for example a
+    /// `connect` endpoint) may override it; by default the child is a new session
+    /// from `makeSession`, so the host always advertises `startDebugging` support.
+    public var makeChildSession: (@MainActor (
+        DebugProviderDescriptor,
+        DebugStartDebuggingRequest,
+        URL
+    ) -> (any DebugAdapterSession)?)? {
+        didSet {
+            for managed in sessions.values {
+                configureStartDebuggingHandler(managed.session, sessionID: managed.id)
+            }
+        }
+    }
+
+    /// An explicitly supplied DAP endpoint bypasses the provider's process/LSP
+    /// transport. The platform must validate it and obtain per-connection consent.
+    public var makeEndpointSession: (@MainActor (
+        DebugProviderDescriptor, DebugAdapterEndpoint, URL
+    ) throws -> (any DebugAdapterSession)?)?
+
+    /// Read at every lookup: a host that registers debug adapters while it
+    /// runs hands back the current set instead of the one it started with.
+    private let providersSource: @MainActor () -> [DebugProviderDescriptor]
     private let makeSession: @MainActor (
         DebugProviderDescriptor,
         URL
@@ -101,6 +129,8 @@ public final class DebugAdapterSessionManager: ObservableObject {
         let rootURL: URL
         let session: any DebugAdapterSession
         let activationToken: UUID
+        let parentID: DebugSessionID?
+        let adapterEndpoint: DebugAdapterEndpoint?
         var targetTitle: String?
     }
 
@@ -114,14 +144,24 @@ public final class DebugAdapterSessionManager: ObservableObject {
     private var requestedFunctionBreakpoints: [String: [DebugFunctionBreakpoint]] = [:]
     private var requestedDataBreakpoints: [String: [DebugDataBreakpoint]] = [:]
 
-    public init(
+    public convenience init(
         providers: [DebugProviderDescriptor],
         makeSession: @escaping @MainActor (
             DebugProviderDescriptor,
             URL
         ) -> (any DebugAdapterSession)?
     ) {
-        self.providers = providers
+        self.init(providersSource: { providers }, makeSession: makeSession)
+    }
+
+    public init(
+        providersSource: @escaping @MainActor () -> [DebugProviderDescriptor],
+        makeSession: @escaping @MainActor (
+            DebugProviderDescriptor,
+            URL
+        ) -> (any DebugAdapterSession)?
+    ) {
+        self.providersSource = providersSource
         self.makeSession = makeSession
     }
 
@@ -132,7 +172,7 @@ public final class DebugAdapterSessionManager: ObservableObject {
     public var activeSessionIDs: Set<DebugSessionID> { Set(sessions.keys) }
 
     public func provider(for fileURL: URL) -> DebugProviderDescriptor? {
-        providers.first { $0.matches(fileURL) }
+        providersSource().first { $0.matches(fileURL) }
     }
 
     @discardableResult
@@ -140,6 +180,7 @@ public final class DebugAdapterSessionManager: ObservableObject {
         let providerID = try descriptor(for: fileURL).id
         if let sessionID = activeSessionIDsByProvider[providerID],
            let managed = sessions[sessionID],
+           managed.adapterEndpoint == nil,
            managed.session.isRunning,
            managed.rootURL == rootURL.standardizedFileURL {
             return managed.session
@@ -154,29 +195,25 @@ public final class DebugAdapterSessionManager: ObservableObject {
     /// the same provider. Existing provider-level APIs continue to use the
     /// latest session as their compatibility target.
     @discardableResult
-    public func activateNew(for fileURL: URL, rootURL: URL) throws -> DebugSessionHandle {
+    public func activateNew(
+        for fileURL: URL, rootURL: URL, adapterEndpoint: DebugAdapterEndpoint? = nil
+    ) throws -> DebugSessionHandle {
         let descriptor = try descriptor(for: fileURL)
         let normalizedRoot = rootURL.standardizedFileURL
-        guard let session = makeSession(descriptor, normalizedRoot) else {
+        let candidate: (any DebugAdapterSession)?
+        if let adapterEndpoint {
+            // Never fall back to a local process if this host lacks TCP support.
+            candidate = try makeEndpointSession?(descriptor, adapterEndpoint, normalizedRoot)
+        } else {
+            candidate = makeSession(descriptor, normalizedRoot)
+        }
+        guard let session = candidate else {
             throw DebugProviderError.adapterUnavailable(descriptor.displayName)
         }
-        let sessionID = DebugSessionID()
-        let activationToken = UUID()
-        configureCallbacks(
-            session,
-            sessionID: sessionID,
-            providerID: descriptor.id,
-            activationToken: activationToken
+        let (sessionID, activationToken) = register(
+            session, descriptor: descriptor, rootURL: normalizedRoot, parentID: nil,
+            adapterEndpoint: adapterEndpoint
         )
-        sessions[sessionID] = ManagedSession(
-            id: sessionID,
-            descriptor: descriptor,
-            rootURL: normalizedRoot,
-            session: session,
-            activationToken: activationToken,
-            targetTitle: nil
-        )
-        sessionOrder.append(sessionID)
         activeSessionIDsByProvider[descriptor.id] = sessionID
         roots[descriptor.id] = normalizedRoot
         states[descriptor.id] = session.state
@@ -198,18 +235,7 @@ public final class DebugAdapterSessionManager: ObservableObject {
         }
         updateSessionSummary(sessionID)
         if let controlling = session as? any DebugAdapterControllingSession {
-            for (source, breakpoints) in requestedBreakpoints[descriptor.id] ?? [:] {
-                controlling.setBreakpoints(breakpoints, in: source)
-            }
-            if let breakpoints = requestedExceptionBreakpoints[descriptor.id] {
-                controlling.setExceptionBreakpoints(breakpoints)
-            }
-            if let breakpoints = requestedFunctionBreakpoints[descriptor.id] {
-                controlling.setFunctionBreakpoints(breakpoints)
-            }
-            if let breakpoints = requestedDataBreakpoints[descriptor.id] {
-                controlling.setDataBreakpoints(breakpoints)
-            }
+            replayBreakpoints(to: controlling, providerID: descriptor.id)
         }
         return DebugSessionHandle(id: sessionID, session: session)
     }
@@ -220,6 +246,9 @@ public final class DebugAdapterSessionManager: ObservableObject {
         rootURL: URL,
         configuration: DebugLaunchConfiguration
     ) throws -> any DebugAdapterControllingSession {
+        if configuration.adapterEndpoint != nil {
+            return try launchNew(for: fileURL, rootURL: rootURL, configuration: configuration).session
+        }
         let session = try activate(for: fileURL, rootURL: rootURL)
         guard let controlling = session as? any DebugAdapterControllingSession else {
             throw DebugProviderError.capabilityUnavailable(
@@ -238,7 +267,9 @@ public final class DebugAdapterSessionManager: ObservableObject {
         rootURL: URL,
         configuration: DebugLaunchConfiguration
     ) throws -> (id: DebugSessionID, session: any DebugAdapterControllingSession) {
-        let handle = try activateNew(for: fileURL, rootURL: rootURL)
+        let handle = try activateNew(
+            for: fileURL, rootURL: rootURL, adapterEndpoint: configuration.adapterEndpoint
+        )
         guard let controlling = handle.session as? any DebugAdapterControllingSession else {
             stop(sessionID: handle.id)
             throw DebugProviderError.capabilityUnavailable(
@@ -319,6 +350,16 @@ public final class DebugAdapterSessionManager: ObservableObject {
             .forEach { $0.setDataBreakpoints(breakpoints) }
     }
 
+    /// Instruction addresses belong to one running debuggee (ASLR moves them on the next
+    /// run), so they go to a single session and are never replayed to a later one.
+    public func setInstructionBreakpoints(
+        _ breakpoints: [DebugInstructionBreakpoint],
+        sessionID: DebugSessionID
+    ) {
+        (sessions[sessionID]?.session as? any DebugAdapterControllingSession)?
+            .setInstructionBreakpoints(breakpoints)
+    }
+
     public func session(providerID: String) -> (any DebugAdapterControllingSession)? {
         guard let sessionID = activeSessionIDsByProvider[providerID] else { return nil }
         return sessions[sessionID]?.session as? any DebugAdapterControllingSession
@@ -353,7 +394,38 @@ public final class DebugAdapterSessionManager: ObservableObject {
         stop(sessionID: sessionID)
     }
 
+    /// Stops a session together with its whole child tree, children first, so no
+    /// child outlives the parent whose adapter requested it.
     public func stop(sessionID: DebugSessionID) {
+        for childID in childSessionIDs(of: sessionID).reversed() { stopOne(childID) }
+        stopOne(sessionID)
+    }
+
+    /// Stops every session `isOwned` accepts, each with its child tree. A host
+    /// that knows which registration a session was built from uses this to end
+    /// exactly the sessions of a registration that went away, not every session
+    /// that happens to debug the same language.
+    public func stopSessions(where isOwned: (any DebugAdapterSession) -> Bool) {
+        for sessionID in sessionOrder {
+            guard let managed = sessions[sessionID], isOwned(managed.session) else { continue }
+            stop(sessionID: sessionID)
+        }
+    }
+
+    /// IDs of every descendant of `sessionID`, parents before their children.
+    public func childSessionIDs(of sessionID: DebugSessionID) -> [DebugSessionID] {
+        var result: [DebugSessionID] = []
+        var pending = [sessionID]
+        while !pending.isEmpty {
+            let parent = pending.removeFirst()
+            let children = sessionOrder.filter { sessions[$0]?.parentID == parent }
+            result.append(contentsOf: children)
+            pending.append(contentsOf: children)
+        }
+        return result
+    }
+
+    private func stopOne(_ sessionID: DebugSessionID) {
         guard let managed = sessions.removeValue(forKey: sessionID) else { return }
         managed.session.stop()
         sessionOrder.removeAll { $0 == sessionID }
@@ -388,12 +460,20 @@ public final class DebugAdapterSessionManager: ObservableObject {
         activationToken: UUID
     ) {
         configureRunInTerminalHandler(session, sessionID: sessionID)
+        configureStartDebuggingHandler(session, sessionID: sessionID)
         guard let controlling = session as? any DebugAdapterControllingSession else { return }
         controlling.onStateChange = { [weak self] state in
             guard let self,
                   self.sessions[sessionID]?.activationToken == activationToken else { return }
             self.updateSessionState(sessionID, state: state)
             self.onSessionStateChange?(sessionID, providerID, state)
+            if state == .terminated || state == .failed {
+                // Core asks children to stop when their parent ends; the host owns the
+                // transports, so it closes them here.
+                for childID in self.childSessionIDs(of: sessionID).reversed() {
+                    self.stopOne(childID)
+                }
+            }
             guard self.activeSessionIDsByProvider[providerID] == sessionID else { return }
             self.states[providerID] = state
             self.onStateChange?(providerID, state)
@@ -438,14 +518,18 @@ public final class DebugAdapterSessionManager: ObservableObject {
             providerDisplayName: existing.descriptor.displayName,
             rootURL: existing.rootURL,
             state: state,
-            targetTitle: existing.targetTitle
+            targetTitle: existing.targetTitle,
+            parentID: existing.parentID
         )
     }
 
     private func promoteLatestSession(for providerID: String) {
-        guard let replacementID = sessionOrder.reversed().first(where: {
-            sessions[$0]?.descriptor.id == providerID
-        }), let replacement = sessions[replacementID] else {
+        // Child sessions never become the provider's selected session; they are only
+        // promoted when no root session of the provider is left.
+        let candidates = sessionOrder.reversed().filter { sessions[$0]?.descriptor.id == providerID }
+        guard let replacementID = candidates.first(where: { sessions[$0]?.parentID == nil })
+                ?? candidates.first,
+              let replacement = sessions[replacementID] else {
             activeSessionIDsByProvider[providerID] = nil
             roots[providerID] = nil
             activationTokens[providerID] = nil
@@ -470,7 +554,8 @@ public final class DebugAdapterSessionManager: ObservableObject {
             providerDisplayName: managed.descriptor.displayName,
             rootURL: managed.rootURL,
             state: managed.session.state,
-            targetTitle: managed.targetTitle
+            targetTitle: managed.targetTitle,
+            parentID: managed.parentID
         )
         if let index = sessionSummaries.firstIndex(where: { $0.id == sessionID }) {
             sessionSummaries[index] = summary
@@ -493,6 +578,116 @@ public final class DebugAdapterSessionManager: ObservableObject {
         updateSessionSummary(sessionID)
     }
 
+    private func register(
+        _ session: any DebugAdapterSession,
+        descriptor: DebugProviderDescriptor,
+        rootURL: URL,
+        parentID: DebugSessionID?,
+        adapterEndpoint: DebugAdapterEndpoint? = nil
+    ) -> (DebugSessionID, UUID) {
+        let sessionID = DebugSessionID()
+        let activationToken = UUID()
+        sessions[sessionID] = ManagedSession(
+            id: sessionID,
+            descriptor: descriptor,
+            rootURL: rootURL,
+            session: session,
+            activationToken: activationToken,
+            parentID: parentID,
+            adapterEndpoint: adapterEndpoint,
+            targetTitle: nil
+        )
+        sessionOrder.append(sessionID)
+        configureCallbacks(
+            session,
+            sessionID: sessionID,
+            providerID: descriptor.id,
+            activationToken: activationToken
+        )
+        return (sessionID, activationToken)
+    }
+
+    private func configureStartDebuggingHandler(
+        _ session: any DebugAdapterSession,
+        sessionID: DebugSessionID
+    ) {
+        guard let session = session as? any DebugAdapterStartDebuggingSession else { return }
+        // External adapters can require provider-specific child endpoints.
+        // Do not advertise a local-process fallback as support for those children.
+        if sessions[sessionID]?.adapterEndpoint != nil, makeChildSession == nil {
+            session.onStartDebuggingRequest = nil
+            return
+        }
+        session.onStartDebuggingRequest = { [weak self] request, completion in
+            guard let self else {
+                completion(.failure(DebugAdapterProtocolError.stopped))
+                return
+            }
+            completion(self.openChildSession(of: sessionID, request: request))
+        }
+    }
+
+    /// Opens the session an adapter asked for. The child joins the parent's Core
+    /// session tree and never replaces the provider's selected session; the UI decides
+    /// when to bring it forward.
+    private func openChildSession(
+        of parentID: DebugSessionID,
+        request: DebugStartDebuggingRequest
+    ) -> Result<Void, Error> {
+        guard let parent = sessions[parentID],
+              parent.session.state != .terminated, parent.session.state != .failed,
+              let session = (makeChildSession ?? { descriptor, _, root in self.makeSession(descriptor, root) })(
+                  parent.descriptor, request, parent.rootURL
+              ),
+              let controlling = session as? any DebugAdapterControllingSession,
+              let childLink = session as? any DebugAdapterChildSessionLinking,
+              let parentLink = parent.session as? any DebugAdapterChildSessionLinking else {
+            return .failure(DebugAdapterCapabilityError.unsupported("child debug sessions"))
+        }
+        childLink.parentCoreSessionID = parentLink.coreSessionID
+        let (childID, _) = register(
+            session, descriptor: parent.descriptor, rootURL: parent.rootURL, parentID: parentID
+        )
+        updateSessionSummary(childID)
+        do {
+            try session.start(rootURL: parent.rootURL)
+            replayBreakpoints(to: controlling, providerID: parent.descriptor.id)
+            try controlling.launch(DebugLaunchConfiguration(
+                name: request.configurationName ?? parent.targetTitle ?? "",
+                request: request.request,
+                arguments: request.configuration
+            ))
+        } catch {
+            stopOne(childID)
+            return .failure(error)
+        }
+        updateSessionTargetTitle(
+            childID,
+            title: request.configurationName ?? parent.targetTitle
+        )
+        return .success(())
+    }
+
+    /// Sends the provider's saved source, exception, function and data breakpoints to a
+    /// newly started session so it stops where the user already asked it to.
+    private func replayBreakpoints(
+        to controlling: any DebugAdapterControllingSession,
+        providerID: String
+    ) {
+        for (source, breakpoints) in requestedBreakpoints[providerID] ?? [:] {
+            controlling.setBreakpoints(breakpoints, in: source)
+        }
+        if let breakpoints = requestedExceptionBreakpoints[providerID] {
+            controlling.setExceptionBreakpoints(breakpoints)
+        }
+        if let breakpoints = requestedFunctionBreakpoints[providerID] {
+            controlling.setFunctionBreakpoints(breakpoints)
+        }
+        if let breakpoints = requestedDataBreakpoints[providerID] {
+            controlling.setDataBreakpoints(breakpoints)
+        }
+    }
+
     private func configureRunInTerminalHandler(
         _ session: any DebugAdapterSession,
         sessionID: DebugSessionID
@@ -509,5 +704,12 @@ public final class DebugAdapterSessionManager: ObservableObject {
                 onRunInTerminalRequest?(request, completion)
             }
         }
+    }
+}
+
+private extension DebugStartDebuggingRequest {
+    var configurationName: String? {
+        guard case .string(let name)? = configuration["name"], !name.isEmpty else { return nil }
+        return name
     }
 }

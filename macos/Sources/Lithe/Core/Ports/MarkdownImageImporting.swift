@@ -1,3 +1,4 @@
+import LitheModuleAPI
 import Foundation
 
 enum MarkdownImageFormat: String, CaseIterable, Sendable {
@@ -74,23 +75,23 @@ enum MarkdownImageImportError: LocalizedError, Equatable, Sendable {
     var errorDescription: String? {
         switch self {
         case .unavailableWorkspace:
-            "Open the Markdown file inside a workspace before pasting an image"
+            L10n.string("Open the Markdown file inside a workspace before pasting an image")
         case .readOnlyDocument:
-            "This Markdown document is read-only"
+            L10n.string("This Markdown document is read-only")
         case .notMarkdownDocument:
-            "Images can only be pasted into Markdown documents"
+            L10n.string("Images can only be pasted into Markdown documents")
         case .destinationOutsideWorkspace:
-            "The image destination is outside the current workspace"
+            L10n.string("The image destination is outside the current workspace")
         case .invalidAssetDirectory:
-            "The Markdown assets path is not a writable directory"
+            L10n.string("The Markdown assets path is not a writable directory")
         case .emptyImage:
-            "The clipboard image is empty"
+            L10n.string("The clipboard image is empty")
         case .imageTooLarge:
-            "The clipboard image is larger than 100 MB"
+            L10n.string("The clipboard image is larger than 100 MB")
         case .couldNotReadImage:
-            "The clipboard image could not be read"
+            L10n.string("The clipboard image could not be read")
         case .couldNotChooseFilename:
-            "A unique filename could not be created for the image"
+            L10n.string("A unique filename could not be created for the image")
         }
     }
 }
