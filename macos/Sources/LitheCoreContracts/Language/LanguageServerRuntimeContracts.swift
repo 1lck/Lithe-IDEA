@@ -502,6 +502,12 @@ package protocol LanguageServerRuntimeCore: Sendable {
         rootURL: URL,
         initializationOptions: ToolingJSONValue?,
         workspaceConfiguration: ToolingJSONValue?,
+        hostServices: [String],
+        hostIntegrationLaunch: LanguageServerHostIntegrationLaunch?,
+        cacheDirectoryURL: URL?,
+        workspaceFingerprint: String?,
+        mavenContext: MavenLaunchContext?,
+        javaGradle: JavaGradleImportConfiguration?,
         initializeTimeout: TimeInterval,
         requestTimeout: TimeInterval,
         shutdownTimeout: TimeInterval
@@ -712,13 +718,33 @@ package extension LanguageServerRuntimeCore {
         rootURL: URL,
         initializationOptions: ToolingJSONValue?,
         workspaceConfiguration _: ToolingJSONValue?,
+        hostServices: [String],
+        hostIntegrationLaunch: LanguageServerHostIntegrationLaunch?,
+        cacheDirectoryURL: URL?,
+        workspaceFingerprint: String?,
+        mavenContext: MavenLaunchContext?,
+        javaGradle: JavaGradleImportConfiguration?,
         initializeTimeout: TimeInterval,
         requestTimeout: TimeInterval,
         shutdownTimeout: TimeInterval
     ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
-        startPluginLanguageServer(
+        if let hostIntegrationLaunch, hostServices.isEmpty {
+            return startLanguageServer(
+                providerID: providerID, executableURL: executableURL, arguments: arguments,
+                environment: environment, rootURL: rootURL, workingDirectoryURL: rootURL,
+                initializationOptions: initializationOptions,
+                runtimeExecutableURL: hostIntegrationLaunch.runtimeExecutableURL,
+                jdtlsLaunchResources: hostIntegrationLaunch.coreLaunch?.jdtlsLaunchResources,
+                cacheDirectoryURL: cacheDirectoryURL, workspaceFingerprint: workspaceFingerprint,
+                mavenContext: mavenContext, javaGradle: javaGradle,
+                initializeTimeout: initializeTimeout, requestTimeout: requestTimeout,
+                shutdownTimeout: shutdownTimeout
+            )
+        }
+        return startPluginLanguageServer(
             pluginID: pluginID, providerID: providerID, executableURL: executableURL, arguments: arguments,
             environment: environment, rootURL: rootURL, initializationOptions: initializationOptions,
+            hostServices: hostServices,
             initializeTimeout: initializeTimeout, requestTimeout: requestTimeout, shutdownTimeout: shutdownTimeout
         )
     }
