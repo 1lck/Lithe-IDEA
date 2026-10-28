@@ -1,0 +1,51 @@
+{
+  "version": 2,
+  "request": {
+    "method": "lithe/build/execute",
+    "params": {
+      "buildSystemID": "gradle",
+      "root": ".",
+      "task": "build",
+      "options": {},
+      "optionArguments": [],
+      "environment": {},
+      "userArguments": []
+    }
+  },
+  "result": {
+    "exitCode": 0,
+    "output": "built\n"
+  },
+  "progress": {
+    "operationID": "42",
+    "message": "Building",
+    "percentage": 50,
+    "output": "compiling\n"
+  },
+  "invalidResults": [
+    {},
+    {
+      "exitCode": true,
+      "output": ""
+    },
+    {
+      "exitCode": 2147483648,
+      "output": ""
+    },
+    {
+      "exitCode": 0,
+      "output": false
+    }
+  ],
+  "invalidProgress": [
+    {},
+    {
+      "operationID": "42",
+      "percentage": 101
+    },
+    {
+      "operationID": "42",
+      "output": false
+    }
+  ]
+}
