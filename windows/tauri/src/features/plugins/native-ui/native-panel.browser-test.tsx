@@ -25,20 +25,39 @@ export async function testNativeActionGroupLayout(host: HTMLDivElement) {
     if (!condition) throw new Error(message);
   };
   // Each observable browser boundary has its own deadline, including font load.
-  const until = async (condition: () => boolean, message: string) => {
-    const deadline = performance.now() + 3000;
-    while (!condition()) {
-      if (performance.now() >= deadline) throw new Error(message);
-      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-    }
-  };
+  const until = (condition: () => boolean, message: string) =>
+    new Promise<void>((resolve, reject) => {
+      let frame = 0;
+      // test-stability: allow(typescript-real-timer) reason: Real browser frames can pause; this owned watchdog cancels the frame and bounds the DOM observation.
+      const timer = window.setTimeout(() => {
+        cancelAnimationFrame(frame);
+        reject(new Error(message));
+      }, 3000);
+      const observe = () => {
+        try {
+          if (condition()) {
+            clearTimeout(timer);
+            resolve();
+          } else {
+            frame = requestAnimationFrame(observe);
+          }
+        } catch (error) {
+          clearTimeout(timer);
+          reject(error);
+        }
+      };
+      observe();
+    });
   const root = createRoot(host);
-  const resizeErrors: string[] = [];
+  const windowErrors: string[] = [];
   const onError = (event: ErrorEvent) => {
-    if (event.message.includes("ResizeObserver")) resizeErrors.push(event.message);
+    windowErrors.push(event.message);
   };
   window.addEventListener("error", onError);
-  const snapshots: { name: string; boxes: ReturnType<DOMRect["toJSON"]>[] }[] = [];
+  const snapshots: { name: string; durationMs: number; boxes: ReturnType<DOMRect["toJSON"]>[] }[] =
+    [];
+  let primaryError: unknown;
+  let phaseStarted = started;
   host.style.height = "900px";
   host.style.width = "2400px";
   try {
@@ -81,7 +100,12 @@ export async function testNativeActionGroupLayout(host: HTMLDivElement) {
           Math.abs(box.x - all[0].x) < 1 && (index === 0 || box.y >= all[index - 1].bottom),
       );
     const snapshot = (name: string) => {
-      snapshots.push({ name, boxes: rows().map((box) => box.toJSON()) });
+      snapshots.push({
+        name,
+        durationMs: performance.now() - phaseStarted,
+        boxes: rows().map((box) => box.toJSON()),
+      });
+      phaseStarted = performance.now();
       check(
         buttons().every((button, index) => button === actions[index]),
         "action DOM replaced",
@@ -170,19 +194,32 @@ export async function testNativeActionGroupLayout(host: HTMLDivElement) {
         ),
       "submission did not preserve all field values",
     );
-    check(resizeErrors.length === 0, `resize feedback errors: ${resizeErrors.join("; ")}`);
+    check(windowErrors.length === 0, `window errors: ${windowErrors.join("; ")}`);
     return {
       snapshots,
       durationMs: performance.now() - started,
       calls,
       narrow,
       total,
-      resizeErrors,
+      windowErrors,
     };
+  } catch (error) {
+    primaryError = error;
+    throw error;
   } finally {
-    root.unmount();
-    window.removeEventListener("error", onError);
-    host.remove();
-    check(!document.querySelector('[role="dialog"]'), "InfoTip portal leaked");
+    try {
+      root.unmount();
+      check(!document.querySelector('[role="dialog"]'), "InfoTip portal leaked");
+    } catch (cleanupError) {
+      if (primaryError) {
+        throw new Error(
+          `${primaryError instanceof Error ? primaryError.stack : String(primaryError)}; cleanup failed: ${String(cleanupError)}`,
+        );
+      }
+      throw cleanupError;
+    } finally {
+      window.removeEventListener("error", onError);
+      host.remove();
+    }
   }
 }

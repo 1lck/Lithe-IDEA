@@ -769,6 +769,28 @@ ui:1 字面文本验收由 `text_window_acceptance.py` 为本次已绑定端口�
 plan、当前 checkout 和隔离宿主的提交标识必须一致；切换提交后重新生成输入，不得清理该输入目录后冒用旧 plan。
 `-SkipBuild` 同时检查目标架构、已冻结配置和可执行文件哈希，并保留该配置；配置或提交变化时重新构建隔离宿主。驱动先恢复原生 invoke 并有界等待已观测调用结束，再退出本次产品进程，最后比较资源快照；退出失败或调用未结束不能报告资源工作流通过。
 驱动在插件详情验证普通设置，再经已注册的语言设置页保存 reload；受控设置子集通过不会把缺少兼容签名包、关闭中的 Provider 能力、arm64 或人工视觉验收算作通过。
+原生动作组的受控浏览器回归使用目标工作树的前端依赖和 Python Playwright 1.60.0
+（与原生验收驱动共用 `psutil==7.2.2`），不由 runner 安装或下载工具。Windows CI 在已有
+Python 依赖步骤后独立运行以下命令；本地已有 Edge 时可复用相同入口：
+
+```powershell
+$playwrightModule = python -c "from pathlib import Path; import playwright; print(Path(playwright.__file__).parent / 'driver/package/index.mjs')"
+if ($LASTEXITCODE -ne 0) { throw 'Cannot resolve the configured Playwright driver' }
+node scripts/test-windows-native-plugin-ui-browser.mjs --browser msedge --playwright-module $playwrightModule --timeout-ms 120000 --report .artifacts/test-stability/native-panel-browser.json
+```
+
+该入口加载生产样式和真实 React 组件，使用官方 Tauri mocks，只验证动作组的六阶段几何、
+状态、焦点、禁用提示与单次完整值提交。成功或失败都生成 JSON、HTML 和 JUnit，
+不代表产品 WebView2、物理键盘、IME 或 `ui:3` 准入。
+每次调用独占 `.artifacts/native-browser-*/` 下的 `profile/`、Vite `cache/`、
+`worker-evidence.json`、`job-result.json` 和 `worker.log`；进程先受 Windows Job Object
+约束再执行，整体时限包含清理预留。只有进程树终止得到证明后才能删除 scratch，
+无证明则失败并保留隔离目录。报告由本地审查或 CI retention 回收。
+这些路径及显式报告没有版本、平台、架构或工具链构建 stamp，
+`excludedResources.native-browser-regression-state` 通过复用脚本的排除路由在任何复制阶段拒绝，
+在目标工作树重新生成，不能共享浏览器 profile、优化缓存或进程所有权。
+所有写入都在本次工作树的忽略目录，不写安装包、发行资源或签名和 Sparkle delta 基线。
+
 Windows 项目生成器的 `<workspace-parent>/.<project-name>.lithe-creating-<token>/` 暂存及最终用户项目
 走 `plugin-generator-transactions` 排除路由：由当前窗口和原生操作独占，先在用户选择的目标旁生成，
 验证后原子不覆盖发布；取消或失败清理同一 staging，清理失败保留操作与 NativeLease 供重试。

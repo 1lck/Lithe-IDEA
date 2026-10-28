@@ -299,6 +299,36 @@ try {
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /official-plugin-packages.*cannot be reused/);
   });
+  await test("controlled browser profiles, caches and ownership evidence cannot be reused", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "native-browser-regression-state");
+    assert.equal(resource.reusable, false);
+    for (const location of [
+      ".artifacts/native-browser-*/profile/", ".artifacts/native-browser-*/cache/",
+      ".artifacts/native-browser-*/worker-evidence.json", ".artifacts/native-browser-*/job-result.json",
+      ".artifacts/native-browser-*/worker.log",
+      ".artifacts/test-stability/native-panel-browser.{json,html,junit.xml}",
+    ]) assert.ok(resource.locations.includes(location));
+    for (const fixture of [
+      ".artifacts/native-browser-first/profile/Preferences",
+      ".artifacts/native-browser-first/cache/deps/_metadata.json",
+      ".artifacts/native-browser-first/worker-evidence.json",
+      ".artifacts/native-browser-first/job-result.json",
+      ".artifacts/native-browser-first/worker.log",
+      ".artifacts/test-stability/native-panel-browser.json",
+      ".artifacts/test-stability/native-panel-browser.html",
+      ".artifacts/test-stability/native-panel-browser.junit.xml",
+    ]) {
+      const source = path.join(sourceRoot, fixture);
+      await fs.mkdir(path.dirname(source), { recursive: true });
+      await fs.writeFile(source, "run-owned browser bytes");
+      const refused = reuse(["--resource", resource.id]);
+      assert.notEqual(refused.status, 0);
+      assert.match(diagnostics(refused), /native-browser-regression-state.*cannot be reused/);
+      assert.equal(await fs.readFile(source, "utf8"), "run-owned browser bytes");
+      await assert.rejects(fs.access(path.join(targetRoot, fixture)));
+    }
+  });
   await test("explicit SVN diagnostic state remains excluded from worktree reuse", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const resource = registry.excludedResources.find(item => item.id === "plugin-host-acceptance-state");

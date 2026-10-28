@@ -34,6 +34,22 @@
   ],
   "excludedResources": [
     {
+      "id": "native-browser-regression-state",
+      "reusable": false,
+      "locations": [
+        ".artifacts/native-browser-*/",
+        ".artifacts/native-browser-*/profile/",
+        ".artifacts/native-browser-*/cache/",
+        ".artifacts/native-browser-*/worker-evidence.json",
+        ".artifacts/native-browser-*/job-result.json",
+        ".artifacts/native-browser-*/worker.log",
+        ".artifacts/test-stability/native-panel-browser.{json,html,junit.xml}",
+        "<explicit-native-browser-report>.{json,html,junit.xml}"
+      ],
+      "identity": "One controlled Windows browser regression invocation owns its scratch profile, Vite optimizer cache, worker evidence, Job Object result, log and JSON/HTML/JUnit report. Source, browser and viewport observations describe that run, not a reusable version/platform/architecture/toolchain build identity stamp.",
+      "reason": "Never copy these resources at any worktree stage. The runner owns bounded browser/driver/server process cleanup and removes scratch only after termination is proven; unresolved ownership remains isolated and fails the run. Reports remain with the invocation until local or CI retention removes them. Regenerate in the target worktree using its sources and configured dependencies. No state enters installed plugins, app resources, code signatures or Sparkle delta baselines."
+    },
+    {
       "id": "vcs-root-mappings",
       "reusable": false,
       "locations": [

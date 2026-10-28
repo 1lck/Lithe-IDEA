@@ -94,6 +94,8 @@ async function readRegistry() {
   // private-target CDP traces and descriptor/callback snapshots; ui:1 text-window
   // ZIPs, host-page DOM/CSP/request traces and loopback-counter evidence are also run-owned; deterministic test ZIPs do not
   // establish a build identity or transfer native install approval.
+  // Controlled browser scratch, ownership state and timing evidence use
+  // native-browser-regression-state's refusal route; no build stamp or validator applies.
   const excludedResources = registry.excludedResources ?? [];
   if (!Array.isArray(excludedResources)) throw new Error("Invalid excluded worktree resources");
   for (const resource of excludedResources) {
@@ -392,6 +394,8 @@ async function main() {
       // and AutoBuild staging (including per-tag baselines and local/downloaded publication checkpoints), per-launch
       // Codex relays and isolated plugin packages take this rejection route, never a content-hash validator.
       // Identical bytes do not establish transferable execution ownership.
+      // Includes native-browser-regression-state: browser profiles, optimizer caches,
+      // worker/Job evidence and reports stay with their run; never enter a copy stage.
       // Includes plugin-host-acceptance-state: fixed-source SVN diagnostic runtime,
       // repo/WC/profiles and explicit evidence output stay run-owned, never reusable.
       // Includes application-log-state: logs, confirmation snapshots and export ZIP

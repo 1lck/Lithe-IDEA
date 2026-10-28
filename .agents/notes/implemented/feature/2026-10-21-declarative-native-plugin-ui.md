@@ -176,10 +176,11 @@ Windows 搜索统一使用公共 `SearchField`。非空时的本地化清空按�
 
 Windows 虚拟树的键盘焦点属于 viewport（只挂载可见行的滚动容器），因此 Shift+F10/ContextMenu 由容器为当前选择打开公共 Base UI 菜单，并先滚动挂载目标行。菜单复用公共定位器的 anchor，不合成右键事件；菜单自己的按键不再触发树导航，输入法组合和重复按键不重复执行动作。行离开虚拟窗口后关闭菜单。Escape 可以返回树焦点；外点击或动作已把焦点交给新输入/对话框时，必须尊重新焦点所有者，不能无条件把焦点抢回树。该路径只有组件和 typed 函数端口回归，不能据此开放 ui:3 或宣称真实键盘、WebView2/IME 和视觉通过。
 
-Windows 原生表单动作组按完整组宽度选择横排或纵排：测量现有公共 Button/InfoTip 行的自然宽度和既有间距，空间不足时整组纵排，不能用 flex-wrap 留下多列折行。只切换同一个容器的方向，保留 DOM、输入草稿、焦点和单次完整 values 提交；首次同步测量，后续 ResizeObserver 通知合并到一个动画帧，卸载取消待执行帧，避免观察回调改高度产生反馈错误；字段栅格与旧 width/span 兼容语义不变。组件与真实 Edge 几何回归证明宽窄切换，不代表真实 MainLayout/WebView2、物理键盘、IME 或完整包验收。浏览器测试函数尚缺仓库内可复用执行入口，当前一次性 runner 不能称为 CI 回归；ui:3 继续关闭。
+Windows 原生表单动作组按完整组宽度选择横排或纵排：测量现有公共 Button/InfoTip 行的自然宽度和既有间距，空间不足时整组纵排，不能用 flex-wrap 留下多列折行。只切换同一个容器的方向，保留 DOM、输入草稿、焦点和单次完整 values 提交；首次同步测量，后续 ResizeObserver 通知合并到一个动画帧，卸载取消待执行帧，避免观察回调改高度产生反馈错误；字段栅格与旧 width/span 兼容语义不变。组件与真实 Edge 几何回归证明宽窄切换，不代表真实 MainLayout/WebView2、物理键盘、IME 或完整包验收。仓库入口 `scripts/test-windows-native-plugin-ui-browser.mjs` 使用真实 Edge、生产样式和公共组件，Tauri 调用使用官方 mock；导航前捕获全部 window.error/pageerror。执行与清理共用总期限，工作进程先归属 Windows Job（关闭即终止全部成员的系统进程组）再释放，退出后核实零成员才删除 profile/cache；早退、超时或缺失清理证明均失败。JSON/HTML/JUnit 与独立 CI 步骤维护六阶段组件回归；它不启动产品，不等于 WebView2 或 ui:3 完整包验收，ui:3 继续关闭。
 
 ## 验证
 
+- Windows 受控浏览器：按 `docs/ci-builds.md` 中的 Playwright driver 解析命令运行 `scripts/test-windows-native-plugin-ui-browser.mjs`。R20 的 Edge 六阶段通过；页面错误、缺失模块、执行超时、worker 早退/挂起均非零退出并取得 Job 零成员证明。supervisor 早退时缺失证明，报告失败并保留隔离 scratch，不把故障注入算作产品验收。
 - `./scripts/verify-shared-contracts.sh`
 - `cargo test --manifest-path rust/lithe-core/Cargo.toml --lib native_ui_validates_version_ownership_actions_and_budgets`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'PluginNativeUI|PluginWeb|WorkbenchContributionHostTests'`

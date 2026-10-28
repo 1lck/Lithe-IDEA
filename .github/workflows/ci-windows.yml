@@ -416,6 +416,15 @@ jobs:
           node scripts/test-plugin-vcs-move-diagnostic.mjs --report .artifacts/test-stability/plugin-vcs-move-node.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Test native plugin action groups in Edge
+        shell: pwsh
+        timeout-minutes: 4
+        run: |
+          $playwrightModule = python -c "from pathlib import Path; import playwright; print(Path(playwright.__file__).parent / 'driver/package/index.mjs')"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/test-windows-native-plugin-ui-browser.mjs --browser msedge --playwright-module $playwrightModule --timeout-ms 120000 --report .artifacts/test-stability/native-panel-browser.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Test Agent panel and capability gate
         shell: pwsh
         run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-agent.json -- src/features/agent src/features/editor/stores/buffer-agent-conversation.test.ts src/utils/markdown-links.test.ts src/config/backend-capabilities.test.ts src/i18n src/features/file-system/utils/file-system-drop-controller.test.ts
