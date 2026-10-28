@@ -42,8 +42,22 @@ Lithe 对外开放项目环境、Maven、运行配置和执行输出，复用界
   普通应用的主输出面板与服务标签均持有执行 ID；Windows 取消 Java 启动确认时
   同步清除准备中状态，关闭项目时先撤销 API，再清理已有运行资源。
 
-正确示例：MCP 的 Maven execute 调用现有 Maven 功能的 runGoals/runCustomGoal，
-沿用项目的工具链与 Profile；不要在辅助程序里自行执行 `mvn` 并读取另一套配置。
+macOS 的 Agent 构建已改为公共 Build 入口：先查询插件检测的实例、声明和模型 ID，
+再用 `lithe_build_execute` 调用同一 `BuildSystemService` 与工作区 Provider。参数保留
+独立数组，选择器从当前模型再次核对；模型过期时不能执行旧项目/目标/模型任务。
+Maven 的目标语义、参数解释和执行由 Maven 插件负责，宿主不再保留该 Agent 路径的
+`runCustomGoal`、命令拼接、专属进程和任务状态机。配置、项目加载、依赖与 Java
+协作仍待阶段 D 的后续切片替换，本次删除不代表整个阶段完成。
+
+Build 输出槽持有最近一次操作的快照，任务结束后仍保留 ID、状态、退出码和输出。
+同控制台的模型/依赖日志不属于该任务，不进入 Agent 输出。新任务替换或同路径重开
+会撤销旧 ID；停止只取消仍匹配的运行身份。快照只在内存里，不新增文件或镜像配置。
+Windows 仍有旧 Maven 执行消费者，因此共享清单暂时保留其入口；Windows 对新的
+Provider 入口明确返回不可用，不伪装已支持，也不因此让 macOS 回退旧执行路径。
+
+正确示例：Agent 查询 `goal` 声明后把 `["clean", "verify"]` 作为参数数组交给 Maven
+Provider，UI 与 Agent 使用同一份 Build 生效配置。不要在辅助程序里自行执行 `mvn`，
+不要用旧操作 ID 停止一个已经替换的运行。
 
 连接信息存入平台应用数据目录，锁文件按项目排他持有。目录由平台 adapter
 决定，关闭连接时删除凭据文件，崩溃后的陈旧文件在重新授权时覆盖。辅助程序
@@ -87,6 +101,14 @@ Rust 命令可以直接替代当前窗口或工作区的状态所有权。
 - Worker 宿主测试验证未声明权限时不能发现或调用项目、显式工作区不被当前焦点
   替换以及应用层拒绝原样返回。Maven 的 API 保存等待真实写入结果；失败进程的
   输出读取不能被 Windows Git 兼容层误判为 IPC 失败。
+- 阶段 D 的 Agent 构建切片在 macOS 的固定 Swift 6.3.3 下通过 159 项/6 组回归；
+  新增的 Provider/Agent 成功与失败两个参数用例合计 108 毫秒。显式开发包经真实
+  Agent 调用、生产 macOS Provider 会话与 Maven 多模块工程完成模型加载和模块编译，
+  完成后查询输出并关闭后端、核对插件包文件清单，耗时 4.787 秒。开发包来自 Maven
+  插件 `a72ee3e8ee2d32412281c746ea7cc2d76a3cda6a` 与显式 SDK JAR，不冒充发行包。
+  本地逐测试报告为 `.artifacts/test-stability/stage-d-agent.{json,html,junit.xml}`、
+  `stage-d-agent-real-maven.{json,html,junit.xml}`；IDE broker 6 项和 Windows 前端逻辑
+  在 macOS 上的 Bun 9 项计时通过。后者不是 Windows 实机证据。
 - 双端原生打包运行的验证状态以功能矩阵为准。Linux 的协议与前端测试不能
   证明 macOS Swift 编译、Windows 安装与原生运行通过。
 

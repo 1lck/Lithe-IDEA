@@ -54,7 +54,7 @@ package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
     }
 
     package var isActive: Bool {
-        maven.isRunning || maven.isResolvingDependencies || maven.isReloading
+        maven.isResolvingDependencies || maven.isReloading
             || run.isRunning || run.hasRunningServices || tests.isRunning
             || buildSystems?.hasActiveWork == true
     }
@@ -67,16 +67,12 @@ package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
     }
 
     package func configureModuleLeases(acquire: @escaping @MainActor (String) -> ModuleLease) {
-        Publishers.CombineLatest3(maven.$taskState, maven.$dependencyStates, maven.$isReloading).map { state, dependencies, reloading in
-            let buildIsActive = switch state {
-            case .running, .stopping: true
-            case .idle, .cancelled, .failed: false
-            }
+        Publishers.CombineLatest(maven.$dependencyStates, maven.$isReloading).map { dependencies, reloading in
             let dependenciesAreActive = dependencies.values.contains {
                 if case .loading = $0 { return true }
                 return false
             }
-            return buildIsActive || dependenciesAreActive || reloading
+            return dependenciesAreActive || reloading
         }.removeDuplicates().sink { [weak self] active in
             guard let self else { return }
             if active, mavenLease == nil { mavenLease = acquire("Maven operation is running") }

@@ -9450,7 +9450,16 @@
     "native.loadProviderModelBeforeRun": "请先加载当前构建模型并启用对应提供方，再运行此配置。",
     "native.providerRunSaveConflict": "保存期间运行配置已更改。请重新加载后再试。",
     "native.savedProviderRunUnavailable": "已保存的提供方运行配置不可用。",
-    "native.providerDebugUnavailable": "构建插件的调试程序或适配器不可用。请重新构建，并检查插件是否已启用。"
+    "native.providerDebugUnavailable": "构建插件的调试程序或适配器不可用。请重新构建，并检查插件是否已启用。",
+    "ide.build.unavailable": "构建插件不可用",
+    "ide.build.chooseInstance": "请选择已检测到的构建实例",
+    "ide.build.busy": "已有构建操作正在运行",
+    "ide.build.chooseTask": "请选择插件声明的构建任务",
+    "ide.build.reloadSelection": "选择项目、目标或模型任务前，请重新加载构建模型",
+    "ide.build.selectionExpired": "所选构建项已不可用",
+    "ide.build.launchFailed": "构建未能启动",
+    "ide.build.restart": "请使用构建执行工具开始新的构建",
+    "ide.build.windowsUnavailable": "Windows 尚不支持 Build Provider 工作流"
   },
   "overrides": {
     "macos": {

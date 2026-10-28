@@ -44,6 +44,18 @@ package struct BuildRunEnd: Equatable, Sendable {
     }
 }
 
+/// The execution retained by the Build output slot, including after completion.
+/// Only this operation's output is exposed to callers; background model and
+/// dependency loads may share the UI console without changing its history.
+package struct BuildOperationSnapshot: Equatable, Sendable {
+    package let id: UUID
+    package let entryID: String
+    package let title: String
+    package var state: BuildRunState
+    package var exitCode: Int32?
+    package var output: String
+}
+
 /// One detected instance with what the host has loaded for it.
 package struct BuildSystemEntry: Equatable, Identifiable, Sendable {
     package let instance: BuildSystemInstance
@@ -111,6 +123,7 @@ package final class BuildSystemService: ObservableObject {
     @Published package private(set) var outputRoots: [URL] = []
     @Published package private(set) var diagnostics: [BuildDiagnostic] = []
     @Published package private(set) var testResults: BuildTestResults?
+    @Published package private(set) var operation: BuildOperationSnapshot?
     @Published private var testDiscoveries: [String: BuildTestDiscoveryState] = [:]
     private var discoverySnapshots: [String: DiscoverySnapshot] = [:]
     private struct DiscoverySnapshot: Equatable {
@@ -260,6 +273,7 @@ package final class BuildSystemService: ObservableObject {
         runState = .idle
         runningTitle = nil
         clearOutput()
+        operation = nil
         detect()
     }
 
@@ -797,8 +811,8 @@ package final class BuildSystemService: ObservableObject {
             guard isValid() else { throw CancellationError() }
             let progress: @MainActor @Sendable (BuildProviderProgress) -> Void = { [weak service] progress in
                 guard let service, isValid() else { return }
-                if let output = progress.output { service.appendOutput(output, in: service.outputDirectory(entry)) }
-                else if let message = progress.message { service.appendOutput(message + "\n", in: service.outputDirectory(entry)) }
+                if let output = progress.output { service.appendOutput(output, in: service.outputDirectory(entry), owner: .run(run)) }
+                else if let message = progress.message { service.appendOutput(message + "\n", in: service.outputDirectory(entry), owner: .run(run)) }
             }
             let providerTarget = Self.providerTarget(entry, workspaceURL: workspaceURL)
             let result: ToolingJSONValue
@@ -962,7 +976,7 @@ package final class BuildSystemService: ObservableObject {
                 } catch {
                     guard isValid() else { throw CancellationError() }
                     service.appendOutput(
-                        "\n" + error.localizedDescription + "\n", in: service.outputDirectory(entry)
+                        "\n" + error.localizedDescription + "\n", in: service.outputDirectory(entry), owner: .run(run)
                     )
                 }
             }
@@ -987,6 +1001,7 @@ package final class BuildSystemService: ObservableObject {
         if runState == .running {
             runState = .cancelled
         }
+        if let ended, operation?.id == ended.runID { operation?.state = .cancelled }
         if let ended { runEnded.send(ended) }
     }
 
@@ -1023,6 +1038,7 @@ package final class BuildSystemService: ObservableObject {
         outputRoots = []
         diagnostics = []
         testResults = nil
+        operation?.output = ""
     }
 
     private func startRun(
@@ -1038,6 +1054,8 @@ package final class BuildSystemService: ObservableObject {
         runEntryID = entryID
         runState = .running
         runningTitle = title
+        operation = BuildOperationSnapshot(id: id, entryID: entryID, title: title,
+                                           state: .running, exitCode: nil, output: "")
         runTask = Task { [weak self] in
             guard let self, self.isCurrent(run) else { return }
             let state: BuildRunState
@@ -1056,13 +1074,15 @@ package final class BuildSystemService: ObservableObject {
             } catch {
                 if self.runID == id {
                     self.appendOutput(
-                        error.localizedDescription + "\n", in: self.outputDirectory(entryID: entryID)
+                        error.localizedDescription + "\n", in: self.outputDirectory(entryID: entryID), owner: .run(run)
                     )
                 }
                 state = .failed(error.localizedDescription)
             }
             guard self.runID == id else { return }
             self.runState = state
+            self.operation?.state = state
+            self.operation?.exitCode = exitCode
             self.runTask = nil
             self.runID = nil
             self.runEntryID = nil
@@ -1581,11 +1601,11 @@ package final class BuildSystemService: ObservableObject {
             plan, entry: entry, workspaceURL: workspaceURL, capturesStandardOutput: false, timeout: nil
         )
         let directory = outputDirectory(entry)
-        if canAppend(owner) { appendOutput(Self.commandLine(request), in: directory) }
+        if canAppend(owner) { appendOutput(Self.commandLine(request), in: directory, owner: owner) }
         let collector = OutputCollector(limit: Self.decodedOutputLimit)
         let result = try await run(request, owner: owner) { [weak self] chunk in
             collector.append(chunk)
-            self?.appendOutput(chunk, in: directory)
+            self?.appendOutput(chunk, in: directory, owner: owner)
         }
         let exitCode: Int32? = switch result.termination {
         case .exited(let code): code
@@ -1640,17 +1660,17 @@ package final class BuildSystemService: ObservableObject {
             guard let self, isValid() else { return }
             if let text = progress.output {
                 streamed.append(text)
-                self.appendOutput(text, in: directory)
+                self.appendOutput(text, in: directory, owner: .run(run))
             } else if let message = progress.message {
-                self.appendOutput(message + "\n", in: directory)
+                self.appendOutput(message + "\n", in: directory, owner: .run(run))
             }
         }
         guard isValid() else { throw CancellationError() }
         if result.output.utf8.starts(with: streamed.text.utf8) {
-            appendOutput(String(decoding: result.output.utf8.dropFirst(streamed.text.utf8.count), as: UTF8.self), in: directory)
+            appendOutput(String(decoding: result.output.utf8.dropFirst(streamed.text.utf8.count), as: UTF8.self), in: directory, owner: .run(run))
         } else {
             // A malformed stream must not hide the final diagnostic output.
-            appendOutput(result.output, in: directory)
+            appendOutput(result.output, in: directory, owner: .run(run))
         }
         return CollectedOutput(text: result.output, exitCode: result.exitCode)
     }
@@ -1713,7 +1733,7 @@ package final class BuildSystemService: ObservableObject {
             if canAppend(owner) {
                 appendOutput(
                     "\n" + L10n.string("The provider looks up the build tool itself: \(error.localizedDescription)") + "\n",
-                    in: outputDirectory(entry)
+                    in: outputDirectory(entry), owner: owner
                 )
             }
             return nil
@@ -1821,8 +1841,15 @@ package final class BuildSystemService: ObservableObject {
         }
     }
 
-    private func appendOutput(_ chunk: String, in directory: URL?) {
+    private func appendOutput(_ chunk: String, in directory: URL?, owner: CommandOwner? = nil) {
         guard !chunk.isEmpty else { return }
+        if case .run(let run)? = owner, var snapshot = operation, snapshot.id == run.id, canAppend(.run(run)) {
+            snapshot.output += chunk
+            if snapshot.output.utf8.count > Self.visibleOutputLimit {
+                snapshot.output = String(snapshot.output.suffix(Self.visibleOutputLimit / 2))
+            }
+            operation = snapshot
+        }
         if let directory, !outputRoots.contains(directory) {
             outputRoots = (outputRoots + [directory]).sorted { $0.path < $1.path }
         }

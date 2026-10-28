@@ -114,7 +114,7 @@ private enum NativeProviderIntegrationError: Error { case unexpectedCommand }
 /// Explicit test-selected executable paths. All process/RPC execution is real;
 /// this port avoids reading or modifying the user's runtime preferences.
 @MainActor
-private final class ExplicitProviderRuntime: BuildToolResolving, LanguageToolRuntimePort {
+final class ExplicitProviderRuntime: BuildToolResolving, LanguageToolRuntimePort {
     let java: URL
     let environment: [String: String]
     init(java: URL, environment: [String: String]) {

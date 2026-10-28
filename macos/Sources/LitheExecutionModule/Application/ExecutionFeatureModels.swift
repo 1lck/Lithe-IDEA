@@ -19,14 +19,7 @@ package final class MavenFeatureModel: ObservableObject {
 
     package var project: MavenProject? { service.project }
     package var projectState: MavenProjectLoadState { service.projectState }
-    package var taskState: MavenTaskState { service.taskState }
-    package var outputOperationID: String? { service.outputOperationID }
     package var isLoadingProject: Bool { service.isLoadingProject }
-    package var isRunning: Bool { service.isRunning }
-    package var runningTitle: String? { service.runningTitle }
-    package var output: String { service.output }
-    package var issues: [MavenBuildIssue] { service.issues }
-    package var lastExitCode: Int32? { service.lastExitCode }
     package var availableProfiles: [MavenProfile] { service.availableProfiles }
     package var selectedProfiles: Set<String> { service.selectedProfiles }
     package var skipTests: Bool { service.skipTests }
@@ -116,14 +109,6 @@ package final class MavenFeatureModel: ObservableObject {
         await service.loadProject(at: workspaceURL, files: files)
     }
 
-    package func run(phase: MavenLifecyclePhase, module: MavenModule?) {
-        service.run(phase: phase, module: module)
-    }
-
-    package func runCustomGoal(_ value: String, module: MavenModule?) {
-        service.runCustomGoal(value, module: module)
-    }
-
     package func setSelectedProfiles(_ profiles: Set<String>) {
         service.setSelectedProfiles(profiles)
     }
@@ -180,11 +165,6 @@ package final class MavenFeatureModel: ObservableObject {
     package func stop() {
         service.stop()
     }
-
-    package func clearOutput() {
-        service.clearOutput()
-    }
-
 }
 
 /// UI-facing projection for language-neutral run configurations and process sessions.

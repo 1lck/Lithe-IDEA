@@ -1663,8 +1663,12 @@ struct BuildSystemServiceTests {
         defer { harness.service.stop() }
         harness.service.reset(workspaceURL: Self.workspace)
         try #require(await harness.waitForEntries { !$0.isEmpty })
-        try #require(harness.service.runTask(Self.instanceID, request: BuildTaskRequest(task: "build"), title: "Build") != nil)
+        let id = try #require(harness.service.runTask(Self.instanceID, request: BuildTaskRequest(task: "build"), title: "Build"))
         try #require(await harness.waitForRunState { $0 != .running })
+        #expect(harness.service.currentRunID == nil)
+        #expect(harness.service.operation?.id == id)
+        #expect(harness.service.operation?.exitCode == exitCode)
+        #expect(harness.service.operation?.output == "completed")
         #expect(providers.sent.map(\.request.method) == ["lithe/build/execute"])
         #expect(providers.sent.first?.target.workspaceURL == Self.workspace)
         #expect(runner.requests.isEmpty)

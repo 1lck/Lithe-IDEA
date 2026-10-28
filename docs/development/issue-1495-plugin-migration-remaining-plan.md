@@ -5,7 +5,7 @@
 ## 当前交付边界
 
 - 阶段 A 清单在 [PR #1513](https://github.com/1lck/Lithe-IDEA/pull/1513)，独立分发在 [PR #1483](https://github.com/1lck/Lithe-IDEA/pull/1483)，保持原范围，不重复认领。
-- 宿主/Core 的原生构建、测试发现/执行、运行/原生调试准备、保存的运行配置和只读模型共享在 [PR #1517](https://github.com/1lck/Lithe-IDEA/pull/1517)。配套实现为 [SDK PR #4](https://github.com/Lithe-IDEA/lithe-plugin-docs/pull/4) 和 [Maven Draft PR #7](https://github.com/Lithe-IDEA/lithe-plugin-maven/pull/7)。
+- 宿主/Core 的原生构建、测试发现/执行、运行/原生调试准备、保存的运行配置和只读模型共享在 [PR #1517](https://github.com/1lck/Lithe-IDEA/pull/1517)。配套实现为已合并的 [SDK PR #4](https://github.com/Lithe-IDEA/lithe-plugin-docs/pull/4) 和 [Maven Draft PR #7](https://github.com/Lithe-IDEA/lithe-plugin-maven/pull/7)。
 - Maven 插件已完成本地原生执行切片：生命周期、插件目标、自定义目标和测试由工作区后端执行；模型仍来自现有 Maven 扩展。它尚未替换宿主全部 Maven 消费者。
 - 这些是开发源码和本地验证；正式 SDK/插件发行、完整 macOS UI、Java/JDT 和 Windows 实机验收不能据此勾选完成。#1495 保持开放。
 
@@ -17,7 +17,7 @@
 
 1. 完成 #1517 的评审和本地/CI 验证，合入 preview；确认原生 Provider 与只读模型共享的最终契约。
 2. 在 `lithe-plugin-docs` 用合并后的 preview commit 运行 `node scripts/contract.mjs sync --revision <commit>`；不手改镜像或伪造锁定值。
-3. 合并 Node/Java SDK 实现，在锁定 Core 与当前 preview 上运行真实端到端场景；补 Node 20、Java 8 运行证据后，按其发布流程发布实际的新版本。
+3. Node/Java SDK 实现已于 2026-10-28 随 SDK #4 合并；在最终 Core 与 preview 上复验真实端到端场景，再按其发布流程发布实际的新版本。Node 20、Java 8 的既有源码 CI 证据见下表，不代替正式发行组合。
 4. Maven 插件将 `sdk.lock.json` 和构建依赖更新到实际发布的版本、URL、SHA-256；用正式 `package.mjs` 验证，开发构建覆盖不能进入发行流程。
 5. 验证最新宿主的安装、更新、能力拒绝提示和插件包只读。只有实际符合来源、签名和市场规则的工件才进入分发。
 
@@ -32,7 +32,7 @@
 | 配置快照与跨插件协作 | 协议 6 的只读模型输入公开选定事实，配置/源码/模型/插件/工作区变化撤销旧输入；两个真实 SDK 后端经过 Core 交换公开投影。不能据此声称 Java 已消费 Maven 全部配置。 |
 | 最低 SDK 运行时 | [显式宿主 CI](https://github.com/Lithe-IDEA/lithe-plugin-docs/actions/runs/40531099687) 的 Node 20、Java 8 原生端到端作业通过，宿主固定为 `58ca81cf66c5c6e281c7df73ac67adb3526174f3`。该整轮工作流的契约漂移检查仍失败，镜像等待主 PR 合并后同步。 |
 | Maven 最低运行时 | [固定 SDK 提交的开发验证](https://github.com/Lithe-IDEA/lithe-plugin-maven/actions/runs/40533306865) 已通过 Java 8 后端及当前/3.6.3 Maven，每组 55 项计时检查（含 3 项打包）；不能代替旧 SDK 锁定下仍失败的正式打包检查。 |
-| 正式合并、契约同步与发行 | 宿主和 SDK PR 在本地门禁通过后按用户要求转为 Ready；Maven PR 因正式 SDK 锁定依赖继续保持 Draft，三个 PR 尚未合并或发布。必须依次合并宿主、用最终 preview commit 同步契约、发布 SDK，再更新 Maven 的真实版本/URL/SHA-256 和完成正式包验收；不能先填预期校验值。 |
+| 正式合并、契约同步与发行 | 截至 2026-10-28，SDK #4 已合并；宿主 #1517 仍 OPEN/Ready，Maven #7 因正式 SDK 锁定依赖继续保持 Draft。必须在宿主合并后用实际 preview commit 同步契约、发布 SDK，再更新 Maven 的真实版本/URL/SHA-256 并完成正式包验收；不能先填预期校验值。 |
 
 阶段 C 不能仅凭接口存在或本地开发包通过就勾选完成。下面的任务二至四不阻塞通用接口继续评审，但不会代替上表中尚未完成的验收与发行条件。
 
@@ -50,6 +50,30 @@
 - 每条新路径成立后删除对应 `MavenService`、`MavenFeatureModel`、POM 专属加载、旧存储及 fallback。移除共享 Maven 命令前，同时迁移其当前 Windows 消费者；不能为了删除行数破坏另一平台。
 
 **退出条件：** 多模块工程从打开、配置读写、同步、构建，到 UI/Agent 触发相关操作使用一致配置；重开、失败、取消、配置 ABA 与工作区切换可验收；旧 macOS Maven 服务、配置副本和 fallback 已删除。共享命令的现有 Windows 调用也完成切换，迁移证据和删除清单可逐项对照。
+
+### 阶段 D 的实施记录（尚未完成）
+
+- 工作分支 `codex/issue-1495-maven-migration` 从 `upstream/preview@0beb43c936f61e68b983533805d6534a01fdf8b4` 建立，整合 #1517 的 `9f702e15deeeed2e9889d396fab50c706ee48c0a` 作为阶段 C 源码依赖；不修改 #1517。
+- 首个完整流程为 Agent 查询插件 Build 实例/任务 → Provider 执行 → 输出/退出查询 → 按 ID 停止。新入口复用 Build 服务；同步删除旧 Maven 任务执行 API、进程和状态机。配置与加载旧路径尚未删除，不能标记任务二或阶段 D 完成。
+- SDK #4 已于 2026-10-28 合并，后续发行状态按真实 GitHub 记录核对；上文“尚未合并”的 SDK 描述是旧记录，不能用它阻塞可独立实施的源码迁移。
+
+当前删除/迁移账本（只记录本分支新增证据，不复用阶段 C 的通过数）：
+
+| 流程 | 本分支状态 | 仍须处理 |
+| --- | --- | --- |
+| Agent 构建 → 输出/状态 → 停止 | 已实现并验证；`MavenService` 任务进程/API/状态机已删除；原生回归 159 项/6 组通过，真实 Agent + Maven 模块编译 4.787 秒通过 | Draft PR；不代替整阶段配置/加载/平台验收 |
+| Maven 配置和项目运行设置 | 未迁移 | `.lithe/maven/config.json`、旧本机 Maven 文件、运行偏好与 Build 选项的唯一持有方；一次性迁移保留失败源；原生 XML 草稿/冲突/读回 |
+| 项目加载、标签/搜索模块事实、运行配置 | 未迁移 | 用 Provider 模型替代 POM scanner，删除旧 MavenProject 注入；Java 入口继续复用 JDT |
+| 依赖树与依赖导航 | Build 树已有 Provider；旧 macOS 依赖路径仍待删除 | `MavenFeatureModel.resolvedDependencyArtifactPaths`、组合根 fallback、专属依赖进程/临时输出 adapter；保留 JDT 的真实类路径及虚拟文档 |
+| Java 导入、运行/测试/调试准备 | 未迁移 Maven 协作边界 | 删除 `launchContext` fallback，全部消费同一配置代次；Java/JDT 全领域迁移留在阶段 E |
+| 共享 Maven 命令 | 未删除 | Windows 当前仍直接使用 scanner/launch/dependency/report 命令；接替当前消费者后才能删 Core 命令/fixture |
+| 发行包和双平台验收 | 未完成 | 最新正式 SDK/插件组合、macOS 完整 UI、Windows 实机、安装目录字节不变与进程清理 |
+
+已核对 #818 和 #1493：安装工具/JDK 的项目选择仍是合法的 Lithe 覆盖；
+不能用“原生配置”名义改写系统环境或安装目录。原生 Maven XML 的读取与受保护编辑
+归插件后端，UI 必须分别表达原生来源值、最终生效值和 Lithe 项目覆盖；不能在打开
+页面时把发现的默认值写成覆盖。旧 UserDefaults、旧 Maven 本机文件的清理只能在
+目标实际写入并读回验证后进行。
 
 ## 任务三：完成 Java/JDT 领域后端及 Run/Test/Debug/框架迁移
 

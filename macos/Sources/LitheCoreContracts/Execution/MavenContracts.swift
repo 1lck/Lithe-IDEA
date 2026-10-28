@@ -288,14 +288,6 @@ package enum MavenProjectLoadState: Equatable, Sendable {
     case failed(String)
 }
 
-package enum MavenTaskState: Equatable, Sendable {
-    case idle
-    case running
-    case stopping
-    case cancelled
-    case failed(String)
-}
-
 package struct MavenPortableConfiguration: Codable, Equatable, Sendable {
     package static let currentVersion = 1
 

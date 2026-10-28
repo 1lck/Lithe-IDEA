@@ -1,3 +1,5 @@
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { createTranslator } from "@/i18n/locale";
 import { invoke } from "@/platform/tauri-core";
 import { useMavenStore, mavenLaunchContextForWorkspace } from "@/features/maven/stores/maven.store";
 import { reloadMavenWorkspaceProjects } from "@/features/maven/services/reload-maven-workspace";
@@ -299,6 +301,10 @@ export class IdeCapabilities {
           return fail("NOT_READY", "The Maven project changed during reload");
         return { outcome };
       }
+      case "lithe_build_inspect":
+      case "lithe_build_reload":
+      case "lithe_build_execute":
+        return fail("NOT_AVAILABLE", createTranslator(useSettingsStore.getState().settings.displayLanguage)("ide.build.windowsUnavailable"));
       case "lithe_maven_execute": {
         if (!this.maven.project) return fail("NOT_READY", "Load a Maven project first");
         if (["running", "stopping"].includes(this.maven.taskStatus))

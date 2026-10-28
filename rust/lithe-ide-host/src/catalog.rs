@@ -35,7 +35,10 @@ pub fn tools() -> Vec<Value> {
         ("lithe_maven_inspect", "Read Maven modules, available/selected profiles, skip-tests setting and reload state.", "read", schema(json!({}), &[])),
         ("lithe_maven_configure", "Save Maven profiles and skip-tests settings through the existing IDE workflow. Requires configure permission.", "configure", schema(json!({"profiles":{"type":"array","items":string(),"maxItems":64},"skipTests":{"type":"boolean"}}), &[])),
         ("lithe_maven_reload", "Reload the Maven project and synchronize the existing Java language service. May resolve dependencies and execute project tooling. Requires execute permission.", "execute", schema(json!({}), &[])),
-        ("lithe_maven_execute", "Execute Maven goals through the IDE, using saved profiles and toolchains. Returns operationID for output/status/stop. May execute project code and access the network. Requires execute permission.", "execute", schema(json!({"goals":{"type":"array","items":string(),"minItems":1,"maxItems":32},"modulePath":string()}), &["goals"])),
+        ("lithe_maven_execute", "Windows Maven execution (macOS uses lithe_build_execute). Execute Maven goals through the IDE, using saved profiles and toolchains. Returns operationID for output/status/stop. May execute project code and access the network. Requires execute permission.", "execute", schema(json!({"goals":{"type":"array","items":string(),"minItems":1,"maxItems":32},"modulePath":string()}), &["goals"])),
+        ("lithe_build_inspect", "List detected build plugin instances, current project/target/model task identities and declared tasks. No tooling is executed.", "read", schema(json!({}), &[])),
+        ("lithe_build_reload", "Ask a detected build plugin to load or reload its project model. May execute project tooling and access the network. Inspect the model state before selecting projects. Requires execute permission.", "execute", schema(json!({"instanceID":string()}), &["instanceID"])),
+        ("lithe_build_execute", "Execute a declared plugin build task through the same Build workflow as the IDE. Use identities from build inspect. Arguments are separate tokens interpreted by the plugin. Returns operationID for output/status/stop. May execute project code and access the network. Requires execute permission.", "execute", schema(json!({"instanceID":string(),"taskID":string(),"projectID":string(),"targetID":string(),"modelTaskID":string(),"userArguments":{"type":"array","items":string(),"maxItems":256}}), &["instanceID","taskID"])),
         ("lithe_run_list", "List saved runnable configurations and readiness. Environment variable values and launch arguments are not disclosed.", "read", schema(json!({}), &[])),
         ("lithe_run_start", "Start an existing IDE run configuration through the normal preparation/build workflow. Returns operationID; pending UI decisions remain in the IDE. Requires execute permission.", "execute", schema(json!({"configurationID":string()}), &["configurationID"])),
         ("lithe_run_restart", "Restart the exact named operation using its existing run configuration. An expired or replaced operation is rejected. Requires execute permission.", "execute", schema(json!({"operationID":string()}), &["operationID"])),
@@ -228,6 +231,28 @@ mod tests {
             &permissions
         )
         .is_ok());
+    }
+    #[test]
+    fn build_authorization_and_argument_validation_cannot_be_bypassed() {
+        assert!(validate(
+            "lithe_build_execute",
+            &json!({"instanceID":"maven@.","taskID":"verify"}),
+            &Permissions::default()
+        )
+        .is_err());
+        let permissions = Permissions {
+            execute: true,
+            configure: true,
+        };
+        for args in [
+            json!({"instanceID":"maven@."}),
+            json!({"instanceID":"maven@.","taskID":"verify","command":"mvn"}),
+            json!({"instanceID":"maven@.","taskID":"verify","userArguments":["bad\u{0000}argument"]}),
+            json!({"instanceID":"maven@.","taskID":"verify","confirmed":true}),
+        ] {
+            assert!(validate("lithe_build_execute", &args, &permissions).is_err());
+        }
+        assert!(validate("lithe_build_execute", &json!({"instanceID":"maven@.","taskID":"custom","projectID":"api","userArguments":["clean","verify"]}), &permissions).is_ok());
     }
     #[test]
     fn output_cursor_detects_clear_and_truncation_and_preserves_unicode() {

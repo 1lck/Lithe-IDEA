@@ -33,12 +33,6 @@ private struct MavenProjectInventory: Equatable {
 package final class MavenService: ObservableObject {
     @Published package private(set) var project: MavenProject?
     @Published package private(set) var projectState: MavenProjectLoadState = .idle
-    @Published package private(set) var taskState: MavenTaskState = .idle
-    @Published package private(set) var runningTitle: String?
-    @Published package private(set) var output = ""
-    package private(set) var outputOperationID: String?
-    @Published package private(set) var issues: [MavenBuildIssue] = []
-    @Published package private(set) var lastExitCode: Int32?
     @Published package private(set) var selectedProfiles: Set<String> = []
     @Published package private(set) var customProfiles: [String] = []
     @Published package private(set) var skipTests = false
@@ -66,13 +60,6 @@ package final class MavenService: ObservableObject {
     package var isLoadingProject: Bool {
         if case .loading = projectState { return true }
         return false
-    }
-
-    package var isRunning: Bool {
-        switch taskState {
-        case .running, .stopping: true
-        case .idle, .cancelled, .failed: false
-        }
     }
 
     package var isResolvingDependencies: Bool {
@@ -119,7 +106,6 @@ package final class MavenService: ObservableObject {
         return runtimeService.mavenExecutable(for: project, overridePath: nil)?.path
     }
 
-    private let process: any StreamingProcess
     private let dependencyProcess: any StreamingProcess
     private let mavenOperations: any MavenProjectOperations
     private let dependencyOutputs: (any MavenDependencyOutputStoring)?
@@ -131,8 +117,6 @@ package final class MavenService: ObservableObject {
     private var acceptedProjectInventory: MavenProjectInventory?
     private var projectLoadInventory: MavenProjectInventory?
     private var projectLoadTask: Task<Void, Never>?
-    private var launchPlanID = UUID()
-    private var activeOperationID: String?
     private var dependencyLoadID = UUID()
     private var activeDependencyOperationID: String?
     private var activeDependencyModulePath: String?
@@ -143,40 +127,20 @@ package final class MavenService: ObservableObject {
     private var configurationSaveTask: Task<String?, Never>?
     private var configurationFingerprint: String?
     private var fingerprintRevision = 0
-    private let maximumOutputCharacters = 500_000
     private let dependencyTimeoutMilliseconds = 60_000
 
     package init(
         runtimeService: any MavenRuntimePort,
-        process: any StreamingProcess,
         dependencyProcess: any StreamingProcess,
         mavenOperations: any MavenProjectOperations,
         configurationStore: (any MavenConfigurationStoring)? = nil,
         dependencyOutputs: (any MavenDependencyOutputStoring)? = nil
     ) {
         self.runtimeService = runtimeService
-        self.process = process
         self.dependencyProcess = dependencyProcess
         self.mavenOperations = mavenOperations
         self.dependencyOutputs = dependencyOutputs
         configurationWriter = MavenConfigurationWriter(store: configurationStore)
-        process.onOutput = { [weak self] chunk in
-            Task { @MainActor [weak self] in
-                guard self?.activeOperationID != nil else { return }
-                self?.append(chunk)
-            }
-        }
-        process.onTermination = { [weak self] exitCode in
-            Task { @MainActor [weak self] in
-                guard self?.activeOperationID != nil else { return }
-                self?.finishProcess(exitCode: exitCode)
-            }
-        }
-        process.onStateChange = { [weak self] event in
-            Task { @MainActor [weak self] in
-                self?.consumeLifecycle(event)
-            }
-        }
         // The dependency process writes its tree to a scratch file; its
         // console output is Maven's log, not dependency data.
         dependencyProcess.onOutput = { _ in }
@@ -326,15 +290,6 @@ package final class MavenService: ObservableObject {
         reactorPath = nil
         acceptedProjectInventory = nil
         projectState = .failed(errorMessage)
-    }
-
-    package func run(phase: MavenLifecyclePhase, module: MavenModule?) {
-        run(goals: [phase.rawValue], module: module, title: taskTitle(name: phase.title, module: module))
-    }
-
-    package func runCustomGoal(_ value: String, module: MavenModule?) {
-        let goals = value.split(whereSeparator: \.isWhitespace).map(String.init)
-        run(goals: goals, module: module, title: taskTitle(name: value, module: module))
     }
 
     package func setSelectedProfiles(_ profiles: Set<String>) {
@@ -563,21 +518,7 @@ package final class MavenService: ObservableObject {
 
     package func stop() {
         reloadTask?.cancel()
-        launchPlanID = UUID()
         cancelActiveDependency(markCancelled: true)
-        guard isRunning else { return }
-        taskState = .stopping
-        if activeOperationID != nil {
-            process.stop()
-        }
-        activeOperationID = nil
-        runningTitle = nil
-        lastExitCode = nil
-        taskState = .cancelled
-        if !output.isEmpty, !output.hasSuffix("\n") {
-            append("\n")
-        }
-        append("Maven task cancelled.\n")
     }
 
     package func reset() {
@@ -595,18 +536,11 @@ package final class MavenService: ObservableObject {
         stop()
         invalidateDependencies()
         projectLoadID = UUID()
-        launchPlanID = UUID()
         project = nil
         workspaceURL = nil
         reactorPath = nil
         acceptedProjectInventory = nil
         projectState = .idle
-        taskState = .idle
-        outputOperationID = nil
-        runningTitle = nil
-        output = ""
-        issues = []
-        lastExitCode = nil
         selectedProfiles = []
         customProfiles = []
         skipTests = false
@@ -619,104 +553,6 @@ package final class MavenService: ObservableObject {
         configurationSaveError = nil
         isReloadRequired = false
         dependencyStates = [:]
-    }
-
-    package func clearOutput() {
-        output = ""
-        issues = []
-        lastExitCode = nil
-        if taskState == .cancelled {
-            taskState = .idle
-        }
-    }
-
-    private func run(goals: [String], module: MavenModule?, title: String) {
-        guard let project, let workspaceURL, let reactorPath else { return }
-        stop()
-        resetOutput()
-        let planID = UUID()
-        outputOperationID = "maven:" + planID.uuidString
-        launchPlanID = planID
-        runningTitle = title
-        taskState = .running
-        let context = MavenLaunchContext(
-            reactorPath: reactorPath,
-            profiles: selectedProfiles.sorted(),
-            settingsPath: settingsPath,
-            localRepositoryPath: localRepositoryPath,
-            skipTests: skipTests,
-            mavenExecutablePath: mavenExecutablePath,
-            javaHomePath: javaHomePath
-        )
-        let operations = mavenOperations
-        Task { [weak self] in
-            let result = await Task.detached(priority: .userInitiated) {
-                do {
-                    return MavenPlanResult(
-                        plan: try operations.mavenLaunchPlan(
-                            at: workspaceURL,
-                            context: context,
-                            module: module?.relativePath,
-                            goals: goals
-                        ),
-                        errorMessage: nil
-                    )
-                } catch {
-                    return MavenPlanResult(
-                        plan: nil,
-                        errorMessage: error.localizedDescription
-                    )
-                }
-            }.value
-            guard let self, self.launchPlanID == planID else { return }
-            if let plan = result.plan {
-                self.startProcess(plan: plan, project: project, context: context, title: title)
-            } else {
-                self.failTask(message: result.errorMessage ?? "Unable to create the Maven launch plan.")
-            }
-        }
-    }
-
-    private func startProcess(
-        plan: MavenLaunchPlan,
-        project: MavenProject,
-        context: MavenLaunchContext,
-        title: String
-    ) {
-        guard let workspaceURL else { return }
-        guard let executable = runtimeService.mavenExecutable(
-            for: project,
-            overridePath: context.mavenExecutablePath
-        ) else {
-            failTask(message: "No Maven executable was found. Choose Maven Home or an executable in Maven Settings.")
-            return
-        }
-        runningTitle = title
-        taskState = .running
-        recordConfigurationFingerprint(plan.configurationFingerprint)
-        append(
-            "$ " + executable.lastPathComponent + " "
-                + redactedMavenArgumentsForDisplay(plan.arguments).joined(separator: " ") + "\n\n"
-        )
-
-        let operationID = UUID().uuidString
-        activeOperationID = operationID
-        let workingDirectory = plan.workingDirectory == "."
-            ? workspaceURL
-            : workspaceURL.appendingPathComponent(plan.workingDirectory, isDirectory: true)
-        do {
-            try process.start(ProcessRequest(
-                operationID: operationID,
-                executablePath: executable.path,
-                arguments: plan.arguments,
-                workingDirectory: workingDirectory.standardizedFileURL.path,
-                environment: runtimeService.mavenProcessEnvironment(javaHomePath: context.javaHomePath)
-            ))
-        } catch {
-            guard activeOperationID == operationID else { return }
-            activeOperationID = nil
-            failTask(message: "Unable to start Maven: " + error.localizedDescription)
-        }
     }
 
     private func startDependencyProcess(
@@ -883,55 +719,6 @@ package final class MavenService: ObservableObject {
         dependencyStates = [:]
     }
 
-    private func finishProcess(exitCode: Int32) {
-        guard let project else { return }
-        if taskState == .stopping {
-            activeOperationID = nil
-            runningTitle = nil
-            lastExitCode = nil
-            taskState = .cancelled
-            append("Maven task cancelled.\n")
-            return
-        }
-        taskState = exitCode == 0 ? .idle : .failed("Maven exited with code \(exitCode).")
-        runningTitle = nil
-        lastExitCode = exitCode
-        issues = mavenOperations.mavenDiagnostics(output: output, projectRoot: project.rootURL)
-        activeOperationID = nil
-    }
-
-    private func consumeLifecycle(_ event: ProcessLifecycleEvent) {
-        guard event.operationID == activeOperationID else { return }
-        switch event.state {
-        case .starting, .running:
-            taskState = .running
-        case .stopping:
-            taskState = .stopping
-        case .failed:
-            activeOperationID = nil
-            failTask(message: event.message ?? "Unable to run Maven.")
-        case .finished:
-            if let exitCode = event.exitCode {
-                finishProcess(exitCode: exitCode)
-            }
-        }
-    }
-
-    private func failTask(message: String) {
-        append(message + (message.hasSuffix("\n") ? "" : "\n"))
-        taskState = .failed(message)
-        runningTitle = nil
-        lastExitCode = 1
-        issues = [MavenBuildIssue(
-            id: "maven-error-" + UUID().uuidString,
-            fileURL: nil,
-            line: nil,
-            column: nil,
-            severity: .error,
-            message: message
-        )]
-    }
-
     private func applyStoredConfiguration(
         _ stored: MavenStoredConfiguration?,
         project: MavenProject?
@@ -1048,24 +835,6 @@ package final class MavenService: ObservableObject {
             }
             return errorMessage
         }
-    }
-
-    private func resetOutput() {
-        output = ""
-        issues = []
-        lastExitCode = nil
-    }
-
-    private func append(_ value: String) {
-        output.append(value.replacingOccurrences(of: "\r", with: ""))
-        if output.count > maximumOutputCharacters {
-            output.removeFirst(output.count - maximumOutputCharacters)
-        }
-    }
-
-    private func taskTitle(name: String, module: MavenModule?) -> String {
-        let target = module?.displayName ?? project?.displayName ?? "Project"
-        return name + " · " + target
     }
 
     private func isValidProfile(_ value: String) -> Bool {

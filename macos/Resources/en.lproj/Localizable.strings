@@ -148,6 +148,7 @@
 "A Java project with no build tool, Maven, or Gradle." = "A Java project with no build tool, Maven, or Gradle.";
 "A Spring Boot project from Spring Initializr." = "A Spring Boot project from Spring Initializr.";
 "A basic project with a free structure." = "A basic project with a free structure.";
+"A build operation is already active" = "A build operation is already active";
 "A custom Agent can follow either your Codex or your Claude configuration." = "A custom Agent can follow either your Codex or your Claude configuration.";
 "A detailed message with a clear subject and body" = "A detailed message with a clear subject and body";
 "A host name, an IP address, or a Host alias from ~/.ssh/config. Settings from that file, such as ProxyJump and IdentityFile, still apply." = "A host name, an IP address, or a Host alias from ~/.ssh/config. Settings from that file, such as ProxyJump and IdentityFile, still apply.";
@@ -472,7 +473,9 @@
 "Build System" = "Build System";
 "Build files changed." = "Build files changed.";
 "Build files changed. Reload the model to pick up the changes." = "Build files changed. Reload the model to pick up the changes.";
+"Build launch did not start" = "Build launch did not start";
 "Build output" = "Build output";
+"Build plugins are unavailable" = "Build plugins are unavailable";
 "Build provider" = "Build provider";
 "Build system" = "Build system";
 "Build, Execution, Deployment" = "Build, Execution, Deployment";
@@ -607,7 +610,9 @@
 "Choose a color theme and whether Lithe follows the system appearance." = "Choose a color theme and whether Lithe follows the system appearance.";
 "Choose a commit format" = "Choose a commit format";
 "Choose a database connection and then a table from the sidebar." = "Choose a database connection and then a table from the sidebar.";
+"Choose a declared build task" = "Choose a declared build task";
 "Choose a default web browser in System Settings, then retry." = "Choose a default web browser in System Settings, then retry.";
+"Choose a detected build instance" = "Choose a detected build instance";
 "Choose a directory inside the project" = "Choose a directory inside the project";
 "Choose a language-server executable." = "Choose a language-server executable.";
 "Choose a local or custom provider in the Agent panel settings." = "Choose a local or custom provider in Settings > AI > Agents.";
@@ -2923,6 +2928,7 @@
 "Reload Range" = "Reload Range";
 "Reload from disk" = "Reload from disk";
 "Reload the Core preview and reset the step plan" = "Reload the Core preview and reset the step plan";
+"Reload the build model before selecting a project, target or model task" = "Reload the build model before selecting a project, target or model task";
 "Reload the project model" = "Reload the project model";
 "Reload this Agent before synchronizing instructions." = "Reload this Agent before synchronizing instructions.";
 "Reload tool settings" = "Reload tool settings";
@@ -3766,6 +3772,7 @@
 "The build provider returned an invalid launch plan." = "The build provider returned an invalid launch plan.";
 "The build provider stopped before it was ready." = "The build provider stopped before it was ready.";
 "The build provider's debug program or adapter is unavailable. Build it again and check that the plugin is enabled." = "The build provider's debug program or adapter is unavailable. Build it again and check that the plugin is enabled.";
+"The build selection is no longer available" = "The build selection is no longer available";
 "The build tool exited with code %lld." = "The build tool exited with code %lld.";
 "The build tool output is too large or not UTF-8." = "The build tool output is too large or not UTF-8.";
 "The build tool timed out." = "The build tool timed out.";
@@ -4245,6 +4252,7 @@
 "Use AI worktree directory (/private/tmp)" = "Use AI worktree directory (/private/tmp)";
 "Use AutoBuild" = "Use AutoBuild";
 "Use AutoBuild Rolling?" = "Use AutoBuild Rolling?";
+"Use Build execute to start another build" = "Use Build execute to start another build";
 "Use Default Messages" = "Use Default Messages";
 "Use Git configuration" = "Use Git configuration";
 "Use Git from PATH" = "Use Git from PATH";
@@ -4527,6 +4535,14 @@
 "generated main" = "generated main";
 "generated test" = "generated test";
 "https://github.com/owner/repository" = "https://github.com/owner/repository";
+"ide.build.busy" = "A build operation is already active";
+"ide.build.chooseInstance" = "Choose a detected build instance";
+"ide.build.chooseTask" = "Choose a declared build task";
+"ide.build.launchFailed" = "Build launch did not start";
+"ide.build.reloadSelection" = "Reload the build model before selecting a project, target or model task";
+"ide.build.restart" = "Use Build execute to start another build";
+"ide.build.selectionExpired" = "The build selection is no longer available";
+"ide.build.unavailable" = "Build plugins are unavailable";
 "just now" = "just now";
 "local commit(s)" = "local commit(s)";
 "macOS could not prepare the update disk image. Download the release manually and try again." = "macOS could not prepare the update disk image. Download the release manually and try again.";

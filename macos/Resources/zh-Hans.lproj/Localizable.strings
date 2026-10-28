@@ -148,6 +148,7 @@
 "A Java project with no build tool, Maven, or Gradle." = "不使用构建工具，或使用 Maven、Gradle 的 Java 项目。";
 "A Spring Boot project from Spring Initializr." = "由 Spring Initializr 生成的 Spring Boot 项目。";
 "A basic project with a free structure." = "具有自由结构的基本项目。";
+"A build operation is already active" = "已有构建操作正在运行";
 "A custom Agent can follow either your Codex or your Claude configuration." = "自定义 Agent 可以跟随你本机的 Codex 或 Claude 配置。";
 "A detailed message with a clear subject and body" = "带有清晰标题和正文的详细说明";
 "A host name, an IP address, or a Host alias from ~/.ssh/config. Settings from that file, such as ProxyJump and IdentityFile, still apply." = "主机名、IP 地址，或 ~/.ssh/config 中的 Host 别名。该文件里的 ProxyJump、IdentityFile 等设置仍然生效。";
@@ -472,7 +473,9 @@
 "Build System" = "构建系统";
 "Build files changed." = "构建文件已更改。";
 "Build files changed. Reload the model to pick up the changes." = "构建文件已更改，请重新加载模型以应用更改。";
+"Build launch did not start" = "构建未能启动";
 "Build output" = "构建输出";
+"Build plugins are unavailable" = "构建插件不可用";
 "Build provider" = "构建 Provider";
 "Build system" = "构建系统";
 "Build, Execution, Deployment" = "构建、执行、部署";
@@ -607,7 +610,9 @@
 "Choose a color theme and whether Lithe follows the system appearance." = "选择配色主题，并设置是否跟随系统外观。";
 "Choose a commit format" = "选择提交格式";
 "Choose a database connection and then a table from the sidebar." = "请先选择数据库连接，再从侧边栏选择一个表。";
+"Choose a declared build task" = "请选择插件声明的构建任务";
 "Choose a default web browser in System Settings, then retry." = "请在系统设置中选择默认网页浏览器，然后重试。";
+"Choose a detected build instance" = "请选择已检测到的构建实例";
 "Choose a directory inside the project" = "请选择项目内的目录";
 "Choose a language-server executable." = "请选择语言服务器可执行文件。";
 "Choose a local or custom provider in the Agent panel settings." = "请在设置窗口的 Agent 页面中选择本机配置或自定义供应商。";
@@ -2923,6 +2928,7 @@
 "Reload Range" = "重新加载范围";
 "Reload from disk" = "从磁盘重新加载";
 "Reload the Core preview and reset the step plan" = "重新加载预览并重置操作计划";
+"Reload the build model before selecting a project, target or model task" = "选择项目、目标或模型任务前，请重新加载构建模型";
 "Reload the project model" = "重新加载项目模型";
 "Reload this Agent before synchronizing instructions." = "请重新加载此 Agent 的指令后再同步。";
 "Reload tool settings" = "重新加载工具设置";
@@ -3766,6 +3772,7 @@
 "The build provider returned an invalid launch plan." = "构建提供方返回了无效的启动计划。";
 "The build provider stopped before it was ready." = "构建 Provider 在就绪前已停止。";
 "The build provider's debug program or adapter is unavailable. Build it again and check that the plugin is enabled." = "构建插件的调试程序或适配器不可用。请重新构建，并检查插件是否已启用。";
+"The build selection is no longer available" = "所选构建项已不可用";
 "The build tool exited with code %lld." = "构建工具已退出，退出码 %lld。";
 "The build tool output is too large or not UTF-8." = "构建工具的输出过大或不是 UTF-8 编码。";
 "The build tool timed out." = "构建工具超时。";
@@ -4245,6 +4252,7 @@
 "Use AI worktree directory (/private/tmp)" = "使用 AI 工作树目录（/private/tmp）";
 "Use AutoBuild" = "使用 AutoBuild";
 "Use AutoBuild Rolling?" = "使用 AutoBuild 滚动版？";
+"Use Build execute to start another build" = "请使用构建执行工具开始新的构建";
 "Use Default Messages" = "使用默认消息";
 "Use Git configuration" = "使用 Git 配置";
 "Use Git from PATH" = "使用 PATH 中的 Git";
@@ -4527,6 +4535,14 @@
 "generated main" = "生成的主代码";
 "generated test" = "生成的测试代码";
 "https://github.com/owner/repository" = "https://github.com/owner/repository";
+"ide.build.busy" = "已有构建操作正在运行";
+"ide.build.chooseInstance" = "请选择已检测到的构建实例";
+"ide.build.chooseTask" = "请选择插件声明的构建任务";
+"ide.build.launchFailed" = "构建未能启动";
+"ide.build.reloadSelection" = "选择项目、目标或模型任务前，请重新加载构建模型";
+"ide.build.restart" = "请使用构建执行工具开始新的构建";
+"ide.build.selectionExpired" = "所选构建项已不可用";
+"ide.build.unavailable" = "构建插件不可用";
 "just now" = "刚刚";
 "local commit(s)" = "个本地提交";
 "macOS could not prepare the update disk image. Download the release manually and try again." = "macOS 无法准备更新磁盘映像，请手动下载版本后重试。";

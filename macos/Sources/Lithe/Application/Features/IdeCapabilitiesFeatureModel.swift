@@ -2,6 +2,7 @@ import Combine
 import Foundation
 import LitheCoreContracts
 import LitheExecutionModule
+import LitheModuleAPI
 
 /// Workspace-bound application entry points shared by MCP and host API consumers.
 @MainActor
@@ -142,7 +143,7 @@ final class IdeCapabilitiesFeatureModel: ObservableObject {
         try check(model, identity, grant: grant)
         let run = execution.runFeature
         let maven = execution.mavenFeature
-        if ["lithe_maven_inspect", "lithe_run_list", "lithe_maven_execute"].contains(name), !run.projectLoadState.hasLoadedDocuments(for: identity.url) {
+        if ["lithe_maven_inspect", "lithe_run_list"].contains(name), !run.projectLoadState.hasLoadedDocuments(for: identity.url) {
             _ = await model.ensureRunProjectReady(run, for: identity)
             try check(model, identity, grant: grant)
         }
@@ -194,29 +195,62 @@ final class IdeCapabilitiesFeatureModel: ObservableObject {
             try check(model, identity, grant: grant)
             if let error = maven.reloadError { throw failure(error) }
             return ["outcome": maven.project == nil ? "noProject" : "completed"]
-        case "lithe_maven_execute":
-            guard let project = maven.project else { return failed("NOT_READY", "Load a Maven project first") }
-            guard !maven.isRunning, !maven.isReloading else { return failed("BUSY", "A Maven operation is already active") }
-            let path = args["modulePath"] as? String ?? "."
-            let module = findModule(path, in: project.modules)
-            guard path == "." || module != nil else { return failed("NOT_FOUND", "Unknown Maven module") }
-            let goals = args["goals"] as? [String] ?? []
-            maven.runCustomGoal(goals.joined(separator: " "), module: module)
-            guard let operationID = maven.outputOperationID else { return failed("LAUNCH_FAILED", "Maven launch did not start") }
-            return ["operationID": operationID, "state": mavenState(maven)]
+        case "lithe_build_inspect":
+            guard let build = execution.buildSystems else { return failed("NOT_AVAILABLE", L10n.string("Build plugins are unavailable")) }
+            return ["detecting": build.isDetecting, "issues": build.issues,
+                    "instances": build.entries.map(buildEntryJSON)]
+        case "lithe_build_reload":
+            guard let build = execution.buildSystems, let entry = build.entry(args["instanceID"] as? String ?? "") else {
+                return failed("NOT_FOUND", L10n.string("Choose a detected build instance"))
+            }
+            build.loadModel(entry.id, reason: .refresh)
+            return ["instanceID": entry.id, "reloadRequested": true]
+        case "lithe_build_execute":
+            guard let build = execution.buildSystems, let entry = build.entry(args["instanceID"] as? String ?? "") else {
+                return failed("NOT_FOUND", L10n.string("Choose a detected build instance"))
+            }
+            guard !build.isRunning else { return failed("BUSY", L10n.string("A build operation is already active")) }
+            let taskID = args["taskID"] as? String ?? ""
+            guard let declaration = entry.declaration.tasks.first(where: { $0.id == taskID }) else {
+                return failed("NOT_FOUND", L10n.string("Choose a declared build task"))
+            }
+            let projectID = args["projectID"] as? String
+            let targetID = args["targetID"] as? String
+            let modelTaskID = args["modelTaskID"] as? String
+            if projectID != nil || targetID != nil || modelTaskID != nil {
+                guard entry.modelState == .loaded, !entry.isReloadRequired else {
+                    return failed("NOT_READY", L10n.string("Reload the build model before selecting a project, target or model task"))
+                }
+            }
+            let project = entry.model?.projects.first { $0.id == projectID }
+            let target = entry.model?.targets.first { $0.id == targetID && $0.projectID == projectID }
+            let task = entry.model?.tasks.first { $0.id == modelTaskID && $0.projectID == projectID && $0.template == taskID }
+            guard (projectID == nil || project != nil), (targetID == nil || target != nil),
+                  declaration.fromModel == (modelTaskID != nil), (modelTaskID == nil || task != nil) else {
+                return failed("NOT_FOUND", L10n.string("The build selection is no longer available"))
+            }
+            let request = BuildTaskRequest(task: taskID, project: project.map(BuildSelection.init(project:)),
+                target: target.map(BuildSelection.init(target:)), modelTask: task.map(BuildSelection.init(task:)),
+                userArguments: args["userArguments"] as? [String] ?? [])
+            guard let id = build.runTask(entry.id, request: request, title: task?.displayName ?? declaration.displayName) else {
+                return failed("LAUNCH_FAILED", L10n.string("Build launch did not start"))
+            }
+            return ["operationID": "build:" + id.uuidString, "state": "running"]
         case "lithe_run_list":
             return ["configurations": run.configurations.filter { $0.kind != .currentFile }.map { ["id": $0.id, "name": $0.name, "provider": $0.kind.providerID] }, "status": runStatus(run.configurationStatus)]
         case "lithe_run_start":
             return try await start(args["configurationID"] as? String ?? "", model: model, identity: identity, run: run, grant: grant)
         case "lithe_operations_list":
-            return ["operations": operations(run: run, maven: maven).map { $0.filter { $0.key != "output" && $0.key != "sessionID" } }]
+            return ["operations": operations(run: run, build: execution.buildSystems).map { $0.filter { $0.key != "output" && $0.key != "sessionID" } }]
         case "lithe_operation_output", "lithe_operation_stop", "lithe_run_restart":
             let id = args["operationID"] as? String ?? ""
-            guard let operation = operations(run: run, maven: maven).first(where: { $0["operationID"] as? String == id }) else { return failed("OPERATION_EXPIRED", "This execution was replaced or removed from IDE history") }
+            guard let operation = operations(run: run, build: execution.buildSystems).first(where: { $0["operationID"] as? String == id }) else { return failed("OPERATION_EXPIRED", "This execution was replaced or removed from IDE history") }
             if name == "lithe_operation_output" { return operation }
-            if id.hasPrefix("maven:") {
-                guard name != "lithe_run_restart" else { return failed("INVALID_ARGUMENTS", "Use Maven execute to start another build") }
-                maven.stop()
+            if id.hasPrefix("build:") {
+                guard name != "lithe_run_restart" else { return failed("INVALID_ARGUMENTS", L10n.string("Use Build execute to start another build")) }
+                if let retained = execution.buildSystems?.operation {
+                    execution.buildSystems?.cancelRun(retained.id)
+                }
             } else if let primaryID = run.primaryExecutionID, id == "run:" + primaryID {
                 if name == "lithe_run_restart", run.lastConfiguration?.kind == .currentFile {
                     return failed("INVALID_ARGUMENTS", "Restart requires a saved project configuration")
@@ -262,7 +296,7 @@ final class IdeCapabilitiesFeatureModel: ObservableObject {
         return ["operationID": "run:" + session.executionID]
     }
 
-    private func operations(run: RunFeatureModel, maven: MavenFeatureModel) -> [[String: Any]] {
+    private func operations(run: RunFeatureModel, build: BuildSystemsFeatureModel?) -> [[String: Any]] {
         var values: [[String: Any]] = run.moduleSessions.map { session in
             ["operationID": "run:" + session.executionID, "kind": "run", "configurationID": session.configurationID, "sessionID": session.id, "title": session.title, "state": session.isRunning ? "running" : session.exitCode == nil ? "cancelled" : session.exitCode == 0 ? "completed" : "failed", "exitCode": session.exitCode as Any? ?? NSNull(), "output": session.output]
         }
@@ -275,28 +309,38 @@ final class IdeCapabilitiesFeatureModel: ObservableObject {
                 "exitCode": run.lastExitCode as Any? ?? NSNull(), "output": run.output
             ])
         }
-        if let id = maven.outputOperationID {
-            values.append(["operationID": id, "kind": "maven", "configurationID": "", "sessionID": id, "title": maven.runningTitle ?? "Maven", "state": mavenState(maven), "exitCode": maven.lastExitCode as Any? ?? NSNull(), "output": maven.output])
+        if let operation = build?.operation {
+            let id = "build:" + operation.id.uuidString
+            values.append(["operationID": id, "kind": "build", "configurationID": "", "sessionID": id,
+                "title": operation.title, "state": buildState(operation.state),
+                "exitCode": operation.exitCode as Any? ?? NSNull(), "output": operation.output])
         }
         return values.sorted { ($0["operationID"] as? String ?? "") < ($1["operationID"] as? String ?? "") }
     }
 
-    private func mavenState(_ maven: MavenFeatureModel) -> String {
-        switch maven.taskState {
+    private func buildState(_ state: BuildRunState) -> String {
+        switch state {
         case .running: "running"
-        case .stopping: "stopping"
+        case .succeeded: "completed"
         case .failed: "failed"
-        case .cancelled: "cancelled"
-        case .idle: maven.lastExitCode == 0 ? "completed" : "cancelled"
+        case .cancelled, .idle: "cancelled"
         }
+    }
+
+    private func buildEntryJSON(_ entry: BuildSystemEntry) -> [String: Any] {
+        ["instanceID": entry.id, "pluginID": entry.source.pluginID, "buildSystemID": entry.instance.buildSystemID,
+         "root": entry.instance.root, "name": entry.instance.displayName, "reloadRequired": entry.isReloadRequired,
+         "modelState": entry.modelState == .loaded ? "ready" : entry.modelState == .loading ? "loading" : "unavailable",
+         "tasks": entry.declaration.tasks.map { ["id": $0.id, "name": $0.displayName, "fromModel": $0.fromModel,
+             "scopes": $0.scopes.map(\.rawValue), "requiresUserArguments": $0.requiresUserArguments] as [String: Any] },
+         "projects": entry.model?.projects.map { ["id": $0.id, "name": $0.name, "path": $0.path] } ?? [],
+         "targets": entry.model?.targets.map { ["id": $0.id, "projectID": $0.projectID, "name": $0.name] } ?? [],
+         "modelTasks": entry.model?.tasks.map { ["id": $0.id, "projectID": $0.projectID, "taskID": $0.template,
+             "name": $0.displayName ?? $0.name] } ?? []]
     }
 
     private func moduleJSON(_ module: MavenModule) -> [String: Any] {
         ["relativePath": module.relativePath, "artifactId": module.artifactID, "modules": module.modules.map(moduleJSON)]
-    }
-    private func findModule(_ path: String, in modules: [MavenModule]) -> MavenModule? {
-        for module in modules { if module.relativePath == path { return module }; if let found = findModule(path, in: module.modules) { return found } }
-        return nil
     }
     private func runStatus(_ status: ProjectRunConfigurationStatus) -> String {
         switch status { case .missing: "missing"; case .ready: "ready"; case .invalid: "invalid" }

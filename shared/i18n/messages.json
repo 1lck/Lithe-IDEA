@@ -90076,6 +90076,104 @@
         "key": "The build provider's debug program or adapter is unavailable. Build it again and check that the plugin is enabled.",
         "arguments": []
       }
+    },
+    {
+      "id": "ide.build.unavailable",
+      "description": "IDE Build Provider operation result",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Build plugins are unavailable",
+        "arguments": []
+      }
+    },
+    {
+      "id": "ide.build.chooseInstance",
+      "description": "IDE Build Provider operation result",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Choose a detected build instance",
+        "arguments": []
+      }
+    },
+    {
+      "id": "ide.build.busy",
+      "description": "IDE Build Provider operation result",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "A build operation is already active",
+        "arguments": []
+      }
+    },
+    {
+      "id": "ide.build.chooseTask",
+      "description": "IDE Build Provider operation result",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Choose a declared build task",
+        "arguments": []
+      }
+    },
+    {
+      "id": "ide.build.reloadSelection",
+      "description": "IDE Build Provider operation result",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Reload the build model before selecting a project, target or model task",
+        "arguments": []
+      }
+    },
+    {
+      "id": "ide.build.selectionExpired",
+      "description": "IDE Build Provider operation result",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The build selection is no longer available",
+        "arguments": []
+      }
+    },
+    {
+      "id": "ide.build.launchFailed",
+      "description": "IDE Build Provider operation result",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Build launch did not start",
+        "arguments": []
+      }
+    },
+    {
+      "id": "ide.build.restart",
+      "description": "IDE Build Provider operation result",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Use Build execute to start another build",
+        "arguments": []
+      }
+    },
+    {
+      "id": "ide.build.windowsUnavailable",
+      "description": "IDE Build Provider operation result",
+      "platforms": [
+        "windows"
+      ],
+      "windows": {
+        "key": "ide.build.windowsUnavailable"
+      }
     }
   ]
 }

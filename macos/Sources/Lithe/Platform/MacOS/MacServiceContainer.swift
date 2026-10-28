@@ -561,7 +561,6 @@ final class MacServiceContainer {
                     let graph = ExecutionFeatureGraph(
                         maven: MavenService(
                             runtimeService: runtimeService,
-                            process: MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution),
                             dependencyProcess: MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution),
                             mavenOperations: javaMavenOperations,
                             configurationStore: MacMavenConfigurationStore(storage: fileStorage),

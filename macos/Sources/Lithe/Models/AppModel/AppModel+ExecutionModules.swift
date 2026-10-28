@@ -9,7 +9,7 @@ extension AppModel {
     var mavenFeatureIfActive: MavenFeatureModel? { executionCapability?.mavenFeature }
     var runFeatureIfActive: RunFeatureModel? { executionCapability?.runFeature }
 
-    /// Run configurations and Maven goals still running in this project, for
+    /// Run configurations and plugin build tasks still running in this project, for
     /// the question before the project, its window or Lithe closes. Record IDs
     /// carry the session ID so several projects can be listed together.
     var runServiceExitCandidates: [RunServiceExitCandidate] {
@@ -31,10 +31,10 @@ extension AppModel {
                 )
             }
         }
-        if let maven = mavenFeatureIfActive, maven.isRunning {
+        if let build = buildSystemsFeatureIfActive, build.isRunning, let operation = build.operation {
             candidates.append(RunServiceExitCandidate(
-                id: "maven:\(id.uuidString)",
-                title: maven.runningTitle ?? "Maven",
+                id: "build:\(id.uuidString):\(operation.id.uuidString)",
+                title: operation.title,
                 projectName: project
             ))
         }

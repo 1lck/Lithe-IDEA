@@ -436,7 +436,7 @@ mod tests {
         let denied: Value = client
             .post(&connection.endpoint)
             .bearer_auth(&connection.token)
-            .json(&json!({"name":"lithe_maven_execute","arguments":{"goals":["verify"]}}))
+            .json(&json!({"name":"lithe_build_execute","arguments":{"instanceID":"maven@.","taskID":"verify"}}))
             .send()
             .await
             .unwrap()

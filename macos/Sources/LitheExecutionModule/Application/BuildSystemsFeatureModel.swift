@@ -29,6 +29,7 @@ package final class BuildSystemsFeatureModel: ObservableObject {
     package var testResults: BuildTestResults? { service.testResults }
     package var isRunning: Bool { service.isRunning }
     package var currentRunID: UUID? { service.currentRunID }
+    package var operation: BuildOperationSnapshot? { service.operation }
     package var runEnded: AnyPublisher<BuildRunEnd, Never> { service.runEnded.eraseToAnyPublisher() }
     package var applicationLaunched: AnyPublisher<String, Never> { service.applicationLaunched.eraseToAnyPublisher() }
     package var hasActiveWork: Bool { service.hasActiveWork }
@@ -106,6 +107,7 @@ package final class BuildSystemsFeatureModel: ObservableObject {
     }
     package func pluginsChanged() { service.pluginsChanged() }
     package func stopRun() { service.stopRun() }
+    package func cancelRun(_ id: UUID) { service.cancelRun(id) }
     package func stop() { service.stop() }
     package func clearOutput() { service.clearOutput() }
 }

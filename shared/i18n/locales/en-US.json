@@ -9450,7 +9450,16 @@
     "native.loadProviderModelBeforeRun": "Load the current build model and enable its provider before running this configuration.",
     "native.providerRunSaveConflict": "Run configuration changed while saving. Reload and try again.",
     "native.savedProviderRunUnavailable": "The saved provider run configuration is unavailable.",
-    "native.providerDebugUnavailable": "The build provider's debug program or adapter is unavailable. Build it again and check that the plugin is enabled."
+    "native.providerDebugUnavailable": "The build provider's debug program or adapter is unavailable. Build it again and check that the plugin is enabled.",
+    "ide.build.unavailable": "Build plugins are unavailable",
+    "ide.build.chooseInstance": "Choose a detected build instance",
+    "ide.build.busy": "A build operation is already active",
+    "ide.build.chooseTask": "Choose a declared build task",
+    "ide.build.reloadSelection": "Reload the build model before selecting a project, target or model task",
+    "ide.build.selectionExpired": "The build selection is no longer available",
+    "ide.build.launchFailed": "Build launch did not start",
+    "ide.build.restart": "Use Build execute to start another build",
+    "ide.build.windowsUnavailable": "Build Provider workflows are not available on Windows yet"
   },
   "overrides": {
     "windows": {

@@ -1746,7 +1746,6 @@ struct ExecutionModuleTests {
         let graph = ExecutionFeatureGraph(
             maven: MavenService(
                 runtimeService: runtime,
-                process: TestStreamingProcess(),
                 dependencyProcess: TestStreamingProcess(),
                 mavenOperations: TestMavenOperations()
             ),
@@ -2256,86 +2255,6 @@ struct ExecutionModuleTests {
     }
 
     @Test
-    func mavenServiceExecutesTheSharedLaunchPlanWithLocalRuntimeOverrides() async throws {
-        let workspace = URL(fileURLWithPath: "/workspace", isDirectory: true)
-        let reactor = workspace.appendingPathComponent("projects/demo", isDirectory: true)
-        let module = MavenModule(
-            relativePath: "service-api",
-            url: reactor.appendingPathComponent("service-api", isDirectory: true),
-            groupID: "dev.lithe",
-            artifactID: "service-api",
-            version: "1.0",
-            packaging: "jar",
-            modules: []
-        )
-        let project = MavenProject(
-            rootURL: reactor,
-            pomURL: reactor.appendingPathComponent("pom.xml"),
-            groupID: "dev.lithe",
-            artifactID: "demo",
-            version: "1.0",
-            packaging: "pom",
-            modules: [module],
-            profiles: [MavenProfile(id: "dev", isActiveByDefault: false)],
-            hasWrapper: false
-        )
-        let plan = MavenLaunchPlan(
-            version: 1,
-            toolchain: "project-maven",
-            arguments: ["core-owned-argument", "-s", "/local/settings.xml", "verify"],
-            workingDirectory: "projects/demo",
-            configurationFingerprint: "sha256:test"
-        )
-        let operations = RecordingMavenOperations(project: project, plan: plan)
-        let process = MavenRecordingProcess()
-        let runtime = MavenRecordingRuntime()
-        let store = RecordingMavenConfigurationStore(configuration: MavenStoredConfiguration(
-            portable: MavenPortableConfiguration(
-                selectedProfiles: ["dev"],
-                customProfiles: [],
-                skipTests: true
-            ),
-            local: MavenLocalConfiguration(
-                settingsPath: "/local/settings.xml",
-                mavenExecutablePath: "/local/apache-maven",
-                javaHomePath: "/local/jdk"
-            )
-        ))
-        let service = MavenService(
-            runtimeService: runtime,
-            process: process,
-            dependencyProcess: TestStreamingProcess(),
-            mavenOperations: operations,
-            configurationStore: store
-        )
-
-        await service.loadProject(at: workspace, files: [project.pomURL])
-        service.runCustomGoal(
-            "help:evaluate -Dexpression=fixture.config -q -DforceStdout",
-            module: module
-        )
-        let request = try #require(await process.nextStart(timeout: .seconds(1)))
-
-        #expect(request.arguments == plan.arguments)
-        #expect(request.workingDirectory == reactor.path)
-        #expect(request.environment?["TEST_JAVA_HOME"] == "/local/jdk")
-        #expect(runtime.lastMavenOverride == "/local/apache-maven")
-        #expect(operations.lastContext?.reactorPath == "projects/demo")
-        #expect(operations.lastContext?.profiles == ["dev"])
-        #expect(operations.lastContext?.settingsPath == "/local/settings.xml")
-        #expect(operations.lastContext?.skipTests == true)
-        #expect(operations.lastModule == "service-api")
-        #expect(operations.lastGoals == [
-            "help:evaluate",
-            "-Dexpression=fixture.config",
-            "-q",
-            "-DforceStdout"
-        ])
-        #expect(service.output.contains("-s <settings.xml>"))
-        #expect(!service.output.contains("/local/settings.xml"))
-    }
-
-    @Test
     func mavenAPISaveWaitsForPersistenceAndReportsWriteFailure() async {
         let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
         let store = RecordingMavenConfigurationStore(
@@ -2343,7 +2262,7 @@ struct ExecutionModuleTests {
             saveError: "Fixture configuration is read-only"
         )
         let service = MavenService(
-            runtimeService: TestRuntime(), process: TestStreamingProcess(),
+            runtimeService: TestRuntime(),
             dependencyProcess: TestStreamingProcess(), mavenOperations: ReloadMavenOperations(),
             configurationStore: store
         )
@@ -2353,84 +2272,6 @@ struct ExecutionModuleTests {
         let error = await service.saveConfiguration()
         #expect(error == "Fixture configuration is read-only")
         #expect(service.configurationSaveError == error)
-    }
-
-    @Test
-    func mavenServiceReportsCancellationWithoutInventingAnExitCode() async throws {
-        let workspace = URL(fileURLWithPath: "/workspace", isDirectory: true)
-        let project = MavenProject(
-            rootURL: workspace,
-            pomURL: workspace.appendingPathComponent("pom.xml"),
-            groupID: "dev.lithe",
-            artifactID: "demo",
-            version: "1.0",
-            packaging: "jar",
-            modules: [],
-            profiles: [],
-            hasWrapper: false
-        )
-        let plan = MavenLaunchPlan(
-            version: 1,
-            toolchain: "project-maven",
-            arguments: ["-B", "-ntp", "validate"],
-            workingDirectory: ".",
-            configurationFingerprint: "sha256:test"
-        )
-        let process = MavenRecordingProcess()
-        let service = MavenService(
-            runtimeService: MavenRecordingRuntime(),
-            process: process,
-            dependencyProcess: TestStreamingProcess(),
-            mavenOperations: RecordingMavenOperations(project: project, plan: plan)
-        )
-
-        await service.loadProject(at: workspace, files: [project.pomURL])
-        service.run(phase: .validate, module: nil)
-        _ = try #require(await process.nextStart(timeout: .seconds(1)))
-        service.stop()
-
-        #expect(service.taskState == .cancelled)
-        #expect(service.runningTitle == nil)
-        #expect(service.lastExitCode == nil)
-        #expect(service.output.hasSuffix("Maven task cancelled.\n"))
-        #expect(!process.isRunning)
-    }
-
-    @Test
-    func mavenServiceClearsReloadWhenConfigurationFingerprintReturnsToBaseline() async throws {
-        let workspace = URL(fileURLWithPath: "/workspace", isDirectory: true)
-        let project = MavenProject(
-            rootURL: workspace,
-            pomURL: workspace.appendingPathComponent("pom.xml"),
-            groupID: "dev.lithe",
-            artifactID: "demo",
-            version: "1.0",
-            packaging: "jar",
-            modules: [],
-            profiles: [],
-            hasWrapper: false
-        )
-        let process = MavenRecordingProcess()
-        let service = MavenService(
-            runtimeService: MavenRecordingRuntime(),
-            process: process,
-            dependencyProcess: TestStreamingProcess(),
-            mavenOperations: FingerprintingMavenOperations(project: project)
-        )
-
-        await service.loadProject(at: workspace, files: [project.pomURL])
-        #expect(!service.isReloadRequired)
-
-        service.setSkipTests(true)
-        service.run(phase: .validate, module: nil)
-        _ = try #require(await process.nextStart(timeout: .seconds(1)))
-        #expect(service.isReloadRequired)
-
-        service.stop()
-        service.setSkipTests(false)
-        service.run(phase: .validate, module: nil)
-        _ = try #require(await process.nextStart(timeout: .seconds(1)))
-        #expect(!service.isReloadRequired)
     }
 
     @Test(arguments: [String?.none, "/custom/repository"])
@@ -2496,7 +2337,6 @@ struct ExecutionModuleTests {
         let outputs = RecordingDependencyOutputs()
         let service = MavenService(
             runtimeService: MavenRecordingRuntime(),
-            process: buildProcess,
             dependencyProcess: dependencyProcess,
             mavenOperations: operations,
             dependencyOutputs: outputs
@@ -2572,7 +2412,7 @@ struct ExecutionModuleTests {
         )
         let dependencyProcess = MavenRecordingProcess()
         let maven = MavenService(
-            runtimeService: MavenRecordingRuntime(), process: MavenRecordingProcess(),
+            runtimeService: MavenRecordingRuntime(),
             dependencyProcess: dependencyProcess, mavenOperations: operations,
             dependencyOutputs: RecordingDependencyOutputs()
         )
@@ -2634,7 +2474,6 @@ struct ExecutionModuleTests {
         let outputs = RecordingDependencyOutputs()
         let service = MavenService(
             runtimeService: MavenRecordingRuntime(),
-            process: MavenRecordingProcess(),
             dependencyProcess: dependencyProcess,
             mavenOperations: RecordingMavenOperations(project: project, plan: plan),
             dependencyOutputs: outputs
@@ -2678,7 +2517,6 @@ struct ExecutionModuleTests {
         let outputs = RecordingDependencyOutputs()
         let service = MavenService(
             runtimeService: MavenRecordingRuntime(),
-            process: MavenRecordingProcess(),
             dependencyProcess: dependencyProcess,
             mavenOperations: RecordingMavenOperations(project: project, plan: plan),
             dependencyOutputs: outputs
@@ -2740,7 +2578,6 @@ struct ExecutionModuleTests {
         let outputs = RecordingDependencyOutputs()
         let service = MavenService(
             runtimeService: MavenRecordingRuntime(),
-            process: MavenRecordingProcess(),
             dependencyProcess: dependencyProcess,
             mavenOperations: operations,
             dependencyOutputs: outputs
@@ -2793,7 +2630,6 @@ struct ExecutionModuleTests {
         let dependencyProcess = MavenRecordingProcess()
         let service = MavenService(
             runtimeService: MavenRecordingRuntime(),
-            process: MavenRecordingProcess(),
             dependencyProcess: dependencyProcess,
             mavenOperations: RecordingMavenOperations(project: project, plan: plan)
         )
@@ -3080,7 +2916,6 @@ private func makeTestGraph(
     let resolver = TestExecutableResolver()
     let maven = mavenService ?? MavenService(
         runtimeService: runtime,
-        process: TestStreamingProcess(),
         dependencyProcess: TestStreamingProcess(),
         mavenOperations: mavenOperations
     )
@@ -3288,7 +3123,7 @@ private enum ReloadTestError: Error { case failed }
 private func makeReloadService() async -> (MavenService, URL) {
     let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
     let service = MavenService(
-        runtimeService: TestRuntime(), process: TestStreamingProcess(),
+        runtimeService: TestRuntime(),
         dependencyProcess: TestStreamingProcess(), mavenOperations: ReloadMavenOperations()
     )
     await service.loadProject(at: root, files: [root.appendingPathComponent("old")])
