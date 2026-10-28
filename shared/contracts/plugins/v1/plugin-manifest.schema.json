@@ -35,6 +35,7 @@
     "executionProviders": { "enum": [1] },
         "languageServers": { "enum": [1] },
         "languages": { "enum": [1] },
+        "packageTrust": { "description": "Required exactly when vendor.bundledSignatureRequirement is present.", "enum": [1] },
         "projectGenerators": { "description": "Entries of the New Project window: fields, requirements, and steps.", "enum": [1] },
         "serverProcess": { "description": "The launch fields of language servers, of build providers that start their own process, of VCS providers, of debug adapters, and of the plugin backend. Version 2 adds runSelectedRuntime and is required exactly when a debug adapter uses it (pluginAPIVersion 4).", "enum": [1, 2] },
         "settings": { "enum": [1] },
@@ -49,7 +50,11 @@
       "properties": {
         "id": { "type": "string", "minLength": 1 },
         "displayName": { "type": "string", "minLength": 1 },
-        "signatureRequirement": { "enum": ["sameTeamAsHost", "publisherPackage", "none"] }
+        "signatureRequirement": { "enum": ["sameTeamAsHost", "publisherPackage", "none"] },
+        "bundledSignatureRequirement": {
+          "description": "packageTrust 1: host-pinned official packages may trust the host's sealed bundled copy; all other origins require publisherPackage.",
+          "const": "sameTeamAsHost"
+        }
       }
     },
     "permissions": {

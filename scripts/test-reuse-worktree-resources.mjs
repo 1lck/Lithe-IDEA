@@ -239,6 +239,18 @@ try {
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /plugin-web-state.*cannot be reused/);
   });
+  await test("architecture release archives and extracted signature probes are never reusable", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const packages = registry.excludedResources.find(item => item.id === "official-plugin-packages");
+    assert.ok(packages.locations.includes("dist/packages/<arch>/<plugin-id>/"));
+    assert.ok(packages.locations.includes("dist/verify/<arch>/<plugin-id>/"));
+    assert.ok(packages.locations.includes(".artifacts/java-plugin-distribution/"));
+    assert.ok(packages.locations.includes("<test-temp>/lithe-package-verification.*/published-index.fixture.json"));
+    assert.match(packages.reason, /LITHE_OFFICIAL_PLUGIN_INDEX/);
+    const refused = reuse(["--resource", packages.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /official-plugin-packages is isolated.*cannot be reused/);
+  });
   await test("plugin packages and marketplace state stay isolated in each worktree", { timeout: 15000 }, () => {
     const listed = run(process.execPath, [reuseScript, "--list"]);
     assertSucceeded(listed);

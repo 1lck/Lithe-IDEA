@@ -3,6 +3,12 @@ set -euo pipefail
 
 ROOT_DIR="${0:A:h:h}"
 cd "$ROOT_DIR"
+SLIM=false
+case "${1:-}" in
+    --slim) SLIM=true ;;
+    "") ;;
+    *) print -u2 -- "Usage: $0 [--slim]"; exit 2 ;;
+esac
 
 java_debug_server_version="$(
     /usr/bin/plutil -extract javaDebugServerVersion raw -o - third_party/jdtls/manifest.json
@@ -27,6 +33,20 @@ x86_64_jdk_root="$temporary_directory/jdk-x86_64"
 dist_root="$temporary_directory/dist"
 package_log="$temporary_directory/package.log"
 dmg_log="$temporary_directory/dmg.log"
+marketplace_index="$ROOT_DIR/Plugins/marketplace/index.json"
+if [[ "$SLIM" == true ]]; then
+    marketplace_index="$temporary_directory/published-index.fixture.json"
+    node --input-type=module - "$marketplace_index" <<'NODE'
+import { writeFileSync } from "node:fs";
+import { loadConfig, releaseFor, updateIndex } from "./scripts/official-plugin-releases.mjs";
+const release = releaseFor(loadConfig().find((plugin) => plugin.id === "dev.lithe.plugin.java-support"));
+writeFileSync(process.argv[2], JSON.stringify(updateIndex({ schemaVersion: 1, plugins: [] }, release, {
+    checksums: Object.fromEntries(release.assets.map((asset, i) => [asset.assetName, String(i + 1).repeat(64)])),
+    releaseDate: "2026-10-25",
+})));
+NODE
+fi
+bundle_java=$(node scripts/official-plugin-distribution.mjs dev.lithe.plugin.java-support "$marketplace_index")
 
 # The package smoke test validates assembly rather than third-party downloads.
 # This fixture satisfies prepare-jdtls.sh's production layout checks while
@@ -88,6 +108,7 @@ done
 : > "$jdtls_root/java-test/runner/$java_test_runner_name"
 : > "$jdtls_root/java-test/LICENSE-MIT.txt"
 
+if [[ "$bundle_java" == true ]]; then
 for missing_configuration in config_mac_arm config_mac; do
     broken_jdtls_root="$temporary_directory/jdtls-missing-$missing_configuration"
     cp -R "$jdtls_root" "$broken_jdtls_root"
@@ -106,6 +127,7 @@ for missing_configuration in config_mac_arm config_mac; do
         exit 1
     fi
 done
+fi
 
 cat > "$temporary_directory/java.c" <<'SOURCE'
 int main(void) { return 0; }
@@ -119,7 +141,14 @@ JAVA_VERSION="21.0.0"
 RELEASE
 done
 
+# Missing download inputs prove slim assembly never prepares Java resources.
+if [[ "$bundle_java" == false ]]; then
+    jdtls_root="$temporary_directory/must-not-read-jdtls"
+    arm64_jdk_root="$temporary_directory/must-not-read-arm64-jdk"
+    x86_64_jdk_root="$temporary_directory/must-not-read-x64-jdk"
+fi
 env -u LITHE_ARCH -u LITHE_JDK_ROOT \
+    LITHE_OFFICIAL_PLUGIN_INDEX="$marketplace_index" \
     LITHE_DIST_ROOT="$dist_root" \
     LITHE_JDTLS_ROOT="$jdtls_root" \
     LITHE_JDK_ARM64_ROOT="$arm64_jdk_root" \
@@ -207,6 +236,9 @@ required_resources=(
     "$app_path/Contents/Resources/MonacoEditor/ONIGURUMA-LICENSE.txt"
     "$app_path/Contents/Resources/MonacoEditor/VSCODE-LICENSE.txt"
     "$app_path/Contents/Resources/MonacoEditor/TEXTMATE-NOTICE.txt"
+)
+if [[ "$bundle_java" == true ]]; then
+required_resources+=(
     "$app_path/$java_plugin_package/plugin.json"
     "$app_path/$java_plugin_package/$java_launcher_path"
     "$app_path/$java_plugin_package/language-server/configuration/arm64/config.ini"
@@ -224,6 +256,16 @@ required_resources=(
     "$app_path/$java_plugin_package/icons/java.svg"
     "$app_path/$java_plugin_package/templates/java/maven/pom.xml"
 )
+else
+    if [[ -e "$app_path/$java_plugin_package" ]]; then
+        print -u2 -- "Slim app must not contain Java Support"
+        exit 1
+    fi
+    if find "$app_path/Contents" -type f \( -name 'org.eclipse.jdt.ls.core_*.jar' -o -name 'libjvm.dylib' \) | /usr/bin/grep -q .; then
+        print -u2 -- "Slim app must not contain another JDT LS or JDK copy"
+        exit 1
+    fi
+fi
 for resource in "${required_resources[@]}"; do
     if [[ ! -e "$resource" ]]; then
         print -u2 -- "Packaged resource is missing: $resource"
@@ -233,12 +275,14 @@ done
 /usr/bin/lipo "$app_path/Contents/MacOS/Lithe" -verify_arch arm64 x86_64
 /usr/bin/lipo "$app_path/Contents/Frameworks/Sparkle.framework/Sparkle" -verify_arch arm64 x86_64
 /usr/bin/otool -l "$app_path/Contents/MacOS/Lithe" | /usr/bin/grep -F '@executable_path/../Frameworks' >/dev/null
+if [[ "$bundle_java" == true ]]; then
 /usr/bin/lipo \
     "$app_path/$java_plugin_package/runtime/arm64/bin/java" \
     -verify_arch arm64
 /usr/bin/lipo \
     "$app_path/$java_plugin_package/runtime/x86_64/bin/java" \
     -verify_arch x86_64
+fi
 # JDT LS and its JDK belong to the Java Support plugin package. The
 # application itself must not carry a second copy outside that package.
 if [[ -e "$app_path/Contents/Resources/LanguageServers" ]]; then
@@ -256,7 +300,7 @@ for optional_plugin in dev.lithe.plugin.php-support dev.lithe.plugin.go-support;
     fi
 done
 
-if ! cmp -s "$app_path/Contents/Resources/PluginMarketplace/index.json" "$ROOT_DIR/Plugins/marketplace/index.json"; then
+if ! cmp -s "$app_path/Contents/Resources/PluginMarketplace/index.json" "$marketplace_index"; then
     print -u2 -- "Packaged app must contain the official plugin marketplace index"
     exit 1
 fi
@@ -275,4 +319,4 @@ if [[ "$dmg_path" != "$expected_dmg_path" || ! -s "$dmg_path" ]]; then
 fi
 hdiutil imageinfo "$dmg_path" > /dev/null
 
-print -- "macOS package and disk image verification passed for the default universal architecture"
+print -- "macOS package and disk image verification passed for the universal architecture (Java bundled: $bundle_java)"

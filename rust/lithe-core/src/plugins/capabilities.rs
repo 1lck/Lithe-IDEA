@@ -29,6 +29,9 @@ pub(crate) const LANGUAGES: &str = "languages";
 pub(crate) const LANGUAGE_SERVERS: &str = "languageServers";
 /// The launch fields language servers and own build providers share.
 pub(crate) const SERVER_PROCESS: &str = "serverProcess";
+/// `vendor.bundledSignatureRequirement`: origin-scoped host-seal trust for a
+/// package whose independently installed versions require a publisher signature.
+pub(crate) const PACKAGE_TRUST: &str = "packageTrust";
 /// `executionProviders[]`: run and test templates.
 pub(crate) const EXECUTION_PROVIDERS: &str = "executionProviders";
 /// `settings[]`. Version 2 adds scopes, effects, settings pages, and the
@@ -73,6 +76,7 @@ pub const SUPPORTED_CAPABILITIES: &[(&str, &[u32])] = &[
     (EXECUTABLE_RESOLUTION, &[1]),
     (LANGUAGE_SERVERS, &[1, 2]),
     (LANGUAGES, &[1]),
+    (PACKAGE_TRUST, &[1]),
     (PROJECT_GENERATORS, &[1]),
     (SERVER_PROCESS, &[1, 2]),
     (SETTINGS, &[1, 2]),

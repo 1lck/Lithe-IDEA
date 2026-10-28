@@ -236,7 +236,7 @@ final class MacPluginManager: PluginManaging {
         let isLive = appliesLive(try packageStore.inspectPackage(at: packageURL))
         let installed = try perform(!isLive)
         defer { rescanLivePlugins(for: installed.manifest.id, appliesLive: isLive) }
-        enableFirstInstallation(of: installed.manifest)
+        preserveEnablementAfterInstallation(of: installed.manifest)
         if !isLive { restartRequiredPluginIDs.insert(installed.manifest.id) }
         try refreshInstalledPlugins()
     }
@@ -260,6 +260,9 @@ final class MacPluginManager: PluginManaging {
                 throw PluginManagerError.unknownPlugin(pluginID)
             }
             beforePackageReplacement(pluginID)
+            if OfficialPluginCatalog.entry(for: pluginID)?.bundledSignatureRequirement == .sameTeamAsHost {
+                try packageStore.setBundledPluginRemoved(pluginID, removed: true)
+            }
             try packageStore.stageInvalidPackageUninstall(pluginID)
             restartRequiredPluginIDs.insert(pluginID)
             issues.removeAll { $0.pluginID == pluginID }
@@ -293,6 +296,11 @@ final class MacPluginManager: PluginManaging {
             // The package itself lives in the read-only app bundle.
             try packageStore.setBundledPluginRemoved(pluginID, removed: true)
         } else {
+            // An installed update can shadow a sealed copy in a transition
+            // host. Uninstalling it must not resurrect that copy at restart.
+            if installed.manifest.vendor.bundledSignatureRequirement == .sameTeamAsHost {
+                try packageStore.setBundledPluginRemoved(pluginID, removed: true)
+            }
             try packageStore.stageUninstall(pluginID)
         }
         restartRequiredPluginIDs.insert(pluginID)
@@ -351,8 +359,24 @@ final class MacPluginManager: PluginManaging {
     /// The user confirmed this installation, so its modules start enabled at
     /// the next launch. Module defaults stay off for packages that appear
     /// without that confirmation, and an update keeps the user's choice.
-    private func enableFirstInstallation(of manifest: PluginManifest) {
-        guard installedPlugins[manifest.id] == nil, !registeredPluginIDs.contains(manifest.id) else { return }
+    private func preserveEnablementAfterInstallation(of manifest: PluginManifest) {
+        if let existing = installedPlugins[manifest.id] {
+            // Bundled modules default on, while the same downloaded declaration
+            // defaults off. Materialize the old default only after installation
+            // succeeds. Explicit disabled choices and settings stay untouched.
+            if existing.installation.origin == .bundled {
+                let oldModules = Dictionary(uniqueKeysWithValues: existing.manifest.modules.map { ($0.manifest.id, $0.manifest) })
+                for declaration in manifest.modules where configurationStore.enabledState(for: declaration.manifest.id) == nil {
+                    // Only modules the old package owned have a choice to
+                    // migrate. New modules keep their declaration's default.
+                    guard let previous = oldModules[declaration.manifest.id] else { continue }
+                    let enabled = existing.installation.status == .removed || previous.defaultState == .enabled
+                    configurationStore.setEnabledState(enabled, for: declaration.manifest.id)
+                }
+            }
+            return
+        }
+        guard !registeredPluginIDs.contains(manifest.id) else { return }
         // Language module IDs are shared across plugin IDs. A package rejected
         // for an ownership collision at restart must not first enable its owner.
         // Reserve disabled/removed packages too, and keep the running graph's

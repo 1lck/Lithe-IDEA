@@ -1748,6 +1748,7 @@
 "Install ACP adapters, check the runtime, and manage local or custom providers." = "Install ACP adapters, check the runtime, and manage local or custom providers.";
 "Install AutoBuild" = "Install AutoBuild";
 "Install Codex CLI to discover its skills." = "Install Codex CLI to discover its skills.";
+"Install Java Support for Java, Maven and Spring templates…" = "Install Java Support for Java, Maven and Spring templates…";
 "Install Node.js and npm before installing the adapter." = "Install Node.js and npm before installing the adapter.";
 "Install PHP Support Plugin" = "Install PHP Support Plugin";
 "Install PHP Support from a signed plugin package." = "Install PHP Support from a signed plugin package.";
@@ -1820,6 +1821,7 @@
 "Java SDK" = "Java SDK";
 "Java Stepping Filters" = "Java Stepping Filters";
 "Java Stepping Filters…" = "Java Stepping Filters…";
+"Java Support is installed separately. Install it from the Marketplace, or use Install from Disk for an offline package. Your Java settings are kept." = "Java Support is installed separately. Install it from the Marketplace, or use Install from Disk for an offline package. Your Java settings are kept.";
 "Java entries appear after the Java language service lists runnable classes." = "Java entries appear after the Java language service lists runnable classes.";
 "Java entries could not be refreshed" = "Java entries could not be refreshed";
 "Java entry-point freshness check failed" = "Java entry-point freshness check failed";
@@ -8971,6 +8973,8 @@
 "npm was not found. It is normally installed with Node.js." = "npm was not found. It is normally installed with Node.js.";
 "or" = "or";
 "outline.expandAll" = "Expand All";
+"plugins.java.installNotice" = "Java Support is installed separately. Install it from the Marketplace, or use Install from Disk for an offline package. Your Java settings are kept.";
+"plugins.java.installTemplates" = "Install Java Support for Java, Maven and Spring templates…";
 "plugins.title" = "Plugins";
 "ports %@" = "ports %@";
 "project Maven Wrapper" = "project Maven Wrapper";

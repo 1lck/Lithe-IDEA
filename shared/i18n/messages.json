@@ -89944,6 +89944,28 @@
         "key": "This adapter cannot step by instruction; steps still move by line",
         "arguments": []
       }
+    },
+    {
+      "id": "plugins.java.installNotice",
+      "description": "macOS Java Support independent distribution installation entry",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Java Support is installed separately. Install it from the Marketplace, or use Install from Disk for an offline package. Your Java settings are kept.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "plugins.java.installTemplates",
+      "description": "macOS Java Support independent distribution installation entry",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Install Java Support for Java, Maven and Spring templates…",
+        "arguments": []
+      }
     }
   ]
 }

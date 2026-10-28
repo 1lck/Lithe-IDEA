@@ -81,6 +81,7 @@ enum WorkspaceProjectionComposition {
             },
             onSnapshotLoaded: { [weak model] snapshot, isInitialLoad in
                 guard let model else { return }
+                model.suggestJavaPluginIfNeeded(files: snapshot.files)
                 // Loading a ready inventory also resumes deferred run actions.
                 await model.loadProjectServices(
                     at: snapshot.root.url,

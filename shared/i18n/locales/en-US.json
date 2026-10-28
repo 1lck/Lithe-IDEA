@@ -9438,7 +9438,9 @@
     "debugger.memory.changedBytes": "{arg1} bytes changed",
     "debugger.step.overInstruction": "Step Over Instruction",
     "debugger.step.intoInstruction": "Step Into Instruction",
-    "debugger.disassembly.stepsByLine": "This adapter cannot step by instruction; steps still move by line"
+    "debugger.disassembly.stepsByLine": "This adapter cannot step by instruction; steps still move by line",
+    "plugins.java.installNotice": "Java Support is installed separately. Install it from the Marketplace, or use Install from Disk for an offline package. Your Java settings are kept.",
+    "plugins.java.installTemplates": "Install Java Support for Java, Maven and Spring templates…"
   },
   "overrides": {
     "windows": {

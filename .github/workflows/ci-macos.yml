@@ -479,6 +479,7 @@ jobs:
           LITHE_DMG_DIAGNOSTICS: "1"
         run: |
           ./scripts/verify-macos-package.sh
+          ./scripts/verify-macos-package.sh --slim
 
       - name: Verify Sparkle update packaging
         run: |

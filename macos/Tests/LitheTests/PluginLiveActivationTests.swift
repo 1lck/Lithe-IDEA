@@ -185,7 +185,16 @@ struct PluginLiveActivationTests {
     func anAdapterWhoseSelectorSkipsFileTargetsIsNotChosenToLaunchAFile(_ targetKinds: [String]) throws {
         let fixture = try LiveFixture()
         defer { fixture.cleanUp() }
-        let package = try fixture.package(Self.debugManifest(targetKinds: targetKinds))
+        let connectionOnly = targetKinds == ["connection"]
+        var manifest = Self.debugManifest(requests: connectionOnly ? ["attach"] : ["launch"], targetKinds: targetKinds)
+        if connectionOnly {
+            // Connection selectors require an actual attach binding. Keep the
+            // fixture valid while checking that it never owns a file launch.
+            var adapters = try #require(manifest["debugAdapters"] as? [[String: Any]])
+            adapters[0]["configurations"] = ["attach": ["targetBindings": ["connection": ["host": "hostName", "port": "port"]]]]
+            manifest["debugAdapters"] = adapters
+        }
+        let package = try fixture.package(manifest)
 
         fixture.registry.apply([package])
 

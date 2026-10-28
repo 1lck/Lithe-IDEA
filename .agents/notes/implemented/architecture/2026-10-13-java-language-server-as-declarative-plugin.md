@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-Java 的语言服务器 JDT LS（Eclipse 的 Java 语言服务器，提供补全、诊断和跳转）不再是 Lithe.app 里写死的一部分，而是官方插件 Java Support（`dev.lithe.plugin.java-support`）。插件包拥有 JDT LS、Lombok、调试和测试扩展，以及它运行所用的 JDK；`plugin.json` 声明这些文件在包内的位置和启动方式。这个插件随应用发行、默认启用，用户可以卸载和恢复。
+Java 的语言服务器 JDT LS（Eclipse 的 Java 语言服务器，提供补全、诊断和跳转）不再是 Lithe.app 里写死的一部分，而是官方插件 Java Support（`dev.lithe.plugin.java-support`）。插件包拥有 JDT LS、Lombok、调试和测试扩展，以及它运行所用的 JDK；`plugin.json` 声明这些文件在包内的位置和启动方式。过渡期随应用发行、默认启用，用户可以卸载和恢复；完整双架构官方下载上架后默认应用省去资源，迁移与安装引导由[后续分发决策](2026-10-25-java-plugin-distribution-foundation.md)规定。
 
 宿主不再知道 JDT LS 或 JDK 放在哪里。它只做两件事：按插件的声明启动语言服务器；为声明了 `jdt` 宿主集成（由宿主实现、插件按名字启用的一段专用逻辑）的服务器启用 Java 的工程模型、`jdt://` 虚拟文档、测试和调试支持。
 
@@ -104,9 +104,9 @@ dev.lithe.plugin.java-support/
 
 `LitheOfficialPluginVerifier` 的规则随之调整：Mach-O 原生代码只允许出现在清单 `packagedRuntime` 声明的顶层目录内；包内任何位置都不允许符号链接。
 
-### 5. 随应用发行、默认启用、可卸载
+### 5. 过渡期内置与独立安装
 
-- **随应用发行**：Java 是主场景，首次启动必须离线可用，所以包在 `Lithe.app/Contents/Resources/OfficialPlugins/` 下，信任方式是 `sameTeamAsHost`（由应用自身的代码签名封住）。
+- **过渡期随应用发行**：原设计为 Java 保持首次启动离线可用，过渡包在 `Lithe.app/Contents/Resources/OfficialPlugins/` 下，清单主签名要求为 `publisherPackage`，内置副本通过 `bundledSignatureRequirement: sameTeamAsHost` 依靠应用自身的代码签名；只有真实位于宿主 bundle 内且来源为 bundled 的副本能用这个例外。按来源校验与独立发布基础见[后续决策](2026-10-25-java-plugin-distribution-foundation.md)。
 - **默认启用**：随应用发行的包替代的是内置功能，它的模块默认开启；下载安装的插件，模块清单默认值仍是关闭，但用户在确认窗口里确认的首次安装（插件市场、社区源、磁盘包）会把它的模块记为启用，重启后直接生效，与 IntelliJ IDEA 安装即启用一致；更新和重装不改用户已有的启用选择。否则构建插件装好后 Build 工具窗口不出现，用户会以为界面没有注入。
 - **卸载**：app bundle 运行时只读，包本身删不掉。卸载记录在用户目录的 `<app-support>/Lithe/Plugins/.removed-bundled-plugins.json`，宿主重启后不再注册这个插件，并在那次启动时删除它的语言服务器状态（卸载后到重启前，语言服务器仍在运行并写入该目录，所以不在点击时删除；重启前恢复则不会丢失索引）。插件管理里仍然列出它并提供“恢复”。
 - **卸载时 JDT 状态的清理**：JDT LS 的工作区索引（`<cache>/Lithe/language-servers/jdtls/`）和 Equinox 配置区（`jdtls-configuration/`）在宿主缓存里，不在插件自己的 `PluginState/<plugin-id>/` 下，插件包管理器删不到。所以由 `jdt` 集成自己清理：启动时 `pluginsDidLoad` 拿到扫描结果，如果没有任何“未卸载”的已安装插件声明 `jdt` 集成，就在后台删除这两个目录（不碰同目录下其他语言服务器的缓存）。扫描本身失败（拿不到已安装列表）、或插件已安装但启动时被拒绝，都不算卸载，状态保留。这样宿主既不用写死 Java Support 的插件 ID，也不需要把缓存搬进插件状态目录。
@@ -170,7 +170,7 @@ dev.lithe.plugin.java-support/
 - Rust 引擎里仍按提供方 ID `java` 启用 JDT 适配；Java 的运行、测试和调试仍是宿主内置实现，尚未成为扩展点，由插件通过 `hostIntegration.capabilities` 声明后启用。
 - Windows 仍把 JDT LS 和 JDK 放在安装目录里，没有接入这份契约。
 
-尚未完成、需要单独提案的部分：把 `jdt://` 虚拟文档等协议扩展改成清单里的声明式特性；Debug、Run/Test 扩展点；Java Support 改为从市场下载；Windows 接入。
+尚未完成、需要继续推进的部分：把 `jdt://` 虚拟文档等协议扩展改成清单里的声明式特性；Debug、Run/Test 扩展点；Java Support 的正式市场下载与迁移；Windows 接入。独立分发已具备来源签名校验和双架构发布基础，但自动发布暂停，计划见[独立分发提案](../../proposed/architecture/2026-10-24-java-support-independent-distribution.md)。
 
 ## 验证
 
