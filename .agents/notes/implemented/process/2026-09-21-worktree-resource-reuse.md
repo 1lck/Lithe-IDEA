@@ -5,7 +5,7 @@
 ## 先说结论
 
 Git linked worktree 之间只复用校验过的下载缓存，不共享 `.build` 或旧预览应用。
-目标工作树仍须自己编译，并在打包预览应用时复制两种 SwiftPM 资源包。
+目标工作树仍须自己编译，并在打包预览应用时复制 `Lithe_Lithe.bundle`。
 漏掉应用自己的资源包会让使用内置工作台背景的应用在启动时崩溃。
 
 ## 问题
@@ -16,7 +16,9 @@ Git linked worktree 之间只复用校验过的下载缓存，不共享 `.build`
 下载缓存可用也不等于预览应用可用。`scripts/preview.sh` 曾只复制
 `SwiftTerm_SwiftTerm.bundle`，漏掉 `Lithe_Lithe.bundle`；当已选择内置工作台背景时，
 应用初始化读取 `Bundle.module` 会因资源包不存在而崩溃。漏拷资源在工作树复用机制
-出现前就已存在，切换工作树或再次运行旧脚本只是让这一缺口重新暴露。
+出现前就已存在，切换工作树或再次运行旧脚本只是让这一缺口重新暴露。当时脚本还要求
+`SwiftTerm_SwiftTerm.bundle`，但 SwiftTerm 2.0 已把 Metal shader 内嵌在源码中，
+不再提供该资源包。
 
 ## 决策
 
@@ -27,9 +29,9 @@ Git linked worktree 之间只复用校验过的下载缓存，不共享 `.build`
 加入可复用清单；这些内容必须在目标工作树重新生成。
 
 SwiftPM 下载缓存保存依赖，不包含应用编译后需要的资源包。`scripts/preview.sh` 和
-`scripts/package-app.sh` 应从当前工作树的构建目录复制 `Lithe_Lithe.bundle` 与
-`SwiftTerm_SwiftTerm.bundle`，缺少任一资源包就应在启动前报错。
-`scripts/verify-macos-app-build-safety.sh` 检查两个打包脚本均声明这两种资源。
+`scripts/package-app.sh` 应从当前工作树的构建目录复制 `Lithe_Lithe.bundle`，缺少
+该资源包就应在启动前报错。`scripts/verify-macos-app-build-safety.sh` 检查两个打包
+脚本均声明 `Lithe_Lithe.bundle`。
 正确做法是切换工作树后重新运行预览脚本并检查新包；不要继续运行此前生成的 `.app`。
 
 ## 考虑过的备选方案
@@ -54,7 +56,7 @@ SwiftPM 下载缓存保存依赖，不包含应用编译后需要的资源包。
 
 - `node scripts/test-verify-download-cache.mjs`
 - `node scripts/test-reuse-worktree-resources.mjs`
-- `./scripts/verify-macos-app-build-safety.sh`：确认两个打包脚本均声明所需资源包。
+- `./scripts/verify-macos-app-build-safety.sh`：确认两个打包脚本均声明 `Lithe_Lithe.bundle`。
 - `./scripts/preview.sh`：检查新包包含 `Lithe_Lithe.bundle`，并在内置背景设置下启动。
 - `./scripts/verify-agent-notes.sh`
 

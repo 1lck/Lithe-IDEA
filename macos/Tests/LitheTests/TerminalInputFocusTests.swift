@@ -43,12 +43,10 @@ struct TerminalInputFocusTests {
         let terminal = LitheTerminalView(frame: .zero)
         terminal.applyThemeColors(theme: .lithe, isDark: true)
         let litheBackground = terminal.nativeBackgroundColor
-        let litheTerminalBackground = terminal.terminal.backgroundColor
 
         terminal.applyThemeColors(theme: .codex, isDark: true)
 
         #expect(terminal.nativeBackgroundColor != litheBackground)
-        #expect(terminal.terminal.backgroundColor != litheTerminalBackground)
         #expect(terminal.nativeBackgroundColor == LitheTheme.nsColor(.editor, theme: .codex, isDark: true))
     }
 
@@ -144,7 +142,7 @@ struct TerminalInputFocusTests {
     }
 
     @Test
-    func coreGraphicsCaretIsRemovedOutsideKeyboardOwner() throws {
+    func `core graphics focus changes preserve shell cursor state`() throws {
         let window = CursorFocusTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 400, height: 250),
             styleMask: [.borderless], backing: .buffered, defer: false
@@ -157,76 +155,83 @@ struct TerminalInputFocusTests {
         content.addSubview(terminal)
         content.addSubview(editor)
         try terminal.setUseMetal(false)
+        terminal.setCursorStyle(.steadyBar)
+        terminal.applyThemeColors(theme: .lithe, isDark: true)
+        // `caretColor` is not open, so Lithe records the requested theme caret in `applyThemeColors` and publishes it only while focused.
+        let requestedCaret = NSColor(srgbRed: 0.35, green: 0.67, blue: 0.98, alpha: 1)
         #expect(window.makeFirstResponder(terminal))
-        terminal.showCursor(source: terminal.terminal)
-        let focusedChildren = Set(terminal.subviews.map(ObjectIdentifier.init))
+        #expect(terminal.hasFocus)
+        #expect(terminal.terminalStateSnapshot().cursorStyle == .steadyBar)
+        #expect(terminal.caretColor == requestedCaret)
 
+        // Lithe publishes the theme caret only while this view owns the keyboard.
+        // The shell's requested cursor style must remain untouched.
         #expect(window.makeFirstResponder(editor))
-        let inactiveChildren = Set(terminal.subviews.map(ObjectIdentifier.init))
-        #expect(focusedChildren.subtracting(inactiveChildren).count == 1,
-                "The fallback caret must be removed, not left as an inactive outline")
+        #expect(!terminal.hasFocus)
+        #expect(terminal.terminalStateSnapshot().cursorStyle == .steadyBar)
+        #expect(terminal.caretColor.alphaComponent == 0)
         #expect(window.makeFirstResponder(terminal))
-        #expect(Set(terminal.subviews.map(ObjectIdentifier.init)) == focusedChildren)
-
-        terminal.terminal.hideCursor()
-        #expect(window.makeFirstResponder(editor))
-        #expect(window.makeFirstResponder(terminal))
-        #expect(Set(terminal.subviews.map(ObjectIdentifier.init)) == inactiveChildren,
-                "Focus must not reveal a cursor hidden by the shell")
+        #expect(terminal.hasFocus)
+        #expect(terminal.terminalStateSnapshot().cursorStyle == .steadyBar)
+        #expect(terminal.caretColor == requestedCaret)
     }
 
     @Test
-    func onlyKeyboardOwnerDrawsVisibleMetalCursorAndPreservesShellStyle() throws {
+    func `only keyboard owner shows visible caret`() throws {
         let window = CursorFocusTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 400, height: 250),
             styleMask: [.borderless], backing: .buffered, defer: false
         )
         window.isReleasedWhenClosed = false
         defer { window.close() }
+        let content = try #require(window.contentView)
         let terminal = LitheTerminalView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
         let editor = TerminalOtherResponderView(frame: NSRect(x: 0, y: 200, width: 400, height: 50))
-        let content = try #require(window.contentView)
         content.addSubview(terminal)
         content.addSubview(editor)
-        let view = MTKView(frame: terminal.bounds, device: nil)
-        let renderer = CursorDrawingRecorder()
-        let focusDelegate = TerminalMetalFocusDelegate(view: view, terminalView: terminal, renderer: renderer)
-        let requestedColor = NSColor.systemBlue
-        terminal.caretColor = requestedColor
+        terminal.applyThemeColors(theme: .lithe, isDark: true)
+        // Lithe records the requested caret from the theme and publishes it only while this view owns the keyboard.
+        let requestedColor = NSColor(srgbRed: 0.35, green: 0.67, blue: 0.98, alpha: 1)
 
-        for requestedStyle in [CursorStyle.blinkBlock, .blinkBar, .blinkUnderline, .steadyBar] {
-            terminal.terminal.setCursorStyle(requestedStyle)
-            #expect(window.makeFirstResponder(editor))
-            // Even a stale terminal flag must not animate a background panel.
-            terminal.hasFocus = true
-            #expect(!terminal.hasFocus)
-            renderer.onDraw = {
-                #expect(terminal.terminal.options.cursorStyle == .steadyBlock)
-                #expect(terminal.caretColor.alphaComponent == 0)
-            }
-            focusDelegate.draw(in: view)
-            #expect(terminal.terminal.options.cursorStyle == requestedStyle)
-            #expect(terminal.caretColor == requestedColor)
+        #expect(window.makeFirstResponder(terminal))
+        #expect(terminal.hasFocus)
+        #expect(terminal.caretColor == requestedColor)
 
-            #expect(window.makeFirstResponder(terminal))
-            #expect(terminal.hasFocus)
-            renderer.onDraw = {
-                #expect(terminal.terminal.options.cursorStyle == requestedStyle)
-                #expect(terminal.caretColor == requestedColor)
-            }
-            focusDelegate.draw(in: view)
-        }
-        #expect(renderer.drawCount == 8)
-        let resized = CGSize(width: 640, height: 320)
-        focusDelegate.mtkView(view, drawableSizeWillChange: resized)
-        #expect(renderer.drawableSize == resized)
-        window.reportsKeyWindow = false
-        renderer.onDraw = {
-            #expect(terminal.terminal.options.cursorStyle == .steadyBlock)
-            #expect(terminal.caretColor.alphaComponent == 0)
-        }
-        focusDelegate.draw(in: view)
+        #expect(window.makeFirstResponder(editor))
         #expect(!terminal.hasFocus)
+        #expect(terminal.caretColor.alphaComponent == 0,
+                "A background terminal must not paint its caret")
+
+        #expect(window.makeFirstResponder(terminal))
+        #expect(terminal.hasFocus)
+        #expect(terminal.caretColor == requestedColor)
+
+        // OSC 12 sets the caret color directly.
+        // The host keeps that color across focus changes instead of falling back to the theme color.
+        terminal.caretColor = .systemRed
+        #expect(window.makeFirstResponder(editor))
+        #expect(terminal.caretColor.alphaComponent == 0)
+        #expect(window.makeFirstResponder(terminal))
+        #expect(terminal.hasFocus)
+        #expect(terminal.caretColor == .systemRed,
+                "An OSC 12 caret color must survive the focus round trip")
+
+        // An OSC 12 write while unfocused must not paint a background caret.
+        // Its color must survive until this view is focused again.
+        #expect(window.makeFirstResponder(editor))
+        terminal.caretColor = .systemGreen
+        terminal.refreshCaretFocus()
+        #expect(terminal.caretColor.alphaComponent == 0)
+        #expect(window.makeFirstResponder(terminal))
+        #expect(terminal.hasFocus)
+        #expect(terminal.caretColor == .systemGreen,
+                "An OSC 12 caret color set while unfocused must be restored")
+
+        window.reportsKeyWindow = false
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
+        #expect(!terminal.hasFocus)
+        #expect(terminal.caretColor.alphaComponent == 0,
+                "Resigning key must clear the caret while this view is still the responder")
     }
 
     @Test
@@ -359,12 +364,11 @@ struct TerminalCanvasCompositingTests {
         #expect(clearColor?.blueComponent == 0)
         #expect(terminal.layer?.backgroundColor == NSColor.clear.cgColor)
         #expect(terminal.layer?.isOpaque == false)
-        let renderer = MTKView(frame: terminal.bounds, device: nil)
-        terminal.addSubview(renderer)
         terminal.applyThemeColors(theme: .lithe, isDark: false)
-        #expect(renderer.layer?.isOpaque == false)
+        #expect(terminal.layer?.isOpaque == false)
+        #expect(terminal.nativeBackgroundColor.alphaComponent == 0)
         terminal.hasFocus = false
-        #expect(renderer.layer?.isOpaque == false)
+        #expect(terminal.layer?.isOpaque == false)
     }
 
     @Test
@@ -378,11 +382,33 @@ struct TerminalCanvasCompositingTests {
             #expect(terminal.nativeBackgroundColor.isEqual(editorColor))
             #expect(terminal.layer?.backgroundColor == editorColor.cgColor)
             #expect(terminal.layer?.isOpaque == true)
-            let renderer = MTKView(frame: terminal.bounds, device: nil)
-            terminal.addSubview(renderer)
             terminal.applyThemeColors(theme: .lithe, isDark: name == .darkAqua)
-            #expect(renderer.layer?.isOpaque == true)
+            #expect(terminal.layer?.isOpaque == true)
+            #expect(terminal.nativeBackgroundColor.alphaComponent == 1)
         }
+    }
+
+    @Test
+    func `attaching to window enables metal renderer`() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 250),
+            styleMask: [.borderless], backing: .buffered, defer: false,
+        )
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let terminal = LitheTerminalView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
+        window.contentView?.addSubview(terminal)
+
+        guard !terminal.isUsingMetalRenderer else { return }
+        // Staying on Core Graphics is only acceptable when this host genuinely cannot build the Metal device or shader pipeline.
+        // Retrying the renderer distinguishes that from a regression in the attachment path.
+        do {
+            try terminal.setUseMetal(true)
+        } catch {
+            #expect(!terminal.isUsingMetalRenderer)
+            return
+        }
+        Issue.record("Attaching the terminal to a window did not enable the Metal renderer")
     }
 
     @Test
@@ -390,18 +416,14 @@ struct TerminalCanvasCompositingTests {
         let terminal = LitheTerminalView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
         terminal.appearance = NSAppearance(named: .aqua)
         terminal.applyThemeColors(theme: .lithe, isDark: false)
-        let renderer = MTKView(frame: terminal.bounds, device: nil)
-        terminal.addSubview(renderer)
         terminal.updateWorkbenchSurface(isVisible: true, theme: .lithe, isDark: false)
         #expect(terminal.nativeBackgroundColor.alphaComponent == 0)
         #expect(terminal.nativeBackgroundColor.usingColorSpace(.sRGB)?.redComponent == 0)
         #expect(terminal.layer?.backgroundColor == NSColor.clear.cgColor)
         #expect(terminal.layer?.isOpaque == false)
-        #expect(renderer.layer?.isOpaque == false)
         terminal.updateWorkbenchSurface(isVisible: false, theme: .lithe, isDark: false)
         #expect(terminal.nativeBackgroundColor.alphaComponent == 1)
         #expect(terminal.layer?.isOpaque == true)
-        #expect(renderer.layer?.isOpaque == true)
     }
 
     @Test
@@ -411,15 +433,17 @@ struct TerminalCanvasCompositingTests {
         terminal.applyThemeColors(theme: .lithe, isDark: false)
         let editorColor = LitheTheme.nsColor(.editor, theme: .lithe, isDark: false).usingColorSpace(.sRGB)
         let expected = try #require(editorColor)
-        let reported = terminal.terminal.backgroundColor
-        #expect(reported.red == UInt16((expected.redComponent * 65535).rounded()))
-        #expect(reported.green == UInt16((expected.greenComponent * 65535).rounded()))
-        #expect(reported.blue == UInt16((expected.blueComponent * 65535).rounded()))
+        let reported = try #require(terminal.nativeBackgroundColor.usingColorSpace(.sRGB))
+        #expect(reported.redComponent == expected.redComponent)
+        #expect(reported.greenComponent == expected.greenComponent)
+        #expect(reported.blueComponent == expected.blueComponent)
+        #expect(reported.alphaComponent == 1)
         terminal.updateWorkbenchSurface(isVisible: true, theme: .lithe, isDark: false)
-        let transparent = terminal.terminal.backgroundColor
-        #expect(transparent.red == 0)
-        #expect(transparent.green == 0)
-        #expect(transparent.blue == 0)
+        let transparent = try #require(terminal.nativeBackgroundColor.usingColorSpace(.sRGB))
+        #expect(transparent.redComponent == 0)
+        #expect(transparent.greenComponent == 0)
+        #expect(transparent.blueComponent == 0)
+        #expect(transparent.alphaComponent == 0)
     }
 
     @Test
@@ -430,6 +454,18 @@ struct TerminalCanvasCompositingTests {
     @Test
     func mountedTerminalRefreshesTheSameSurfaceInLightAppearance() async throws {
         try await assertMountedTerminalThemeRefresh(scheme: .light)
+    }
+
+    /// SwiftTerm 1.99 round-trips native colors through its 16-bit terminal color model.
+    /// The view's native colors therefore differ from the theme colors by encoding error.
+    /// Compare components instead of using `isEqual`.
+    private func colorsMatch(_ color: NSColor, _ expected: NSColor, tolerance: CGFloat = 0.001) -> Bool {
+        guard let actual = color.usingColorSpace(.sRGB),
+              let target = expected.usingColorSpace(.sRGB) else { return false }
+        return abs(actual.redComponent - target.redComponent) <= tolerance
+            && abs(actual.greenComponent - target.greenComponent) <= tolerance
+            && abs(actual.blueComponent - target.blueComponent) <= tolerance
+            && abs(actual.alphaComponent - target.alphaComponent) <= tolerance
     }
 
     private func assertMountedTerminalThemeRefresh(scheme: ColorScheme) async throws {
@@ -461,14 +497,15 @@ struct TerminalCanvasCompositingTests {
         let initialBackground = LitheTheme.nsColor(.editor, theme: .lithe, isDark: isDark)
         let initialForeground = LitheTheme.nsColor(.primaryText, theme: .lithe, isDark: isDark)
         let initialDeadline = ContinuousClock().now.advanced(by: .seconds(2))
-        while (!terminal.nativeBackgroundColor.isEqual(initialBackground)
-            || !terminal.nativeForegroundColor.isEqual(initialForeground)),
-            ContinuousClock().now < initialDeadline {
+        while !colorsMatch(terminal.nativeBackgroundColor, initialBackground)
+            || !colorsMatch(terminal.nativeForegroundColor, initialForeground),
+            ContinuousClock().now < initialDeadline
+        {
             host.layoutSubtreeIfNeeded()
             await Task.yield()
         }
-        #expect(terminal.nativeBackgroundColor.isEqual(initialBackground))
-        #expect(terminal.nativeForegroundColor.isEqual(initialForeground))
+        #expect(colorsMatch(terminal.nativeBackgroundColor, initialBackground))
+        #expect(colorsMatch(terminal.nativeForegroundColor, initialForeground))
         #expect(session.isRunning)
         let clock = ContinuousClock()
         for theme in [AppColorTheme.codex, .linear, .lithe] {
@@ -476,24 +513,25 @@ struct TerminalCanvasCompositingTests {
             let expected = LitheTheme.nsColor(.editor, theme: theme, isDark: isDark)
             let expectedForeground = LitheTheme.nsColor(.primaryText, theme: theme, isDark: isDark)
             let deadline = clock.now.advanced(by: .seconds(2))
-            while (!terminal.nativeBackgroundColor.isEqual(expected)
-                || !terminal.nativeForegroundColor.isEqual(expectedForeground)),
-                clock.now < deadline {
+            while !colorsMatch(terminal.nativeBackgroundColor, expected)
+                || !colorsMatch(terminal.nativeForegroundColor, expectedForeground),
+                clock.now < deadline
+            {
                 host.layoutSubtreeIfNeeded()
                 await Task.yield()
             }
-            let sRGB = try #require(expected.usingColorSpace(.sRGB))
-            let reported = terminal.terminal.backgroundColor
-            let reportedForeground = terminal.terminal.foregroundColor
+            let expectedSRGB = try #require(expected.usingColorSpace(.sRGB))
             let expectedForegroundSRGB = try #require(expectedForeground.usingColorSpace(.sRGB))
-            #expect(terminal.nativeBackgroundColor.isEqual(expected))
-            #expect(terminal.nativeForegroundColor.isEqual(expectedForeground))
-            #expect(reported.red == UInt16(sRGB.redComponent * 65535))
-            #expect(reported.green == UInt16(sRGB.greenComponent * 65535))
-            #expect(reported.blue == UInt16(sRGB.blueComponent * 65535))
-            #expect(abs(Int(reportedForeground.red) - Int(expectedForegroundSRGB.redComponent * 65535)) <= 1)
-            #expect(abs(Int(reportedForeground.green) - Int(expectedForegroundSRGB.greenComponent * 65535)) <= 1)
-            #expect(abs(Int(reportedForeground.blue) - Int(expectedForegroundSRGB.blueComponent * 65535)) <= 1)
+            let reported = try #require(terminal.nativeBackgroundColor.usingColorSpace(.sRGB))
+            let reportedForeground = try #require(terminal.nativeForegroundColor.usingColorSpace(.sRGB))
+            #expect(colorsMatch(terminal.nativeBackgroundColor, expected))
+            #expect(colorsMatch(terminal.nativeForegroundColor, expectedForeground))
+            #expect(abs(reported.redComponent - expectedSRGB.redComponent) <= 0.001)
+            #expect(abs(reported.greenComponent - expectedSRGB.greenComponent) <= 0.001)
+            #expect(abs(reported.blueComponent - expectedSRGB.blueComponent) <= 0.001)
+            #expect(abs(reportedForeground.redComponent - expectedForegroundSRGB.redComponent) <= 0.001)
+            #expect(abs(reportedForeground.greenComponent - expectedForegroundSRGB.greenComponent) <= 0.001)
+            #expect(abs(reportedForeground.blueComponent - expectedForegroundSRGB.blueComponent) <= 0.001)
             #expect(session.isRunning)
         }
         session.stop()
@@ -539,28 +577,6 @@ private final class CursorInvalidationRecordingView: MTKView {
     override func setNeedsDisplay(_ invalidRect: NSRect) {
         requestedDisplay = true
         super.setNeedsDisplay(invalidRect)
-    }
-}
-
-// Tests invoke these delegate callbacks synchronously on the main actor.
-// Older SDKs expose MTKViewDelegate without actor isolation.
-@MainActor
-private final class CursorDrawingRecorder: NSObject, MTKViewDelegate {
-    var onDraw: () -> Void = {}
-    var drawCount = 0
-    var drawableSize: CGSize?
-
-    nonisolated func draw(in view: MTKView) {
-        MainActor.assumeIsolated {
-            drawCount += 1
-            onDraw()
-        }
-    }
-
-    nonisolated func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
-        MainActor.assumeIsolated {
-            drawableSize = size
-        }
     }
 }
 

@@ -194,7 +194,6 @@ required_resources=(
     "$app_path/Contents/Resources/Fonts/OFL.txt"
     "$app_path/Contents/Resources/Fonts/AUTHORS.txt"
     "$app_path/Contents/Resources/Fonts/NOTICE.txt"
-    "$app_path/Contents/Resources/SwiftTerm_SwiftTerm.bundle/Shaders.metal"
     "$app_path/Contents/Resources/MonacoEditor/index.html"
     "$app_path/Contents/Resources/MonacoEditor/workbench.js"
     "$app_path/Contents/Resources/MonacoEditor/workbench.css"
