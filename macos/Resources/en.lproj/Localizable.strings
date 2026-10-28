@@ -990,6 +990,7 @@
 "Could not start the Java test result listener: %@" = "Could not start the Java test result listener: %@";
 "Could not start the MCP command. Check its executable and runtime." = "Could not start the MCP command. Check its executable and runtime.";
 "Could not verify the commit outcome. Review before retrying." = "Could not verify the commit outcome. Review before retrying.";
+"Could not verify the saved project environment settings. The previous preferences have been kept when possible." = "Could not verify the saved project environment settings. The previous preferences have been kept when possible.";
 "Could not write %@." = "Could not write %@.";
 "Could not write %@. The previous contents were kept in %@." = "Could not write %@. The previous contents were kept in %@.";
 "Could not write Java launch argument file at %@: %@" = "Could not write Java launch argument file at %@: %@";
@@ -2750,6 +2751,8 @@
 "Project default" = "Project default";
 "Project defaults (This Mac)" = "Project defaults (This Mac)";
 "Project environment" = "Project environment";
+"Project environment settings are being saved. Wait before saving again." = "Project environment settings are being saved. Wait before saving again.";
+"Project environment settings changed on disk. Reload before saving; your draft has been kept." = "Project environment settings changed on disk. Reload before saving; your draft has been kept.";
 "Project files" = "Project files";
 "Project identification complete" = "Project identification complete";
 "Project identification did not produce a run configuration." = "Project identification did not produce a run configuration.";
@@ -5415,6 +5418,7 @@
 "native.couldNotSaveTheConnections" = "Could not save the connections: %1$@";
 "native.couldNotStartTheJavaTestResultListener" = "Could not start the Java test result listener: %1$@";
 "native.couldNotStartTheMcpCommandCheckItsExecutableAndRuntime" = "Could not start the MCP command. Check its executable and runtime.";
+"native.couldNotVerifySavedProjectEnvironment" = "Could not verify the saved project environment settings. The previous preferences have been kept when possible.";
 "native.couldNotVerifyTheCommitOutcomeReviewBeforeRetrying" = "Could not verify the commit outcome. Review before retrying.";
 "native.couldNotWrite" = "Could not write %1$@.";
 "native.couldNotWriteJavaLaunchArgumentFileAt" = "Could not write Java launch argument file at %1$@: %2$@";
@@ -7338,6 +7342,8 @@
 "native.projectDefault" = "Project default";
 "native.projectDefaultsThisMac" = "Project defaults (This Mac)";
 "native.projectEnvironment" = "Project environment";
+"native.projectEnvironmentSaveInProgress" = "Project environment settings are being saved. Wait before saving again.";
+"native.projectEnvironmentSettingsChangedOnDisk" = "Project environment settings changed on disk. Reload before saving; your draft has been kept.";
 "native.projectErrors" = "Project Errors";
 "native.projectFiles" = "Project files";
 "native.projectIdentificationComplete" = "Project identification complete";

@@ -90174,6 +90174,39 @@
       "windows": {
         "key": "ide.build.windowsUnavailable"
       }
+    },
+    {
+      "id": "native.projectEnvironmentSettingsChangedOnDisk",
+      "description": "Native UI: Project environment settings changed on disk. Reload before saving; your draft has been kept.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Project environment settings changed on disk. Reload before saving; your draft has been kept.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.couldNotVerifySavedProjectEnvironment",
+      "description": "Native UI: Could not verify the saved project environment settings. The previous preferences have been kept when possible.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not verify the saved project environment settings. The previous preferences have been kept when possible.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.projectEnvironmentSaveInProgress",
+      "description": "Native UI: Project environment settings are being saved. Wait before saving again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Project environment settings are being saved. Wait before saving again.",
+        "arguments": []
+      }
     }
   ]
 }

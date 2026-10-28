@@ -249,7 +249,16 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
     }
 
     func saveProjectToolchain(_ toolchain: ProjectToolchainSelection, at projectURL: URL) throws {
+        let url = projectURL.appendingPathComponent(".lithe/run/local.json")
+        let expected = storage.fileExists(at: url) ? try storage.readData(from: url, options: []) : nil
+        try saveProjectToolchain(toolchain, at: projectURL, expecting: expected)
+    }
+
+    func saveProjectToolchain(_ toolchain: ProjectToolchainSelection, at projectURL: URL, expecting expected: Data?) throws {
         let root = projectURL.standardizedFileURL
+        let url = root.appendingPathComponent(".lithe/run/local.json")
+        let current = storage.fileExists(at: url) ? try storage.readData(from: url, options: []) : nil
+        guard current == expected else { throw ProjectRuntimeSettingsStoreError.conflict }
         let payload = try core.updateRunConfigurationOptions(
             at: root,
             configurationID: "",
@@ -263,11 +272,12 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         // Settings can be saved before generation creates the normal ignore file.
         // Protect machine paths before making the local document visible to Git.
         try ensureLocalRunIgnored(at: root)
-        try writeMutation(
-            RunConfigurationDocumentMutation(configurationID: nil, document: data),
-            to: root.appendingPathComponent(".lithe/run/local.json"),
-            root: root
-        )
+        try validateWriteTarget(url, root: root)
+        try storage.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        guard try storage.replaceData(data, at: url, expecting: expected) else {
+            throw ProjectRuntimeSettingsStoreError.conflict
+        }
+        MacFileWriteEventSuppression.markWritten(url)
     }
 
     func saveEditorChanges(

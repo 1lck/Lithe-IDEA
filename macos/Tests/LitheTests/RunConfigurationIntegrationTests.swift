@@ -3843,7 +3843,6 @@ struct RunConfigurationIntegrationTests {
 
         #expect(fixture.service.saveEditorChanges(
             options,
-            toolchain: ProjectToolchainSelection(),
             for: configuration,
             scope: .project
         ))
@@ -3874,30 +3873,23 @@ struct RunConfigurationIntegrationTests {
             mavenProject: fixture.mavenProject
         )
         let options = RunOptions(programArguments: "--dev")
-        let toolchain = ProjectToolchainSelection(
-            javaHomePath: "/opt/jdk-21",
-            mavenExecutablePath: "/opt/apache-maven",
-            mavenJavaHomePath: "/opt/jdk-17"
-        )
+
 
         #expect(fixture.service.saveEditorChanges(
             options,
-            toolchain: toolchain,
             for: configuration,
             scope: .local
         ))
         #expect(fixture.operations.editorSaveCalls == 1)
         #expect(fixture.operations.savedOptions == [options])
         #expect(fixture.operations.savedScopes == [.local])
-        #expect(fixture.operations.savedToolchains == [toolchain])
+        #expect(fixture.operations.savedToolchains == [ProjectToolchainSelection()])
     }
 
     @Test
     func editorSaveKeepsTheEffectiveProjectDefaults() async {
-        // Core rewrites the project defaults with every editor save. Resolving a
-        // layer without saved defaults yields an empty selection; writing it would
-        // turn "never saved" into explicit automatic defaults and drop the JDK the
-        // runtime settings still hold.
+        // Never manufacture project defaults from a separate form. External
+        // updates made after loading must be read again before an editor save.
         let configuration = JavaRunConfiguration(
             id: "spring",
             name: "Spring",
@@ -3905,26 +3897,26 @@ struct RunConfigurationIntegrationTests {
             modulePath: ".",
             mainClass: nil
         )
-        let mirror = ProjectToolchainSelection(javaHomePath: "/fixture/mirrored-jdk")
         let unsaved = makeFixture(
             status: .ready,
             effective: [EffectiveRunConfiguration(configuration: configuration, options: RunOptions(), source: .generated)]
         )
         await unsaved.service.loadProject(at: unsaved.root, files: [], mavenProject: unsaved.mavenProject)
         #expect(unsaved.service.savedProjectToolchain == nil)
-        #expect(unsaved.service.saveEditorChanges(RunOptions(), toolchain: mirror, for: configuration, scope: .local))
-        #expect(unsaved.operations.savedToolchains == [mirror])
-        #expect(unsaved.service.savedProjectToolchain == mirror)
+        #expect(unsaved.service.saveEditorChanges(RunOptions(), for: configuration, scope: .local))
+        #expect(unsaved.operations.savedToolchains == [ProjectToolchainSelection()])
+        #expect(unsaved.service.savedProjectToolchain == ProjectToolchainSelection())
 
-        // Once the local layer holds defaults, they win over a stale mirror.
+        // Current on-disk defaults win over this service's loaded snapshot.
         let saved = ProjectToolchainSelection(javaHomePath: "/fixture/saved-jdk", mavenExecutablePath: "mvnw")
         let stored = makeFixture(
             status: .ready,
             effective: [EffectiveRunConfiguration(configuration: configuration, options: RunOptions(), source: .generated)]
         )
-        stored.operations.inspectionToolchain = saved
         await stored.service.loadProject(at: stored.root, files: [], mavenProject: stored.mavenProject)
-        #expect(stored.service.saveEditorChanges(RunOptions(), toolchain: mirror, for: configuration, scope: .local))
+        // A different editor saves after this service loaded its documents.
+        stored.operations.inspectionToolchain = saved
+        #expect(stored.service.saveEditorChanges(RunOptions(), for: configuration, scope: .local))
         #expect(stored.operations.savedToolchains == [saved])
     }
 
@@ -3955,7 +3947,6 @@ struct RunConfigurationIntegrationTests {
 
         #expect(!fixture.service.saveEditorChanges(
             RunOptions(programArguments: "--new"),
-            toolchain: ProjectToolchainSelection(),
             for: configuration,
             scope: .local
         ))

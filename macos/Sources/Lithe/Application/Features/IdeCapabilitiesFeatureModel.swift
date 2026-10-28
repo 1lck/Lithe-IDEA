@@ -164,9 +164,8 @@ final class IdeCapabilitiesFeatureModel: ObservableObject {
                     if let value = args["settingsPath"] as? String { settings.mavenSettingsPath = value }
                     if let value = args["localRepositoryPath"] as? String { settings.mavenLocalRepositoryPath = value }
                 }
-                model.persistProjectRuntimeSettings()
-                if let error = run.configurationSaveError { throw failure(error) }
-                if maven.project != nil, let error = await maven.saveConfiguration() { throw failure(error) }
+                await model.persistProjectRuntimeSettings()
+                if let error = model.runtimeFeature.settingsError { throw failure(error) }
                 try check(model, identity, grant: grant)
             }
             return environment(model, root: identity.url)

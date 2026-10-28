@@ -379,51 +379,38 @@ extension AppModel {
         if let identity = currentWorkspaceIdentity,
            let run = await activateExecutionModule()?.runFeature,
            isCurrentWorkspace(identity) {
-            // Seed the form from the saved project toolchain, not the empty value a
-            // Run feature holds while it is still reading this project's documents.
+            // Bind the remaining legacy Maven/project workflow before filling
+            // the form. Runtime defaults are read directly from their source.
             _ = await ensureRunProjectReady(run, for: identity)
-            if isCurrentWorkspace(identity) { adoptSavedProjectToolchain(from: run, workspace: identity.url) }
+            guard isCurrentWorkspace(identity) else { return }
         }
         runtimeFeature.prepare(
             workspaceName: projectName,
             workspaceURL: workspaceURL,
             files: projectFiles,
             mavenProject: mavenFeatureIfActive?.project,
-            toolchain: runFeatureIfActive?.projectToolchain,
             mavenSettingsPath: mavenFeatureIfActive?.settingsPath,
-            mavenLocalRepositoryPath: mavenFeatureIfActive?.localRepositoryPath,
-            mavenExecutablePath: mavenFeatureIfActive?.mavenExecutablePath,
-            mavenJavaHomePath: mavenFeatureIfActive?.javaHomePath
+            mavenLocalRepositoryPath: mavenFeatureIfActive?.localRepositoryPath
         )
     }
 
-    /// `.lithe/run/local.json` owns the project JDK and Maven defaults; the runtime
-    /// settings only mirror them. A layer without saved defaults keeps the current
-    /// settings, which the next save writes into the layer.
-    func adoptSavedProjectToolchain(from run: RunFeatureModel, workspace: URL) {
-        guard !run.isLoadingProject,
-              run.projectLoadState.hasLoadedDocuments(for: workspace),
-              let saved = run.savedProjectToolchain else { return }
-        runtimeFeature.adoptProjectToolchain(saved)
-    }
-
-    func persistProjectRuntimeSettings() {
+    func persistProjectRuntimeSettings() async {
+        guard let identity = currentWorkspaceIdentity, runtimeFeature.saveSettings() else { return }
         let settings = runtimeFeature.settings
-        if let maven = mavenFeatureIfActive {
+        if let maven = mavenFeatureIfActive, maven.project != nil {
             maven.updateLocalConfiguration(
                 settingsPath: settings.mavenSettingsPath,
                 localRepositoryPath: settings.mavenLocalRepositoryPath,
                 mavenExecutablePath: settings.mavenExecutableOverride,
                 javaHomePath: settings.mavenJavaHomePath
             )
+            let error = await maven.saveConfiguration()
+            guard isCurrentWorkspace(identity) else { return }
+            if let error {
+                runtimeFeature.finishSaving(error: error)
+                return
+            }
         }
-        // Closing Settings persists without an edit. Until the Run feature has read
-        // this project's documents, its toolchain is unknown, and saving would
-        // overwrite the project defaults with whatever the form was seeded from.
-        guard let workspaceURL,
-              let run = runFeatureIfActive,
-              !run.isLoadingProject,
-              run.projectLoadState.hasLoadedDocuments(for: workspaceURL) else { return }
-        _ = run.saveProjectToolchain(runtimeFeature.projectToolchainSelection)
+        runtimeFeature.finishSaving()
     }
 }

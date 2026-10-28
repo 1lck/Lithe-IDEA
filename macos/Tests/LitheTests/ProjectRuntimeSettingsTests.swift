@@ -155,16 +155,16 @@ struct ProjectRuntimeSettingsTests {
     @Test
     @MainActor
     func persistedSettingsReloadForTheSameProject() {
-        let store = ProjectRuntimeSettingsTestStore()
+        let store = InMemoryProjectRuntimeSettingsStore()
         let root = URL(fileURLWithPath: "/workspace/shop", isDirectory: true)
         let locator = ProjectRuntimeSettingsTestLocator()
-        let service = ProjectRuntimeService(runtimeLocator: locator, store: store)
+        let service = ProjectRuntimeService(runtimeLocator: locator, settingsStore: store)
         service.openProject(at: root)
         var settings = ProjectRuntimeSettings(javaHomePath: "/Library/Java/jdk-21")
         settings.setOverride(path: "services/alpha", javaHomePath: "/Library/Java/jdk-17")
         service.updateSettings(settings)
 
-        let reloaded = ProjectRuntimeService(runtimeLocator: locator, store: store)
+        let reloaded = ProjectRuntimeService(runtimeLocator: locator, settingsStore: store)
         reloaded.openProject(at: root)
         #expect(reloaded.settings.javaHomePath == "/Library/Java/jdk-21")
         #expect(reloaded.settings.exactOverride(for: "services/alpha")?.javaHomePath == "/Library/Java/jdk-17")
@@ -180,7 +180,7 @@ struct ProjectRuntimeSettingsTests {
     @Test
     @MainActor
     func invalidConfiguredProjectJDKIsNotMaskedByDiscovery() async throws {
-        let store = ProjectRuntimeSettingsTestStore()
+        let store = InMemoryProjectRuntimeSettingsStore()
         let root = URL(fileURLWithPath: "/workspace/shop", isDirectory: true)
         let discovered = JavaRuntimeCandidate(
             homePath: "/Library/Java/jdk-21",
@@ -191,7 +191,7 @@ struct ProjectRuntimeSettingsTests {
             validJavaHomes: ["/Library/Java/jdk-21"],
             discoveredJavaRuntimes: [discovered]
         )
-        let service = ProjectRuntimeService(runtimeLocator: locator, store: store)
+        let service = ProjectRuntimeService(runtimeLocator: locator, settingsStore: store)
         service.openProject(at: root)
         service.updateSettings(ProjectRuntimeSettings(javaHomePath: "/missing-jdk"))
         await service.refreshAvailableRuntimes()
@@ -204,17 +204,7 @@ struct ProjectRuntimeSettingsTests {
     }
 }
 
-private final class ProjectRuntimeSettingsTestStore: KeyValueStore, @unchecked Sendable {
-    private var values: [String: Any] = [:]
-
-    func data(forKey key: String) -> Data? { values[key] as? Data }
-    func object(forKey key: String) -> Any? { values[key] }
-    func string(forKey key: String) -> String? { values[key] as? String }
-    func stringArray(forKey key: String) -> [String]? { values[key] as? [String] }
-    func set(_ value: Any?, forKey key: String) { values[key] = value }
-}
-
-private struct ProjectRuntimeSettingsTestLocator: RuntimeLocator {
+struct ProjectRuntimeSettingsTestLocator: RuntimeLocator {
     var validJavaHomes: Set<String>?
     var discoveredJavaRuntimes: [JavaRuntimeCandidate] = []
 

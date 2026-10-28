@@ -9459,7 +9459,10 @@
     "ide.build.selectionExpired": "The build selection is no longer available",
     "ide.build.launchFailed": "Build launch did not start",
     "ide.build.restart": "Use Build execute to start another build",
-    "ide.build.windowsUnavailable": "Build Provider workflows are not available on Windows yet"
+    "ide.build.windowsUnavailable": "Build Provider workflows are not available on Windows yet",
+    "native.projectEnvironmentSettingsChangedOnDisk": "Project environment settings changed on disk. Reload before saving; your draft has been kept.",
+    "native.couldNotVerifySavedProjectEnvironment": "Could not verify the saved project environment settings. The previous preferences have been kept when possible.",
+    "native.projectEnvironmentSaveInProgress": "Project environment settings are being saved. Wait before saving again."
   },
   "overrides": {
     "windows": {

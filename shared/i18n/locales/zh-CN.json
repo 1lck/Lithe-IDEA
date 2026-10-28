@@ -9459,7 +9459,10 @@
     "ide.build.selectionExpired": "所选构建项已不可用",
     "ide.build.launchFailed": "构建未能启动",
     "ide.build.restart": "请使用构建执行工具开始新的构建",
-    "ide.build.windowsUnavailable": "Windows 尚不支持 Build Provider 工作流"
+    "ide.build.windowsUnavailable": "Windows 尚不支持 Build Provider 工作流",
+    "native.projectEnvironmentSettingsChangedOnDisk": "项目环境设置已被外部修改。请重新加载后再保存；你的草稿已保留。",
+    "native.couldNotVerifySavedProjectEnvironment": "无法核对已保存的项目环境设置。已尽可能保留原偏好。",
+    "native.projectEnvironmentSaveInProgress": "正在保存项目环境设置，请等待完成后再保存。"
   },
   "overrides": {
     "macos": {

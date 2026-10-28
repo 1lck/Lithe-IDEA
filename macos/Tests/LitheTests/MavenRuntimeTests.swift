@@ -363,41 +363,28 @@ struct MavenRuntimeTests {
 
     @Test
     @MainActor
-    func savedRunDefaultsReplaceMirroredRuntimeSettings() {
-        // `.lithe/run/local.json` owns the project defaults. Settings mirrored from an
-        // older editor must follow it, while unrelated Maven settings stay untouched.
+    func runtimeSelectionsReadCurrentCanonicalDefaults() throws {
+        let store = InMemoryProjectRuntimeSettingsStore()
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
         let service = ProjectRuntimeService(
-            runtimeLocator: MavenOverrideRuntimeLocator(resolutions: [:]),
-            store: EmptyKeyValueStore()
+            runtimeLocator: MavenOverrideRuntimeLocator(resolutions: [:]), settingsStore: store
         )
-        service.openProject(at: URL(fileURLWithPath: "/workspace", isDirectory: true))
-        var legacy = service.settings
-        legacy.javaHomePath = "/fixture/legacy-jdk"
-        legacy.mavenHomeSelection = .custom
-        legacy.mavenHomePath = "/fixture/legacy-maven"
-        legacy.mavenJavaHomePath = "/fixture/legacy-maven-jdk"
-        legacy.mavenSettingsPath = "/fixture/settings.xml"
-        service.updateSettings(legacy)
-
-        service.adoptProjectToolchain(ProjectToolchainSelection(
-            javaHomePath: "/fixture/run-jdk",
-            mavenExecutablePath: "./mvnw",
-            mavenJavaHomePath: ""
-        ))
+        service.openProject(at: root)
+        let original = try store.load(at: root, migrateLegacy: false)
+        var current = original.settings
+        current.javaHomePath = "/fixture/run-jdk"
+        current.mavenHomeSelection = .wrapper
+        _ = try store.save(current, at: root, expecting: original)
+        service.reloadSettings()
         #expect(service.settings.javaHomePath == "/fixture/run-jdk")
         #expect(service.settings.mavenHomeSelection == .wrapper)
-        #expect(service.settings.mavenJavaHomePath.isEmpty)
-        #expect(service.settings.mavenSettingsPath == "/fixture/settings.xml")
-
-        service.adoptProjectToolchain(ProjectToolchainSelection(mavenExecutablePath: "/fixture/other-maven"))
-        #expect(service.settings.mavenHomeSelection == .custom)
-        #expect(service.settings.mavenHomePath == "/fixture/other-maven")
-
-        // Explicitly automatic defaults clear the choice but keep the remembered path.
-        service.adoptProjectToolchain(ProjectToolchainSelection())
-        #expect(service.settings.mavenHomeSelection == .automatic)
-        #expect(service.settings.mavenHomePath == "/fixture/other-maven")
+        let saved = try store.load(at: root, migrateLegacy: false)
+        _ = try store.save(ProjectRuntimeSettings(), at: root, expecting: saved)
+        service.reloadSettings()
         #expect(service.settings.projectToolchainSelection() == ProjectToolchainSelection())
+        store.failure = CocoaError(.fileReadCorruptFile)
+        #expect(service.javaHomeURL() == nil)
+        #expect(service.settingsError != nil)
     }
 
     @Test

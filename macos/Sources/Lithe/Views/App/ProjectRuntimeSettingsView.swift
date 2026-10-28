@@ -9,14 +9,16 @@ struct ProjectRuntimeSettingsView: View {
     @EnvironmentObject private var model: AppModel
     @ObservedObject var feature: RuntimeSettingsFeatureModel
     @State private var selectedSubprojectID = ProjectRuntimeInventory.projectDefaultsID
-    /// Editing waits until the form is seeded from this project's saved defaults.
-    /// An earlier edit could not reach `.lithe/run/local.json`, and adopting the
-    /// saved defaults afterwards would silently revert it.
+    /// Editing waits until the current source snapshot and legacy Maven
+    /// workflow are ready. No page lifecycle event writes the draft.
     @State private var isPrepared = false
 
     var body: some View {
         VStack(spacing: 0) {
             header
+            if let message = feature.settingsError {
+                Text(message).font(LitheTheme.smallFont).foregroundStyle(LitheTheme.error).padding(8)
+            }
             if model.workspaceURL == nil {
                 emptyWorkspace
             } else {
@@ -25,22 +27,19 @@ struct ProjectRuntimeSettingsView: View {
                     Rectangle().fill(LitheTheme.divider).frame(width: 1)
                     detail
                 }
-                .disabled(!isPrepared)
+                .disabled(!isPrepared || feature.isSaving)
             }
         }
         .background(LitheTheme.settingsSurface)
-        .task {
+        .task(id: model.currentWorkspaceIdentity) {
+            let identity = model.currentWorkspaceIdentity
+            isPrepared = false
             await model.prepareProjectRuntimeSettings()
+            guard !Task.isCancelled, model.currentWorkspaceIdentity == identity else { return }
             if feature.subprojects.contains(where: { $0.id == selectedSubprojectID }) == false {
                 selectedSubprojectID = ProjectRuntimeInventory.projectDefaultsID
             }
             isPrepared = true
-        }
-        .onDisappear {
-            // Before preparation the form holds unmerged values; persisting them
-            // would overwrite the saved project and Maven settings.
-            guard isPrepared else { return }
-            model.persistProjectRuntimeSettings()
         }
     }
 
@@ -51,7 +50,16 @@ struct ProjectRuntimeSettingsView: View {
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.secondaryText)
             }
+            Text(verbatim: ".lithe/run/local.json")
+                .font(LitheTheme.smallFont)
+                .foregroundStyle(LitheTheme.secondaryText)
             Spacer()
+            Button("Cancel") { feature.cancelChanges() }
+                .buttonStyle(LitheActionButtonStyle())
+                .disabled(!feature.hasChanges || feature.isSaving)
+            Button("Save") { Task { await model.persistProjectRuntimeSettings() } }
+                .buttonStyle(LitheActionButtonStyle())
+                .disabled(!isPrepared || !feature.hasChanges || feature.isSaving)
             if feature.isDiscovering {
                 ProgressView()
                     .controlSize(.small)
@@ -74,7 +82,7 @@ struct ProjectRuntimeSettingsView: View {
                 Label("Refresh detected runtimes", systemImage: "arrow.clockwise")
             }
             .buttonStyle(LitheActionButtonStyle())
-            .disabled(feature.isDiscovering)
+            .disabled(feature.isDiscovering || feature.isSaving)
         }
         .padding(.horizontal, 16)
         .frame(height: 40)
@@ -618,7 +626,6 @@ struct ProjectRuntimeSettingsView: View {
             get: { feature.settings.javaHomePath },
             set: { value in
                 feature.updateSettings { $0.javaHomePath = value }
-                model.persistProjectRuntimeSettings()
             }
         )
     }
@@ -628,7 +635,6 @@ struct ProjectRuntimeSettingsView: View {
             get: { feature.settings.mavenHomeSelection },
             set: { value in
                 feature.updateSettings { $0.mavenHomeSelection = value }
-                model.persistProjectRuntimeSettings()
             }
         )
     }
@@ -638,7 +644,6 @@ struct ProjectRuntimeSettingsView: View {
             get: { feature.settings.mavenHomePath },
             set: { value in
                 feature.updateSettings { $0.mavenHomePath = value }
-                model.persistProjectRuntimeSettings()
             }
         )
     }
@@ -648,7 +653,6 @@ struct ProjectRuntimeSettingsView: View {
             get: { feature.settings.mavenJavaHomePath },
             set: { value in
                 feature.updateSettings { $0.mavenJavaHomePath = value }
-                model.persistProjectRuntimeSettings()
             }
         )
     }
@@ -658,7 +662,6 @@ struct ProjectRuntimeSettingsView: View {
             get: { feature.settings.mavenSettingsPath },
             set: { value in
                 feature.updateSettings { $0.mavenSettingsPath = value }
-                model.persistProjectRuntimeSettings()
             }
         )
     }
@@ -668,7 +671,6 @@ struct ProjectRuntimeSettingsView: View {
             get: { feature.settings.mavenLocalRepositoryPath },
             set: { value in
                 feature.updateSettings { $0.mavenLocalRepositoryPath = value }
-                model.persistProjectRuntimeSettings()
             }
         )
     }
@@ -680,7 +682,6 @@ struct ProjectRuntimeSettingsView: View {
                 feature.updateSettings {
                     $0.setOverride(path: subproject.relativePath, javaHomePath: value)
                 }
-                model.persistProjectRuntimeSettings()
             }
         )
     }
@@ -692,7 +693,6 @@ struct ProjectRuntimeSettingsView: View {
                 feature.updateSettings {
                     $0.setOverride(path: subproject.relativePath, mavenExecutablePath: value)
                 }
-                model.persistProjectRuntimeSettings()
             }
         )
     }
@@ -704,7 +704,6 @@ struct ProjectRuntimeSettingsView: View {
                 feature.updateSettings {
                     $0.setOverride(path: subproject.relativePath, mavenJavaHomePath: value)
                 }
-                model.persistProjectRuntimeSettings()
             }
         )
     }

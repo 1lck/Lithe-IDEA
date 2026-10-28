@@ -802,16 +802,11 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         }
     }
 
-    /// Saves one configuration's editor changes. The editor no longer edits the
-    /// project defaults, but Core rewrites them with every save, so they must be
-    /// the effective defaults: the ones `.lithe/run/local.json` already holds, or
-    /// `toolchain` (the caller's mirror) when that layer has never saved any.
-    /// Writing the resolved, empty selection instead would turn "no saved
-    /// defaults" into explicit automatic ones and discard the user's JDK.
+    /// Reads current project defaults at save time. The configuration editor
+    /// never writes a runtime-settings mirror back over the local document.
     @discardableResult
     package func saveEditorChanges(
         _ options: RunOptions,
-        toolchain: ProjectToolchainSelection,
         for configuration: RunConfiguration,
         scope: RunConfigurationSaveScope
     ) -> Bool {
@@ -820,7 +815,12 @@ package final class RunService: ObservableObject, BuildRunLaunching {
             configurationSaveError = "Identify the project before editing its run configuration."
             return false
         }
-        let projectDefaults = savedProjectToolchain ?? toolchain
+        let inspection = runConfigurationOperations.inspect(at: projectURL, checkFingerprint: false, javaEntrypoints: nil)
+        if case .invalid(let message) = inspection.status {
+            configurationSaveError = message
+            return false
+        }
+        let projectDefaults = inspection.projectToolchain ?? ProjectToolchainSelection()
         do {
             try runConfigurationOperations.saveEditorChanges(
                 options,
@@ -861,7 +861,6 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     package func resetOptions(for configuration: RunConfiguration) {
         saveEditorChanges(
             RunOptions(),
-            toolchain: projectToolchain,
             for: configuration,
             scope: .local
         )

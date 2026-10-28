@@ -301,7 +301,7 @@ final class MacServiceContainer {
         }
         let runtimeService = ProjectRuntimeService(
             runtimeLocator: MacRuntimeLocator(),
-            store: store,
+            settingsStore: MacProjectRuntimeSettingsStore(core: rustCore, storage: fileStorage, preferences: store),
             toolDiscovery: MacRuntimeToolDiscovery()
         )
         let languageServerCacheDirectory = fileStorage.cacheDirectory()
@@ -1076,7 +1076,7 @@ final class MacServiceContainer {
                 }
             },
             recordJavaHome: { root, home in
-                await runtimeService.presetJavaHome(home, for: root)
+                try await runtimeService.presetJavaHome(home, for: root)
             }
         )
         let installedPlugins = pluginStartup.registeredPlugins

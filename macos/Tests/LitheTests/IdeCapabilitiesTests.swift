@@ -386,7 +386,7 @@ private final class CapabilityActionsFixture: IdeCapabilityActions {
     func activateExecutionModule() async -> ExecutionFeatureAccess? { activationCount += 1; return execution }
     func ensureRunProjectReady(_ run: RunFeatureModel, for identity: WorkspaceIdentity) async -> RunProjectReadiness { .stale }
     func prepareProjectRuntimeSettings() async {}
-    func persistProjectRuntimeSettings() {}
+    func persistProjectRuntimeSettings() async {}
     func reloadMavenProject(rescan: Bool) async {}
     func startAPIConfiguration(_ configuration: RunConfiguration) async { startConfiguration?(configuration) }
     func registerIdeCapabilities(_ feature: IdeCapabilitiesFeatureModel) {}

@@ -277,13 +277,11 @@ package final class RunFeatureModel: ObservableObject {
     @discardableResult
     package func saveEditorChanges(
         _ options: RunOptions,
-        toolchain: ProjectToolchainSelection,
         for configuration: RunConfiguration,
         scope: RunConfigurationSaveScope
     ) -> Bool {
         service.saveEditorChanges(
             options,
-            toolchain: toolchain,
             for: configuration,
             scope: scope
         )

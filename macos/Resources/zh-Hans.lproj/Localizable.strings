@@ -990,6 +990,7 @@
 "Could not start the Java test result listener: %@" = "无法启动 Java 测试结果监听器：%@";
 "Could not start the MCP command. Check its executable and runtime." = "无法启动 MCP 命令，请检查程序及所需运行时。";
 "Could not verify the commit outcome. Review before retrying." = "无法确认提交结果，请检查后再重试。";
+"Could not verify the saved project environment settings. The previous preferences have been kept when possible." = "无法核对已保存的项目环境设置。已尽可能保留原偏好。";
 "Could not write %@." = "无法写入 %@。";
 "Could not write %@. The previous contents were kept in %@." = "无法写入 %@。之前的内容已保留在 %@。";
 "Could not write Java launch argument file at %@: %@" = "无法在 %@ 写入 Java 启动参数文件：%@";
@@ -2750,6 +2751,8 @@
 "Project default" = "项目默认值";
 "Project defaults (This Mac)" = "项目默认运行环境（本机）";
 "Project environment" = "项目环境";
+"Project environment settings are being saved. Wait before saving again." = "正在保存项目环境设置，请等待完成后再保存。";
+"Project environment settings changed on disk. Reload before saving; your draft has been kept." = "项目环境设置已被外部修改。请重新加载后再保存；你的草稿已保留。";
 "Project files" = "项目文件";
 "Project identification complete" = "项目识别完成";
 "Project identification did not produce a run configuration." = "项目识别没有生成运行配置。";
@@ -5415,6 +5418,7 @@
 "native.couldNotSaveTheConnections" = "无法保存连接：%1$@";
 "native.couldNotStartTheJavaTestResultListener" = "无法启动 Java 测试结果监听器：%1$@";
 "native.couldNotStartTheMcpCommandCheckItsExecutableAndRuntime" = "无法启动 MCP 命令，请检查程序及所需运行时。";
+"native.couldNotVerifySavedProjectEnvironment" = "无法核对已保存的项目环境设置。已尽可能保留原偏好。";
 "native.couldNotVerifyTheCommitOutcomeReviewBeforeRetrying" = "无法确认提交结果，请检查后再重试。";
 "native.couldNotWrite" = "无法写入 %1$@。";
 "native.couldNotWriteJavaLaunchArgumentFileAt" = "无法在 %1$@ 写入 Java 启动参数文件：%2$@";
@@ -7338,6 +7342,8 @@
 "native.projectDefault" = "项目默认值";
 "native.projectDefaultsThisMac" = "项目默认运行环境（本机）";
 "native.projectEnvironment" = "项目环境";
+"native.projectEnvironmentSaveInProgress" = "正在保存项目环境设置，请等待完成后再保存。";
+"native.projectEnvironmentSettingsChangedOnDisk" = "项目环境设置已被外部修改。请重新加载后再保存；你的草稿已保留。";
 "native.projectErrors" = "项目错误";
 "native.projectFiles" = "项目文件";
 "native.projectIdentificationComplete" = "项目识别完成";

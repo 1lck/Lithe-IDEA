@@ -189,26 +189,29 @@ Windows 保存项目环境在默认值和 Maven 本机配置写入后即视为�
 随后的运行配置刷新可能要等进行中的识别，因此单独返回并在结束后报告失败，不能让
 保存本身等待识别。
 
-macOS 的项目 JDK、Maven 与 Maven JDK 以 `.lithe/run/local.json` 为唯一真源，
-UserDefaults 中的项目运行时设置只是它的镜像，供 Maven 进程和环境检查使用。
-`runConfig.inspect` 返回的本机 `toolchain` 在未生成配置时也会读取；运行功能读完
-项目文档后，镜像以它为准覆盖这三个字段。本机层尚未保存过默认值（`toolchain`
-为空）时保留现有镜像，下一次保存再写入本机层；文档无法解析时两边都不改。错误
-做法是「镜像为空才补」：旧版服务编辑器只写本机层，镜像里的旧值会在关闭设置时
-反向覆盖运行实际使用的 JDK。
+macOS 的项目默认 JDK、Maven 与 Maven JDK 直接经 `runConfig.inspect`
+读取 `.lithe/run/local.json` 的 `toolchain`。`MacProjectRuntimeSettingsStore`
+负责平台文件和旧偏好的迁移，运行时服务在选择工具前只读刷新；不再持久化
+UserDefaults 副本，也不再用 `adoptProjectToolchain` 在两个副本间同步。
+Maven 自己的旧本机配置仍有待阶段 D 迁移的每个 reactor 覆盖，不能把本次项目默认值
+迁移当成 Maven 全配置迁移完成。
 
-Core 的服务编辑器保存每次都会重写本机层 `toolchain`，因此编辑器必须传有效默认值：
-本机层已保存的默认值，未保存过时用镜像（`RunService.saveEditorChanges` 以
-`savedProjectToolchain ?? 镜像` 选取）。错误做法是传解析结果 `projectToolchain`：
-本机层没有默认值时它是空值，写入后「从未保存」变成「显式自动」，镜像随之被清空，
-运行改用自动检测的 JDK。
+工作区首次激活时，只有本机层没有 `toolchain`、旧偏好里又有明确选择，才通过
+Core 的现有工具链分支生成目标文档。已有选择（包括显式自动）优先；读取或写入
+失败保留源。目标重新读取并核对后才清除旧偏好中的项目默认字段，其他旧字段
+保留到其领域迁移。设置页打开只读取，不触发迁移或生成空文档。
 
-macOS 的项目设置表单必须在运行功能读完当前项目文档后再填入初始值，关闭设置时的
-自动保存也只在 `ProjectLoadState.hasLoadedDocuments(for:)` 成立时写入。运行功能
-加载中持有的是空工具链；此时保存会把用户已保存的项目 JDK 覆盖成空值。
-表单在填入初始值之前保持禁用，关闭设置时也只在准备完成后才保存，与 Windows 加载期间
-禁用表单一致：准备期间的修改无法写入本机层，读完文档后以本机层为准会把它静默还原；
-尚未合并 Maven 配置的表单值也不能写回 Maven 本机设置。
+Core 的服务编辑器保存会重写本机层 `toolchain`，因此 `RunService.saveEditorChanges`
+在保存前重新 inspect 当前本机选择。没有保存过选择时使用自动选择，不能从其他表单
+或过时的 `savedProjectToolchain` 缓存补回旧值。项目创建时明确选定的 JDK 也写入同一
+本机层；写入失败向创建流程传播，不能静默记到另一处。
+
+macOS 项目设置在填入初始值之前保持禁用。用户输入只更新草稿，点保存才写入
+明确标注的 `.lithe/run/local.json`；取消、失焦和离页不写。保存使用读取时的
+内容标识和平台条件替换，外部文件或剩余偏好已变时保留草稿并报告冲突，成功后
+再读回。运行过程即使刷新了工具选择，也不能替换打开中的表单草稿基线。
+Maven settings/仓库覆盖暂时继续调用旧 Maven 持有方，原生 XML 编辑与完整配置
+所有权迁移仍待阶段 D 后续工作，不据此声称 #818 或 #1493 全部完成。
 
 不要在设置中复制一套运行参数解析或另存一份配置。正确做法是设置页复用运行
 功能模型及原有编辑表单；错误做法是在运行面板和设置各保留一个独立草稿入口。
@@ -476,8 +479,9 @@ macOS 使用 `MacRuntimeDiscoveryTests`、`MacRuntimeProbeCacheTests` 和
 运行配置刷新完成前返回、刷新失败与 Maven 写入失败的报告。macOS 运行 `./scripts/test-macos.sh`，
   `RunConfigurationIntegrationTests` 覆盖未生成配置时保存、Git 忽略规则逐条补齐且
   重复保存不改动文件、不支持版本的识别拦截，只有读完当前项目文档后才允许保存
-项目默认值，未生成配置时读取本机默认值，以及服务编辑器保存写入有效默认值；`MavenRuntimeTests` 覆盖镜像以本机层
-为准且不改动其他 Maven 设置。
+项目默认值，未生成配置时读取本机默认值，以及服务编辑器保存写入有效默认值；`ProjectRuntimePersistenceTests` 覆盖旧偏好迁移、显式自动优先、损坏文件保留、
+失败保留源、草稿/取消/条件保存/读回与外部编辑冲突；`MavenRuntimeTests` 覆盖
+直接刷新当前项目选择及配置读取失败时拒绝启动。完整原生 UI 与 Maven 配置迁移仍待验收。
 
 ## 适用范围
 
@@ -505,7 +509,7 @@ macOS 使用 `MacRuntimeDiscoveryTests`、`MacRuntimeProbeCacheTests` 和
     `macos/Sources/LitheExecutionModule/Services/RunService.swift`（`saveProjectToolchain`）、
     `macos/Sources/Lithe/Platform/MacOS/RunConfiguration/MacRunConfigurationStore.swift`、
     `macos/Sources/Lithe/Models/AppModel/AppModel+FeatureState.swift`（项目设置填充与保存）、
-    `macos/Sources/Lithe/Services/Java/ProjectRuntimeService.swift`（`adoptProjectToolchain`、
+    `macos/Sources/Lithe/Services/Java/ProjectRuntimeService.swift`（`reloadSettings`、
     `chooseJavaHome` 等解析链）、
     `macos/Sources/Lithe/Views/App/EffectiveRuntimeLabel.swift`
   - Windows：`windows/tauri/src/features/settings/components/project-environment-settings.tsx`、

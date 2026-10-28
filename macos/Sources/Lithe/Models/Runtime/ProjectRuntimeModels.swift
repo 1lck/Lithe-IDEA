@@ -185,6 +185,22 @@ struct ProjectRuntimeSettings: Codable, Hashable, Sendable {
         )
     }
 
+    mutating func applyProjectToolchain(_ selection: ProjectToolchainSelection) {
+        javaHomePath = selection.javaHomePath
+        mavenJavaHomePath = selection.mavenJavaHomePath
+        let maven = selection.mavenExecutablePath
+        if maven.isEmpty {
+            mavenHomeSelection = .automatic
+            mavenHomePath = ""
+        } else if maven == "mvnw" || maven == "./mvnw" || maven.hasSuffix("/mvnw") {
+            mavenHomeSelection = .wrapper
+            mavenHomePath = ""
+        } else {
+            mavenHomeSelection = .custom
+            mavenHomePath = maven
+        }
+    }
+
     static func normalizedRelativePath(_ path: String?) -> String {
         guard let path else { return "" }
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
