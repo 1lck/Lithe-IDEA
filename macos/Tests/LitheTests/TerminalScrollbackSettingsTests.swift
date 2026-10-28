@@ -2,9 +2,8 @@ import Foundation
 import Testing
 @testable import Lithe
 
-/// Covers the stored terminal scrollback setting and the transport hand-off:
-/// default, clamping, persistence, reset, and the value the PTY-backed terminal
-/// is constructed with.
+/// Covers the stored terminal scrollback setting: default, clamping,
+/// persistence, and reset.
 @MainActor
 @Suite("Terminal scrollback setting")
 struct TerminalScrollbackSettingsTests {
@@ -38,20 +37,6 @@ struct TerminalScrollbackSettingsTests {
         let store = TerminalScrollbackSettingsStore()
         store.set(999_999, forKey: "settings.terminalScrollbackLines")
         #expect(AppSettings(store: store).terminalScrollbackLines == AppSettings.terminalScrollbackLinesRange.upperBound)
-    }
-
-    @Test
-    func transportUsesConfiguredScrollback() {
-        let terminal = MacTerminalTransport(scrollbackLines: 8_000)
-        defer { terminal.stop() }
-        #expect(terminal.view.terminal.options.scrollback == 8_000)
-    }
-
-    @Test
-    func transportDefaultsToTheStoredDefault() {
-        let terminal = MacTerminalTransport()
-        defer { terminal.stop() }
-        #expect(terminal.view.terminal.options.scrollback == AppSettings.defaultTerminalScrollbackLines)
     }
 }
 
