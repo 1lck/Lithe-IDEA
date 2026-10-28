@@ -89,5 +89,6 @@ test(`stdio MCP ${mode}: discovery, calls and tool failures`, {timeout:15000}, a
   assert.equal(denied.result.isError,true);
   assert.equal(denied.result.structuredContent.error.code,"PERMISSION_DENIED");
   assert.equal(requests.length,2);
+
 });
 }
