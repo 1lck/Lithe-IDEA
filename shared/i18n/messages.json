@@ -71592,6 +71592,34 @@
       ]
     },
     {
+      "id": "settings.mcp.error.expired",
+      "description": "Windows IDE MCP request error: expired",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.mcp.error.request",
+      "description": "Windows IDE MCP request error: request",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.mcp.error.transport",
+      "description": "Windows IDE MCP request error: transport",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.mcp.error.undelivered",
+      "description": "Windows IDE MCP request error: undelivered",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
       "id": "settings.mcp.openProject",
       "description": "Windows UI: settings.mcp.openProject",
       "platforms": [
@@ -71601,6 +71629,27 @@
     {
       "id": "settings.mcp.plugins",
       "description": "Windows UI: settings.mcp.plugins",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.mcp.status.active",
+      "description": "Windows IDE MCP request status: active",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.mcp.status.failed",
+      "description": "Windows IDE MCP request status: failed",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.mcp.status.waiting",
+      "description": "Windows IDE MCP request status: waiting",
       "platforms": [
         "windows"
       ]

@@ -139,7 +139,7 @@ export function invoke<T>(
   }
   return tauriInvoke<unknown>(
     "platform_invoke",
-    agentEvents === undefined ? { command, args: args ?? {} } : { command, args: args ?? {}, agentEvents },
+    { command, args: args ?? {}, ...(agentEvents ? { agentEvents } : {}) },
     nativeOptions,
   ).then(
     adapt,
