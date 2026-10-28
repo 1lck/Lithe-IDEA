@@ -108,7 +108,8 @@ struct RealJavaDebugIntegrationTests {
                     wrapping: MacHostedPortDebugAdapterTransport(
                         portResolver: { rootURL in
                             try await languageManager.startJavaDebugServer(rootURL: rootURL)
-                        }
+                        },
+                        core: core
                     ),
                     trace: protocolTrace
                 ),
@@ -415,7 +416,8 @@ struct RealJavaDebugIntegrationTests {
                     wrapping: MacHostedPortDebugAdapterTransport(
                         portResolver: { rootURL in
                             try await languageManager.startJavaDebugServer(rootURL: rootURL)
-                        }
+                        },
+                        core: core
                     ),
                     trace: protocolTrace
                 ),

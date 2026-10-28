@@ -93055,6 +93055,220 @@
       "platforms": [
         "windows"
       ]
+    },
+    {
+      "id": "debug.tcp.startupTimedOut",
+      "description": "Debug adapter TCP lifecycle and connection consent",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The debug adapter connection timed out.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debug.tcp.writeTimedOut",
+      "description": "Debug adapter TCP lifecycle and connection consent",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The debug adapter did not accept outgoing data in time.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debug.tcp.bufferFull",
+      "description": "Debug adapter TCP lifecycle and connection consent",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The debug adapter outgoing buffer is full.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debug.tcp.invalidEndpoint",
+      "description": "Debug adapter TCP lifecycle and connection consent",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Enter a valid debug adapter host and a port between 1 and 65535.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debug.tcp.declined",
+      "description": "Debug adapter TCP lifecycle and connection consent",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The debug adapter connection was not approved.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debug.tcp.confirmTitle",
+      "description": "Debug adapter TCP lifecycle and connection consent",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Connect to an external debug adapter?",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debug.tcp.confirmBody",
+      "description": "Debug adapter TCP lifecycle and connection consent",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The debug adapter at %@ can access your debugging data. Plain TCP is not encrypted or authenticated. Connect only over a trusted network or a tunnel you configured.",
+        "arguments": [
+          "arg1"
+        ]
+      },
+      "parameters": {
+        "arg1": "string"
+      }
+    },
+    {
+      "id": "debug.tcp.menu",
+      "description": "External DAP TCP connection dialog",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Connect to Debug Adapter…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debug.tcp.title",
+      "description": "External DAP TCP connection dialog",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Connect to Debug Adapter",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debug.tcp.name",
+      "description": "External DAP TCP connection dialog",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "External Debug Adapter",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debug.tcp.help",
+      "description": "External DAP TCP connection dialog",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Connect to an already running DAP server using the active file's installed debugger. This is not a JVM JDWP or gdbserver port. No proxy or tunnel is created.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debug.tcp.request",
+      "description": "External DAP TCP connection dialog",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Request",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debug.tcp.arguments",
+      "description": "External DAP TCP connection dialog",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Adapter Arguments (JSON)",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debug.tcp.argumentsHelp",
+      "description": "External DAP TCP connection dialog",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Enter the launch or attach arguments required by this adapter, including its source path mappings if needed. These are separate from the DAP server's TCP address.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debug.tcp.invalidArguments",
+      "description": "External DAP TCP connection dialog",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Enter a JSON object of adapter arguments no larger than 256 KiB.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debug.tcp.attachRequest",
+      "description": "External DAP request kind",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Attach Request",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debug.tcp.launchRequest",
+      "description": "External DAP request kind",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Launch Request",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debug.tcp.sessionActive",
+      "description": "External DAP connect sheet failures",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Stop the current debug session before connecting to a debug adapter.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "debug.tcp.notStarted",
+      "description": "External DAP connect sheet failures",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The debug adapter connection could not be started.",
+        "arguments": []
+      }
     }
   ]
 }

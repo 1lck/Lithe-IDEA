@@ -9870,7 +9870,26 @@
     "vcs.actions.add": "Add selected files to version control",
     "vcs.actions.delete": "Delete selected files through version control",
     "vcs.actions.risk.add": "Only existing ordinary files directly in this root can be added. Directories and implicit parent additions are refused.",
-    "vcs.actions.risk.delete": "This requests deletion of every listed working file, including both rename or copy endpoints. The provider controls disk deletion; no keep-local option is sent and Lithe keeps no backup. Review file contents before continuing."
+    "vcs.actions.risk.delete": "This requests deletion of every listed working file, including both rename or copy endpoints. The provider controls disk deletion; no keep-local option is sent and Lithe keeps no backup. Review file contents before continuing.",
+    "debug.tcp.startupTimedOut": "The debug adapter connection timed out.",
+    "debug.tcp.writeTimedOut": "The debug adapter did not accept outgoing data in time.",
+    "debug.tcp.bufferFull": "The debug adapter outgoing buffer is full.",
+    "debug.tcp.invalidEndpoint": "Enter a valid debug adapter host and a port between 1 and 65535.",
+    "debug.tcp.declined": "The debug adapter connection was not approved.",
+    "debug.tcp.confirmTitle": "Connect to an external debug adapter?",
+    "debug.tcp.confirmBody": "The debug adapter at {arg1} can access your debugging data. Plain TCP is not encrypted or authenticated. Connect only over a trusted network or a tunnel you configured.",
+    "debug.tcp.menu": "Connect to Debug Adapter…",
+    "debug.tcp.title": "Connect to Debug Adapter",
+    "debug.tcp.name": "External Debug Adapter",
+    "debug.tcp.help": "Connect to an already running DAP server using the active file's installed debugger. This is not a JVM JDWP or gdbserver port. No proxy or tunnel is created.",
+    "debug.tcp.request": "Request",
+    "debug.tcp.arguments": "Adapter Arguments (JSON)",
+    "debug.tcp.argumentsHelp": "Enter the launch or attach arguments required by this adapter, including its source path mappings if needed. These are separate from the DAP server's TCP address.",
+    "debug.tcp.invalidArguments": "Enter a JSON object of adapter arguments no larger than 256 KiB.",
+    "debug.tcp.attachRequest": "Attach Request",
+    "debug.tcp.launchRequest": "Launch Request",
+    "debug.tcp.sessionActive": "Stop the current debug session before connecting to a debug adapter.",
+    "debug.tcp.notStarted": "The debug adapter connection could not be started."
   },
   "overrides": {
     "windows": {

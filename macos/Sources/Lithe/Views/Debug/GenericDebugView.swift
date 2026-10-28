@@ -23,6 +23,7 @@ struct GenericDebugView: View {
     @State private var smartStepTargets: [DebugStepInTarget] = []
     @State private var isSmartStepPickerPresented = false
     @State private var isJavaAttachPresented = false
+    @State private var externalAdapterSource: ExternalAdapterSource?
     @State private var isJavaSteppingSettingsPresented = false
     @State private var selectedContent: DebugContent = .console
     @State private var showsMemory = false
@@ -60,6 +61,11 @@ struct GenericDebugView: View {
         .sheet(isPresented: $isJavaAttachPresented) {
             JavaAttachView { host, port in
                 model.attachJavaDebugger(host: host, port: port)
+            }
+        }
+        .sheet(item: $externalAdapterSource) { source in
+            ExternalDebugAdapterView { configuration in
+                await model.connectExternalDebugAdapter(configuration: configuration, fileURL: source.url)
             }
         }
         .sheet(isPresented: $isJavaSteppingSettingsPresented) {
@@ -451,6 +457,15 @@ struct GenericDebugView: View {
             LitheContextMenuItem.separator
             LitheContextMenuItem.action("Connect to Running JVM…") { isJavaAttachPresented = true }
                 .disabled(feature.isSessionActive)
+            LitheContextMenuItem.action("Connect to Debug Adapter…") {
+                if let url = model.activeDocument?.url {
+                    externalAdapterSource = ExternalAdapterSource(url: url)
+                }
+            }
+            .disabled(
+                feature.isSessionActive
+                    || !(model.activeDocument.map { feature.hasDebugProvider(for: $0.url) } ?? false)
+            )
             LitheContextMenuItem.action("Clear Console") { feature.clearOutput() }
                 .disabled(!feature.hasOutput)
         } label: {
@@ -2117,6 +2132,11 @@ private enum DebugContent: CaseIterable, Identifiable {
         case .console: "Console"
         }
     }
+}
+
+private struct ExternalAdapterSource: Identifiable {
+    let url: URL
+    var id: URL { url }
 }
 
 private struct JavaAttachView: View {

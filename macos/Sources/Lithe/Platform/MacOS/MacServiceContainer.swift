@@ -622,7 +622,8 @@ final class MacServiceContainer {
                                         return try await capability.sessions.startJavaDebugServer(
                                             rootURL: rootURL
                                         )
-                                    }
+                                    },
+                                    core: rustCore
                                 ),
                                 core: rustCore,
                                 deadlineScheduler: MacDebugOperationDeadlineScheduler()
@@ -652,6 +653,7 @@ final class MacServiceContainer {
                                         )
                                     },
                                     makeProcess: { MacRawProcessSession() },
+                                    core: rustCore,
                                     findCommand: { commands in
                                         commands.lazy.compactMap { command in
                                             runtimeService.executableCandidates(command)
@@ -692,6 +694,41 @@ final class MacServiceContainer {
                             return session
                         }
                     )
+                    adapterSessions.makeEndpointSession = { descriptor, endpoint, _ in
+                        let entry = activeDebugAdapter(descriptor.id)
+                        guard descriptor.id == "java" || entry != nil else { return nil }
+                        let session = CoreDebugAdapterProtocolSession(
+                            adapterID: entry?.adapter.adapterID ?? "java",
+                            consoleCommands: entry?.adapter.consoleCommands ?? [],
+                            consoleCommandPrefix: entry?.adapter.consoleCommandPrefix,
+                            disabledCapabilities: entry?.adapter.disabledCapabilities ?? [],
+                            transport: try MacExternalDebugAdapterTransport.make(
+                                endpoint: endpoint,
+                                validate: { endpoint in
+                                    do {
+                                        return try rustCore.executeResult(
+                                            command: "debug.validateAdapterEndpoint", payload: endpoint
+                                        ).get()
+                                    } catch let error as RustCoreBridge.CoreCallError where error.code == "invalid_request" {
+                                        throw MacTCPDebugAdapterTransport.TransportError.invalidEndpoint
+                                    }
+                                },
+                                core: rustCore
+                            ),
+                            core: rustCore,
+                            deadlineScheduler: MacDebugOperationDeadlineScheduler(),
+                            // The session clock starts before the socket exists, so Core sizes
+                            // it to outlast the transport's connect budget and still leave a
+                            // full DAP handshake window; the transport deadline then reports a
+                            // slow connect as itself, not as a failed `initialize`.
+                            initializationTimeoutMilliseconds:
+                                try rustCore.debugTransportPolicy().initializationMilliseconds
+                        )
+                        if let entry {
+                            debugAdapterSessionsBox.record(session, pluginID: entry.plugin.descriptor.id.rawValue)
+                        }
+                        return session
+                    }
                     debugAdapterSessionsBox.manager = adapterSessions
                     let graph = DebugFeatureGraph(
                         adapterSessions: adapterSessions,

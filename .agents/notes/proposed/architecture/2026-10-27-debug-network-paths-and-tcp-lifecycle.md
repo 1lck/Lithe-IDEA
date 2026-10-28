@@ -8,6 +8,8 @@
 
 远程调试不等于必须使用 SSH：端点可以直接可达，也可以经用户自己配置的 VPN 或隧道可达；Lithe 本轮只连接最终可达的端点，不创建或管理这些网络设施。[#1525](https://github.com/1lck/Lithe-IDEA/pull/1525) 当前只实现远程 attach 的契约与 Rust 校验；本 Note 记录后续连接实现的边界和验收要求，不表示宿主已经支持全部场景。
 
+普通 TCP 与显式外部端点入口的已实现边界见[普通 TCP 生命周期决策](../../implemented/architecture/2026-10-27-debug-tcp-transport-lifecycle.md)。本提案保留未实施的代理、隧道和网络通路问题，不以传输测试代替真实语言调试验收。
+
 ## 问题
 
 一次远程调试可能有两条不同的连接，不能把它们的主机、端口和权限混成一个目标：
@@ -82,7 +84,7 @@ IDE -- DAP（调试适配器协议，stdio 或 TCP）--> 调试适配器
 
 ## 验证
 
-本轮仅补充设计：运行 `./scripts/verify-agent-notes.sh`、`./scripts/verify-shared-contracts.sh`、`./scripts/verify-platform-feature-matrix.sh` 和 `git diff --check`，不据此声称有运行时连接证据。
+原提案阶段仅补充设计；TCP 实现与验证入口以已实现决策为准。维护本提案时运行 `./scripts/verify-agent-notes.sh`、`./scripts/verify-shared-contracts.sh`、`./scripts/verify-platform-feature-matrix.sh` 和 `git diff --check`，不据此声称有运行时连接证据。
 
 后续实现先加载 `write-stable-tests`，用可控 socket 和有界等待覆盖验收标准，再执行对应平台测试与真实适配器流程；同步平台功能矩阵，验证发行包只读，清理本次启动的所有进程。
 
