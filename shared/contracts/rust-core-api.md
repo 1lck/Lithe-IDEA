@@ -952,6 +952,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `editor.lineEdit` | Apply a deterministic line-level text transform and return the replacement plus selection to restore |
 | `editor.lineCommentToken` | Resolve the line comment token for a file extension or language id |
 | `workspace.snapshot` | Enumerate visible workspace nodes and relative file paths; `nestedWorktrees` lists linked worktrees checked out inside their own repository, which are left out of the tree, files, and search index ; `includeTree: false` returns only `files` and a childless `root`; `files` (and the tree, when included) keep the lowercase traversal order that bounded consumers such as Windows Quick Open rely on, not the natural display order of `workspace.listDirectories` |
+| `workspace.filterChanges` | Filter an array of workspace-relative paths against Core's default build/cache exclusions; preserve order, spelling, and the empty root path. Native event loss bypasses filtering. Hosts relativize to the most specific explicit watch root and retain explicitly watched files. |
 | `workspace.listDirectories` | Return one visible level of children for each requested workspace-relative directory (`""` is the root); missing, hidden, symlinked, or nested-worktree paths are omitted, and each listing reports the nested worktrees it left out. Child directories have `children: []` only when a shallow probe proves them visibly empty; otherwise children remain omitted (unloaded), with no recursive tree allocation. Children list directories first, then names in IDEA's natural file-name order (digit runs compare by value, case-insensitive, `-` next to `_`; fixture `shared/fixtures/workspace/file-name-order-v1.json`) |
 | `workspace.repositories` | Discover deterministic Git repository roots for an opened workspace |
 | `workspace.search` | Search visible file names and UTF-8 text files |
@@ -968,6 +969,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `history.delete` | Delete one history entry and its snapshot |
 | `maven.scan` | Parse a Maven project descriptor and recursively return modules/profiles |
 | `maven.launchPlan` | Produce a deterministic Maven invocation from a versioned project context |
+| `execution.resolveEnvironment` | Merge native `inherited` string values, selected `javaHome`/`mavenJavaHome` for the current `toolchain`, and `overrides` into `{ environment }`. `caseInsensitive: true` canonicalizes Windows keys to uppercase. Maven uses Maven JDK with project-JDK fallback; Java uses project JDK. String overrides win; structured `{ toolchain, property: "home" }` bindings use the current step's home for JAVA_HOME, and the named toolchain for other variables. Unknown bindings are omitted. |
 | `execution.planLaunchCommand` | Move oversized Java path-list options into a JDK argument file |
 | `processLifecycle.resolve` | Decide how each process or resource of one Lithe instance ends |
 | `processLifecycle.inventory` | Group a process snapshot of one Lithe instance into terminals, Agent tasks and background services |
@@ -1111,10 +1113,17 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `build.detect` | Find every build-system instance the enabled plugins declare in a workspace, with models that need no process |
 | `build.invocationPlan` | List a build system's executable candidates, runtime dependencies, and version probe for one platform |
 | `build.checkToolVersion` | Decide whether a build tool's or runtime's version output meets the declared minimum |
+| `build.resolveModelInputs` | Validate enabled producer facts and project a bounded public model snapshot for a declared consumer |
 | `build.resolveOptions` | Check stored build options against the declaration and return effective values, choices, and the fingerprint |
 | `build.modelPlan` | Expand the command that prints a command-sourced build model, or the request a build provider answers |
 | `build.taskPlan` | Expand one declared or model task for a workspace, project, or target |
-| `build.testPlan` | Expand a test run for a scope, suite, or case and say where its reports will be |
+| `build.testPlan` | Plan a test run for a scope, suite, or case and say where its reports will be |
+| `build.testDiscoveryPlan` | Plan opt-in Provider test discovery for an instance |
+| `build.decodeTestDiscovery` | Validate, deduplicate and order Provider test selectors |
+| `build.prepareRunPlan` | Plan Provider-owned application preparation from a model target |
+| `build.decodeRunPreparation` | Validate portable launch data before the native Run host starts a process |
+| `build.prepareDebugPlan` | Plan same-plugin native debug preparation (Provider v5) |
+| `build.decodeDebugPreparation` | Validate an existing instance-contained native debug program and bounded process facts |
 | `build.dependencyPlan` | Expand the command that prints a project's dependency tree, or the request a build provider answers |
 | `build.decodeModel` | Decode model output or a provider result into projects, targets, tasks, content roots, option values, and run entries |
 | `build.decodeTestResults` | Decode a test run's reports and output into per-case results and a summary |
@@ -1470,6 +1479,9 @@ Native journals track `requestStarted` separately from visible command records.
 The native receiver retains the originating request directory so a failure before
 `started` can be shown as an unconfirmed request with no fabricated arguments or
 exit code. Successfully completed internal queries still produce no history row.
+A request that ends with the `cancelled` error before any command started was
+superseded, not a Git failure, and also produces no row; a cancelled request that
+had started a command keeps that command with the cancellation as its reason.
 A request-start event must not allocate a placeholder or consume command-history capacity. Clearing
 history suppresses late invocations from requests already in preflight, while
 started operations remain cancellable until `requestFinished`, even after their
@@ -2727,17 +2739,28 @@ and virtual-location representation as ordinary navigation.
 
 `lsp.buildRequest` accepts `{ sessionId, operationId?, method, params,
 timeoutMilliseconds? }` and returns `{ operationId }`. `method` and `params`
-are the `provider` field of a `build.modelPlan` or `build.dependencyPlan`
-result; only `lithe/build/model` and `lithe/build/dependencies` are accepted,
-and anything else is `invalid_request`. Every session offers
-`capabilities.experimental.litheBuild: { versions: [1] }` in `initialize`; a
+are the `provider` field of a `build.modelPlan`, `build.dependencyPlan` or
+provider-sourced `build.taskPlan`/`build.testPlan`, `build.testDiscoveryPlan`, or
+`build.prepareRunPlan` result. Version 1 accepts
+`lithe/build/model` and `lithe/build/dependencies`; version 2 adds
+`lithe/build/execute`, version 3 adds `lithe/build/test` with the same bounded
+execution lifecycle and `lithe/build/discoverTests` with the raw result lifecycle.
+Version 4 adds `lithe/build/prepareRun`, with execution progress but a raw launch
+plan passed to `build.decodeRunPreparation` before native process startup. Version 5 adds `lithe/build/prepareDebug`: raw native executable facts pass through `build.decodeDebugPreparation` and the existing DebugAdapter Registry, not private functions or a second DAP engine.
+Other methods are `invalid_request`; tasks on version 1
+and tests on versions 1/2 or run preparation on versions 1/2/3 are `not_supported`.
+Every session offers
+`capabilities.experimental.litheBuild: { versions: [4, 3, 2, 1] }` in `initialize`; a
 session whose process did not answer one of those versions rejects the request
 with `not_supported`, so a shared provider that does not speak the protocol
 still serves its language. `timeoutMilliseconds` replaces the session's request
 timeout for this request and is capped at one hour. The `requestCompleted`
 event carries the provider's reply unchanged as `result.value`, which the host
 passes to `build.decodeModel` or `build.decodeDependencies` as `result`;
-cancellation and late results follow `lsp.cancelOperation`.
+cancellation and late results follow `lsp.cancelOperation`. Execution replies
+are validated as `{exitCode: Int32, output: string}` and progress is mapped
+from a Core-owned wire request ID to `requestProgress` for the still-pending
+operation. See the [provider execution contract](plugins/v1/README.md#provider-task-execution-buildproviders-2).
 
 `lsp.vcsRequest` accepts `{ sessionId, operationId?, vcs, operation, root,
 tool?, arguments?, timeoutMilliseconds? }` and returns `{ operationId }`.
@@ -3053,6 +3076,22 @@ the sources of generated Java entries by content (`sha256:<hex>` in
 editing a class body is not a staleness. When the stored inputs no longer
 reproduce the stored fingerprint, the document came from another generator
 revision and the diagnostic says so instead of listing modified files.
+Automatic run discovery, fingerprint traversal, Node manifest discovery and the
+Windows Java source list use Core's shared scan policy. Known caches/build outputs
+are pruned before descending; other hidden source directories remain visible and
+symlinks are not followed. Failure to read the workspace root is an error. An
+unreadable optional child or fingerprint input is recorded in
+`generator.unreadablePaths`; generation retains previous configurations and input
+hashes beneath those unknown paths. Inspection returns `incompleteProjectScan`
+instead of claiming fingerprint freshness or inferred removals when either the
+current scan or saved baseline is incomplete. The persisted diagnostic also appears
+with `checkFingerprint: false`; a successful complete regeneration clears it.
+This does not replace declared build-system modules or JDT's entrypoint facts.
+The bounded Java source list stops opening further directories once its source
+limit is reached, retains only collected Java paths, and returns them sorted.
+Full fingerprint scans remain uncapped by this list limit and keep reporting
+unreadable inputs independently.
+
 `runConfig.inspect` also accepts optional schema-versioned `javaEntrypoints`
 from the current `lsp.request` result, independent of `checkFingerprint`. Core
 then compares JDT's `(sourcePath, mainClass)` pairs, with a `module/` prefix
@@ -3148,6 +3187,21 @@ object in the local layer (e.g.
 `{ "java": { "homePath": ... }, "maven": { "executablePath": ..., "javaHomePath": ... } }`)
 provides defaults for every configuration's `extensions.java.*`. A non-empty
 per-configuration toolchain path overrides the corresponding project default.
+
+Provider applications can be explicitly saved with `runConfig.createUserConfiguration`
+using `{root,scope:"local",name,type:"buildProvider",build:{pluginID,buildSystemID,
+root,run,projectID,targetID,userArguments?}}`. Core upserts the existing local
+reference by selector identity and retains its `user:` ID, unrelated configurations
+and project toolchain defaults. `extensions.build` in Run v2 holds the typed
+reference; process commands, top-level args/environment/toolchains/debug are
+refused for `build.provider`. Current model membership is revalidated by the
+native build workflow before every preparation. No generated document is needed:
+`runConfig.inspect` recognizes explicit saved local references and `runConfig.resolve`
+merges them against an empty generated layer. A workspace without generated data
+or an explicit saved Provider reference retains the existing missing state.
+The platform guards the source snapshot, atomically writes only the local layer,
+then re-reads the result. `shared/fixtures/run-configuration/build-provider.json`
+is the canonical persistence example.
 
 `runConfig.updateOptions` and `runConfig.createUserConfiguration` are pure
 document transformations. They validate scope, paths, supported types, stable
@@ -3555,11 +3609,13 @@ has one build workflow and never branches on a build-system ID: Core plans
 each process, the host runs it with the discovered executable, and Core
 decodes what it printed or wrote.
 
-A build system with a `provider` also requires `buildProviders: 1`. Core supports
-validation and planning for that capability; a host advertises it only after
-implementing Provider lifecycle and requests. macOS does not yet advertise it,
-so its marketplace and install review reject Provider plugins while accepting
-compatible declarative build systems.
+A build system with a `provider` requires `buildProviders: 1`, version 2 when
+a task uses `source: "provider"`, version 3 when tests do, or version 4 for
+provider application run preparation, version 5 for native debug preparation, and
+version 6 for optional read-only model inputs. Core validates and plans all six versions;
+a host advertises each only after implementing its lifecycle and requests.
+macOS advertises all six and routes provider tasks, tests and run preparation through
+the existing workspace session. Prepared applications use the existing native Run host. Windows does not yet advertise Provider lifecycle support.
 
 Except `build.detect`, every command accepts
 `{ manifest, buildSystemID, request }`, revalidates the manifest, and answers
@@ -3588,7 +3644,7 @@ Paths in requests are workspace-relative with `/` unless named absolute.
 `root` is the instance root from detection. Selected entities are
 `{ name, path?, tags?, execution?, properties? }` as the decoded model
 returned them. Plan requests share `{ root, options?, pluginDirectory?,
-workspaceStateDirectory? }`; `options` are the stored values by option ID,
+workspaceStateDirectory?, modelInputs? }`; `options` are the stored values by option ID,
 and the directories are absolute host paths used only as substitution text.
 
 | Command | Request | Result |
@@ -3596,10 +3652,17 @@ and the directories are absolute host paths used only as substitution text.
 | `build.detect` | `{ workspaceRoot, plugins: [{ manifest }], options?: { <buildSystemID>: { <optionID>: value } } }` | `detection`: `{ instances, rejected: [{ index, error }], shadowed: [{ pluginID, buildSystemID, by }] }`; each instance is `{ id, pluginID, buildSystemID, displayName, root, markers, modelSource, optionFingerprint }` plus `model` or `modelError` for `static` and `hostIntegration` sources; a `provider` source has neither |
 | `build.invocationPlan` | `{ root, platform: "macos" \| "linux" \| "windows" }` | `invocation`: `{ buildSystemID, root, executables, environmentInputs, runtimeDependencies, version, minimumVersion }` with project-file paths joined to `root`; every runtime dependency with a known probe, host-managed ones included, carries `version: { arguments }` |
 | `build.checkToolVersion` | `{ runtime?, output }` | `version`: `{ satisfied, version? }`; `runtime` checks that runtime dependency instead of the tool |
+| `build.resolveModelInputs` | `{revision, sources: [{manifest, instances: [{buildSystemID, root, state, model?, options?}]}]}` from installed enabled current-workspace sources | `modelInputs`: version 1 public snapshot with exact optional producer slots, state, normalized projects/targets/content roots, configuration fingerprint and explicitly shared options; no tasks/run/settings/private functions; see the [plugin contract](https://github.com/1lck/Lithe-IDEA/blob/preview/shared/contracts/plugins/v1/README.md#optional-read-only-model-inputs-buildmodelinputs-1) |
 | `build.resolveOptions` | `{ options, modelValues? }` | `options`: `{ options: [{ id, displayName, kind, value, source, choices, allowCustom }], dropped, fingerprint }` |
 | `build.modelPlan`, `build.dependencyPlan` | plan fields plus `project?` (dependencies), `outputFile?`, and for provider sources `refresh?` (boolean) and `tool?: { executable }` (absolute path) | `plan`: `{ buildSystemID, root, arguments, environment, workingDirectory, execution, optionFingerprint, output, decoder, executesProjectCode, mayUseNetwork }`; for a `provider` source `{ buildSystemID, root, provider: { method, params }, decoder, executesProjectCode, mayUseNetwork, optionFingerprint }`, where `method` is `lithe/build/model` or `lithe/build/dependencies` and `params` is `{ buildSystemID, root, options, optionArguments, environment, project?, refresh?, tool? }`; `refresh` appears only when `true` and `tool` only when the host sent it |
-| `build.taskPlan` | plan fields plus `task`, `project?`, `target?`, `modelTask?`, `userArguments?` | `plan` with `arguments`, `environment`, `workingDirectory`, `execution`, and `optionFingerprint` |
-| `build.testPlan` | plan fields plus `project?`, `target?`, `suite?`, `case?`, `userArguments?`, `projects?` (the model's project directories) | `plan` with the task-plan fields and `results`: `null`, `{ decoder, reports }` with workspace-relative globs (for the selected project, or for the root and every listed project when none is selected), or `{ decoder: "hostIntegration" }`. A `suite` or `case` the templates cannot place on the command line under this selection, such as a case without its suite when the tool only addresses `Suite#case`, is `plugin.build.invalidSelection` rather than a wider run |
+| `build.taskPlan` | plan fields plus `task`, `project?`, `target?`, `modelTask?`, `userArguments?` | command `plan` with `arguments`, `environment`, `workingDirectory`, `execution`, and `optionFingerprint`; a provider task instead returns `provider: {method: "lithe/build/execute", params}` with effective options, selected task/entities, user arguments and effect metadata |
+| `build.testPlan` | plan fields plus `project?`, `target?`, `suite?`, `case?`, `userArguments?`, `projects?` (the model's project directories) | command plan or `provider: {method: "lithe/build/test", params}` (buildProviders 3), plus `results`: `null`, `{ decoder, reports }` with workspace-relative globs (for the selected project, or for the root and every listed project when none is selected), or command-only `{ decoder: "hostIntegration" }`. Command filters that templates cannot place, such as a case without its suite when the tool only addresses `Suite#case`, are `plugin.build.invalidSelection`; Provider filters remain separate typed values and must be declared supported |
+| `build.testDiscoveryPlan` | common plan fields plus `refresh?`, `tool?`; no project/output file | `plan.provider` for `lithe/build/discoverTests`, only with `test.discovery: true` (Provider v3), using the same effective options and effect metadata |
+| `build.decodeTestDiscovery` | common plan fields plus canonical `result` | `discovery.tests` with validated `{id, suite, case, project?, target?}` selectors; bounded at 10,000 items/32 MiB, deterministic and exactly runnable; malformed replies reject in full |
+| `build.prepareRunPlan` | common plan fields, `run`, required `project`/`target`, `userArguments?`; no output file | `plan.provider` for `lithe/build/prepareRun` (Provider v4), selected declaration/tags/paths/options validated |
+| `build.decodeRunPreparation` | `workspaceRoot`, instance `root`, raw `result` | `launch` with portable `{executable:{kind,value},arguments,workingDirectory,environment}`; bounded strings and workspace directory containment, `plugin.build.invalidOutput` on invalid result |
+| `build.prepareDebugPlan` | same selected fields as `build.prepareRunPlan`; run declares same-plugin `debug.adapter` | `plan.provider` for `lithe/build/prepareDebug` (v5); no cross-package reference |
+| `build.decodeDebugPreparation` | `workspaceRoot`, instance `root`, selected `run`, raw `result` | `preparation` with declaration-owned `adapter`, normalized `root`, `program`, `arguments`, `workingDirectory`, `environment`; program is an existing regular file contained in the instance after canonicalization |
 | `build.decodeModel` | `{ workspaceRoot, root, output?, outputFile?, result?, options? }`; `result` is the provider's JSON answer | `model`: `{ projects, targets, tasks, contentRoots, optionValues, run }`; `run` entries carry `buildSystem: { id, root, projectID, targetID?, optionFingerprint }` |
 | `build.decodeTestResults` | `{ workspaceRoot, root, project?, projects?, output, notBeforeMillis?, suite? }`; without `project` the reports of the root and every listed model project are read | `results`: `{ tests: [{ suite, case, status, message?, durationMillis?, path?, line?, invocations }], summary: { total, passed, failed, errors, skipped }, success }`; repeated invocations of one case merge into the most severe status |
 | `build.decodeDiagnostics` | `{ workspaceRoot, root, output }` | `diagnostics`: `[{ path, line, column?, severity, message }]`, deduplicated, inside the workspace only |
@@ -4044,6 +4107,13 @@ Fixtures live in `shared/fixtures/process-lifecycle/settle-v1.json`.
 `lithe-ide-host` adapter. This local host command is not remotely exposed. See
 [IDE API v1](ide-api/v1.md) for the allowlisted plugin/MCP capabilities, connection
 ownership, authorization, output cursors and shutdown semantics.
+Native Rust hosts can attach an owner-checked, connection-lifetime callback using
+`attach_ide_request_dispatcher`; this is separate from the request-scoped Git/Agent
+progress callback. It forwards notification IDs only. `ideHost.control` action
+`claim` atomically returns an unexpired, unclaimed request or null before any
+application action. Closing the connection releases the callback. Windows delivers independent,
+window-scoped Tauri events rather than an ordered Channel; a missing notification
+must not block subsequent requests.
 
 ### Java service hot replacement
 

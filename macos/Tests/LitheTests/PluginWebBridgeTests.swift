@@ -465,6 +465,7 @@ struct PluginWebBridgeTests {
         )
         #expect(request.project == BuildSelection(project: project))
         #expect(request.target == BuildSelection(target: example))
+        guard case .process(let plan) = plan else { Issue.record("Expected a command plan"); return }
         #expect(plan.arguments == ["run", "--example", "demo"])
         #expect(plan.workingDirectory == instance.root)
         #expect(plan.execution == .application)

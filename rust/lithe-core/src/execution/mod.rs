@@ -21,3 +21,11 @@ pub use launch_command::{
     LaunchCommandPlan, LaunchCommandPlanRequest, LaunchCommandPlanResponse,
     WINDOWS_COMMAND_LINE_LIMIT,
 };
+
+mod workspace_scan;
+pub use workspace_scan::{is_run_scan_excluded_directory, list_run_java_sources};
+
+mod environment;
+pub use environment::{
+    resolve_launch_environment, LaunchEnvironmentRequest, LaunchEnvironmentResponse,
+};

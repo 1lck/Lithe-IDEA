@@ -48,6 +48,7 @@ struct GitHistorySelectionGraphView: View {
     let navigationHash: String?
     let navigationID: UUID?
     var isFocused = true
+    var loadMoreFailed = false
 
     var body: some View {
         GitGraphScrollView(
@@ -61,7 +62,8 @@ struct GitHistorySelectionGraphView: View {
             selectedHashes: editor.selection.hashes,
             isFocused: isFocused,
             navigationHash: navigationHash,
-            navigationID: navigationID
+            navigationID: navigationID,
+            loadMoreFailed: loadMoreFailed
         )
     }
 }

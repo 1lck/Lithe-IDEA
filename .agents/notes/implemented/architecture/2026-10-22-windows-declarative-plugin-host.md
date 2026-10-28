@@ -204,6 +204,8 @@ R24 的真实 Node 24.15 子进程已验证两个 tree-sitter-cli 版本的 CONN
 
 上游打包候选的 R24 完整 12 文件补丁已经完成 Windows 本地源码交付，25 项去重回归、干净 clone 应用往返、四资产和双 ZIP 全字节验证通过，复审未发现阻塞缺陷。Linux 正常退出、超时与短命 root 后代清理三项回归已接入同一正式测试入口，CI/release 先运行并传播失败，报告以 always 条件上传；本机 Linux 环境缺工具，三项没有动态执行。MSYS zsh/bash 属 Windows 内核证据，不能填补 Linux/macOS 验收；维护者仍需应用候选并运行 Ubuntu CI、完成签名/安装及 Windows Provider 与宿主动态兼容验证。此结论不开放 vcsProviders/ui:3，也不代表已发布 0.1.1。
 
+正式验收入口的所有模式在构建前后记录同一完整 Windows/第三方输入库存；`-SkipBuild` 在复用前同时核对库存、Git 提交、x64 目标、配置和 EXE 哈希。这个规则同样适用于默认、LSP 和设置链，避免 HEAD 未变但工作区源码已改变时错误沿用旧二进制。库存只写本轮隔离验收目录，不是跨工作树缓存；缺库存的旧 marker 必须重新构建，不能事后补写冒充原构建。
+
 ## 验证
 
 - R25 已在冻结提交 `2193e60a4cc3df484c4ee129dc437b992b330548` 完成官方来源的 frozen 全量安装、两个原始 CLI lifecycle 及当前源码 Windows x64 Release。正式入口共调用四次；前两次在构建准备中失败，第三次产品九阶段通过但报告聚合失败，修复原始 progress JSON 的归档位置后，第四次 `-ResumeBuild -TextWindow` 退出 0。最终受控 unsigned API3/ui:1 九阶段 9/9，通过完整源码库存、EXE/配置身份、精确 DOM/CSP/请求、计数器正控、回调排空及资源哈希检查；全部 owned 进程和 profile 已清理。不能把网络观察写成精确零 postMessage IPC，也不能扩大为 ui:3、VCS Provider、签名包、arm64 或完整 M10。该 lane 未能执行原 zsh 只读门禁，只通过等价源码扫描和真实资源不变检查；集成窗口另行执行原脚本并保留结果，不改写 lane 的原始记录。

@@ -13984,17 +13984,29 @@
     },
     {
       "id": "git.diff.repositoryPreviewEmptyTitle",
-      "description": "Windows UI: git.diff.repositoryPreviewEmptyTitle",
+      "description": "Shared repository comparison editor tab title",
       "platforms": [
-        "windows"
-      ]
+        "windows",
+        "macos"
+      ],
+      "macos": {
+        "key": "Repository Diff",
+        "arguments": []
+      }
     },
     {
       "id": "git.diff.repositoryPreviewTitle",
-      "description": "Windows UI: git.diff.repositoryPreviewTitle",
+      "description": "Shared repository comparison editor tab file title",
       "platforms": [
-        "windows"
+        "windows",
+        "macos"
       ],
+      "macos": {
+        "key": "Repository Diff: %@",
+        "arguments": [
+          "file"
+        ]
+      },
       "parameters": {
         "file": "string"
       }
@@ -19329,8 +19341,13 @@
       "id": "git.unifiedView",
       "description": "Windows UI: git.unifiedView",
       "platforms": [
+        "macos",
         "windows"
-      ]
+      ],
+      "macos": {
+        "key": "Unified view",
+        "arguments": []
+      }
     },
     {
       "id": "git.unstageAllChanges",
@@ -93267,6 +93284,310 @@
       ],
       "macos": {
         "key": "The debug adapter connection could not be started.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.hideCommitDetails",
+      "description": "Native UI: Hide commit details",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Hide commit details",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.sideBySideView",
+      "description": "Native UI: Side-by-side view",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Side-by-side view",
+        "arguments": []
+      }
+    },
+    {
+      "id": "settings.mcp.error.expired",
+      "description": "Windows IDE MCP request error: expired",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.mcp.error.request",
+      "description": "Windows IDE MCP request error: request",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.mcp.error.transport",
+      "description": "Windows IDE MCP request error: transport",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.mcp.error.undelivered",
+      "description": "Windows IDE MCP request error: undelivered",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.mcp.status.active",
+      "description": "Windows IDE MCP request status: active",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.mcp.status.failed",
+      "description": "Windows IDE MCP request status: failed",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.mcp.status.waiting",
+      "description": "Windows IDE MCP request status: waiting",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "plugins.java.installNotice",
+      "description": "macOS Java Support independent distribution installation entry",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Java Support is installed separately. Install it from the Marketplace, or use Install from Disk for an offline package. Your Java settings are kept.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "plugins.java.installTemplates",
+      "description": "macOS Java Support independent distribution installation entry",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Install Java Support for Java, Maven and Spring templates…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "run.incompleteProjectScanTitle",
+      "description": "Run: incomplete workspace scan warning",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Project scan is incomplete",
+        "arguments": []
+      }
+    },
+    {
+      "id": "run.incompleteProjectScanMessage",
+      "description": "Run: incomplete workspace scan warning",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.theLanguageServerThisBuildSystemUsesIsNotAvailable",
+      "description": "Native UI: The language server this build system uses is not available. Open a file of the language and try again.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The language server this build system uses is not available. Open a file of the language and try again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.loadModelBeforeWorkspaceTests",
+      "description": "Native UI: Load or reload the project model before running all tests, so subproject reports are collected.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Load or reload the project model before running all tests, so subproject reports are collected.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.discoverTests",
+      "description": "Native UI: Discover Tests",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Discover Tests",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.discoveredTests",
+      "description": "Native UI: Discovered Tests",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Discovered Tests",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.noTestsDiscovered",
+      "description": "Native UI: No tests discovered.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "No tests discovered.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.invalidBuildProviderLaunchPlan",
+      "description": "Native UI: Invalid build provider launch plan",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The build provider returned an invalid launch plan.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.saveProviderRunConfiguration",
+      "description": "Native UI: Save provider run configuration to .lithe/run/local.json",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Save provider run configuration to .lithe/run/local.json",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.providerRunSavingUnavailable",
+      "description": "Native UI: Saving build provider run configurations is unavailable.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Saving build provider run configurations is unavailable.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.loadProviderModelBeforeRun",
+      "description": "Native UI: Load the current build model and enable its provider before running this configuration.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Load the current build model and enable its provider before running this configuration.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.providerRunSaveConflict",
+      "description": "Native UI: Provider run save conflict",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Run configuration changed while saving. Reload and try again.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.savedProviderRunUnavailable",
+      "description": "Native UI: Saved provider selection unavailable",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The saved provider run configuration is unavailable.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.providerDebugUnavailable",
+      "description": "Native UI: Provider debug target unavailable",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The build provider's debug program or adapter is unavailable. Build it again and check that the plugin is enabled.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "git.log.olderCommitsFailed",
+      "description": "Git history pagination failure; explicitly refresh because the failed Core cursor is consumed.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not load older commits. Refresh history",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.stageFiles",
+      "description": "Native UI: Stage Files",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Stage Files",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.unstageFiles",
+      "description": "Native UI: Unstage Files",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Unstage Files",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.discardChangesToSelectedFiles",
+      "description": "Native UI: Discard changes to selected files?",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Discard changes to selected files?",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.discardWorktreeChangesWarning",
+      "description": "Native UI: This action cannot be undone by Lithe. Untracked files will be deleted.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This action cannot be undone by Lithe. Untracked files will be deleted.",
         "arguments": []
       }
     }

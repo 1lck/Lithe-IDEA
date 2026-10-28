@@ -100,9 +100,7 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
         ) {
         case .languageServer(let languageID):
             guard let sessions = languageSessions?() else {
-                throw UnavailableError(message: String(
-                    localized: "The language server this build system uses is not available. Open a file of the language and try again."
-                ))
+                throw UnavailableError(message: L10n.string("The language server this build system uses is not available. Open a file of the language and try again."))
             }
             return try await sessions.requestBuildProvider(
                 languageID: languageID,
@@ -119,8 +117,34 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
         }
     }
 
+    func execute(
+        _ request: BuildProviderRequest, on target: BuildProviderTarget, timeout: Duration,
+        progress: @escaping @MainActor @Sendable (BuildProviderProgress) -> Void
+    ) async throws -> BuildProviderExecutionResult {
+        // Reuse the plugin-owned workspace process and its bounded startup.
+        let session = try await ownedSession(for: target)
+        try Task.checkCancellation()
+        let value = try await session.buildRequest(
+            method: request.method, params: request.params, timeout: Self.seconds(timeout), progress: progress
+        )
+        return try JSONDecoder().decode(BuildProviderExecutionResult.self, from: JSONEncoder().encode(value))
+    }
+
+    func prepareDebug(_ request: BuildProviderRequest, on target: BuildProviderTarget, timeout: Duration,
+                      progress: @escaping @MainActor @Sendable (BuildProviderProgress) -> Void) async throws -> ToolingJSONValue {
+        try await prepareRun(request, on: target, timeout: timeout, progress: progress)
+    }
+
+    func prepareRun(_ request: BuildProviderRequest, on target: BuildProviderTarget, timeout: Duration,
+                    progress: @escaping @MainActor @Sendable (BuildProviderProgress) -> Void) async throws -> ToolingJSONValue {
+        let session = try await ownedSession(for: target)
+        try Task.checkCancellation()
+        return try await session.buildRequest(method: request.method, params: request.params,
+                                              timeout: Self.seconds(timeout), progress: progress)
+    }
+
     func pluginFunctions(of target: BuildProviderTarget) async throws -> [String] {
-        try await functionSession(for: target).functionIDs
+        try await ownedSession(for: target).functionIDs
     }
 
     func invokePluginFunction(
@@ -130,17 +154,17 @@ final class MacBuildProviderSessions: BuildProviderRequesting {
         timeout: Duration,
         progress: @escaping @MainActor @Sendable (PluginFunctionProgress) -> Void
     ) async throws -> ToolingJSONValue {
-        let session = try await functionSession(for: target)
+        let session = try await ownedSession(for: target)
         return try await session.invokeFunction(
             functionID, params: params, timeout: Self.seconds(timeout), progress: progress
         )
     }
 
     /// The target's own process, started like `send` would. Functions are
-    /// served only by a process the plugin owns: a shared language server is
+    /// and native task execution are served only by a process the plugin owns: a shared language server is
     /// started by the host for every plugin of its language, so it never
     /// serves one plugin's functions.
-    private func functionSession(for target: BuildProviderTarget) async throws -> LanguageServerRuntimeSession {
+    private func ownedSession(for target: BuildProviderTarget) async throws -> LanguageServerRuntimeSession {
         try Task.checkCancellation()
         let settings = launchResolver.settingValues(forPlugin: target.pluginID, workspaceRootURL: target.workspaceURL)
         if let session = try await runningSession(for: target, settings: settings) { return session }

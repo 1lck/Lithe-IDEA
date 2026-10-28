@@ -3004,6 +3004,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "encoding_rs",
+ "lithe-core",
  "log",
  "notify",
  "notify-debouncer-full",

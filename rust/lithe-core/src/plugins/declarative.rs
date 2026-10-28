@@ -380,6 +380,10 @@ struct PluginVendor {
     id: String,
     display_name: String,
     signature_requirement: SignatureRequirement,
+    /// Optional trust for the host's sealed built-in copy only. Installation
+    /// from every other origin still requires the primary publisher signature.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    bundled_signature_requirement: Option<SignatureRequirement>,
 }
 
 /// How a package proves its origin. `sameTeamAsHost` is only honored by a
@@ -817,6 +821,18 @@ impl DeclarativePluginManifest {
                 "Official plugin IDs must carry a Lithe signature.",
             ));
         }
+        if let Some(bundled) = self.vendor.bundled_signature_requirement {
+            if self.plugin_api_version < CAPABILITIES_API_VERSION
+                || self.vendor.signature_requirement != SignatureRequirement::PublisherPackage
+                || bundled != SignatureRequirement::SameTeamAsHost
+                || !is_official_namespace(&self.id)
+            {
+                return Err(invalid(
+                    "vendor.bundledSignatureRequirement",
+                    "Bundled host-seal trust requires API 3, an official plugin ID, and publisherPackage for installed copies.",
+                ));
+            }
+        }
         if self.plugin_api_version >= CAPABILITIES_API_VERSION {
             capabilities::check_used(&self.requires, &self.used_capabilities())?;
         }
@@ -973,8 +989,11 @@ impl DeclarativePluginManifest {
         crate::build::validate_declarations(
             &mut self.build_systems,
             &crate::build::DeclarationContext {
+                debug_adapters: &self.debug_adapters,
                 plugin_api_version: self.plugin_api_version,
                 build_systems_version: self.requires.get("buildSystems").copied().unwrap_or(1),
+                build_providers_version: self.requires.get("buildProviders").copied().unwrap_or(1),
+                model_inputs_version: self.requires.get("buildModelInputs").copied().unwrap_or(0),
                 official: is_official_namespace(&self.id),
                 declared_settings: &declared_settings,
                 language_servers: &server_languages,
@@ -1007,6 +1026,10 @@ impl DeclarativePluginManifest {
     /// server, own build provider, and VCS provider is a `serverProcess`.
     fn used_capabilities(&self) -> BTreeSet<&'static str> {
         let sections = [
+            (
+                capabilities::PACKAGE_TRUST,
+                self.vendor.bundled_signature_requirement.is_some(),
+            ),
             (
                 capabilities::EXECUTABLE_RESOLUTION,
                 self.build_systems.iter().any(|system| {
@@ -1060,6 +1083,12 @@ impl DeclarativePluginManifest {
                     .iter()
                     .any(|system| system.provider.is_some()),
             ),
+            (
+                capabilities::BUILD_MODEL_INPUTS,
+                self.build_systems.iter().any(|system| {
+                    system.model_sharing.is_some() || !system.model_inputs.is_empty()
+                }),
+            ),
             (capabilities::VCS_PROVIDERS, !self.vcs_providers.is_empty()),
             (
                 capabilities::DEBUG_ADAPTERS,
@@ -1099,6 +1128,19 @@ impl DeclarativePluginManifest {
                 language_servers: &language_servers,
             },
         )?;
+        if crate::debug::adapters::uses_target_arguments(&self.debug_adapters)
+            && self
+                .requires
+                .get(capabilities::DEBUG_ADAPTERS)
+                .copied()
+                .unwrap_or(1)
+                < 2
+        {
+            return Err(invalid(
+                "requires.debugAdapters",
+                "Argument and environment bindings require debugAdapters 2.",
+            ));
+        }
         if self.plugin_api_version >= CAPABILITIES_API_VERSION {
             // serverProcess 2 exists for the selected-runtime launch alone, so
             // a host without it never accepts an adapter it cannot start.

@@ -136,14 +136,22 @@ export class IdeCapabilities {
       });
     return result.sort((a, b) => a.operationID.localeCompare(b.operationID));
   }
-  async call(name: string, args: Record<string, unknown>): Promise<unknown> {
+  async call(
+    name: string,
+    args: Record<string, unknown>,
+    canStart: () => boolean = () => true,
+  ): Promise<unknown> {
     let ownsMutation = false;
     try {
       if (!this.isCurrent())
         return fail("WORKSPACE_CLOSED", "The authorized project was closed or replaced");
+      if (!canStart()) return fail("TIMEOUT", "The request expired before execution");
       const validation = await this.dependencies.validate(name, args, this.permissions);
       if (!validation.ok) return validation;
       if (!this.isCurrent()) return fail("WORKSPACE_CLOSED", "The authorized project was closed");
+      // Native validation may resolve after a suspended WebView resumes. Only
+      // entering the existing product workflow accepts execution; never replay it.
+      if (!canStart()) return fail("TIMEOUT", "The request expired before execution");
       if (validation.mutation && this.mutationInFlight)
         return fail("BUSY", "Another configuration or launch request is in progress");
       if (validation.mutation) {

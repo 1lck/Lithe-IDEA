@@ -44,12 +44,33 @@ struct Pending {
     claimed: bool,
     created: Instant,
 }
+/// Native push notification. The receiver must claim the request before executing it.
+/// Returning an error fails only that delivery; it never replays an operation.
+pub type RequestDispatcher = Arc<dyn Fn(String) -> Result<(), String> + Send + Sync>;
+
+fn prune_pending(pending: &mut BTreeMap<String, Pending>) {
+    let expired: Vec<_> = pending
+        .iter()
+        .filter(|(_, p)| p.reply.is_closed() || p.created.elapsed() >= REQUEST_TIMEOUT)
+        .map(|(id, _)| id.clone())
+        .collect();
+    for id in expired {
+        if let Some(p) = pending.remove(&id) {
+            let _ = p.reply.send(failure(
+                "TIMEOUT",
+                "The IDE request expired. Inspect operations before retrying a mutation.",
+            ));
+        }
+    }
+}
+
 struct Broker {
     enabled: AtomicBool,
     token: String,
     permissions: Permissions,
     pending: Mutex<BTreeMap<String, Pending>>,
     last_poll: Mutex<Instant>,
+    dispatcher: Mutex<Option<RequestDispatcher>>,
     queued: tokio::sync::Notify,
 }
 struct Host {
@@ -175,6 +196,7 @@ fn open(args: Value) -> Result<Value, String> {
         permissions: args.permissions,
         pending: Mutex::new(BTreeMap::new()),
         last_poll: Mutex::new(Instant::now()),
+        dispatcher: Mutex::new(None),
         queued: tokio::sync::Notify::new(),
     });
     let runtime = runtime()?;
@@ -206,6 +228,66 @@ fn open(args: Value) -> Result<Value, String> {
         },
     );
     Ok(json!({"hostID":id,"configuration":configuration}))
+}
+
+/// Attaches a native window's request channel without changing its authorization.
+/// Notifications contain only an ID: delayed events cannot execute expired work.
+pub fn attach_dispatcher(
+    host_id: &str,
+    owner: &str,
+    dispatcher: RequestDispatcher,
+) -> Result<(), String> {
+    let broker = {
+        let hosts = hosts().lock().map_err(|_| "IDE host unavailable")?;
+        let host = hosts
+            .get(host_id)
+            .ok_or("IDE access is no longer enabled")?;
+        if host.owner != owner {
+            return Err("IDE connection belongs to another window".into());
+        }
+        host.broker.clone()
+    };
+    let queued = {
+        let mut slot = broker
+            .dispatcher
+            .lock()
+            .map_err(|_| "IDE dispatcher unavailable")?;
+        if slot.is_some() {
+            return Err("IDE dispatcher is already attached".into());
+        }
+        let pending = broker.pending.lock().map_err(|_| "IDE queue unavailable")?;
+        if !broker.enabled.load(Ordering::Acquire) {
+            return Err("IDE access is no longer enabled".into());
+        }
+        *slot = Some(dispatcher.clone());
+        pending
+            .iter()
+            .filter(|(_, p)| {
+                !p.claimed && !p.reply.is_closed() && p.created.elapsed() < REQUEST_TIMEOUT
+            })
+            .map(|(id, _)| id.clone())
+            .collect::<Vec<_>>()
+    };
+    for id in queued {
+        deliver(&broker, &dispatcher, id);
+    }
+    Ok(())
+}
+
+fn deliver(broker: &Broker, dispatcher: &RequestDispatcher, id: String) {
+    // Never call platform code under queue/host locks; a receiver may respond inline.
+    if dispatcher(id.clone()).is_err() {
+        if let Ok(mut pending) = broker.pending.lock() {
+            if pending.get(&id).is_some_and(|p| !p.claimed) {
+                if let Some(request) = pending.remove(&id) {
+                    let _ = request.reply.send(failure(
+                        "DISPATCHER_UNAVAILABLE",
+                        "The project could not receive this request. Retry after the IDE responds.",
+                    ));
+                }
+            }
+        }
+    }
 }
 
 // Constant-time comparison avoids making the bearer check depend on a matching prefix.
@@ -256,43 +338,56 @@ async fn call(
     if let Err(error) = catalog::validate(&request.name, &request.arguments, &broker.permissions) {
         return response(error);
     }
-    if broker
-        .last_poll
-        .lock()
-        .map(|t| t.elapsed() > Duration::from_secs(15))
-        .unwrap_or(true)
-    {
-        return response(failure(
-            "DISCONNECTED",
-            "IDE project dispatcher is not responding",
-        ));
-    }
-    let (sender, receiver) = oneshot::channel();
-    let id = Uuid::new_v4().to_string();
-    {
-        let Ok(mut pending) = broker.pending.lock() else {
-            return response(failure("UNAVAILABLE", "IDE request queue unavailable"));
+    let (dispatcher, receiver, id) = {
+        // Event-driven native hosts do not depend on WebView timer heartbeats.
+        // Hold registration through enqueue so attaching cannot miss a pending request.
+        let dispatcher = match broker.dispatcher.lock() {
+            Ok(dispatcher) => dispatcher,
+            Err(_) => return response(failure("UNAVAILABLE", "IDE dispatcher unavailable")),
         };
-        // An already established HTTP connection can outlive the listener.
-        // Check under the queue lock so revocation cannot miss a late insertion.
-        if !broker.enabled.load(Ordering::Acquire) {
-            return response(failure("DISCONNECTED", "IDE access was disabled"));
+        if dispatcher.is_none()
+            && broker
+                .last_poll
+                .lock()
+                .map(|t| t.elapsed() > Duration::from_secs(15))
+                .unwrap_or(true)
+        {
+            return response(failure(
+                "DISCONNECTED",
+                "IDE project dispatcher is not responding",
+            ));
         }
-        pending.retain(|_, p| !p.reply.is_closed() && p.created.elapsed() < REQUEST_TIMEOUT);
-        if pending.len() >= MAX_PENDING {
-            return response(failure("BUSY", "Too many pending IDE operations"));
+        let (sender, receiver) = oneshot::channel();
+        let id = Uuid::new_v4().to_string();
+        {
+            let Ok(mut pending) = broker.pending.lock() else {
+                return response(failure("UNAVAILABLE", "IDE request queue unavailable"));
+            };
+            // An already established HTTP connection can outlive the listener.
+            // Check under the queue lock so revocation cannot miss a late insertion.
+            if !broker.enabled.load(Ordering::Acquire) {
+                return response(failure("DISCONNECTED", "IDE access was disabled"));
+            }
+            prune_pending(&mut pending);
+            if pending.len() >= MAX_PENDING {
+                return response(failure("BUSY", "Too many pending IDE operations"));
+            }
+            pending.insert(
+                id.clone(),
+                Pending {
+                    call: request,
+                    reply: sender,
+                    claimed: false,
+                    created: Instant::now(),
+                },
+            );
         }
-        pending.insert(
-            id.clone(),
-            Pending {
-                call: request,
-                reply: sender,
-                claimed: false,
-                created: Instant::now(),
-            },
-        );
-    }
+        (dispatcher.clone(), receiver, id)
+    };
     broker.queued.notify_one();
+    if let Some(dispatcher) = dispatcher {
+        deliver(&broker, &dispatcher, id.clone());
+    }
     let _lease = PendingLease { broker, id };
     let result = match tokio::time::timeout(REQUEST_TIMEOUT, receiver).await {
         Ok(Ok(value)) => value,
@@ -361,13 +456,23 @@ pub fn execute(action: &str, args: Value) -> Result<Value, String> {
         .lock()
         .map_err(|_| "IDE queue unavailable")?;
     match action {
+        "claim" => {
+            let request_id = args["requestID"].as_str().ok_or("Missing requestID")?;
+            prune_pending(&mut pending);
+            let request = pending.get_mut(request_id).filter(|p| !p.claimed).map(|p| {
+                p.claimed = true;
+                json!({"requestID":request_id,"name":p.call.name,"arguments":p.call.arguments,
+                        "remainingMilliseconds":REQUEST_TIMEOUT.saturating_sub(p.created.elapsed()).as_millis() as u64})
+            });
+            Ok(json!({"request":request}))
+        }
         "poll" => {
             *host
                 .broker
                 .last_poll
                 .lock()
                 .map_err(|_| "IDE host unavailable")? = Instant::now();
-            pending.retain(|_, p| !p.reply.is_closed() && p.created.elapsed() < REQUEST_TIMEOUT);
+            prune_pending(&mut pending);
             let requests: Vec<_> = pending
                 .iter_mut()
                 .filter(|(_, p)| !p.claimed)
@@ -499,6 +604,197 @@ mod tests {
             1
         );
     }
+    fn push_fixture() -> (SessionFixture, Arc<Broker>, HeaderMap) {
+        let root = std::env::temp_dir().join(format!("lithe-ide-push-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let helper = root.join("helper");
+        std::fs::write(&helper, b"read-only").unwrap();
+        let mut fixture = SessionFixture {
+            root: root.clone(),
+            id: String::new(),
+        };
+        let opened = open(
+            json!({"directory":root.join("data"),"workspaceKey":"fixture", "helperPath":helper,
+            "permissions":{"configure":true,"execute":true},"ownerId":"fixture-owner"}),
+        )
+        .unwrap();
+        fixture.id = opened["hostID"].as_str().unwrap().into();
+        let broker = hosts().lock().unwrap()[&fixture.id].broker.clone();
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "authorization",
+            format!("Bearer {}", broker.token).parse().unwrap(),
+        );
+        (fixture, broker, headers)
+    }
+
+    async fn notification(rx: &mut tokio::sync::mpsc::UnboundedReceiver<String>) -> Option<String> {
+        // test-stability: allow(rust-unbounded-receive) reason: Tokio's async receiver has no recv_timeout; the enclosing two-second timeout bounds this await without blocking the executor.
+        tokio::time::timeout(Duration::from_secs(2), rx.recv())
+            .await
+            .expect("native request notification deadline")
+    }
+
+    fn inspection() -> Json<Call> {
+        Json(Call {
+            name: "lithe_project_inspect".into(),
+            arguments: json!({}),
+        })
+    }
+
+    #[tokio::test]
+    async fn push_dispatch_recovers_after_idle_without_heartbeat_and_claims_only_once() {
+        let (fixture, broker, headers) = push_fixture();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let dispatcher: RequestDispatcher =
+            Arc::new(move |id| tx.send(id).map_err(|e| e.to_string()));
+        assert!(attach_dispatcher(&fixture.id, "other-owner", dispatcher.clone()).is_err());
+        attach_dispatcher(&fixture.id, "fixture-owner", dispatcher.clone()).unwrap();
+        assert!(attach_dispatcher(&fixture.id, "fixture-owner", dispatcher).is_err());
+        *broker.last_poll.lock().unwrap() = Instant::now() - Duration::from_secs(3600);
+        let application = async {
+            let id = notification(&mut rx).await.unwrap();
+            let args = json!({"hostID":fixture.id,"requestID":id});
+            let claimed = execute("claim", args.clone()).unwrap();
+            assert_eq!(claimed["request"]["name"], "lithe_project_inspect");
+            assert!(execute("claim", args).unwrap()["request"].is_null());
+            execute(
+                "respond",
+                json!({"hostID":fixture.id,"requestID":id,"result":{"ok":true}}),
+            )
+            .unwrap();
+        };
+        let (response, ()) = tokio::join!(call(State(broker), headers, inspection()), application);
+        assert_eq!(response.1 .0["ok"], true);
+    }
+
+    #[tokio::test]
+    async fn attaching_after_enqueue_delivers_the_existing_request_once() {
+        let (fixture, broker, headers) = push_fixture();
+        let application = async {
+            tokio::time::timeout(Duration::from_secs(2), broker.queued.notified())
+                .await
+                .unwrap();
+            let host = fixture.id.clone();
+            attach_dispatcher(
+                &fixture.id,
+                "fixture-owner",
+                Arc::new(move |id| {
+                    assert!(
+                        execute("claim", json!({"hostID":host,"requestID":id}))?["request"]
+                            .is_object()
+                    );
+                    execute(
+                        "respond",
+                        json!({"hostID":host,"requestID":id,"result":{"ok":true}}),
+                    )?;
+                    Ok(())
+                }),
+            )
+            .unwrap();
+        };
+        let (response, ()) = tokio::join!(
+            call(State(broker.clone()), headers, inspection()),
+            application
+        );
+        assert_eq!(response.1 .0["ok"], true);
+        assert!(broker.pending.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn delayed_push_cannot_claim_expired_or_cancelled_work() {
+        let (fixture, broker, headers) = push_fixture();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        attach_dispatcher(
+            &fixture.id,
+            "fixture-owner",
+            Arc::new(move |id| tx.send(id).map_err(|e| e.to_string())),
+        )
+        .unwrap();
+        let application = async {
+            let id = notification(&mut rx).await.unwrap();
+            // Simulate a suspended UI deterministically, without waiting for the deadline.
+            broker.pending.lock().unwrap().get_mut(&id).unwrap().created =
+                Instant::now() - REQUEST_TIMEOUT;
+            assert!(
+                execute("claim", json!({"hostID":fixture.id,"requestID":id})).unwrap()["request"]
+                    .is_null()
+            );
+        };
+        let (response, ()) = tokio::join!(
+            call(State(broker.clone()), headers.clone(), inspection()),
+            application
+        );
+        assert_eq!(response.1 .0["error"]["code"], "TIMEOUT");
+        let id = {
+            let call = call(State(broker.clone()), headers, inspection());
+            tokio::pin!(call);
+            tokio::select! {
+                _ = &mut call => panic!("unanswered call completed"),
+                id = notification(&mut rx) => id.unwrap(),
+            }
+            // Dropping the HTTP handler cancels ownership of the queued request.
+        };
+        assert!(
+            execute("claim", json!({"hostID":fixture.id,"requestID":id})).unwrap()["request"]
+                .is_null()
+        );
+        assert!(broker.pending.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn failed_push_does_not_revoke_authorization_or_replay_a_request() {
+        let (fixture, broker, headers) = push_fixture();
+        let failing = Arc::new(AtomicBool::new(true));
+        let switch = failing.clone();
+        let host = fixture.id.clone();
+        attach_dispatcher(
+            &fixture.id,
+            "fixture-owner",
+            Arc::new(move |id| {
+                if switch.load(Ordering::Acquire) {
+                    return Err("receiver unavailable".into());
+                }
+                // Inline delivery also proves no broker lock is held while calling the adapter.
+                let request = execute("claim", json!({"hostID":host,"requestID":id}))?;
+                assert!(request["request"].is_object());
+                execute(
+                    "respond",
+                    json!({"hostID":host,"requestID":id,"result":{"ok":true}}),
+                )?;
+                Ok(())
+            }),
+        )
+        .unwrap();
+        let response = call(State(broker.clone()), headers.clone(), inspection()).await;
+        assert_eq!(response.1 .0["error"]["code"], "DISPATCHER_UNAVAILABLE");
+        assert!(broker.pending.lock().unwrap().is_empty());
+        assert!(broker.enabled.load(Ordering::Acquire));
+        failing.store(false, Ordering::Release);
+        let response = call(State(broker), headers, inspection()).await;
+        assert_eq!(response.1 .0["ok"], true);
+    }
+
+    #[tokio::test]
+    async fn closing_owner_rejects_a_queued_push_and_releases_the_channel() {
+        let (fixture, broker, headers) = push_fixture();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        attach_dispatcher(
+            &fixture.id,
+            "fixture-owner",
+            Arc::new(move |id| tx.send(id).map_err(|e| e.to_string())),
+        )
+        .unwrap();
+        let application = async {
+            let id = notification(&mut rx).await.unwrap();
+            execute("close", json!({"hostID":fixture.id})).unwrap();
+            assert!(execute("claim", json!({"hostID":fixture.id,"requestID":id})).is_err());
+        };
+        let (response, ()) = tokio::join!(call(State(broker), headers, inspection()), application);
+        assert_eq!(response.1 .0["error"]["code"], "DISCONNECTED");
+        assert!(notification(&mut rx).await.is_none());
+    }
+
     #[test]
     fn browser_origin_and_wrong_token_are_rejected() {
         let mut h = HeaderMap::new();

@@ -44,8 +44,6 @@ extension AppModel {
         let normalizedURL = url.standardizedFileURL
         if activateWhenReady {
             editorTabOrderFeature.repositoryDiffSelected = false
-            selectedChange = nil
-            closeBranchComparison()
             editorNavigationTarget = nil
             terminalPlacementFeature.activateDocument()
             activeDocumentID = nil
@@ -90,8 +88,8 @@ extension AppModel {
 
         switch fallbackItem {
         case .agentConversation(let tab): showAgentChatsInEditor(tab: tab)
-        case .repositoryDiff:
-            selectRepositoryDiffTab()
+        case .repositoryDiff(let id):
+            selectRepositoryDiffTab(id)
         case .document(let documentID):
             if let document = openDocuments.first(where: { $0.id == documentID }) {
                 selectEditorDocument(document)

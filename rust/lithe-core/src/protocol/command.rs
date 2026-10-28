@@ -115,6 +115,20 @@ pub enum CoreCommand {
     BuildTaskPlan,
     /// Expands a build test run and its result location (`build.testPlan`).
     BuildTestPlan,
+    /// Plans typed provider run preparation (`build.prepareRunPlan`).
+    BuildPrepareRunPlan,
+    /// Resolves optional public build inputs (`build.resolveModelInputs`).
+    BuildResolveModelInputs,
+    /// Plans native debug preparation (`build.prepareDebugPlan`).
+    BuildPrepareDebugPlan,
+    /// Validates native debug target facts (`build.decodeDebugPreparation`).
+    BuildDecodeDebugPreparation,
+    /// Validates prepared launch data (`build.decodeRunPreparation`).
+    BuildDecodeRunPreparation,
+    /// Plans provider-owned test discovery (`build.testDiscoveryPlan`).
+    BuildTestDiscoveryPlan,
+    /// Validates provider-owned test selectors (`build.decodeTestDiscovery`).
+    BuildDecodeTestDiscovery,
     /// Expands the command that prints a project's dependencies (`build.dependencyPlan`).
     BuildDependencyPlan,
     /// Normalizes a build model and derives its run entries (`build.decodeModel`).
@@ -169,6 +183,8 @@ pub enum CoreCommand {
     WorkspaceSnapshot,
     /// Lists the visible children of project directories (`workspace.listDirectories`).
     WorkspaceListDirectories,
+    /// Filter ordinary workspace-relative event paths using shared defaults.
+    WorkspaceFilterChanges,
     /// Finds Git repositories that belong to an opened workspace (`workspace.repositories`).
     WorkspaceRepositories,
     /// Builds or reuses the workspace search index (`workspace.searchIndex.warm`).
@@ -209,6 +225,8 @@ pub enum CoreCommand {
     MavenLaunchPlan,
     /// Shortens an oversized Java launch using a JDK argument file when needed.
     ExecutionPlanLaunchCommand,
+    /// Resolve environment precedence after platform tool discovery.
+    ExecutionResolveEnvironment,
     /// Decides how each Lithe-owned process ends (`processLifecycle.resolve`).
     ProcessLifecycleResolve,
     /// Classifies a process snapshot into lifecycle items (`processLifecycle.inventory`).
@@ -539,6 +557,13 @@ impl CoreCommand {
             "build.modelPlan" => Some(Self::BuildModelPlan),
             "build.taskPlan" => Some(Self::BuildTaskPlan),
             "build.testPlan" => Some(Self::BuildTestPlan),
+            "build.prepareDebugPlan" => Some(Self::BuildPrepareDebugPlan),
+            "build.decodeDebugPreparation" => Some(Self::BuildDecodeDebugPreparation),
+            "build.resolveModelInputs" => Some(Self::BuildResolveModelInputs),
+            "build.prepareRunPlan" => Some(Self::BuildPrepareRunPlan),
+            "build.decodeRunPreparation" => Some(Self::BuildDecodeRunPreparation),
+            "build.testDiscoveryPlan" => Some(Self::BuildTestDiscoveryPlan),
+            "build.decodeTestDiscovery" => Some(Self::BuildDecodeTestDiscovery),
             "build.dependencyPlan" => Some(Self::BuildDependencyPlan),
             "build.decodeModel" => Some(Self::BuildDecodeModel),
             "build.decodeTestResults" => Some(Self::BuildDecodeTestResults),
@@ -565,6 +590,7 @@ impl CoreCommand {
             "community.discourse.search" => Some(Self::CommunityDiscourseSearch),
             "community.discourse.auth.revoke" => Some(Self::CommunityDiscourseAuthRevoke),
             "workspace.snapshot" => Some(Self::WorkspaceSnapshot),
+            "workspace.filterChanges" => Some(Self::WorkspaceFilterChanges),
             "workspace.listDirectories" => Some(Self::WorkspaceListDirectories),
             "workspace.repositories" => Some(Self::WorkspaceRepositories),
             "workspace.searchIndex.warm" => Some(Self::WorkspaceSearchIndexWarm),
@@ -585,6 +611,7 @@ impl CoreCommand {
             "history.delete" => Some(Self::HistoryDelete),
             "maven.scan" => Some(Self::MavenScan),
             "maven.launchPlan" => Some(Self::MavenLaunchPlan),
+            "execution.resolveEnvironment" => Some(Self::ExecutionResolveEnvironment),
             "execution.planLaunchCommand" => Some(Self::ExecutionPlanLaunchCommand),
             "processLifecycle.resolve" => Some(Self::ProcessLifecycleResolve),
             "processLifecycle.inventory" => Some(Self::ProcessLifecycleInventory),

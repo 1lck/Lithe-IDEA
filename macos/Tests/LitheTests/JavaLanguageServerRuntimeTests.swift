@@ -198,6 +198,24 @@ struct JavaLanguageServerRuntimeTests {
         #expect(!state.belongs(to: URL(fileURLWithPath: "/other", isDirectory: true)))
     }
 
+    @Test(arguments: [false, true])
+    @MainActor
+    func stoppedSessionClearsOnlyItsOwnPreparation(stale: Bool) {
+        let root = URL(fileURLWithPath: "/workspace/java-stop", isDirectory: true)
+        let feature = JavaFeatureModel(operations: NoProjectJavaOperations())
+        let owner = feature.beginLanguageServerPreparation(workspaceURL: root, operationID: UUID())
+        JavaLanguageServerPreparationCoordinator().handleSessionState(
+            .stopped, operationID: stale ? UUID() : owner.operationID,
+            javaFeature: feature, workspaceURL: root,
+            onReady: { Issue.record("A stopped session cannot become ready") },
+            onFailure: { _ in Issue.record("An intentional stop is not a startup failure") }
+        )
+        #expect(feature.isLanguageServerPreparing == stale)
+        #expect(feature.languageServerOperationID == (stale ? owner.operationID : nil))
+        #expect(feature.languageServerStateBelongs(to: root) == stale)
+        feature.cancelLanguageServerPreparation()
+    }
+
     @Test
     @MainActor
     func startupRechecksImportInvalidatedDuringRuntimePreparation() async throws {

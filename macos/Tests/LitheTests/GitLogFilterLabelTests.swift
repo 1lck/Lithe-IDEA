@@ -34,6 +34,28 @@ struct GitLogFilterLabelTests {
         }
     }
 
+    /// Hovering a filter used to paint its name white, which disappeared against a light toolbar.
+    @Test(arguments: [NSAppearance.Name.aqua, .darkAqua])
+    func hoveredNameStaysReadableAgainstTheToolbar(appearance name: NSAppearance.Name) throws {
+        let appearance = try #require(NSAppearance(named: name))
+        func luminance(_ color: Color) -> CGFloat {
+            var value: CGFloat = 0
+            appearance.performAsCurrentDrawingAppearance {
+                let rgb = NSColor(color).usingColorSpace(.sRGB) ?? .black
+                value = 0.2126 * rgb.redComponent + 0.7152 * rgb.greenComponent + 0.0722 * rgb.blueComponent
+            }
+            return value
+        }
+        let surface = luminance(LitheTheme.toolHeader)
+        for hovered in [false, true] {
+            let ink = luminance(GitLogFilterLabel.nameColor(isHovered: hovered))
+            #expect(abs(ink - surface) > 0.25, "hovered=\(hovered) \(name.rawValue)")
+        }
+        // Hover must emphasise the name, not fade it.
+        #expect(abs(luminance(GitLogFilterLabel.nameColor(isHovered: true)) - surface)
+                >= abs(luminance(GitLogFilterLabel.nameColor(isHovered: false)) - surface))
+    }
+
     private func render<V: View>(_ view: V, width: CGFloat, scheme: ColorScheme) throws -> NSBitmapImageRep {
         let renderer = ImageRenderer(content: view.lineLimit(1)
             .frame(width: width, height: 28, alignment: .leading).padding(8)

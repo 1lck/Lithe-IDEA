@@ -117,20 +117,18 @@ impl FileWatcher {
       Ok(new_debouncer(
          Duration::from_millis(300),
          None,
-         move |result: DebounceEventResult| {
-            match result {
-               Ok(events) => Self::handle_events(
-                  events,
-                  emitter.as_ref(),
-                  &watched_paths,
-                  &watched_directories,
-               ),
-               Err(errors) => {
-                  for error in &errors {
-                     log::warn!("[FileWatcher] Native watcher error: {error}");
-                  }
-                  Self::emit_rescans(emitter.as_ref(), &watched_directories);
+         move |result: DebounceEventResult| match result {
+            Ok(events) => Self::handle_events(
+               events,
+               emitter.as_ref(),
+               &watched_paths,
+               &watched_directories,
+            ),
+            Err(errors) => {
+               for error in &errors {
+                  log::warn!("[FileWatcher] Native watcher error: {error}");
                }
+               Self::emit_rescans(emitter.as_ref(), &watched_directories);
             }
          },
       )?)
@@ -147,38 +145,46 @@ impl FileWatcher {
          return;
       }
 
-      if events.len() > MAX_DEBOUNCED_EVENTS_PER_BATCH {
-         log::warn!(
-            "[FileWatcher] Collapsing {} debounced events into a bounded rescan",
-            events.len()
-         );
+      let watched_paths = watched_paths.lock().unwrap();
+      let watched_dirs = watched_directories.lock().unwrap();
+      // Classify rename pairs before filtering either endpoint. A move from an
+      // excluded directory into source still creates a visible source event.
+      let changes = events
+         .iter()
+         .flat_map(|event| Self::classify_event(&event.event))
+         .filter(|(path, _)| Self::is_relevant_change(path, &watched_paths, &watched_dirs))
+         .collect::<Vec<_>>();
+      drop(watched_dirs);
+      drop(watched_paths);
+      if changes.len() > MAX_DEBOUNCED_EVENTS_PER_BATCH {
          Self::emit_rescans(emitter, watched_directories);
          return;
       }
-
-      let watched_paths = watched_paths.lock().unwrap();
-      let watched_dirs = watched_directories.lock().unwrap();
-
-      for event in events {
-         let changes = Self::classify_event(&event.event);
-         for (path, event_type) in changes {
-            if !Self::is_path_watched(&path, &watched_paths, &watched_dirs) {
-               continue;
-            }
-
-            let change_event = FileChangeEvent {
-               path: path.to_string_lossy().to_string(),
-               event_type,
-            };
-
-            log::debug!(
-               "[FileWatcher] Emitting file-changed event for: {} ({:?})",
-               change_event.path,
-               change_event.event_type
-            );
-            emitter.emit_file_change(&change_event);
-         }
+      for (path, event_type) in changes {
+         emitter.emit_file_change(&FileChangeEvent {
+            path: path.to_string_lossy().to_string(),
+            event_type,
+         });
       }
+   }
+
+   fn is_relevant_change(
+      path: &PathBuf,
+      watched_paths: &HashSet<PathBuf>,
+      watched_dirs: &HashSet<PathBuf>,
+   ) -> bool {
+      if watched_paths.contains(path) {
+         return true;
+      }
+      let root = watched_dirs
+         .iter()
+         .filter(|root| path.starts_with(root))
+         .max_by_key(|root| root.components().count());
+      root
+         .and_then(|root| path.strip_prefix(root).ok())
+         .is_some_and(|relative| {
+            lithe_core::is_workspace_event_relevant(&relative.to_string_lossy())
+         })
    }
 
    fn classify_event(event: &Event) -> Vec<(PathBuf, FileChangeType)> {
@@ -264,14 +270,6 @@ impl FileWatcher {
             event_type: FileChangeType::Rescan,
          });
       }
-   }
-
-   fn is_path_watched(
-      path: &PathBuf,
-      watched_paths: &HashSet<PathBuf>,
-      watched_dirs: &HashSet<PathBuf>,
-   ) -> bool {
-      watched_paths.contains(path) || watched_dirs.iter().any(|dir| path.starts_with(dir))
    }
 
    fn setup_path_watching(
@@ -413,17 +411,12 @@ mod tests {
             path.display()
          );
          match receiver.recv_timeout(remaining) {
-            Ok(event)
-               if event.path == path.to_string_lossy() && event.event_type == event_type =>
-            {
+            Ok(event) if event.path == path.to_string_lossy() && event.event_type == event_type => {
                return event;
             }
             Ok(_) => continue,
             Err(RecvTimeoutError::Timeout) => {
-               panic!(
-                  "timed out waiting for {event_type:?} at {}",
-                  path.display()
-               )
+               panic!("timed out waiting for {event_type:?} at {}", path.display())
             }
             Err(RecvTimeoutError::Disconnected) => {
                panic!("file watcher event channel disconnected")
@@ -507,12 +500,7 @@ mod tests {
       let watched_paths = Arc::new(Mutex::new(HashSet::from([root.clone()])));
       let watched_directories = Arc::new(Mutex::new(HashSet::from([root.clone()])));
 
-      FileWatcher::handle_events(
-         events,
-         &emitter,
-         &watched_paths,
-         &watched_directories,
-      );
+      FileWatcher::handle_events(events, &emitter, &watched_paths, &watched_directories);
 
       assert_eq!(
          receiver.try_recv().expect("rescan event should be emitted"),
@@ -522,5 +510,100 @@ mod tests {
          }
       );
       assert!(matches!(receiver.try_recv(), Err(TryRecvError::Empty)));
+   }
+   #[test]
+   fn native_event_loss_recovers_even_when_only_output_paths_remain() {
+      let root = PathBuf::from("fixture");
+      let event = Event::new(EventKind::Other)
+         .add_path(root.join("target/classes/Main.class"))
+         .set_flag(notify::event::Flag::Rescan);
+      let (sender, receiver) = mpsc::channel();
+      FileWatcher::handle_events(
+         vec![DebouncedEvent::new(event, Instant::now())],
+         &ChannelEmitter(sender),
+         &Arc::new(Mutex::new(HashSet::from([root.clone()]))),
+         &Arc::new(Mutex::new(HashSet::from([root.clone()]))),
+      );
+      assert_eq!(
+         receiver.try_iter().collect::<Vec<_>>(),
+         vec![FileChangeEvent {
+            path: root.to_string_lossy().into_owned(),
+            event_type: FileChangeType::Rescan,
+         }]
+      );
+   }
+
+   #[test]
+   fn build_output_flood_preserves_source_and_explicit_watch_events() {
+      let root = PathBuf::from("fixture/build");
+      let generated = root.join("target/generated-sources");
+      let retained = root.join("target/explicit.txt");
+      let source = root.join("src/Main.java");
+      let mut events = (0..1024)
+         .map(|index| {
+            DebouncedEvent::new(
+               Event::new(EventKind::Create(notify::event::CreateKind::File))
+                  .add_path(root.join(format!("target/classes/{index}.class"))),
+               Instant::now(),
+            )
+         })
+         .collect::<Vec<_>>();
+      for path in [&source, &retained, &generated.join("Generated.java")] {
+         events.push(DebouncedEvent::new(
+            Event::new(EventKind::Modify(ModifyKind::Any)).add_path(path.clone()),
+            Instant::now(),
+         ));
+      }
+      let (sender, receiver) = mpsc::channel();
+      FileWatcher::handle_events(
+         events,
+         &ChannelEmitter(sender),
+         &Arc::new(Mutex::new(HashSet::from([root.clone(), retained.clone()]))),
+         &Arc::new(Mutex::new(HashSet::from([root, generated.clone()]))),
+      );
+      let actual = receiver.try_iter().collect::<Vec<_>>();
+      assert_eq!(actual.len(), 3);
+      assert!(
+         actual
+            .iter()
+            .all(|event| event.event_type != FileChangeType::Rescan)
+      );
+      assert_eq!(
+         actual
+            .iter()
+            .map(|event| event.path.clone())
+            .collect::<HashSet<_>>(),
+         [source, retained, generated.join("Generated.java")]
+            .iter()
+            .map(|path| path.to_string_lossy().to_string())
+            .collect()
+      );
+   }
+
+   #[test]
+   fn rename_from_output_to_source_retains_only_visible_endpoint() {
+      let root = PathBuf::from("fixture");
+      let source = root.join("src/Generated.java");
+      let events = vec![DebouncedEvent::new(
+         Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::Both)))
+            .add_path(root.join("target/Generated.java"))
+            .add_path(source.clone()),
+         Instant::now(),
+      )];
+      let (sender, receiver) = mpsc::channel();
+      FileWatcher::handle_events(
+         events,
+         &ChannelEmitter(sender),
+         &Arc::new(Mutex::new(HashSet::from([root.clone()]))),
+         &Arc::new(Mutex::new(HashSet::from([root]))),
+      );
+      let actual = receiver.try_iter().collect::<Vec<_>>();
+      assert_eq!(
+         actual,
+         vec![FileChangeEvent {
+            path: source.to_string_lossy().to_string(),
+            event_type: FileChangeType::Opened
+         }]
+      );
    }
 }

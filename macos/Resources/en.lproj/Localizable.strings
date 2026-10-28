@@ -959,6 +959,7 @@
 "Could not load changed files" = "Could not load changed files";
 "Could not load dependencies" = "Could not load dependencies";
 "Could not load file preview" = "Could not load file preview";
+"Could not load older commits. Refresh history" = "Could not load older commits. Refresh history";
 "Could not load project" = "Could not load project";
 "Could not load saved changes" = "Could not load saved changes";
 "Could not load service dependencies" = "Could not load service dependencies";
@@ -1178,6 +1179,7 @@
 "Discard Block" = "Discard Block";
 "Discard Changes" = "Discard Changes";
 "Discard and Retry" = "Discard and Retry";
+"Discard changes to selected files?" = "Discard changes to selected files?";
 "Discard draft and reload?" = "Discard draft and reload?";
 "Discard selected change" = "Discard selected change";
 "Discard this change block" = "Discard this change block";
@@ -1186,6 +1188,8 @@
 "Disconnect" = "Disconnect";
 "Disconnected" = "Disconnected";
 "Discover MCP servers" = "Discover MCP servers";
+"Discover Tests" = "Discover Tests";
+"Discovered Tests" = "Discovered Tests";
 "Discovering Maven…" = "Discovering Maven…";
 "Discovering…" = "Discovering…";
 "Disk" = "Disk";
@@ -1654,6 +1658,7 @@
 "Hide Session Details" = "Hide Session Details";
 "Hide Terminal tool window" = "Hide Terminal tool window";
 "Hide commit decorations" = "Hide commit decorations";
+"Hide commit details" = "Hide commit details";
 "Hide configuration list" = "Hide configuration list";
 "Hide plan" = "Hide plan";
 "Hide thinking" = "Hide thinking";
@@ -1748,6 +1753,7 @@
 "Install ACP adapters, check the runtime, and manage local or custom providers." = "Install ACP adapters, check the runtime, and manage local or custom providers.";
 "Install AutoBuild" = "Install AutoBuild";
 "Install Codex CLI to discover its skills." = "Install Codex CLI to discover its skills.";
+"Install Java Support for Java, Maven and Spring templates…" = "Install Java Support for Java, Maven and Spring templates…";
 "Install Node.js and npm before installing the adapter." = "Install Node.js and npm before installing the adapter.";
 "Install PHP Support Plugin" = "Install PHP Support Plugin";
 "Install PHP Support from a signed plugin package." = "Install PHP Support from a signed plugin package.";
@@ -1820,6 +1826,7 @@
 "Java SDK" = "Java SDK";
 "Java Stepping Filters" = "Java Stepping Filters";
 "Java Stepping Filters…" = "Java Stepping Filters…";
+"Java Support is installed separately. Install it from the Marketplace, or use Install from Disk for an offline package. Your Java settings are kept." = "Java Support is installed separately. Install it from the Marketplace, or use Install from Disk for an offline package. Your Java settings are kept.";
 "Java entries appear after the Java language service lists runnable classes." = "Java entries appear after the Java language service lists runnable classes.";
 "Java entries could not be refreshed" = "Java entries could not be refreshed";
 "Java entry-point freshness check failed" = "Java entry-point freshness check failed";
@@ -1966,7 +1973,9 @@
 "Load more" = "Load more";
 "Load more commits" = "Load more commits";
 "Load more debugger variables" = "Load more debugger variables";
+"Load or reload the project model before running all tests, so subproject reports are collected." = "Load or reload the project model before running all tests, so subproject reports are collected.";
 "Load the %@ model" = "Load the %@ model";
+"Load the current build model and enable its provider before running this configuration." = "Load the current build model and enable its provider before running this configuration.";
 "Load the dependencies again" = "Load the dependencies again";
 "Load the dependencies of %@" = "Load the dependencies of %@";
 "Load the project model" = "Load the project model";
@@ -2401,6 +2410,7 @@
 "No subagents yet" = "No subagents yet";
 "No tasks yet" = "No tasks yet";
 "No test runner is configured for %@." = "No test runner is configured for %@.";
+"No tests discovered." = "No tests discovered.";
 "No textual diff available" = "No textual diff available";
 "No textual difference" = "No textual difference";
 "No tools running" = "No tools running";
@@ -2752,6 +2762,7 @@
 "Project run configuration is invalid" = "Project run configuration is invalid";
 "Project run configuration not found" = "Project run configuration not found";
 "Project runtime settings are saved locally for this project." = "Project runtime settings are saved locally for this project.";
+"Project scan is incomplete" = "Project scan is incomplete";
 "Project skills" = "Project skills";
 "Project toolchain needs attention" = "Project toolchain needs attention";
 "Project will be created in: %@" = "Project will be created in: %@";
@@ -3006,6 +3017,8 @@
 "Replays every commit onto the base branch without a merge commit." = "Replays every commit onto the base branch without a merge commit.";
 "Reported change" = "Reported change";
 "Repository" = "Repository";
+"Repository Diff" = "Repository Diff";
+"Repository Diff: %@" = "Repository Diff: %@";
 "Repository URL" = "Repository URL";
 "Repository changed; review and retry" = "Repository changed; review and retry";
 "Repository identity overrides inherited global values. Clear an override to use inherited settings." = "Repository identity overrides inherited global values. Clear an override to use inherited settings.";
@@ -3143,6 +3156,7 @@
 "Run another ACP Agent you installed yourself. It must support signing in with a custom API key gateway." = "Run another ACP Agent you installed yourself. It must support signing in with a custom API key gateway.";
 "Run checked configurations without restarting running services" = "Run checked configurations without restarting running services";
 "Run configuration" = "Run configuration";
+"Run configuration changed while saving. Reload and try again." = "Run configuration changed while saving. Reload and try again.";
 "Run configurations" = "Run configurations";
 "Run configurations and Maven goals started in Lithe. They always stop when their project or window closes or Lithe quits, together with the processes they started; this only decides whether Lithe lists them and asks first." = "Run configurations and Maven goals started in Lithe. They always stop when their project or window closes or Lithe quits, together with the processes they started; this only decides whether Lithe lists them and asks first.";
 "Run configurations are unavailable. Enable the execution module and try again." = "Run configurations are unavailable. Enable the execution module and try again.";
@@ -3210,6 +3224,7 @@
 "Save local changes with" = "Save local changes with";
 "Save message" = "Save message";
 "Save or discard unsaved files before deleting this item" = "Save or discard unsaved files before deleting this item";
+"Save provider run configuration to .lithe/run/local.json" = "Save provider run configuration to .lithe/run/local.json";
 "Save scope" = "Save scope";
 "Save shared instructions" = "Save shared instructions";
 "Save the active document" = "Save the active document";
@@ -3223,6 +3238,7 @@
 "Saved only for this project on this computer in .lithe/run/local.json and excluded from Git." = "Saved only for this project on this computer in .lithe/run/local.json and excluded from Git.";
 "Saved to %@" = "Saved to %@";
 "Saves, connects, and opens the remote folder in this window." = "Saves, connects, and opens the remote folder in this window.";
+"Saving build provider run configurations is unavailable." = "Saving build provider run configurations is unavailable.";
 "Saving replaces the current GitHub metadata." = "Saving replaces the current GitHub metadata.";
 "Saving writes to" = "Saving writes to";
 "Scala Support" = "Scala Support";
@@ -3431,6 +3447,7 @@
 "Showing the previous Java entries while the Java language service prepares the project." = "Showing the previous Java entries while the Java language service prepares the project.";
 "Shown across the entire workbench, including toolbars, project tree, editor, tabs, terminals, and status bar." = "Shown across the entire workbench, including toolbars, project tree, editor, tabs, terminals, and status bar.";
 "Side-by-side" = "Side-by-side";
+"Side-by-side view" = "Side-by-side view";
 "Sign in again" = "Sign in again";
 "Sign in to Codex" = "Sign in to Codex";
 "Sign in to GitHub" = "Sign in to GitHub";
@@ -3486,6 +3503,7 @@
 "Solidity Support" = "Solidity Support";
 "Some MCP configuration files could not be restored: %@. Refresh and check these files before retrying." = "Some MCP configuration files could not be restored: %@. Refresh and check these files before retrying.";
 "Some dependencies are not shown." = "Some dependencies are not shown.";
+"Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations." = "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations.";
 "Sort by Last Updated" = "Sort by Last Updated";
 "Sort by Name" = "Sort by Name";
 "Sort plugins" = "Sort plugins";
@@ -3509,6 +3527,7 @@
 "Stack frame display options" = "Stack frame display options";
 "Stage All and Commit use the current ChangeList." = "Stage All and Commit use the current ChangeList.";
 "Stage File" = "Stage File";
+"Stage Files" = "Stage Files";
 "Stage all changes" = "Stage all changes";
 "Stage all files" = "Stage all files";
 "Stage all files in current ChangeList" = "Stage all files in current ChangeList";
@@ -3755,7 +3774,9 @@
 "The branch now contains the completed plan. Its original history remains available through the recovery reference." = "The branch now contains the completed plan. Its original history remains available through the recovery reference.";
 "The breakdown needs Model call statistics (on by default). After turning it on, reconnect and send a message." = "The breakdown needs Model call statistics (on by default). After turning it on, reconnect and send a message.";
 "The build provider failed to start." = "The build provider failed to start.";
+"The build provider returned an invalid launch plan." = "The build provider returned an invalid launch plan.";
 "The build provider stopped before it was ready." = "The build provider stopped before it was ready.";
+"The build provider's debug program or adapter is unavailable. Build it again and check that the plugin is enabled." = "The build provider's debug program or adapter is unavailable. Build it again and check that the plugin is enabled.";
 "The build tool exited with code %lld." = "The build tool exited with code %lld.";
 "The build tool output is too large or not UTF-8." = "The build tool output is too large or not UTF-8.";
 "The build tool timed out." = "The build tool timed out.";
@@ -3830,6 +3851,7 @@
 "The interface language changes immediately. English is the default." = "The interface language changes immediately. English is the default.";
 "The item can be recovered from the macOS Trash." = "The item can be recovered from the macOS Trash.";
 "The language server could not apply this setting. Restart it to use the new value." = "The language server could not apply this setting. Restart it to use the new value.";
+"The language server this build system uses is not available. Open a file of the language and try again." = "The language server this build system uses is not available. Open a file of the language and try again.";
 "The language service that hosts the debug adapter is unavailable." = "The language service that hosts the debug adapter is unavailable.";
 "The latest stable release will be downloaded in full and replace this AutoBuild after you confirm installation. Projects and settings are kept, but AutoBuild-only settings may not work in the stable release." = "The latest stable release will be downloaded in full and replace this AutoBuild after you confirm installation. Projects and settings are kept, but AutoBuild-only settings may not work in the stable release.";
 "The latest stable release will be downloaded in full and replace this preview after you confirm installation. Projects and settings are kept, but preview-only settings may not work in the stable release." = "The latest stable release will be downloaded in full and replace this preview after you confirm installation. Projects and settings are kept, but preview-only settings may not work in the stable release.";
@@ -3900,6 +3922,7 @@
 "The repository will be opened in detached HEAD state." = "The repository will be opened in detached HEAD state.";
 "The request has no secret." = "The request has no secret.";
 "The response stopped at the model's token limit." = "The response stopped at the model's token limit.";
+"The saved provider run configuration is unavailable." = "The saved provider run configuration is unavailable.";
 "The selected AI provider has an invalid API URL or model." = "The selected AI provider has an invalid API URL or model.";
 "The selected AI provider has no API key." = "The selected AI provider has no API key.";
 "The selected background image authorization is invalid." = "The selected background image authorization is invalid.";
@@ -3987,6 +4010,7 @@
 "This Markdown document is read-only" = "This Markdown document is read-only";
 "This Window" = "This Window";
 "This action cannot be undone by Lithe." = "This action cannot be undone by Lithe.";
+"This action cannot be undone by Lithe. Untracked files will be deleted." = "This action cannot be undone by Lithe. Untracked files will be deleted.";
 "This adapter cannot step by instruction; steps still move by line" = "This adapter cannot step by instruction; steps still move by line";
 "This adapter does not support hot code replacement." = "This adapter does not support hot code replacement.";
 "This address cannot be opened here." = "This address cannot be opened here.";
@@ -4148,6 +4172,7 @@
 "Undo Commit" = "Undo Last Commit (Keep Changes)";
 "Undo Commit…" = "Undo Last Commit (Keep Changes)…";
 "Unhandled" = "Unhandled";
+"Unified view" = "Unified view";
 "Uninstall" = "Uninstall";
 "Uninstall %@ from the Installed tab and restart Lithe first. It is the retired official version of this plugin and supports the same language." = "Uninstall %@ from the Installed tab and restart Lithe first. It is the retired official version of this plugin and supports the same language.";
 "Uninstall %@?" = "Uninstall %@?";
@@ -4175,6 +4200,7 @@
 "Unsigned Decimal" = "Unsigned Decimal";
 "Unsigned development package. Release builds of Lithe will not load it." = "Unsigned development package. Release builds of Lithe will not load it.";
 "Unstage" = "Unstage";
+"Unstage Files" = "Unstage Files";
 "Unstage all files" = "Unstage all files";
 "Unstage all files in repository" = "Unstage all files in repository";
 "Unstage file" = "Unstage file";
@@ -4514,6 +4540,10 @@
 "from JAVA_HOME" = "from JAVA_HOME";
 "generated main" = "generated main";
 "generated test" = "generated test";
+"git.diff.repositoryPreviewEmptyTitle" = "Repository Diff";
+"git.diff.repositoryPreviewTitle" = "Repository Diff: %1$@";
+"git.log.olderCommitsFailed" = "Could not load older commits. Refresh history";
+"git.unifiedView" = "Unified view";
 "https://github.com/owner/repository" = "https://github.com/owner/repository";
 "just now" = "just now";
 "local commit(s)" = "local commit(s)";
@@ -5594,14 +5624,18 @@
 "native.discardAndRetry" = "Discard and Retry";
 "native.discardBlock" = "Discard Block";
 "native.discardChanges" = "Discard Changes";
+"native.discardChangesToSelectedFiles" = "Discard changes to selected files?";
 "native.discardDraftAndReload" = "Discard draft and reload?";
 "native.discardSelectedChange" = "Discard selected change";
 "native.discardThisChangeBlock" = "Discard this change block";
 "native.discardThisFileAndRetry" = "Discard this file and retry";
+"native.discardWorktreeChangesWarning" = "This action cannot be undone by Lithe. Untracked files will be deleted.";
 "native.discardedEditorChanges" = "Discarded editor changes";
 "native.disconnect" = "Disconnect";
 "native.disconnected" = "Disconnected";
 "native.discoverMcpServers" = "Discover MCP servers";
+"native.discoverTests" = "Discover Tests";
+"native.discoveredTests" = "Discovered Tests";
 "native.discovering" = "Discovering…";
 "native.discoveringMaven" = "Discovering Maven…";
 "native.disk" = "Disk";
@@ -6053,6 +6087,7 @@
 "native.hideBuildOutputToolWindow" = "Hide Build Output tool window";
 "native.hideBuildToolWindow" = "Hide Build tool window";
 "native.hideCommitDecorations" = "Hide commit decorations";
+"native.hideCommitDetails" = "Hide commit details";
 "native.hideConfigurationList" = "Hide configuration list";
 "native.hideDebugToolWindow" = "Hide Debug tool window";
 "native.hideDetails" = "Hide Details";
@@ -6284,6 +6319,7 @@
 "native.interface" = "Interface";
 "native.interrupt" = "Interrupt";
 "native.interrupted" = "Interrupted";
+"native.invalidBuildProviderLaunchPlan" = "The build provider returned an invalid launch plan.";
 "native.invalidGitTagName" = "Invalid Git tag name.";
 "native.invalidHookFileGuards" = "Invalid Hook file guards.";
 "native.invalidIdeApiRequest" = "Invalid IDE API request";
@@ -6520,11 +6556,13 @@
 "native.load" = "Load";
 "native.loadArg1More" = "Load %1$lld more";
 "native.loadDiskVersion" = "Load Disk Version";
+"native.loadModelBeforeWorkspaceTests" = "Load or reload the project model before running all tests, so subproject reports are collected.";
 "native.loadMore" = "Load More";
 "native.loadMore2" = "Load more";
 "native.loadMoreCommits" = "Load more commits";
 "native.loadMoreDebuggerVariables" = "Load more debugger variables";
 "native.loadProjectModel" = "Load Project Model";
+"native.loadProviderModelBeforeRun" = "Load the current build model and enable its provider before running this configuration.";
 "native.loadTheDependenciesAgain" = "Load the dependencies again";
 "native.loadTheDependenciesOf" = "Load the dependencies of %1$@";
 "native.loadTheModel" = "Load the %1$@ model";
@@ -6968,6 +7006,7 @@
 "native.noSubagentsYet" = "No subagents yet";
 "native.noTasksYet" = "No tasks yet";
 "native.noTestRunnerIsConfiguredFor" = "No test runner is configured for %1$@.";
+"native.noTestsDiscovered" = "No tests discovered.";
 "native.noTextualDiffAvailable" = "No textual diff available";
 "native.noTextualDifference" = "No textual difference";
 "native.noToolsRunning" = "No tools running";
@@ -7333,9 +7372,12 @@
 "native.providedByLitheForThisLanguage" = "Provided by Lithe for this language";
 "native.provider" = "Provider";
 "native.providerConfigurationParsingIsUnavailable" = "Provider configuration parsing is unavailable.";
+"native.providerDebugUnavailable" = "The build provider's debug program or adapter is unavailable. Build it again and check that the plugin is enabled.";
 "native.providerDetails" = "Provider details";
 "native.providerName" = "Provider name";
 "native.providerRequiresAnAPIKey" = "Provider requires an API key";
+"native.providerRunSaveConflict" = "Run configuration changed while saving. Reload and try again.";
+"native.providerRunSavingUnavailable" = "Saving build provider run configurations is unavailable.";
 "native.providers" = "Providers";
 "native.provides" = "Provides";
 "native.pruneStaleRecords" = "Prune Stale Records";
@@ -7755,6 +7797,7 @@
 "native.saveMetadata" = "Save Metadata";
 "native.saveOrDiscardUnsavedFilesBeforeDeletingThisItem" = "Save or discard unsaved files before deleting this item";
 "native.savePatch" = "Save Patch…";
+"native.saveProviderRunConfiguration" = "Save provider run configuration to .lithe/run/local.json";
 "native.saveScope" = "Save scope";
 "native.saveSharedInstructions" = "Save shared instructions";
 "native.saveTheActiveDocument" = "Save the active document";
@@ -7766,6 +7809,7 @@
 "native.savedInLitheRunConfigurationsJsonForTheWholeTeamLocalJDKPathsAreNeverShared" = "Saved in .lithe/run/configurations.json for the whole team. Local JDK paths are never shared.";
 "native.savedInLitheRunLocalJsonAndExcludedFromGit" = "Saved in .lithe/run/local.json and excluded from Git.";
 "native.savedOnlyForThisProjectOnThisComputerInLitheRunLocalJsonAndExcludedFromGit" = "Saved only for this project on this computer in .lithe/run/local.json and excluded from Git.";
+"native.savedProviderRunUnavailable" = "The saved provider run configuration is unavailable.";
 "native.savedTo" = "Saved to %1$@";
 "native.savesConnectsAndOpensTheRemoteFolderInThisWindow" = "Saves, connects, and opens the remote folder in this window.";
 "native.savingReplacesTheCurrentGitHubMetadata" = "Saving replaces the current GitHub metadata.";
@@ -7973,6 +8017,7 @@
 "native.showingThePreviousJavaEntriesWhileTheJavaLanguageServicePreparesTheProject" = "Showing the previous Java entries while the Java language service prepares the project.";
 "native.shownAcrossTheEntireWorkbenchIncludingToolbarsProjectTreeEditorTabsTerminalsAndStatusBar" = "Shown across the entire workbench, including toolbars, project tree, editor, tabs, terminals, and status bar.";
 "native.sideBySide" = "Side-by-side";
+"native.sideBySideView" = "Side-by-side view";
 "native.signInToCodex" = "Sign in to Codex";
 "native.signInToGitHub" = "Sign in to GitHub";
 "native.signInToViewAndManagePullRequests" = "Sign in to view and manage pull requests.";
@@ -8062,6 +8107,7 @@
 "native.stageAtLeastOneFileFirst" = "Stage at least one file first";
 "native.stageFile" = "Stage File";
 "native.stageFile.variant2" = "Stage file";
+"native.stageFiles" = "Stage Files";
 "native.stageThisChangeBlock" = "Stage this change block";
 "native.stageYourFilesInChangesEnterACommitMessageAndCreateTheFirstCommit" = "Stage your files in Changes, enter a commit message, and create the first commit.";
 "native.staged" = "STAGED";
@@ -8355,6 +8401,7 @@
 "native.theLanguageServerIsDisabledInThisWorkspace" = "The %1$@ language server is disabled in this workspace. Enable it in Settings > LSP.";
 "native.theLanguageServerOfThisPluginIsNotAvailable" = "The %1$@ language server of this plugin is not available.";
 "native.theLanguageServerReturnedAnInvalidTcpPortForItsDebugAdapter" = "The %1$@ language server returned an invalid TCP port for its debug adapter.";
+"native.theLanguageServerThisBuildSystemUsesIsNotAvailable" = "The language server this build system uses is not available. Open a file of the language and try again.";
 "native.theLanguageServiceThatHostsTheDebugAdapterIsUnavailable" = "The language service that hosts the debug adapter is unavailable.";
 "native.theLatestStableReleaseWillBeDownloadedInFullAndReplaceThisAutoBuildAfterYouConbfd63f6a8e" = "The latest stable release will be downloaded in full and replace this AutoBuild after you confirm installation. Projects and settings are kept, but AutoBuild-only settings may not work in the stable release.";
 "native.theLatestStableReleaseWillBeDownloadedInFullAndReplaceThisPreviewAfterYouConfic01b41840e" = "The latest stable release will be downloaded in full and replace this preview after you confirm installation. Projects and settings are kept, but preview-only settings may not work in the stable release.";
@@ -8713,6 +8760,7 @@
 "native.unstageAllFiles" = "Unstage all files";
 "native.unstageAllFilesInRepository" = "Unstage all files in repository";
 "native.unstageFile" = "Unstage file";
+"native.unstageFiles" = "Unstage Files";
 "native.unstageThisChangeBlock" = "Unstage this change block";
 "native.unstaged" = "Unstaged";
 "native.unstagedChanges" = "Unstaged changes";
@@ -8971,6 +9019,8 @@
 "npm was not found. It is normally installed with Node.js." = "npm was not found. It is normally installed with Node.js.";
 "or" = "or";
 "outline.expandAll" = "Expand All";
+"plugins.java.installNotice" = "Java Support is installed separately. Install it from the Marketplace, or use Install from Disk for an offline package. Your Java settings are kept.";
+"plugins.java.installTemplates" = "Install Java Support for Java, Maven and Spring templates…";
 "plugins.title" = "Plugins";
 "ports %@" = "ports %@";
 "project Maven Wrapper" = "project Maven Wrapper";
@@ -8981,6 +9031,8 @@
 "results" = "results";
 "revert" = "revert";
 "run configuration" = "run configuration";
+"run.incompleteProjectScanMessage" = "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations.";
+"run.incompleteProjectScanTitle" = "Project scan is incomplete";
 "running for %@" = "running for %@";
 "scope managed from %@" = "scope managed from %@";
 "scope not updated to %@" = "scope not updated to %@";

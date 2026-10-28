@@ -359,6 +359,8 @@ Swift 单元和插件 CI 通道复用已有 Cargo 下载缓存。先通过
 
 ### 独立工作树的本地编译
 
+Windows 插件正式验收的默认、LSP、设置和文本模式均使用完整源码库存及 EXE/配置/目标身份；`-SkipBuild` 必须匹配构建时的全部输入，旧 marker 缺失库存时应重新构建，不能补写为可复用证据。
+
 根工作区使用 Bun 1.3.14；`bunfig.toml` 与 `bun.lock` 的显式 tarball URL 均使用
 `https://registry.npmjs.org`。不要假定 `--registry` 会替换 lock 中的显式地址。
 仅迁移来源也会改变 lock 原字节，旧 Bun 缓存 seal 必须重新校验；版本、完整依赖图和
@@ -382,6 +384,17 @@ Windows 安装 worker 为 tree-sitter-cli 的原始 `install.js` 加载专用代
 安装生命周期回归的 `<os-temp>/lithe Windows install */` 保存假工具、原生句柄等待器和
 进程身份凭据；每个 case 在对应子进程仍等待握手时保留其句柄，退出后关闭句柄、服务及
 连接才清理目录。这些临时生成物走 `frontend-install-state` 拒绝路由，所有阶段禁止复用。
+
+SwiftPM 的 `.build/`、资源 bundle 和 `.lithe-swift-toolchain` 标记登记为
+`swiftpm-build-state`，所有工作树复用阶段均拒绝复制。编译器标记只用于本工作树
+缓存失效，不是可转移的源码、平台、架构、SDK 和工具链完整性证明；只复用经过校验的
+`.artifacts/swiftpm-cache` 下载缓存。构建脚本在实际 scratch 目录保存带策略版本的
+完整编译器身份：新版 SwiftPM 的 `.build/<triple>/` 各自独立，旧布局仍用 `.build/`。
+身份未知或变化时，用同一 scratch 参数执行 `swift package clean`，保留它的依赖下载
+和 checkout，再生成资源、签名；清理失败不更新标记。不要手工合并旧的平铺资源与
+新 `Contents/Resources` 布局，也不要通过关闭 codesign 规避旧资源污染。状态生命周期
+由本工作树 SwiftPM 清理管理；这些操作仅作用于构建目录，不修改已安装应用、签名
+发行基线或 Sparkle delta。
 
 共享翻译源文件位于 `shared/i18n/`。每个工作树通过 Git 获取源文件和已提交的
 macOS 字符串表、`AppLanguage.generated.swift`、Windows `shared.generated.ts`，
@@ -723,7 +736,49 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
 可下载的官方插件包是声明式插件包（只含 `plugin.json` 和它声明的资源，不含宿主加载的代码，与架构无关；自带运行时的 Java Support 见下文），在 `.build/<triple>/<configuration>/OfficialPlugins` 中独立组装，`--triple` 只决定输出目录和签名工具的构建布局；组装后通过 `LitheOfficialPluginVerifier` 验证声明、打包的可执行文件和“Mach-O 原生代码只出现在清单声明的运行时目录内”；发布配置还要求 repository secret `LITHE_PLUGIN_PACKAGE_PRIVATE_KEY`，由 `LithePluginPackageSigner` 对完整包生成 `lithe-plugin-signature.json`，客户端按宿主内置官方插件策略和 publisher 公钥验证后才允许安装。该 secret 的值是与客户端内置公钥匹配的 base64 编码 32 字节 Ed25519 私钥，可用 `gh secret set LITHE_PLUGIN_PACKAGE_PRIVATE_KEY --repo 1lck/Lithe-IDEA < /secure/path/lithe-plugin-package-private-key.base64` 配置；私钥文件和 shell 历史都不得进入仓库或日志。没有该 key 时，普通 debug 全量构建会跳过 publisher 签名包，指定其中一个包 ID 的构建会失败，不会留下缺少签名文档的目录。本地调试插件时可以显式传入 `--development-unsigned`（仅 debug 配置可用），生成不含签名文档的开发包，只能由 debug 构建的 Lithe 从磁盘安装；这类开发包同样不跨工作树复用。无可靠 identity stamp，不跨工作树复制。插件安装后打包的语言服务器位于
 `<app-support>/Lithe/Plugins/<plugin-id>/versions/<version>/language-server`，由插件版本目录拥有，运行时只读，重装、回滚和卸载随插件一起处理，不是工作树构建缓存。Go Support 和 PHP Support 已迁移为 Lithe Store 社区插件（`Lithe-IDEA/lithe-plugin-go`、`Lithe-IDEA/lithe-plugin-php`），不再由本仓库构建。PHPUnit 测试夹具的 `shared/fixtures/phpunit-project/vendor` 也由当前工作树独立安装。以上项目在资源清单 `excludedResources` 中明确排除，复用脚本会拒绝显式复制请求。
 
-Java Support（`dev.lithe.plugin.java-support`）是唯一随 Lithe.app 发行的官方插件包，
+### Java Support 独立下载安装与迁移
+
+Java Support 当前仍随应用发行，独立下载的构建配置已登记，但
+`Plugins/marketplace/official-plugins.json` 中的 `releaseEnabled: false` 暂停自动发布。
+等支持 `packageTrust: 1` 的宿主发行、迁移验收和真实下载包验证完成后，再单独启用发布；
+不要在基础设施 PR 中提前上架旧宿主无法安装的包。
+
+`bundledUntilPublishedVersion: 1.1.0` 控制过渡副本的退出条件：只有仓库官方索引
+包含达到门槛且 API/能力匹配的完整双架构版本，应用才跳过 JDT/JDK 准备及 Java 插件组装。
+空索引或缺少某个架构仍内置；损坏索引会中止构建，不能静默省去插件。安装使用同一 ID，
+启用、禁用、旧卸载标记及设置保留；打开 Java 文件/项目或新建项目时有明确安装入口，
+离线可使用可信磁盘包。当前无线上发布，默认构建仍保留过渡包。
+
+构建输入 `LITHE_OFFICIAL_PLUGIN_INDEX` 默认为 `Plugins/marketplace/index.json`，只读，
+同时决定内置分发和应用内嵌索引；传给 `build-official-plugins.sh --marketplace-index`。
+没有下载或缓存步骤，不允许从其他工作树的生成索引或用户运行时索引复用。
+`verify-macos-package.sh --slim` 在本次临时目录生成双架构索引 fixture，并验证在缺少
+JDT/JDK 输入时仍能生成不含 Java 资源的 universal app 和 DMG；fixture 不是可发布索引，
+随测试目录清理，不影响签名或 Sparkle 发行基线。
+
+同一份清单要求下载版的 `publisherPackage` 签名，并声明内置副本的
+`bundledSignatureRequirement: sameTeamAsHost`。应用组装必须显式用 `--bundled-only`，
+由 app 自身签名封住完整包；普通单插件构建在正式配置中始终要求发布者私钥。
+本地开发只能用 debug + `--development-unsigned`，不能把开发包用于正式发布。
+原生 JDK 使用构建时固定、校验过的上游签名，包内最终字节完成后再生成 Ed25519 签名。
+
+发布计划包含 `darwin-arm64` 和 `darwin-x64` 两个 ZIP，各自一个 SHA-256；
+源码和资源输入变化后需要新的插件版本。重试索引发布时，从对应 tag 读取
+配置、清单和 API/`requires`，下载并计算全部资产哈希后一次写入版本，不能读取
+当前工作树的清单来描述历史包。目录如下：
+
+- `dist/packages/<arch>/<plugin-id>/`：本次发布组装的最终签名包。
+- `dist/verify/<arch>/<plugin-id>/`：归档解压后的签名验证副本。
+- `dist/Lithe-Java-Support-<version>-darwin-<arch>.zip`：按架构的发布归档。
+- `.artifacts/java-plugin-distribution/`：本地真实资源组装、归档、签名和启动检查输出。
+
+这些输出和 `.build/.../OfficialPlugins` 一样没有可跨工作树转移的 identity stamp，
+全部进入 `official-plugin-packages` 排除路由；不允许复制或共享。需要复用的只有
+经既有 `jdtls` / `jdk` 路由核验的下载缓存，再在目标工作树重新组装。
+临时验证副本由本次验证清理，发布 runner 的 `dist` 随 job 结束回收；持久安装的
+版本包由宿主包管理器负责，运行时保持只读。它们不改变应用签名或 Sparkle 源基线。
+
+Java Support（`dev.lithe.plugin.java-support`）是过渡期唯一随 Lithe.app 发行的官方插件包，
 也是唯一自带运行时的包，因此它与架构有关：
 
 - **资源路径**：组装结果在 `.build/<triple>/<configuration>/OfficialPlugins/dev.lithe.plugin.java-support/`，

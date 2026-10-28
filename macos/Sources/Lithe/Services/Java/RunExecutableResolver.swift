@@ -2,6 +2,7 @@ import Foundation
 
 @MainActor
 final class RunExecutableResolver: RunExecutableResolving {
+    private let environmentResolver: any RunLaunchEnvironmentResolving
     private let runtimeService: ProjectRuntimeService
     private let toolchainRegistry: RunToolchainRegistry
     private let metadataResolver: (any RunToolchainMetadataResolving)?
@@ -10,8 +11,10 @@ final class RunExecutableResolver: RunExecutableResolving {
     init(
         runtimeService: ProjectRuntimeService,
         toolchainRegistry: RunToolchainRegistry? = nil,
-        metadataResolver: (any RunToolchainMetadataResolving)? = nil
+        metadataResolver: (any RunToolchainMetadataResolving)? = nil,
+        environmentResolver: any RunLaunchEnvironmentResolving
     ) {
+        self.environmentResolver = environmentResolver
         self.runtimeService = runtimeService
         self.toolchainRegistry = toolchainRegistry ?? .standard()
         self.metadataResolver = metadataResolver
@@ -38,7 +41,7 @@ final class RunExecutableResolver: RunExecutableResolving {
             )
             resolved = ResolvedRunExecutable(
                 executableURL: toolchain.executableURL,
-                environment: toolchain.environment.merging(planEnvironment) { _, override in override }
+                environment: toolchain.environment
             )
 
         case .command(let command):
@@ -49,14 +52,20 @@ final class RunExecutableResolver: RunExecutableResolving {
             }
             resolved = ResolvedRunExecutable(
                 executableURL: executable,
-                environment: runtimeService.processEnvironment(overrides: planEnvironment)
+                environment: runtimeService.processEnvironment()
             )
         }
 
+        let identifier: String?
+        if case .toolchain(let id) = plan.executable { identifier = id } else { identifier = nil }
+        let environment = try environmentResolver.resolveLaunchEnvironment(
+            toolchain: identifier, selectedHome: resolved.environment["JAVA_HOME"],
+            inherited: resolved.environment, overrides: planEnvironment
+        )
         return ResolvedRunExecutable(
             executableURL: resolved.executableURL,
             environment: RunLaunchEnvironment.augmenting(
-                resolved.environment,
+                environment,
                 executableURL: resolved.executableURL,
                 nodeCandidates: runtimeService.executableCandidates("node"),
                 projectURL: projectURL,

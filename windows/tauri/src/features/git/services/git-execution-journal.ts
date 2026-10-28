@@ -66,7 +66,8 @@ export class GitExecutionJournal {
       const records = this.records.filter((record) => record.operationId === operationId);
       let last = records[records.length - 1];
       // A failed preflight needs its reason, but is never presented as an executed command.
-      if (!last && event.error) {
+      // A request cancelled before any command ran (a newer request superseded it) is not a failure.
+      if (!last && event.error && event.error.code !== "cancelled") {
         last = { id: operationId, operationId, timestamp: this.now(), root: pending?.root ?? event.workingDirectory ?? "",
           action: pending?.action ?? event.action ?? "Git", arguments: [], state: "unconfirmed", output: "", lines: [], truncated: false };
         this.records.push(last);

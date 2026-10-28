@@ -293,6 +293,28 @@ jobs:
           swiftpm: "true"
           cargo: "true"
 
+      - name: Test macOS build cache invalidation
+        timeout-minutes: 2
+        run: |
+          mkdir -p .artifacts/test-stability
+          node --test --test-reporter=spec --test-reporter-destination=stdout \
+            --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/macos-build-cache.junit.xml \
+            scripts/build-macos.test.mjs
+
+      - name: Generate macOS build cache timing report
+        if: always()
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { parseJUnitCases } from './.agents/skills/write-stable-tests/scripts/parse-junit-cases.mjs';
+          import { writeTestReportArtifacts } from './.agents/skills/write-stable-tests/scripts/generate-test-report.mjs';
+          const stem = '.artifacts/test-stability/macos-build-cache';
+          const tests = parseJUnitCases(fs.readFileSync(`${stem}.junit.xml`, 'utf8'));
+          if (tests.length === 0) throw new Error('Missing macOS build cache test results');
+          fs.writeFileSync(`${stem}.json`, JSON.stringify({ runner: 'node', warnMs: 1000, maxMs: 15000, tests }));
+          writeTestReportArtifacts(`${stem}.json`);
+          NODE
+
       # Compile and discover tests before starting the test execution deadline.
       # A cold Rust/Swift build still compiling Lithe exceeded 20 minutes in
       # run 39943871840, matching the plugin lane's 39741361768. Keep this hang
@@ -508,6 +530,7 @@ jobs:
           LITHE_DMG_DIAGNOSTICS: "1"
         run: |
           ./scripts/verify-macos-package.sh
+          ./scripts/verify-macos-package.sh --slim
 
       - name: Verify Sparkle update packaging
         run: |

@@ -264,7 +264,7 @@ if (-not $SkipBuild -and -not $ResumeBuild) {
             $priorIdentity.executableSha256 -ne (Get-FileHash -Algorithm SHA256 -LiteralPath $sourceExecutable).Hash.ToLowerInvariant()) {
             throw "The prior executable, source revision or config no longer matches its isolated application identity marker."
         }
-        if ($TextWindow) { Assert-TextWindowSourceInventory -Path $identityMarker -Identity }
+        Assert-TextWindowSourceInventory -Path $identityMarker -Identity
     }
 }
 
@@ -402,7 +402,7 @@ if (-not $SkipBuild) {
     $previousConpty = $env:LITHE_REQUIRE_CONPTY
     $transcriptStarted = $false
     $sourceInventoryBefore = Join-Path $artifactRoot "text-window-source-before.json"
-    if ($TextWindow) { Save-TextWindowSourceInventory -Path $sourceInventoryBefore }
+    Save-TextWindowSourceInventory -Path $sourceInventoryBefore
     try {
         $env:CARGO_BUILD_JOBS = "2"
         $env:RUSTUP_TOOLCHAIN = "stable-$RustTarget"
@@ -448,10 +448,8 @@ if (-not $SkipBuild) {
             configSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $customConfig).Hash.ToLowerInvariant()
             executableSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $sourceExecutable).Hash.ToLowerInvariant()
         }
-        if ($TextWindow) {
-            Assert-TextWindowSourceInventory -Path $sourceInventoryBefore
-            $buildIdentity.sourceInventory = Get-Content -LiteralPath $sourceInventoryBefore -Raw | ConvertFrom-Json
-        }
+        Assert-TextWindowSourceInventory -Path $sourceInventoryBefore
+        $buildIdentity.sourceInventory = Get-Content -LiteralPath $sourceInventoryBefore -Raw | ConvertFrom-Json
         $buildIdentity | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $identityMarker -Encoding utf8NoBOM
     } finally {
         if ($transcriptStarted) { Stop-Transcript | Out-Null }

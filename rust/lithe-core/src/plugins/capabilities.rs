@@ -29,6 +29,9 @@ pub(crate) const LANGUAGES: &str = "languages";
 pub(crate) const LANGUAGE_SERVERS: &str = "languageServers";
 /// The launch fields language servers and own build providers share.
 pub(crate) const SERVER_PROCESS: &str = "serverProcess";
+/// `vendor.bundledSignatureRequirement`: origin-scoped host-seal trust for a
+/// package whose independently installed versions require a publisher signature.
+pub(crate) const PACKAGE_TRUST: &str = "packageTrust";
 /// `executionProviders[]`: run and test templates.
 pub(crate) const EXECUTION_PROVIDERS: &str = "executionProviders";
 /// `settings[]`. Version 2 adds scopes, effects, settings pages, and the
@@ -41,6 +44,8 @@ pub(crate) const UI: &str = "ui";
 pub(crate) const BUILD_SYSTEMS: &str = "buildSystems";
 /// `buildSystems[].provider`, whether it owns or shares a language server process.
 pub(crate) const BUILD_PROVIDERS: &str = "buildProviders";
+/// Optional public model snapshots between enabled build providers.
+pub(crate) const BUILD_MODEL_INPUTS: &str = "buildModelInputs";
 /// `vcsProviders[]`: version control systems implemented by a plugin
 /// process; see `crate::vcs`.
 pub(crate) const VCS_PROVIDERS: &str = "vcsProviders";
@@ -66,13 +71,15 @@ pub(crate) const EXECUTABLE_RESOLUTION: &str = "executableResolution";
 /// capability keeps the meaning its section had at API level 2.
 pub const SUPPORTED_CAPABILITIES: &[(&str, &[u32])] = &[
     (BACKEND, &[1]),
-    (BUILD_PROVIDERS, &[1]),
+    (BUILD_MODEL_INPUTS, &[1]),
+    (BUILD_PROVIDERS, &[1, 2, 3, 4, 5, 6]),
     (BUILD_SYSTEMS, &[1, 2]),
-    (DEBUG_ADAPTERS, &[1]),
+    (DEBUG_ADAPTERS, &[1, 2]),
     (EXECUTION_PROVIDERS, &[1]),
     (EXECUTABLE_RESOLUTION, &[1]),
     (LANGUAGE_SERVERS, &[1, 2]),
     (LANGUAGES, &[1]),
+    (PACKAGE_TRUST, &[1]),
     (PROJECT_GENERATORS, &[1]),
     (SERVER_PROCESS, &[1, 2]),
     (SETTINGS, &[1, 2]),
