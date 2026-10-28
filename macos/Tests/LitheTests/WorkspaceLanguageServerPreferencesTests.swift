@@ -90,6 +90,23 @@ struct WorkspaceLanguageServerPreferencesTests {
     }
 
     @Test
+    func runtimeResetKeepsVisibleProjectUsageButWorkspaceCloseClearsIt() async {
+        let feature = makeFeature(store: LanguagePreferencesTestStore())
+        feature.reloadCatalog(for: workspace)
+        let input = feature.projectUsageRequest(workspaceURL: workspace, snapshotID: UUID())
+        await feature.projectUsage.load(input, files: [workspace.appendingPathComponent("go.mod")])
+        let original = feature.projectUsage.summary(for: input)
+        #expect(original?.pluginIDs.contains(OfficialPluginCatalog.goPluginID.rawValue) == true)
+        feature.resetWorkspaceState()
+        feature.toolConfigurationDidChange(providerID: "go")
+        #expect(feature.projectUsage.summary(for: input) == original)
+        #expect(feature.projectUsage.state == .ready)
+        feature.reloadCatalog(for: nil)
+        #expect(feature.projectUsage.summary(for: input) == nil)
+        #expect(feature.projectUsage.state == .idle)
+    }
+
+    @Test
     func togglesPublishEvenWithoutARunningLanguageModule() {
         let feature = makeFeature(store: LanguagePreferencesTestStore())
         feature.reloadCatalog(for: workspace)

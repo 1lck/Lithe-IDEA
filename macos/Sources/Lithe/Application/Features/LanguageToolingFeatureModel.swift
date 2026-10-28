@@ -13,6 +13,7 @@ final class LanguageToolingFeatureModel: ObservableObject {
     @Published private(set) var catalogSnapshot: LanguageProviderCatalogSnapshot
     @Published private(set) var disabledProviderIDs: Set<String> = []
     @Published private(set) var projectPreparation: ProjectPreparationSnapshot?
+    let projectUsage = LSPProjectUsageModel()
     private var preparationObservation: AnyCancellable?
     private(set) var startupFailures: [String: String] = [:]
 
@@ -64,7 +65,25 @@ final class LanguageToolingFeatureModel: ObservableObject {
         startupFailures.removeAll()
     }
 
+    func projectUsageRequest(workspaceURL: URL?, snapshotID: UUID?) -> LSPProjectUsageRequest {
+        let providers = catalog.descriptors
+            .filter { $0.capabilities.contains(.languageServer) && $0.languageServerLaunch != nil }
+            .map {
+                LSPProjectUsageRequest.Rule(target: .provider($0.id), fileExtensions: $0.fileExtensions,
+                                            fileNames: $0.fileNames, fileNamePrefixes: $0.fileNamePrefixes)
+            }
+        let plugins = OfficialPluginCatalog.entries.map {
+            LSPProjectUsageRequest.Rule(target: .plugin($0.id.rawValue), fileExtensions: Set($0.fileExtensions),
+                                       fileNames: Set($0.projectFileNames))
+        }
+        return LSPProjectUsageRequest(workspaceURL: workspaceURL, snapshotID: snapshotID, rules: providers + plugins)
+    }
+
     func reloadCatalog(for workspaceURL: URL?) {
+        // Runtime/index resets also call resetWorkspaceState while Settings is
+        // still visible. Only a workspace boundary invalidates the usage cache;
+        // otherwise an unchanged .task(id:) would not reload the cleared value.
+        projectUsage.reset()
         self.workspaceURL = workspaceURL?.standardizedFileURL
         // Restore preferences before workspace restoration can activate documents
         // or prewarm Java. Runtime resets must not erase explicit user choices.

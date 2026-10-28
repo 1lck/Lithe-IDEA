@@ -1,0 +1,29 @@
+{
+  "id": "lsp-control-center-performance",
+  "area": "语言支持",
+  "group": "语言服务",
+  "capability": "大型工作区的 LSP 设置页后台识别与快照缓存",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Application/Features/LSPProjectUsage.swift",
+      "macos/Sources/Lithe/Application/Features/LanguageToolingFeatureModel.swift",
+      "macos/Sources/Lithe/Views/Language/LSPControlCenterView.swift",
+      "macos/Tests/LitheTests/LSPProjectUsageTests.swift",
+      "macos/Sources/Lithe/Views/Diagnostics/SettingsPageLatencyProbe.swift",
+      "macos/Sources/Lithe/Views/Components/LitheSplitPaneView.swift",
+      "macos/Tests/LitheTests/SettingsPageLatencyTraceTests.swift",
+      "macos/Tests/LitheTests/LitheSplitPaneCollapseTests.swift"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "platform-specific",
+    "verificationStatus": "not-applicable",
+    "evidence": [
+      "windows/tauri/src/features/editor/lsp"
+    ]
+  },
+  "owner": "LanguageToolingFeatureModel / LSP 设置页",
+  "verification": "定向42项Swift测试、6个suite通过；30万URL算法基准耗时降低82.68%–92.83%，额外内存采样低于128MiB。2026-10-28本机Swift6.4/Xcode27.1的ARM64 Release辅助验收：300007个真实文件，已完成原生10次切页和10次窗口重开，热切页扫描入口0次、稳定CPU1.70%（前轮独立测量）。本轮按同一点击ID记录进程内阶段；20轮不查询界面的输入至窗口更新p95从154.61ms降至132.45ms、主队列可运行p95从155.13ms降至132.85ms。该里程碑不是物理呈现；先前183.82ms的AX总时间包含工具开销，不能直接归因于页面或通过相减分摊。100ms优化目标仍未达到；Swift6.3.3/Xcode26.6正式工具链验收仍未完成，保持pending。"
+}
