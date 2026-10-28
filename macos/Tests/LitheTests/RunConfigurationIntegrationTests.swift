@@ -10,6 +10,33 @@ import Testing
 @MainActor
 struct RunConfigurationIntegrationTests {
     @Test
+    func savedBuildProviderReferenceWorksWithoutGeneratedConfiguration() throws {
+        let core = RustCoreBridge()
+        try #require(core.isAvailable)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("provider-config-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("app"), withIntermediateDirectories: true)
+        let store = MacRunConfigurationStore(core: core, storage: MacFileStorage(), preferences: RunTestKeyValueStore())
+        let reference = BuildProviderRunReference(pluginID: "dev.example.gradle", buildSystemID: "gradle", root: "app",
+            run: "application", projectID: "p", targetID: "t", userArguments: ["a b", "--x=one two"])
+        let id = try store.saveBuildProviderConfiguration(reference, name: "Main", at: root)
+        #expect(store.inspect(at: root).status == .ready)
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".lithe/run/generated.json").path))
+        let resolved = try store.resolve(at: root, toolchainCandidates: [])
+        #expect(resolved.configurations.first?.configuration.buildProvider == reference)
+        #expect(resolved.configurations.first?.configuration.id == id)
+        #expect(try store.saveBuildProviderConfiguration(reference, name: "Renamed", at: root) == id)
+        #expect(try store.resolve(at: root, toolchainCandidates: []).configurations.count == 1)
+        let data = try Data(contentsOf: root.appendingPathComponent(".lithe/run/local.json"))
+        let document = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let entry = try #require((document["configurations"] as? [[String: Any]])?.first)
+        #expect(entry["command"] == nil)
+        #expect(entry["args"] == nil)
+        let ignore = try String(contentsOf: root.appendingPathComponent(".lithe/.gitignore"), encoding: .utf8)
+        #expect(ignore.contains("run/local.json"))
+    }
+
+    @Test
     func projectEnvironmentSavesWithoutGeneratedConfigurationsAndPreservesOverrides() throws {
         // The unit lane does not link Rust Core; the Rust test with the same
         // shared fixture covers the Core half there.
@@ -2475,6 +2502,55 @@ struct RunConfigurationIntegrationTests {
         manager.stopLanguageServer(providerID: "swift")
         #expect(core.stopCalls.count == 1)
         #expect(await Self.waitForMainActorCondition { core.destroyedSessionIDs.count == 1 })
+    }
+
+    @Test
+    func repeatedStartupFailuresStopUntilExplicitRestart() async throws {
+        let harness = makeLanguageServerHarness()
+        defer { harness.manager.stopAll() }
+        for _ in 0..<3 {
+            let failed = TestGate()
+            harness.manager.onLanguageServerStateChange = { _, state, _ in
+                if case .failed = state { failed.open() }
+            }
+            try harness.manager.synchronizeLanguageServer(for: harness.source, text: "struct App {}", rootURL: harness.root)
+            harness.core.enqueueFailure(code: "serverExited", message: "startup failed")
+            #expect(await failed.waitUntilOpen())
+        }
+        #expect(harness.core.startCalls.count == 3)
+        for _ in 0..<5 {
+            #expect(throws: LanguageServerSessionStartError.self) {
+                try harness.manager.synchronizeLanguageServer(for: harness.source, text: "struct App {}", rootURL: harness.root)
+            }
+        }
+        #expect(harness.core.startCalls.count == 3)
+        harness.manager.stopLanguageServer(providerID: "swift")
+        try harness.manager.synchronizeLanguageServer(for: harness.source, text: "struct App {}", rootURL: harness.root)
+        #expect(harness.core.startCalls.count == 4)
+    }
+
+    @Test
+    func pluginSessionPreservesHostIntegrationLaunchResources() throws {
+        let core = TestLanguageServerRuntimeCore(providerID: "java")
+        let resources = JDTLSLaunchResources(
+            launcherJarURL: URL(fileURLWithPath: "/test-plugin/equinox.jar"),
+            configurationDirectoryURL: URL(fileURLWithPath: "/test-plugin/configuration/arm64"),
+            lombokAgentURL: URL(fileURLWithPath: "/test-plugin/lombok.jar")
+        )
+        let java = URL(fileURLWithPath: "/test-plugin/runtime/bin/java")
+        let cache = URL(fileURLWithPath: "/test-cache/language-servers")
+        let session = StdioLanguageServerSession(
+            providerID: "java", executableURL: java, arguments: ["-jar", resources.launcherJarURL.path],
+            environment: [:], hostIntegrationLaunch: .init(runtimeExecutableURL: java, coreLaunch: .jdt(resources)),
+            cacheDirectoryURL: cache, core: core, pluginID: "test.java-support"
+        )
+        defer { session.stop() }
+        try session.start(rootURL: URL(fileURLWithPath: "/test-workspace"), workspaceFingerprint: "workspace-v1")
+        let launch = try #require(core.startCalls.first)
+        #expect(launch.runtimeExecutableURL == java)
+        #expect(launch.jdtlsLaunchResources == resources)
+        #expect(launch.cacheDirectoryURL == cache)
+        #expect(launch.workspaceFingerprint == "workspace-v1")
     }
 
     @Test

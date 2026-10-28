@@ -158,8 +158,8 @@ package enum RunConfigurationKind: Hashable, Identifiable, Sendable {
                 .workingDirectory, .arguments, .environment, .javaRuntime,
                 .javaVMArguments, .mavenProfiles, .mavenSkipTests, .jdwpDebug
             ]
-        case .process:
-            return .process
+        case .process(let provider):
+            return provider == "build.provider" ? [] : .process
         }
     }
 
@@ -245,6 +245,7 @@ package struct RunConfiguration: Identifiable, Hashable, Sendable {
     package let mavenReactorPath: String?
     package let debugAdapter: String?
     package let disabled: Bool
+    package let buildProvider: BuildProviderRunReference?
 
     package var usesCurrentEditorFile: Bool { kind == .currentFile }
 
@@ -263,7 +264,8 @@ package struct RunConfiguration: Identifiable, Hashable, Sendable {
         sourcePath: String? = nil,
         mavenReactorPath: String? = nil,
         debugAdapter: String? = nil,
-        disabled: Bool = false
+        disabled: Bool = false,
+        buildProvider: BuildProviderRunReference? = nil
     ) {
         self.id = id
         self.name = name
@@ -275,6 +277,7 @@ package struct RunConfiguration: Identifiable, Hashable, Sendable {
         self.mavenReactorPath = mavenReactorPath
         self.debugAdapter = debugAdapter
         self.disabled = disabled
+        self.buildProvider = buildProvider
     }
 
     package var systemImage: String { kind.systemImage }

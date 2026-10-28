@@ -52,6 +52,56 @@
       "type": "string",
       "pattern": "^(?!/)(?!.*(^|/)\\.\\.(?:/|$)).*$"
     },
+    "buildProviderReference": {
+      "type": "object",
+      "required": [
+        "pluginID",
+        "buildSystemID",
+        "root",
+        "run",
+        "projectID",
+        "targetID"
+      ],
+      "properties": {
+        "pluginID": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "buildSystemID": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "root": {
+          "$ref": "#/$defs/relativePath"
+        },
+        "run": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "projectID": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "targetID": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "userArguments": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "maxLength": 4096
+          }
+        }
+      },
+      "additionalProperties": false
+    },
     "configuration": {
       "type": "object",
       "required": ["id", "provider"],
@@ -91,7 +141,25 @@
         "disabled": { "type": "boolean" },
         "source": { "type": "string" }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "allOf": [{
+        "if": { "properties": { "provider": { "const": "build.provider" } } },
+        "then": {
+          "required": ["extensions"],
+          "properties": {
+            "execution": { "const": "application" },
+            "command": false,
+            "args": { "maxItems": 0 },
+            "env": { "maxProperties": 0 },
+            "toolchains": { "maxProperties": 0 },
+            "debug": false,
+            "extensions": {
+              "required": ["build"],
+              "properties": { "build": { "$ref": "#/$defs/buildProviderReference" } }
+            }
+          }
+        }
+      }]
     }
   }
 }
