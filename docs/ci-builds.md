@@ -753,6 +753,8 @@ Windows 命令模型的 `<windows-app-local-data>/plugin-state/<plugin-id>/build
 二者均无版本/平台/工具链复用身份，不跨工作树复制，不改变发行资源、签名或增量更新基线。
 显式 SVN move 诊断入口 `python -B scripts/plugin-host-acceptance/vcs_move_diagnostic.py --inputs <fixed-inputs.json> --output <new-evidence-directory>` 只接受固定 Provider、历史 SDK、已校验 VisualSVN ZIP/解压树和诊断 gate。它在 OS 临时目录创建 suite-owned runtime，以及每 case 独立的 repo/WC 和 profile；这些状态及显式 ignored 输出均走 `plugin-host-acceptance-state` 排除路由，不跨 worktree 复制。源码字节身份只证明本次诊断输入，不是可复用构建 stamp。Job 零成员证明成立后移除临时状态，保留诊断证据；清理未获证明时保留隔离目录并停止恢复读取，不承诺已清理。不写发行资源、不影响签名或 Sparkle delta。该入口不下载、不构建、不运行产品，不代表 move 准入。
 
+ui:2 Web 回退夹具由 `web_bridge_fallback_fixture.py --output .artifacts/plugin-host-acceptance/web-bridge-fallback-fixture` 在目标工作树重新生成。静态 unsigned ZIP、工作区、source plan、私有页 CDP paused-request 决定、transport descriptor/回调 Map 观察及资源快照均属于 `plugin-host-acceptance-state`，没有可迁移的安装审批或可复用构建 identity；所有复用阶段拒绝，不新增下载校验路由。显式 `web_bridge_fallback_acceptance.py --help` 的执行入口消费同基线的隔离 x64 Release identity，使用 AppSession 保留句柄和本地 deadline，在失败路径释放 Fetch/CDP、退出产品并移除隔离 profile。CDP 仅令一次精确 IPC POST 失败；不改写 JS transport，不写发行镜像和已安装包，签名及增量更新基线不变。受控 ui:2 子集通过仍保留完整 M10、其他能力和平台 pending。
+
 原生插件验收的 `.artifacts/plugin-host-acceptance/`（含市场 ZIP/索引、构建夹具的包、工具、工作区及 plan、`settings-functions-fixture*` 的包/工作区/身份 plan、设置与函数验收资源快照、隔离运行镜像和报告）及
 `app.lithe.windows.host-acceptance` 用户配置走 `plugin-host-acceptance-state` 排除路由：
 每次在目标工作树重新生成，无可复用 identity，不跨 worktree 复制；驱动回收监听器、进程和隔离用户数据，

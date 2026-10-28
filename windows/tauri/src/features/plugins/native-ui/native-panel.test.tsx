@@ -1,4 +1,4 @@
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, spyOn, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { act, type ReactElement } from "react";
 import type { Root } from "react-dom/client";
@@ -36,7 +36,7 @@ async function mount(element: ReactElement) {
   environment.IS_REACT_ACT_ENVIRONMENT = true;
   // Happy DOM has no layout engine. Give the real virtualizer a deterministic
   // viewport without replacing its range calculation or rendered row owner.
-  const geometry = ["offsetWidth", "offsetHeight"] as const;
+  const geometry = ["offsetWidth", "offsetHeight", "scrollHeight"] as const;
   const previousGeometry = geometry.map((key) =>
     Object.getOwnPropertyDescriptor(HTMLElement.prototype, key),
   );
@@ -45,9 +45,11 @@ async function mount(element: ReactElement) {
       configurable: true,
       get(this: HTMLElement) {
         return this.matches('[role="tree"], [role="listbox"]')
-          ? key === "offsetHeight"
-            ? 300
-            : 640
+          ? key === "scrollHeight"
+            ? Number.parseFloat((this.lastElementChild as HTMLElement)?.style.height ?? "0")
+            : key === "offsetHeight"
+              ? 300
+              : 640
           : 0;
       },
     });
@@ -739,5 +741,376 @@ test("running native progress is visible and cancelling it prevents a late actio
     resume.resolve();
     await mounted.close();
     await binding.close();
+  }
+}, 3000);
+
+test("native tree keyboard menus inspect the selected child once and return focus on Escape", async () => {
+  const ui = treeFixture.ui.toolWindows[0].native as unknown as NativeUI;
+  const nodes: NativeNode[] = [
+    { id: "branch", label: "Branch", children: [{ id: "child", label: "Child row" }] },
+    ...Array.from({ length: 600 }, (_, index) => ({
+      id: `other-${index}`,
+      label: `Other ${index}`,
+    })),
+  ];
+  const binding = nativeFunctionFixture(identity, ui);
+  binding.setRead(async (context) => ({
+    context,
+    phase: "succeeded",
+    result: context.functionId === ui.source!.function ? { nodes } : {},
+  }));
+  const mounted = await mount(panel(ui, { validate, functions: binding.port }));
+  const menu = () => document.querySelector<HTMLElement>('[role="menu"]');
+  const key = async (target: HTMLElement, key: string, shiftKey = false) => {
+    await act(async () => {
+      target.dispatchEvent(
+        new KeyboardEvent("keydown", { key, shiftKey, bubbles: true, cancelable: true }),
+      );
+    });
+  };
+  try {
+    const tree = mounted.host.querySelector<HTMLDivElement>('[role="tree"]')!;
+    await act(async () =>
+      mounted.host.querySelector<HTMLButtonElement>('button[aria-label="Expand Branch"]')!.click(),
+    );
+    const collapse = mounted.host.querySelector<HTMLButtonElement>(
+      'button[aria-label="Collapse Branch"]',
+    )!;
+    await act(async () => collapse.focus());
+    await key(collapse, "ArrowDown");
+    expect(document.activeElement === tree).toBe(true);
+    await act(async () => {
+      tree.scrollTop = 4000;
+      tree.dispatchEvent(new Event("scroll"));
+    });
+    expect(tree.getAttribute("aria-activedescendant")).toBeNull();
+    await key(tree, "ContextMenu");
+    // Happy DOM updates scrollTop but does not emit the browser's scroll event.
+    await act(async () => tree.dispatchEvent(new Event("scroll")));
+    expect(mounted.host.querySelector('[aria-selected="true"]')?.textContent).toContain(
+      "Child row",
+    );
+    expect(menu()?.textContent).toContain("Inspect");
+    await key(menu()!, "Escape");
+    const child = mounted.host.querySelector<HTMLElement>('[aria-selected="true"]')!;
+    let anchorReads = 0;
+    child.getBoundingClientRect = () => {
+      anchorReads++;
+      return DOMRect.fromRect({ x: 40, y: 50, width: 180, height: 24 });
+    };
+    for (const trigger of ["F10", "ContextMenu"]) {
+      const before = anchorReads;
+      await key(tree, trigger, trigger === "F10");
+      // The public Positioner must resolve the selected row, not the default
+      // pointer origin. This proves anchor routing, not browser layout.
+      expect(anchorReads).toBeGreaterThan(before);
+      expect(menu()?.textContent).toContain("Inspect");
+      expect(document.querySelectorAll('[role="menu"]')).toHaveLength(1);
+      expect(menu()!.contains(document.activeElement)).toBe(true);
+      await key(menu()!, "Escape");
+      expect(menu()).toBeNull();
+      expect(document.activeElement).toBe(tree);
+    }
+    await key(tree, "ContextMenu");
+    await key(tree, "ContextMenu");
+    const inspect = document.querySelector<HTMLElement>('[role="menuitem"]')!;
+    await key(menu()!, "End");
+    expect(document.activeElement).toBe(inspect);
+    await act(async () => {
+      inspect.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+      );
+      inspect.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+          repeat: true,
+        }),
+      );
+    });
+    const calls = binding.calls.filter((call) => call.actionId === "inspect");
+    expect(calls).toHaveLength(1);
+    expect(calls[0].context.selectedID).toBe("child");
+    await key(tree, "ContextMenu");
+    expect(menu()).not.toBeNull();
+    await act(async () => {
+      tree.scrollTop = 4000;
+      tree.dispatchEvent(new Event("scroll"));
+    });
+    expect(menu()).toBeNull();
+    await act(async () => {
+      tree.scrollTop = 0;
+      tree.dispatchEvent(new Event("scroll"));
+    });
+    expect(menu()).toBeNull();
+  } finally {
+    await mounted.close();
+    await binding.close();
+    expect(menu()).toBeNull();
+    expect(binding.owners.size).toBe(0);
+  }
+}, 3000);
+
+test("native tree keyboard menus follow virtual scrolling and suppress busy actions", async () => {
+  const ui = treeFixture.ui.toolWindows[0].native as unknown as NativeUI;
+  const nodes: NativeNode[] = Array.from({ length: 600 }, (_, index) => ({
+    id: `row-${index}`,
+    label: `Row ${index}`,
+  }));
+  const binding = nativeFunctionFixture(identity, ui);
+  binding.setRead(async (context) => ({
+    context,
+    phase: "succeeded",
+    result: context.functionId === ui.source!.function ? { nodes } : {},
+  }));
+  const pending = deferred<void>();
+  const mounted = await mount(panel(ui, { validate, functions: binding.port }));
+  const menu = () => document.querySelector<HTMLElement>('[role="menu"]');
+  const actions = () => binding.calls.filter((call) => call.actionId === "inspect");
+  const key = async (target: HTMLElement, key: string, extra: KeyboardEventInit = {}) => {
+    await act(async () => {
+      target.dispatchEvent(
+        new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...extra }),
+      );
+    });
+  };
+  try {
+    const tree = mounted.host.querySelector<HTMLDivElement>('[role="tree"]')!;
+    await act(async () => {
+      tree.scrollTop = 4000;
+      tree.dispatchEvent(new Event("scroll"));
+    });
+    const row = mounted.host.querySelector<HTMLElement>('[role="treeitem"]')!;
+    expect(row.textContent).not.toBe("Row 0");
+    await act(async () => row.click());
+    const selectedID = tree.getAttribute("aria-activedescendant");
+    expect(selectedID).toBe(row.id);
+    for (const extra of [
+      {},
+      { shiftKey: true, isComposing: true },
+      { shiftKey: true, ctrlKey: true },
+      { shiftKey: true, repeat: true },
+    ]) {
+      await key(tree, "F10", extra);
+      expect(menu()).toBeNull();
+    }
+    await key(tree, "ContextMenu");
+    expect(menu()?.textContent).toContain("Inspect");
+    // A menu key must not bubble into the viewport's End navigation.
+    await key(menu()!, "End");
+    expect(tree.getAttribute("aria-activedescendant")).toBe(selectedID);
+    binding.setPrepareGate(pending.promise);
+    await act(async () => document.querySelector<HTMLElement>('[role="menuitem"]')!.click());
+    expect(actions()).toHaveLength(1);
+    expect(actions()[0].context.selectedID).toBe(`row-${row.textContent!.slice(4)}`);
+    await key(tree, "ContextMenu");
+    const disabled = document.querySelector<HTMLElement>('[role="menuitem"]')!;
+    expect(disabled.getAttribute("aria-disabled")).toBe("true");
+    await act(async () => disabled.click());
+    expect(actions()).toHaveLength(1);
+    await key(menu()!, "Escape");
+    expect(document.activeElement).toBe(tree);
+    await act(async () => pending.resolve());
+    expect(actions()).toHaveLength(1);
+    expect(binding.owners.size).toBe(0);
+  } finally {
+    pending.resolve();
+    await mounted.close();
+    await binding.close();
+    expect(menu()).toBeNull();
+  }
+}, 3000);
+
+test("native tree menus preserve outside input and action-owned focus", async () => {
+  const ui = treeFixture.ui.toolWindows[0].native as unknown as NativeUI;
+  const binding = nativeFunctionFixture(identity, ui);
+  binding.setRead(async (context) => ({
+    context,
+    phase: "succeeded",
+    result:
+      context.functionId === ui.source!.function ? { nodes: [{ id: "one", label: "One" }] } : {},
+  }));
+  const timers = new Map<ReturnType<typeof setTimeout>, () => void>();
+  const setTimer = globalThis.setTimeout;
+  const clearTimer = globalThis.clearTimeout;
+  const set = spyOn(globalThis, "setTimeout").mockImplementation(((
+    callback: (...args: unknown[]) => void,
+    delay?: number,
+    ...args: unknown[]
+  ) => {
+    if (delay !== 500) return setTimer(callback, delay, ...args);
+    const timer = {} as ReturnType<typeof setTimeout>;
+    timers.set(timer, () => callback(...args));
+    return timer;
+  }) as typeof setTimeout);
+  const clear = spyOn(globalThis, "clearTimeout").mockImplementation((timer) => {
+    if (timer && timers.delete(timer as ReturnType<typeof setTimeout>)) return;
+    clearTimer(timer as number | undefined);
+  });
+  // Happy DOM does not read focus options. Preserve the browser capability
+  // check so Base UI's outside-press behavior follows the real browser path.
+  const focus = HTMLElement.prototype.focus;
+  const focusSpy = spyOn(HTMLElement.prototype, "focus").mockImplementation(function (
+    this: HTMLElement,
+    options?: FocusOptions,
+  ) {
+    if (options) void options.preventScroll;
+    focus.call(this, options);
+  });
+  let mounted: Awaited<ReturnType<typeof mount>> | undefined;
+  try {
+    mounted = await mount(
+      <>
+        {panel(ui, { validate, functions: binding.port })}
+        <input aria-label="Other setting" />
+        <div role="dialog" hidden>
+          <input aria-label="Action input" />
+        </div>
+      </>,
+    );
+    const tree = mounted.host.querySelector<HTMLDivElement>('[role="tree"]')!;
+    const outside = mounted.host.querySelector<HTMLInputElement>(
+      'input[aria-label="Other setting"]',
+    )!;
+    const actionInput = mounted.host.querySelector<HTMLInputElement>(
+      'input[aria-label="Action input"]',
+    )!;
+    const menu = () => document.querySelector<HTMLElement>('[role="menu"]');
+    const openMenu = async () => {
+      await act(async () => {
+        tree.focus();
+        tree.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true }));
+      });
+      await act(async () => {
+        tree.dispatchEvent(new KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true }));
+      });
+      expect(menu()).not.toBeNull();
+      // Advance the public menu's outside-press grace period deterministically.
+      const due = [...timers];
+      await act(async () => {
+        for (const [timer, callback] of due) {
+          timers.delete(timer);
+          callback();
+        }
+      });
+    };
+    await openMenu();
+    await act(async () => {
+      outside.dispatchEvent(
+        new window.MouseEvent("mousedown", {
+          bubbles: true,
+          button: 0,
+          clientX: 700,
+          clientY: 400,
+        }),
+      );
+      outside.focus();
+      outside.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true, button: 0 }));
+      outside.click();
+    });
+    expect(menu()).toBeNull();
+    expect(document.activeElement === outside).toBe(true);
+    await openMenu();
+    const prepare = binding.deps.prepare;
+    binding.deps.prepare = (...args) => {
+      if (args[1]) {
+        actionInput.parentElement!.hidden = false;
+        actionInput.focus();
+      }
+      return prepare(...args);
+    };
+    await act(async () => document.querySelector<HTMLElement>('[role="menuitem"]')!.click());
+    expect(menu()).toBeNull();
+    expect(binding.calls.filter((call) => call.actionId === "inspect")).toHaveLength(1);
+    expect(document.activeElement === actionInput).toBe(true);
+  } finally {
+    try {
+      await mounted?.close();
+      await binding.close();
+    } finally {
+      timers.clear();
+      focusSpy.mockRestore();
+      set.mockRestore();
+      clear.mockRestore();
+    }
+  }
+}, 3000);
+
+test("keyboard menu unmount releases public contextmenu listeners and preserves right click", async () => {
+  const ui = treeFixture.ui.toolWindows[0].native as unknown as NativeUI;
+  const binding = nativeFunctionFixture(identity, ui);
+  binding.setRead(async (context) => ({
+    context,
+    phase: "succeeded",
+    result: {
+      nodes: [
+        { id: "one", label: "One" },
+        { id: "two", label: "Two" },
+      ],
+    },
+  }));
+  const add = document.addEventListener;
+  const remove = document.removeEventListener;
+  const listeners = new Set<EventListenerOrEventListenerObject>();
+  document.addEventListener = function (
+    type: string,
+    listener: EventListenerOrEventListenerObject,
+    options?: boolean | AddEventListenerOptions,
+  ) {
+    if (type === "contextmenu" && listener) listeners.add(listener);
+    return add.call(this, type, listener, options);
+  };
+  document.removeEventListener = function (
+    type: string,
+    listener: EventListenerOrEventListenerObject,
+    options?: boolean | EventListenerOptions,
+  ) {
+    if (type === "contextmenu" && listener) listeners.delete(listener);
+    return remove.call(this, type, listener, options);
+  };
+  let mounted: Awaited<ReturnType<typeof mount>> | undefined;
+  try {
+    mounted = await mount(panel(ui, { validate, functions: binding.port }));
+    const tree = mounted.host.querySelector<HTMLDivElement>('[role="tree"]')!;
+    const rows = mounted.host.querySelectorAll<HTMLElement>('[role="treeitem"]');
+    await act(async () => {
+      rows[1].dispatchEvent(
+        new window.MouseEvent("contextmenu", {
+          bubbles: true,
+          cancelable: true,
+          clientX: 30,
+          clientY: 50,
+          button: 2,
+        }),
+      );
+      // Complete the real pointer sequence so upstream's once mouseup listener releases.
+      document.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true, button: 2 }));
+    });
+    expect(rows[1].getAttribute("aria-selected")).toBe("true");
+    expect(document.querySelector('[role="menu"]')?.textContent).toContain("Inspect");
+    await act(async () => document.querySelector<HTMLElement>('[role="menuitem"]')!.click());
+    expect(
+      binding.calls
+        .filter((call) => call.actionId === "inspect")
+        .map((call) => call.context.selectedID),
+    ).toEqual(["two"]);
+    await act(async () =>
+      tree.dispatchEvent(new KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true })),
+    );
+    expect(document.querySelector('[role="menu"]')).not.toBeNull();
+    expect(listeners.size).toBeGreaterThan(0);
+    await mounted.render(<div />);
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    expect(listeners.size).toBe(0);
+    await act(async () =>
+      tree.dispatchEvent(new KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true })),
+    );
+    expect(binding.calls.filter((call) => !!call.actionId)).toHaveLength(1);
+  } finally {
+    await mounted?.close();
+    await binding.close();
+    document.addEventListener = add;
+    document.removeEventListener = remove;
   }
 }, 3000);

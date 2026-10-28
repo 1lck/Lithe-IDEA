@@ -155,6 +155,10 @@ M1 包存储 + 启动校验 + 语言注册 + LSP 启动（已落地）；M2 磁�
 
 显式 SVN move 诊断通过 vcs_move_diagnostic.py 接收固定源码、SDK、SVN 和 gate 的绝对输入，先解析真实路径并拒绝输出与输入树重叠（含 junction 别名），再创建独立临时 runtime/repo/WC/profile。每个工作进程先归属 Windows Job 再释放启动，case/suite 有硬 deadline，退出核实零成员后才允许恢复快照；清理无证明时记录 unknown、隔离保留临时树，禁止继续 SVN 读取或删除。最终固定输入/runtime 字节变化或读取失败必须写入失败报告，不能仅让 CLI 非零却留下绿色 JUnit。离线回归验证这些边界，真实三例仅记录诊断匹配且 safetyPass 始终 false；不启用生产 move，不把 wrapper gate 当作 Provider 内部预检。临时状态及证据通过既有 plugin-host-acceptance-state 排除路由拒绝跨工作树复用。
 
+ui:2 网页桥的回退验收保持生产 transport（传输入口）原样：受控静态 unsigned 包仅声明 ui.contribute/ui.web，从真实安装审查和插件窗口入口进入私有 WebView2。故障只在该页 CDP（浏览器调试协议）session 中令一个精确匹配 ui.setState nonce 的 custom-protocol POST 失败；随后原 Promise 经真实 postMessage 成功，保持拦截时 ui.getState 读回 nonce 且 POST 总数仍为一次，证明该文档后续请求沿用回退路径。观察固定 Tauri warning、冻结入口描述符/函数摘要和真实 callback Map 排空；不得替换 fetch/invoke/ipc、伪造 callback 或补回包。失败也释放 paused 请求、关闭 CDP 和产品、按进程句柄清理隔离 profile，最后核对发行镜像、安装包与 ZIP 字节。这只证明 Windows x64 下受控网络故障的 ui:2 状态桥；不证明物理网络故障、其他能力、arm64 或正式签名完整包，M10 仍 partial/pending。
+
+Apache Subversion 1.15.0 官方源码（commit e49d66ef91dd33409c7d78f82160d2976a939120，SVN r1938480）的 move7 在单源、父目录命名空间稳定且四项布尔参数均为 FALSE 时，保留请求目标路径并关闭移入已有目录的重试；这只约束路径解释，不保证目标身份或禁止替换。目标检查先于工作副本写锁，写锁只约束遵守 SVN 协议的重叠写入，不能阻止普通文件系统外部写入。目标元数据复制、磁盘重命名、源元数据删除分阶段执行；WIN32 最终直接调用带 MOVEFILE_REPLACE_EXISTING 的 MoveFileExW，因而目标可能被替换，失败或取消也可能已有磁盘/元数据副作用。APR rename 不在该最终路径上，无需猜测 APR 版本；官方源码静态分析不证明 VisualSVN 二进制身份或真实竞态，不能作为 Windows move 准入依据。引用提取必须按 LF 物理行计数，不能把 C 源码中的换页符当作新行。
+
 ## 验证
 
 - 设置作用域回归：`declarative-plugin-settings-editor.test.tsx` 使用真实生产控件验证继承、全局项锁定、空值、保存/取消、重置与冲突；`declarative-plugin-reload-project.test.ts` 使用真实模型服务验证保存凭据、审批、不可取消预检与可取消模型阶段、清理失败重试和同路径重开拒绝迟到结果。`build_tests.rs`、`build/tests.rs` 和 `settings/snapshot/tests.rs` 覆盖目标窗口隔离、持久设置修订、真实窗口资源实例、精确原操作清理重试与 Core 归属。集成窗口已通过原生逐项计时测试；前端使用原生端口替身，真实双窗口 Provider 与发行目录哈希验收仍须另行完成。

@@ -342,6 +342,7 @@ function NativeTree({
 }) {
   const { t } = useTranslation();
   const viewport = useRef<HTMLDivElement>(null);
+  const [menu, setMenu] = useState<{ id: string; keyboard: boolean } | null>(null);
   const prefix = useId();
   const rowHeight = getFileTreeRowHeight(useSettingsStore((state) => state.settings.uiFontSize));
   const virtual = useVirtualizer({
@@ -355,6 +356,19 @@ function NativeTree({
   const selectedIndex = state.rows.findIndex((row) => row.node.id === state.selection);
   const visible = virtual.getVirtualItems();
   const selectedIsMounted = visible.some((item) => item.index === selectedIndex);
+  const mountedMenu = useRef<string | null>(null);
+  useEffect(() => {
+    if (!menu) {
+      mountedMenu.current = null;
+    } else if (visible.some((item) => state.rows[item.index].node.id === menu.id)) {
+      mountedMenu.current = menu.id;
+    } else if (mountedMenu.current === menu.id) {
+      // Scrolling an open row out of the virtual window closes its menu. A
+      // keyboard request for an offscreen selection waits for its first mount.
+      mountedMenu.current = null;
+      setMenu(null);
+    }
+  }, [menu, visible, state.rows]);
   return (
     <div
       ref={viewport}
@@ -364,8 +378,20 @@ function NativeTree({
       aria-label={title}
       aria-activedescendant={selectedIsMounted ? `${prefix}-${state.selection}` : undefined}
       onKeyDown={(event) => {
+        // Portaled menu events still bubble through React's tree. Buttons in
+        // this viewport keep tree navigation; the public menu owns its keys.
+        if (!event.currentTarget.contains(event.target as Node) || event.nativeEvent.isComposing)
+          return;
+        if (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)) {
+          if (event.altKey || event.ctrlKey || event.metaKey) return;
+          event.preventDefault();
+          if (event.repeat || selectedIndex < 0 || !owner.ui.contextMenu.length) return;
+          event.currentTarget.focus();
+          virtual.scrollToIndex(selectedIndex, { align: "auto" });
+          setMenu({ id: state.selection!, keyboard: true });
+          return;
+        }
         if (
-          event.nativeEvent.isComposing ||
           ![
             "ArrowUp",
             "ArrowDown",
@@ -379,6 +405,7 @@ function NativeTree({
         )
           return;
         event.preventDefault();
+        event.currentTarget.focus();
         const selected = owner.navigate(event.key);
         const index = owner.state.rows.findIndex((row) => row.node.id === selected);
         if (index >= 0) virtual.scrollToIndex(index, { align: "auto" });
@@ -394,7 +421,19 @@ function NativeTree({
           const expanded = state.expanded.includes(row.node.id);
           const Caret = expanded ? CaretDownIcon : CaretRightIcon;
           return (
-            <ContextMenu key={row.node.id}>
+            <ContextMenu
+              key={row.node.id}
+              open={menu?.id === row.node.id}
+              onOpenChange={(open) =>
+                setMenu((current) =>
+                  open
+                    ? { id: row.node.id, keyboard: false }
+                    : current?.id === row.node.id
+                      ? null
+                      : current,
+                )
+              }
+            >
               <ContextMenuTrigger
                 render={<div />}
                 id={`${prefix}-${row.node.id}`}
@@ -437,7 +476,16 @@ function NativeTree({
                 <span className="truncate">{row.node.label}</span>
               </ContextMenuTrigger>
               {owner.ui.contextMenu.length > 0 && (
-                <ContextMenuContent>
+                <ContextMenuContent
+                  anchor={
+                    menu?.id === row.node.id && menu.keyboard
+                      ? () =>
+                          viewport.current?.ownerDocument.getElementById(
+                            `${prefix}-${row.node.id}`,
+                          ) ?? null
+                      : undefined
+                  }
+                >
                   {owner.ui.contextMenu.map((id) => {
                     const action = owner.ui.actions.find((action) => action.id === id)!;
                     return (

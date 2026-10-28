@@ -335,8 +335,12 @@ try {
     assert.equal(await fs.readFile(source, "utf8"), "controlled build fixture bytes");
     await assert.rejects(fs.access(path.join(targetRoot, fixture)));
   });
-  await test("settings/functions plans and snapshots cannot transfer install approval", { timeout: 15000 }, async () => {
+  await test("settings/functions and web fallback plans cannot transfer install approval", { timeout: 15000 }, async () => {
     for (const fixture of [
+      ".artifacts/plugin-host-acceptance/web-bridge-fallback-fixture/plan.json",
+      ".artifacts/plugin-host-acceptance/web-bridge-fallback-fixture/web-fallback.zip",
+      ".artifacts/plugin-host-acceptance/evidence-r18/paused-requests.json",
+      ".artifacts/plugin-host-acceptance/evidence-r18/transport-after.json",
       ".artifacts/plugin-host-acceptance/settings-functions-fixture/settings-functions-plan.json",
       ".artifacts/plugin-host-acceptance/settings-functions-fixture/settings-1.0.0.zip",
       ".artifacts/plugin-host-acceptance/evidence/settings-functions/resources-before.json",

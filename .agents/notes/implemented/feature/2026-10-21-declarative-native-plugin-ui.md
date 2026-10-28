@@ -174,6 +174,8 @@ Windows 搜索统一使用公共 `SearchField`。非空时的本地化清空按�
 
 表单的 primary/normal 只选择公共 Button 的语义变体：primary 使用 accent，普通动作使用 default；渲染器不自定义颜色或重做按钮。真实 native-controls 夹具回归同时检查禁用、说明、草稿恢复与完整动作参数。已开放插件设置列表中的公共 SearchField 另有真实 WebView2/CDP Enter、Space 默认清空、同一输入焦点、过滤和选中恢复证据；这不等于原生 ui:3、物理键盘、输入法或主题视觉验收。
 
+Windows 虚拟树的键盘焦点属于 viewport（只挂载可见行的滚动容器），因此 Shift+F10/ContextMenu 由容器为当前选择打开公共 Base UI 菜单，并先滚动挂载目标行。菜单复用公共定位器的 anchor，不合成右键事件；菜单自己的按键不再触发树导航，输入法组合和重复按键不重复执行动作。行离开虚拟窗口后关闭菜单。Escape 可以返回树焦点；外点击或动作已把焦点交给新输入/对话框时，必须尊重新焦点所有者，不能无条件把焦点抢回树。该路径只有组件和 typed 函数端口回归，不能据此开放 ui:3 或宣称真实键盘、WebView2/IME 和视觉通过。
+
 ## 验证
 
 - `./scripts/verify-shared-contracts.sh`

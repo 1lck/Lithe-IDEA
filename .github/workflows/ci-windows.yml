@@ -407,10 +407,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -B scripts/plugin-host-acceptance/settings_functions_acceptance_test.py --report .artifacts/test-stability/plugin-settings-functions-driver.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-            python -B scripts/plugin-host-acceptance/vcs_move_diagnostic_test.py --report .artifacts/test-stability/plugin-vcs-move-driver.json
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-            node scripts/test-plugin-vcs-move-diagnostic.mjs --report .artifacts/test-stability/plugin-vcs-move-node.json
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -B scripts/plugin-host-acceptance/web_bridge_fallback_acceptance_test.py --report .artifacts/test-stability/plugin-web-fallback-helpers.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -B scripts/plugin-host-acceptance/vcs_move_diagnostic_test.py --report .artifacts/test-stability/plugin-vcs-move-driver.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/test-plugin-vcs-move-diagnostic.mjs --report .artifacts/test-stability/plugin-vcs-move-node.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Test Agent panel and capability gate
         shell: pwsh
