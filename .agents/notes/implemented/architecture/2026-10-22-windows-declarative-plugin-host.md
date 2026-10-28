@@ -167,6 +167,12 @@ R23 正式入口已通过原生 tar 的 JDTLS 准备，随后依赖安装先耗�
 
 R23 的 ignored 上游打包补丁已修复上述先启动目标、后归属 Job 的竞态：先配置关闭即终止成员的非 breakaway Job，启动仅等待未触发事件的可信 Python bootstrap，归属成功后才释放目标。目标及子孙由内核继承 Job；清理使用保留的进程句柄和成员计数，不用历史 PID 猜测所有权。配置失败不得启动进程，归属失败不得启动目标；原始错误和清理错误同时保留。6 项 owner、9 项打包以及 zsh/bash 各 5 项真实 release shell 离线分支共 25 项通过，双 ZIP 全量审计及 12 文件完整补丁往返逐字节一致。复审未发现阻塞缺陷；这仍是未发布 unsigned 0.1.1 本地候选，POSIX 进程组清理没有在 Linux/macOS 内核实测，不作为跨平台运行、Provider/SVN 或正式发布证据，既有能力门控保持关闭。
 
+R24 的真实 Node 24.15 子进程已验证两个 tree-sitter-cli 版本的 CONNECT、受系统信任的 TLS 以及 302/200 响应头，但探针随即停止读取；响应头不能证明完整下载、gzip 或 lifecycle 安装成功。本轮安装还观察到 tree-sitter-c-sharp 与 @xterm/xterm 的 npm tarball SRI 完整性错误，随后主动取消；不能把两条错误分别记为首次及内部重试。降低并发后的另一次安装达到 1200 秒期限，日志不足以定位停在何处。因此未进入正式构建，ui:1 九阶段继续 0/9 pending。下一步先对比 lock 固定镜像与 npm 官方源的完整字节/SRI，再验证两个真实 install.js 的完整下载；不得只凭 HTTP 200、重设相同代理或扩大期限宣称已修复。v0.23.2 官方资产摘要仍为 null，未建立二进制复用路径，45 项离线/helper 通过只证明辅助边界。
+
+针对失败包的四次完整传输补证表明，官方源的 tree-sitter-c-sharp@0.23.5（3,685,327 字节）和 @xterm/xterm@6.0.0（1,418,562 字节）均匹配当前 lock SRI，包内精确版本及依赖声明也一致，无需因此修改版本或这两个节点的依赖。镜像 C# 包在本地 60 秒截止前未完成，不能把截止触发的 reset 当作远端主动重置；xterm 两源完整字节相同。xterm 官方 metadata 的 TLS 请求失败，只有 C# 另获官方 metadata integrity/shasum；这些证据支持验证官方来源方案，尚未证明 Bun 能覆盖 lock 显式 URL、全量安装或 GitHub lifecycle 下载成功。
+
+上游打包候选的 R24 完整 12 文件补丁已经完成 Windows 本地源码交付，25 项去重回归、干净 clone 应用往返、四资产和双 ZIP 全字节验证通过，复审未发现阻塞缺陷。Linux 正常退出、超时与短命 root 后代清理三项回归已接入同一正式测试入口，CI/release 先运行并传播失败，报告以 always 条件上传；本机 Linux 环境缺工具，三项没有动态执行。MSYS zsh/bash 属 Windows 内核证据，不能填补 Linux/macOS 验收；维护者仍需应用候选并运行 Ubuntu CI、完成签名/安装及 Windows Provider 与宿主动态兼容验证。此结论不开放 vcsProviders/ui:3，也不代表已发布 0.1.1。
+
 ## 验证
 
 - 设置作用域回归：`declarative-plugin-settings-editor.test.tsx` 使用真实生产控件验证继承、全局项锁定、空值、保存/取消、重置与冲突；`declarative-plugin-reload-project.test.ts` 使用真实模型服务验证保存凭据、审批、不可取消预检与可取消模型阶段、清理失败重试和同路径重开拒绝迟到结果。`build_tests.rs`、`build/tests.rs` 和 `settings/snapshot/tests.rs` 覆盖目标窗口隔离、持久设置修订、真实窗口资源实例、精确原操作清理重试与 Core 归属。集成窗口已通过原生逐项计时测试；前端使用原生端口替身，真实双窗口 Provider 与发行目录哈希验收仍须另行完成。

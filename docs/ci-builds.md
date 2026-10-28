@@ -810,6 +810,8 @@ node scripts/test-windows-native-plugin-ui-browser.mjs --mode form-grid --browse
 if ($LASTEXITCODE -ne 0) { throw 'Form-grid browser regression failed' }
 node scripts/test-windows-native-plugin-ui-browser.mjs --mode controls-input --browser msedge --playwright-module $playwrightModule --timeout-ms 120000 --report .artifacts/test-stability/native-controls-input-browser.json
 if ($LASTEXITCODE -ne 0) { throw 'Controls-input browser regression failed' }
+node scripts/test-windows-native-plugin-ui-browser.mjs --mode workbench --browser msedge --playwright-module $playwrightModule --timeout-ms 120000 --report .artifacts/test-stability/native-workbench-browser.json
+if ($LASTEXITCODE -ne 0) { throw 'Workbench browser regression failed' }
 foreach ($failure in @('worker-exit', 'worker-hang')) {
   node scripts/test-windows-native-plugin-ui-browser.mjs --mode lifecycle --inject-failure $failure --timeout-ms 25000 --report ".artifacts/test-stability/native-browser-$failure.json"
   if ($LASTEXITCODE -ne 0) { throw "Lifecycle regression failed: $failure" }
@@ -824,9 +826,12 @@ readOnly 原语及完整 values 单次提交；不把 typed port 的可选 selec
 控件输入模式在同一完整夹具上验证 select、checkbox、search/clear、editor、segmented、stepper
 的实际浏览器交互、按原 onCommit 语义自动提交或仅保留草稿、禁用组拒绝输入和最终完整 values。
 所有模式均通过公共控件的可访问角色定位实际编辑节点，不把隐藏校验 input 当成用户输入。
-四个组件模式各有 120 秒整体时限；
+工作台模式复用真实 MainLayout、活动入口、公共控件及三个既有槽，连贯检查打开、输入、树动作、
+替换、移动、隐藏重开、工作区切换、迟到准备取消和关闭清理。原生 I/O、审批、终端内容及外部包/
+窗口身份仍为受控边界；单页重建不能作为两个产品窗口验收。工作台报告与日志也属于不可复用资源。
+五个组件模式各有 120 秒整体时限；
 生命周期模式不加载 Vite 或浏览器，用提前退出和挂起的受控 worker 验证独立 owner 的清理，
-25 秒整体时限中保留 20 秒收尾。Windows CI 的组合步骤另有 10 分钟外层上限。
+25 秒整体时限中保留 20 秒收尾。Windows CI 的组合步骤另有 12 分钟外层上限。
 各模式成功或失败都生成独立 JSON、HTML 和 JUnit，不代表产品 WebView2、物理键盘、IME
 或 `ui:3` 准入。
 生命周期的预期红报告留在报告父目录的 `expected-failures/` 子目录，普通报告只记录

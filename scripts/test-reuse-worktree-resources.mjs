@@ -310,6 +310,7 @@ try {
       ".artifacts/test-stability/native-panel-browser.{json,html,junit.xml}",
       ".artifacts/test-stability/native-form-grid-browser.{json,html,junit.xml,worker.log}",
       ".artifacts/test-stability/native-controls-input-browser.{json,html,junit.xml,worker.log}",
+      ".artifacts/test-stability/native-workbench-browser.{json,html,junit.xml,worker.log}",
       "<explicit-native-browser-report>.{json,html,junit.xml,worker.log}",
       "<native-browser-report-parent>/expected-failures/<report-name>.{json,html,junit.xml}",
     ]) assert.ok(resource.locations.includes(location));
@@ -328,6 +329,8 @@ try {
       ".artifacts/test-stability/native-form-grid-browser.worker.log",
       ".artifacts/test-stability/native-controls-input-browser.json",
       ".artifacts/test-stability/native-controls-input-browser.worker.log",
+      ".artifacts/test-stability/native-workbench-browser.json",
+      ".artifacts/test-stability/native-workbench-browser.worker.log",
       ".artifacts/test-stability/native-browser-worker-hang.worker.log",
       ".artifacts/test-stability/expected-failures/native-browser-worker-exit.json",
       ".artifacts/test-stability/expected-failures/native-browser-worker-hang.html",

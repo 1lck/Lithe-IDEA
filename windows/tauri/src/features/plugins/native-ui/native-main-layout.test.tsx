@@ -3,6 +3,9 @@ import { act } from "react";
 import {
   activate,
   catalog,
+  cancelled,
+  confirmed,
+  reads,
   closeGates,
   closed,
   gate,
@@ -11,6 +14,7 @@ import {
   openGates,
   owners,
   prepared,
+  prepareGates,
   refreshDeclarativeUI,
   removeDeclarativeUI,
   restoreDom,
@@ -393,6 +397,53 @@ test("MainLayout same-view package replacement rejects an old pending open and k
     expect(trigger(replacement).getAttribute("aria-pressed")).toBe("true");
   } finally {
     opening.release();
+    await view.close();
+  }
+  expectReleased();
+});
+
+test("MainLayout package replacement cancels a late action preparation without releasing the new package owner", async () => {
+  const entry = contribution("right", "pending-action");
+  const view = await mountMainLayout([entry]);
+  const preparing = gate();
+  try {
+    await act(async () => trigger(entry).click());
+    await act(async () => edit(input(view.host, "pending-action"), "old package draft"));
+    prepareGates.set("binding-1", preparing);
+    const save = () =>
+      [...view.host.querySelectorAll("button")].find(
+        (button) => button.textContent === "Save pending-action",
+      )!;
+    await act(async () => save().click());
+    const pending = prepared.find(
+      (request) => request.bindingId === "binding-1" && request.actionId === "save",
+    )!;
+    expect(pending).toBeDefined();
+    const replacement = { ...entry, packageIdentity: "replacement-bytes" };
+    await act(async () => {
+      setEntries([replacement]);
+      await refreshDeclarativeUI();
+    });
+    expect(input(view.host, "pending-action").value).toBe("initial");
+    await act(async () => edit(input(view.host, "pending-action"), "new package draft"));
+    // The original prepare settles only after the replacement is fully mounted.
+    // Cancellation must release that operation and captured binding alone.
+    await act(async () => preparing.release());
+    expect(cancelled).toContain(pending.operationId!);
+    expect(confirmed).not.toContain(pending.operationId!);
+    expect(reads).not.toContain(pending.operationId!);
+    expect(closed).toEqual(["binding-1"]);
+    expect([...owners.values()]).toEqual(["binding-2"]);
+    expect(input(view.host, "pending-action").value).toBe("new package draft");
+    await act(async () => save().click());
+    const currentActions = prepared.filter(
+      (request) => request.bindingId === "binding-2" && request.actionId === "save",
+    );
+    expect(currentActions).toHaveLength(1);
+    expect(confirmed).toContain(currentActions[0].operationId!);
+    expect(reads).toContain(currentActions[0].operationId!);
+  } finally {
+    preparing.release();
     await view.close();
   }
   expectReleased();

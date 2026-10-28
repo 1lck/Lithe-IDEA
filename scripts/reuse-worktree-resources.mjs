@@ -96,7 +96,7 @@ async function readRegistry() {
   // establish a build identity or transfer native install approval.
   // Offline preflight fake tools/manifests and tar.gz/VSIX extraction fixtures in OS temporary storage also remain
   // plugin-host-acceptance-state; they have no downloadable resource validator.
-  // Controlled action-group/form-grid/controls-input/tree browser scratch, ownership state, copied logs and expected-red evidence use
+  // Controlled action-group/form-grid/controls-input/workbench/tree browser scratch, ownership state, copied logs and expected-red evidence use
   // native-browser-regression-state's refusal route; no build stamp or validator applies.
   const excludedResources = registry.excludedResources ?? [];
   if (!Array.isArray(excludedResources)) throw new Error("Invalid excluded worktree resources");

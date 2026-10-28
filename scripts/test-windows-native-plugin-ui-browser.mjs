@@ -6,12 +6,19 @@
  * Omit --playwright-module only when playwright is installed by repo configuration.
  * --step-timeout-ms defaults to 60000; --timeout-ms defaults to 120000
  * (minimum 25000, including a 20000ms cleanup reserve).
+ * --mode workbench drives eight connected MainLayout workflow stages.
  * --mode native-tree drives real browser keyboard/menu/focus regressions.
  * --mode controls-input drives original native-controls input and disabled groups.
  * --mode form-grid checks native-controls geometry and editing across 640px.
  * --mode lifecycle --inject-failure worker-exit|worker-hang verifies fail-closed
  * cleanup without Vite/browser dependencies; expected red reports are separate.
  */
+import {
+  nativeWorkbenchRegression,
+  workbenchBoundaryPlugin,
+  WORKBENCH_STAGES,
+  WORKBENCH_OPTIMIZE_DEPS,
+} from "./native-workbench-browser.mjs";
 import { spawn } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -833,7 +840,7 @@ async function worker(options) {
     // must terminate both processes within the caller's deadline.
     await new Promise(() => {});
   }
-  let server, context;
+  let server, context, page;
   const evidence = { pageErrors: [], windowErrors: [], steps: [], cleanup: {} };
   const step = async (name, action, ms = options.stepMs) => {
     const begin = performance.now();
@@ -852,11 +859,13 @@ async function worker(options) {
   };
   try {
     const fixtureFile =
-      options.mode === "native-tree"
-        ? "native-tree.browser-test.tsx"
-        : ["form-grid", "controls-input"].includes(options.mode)
-          ? "native-form-grid.browser-test.tsx"
-          : "native-panel.browser-test.tsx";
+      options.mode === "workbench"
+        ? "native-workbench.browser-test.tsx"
+        : options.mode === "native-tree"
+          ? "native-tree.browser-test.tsx"
+          : ["form-grid", "controls-input"].includes(options.mode)
+            ? "native-form-grid.browser-test.tsx"
+            : "native-panel.browser-test.tsx";
     const { createServer } = await step(
       "load Vite",
       () => import(pathToFileURL(require.resolve("vite")).href),
@@ -876,10 +885,14 @@ async function worker(options) {
         configFile: path.join(app, "vite.config.ts"),
         cacheDir: path.join(options.scratch, "cache"),
         optimizeDeps: {
-          entries: [`src/features/plugins/native-ui/${fixtureFile}`],
+          ...(options.mode === "workbench" ? WORKBENCH_OPTIMIZE_DEPS : {}),
+          entries: [
+            `src/features/plugins/native-ui/${options.mode === "workbench" ? "native-main-layout.test-boundaries.tsx" : fixtureFile}`,
+          ],
         },
         server: { port: 0, host: "127.0.0.1", open: false },
         plugins: [
+          ...(options.mode === "workbench" ? [workbenchBoundaryPlugin(app)] : []),
           {
             name: "native-panel-browser-regression",
             configureServer(vite) {
@@ -887,7 +900,7 @@ async function worker(options) {
                 try {
                   const html = await vite.transformIndexHtml(
                     "/native-panel-test.html",
-                    `<html><body><div id="probe"></div><script type="module">
+                    `<html><head><link rel="icon" href="data:,"></head><body><div id="probe"></div><script type="module">
               import '/@vite/client';
               import '/src/styles.css';
               import { mockWindows, mockIPC } from '@tauri-apps/api/mocks';
@@ -899,19 +912,33 @@ async function worker(options) {
                 throw new Error('Unexpected native command in component test: ' + command);
               });
               ${
-                options.mode === "native-tree"
+                options.mode === "workbench"
                   ? `
+              const { workbenchBoundaryModules } = await import('/src/features/plugins/native-ui/native-main-layout.test-boundaries.tsx');
+              const registration = await fetch('/native-workbench-boundaries', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify([...workbenchBoundaryModules].map(([id, exports]) => [id, Object.keys(exports)])),
+                signal: AbortSignal.timeout(5000),
+              });
+              if (!registration.ok) throw new Error('Workbench boundary registration failed: ' + await registration.text());
+              const { mountNativeWorkbenchBrowserTest } = await import('/src/features/plugins/native-ui/native-workbench.browser-test.tsx');
+              window.nativeWorkbenchProbe = await mountNativeWorkbenchBrowserTest(document.getElementById('probe'));
+              window.runNativePanelTest = () => true;
+              `
+                  : options.mode === "native-tree"
+                    ? `
               const { mountNativeTreeBrowserTest } = await import('/src/features/plugins/native-ui/native-tree.browser-test.tsx');
               window.nativeTreeProbe = mountNativeTreeBrowserTest(document.getElementById('probe'));
               window.runNativePanelTest = () => true;
               `
-                  : ["form-grid", "controls-input"].includes(options.mode)
-                    ? `
+                    : ["form-grid", "controls-input"].includes(options.mode)
+                      ? `
               const { mountNativeFormGridBrowserTest } = await import('/src/features/plugins/native-ui/native-form-grid.browser-test.tsx');
               window.nativeFormGridProbe = mountNativeFormGridBrowserTest(document.getElementById('probe'));
               window.runNativePanelTest = () => true;
               `
-                    : `
+                      : `
               const { testNativeActionGroupLayout } = await import('/src/features/plugins/native-ui/native-panel.browser-test.tsx');
               window.runNativePanelTest = () => testNativeActionGroupLayout(document.getElementById('probe'));
               `
@@ -939,9 +966,16 @@ async function worker(options) {
       }),
     );
     evidence.browserVersion = context.browser()?.version();
-    const page = await step("create page", () => context.newPage());
+    page = await step("create page", () => context.newPage());
     page.setDefaultTimeout(options.stepMs);
     page.on("pageerror", (error) => evidence.pageErrors.push(textError(error)));
+    if (options.mode === "workbench") {
+      evidence.consoleErrors = [];
+      page.on("console", (message) => {
+        if (message.type() === "error")
+          evidence.consoleErrors.push({ text: message.text(), location: message.location() });
+      });
+    }
     // Installed before navigation: includes ResizeObserver errors and resource errors.
     await step("install window.error listener", () =>
       page.addInitScript(() => {
@@ -989,27 +1023,49 @@ async function worker(options) {
     if (options.mode === "native-tree")
       await step("install controlled browser clock", () => page.clock.install());
     evidence.component =
-      options.mode === "native-tree"
-        ? await nativeTreeRegression(page, step)
-        : ["form-grid", "controls-input"].includes(options.mode)
-          ? options.mode === "controls-input"
-            ? await nativeControlsInputRegression(page, step)
-            : await nativeFormGridRegression(page, step)
-          : await step("six-stage component regression", () =>
-              page.evaluate(() => window.runNativePanelTest()),
-            );
+      options.mode === "workbench"
+        ? await nativeWorkbenchRegression(page, step)
+        : options.mode === "native-tree"
+          ? await nativeTreeRegression(page, step)
+          : ["form-grid", "controls-input"].includes(options.mode)
+            ? options.mode === "controls-input"
+              ? await nativeControlsInputRegression(page, step)
+              : await nativeFormGridRegression(page, step)
+            : await step("six-stage component regression", () =>
+                page.evaluate(() => window.runNativePanelTest()),
+              );
     evidence.windowErrors = await step("collect window errors", () =>
       page.evaluate(() => window.nativePanelWindowErrors),
     );
     evidence.bootstrapIPC = await step("collect mock IPC", () =>
       page.evaluate(() => window.bootstrapIPC),
     );
-    if (evidence.windowErrors.length || evidence.pageErrors.length)
+    if (
+      evidence.windowErrors.length ||
+      evidence.pageErrors.length ||
+      evidence.consoleErrors?.length
+    )
       throw new Error(
-        JSON.stringify({ windowErrors: evidence.windowErrors, pageErrors: evidence.pageErrors }),
+        JSON.stringify({
+          windowErrors: evidence.windowErrors,
+          pageErrors: evidence.pageErrors,
+          consoleErrors: evidence.consoleErrors,
+        }),
       );
   } catch (error) {
     evidence.error = textError(error);
+    if (error.workbenchEvidence) evidence.component = error.workbenchEvidence;
+    if (page) {
+      try {
+        evidence.windowErrors = await step(
+          "collect window errors after failure",
+          () => page.evaluate(() => window.nativePanelWindowErrors ?? []),
+          2000,
+        );
+      } catch (observationError) {
+        evidence.error += `; window.error collection: ${textError(observationError)}`;
+      }
+    }
   } finally {
     for (const [name, close] of [
       ["browser", () => context?.close()],
@@ -1066,12 +1122,17 @@ async function main() {
     if (process.platform !== "win32")
       throw new Error("This runner requires Windows process-tree cleanup");
     if (
-      !["action-group", "native-tree", "form-grid", "controls-input", "lifecycle"].includes(
-        options.mode,
-      )
+      ![
+        "action-group",
+        "native-tree",
+        "form-grid",
+        "controls-input",
+        "workbench",
+        "lifecycle",
+      ].includes(options.mode)
     )
       throw new Error(
-        "mode must be action-group, native-tree, form-grid, controls-input or lifecycle",
+        "mode must be action-group, native-tree, form-grid, controls-input, workbench or lifecycle",
       );
     if (
       options.mode === "lifecycle" &&
@@ -1217,7 +1278,11 @@ async function main() {
     const evidence = result.evidence;
     if (
       evidence.component?.snapshots?.length !==
-        (["native-tree", "form-grid", "controls-input"].includes(options.mode) ? 7 : 6) &&
+        (options.mode === "workbench"
+          ? WORKBENCH_STAGES
+          : ["native-tree", "form-grid", "controls-input"].includes(options.mode)
+            ? 7
+            : 6) &&
       !evidence.error
     )
       throw new Error("Expected all component regression stages");
@@ -1302,11 +1367,13 @@ async function main() {
         {
           name: `${options.mode} browser regression`,
           suite:
-            options.mode === "native-tree"
-              ? "native-tree.browser-test.tsx"
-              : ["form-grid", "controls-input"].includes(options.mode)
-                ? "native-form-grid.browser-test.tsx"
-                : "native-panel.browser-test.tsx",
+            options.mode === "workbench"
+              ? "native-workbench.browser-test.tsx"
+              : options.mode === "native-tree"
+                ? "native-tree.browser-test.tsx"
+                : ["form-grid", "controls-input"].includes(options.mode)
+                  ? "native-form-grid.browser-test.tsx"
+                  : "native-panel.browser-test.tsx",
           status: result.exitCode === 0 ? "passed" : "failed",
           durationMs: result.durationMs,
           message: result.error ?? result.cleanup.error,
@@ -1314,13 +1381,15 @@ async function main() {
         ...(result.evidence?.component?.snapshots ?? []).map((stage) => ({
           name: stage.name,
           suite:
-            options.mode === "native-tree"
-              ? "native-tree keyboard"
-              : ["form-grid", "controls-input"].includes(options.mode)
-                ? options.mode === "controls-input"
-                  ? "native-controls input"
-                  : "native-form grid"
-                : "native-panel geometry",
+            options.mode === "workbench"
+              ? "native-workbench workflow"
+              : options.mode === "native-tree"
+                ? "native-tree keyboard"
+                : ["form-grid", "controls-input"].includes(options.mode)
+                  ? options.mode === "controls-input"
+                    ? "native-controls input"
+                    : "native-form grid"
+                  : "native-panel geometry",
           status: "passed",
           durationMs: stage.durationMs,
         })),
