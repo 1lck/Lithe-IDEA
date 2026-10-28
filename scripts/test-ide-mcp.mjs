@@ -72,4 +72,11 @@ test("stdio MCP negotiates, discovers IDE tools, routes calls and reports tool f
   assert.equal(denied.result.isError,true);
   assert.equal(denied.result.structuredContent.error.code,"PERMISSION_DENIED");
   assert.equal(requests.length,2);
+  const modernMeta = {"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}};
+  const discovered = await send("server/discover",{_meta:modernMeta});
+  assert.ok(discovered.result.supportedVersions.includes("2026-07-28"),"the server advertises the revision that requires cacheable list results");
+  const cacheableListed = await send("tools/list",{_meta:modernMeta});
+  assert.equal(typeof cacheableListed.result.ttlMs,"number","cacheable list results must carry ttlMs");
+  assert.ok(["public","private"].includes(cacheableListed.result.cacheScope),"cacheable list results must carry cacheScope");
+  assert.equal(requests.length,2);
 });
