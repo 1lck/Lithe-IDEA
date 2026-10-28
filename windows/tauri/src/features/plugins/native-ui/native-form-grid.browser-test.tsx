@@ -11,6 +11,7 @@ import fixture from "../../../../../../shared/contracts/plugins/v1/fixtures/nati
 export function mountNativeFormGridBrowserTest(host: HTMLDivElement) {
   const ui = fixture.ui.toolWindows[0].native as unknown as NativeUI;
   const calls: { action: string; context: NativeCallContext }[] = [];
+  const validations: NativeUI[] = [];
   const root = createRoot(host);
   const store = new NativePanelStateStore();
   host.style.width = "900px";
@@ -29,7 +30,10 @@ export function mountNativeFormGridBrowserTest(host: HTMLDivElement) {
           title={fixture.ui.toolWindows[0].title}
           ui={ui}
           port={{
-            validate: async () => [],
+            validate: async (current) => {
+              validations.push(structuredClone(current));
+              return [];
+            },
             functions: {
               load: async () => ({ nodes: [] }),
               invoke: async (action, context) => {
@@ -57,6 +61,7 @@ export function mountNativeFormGridBrowserTest(host: HTMLDivElement) {
   return {
     ui,
     calls,
+    validations,
     dispose() {
       try {
         root.unmount();

@@ -808,6 +808,8 @@ node scripts/test-windows-native-plugin-ui-browser.mjs --mode native-tree --brow
 if ($LASTEXITCODE -ne 0) { throw 'Native-tree browser regression failed' }
 node scripts/test-windows-native-plugin-ui-browser.mjs --mode form-grid --browser msedge --playwright-module $playwrightModule --timeout-ms 120000 --report .artifacts/test-stability/native-form-grid-browser.json
 if ($LASTEXITCODE -ne 0) { throw 'Form-grid browser regression failed' }
+node scripts/test-windows-native-plugin-ui-browser.mjs --mode controls-input --browser msedge --playwright-module $playwrightModule --timeout-ms 120000 --report .artifacts/test-stability/native-controls-input-browser.json
+if ($LASTEXITCODE -ne 0) { throw 'Controls-input browser regression failed' }
 foreach ($failure in @('worker-exit', 'worker-hang')) {
   node scripts/test-windows-native-plugin-ui-browser.mjs --mode lifecycle --inject-failure $failure --timeout-ms 25000 --report ".artifacts/test-stability/native-browser-$failure.json"
   if ($LASTEXITCODE -ne 0) { throw "Lifecycle regression failed: $failure" }
@@ -819,9 +821,12 @@ foreach ($failure in @('worker-exit', 'worker-hang')) {
 检查菜单触发、导航、关闭、焦点和一次性动作。栅格模式固定浏览器 viewport，只调整夹具容器，
 检查 12 列/span 在 639px、640px 和宽容器的几何、同一 DOM、草稿、焦点、禁用说明、公共
 readOnly 原语及完整 values 单次提交；不把 typed port 的可选 selectedID 当作下游 JSON null。
-三者各有 120 秒整体时限；
+控件输入模式在同一完整夹具上验证 select、checkbox、search/clear、editor、segmented、stepper
+的实际浏览器交互、按原 onCommit 语义自动提交或仅保留草稿、禁用组拒绝输入和最终完整 values。
+所有模式均通过公共控件的可访问角色定位实际编辑节点，不把隐藏校验 input 当成用户输入。
+四个组件模式各有 120 秒整体时限；
 生命周期模式不加载 Vite 或浏览器，用提前退出和挂起的受控 worker 验证独立 owner 的清理，
-25 秒整体时限中保留 20 秒收尾。Windows CI 的组合步骤另有 8 分钟外层上限。
+25 秒整体时限中保留 20 秒收尾。Windows CI 的组合步骤另有 10 分钟外层上限。
 各模式成功或失败都生成独立 JSON、HTML 和 JUnit，不代表产品 WebView2、物理键盘、IME
 或 `ui:3` 准入。
 生命周期的预期红报告留在报告父目录的 `expected-failures/` 子目录，普通报告只记录

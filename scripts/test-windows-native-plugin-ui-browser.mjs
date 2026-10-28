@@ -7,6 +7,7 @@
  * --step-timeout-ms defaults to 60000; --timeout-ms defaults to 120000
  * (minimum 25000, including a 20000ms cleanup reserve).
  * --mode native-tree drives real browser keyboard/menu/focus regressions.
+ * --mode controls-input drives original native-controls input and disabled groups.
  * --mode form-grid checks native-controls geometry and editing across 640px.
  * --mode lifecycle --inject-failure worker-exit|worker-hang verifies fail-closed
  * cleanup without Vite/browser dependencies; expected red reports are separate.
@@ -25,6 +26,313 @@ const app = path.join(root, "windows/tauri");
 const require = createRequire(path.join(app, "package.json"));
 const started = performance.now();
 const textError = (error) => String(error?.stack ?? error);
+
+async function nativeControlsInputRegression(page, step) {
+  const snapshots = [];
+  const controls = await page.evaluate(() => window.nativeFormGridProbe.ui.controls);
+  const byId = (id) => controls.find((control) => control.id === id);
+  const field = (id) =>
+    page.locator(".plugin-native-grid > *").nth(controls.findIndex((c) => c.id === id));
+  // Base UI checkboxes also associate their hidden validation input with the
+  // field label. Drive the public checkbox rather than that implementation input.
+  const input = (id) =>
+    byId(id).kind === "checkbox"
+      ? field(id).getByRole("checkbox", { name: byId(id).label, exact: true })
+      : field(id).getByLabel(byId(id).label, { exact: true });
+  const expected = Object.fromEntries(controls.map((c) => [c.id, c.value]));
+  let count = 0;
+  const errors = [];
+  const check = (condition, message) => {
+    if (!condition) throw new Error(message);
+  };
+  const phase = async (name, action) => {
+    const begin = performance.now();
+    const observation = await step(name, action);
+    snapshots.push({ name, durationMs: performance.now() - begin, observation });
+  };
+  const calls = () => page.evaluate(() => window.nativeFormGridProbe.calls.length);
+  const committed = async () => {
+    count += 1;
+    try {
+      await page.waitForFunction((n) => window.nativeFormGridProbe.calls.length >= n, count, {
+        timeout: 3000,
+      });
+      // The owner disables the actual input through invoke and refresh. There
+      // is no aria-busy marker on this form; wait for that public ready boundary.
+      await page.waitForFunction(
+        () => {
+          const label = window.nativeFormGridProbe.ui.controls[0].label;
+          return [...document.querySelectorAll(".plugin-native-form input")].some(
+            (e) => e.getAttribute("aria-label") === label && !e.disabled,
+          );
+        },
+        null,
+        { timeout: 3000 },
+      );
+    } catch (error) {
+      const state = await page.evaluate(() => ({
+        calls: window.nativeFormGridProbe.calls,
+        focus: document.activeElement?.outerHTML,
+      }));
+      throw new Error(`submission ${count}: ${textError(error)}; ${JSON.stringify(state)}`);
+    }
+    check((await calls()) === count, `submission ${count} duplicated port invocation`);
+    const observation = await page.evaluate(() => {
+      const call = window.nativeFormGridProbe.calls.at(-1);
+      return {
+        calls: window.nativeFormGridProbe.calls.length,
+        action: call.action,
+        values: call.context.values,
+        selectionUndefined: call.context.selectedID === undefined,
+      };
+    });
+    check(observation.action === "changed", "wrong action");
+    check(observation.selectionUndefined, "typed context selection must be undefined");
+    check(
+      JSON.stringify(observation.values) === JSON.stringify(expected),
+      `full current values mismatch: ${JSON.stringify(observation)}`,
+    );
+    return observation;
+  };
+  const type = async (id, value) => {
+    await input(id).click();
+    await input(id).press("ControlOrMeta+A");
+    await page.keyboard.type(value);
+    expected[id] = value;
+    check((await input(id).inputValue()) === value, `${id} draft not rendered`);
+  };
+  try {
+    await phase("text selection, search draft/clear and multiline editor stay local", async () => {
+      await input("name").waitFor({ state: "visible" });
+      const validationCount = await page.evaluate(
+        () => window.nativeFormGridProbe.validations.length,
+      );
+      await input("name").click();
+      await input("name").press("ControlOrMeta+A");
+      check(
+        await input("name").evaluate(
+          (e) => e.selectionStart === 0 && e.selectionEnd === e.value.length,
+        ),
+        "native select-all did not select text",
+      );
+      check((await calls()) === 0, "text selection invoked port");
+      await type("search", "R23 search");
+      await field("search").getByRole("button", { name: "Clear search", exact: true }).click();
+      expected.search = "";
+      check((await input("search").inputValue()) === "", "clear did not update draft");
+      check(
+        await input("search").evaluate((e) => document.activeElement === e),
+        "clear lost input focus",
+      );
+      await type("search", "R23 final query");
+      await type("notes", "R23 first");
+      await input("notes").press("Enter");
+      await page.keyboard.type("second");
+      expected.notes = "R23 first\nsecond";
+      check(
+        (await input("notes").inputValue()) === expected.notes,
+        "editor Enter did not insert newline",
+      );
+      check((await calls()) === 0, "draft/clear/editor called port");
+      check(
+        (await page.evaluate(() => window.nativeFormGridProbe.validations.length)) ===
+          validationCount,
+        "draft/selection called validation port",
+      );
+      await input("search").press("Enter");
+      return { ...(await committed()), searchEnterCommits: true };
+    });
+    await phase("select pointer option and keyboard option commit through owner", async () => {
+      await input("environment").click();
+      check((await calls()) === count, "opening select invoked port");
+      await page
+        .getByRole("option", { name: byId("environment").options[1].label, exact: true })
+        .click();
+      expected.environment = "test";
+      await committed();
+      await page.getByRole("listbox").waitFor({ state: "hidden", timeout: 3000 });
+      await input("environment").press("Space");
+      await page.getByRole("listbox").waitFor({ state: "visible", timeout: 3000 });
+      // Upstream schedules initial option focus while the popup mounts. Send
+      // navigation only once the selected option owns the keyboard events.
+      await page.waitForFunction(
+        (label) =>
+          document.activeElement?.getAttribute("role") === "option" &&
+          document.activeElement.textContent.includes(label),
+        byId("environment").options[1].label,
+        { timeout: 3000 },
+      );
+      await page.keyboard.press("End");
+      await page.waitForFunction(
+        (label) =>
+          document.activeElement?.getAttribute("role") === "option" &&
+          document.activeElement.textContent.includes(label),
+        byId("environment").options[2].label,
+        { timeout: 3000 },
+      );
+      await page.keyboard.press("Enter");
+      expected.environment = "prod";
+      return committed();
+    });
+    await phase("checkbox pointer and Space preserve boolean values", async () => {
+      await input("notify").click();
+      expected.notify = false;
+      await committed();
+      await input("notify").press("Space");
+      expected.notify = true;
+      await committed();
+      await input("offline").click();
+      expected.offline = true;
+      check((await calls()) === count, "checkbox without onCommit invoked port");
+      return { calls: count, offline: true };
+    });
+    await phase("segmented pointer and keyboard use real buttons", async () => {
+      const buttons = field("mode").locator('button[data-slot="toggle-group-item"]');
+      await buttons.nth(0).click();
+      expected.mode = "fast";
+      await committed();
+      await buttons.nth(0).press("End");
+      check(
+        await buttons.nth(2).evaluate((e) => document.activeElement === e),
+        "segmented End did not move focus",
+      );
+      check((await calls()) === count, "segmented focus navigation invoked port");
+      await page.keyboard.press("Space");
+      expected.mode = "debug";
+      return committed();
+    });
+    await phase("stepper pointer and ArrowUp respect numeric type and bounds", async () => {
+      const increase = field("concurrency").getByRole("button", {
+        name: "Increase value",
+        exact: true,
+      });
+      await increase.click();
+      expected.concurrency = 3;
+      await committed();
+      await input("concurrency").press("ArrowUp");
+      expected.concurrency = 4;
+      await committed();
+      for (let value = 5; value <= 8; value += 1) {
+        await increase.click();
+        expected.concurrency = value;
+        await committed();
+      }
+      check(await increase.isDisabled(), "maximum increment remains enabled");
+      return { value: 8, maximumDisabled: true };
+    });
+    await phase(
+      "disabled native groups reject pointer and keyboard without losing values",
+      async () => {
+        const observations = [];
+        for (const control of controls.filter((c) => c.enabled === false)) {
+          // InfoTip belongs to the label; assert only the actual editing controls.
+          const editing =
+            control.kind === "segmented"
+              ? field(control.id).locator('button[data-slot="toggle-group-item"]')
+              : control.kind === "stepper"
+                ? field(control.id).locator(
+                    'input[data-setting-primary-control="true"],button[aria-label="Increase value"],button[aria-label="Decrease value"]',
+                  )
+                : input(control.id);
+          const expectedCount =
+            control.kind === "segmented"
+              ? control.options.length
+              : control.kind === "stepper"
+                ? 3
+                : 1;
+          check(
+            (await editing.count()) === expectedCount,
+            `${control.id} missing editing controls`,
+          );
+          if (control.kind === "segmented")
+            check(
+              await field(control.id)
+                .locator("fieldset")
+                .evaluate((e) => e.disabled),
+              "disabled segmented fieldset lost propagation",
+            );
+          for (const node of await editing.all()) {
+            check(await node.isDisabled(), `${control.id} editing node is enabled`);
+            const box = await node.boundingBox();
+            check(box !== null, `${control.id} missing editing node`);
+            await node.scrollIntoViewIfNeeded();
+            const visible = await node.boundingBox();
+            await page.mouse.click(2, 2);
+            await page.mouse.click(visible.x + visible.width / 2, visible.y + visible.height / 2);
+            check(
+              !(await node.evaluate((e) => document.activeElement === e)),
+              `${control.id} received pointer focus`,
+            );
+          }
+          const info = field(control.id).getByRole("button", {
+            name: `Information for ${control.label}`,
+            exact: true,
+          });
+          check(!(await info.isDisabled()), `${control.id} disabled its InfoTip`);
+          await info.click();
+          const dialog = page.getByRole("dialog");
+          await dialog.waitFor({ state: "visible", timeout: 3000 });
+          check((await dialog.textContent()) === control.info, `${control.id} InfoTip changed`);
+          await info.click();
+          await dialog.waitFor({ state: "detached", timeout: 3000 });
+          // Start immediately before the editing controls in document order.
+          // One real Tab must leave the whole disabled group, including every
+          // segmented choice and both stepper buttons.
+          await info.press("Tab");
+          check(
+            await field(control.id).evaluate(
+              (e) =>
+                document.activeElement !== document.body && !e.contains(document.activeElement),
+            ),
+            `${control.id} received Tab focus or lost the keyboard focus`,
+          );
+          observations.push({
+            id: control.id,
+            disabled: true,
+            infoTipInteractive: true,
+            tabSkipped: true,
+          });
+        }
+        check((await calls()) === count, "disabled interaction called port");
+        return observations;
+      },
+    );
+    await phase(
+      "one final explicit submission contains every current and disabled field",
+      async () => {
+        await type("name", "R23 final name");
+        await type("query", "R23 final draft");
+        check((await calls()) === count, "final drafts invoked port");
+        const label = await page.evaluate(() => window.nativeFormGridProbe.ui.buttons[0].label);
+        await page.getByRole("button", { name: label, exact: true }).click();
+        const result = await committed();
+        check((await calls()) === count, "final button duplicated submission");
+        return { ...result, totalCalls: count };
+      },
+    );
+  } catch (error) {
+    errors.push(error);
+  } finally {
+    try {
+      await step(
+        "dispose controls-input fixture",
+        () =>
+          page.evaluate(() => {
+            window.nativeFormGridProbe.dispose();
+            if (document.querySelector('[role="listbox"]')) throw new Error("Select portal leaked");
+            if (document.querySelector('[role="dialog"]')) throw new Error("InfoTip portal leaked");
+          }),
+        5000,
+      );
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+  if (errors.length > 1)
+    throw new AggregateError(errors, "Controls input failure and fixture cleanup failure");
+  if (errors.length) throw errors[0];
+  return { snapshots };
+}
 
 async function nativeFormGridRegression(page, step) {
   const snapshots = [];
@@ -546,7 +854,7 @@ async function worker(options) {
     const fixtureFile =
       options.mode === "native-tree"
         ? "native-tree.browser-test.tsx"
-        : options.mode === "form-grid"
+        : ["form-grid", "controls-input"].includes(options.mode)
           ? "native-form-grid.browser-test.tsx"
           : "native-panel.browser-test.tsx";
     const { createServer } = await step(
@@ -597,7 +905,7 @@ async function worker(options) {
               window.nativeTreeProbe = mountNativeTreeBrowserTest(document.getElementById('probe'));
               window.runNativePanelTest = () => true;
               `
-                  : options.mode === "form-grid"
+                  : ["form-grid", "controls-input"].includes(options.mode)
                     ? `
               const { mountNativeFormGridBrowserTest } = await import('/src/features/plugins/native-ui/native-form-grid.browser-test.tsx');
               window.nativeFormGridProbe = mountNativeFormGridBrowserTest(document.getElementById('probe'));
@@ -683,8 +991,10 @@ async function worker(options) {
     evidence.component =
       options.mode === "native-tree"
         ? await nativeTreeRegression(page, step)
-        : options.mode === "form-grid"
-          ? await nativeFormGridRegression(page, step)
+        : ["form-grid", "controls-input"].includes(options.mode)
+          ? options.mode === "controls-input"
+            ? await nativeControlsInputRegression(page, step)
+            : await nativeFormGridRegression(page, step)
           : await step("six-stage component regression", () =>
               page.evaluate(() => window.runNativePanelTest()),
             );
@@ -755,8 +1065,14 @@ async function main() {
     }
     if (process.platform !== "win32")
       throw new Error("This runner requires Windows process-tree cleanup");
-    if (!["action-group", "native-tree", "form-grid", "lifecycle"].includes(options.mode))
-      throw new Error("mode must be action-group, native-tree, form-grid or lifecycle");
+    if (
+      !["action-group", "native-tree", "form-grid", "controls-input", "lifecycle"].includes(
+        options.mode,
+      )
+    )
+      throw new Error(
+        "mode must be action-group, native-tree, form-grid, controls-input or lifecycle",
+      );
     if (
       options.mode === "lifecycle" &&
       !["worker-exit", "worker-hang"].includes(options.injectFailure)
@@ -901,7 +1217,7 @@ async function main() {
     const evidence = result.evidence;
     if (
       evidence.component?.snapshots?.length !==
-        (["native-tree", "form-grid"].includes(options.mode) ? 7 : 6) &&
+        (["native-tree", "form-grid", "controls-input"].includes(options.mode) ? 7 : 6) &&
       !evidence.error
     )
       throw new Error("Expected all component regression stages");
@@ -988,7 +1304,7 @@ async function main() {
           suite:
             options.mode === "native-tree"
               ? "native-tree.browser-test.tsx"
-              : options.mode === "form-grid"
+              : ["form-grid", "controls-input"].includes(options.mode)
                 ? "native-form-grid.browser-test.tsx"
                 : "native-panel.browser-test.tsx",
           status: result.exitCode === 0 ? "passed" : "failed",
@@ -1000,8 +1316,10 @@ async function main() {
           suite:
             options.mode === "native-tree"
               ? "native-tree keyboard"
-              : options.mode === "form-grid"
-                ? "native-form grid"
+              : ["form-grid", "controls-input"].includes(options.mode)
+                ? options.mode === "controls-input"
+                  ? "native-controls input"
+                  : "native-form grid"
                 : "native-panel geometry",
           status: "passed",
           durationMs: stage.durationMs,

@@ -453,9 +453,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if ($preflightExit -ne 0) { exit $preflightExit }
 
-      - name: Test native plugin action groups, form grids, tree menus and lifecycle in Edge
+      - name: Test native plugin controls, form grids, tree menus and lifecycle in Edge
         shell: pwsh
-        timeout-minutes: 8
+        timeout-minutes: 10
         run: |
           $playwrightModule = python -c "from pathlib import Path; import playwright; print(Path(playwright.__file__).parent / 'driver/package/index.mjs')"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -464,6 +464,8 @@ jobs:
           node scripts/test-windows-native-plugin-ui-browser.mjs --mode native-tree --browser msedge --playwright-module $playwrightModule --timeout-ms 120000 --report .artifacts/test-stability/native-tree-browser.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts/test-windows-native-plugin-ui-browser.mjs --mode form-grid --browser msedge --playwright-module $playwrightModule --timeout-ms 120000 --report .artifacts/test-stability/native-form-grid-browser.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/test-windows-native-plugin-ui-browser.mjs --mode controls-input --browser msedge --playwright-module $playwrightModule --timeout-ms 120000 --report .artifacts/test-stability/native-controls-input-browser.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           foreach ($failure in @('worker-exit', 'worker-hang')) {
             node scripts/test-windows-native-plugin-ui-browser.mjs --mode lifecycle --inject-failure $failure --timeout-ms 25000 --report ".artifacts/test-stability/native-browser-$failure.json"

@@ -182,6 +182,8 @@ R21 为 NativeTree 增加真实 Edge 七阶段回归，复用上述 runner、生
 
 R22 的表单栅格回归固定浏览器 viewport，只改变原 native-controls 夹具容器，在 900→639→640→900px 检查 12 列/span 的几何、同一控件 DOM、当前草稿与编辑焦点、禁用说明、公共 readOnly 原语和完整 values 单次提交。宽度按真实 grid 校准，包含滚动条占宽，不关闭 overflow 或硬写滚动条像素；segmented 的禁用沿 fieldset 检查实际按钮；typed 端口无 selection 为 undefined，不冒充下游 JSON null。主集成首次 Edge 发现测试断言错误，修复测试后七阶段真实 Edge 通过（36.5 秒），window.error/pageerror 为零，Job 归零后 profile/cache 已清理；未改生产组件。lane 原先的 TLS 安装失败和未执行项保持原记录，主集成通过只补受控组件证据，不升级 ui:3、WebView2、物理键盘、IME 或完整包验收。
 
+控件输入回归继续使用原 native-controls 完整夹具和公共控件。真实浏览器负责指针、键盘默认行为与焦点：文本/多行编辑只改草稿，搜索 Enter 和声明的 onCommit 才提交；select、checkbox、segmented、stepper 按各自契约提交完整当前 values，最后显式按钮只提交一次。定位 checkbox 的公开角色及 stepper 的实际编辑节点，不能把 BaseUI 隐藏校验 input 当成第二个用户输入；下拉键盘操作先在局部期限内证明列表和选项焦点已就绪，不用 sleep 猜测上游安排。禁用组仍可查看说明，但指针和 Tab 不得进入编辑节点。失败证据单独保留，成功也必须核实页面错误为零、Job 零成员和 profile/cache 清理；这些是受控 Edge 组件证据，不升级 ui:3、WebView2、真实 IME 或完整包验收。
+
 ## 验证
 
 - Windows 受控浏览器：按 `docs/ci-builds.md` 中的 Playwright driver 解析命令运行 `scripts/test-windows-native-plugin-ui-browser.mjs`。R21 的动作组六阶段（41.0 秒）及 NativeTree 七阶段（38.5 秒）通过，window.error/pageerror 均为零，Job 归零后 profile/cache 已清理；worker 早退/挂起的生命周期回归通过，原始预期失败报告单独保留。R20 的页面错误、缺失模块、执行超时故障注入保持原证据范围。supervisor 早退时缺失证明，报告失败并保留隔离 scratch，不把故障注入算作产品验收。

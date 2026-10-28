@@ -47,11 +47,12 @@
         ".artifacts/test-stability/native-panel-browser.worker.log",
         ".artifacts/test-stability/native-tree-browser.{json,html,junit.xml,worker.log}",
         ".artifacts/test-stability/native-form-grid-browser.{json,html,junit.xml,worker.log}",
+        ".artifacts/test-stability/native-controls-input-browser.{json,html,junit.xml,worker.log}",
         ".artifacts/test-stability/native-browser-{worker-exit,worker-hang}.{json,html,junit.xml,worker.log}",
         "<explicit-native-browser-report>.{json,html,junit.xml,worker.log}",
         "<native-browser-report-parent>/expected-failures/<report-name>.{json,html,junit.xml}"
       ],
-      "identity": "One controlled Windows action-group, form-grid, tree keyboard/menu or injected lifecycle regression invocation owns its scratch profile, Vite optimizer cache, worker evidence, Job Object result, copied worker log and JSON/HTML/JUnit reports, including separate expected-failure evidence. Source, browser and viewport observations describe that run, not a reusable version/platform/architecture/toolchain build identity stamp.",
+      "identity": "One controlled Windows action-group, form-grid, controls-input, tree keyboard/menu or injected lifecycle regression invocation owns its scratch profile, Vite optimizer cache, worker evidence, Job Object result, copied worker log and JSON/HTML/JUnit reports, including separate expected-failure evidence. Source, browser and viewport observations describe that run, not a reusable version/platform/architecture/toolchain build identity stamp.",
       "reason": "Never copy these resources at any worktree stage. The runner owns bounded browser/driver/server process cleanup and removes scratch only after termination is proven; unresolved ownership remains isolated and fails the run. Reports remain with the invocation until local or CI retention removes them. Regenerate in the target worktree using its sources and configured dependencies. No state enters installed plugins, app resources, code signatures or Sparkle delta baselines."
     },
     {
