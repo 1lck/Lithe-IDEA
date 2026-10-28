@@ -256,13 +256,16 @@ pub(crate) struct VersionProbe {
     pub(crate) pattern: String,
 }
 
-/// A build dimension the user chooses, stored per workspace by the host.
+/// A build dimension the user chooses, stored in its declared scope by the host.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct OptionDeclaration {
     pub(crate) id: String,
     pub(crate) display_name: String,
     pub(crate) kind: OptionKind,
+    /// Instance values belong to one detected root, never to its siblings.
+    #[serde(default, skip_serializing_if = "OptionScope::is_workspace")]
+    pub(crate) scope: OptionScope,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) default: Option<Value>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -286,6 +289,21 @@ pub(crate) struct OptionDeclaration {
     /// Icon of a `toolbar` toggle; display only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) icon: Option<UIIcon>,
+}
+
+/// Persistence boundary of an option. Existing declarations remain workspace-wide.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum OptionScope {
+    #[default]
+    Workspace,
+    Instance,
+}
+
+impl OptionScope {
+    fn is_workspace(&self) -> bool {
+        *self == Self::Workspace
+    }
 }
 
 /// Where a host offers an option besides its option list. Neither placement
@@ -1242,7 +1260,7 @@ impl BuildSystemDeclaration {
         self.validate_integration(field, context.official)?;
         self.validate_provider(field, context)?;
         self.validate_detection(field)?;
-        let option_ids = self.validate_options(field)?;
+        let option_ids = self.validate_options(field, context.build_systems_version)?;
         super::model_inputs::validate_declaration(
             self,
             context.model_inputs_version,
@@ -1460,7 +1478,7 @@ impl BuildSystemDeclaration {
         Ok(())
     }
 
-    fn validate_options(&mut self, field: &str) -> Validation<BTreeSet<String>> {
+    fn validate_options(&mut self, field: &str, version: u32) -> Validation<BTreeSet<String>> {
         if self.options.len() > MAX_LIST {
             return Err(invalid(format!("{field}.options"), "Too many options."));
         }
@@ -1468,6 +1486,12 @@ impl BuildSystemDeclaration {
         for (index, option) in self.options.iter_mut().enumerate() {
             let field = format!("{field}.options[{index}]");
             option.validate(&field)?;
+            if option.scope == OptionScope::Instance && version < 3 {
+                return Err(invalid(
+                    format!("{field}.scope"),
+                    "Instance options require buildSystems 3.",
+                ));
+            }
             if !ids.insert(option.id.clone()) {
                 return Err(invalid(
                     format!("{field}.id"),

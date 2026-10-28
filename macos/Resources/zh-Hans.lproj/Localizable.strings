@@ -474,6 +474,7 @@
 "Build files changed." = "构建文件已更改。";
 "Build files changed. Reload the model to pick up the changes." = "构建文件已更改，请重新加载模型以应用更改。";
 "Build launch did not start" = "构建未能启动";
+"Build option migration could not be verified. The previous configuration has been retained. Reload the build instance to retry." = "无法验证构建选项迁移结果，已保留原配置。请重新加载构建实例以重试。";
 "Build output" = "构建输出";
 "Build plugins are unavailable" = "构建插件不可用";
 "Build provider" = "构建 Provider";
@@ -4925,6 +4926,7 @@
 "native.buildFilesChanged.variant2" = "构建文件已更改。";
 "native.buildFilesChangedReloadTheModelToPickUpTheChanges" = "构建文件已更改，请重新加载模型以应用更改。";
 "native.buildOptionInvalid" = "构建选项值无效。请查看其当前类型和可选值。";
+"native.buildOptionMigrationCouldNotBeVerified" = "无法验证构建选项迁移结果，已保留原配置。请重新加载构建实例以重试。";
 "native.buildOptionReadBackFailed" = "无法核实已保存的构建选项。请重新加载后再编辑。";
 "native.buildOptionUnavailable" = "此构建选项已不可用。请重新加载构建实例。";
 "native.buildOutput" = "构建输出";

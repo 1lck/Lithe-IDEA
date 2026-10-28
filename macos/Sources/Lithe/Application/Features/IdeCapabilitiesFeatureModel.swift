@@ -352,7 +352,7 @@ final class IdeCapabilitiesFeatureModel: ObservableObject {
     private func buildOptionJSON(_ option: BuildResolvedOption) throws -> [String: Any] {
         ["id": option.id, "name": option.displayName, "kind": option.kind?.rawValue as Any? ?? NSNull(),
          "value": try JSONSerialization.jsonObject(with: JSONEncoder().encode(option.value), options: [.fragmentsAllowed]),
-         "source": option.source, "allowCustom": option.allowCustom,
+         "source": option.source, "scope": option.scope.rawValue, "allowCustom": option.allowCustom,
          "choices": option.choices.map { ["value": $0.value, "name": $0.title ?? $0.value] }]
     }
 

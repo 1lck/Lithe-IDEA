@@ -90383,6 +90383,17 @@
         "key": "Read using project tool",
         "arguments": []
       }
+    },
+    {
+      "id": "native.buildOptionMigrationCouldNotBeVerified",
+      "description": "Native UI: Build option migration could not be verified. The previous configuration has been retained. Reload the build instance to retry.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Build option migration could not be verified. The previous configuration has been retained. Reload the build instance to retry.",
+        "arguments": []
+      }
     }
   ]
 }

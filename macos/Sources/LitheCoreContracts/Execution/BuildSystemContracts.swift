@@ -73,15 +73,20 @@ public struct DeclarativeBuildSystem: Equatable, Sendable {
 
     /// The display part of an option declaration. Values, kinds, and
     /// choices come from `build.resolveOptions`.
+    public enum OptionScope: String, Equatable, Sendable, Decodable {
+        case workspace, instance
+    }
+
     public struct Option: Equatable, Identifiable, Sendable {
         public let id: String
+        public let scope: OptionScope
         /// Nil for an option shown only in the option list, and for a
         /// placement from a newer contract this host does not know.
         public let presentation: OptionPresentation?
         public let icon: PluginUIIcon?
 
-        public init(id: String, presentation: OptionPresentation? = nil, icon: PluginUIIcon? = nil) {
-            self.id = id; self.presentation = presentation; self.icon = icon
+        public init(id: String, presentation: OptionPresentation? = nil, icon: PluginUIIcon? = nil, scope: OptionScope = .workspace) {
+            self.id = id; self.presentation = presentation; self.icon = icon; self.scope = scope
         }
     }
 
@@ -579,6 +584,7 @@ package struct BuildResolvedOption: Equatable, Identifiable, Sendable, Decodable
     package let displayName: String
     /// Nil for a kind this host does not know; such an option is not shown.
     package let kind: Kind?
+    package let scope: DeclarativeBuildSystem.OptionScope
     package let value: ToolingJSONValue
     /// `user` when the value came from the stored options.
     package let source: String
@@ -590,13 +596,14 @@ package struct BuildResolvedOption: Equatable, Identifiable, Sendable, Decodable
         id = try values.decode(String.self, forKey: .id)
         displayName = try values.decode(String.self, forKey: .displayName)
         kind = Kind(rawValue: try values.decode(String.self, forKey: .kind))
+        scope = try values.decodeIfPresent(DeclarativeBuildSystem.OptionScope.self, forKey: .scope) ?? .workspace
         value = try values.decodeIfPresent(ToolingJSONValue.self, forKey: .value) ?? .null
         source = try values.decodeIfPresent(String.self, forKey: .source) ?? "unset"
         choices = try values.decodeIfPresent([Choice].self, forKey: .choices) ?? []
         allowCustom = try values.decodeIfPresent(Bool.self, forKey: .allowCustom) ?? false
     }
 
-    private enum CodingKeys: String, CodingKey { case id, displayName, kind, value, source, choices, allowCustom }
+    private enum CodingKeys: String, CodingKey { case id, displayName, kind, scope, value, source, choices, allowCustom }
 }
 
 package struct BuildOptionsResolution: Equatable, Sendable, Decodable {
@@ -613,6 +620,9 @@ package struct BuildOptionsResolution: Equatable, Sendable, Decodable {
 package protocol BuildOptionsStoring: AnyObject {
     func options(workspaceURL: URL, buildSystemID: String) -> [String: ToolingJSONValue]
     func setOptions(_ options: [String: ToolingJSONValue], workspaceURL: URL, buildSystemID: String)
+    /// Independent values for options declared with scope=instance, keyed by root.
+    func instanceOptions(workspaceURL: URL, buildSystemID: String) -> [String: [String: ToolingJSONValue]]
+    func setInstanceOptions(_ options: [String: [String: ToolingJSONValue]], workspaceURL: URL, buildSystemID: String)
     /// Option IDs explicitly cleared at each workspace-relative instance root.
     func emptyMultiSelectOptions(workspaceURL: URL, buildSystemID: String) -> [String: Set<String>]
     func setEmptyMultiSelectOptions(_ options: [String: Set<String>], workspaceURL: URL, buildSystemID: String)
@@ -1055,7 +1065,8 @@ package protocol BuildSystemPlanning: Sendable {
     func detect(
         workspaceURL: URL,
         sources: [BuildSystemPluginSource],
-        options: [String: [String: ToolingJSONValue]]
+        options: [String: [String: ToolingJSONValue]],
+        instanceOptions: [String: [String: [String: ToolingJSONValue]]]
     ) throws -> BuildDetection
     func languageImport(
         _ target: BuildSystemTarget,

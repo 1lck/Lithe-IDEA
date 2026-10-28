@@ -3004,7 +3004,8 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
     func detect(
         workspaceURL: URL,
         sources: [BuildSystemPluginSource],
-        options: [String: [String: ToolingJSONValue]]
+        options: [String: [String: ToolingJSONValue]],
+        instanceOptions: [String: [String: [String: ToolingJSONValue]]]
     ) throws -> BuildDetection {
         if let gate = access({ let gate = $0.detectGate; $0.detectGate = nil; return gate }) {
             gate.entered.open()
@@ -3325,6 +3326,7 @@ private final class FakeToolResolver: BuildToolResolving {
 private final class FakeOptionsStore: BuildOptionsStoring {
     var values: [String: [String: ToolingJSONValue]] = [:]
     var emptyValues: [String: [String: Set<String>]] = [:]
+    var instanceValues: [String: [String: [String: ToolingJSONValue]]] = [:]
 
     func options(workspaceURL: URL, buildSystemID: String) -> [String: ToolingJSONValue] {
         values[buildSystemID] ?? [:]
@@ -3336,6 +3338,14 @@ private final class FakeOptionsStore: BuildOptionsStoring {
 
     func emptyMultiSelectOptions(workspaceURL: URL, buildSystemID: String) -> [String: Set<String>] {
         emptyValues[buildSystemID] ?? [:]
+    }
+
+    func instanceOptions(workspaceURL: URL, buildSystemID: String) -> [String: [String: ToolingJSONValue]] {
+        instanceValues[buildSystemID] ?? [:]
+    }
+
+    func setInstanceOptions(_ options: [String: [String: ToolingJSONValue]], workspaceURL: URL, buildSystemID: String) {
+        instanceValues[buildSystemID] = options.isEmpty ? nil : options
     }
 
     func setEmptyMultiSelectOptions(_ options: [String: Set<String>], workspaceURL: URL, buildSystemID: String) {

@@ -12,6 +12,96 @@ import Testing
 @MainActor
 struct PluginBuildOptionPersistenceTests {
     @Test
+    func scopeUpgradeMigratesSharedValuesAndEmptyMarkersOnlyAfterReadback() async throws {
+        let workspace = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-build-scope-migration-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: workspace) }
+        let source = try Self.source(workspace: workspace, instanceScoped: true)
+        let backing = OptionPreferenceStore()
+        let store = MacBuildOptionsStore(store: backing)
+        let previous: [String: ToolingJSONValue] = ["features": .array([.string("cli"), .string("gui")]), "settingsFile": .string("/fixture/shared.xml"), "offline": .bool(true)]
+        store.setOptions(previous, workspaceURL: workspace, buildSystemID: "cargo")
+        store.setEmptyMultiSelectOptions(["a": ["features"], "temporarily-absent": ["features"]], workspaceURL: workspace, buildSystemID: "cargo")
+        store.setInstanceOptions(["b": ["settingsFile": .string("/fixture/explicit b.xml")]], workspaceURL: workspace, buildSystemID: "cargo")
+        backing.refuseInstanceWrites = true
+        let service = Self.service(source: source, workspace: workspace, store: store, runner: OptionCommandRecorder())
+        defer { service.stop() }
+        service.reset(workspaceURL: workspace)
+        do {
+            _ = try await service.prepareLanguageImport(workspaceURL: workspace)
+            Issue.record("A failed migration must block publishing an unrelated default configuration")
+        } catch {
+            #expect(!service.issues.isEmpty)
+        }
+        #expect(service.entries.isEmpty)
+        #expect(store.options(workspaceURL: workspace, buildSystemID: "cargo") == previous)
+        #expect(store.emptyMultiSelectOptions(workspaceURL: workspace, buildSystemID: "cargo") == ["a": ["features"], "temporarily-absent": ["features"]])
+        backing.refuseInstanceWrites = false
+        let imported = try await Self.refreshed(service) { service.detect() }
+        #expect(imported.mavenContext?.profiles == [])
+        #expect(imported.mavenContext?.settingsPath == "/fixture/shared.xml")
+        #expect(store.options(workspaceURL: workspace, buildSystemID: "cargo") == ["offline": .bool(true)])
+        #expect(store.emptyMultiSelectOptions(workspaceURL: workspace, buildSystemID: "cargo").isEmpty)
+        #expect(store.instanceOptions(workspaceURL: workspace, buildSystemID: "cargo")["a"]?["features"] == .array([]))
+        #expect(store.instanceOptions(workspaceURL: workspace, buildSystemID: "cargo")["temporarily-absent"]?["features"] == .array([]))
+        #expect(store.instanceOptions(workspaceURL: workspace, buildSystemID: "cargo")["b"]?["features"] == .array([.string("gui")]))
+        #expect(store.instanceOptions(workspaceURL: workspace, buildSystemID: "cargo")["b"]?["settingsFile"] == .string("/fixture/explicit b.xml"))
+        _ = try await Self.refreshed(service) { service.detect() }
+        #expect(store.instanceOptions(workspaceURL: workspace, buildSystemID: "cargo")["a"]?["features"] == .array([]))
+    }
+
+    @Test
+    func independentInstanceOptionsSurviveSiblingEditsResetAndReopening() async throws {
+        let workspace = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-instance-build-options-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: workspace) }
+        let source = try Self.source(workspace: workspace, instanceScoped: true)
+        let backing = OptionPreferenceStore()
+        let store = MacBuildOptionsStore(store: backing)
+        store.setInstanceOptions([
+            "a": ["features": .array([]), "settingsFile": .string("/fixture/a settings.xml"), "release": .bool(false), "label": .string("")],
+            "b": ["features": .array([.string("gui")]), "settingsFile": .string("/fixture/b.xml"), "cacheDirectory": .string("/fixture/cache b")]
+        ], workspaceURL: workspace, buildSystemID: "cargo")
+        let runner = OptionCommandRecorder()
+        let service = Self.service(source: source, workspace: workspace, store: store, runner: runner)
+        defer { service.stop() }
+        let imported = try await Self.refreshed(service) { service.reset(workspaceURL: workspace) }
+        #expect(imported.mavenContext?.profiles == [])
+        #expect(imported.mavenContext?.settingsPath == "/fixture/a settings.xml")
+        #expect(service.entry("cargo:a")?.options.first { $0.id == "features" }?.scope == .instance)
+        #expect(try await Self.run("cargo:a", service: service, runner: runner) == ["build", "--message-format=short", "--config", "/fixture/a settings.xml"])
+        #expect(try await Self.run("cargo:b", service: service, runner: runner) == ["build", "--message-format=short", "--features", "gui", "--config", "/fixture/b.xml", "--cache", "/fixture/cache b"])
+        let originalA = store.instanceOptions(workspaceURL: workspace, buildSystemID: "cargo")["a"]
+        _ = try await Self.refreshed(service) {
+            service.setInstanceOption("cargo:b", optionID: "features", value: .array([]))
+            service.setInstanceOption("cargo:b", optionID: "settingsFile", value: .string("/fixture/changed b.xml"))
+        }
+        #expect(store.instanceOptions(workspaceURL: workspace, buildSystemID: "cargo")["a"] == originalA)
+        #expect(store.emptyMultiSelectOptions(workspaceURL: workspace, buildSystemID: "cargo").isEmpty)
+        #expect(store.options(workspaceURL: workspace, buildSystemID: "cargo").isEmpty)
+        #expect(throws: (any Error).self) { try service.configureOption("cargo:a", optionID: "release", value: .string("bad")) }
+        service.stop()
+
+        let reopenedStore = MacBuildOptionsStore(store: backing)
+        let reopened = Self.service(source: source, workspace: workspace, store: reopenedStore, runner: runner)
+        defer { reopened.stop() }
+        _ = try await Self.refreshed(reopened) { reopened.reset(workspaceURL: workspace) }
+        #expect(reopened.entry("cargo:a")?.options.first { $0.id == "features" }?.value == .array([]))
+        #expect(reopened.entry("cargo:a")?.options.first { $0.id == "label" }?.source == "user")
+        #expect(reopened.entry("cargo:a")?.options.first { $0.id == "release" }?.source == "user")
+        #expect(reopened.entry("cargo:b")?.options.first { $0.id == "features" }?.value == .array([]))
+        _ = try await Self.refreshed(reopened) {
+            reopened.setInstanceOption("cargo:a", optionID: "features", value: nil)
+            reopened.setOption("cargo:a", optionID: "settingsFile", value: nil)
+            reopened.setOption("cargo:a", optionID: "offline", value: .bool(true))
+        }
+        #expect(reopened.entry("cargo:a")?.options.first { $0.id == "features" }?.value == .array([.string("base")]))
+        #expect(reopened.entry("cargo:b")?.options.first { $0.id == "features" }?.value == .array([]))
+        #expect(reopenedStore.instanceOptions(workspaceURL: workspace, buildSystemID: "cargo")["b"]?["settingsFile"] == .string("/fixture/changed b.xml"))
+        #expect(reopened.entries.allSatisfy { $0.options.first { $0.id == "offline" }?.value == .bool(true) })
+        #expect(reopenedStore.instanceOptions(workspaceURL: workspace.appendingPathComponent("other"), buildSystemID: "cargo").isEmpty)
+        #expect(reopenedStore.instanceOptions(workspaceURL: workspace, buildSystemID: "other").isEmpty)
+    }
+
+    @Test
     func checkedOptionEditsRejectInvalidValuesAndReadBackTheInstanceWithoutChangingSiblings() async throws {
         let workspace = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-checked-build-options-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: workspace) }
@@ -163,14 +253,14 @@ struct PluginBuildOptionPersistenceTests {
         )
     }
 
-    private static func source(workspace: URL) throws -> BuildSystemPluginSource {
+    private static func source(workspace: URL, instanceScoped: Bool = false) throws -> BuildSystemPluginSource {
         for (root, feature) in [("a", "cli"), ("b", "gui")] {
             let directory = workspace.appendingPathComponent(root)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             try Data("[package]\nname = \"\(root)\"\nversion = \"0.1.0\"\n[features]\n\(feature) = []\n".utf8)
                 .write(to: directory.appendingPathComponent("Cargo.toml"))
         }
-        let fixture = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-static-file.plugin.json")
+        let fixture = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/contracts/plugins/v1/fixtures/\(instanceScoped ? "build-instance-options" : "build-static-file").plugin.json")
         var manifest = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: fixture)) as? [String: Any])
         var systems = try #require(manifest["buildSystems"] as? [[String: Any]])
         var options = try #require(systems[0]["options"] as? [[String: Any]])
@@ -180,6 +270,9 @@ struct PluginBuildOptionPersistenceTests {
         options[index]["allowCustom"] = false
         systems[0]["options"] = options
         systems[0]["languageImport"] = ["kind": "maven", "options": ["profiles": "features"]]
+        if instanceScoped {
+            systems[0]["languageImport"] = ["kind": "maven", "options": ["profiles": "features", "settingsFile": "settingsFile"]]
+        }
         manifest["buildSystems"] = systems
         let descriptor = try DeclarativePluginTestSupport.operations.validate(manifest: JSONSerialization.data(withJSONObject: manifest))
         return BuildSystemPluginSource(
@@ -191,11 +284,15 @@ struct PluginBuildOptionPersistenceTests {
 
 private final class OptionPreferenceStore: KeyValueStore {
     private var values: [String: Any] = [:]
+    var refuseInstanceWrites = false
     func data(forKey key: String) -> Data? { values[key] as? Data }
     func object(forKey key: String) -> Any? { values[key] }
     func string(forKey key: String) -> String? { values[key] as? String }
     func stringArray(forKey key: String) -> [String]? { values[key] as? [String] }
-    func set(_ value: Any?, forKey key: String) { values[key] = value }
+    func set(_ value: Any?, forKey key: String) {
+        guard !refuseInstanceWrites || !key.hasSuffix(".Instances") else { return }
+        values[key] = value
+    }
 }
 
 private actor OptionCommandRecorder: BuildCommandRunning {

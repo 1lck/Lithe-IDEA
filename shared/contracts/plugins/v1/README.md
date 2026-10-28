@@ -405,7 +405,7 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 | `executionProviders` | `executionProviders[]` | `1` |
 | `settings` | `settings[]` and `settingActions[]` | `1`, `2` (adds [placement, scope, effect, page buttons](#settings-v2-placement-scope-effect-and-page-buttons)) |
 | `ui` | `ui` | `1`, `2` (adds [web content](#web-content-ui-2)) |
-| `buildSystems` | Declarative build detection, models, and command plans | `1` |
+| `buildSystems` | Declarative build detection, models, and command plans; v2 executable setting adapter; v3 instance-scoped options | `1`, `2`, `3` |
 | `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers; v2 tasks, v3 tests, v4 run, v5 native debug preparation, v6 read-only model inputs, v7 native configuration | `1`, `2`, `3`, `4`, `5`, `6`, `7` |
 | `buildModelInputs` | Optional public model sharing between enabled workspace plugins | `1` |
 | `vcsProviders` | `vcsProviders[]` | `1` |
@@ -456,7 +456,7 @@ in `plugins.declarative.validate`, `plugins.marketplace.validateIndex`, and
 - `hostCapabilities` has no effect on levels 1 and 2.
 
 The macOS host sends its capability table with validation, marketplace filtering
-and install review. It advertises `buildSystems: [1, 2]` and
+and install review. It advertises `buildSystems: [1, 2, 3]` and
 `buildProviders: [1, 2, 3, 4, 5, 6, 7]`; native Provider models, dependencies, tasks, tests and launch preparation
 share workspace-owned sessions. Backend and VCS support use their own entries
 in the same table. Core validates supported versions without a host table,
@@ -783,6 +783,20 @@ declaration are relative, use `/`, and stay inside their base directory
 | `sync` | Files whose change makes the model stale, relative to the root and to each project. |
 | `layout` | `excluded` directories relative to each project, added to every project as `excluded` content roots. |
 | `languageImport` | The project import Lithe's Java language server performs for this build system: `kind` `maven` or `gradle`, and `options` mapping its settings to the plugin's own option IDs. `maven` has `profiles` (`multiSelect`), `settingsFile` (`file`) and `localRepository` (`directory`); `gradle` has `offline` (`boolean`) and `gradleUserHome` (`directory`). `build.languageImport` turns the user's values into the `mavenContext` or `javaGradle` input of `lsp.startServer`; settings without an option keep the language server's defaults. |
+
+With `requires.buildSystems: 3`, an option may declare `scope: "instance"`.
+Omitted scope (or `"workspace"`) keeps workspace/build-system storage. Instance
+values are independently persisted by normalized detected root: changing or
+resetting `a` cannot change `b`, even when both accept the same choices. Explicit
+`false`, `""`, and `[]` remain stored user values. The host merges only the
+matching scope before detection, static run generation, model/dependency/task
+requests, synchronization fingerprints, and language import. Instance data cannot
+override workspace options, and workspace values cannot silently override an
+instance option. When an existing option moves to instance scope, macOS copies its shared value
+to each detected or previously stored root, preserving explicit instance values
+and empty markers. It removes the shared representation only after readback, then
+redetects static models. Failure retains the source and blocks publishing defaults
+until retry; scope is not a fallback chain. See `fixtures/build-instance-options.plugin.json`.
 
 ### Presentation
 

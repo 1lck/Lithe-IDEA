@@ -474,6 +474,7 @@
 "Build files changed." = "Build files changed.";
 "Build files changed. Reload the model to pick up the changes." = "Build files changed. Reload the model to pick up the changes.";
 "Build launch did not start" = "Build launch did not start";
+"Build option migration could not be verified. The previous configuration has been retained. Reload the build instance to retry." = "Build option migration could not be verified. The previous configuration has been retained. Reload the build instance to retry.";
 "Build output" = "Build output";
 "Build plugins are unavailable" = "Build plugins are unavailable";
 "Build provider" = "Build provider";
@@ -4925,6 +4926,7 @@
 "native.buildFilesChanged.variant2" = "Build files changed.";
 "native.buildFilesChangedReloadTheModelToPickUpTheChanges" = "Build files changed. Reload the model to pick up the changes.";
 "native.buildOptionInvalid" = "The build option value is invalid. Inspect its current kind and choices.";
+"native.buildOptionMigrationCouldNotBeVerified" = "Build option migration could not be verified. The previous configuration has been retained. Reload the build instance to retry.";
 "native.buildOptionReadBackFailed" = "The saved build option could not be verified. Reload before editing again.";
 "native.buildOptionUnavailable" = "The build option is no longer available. Reload the build instance.";
 "native.buildOutput" = "Build Output";

@@ -1243,6 +1243,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 let id: String
                 let presentation: String?
                 let icon: PluginUIIcon?
+                let scope: DeclarativeBuildSystem.OptionScope?
             }
             struct ProviderRun: Decodable {
                 struct Debug: Decodable { let adapter: String }
@@ -1304,7 +1305,8 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                         .init(
                             id: $0.id,
                             presentation: $0.presentation.flatMap(DeclarativeBuildSystem.OptionPresentation.init),
-                            icon: $0.icon
+                            icon: $0.icon,
+                            scope: $0.scope ?? .workspace
                         )
                     },
                     tasks: tasks.map {

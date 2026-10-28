@@ -11,14 +11,16 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
     func detect(
         workspaceURL: URL,
         sources: [BuildSystemPluginSource],
-        options: [String: [String: ToolingJSONValue]]
+        options: [String: [String: ToolingJSONValue]],
+        instanceOptions: [String: [String: [String: ToolingJSONValue]]] = [:]
     ) throws -> BuildDetection {
         let outcome: Outcome<DetectionResult> = try execute(
             "build.detect",
             payload: DetectPayload(
                 workspaceRoot: workspaceURL.path,
                 plugins: try sources.map { DetectPayload.Plugin(manifest: try Self.json($0.manifest)) },
-                options: options
+                options: options,
+                instanceOptions: instanceOptions
             )
         )
         return outcome.value.detection
@@ -388,6 +390,7 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         let workspaceRoot: String
         let plugins: [Plugin]
         let options: [String: [String: ToolingJSONValue]]
+        let instanceOptions: [String: [String: [String: ToolingJSONValue]]]
     }
 
     private struct BuildPayload<Request: Encodable>: Encodable {

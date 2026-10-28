@@ -40,6 +40,7 @@ const BUILD_PLANS: &str = contract_file!("fixtures/build-plans.json");
 fn fixture(name: &str) -> Value {
     let source = match name {
         "build-static-file.plugin.json" => CARGO_FIXTURE,
+        "build-instance-options.plugin.json" => contract_file!("fixtures/build-instance-options.plugin.json"),
         "build-command-stdout.plugin.json" => GO_FIXTURE,
         "build-command-output-file.plugin.json" => GRADLE_FIXTURE,
         "build-host-integration.plugin.json" => MAVEN_FIXTURE,
@@ -211,6 +212,48 @@ fn instance_ids(detection: &Value) -> Vec<String> {
         .iter()
         .map(|instance| instance["id"].as_str().unwrap().to_string())
         .collect()
+}
+
+#[test]
+fn instance_option_scope_requires_a_capable_host_and_valid_declaration() {
+    let mut manifest = fixture("build-instance-options.plugin.json");
+    let rejected = validate_command(json!({"manifest": manifest, "hostCapabilities": {"buildSystems": [1, 2]}})).unwrap();
+    assert_eq!(rejected["status"], "rejected", "{rejected}");
+    manifest["requires"]["buildSystems"] = json!(2);
+    let rejected = validate_command(json!({"manifest": manifest})).unwrap();
+    assert_eq!(rejected["status"], "rejected", "{rejected}");
+    manifest["requires"]["buildSystems"] = json!(3);
+    manifest["buildSystems"][0]["options"][0]["scope"] = json!("project");
+    let rejected = validate_command(json!({"manifest": manifest})).unwrap();
+    assert_eq!(rejected["status"], "rejected", "{rejected}");
+}
+
+#[test]
+fn instance_options_drive_static_run_entries_without_crossing_roots_or_scopes() {
+    let workspace = TemporaryWorkspace::new("build-instance-options");
+    for root in ["a", "b"] {
+        workspace.write(&format!("{root}/Cargo.toml"), &format!("[package]\nname = \"{root}\"\nversion = \"1.0.0\"\n[features]\ncli = []\ngui = []\n"))
+            .write(&format!("{root}/src/main.rs"), "fn main() {}\n");
+    }
+    let manifest = fixture("build-instance-options.plugin.json");
+    let result = build_detect_command(json!({
+        "workspaceRoot": workspace.root(), "plugins": [{"manifest":manifest}],
+        "options":{"cargo":{"offline":true,"features":["gui"],"settingsFile":"/fixture/shared.xml"}},
+        "instanceOptions":{"cargo":{
+            "a":{"features":[],"settingsFile":"/fixture/a settings.xml","offline":false,"release":true},
+            "b":{"features":["gui"],"settingsFile":"/fixture/b.xml"},
+            "../a":{"features":["cli"]}
+        }}
+    })).unwrap();
+    assert_eq!(result["status"], "ok", "{result}");
+    let detection = &result["detection"];
+    let a = instance(detection, "cargo:a");
+    let b = instance(detection, "cargo:b");
+    assert_ne!(a["optionFingerprint"], b["optionFingerprint"]);
+    assert_eq!(a["model"]["run"][0]["args"], json!(["run", "--bin", "a", "--release", "--offline", "--config", "/fixture/a settings.xml"]));
+    assert_eq!(b["model"]["run"][0]["args"], json!(["run", "--bin", "b", "--features", "gui", "--offline", "--config", "/fixture/b.xml"]));
+    let options = call("resolveOptions", manifest, "cargo", json!({"options":{"features":[]}}));
+    assert_eq!(options["options"]["options"][0]["scope"], "instance");
 }
 
 /// The Cargo plugin reproduces the built-in Cargo detector's run entries
