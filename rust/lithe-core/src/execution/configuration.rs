@@ -1444,8 +1444,15 @@ fn update_toolchain_document(
 ) -> Result<Value, CoreError> {
     let mut document = local_layer_document(root, local_document)?;
     validate_version_value(&document)?;
-    let overrides = toolchain.path_overrides.map(|value| json!(value))
-        .or_else(|| document.get("toolchain").and_then(|value| value.get("pathOverrides")).cloned());
+    let overrides = toolchain
+        .path_overrides
+        .map(|value| json!(value))
+        .or_else(|| {
+            document
+                .get("toolchain")
+                .and_then(|value| value.get("pathOverrides"))
+                .cloned()
+        });
     document["toolchain"] = json!({
         "java": { "homePath": toolchain.java_home_path },
         "maven": {
@@ -2560,22 +2567,37 @@ fn validate_version_value(document: &Value) -> Result<(), CoreError> {
 }
 
 fn validate_toolchain_path_overrides(document: &Value) -> Result<(), CoreError> {
-    let Some(value) = document.get("toolchain").and_then(|value| value.get("pathOverrides")) else {
+    let Some(value) = document
+        .get("toolchain")
+        .and_then(|value| value.get("pathOverrides"))
+    else {
         return Ok(());
     };
-    let invalid = || CoreError::new(ErrorCode::InvalidRequest, "Subproject toolchain paths must use bounded workspace-relative roots and valid tool paths");
+    let invalid = || {
+        CoreError::new(ErrorCode::InvalidRequest, "Subproject toolchain paths must use bounded workspace-relative roots and valid tool paths")
+    };
     let overrides = value.as_object().ok_or_else(invalid)?;
     if overrides.len() > 256 {
         return Err(invalid());
     }
     for (path, value) in overrides {
-        if path.is_empty() || path.len() > 1024 || path.contains(['\\', ':'])
+        if path.is_empty()
+            || path.len() > 1024
+            || path.contains(['\\', ':'])
             || path.chars().any(char::is_control)
-            || path.split('/').any(|part| part.is_empty() || matches!(part, "." | "..")) {
+            || path
+                .split('/')
+                .any(|part| part.is_empty() || matches!(part, "." | ".."))
+        {
             return Err(invalid());
         }
-        let paths: PathToolchainOverride = serde_json::from_value(value.clone()).map_err(|_| invalid())?;
-        for value in [&paths.java_home_path, &paths.maven_executable_path, &paths.maven_java_home_path] {
+        let paths: PathToolchainOverride =
+            serde_json::from_value(value.clone()).map_err(|_| invalid())?;
+        for value in [
+            &paths.java_home_path,
+            &paths.maven_executable_path,
+            &paths.maven_java_home_path,
+        ] {
             if value.len() > 4096 || value.trim() != value || value.chars().any(char::is_control) {
                 return Err(invalid());
             }

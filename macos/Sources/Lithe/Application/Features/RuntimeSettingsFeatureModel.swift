@@ -58,12 +58,6 @@ final class RuntimeSettingsFeatureModel: ObservableObject {
     func refreshAvailableRuntimes() async { await service.refreshAvailableRuntimes() }
     func ensureRuntimesDiscovered() async { await service.ensureRuntimesDiscovered() }
     func activeJavaRuntime() -> JavaRuntimeCandidate? { service.activeJavaRuntime() }
-    func activeMavenRuntime(for project: MavenProject) -> MavenRuntimeCandidate? {
-        service.activeMavenRuntime(for: project)
-    }
-    func mavenExecutable(for project: MavenProject) -> URL? {
-        service.mavenExecutable(for: project)
-    }
     func executableCandidates(_ command: String) -> [RuntimeToolCandidate] {
         service.executableCandidates(command)
     }
@@ -103,7 +97,8 @@ final class RuntimeSettingsFeatureModel: ObservableObject {
         workspaceName: String,
         workspaceURL: URL?,
         files: [URL],
-        mavenProject: MavenProject?,
+        buildSources: [ProjectRuntimeInventory.BuildSource] = [],
+        languageSupports: [LanguageSupportDeclaration] = [],
         mavenSettingsPath: String?,
         mavenLocalRepositoryPath: String?
     ) {
@@ -117,7 +112,8 @@ final class RuntimeSettingsFeatureModel: ObservableObject {
             workspaceName: workspaceName,
             workspaceURL: workspaceURL,
             files: files,
-            mavenProject: mavenProject
+            buildSources: buildSources,
+            languageSupports: languageSupports
         )
         settings = service.settings
         // Maven's legacy override owner is still separate during stage D.

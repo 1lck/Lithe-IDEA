@@ -1566,7 +1566,10 @@ impl BuildSystemDeclaration {
                 // (the JDK chosen for the project, for example); a plugin
                 // must not route around that choice.
                 let toolchain = runtime.executables.len() == 1
-                    && matches!(runtime.executables[0].source, ExecutableSource::Toolchain { .. })
+                    && matches!(
+                        runtime.executables[0].source,
+                        ExecutableSource::Toolchain { .. }
+                    )
                     && context.executable_resolution_version >= 2;
                 if (!runtime.executables.is_empty() && !toolchain) || runtime.version.is_some() {
                     return Err(invalid(
@@ -1578,8 +1581,12 @@ impl BuildSystemDeclaration {
                     ));
                 }
                 if toolchain {
-                    check_candidate(&mut runtime.executables[0], &format!("{field}.executables[0]"),
-                        &invocation.environment_inputs, &BTreeSet::new())?;
+                    check_candidate(
+                        &mut runtime.executables[0],
+                        &format!("{field}.executables[0]"),
+                        &invocation.environment_inputs,
+                        &BTreeSet::new(),
+                    )?;
                 }
                 continue;
             }
@@ -1643,8 +1650,12 @@ impl BuildSystemDeclaration {
             crate::plugins::executables::ordered_indices(list, &location)?;
             for candidate in list {
                 if matches!(candidate.source, ExecutableSource::Toolchain { .. })
-                    && context.executable_resolution_version < 2 {
-                    return Err(invalid(&location, "Toolchain candidates require executableResolution 2."));
+                    && context.executable_resolution_version < 2
+                {
+                    return Err(invalid(
+                        &location,
+                        "Toolchain candidates require executableResolution 2.",
+                    ));
                 }
                 if let ExecutableSource::Setting { setting_id } = &candidate.source {
                     if !context.declared_settings.is_executable(setting_id) {
@@ -2265,7 +2276,10 @@ fn check_candidate(
         }
         ExecutableSource::Toolchain { toolchain_id } => {
             if !is_entry_identifier(toolchain_id) {
-                return Err(invalid(format!("{field}.toolchainID"), "Invalid toolchain ID."));
+                return Err(invalid(
+                    format!("{field}.toolchainID"),
+                    "Invalid toolchain ID.",
+                ));
             }
         }
         ExecutableSource::Runtime { runtime, .. } => {

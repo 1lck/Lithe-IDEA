@@ -40,7 +40,9 @@ const BUILD_PLANS: &str = contract_file!("fixtures/build-plans.json");
 fn fixture(name: &str) -> Value {
     let source = match name {
         "build-static-file.plugin.json" => CARGO_FIXTURE,
-        "build-instance-options.plugin.json" => contract_file!("fixtures/build-instance-options.plugin.json"),
+        "build-instance-options.plugin.json" => {
+            contract_file!("fixtures/build-instance-options.plugin.json")
+        }
         "build-toolchains.plugin.json" => contract_file!("fixtures/build-toolchains.plugin.json"),
         "build-command-stdout.plugin.json" => GO_FIXTURE,
         "build-command-output-file.plugin.json" => GRADLE_FIXTURE,
@@ -218,7 +220,10 @@ fn instance_ids(detection: &Value) -> Vec<String> {
 #[test]
 fn instance_option_scope_requires_a_capable_host_and_valid_declaration() {
     let mut manifest = fixture("build-instance-options.plugin.json");
-    let rejected = validate_command(json!({"manifest": manifest, "hostCapabilities": {"buildSystems": [1, 2]}})).unwrap();
+    let rejected = validate_command(
+        json!({"manifest": manifest, "hostCapabilities": {"buildSystems": [1, 2]}}),
+    )
+    .unwrap();
     assert_eq!(rejected["status"], "rejected", "{rejected}");
     manifest["requires"]["buildSystems"] = json!(2);
     let rejected = validate_command(json!({"manifest": manifest})).unwrap();
@@ -232,15 +237,30 @@ fn instance_option_scope_requires_a_capable_host_and_valid_declaration() {
 #[test]
 fn canonical_toolchain_candidates_keep_instance_identity_and_require_version_two() {
     let mut manifest = fixture("build-toolchains.plugin.json");
-    let plan = call("invocationPlan", manifest.clone(), "cargo", json!({"root":"services/a","platform":"windows"}));
-    assert_eq!(plan["invocation"]["executables"], json!([{"kind":"toolchain","toolchainID":"project-maven","root":"services/a"}]));
-    assert_eq!(plan["invocation"]["runtimeDependencies"][0]["executables"], json!([{"kind":"toolchain","toolchainID":"project-maven-jdk","root":"services/a"}]));
-    assert_eq!(plan["invocation"]["runtimeDependencies"][0]["version"]["arguments"], json!(["-version"]));
+    let plan = call(
+        "invocationPlan",
+        manifest.clone(),
+        "cargo",
+        json!({"root":"services/a","platform":"windows"}),
+    );
+    assert_eq!(
+        plan["invocation"]["executables"],
+        json!([{"kind":"toolchain","toolchainID":"project-maven","root":"services/a"}])
+    );
+    assert_eq!(
+        plan["invocation"]["runtimeDependencies"][0]["executables"],
+        json!([{"kind":"toolchain","toolchainID":"project-maven-jdk","root":"services/a"}])
+    );
+    assert_eq!(
+        plan["invocation"]["runtimeDependencies"][0]["version"]["arguments"],
+        json!(["-version"])
+    );
     manifest["requires"]["executableResolution"] = json!(1);
     let rejected = validate_command(json!({"manifest":manifest})).unwrap();
     assert_eq!(rejected["status"], "rejected", "{rejected}");
     manifest["requires"]["executableResolution"] = json!(2);
-    manifest["buildSystems"][0]["invocation"]["runtimeDependencies"][0]["executables"][0]["toolchainID"] = json!("../invalid");
+    manifest["buildSystems"][0]["invocation"]["runtimeDependencies"][0]["executables"][0]
+        ["toolchainID"] = json!("../invalid");
     let rejected = validate_command(json!({"manifest":manifest})).unwrap();
     assert_eq!(rejected["status"], "rejected", "{rejected}");
 }
@@ -251,7 +271,10 @@ fn resolved_tool_environment_reaches_providers_with_option_precedence_and_bounde
     manifest["buildSystems"][0]["options"] = json!([{"id":"mode","displayName":"Mode","kind":"boolean","environment":{"JAVA_HOME":"/fixture/option-jdk"}}]);
     let request = json!({"root":".","options":{"mode":true},"tool":{"executable":"/fixture/mvn", "environment":{"JAVA_HOME":"/fixture/selected-jdk","PATH":"/fixture/bin"}}});
     let plan = call("modelPlan", manifest.clone(), "gradle", request.clone());
-    assert_eq!(plan["plan"]["provider"]["params"]["environment"], json!({"JAVA_HOME":"/fixture/option-jdk","PATH":"/fixture/bin"}));
+    assert_eq!(
+        plan["plan"]["provider"]["params"]["environment"],
+        json!({"JAVA_HOME":"/fixture/option-jdk","PATH":"/fixture/bin"})
+    );
     for (key, value) in [("invalid-name", "value"), ("PATH", "bad\0path")] {
         let mut request = request.clone();
         request["tool"]["environment"] = json!({key:value});
@@ -283,11 +306,51 @@ fn instance_options_drive_static_run_entries_without_crossing_roots_or_scopes() 
     let a = instance(detection, "cargo:a");
     let b = instance(detection, "cargo:b");
     assert_ne!(a["optionFingerprint"], b["optionFingerprint"]);
-    assert_eq!(a["model"]["run"][0]["args"], json!(["run", "--bin", "a", "--release", "--offline", "--config", "/fixture/a settings.xml"]));
-    assert_eq!(b["model"]["run"][0]["args"], json!(["run", "--bin", "b", "--features", "gui", "--offline", "--config", "/fixture/b.xml"]));
+    assert_eq!(
+        a["model"]["run"][0]["args"],
+        json!([
+            "run",
+            "--bin",
+            "a",
+            "--release",
+            "--offline",
+            "--config",
+            "/fixture/a settings.xml"
+        ])
+    );
+    assert_eq!(
+        b["model"]["run"][0]["args"],
+        json!([
+            "run",
+            "--bin",
+            "b",
+            "--features",
+            "gui",
+            "--offline",
+            "--config",
+            "/fixture/b.xml"
+        ])
+    );
     let c = instance(detection, "cargo:c");
-    assert_eq!(c["model"]["run"][0]["args"], json!(["run", "--bin", "c", "--features", "cli", "--offline", "--config", "/fixture/team.xml"]));
-    let options = call("resolveOptions", manifest, "cargo", json!({"options":{"features":[]}}));
+    assert_eq!(
+        c["model"]["run"][0]["args"],
+        json!([
+            "run",
+            "--bin",
+            "c",
+            "--features",
+            "cli",
+            "--offline",
+            "--config",
+            "/fixture/team.xml"
+        ])
+    );
+    let options = call(
+        "resolveOptions",
+        manifest,
+        "cargo",
+        json!({"options":{"features":[]}}),
+    );
     assert_eq!(options["options"]["options"][0]["scope"], "instance");
 }
 

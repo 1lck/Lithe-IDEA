@@ -921,7 +921,7 @@ same invocation resolver; explicit invalid tool/runtime selection is a failure,
 never permission for independent discovery. It must reject stale project facts
 rather than guess a target.
 
-The host offers `litheBuild.versions: [6, 5, 4, 3, 2, 1]`. Version 2 adds task execution
+The host offers `litheBuild.versions: [7, 6, 5, 4, 3, 2, 1]`. Version 2 adds task execution
 and its progress notification to the two version 1 methods. A process that
 chooses version 1 cannot receive execution; unsupported negotiation fails
 explicitly. A plugin that needs this behavior declares capability version 2
@@ -1323,7 +1323,7 @@ The manifest only says how to start the provider and which sources use it.
 Everything else is negotiated in the LSP `initialize` exchange, so a provider
 can add optional data within a negotiated protocol version:
 
-- The host sends `capabilities.experimental.litheBuild: { "versions": [6, 5, 4, 3, 2, 1] }`,
+- The host sends `capabilities.experimental.litheBuild: { "versions": [7, 6, 5, 4, 3, 2, 1] }`,
   the build-provider protocol versions it speaks. Version 1 is the two
   requests above with the params and result formats of this section;
   version 2 adds typed task execution; version 3 adds typed test execution

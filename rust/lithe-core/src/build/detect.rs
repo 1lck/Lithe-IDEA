@@ -193,14 +193,22 @@ pub(crate) fn detect(request: DetectRequest) -> Validation<Value> {
         let stored = request.options.get(&owner.declaration.id).unwrap_or(&empty);
         for (root, markers) in roots(owner.declaration, &directories) {
             if seen.insert((owner.declaration.id.clone(), root.clone())) {
-                let local = request.instance_options.get(&owner.declaration.id)
+                let local = request
+                    .instance_options
+                    .get(&owner.declaration.id)
                     .and_then(|roots| roots.get(&root));
                 let mut values = BTreeMap::new();
                 for option in &owner.declaration.options {
                     let value = match option.scope {
                         OptionScope::Workspace => stored.get(&option.id),
-                        OptionScope::Instance => local.and_then(|values| values.get(&option.id))
-                            .or_else(|| request.instance_defaults.get(&owner.declaration.id).and_then(|values| values.get(&option.id))),
+                        OptionScope::Instance => {
+                            local.and_then(|values| values.get(&option.id)).or_else(|| {
+                                request
+                                    .instance_defaults
+                                    .get(&owner.declaration.id)
+                                    .and_then(|values| values.get(&option.id))
+                            })
+                        }
                     };
                     if let Some(value) = value {
                         values.insert(option.id.clone(), value.clone());

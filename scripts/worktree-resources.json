@@ -418,10 +418,11 @@
       "locations": [
         ".lithe/build/options.json",
         "<platform-preferences>/BuildSystems.Options.<build-system-id>.<workspace-digest>",
-        "<platform-preferences>/BuildSystems.Options.<build-system-id>.<workspace-digest>.Instances"
+        "<platform-preferences>/BuildSystems.Options.<build-system-id>.<workspace-digest>.Instances",
+        "<platform-preferences>/BuildSystems.Migrations.Maven.<workspace-digest>"
       ],
-      "identity": "User-authored team Build preferences and machine-local differences scoped to one workspace; no build, platform, architecture or toolchain artifact identity stamp.",
-      "reason": "Team values are ordinary workspace-owned source; local differences belong only to the platform preference store. Neither is a download, generated build input or portable cache. Passive reads never create or rewrite the file; an explicit edit or guarded activation migration preserves unrelated systems and checks exact source bytes. No copy, hardlink or symlink reuse stage is permitted. App/plugin resources and signing/Sparkle baselines remain read-only."
+      "identity": "User-authored team Build preferences and machine-local differences scoped to one workspace; no build, platform, architecture or toolchain artifact identity stamp. A bounded cutover receipt records source identities until guarded data migration completes.",
+      "reason": "Team values are ordinary workspace-owned source; local differences belong only to the platform preference store. Neither is a download, generated build input or portable cache. Passive reads never create or rewrite the file; an explicit edit or guarded activation migration preserves unrelated systems and checks exact source bytes. No copy, hardlink or symlink reuse stage is permitted. App/plugin resources and signing/Sparkle baselines remain read-only. Migration receipts are private recovery state, removed after all verified source removals; an external source change after partial publication blocks automatic cleanup. They contain no reusable generated resource and must never leave their owning workspace/profile."
     }
   ]
 }

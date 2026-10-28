@@ -180,9 +180,16 @@ pub(crate) fn provider_hints(request: &OutputPlanRequest) -> Validation<Map<Stri
             ));
         }
         params.insert("tool".to_string(), json!({ "executable": executable }));
-        if tool.environment.len() > 64 || tool.environment.iter().any(|(key, value)|
-            !super::manifest::is_environment_name(key) || value.len() > 32768 || value.contains('\0')) {
-            return Err(invalid_selection("The resolved tool environment is invalid or too large."));
+        if tool.environment.len() > 64
+            || tool.environment.iter().any(|(key, value)| {
+                !super::manifest::is_environment_name(key)
+                    || value.len() > 32768
+                    || value.contains('\0')
+            })
+        {
+            return Err(invalid_selection(
+                "The resolved tool environment is invalid or too large.",
+            ));
         }
         if !tool.environment.is_empty() {
             params.insert("environment".to_string(), json!(tool.environment));
@@ -390,8 +397,16 @@ impl<'a> PlanContext<'a> {
         params.insert("root".to_string(), json!(self.root));
         params.insert("options".to_string(), json!(self.option_values));
         params.insert("optionArguments".to_string(), json!(option_arguments));
-        let mut environment = params.remove("environment").and_then(|value| value.as_object().cloned()).unwrap_or_default();
-        environment.extend(self.contribution.environment.iter().map(|(key,value)| (key.clone(), json!(value))));
+        let mut environment = params
+            .remove("environment")
+            .and_then(|value| value.as_object().cloned())
+            .unwrap_or_default();
+        environment.extend(
+            self.contribution
+                .environment
+                .iter()
+                .map(|(key, value)| (key.clone(), json!(value))),
+        );
         params.insert("environment".to_string(), json!(environment));
         if let Some(inputs) = &self.model_inputs {
             params.insert("modelInputs".into(), inputs.clone());

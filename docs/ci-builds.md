@@ -777,3 +777,8 @@ CI 在 Windows frontend lane 构建并上传独立包，同时运行包、Worker
 资源清单 `build-project-preferences` 与复用脚本直接拒绝它们。只有明确编辑或带原字节
 检查的一次性激活迁移可以写共享文件，普通检测和设置页读取不创建文件；不写 app 或插件
 安装目录，不改变签名与 Sparkle 增量基线。
+
+Maven 配置切换使用本机偏好的 `BuildSystems.Migrations.Maven.<workspace-digest>` 保存待迁移
+源文件的指纹。它只服务当前工作区的一次性恢复：目标全部读回、旧源按原字节移除后清理，
+部分写入后旧源被外部修改则停止自动删除。这个标记不保存原生 settings 文档，不可跨
+worktree 复用；由 `build-project-preferences` 排除项覆盖，不得作为下载缓存增加校验路由。

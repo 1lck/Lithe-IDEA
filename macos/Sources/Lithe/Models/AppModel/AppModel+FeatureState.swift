@@ -388,7 +388,18 @@ extension AppModel {
             workspaceName: projectName,
             workspaceURL: workspaceURL,
             files: projectFiles,
-            mavenProject: mavenFeatureIfActive?.project,
+            buildSources: buildSystemsFeatureIfActive?.entries.map { entry in
+                ProjectRuntimeInventory.BuildSource(id: entry.id, root: entry.instance.root,
+                    displayName: entry.instance.displayName,
+                    usesJava: services.pluginCatalog.languageSupports.values.contains { ownership in
+                        let support = ownership.declaration
+                        return support.id == "java" && support.recognizesProject(
+                            fileNames: entry.instance.markers.map { URL(fileURLWithPath: $0).lastPathComponent })
+                    },
+                    model: entry.modelState == .loaded && !entry.isReloadRequired ? entry.model : nil)
+            } ?? [],
+            languageSupports: services.pluginCatalog.languageSupports.values.map(\.declaration)
+                .filter { !languageToolingFeature.isDisabled($0.id) },
             mavenSettingsPath: mavenFeatureIfActive?.settingsPath,
             mavenLocalRepositoryPath: mavenFeatureIfActive?.localRepositoryPath
         )

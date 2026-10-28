@@ -1,4 +1,5 @@
 import Foundation
+import LitheModuleAPI
 import LitheCoreContracts
 import Testing
 @testable import Lithe
@@ -84,29 +85,52 @@ struct ProjectRuntimeSettingsTests {
     }
 
     @Test
+    func inventoryUsesProviderHierarchyAndDeclarationsInsteadOfGuessingFromFileNames() {
+        let root = URL(fileURLWithPath: "/workspace/fixture")
+        let files = ["engine.marker", "ghost/engine.marker", "pom.xml", "package.json"].map { root.appendingPathComponent($0) }
+        let language = LanguageSupportDeclaration(id: "java", displayName: "Java", projectFileNames: ["engine.marker"])
+        let model = BuildModel(projects: [
+            .init(id: "root", path: ".", name: "Root"),
+            .init(id: "library", path: "active/library", name: "Engine library", parentID: "root"),
+            .init(id: "nested", path: "active/library/nested", name: "Engine child", parentID: "library")
+        ])
+        let sources: [ProjectRuntimeInventory.BuildSource] = [.init(id: "generic:root", root: ".", displayName: "Generic", usesJava: true, model: model)]
+        let rows = ProjectRuntimeInventory.subprojects(workspaceName: "fixture", workspaceURL: root, files: files,
+            buildSources: sources, languageSupports: [language])
+        #expect(rows.map(\.id) == ["project", "path:active/library", "path:active/library/nested"])
+        #expect(rows.last?.parentID == "path:active/library")
+        #expect(rows.last?.title == "Engine child")
+        #expect(rows.allSatisfy { $0.usesJava })
+        #expect(ProjectRuntimeInventory.subprojects(workspaceName: "fixture", workspaceURL: root, files: files,
+            buildSources: [], languageSupports: []).map(\.id) == ["project"])
+        let passive = ProjectRuntimeInventory.subprojects(workspaceName: "fixture", workspaceURL: root, files: files,
+            buildSources: [], languageSupports: [language])
+        #expect(passive.map(\.id) == ["project", "path:ghost"])
+        #expect(passive.last?.kind == .other)
+    }
+
+    @Test
+    func overlappingSourcesShareOneDirectoryAndDoNotExposeOutsideFiles() {
+        let root = URL(fileURLWithPath: "/workspace/fixture")
+        let model = BuildModel(projects: [.init(id: "library", path: "services/library", name: "Library")])
+        let rows = ProjectRuntimeInventory.subprojects(workspaceName: "fixture", workspaceURL: root,
+            files: [URL(fileURLWithPath: "/outside/engine.marker")],
+            buildSources: [
+                .init(id: "first", root: "services/library", displayName: "First", usesJava: false, model: model),
+                .init(id: "second", root: "services/library", displayName: "Second", usesJava: true, model: nil),
+                .init(id: "outside", root: "../outside", displayName: "Outside", usesJava: false, model: nil)
+            ], languageSupports: [.init(id: "java", displayName: "Java", projectFileNames: ["engine.marker"])])
+        #expect(rows.map(\.id) == ["project", "path:services/library"])
+        #expect(rows.last?.usesJava == true)
+    }
+
+    @Test
     func inventoryListsIndependentBackendsAndFrontendRoots() {
         let root = URL(fileURLWithPath: "/workspace/shop", isDirectory: true)
-        let alpha = MavenProject(
-            rootURL: root.appendingPathComponent("services/alpha", isDirectory: true),
-            pomURL: root.appendingPathComponent("services/alpha/pom.xml"),
-            groupID: "shop",
-            artifactID: "alpha",
-            version: "1.0",
-            packaging: "jar",
-            modules: [
-                MavenModule(
-                    relativePath: "api",
-                    url: root.appendingPathComponent("services/alpha/api", isDirectory: true),
-                    groupID: "shop",
-                    artifactID: "alpha-api",
-                    version: "1.0",
-                    packaging: "jar",
-                    modules: []
-                )
-            ],
-            profiles: [],
-            hasWrapper: true
-        )
+        let alpha = BuildModel(projects: [
+            .init(id: "alpha", path: "services/alpha", name: "alpha"),
+            .init(id: "api", path: "services/alpha/api", name: "alpha-api", parentID: "alpha")
+        ])
         let files = [
             root.appendingPathComponent("services/alpha/pom.xml"),
             root.appendingPathComponent("services/alpha/api/pom.xml"),
@@ -118,18 +142,22 @@ struct ProjectRuntimeSettingsTests {
             workspaceName: "shop",
             workspaceURL: root,
             files: files,
-            mavenProject: alpha
+            buildSources: [.init(id: "sample:alpha", root: "services/alpha", displayName: "Build root", usesJava: true, model: alpha)],
+            languageSupports: [
+                LanguageSupportDeclaration(id: "java", displayName: "Java", projectFileNames: ["pom.xml"]),
+                LanguageSupportDeclaration(id: "frontend", displayName: "Frontend", projectFileNames: ["package.json"])
+            ]
         )
 
         #expect(subprojects.map(\.id) == [
             "project",
-            "maven:services/alpha",
-            "module:services/alpha/api",
-            "maven:services/beta",
-            "other:frontend"
+            "path:services/alpha",
+            "path:services/alpha/api",
+            "path:frontend",
+            "path:services/beta"
         ])
-        #expect(subprojects.first { $0.id == "maven:services/beta" }?.usesJava == true)
-        #expect(subprojects.first { $0.id == "other:frontend" }?.usesJava == false)
+        #expect(subprojects.first { $0.id == "path:services/beta" }?.usesJava == true)
+        #expect(subprojects.first { $0.id == "path:frontend" }?.usesJava == false)
         #expect(
             ProjectRuntimeInventory.workspaceRelativePath(
                 modulePath: ".",

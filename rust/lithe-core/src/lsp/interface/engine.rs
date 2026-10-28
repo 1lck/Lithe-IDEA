@@ -11677,7 +11677,7 @@ public class Main {
             .expect("initialize should have been written");
         assert_eq!(
             initialize["params"]["capabilities"]["experimental"]["litheBuild"],
-            json!({ "versions": [6, 5, 4, 3, 2, 1] })
+            json!({ "versions": [7, 6, 5, 4, 3, 2, 1] })
         );
 
         let error = build_request(&harness, "lithe/build/model", json!({}), None)
@@ -12220,7 +12220,7 @@ public class Main {
         assert_eq!(
             initialize["params"]["capabilities"]["experimental"],
             json!({
-                "litheBuild": { "versions": [6, 5, 4, 3, 2, 1] },
+                "litheBuild": { "versions": [7, 6, 5, 4, 3, 2, 1] },
                 "litheFunctions": { "versions": [1, 2] },
                 "litheVcs": { "versions": [1] }
             })

@@ -200,7 +200,7 @@ struct ProjectRuntimePersistenceTests {
         return root
     }
     private func prepare(_ feature: RuntimeSettingsFeatureModel, root: URL) {
-        feature.prepare(workspaceName: "fixture", workspaceURL: root, files: [], mavenProject: nil,
+        feature.prepare(workspaceName: "fixture", workspaceURL: root, files: [],
             mavenSettingsPath: nil, mavenLocalRepositoryPath: nil)
     }
 }

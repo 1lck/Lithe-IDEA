@@ -605,8 +605,8 @@ struct ProjectRuntimeSettingsView: View {
     private func icon(for kind: ProjectRuntimeSubprojectKind) -> String {
         switch kind {
         case .projectDefaults: "internaldrive"
-        case .mavenReactor: "shippingbox"
-        case .mavenModule: "cube"
+        case .buildRoot: "shippingbox"
+        case .buildProject: "cube"
         case .other: "globe"
         }
     }
