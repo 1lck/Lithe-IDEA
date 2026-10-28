@@ -2,12 +2,20 @@ import Foundation
 
 enum MacRuntimeDiscovery {
     private static let probeCache = MacRuntimeProbeCache()
+    private static let loginShellEnvironmentTimeoutMilliseconds = 1_500
+    private static let loginShellEnvironmentMarker = "__LITHE_LOGIN_SHELL_ENVIRONMENT__"
+    private static let loginShellEnvironmentByteLimit = 256 * 1_024
+    private static let loginShellEnvironmentVariableLimit = 1_024
+    /// Version managers keep one directory per installed version; a root
+    /// with more entries than this is not a version list and is truncated.
+    static let managedInstallationEntryLimit = 256
 
     static func invalidateProbeCaches() { probeCache.invalidate() }
 
     static func discover(environment: [String: String]) -> RuntimeDiscoveryResult {
-        let javaRuntimes = discoverJavaRuntimes(environment: environment)
-        let mavenRuntimes = discoverMavenExecutables(environment: environment)
+        let enrichedEnvironment = enrichedEnvironment(environment)
+        let javaRuntimes = javaRuntimes(enrichedEnvironment: enrichedEnvironment, isCancelled: { false })
+        let mavenRuntimes = discoverMavenExecutables(environment: enrichedEnvironment)
             .compactMap(probeMaven)
             .sorted { lhs, rhs in
                 lhs.version.localizedStandardCompare(rhs.version) == .orderedDescending
@@ -16,7 +24,7 @@ enum MacRuntimeDiscovery {
     }
 
     static func systemMavenExecutable(environment: [String: String]) -> URL? {
-        discoverMavenExecutables(environment: environment).first
+        discoverMavenExecutables(environment: enrichedEnvironment(environment)).first
     }
 
     static func mavenExecutable(forHomePath path: String) -> URL? {
@@ -49,7 +57,13 @@ enum MacRuntimeDiscovery {
         environment: [String: String], isCancelled: @Sendable () -> Bool = { false }
     ) -> [JavaRuntimeCandidate] {
         guard !isCancelled() else { return [] }
-        let homes = discoverJavaHomes(environment: environment)
+        return javaRuntimes(enrichedEnvironment: enrichedEnvironment(environment), isCancelled: isCancelled)
+    }
+
+    private static func javaRuntimes(
+        enrichedEnvironment: [String: String], isCancelled: () -> Bool
+    ) -> [JavaRuntimeCandidate] {
+        let homes = discoverJavaHomes(environment: enrichedEnvironment)
         var runtimes: [JavaRuntimeCandidate] = []
         for home in homes {
             guard !isCancelled() else { return [] }
@@ -61,16 +75,30 @@ enum MacRuntimeDiscovery {
     }
 
     static func javaHomeOnPath(environment: [String: String]) -> URL? {
+        javaHomeOnPath(in: enrichedEnvironment(environment), systemJavaHome: systemLauncherJavaHome)
+    }
+
+    static func javaHomeOnPath(
+        in environment: [String: String], systemJavaHome: () -> String?
+    ) -> URL? {
+        var foundSystemLauncher = false
         for directory in (environment["PATH"] ?? "").split(separator: ":") {
             let executable = URL(fileURLWithPath: String(directory), isDirectory: true).appendingPathComponent("java")
             guard FileManager.default.isExecutableFile(atPath: executable.path) else { continue }
             let resolved = executable.resolvingSymlinksInPath()
             // Apple's system launcher selects a JDK itself; /usr is not a JDK
-            // home and must never become JAVA_HOME for child processes.
-            guard resolved.path != "/usr/bin/java" else { return nil }
-            return validJavaHome(resolved.deletingLastPathComponent().deletingLastPathComponent().path)
+            // home and must never become JAVA_HOME for child processes. A GUI
+            // launch puts /usr/bin before the login shell's PATH, so keep
+            // scanning for a real JDK and only then use the launcher's choice.
+            if resolved.path == "/usr/bin/java" {
+                foundSystemLauncher = true
+                continue
+            }
+            if let home = validJavaHome(resolved.deletingLastPathComponent().deletingLastPathComponent().path) {
+                return home
+            }
         }
-        return nil
+        return foundSystemLauncher ? systemJavaHome().flatMap(validJavaHome) : nil
     }
 
     private static func discoverJavaHomes(environment: [String: String]) -> [URL] {
@@ -78,7 +106,8 @@ enum MacRuntimeDiscovery {
             environment: environment,
             homeDirectory: NSHomeDirectory(),
             javaHomePaths: javaHomeOutput(),
-            directoryEntries: directoryNames(at:)
+            directoryEntries: directoryNames(at:),
+            managedDirectoryEntries: { boundedDirectoryNames(at: $0, limit: managedInstallationEntryLimit) }
         )
     }
 
@@ -86,7 +115,8 @@ enum MacRuntimeDiscovery {
         environment: [String: String],
         homeDirectory: String,
         javaHomePaths: [String],
-        directoryEntries: (String) -> [String]
+        directoryEntries: (String) -> [String],
+        managedDirectoryEntries: ((String) -> [String])? = nil
     ) -> [URL] {
         var paths: [String: URL] = [:]
         func add(_ path: String?) {
@@ -99,6 +129,7 @@ enum MacRuntimeDiscovery {
         }
 
         add(environment["JAVA_HOME"])
+        add(javaHomeOnPath(in: environment, systemJavaHome: { nil })?.path)
         for path in javaHomePaths {
             add(path)
         }
@@ -118,14 +149,13 @@ enum MacRuntimeDiscovery {
             }
         }
 
-        let sdkmanRoot = environment["SDKMAN_DIR"]
-            .flatMap { $0.isEmpty ? nil : $0 }
-            ?? homeDirectory + "/.sdkman"
-        let sdkmanJavaRoot = URL(fileURLWithPath: sdkmanRoot, isDirectory: true)
-            .appendingPathComponent("candidates/java", isDirectory: true)
-            .standardizedFileURL.path
-        for entry in directoryEntries(sdkmanJavaRoot).sorted() {
-            add(sdkmanJavaRoot + "/" + entry)
+        for root in managedInstallationRoots(
+            candidate: "java", environment: environment, homeDirectory: homeDirectory
+        ) {
+            let entries = managedDirectoryEntries.map { $0(root) } ?? directoryEntries(root)
+            for entry in entries.prefix(managedInstallationEntryLimit).sorted() {
+                add(root + "/" + entry)
+            }
         }
 
         return paths.values.sorted { $0.path < $1.path }
@@ -140,7 +170,9 @@ enum MacRuntimeDiscovery {
         func add(_ path: String) {
             let expanded = (path as NSString).expandingTildeInPath
             let url = URL(fileURLWithPath: expanded).standardizedFileURL
-            guard isExecutable(url), seen.insert(url.path).inserted else { return }
+            guard isExecutable(url) else { return }
+            let identity = url.resolvingSymlinksInPath().path
+            guard seen.insert(identity).inserted else { return }
             paths.append(url)
         }
 
@@ -152,6 +184,15 @@ enum MacRuntimeDiscovery {
         let pathDirectories = (environment["PATH"] ?? "").split(separator: ":").map(String.init)
         for directory in pathDirectories {
             add(URL(fileURLWithPath: directory).appendingPathComponent("mvn").path)
+        }
+        for root in managedInstallationRoots(
+            candidate: "maven", environment: environment, homeDirectory: NSHomeDirectory()
+        ) {
+            for entry in boundedDirectoryNames(at: root, limit: managedInstallationEntryLimit).sorted() {
+                add(URL(fileURLWithPath: root, isDirectory: true)
+                    .appendingPathComponent(entry, isDirectory: true)
+                    .appendingPathComponent("bin/mvn").path)
+            }
         }
         for path in [
             "/opt/homebrew/opt/maven/bin/mvn",
@@ -239,8 +280,109 @@ enum MacRuntimeDiscovery {
             }
     }
 
+    /// The JDK that `/usr/bin/java` launches. The probe cache keys on the
+    /// executable rather than its arguments, so this bypasses the cache that
+    /// already holds the `java_home -V` listing.
+    private static func systemLauncherJavaHome() -> String? {
+        let result = MacProcessRunner().run(ProcessRequest(
+            executablePath: "/usr/libexec/java_home", timeoutMilliseconds: 5_000
+        ))
+        guard result.succeeded else { return nil }
+        return result.output
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .first { $0.hasPrefix("/") }
+    }
+
+    private static func enrichedEnvironment(_ environment: [String: String]) -> [String: String] {
+        mergeEnvironment(environment, shellEnvironment: loginShellEnvironment(environment))
+    }
+
+    static func mergeEnvironment(
+        _ environment: [String: String], shellEnvironment: [String: String]
+    ) -> [String: String] {
+        var merged = environment
+        for (key, value) in shellEnvironment where key != "PATH" {
+            if merged[key]?.isEmpty != false { merged[key] = value }
+        }
+        let inheritedPath = environment["PATH"]?.split(separator: ":").map(String.init) ?? []
+        let shellPath = shellEnvironment["PATH"]?.split(separator: ":").map(String.init) ?? []
+        var paths = Set<String>()
+        merged["PATH"] = (inheritedPath + shellPath).filter { paths.insert($0).inserted }.joined(separator: ":")
+        return merged
+    }
+
+    private static func loginShellEnvironment(_ environment: [String: String]) -> [String: String] {
+        let shell = environment["SHELL"].flatMap { path in
+            path.hasPrefix("/") && FileManager.default.isExecutableFile(atPath: path) ? path : nil
+        } ?? "/bin/zsh"
+        // Startup files may print to stderr, which the runner merges into the
+        // output, so the environment follows a marker. head caps the capture
+        // one byte past the limit so an oversized environment is detectable.
+        let result = MacProcessRunner().run(ProcessRequest(
+            executablePath: shell,
+            arguments: [
+                "-ilc",
+                "printf '\\0%s\\0' \(loginShellEnvironmentMarker); env -0 | head -c \(loginShellEnvironmentByteLimit + 1)"
+            ],
+            environment: environment,
+            timeoutMilliseconds: loginShellEnvironmentTimeoutMilliseconds
+        ))
+        guard result.succeeded else { return [:] }
+        return parseLoginShellEnvironment(result.output)
+    }
+
+    /// Reads `env -0` records after the marker. Output without the marker, or
+    /// larger than the byte or variable limit, is ignored as a whole so a
+    /// truncated PATH can never replace the inherited one.
+    static func parseLoginShellEnvironment(_ output: String) -> [String: String] {
+        guard let markerRange = output.range(of: "\0" + loginShellEnvironmentMarker + "\0", options: .backwards) else {
+            return [:]
+        }
+        let records = output[markerRange.upperBound...]
+        guard records.utf8.count <= loginShellEnvironmentByteLimit else { return [:] }
+        let items = records.split(separator: "\0")
+        guard items.count <= loginShellEnvironmentVariableLimit else { return [:] }
+        return items.reduce(into: [String: String]()) { values, item in
+            let parts = item.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            guard parts.count == 2, !parts[0].isEmpty,
+                  parts[0].allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" }) else { return }
+            values[String(parts[0])] = String(parts[1])
+        }
+    }
+
+    private static func managedInstallationRoots(
+        candidate: String, environment: [String: String], homeDirectory: String
+    ) -> [String] {
+        let miseData = environment["MISE_DATA_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+            ?? homeDirectory + "/.local/share/mise"
+        let asdfData = environment["ASDF_DATA_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+            ?? homeDirectory + "/.asdf"
+        let sdkmanData = environment["SDKMAN_DIR"].flatMap { $0.isEmpty ? nil : $0 }
+            ?? homeDirectory + "/.sdkman"
+        return [
+            miseData + "/installs/" + candidate,
+            asdfData + "/installs/" + candidate,
+            sdkmanData + "/candidates/" + candidate
+        ].map { URL(fileURLWithPath: $0, isDirectory: true).standardizedFileURL.path }
+    }
+
     private static func directoryNames(at path: String) -> [String] {
         (try? FileManager.default.contentsOfDirectory(atPath: path)) ?? []
+    }
+
+    /// Reads at most `limit` entries instead of loading a whole directory.
+    static func boundedDirectoryNames(at path: String, limit: Int) -> [String] {
+        guard let enumerator = FileManager.default.enumerator(
+            at: URL(fileURLWithPath: path, isDirectory: true),
+            includingPropertiesForKeys: nil,
+            options: [.skipsSubdirectoryDescendants]
+        ) else { return [] }
+        var names: [String] = []
+        while names.count < limit, let url = enumerator.nextObject() as? URL {
+            names.append(url.lastPathComponent)
+        }
+        return names
     }
 
     private static func cachedCommandOutput(

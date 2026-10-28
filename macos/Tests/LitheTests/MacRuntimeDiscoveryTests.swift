@@ -14,7 +14,70 @@ struct MacRuntimeDiscoveryTests {
         try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
         try FileManager.default.createSymbolicLink(at: bin.appendingPathComponent("java"), withDestinationURL: home.appendingPathComponent("bin/java"))
         let environment = ["PATH": bin.path]
-        #expect(MacRuntimeDiscovery.javaHomeOnPath(environment: environment)?.resolvingSymlinksInPath().path == home.resolvingSymlinksInPath().path)
+        let resolved = MacRuntimeDiscovery.javaHomeOnPath(in: environment, systemJavaHome: { nil })
+        #expect(resolved?.resolvingSymlinksInPath().path == home.resolvingSymlinksInPath().path)
+    }
+
+    @Test
+    func skipsSystemJavaLauncherForLaterPathJDKAndOtherwiseResolvesItsDefault() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-java-launcher-\(UUID().uuidString)", isDirectory: true)
+        defer { removeFixture(root) }
+        let shellHome = root.appendingPathComponent("mise/installs/java/21", isDirectory: true)
+        let defaultHome = root.appendingPathComponent("default-jdk", isDirectory: true)
+        try createExecutableJava(at: shellHome)
+        try createExecutableJava(at: defaultHome)
+        let launcherDirectory = "/usr/bin"
+        try #require(FileManager.default.isExecutableFile(atPath: launcherDirectory + "/java"))
+
+        // A launcher that is not inside a JDK home must not end the scan.
+        let shim = root.appendingPathComponent("shims", isDirectory: true)
+        try FileManager.default.createDirectory(at: shim, withIntermediateDirectories: true)
+        #expect(FileManager.default.createFile(atPath: shim.appendingPathComponent("java").path, contents: Data()))
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: shim.appendingPathComponent("java").path)
+
+        // A Finder/Dock PATH puts Apple's launcher before the login shell's JDK.
+        let guiThenShell = ["PATH": [launcherDirectory, shim.path, shellHome.appendingPathComponent("bin").path].joined(separator: ":")]
+        let shellResult = MacRuntimeDiscovery.javaHomeOnPath(in: guiThenShell, systemJavaHome: { defaultHome.path })
+        #expect(shellResult?.resolvingSymlinksInPath() == shellHome.resolvingSymlinksInPath())
+
+        // With only the launcher on PATH, use the JDK it would launch.
+        let launcherOnly = ["PATH": launcherDirectory]
+        let defaultResult = MacRuntimeDiscovery.javaHomeOnPath(in: launcherOnly, systemJavaHome: { defaultHome.path })
+        #expect(defaultResult?.resolvingSymlinksInPath() == defaultHome.resolvingSymlinksInPath())
+        #expect(MacRuntimeDiscovery.javaHomeOnPath(in: launcherOnly, systemJavaHome: { nil }) == nil)
+    }
+
+    @Test
+    func readsAtMostTheLimitOfManagedInstallationEntries() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-managed-bound-\(UUID().uuidString)", isDirectory: true)
+        defer { removeFixture(root) }
+        for index in 0..<5 {
+            try FileManager.default.createDirectory(
+                at: root.appendingPathComponent("v\(index)", isDirectory: true),
+                withIntermediateDirectories: true
+            )
+        }
+        #expect(MacRuntimeDiscovery.boundedDirectoryNames(at: root.path, limit: 3).count == 3)
+        #expect(MacRuntimeDiscovery.boundedDirectoryNames(at: root.path, limit: 10).count == 5)
+        #expect(MacRuntimeDiscovery.boundedDirectoryNames(at: root.appendingPathComponent("missing").path, limit: 3).isEmpty)
+    }
+
+    @Test
+    func parsesOnlyBoundedLoginShellEnvironmentAfterMarker() {
+        let marker = "\0__LITHE_LOGIN_SHELL_ENVIRONMENT__\0"
+        let noisyStartup = "rc warning PATH=/bogus\0"
+        let parsed = MacRuntimeDiscovery.parseLoginShellEnvironment(
+            noisyStartup + marker + "PATH=/shell/bin:/usr/bin\0JAVA_HOME=/jdk\0=broken\0bad-name=1\0"
+        )
+        #expect(parsed == ["PATH": "/shell/bin:/usr/bin", "JAVA_HOME": "/jdk"])
+        #expect(MacRuntimeDiscovery.parseLoginShellEnvironment("PATH=/no/marker\0").isEmpty)
+
+        let oversized = marker + "PATH=" + String(repeating: "a", count: 256 * 1_024)
+        #expect(MacRuntimeDiscovery.parseLoginShellEnvironment(oversized).isEmpty)
+        let tooMany = marker + (0...1_024).map { "V\($0)=1\0" }.joined()
+        #expect(MacRuntimeDiscovery.parseLoginShellEnvironment(tooMany).isEmpty)
     }
 
     @Test
@@ -63,6 +126,57 @@ struct MacRuntimeDiscoveryTests {
         )
 
         #expect(homes == [javaHome.standardizedFileURL])
+    }
+
+    @Test
+    func discoversManagedJavaAndMavenRootsAndPreservesInheritedEnvironmentPriority() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-managed-runtimes-\(UUID().uuidString)", isDirectory: true)
+        defer { removeFixture(root) }
+
+        let miseJavaHome = root.appendingPathComponent("mise/installs/java/21")
+        let asdfJavaHome = root.appendingPathComponent("asdf/installs/java/17")
+        try createExecutableJava(at: miseJavaHome)
+        try createExecutableJava(at: asdfJavaHome)
+
+        let miseMavenHome = root.appendingPathComponent("mise/installs/maven/3.9.9")
+        let mavenExecutable = miseMavenHome.appendingPathComponent("bin/mvn")
+        try FileManager.default.createDirectory(at: mavenExecutable.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: mavenExecutable)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: mavenExecutable.path)
+        try FileManager.default.createSymbolicLink(
+            at: miseMavenHome.deletingLastPathComponent().appendingPathComponent("current"),
+            withDestinationURL: miseMavenHome
+        )
+
+        let shellEnvironment = [
+            "PATH": root.appendingPathComponent("shell/bin").path,
+            "MISE_DATA_DIR": root.appendingPathComponent("mise").path,
+            "ASDF_DATA_DIR": root.appendingPathComponent("asdf").path
+        ]
+        let merged = MacRuntimeDiscovery.mergeEnvironment(
+            ["PATH": "/fixture/bin", "JAVA_HOME": "/explicit"],
+            shellEnvironment: shellEnvironment
+        )
+        #expect(merged["PATH"] == "/fixture/bin:" + shellEnvironment["PATH"]!)
+        #expect(merged["JAVA_HOME"] == "/explicit")
+
+        let homes = MacRuntimeDiscovery.discoverJavaHomes(
+            environment: merged,
+            homeDirectory: root.path,
+            javaHomePaths: [],
+            directoryEntries: { path in
+                guard path.hasPrefix(root.path) else { return [] }
+                return (try? FileManager.default.contentsOfDirectory(atPath: path)) ?? []
+            }
+        )
+        #expect(homes.count == 2)
+        #expect(homes.contains { $0.resolvingSymlinksInPath() == miseJavaHome.resolvingSymlinksInPath() })
+        let maven = MacRuntimeDiscovery.discoverMavenExecutables(
+            environment: merged,
+            isExecutable: { $0.resolvingSymlinksInPath().path == mavenExecutable.resolvingSymlinksInPath().path }
+        )
+        #expect(maven == [mavenExecutable.standardizedFileURL])
     }
 
     @Test
@@ -122,6 +236,11 @@ struct MacRuntimeDiscoveryTests {
         for example in fixture.cases {
             #expect(MacRuntimeDiscovery.mavenVersion(in: example.output) == example.version)
         }
+    }
+
+    private func removeFixture(_ root: URL) {
+        do { try FileManager.default.removeItem(at: root) }
+        catch { Issue.record("Runtime discovery fixture cleanup failed at \(root.path): \(error)") }
     }
 
     private func createExecutableJava(at home: URL) throws {
