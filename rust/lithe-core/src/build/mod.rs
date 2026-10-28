@@ -16,6 +16,7 @@
 //! Note: the contract is recorded in .agents/notes/implemented/architecture/2026-10-17-build-system-plugin-contract.md
 
 mod commands;
+mod debug_preparation;
 mod decode;
 mod detect;
 mod integrations;
@@ -23,11 +24,14 @@ mod invocation;
 mod language_import;
 mod manifest;
 mod model;
+mod model_inputs;
 mod options;
 mod outputs;
 mod plans;
+mod run_preparation;
 mod select;
 mod template;
+mod test_discovery;
 
 pub(crate) use commands::*;
 pub(crate) use invocation::host_runtime_version_arguments;

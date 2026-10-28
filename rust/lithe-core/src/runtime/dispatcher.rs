@@ -284,9 +284,44 @@ fn execute(request: &str) -> CoreResponse {
         CoreCommand::BuildTaskPlan => {
             plugin_response(id, parsed.payload, crate::build::build_task_plan_command)
         }
+        CoreCommand::BuildPrepareDebugPlan => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_prepare_debug_plan_command,
+        ),
+        CoreCommand::BuildDecodeDebugPreparation => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_decode_debug_preparation_command,
+        ),
+        CoreCommand::BuildResolveModelInputs => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_resolve_model_inputs_command,
+        ),
+        CoreCommand::BuildPrepareRunPlan => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_prepare_run_plan_command,
+        ),
+        CoreCommand::BuildDecodeRunPreparation => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_decode_run_preparation_command,
+        ),
         CoreCommand::BuildTestPlan => {
             plugin_response(id, parsed.payload, crate::build::build_test_plan_command)
         }
+        CoreCommand::BuildTestDiscoveryPlan => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_test_discovery_plan_command,
+        ),
+        CoreCommand::BuildDecodeTestDiscovery => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_decode_test_discovery_command,
+        ),
         CoreCommand::BuildDependencyPlan => plugin_response(
             id,
             parsed.payload,

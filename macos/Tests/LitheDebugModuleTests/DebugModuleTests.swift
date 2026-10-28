@@ -7,11 +7,15 @@ import Testing
 
 @MainActor
 struct DebugModuleTests {
-    @Test(arguments: [DebugRequestKind.launch, .attach])
-    func explicitEndpointUsesItsFactoryAndPreservesTheDAPRequest(request: DebugRequestKind) throws {
+    @Test(arguments: [DebugRequestKind.launch, .attach], [false, true])
+    func explicitEndpointUsesItsFactoryAndPreservesTheDAPRequest(request: DebugRequestKind, explicit: Bool) throws {
         let descriptor = DebugProviderDescriptor(id: "python", displayName: "Python", fileExtensions: ["py"])
+        let selected = DebugProviderDescriptor(id: "org.example/debug", displayName: "Explicit",
+            fileExtensions: ["py"], selectsByFile: false, requests: [.launch, .attach])
+        let providerID = explicit ? selected.id : descriptor.id
         var localCount = 0
-        let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in
+        let manager = DebugAdapterSessionManager(providers: [descriptor, selected]) { provider, _ in
+            #expect(provider.id == providerID)
             localCount += 1
             return DeferredInspectionDebugSession()
         }
@@ -19,13 +23,14 @@ struct DebugModuleTests {
         let external = DeferredInspectionDebugSession()
         let endpoint = DebugAdapterEndpoint(host: "debug.example.org", port: 5678)
         manager.makeEndpointSession = { provider, destination, root in
-            #expect(provider.id == "python")
+            #expect(provider.id == providerID)
             #expect(destination == endpoint)
             #expect(root.path == "/workspace")
             return external
         }
         let configuration = DebugLaunchConfiguration(
             name: "Remote", request: request, arguments: ["connect": .object(["port": .integer(9000)])],
+            adapterProviderID: explicit ? selected.id : nil,
             adapterEndpoint: endpoint
         )
         let source = URL(fileURLWithPath: "/workspace/main.py")
@@ -33,7 +38,8 @@ struct DebugModuleTests {
         #expect(external.launchConfigurations == [configuration])
         #expect(localCount == 0)
         // A subsequent ordinary launch must not reuse the external TCP session.
-        _ = try manager.activate(for: source, rootURL: source.deletingLastPathComponent())
+        _ = try manager.activate(for: source, rootURL: source.deletingLastPathComponent(),
+            adapterProviderID: explicit ? selected.id : nil)
         #expect(localCount == 1)
         #expect(!external.isRunning)
     }
@@ -72,6 +78,268 @@ struct DebugModuleTests {
         #expect(session.startCount == 2)
         #expect(session.launchConfigurations.last?.arguments["classPaths"] == .array([.string("/workspace/new-output")]))
         #expect(feature.canUpdateJavaService)
+    }
+
+    @Test
+    func adapterSelectionMatchesTheSharedHostFixture() throws {
+        struct Fixture: Decodable {
+            struct Provider: Decodable {
+                let id: String
+                let displayName: String
+                let fileExtensions: Set<String>
+                let selectsByFile: Bool
+                let requests: Set<DebugRequestKind>
+            }
+            struct Case: Decodable {
+                let id: String
+                let target: String
+                let configuration: DebugLaunchConfiguration
+                let expectedProviderID: String?
+                let error: String?
+            }
+            let providers: [Provider]
+            let cases: [Case]
+        }
+        let repository = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let fixture = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: repository
+            .appendingPathComponent("shared/fixtures/debug/adapter-selection-v1.json")))
+        let providers = fixture.providers.map {
+            DebugProviderDescriptor(id: $0.id, displayName: $0.displayName, fileExtensions: $0.fileExtensions,
+                selectsByFile: $0.selectsByFile, requests: $0.requests)
+        }
+        let manager = DebugAdapterSessionManager(providers: providers) { _, _ in DeferredInspectionDebugSession() }
+        defer { manager.stopAll() }
+        let root = URL(fileURLWithPath: "/workspace/fixture", isDirectory: true)
+        for example in fixture.cases {
+            defer { manager.stopAll() }
+            do {
+                let launch = try manager.launchNew(for: root.appendingPathComponent(example.target),
+                    rootURL: root, configuration: example.configuration)
+                #expect(example.error == nil, "Unexpected launch: \(example.id)")
+                #expect(manager.sessionSummaries.first { $0.id == launch.id }?.providerID == example.expectedProviderID)
+            } catch let error as DebugProviderError {
+                switch error {
+                case .adapterUnavailable:
+                    #expect(example.error == "unavailable", "Unexpected refusal: \(example.id)")
+                case .capabilityUnavailable:
+                    #expect(example.error == "unsupported", "Unexpected request refusal: \(example.id)")
+                default: Issue.record("Unexpected selection error: \(error)")
+                }
+                #expect(manager.activeSessionIDs.isEmpty)
+            }
+        }
+    }
+
+    @Test
+    func explicitAdapterIdentitySurvivesCodingAndSteppingFilterChanges() throws {
+        let configuration = DebugLaunchConfiguration(
+            name: "engine target", request: .launch, arguments: ["program": .string("bin/example")],
+            adapterProviderID: "dev.example.native/lldb",
+            adapterEndpoint: DebugAdapterEndpoint(host: "localhost", port: 5678)
+        )
+        let filters = DebugSteppingFilters(classNameFilters: [], skipSynthetics: true,
+            skipStaticInitializers: false, skipConstructors: false, hideFilteredStackFrames: true)
+        let updated = configuration.applying(steppingFilters: filters)
+        let decoded = try JSONDecoder().decode(DebugLaunchConfiguration.self, from: JSONEncoder().encode(updated))
+        #expect(decoded == updated)
+        #expect(decoded.adapterProviderID == "dev.example.native/lldb")
+        #expect(decoded.adapterEndpoint == configuration.adapterEndpoint)
+        let oldJSON = Data(#"{"name":"file","request":"launch","arguments":{}}"#.utf8)
+        #expect(try JSONDecoder().decode(DebugLaunchConfiguration.self, from: oldJSON).adapterProviderID == nil)
+    }
+
+    @Test
+    func explicitAdapterCanLaunchAProjectWithoutAMatchingSourceFile() throws {
+        let automatic = DebugProviderDescriptor(id: "c", displayName: "Default", fileExtensions: ["c"])
+        let explicit = DebugProviderDescriptor(id: "dev.example.native/lldb", displayName: "LLDB",
+            fileExtensions: ["c"], selectsByFile: false, requests: [.launch])
+        var selected: [String] = []
+        let session = DeferredInspectionDebugSession()
+        let manager = DebugAdapterSessionManager(providers: [automatic, explicit]) { descriptor, _ in
+            selected.append(descriptor.id)
+            return session
+        }
+        defer { manager.stopAll() }
+        let root = URL(fileURLWithPath: "/workspace/project", isDirectory: true)
+        let configuration = DebugLaunchConfiguration(name: "example", request: .launch,
+            arguments: [:], adapterProviderID: explicit.id)
+        let launched = try manager.launchNew(for: root, rootURL: root, configuration: configuration)
+        #expect(selected == [explicit.id])
+        #expect(manager.sessionSummaries.first?.providerID == explicit.id)
+        #expect(session.launchConfigurations == [configuration])
+        #expect(manager.provider(for: root.appendingPathComponent("main.c")) == automatic)
+        #expect(manager.session(id: launched.id) === session)
+    }
+
+    @Test
+    func missingOrWithdrawnExplicitAdapterNeverFallsBackToAFileDefault() throws {
+        let automatic = DebugProviderDescriptor(id: "c", displayName: "Default", fileExtensions: ["c"])
+        let explicit = DebugProviderDescriptor(id: "dev.example.native/lldb", displayName: "LLDB",
+            fileExtensions: ["c"], selectsByFile: false)
+        var providers = [automatic, explicit]
+        var created = 0
+        let manager = DebugAdapterSessionManager(providersSource: { providers }) { _, _ in
+            created += 1
+            return DeferredInspectionDebugSession()
+        }
+        defer { manager.stopAll() }
+        let root = URL(fileURLWithPath: "/workspace/project", isDirectory: true)
+        let source = root.appendingPathComponent("main.c")
+        let configuration = DebugLaunchConfiguration(name: "example", request: .launch,
+            arguments: [:], adapterProviderID: explicit.id)
+        _ = try manager.launch(for: source, rootURL: root, configuration: configuration)
+        providers = [automatic]
+        #expect(throws: DebugProviderError.adapterUnavailable(explicit.id)) {
+            try manager.launch(for: source, rootURL: root, configuration: configuration)
+        }
+        #expect(throws: DebugProviderError.adapterUnavailable("")) {
+            try manager.activateNew(for: source, rootURL: root, adapterProviderID: "")
+        }
+        #expect(created == 1)
+    }
+
+    @Test
+    func unsupportedExplicitRequestIsRejectedBeforeCreatingATransport() throws {
+        let attach = DebugProviderDescriptor(id: "dev.example.native/attach", displayName: "Attach",
+            fileExtensions: [], selectsByFile: false, requests: [.attach])
+        var created = 0
+        let manager = DebugAdapterSessionManager(providers: [attach]) { _, _ in
+            created += 1
+            return DeferredInspectionDebugSession()
+        }
+        defer { manager.stopAll() }
+        let root = URL(fileURLWithPath: "/workspace/project", isDirectory: true)
+        #expect(throws: DebugProviderError.capabilityUnavailable(provider: "Attach", capability: "launch")) {
+            try manager.launchNew(for: root, rootURL: root, configuration: DebugLaunchConfiguration(
+                name: "example", request: .launch, arguments: [:], adapterProviderID: attach.id))
+        }
+        #expect(created == 0)
+        _ = try manager.launchNew(for: root, rootURL: root, configuration: DebugLaunchConfiguration(
+            name: "example", request: .attach, arguments: [:], adapterProviderID: attach.id))
+        #expect(created == 1)
+    }
+
+    @Test
+    func sourceBreakpointsReachBothExplicitAdaptersBeforeAndAfterLaunch() throws {
+        let first = DebugProviderDescriptor(id: "dev.example.first/lldb", displayName: "First",
+            fileExtensions: ["c"], selectsByFile: false)
+        let second = DebugProviderDescriptor(id: "dev.example.second/lldb", displayName: "Second",
+            fileExtensions: ["c"], selectsByFile: false)
+        var sessions: [String: DeferredInspectionDebugSession] = [:]
+        let manager = DebugAdapterSessionManager(providers: [first, second]) { descriptor, _ in
+            let session = DeferredInspectionDebugSession()
+            sessions[descriptor.id] = session
+            return session
+        }
+        defer { manager.stopAll() }
+        let root = URL(fileURLWithPath: "/workspace/project", isDirectory: true)
+        let source = root.appendingPathComponent("main.c")
+        try manager.setBreakpoints([DebugSourceBreakpoint(line: 8, enabled: true)], in: source)
+        for descriptor in [first, second] {
+            _ = try manager.launchNew(for: root, rootURL: root, configuration: DebugLaunchConfiguration(
+                name: "example", request: .launch, arguments: [:], adapterProviderID: descriptor.id))
+            #expect(sessions[descriptor.id]?.breakpointUpdates.last?.first?.line == 8)
+        }
+        try manager.setBreakpoints([DebugSourceBreakpoint(line: 12, enabled: true)], in: source)
+        #expect(sessions[first.id]?.breakpointUpdates.last?.first?.line == 12)
+        #expect(sessions[second.id]?.breakpointUpdates.last?.first?.line == 12)
+        manager.stop(providerID: first.id)
+        #expect(sessions[first.id]?.isRunning == false)
+        #expect(sessions[second.id]?.isRunning == true)
+    }
+
+    @Test
+    func explicitFeatureRetryKeepsItsAdapterAndFailureCleansUpOnlyItsNewSession() throws {
+        let automatic = DebugProviderDescriptor(id: "c", displayName: "Default", fileExtensions: ["c"])
+        let explicit = DebugProviderDescriptor(id: "dev.example.native/lldb", displayName: "LLDB",
+            fileExtensions: ["c"], selectsByFile: false)
+        var created: [(String, DeferredInspectionDebugSession)] = []
+        let manager = DebugAdapterSessionManager(providers: [automatic, explicit]) { descriptor, _ in
+            let session = DeferredInspectionDebugSession()
+            if created.count == 2 { session.failNextLaunch = true }
+            created.append((descriptor.id, session))
+            return session
+        }
+        let feature = GenericDebugFeatureModel(sessions: manager)
+        defer { feature.reset() }
+        let root = URL(fileURLWithPath: "/workspace/project", isDirectory: true)
+        let configuration = DebugLaunchConfiguration(name: "example", request: .launch,
+            arguments: [:], adapterProviderID: explicit.id)
+        #expect(feature.start(fileURL: root, rootURL: root, configuration: configuration))
+        let original = try #require(feature.activeSessionID)
+        #expect(feature.providerID == explicit.id)
+        #expect(feature.retry())
+        #expect(created.map { $0.0 } == [explicit.id, explicit.id])
+        #expect(!created[0].1.isRunning)
+        #expect(feature.activeSessionID != original)
+        let current = try #require(feature.activeSessionID)
+        // Failed additional launch uses the same registry and must restore
+        // the current selection without stopping the earlier session.
+        let other = DebugLaunchConfiguration(name: "other", request: .launch,
+            arguments: [:], adapterProviderID: automatic.id)
+        #expect(!feature.startAdditional(fileURL: root, rootURL: root, configuration: other))
+        #expect(created.count == 3)
+        #expect(created[2].0 == automatic.id)
+        #expect(!created[2].1.isRunning)
+        #expect(feature.activeSessionID == current)
+        #expect(feature.providerID == explicit.id)
+        #expect(created[1].1.isRunning)
+        #expect(manager.activeSessionIDs == [current])
+        #expect(feature.retry())
+        #expect(created.last?.0 == explicit.id)
+    }
+
+    @Test
+    func failedLaunchCannotStopAReentrantReplacementOfTheSameAdapter() throws {
+        let descriptor = DebugProviderDescriptor(id: "dev.example.native/lldb", displayName: "LLDB",
+            fileExtensions: [], selectsByFile: false)
+        let first = DeferredInspectionDebugSession()
+        let replacement = DeferredInspectionDebugSession()
+        var created = 0
+        let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in
+            created += 1
+            return created == 1 ? first : replacement
+        }
+        defer { manager.stopAll() }
+        let root = URL(fileURLWithPath: "/workspace/project", isDirectory: true)
+        let configuration = DebugLaunchConfiguration(name: "example", request: .launch,
+            arguments: [:], adapterProviderID: descriptor.id)
+        // A synchronous session callback replaces the launch before the older
+        // launch throws. Cleanup must retain the replacement's exact identity.
+        first.onLaunch = {
+            _ = try manager.launchNew(for: root, rootURL: root, configuration: configuration)
+            throw DeferredDebugSessionError.launchFailed
+        }
+        defer { first.onLaunch = nil }
+        #expect(throws: DeferredDebugSessionError.launchFailed) {
+            try manager.launch(for: root, rootURL: root, configuration: configuration)
+        }
+        #expect(!first.isRunning)
+        #expect(replacement.isRunning)
+        #expect(manager.sessionSummaries.count == 1)
+        #expect(manager.session(providerID: descriptor.id) === replacement)
+    }
+
+    @Test
+    func filelessFeatureSendsNonSourceBreakpointsToItsExplicitAdapter() throws {
+        let automatic = DebugProviderDescriptor(id: "c", displayName: "Default", fileExtensions: ["c"])
+        let explicit = DebugProviderDescriptor(id: "dev.example.native/lldb", displayName: "LLDB",
+            fileExtensions: ["c"], selectsByFile: false)
+        let session = DeferredInspectionDebugSession()
+        let manager = DebugAdapterSessionManager(providers: [automatic, explicit]) { _, _ in session }
+        let feature = GenericDebugFeatureModel(sessions: manager)
+        defer { feature.reset() }
+        let root = URL(fileURLWithPath: "/workspace/project", isDirectory: true)
+        #expect(feature.start(fileURL: root, rootURL: root, configuration: DebugLaunchConfiguration(
+            name: "example", request: .launch, arguments: [:], adapterProviderID: explicit.id)))
+        feature.addFunctionBreakpoint(name: "main", condition: nil, hitCondition: nil)
+        #expect(session.functionBreakpointUpdates.last?.first?.name == "main")
+        try manager.setExceptionBreakpoints([], for: root, adapterProviderID: explicit.id)
+        try manager.setDataBreakpoints([], for: root, adapterProviderID: explicit.id)
+        #expect(!session.exceptionBreakpointUpdates.isEmpty)
+        #expect(!session.dataBreakpointUpdates.isEmpty)
+        #expect(feature.errorMessage == nil)
     }
 
     /// A host that registers debug adapters while it runs hands back its current
@@ -4778,10 +5046,14 @@ private final class DeferredInspectionDebugSession: DebugAdapterControllingSessi
     private(set) var startCount = 0
     private(set) var launchConfigurations: [DebugLaunchConfiguration] = []
     private(set) var breakpointUpdates: [[DebugSourceBreakpoint]] = []
+    private(set) var functionBreakpointUpdates: [[DebugFunctionBreakpoint]] = []
+    private(set) var exceptionBreakpointUpdates: [[DebugExceptionBreakpoint]] = []
+    private(set) var dataBreakpointUpdates: [[DebugDataBreakpoint]] = []
     private(set) var executionCommands: [DebugExecutionCommand] = []
     private(set) var steppingGranularities: [DebugSteppingGranularity] = []
     private(set) var instructionBreakpointUpdates: [[DebugInstructionBreakpoint]] = []
     var failNextLaunch = false
+    var onLaunch: (() throws -> Void)?
     var consoleCommands: [DebugConsoleCommand] = []
     var consoleCommandPrefix: String?
     private(set) var completionRequests: [(
@@ -4869,6 +5141,7 @@ private final class DeferredInspectionDebugSession: DebugAdapterControllingSessi
 
     func launch(_ configuration: DebugLaunchConfiguration) throws {
         launchConfigurations.append(configuration)
+        try onLaunch?()
         if failNextLaunch {
             failNextLaunch = false
             throw DeferredDebugSessionError.launchFailed
@@ -4890,6 +5163,15 @@ private final class DeferredInspectionDebugSession: DebugAdapterControllingSessi
 
     func setBreakpoints(_ breakpoints: [DebugSourceBreakpoint], in _: URL) {
         breakpointUpdates.append(breakpoints)
+    }
+    func setFunctionBreakpoints(_ breakpoints: [DebugFunctionBreakpoint]) {
+        functionBreakpointUpdates.append(breakpoints)
+    }
+    func setExceptionBreakpoints(_ breakpoints: [DebugExceptionBreakpoint]) {
+        exceptionBreakpointUpdates.append(breakpoints)
+    }
+    func setDataBreakpoints(_ breakpoints: [DebugDataBreakpoint]) {
+        dataBreakpointUpdates.append(breakpoints)
     }
     func execute(_ command: DebugExecutionCommand, threadID _: Int?) {
         executionCommands.append(command)

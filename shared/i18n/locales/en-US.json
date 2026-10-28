@@ -9440,7 +9440,19 @@
     "debugger.step.intoInstruction": "Step Into Instruction",
     "debugger.disassembly.stepsByLine": "This adapter cannot step by instruction; steps still move by line",
     "plugins.java.installNotice": "Java Support is installed separately. Install it from the Marketplace, or use Install from Disk for an offline package. Your Java settings are kept.",
-    "plugins.java.installTemplates": "Install Java Support for Java, Maven and Spring templates…"
+    "plugins.java.installTemplates": "Install Java Support for Java, Maven and Spring templates…",
+    "native.theLanguageServerThisBuildSystemUsesIsNotAvailable": "The language server this build system uses is not available. Open a file of the language and try again.",
+    "native.loadModelBeforeWorkspaceTests": "Load or reload the project model before running all tests, so subproject reports are collected.",
+    "native.discoverTests": "Discover Tests",
+    "native.discoveredTests": "Discovered Tests",
+    "native.noTestsDiscovered": "No tests discovered.",
+    "native.invalidBuildProviderLaunchPlan": "The build provider returned an invalid launch plan.",
+    "native.saveProviderRunConfiguration": "Save provider run configuration to .lithe/run/local.json",
+    "native.providerRunSavingUnavailable": "Saving build provider run configurations is unavailable.",
+    "native.loadProviderModelBeforeRun": "Load the current build model and enable its provider before running this configuration.",
+    "native.providerRunSaveConflict": "Run configuration changed while saving. Reload and try again.",
+    "native.savedProviderRunUnavailable": "The saved provider run configuration is unavailable.",
+    "native.providerDebugUnavailable": "The build provider's debug program or adapter is unavailable. Build it again and check that the plugin is enabled."
   },
   "overrides": {
     "windows": {

@@ -295,6 +295,7 @@ package struct ProjectToolchainSelection: Codable, Equatable, Sendable {
 }
 
 package protocol RunConfigurationOperations: Sendable {
+    func saveBuildProviderConfiguration(_ reference: BuildProviderRunReference, name: String, at projectURL: URL) throws -> String
     /// Saves project defaults without modifying any service or requiring generated configurations.
     func saveProjectToolchain(_ toolchain: ProjectToolchainSelection, at projectURL: URL) throws
     func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection
@@ -354,6 +355,9 @@ package protocol RunConfigurationOperations: Sendable {
 }
 
 package extension RunConfigurationOperations {
+    func saveBuildProviderConfiguration(_: BuildProviderRunReference, name: String, at _: URL) throws -> String {
+        throw RunConfigurationOperationFailure(message: L10n.string("Saving build provider run configurations is unavailable."))
+    }
     func inspect(
         at projectURL: URL,
         checkFingerprint _: Bool,

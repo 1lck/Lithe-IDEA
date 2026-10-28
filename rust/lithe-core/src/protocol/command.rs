@@ -115,6 +115,20 @@ pub enum CoreCommand {
     BuildTaskPlan,
     /// Expands a build test run and its result location (`build.testPlan`).
     BuildTestPlan,
+    /// Plans typed provider run preparation (`build.prepareRunPlan`).
+    BuildPrepareRunPlan,
+    /// Resolves optional public build inputs (`build.resolveModelInputs`).
+    BuildResolveModelInputs,
+    /// Plans native debug preparation (`build.prepareDebugPlan`).
+    BuildPrepareDebugPlan,
+    /// Validates native debug target facts (`build.decodeDebugPreparation`).
+    BuildDecodeDebugPreparation,
+    /// Validates prepared launch data (`build.decodeRunPreparation`).
+    BuildDecodeRunPreparation,
+    /// Plans provider-owned test discovery (`build.testDiscoveryPlan`).
+    BuildTestDiscoveryPlan,
+    /// Validates provider-owned test selectors (`build.decodeTestDiscovery`).
+    BuildDecodeTestDiscovery,
     /// Expands the command that prints a project's dependencies (`build.dependencyPlan`).
     BuildDependencyPlan,
     /// Normalizes a build model and derives its run entries (`build.decodeModel`).
@@ -539,6 +553,13 @@ impl CoreCommand {
             "build.modelPlan" => Some(Self::BuildModelPlan),
             "build.taskPlan" => Some(Self::BuildTaskPlan),
             "build.testPlan" => Some(Self::BuildTestPlan),
+            "build.prepareDebugPlan" => Some(Self::BuildPrepareDebugPlan),
+            "build.decodeDebugPreparation" => Some(Self::BuildDecodeDebugPreparation),
+            "build.resolveModelInputs" => Some(Self::BuildResolveModelInputs),
+            "build.prepareRunPlan" => Some(Self::BuildPrepareRunPlan),
+            "build.decodeRunPreparation" => Some(Self::BuildDecodeRunPreparation),
+            "build.testDiscoveryPlan" => Some(Self::BuildTestDiscoveryPlan),
+            "build.decodeTestDiscovery" => Some(Self::BuildDecodeTestDiscovery),
             "build.dependencyPlan" => Some(Self::BuildDependencyPlan),
             "build.decodeModel" => Some(Self::BuildDecodeModel),
             "build.decodeTestResults" => Some(Self::BuildDecodeTestResults),

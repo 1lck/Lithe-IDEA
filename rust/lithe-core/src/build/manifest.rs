@@ -49,6 +49,12 @@ pub(crate) const MAX_CATEGORY_DEPTH: usize = 4;
 pub(crate) struct BuildSystemDeclaration {
     pub(crate) id: String,
     pub(crate) display_name: String,
+    /// Optional, explicit read-only publication of the normalized model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) model_sharing: Option<super::model_inputs::ModelSharing>,
+    /// Exact optional producers; these are not installation dependencies.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) model_inputs: Vec<super::model_inputs::ModelInput>,
     /// Icon of the build system's tool window; display only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) icon: Option<UIIcon>,
@@ -602,7 +608,25 @@ pub(crate) struct TaskDeclaration {
     /// template runs. Display only; empty files the task by `group`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) category: Vec<String>,
+    #[serde(default, skip_serializing_if = "TaskSource::is_command")]
+    pub(crate) source: TaskSource,
     pub(crate) arguments: Vec<BuildArgument>,
+}
+
+/// Whether Core expands a command or a workspace provider executes the task.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum TaskSource {
+    #[default]
+    #[serde(skip_deserializing)]
+    Command,
+    Provider,
+}
+
+impl TaskSource {
+    fn is_command(&self) -> bool {
+        *self == Self::Command
+    }
 }
 
 fn task_execution() -> BuildExecution {
@@ -613,7 +637,13 @@ fn task_execution() -> BuildExecution {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct RunDeclaration {
+    /// A same-package adapter for native executable debug preparation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) debug: Option<RunDebug>,
     pub(crate) id: String,
+    /// Provider runs prepare a launch plan; they never become empty argv entries.
+    #[serde(default, skip_serializing_if = "TaskSource::is_command")]
+    pub(crate) source: TaskSource,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) from_targets: Option<FromTargets>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -631,6 +661,13 @@ pub(crate) struct RunDeclaration {
     /// Metadata stored under `extensions.<buildSystemID>` of the entry.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub(crate) extension: BTreeMap<String, String>,
+}
+
+/// Explicit adapter reference; it never grants cross-package access.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RunDebug {
+    pub(crate) adapter: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -666,6 +703,12 @@ pub(crate) struct TestDeclaration {
     pub(crate) target_tags: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) filters: Vec<TestFilter>,
+    /// Omitted for argv templates; provider sends a typed test request.
+    #[serde(default, skip_serializing_if = "TaskSource::is_command")]
+    pub(crate) source: TaskSource,
+    /// The provider can enumerate exact selectors for the native test tree.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) discovery: bool,
     pub(crate) arguments: Vec<BuildArgument>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) results: Option<TestResultsSource>,
@@ -901,8 +944,12 @@ fn check_target_tags(tags: &mut Vec<String>, scopes: &[Scope], field: &str) -> V
 /// Facts of the rest of the manifest a build-system declaration is checked
 /// against.
 pub(crate) struct DeclarationContext<'a> {
+    pub(crate) debug_adapters: &'a [crate::debug::adapters::DebugAdapterDeclaration],
     pub(crate) plugin_api_version: u32,
     pub(crate) build_systems_version: u32,
+    /// Admission version for provider execution; independent of wire negotiation.
+    pub(crate) build_providers_version: u32,
+    pub(crate) model_inputs_version: u32,
     pub(crate) official: bool,
     /// Setting IDs a provider's launch templates may name.
     pub(crate) declared_settings: &'a crate::plugins::settings::DeclaredSettings,
@@ -987,7 +1034,13 @@ fn program(build_system: &BuildSystemDeclaration) -> Value {
     let tasks: Vec<Value> = build_system
         .tasks
         .iter()
-        .map(|task| json!({ "id": task.id, "arguments": task.arguments }))
+        .map(|task| {
+            let mut review = json!({ "id": task.id, "arguments": task.arguments });
+            if task.source == TaskSource::Provider {
+                review["source"] = json!("provider");
+            }
+            review
+        })
         .collect();
     let model = match &build_system.model {
         Some(ModelSource::Command { arguments, .. }) => json!({ "arguments": arguments }),
@@ -1004,7 +1057,14 @@ fn program(build_system: &BuildSystemDeclaration) -> Value {
         "options": options,
         "tasks": tasks,
         "run": build_system.run,
-        "test": build_system.test.as_ref().map(|test| json!({ "arguments": test.arguments })),
+        "test": build_system.test.as_ref().map(|test| {
+            let mut review = json!({ "arguments": test.arguments });
+            if test.source == TaskSource::Provider {
+                review["source"] = json!("provider");
+            }
+            if test.discovery { review["discovery"] = json!(true); }
+            review
+        }),
         "model": model,
         "dependencies": dependencies,
     });
@@ -1021,7 +1081,7 @@ fn program(build_system: &BuildSystemDeclaration) -> Value {
 
 /// A build-system or run ID: also a run-configuration provider segment, so
 /// it starts with a letter.
-fn is_entry_identifier(value: &str) -> bool {
+pub(super) fn is_entry_identifier(value: &str) -> bool {
     is_identifier(value)
         && value.len() <= MAX_IDENTIFIER
         && value
@@ -1180,6 +1240,11 @@ impl BuildSystemDeclaration {
         self.validate_provider(field, context)?;
         self.validate_detection(field)?;
         let option_ids = self.validate_options(field)?;
+        super::model_inputs::validate_declaration(
+            self,
+            context.model_inputs_version,
+            context.build_providers_version,
+        )?;
         self.validate_invocation(field, &option_ids, context)?;
         let model_templates = self.validate_tasks(field, &option_ids)?;
         self.validate_model(field, &option_ids)?;
@@ -1271,8 +1336,22 @@ impl BuildSystemDeclaration {
     }
 
     fn validate_provider(&self, field: &str, context: &DeclarationContext<'_>) -> Validation<()> {
+        let provider_runs = self
+            .run
+            .iter()
+            .any(|run| run.source == TaskSource::Provider);
+        let provider_tests = self
+            .test
+            .as_ref()
+            .is_some_and(|test| test.source == TaskSource::Provider);
         let uses = matches!(self.model, Some(ModelSource::Provider))
-            || matches!(self.dependencies, Some(DependenciesSource::Provider { .. }));
+            || provider_runs
+            || matches!(self.dependencies, Some(DependenciesSource::Provider { .. }))
+            || provider_tests
+            || self
+                .tasks
+                .iter()
+                .any(|task| task.source == TaskSource::Provider);
         let field = format!("{field}.provider");
         let Some(provider) = &self.provider else {
             if uses {
@@ -1283,8 +1362,45 @@ impl BuildSystemDeclaration {
         if !uses {
             return Err(invalid(
                 field,
-                "No model or dependencies source uses the provider.",
+                "No model, dependencies, task or test source uses the provider.",
             ));
+        }
+        for run in &self.run {
+            if run.debug.is_some() {
+                if context.build_providers_version < 5 {
+                    return Err(invalid(
+                        &field,
+                        "Provider debug preparation requires buildProviders 5.",
+                    ));
+                }
+                super::debug_preparation::adapter(run, context.debug_adapters)?;
+            }
+        }
+        if provider_tests && context.build_providers_version < 3 {
+            return Err(invalid(&field, "Provider tests require buildProviders 3."));
+        }
+        if provider_runs && context.build_providers_version < 4 {
+            return Err(invalid(
+                &field,
+                "Provider run preparation requires buildProviders 4.",
+            ));
+        }
+        if provider_runs
+            || provider_tests
+            || self
+                .tasks
+                .iter()
+                .any(|task| task.source == TaskSource::Provider)
+        {
+            if context.build_providers_version < 2 {
+                return Err(invalid(&field, "Provider tasks require buildProviders 2."));
+            }
+            if !matches!(provider, ProviderDeclaration::Process(_)) {
+                return Err(invalid(
+                    &field,
+                    "Provider execution requires a plugin-owned provider process.",
+                ));
+            }
         }
         match provider {
             ProviderDeclaration::LanguageServer(shared) => {
@@ -1588,6 +1704,15 @@ impl BuildSystemDeclaration {
                     ..Allowed::none()
                 }
             };
+            if task.source == TaskSource::Provider {
+                if !task.arguments.is_empty() || task.execution != BuildExecution::Task {
+                    return Err(invalid(
+                        &field,
+                        "A provider task has empty arguments and task execution.",
+                    ));
+                }
+                continue;
+            }
             check_argument_count(&task.arguments, &format!("{field}.arguments"))?;
             template::validate_arguments(&task.arguments, &allowed, &format!("{field}.arguments"))?;
             if task.requires_user_arguments
@@ -1699,6 +1824,35 @@ impl BuildSystemDeclaration {
                     "Run IDs are unique identifiers that start with a letter.",
                 ));
             }
+            if run.debug.is_some() && run.source != TaskSource::Provider {
+                return Err(invalid(
+                    &field,
+                    "Debug preparation requires a provider run.",
+                ));
+            }
+            if run.source == TaskSource::Provider {
+                let valid_targets = run.from_targets.as_ref().is_some_and(|from| {
+                    !from.tags.is_empty()
+                        && from.tags.len() <= MAX_LIST
+                        && from.tags.iter().all(|tag| is_tag(tag))
+                });
+                if !valid_targets
+                    || run.from_tasks.is_some()
+                    || !run.arguments.is_empty()
+                    || !run.extension.is_empty()
+                    || run
+                        .execution
+                        .is_some_and(|execution| execution != BuildExecution::Application)
+                    || run.name.as_ref().is_some_and(|name| {
+                        name.trim().is_empty() || name.len() > MAX_TEXT || name.contains("${")
+                    })
+                {
+                    return Err(invalid(&field, "Provider runs require target tags, application execution, and no host command templates."));
+                }
+                let from = run.from_targets.as_mut().expect("validated target source");
+                from.tags = sorted_unique(std::mem::take(&mut from.tags));
+                continue;
+            }
             let from_tasks = match (&mut run.from_targets, &mut run.from_tasks) {
                 (Some(targets), None) => {
                     if targets.tags.is_empty() || targets.tags.iter().any(|tag| !is_tag(tag)) {
@@ -1730,6 +1884,14 @@ impl BuildSystemDeclaration {
                             format!("{field}.fromTasks.templates"),
                             format!("{unknown} is not a fromModel task."),
                         ));
+                    }
+                    if self.tasks.iter().any(|task| {
+                        task.source == TaskSource::Provider
+                            && task.from_model
+                            && (tasks.templates.is_empty() || tasks.templates.contains(&task.id))
+                    }) {
+                        return Err(invalid(format!("{field}.fromTasks"),
+                            "Provider tasks need a typed run capability and cannot become command run entries."));
                     }
                     tasks.templates = sorted_unique(std::mem::take(&mut tasks.templates));
                     tasks.executions.sort();
@@ -1804,21 +1966,42 @@ impl BuildSystemDeclaration {
         check_target_tags(&mut test.target_tags, &test.scopes, &field)?;
         test.filters.sort();
         test.filters.dedup();
-        check_argument_count(&test.arguments, &format!("{field}.arguments"))?;
-        template::validate_arguments(
-            &test.arguments,
-            &Allowed {
-                root: true,
-                project: availability(&test.scopes, Scope::Project),
-                target: availability(&test.scopes, Scope::Target),
-                test: true,
-                user_arguments: true,
-                conditions: true,
-                options: Some(options),
-                ..Allowed::none()
-            },
-            &format!("{field}.arguments"),
-        )?;
+        if test.discovery
+            && (test.source != TaskSource::Provider
+                || !test.filters.contains(&TestFilter::Suite)
+                || !test.filters.contains(&TestFilter::Case))
+        {
+            return Err(invalid(
+                &field,
+                "Test discovery requires a provider and suite/case filters.",
+            ));
+        }
+        if test.source == TaskSource::Provider {
+            if !test.arguments.is_empty()
+                || matches!(test.results, Some(TestResultsSource::HostIntegration))
+            {
+                return Err(invalid(
+                    &field,
+                    "Provider tests require empty arguments and plugin-owned reports.",
+                ));
+            }
+        } else {
+            check_argument_count(&test.arguments, &format!("{field}.arguments"))?;
+            template::validate_arguments(
+                &test.arguments,
+                &Allowed {
+                    root: true,
+                    project: availability(&test.scopes, Scope::Project),
+                    target: availability(&test.scopes, Scope::Target),
+                    test: true,
+                    user_arguments: true,
+                    conditions: true,
+                    options: Some(options),
+                    ..Allowed::none()
+                },
+                &format!("{field}.arguments"),
+            )?;
+        }
         match &mut test.results {
             Some(TestResultsSource::JunitXml { reports })
             | Some(TestResultsSource::LitheTestResults { reports }) => {

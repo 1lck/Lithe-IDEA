@@ -237,9 +237,22 @@ final class IdeCapabilitiesFeatureModel: ObservableObject {
         guard let configuration = run.configurations.first(where: { $0.id == id && $0.kind != .currentFile }) else { return failed("NOT_FOUND", "Choose an existing project run configuration") }
         guard !run.moduleSessions.contains(where: { $0.configurationID == id && $0.isRunning }) else { return failed("BUSY", "This configuration is already running") }
         if run.isRunning && run.lastConfiguration?.id == id { return failed("BUSY", "This configuration is already running") }
+        let previousPrimary = run.primaryExecutionID
         let previous = run.moduleSessions.first { $0.configurationID == id }?.executionID
         await model.startAPIConfiguration(configuration)
         try check(model, identity, grant: grant)
+        if configuration.buildProvider != nil {
+            guard let operationID = run.primaryExecutionID, operationID != previousPrimary,
+                  run.lastConfiguration?.id == id else {
+                return failed("LAUNCH_FAILED", "Launch did not start. Check the IDE project readiness and any pending launch decision.")
+            }
+            if !run.isRunning, let exitCode = run.lastExitCode, exitCode != 0 {
+                var result = failed("LAUNCH_FAILED", "Launch failed. Read the operation output for details.")
+                result["operationID"] = "run:" + operationID
+                return result
+            }
+            return ["operationID": "run:" + operationID]
+        }
         guard let session = run.moduleSessions.first(where: { $0.configurationID == id }), session.executionID != previous else { return failed("LAUNCH_FAILED", "Launch did not start. Check the IDE project readiness and any pending launch decision.") }
         if !session.isRunning, let exitCode = session.exitCode, exitCode != 0 {
             var result = failed("LAUNCH_FAILED", "Launch failed. Read the operation output for details.")

@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "reference": {
+    "pluginID": "dev.example.gradle",
+    "buildSystemID": "gradle",
+    "root": "app",
+    "run": "application",
+    "projectID": "project-id",
+    "targetID": "target-id",
+    "userArguments": [
+      "a b",
+      "--literal=one two"
+    ]
+  },
+  "name": "Run Main",
+  "unrelated": {
+    "version": 2,
+    "toolchain": {
+      "java": {
+        "homePath": "/fixture/jdk"
+      }
+    },
+    "configurations": []
+  },
+  "expected": {
+    "inspectionStatus": "ready",
+    "configurationCount": 1,
+    "provider": "build.provider"
+  }
+}
