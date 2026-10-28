@@ -1151,6 +1151,11 @@ def main() -> int:
     if args.settings_functions_fixture_root:
         from settings_functions_acceptance import snapshot_resources
         resource_snapshot = snapshot_resources
+    def package_checkpoint(label, version, archive):
+        from settings_functions_acceptance import verify_installed_archive
+        verify_installed_archive(args.app_local_data / "plugins" / PLUGIN_ID / version,
+                                 archive, artifact_root / "installed-package-invariance" / (label + ".json"))
+
     immutable_before = resource_snapshot(args.run_image.resolve())
     write_json(artifact_root / "resource-hashes-before.json", immutable_before)
     session: AppSession | None = None
@@ -1247,6 +1252,8 @@ def main() -> int:
 
             state_root = args.app_local_data / "plugin-state" / PLUGIN_ID
             lifecycle = None
+            package_checkpoint("installed-v1a", "1.0.0", args.package_v1_a)
+
             if args.lsp_lifecycle:
                 from lsp_lifecycle_acceptance import LspLifecycleAcceptance
                 lifecycle = LspLifecycleAcceptance(sys.modules[__name__], args, reporter, all_owned_fixture_pids)
@@ -1267,6 +1274,8 @@ def main() -> int:
                 wait_catalog(page, "1.0.0", True)
                 # Native catalog queries can finish before React publishes its list.
                 expect(plugin_row(page)).to_have_count(1, timeout=30_000)
+
+            package_checkpoint("restarted-v1a", "1.0.0", args.package_v1_a)
 
             lsp_started = False
             try:
@@ -1295,6 +1304,7 @@ def main() -> int:
                     cleanup_evidence.append(session.stop(require_graceful=True))
                     session = None
                     wait_pids_dead(first_live, "language-server and child cleanup on application exit")
+                    package_checkpoint("lsp-exit-v1a", "1.0.0", args.package_v1_a)
                     session = AppSession(
                         playwright, args.executable.resolve(), args.workspace_one.resolve(),
                         args.webview_data.resolve(), artifact_root / "logs", 3,
@@ -1365,6 +1375,7 @@ def main() -> int:
                 )
 
             with reporter.step("same-version replacement, update, and rollback preserve provenance"):
+                package_checkpoint("before-replacement-v1a", "1.0.0", args.package_v1_a)
                 retained_offsets = lifecycle.snapshot() if lifecycle is not None else None
                 review = import_review(page, session.process.pid, args.package_v1_b.resolve())
                 confirm_review(page, review)
@@ -1377,6 +1388,7 @@ def main() -> int:
                 assert record["disk"]["archiveSha256"] == replacement_digest
                 if lifecycle is not None:
                     lifecycle.retained(page, "1.0.0-b", "same-version replacement", retained_offsets)
+                package_checkpoint("after-replacement-v1b", "1.0.0", args.package_v1_b)
 
                 retained_offsets = lifecycle.snapshot() if lifecycle is not None else None
                 review = import_review(page, session.process.pid, args.package_v2.resolve())
@@ -1390,6 +1402,7 @@ def main() -> int:
                 if lifecycle is not None:
                     lifecycle.retained(page, "1.1.0", "update", retained_offsets)
                     open_plugin_settings(page)
+                package_checkpoint("after-upgrade-v2", "1.1.0", args.package_v2)
 
                 retained_offsets = lifecycle.snapshot() if lifecycle is not None else None
                 select_plugin_details(page).get_by_role("button", name="Roll back…", exact=True).click()
@@ -1398,6 +1411,7 @@ def main() -> int:
                 assert installation_record(args.app_local_data)["disk"]["archiveSha256"] == replacement_digest
                 if lifecycle is not None:
                     lifecycle.retained(page, "1.0.0-b", "rollback", retained_offsets)
+                package_checkpoint("after-rollback-v1b", "1.0.0", args.package_v1_b)
 
             with reporter.step("uninstall removes package and state"):
                 live = set()
@@ -1411,6 +1425,7 @@ def main() -> int:
                     live = wait_for_server_count(state_root, 2)
                     all_owned_fixture_pids.update(live)
                 open_plugin_settings(page)
+                package_checkpoint("before-uninstall-v1b", "1.0.0", args.package_v1_b)
                 select_plugin_details(page).get_by_role("button", name="Uninstall", exact=True).click()
                 expect(plugin_row(page)).to_have_count(0, timeout=45_000)
                 if live:

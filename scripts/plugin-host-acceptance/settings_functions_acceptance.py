@@ -123,6 +123,39 @@ def wait_for(predicate, description, *, now=time.monotonic, pump, seconds=10):
     raise TimeoutError(f"settings/functions deadline: {description}")
 
 
+def verify_installed_archive(package_root: Path, archive: Path, evidence: Path) -> None:
+    """Compare the whole installed tree with bounded, original fixture ZIP bytes."""
+    import hashlib
+    import zipfile
+    expected, total = {}, 0
+    with zipfile.ZipFile(archive) as package:
+        entries = package.infolist()
+        if len(entries) > 1000:
+            raise ValueError("installed fixture archive entry budget exceeded")
+        for entry in entries:
+            name = entry.filename
+            if name.startswith("/") or "\\" in name or any(part in ("", ".", "..") for part in name.rstrip("/").split("/")):
+                raise ValueError("installed fixture archive has an unsafe path")
+            total += entry.file_size
+            if total > 64 * 1024**2:
+                raise ValueError("installed fixture archive byte budget exceeded")
+            for parent in Path(name).parents:
+                if parent.as_posix() != ".":
+                    expected[parent.as_posix() + "/"] = {"kind": "directory"}
+            if entry.is_dir():
+                expected[name] = {"kind": "directory"}
+            else:
+                with package.open(entry) as stream:
+                    digest = hashlib.file_digest(stream, "sha256").hexdigest()
+                expected[name] = {"kind": "file", "bytes": entry.file_size, "sha256": digest}
+    actual = snapshot_resources(package_root)
+    evidence.parent.mkdir(parents=True, exist_ok=True)
+    # Save the actual mutation before raising; a later checkpoint cannot hide it.
+    evidence.write_text(json.dumps({"archiveSha256": sha256(archive), "expected": expected,
+                                   "actual": actual, "diff": resource_diff(expected, actual)}, indent=2) + "\n", encoding="utf-8")
+    assert_resources(expected, actual)
+
+
 def verify_host(identity_path: Path, executable: Path, plan: dict) -> dict:
     identity = json.loads(identity_path.read_text(encoding="utf-8-sig"))
     if (identity.get("identifier") != "app.lithe.windows.host-acceptance"

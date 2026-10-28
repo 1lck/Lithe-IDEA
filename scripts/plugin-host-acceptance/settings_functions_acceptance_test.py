@@ -48,6 +48,27 @@ class SettingsFunctionsHelperTests(unittest.TestCase):
         for asset in self.plan["archives"].values():
             self.assertEqual((self.root / asset["path"]).read_bytes(), (other / asset["path"]).read_bytes())
 
+    def test_installed_archive_checks_full_tree_and_preserves_mutation_evidence(self):
+        archive = self.root / self.plan["archives"]["1.0.0"]["path"]
+        installed = self.directory / "installed"
+        with zipfile.ZipFile(archive) as package:
+            package.extractall(installed)
+        report = self.directory / "checks/before.json"
+        acceptance.verify_installed_archive(installed, archive, report)
+        self.assertFalse(any(json.loads(report.read_text())["diff"].values()))
+        # A runtime-created empty directory is also a package mutation.
+        (installed / "runtime-state").mkdir()
+        failed = report.with_name("after.json")
+        with self.assertRaisesRegex(AssertionError, "read-only resource mutation"):
+            acceptance.verify_installed_archive(installed, archive, failed)
+        self.assertEqual(json.loads(failed.read_text())["diff"]["added"], ["runtime-state/"])
+        (installed / "runtime-state").rmdir()
+        (installed / "server/fake-lsp-server.mjs").write_bytes(b"mutated")
+        with self.assertRaisesRegex(AssertionError, "read-only resource mutation"):
+            acceptance.verify_installed_archive(installed, archive, failed)
+        self.assertEqual(json.loads(failed.read_text())["diff"]["changed"], ["server/fake-lsp-server.mjs"])
+        self.assertFalse(any(json.loads(report.read_text())["diff"].values()))
+
     def test_archive_tampering_is_a_failure(self):
         path = self.root / self.plan["archives"]["1.0.0"]["path"]
         path.write_bytes(path.read_bytes() + b"changed")
