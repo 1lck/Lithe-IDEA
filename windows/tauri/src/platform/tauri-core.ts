@@ -94,6 +94,8 @@ export function invoke<T>(
     gitExecutionSource?: "user" | "background" | "unknown";
     // An adapter install reports npm transfer progress as `platform_invoke` events.
     agentEvents?: Channel<unknown>;
+    /** Retained by an enabled IDE host; delivers request IDs without frontend polling. */
+    ideEvents?: Channel<unknown>;
     /**
      * Returns the shared Core response unchanged instead of the compatibility
      * shape `adaptCoreResult` builds. Byte-faithful consumers need it: the diff
@@ -103,7 +105,7 @@ export function invoke<T>(
     rawCoreResult?: boolean;
   },
 ): Promise<T> {
-  const { gitExecutionSource = "unknown", agentEvents, rawCoreResult = false, ...forwardedOptions } = options ?? {};
+  const { gitExecutionSource = "unknown", agentEvents, ideEvents, rawCoreResult = false, ...forwardedOptions } = options ?? {};
   const adapt = (value: unknown): T =>
     rawCoreResult ? (value as T) : adaptCoreResult<T>(command, args as Record<string, any> | undefined, value);
   // Execution provenance is local metadata; Tauri requires headers only when native options are supplied.
@@ -139,7 +141,7 @@ export function invoke<T>(
   }
   return tauriInvoke<unknown>(
     "platform_invoke",
-    agentEvents === undefined ? { command, args: args ?? {} } : { command, args: args ?? {}, agentEvents },
+    { command, args: args ?? {}, ...(agentEvents ? { agentEvents } : {}), ...(ideEvents ? { ideEvents } : {}) },
     nativeOptions,
   ).then(
     adapt,

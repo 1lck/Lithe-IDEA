@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { invoke } from "@/platform/tauri-core";
+import { Channel, invoke } from "@/platform/tauri-core";
 import { hostControl, IdeCapabilities, type IdePermissions } from "./ide-capabilities";
 
 import { McpConnectionManager, type McpConnectionState } from "./mcp-lifecycle";
@@ -14,8 +14,17 @@ const manager = new McpConnectionManager(
       new IdeCapabilities(workspaceID, root, permissions),
     paths: () => invoke("ide_host_paths"),
     control: hostControl,
-    schedule: (callback) => setTimeout(callback, 200),
-    cancel: (timer) => clearTimeout(timer),
+    now: () => Date.now(),
+    open: (args, receive) => {
+      const channel = new Channel<unknown>();
+      channel.onmessage = (value) => {
+        const event = value as { hostID?: unknown; requestID?: unknown };
+        if (typeof event?.hostID === "string" && typeof event?.requestID === "string") {
+          receive({ hostID: event.hostID, requestID: event.requestID });
+        }
+      };
+      return invoke("ideHost.control", { action: "open", arguments: args }, { ideEvents: channel });
+    },
   },
   (state) => useMcpConnections.setState(state),
 );

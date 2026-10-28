@@ -34,6 +34,11 @@ export function McpSettings({ workspaceID, root }: { workspaceID: string; root: 
         />
         {t("settings.mcp.allowExecute")}
       </label>
+      {connection && (
+        <p role="status" className="text-sm text-text-lighter">
+          {t(`settings.mcp.status.${connection.status}`)}
+        </p>
+      )}
       <div className="flex gap-2">
         <Button
           disabled={busy}
@@ -64,9 +69,9 @@ export function McpSettings({ workspaceID, root }: { workspaceID: string; root: 
           {connection.configuration}
         </pre>
       )}
-      {(error || copyError) && (
+      {(connection?.error || error || copyError) && (
         <p role="alert" className="text-sm text-red-500">
-          {error || copyError}
+          {connection?.error || error || copyError}
         </p>
       )}
     </Section>

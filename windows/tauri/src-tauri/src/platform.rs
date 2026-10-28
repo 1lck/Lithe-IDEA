@@ -24,6 +24,7 @@ pub async fn platform_invoke(
     mut args: Value,
     git_events: Option<tauri::ipc::JavaScriptChannelId>,
     agent_events: Option<tauri::ipc::JavaScriptChannelId>,
+    ide_events: Option<tauri::ipc::JavaScriptChannelId>,
     git_execution: Option<Value>,
 ) -> Result<Value, String> {
     let log_manager = webview
@@ -44,6 +45,7 @@ pub async fn platform_invoke(
     let git_events = git_events.map(|id| id.channel_on::<_, Value>(webview.clone()));
     // An adapter install reports its npm transfer on its own channel, so the
     // panel can show progress for as long as the download runs.
+    let ide_events = ide_events.map(|id| id.channel_on::<_, Value>(webview.clone()));
     let agent_events = agent_events.map(|id| id.channel_on::<_, Value>(webview));
     let preserve_history_rewrite = is_reviewed_history_rewrite(&command, &args);
     let preserve_stash_restore = command == "git_pull"
@@ -116,13 +118,16 @@ pub async fn platform_invoke(
             return lithe_core::execute_json_with_events(&request, events);
         }
         let response = lithe_core::execute_json(&request);
-        if let Some((app, owner)) = ide_owner {
+        if let Some((app, owner)) = &ide_owner {
             // Destruction can run before a blocking open registers its host. Clean
             // up here as well, even if the WebView's awaiting IPC future is gone.
-            if app.get_webview_window(&owner).is_none() {
-                crate::core::close_ide_hosts(&owner);
+            if app.get_webview_window(owner).is_none() {
+                crate::core::close_ide_hosts(owner);
                 return json!({"ok":false,"error":{"message":"The authorized project window was closed"}}).to_string();
             }
+        }
+        if let (Some((_, owner)), Some(channel)) = (&ide_owner, ide_events) {
+            return attach_ide_events(&response, owner, channel);
         }
         response
     })
@@ -151,6 +156,46 @@ pub async fn platform_invoke(
         preserve_history_rewrite,
         preserve_stash_restore,
     )
+}
+
+// The channel is owned by the native broker, not by the lifetime of the open IPC.
+// Closing the host drops it. Notifications cannot execute work without a fresh claim.
+fn attach_ide_events(response: &str, owner: &str, channel: Channel<Value>) -> String {
+    let Ok(envelope) = serde_json::from_str::<Value>(response) else {
+        return response.into();
+    };
+    if envelope["ok"] != true {
+        return response.into();
+    }
+    let Some(host_id) = envelope.pointer("/data/hostID").and_then(Value::as_str) else {
+        return response.into();
+    };
+    let event_host = host_id.to_owned();
+    let result = lithe_core::attach_ide_request_dispatcher(
+        host_id,
+        owner,
+        Arc::new(move |request_id| {
+            channel
+                .send(json!({"hostID":event_host,"requestID":request_id}))
+                .map_err(|error| error.to_string())
+        }),
+    );
+    if let Err(error) = result {
+        let cleanup = lithe_core::execute_json(
+            &json!({"command":"ideHost.control", "payload":{
+                "action":"close", "arguments":{"hostID":host_id}
+            }})
+            .to_string(),
+        );
+        if serde_json::from_str::<Value>(&cleanup)
+            .ok()
+            .is_none_or(|value| value["ok"] != true)
+        {
+            eprintln!("Could not close unattached IDE host");
+        }
+        return json!({"ok":false,"error":{"message":error}}).to_string();
+    }
+    response.into()
 }
 
 /// IDE operation output may describe a failed process while the inspection itself
@@ -957,6 +1002,105 @@ mod tests {
                 .contains("absolute writable storage and helper paths"),
             "{response}"
         );
+    }
+
+    #[test]
+    fn mcp_native_channel_delivers_and_claims_without_frontend_polling() {
+        use serde_json::{json, Value};
+        use std::io::{Read, Write};
+        use std::sync::{Arc, Mutex};
+        use std::time::Duration;
+        use tauri::ipc::{Channel, InvokeResponseBody};
+
+        fn control(action: &str, arguments: Value) -> Value {
+            serde_json::from_str(&lithe_core::execute_json(&json!({"command":"ideHost.control", "payload":{ "action":action, "arguments":arguments }}).to_string())).unwrap()
+        }
+        struct Fixture {
+            root: std::path::PathBuf,
+            host: String,
+        }
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                control("close", json!({"hostID":self.host}));
+                let _ = std::fs::remove_dir_all(&self.root);
+            }
+        }
+        let root = std::env::temp_dir().join(format!(
+            "lithe-mcp-channel-{}-{}",
+            std::process::id(),
+            super::REQUEST_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let mut fixture = Fixture {
+            root: root.clone(),
+            host: String::new(),
+        };
+        let helper = root.join("helper.exe");
+        std::fs::write(&helper, b"immutable").unwrap();
+        let opened = control(
+            "open",
+            json!({"directory":root.join("data"), "workspaceKey":"fixture", "helperPath":helper,
+            "permissions":{"configure":false,"execute":false}, "ownerId":"fixture-window"}),
+        );
+        assert_eq!(opened["ok"], true, "{opened}");
+        fixture.host = opened["data"]["hostID"].as_str().unwrap().into();
+        let captured = Arc::new(Mutex::new(Vec::<Value>::new()));
+        let recorder = captured.clone();
+        let channel = Channel::<Value>::new(move |body| {
+            let InvokeResponseBody::Json(text) = body else {
+                panic!("expected JSON")
+            };
+            let event: Value = serde_json::from_str(&text).unwrap();
+            let claimed = control("claim", event.clone());
+            assert_eq!(claimed["data"]["request"]["name"], "lithe_project_inspect");
+            let delivered = control(
+                "respond",
+                json!({"hostID":event["hostID"],"requestID":event["requestID"],"result":{"workspaceID":"fixture"}}),
+            );
+            assert_eq!(delivered["data"]["delivered"], true);
+            recorder.lock().unwrap().push(event);
+            Ok(())
+        });
+        let attached: Value = serde_json::from_str(&super::attach_ide_events(
+            &opened.to_string(),
+            "fixture-window",
+            channel,
+        ))
+        .unwrap();
+        assert_eq!(attached["ok"], true, "{attached}");
+        let descriptor_path = opened["data"]["configuration"]["mcpServers"]["lithe"]["args"][1]
+            .as_str()
+            .unwrap();
+        let descriptor: Value =
+            serde_json::from_slice(&std::fs::read(descriptor_path).unwrap()).unwrap();
+        let address: std::net::SocketAddr = descriptor["endpoint"]
+            .as_str()
+            .unwrap()
+            .strip_prefix("http://")
+            .unwrap()
+            .strip_suffix("/call")
+            .unwrap()
+            .parse()
+            .unwrap();
+        let mut stream =
+            std::net::TcpStream::connect_timeout(&address, Duration::from_secs(2)).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        stream
+            .set_write_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let body = r#"{"name":"lithe_project_inspect","arguments":{}}"#;
+        write!(stream,"POST /call HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",descriptor["token"].as_str().unwrap(),body.len(),body).unwrap();
+        let mut response = String::new();
+        stream.take(65536).read_to_string(&mut response).unwrap();
+        assert!(
+            response.contains(r#""workspaceID":"fixture""#),
+            "{response}"
+        );
+        assert_eq!(captured.lock().unwrap().len(), 1);
+        assert_eq!(captured.lock().unwrap()[0]["hostID"], fixture.host);
+        assert_eq!(std::fs::read(helper).unwrap(), b"immutable");
     }
 
     #[test]

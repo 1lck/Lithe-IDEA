@@ -719,6 +719,16 @@ jobs:
         timeout-minutes: 20
         run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope SharedRust -SuiteTimeoutSeconds 1080
 
+      - name: Verify Windows MCP stdio protocol
+        if: needs.changes.outputs.rust_core == 'true'
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          cargo build --locked --manifest-path rust/Cargo.toml -p lithe-ide-host --features mcp --bin lithe-mcp
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/mcp-protocol.junit.xml scripts/test-ide-mcp.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Test Windows Rust host
         if: needs.changes.outputs.windows_rust == 'true'
         shell: pwsh

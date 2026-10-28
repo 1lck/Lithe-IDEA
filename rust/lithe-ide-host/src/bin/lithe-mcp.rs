@@ -25,10 +25,10 @@ impl ServerHandler for Ide {
             .map(serde_json::from_value)
             .collect::<Result<Vec<Tool>, _>>()
             .map_err(|_| ErrorData::internal_error("Invalid IDE tool catalog", None))?;
-        Ok(ListToolsResult {
-            tools,
-            ..Default::default()
-        })
+        // New protocol revisions require explicit cache policy on list results.
+        Ok(ListToolsResult::with_all_items(tools)
+            .with_ttl_ms(0)
+            .with_cache_scope(CacheScope::Private))
     }
     async fn call_tool(
         &self,

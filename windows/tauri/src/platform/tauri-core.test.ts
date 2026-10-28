@@ -1,8 +1,10 @@
 import { beforeEach, expect, mock, test } from "bun:test";
 
 const tauriInvoke = mock(async () => undefined);
+const nativeCore = await import("@tauri-apps/api/core");
 
 mock.module("@tauri-apps/api/core", () => ({
+  ...nativeCore,
   Channel: class {},
   convertFileSrc: (path: string) => path,
   isTauri: () => true,
@@ -192,4 +194,12 @@ test("reading the WSL automount root reaches the host as a terminal command", as
 test("other WSL commands stay behind the unavailable wsl capability", async () => {
   await expect(invoke("wsl_list_distributions")).rejects.toThrow(/wsl \(wsl_list_distributions\)/);
   expect(tauriInvoke).not.toHaveBeenCalled();
+});
+
+
+test("IDE open forwards its retained native request channel separately from progress events", async () => {
+  const ideEvents = new Channel<unknown>();
+  const args = { action: "open", arguments: { workspaceKey: "fixture" } };
+  await invoke("ideHost.control", args, { ideEvents });
+  expect(tauriInvoke).toHaveBeenCalledWith("platform_invoke", { command: "ideHost.control", args, ideEvents }, undefined);
 });

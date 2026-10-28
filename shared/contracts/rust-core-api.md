@@ -4062,6 +4062,11 @@ Fixtures live in `shared/fixtures/process-lifecycle/settle-v1.json`.
 `lithe-ide-host` adapter. This local host command is not remotely exposed. See
 [IDE API v1](ide-api/v1.md) for the allowlisted plugin/MCP capabilities, connection
 ownership, authorization, output cursors and shutdown semantics.
+Native Rust hosts can attach an owner-checked, connection-lifetime callback using
+`attach_ide_request_dispatcher`; this is separate from the request-scoped Git/Agent
+progress callback. It forwards notification IDs only. `ideHost.control` action
+`claim` atomically returns an unexpired, unclaimed request or null before any
+application action. Closing the connection releases the callback.
 
 ### Java service hot replacement
 

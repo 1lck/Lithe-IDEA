@@ -71606,6 +71606,27 @@
       ]
     },
     {
+      "id": "settings.mcp.status.active",
+      "description": "Windows IDE MCP request status: active",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.mcp.status.failed",
+      "description": "Windows IDE MCP request status: failed",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.mcp.status.waiting",
+      "description": "Windows IDE MCP request status: waiting",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
       "id": "settings.mcp.title",
       "description": "Windows UI: settings.mcp.title",
       "platforms": [
