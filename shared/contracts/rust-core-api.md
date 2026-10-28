@@ -3066,6 +3066,10 @@ instead of claiming fingerprint freshness or inferred removals when either the
 current scan or saved baseline is incomplete. The persisted diagnostic also appears
 with `checkFingerprint: false`; a successful complete regeneration clears it.
 This does not replace declared build-system modules or JDT's entrypoint facts.
+The bounded Java source list stops opening further directories once its source
+limit is reached, retains only collected Java paths, and returns them sorted.
+Full fingerprint scans remain uncapped by this list limit and keep reporting
+unreadable inputs independently.
 
 `runConfig.inspect` also accepts optional schema-versioned `javaEntrypoints`
 from the current `lsp.request` result, independent of `checkFingerprint`. Core
