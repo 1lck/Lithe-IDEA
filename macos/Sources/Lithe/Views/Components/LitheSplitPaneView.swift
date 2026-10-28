@@ -51,6 +51,7 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
     @State private var dragStart: CGFloat = 0
     @State private var isDragging = false
     @Environment(\.isLithePaneResizing) private var ancestorIsDragging
+    @Environment(\.splitHandleHitTestRegistry) private var hitTestRegistry
 
     init(
         axis: LitheSplitAxis,
@@ -112,6 +113,7 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
         switch placement {
         case .leading:
             sizedPane
+                .environment(\.splitHandleHitTestRegistry, isSizedPaneCollapsed ? nil : hitTestRegistry)
                 .opacity(isSizedPaneCollapsed ? 0 : 1)
                 .allowsHitTesting(!isSizedPaneCollapsed)
                 .accessibilityHidden(isSizedPaneCollapsed)
@@ -121,6 +123,7 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
             flexiblePane
             handle(size)
             sizedPane
+                .environment(\.splitHandleHitTestRegistry, isSizedPaneCollapsed ? nil : hitTestRegistry)
                 .opacity(isSizedPaneCollapsed ? 0 : 1)
                 .allowsHitTesting(!isSizedPaneCollapsed)
                 .accessibilityHidden(isSizedPaneCollapsed)
@@ -155,6 +158,7 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
             trackBackground: trackBackground,
             dividerColor: dividerColor,
             showsIdleDivider: showsIdleDivider,
+            isHitTestEnabled: !isSizedPaneCollapsed,
             onDragStarted: {
                 dragStart = size
                 isDragging = true
