@@ -7,6 +7,7 @@
  * --step-timeout-ms defaults to 60000; --timeout-ms defaults to 120000
  * (minimum 25000, including a 20000ms cleanup reserve).
  * --mode native-tree drives real browser keyboard/menu/focus regressions.
+ * --mode form-grid checks native-controls geometry and editing across 640px.
  * --mode lifecycle --inject-failure worker-exit|worker-hang verifies fail-closed
  * cleanup without Vite/browser dependencies; expected red reports are separate.
  */
@@ -24,6 +25,260 @@ const app = path.join(root, "windows/tauri");
 const require = createRequire(path.join(app, "package.json"));
 const started = performance.now();
 const textError = (error) => String(error?.stack ?? error);
+
+async function nativeFormGridRegression(page, step) {
+  const snapshots = [];
+  let primaryError;
+  const check = (condition, message) => {
+    if (!condition) throw new Error(message);
+  };
+  const phase = async (name, action) => {
+    const begin = performance.now();
+    const observation = await step(name, action);
+    snapshots.push({ name, durationMs: performance.now() - begin, observation });
+  };
+  const grid = page.locator(".plugin-native-grid");
+  const labels = await page.evaluate(() =>
+    window.nativeFormGridProbe.ui.controls.map((c) => c.label),
+  );
+  const input = page.getByRole("textbox", { name: labels[0], exact: true });
+  const draft = "R22 draft English";
+  try {
+    await phase("12-column fixture ready; retain all control nodes", async () => {
+      await input.waitFor({ state: "visible" });
+      await page.waitForFunction(() => document.fonts.status === "loaded");
+      return grid.evaluate((element) => {
+        const controls = window.nativeFormGridProbe.ui.controls;
+        if (
+          window.nativeFormGridProbe.ui.layout.columns !== 12 ||
+          controls.some((c) => c.span !== 6)
+        )
+          throw new Error("native-controls fixture layout changed");
+        window.nativeFormGridNodes = [
+          ...element.querySelectorAll("input,textarea,button,fieldset"),
+        ];
+        window.nativeFormGridFields = [...element.children];
+        if (element.children.length !== controls.length) throw new Error("missing declared fields");
+        return { columns: 12, spans: controls.map((c) => c.span), fields: controls.length };
+      });
+    });
+    await input.click();
+    await input.press("ControlOrMeta+A");
+    await page.keyboard.type(draft);
+    // Keep the 2600px viewport fixed and resize only the fixture container.
+    // This distinguishes a container query from a viewport media query.
+    for (const [name, width, tracks] of [
+      ["wide", 900, 12],
+      ["below-640", 639, 1],
+      ["at-640", 640, 12],
+      ["wide-again", 900, 12],
+    ]) {
+      await phase(`${name}: span geometry, identity, draft and editing focus`, async () => {
+        try {
+          // Calibrate the real content width: a vertical scrollbar can appear
+          // during reflow, so padding alone is not the host-to-grid inset.
+          await page.waitForFunction(
+            (expected) => {
+              const host = document.getElementById("probe");
+              const grid = host.querySelector(".plugin-native-grid");
+              const delta = expected.width - grid.getBoundingClientRect().width;
+              if (Math.abs(delta) > 0.01) {
+                host.style.width = `${host.getBoundingClientRect().width + delta}px`;
+                return false;
+              }
+              return (
+                getComputedStyle(grid).gridTemplateColumns.split(" ").length === expected.tracks
+              );
+            },
+            { width, tracks },
+            { timeout: 3000, polling: "raf" },
+          );
+        } catch (error) {
+          const diagnostic = await grid.evaluate((element) => {
+            const form = element.closest(".plugin-native-form");
+            return {
+              gridWidth: element.getBoundingClientRect().width,
+              hostWidth: document.getElementById("probe").getBoundingClientRect().width,
+              formWidth: form.getBoundingClientRect().width,
+              clientWidth: form.clientWidth,
+              scrollHeight: form.scrollHeight,
+              clientHeight: form.clientHeight,
+              template: getComputedStyle(element).gridTemplateColumns,
+            };
+          });
+          throw new Error(
+            `${name}: content width ${width}px / ${tracks} tracks did not settle within 3000ms; ${JSON.stringify(diagnostic)}; ${textError(error)}`,
+          );
+        }
+        const result = await grid.evaluate(
+          (element, expected) => {
+            const fields = [...element.children];
+            const nodes = [...element.querySelectorAll("input,textarea,button,fieldset")];
+            if (
+              fields.some((field, i) => field !== window.nativeFormGridFields[i]) ||
+              nodes.length !== window.nativeFormGridNodes.length ||
+              nodes.some((node, i) => node !== window.nativeFormGridNodes[i])
+            )
+              throw new Error("control DOM identity changed during reflow");
+            const boxes = fields.map((field) => field.getBoundingClientRect().toJSON());
+            const rect = element.getBoundingClientRect();
+            const gap = parseFloat(getComputedStyle(element).columnGap);
+            const close = (a, b) => Math.abs(a - b) < 1;
+            if (!close(rect.width, expected.width))
+              throw new Error("wrong container content width");
+            boxes.forEach((box, index) => {
+              const columns = expected.tracks === 1 ? 1 : 2;
+              const expectedWidth = (rect.width - gap * (columns - 1)) / columns;
+              if (
+                !close(box.width, expectedWidth) ||
+                !close(box.x, rect.x + (index % columns) * (expectedWidth + gap)) ||
+                (columns === 2 && index % 2 === 1 && !close(box.y, boxes[index - 1].y)) ||
+                (index >= columns &&
+                  !close(
+                    box.y,
+                    Math.max(
+                      ...boxes
+                        .slice(index - (index % columns) - columns, index - (index % columns))
+                        .map((b) => b.bottom),
+                    ) + gap,
+                  ))
+              )
+                throw new Error(`field ${index} violated span packing/top alignment`);
+            });
+            const controls = window.nativeFormGridProbe.ui.controls;
+            fields.forEach((field, index) => {
+              const control = controls[index];
+              if (control.enabled !== false) return;
+              if (control.kind === "segmented") {
+                const fieldset = field.querySelector("fieldset");
+                const choices = [
+                  ...field.querySelectorAll('button[data-slot="toggle-group-item"]'),
+                ];
+                if (
+                  !fieldset?.disabled ||
+                  choices.length !== control.options.length ||
+                  choices.some((choice) => !choice.matches(":disabled"))
+                )
+                  throw new Error(`${control.id}: fieldset/button disabled semantics lost`);
+                return;
+              }
+              const input = field.querySelector(`[aria-label=${JSON.stringify(control.label)}]`);
+              if (!(input?.matches(":disabled") || input?.getAttribute("aria-disabled") === "true"))
+                throw new Error(`${control.id}: disabled semantics lost`);
+            });
+            return {
+              containerWidth: rect.width,
+              viewportWidth: innerWidth,
+              tracks: expected.tracks,
+              gap,
+              boxes,
+            };
+          },
+          { width, tracks },
+        );
+        check((await input.inputValue()) === draft, "local draft changed");
+        check(await input.evaluate((el) => document.activeElement === el), "editing focus lost");
+        check(
+          (await page.evaluate(() => window.nativeFormGridProbe.calls.length)) === 0,
+          "reflow/edit invoked port",
+        );
+        return result;
+      });
+    }
+    await phase(
+      "disabled field InfoTip and shared readOnly primitive retain semantics",
+      async () => {
+        const disabled = page.getByRole("textbox", { name: labels[5], exact: true });
+        check(await disabled.isDisabled(), "disabled input enabled");
+        const info = page.getByRole("button", {
+          name: `Information for ${labels[5]}`,
+          exact: true,
+        });
+        await info.click();
+        await page.getByRole("dialog").waitFor({ state: "visible" });
+        check(
+          (await page.getByRole("dialog").textContent()) ===
+            (await page.evaluate(() => window.nativeFormGridProbe.ui.controls[5].info)),
+          "InfoTip content changed",
+        );
+        await info.click();
+        await page.getByRole("dialog").waitFor({ state: "detached" });
+        const readonly = page.getByRole("textbox", { name: "ReadOnly primitive", exact: true });
+        check(
+          await readonly.evaluate((el) => el.readOnly && !el.disabled),
+          "readOnly primitive flags changed",
+        );
+        await readonly.click();
+        await readonly.press("ControlOrMeta+A");
+        await page.keyboard.type("must not edit");
+        check((await readonly.inputValue()) === "fixed query", "readOnly value changed");
+        check(
+          await page
+            .locator("[data-readonly-probe]")
+            .getByRole("button", { name: "Clear search" })
+            .isDisabled(),
+          "readOnly clear enabled",
+        );
+        return { nativeReadOnly: "not declared by schema 1; shared SearchField only" };
+      },
+    );
+    await phase("Return submits complete current values exactly once", async () => {
+      await input.click();
+      await input.press("Enter");
+      await page.waitForFunction(
+        () =>
+          window.nativeFormGridProbe.calls.length === 1 &&
+          !document.querySelector(".plugin-native-grid input").disabled,
+      );
+      const calls = await page.evaluate(() => window.nativeFormGridProbe.calls);
+      const expected = await page.evaluate(
+        (value) =>
+          Object.fromEntries(
+            window.nativeFormGridProbe.ui.controls.map((c) => [
+              c.id,
+              c.id === "name" ? value : c.value,
+            ]),
+          ),
+        draft,
+      );
+      // The typed port uses undefined for no selection; the native bridge is
+      // responsible for encoding that absence as provider JSON null.
+      check(
+        calls.length === 1 &&
+          calls[0].action === "changed" &&
+          calls[0].context.selectedID === undefined,
+        "wrong submission count/action/selection",
+      );
+      check(
+        JSON.stringify(calls[0].context.values) === JSON.stringify(expected),
+        "submission omitted or changed field values",
+      );
+      return { calls, expected };
+    });
+    return { snapshots };
+  } catch (error) {
+    primaryError = error;
+    throw error;
+  } finally {
+    try {
+      await step(
+        "dispose form-grid fixture",
+        () =>
+          page.evaluate(() => {
+            window.nativeFormGridProbe.dispose();
+            delete window.nativeFormGridNodes;
+            delete window.nativeFormGridFields;
+            if (document.querySelector('[role="dialog"]')) throw new Error("InfoTip portal leaked");
+          }),
+        5000,
+      );
+    } catch (error) {
+      throw new Error(
+        `${primaryError ? textError(primaryError) + "; " : ""}fixture cleanup: ${textError(error)}`,
+      );
+    }
+  }
+}
 
 // Playwright drives the browser's default keyboard path; fixture evaluation is
 // limited to controlled port gates, DOM observation and deliberate scrolling.
@@ -288,6 +543,12 @@ async function worker(options) {
     }
   };
   try {
+    const fixtureFile =
+      options.mode === "native-tree"
+        ? "native-tree.browser-test.tsx"
+        : options.mode === "form-grid"
+          ? "native-form-grid.browser-test.tsx"
+          : "native-panel.browser-test.tsx";
     const { createServer } = await step(
       "load Vite",
       () => import(pathToFileURL(require.resolve("vite")).href),
@@ -307,11 +568,7 @@ async function worker(options) {
         configFile: path.join(app, "vite.config.ts"),
         cacheDir: path.join(options.scratch, "cache"),
         optimizeDeps: {
-          entries: [
-            options.mode === "native-tree"
-              ? "src/features/plugins/native-ui/native-tree.browser-test.tsx"
-              : "src/features/plugins/native-ui/native-panel.browser-test.tsx",
-          ],
+          entries: [`src/features/plugins/native-ui/${fixtureFile}`],
         },
         server: { port: 0, host: "127.0.0.1", open: false },
         plugins: [
@@ -340,7 +597,13 @@ async function worker(options) {
               window.nativeTreeProbe = mountNativeTreeBrowserTest(document.getElementById('probe'));
               window.runNativePanelTest = () => true;
               `
-                  : `
+                  : options.mode === "form-grid"
+                    ? `
+              const { mountNativeFormGridBrowserTest } = await import('/src/features/plugins/native-ui/native-form-grid.browser-test.tsx');
+              window.nativeFormGridProbe = mountNativeFormGridBrowserTest(document.getElementById('probe'));
+              window.runNativePanelTest = () => true;
+              `
+                    : `
               const { testNativeActionGroupLayout } = await import('/src/features/plugins/native-ui/native-panel.browser-test.tsx');
               window.runNativePanelTest = () => testNativeActionGroupLayout(document.getElementById('probe'));
               `
@@ -420,9 +683,11 @@ async function worker(options) {
     evidence.component =
       options.mode === "native-tree"
         ? await nativeTreeRegression(page, step)
-        : await step("six-stage component regression", () =>
-            page.evaluate(() => window.runNativePanelTest()),
-          );
+        : options.mode === "form-grid"
+          ? await nativeFormGridRegression(page, step)
+          : await step("six-stage component regression", () =>
+              page.evaluate(() => window.runNativePanelTest()),
+            );
     evidence.windowErrors = await step("collect window errors", () =>
       page.evaluate(() => window.nativePanelWindowErrors),
     );
@@ -490,8 +755,8 @@ async function main() {
     }
     if (process.platform !== "win32")
       throw new Error("This runner requires Windows process-tree cleanup");
-    if (!["action-group", "native-tree", "lifecycle"].includes(options.mode))
-      throw new Error("mode must be action-group, native-tree or lifecycle");
+    if (!["action-group", "native-tree", "form-grid", "lifecycle"].includes(options.mode))
+      throw new Error("mode must be action-group, native-tree, form-grid or lifecycle");
     if (
       options.mode === "lifecycle" &&
       !["worker-exit", "worker-hang"].includes(options.injectFailure)
@@ -635,7 +900,8 @@ async function main() {
     }
     const evidence = result.evidence;
     if (
-      evidence.component?.snapshots?.length !== (options.mode === "native-tree" ? 7 : 6) &&
+      evidence.component?.snapshots?.length !==
+        (["native-tree", "form-grid"].includes(options.mode) ? 7 : 6) &&
       !evidence.error
     )
       throw new Error("Expected all component regression stages");
@@ -722,14 +988,21 @@ async function main() {
           suite:
             options.mode === "native-tree"
               ? "native-tree.browser-test.tsx"
-              : "native-panel.browser-test.tsx",
+              : options.mode === "form-grid"
+                ? "native-form-grid.browser-test.tsx"
+                : "native-panel.browser-test.tsx",
           status: result.exitCode === 0 ? "passed" : "failed",
           durationMs: result.durationMs,
           message: result.error ?? result.cleanup.error,
         },
         ...(result.evidence?.component?.snapshots ?? []).map((stage) => ({
           name: stage.name,
-          suite: options.mode === "native-tree" ? "native-tree keyboard" : "native-panel geometry",
+          suite:
+            options.mode === "native-tree"
+              ? "native-tree keyboard"
+              : options.mode === "form-grid"
+                ? "native-form grid"
+                : "native-panel geometry",
           status: "passed",
           durationMs: stage.durationMs,
         })),

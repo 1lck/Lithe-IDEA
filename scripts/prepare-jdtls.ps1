@@ -152,6 +152,14 @@ if ($usesExistingRoot) {
     exit 0
 }
 
+# MSYS/GNU tar can interpret an absolute Windows drive prefix as a remote host.
+# Resolve the Windows-owned executable independently of PATH before downloading
+# resources or replacing an existing output tree.
+$tarExecutable = Join-Path ([Environment]::SystemDirectory) "tar.exe"
+if (-not (Test-Path -LiteralPath $tarExecutable -PathType Leaf)) {
+    throw "Native Windows tar was not found: $tarExecutable"
+}
+
 New-Item -ItemType Directory -Force -Path $cache | Out-Null
 if ($archiveUsesOverride) {
     if (-not (Test-Path -LiteralPath $archive -PathType Leaf)) { throw "JDTLS archive was not found: $archive" }
@@ -170,7 +178,12 @@ Get-VerifiedDownload -Uri $manifest.javaTestLicenseURL -ExpectedSHA256 $javaTest
 
 if (Test-Path -LiteralPath $output) { Remove-Item -Recurse -Force -LiteralPath $output }
 New-Item -ItemType Directory -Force -Path $output | Out-Null
-tar.exe -xzf $archive -C $output
+& $tarExecutable -xzf $archive -C $output
+if ($LASTEXITCODE -ne 0) {
+    # Leave the original native diagnostic in the error stream and stop before
+    # copying licenses or generating launchers into a partial extraction.
+    throw "JDTLS archive extraction failed (native tar exit $LASTEXITCODE): $archive"
+}
 Copy-Item -LiteralPath $license -Destination (Join-Path $output "LICENSE-EPL-2.0.txt") -Force
 Copy-Item -LiteralPath $manifestPath -Destination (Join-Path $output "manifest.json") -Force
 $lombokOutput = Join-Path $output "lombok"

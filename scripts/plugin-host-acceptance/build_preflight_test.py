@@ -3,17 +3,22 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import io
 import json
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
+import tarfile
 import time
+import zipfile
 from pathlib import Path
 
 from acceptance_driver import OwnedProcess, process_exit_proven, run_bounded_process, wait_until
 from acceptance_driver_test import run_case
+from vcs_move_diagnostic import WindowsJob, supervised
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -24,6 +29,7 @@ def main() -> int:
     args = parser.parse_args()
     tests = []
     process_cleanup = []
+    archive_jobs = []
     scratch = None
     deadline = time.monotonic() + 180
     try:
@@ -43,9 +49,136 @@ def main() -> int:
             version = run_bounded_process([str(native / "bun.exe"), "--version"], 5).stdout.strip()
             package = app / "package.json"
             package.write_text(json.dumps({"packageManager": "bun@" + version}), encoding="utf-8")
-            for name in ("windows-build-preflight.ps1", "build-windows.ps1", "install-windows-frontend-dependencies.ps1", "invoke-windows-tauri-build.ps1"):
+            for name in ("windows-build-preflight.ps1", "build-windows.ps1", "install-windows-frontend-dependencies.ps1", "invoke-windows-tauri-build.ps1", "prepare-jdtls.ps1"):
                 shutil.copyfile(ROOT / "scripts" / name, scripts / name)
             powershell = shutil.which("pwsh")
+
+            def jdtls_fixture(name, *, corrupt_archive=False):
+                fixture = root / name
+                fixture_scripts = fixture / "scripts"
+                fixture_scripts.mkdir(parents=True)
+                shutil.copyfile(scripts / "prepare-jdtls.ps1", fixture_scripts / "prepare-jdtls.ps1")
+                jdt = fixture / "third_party/jdtls"
+                jdt.mkdir(parents=True)
+                jdk = fixture / "third_party/jdk"
+                jdk.mkdir(parents=True)
+                (jdk / "manifest.json").write_text('{"version":"21.0.0"}', encoding="utf-8")
+                cache = fixture / ".artifacts/jdtls-downloads"
+                cache.mkdir(parents=True)
+                manifest = json.loads((ROOT / "third_party/jdtls/manifest.json").read_text(encoding="utf-8"))
+                # All payloads are tiny, locally generated fixture bytes. The
+                # real preparation script still checks every declared SHA.
+                manifest.update(version="1-fixture", lombokVersion="1", javaDebugExtensionVersion="1",
+                                javaDebugServerVersion="1", javaTestExtensionVersion="1", javaTestPluginVersion="1")
+                payload = io.BytesIO()
+                with tarfile.open(fileobj=payload, mode="w:gz") as archive:
+                    for filename in ("bin/jdtls.ps1", "bin/jdtls.bat", "plugins/org.eclipse.equinox.launcher_fixture.jar",
+                                     "config_mac/config.ini", "config_win/config.ini"):
+                        data = b"offline fixture\n"
+                        entry = tarfile.TarInfo(filename)
+                        entry.size = len(data)
+                        archive.addfile(entry, io.BytesIO(data))
+                archive_bytes = b"not a gzip archive\n" if corrupt_archive else payload.getvalue()
+                archive_path = fixture / "absolute archive with spaces.tar.gz"
+                archive_path.write_bytes(archive_bytes)
+                manifest["archiveSHA256"] = hashlib.sha256(archive_bytes).hexdigest()
+
+                def cached(field, filename, data):
+                    digest = hashlib.sha256(data).hexdigest()
+                    manifest[field + "SHA256"] = digest
+                    manifest[field + "URL"] = "https://offline.invalid/not-requested"
+                    (cache / filename.format(hash=digest)).write_bytes(data)
+
+                cached("license", "EPL-2.0-{hash}.txt", b"fixture EPL")
+                cached("lombok", "lombok-1-{hash}.jar", b"fixture lombok")
+                cached("lombokLicense", "lombok-MIT-1-{hash}.txt", b"fixture lombok MIT")
+                debug_plugin = b"fixture debug plugin"
+                manifest["javaDebugPluginSHA256"] = hashlib.sha256(debug_plugin).hexdigest()
+                debug_zip = io.BytesIO()
+                with zipfile.ZipFile(debug_zip, "w") as archive:
+                    archive.writestr("extension/server/com.microsoft.java.debug.plugin-1.jar", debug_plugin)
+                cached("javaDebugArchive", "vscode-java-debug-1-{hash}.zip", debug_zip.getvalue())
+                cached("javaDebugLicense", "java-debug-EPL-1.0-1-{hash}.txt", b"fixture debug EPL")
+                test_plugin, test_runner = b"fixture test plugin", b"fixture test runner"
+                manifest["javaTestPluginSHA256"] = hashlib.sha256(test_plugin).hexdigest()
+                manifest["javaTestRunnerSHA256"] = hashlib.sha256(test_runner).hexdigest()
+                test_zip = io.BytesIO()
+                with zipfile.ZipFile(test_zip, "w") as archive:
+                    archive.writestr("extension/package.json", json.dumps({"contributes": {"javaExtensions": ["./server/com.microsoft.java.test.plugin-1.jar"]}}))
+                    archive.writestr("extension/server/com.microsoft.java.test.plugin-1.jar", test_plugin)
+                    archive.writestr("extension/server/com.microsoft.java.test.runner-jar-with-dependencies.jar", test_runner)
+                cached("javaTestArchive", "vscode-java-test-1-{hash}.zip", test_zip.getvalue())
+                cached("javaTestLicense", "java-test-MIT-1-{hash}.txt", b"fixture test MIT")
+                (jdt / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+                fake_tar = fixture / "fake GNU tar"
+                fake_tar.mkdir()
+                # An executable named tar.exe at the front of PATH must never
+                # be launched. Node without its normal arguments rejects -xzf.
+                shutil.copyfile(native / "bun.exe", fake_tar / "tar.exe")
+                return fixture
+
+            def jdtls_job(fixture, code, expected=0):
+                remaining = min(25, deadline-time.monotonic())
+                assert remaining > 0, "preflight suite deadline exhausted"
+                script = fixture / "case.ps1"
+                script.write_text("""$ErrorActionPreference='Stop'
+Set-Location $PSScriptRoot
+$env:LITHE_JDTLS_ROOT=''
+$env:LITHE_JDTLS_ARCHIVE=Join-Path $PSScriptRoot 'absolute archive with spaces.tar.gz'
+$env:PATH=(Join-Path $PSScriptRoot 'fake GNU tar')+[IO.Path]::PathSeparator+$env:PATH
+function global:Invoke-WebRequest { throw 'offline fixture attempted a download' }
+""" + code, encoding="utf-8")
+                log = fixture / "job.log"
+                row = supervised([powershell, "-NoProfile", "-File", str(script)], remaining, log, WindowsJob)
+                archive_jobs.append({"fixture": fixture.name, **row})
+                output = log.read_text(encoding="utf-8", errors="replace")
+                assert row.get("cleanup", {}).get("jobTerminated") is True and row["cleanup"]["activeProcesses"] == 0, row
+                assert row.get("exitCode") == expected and row.get("status") == ("passed" if expected == 0 else "failed"), output
+                return output
+
+            def native_tar_ignores_path_and_extracts_absolute_space_paths():
+                fixture = jdtls_fixture("JDT success with spaces")
+                output = jdtls_job(fixture, """
+$fake=Join-Path $PSScriptRoot 'fake GNU tar/tar.exe'
+if((Get-Command tar.exe).Source -ne $fake){throw 'fixture did not prepend fake GNU tar'}
+& ./scripts/prepare-jdtls.ps1 -OutputDirectory (Join-Path $PSScriptRoot '.artifacts/JDT output with spaces')
+""")
+                target = fixture / ".artifacts/JDT output with spaces"
+                assert (target / "config_win/config.ini").read_bytes() == b"offline fixture\n", output
+                assert "-javaagent:" in (target / "bin/jdtls.ps1").read_text()
+                assert (target / "java-test/extensions.txt").read_text().strip() == "com.microsoft.java.test.plugin-1.jar"
+                assert str(target) in output
+
+            def failed_native_tar_preserves_error_and_stops_copy():
+                fixture = jdtls_fixture("JDT corrupt with spaces", corrupt_archive=True)
+                output = jdtls_job(fixture, """
+& ./scripts/prepare-jdtls.ps1 -OutputDirectory (Join-Path $PSScriptRoot '.artifacts/JDT output with spaces')
+""", expected=1)
+                target = fixture / ".artifacts/JDT output with spaces"
+                assert "JDTLS archive extraction failed (native tar exit" in output, output
+                # PowerShell may wrap the archive path at spaces in its error
+                # rendering; the native diagnostic and script failure stay intact.
+                assert "absolute archive with" in output and "spaces.tar.gz" in output and "tar.exe:" in output, output
+                for filename in ("LICENSE-EPL-2.0.txt", "manifest.json", "lombok/lombok.jar", "bin/jdtls.ps1"):
+                    assert not (target / filename).exists(), filename
+
+            def missing_native_tar_fails_before_mutating_cache_or_output():
+                fixture = jdtls_fixture("JDT missing native tar")
+                shutil.rmtree(fixture / ".artifacts/jdtls-downloads")
+                target = fixture / ".artifacts/JDT output with spaces"
+                target.mkdir()
+                (target / "keep.txt").write_bytes(b"existing output")
+                output = jdtls_job(fixture, """
+function global:Test-Path {
+    param([string]$LiteralPath,[string]$PathType)
+    if($LiteralPath -eq (Join-Path ([Environment]::SystemDirectory) 'tar.exe')){return $false}
+    Microsoft.PowerShell.Management\\Test-Path @PSBoundParameters
+}
+& ./scripts/prepare-jdtls.ps1 -OutputDirectory (Join-Path $PSScriptRoot '.artifacts/JDT output with spaces')
+""", expected=1)
+                assert "Native Windows tar was not found:" in output, output
+                assert not (fixture / ".artifacts/jdtls-downloads").exists()
+                assert (target / "keep.txt").read_bytes() == b"existing output"
 
             def ps(code, expected=0):
                 remaining = min(25, deadline - time.monotonic())
@@ -277,6 +410,9 @@ Invoke-Expression $call.Extent.Text
                 assert source.index("Initialize-WindowsNativeBun -RepositoryRoot") < source.index('"scripts/reuse-worktree-resources.mjs"')
 
             for name, case in (
+                ("native Windows tar ignores PATH and extracts absolute drive paths with spaces", native_tar_ignores_path_and_extracts_absolute_space_paths),
+                ("native tar extraction failure preserves its diagnostic and prevents later copies", failed_native_tar_preserves_error_and_stops_copy),
+                ("missing native tar fails before cache or output mutation", missing_native_tar_fails_before_mutating_cache_or_output),
                 ("native Bun is inherited by Node spawnSync before cache verification", native_path_precedes_node_verifier),
                 ("npm PowerShell shim resolves adjacent native Bun without running shim", npm_shim_resolves_native_without_executing_shim),
                 ("wrong Bun version and missing native executable fail closed", wrong_version_and_missing_native_fail),
@@ -296,7 +432,7 @@ Invoke-Expression $call.Extent.Text
         args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(json.dumps({"runner": "acceptance", "warnMs": 5000, "maxMs": 30_000, "tests": tests,
                                           "cleanup": {"scratchPath": str(scratch), "scratchExists": bool(scratch and scratch.exists()),
-                                                      "ownedProcesses": process_cleanup}}, indent=2) + "\n", encoding="utf-8")
+                                                      "ownedProcesses": process_cleanup, "archiveJobs": archive_jobs}}, indent=2) + "\n", encoding="utf-8")
     return int(any(test["status"] != "passed" for test in tests))
 
 

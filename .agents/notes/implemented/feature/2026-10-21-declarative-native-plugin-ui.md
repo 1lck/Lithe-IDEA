@@ -180,6 +180,8 @@ Windows 原生表单动作组按完整组宽度选择横排或纵排：测量现
 
 R21 为 NativeTree 增加真实 Edge 七阶段回归，复用上述 runner、生产样式、公共 ContextMenu/Dialog 和受控 typed 函数端口；键盘操作走 Playwright 浏览器默认行为。公共 modal 会把背景移出可访问树，测试使用局部 DOM locator 观察挂载行，不改变 modal。菜单打开后的上游 500ms 外点击保护期由 Playwright 受控时钟推进；随后第一次外点击由遮罩消费并关闭菜单，下一次正常点击才编辑输入，不声称立即穿透或同一次点击取得输入焦点。回归覆盖两种菜单键、Escape 焦点恢复、单次 Inspect、busy 禁用、对话框焦点和虚拟行卸载；真实包、WebView2、物理键盘、IME 与 ui:3 仍待验收。
 
+R22 的表单栅格回归固定浏览器 viewport，只改变原 native-controls 夹具容器，在 900→639→640→900px 检查 12 列/span 的几何、同一控件 DOM、当前草稿与编辑焦点、禁用说明、公共 readOnly 原语和完整 values 单次提交。宽度按真实 grid 校准，包含滚动条占宽，不关闭 overflow 或硬写滚动条像素；segmented 的禁用沿 fieldset 检查实际按钮；typed 端口无 selection 为 undefined，不冒充下游 JSON null。主集成首次 Edge 发现测试断言错误，修复测试后七阶段真实 Edge 通过（36.5 秒），window.error/pageerror 为零，Job 归零后 profile/cache 已清理；未改生产组件。lane 原先的 TLS 安装失败和未执行项保持原记录，主集成通过只补受控组件证据，不升级 ui:3、WebView2、物理键盘、IME 或完整包验收。
+
 ## 验证
 
 - Windows 受控浏览器：按 `docs/ci-builds.md` 中的 Playwright driver 解析命令运行 `scripts/test-windows-native-plugin-ui-browser.mjs`。R21 的动作组六阶段（41.0 秒）及 NativeTree 七阶段（38.5 秒）通过，window.error/pageerror 均为零，Job 归零后 profile/cache 已清理；worker 早退/挂起的生命周期回归通过，原始预期失败报告单独保留。R20 的页面错误、缺失模块、执行超时故障注入保持原证据范围。supervisor 早退时缺失证明，报告失败并保留隔离 scratch，不把故障注入算作产品验收。

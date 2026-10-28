@@ -94,9 +94,9 @@ async function readRegistry() {
   // private-target CDP traces and descriptor/callback snapshots; ui:1 text-window
   // ZIPs, host-page DOM/CSP/request traces and loopback-counter evidence are also run-owned; deterministic test ZIPs do not
   // establish a build identity or transfer native install approval.
-  // Offline preflight fake tools/manifests in OS temporary storage also remain
+  // Offline preflight fake tools/manifests and tar.gz/VSIX extraction fixtures in OS temporary storage also remain
   // plugin-host-acceptance-state; they have no downloadable resource validator.
-  // Controlled browser scratch, ownership state, copied logs and expected-red evidence use
+  // Controlled action-group/form-grid/tree browser scratch, ownership state, copied logs and expected-red evidence use
   // native-browser-regression-state's refusal route; no build stamp or validator applies.
   const excludedResources = registry.excludedResources ?? [];
   if (!Array.isArray(excludedResources)) throw new Error("Invalid excluded worktree resources");
@@ -400,7 +400,7 @@ async function main() {
       // worker/Job evidence, copied logs and expected-failure reports stay with
       // their run; never enter a copy stage.
       // Includes plugin-host-acceptance-state: fixed-source SVN diagnostic runtime,
-      // repo/WC/profiles, offline preflight fake tools/manifests and explicit
+      // repo/WC/profiles, offline preflight fake tools/manifests/archive inputs and explicit
       // evidence output stay run-owned, never reusable.
       // Includes application-log-state: logs, confirmation snapshots and export ZIP
       // staging belong to one runtime session; no validator or copy stage applies.

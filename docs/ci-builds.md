@@ -774,6 +774,10 @@ CRLF→LF 转换才允许恢复；比较和恢复使用同一个独占文件句�
 
 离线准备回归 `build_preflight_test.py` 使用 `<os-temp>/lithe-build-preflight-*/` 的一次性
 副本、伪 Bun/IPC 子进程、可变 manifest 和记录 stub；不调用 Cargo、Tauri 或产品。
+JDTLS 解压回归还在同一临时树生成小型 tar.gz/VSIX、前置 PATH 的假 tar 和提取产物，
+全部保持一次性 owner，拒绝跨 worktree 复用。Windows JDTLS 准备直接从平台
+`[Environment]::SystemDirectory` 选择原生 tar，不依赖 MSYS/GNU tar 的 PATH 顺序；
+缺少原生工具时在缓存或输出变更前失败，解压非零立即保留原生错误并停止后续复制。
 测试套件使用 180 秒预算，CI 与正式验收入口另有 190 秒的既有保留句柄进程 owner；
 单项等待仍各自有界，超时按原进程身份回收。报告为
 `.artifacts/test-stability/plugin-build-preflight.{json,html,junit.xml}`，
@@ -791,7 +795,7 @@ CRLF→LF 转换才允许恢复；比较和恢复使用同一个独占文件句�
 plan、当前 checkout 和隔离宿主的提交标识必须一致；切换提交后重新生成输入，不得清理该输入目录后冒用旧 plan。
 `-SkipBuild` 同时检查目标架构、已冻结配置和可执行文件哈希，并保留该配置；配置或提交变化时重新构建隔离宿主。驱动先恢复原生 invoke 并有界等待已观测调用结束，再退出本次产品进程，最后比较资源快照；退出失败或调用未结束不能报告资源工作流通过。
 驱动在插件详情验证普通设置，再经已注册的语言设置页保存 reload；受控设置子集通过不会把缺少兼容签名包、关闭中的 Provider 能力、arm64 或人工视觉验收算作通过。
-原生动作组和树菜单的受控浏览器回归使用目标工作树的前端依赖和 Python Playwright 1.60.0
+原生动作组、表单栅格和树菜单的受控浏览器回归使用目标工作树的前端依赖和 Python Playwright 1.60.0
 （与原生验收驱动共用 `psutil==7.2.2`），不由 runner 安装或下载工具。Windows CI 在已有
 Python 依赖步骤后独立运行以下命令；本地已有 Edge 时可复用相同入口：
 
@@ -802,17 +806,22 @@ node scripts/test-windows-native-plugin-ui-browser.mjs --browser msedge --playwr
 if ($LASTEXITCODE -ne 0) { throw 'Action-group browser regression failed' }
 node scripts/test-windows-native-plugin-ui-browser.mjs --mode native-tree --browser msedge --playwright-module $playwrightModule --timeout-ms 120000 --report .artifacts/test-stability/native-tree-browser.json
 if ($LASTEXITCODE -ne 0) { throw 'Native-tree browser regression failed' }
+node scripts/test-windows-native-plugin-ui-browser.mjs --mode form-grid --browser msedge --playwright-module $playwrightModule --timeout-ms 120000 --report .artifacts/test-stability/native-form-grid-browser.json
+if ($LASTEXITCODE -ne 0) { throw 'Form-grid browser regression failed' }
 foreach ($failure in @('worker-exit', 'worker-hang')) {
   node scripts/test-windows-native-plugin-ui-browser.mjs --mode lifecycle --inject-failure $failure --timeout-ms 25000 --report ".artifacts/test-stability/native-browser-$failure.json"
   if ($LASTEXITCODE -ne 0) { throw "Lifecycle regression failed: $failure" }
 }
 ```
 
-动作组和树模式加载生产样式及真实 React 组件，使用官方 Tauri mocks；动作组检查六阶段
+动作组、栅格和树模式加载生产样式及真实 React 组件，使用官方 Tauri mocks；动作组检查六阶段
 几何、状态、焦点、禁用提示与单次完整值提交，树模式由 Playwright 的浏览器键盘输入
-检查菜单触发、导航、关闭、焦点和一次性动作。两者各有 120 秒整体时限；
+检查菜单触发、导航、关闭、焦点和一次性动作。栅格模式固定浏览器 viewport，只调整夹具容器，
+检查 12 列/span 在 639px、640px 和宽容器的几何、同一 DOM、草稿、焦点、禁用说明、公共
+readOnly 原语及完整 values 单次提交；不把 typed port 的可选 selectedID 当作下游 JSON null。
+三者各有 120 秒整体时限；
 生命周期模式不加载 Vite 或浏览器，用提前退出和挂起的受控 worker 验证独立 owner 的清理，
-25 秒整体时限中保留 20 秒收尾。Windows CI 的组合步骤另有 6 分钟外层上限。
+25 秒整体时限中保留 20 秒收尾。Windows CI 的组合步骤另有 8 分钟外层上限。
 各模式成功或失败都生成独立 JSON、HTML 和 JUnit，不代表产品 WebView2、物理键盘、IME
 或 `ui:3` 准入。
 生命周期的预期红报告留在报告父目录的 `expected-failures/` 子目录，普通报告只记录

@@ -308,6 +308,7 @@ try {
       ".artifacts/native-browser-*/worker-evidence.json", ".artifacts/native-browser-*/job-result.json",
       ".artifacts/native-browser-*/worker.log",
       ".artifacts/test-stability/native-panel-browser.{json,html,junit.xml}",
+      ".artifacts/test-stability/native-form-grid-browser.{json,html,junit.xml,worker.log}",
       "<explicit-native-browser-report>.{json,html,junit.xml,worker.log}",
       "<native-browser-report-parent>/expected-failures/<report-name>.{json,html,junit.xml}",
     ]) assert.ok(resource.locations.includes(location));
@@ -322,6 +323,8 @@ try {
       ".artifacts/test-stability/native-panel-browser.junit.xml",
       ".artifacts/test-stability/native-panel-browser.worker.log",
       ".artifacts/test-stability/native-tree-browser.json",
+      ".artifacts/test-stability/native-form-grid-browser.json",
+      ".artifacts/test-stability/native-form-grid-browser.worker.log",
       ".artifacts/test-stability/native-browser-worker-hang.worker.log",
       ".artifacts/test-stability/expected-failures/native-browser-worker-exit.json",
       ".artifacts/test-stability/expected-failures/native-browser-worker-hang.html",
@@ -342,10 +345,14 @@ try {
     assert.equal(resource.reusable, false);
     assert.ok(resource.locations.includes("<os-temp>/lithe-build-preflight-*/"));
     assert.match(resource.reason, /fake native Bun\/IPC workers/);
+    assert.match(resource.reason, /tar.gz\/VSIX extraction inputs and outputs/);
     // Refuse before worktree resolution or any copy stage, even if the source
     // looks like a complete disposable checkout with an executable and manifest.
     for (const fixture of [
       "preflight-fixture/native/bun.exe",
+      "preflight-fixture/fake-path/tar.exe",
+      "preflight-fixture/jdtls-downloads/small-fixture.tar.gz",
+      "preflight-fixture/jdtls-downloads/java-test.zip",
       "preflight-fixture/windows/tauri/src-tauri/Cargo.toml",
       "preflight-fixture/scripts/install-windows-frontend-dependencies.ps1",
     ]) {
