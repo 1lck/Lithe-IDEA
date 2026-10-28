@@ -69,7 +69,7 @@ pub(crate) const EXECUTABLE_RESOLUTION: &str = "executableResolution";
 pub const SUPPORTED_CAPABILITIES: &[(&str, &[u32])] = &[
     (BACKEND, &[1]),
     (BUILD_MODEL_INPUTS, &[1]),
-    (BUILD_PROVIDERS, &[1, 2, 3, 4, 5, 6]),
+    (BUILD_PROVIDERS, &[1, 2, 3, 4, 5, 6, 7]),
     (BUILD_SYSTEMS, &[1, 2]),
     (DEBUG_ADAPTERS, &[1, 2]),
     (EXECUTION_PROVIDERS, &[1]),

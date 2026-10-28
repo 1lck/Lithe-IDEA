@@ -324,6 +324,27 @@ struct PluginSettingsTests {
     }
 
     @Test
+    func nativeConfigurationRegistersItsBuildPageWithoutShadowPreferenceControls() async throws {
+        try await withV2Manager { manager in
+            try await manager.setEnabled(true, for: PluginID("dev.lithe.fixture.settings-v2"))
+            var snapshot = try #require(manager.snapshots.first { $0.id == PluginID("dev.lithe.fixture.settings-v2") })
+            snapshot.settings = []
+            snapshot.contributions.actions = []
+            snapshot.contributions.languageServerIDs = []
+            snapshot.contributions.buildSystems = [.init(id: "native-tool", displayName: "Native tool", nativeConfiguration: true)]
+            let pages = PluginSettingsRegistry.pages(from: [snapshot])
+            let page = try #require(pages.first)
+            #expect(pages.count == 1)
+            #expect(page.id == "buildSystem:native-tool")
+            #expect(page.group == .build)
+            #expect(page.contributions.first?.nativeBuildSystemIDs == ["native-tool"])
+            #expect(page.contributions.first?.settings.isEmpty == true)
+            snapshot.contributions.buildSystems[0].nativeConfiguration = false
+            #expect(PluginSettingsRegistry.pages(from: [snapshot]).isEmpty)
+        }
+    }
+
+    @Test
     func aDisabledPluginRegistersNoPages() async throws {
         try await withV2Manager { manager in
             try await manager.setEnabled(false, for: PluginID("dev.lithe.fixture.settings-v2"))

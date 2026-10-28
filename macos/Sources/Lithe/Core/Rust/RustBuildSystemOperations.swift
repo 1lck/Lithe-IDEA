@@ -84,6 +84,31 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         return outcome.value.modelInputs
     }
 
+    func configurationPlan(_ target: BuildSystemTarget, context: BuildPlanContext, hints: BuildProviderHints) throws -> BuildProviderRequest {
+        let outcome: Outcome<PlanResult> = try execute("build.configurationPlan", target: target,
+            request: OutputRequest(context: context, project: nil, outputFile: nil, hints: hints))
+        guard case .provider(let request) = try outcome.value.plan.outputPlan() else {
+            throw PluginFunctionFailure(code: "plugin.build.unavailable", message: L10n.string("Native configuration is unavailable."))
+        }
+        return request
+    }
+
+    func decodeConfiguration(_ target: BuildSystemTarget, result: ToolingJSONValue) throws -> BuildNativeConfiguration {
+        struct Request: Encodable { let result: ToolingJSONValue }
+        struct Reply: Decodable { let configuration: BuildNativeConfiguration }
+        let outcome: Outcome<Reply> = try execute("build.decodeConfiguration", target: target, request: Request(result: result))
+        return outcome.value.configuration
+    }
+
+    func editConfigurationDocument(_ target: BuildSystemTarget, snapshot: BuildNativeConfiguration,
+                                   edits: BuildNativeConfigurationEdits, document: String?) throws -> BuildNativeConfigurationDocumentEdit {
+        struct Request: Encodable { let snapshot: BuildNativeConfiguration; let edits: BuildNativeConfigurationEdits; let document: String? }
+        struct Reply: Decodable { let edit: BuildNativeConfigurationDocumentEdit }
+        let outcome: Outcome<Reply> = try execute("build.editConfigurationDocument", target: target,
+            request: Request(snapshot: snapshot, edits: edits, document: document))
+        return outcome.value.edit
+    }
+
     func modelPlan(
         _ target: BuildSystemTarget,
         context: BuildPlanContext,

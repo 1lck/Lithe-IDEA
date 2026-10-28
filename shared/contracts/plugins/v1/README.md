@@ -406,7 +406,7 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 | `settings` | `settings[]` and `settingActions[]` | `1`, `2` (adds [placement, scope, effect, page buttons](#settings-v2-placement-scope-effect-and-page-buttons)) |
 | `ui` | `ui` | `1`, `2` (adds [web content](#web-content-ui-2)) |
 | `buildSystems` | Declarative build detection, models, and command plans | `1` |
-| `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers; v2 tasks, v3 tests, v4 run, v5 native debug preparation, v6 read-only model inputs | `1`, `2`, `3`, `4`, `5`, `6` |
+| `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers; v2 tasks, v3 tests, v4 run, v5 native debug preparation, v6 read-only model inputs, v7 native configuration | `1`, `2`, `3`, `4`, `5`, `6`, `7` |
 | `buildModelInputs` | Optional public model sharing between enabled workspace plugins | `1` |
 | `vcsProviders` | `vcsProviders[]` | `1` |
 | `debugAdapters` | [`debugAdapters[]`](#api-level-4-debug-adapters); v2 adds target arguments/environment | `1`, `2` |
@@ -457,7 +457,7 @@ in `plugins.declarative.validate`, `plugins.marketplace.validateIndex`, and
 
 The macOS host sends its capability table with validation, marketplace filtering
 and install review. It advertises `buildSystems: [1, 2]` and
-`buildProviders: [1, 2, 3, 4, 5, 6]`; native Provider models, dependencies, tasks, tests and launch preparation
+`buildProviders: [1, 2, 3, 4, 5, 6, 7]`; native Provider models, dependencies, tasks, tests and launch preparation
 share workspace-owned sessions. Backend and VCS support use their own entries
 in the same table. Core validates supported versions without a host table,
 but admission must use the actual host table. Windows does not yet advertise
@@ -1119,6 +1119,67 @@ Saving and running work before detector-generated Run configurations exist.
 Service coordination, debug target registration and Java/Maven migration remain
 separate. See `fixtures/build-provider-run-preparation.plugin.json`
 and `fixtures/build-run-preparation.json`.
+
+### Optional native configuration (buildProviders 7)
+
+An own-process provider may opt into `buildSystems[].configuration: {"source":"provider"}`
+with `requires.buildProviders: 7`. Shared language-server providers cannot opt in.
+`build.configurationPlan` uses the same selected instance/options/environment/tool
+snapshot as model loading and emits `lithe/build/configuration`. It has no project,
+output file, or mutation parameters. Wire versions below 7 refuse the method.
+The negotiated v7 server feature is `litheBuildConfiguration: true`; earlier methods
+retain their existing admission rules. Configuration reads are bounded requests
+with the existing cancellation, timeout, workspace and package ownership.
+
+`build.decodeConfiguration` validates `result` and returns `configuration`:
+`{"format":"litheBuildConfiguration","version":1,"sources":[...]}`. There are at most
+8 sources, each with a unique provider-owned `id`, `scope` (`installation`, `user`,
+`workspace`), file `uri`, exact byte `revision` (`missing` or `sha256:` plus 64 lower-case
+hex digits), `writable`, `rootElement: {name, namespace}`, and up to 64 `fields`.
+Installation sources are always read-only. Two scopes may alias one URI only when
+both are read-only and have identical revision, XML root and fields. File URIs
+cannot carry credentials, queries or fragments.
+
+Each field contains `id`, `kind` (`text`, `file`, `directory`, `boolean`, `stringList`),
+`value` (raw native value, or null for absent), `effectiveValue`, `effectiveSource`
+(an upstream technical origin ID), and `path` (one to four direct XML element names
+below the root). A string list additionally has `itemElement`, the direct repeated
+child name. Bindings cannot duplicate/overlap or address credential/secret fields;
+values and identifiers are bounded and kind-checked. Full native documents, secret
+values, credential-bearing URLs and private keys must never enter this response,
+logs or normal controls. Source discovery, interpolation, precedence and effective
+values belong to the selected upstream engine; Core does not infer them.
+
+The native host populates raw/inherited values, displays scope and target URI,
+maintains drafts, and requires explicit Save. Opening, cancelling, losing focus
+and leaving a page do not write native sources. Passive page reads refuse a
+project-owned executable (such as a cold Wrapper), and cannot silently delegate
+failed automatic tool discovery to the Provider. An explicit Read using project
+tool action authorizes that tooling; explicit Save also owns its required read-back. The confirmed edit is
+`{sourceID, revision, values:{<fieldID>:<new raw value or null>}}`; null removes only
+that native override. Unchanged inherited values must not create overrides.
+
+`build.editConfigurationDocument` is a **host/Core-only pure operation**, requiring
+`{snapshot, edits, document}` (document null for a missing source) and returning
+`edit: {document, revision, changed}`. Original bytes may contain unrelated secrets;
+never forward them to a Provider, UI, logger or model-sharing snapshot. Core checks
+the source revision before XML parsing, enforces UTF-8/2 MiB/64-depth bounds, rejects
+DTDs and ambiguous bindings, and edits only approved nodes in the declared namespace.
+Unrelated bytes, comments, attributes and secret nodes remain unchanged. A no-op
+creates no missing document. This operation performs no filesystem access.
+
+The platform adapter denies app/plugin installation roots, validates the selected
+file and canonical target, preserves metadata and performs guarded atomic publication
+against the original bytes. Before commit the operation must still own its workspace,
+package, settings and monotonic option revision. Conflicts retain the draft. After
+save the host invalidates build/test/language import facts and re-queries the owning
+provider; read-back must identify the saved source and exact published revision.
+A failed read-back is not a successful effective-value publication. Native probes,
+output files and mutable provider caches live only in workspace/platform state and
+are not cross-worktree reusable. Installed packages remain byte-for-byte unchanged.
+
+Fixtures: [declaration](fixtures/build-provider-configuration.plugin.json) and
+[native facts](fixtures/build-configuration.json).
 
 ### Optional read-only model inputs (buildModelInputs 1)
 

@@ -2213,6 +2213,12 @@
 "Name and email are written to the global Git configuration. Existing commits do not change." = "Name and email are written to the global Git configuration. Existing commits do not change.";
 "Name and email are written to this repository's Git configuration and override the global values. Existing commits do not change." = "Name and email are written to this repository's Git configuration and override the global values. Existing commits do not change.";
 "Name:" = "Name:";
+"Native configuration" = "Native configuration";
+"Native configuration changed on disk. Reload before saving; your draft has been kept." = "Native configuration changed on disk. Reload before saving; your draft has been kept.";
+"Native configuration changed. Reload before saving; your draft has been kept." = "Native configuration changed. Reload before saving; your draft has been kept.";
+"Native configuration is busy. Wait for the current operation to finish." = "Native configuration is busy. Wait for the current operation to finish.";
+"Native configuration is unavailable." = "Native configuration is unavailable.";
+"Native configuration was saved, but its current effective values could not be verified. Reload before editing again." = "Native configuration was saved, but its current effective values could not be verified. Reload before editing again.";
 "Native installer" = "Native installer";
 "Native instruction file" = "Native instruction file";
 "Navigate" = "Navigate";
@@ -2369,6 +2375,7 @@
 "No matching skills." = "No matching skills.";
 "No matching users" = "No matching users";
 "No models available" = "No models available";
+"No native configuration has been read." = "No native configuration has been read.";
 "No navigation results" = "No navigation results";
 "No new commits. Pushing creates the remote branch." = "No new commits. Pushing creates the remote branch.";
 "No notifications" = "No notifications";
@@ -2534,6 +2541,7 @@
 "Open a project to configure its run configurations." = "Open a project to configure its run configurations.";
 "Open a project to let connected agents inspect and control it." = "Open a project to let connected agents inspect and control it.";
 "Open a project to manage its skills." = "Open a project to manage its skills.";
+"Open a project to read its native configuration." = "Open a project to read its native configuration.";
 "Open a project to see its language service." = "Open a project to see its language service.";
 "Open a project to use Git" = "Open a project to use Git";
 "Open a source file before running Current File." = "Open a source file before running Current File.";
@@ -2844,6 +2852,7 @@
 "Read %lld files" = "Read %lld files";
 "Read Memory at Address" = "Read Memory at Address";
 "Read Memory at Value" = "Read Memory at Value";
+"Read using project tool" = "Read using project tool";
 "Read, write and search files only in the directories you allow. Requires Node.js 24 or later." = "Read, write and search files only in the directories you allow. Requires Node.js 24 or later.";
 "Read-only" = "Read-only";
 "Read-only file preview" = "Read-only file preview";
@@ -2851,6 +2860,7 @@
 "Reading Git configuration…" = "Reading Git configuration…";
 "Reading changes and recent commits." = "Reading changes and recent commits.";
 "Reading changes…" = "Reading changes…";
+"Reading configuration with this project tool requires an explicit action." = "Reading configuration with this project tool requires an explicit action.";
 "Reading memory…" = "Reading memory…";
 "Reading project…" = "Reading project…";
 "Reading registered checkouts." = "Reading registered checkouts.";
@@ -3771,6 +3781,8 @@
 "The branch could not be published" = "The branch could not be published";
 "The branch now contains the completed plan. Its original history remains available through the recovery reference." = "The branch now contains the completed plan. Its original history remains available through the recovery reference.";
 "The breakdown needs Model call statistics (on by default). After turning it on, reconnect and send a message." = "The breakdown needs Model call statistics (on by default). After turning it on, reconnect and send a message.";
+"The build option is no longer available. Reload the build instance." = "The build option is no longer available. Reload the build instance.";
+"The build option value is invalid. Inspect its current kind and choices." = "The build option value is invalid. Inspect its current kind and choices.";
 "The build provider failed to start." = "The build provider failed to start.";
 "The build provider returned an invalid launch plan." = "The build provider returned an invalid launch plan.";
 "The build provider stopped before it was ready." = "The build provider stopped before it was ready.";
@@ -3862,6 +3874,7 @@
 "The name of the artifact the build produces." = "The name of the artifact the build produces.";
 "The native Hook configuration must be valid JSON. Existing contents were kept." = "The native Hook configuration must be valid JSON. Existing contents were kept.";
 "The native Hook event must contain an array. Existing contents were kept." = "The native Hook event must contain an array. Existing contents were kept.";
+"The native configuration must be a writable UTF-8 XML file smaller than 2 MB." = "The native configuration must be a writable UTF-8 XML file smaller than 2 MB.";
 "The native hooks field must be a JSON object. Existing contents were kept." = "The native hooks field must be a JSON object. Existing contents were kept.";
 "The native panel state exceeds 64 KiB." = "The native panel state exceeds 64 KiB.";
 "The official Lithe plugin repository cannot be removed. Disable it instead." = "The official Lithe plugin repository cannot be removed. Disable it instead.";
@@ -3921,6 +3934,7 @@
 "The repository will be opened in detached HEAD state." = "The repository will be opened in detached HEAD state.";
 "The request has no secret." = "The request has no secret.";
 "The response stopped at the model's token limit." = "The response stopped at the model's token limit.";
+"The saved build option could not be verified. Reload before editing again." = "The saved build option could not be verified. Reload before editing again.";
 "The saved provider run configuration is unavailable." = "The saved provider run configuration is unavailable.";
 "The selected AI provider has an invalid API URL or model." = "The selected AI provider has an invalid API URL or model.";
 "The selected AI provider has no API key." = "The selected AI provider has no API key.";
@@ -4038,6 +4052,7 @@
 "This folder already belongs to a Git repository" = "This folder already belongs to a Git repository";
 "This folder cannot be read." = "This folder cannot be read.";
 "This folder is empty" = "This folder is empty";
+"This native configuration source is read-only. Installed applications and plugin packages cannot be edited." = "This native configuration source is read-only. Installed applications and plugin packages cannot be edited.";
 "This page" = "This page";
 "This panel needs exactly one matching plugin instance in the workspace." = "This panel needs exactly one matching plugin instance in the workspace.";
 "This permanently deletes uncommitted and untracked files in '%@'. The branch itself is kept." = "This permanently deletes uncommitted and untracked files in '%@'. The branch itself is kept.";
@@ -4051,6 +4066,7 @@
 "This plugin requires a newer version of Lithe." = "This plugin requires a newer version of Lithe.";
 "This preview contains changes that have not been officially released and may be unstable." = "This preview contains changes that have not been officially released and may be unstable.";
 "This project" = "This project";
+"This project has no matching build-system instance." = "This project has no matching build-system instance.";
 "This project is not a Git repository" = "This project is not a Git repository";
 "This project window is no longer available." = "This project window is no longer available.";
 "This rebase session is no longer active in the current repository." = "This rebase session is no longer active in the current repository.";
@@ -4908,6 +4924,9 @@
 "native.buildFilesChanged" = "%1$@ build files changed";
 "native.buildFilesChanged.variant2" = "Build files changed.";
 "native.buildFilesChangedReloadTheModelToPickUpTheChanges" = "Build files changed. Reload the model to pick up the changes.";
+"native.buildOptionInvalid" = "The build option value is invalid. Inspect its current kind and choices.";
+"native.buildOptionReadBackFailed" = "The saved build option could not be verified. Reload before editing again.";
+"native.buildOptionUnavailable" = "The build option is no longer available. Reload the build instance.";
 "native.buildOutput" = "Build Output";
 "native.buildOutput.variant2" = "Build output";
 "native.buildOutputs" = "Build Outputs";
@@ -6808,6 +6827,19 @@
 "native.name.variant2" = "Name:";
 "native.nameAndEmailAreWrittenToTheGlobalGitConfigurationExistingCommitsDoNotChange" = "Name and email are written to the global Git configuration. Existing commits do not change.";
 "native.nameAndEmailAreWrittenToThisRepositorySGitConfigurationAndOverrideTheGlobalVal4aca07ef08" = "Name and email are written to this repository's Git configuration and override the global values. Existing commits do not change.";
+"native.nativeConfigurationBusy" = "Native configuration is busy. Wait for the current operation to finish.";
+"native.nativeConfigurationDiskConflict" = "Native configuration changed on disk. Reload before saving; your draft has been kept.";
+"native.nativeConfigurationExplicitRead" = "Reading configuration with this project tool requires an explicit action.";
+"native.nativeConfigurationFileRequired" = "The native configuration must be a writable UTF-8 XML file smaller than 2 MB.";
+"native.nativeConfigurationNoInstance" = "This project has no matching build-system instance.";
+"native.nativeConfigurationNotRead" = "No native configuration has been read.";
+"native.nativeConfigurationOpenProject" = "Open a project to read its native configuration.";
+"native.nativeConfigurationReadBackFailed" = "Native configuration was saved, but its current effective values could not be verified. Reload before editing again.";
+"native.nativeConfigurationReadUsingProjectTool" = "Read using project tool";
+"native.nativeConfigurationSourceReadOnly" = "This native configuration source is read-only. Installed applications and plugin packages cannot be edited.";
+"native.nativeConfigurationStale" = "Native configuration changed. Reload before saving; your draft has been kept.";
+"native.nativeConfigurationTitle" = "Native configuration";
+"native.nativeConfigurationUnavailable" = "Native configuration is unavailable.";
 "native.nativeInstaller" = "Native installer";
 "native.nativeInstructionFile" = "Native instruction file";
 "native.navigate" = "Navigate";

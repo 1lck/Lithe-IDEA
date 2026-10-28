@@ -170,6 +170,9 @@ package final class BuildSystemService: ObservableObject {
     /// before the change can tell its result is based on older files.
     private var fileRevision = 0
     private var providerConfigurationRevision = 0
+    private var nativeOptionsRevisions: [String: Int] = [:]
+    private var nativeConfiguration: BuildNativeConfigurationCoordinator?
+    private var nativeObservation: AnyCancellable?
     private var modelInputRevision: UInt64 = 0
     private var providerRunID: UUID?
     private var preparingApplicationID: UUID?
@@ -218,6 +221,7 @@ package final class BuildSystemService: ObservableObject {
         runner: any BuildCommandRunning,
         providers: (any BuildProviderRequesting)? = nil,
         runLauncher: (any BuildRunLaunching)? = nil,
+        nativeConfigurationFiles: (any BuildNativeConfigurationStoring)? = nil,
         settings: @escaping @MainActor (String) -> [String: ToolingJSONValue] = { _ in [:] },
         waitForRedetection: @escaping @Sendable () async throws -> Void = {
             try await Task.sleep(for: .milliseconds(500))
@@ -234,6 +238,14 @@ package final class BuildSystemService: ObservableObject {
         self.settings = settings
         self.waitForRedetection = waitForRedetection
         self.sources = sources
+        let configuration = BuildNativeConfigurationCoordinator(
+            planner: planner, tools: tools, providers: providers, files: nativeConfigurationFiles,
+            context: { [weak self] id in try self?.nativeConfigurationContext(id) },
+            didSave: { [weak self] id in self?.nativeConfigurationDidSave(id) }
+        )
+        nativeConfiguration = configuration
+        configuration.onActivityChanged = { [weak self] in self?.refreshActivity() }
+        nativeObservation = configuration.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
     }
 
     /// Every run that ends, stopped or superseded runs included, so a caller
@@ -253,6 +265,58 @@ package final class BuildSystemService: ObservableObject {
         entries.first { $0.id == id }
     }
 
+    package func nativeConfigurationState(_ entryID: String) -> BuildNativeConfigurationState {
+        nativeConfiguration?.state(entryID) ?? BuildNativeConfigurationState()
+    }
+
+    @discardableResult
+    package func readNativeConfiguration(_ entryID: String, allowProjectTool: Bool = false) async throws -> BuildNativeConfiguration {
+        guard let nativeConfiguration else { throw BuildSystemServiceError(L10n.string("Native configuration is unavailable.")) }
+        return try await nativeConfiguration.read(entryID, allowProjectTool: allowProjectTool)
+    }
+
+    @discardableResult
+    package func saveNativeConfiguration(_ entryID: String, snapshot: BuildNativeConfiguration,
+                                         edits: BuildNativeConfigurationEdits) async throws -> BuildNativeConfiguration {
+        guard let nativeConfiguration else { throw BuildSystemServiceError(L10n.string("Native configuration is unavailable.")) }
+        return try await nativeConfiguration.save(entryID, snapshot: snapshot, edits: edits)
+    }
+
+    private func nativeConfigurationContext(_ entryID: String) throws -> BuildNativeConfigurationContext? {
+        guard let workspaceURL, let entry = entry(entryID), entry.declaration.nativeConfiguration,
+              sources().contains(entry.source) else { return nil }
+        return BuildNativeConfigurationContext(entryID: entryID, source: entry.source,
+            buildSystemID: entry.instance.buildSystemID, workspace: workspaceURL, generation: generation,
+            configurationRevision: providerConfigurationRevision,
+            optionsRevision: nativeOptionsRevisions[entry.instance.buildSystemID, default: 0],
+            settings: settings(entry.source.pluginID), plan: try planContext(entry, workspaceURL: workspaceURL))
+    }
+
+    private func nativeConfigurationDidSave(_ entryID: String) {
+        guard let entry = entry(entryID), let workspaceURL else { return }
+        let buildSystemID = entry.instance.buildSystemID
+        providerConfigurationRevision += 1
+        invalidateTestDiscovery(buildSystemID: buildSystemID)
+        if providerRunID != nil { stopRun() }
+        for affected in entries where affected.instance.buildSystemID == buildSystemID {
+            modelTasks.removeValue(forKey: affected.id)?.cancel()
+            for key in Array(dependencyTasks.keys) where Self.entryID(ofDependencyTask: key) == affected.id {
+                dependencyTasks.removeValue(forKey: key)?.cancel()
+            }
+            update(affected.id) {
+                $0.isReloadRequired = true
+                if $0.modelState == .loading { $0.modelState = $0.model == nil ? .notLoaded : .loaded }
+                $0.dependencies = [:]
+            }
+            modelRevisions[affected.id, default: 0] += 1
+            dependencyRevisions[affected.id, default: 0] += 1
+        }
+        invalidateProducerConfiguration(buildSystemID: buildSystemID)
+        // The selected path can stay the same while its native content changes.
+        // Language import must re-read that source before its next project sync.
+        onLanguageImportChanged?(workspaceURL)
+    }
+
     // MARK: Workspace
 
     /// Forgets the previous workspace and detects the new one.
@@ -266,6 +330,7 @@ package final class BuildSystemService: ObservableObject {
         entries = []
         modelRevisions = [:]
         modelConfigurationRevisions = [:]
+        nativeOptionsRevisions = [:]
         dependencyRevisions = [:]
         fileRevision = 0
         issues = []
@@ -417,6 +482,8 @@ package final class BuildSystemService: ObservableObject {
     /// Ends what a now disabled plugin started and detects again with the
     /// plugins enabled now, so its instances leave the tool window.
     package func pluginsChanged() {
+        nativeConfiguration?.invalidate()
+        providerConfigurationRevision += 1
         for producer in entries where producer.declaration.sharesModel {
             modelConfigurationRevisions[producer.id, default: 0] += 1
         }
@@ -1007,6 +1074,7 @@ package final class BuildSystemService: ObservableObject {
 
     /// Ends every process this service started.
     package func stop() {
+        nativeConfiguration?.stop()
         stopPreparedApplication()
         detectionTask?.cancel(); detectionTask = nil
         detectionID = nil
@@ -1272,6 +1340,8 @@ package final class BuildSystemService: ObservableObject {
     package func setOption(_ entryID: String, optionID: String, value: ToolingJSONValue?) {
         guard let workspaceURL, let entry = entry(entryID) else { return }
         let buildSystemID = entry.instance.buildSystemID
+        nativeOptionsRevisions[buildSystemID, default: 0] += 1
+        nativeConfiguration?.invalidate(buildSystemID: buildSystemID)
         invalidateTestDiscovery(buildSystemID: buildSystemID)
         if providerRunID != nil, let runEntryID, self.entry(runEntryID)?.instance.buildSystemID == buildSystemID {
             stopRun()
@@ -1307,6 +1377,8 @@ package final class BuildSystemService: ObservableObject {
             return
         }
         let buildSystemID = entry.instance.buildSystemID
+        nativeOptionsRevisions[buildSystemID, default: 0] += 1
+        nativeConfiguration?.invalidate(buildSystemID: buildSystemID)
         invalidateTestDiscovery(buildSystemID: buildSystemID)
         if providerRunID != nil, let runEntryID, self.entry(runEntryID)?.instance.buildSystemID == buildSystemID {
             stopRun()
@@ -1450,6 +1522,26 @@ package final class BuildSystemService: ObservableObject {
     }
 
     // MARK: Commands
+
+    /// Agent and native callers share the instance editor. Invalid values must
+    /// fail before storage rather than silently reverting to a default.
+    package func configureOption(_ entryID: String, optionID: String, value: ToolingJSONValue?) throws -> BuildResolvedOption {
+        guard let workspaceURL, let entry = entry(entryID), entry.options.contains(where: { $0.id == optionID }) else {
+            throw BuildSystemServiceError(L10n.string("The build option is no longer available. Reload the build instance."))
+        }
+        var proposed = storedOptions(for: entry, workspaceURL: workspaceURL)
+        proposed[optionID] = value
+        let resolution = try planner.resolveOptions(entry.target, options: proposed, modelValues: entry.model?.optionValues)
+        guard let accepted = resolution.options.first(where: { $0.id == optionID }),
+              !resolution.dropped.contains(optionID), value == nil || accepted.value == value else {
+            throw BuildSystemServiceError(L10n.string("The build option value is invalid. Inspect its current kind and choices."))
+        }
+        setInstanceOption(entryID, optionID: optionID, value: value)
+        guard let saved = self.entry(entryID)?.options.first(where: { $0.id == optionID }), saved.value == accepted.value else {
+            throw BuildSystemServiceError(L10n.string("The saved build option could not be verified. Reload before editing again."))
+        }
+        return saved
+    }
 
     private func optionFingerprint(_ entry: BuildSystemEntry, workspaceURL: URL) -> String? {
         let stored = storedOptions(for: entry, workspaceURL: workspaceURL)
@@ -1870,7 +1962,7 @@ package final class BuildSystemService: ObservableObject {
     }
 
     private func refreshActivity() {
-        let active = isRunning || isLoadingModel || isLoadingDependencies
+        let active = isRunning || isLoadingModel || isLoadingDependencies || nativeConfiguration?.isBusy == true
         if hasActiveWork != active { hasActiveWork = active }
     }
 

@@ -1,0 +1,45 @@
+{
+  "format": "litheBuildConfiguration",
+  "version": 1,
+  "sources": [
+    {
+      "id": "user",
+      "scope": "user",
+      "uri": "file:///fixture/user/settings.xml",
+      "revision": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "writable": true,
+      "rootElement": {
+        "name": "settings",
+        "namespace": "http://maven.apache.org/SETTINGS/1.0.0"
+      },
+      "fields": [
+        {
+          "id": "localRepository",
+          "kind": "directory",
+          "value": null,
+          "effectiveValue": "/fixture/repository",
+          "effectiveSource": "installation",
+          "path": [
+            "localRepository"
+          ]
+        },
+        {
+          "id": "activeProfiles",
+          "kind": "stringList",
+          "value": [
+            "ci"
+          ],
+          "effectiveValue": [
+            "ci",
+            "offline"
+          ],
+          "effectiveSource": "commandLine",
+          "path": [
+            "activeProfiles"
+          ],
+          "itemElement": "activeProfile"
+        }
+      ]
+    }
+  ]
+}

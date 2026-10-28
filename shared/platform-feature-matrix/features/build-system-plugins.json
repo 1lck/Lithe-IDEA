@@ -2,7 +2,7 @@
   "id": "build-system-plugins",
   "area": "扩展",
   "group": "插件与主题",
-  "capability": "构建系统插件（API 3 buildSystems）：插件用 JSON 声明构建工具的识别、可执行文件、选项、任务、运行入口、测试和输出格式，或由插件自带、与语言服务器同类的 Provider 进程回答模型和依赖，Rust Core 统一校验、生成命令行或 Provider 请求并解码结果，宿主为每个构建系统打开一个按声明（icon、presentation、category）布局的工具窗口；通过共享 executableResolution 候选解析支持可选设置路径、优先级与相对排序，空值自动发现、显式失败不回退；buildProviders 2/3 原生任务与测试执行复用工作区后端会话，带进度、取消、结果与配置失效隔离；协议 3 可按声明发现测试并在现有构建树按精确选择器运行，源码/设置变化撤销旧清单；协议 4 可为应用目标准备启动计划，Core 校验后交给原生 Run 管理进程；Provider 应用可保存到本地 Run v2 配置并重新准备后重启；插件自有原生程序经 Provider v5 构建并准备 Debug，Build 树和保存的 Run 配置复用原生调试会话",
+  "capability": "构建系统插件（API 3 buildSystems）：插件用 JSON 声明构建工具的识别、可执行文件、选项、任务、运行入口、测试和输出格式，或由插件自带、与语言服务器同类的 Provider 进程回答模型和依赖，Rust Core 统一校验、生成命令行或 Provider 请求并解码结果，宿主为每个构建系统打开一个按声明（icon、presentation、category）布局的工具窗口；通过共享 executableResolution 候选解析支持可选设置路径、优先级与相对排序，空值自动发现、显式失败不回退；buildProviders 2/3 原生任务与测试执行复用工作区后端会话，带进度、取消、结果与配置失效隔离；协议 3 可按声明发现测试并在现有构建树按精确选择器运行，源码/设置变化撤销旧清单；协议 4 可为应用目标准备启动计划，Core 校验后交给原生 Run 管理进程；Provider 应用可保存到本地 Run v2 配置并重新准备后重启；插件自有原生程序经 Provider v5 构建并准备 Debug，Build 树和保存的 Run 配置复用原生调试会话；协议 7 可选原生配置投影经通用设置页确认保存并回读（独立能力行 build-native-configuration）",
   "macos": {
     "evidence": [
       "rust/lithe-core/src/build",
@@ -54,7 +54,9 @@
       "macos/Tests/LitheTests/MacNativeBuildProviderIntegrationTests.swift",
       "macos/Tests/LitheTests/MacNativeProviderDebugIntegrationTests.swift",
       "macos/Tests/LitheTests/ProviderWorkflowPresentationTests.swift",
-      "docs/assets/provider-workflow-review/README.md"
+      "docs/assets/provider-workflow-review/README.md",
+      "macos/Sources/Lithe/Views/App/ContributedBuildConfigurationSection.swift",
+      "rust/lithe-core/src/build/configuration.rs"
     ],
     "implementationStatus": "partial",
     "verificationStatus": "pending"

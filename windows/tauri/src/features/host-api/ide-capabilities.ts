@@ -303,6 +303,7 @@ export class IdeCapabilities {
       }
       case "lithe_build_inspect":
       case "lithe_build_reload":
+      case "lithe_build_configure":
       case "lithe_build_execute":
         return fail("NOT_AVAILABLE", createTranslator(useSettingsStore.getState().settings.displayLanguage)("ide.build.windowsUnavailable"));
       case "lithe_maven_execute": {

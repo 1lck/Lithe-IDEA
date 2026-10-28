@@ -204,6 +204,15 @@ final class IdeCapabilitiesFeatureModel: ObservableObject {
             }
             build.loadModel(entry.id, reason: .refresh)
             return ["instanceID": entry.id, "reloadRequested": true]
+        case "lithe_build_configure":
+            guard let build = execution.buildSystems, let entry = build.entry(args["instanceID"] as? String ?? "") else {
+                return failed("NOT_FOUND", L10n.string("Choose a detected build instance"))
+            }
+            let value = try JSONDecoder().decode(ToolingJSONValue.self,
+                from: JSONSerialization.data(withJSONObject: args["value"] ?? NSNull(), options: [.fragmentsAllowed]))
+            let option = try build.configureOption(entry.id, optionID: args["optionID"] as? String ?? "", value: value == .null ? nil : value)
+            return ["saved": true, "instanceID": entry.id, "option": try buildOptionJSON(option),
+                    "reloadRequired": build.entry(entry.id)?.isReloadRequired == true]
         case "lithe_build_execute":
             guard let build = execution.buildSystems, let entry = build.entry(args["instanceID"] as? String ?? "") else {
                 return failed("NOT_FOUND", L10n.string("Choose a detected build instance"))
@@ -335,7 +344,16 @@ final class IdeCapabilitiesFeatureModel: ObservableObject {
          "projects": entry.model?.projects.map { ["id": $0.id, "name": $0.name, "path": $0.path] } ?? [],
          "targets": entry.model?.targets.map { ["id": $0.id, "projectID": $0.projectID, "name": $0.name] } ?? [],
          "modelTasks": entry.model?.tasks.map { ["id": $0.id, "projectID": $0.projectID, "taskID": $0.template,
-             "name": $0.displayName ?? $0.name] } ?? []]
+             "name": $0.displayName ?? $0.name] } ?? [],
+         "options": entry.options.compactMap { try? buildOptionJSON($0) },
+         "nativeConfiguration": entry.declaration.nativeConfiguration]
+    }
+
+    private func buildOptionJSON(_ option: BuildResolvedOption) throws -> [String: Any] {
+        ["id": option.id, "name": option.displayName, "kind": option.kind?.rawValue as Any? ?? NSNull(),
+         "value": try JSONSerialization.jsonObject(with: JSONEncoder().encode(option.value), options: [.fragmentsAllowed]),
+         "source": option.source, "allowCustom": option.allowCustom,
+         "choices": option.choices.map { ["value": $0.value, "name": $0.title ?? $0.value] }]
     }
 
     private func moduleJSON(_ module: MavenModule) -> [String: Any] {

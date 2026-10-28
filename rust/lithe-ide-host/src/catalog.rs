@@ -22,6 +22,10 @@ pub fn failure(code: &str, message: &str) -> Value {
 fn string() -> Value {
     json!({"type":"string", "maxLength":4096})
 }
+fn option_value() -> Value {
+    json!({"anyOf":[string(), {"type":"boolean"}, {"type":"null"},
+        {"type":"array","items":string(),"maxItems":64}]})
+}
 fn schema(properties: Value, required: &[&str]) -> Value {
     json!({"type":"object", "properties":properties, "required":required, "additionalProperties":false})
 }
@@ -38,6 +42,7 @@ pub fn tools() -> Vec<Value> {
         ("lithe_maven_execute", "Windows Maven execution (macOS uses lithe_build_execute). Execute Maven goals through the IDE, using saved profiles and toolchains. Returns operationID for output/status/stop. May execute project code and access the network. Requires execute permission.", "execute", schema(json!({"goals":{"type":"array","items":string(),"minItems":1,"maxItems":32},"modulePath":string()}), &["goals"])),
         ("lithe_build_inspect", "List detected build plugin instances, current project/target/model task identities and declared tasks. No tooling is executed.", "read", schema(json!({}), &[])),
         ("lithe_build_reload", "Ask a detected build plugin to load or reload its project model. May execute project tooling and access the network. Inspect the model state before selecting projects. Requires execute permission.", "execute", schema(json!({"instanceID":string()}), &["instanceID"])),
+        ("lithe_build_configure", "Set one declared build option using the same instance editor and persistent store as the IDE. Read option IDs, kinds and effective values from build inspect. Null resets that option. Invalid values are refused. Native files use the explicit native configuration save workflow. Requires configure permission.", "configure", schema(json!({"instanceID":string(),"optionID":string(),"value":option_value()}), &["instanceID","optionID","value"])),
         ("lithe_build_execute", "Execute a declared plugin build task through the same Build workflow as the IDE. Use identities from build inspect. Arguments are separate tokens interpreted by the plugin. Returns operationID for output/status/stop. May execute project code and access the network. Requires execute permission.", "execute", schema(json!({"instanceID":string(),"taskID":string(),"projectID":string(),"targetID":string(),"modelTaskID":string(),"userArguments":{"type":"array","items":string(),"maxItems":256}}), &["instanceID","taskID"])),
         ("lithe_run_list", "List saved runnable configurations and readiness. Environment variable values and launch arguments are not disclosed.", "read", schema(json!({}), &[])),
         ("lithe_run_start", "Start an existing IDE run configuration through the normal preparation/build workflow. Returns operationID; pending UI decisions remain in the IDE. Requires execute permission.", "execute", schema(json!({"configurationID":string()}), &["configurationID"])),
@@ -83,23 +88,7 @@ pub fn validate(name: &str, args: &Value, permissions: &Permissions) -> Result<(
     }
     for (key, value) in values {
         let spec = properties.get(key).ok_or_else(invalid)?;
-        let valid = match spec["type"].as_str() {
-            Some("string") => value
-                .as_str()
-                .is_some_and(|s| s.len() <= 4096 && !s.contains('\0')),
-            Some("boolean") => value.is_boolean(),
-            Some("array") => value.as_array().is_some_and(|a| {
-                a.len() <= spec["maxItems"].as_u64().unwrap_or(64) as usize
-                    && a.len() >= spec["minItems"].as_u64().unwrap_or(0) as usize
-                    && a.iter().all(|v| {
-                        v.as_str().is_some_and(|s| {
-                            !s.is_empty() && s.len() <= 4096 && !s.chars().any(char::is_control)
-                        })
-                    })
-            }),
-            _ => false,
-        };
-        if !valid {
+        if !valid_value(spec, value) {
             return Err(invalid());
         }
     }
@@ -137,6 +126,31 @@ pub fn validate(name: &str, args: &Value, permissions: &Permissions) -> Result<(
         }
     }
     Ok(())
+}
+
+/// Validate the catalog's bounded scalar/list union before native dispatch.
+/// No object, executable expression or arbitrary JSON enters build options.
+fn valid_value(spec: &Value, value: &Value) -> bool {
+    if let Some(variants) = spec["anyOf"].as_array() {
+        return variants.iter().any(|variant| valid_value(variant, value));
+    }
+    match spec["type"].as_str() {
+        Some("string") => value
+            .as_str()
+            .is_some_and(|s| s.len() <= 4096 && !s.contains('\0')),
+        Some("boolean") => value.is_boolean(),
+        Some("null") => value.is_null(),
+        Some("array") => value.as_array().is_some_and(|a| {
+            a.len() <= spec["maxItems"].as_u64().unwrap_or(64) as usize
+                && a.len() >= spec["minItems"].as_u64().unwrap_or(0) as usize
+                && a.iter().all(|v| {
+                    v.as_str().is_some_and(|s| {
+                        !s.is_empty() && s.len() <= 4096 && !s.chars().any(char::is_control)
+                    })
+                })
+        }),
+        _ => false,
+    }
 }
 
 /// Pages UTF-8 output with a prefix fingerprint so a trimmed/replaced buffer resets explicitly.
@@ -253,6 +267,45 @@ mod tests {
             assert!(validate("lithe_build_execute", &args, &permissions).is_err());
         }
         assert!(validate("lithe_build_execute", &json!({"instanceID":"maven@.","taskID":"custom","projectID":"api","userArguments":["clean","verify"]}), &permissions).is_ok());
+    }
+    #[test]
+    fn build_options_require_configure_and_accept_only_bounded_declared_value_shapes() {
+        let permission = Permissions {
+            configure: true,
+            execute: false,
+        };
+        for value in [
+            Value::Null,
+            json!(true),
+            json!("/path with spaces/settings.xml"),
+            json!(["ci", "local"]),
+            json!([]),
+        ] {
+            let args = json!({"instanceID":"fixture@.","optionID":"profiles","value":value});
+            assert!(validate("lithe_build_configure", &args, &permission).is_ok());
+            assert!(validate("lithe_build_configure", &args, &Permissions::default()).is_err());
+        }
+        for value in [
+            json!({"path":"anything"}),
+            json!(42),
+            json!([true]),
+            json!(["bad\nvalue"]),
+            json!(vec!["v"; 65]),
+            json!("x".repeat(4097)),
+        ] {
+            assert!(validate(
+                "lithe_build_configure",
+                &json!({"instanceID":"fixture@.","optionID":"profiles","value":value}),
+                &permission
+            )
+            .is_err());
+        }
+        assert!(validate(
+            "lithe_build_configure",
+            &json!({"instanceID":"fixture@.","optionID":"profiles"}),
+            &permission
+        )
+        .is_err());
     }
     #[test]
     fn output_cursor_detects_clear_and_truncation_and_preserves_unicode() {

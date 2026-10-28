@@ -205,6 +205,7 @@ test("Build Provider entry points are explicitly unavailable before Windows host
   for (const [name, arguments_] of [
     ["lithe_build_inspect", {}],
     ["lithe_build_reload", { instanceID: "fixture" }],
+    ["lithe_build_configure", { instanceID: "fixture", optionID: "release", value: true }],
     ["lithe_build_execute", { instanceID: "fixture", taskID: "build" }],
   ] as const) {
     expect(await api.call(name, arguments_)).toMatchObject({ error: { code: "NOT_AVAILABLE" } });

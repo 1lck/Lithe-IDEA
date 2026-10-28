@@ -15,7 +15,7 @@ use serde_json::{json, Value};
 const EXPERIMENTAL_KEY: &str = "litheBuild";
 
 /// Build-provider protocol versions this client speaks, in preference order.
-const SUPPORTED_VERSIONS: [u64; 6] = [6, 5, 4, 3, 2, 1];
+const SUPPORTED_VERSIONS: [u64; 7] = [7, 6, 5, 4, 3, 2, 1];
 
 /// Feature name recorded in the session's server capabilities once a
 /// provider answered a supported version.
@@ -32,7 +32,19 @@ pub(crate) fn model_inputs_negotiated(capabilities: &Value) -> bool {
     capabilities
         .pointer("/experimental/litheBuild/version")
         .and_then(Value::as_u64)
-        == Some(6)
+        .is_some_and(|version| matches!(version, 6 | 7))
+}
+
+/// Version 7 returns non-sensitive native settings and source/write metadata.
+pub(crate) const CONFIGURATION_METHOD: &str = "lithe/build/configuration";
+/// Admission feature keeps native source metadata away from older protocols.
+pub(crate) const CONFIGURATION_FEATURE: &str = "litheBuildConfiguration";
+/// Only version 7 can accept source-backed configuration reads.
+pub(crate) fn configuration_negotiated(capabilities: &Value) -> bool {
+    capabilities
+        .pointer("/experimental/litheBuild/version")
+        .and_then(Value::as_u64)
+        == Some(7)
 }
 
 /// Version 5 prepares a native debug target, never an adapter process.
@@ -44,7 +56,7 @@ pub(crate) fn debug_preparation_negotiated(capabilities: &Value) -> bool {
     capabilities
         .pointer("/experimental/litheBuild/version")
         .and_then(Value::as_u64)
-        .is_some_and(|version| matches!(version, 5 | 6))
+        .is_some_and(|version| matches!(version, 5 | 6 | 7))
 }
 
 /// Admission feature for the version 4 method.
@@ -85,6 +97,7 @@ pub(crate) fn is_build_method(method: &str) -> bool {
         || method == DISCOVER_TESTS_METHOD
         || method == PREPARE_RUN_METHOD
         || method == PREPARE_DEBUG_METHOD
+        || method == CONFIGURATION_METHOD
 }
 
 /// Whether the method shares bounded output, progress, and final result handling.
@@ -97,7 +110,7 @@ pub(crate) fn execution_negotiated(capabilities: &Value) -> bool {
     capabilities
         .pointer("/experimental/litheBuild/version")
         .and_then(Value::as_u64)
-        .is_some_and(|version| matches!(version, 2 | 3 | 4 | 5 | 6))
+        .is_some_and(|version| matches!(version, 2 | 3 | 4 | 5 | 6 | 7))
 }
 
 /// Tests require an explicit version 3 agreement, independent of task support.
@@ -105,7 +118,7 @@ pub(crate) fn tests_negotiated(capabilities: &Value) -> bool {
     capabilities
         .pointer("/experimental/litheBuild/version")
         .and_then(Value::as_u64)
-        .is_some_and(|version| matches!(version, 3 | 4 | 5 | 6))
+        .is_some_and(|version| matches!(version, 3 | 4 | 5 | 6 | 7))
 }
 
 /// A preparation has progress and cancellation, but its reply is a launch plan.
@@ -118,7 +131,7 @@ pub(crate) fn run_preparation_negotiated(capabilities: &Value) -> bool {
     capabilities
         .pointer("/experimental/litheBuild/version")
         .and_then(Value::as_u64)
-        .is_some_and(|version| matches!(version, 4 | 5 | 6))
+        .is_some_and(|version| matches!(version, 4 | 5 | 6 | 7))
 }
 
 /// Normalizes bounded progress; the engine checks the pending request identity.
@@ -190,7 +203,7 @@ mod tests {
             &json!({ "experimental": { "litheBuild": {} } })
         ));
         assert!(!negotiated(
-            &json!({ "experimental": { "litheBuild": { "version": 7 } } })
+            &json!({ "experimental": { "litheBuild": { "version": 8 } } })
         ));
         assert!(!negotiated(
             &json!({ "experimental": { "litheBuild": { "version": "1" } } })
@@ -253,5 +266,23 @@ mod tests {
             &json!({"result": {"exitCode": 0,"output":"x".repeat(32*1024*1024+1)}})
         )
         .is_err());
+    }
+}
+
+#[cfg(test)]
+mod configuration_tests {
+    use super::*;
+    #[test]
+    fn native_configuration_requires_its_own_wire_version_without_losing_old_methods() {
+        let old = json!({"experimental":{"litheBuild":{"version":6}}});
+        let current = json!({"experimental":{"litheBuild":{"version":7}}});
+        assert!(!configuration_negotiated(&old));
+        assert!(configuration_negotiated(&current));
+        assert!(is_build_method(CONFIGURATION_METHOD));
+        assert!(model_inputs_negotiated(&current));
+        assert!(execution_negotiated(&current));
+        assert!(tests_negotiated(&current));
+        assert!(run_preparation_negotiated(&current));
+        assert!(debug_preparation_negotiated(&current));
     }
 }

@@ -335,3 +335,42 @@ pub(crate) fn build_resolve_model_inputs_command(payload: Value) -> Result<Value
         },
     )
 }
+
+/// `build.configurationPlan`: read native facts through the owning provider.
+pub(crate) fn build_configuration_plan_command(payload: Value) -> Result<Value, CoreError> {
+    with_build_system(
+        payload,
+        "build.configurationPlan",
+        "plan",
+        |declaration, request: &OutputPlanRequest| super::configuration::plan(declaration, request),
+    )
+}
+
+/// `build.decodeConfiguration`: non-sensitive facts and bounded write bindings.
+pub(crate) fn build_decode_configuration_command(payload: Value) -> Result<Value, CoreError> {
+    with_build_system(
+        payload,
+        "build.decodeConfiguration",
+        "configuration",
+        |declaration, request: &super::configuration::DecodeConfigurationRequest| {
+            super::configuration::decode(declaration, request)
+        },
+    )
+}
+
+/// `build.editConfigurationDocument`: edits approved XML fields in host memory.
+pub(crate) fn build_edit_configuration_document_command(
+    payload: Value,
+) -> Result<Value, CoreError> {
+    with_build_system(
+        payload,
+        "build.editConfigurationDocument",
+        "edit",
+        |declaration, request: &super::configuration_xml::EditConfigurationDocumentRequest| {
+            if declaration.configuration.is_none() {
+                return Err(plans::unavailable(declaration, "native configuration"));
+            }
+            super::configuration_xml::edit(request)
+        },
+    )
+}

@@ -9462,7 +9462,23 @@
     "ide.build.windowsUnavailable": "Build Provider workflows are not available on Windows yet",
     "native.projectEnvironmentSettingsChangedOnDisk": "Project environment settings changed on disk. Reload before saving; your draft has been kept.",
     "native.couldNotVerifySavedProjectEnvironment": "Could not verify the saved project environment settings. The previous preferences have been kept when possible.",
-    "native.projectEnvironmentSaveInProgress": "Project environment settings are being saved. Wait before saving again."
+    "native.projectEnvironmentSaveInProgress": "Project environment settings are being saved. Wait before saving again.",
+    "native.nativeConfigurationUnavailable": "Native configuration is unavailable.",
+    "native.nativeConfigurationStale": "Native configuration changed. Reload before saving; your draft has been kept.",
+    "native.nativeConfigurationBusy": "Native configuration is busy. Wait for the current operation to finish.",
+    "native.nativeConfigurationReadBackFailed": "Native configuration was saved, but its current effective values could not be verified. Reload before editing again.",
+    "native.nativeConfigurationDiskConflict": "Native configuration changed on disk. Reload before saving; your draft has been kept.",
+    "native.nativeConfigurationSourceReadOnly": "This native configuration source is read-only. Installed applications and plugin packages cannot be edited.",
+    "native.nativeConfigurationFileRequired": "The native configuration must be a writable UTF-8 XML file smaller than 2 MB.",
+    "native.nativeConfigurationTitle": "Native configuration",
+    "native.nativeConfigurationOpenProject": "Open a project to read its native configuration.",
+    "native.nativeConfigurationNoInstance": "This project has no matching build-system instance.",
+    "native.nativeConfigurationNotRead": "No native configuration has been read.",
+    "native.buildOptionUnavailable": "The build option is no longer available. Reload the build instance.",
+    "native.buildOptionInvalid": "The build option value is invalid. Inspect its current kind and choices.",
+    "native.buildOptionReadBackFailed": "The saved build option could not be verified. Reload before editing again.",
+    "native.nativeConfigurationExplicitRead": "Reading configuration with this project tool requires an explicit action.",
+    "native.nativeConfigurationReadUsingProjectTool": "Read using project tool"
   },
   "overrides": {
     "windows": {

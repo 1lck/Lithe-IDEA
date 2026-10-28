@@ -2483,14 +2483,195 @@ struct BuildSystemServiceTests {
     }
 }
 
-private func fixtureSource(pluginID: String = "dev.example", testDiscovery: Bool = false, providerRuns: [DeclarativeBuildSystem.ProviderRun] = [], buildSystemID: String = "fixture", sharesModel: Bool = false, modelInputs: [DeclarativeBuildSystem.ModelInput] = []) -> BuildSystemPluginSource {
+extension BuildSystemServiceTests {
+    @Test
+    func passiveNativeReadDoesNotRunAProjectWrapperOrSilentlyFallBackToProviderDiscovery() async throws {
+        let harness = try NativeConfigurationHarness()
+        defer { harness.coordinator.stop() }
+        harness.tools.executesProjectCode = true
+        await #expect(throws: (any Error).self) { try await harness.coordinator.read("entry") }
+        #expect(harness.providers.sent.isEmpty)
+        #expect(harness.coordinator.state("entry").requiresExplicitRead)
+        _ = try await harness.coordinator.read("entry", allowProjectTool: true)
+        #expect(harness.providers.sent.count == 1)
+        harness.tools.failure = BuildSystemServiceTestsError(message: "Automatic discovery failed")
+        await #expect(throws: (any Error).self) { try await harness.coordinator.read("entry") }
+        #expect(harness.providers.sent.count == 1)
+        #expect(harness.coordinator.state("entry").requiresExplicitRead)
+        _ = try await harness.coordinator.read("entry", allowProjectTool: true)
+        #expect(harness.providers.sent.count == 2)
+        #expect(harness.files.commits == 0)
+    }
+
+    @Test
+    func nativeSaveReadBackInvalidatesBuildFactsAndNeverUsesTheDraftAsEffectiveState() async throws {
+        let harness = try NativeConfigurationHarness()
+        defer { harness.coordinator.stop() }
+        let first = try await harness.coordinator.read("entry")
+        #expect(harness.files.commits == 0)
+        #expect(harness.providers.sent.first?.request.method == "lithe/build/configuration")
+        harness.providers.reply = try nativeConfigurationReply(revision: "b", value: "/raw", effective: "/command-line")
+        let next = try await harness.coordinator.save("entry", snapshot: first, edits: nativeEdits(first))
+        #expect(harness.files.commits == 1)
+        #expect(harness.ownership.configurationRevision == 1)
+        #expect(next.sources.first?.fields.first?.effectiveValue == .string("/command-line"))
+        #expect(harness.coordinator.state("entry").snapshot == next)
+        #expect(!harness.coordinator.state("entry").isStale)
+        #expect(!harness.coordinator.isBusy)
+    }
+
+    @Test
+    func optionABADuringNativePreparationRejectsTheWriteAndRetainsTheOldSnapshot() async throws {
+        let harness = try NativeConfigurationHarness()
+        let gate = GatedBuildDecode()
+        defer { gate.releaseDecode(); harness.coordinator.stop() }
+        let first = try await harness.coordinator.read("entry")
+        harness.files.prepareGate = gate
+        let save = Task { try await harness.coordinator.save("entry", snapshot: first, edits: nativeEdits(first)) }
+        defer { save.cancel() }
+        let entered = await gate.entered.waitUntilOpen()
+        #expect(entered, "Native preparation did not reach its controlled boundary")
+        harness.ownership.optionsRevision += 2
+        gate.releaseDecode()
+        let result = await save.result
+        if case .success = result { Issue.record("An obsolete draft was saved") }
+        #expect(harness.files.commits == 0)
+        #expect(harness.coordinator.state("entry").snapshot == first)
+        #expect(harness.coordinator.state("entry").isStale)
+    }
+
+    @Test
+    func nativeReadBackFailureKeepsTheDraftStaleUntilExplicitReload() async throws {
+        let harness = try NativeConfigurationHarness()
+        defer { harness.coordinator.stop() }
+        let first = try await harness.coordinator.read("entry")
+        harness.providers.failure = BuildSystemServiceTestsError(message: "upstream rejected configuration")
+        await #expect(throws: (any Error).self) {
+            try await harness.coordinator.save("entry", snapshot: first, edits: nativeEdits(first))
+        }
+        #expect(harness.files.commits == 1)
+        #expect(harness.coordinator.state("entry").snapshot == first)
+        #expect(harness.coordinator.state("entry").isStale)
+        await #expect(throws: (any Error).self) {
+            try await harness.coordinator.save("entry", snapshot: first, edits: nativeEdits(first))
+        }
+        #expect(harness.files.commits == 1)
+        harness.providers.failure = nil
+        harness.providers.reply = try nativeConfigurationReply(revision: "b", value: "/raw", effective: "/raw")
+        _ = try await harness.coordinator.read("entry")
+        #expect(!harness.coordinator.state("entry").isStale)
+    }
+
+    @Test
+    func nativeStopRejectsCancellationIgnoringProviderReplyFromTheOldWorkspace() async throws {
+        let harness = try NativeConfigurationHarness()
+        let gate = BuildTestGate()
+        defer { gate.open(); harness.coordinator.stop() }
+        harness.providers.ignoresCancellation = true
+        harness.providers.replyGate = gate
+        let read = Task { try await harness.coordinator.read("entry") }
+        defer { read.cancel() }
+        #expect(await harness.providers.requestStarted.waitUntilOpen())
+        harness.coordinator.stop()
+        harness.ownership.generation += 1
+        gate.open()
+        if case .success = await read.result { Issue.record("An old workspace published native settings") }
+        #expect(harness.coordinator.state("entry").snapshot == nil)
+        #expect(!harness.coordinator.isBusy)
+        #expect(harness.files.commits == 0)
+    }
+
+    @Test
+    func serviceRejectsNativeDraftAfterOptionsChangeBackToTheirOriginalValues() async throws {
+        let planner = FakeBuildPlanner()
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "command")])
+        let providers = FakeBuildProviders()
+        providers.reply = try nativeConfigurationReply()
+        let files = NativeConfigurationFiles()
+        let harness = Harness(planner: planner, sources: [fixtureSource(nativeConfiguration: true)],
+                              providers: providers, nativeConfigurationFiles: files)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        _ = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
+        let snapshot = try await harness.service.readNativeConfiguration(Self.instanceID)
+        harness.service.setOption(Self.instanceID, optionID: "release", value: .bool(true))
+        harness.service.setOption(Self.instanceID, optionID: "release", value: nil)
+        await #expect(throws: (any Error).self) {
+            try await harness.service.saveNativeConfiguration(Self.instanceID, snapshot: snapshot, edits: nativeEdits(snapshot))
+        }
+        #expect(files.commits == 0)
+        #expect(harness.service.nativeConfigurationState(Self.instanceID).isStale)
+    }
+}
+
+@MainActor
+private final class NativeConfigurationOwnership {
+    var optionsRevision = 0
+    var configurationRevision = 0
+    var generation = 0
+    var context: BuildNativeConfigurationContext {
+        BuildNativeConfigurationContext(entryID: "entry", source: fixtureSource(nativeConfiguration: true),
+            buildSystemID: "fixture", workspace: URL(fileURLWithPath: "/workspace"), generation: generation,
+            configurationRevision: configurationRevision, optionsRevision: optionsRevision, settings: [:],
+            plan: BuildPlanContext(root: ".", options: [:]))
+    }
+}
+
+@MainActor
+private final class NativeConfigurationHarness {
+    let ownership = NativeConfigurationOwnership()
+    let files = NativeConfigurationFiles()
+    let providers = FakeBuildProviders()
+    let tools = FakeToolResolver()
+    let coordinator: BuildNativeConfigurationCoordinator
+    init() throws {
+        let ownership = ownership
+        providers.reply = try nativeConfigurationReply()
+        coordinator = BuildNativeConfigurationCoordinator(planner: FakeBuildPlanner(), tools: tools,
+            providers: providers, files: files, context: { _ in ownership.context },
+            didSave: { _ in ownership.configurationRevision += 1 })
+    }
+}
+
+private final class NativeConfigurationFiles: BuildNativeConfigurationStoring, @unchecked Sendable {
+    private let lock = NSLock()
+    private var committed = 0
+    var prepareGate: GatedBuildDecode?
+    var commits: Int { lock.withLock { committed } }
+    func prepare(target: BuildSystemTarget, snapshot: BuildNativeConfiguration,
+                 edits: BuildNativeConfigurationEdits) throws -> BuildNativeConfigurationPreparedWrite? {
+        if let gate = prepareGate {
+            gate.entered.open()
+            guard gate.waitForRelease() else { throw GatedDecodeError.releaseTimedOut }
+        }
+        return BuildNativeConfigurationPreparedWrite(url: URL(fileURLWithPath: "/workspace/settings.xml"),
+            expected: Data(), replacement: Data("native bytes".utf8), revision: "sha256:" + String(repeating: "b", count: 64))
+    }
+    func commit(_ write: BuildNativeConfigurationPreparedWrite) throws { lock.withLock { committed += 1 } }
+}
+
+private func nativeConfigurationReply(revision: String = "a", value: String = "/before", effective: String = "/before") throws -> ToolingJSONValue {
+    try decode(ToolingJSONValue.self, """
+    {"format":"litheBuildConfiguration","version":1,"sources":[{"id":"user","scope":"user",
+    "uri":"file:///workspace/settings.xml","revision":"sha256:\(String(repeating: revision, count: 64))",
+    "writable":true,"rootElement":{"name":"settings","namespace":""},"fields":[
+    {"id":"localRepository","kind":"directory","value":"\(value)","effectiveValue":"\(effective)",
+    "effectiveSource":"upstream","path":["localRepository"]}]}]}
+    """)
+}
+
+private func nativeEdits(_ snapshot: BuildNativeConfiguration) -> BuildNativeConfigurationEdits {
+    BuildNativeConfigurationEdits(sourceID: "user", revision: snapshot.sources[0].revision, values: ["localRepository": .string("/raw")])
+}
+
+private func fixtureSource(pluginID: String = "dev.example", testDiscovery: Bool = false, providerRuns: [DeclarativeBuildSystem.ProviderRun] = [], buildSystemID: String = "fixture", sharesModel: Bool = false, modelInputs: [DeclarativeBuildSystem.ModelInput] = [], nativeConfiguration: Bool = false) -> BuildSystemPluginSource {
     BuildSystemPluginSource(
         pluginID: pluginID,
         manifest: Data("{}".utf8),
         packageURL: URL(fileURLWithPath: "/plugins/\(pluginID)"),
         buildSystems: [DeclarativeBuildSystem(
             id: buildSystemID, displayName: "Fixture", modelSource: .command, tasks: [],
-            testScopes: [], dependencyScopes: [], testDiscovery: testDiscovery, providerRuns: providerRuns, sharesModel: sharesModel, modelInputs: modelInputs
+            testScopes: [], dependencyScopes: [], testDiscovery: testDiscovery, providerRuns: providerRuns, sharesModel: sharesModel, modelInputs: modelInputs, nativeConfiguration: nativeConfiguration
         )]
     )
 }
@@ -2519,6 +2700,7 @@ private final class Harness {
         sources: [BuildSystemPluginSource] = [fixtureSource()],
         providers: (any BuildProviderRequesting)? = nil,
         runLauncher: (any BuildRunLaunching)? = nil,
+        nativeConfigurationFiles: (any BuildNativeConfigurationStoring)? = nil,
         settings: @escaping @MainActor (String) -> [String: ToolingJSONValue] = { _ in [:] },
         waitForRedetection: @escaping @Sendable () async throws -> Void = {}
     ) {
@@ -2532,6 +2714,7 @@ private final class Harness {
             runner: runner,
             providers: providers,
             runLauncher: runLauncher,
+            nativeConfigurationFiles: nativeConfigurationFiles,
             settings: settings,
             waitForRedetection: waitForRedetection,
             sources: { enabledSources.value }
@@ -2861,6 +3044,16 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         return BuildInvocation(executables: [.setting(id: "toolPath", path: configured), .command("fake")])
     }
 
+    func configurationPlan(_ target: BuildSystemTarget, context: BuildPlanContext, hints: BuildProviderHints) throws -> BuildProviderRequest {
+        BuildProviderRequest(method: "lithe/build/configuration", params: .object([
+            "root": .string(context.root), "options": .object(context.options)
+        ]), optionFingerprint: "native", executesProjectCode: false, mayUseNetwork: false)
+    }
+
+    func decodeConfiguration(_ target: BuildSystemTarget, result: ToolingJSONValue) throws -> BuildNativeConfiguration {
+        try JSONDecoder().decode(BuildNativeConfiguration.self, from: JSONEncoder().encode(result))
+    }
+
     func checkToolVersion(_ target: BuildSystemTarget, runtime: String?, output: String) throws -> BuildVersionCheck {
         BuildVersionCheck(satisfied: true, version: nil)
     }
@@ -3108,6 +3301,7 @@ private final class FakeToolResolver: BuildToolResolving {
     static let executableURL = URL(fileURLWithPath: "/tool/bin/fake")
     /// When set, resolution fails like a build tool that is not installed.
     var failure: (any Error)?
+    var executesProjectCode = false
     private(set) var resolutions = 0
 
     func resolve(
@@ -3121,7 +3315,7 @@ private final class FakeToolResolver: BuildToolResolving {
         return ResolvedBuildTool(
             executableURL: Self.executableURL,
             environment: ["PATH": "/tool/bin"],
-            executesProjectCode: false,
+            executesProjectCode: executesProjectCode,
             version: nil
         )
     }

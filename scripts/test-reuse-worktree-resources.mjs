@@ -227,6 +227,20 @@ try {
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /jdt-maven-settings.*cannot be reused/);
   });
+  await test("native configuration probe and conditional replacement state cannot be reused", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "build-native-configuration-state");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.some(location => location.endsWith("configuration-*/configuration.json")));
+    assert.ok(resource.locations.some(location => location.endsWith("maven-snapshot.json")));
+    assert.ok(resource.locations.some(location => location.includes(".<filename>.lithe-<uuid>")));
+    const listed = run(process.execPath, [reuseScript, "--list"]);
+    assertSucceeded(listed);
+    assert.ok(!listed.stdout.includes(resource.id));
+    const refused = reuse(["--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /build-native-configuration-state.*cannot be reused/);
+  });
   await test("plugin web state has no transferable build identity or copy stage", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const resource = registry.excludedResources.find(item => item.id === "plugin-web-state");

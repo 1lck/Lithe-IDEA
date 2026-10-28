@@ -9462,7 +9462,23 @@
     "ide.build.windowsUnavailable": "Windows 尚不支持 Build Provider 工作流",
     "native.projectEnvironmentSettingsChangedOnDisk": "项目环境设置已被外部修改。请重新加载后再保存；你的草稿已保留。",
     "native.couldNotVerifySavedProjectEnvironment": "无法核对已保存的项目环境设置。已尽可能保留原偏好。",
-    "native.projectEnvironmentSaveInProgress": "正在保存项目环境设置，请等待完成后再保存。"
+    "native.projectEnvironmentSaveInProgress": "正在保存项目环境设置，请等待完成后再保存。",
+    "native.nativeConfigurationUnavailable": "原生配置不可用。",
+    "native.nativeConfigurationStale": "原生配置已更改。请重新加载后再保存；已保留你的草稿。",
+    "native.nativeConfigurationBusy": "原生配置正在处理中。请等待当前操作完成。",
+    "native.nativeConfigurationReadBackFailed": "原生配置已保存，但无法核实当前生效值。请重新加载后再编辑。",
+    "native.nativeConfigurationDiskConflict": "磁盘上的原生配置已更改。请重新加载后再保存；已保留你的草稿。",
+    "native.nativeConfigurationSourceReadOnly": "此原生配置来源为只读。不能编辑已安装的应用和插件包。",
+    "native.nativeConfigurationFileRequired": "原生配置必须是小于 2 MB 的可写 UTF-8 XML 文件。",
+    "native.nativeConfigurationTitle": "原生配置",
+    "native.nativeConfigurationOpenProject": "打开项目以读取其原生配置。",
+    "native.nativeConfigurationNoInstance": "此项目没有匹配的构建系统实例。",
+    "native.nativeConfigurationNotRead": "尚未读取原生配置。",
+    "native.buildOptionUnavailable": "此构建选项已不可用。请重新加载构建实例。",
+    "native.buildOptionInvalid": "构建选项值无效。请查看其当前类型和可选值。",
+    "native.buildOptionReadBackFailed": "无法核实已保存的构建选项。请重新加载后再编辑。",
+    "native.nativeConfigurationExplicitRead": "读取配置需要显式运行此项目工具。",
+    "native.nativeConfigurationReadUsingProjectTool": "使用项目工具读取"
   },
   "overrides": {
     "macos": {

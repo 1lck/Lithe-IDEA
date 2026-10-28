@@ -681,6 +681,17 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
   identity stamp，任何复制阶段都禁止共享。资源清单 `jdt-maven-settings` 显式排除，
   复用脚本直接拒绝该资源，不进入下载或生成物校验路由。
 
+Build Provider 原生配置探针的 `configuration-*/configuration.json`、模型读取时的
+`run-*/configuration.json` 及 Maven v2 模型缓存中的实际来源 URI/哈希，均属于当前
+插件/构建系统/工作区的可变状态。探针与模型读取的临时目录在调用结束后删除；模型缓存
+由 Provider 管理，并在原生来源变化时失效。源哈希不是构建 identity stamp，不能跨工作树
+复制。宿主保存原生 XML 时在目标旁准备的 `.<filename>.lithe-<uuid>` 可能含凭据，
+只归该条件替换操作所有；成功后清理，无法安全恢复时明确报告保留路径。资源清单
+`build-native-configuration-state` 和复用脚本的排除路由拒绝这些目录与临时副本，不进入
+任何下载验证或复制阶段。它们不写 app/plugin 安装资源，不影响签名与 Sparkle delta。原生配置控件的隔离截图保存在
+`.artifacts/test-stability/native-configuration-ui/*.png`，身份取决于源码、夹具、主题和视口，
+同样由排除路由拒绝跨工作树复制，按测试报告保留策略清理。
+
 可下载的官方插件包是声明式插件包（只含 `plugin.json` 和它声明的资源，不含宿主加载的代码，与架构无关；自带运行时的 Java Support 见下文），在 `.build/<triple>/<configuration>/OfficialPlugins` 中独立组装，`--triple` 只决定输出目录和签名工具的构建布局；组装后通过 `LitheOfficialPluginVerifier` 验证声明、打包的可执行文件和“Mach-O 原生代码只出现在清单声明的运行时目录内”；发布配置还要求 repository secret `LITHE_PLUGIN_PACKAGE_PRIVATE_KEY`，由 `LithePluginPackageSigner` 对完整包生成 `lithe-plugin-signature.json`，客户端按宿主内置官方插件策略和 publisher 公钥验证后才允许安装。该 secret 的值是与客户端内置公钥匹配的 base64 编码 32 字节 Ed25519 私钥，可用 `gh secret set LITHE_PLUGIN_PACKAGE_PRIVATE_KEY --repo 1lck/Lithe-IDEA < /secure/path/lithe-plugin-package-private-key.base64` 配置；私钥文件和 shell 历史都不得进入仓库或日志。没有该 key 时，普通 debug 全量构建会跳过 publisher 签名包，指定其中一个包 ID 的构建会失败，不会留下缺少签名文档的目录。本地调试插件时可以显式传入 `--development-unsigned`（仅 debug 配置可用），生成不含签名文档的开发包，只能由 debug 构建的 Lithe 从磁盘安装；这类开发包同样不跨工作树复用。无可靠 identity stamp，不跨工作树复制。插件安装后打包的语言服务器位于
 `<app-support>/Lithe/Plugins/<plugin-id>/versions/<version>/language-server`，由插件版本目录拥有，运行时只读，重装、回滚和卸载随插件一起处理，不是工作树构建缓存。Go Support 和 PHP Support 已迁移为 Lithe Store 社区插件（`Lithe-IDEA/lithe-plugin-go`、`Lithe-IDEA/lithe-plugin-php`），不再由本仓库构建。PHPUnit 测试夹具的 `shared/fixtures/phpunit-project/vendor` 也由当前工作树独立安装。以上项目在资源清单 `excludedResources` 中明确排除，复用脚本会拒绝显式复制请求。
 

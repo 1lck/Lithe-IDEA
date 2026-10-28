@@ -179,12 +179,22 @@ struct IdeCapabilitiesTests {
             tests: access.tests, projectDevelopment: access.projectDevelopment, buildSystems: BuildSystemsFeatureModel(service: build))
         let feature = IdeCapabilitiesFeatureModel(model: actions)
         feature.allowExecute = true
+        feature.allowConfigure = true
         feature.enable()
         let result: Result<Void, Error>
         do {
             build.reset(workspaceURL: fixture.root)
             _ = try await build.prepareLanguageImport(workspaceURL: fixture.root)
             let entry = try #require(build.entries.first)
+            let configured = await feature.call("lithe_build_configure", arguments: ["instanceID": entry.id,
+                "optionID": "skipTests", "value": true])
+            #expect(configured["saved"] as? Bool == true)
+            #expect((configured["option"] as? [String: Any])?["value"] as? Bool == true)
+            #expect(options.options(workspaceURL: fixture.root, buildSystemID: "maven")["skipTests"] == .bool(true))
+            let invalid = await feature.call("lithe_build_configure", arguments: ["instanceID": entry.id,
+                "optionID": "skipTests", "value": "invalid"])
+            #expect(invalid["error"] != nil)
+            #expect(options.options(workspaceURL: fixture.root, buildSystemID: "maven")["skipTests"] == .bool(true))
             let loaded = TestGate()
             let modelObservation = build.$entries.sink { entries in
                 if entries.contains(where: { $0.id == entry.id && $0.modelState == .loaded }) { loaded.open() }

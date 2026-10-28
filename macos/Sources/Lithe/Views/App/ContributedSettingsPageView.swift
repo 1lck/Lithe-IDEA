@@ -44,12 +44,12 @@ struct ContributedSettingsPageView: View {
                     ContributedLanguageStatusSection(languageID: languageID, title: page.title)
                 }
                 ForEach(page.contributions) { contribution in
-                    if contribution.settings.isEmpty && contribution.actions.isEmpty {
+                    if contribution.settings.isEmpty && contribution.actions.isEmpty && contribution.nativeBuildSystemIDs.isEmpty {
                         LitheSettingsSection(contribution.pluginName) {
                             Text(LocalizedStringKey("This plugin adds no options to this page."))
                                 .foregroundStyle(LitheTheme.tertiaryText)
                         }
-                    } else {
+                    } else if !contribution.settings.isEmpty || !contribution.actions.isEmpty {
                         PluginSettingsSection(
                             settings: contribution.settings,
                             actions: contribution.actions,
@@ -58,6 +58,10 @@ struct ContributedSettingsPageView: View {
                             title: contribution.pluginName,
                             layer: $layer
                         )
+                    }
+                    if !contribution.nativeBuildSystemIDs.isEmpty {
+                        ContributedBuildConfigurationSection(pluginID: contribution.pluginID,
+                            buildSystemIDs: contribution.nativeBuildSystemIDs)
                     }
                 }
             }

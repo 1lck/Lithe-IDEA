@@ -126,16 +126,19 @@ public struct DeclarativeBuildSystem: Equatable, Sendable {
     /// The build system declares a provider launch. Installation verifies
     /// its packaged files before the provider can ever start.
     public let declaresProvider: Bool
+    /// The provider exposes source-backed, non-sensitive native configuration.
+    public let nativeConfiguration: Bool
 
     public init(
         id: String, displayName: String, icon: PluginUIIcon? = nil, modelSource: ModelSource?,
         options: [Option] = [], tasks: [Task], testScopes: [BuildScope], testTargetTags: [String] = [],
-        dependencyScopes: [BuildScope], declaresProvider: Bool = false, testDiscovery: Bool = false, providerRuns: [ProviderRun] = [], sharesModel: Bool = false, modelInputs: [ModelInput] = []
+        dependencyScopes: [BuildScope], declaresProvider: Bool = false, testDiscovery: Bool = false, providerRuns: [ProviderRun] = [], sharesModel: Bool = false, modelInputs: [ModelInput] = [], nativeConfiguration: Bool = false
     ) {
         self.id = id; self.displayName = displayName; self.icon = icon; self.modelSource = modelSource
         self.options = options; self.tasks = tasks
         self.testScopes = testScopes; self.testTargetTags = testTargetTags; self.dependencyScopes = dependencyScopes
         self.declaresProvider = declaresProvider
+        self.nativeConfiguration = nativeConfiguration
         self.testDiscovery = testDiscovery
         self.sharesModel = sharesModel; self.modelInputs = modelInputs
         self.providerRuns = providerRuns
@@ -1045,6 +1048,9 @@ package enum BuildLanguageImport: Equatable, Sendable, Decodable {
 /// `DeclarativePluginRejection`. Detection, decoding, and fingerprints read
 /// workspace files, so callers keep them off the main actor.
 package protocol BuildSystemPlanning: Sendable {
+    func configurationPlan(_ target: BuildSystemTarget, context: BuildPlanContext, hints: BuildProviderHints) throws -> BuildProviderRequest
+    func decodeConfiguration(_ target: BuildSystemTarget, result: ToolingJSONValue) throws -> BuildNativeConfiguration
+    func editConfigurationDocument(_ target: BuildSystemTarget, snapshot: BuildNativeConfiguration, edits: BuildNativeConfigurationEdits, document: String?) throws -> BuildNativeConfigurationDocumentEdit
     func resolveModelInputs(_ target: BuildSystemTarget, revision: UInt64, sources: [BuildModelInputSource]) throws -> ToolingJSONValue
     func detect(
         workspaceURL: URL,

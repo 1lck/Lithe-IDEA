@@ -67,6 +67,9 @@ pub(crate) struct BuildSystemDeclaration {
     pub(crate) provider: Option<ProviderDeclaration>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) options: Vec<OptionDeclaration>,
+    /// Native non-sensitive settings and generic write bindings from the engine.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) configuration: Option<super::configuration::ConfigurationDeclaration>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) model: Option<ModelSource>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1344,7 +1347,8 @@ impl BuildSystemDeclaration {
             .test
             .as_ref()
             .is_some_and(|test| test.source == TaskSource::Provider);
-        let uses = matches!(self.model, Some(ModelSource::Provider))
+        let uses = self.configuration.is_some()
+            || matches!(self.model, Some(ModelSource::Provider))
             || provider_runs
             || matches!(self.dependencies, Some(DependenciesSource::Provider { .. }))
             || provider_tests
@@ -1359,6 +1363,15 @@ impl BuildSystemDeclaration {
             }
             return Ok(());
         };
+        if self.configuration.is_some()
+            && (context.build_providers_version < 7
+                || !matches!(provider, ProviderDeclaration::Process(_)))
+        {
+            return Err(invalid(
+                &field,
+                "Native configuration requires buildProviders 7 and an owned provider process.",
+            ));
+        }
         if !uses {
             return Err(invalid(
                 field,

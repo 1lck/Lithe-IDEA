@@ -84,6 +84,8 @@ async function readRegistry() {
   // Build Provider snapshots remain under the excluded per-workspace PluginState
   // owner, including after removing the old macOS Maven tree output allocator.
   // They are mutable upstream state and must never gain a download validator.
+  // Native configuration probes, source-identity cache v2 and secret-bearing
+  // conditional replacement copies use the same explicit rejection route.
   // Shared i18n source and generated tables take this same refusal route:
   // rebuild from the target checkout, never copy another worktree's translations.
   const excludedResources = registry.excludedResources ?? [];

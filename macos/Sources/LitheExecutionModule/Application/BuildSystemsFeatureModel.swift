@@ -45,6 +45,18 @@ package final class BuildSystemsFeatureModel: ObservableObject {
     }
 
     package func entry(_ id: String) -> BuildSystemEntry? { service.entry(id) }
+    package func nativeConfigurationState(_ entryID: String) -> BuildNativeConfigurationState {
+        service.nativeConfigurationState(entryID)
+    }
+    @discardableResult
+    package func readNativeConfiguration(_ entryID: String, allowProjectTool: Bool = false) async throws -> BuildNativeConfiguration {
+        try await service.readNativeConfiguration(entryID, allowProjectTool: allowProjectTool)
+    }
+    @discardableResult
+    package func saveNativeConfiguration(_ entryID: String, snapshot: BuildNativeConfiguration,
+                                         edits: BuildNativeConfigurationEdits) async throws -> BuildNativeConfiguration {
+        try await service.saveNativeConfiguration(entryID, snapshot: snapshot, edits: edits)
+    }
     private var currentModels: [BuildModel] {
         entries.filter { $0.modelState == .loaded && !$0.isReloadRequired }.compactMap(\.model)
     }
@@ -112,6 +124,9 @@ package final class BuildSystemsFeatureModel: ObservableObject {
     }
     package func setOption(_ entryID: String, optionID: String, value: ToolingJSONValue?) {
         service.setOption(entryID, optionID: optionID, value: value)
+    }
+    package func configureOption(_ entryID: String, optionID: String, value: ToolingJSONValue?) throws -> BuildResolvedOption {
+        try service.configureOption(entryID, optionID: optionID, value: value)
     }
     package func setInstanceOption(_ entryID: String, optionID: String, value: ToolingJSONValue?) {
         service.setInstanceOption(entryID, optionID: optionID, value: value)

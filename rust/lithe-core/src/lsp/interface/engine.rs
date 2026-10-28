@@ -2129,6 +2129,19 @@ impl RuntimeSession {
                 )
                 .with_details("plugin.build.unavailable"));
             }
+            if request.method == super::build_provider::CONFIGURATION_METHOD
+                && !state
+                    .client
+                    .server_capabilities
+                    .iter()
+                    .any(|feature| feature == super::build_provider::CONFIGURATION_FEATURE)
+            {
+                return Err(CoreError::new(
+                    ErrorCode::NotSupported,
+                    "The provider did not negotiate native configuration.",
+                )
+                .with_details("plugin.build.unavailable"));
+            }
             if request.method == super::build_provider::PREPARE_DEBUG_METHOD
                 && !state
                     .client
@@ -11338,6 +11351,37 @@ public class Main {
             done.result.as_ref().unwrap()["value"]["program"],
             "app/bin/main"
         );
+    }
+
+    #[test]
+    fn provider_native_configuration_requires_version_seven_and_returns_only_the_projection() {
+        for version in 1..7 {
+            let harness = plugin_backend(json!({"litheBuild":{"version":version}}));
+            let error =
+                build_request(&harness, "lithe/build/configuration", json!({}), None).unwrap_err();
+            assert!(matches!(error.code, ErrorCode::NotSupported));
+            assert!(harness
+                .server
+                .messages()
+                .iter()
+                .all(|message| message["method"] != "lithe/build/configuration"));
+        }
+        let mut harness = plugin_backend(json!({"litheBuild":{"version":7}}));
+        let operation =
+            build_request(&harness, "lithe/build/configuration", json!({}), None).unwrap();
+        let id = harness
+            .server
+            .await_request("lithe/build/configuration")
+            .unwrap();
+        let result = json!({"format":"litheBuildConfiguration","version":1,"sources":[]});
+        harness
+            .server
+            .send(json!({"jsonrpc":"2.0","id":id,"result":result}));
+        let event = harness.await_event(|event| {
+            event.kind == "requestCompleted"
+                && event.operation_id.as_deref() == Some(operation.as_str())
+        });
+        assert_eq!(event.result.as_ref().unwrap()["value"], result);
     }
 
     #[test]

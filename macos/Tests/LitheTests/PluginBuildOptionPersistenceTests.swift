@@ -12,6 +12,30 @@ import Testing
 @MainActor
 struct PluginBuildOptionPersistenceTests {
     @Test
+    func checkedOptionEditsRejectInvalidValuesAndReadBackTheInstanceWithoutChangingSiblings() async throws {
+        let workspace = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-checked-build-options-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: workspace) }
+        let source = try Self.source(workspace: workspace)
+        let store = MacBuildOptionsStore(store: OptionPreferenceStore())
+        let service = Self.service(source: source, workspace: workspace, store: store, runner: OptionCommandRecorder())
+        defer { service.stop() }
+        _ = try await Self.refreshed(service) { service.reset(workspaceURL: workspace) }
+        #expect(throws: (any Error).self) { try service.configureOption("cargo:a", optionID: "features", value: .bool(true)) }
+        #expect(throws: (any Error).self) { try service.configureOption("cargo:a", optionID: "features", value: .array([.string("absent")])) }
+        #expect(throws: (any Error).self) { try service.configureOption("cargo:a", optionID: "missing", value: .string("v")) }
+        #expect(store.options(workspaceURL: workspace, buildSystemID: "cargo").isEmpty)
+        let changed = try service.configureOption("cargo:a", optionID: "features", value: .array([.string("cli")]))
+        #expect(changed.value == .array([.string("cli")]))
+        #expect(changed.source == "user")
+        let cleared = try service.configureOption("cargo:a", optionID: "features", value: .array([]))
+        #expect(cleared.value == .array([]))
+        #expect(store.emptyMultiSelectOptions(workspaceURL: workspace, buildSystemID: "cargo")["a"] == ["features"])
+        let reset = try service.configureOption("cargo:a", optionID: "features", value: nil)
+        #expect(reset.value == .array([.string("base")]))
+        #expect(reset.source != "user")
+    }
+
+    @Test
     func clearedInstanceSurvivesSiblingEditsRedetectionAndReopening() async throws {
         let workspace = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: workspace) }

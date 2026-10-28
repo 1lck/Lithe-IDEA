@@ -2213,6 +2213,12 @@
 "Name and email are written to the global Git configuration. Existing commits do not change." = "姓名和邮箱写入全局 Git 配置，已有提交不会改变。";
 "Name and email are written to this repository's Git configuration and override the global values. Existing commits do not change." = "姓名和邮箱写入当前仓库的 Git 配置并覆盖全局值，已有提交不会改变。";
 "Name:" = "名称：";
+"Native configuration" = "原生配置";
+"Native configuration changed on disk. Reload before saving; your draft has been kept." = "磁盘上的原生配置已更改。请重新加载后再保存；已保留你的草稿。";
+"Native configuration changed. Reload before saving; your draft has been kept." = "原生配置已更改。请重新加载后再保存；已保留你的草稿。";
+"Native configuration is busy. Wait for the current operation to finish." = "原生配置正在处理中。请等待当前操作完成。";
+"Native configuration is unavailable." = "原生配置不可用。";
+"Native configuration was saved, but its current effective values could not be verified. Reload before editing again." = "原生配置已保存，但无法核实当前生效值。请重新加载后再编辑。";
 "Native installer" = "原生安装器";
 "Native instruction file" = "原生指令文件";
 "Navigate" = "导航";
@@ -2369,6 +2375,7 @@
 "No matching skills." = "没有匹配的技能。";
 "No matching users" = "没有匹配的用户";
 "No models available" = "暂无可用模型";
+"No native configuration has been read." = "尚未读取原生配置。";
 "No navigation results" = "没有导航结果";
 "No new commits. Pushing creates the remote branch." = "没有新的提交。推送会创建远程分支。";
 "No notifications" = "暂无通知";
@@ -2534,6 +2541,7 @@
 "Open a project to configure its run configurations." = "打开项目后即可编辑运行配置。";
 "Open a project to let connected agents inspect and control it." = "打开项目后，已连接的 Agent 才能检查和控制它。";
 "Open a project to manage its skills." = "请先打开项目，再管理项目技能。";
+"Open a project to read its native configuration." = "打开项目以读取其原生配置。";
 "Open a project to see its language service." = "打开项目后可查看其语言服务。";
 "Open a project to use Git" = "请打开项目以使用 Git";
 "Open a source file before running Current File." = "运行“当前文件”前请先打开一个源文件。";
@@ -2844,6 +2852,7 @@
 "Read %lld files" = "读取了 %lld 个文件";
 "Read Memory at Address" = "读取此地址的内存";
 "Read Memory at Value" = "读取此值指向的内存";
+"Read using project tool" = "使用项目工具读取";
 "Read, write and search files only in the directories you allow. Requires Node.js 24 or later." = "读写、搜索你允许的目录中的文件。需要 Node.js 24 或更高版本。";
 "Read-only" = "只读";
 "Read-only file preview" = "只读文件预览";
@@ -2851,6 +2860,7 @@
 "Reading Git configuration…" = "正在读取 Git 配置…";
 "Reading changes and recent commits." = "正在读取文件更改和最近提交。";
 "Reading changes…" = "正在读取更改…";
+"Reading configuration with this project tool requires an explicit action." = "读取配置需要显式运行此项目工具。";
 "Reading memory…" = "正在读取内存…";
 "Reading project…" = "正在读取项目…";
 "Reading registered checkouts." = "正在读取 Git 中注册的检出目录。";
@@ -3771,6 +3781,8 @@
 "The branch could not be published" = "无法发布该分支";
 "The branch now contains the completed plan. Its original history remains available through the recovery reference." = "操作计划已执行完成。仍可通过恢复引用查看分支的原始历史。";
 "The breakdown needs Model call statistics (on by default). After turning it on, reconnect and send a message." = "分项需要开启“模型调用统计”（默认开启）。开启后请重新连接并发送消息。";
+"The build option is no longer available. Reload the build instance." = "此构建选项已不可用。请重新加载构建实例。";
+"The build option value is invalid. Inspect its current kind and choices." = "构建选项值无效。请查看其当前类型和可选值。";
 "The build provider failed to start." = "构建 Provider 启动失败。";
 "The build provider returned an invalid launch plan." = "构建提供方返回了无效的启动计划。";
 "The build provider stopped before it was ready." = "构建 Provider 在就绪前已停止。";
@@ -3862,6 +3874,7 @@
 "The name of the artifact the build produces." = "构建产物的名称。";
 "The native Hook configuration must be valid JSON. Existing contents were kept." = "原生 Hook 配置必须是有效 JSON，已有内容已保留。";
 "The native Hook event must contain an array. Existing contents were kept." = "原生 Hook 事件必须是数组，已有内容已保留。";
+"The native configuration must be a writable UTF-8 XML file smaller than 2 MB." = "原生配置必须是小于 2 MB 的可写 UTF-8 XML 文件。";
 "The native hooks field must be a JSON object. Existing contents were kept." = "原生 hooks 字段必须是 JSON 对象，已有内容已保留。";
 "The native panel state exceeds 64 KiB." = "原生面板状态超过 64 KiB。";
 "The official Lithe plugin repository cannot be removed. Disable it instead." = "官方 Lithe 插件仓库无法移除，请改为停用。";
@@ -3921,6 +3934,7 @@
 "The repository will be opened in detached HEAD state." = "仓库将以 detached HEAD 状态打开。";
 "The request has no secret." = "请求不包含密钥。";
 "The response stopped at the model's token limit." = "回复已达到模型的 token 上限，已停止。";
+"The saved build option could not be verified. Reload before editing again." = "无法核实已保存的构建选项。请重新加载后再编辑。";
 "The saved provider run configuration is unavailable." = "已保存的提供方运行配置不可用。";
 "The selected AI provider has an invalid API URL or model." = "所选 AI 服务商的 API 地址或模型无效。";
 "The selected AI provider has no API key." = "所选 AI 服务商没有 API 密钥。";
@@ -4038,6 +4052,7 @@
 "This folder already belongs to a Git repository" = "此目录已属于一个 Git 仓库。";
 "This folder cannot be read." = "无法读取此文件夹。";
 "This folder is empty" = "此文件夹为空";
+"This native configuration source is read-only. Installed applications and plugin packages cannot be edited." = "此原生配置来源为只读。不能编辑已安装的应用和插件包。";
 "This page" = "此页面";
 "This panel needs exactly one matching plugin instance in the workspace." = "此面板要求工作区中恰好有一个匹配的插件实例。";
 "This permanently deletes uncommitted and untracked files in '%@'. The branch itself is kept." = "这会永久删除“%@”中的未提交文件和未跟踪文件，但会保留对应分支。";
@@ -4051,6 +4066,7 @@
 "This plugin requires a newer version of Lithe." = "该插件需要更新版本的 Lithe。";
 "This preview contains changes that have not been officially released and may be unstable." = "此预览版包含尚未正式发布的改动，可能不稳定。";
 "This project" = "此项目";
+"This project has no matching build-system instance." = "此项目没有匹配的构建系统实例。";
 "This project is not a Git repository" = "当前项目不是 Git 仓库";
 "This project window is no longer available." = "此项目窗口已不可用。";
 "This rebase session is no longer active in the current repository." = "此变基会话在当前仓库中已失效。";
@@ -4908,6 +4924,9 @@
 "native.buildFilesChanged" = "%1$@ 构建文件已更改";
 "native.buildFilesChanged.variant2" = "构建文件已更改。";
 "native.buildFilesChangedReloadTheModelToPickUpTheChanges" = "构建文件已更改，请重新加载模型以应用更改。";
+"native.buildOptionInvalid" = "构建选项值无效。请查看其当前类型和可选值。";
+"native.buildOptionReadBackFailed" = "无法核实已保存的构建选项。请重新加载后再编辑。";
+"native.buildOptionUnavailable" = "此构建选项已不可用。请重新加载构建实例。";
 "native.buildOutput" = "构建输出";
 "native.buildOutput.variant2" = "构建输出";
 "native.buildOutputs" = "构建产物";
@@ -6808,6 +6827,19 @@
 "native.name.variant2" = "名称：";
 "native.nameAndEmailAreWrittenToTheGlobalGitConfigurationExistingCommitsDoNotChange" = "姓名和邮箱写入全局 Git 配置，已有提交不会改变。";
 "native.nameAndEmailAreWrittenToThisRepositorySGitConfigurationAndOverrideTheGlobalVal4aca07ef08" = "姓名和邮箱写入当前仓库的 Git 配置并覆盖全局值，已有提交不会改变。";
+"native.nativeConfigurationBusy" = "原生配置正在处理中。请等待当前操作完成。";
+"native.nativeConfigurationDiskConflict" = "磁盘上的原生配置已更改。请重新加载后再保存；已保留你的草稿。";
+"native.nativeConfigurationExplicitRead" = "读取配置需要显式运行此项目工具。";
+"native.nativeConfigurationFileRequired" = "原生配置必须是小于 2 MB 的可写 UTF-8 XML 文件。";
+"native.nativeConfigurationNoInstance" = "此项目没有匹配的构建系统实例。";
+"native.nativeConfigurationNotRead" = "尚未读取原生配置。";
+"native.nativeConfigurationOpenProject" = "打开项目以读取其原生配置。";
+"native.nativeConfigurationReadBackFailed" = "原生配置已保存，但无法核实当前生效值。请重新加载后再编辑。";
+"native.nativeConfigurationReadUsingProjectTool" = "使用项目工具读取";
+"native.nativeConfigurationSourceReadOnly" = "此原生配置来源为只读。不能编辑已安装的应用和插件包。";
+"native.nativeConfigurationStale" = "原生配置已更改。请重新加载后再保存；已保留你的草稿。";
+"native.nativeConfigurationTitle" = "原生配置";
+"native.nativeConfigurationUnavailable" = "原生配置不可用。";
 "native.nativeInstaller" = "原生安装器";
 "native.nativeInstructionFile" = "原生指令文件";
 "native.navigate" = "导航";

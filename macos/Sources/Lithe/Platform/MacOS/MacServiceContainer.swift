@@ -539,6 +539,11 @@ final class MacServiceContainer {
                         runner: MacBuildCommandRunner(processRegistry: processRegistry),
                         providers: buildProviderSessions,
                         runLauncher: runService,
+                        nativeConfigurationFiles: MacBuildNativeConfigurationStore(
+                            storage: fileStorage, planner: RustBuildSystemOperations(core: rustCore),
+                            immutableRoots: [Bundle.main.bundleURL] + pluginPackageStore.runtimeReadOnlyDirectories
+                                + pluginStartup.registeredPlugins.map(\.packageURL)
+                        ),
                         settings: { pluginSettings.values(forPlugin: $0) },
                         sources: {
                             // Enablement is read on every detection, so turning a

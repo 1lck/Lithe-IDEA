@@ -1,0 +1,31 @@
+{
+  "id": "build-native-configuration",
+  "area": "扩展",
+  "group": "插件与主题",
+  "capability": "Build Provider 协议 7 读取原生配置的实际来源、原值和生效值；macOS 通用插件设置页维护草稿、明确目标保存、条件原子替换和上游回读，安装目录只读，秘密字段不经过 Provider 或界面",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "rust/lithe-core/src/build/configuration.rs",
+      "rust/lithe-core/src/build/configuration_xml.rs",
+      "shared/contracts/plugins/v1/fixtures/build-configuration.json",
+      "macos/Sources/LitheExecutionModule/Services/BuildNativeConfigurationCoordinator.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Build/MacBuildNativeConfigurationStore.swift",
+      "macos/Sources/Lithe/Views/App/ContributedBuildConfigurationSection.swift",
+      "macos/Tests/LitheTests/BuildNativeConfigurationTests.swift",
+      "macos/Tests/LitheTests/MacNativeBuildProviderIntegrationTests.swift",
+      "macos/Tests/LitheExecutionModuleTests/BuildSystemServiceTests.swift"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
+    "evidence": [
+      "rust/lithe-core/src/build/configuration.rs",
+      "windows/tauri/src-tauri/src/plugin_host/mod.rs"
+    ]
+  },
+  "owner": "Plugin Platform / Build",
+  "verification": "Core 定向 120 项和 macOS 配置/生命周期 11 项通过。显式 stage D 真实 Maven macOS 场景通过：损坏 POM 前读取、安装继承、明确保存、敏感内容/权限保留、外部修改冲突、重开回读、Provider 退出及包清单不变。Node SDK 58 项、Java SDK 单元测试与 Node/Java SDK 端到端示例通过。设置页原生控件在 600/900 宽度、浅色/深色主题四个组合通过，已记录截图；发行组合、正式 SDK 锁定与完整 Maven/Java 工作流尚未完成，因此保持 pending；Windows 尚无 Provider 原生配置页和保存 adapter，不宣称运行验证。执行 BuildNativeConfigurationTests、NativeConfigurationSettingsControlTests、BuildSystemServiceTests 及带 LITHE_STAGE_D_MAVEN_PACKAGE 的 MacNativeBuildProviderIntegrationTests；手工从插件注册的设置页读取、启用覆盖、保存/取消/重载，覆盖外部编辑、旧选项 ABA、切换项目、插件停用和读取失败。 自动读取项目 Wrapper 或自动工具解析失败时不发 Provider 请求；显式读取才运行项目工具，定向测试通过。"
+}

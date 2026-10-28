@@ -395,6 +395,20 @@
       ],
       "identity": "Current worktree shared locale manifest, message registry, per-locale translations and all generated native string-table bytes. Generated outputs have no sealed version/platform/architecture/toolchain reuse identity stamp.",
       "reason": "Git owns source and checked-in generated outputs. Regenerate and validate them in each target worktree with scripts/generate-i18n.mjs; no download, cache validator or cross-worktree copy stage is permitted. Packaging copies registered native tables into its own build destination before signing and converts only that copy to binary plist. Runtime only reads bundled tables; it creates no state and changes neither code-signature bytes nor the Sparkle delta baseline."
+    },
+    {
+      "id": "build-native-configuration-state",
+      "path": "<app-support>/Lithe/PluginState/<plugin-id>/build-systems/<build-system-id>/workspaces/<workspace-digest>/configuration-*",
+      "reusable": false,
+      "locations": [
+        "<app-support>/Lithe/PluginState/<plugin-id>/build-systems/<build-system-id>/workspaces/<workspace-digest>/configuration-*/configuration.json",
+        "<app-support>/Lithe/PluginState/<plugin-id>/build-systems/<build-system-id>/workspaces/<workspace-digest>/run-*/configuration.json",
+        "<app-support>/Lithe/PluginState/<plugin-id>/build-systems/<build-system-id>/workspaces/<workspace-digest>/maven-snapshot.json",
+        "<native-configuration-parent>/.<filename>.lithe-<uuid>",
+        ".artifacts/test-stability/native-configuration-ui/*.png"
+      ],
+      "identity": "Native configuration source revisions and effective values belong to the selected upstream session, source paths and exact native bytes; they are mutable runtime state without a version/platform/architecture/toolchain build identity stamp. Native UI evidence additionally depends on source revision, fixture, theme and viewport and is regenerated per test run.",
+      "reason": "The selected provider owns bounded configuration probes and removes their directories at operation end. Native XML bytes and credentials stay in the host file adapter; guarded adjacent temporary replacements preserve metadata and are removed on success or retained only for explicit error recovery. Maven cache v2 records actual upstream-selected source URI/hash identities and invalidates them after external edits. Never copy, symlink or publish this state between worktrees at any stage; installation resources remain read-only and Sparkle delta inputs are unchanged."
     }
   ]
 }

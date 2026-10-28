@@ -2,7 +2,7 @@
   "id": "ide-api-maven",
   "area": "AI",
   "group": "IDE MCP",
-  "capability": "插件与 MCP 读取 Maven 配置；macOS 通过通用 Build Provider 执行声明任务，Windows 继续使用现有 Maven 执行",
+  "capability": "插件与 MCP 读取 Maven 配置；macOS 通过通用 Build Provider 执行声明任务，Windows 继续使用现有 Maven 执行；通用 lithe_build_configure 按声明校验、保存并读回实例选项，inspect 返回当前类型、来源和可选值",
   "macos": {
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
@@ -27,5 +27,5 @@
     ]
   },
   "owner": "Agent",
-  "verification": "macOS 用 lithe_build_inspect/reload 查询 Maven 插件实例及模型，执行 goal 任务并以独立参数数组传 clean verify；核对 UI/Agent 使用同一生效配置、最终退出码、完成后输出、取消、旧 ID 失效和同路径重开。确认旧 MavenService 任务执行和专属进程已删除。Windows 尚未接 Provider，新入口明确 NOT_AVAILABLE，现有 Maven 执行继续验证。配置、项目加载、依赖、Run/Java 协作完整迁移及真实安装包/Windows 流程仍待阶段 D 验收。"
+  "verification": "macOS 用 lithe_build_inspect/reload 查询 Maven 插件实例及模型，执行 goal 任务并以独立参数数组传 clean verify；核对 UI/Agent 使用同一生效配置、最终退出码、完成后输出、取消、旧 ID 失效和同路径重开。确认旧 MavenService 任务执行和专属进程已删除。Windows 尚未接 Provider，新入口明确 NOT_AVAILABLE，现有 Maven 执行继续验证。配置、项目加载、依赖、Run/Java 协作完整迁移及真实安装包/Windows 流程仍待阶段 D 验收。 通用 Build 选项入口已通过真实 Maven Agent compile 场景、非法布尔值不落盘、Core 类型/大小/权限边界及实例多选清空/重置回归；Windows 的新入口明确不可用单元测试通过，实机仍 pending。"
 }
