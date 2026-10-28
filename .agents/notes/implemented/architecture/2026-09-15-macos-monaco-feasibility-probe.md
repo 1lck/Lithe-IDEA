@@ -125,6 +125,9 @@ macOS 保留用户接受的 `FindBarView` 外观。`EditorChromeModel` 有意不
   Community 的 `CtrlMouseHandler.kt` 在语义结果返回后立即显示提示。根据用户对频繁弹出遮挡代码的反馈，
   Lithe 有意改用 Monaco Delayed 模式，沿用 macOS 普通文档的 500ms 延迟；候选词的手形、变色与下划线同步显示，
   说明面板仍在语义确认后启动延迟，避免为不可导航候选请求说明。反馈是候选状态，查询失败或无目标时撤销；
+  候选过滤复用 Monaco/TextMate 的 standard token type，注释、字符串和正则正文不显示导航反馈，
+  Command 点击也走相同过滤；显式 F12 保留语言服务原有语义。词法状态尚未就绪且需大段同步解析时暂不提示，
+  避免为高频鼠标移动扫描整个文件，不另写正则猜注释。
   点击仍通过真实导航解析，不把候选装饰当作已确认目标。复用 Monaco 的延迟、取消、内容、定位及键盘可访问性，不另建计时器；单目标导航会收起旧结果面板。Windows 宿主没有使用该 macOS 入口，未改其实现。
 
 - Markdown split 将原有 `MarkdownScrollPosition` binding 接回 Monaco，沿用来源与 revision 防回环；

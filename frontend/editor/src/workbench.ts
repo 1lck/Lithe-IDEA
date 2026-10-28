@@ -614,6 +614,15 @@ export function mountWorkbench(host: WorkbenchHost) {
     view.onDidDispose(() => node.removeEventListener("paste", paste, true));
   }
   function attachDefinitionNavigation(view: monaco.editor.IStandaloneCodeEditor) {
+    const isCodePosition = (position: monaco.IPosition | null) => {
+      const tokens = (view.getModel() as any)?.tokenization;
+      // Reuse Monaco/TextMate lexical state, including multiline comments. Do not
+      // synchronously tokenize a large prefix just to respond to mouse movement.
+      if (!position || !tokens?.isCheapToTokenize(position.lineNumber)) return false;
+      tokens.forceTokenization(position.lineNumber);
+      const line = tokens.getLineTokens(position.lineNumber);
+      return line.getStandardTokenType(line.findTokenIndexAtOffset(position.column - 1)) === 0 /* Other (code) */;
+    };
     const navigate = async (position: monaco.IPosition | null) => {
       const pair = [...entries].find(([, entry]) => entry.model === view.getModel());
       if (!pair || !position) return;
@@ -660,7 +669,7 @@ export function mountWorkbench(host: WorkbenchHost) {
       if (!pair || !position || mouse.target.type !== monaco.editor.MouseTargetType.CONTENT_TEXT) { clear(false); return; }
       const [id, entry] = pair;
       const word = entry.model.getWordAtPosition(position);
-      if (!word) { clear(); return; }
+      if (!word || !isCodePosition(position)) { clear(); return; }
       const identity = `${id}:${entry.model.getVersionId()}:${position.lineNumber}:${word.startColumn}:${word.endColumn}`;
       if (hovered === identity) return;
       clear();
@@ -693,7 +702,7 @@ export function mountWorkbench(host: WorkbenchHost) {
     });
     gesture.onExecute(mouse => {
       if (mouse.isLeftClick && mouse.hasTriggerModifier && !mouse.hasSideBySideModifier &&
-          mouse.target.type === monaco.editor.MouseTargetType.CONTENT_TEXT) {
+          mouse.target.type === monaco.editor.MouseTargetType.CONTENT_TEXT && isCodePosition(mouse.target.position)) {
         clear();
         void navigate(mouse.target.position);
       }

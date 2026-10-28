@@ -1909,6 +1909,29 @@ async function verify() {
       controller.hideContentHover(); await window.lithe.retain([]);
     }
   });
+  await check("Command navigation ignores comments and strings using lexical state", async () => {
+    const id = "comment-navigation";
+    const text = 'class Probe {\n// formatOrder\n/* multiline\nformatOrder */\nString text = "formatOrder";\nvoid formatOrder() {}\n}';
+    await send({ type: "open", id, text });
+    await window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", readonly: false });
+    await withDeadline(window.lithe.tokenizationReady(), "lexical state was not ready");
+    const model = editor.getModel()!, input = editor as any;
+    const before = (await send({ type: "definitionRequests" })).requests.length;
+    try {
+      for (const [line, column] of [[2, 5], [4, 3], [5, 18]]) {
+        const target = { type: monacoEditor.MouseTargetType.CONTENT_TEXT,
+          position: new Position(line, column), range: new Range(line, column, line, column + 1), detail: {} };
+        input._onMouseMove.fire({ event: { metaKey: true, leftButton: false, detail: 0 }, target });
+        assert(!editor.getDomNode()!.classList.contains("lithe-definition-pointer"), "non-code word received a navigation pointer");
+        assert(!model.getAllDecorations().some(value => value.options.inlineClassName === "goto-definition-link"),
+          "non-code word received a navigation link");
+        const click = { event: { metaKey: true, leftButton: true, detail: 1 }, target };
+        input._onMouseDown.fire(click); input._onMouseUp.fire(click);
+      }
+      await Promise.resolve();
+      assert((await send({ type: "definitionRequests" })).requests.length === before, "Command click navigated from a comment/string");
+    } finally { await window.lithe.retain([]); }
+  });
   await check("Command pointer stays stable during slow definition lookup and repaint", async () => {
     const id = "slow-definition-hover", text = "class Probe {}";
     await send({ type: "open", id, text });
