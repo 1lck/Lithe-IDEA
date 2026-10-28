@@ -149,6 +149,9 @@ package final class BuildSystemService: ObservableObject {
     /// revisions are separate: a dependency result must not replace a model
     /// the detection just read.
     private var modelRevisions: [String: Int] = [:]
+    /// A producer's options/package may change and change back while it loads.
+    /// Other producers' ordinary publications only revoke consumer snapshots.
+    private var modelConfigurationRevisions: [String: UInt64] = [:]
     private var dependencyRevisions: [String: Int] = [:]
     /// Bumped when a watched workspace file changes, so a load that started
     /// before the change can tell its result is based on older files.
@@ -225,7 +228,7 @@ package final class BuildSystemService: ObservableObject {
     package let runEnded = PassthroughSubject<BuildRunEnd, Never>()
     package let applicationLaunched = PassthroughSubject<String, Never>()
 
-    /// The task or test run in progress; nil when none runs.
+    /// The task, test, or application preparation (including save) in progress.
     package var currentRunID: UUID? { runID }
     package var isRunning: Bool { runState == .running }
     package var isLoadingModel: Bool { !modelTasks.isEmpty }
@@ -249,6 +252,7 @@ package final class BuildSystemService: ObservableObject {
         self.workspaceURL = workspaceURL?.standardizedFileURL
         entries = []
         modelRevisions = [:]
+        modelConfigurationRevisions = [:]
         dependencyRevisions = [:]
         fileRevision = 0
         issues = []
@@ -399,6 +403,9 @@ package final class BuildSystemService: ObservableObject {
     /// Ends what a now disabled plugin started and detects again with the
     /// plugins enabled now, so its instances leave the tool window.
     package func pluginsChanged() {
+        for producer in entries where producer.declaration.sharesModel {
+            modelConfigurationRevisions[producer.id, default: 0] += 1
+        }
         invalidateModelInputs()
         if preparingApplicationID != nil { stopRun() }
         if let runEntryID, testDiscoveries[runEntryID] == .loading { stopRun() }
@@ -590,7 +597,7 @@ package final class BuildSystemService: ObservableObject {
             if entry.declaration.sharesModel { $0.isReloadRequired = $0.model != nil }
         }
         noteModelChanged(entryID)
-        let publicationRevision = entry.declaration.sharesModel ? modelInputRevision : nil
+        let publicationRevision = entry.declaration.sharesModel ? modelConfigurationRevisions[entryID, default: 0] : nil
         let generation = generation
         let id = UUID()
         // The model command depends on the options; a change while it runs
@@ -612,7 +619,7 @@ package final class BuildSystemService: ObservableObject {
             case .success(let loaded):
                 let configChanged: Bool = {
                     // An exporter cannot make an ABA-configured in-flight model public.
-                    if let publicationRevision, self.modelInputRevision != publicationRevision { return true }
+                    if let publicationRevision, self.modelConfigurationRevisions[entryID, default: 0] != publicationRevision { return true }
                     guard self.fileRevision == startFileRevision else { return true }
                     guard let current = self.entry(entryID),
                           let currentFingerprint = self.optionFingerprint(current, workspaceURL: workspaceURL)
@@ -732,12 +739,14 @@ package final class BuildSystemService: ObservableObject {
 
     /// The provider owns build/launch facts; the Run host owns the application.
     @discardableResult
-    package func runApplication(_ entryID: String, request: BuildRunRequest, title: String, configuration: RunConfiguration? = nil) -> UUID? {
-        prepareApplication(entryID, request: request, title: title, configuration: configuration)
+    package func runApplication(_ entryID: String, request: BuildRunRequest, title: String, configuration: RunConfiguration? = nil,
+                                beforePreparing: @escaping @MainActor () async -> Bool = { true }) -> UUID? {
+        prepareApplication(entryID, request: request, title: title, configuration: configuration, beforePreparing: beforePreparing)
     }
 
     private func prepareApplication(_ entryID: String, request: BuildRunRequest, title: String,
                                     configuration: RunConfiguration? = nil,
+                                    beforePreparing: @escaping @MainActor () async -> Bool = { true },
                                     debugLaunch: (@MainActor (BuildSystemPluginSource, BuildDebugPreparation) throws -> Void)? = nil) -> UUID? {
         guard let workspaceURL, let entry = entry(entryID), let model = entry.model,
               !entry.isReloadRequired, entry.modelState == .loaded,
@@ -752,6 +761,17 @@ package final class BuildSystemService: ObservableObject {
         if debugLaunch == nil { stopPreparedApplication() }
         let sourceRevision = fileRevision
         return startRun(entryID, title: title) { service, run in
+            // Own the save/readiness stage in the same slot as preparation.
+            // An ignored cancellation must not startRun again and replace newer work.
+            service.providerRunID = run.id
+            service.preparingApplicationID = run.id
+            defer { if service.preparingApplicationID == run.id { service.preparingApplicationID = nil } }
+            defer { if service.providerRunID == run.id { service.providerRunID = nil } }
+            guard await beforePreparing(), service.isCurrent(run),
+                  service.fileRevision == sourceRevision,
+                  let current = service.entry(entryID), current.source == entry.source,
+                  current.model == model, current.modelState == .loaded, !current.isReloadRequired
+            else { throw CancellationError() }
             guard let providers = service.providers, debugLaunch != nil || service.runLauncher != nil else {
                 throw BuildSystemServiceError(Self.providerUnsupportedMessage)
             }
@@ -773,10 +793,6 @@ package final class BuildSystemService: ObservableObject {
             }
             if debugLaunch != nil { service.preparingDebugID = run.id }
             defer { if service.preparingDebugID == run.id { service.preparingDebugID = nil } }
-            service.providerRunID = run.id
-            service.preparingApplicationID = run.id
-            defer { if service.preparingApplicationID == run.id { service.preparingApplicationID = nil } }
-            defer { if service.providerRunID == run.id { service.providerRunID = nil } }
             let resolved = try await service.providerRequestWithTool(planned, entry: entry, workspaceURL: workspaceURL, run: run)
             guard isValid() else { throw CancellationError() }
             let progress: @MainActor @Sendable (BuildProviderProgress) -> Void = { [weak service] progress in
@@ -1251,8 +1267,7 @@ package final class BuildSystemService: ObservableObject {
         optionsStore.setOptions(stored, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
         refreshOptions(buildSystemID: buildSystemID)
         if entry.declaration.sharesModel {
-            for producer in entries where producer.instance.buildSystemID == buildSystemID { update(producer.id) { $0.isReloadRequired = true } }
-            invalidateModelInputs()
+            invalidateProducerConfiguration(buildSystemID: buildSystemID)
         }
         // The options take part in the sync fingerprint, so a changed value
         // marks a loaded command model stale.
@@ -1293,8 +1308,7 @@ package final class BuildSystemService: ObservableObject {
         optionsStore.setOptions(stored, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
         refreshOptions(buildSystemID: buildSystemID)
         if entry.declaration.sharesModel {
-            for producer in entries where producer.instance.buildSystemID == buildSystemID { update(producer.id) { $0.isReloadRequired = true } }
-            invalidateModelInputs()
+            invalidateProducerConfiguration(buildSystemID: buildSystemID)
         }
         detect()
     }
@@ -1495,6 +1509,14 @@ package final class BuildSystemService: ObservableObject {
             testDiscoveries[id] = nil
             discoverySnapshots[id] = nil
         }
+    }
+
+    private func invalidateProducerConfiguration(buildSystemID: String) {
+        for producer in entries where producer.instance.buildSystemID == buildSystemID {
+            if producer.declaration.sharesModel { modelConfigurationRevisions[producer.id, default: 0] += 1 }
+            update(producer.id) { $0.isReloadRequired = true }
+        }
+        invalidateModelInputs()
     }
 
     /// Stored values reduced to the ones Core accepted in `resolution`. Core

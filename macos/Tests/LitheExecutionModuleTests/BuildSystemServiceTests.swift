@@ -1386,6 +1386,103 @@ struct BuildSystemServiceTests {
         #expect(providers.sent.count == 1)
     }
 
+    @Test(arguments: [false, true])
+    func aSavingApplicationCannotReplaceANewerTaskOrTest(tests: Bool) async throws {
+        let (planner, providers, launcher, harness) = try Self.runPreparationHarness()
+        let feature = BuildSystemsFeatureModel(service: harness.service)
+        let saving = BuildTestGate(), releaseSave = BuildTestGate(), saveReturned = BuildTestGate()
+        let releaseNewWork = BuildTestGate()
+        defer { releaseSave.open(); releaseNewWork.open(); harness.service.stop() }
+        feature.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        let savingRunID = feature.runApplication(Self.instanceID, request: Self.runRequest, title: "Old app", beforePreparing: {
+            saving.open()
+            defer { saveReturned.open() }
+            return await releaseSave.waitUntilOpen(ignoringCancellation: true)
+        })
+        let oldID = try #require(savingRunID)
+        #expect(feature.isRunning)
+        #expect(feature.currentRunID == oldID)
+        try #require(await saving.waitUntilOpen())
+        #expect(providers.sent.isEmpty)
+
+        // B owns the same slot while A's save deliberately ignores cancellation.
+        planner.providerRequest = Self.providerRequest(method: tests ? "lithe/build/test" : "lithe/build/execute")
+        providers.replyGate = releaseNewWork
+        let newID: UUID?
+        if tests { newID = feature.runTests(Self.instanceID, request: BuildTestRequest(), title: "New tests") }
+        else { newID = feature.runTask(Self.instanceID, request: BuildTaskRequest(task: "build"), title: "New task") }
+        let currentID = try #require(newID)
+        try #require(await providers.requestStarted.waitUntilOpen())
+        providers.executionProgress?(BuildProviderProgress(output: "new work output"))
+        let currentOutput = feature.output
+        releaseSave.open()
+        try #require(await saveReturned.waitUntilOpen())
+        #expect(feature.currentRunID == currentID)
+        #expect(feature.isRunning)
+        #expect(feature.output == currentOutput)
+        #expect(feature.output.contains("new work output"))
+        #expect(providers.sent.map(\.request.method) == [tests ? "lithe/build/test" : "lithe/build/execute"])
+        #expect(launcher.launched.isEmpty)
+        releaseNewWork.open()
+        try #require(await harness.waitForRunState { $0 == .succeeded })
+    }
+
+    @Test(arguments: ["stop", "workspace", "options", "source", "disable", "reload"])
+    func savingApplicationIsRevokedBeforeProviderPreparation(change: String) async throws {
+        let (planner, providers, launcher, harness) = try Self.runPreparationHarness()
+        let feature = BuildSystemsFeatureModel(service: harness.service)
+        let saving = BuildTestGate(), releaseSave = BuildTestGate(), saveReturned = BuildTestGate()
+        defer { releaseSave.open(); harness.service.stop() }
+        feature.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        let savingRunID = feature.runApplication(Self.instanceID, request: Self.runRequest, title: "App", beforePreparing: {
+            saving.open()
+            defer { saveReturned.open() }
+            return await releaseSave.waitUntilOpen(ignoringCancellation: true)
+        })
+        let oldID = try #require(savingRunID)
+        try #require(await saving.waitUntilOpen())
+        switch change {
+        case "workspace": feature.reset(workspaceURL: URL(fileURLWithPath: "/other"))
+        case "options": feature.setOption(Self.instanceID, optionID: "release", value: .bool(true))
+        case "source": feature.workspaceFilesChanged([Self.workspace.appendingPathComponent("app/Main.java")])
+        case "disable": harness.sources = []; feature.pluginsChanged()
+        case "reload":
+            planner.providerRequest = Self.providerRequest(method: "lithe/build/model")
+            feature.loadModel(Self.instanceID, reason: .refresh)
+        default: feature.stopRun()
+        }
+        #expect(feature.currentRunID != oldID)
+        releaseSave.open()
+        try #require(await saveReturned.waitUntilOpen())
+        #expect(!providers.sent.contains(where: { $0.request.method == "lithe/build/prepareRun" }))
+        #expect(launcher.launched.isEmpty)
+    }
+
+    @Test(arguments: [false, true])
+    func applicationPreparationWaitsForSuccessfulDocumentSave(saved: Bool) async throws {
+        let (_, providers, launcher, harness) = try Self.runPreparationHarness()
+        let feature = BuildSystemsFeatureModel(service: harness.service)
+        let saving = BuildTestGate(), releaseSave = BuildTestGate()
+        defer { releaseSave.open(); harness.service.stop() }
+        feature.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        let savingRunID = feature.runApplication(Self.instanceID, request: Self.runRequest, title: "App", beforePreparing: {
+            saving.open()
+            guard await releaseSave.waitUntilOpen() else { return false }
+            return saved
+        })
+        try #require(savingRunID != nil)
+        try #require(await saving.waitUntilOpen())
+        #expect(providers.sent.isEmpty)
+        #expect(launcher.launched.isEmpty)
+        releaseSave.open()
+        try #require(await harness.waitForRunState { $0 == (saved ? .succeeded : .cancelled) })
+        #expect(providers.sent.count == (saved ? 1 : 0))
+        #expect(launcher.launched.count == (saved ? 1 : 0))
+    }
+
     /// A reply from a cancelled or outdated build must never start an application.
     @Test(arguments: ["stop", "workspace", "options", "disable", "source", "reload"])
     func providerRunLateReplyCannotLaunch(change: String) async throws {
@@ -2196,6 +2293,56 @@ struct BuildSystemServiceTests {
         gate.open()
         try #require(await harness.waitForEntries { $0.first?.modelState == .loaded })
         #expect(harness.service.entry(Self.instanceID)?.isReloadRequired == true)
+    }
+
+    @Test(arguments: [false, true], ["command", "provider"])
+    func independentProducersPublishReadyModelsInEitherReplyOrder(reverse: Bool, source: String) async throws {
+        let planner = FakeBuildPlanner()
+        planner.fingerprint = "o"
+        let producers = try ["a", "b"].map { name in
+            try decode(BuildSystemInstance.self, """
+            {"id":"\(name):app","pluginID":"dev.producer-\(name)","buildSystemID":"\(name)",
+             "displayName":"Producer \(name)","root":"app","modelSource":"\(source)","optionFingerprint":"o"}
+            """)
+        }
+        planner.detection = BuildDetection(instances: producers + [try Self.instance(modelSource: "provider")])
+        let first = ControlledBuildLoad(output: "OLD"), second = ControlledBuildLoad(output: "NEW")
+        let providers = FakeBuildProviders()
+        if source == "provider" {
+            planner.providerRequest = Self.providerRequest(method: "lithe/build/model")
+            providers.requestStartedByPluginID = ["dev.producer-a": first.started, "dev.producer-b": second.started]
+            providers.replyGatesByPluginID = ["dev.producer-a": first.release, "dev.producer-b": second.release]
+        }
+        let sources = [
+            fixtureSource(pluginID: "dev.producer-a", buildSystemID: "a", sharesModel: true),
+            fixtureSource(pluginID: "dev.producer-b", buildSystemID: "b", sharesModel: true),
+            fixtureSource(modelInputs: [.init(pluginID: "dev.producer-a", buildSystemID: "a"), .init(pluginID: "dev.producer-b", buildSystemID: "b")])
+        ]
+        let harness = Harness(planner: planner, runner: ControlledBuildLoadRunner(loads: [first, second]),
+                              sources: sources, providers: providers)
+        defer { first.release.open(); second.release.open(); harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { $0.count == 3 })
+        harness.service.loadModel("a:app", reason: .refresh)
+        try #require(await first.started.waitUntilOpen())
+        harness.service.loadModel("b:app", reason: .refresh)
+        try #require(await second.started.waitUntilOpen())
+        // Both are in flight; no file or configuration changed. Publishing
+        // either one must revoke consumers without making its sibling stale.
+        let order = reverse ? [("b:app", second), ("a:app", first)] : [("a:app", first), ("b:app", second)]
+        for (id, load) in order {
+            load.release.open()
+            try #require(await harness.waitForEntries { $0.first(where: { $0.id == id })?.modelState == .loaded })
+            #expect(harness.service.entry(id)?.isReloadRequired == false)
+        }
+        try #require(await harness.waitForDetectionToFinish())
+        planner.providerRequest = Self.providerRequest(method: "lithe/build/execute")
+        try #require(harness.service.runTask(Self.instanceID, request: BuildTaskRequest(task: "build"), title: "Consumer") != nil)
+        try #require(await harness.waitForRunState { $0 == .succeeded })
+        let facts = try #require(planner.modelInputSources.last)
+        #expect(facts.count == 2)
+        #expect(facts.flatMap(\.instances).count == 2)
+        #expect(facts.flatMap(\.instances).allSatisfy { $0.state == "ready" && $0.model != nil })
     }
 
     @Test(arguments: [false, true])
@@ -3169,6 +3316,8 @@ private final class FakeBuildProviders: BuildProviderRequesting {
     var reply: ToolingJSONValue = .object(["projects": .array([])])
     var failure: (any Error)?
     var replyGate: BuildTestGate?
+    var replyGatesByPluginID: [String: BuildTestGate] = [:]
+    var requestStartedByPluginID: [String: BuildTestGate] = [:]
     let requestStarted = BuildTestGate()
     let requestFinished = BuildTestGate()
     private(set) var sent: [Sent] = []
@@ -3183,8 +3332,10 @@ private final class FakeBuildProviders: BuildProviderRequesting {
         sent.append(Sent(request: request, target: target, timeout: timeout))
         running.insert(target)
         requestStarted.open()
+        requestStartedByPluginID[target.pluginID]?.open()
         defer { requestFinished.open() }
-        if let replyGate, !(await replyGate.waitUntilOpen(ignoringCancellation: ignoresCancellation)) { throw CancellationError() }
+        if let gate = replyGatesByPluginID[target.pluginID] ?? replyGate,
+           !(await gate.waitUntilOpen(ignoringCancellation: ignoresCancellation)) { throw CancellationError() }
         if let failure { throw failure }
         return reply
     }

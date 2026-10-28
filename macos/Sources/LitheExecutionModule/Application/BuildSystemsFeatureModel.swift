@@ -84,8 +84,9 @@ package final class BuildSystemsFeatureModel: ObservableObject {
     }
 
     @discardableResult
-    package func runApplication(_ entryID: String, request: BuildRunRequest, title: String) -> UUID? {
-        service.runApplication(entryID, request: request, title: title)
+    package func runApplication(_ entryID: String, request: BuildRunRequest, title: String,
+                                beforePreparing: @escaping @MainActor () async -> Bool = { true }) -> UUID? {
+        service.runApplication(entryID, request: request, title: title, beforePreparing: beforePreparing)
     }
     package func testDiscovery(_ entryID: String) -> BuildTestDiscoveryState? { service.testDiscovery(entryID) }
     package func discoverTests(_ entryID: String) { service.discoverTests(entryID) }

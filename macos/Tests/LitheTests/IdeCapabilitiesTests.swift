@@ -1,12 +1,61 @@
+import AppKit
 import Combine
 import Foundation
 import LitheCoreContracts
 import LitheExecutionModule
 import Testing
+import SwiftUI
 @testable import Lithe
 
 @MainActor
 struct IdeCapabilitiesTests {
+    @Test(arguments: [false, true])
+    func preparedProviderOutputRendersWithoutGeneratedConfigurations(dark: Bool) async throws {
+        let fixture = try ProviderCapabilityExecutionFixture()
+        defer { fixture.remove() }
+        await fixture.run.loadProject(at: fixture.root, files: [], mavenProject: nil)
+        let preparation = try JSONDecoder().decode(BuildRunPreparation.self, from: Data(
+            #"{"executable":{"kind":"command","value":"fixture"},"arguments":["Main"],"workingDirectory":".","environment":{}}"#.utf8))
+        let configuration = try #require(fixture.run.configurations.first { $0.id == fixture.configurationID })
+        _ = try fixture.run.launchPreparedRun(preparation, workspaceURL: fixture.root, title: "Main", configuration: configuration)
+        let received = TestGate()
+        let observation = fixture.run.$output.sink { if $0.contains("Hello from Provider") { received.open() } }
+        defer { observation.cancel() }
+        fixture.process.onOutput?("Hello from Provider\nArguments: [a b]\n")
+        try #require(await received.waitUntilOpen(timeout: .seconds(5)))
+        #expect(!FileManager.default.fileExists(atPath: fixture.root.appendingPathComponent(".lithe/run/generated.json").path))
+        let suite = "provider-run-ui-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let backing = MacUserDefaultsStore(defaults: defaults)
+        let settings = AppSettings(store: backing)
+        let container = MacServiceContainer(store: backing, settings: settings)
+        defer { container.moduleLifecycleCoordinator.stop() }
+        let model = AppModel(settings: settings, services: container.services)
+        try await WorkbenchTestScope.withCleanup({ await model.shutdownProjectSession() }) { _ in
+            let host = NSHostingView(rootView: RunView(feature: fixture.execution.runFeature)
+                .environmentObject(model).environmentObject(settings).defaultAppStorage(defaults)
+                .environment(\.locale, Locale(identifier: "en")).environment(\.colorScheme, dark ? .dark : .light)
+                .frame(width: 1100, height: 360))
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 360),
+                styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+            window.contentView = host
+            defer { window.contentView = nil; window.close() }
+            host.layoutSubtreeIfNeeded()
+            await Task.yield()
+            host.layoutSubtreeIfNeeded()
+            let bitmap = try nativeSRGBCapture(host)
+            #expect(bitmap.pixelsWide == 2200 && bitmap.pixelsHigh == 720)
+            if let directory = ProcessInfo.processInfo.environment["LITHE_BUILD_CAPTURE_DIR"] {
+                try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+                try #require(bitmap.representation(using: .png, properties: [:])).write(to: URL(fileURLWithPath: directory)
+                    .appendingPathComponent("provider-run-output-\(dark ? "dark" : "light").png"))
+            }
+        }
+    }
+
     @Test
     func revokedAndReplacedWorkspacesCannotReachProductActions() async {
         let actions = CapabilityActionsFixture()

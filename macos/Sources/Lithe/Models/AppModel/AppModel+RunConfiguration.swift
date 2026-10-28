@@ -7,13 +7,13 @@ import LitheModuleAPI
 @MainActor
 extension AppModel {
     func runBuildProviderApplication(entryID: String, request: BuildRunRequest, title: String) {
-        Task { [weak self] in
-            guard let self, let identity = currentWorkspaceIdentity,
-                  await saveAllDocuments(), isCurrentWorkspace(identity),
-                  let feature = buildSystemsFeatureIfActive else { return }
-            feature.runApplication(entryID, request: request, title: title)
-            showToolWindow(.buildOutput)
-        }
+        guard let identity = currentWorkspaceIdentity, let feature = buildSystemsFeatureIfActive else { return }
+        guard feature.runApplication(entryID, request: request, title: title, beforePreparing: { [weak self] in
+            guard let self, !Task.isCancelled, isCurrentWorkspace(identity),
+                  await saveAllDocuments(), !Task.isCancelled, isCurrentWorkspace(identity) else { return false }
+            return true
+        }) != nil else { return }
+        showToolWindow(.buildOutput)
     }
 
     func updateRunningService(_ session: RunSession) {
