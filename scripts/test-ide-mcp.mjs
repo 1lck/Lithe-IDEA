@@ -3,7 +3,7 @@ import test from "node:test";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { createInterface } from "node:readline";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,7 +11,9 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const executable = process.env.LITHE_MCP_TEST_EXECUTABLE || path.join(root,"rust/target/debug", process.platform === "win32" ? "lithe-mcp.exe" : "lithe-mcp");
 
-test("stdio MCP negotiates, discovers IDE tools, routes calls and reports tool failures", {timeout:15000}, async t => {
+const fixture = JSON.parse(await readFile(path.join(root,"shared/fixtures/ide-api/mcp-protocol.json"),"utf8"));
+for (const mode of fixture.modes) {
+test(`stdio MCP ${mode}: discovery, calls and tool failures`, {timeout:15000}, async t => {
   const directory = await mkdtemp(path.join(os.tmpdir(),"lithe-mcp-protocol-"));
   t.after(()=>rm(directory,{recursive:true,force:true}));
   const requests = [];
@@ -58,18 +60,35 @@ test("stdio MCP negotiates, discovers IDE tools, routes calls and reports tool f
     pending.set(id,{resolve:finish(resolve),reject:finish(reject)});
     child.stdin.write(JSON.stringify({jsonrpc:"2.0",id,method,params})+"\n");
   });
-  const initialized = await send("initialize",{protocolVersion:"2025-11-25",capabilities:{},clientInfo:{name:"lithe-fixture",version:"1"}});
-  assert.equal(initialized.result.serverInfo.name,"lithe");
-  child.stdin.write(JSON.stringify({jsonrpc:"2.0",method:"notifications/initialized"})+"\n");
-  const listed = await send("tools/list",{});
+  // Each protocol mode owns a fresh process: legacy initialization must not
+  // hide failures in clients that start directly with modern discovery.
+  if (mode !== "modern") {
+    const initialized = await send("initialize",{protocolVersion:mode === "legacy" ? fixture.legacyProtocolVersion : fixture.modernProtocolVersion,capabilities:{},clientInfo:{name:"lithe-fixture",version:"1"}});
+    assert.equal(initialized.result.serverInfo.name,"lithe");
+    child.stdin.write(JSON.stringify({jsonrpc:"2.0",method:"notifications/initialized"})+"\n");
+  }
+  const params = mode === "legacy" ? {} : {_meta:{
+    "io.modelcontextprotocol/protocolVersion":fixture.modernProtocolVersion,
+    "io.modelcontextprotocol/clientCapabilities":{},
+  }};
+  if (mode !== "legacy") {
+    const discovery = await send("server/discover",params);
+    assert.ok(discovery.result.supportedVersions.includes(fixture.modernProtocolVersion));
+  }
+  const listed = await send("tools/list",params);
+  assert.equal(listed.result.ttlMs,fixture.cachePolicy.ttlMs);
+  assert.equal(listed.result.cacheScope,fixture.cachePolicy.cacheScope);
+  assert.equal(listed.result.tools.length,fixture.toolCount);
   assert.ok(listed.result.tools.some(tool=>tool.name==="lithe_environment_configure"));
   assert.ok(listed.result.tools.some(tool=>tool.name==="lithe_operation_output"));
   assert.ok(!listed.result.tools.some(tool=>/write_file|shell/.test(tool.name)));
-  const inspected = await send("tools/call",{name:"lithe_project_inspect",arguments:{}});
+  const inspected = await send("tools/call",{...params,name:"lithe_project_inspect",arguments:{}});
   assert.equal(inspected.result.structuredContent.workspaceID,"fixture-project");
   assert.notEqual(inspected.result.isError,true,"a nullable domain error field is a successful inspection");
-  const denied = await send("tools/call",{name:"lithe_maven_execute",arguments:{goals:["verify"]}});
+  const denied = await send("tools/call",{...params,name:"lithe_maven_execute",arguments:{goals:["verify"]}});
   assert.equal(denied.result.isError,true);
   assert.equal(denied.result.structuredContent.error.code,"PERMISSION_DENIED");
   assert.equal(requests.length,2);
+
 });
+}

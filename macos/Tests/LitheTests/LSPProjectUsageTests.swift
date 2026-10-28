@@ -125,23 +125,126 @@ struct LSPProjectUsageTests {
         #expect(await probe.calls == 2)
     }
 
-    @Test @MainActor func replacedRequestCannotPublishItsLateResultOrOverlapScanners() async {
+    @Test @MainActor func replacementFinishesBeforeAnUncooperativeOldScannerIsReleased() async {
         let entered = TestGate()
         let release = TestGate()
-        let probe = UsageScanProbe(entered: entered, release: release)
+        let returned = TestGate()
+        let firstFinished = TestGate()
+        // This independent, bounded wait deliberately does not inherit worker
+        // cancellation. Releasing it is cleanup, never a prerequisite for B.
+        let releaseWait = Task { await release.waitUntilOpen() }
+        let probe = UsageScanProbe(entered: entered, uncooperativeRelease: releaseWait, returned: returned)
         let model = LSPProjectUsageModel(scanner: { files, rules in await probe.scan(files, rules) })
         let old = request(rules: pluginRules())
         let newest = request(rules: pluginRules())
-        let first = Task { await model.load(old, files: [URL(fileURLWithPath: "/fixture/go.mod")]) }
-        defer { first.cancel(); release.open(); model.reset() }
+        let first = Task {
+            await model.load(old, files: [URL(fileURLWithPath: "/fixture/go.mod")])
+            firstFinished.open()
+        }
+        defer { first.cancel(); release.open(); releaseWait.cancel(); model.reset() }
         #expect(await entered.waitUntilOpen())
-        // Replacement cancels the first gate wait. The probe deliberately still
-        // returns a value so the publication guard, not just the scanner, is tested.
         await model.load(newest, files: [URL(fileURLWithPath: "/fixture/pom.xml")])
+        #expect(await firstFinished.waitUntilOpen())
+        #expect(!release.isOpen)
+        #expect(!returned.isOpen)
         await first.value
         #expect(model.summary(for: old) == nil)
         #expect(model.summary(for: newest)?.pluginIDs == [OfficialPluginCatalog.javaPluginID.rawValue])
-        #expect(await probe.maximumActive == 1)
+        #expect(await probe.maximumActive == 2)
+        release.open()
+        #expect(await releaseWait.value)
+        #expect(await returned.waitUntilOpen())
+        await model.load(newest, files: [])
+        #expect(model.summary(for: old) == nil)
+        #expect(model.summary(for: newest)?.pluginIDs == [OfficialPluginCatalog.javaPluginID.rawValue])
+        #expect(await probe.calls == 2)
+    }
+
+    @Test @MainActor func cancellingTheLastConsumerReturnsBeforeScannerExitAndCanRetry() async {
+        let entered = TestGate()
+        let release = TestGate()
+        let finished = TestGate()
+        let releaseWait = Task { await release.waitUntilOpen() }
+        let probe = UsageScanProbe(entered: entered, uncooperativeRelease: releaseWait)
+        let model = LSPProjectUsageModel(scanner: { files, rules in await probe.scan(files, rules) })
+        let input = request(rules: pluginRules())
+        let task = Task {
+            await model.load(input, files: [URL(fileURLWithPath: "/fixture/go.mod")])
+            finished.open()
+        }
+        defer { task.cancel(); release.open(); releaseWait.cancel(); model.reset() }
+        #expect(await entered.waitUntilOpen())
+        task.cancel()
+        #expect(await finished.waitUntilOpen())
+        #expect(!release.isOpen)
+        #expect(model.state == .idle)
+        #expect(model.summary(for: input) == nil)
+        await model.load(input, files: [URL(fileURLWithPath: "/fixture/pom.xml")])
+        #expect(model.summary(for: input)?.pluginIDs == [OfficialPluginCatalog.javaPluginID.rawValue])
+        await task.value
+        release.open()
+        #expect(await releaseWait.value)
+    }
+
+    @Test @MainActor func cancellingOneOfTwoConsumersKeepsTheirSharedScannerAlive() async {
+        let entered = TestGate()
+        let release = TestGate()
+        let secondStarted = TestGate()
+        let firstFinished = TestGate()
+        let secondFinished = TestGate()
+        let probe = UsageScanProbe(entered: entered, release: release)
+        let model = LSPProjectUsageModel(scanner: { files, rules in await probe.scan(files, rules) })
+        let input = request(rules: pluginRules())
+        let files = [URL(fileURLWithPath: "/fixture/go.mod")]
+        let first = Task { await model.load(input, files: files); firstFinished.open() }
+        let second = Task {
+            secondStarted.open()
+            await model.load(input, files: files)
+            secondFinished.open()
+        }
+        defer { first.cancel(); second.cancel(); release.open(); model.reset() }
+        #expect(await entered.waitUntilOpen())
+        #expect(await secondStarted.waitUntilOpen())
+        first.cancel()
+        #expect(await firstFinished.waitUntilOpen())
+        #expect(model.state == .loading)
+        #expect(!secondFinished.isOpen)
+        #expect(await probe.calls == 1)
+        release.open()
+        #expect(await secondFinished.waitUntilOpen())
+        await first.value
+        await second.value
+        #expect(model.summary(for: input)?.pluginIDs == [OfficialPluginCatalog.goPluginID.rawValue])
+        #expect(await probe.calls == 1)
+    }
+
+    @Test @MainActor func resetReleasesConsumersAndTheModelWhileCancelledScannerDrains() async {
+        let entered = TestGate()
+        let release = TestGate()
+        let returned = TestGate()
+        let finished = TestGate()
+        let releaseWait = Task { await release.waitUntilOpen() }
+        let probe = UsageScanProbe(entered: entered, uncooperativeRelease: releaseWait, returned: returned)
+        var model: LSPProjectUsageModel? = LSPProjectUsageModel(scanner: { files, rules in await probe.scan(files, rules) })
+        weak var released = model
+        let input = request(rules: pluginRules())
+        let task = Task { [weak model] in
+            await model?.load(input, files: [URL(fileURLWithPath: "/fixture/go.mod")])
+            finished.open()
+        }
+        defer { task.cancel(); release.open(); releaseWait.cancel(); model?.reset() }
+        #expect(await entered.waitUntilOpen())
+        model?.reset()
+        #expect(await finished.waitUntilOpen())
+        await task.value
+        #expect(!release.isOpen)
+        #expect(model?.state == .idle)
+        #expect(model?.summary(for: input) == nil)
+        model = nil
+        #expect(released == nil)
+        release.open()
+        #expect(await releaseWait.value)
+        #expect(await returned.waitUntilOpen())
     }
 
     @Test @MainActor func workspaceResetRejectsAnInFlightResult() async {
@@ -189,19 +292,26 @@ private actor UsageScanProbe {
     private var active = 0
     let entered: TestGate?
     let release: TestGate?
+    let uncooperativeRelease: Task<Bool, Never>?
+    let returned: TestGate?
 
-    init(entered: TestGate? = nil, release: TestGate? = nil) {
+    init(entered: TestGate? = nil, release: TestGate? = nil,
+         uncooperativeRelease: Task<Bool, Never>? = nil, returned: TestGate? = nil) {
         self.entered = entered
         self.release = release
+        self.uncooperativeRelease = uncooperativeRelease
+        self.returned = returned
     }
 
     func scan(_ files: [URL], _ rules: [LSPProjectUsageRequest.Rule]) async -> LSPProjectUsageSummary? {
         calls += 1
         active += 1
         maximumActive = max(maximumActive, active)
-        defer { active -= 1 }
-        if calls == 1 {
+        let isFirst = calls == 1
+        defer { active -= 1; if isFirst { returned?.open() } }
+        if isFirst {
             entered?.open()
+            if let uncooperativeRelease { #expect(await uncooperativeRelease.value) }
             if let release { _ = await release.waitUntilOpen() }
         }
         // Ignore the worker's cancelled flag to exercise the model's stale guard.

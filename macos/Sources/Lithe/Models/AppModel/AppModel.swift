@@ -149,6 +149,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     private var documentLanguageCoordinator: DocumentLanguageCoordinator?
     private var sidebarRefreshTask: Task<Void, Never>?
     private var moduleSessionCoordinator: ModuleSessionCoordinator?
+    private(set) var isProjectSessionClosed = false
     private var featureObservationBinder: AppModelObservationBinder?
     private var fileVisibilityRulesObserverID: UUID?
     private var searchExclusionsObservation: AnyCancellable?
@@ -228,6 +229,10 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     lazy var languageIntelligenceModuleCoordinator = LanguageIntelligenceModuleCoordinator(
         runtime: services.moduleRuntime,
         store: moduleCapabilityStore,
+        awaitShutdown: { [weak self] in
+            await self?.awaitModuleRuntimeShutdown()
+            guard self?.isProjectSessionClosed == false else { throw CancellationError() }
+        },
         bind: { [weak self] in self?.bindLanguageIntelligenceCapability($0) },
         notify: { [weak self] in self?.showNotification($0) }
     )
@@ -692,6 +697,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     func shutdownProjectSession() async {
+        isProjectSessionClosed = true
         // Native window close can retain this model through Settings without
         // closing its workspace. Revoke page requests before teardown can yield.
         services.pluginWebPages.closeAll()
@@ -1362,6 +1368,16 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             )
             return false
         }
+        if moduleSessionCoordinator?.isShuttingDown == true {
+            Task { @MainActor [weak self, weak document] in
+                guard let self else { return }
+                await self.awaitModuleRuntimeShutdown()
+                guard let document, !Task.isCancelled, self.isCurrentWorkspace(identity),
+                      self.openDocuments.contains(where: { $0 === document }) else { return }
+                _ = self.activateLanguageServerIfAvailable(for: document)
+            }
+            return false
+        }
         if descriptor.id == "java" {
             switch prepareJavaLanguageServerRuntimeIfNeeded(for: document) {
             case .ready: break
@@ -1382,6 +1398,9 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
                 Task { [weak self, weak document] in
                     guard let self, let document else { return }
                     do {
+                        await self.awaitModuleRuntimeShutdown()
+                        guard !Task.isCancelled, self.isCurrentWorkspace(identity),
+                              self.openDocuments.contains(where: { $0 === document }) else { return }
                         _ = try await self.services.moduleRuntime.activateCapability(capabilityID)
                         guard self.isCurrentWorkspace(identity), !Task.isCancelled,
                               self.openDocuments.contains(where: { $0 === document }) else { return }
@@ -1442,9 +1461,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
             Task { [weak self] in
                 guard let self else { return }
                 do {
-                    let value = try await self.services.moduleRuntime.activateCapability(.languageIntelligence)
-                    guard let capability = value as? LitheLanguageIntelligenceModule.LanguageIntelligenceCapability else { return }
-                    self.bindLanguageIntelligenceCapability(capability)
+                    _ = try await self.languageIntelligenceModuleCoordinator.activate()
                     guard self.isCurrentWorkspace(identity), !Task.isCancelled,
                           self.openDocuments.contains(where: { $0 === document }) else { return }
                     _ = self.activateLanguageServerIfAvailable(for: document)

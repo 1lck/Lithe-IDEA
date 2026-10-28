@@ -251,7 +251,9 @@ final class JavaLanguageServerPreparationCoordinator {
                     ? .timedOut(message: failure.message ?? "JDTLS failed to start.")
                     : .failed(message: failure.message ?? "JDTLS failed to start.")
             )
-        case .startingProcess, .initializing, .stopping, .stopped:
+        case .stopped:
+            javaFeature.cancelLanguageServerPreparation()
+        case .startingProcess, .initializing, .stopping:
             break
         }
     }

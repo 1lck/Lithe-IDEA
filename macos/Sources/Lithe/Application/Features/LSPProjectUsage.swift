@@ -47,6 +47,13 @@ struct LSPProjectUsageSummary: Equatable, Sendable {
     var pluginIDs: Set<String> = []
 }
 
+/// Capture the identity and copy-on-write inventory from one applied snapshot.
+/// Only the request participates in task identity; files are never hashed.
+struct LSPProjectUsageInput: Sendable {
+    let request: LSPProjectUsageRequest
+    let files: [URL]
+}
+
 enum LSPProjectUsageScanner {
     /// The caller runs this on its owned worker. Inspect each URL at most once
     /// and retain only matched IDs, not an additional inventory of file names.
@@ -97,6 +104,7 @@ enum LSPProjectUsageScanner {
 
 /// One workspace-owned cache survives Settings window recreation. A page owns
 /// a cancellable lease on the worker, rather than a detached unowned scan.
+// Note: .agents/notes/implemented/bug-fix/2026-10-28-lsp-project-usage-cancellation.md
 @MainActor
 final class LSPProjectUsageModel: ObservableObject {
     enum State: Equatable { case idle, loading, ready }
@@ -106,17 +114,28 @@ final class LSPProjectUsageModel: ObservableObject {
     private let scanner: Scanner
     private var cached: (request: LSPProjectUsageRequest, summary: LSPProjectUsageSummary)?
     private var work: Work?
+    private var retiring: [UUID: Task<Void, Never>] = [:]
 
     private final class Work {
-        let id = UUID()
+        let id: UUID
         let request: LSPProjectUsageRequest
-        let task: Task<LSPProjectUsageSummary?, Never>
-        var consumers: Set<UUID> = []
+        let task: Task<Void, Never>
+        var consumers: [UUID: (cancellation: Cancellation, continuation: CheckedContinuation<Void, Never>)] = [:]
 
-        init(request: LSPProjectUsageRequest, task: Task<LSPProjectUsageSummary?, Never>) {
+        init(id: UUID, request: LSPProjectUsageRequest, task: Task<Void, Never>) {
+            self.id = id
             self.request = request
             self.task = task
         }
+    }
+
+    /// The cancellation handler runs outside the main actor. Mark the lease
+    /// synchronously so a queued completion cannot publish for cancelled pages.
+    private final class Cancellation: @unchecked Sendable {
+        private let lock = NSLock()
+        private var cancelled = false
+        var isCancelled: Bool { lock.withLock { cancelled } }
+        func cancel() { lock.withLock { cancelled = true } }
     }
 
     init(scanner: @escaping Scanner = { files, rules in
@@ -130,71 +149,78 @@ final class LSPProjectUsageModel: ObservableObject {
     }
 
     func load(_ request: LSPProjectUsageRequest, files: [URL]) async {
-        guard !Task.isCancelled else { return }
-        if summary(for: request) != nil {
-            // A request for a cached snapshot can supersede a different scan.
-            work?.task.cancel()
-            // @Published also emits for equal values. A warm page already has
-            // its summary, so avoid scheduling a second SwiftUI update.
-            if state != .ready { state = .ready }
-            return
-        }
-        let active: Work
-        if let current = work, current.request == request, !current.task.isCancelled {
-            active = current
-        } else {
-            let previous = work?.task
-            previous?.cancel()
-            let scanner = self.scanner
-            let task = Task.detached(priority: .utility) {
-                // Even on rapid changes there is only one scanner executing.
-                if let previous { _ = await previous.value }
-                guard !Task.isCancelled else { return nil as LSPProjectUsageSummary? }
-                return await scanner(files, request.rules)
-            }
-            active = Work(request: request, task: task)
-            work = active
-        }
         let consumer = UUID()
-        let workID = active.id
-        let computation = active.task
-        active.consumers.insert(consumer)
-        state = .loading
-        let value = await withTaskCancellationHandler {
-            await computation.value
-        } onCancel: { [weak self] in
-            Task { @MainActor in self?.cancel(consumer: consumer, workID: workID) }
-        }
-        guard work?.id == active.id else { return }
-        active.consumers.remove(consumer)
-        guard !Task.isCancelled, !active.task.isCancelled, let value else {
-            if active.consumers.isEmpty {
-                work = nil
-                state = cached == nil ? .idle : .ready
+        let cancellation = Cancellation()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard !cancellation.isCancelled, !Task.isCancelled else { continuation.resume(); return }
+                if summary(for: request) != nil {
+                    retireWork()
+                    // @Published emits even for equal values. Warm loads must
+                    // not schedule another SwiftUI update.
+                    if state != .ready { state = .ready }
+                    continuation.resume()
+                    return
+                }
+                if work?.request != request {
+                    retireWork()
+                    let id = UUID()
+                    let scanner = self.scanner
+                    let task = Task.detached(priority: .utility) { [weak self] in
+                        let value = Task.isCancelled ? nil : await scanner(files, request.rules)
+                        await self?.complete(id: id, value: value)
+                    }
+                    work = Work(id: id, request: request, task: task)
+                }
+                work?.consumers[consumer] = (cancellation, continuation)
+                if state != .loading { state = .loading }
             }
-            return
+        } onCancel: { [weak self] in
+            cancellation.cancel()
+            Task { @MainActor in self?.cancel(consumer: consumer) }
         }
-        cached = (request, value)
-        work = nil
-        state = .ready
     }
 
     func reset() {
-        work?.task.cancel()
-        // Retain the cancelled task until it drains so a new workspace's worker
-        // can await it instead of overlapping with its last batch.
+        retireWork()
+        retiring.values.forEach { $0.cancel() }
         cached = nil
         state = .idle
     }
 
-    private func cancel(consumer: UUID, workID: UUID) {
-        guard let work, work.id == workID else { return }
-        work.consumers.remove(consumer)
+    private func cancel(consumer: UUID) {
+        guard let work, let lease = work.consumers.removeValue(forKey: consumer) else { return }
+        lease.continuation.resume()
         if work.consumers.isEmpty {
-            work.task.cancel()
+            retireWork()
             state = cached == nil ? .idle : .ready
         }
     }
 
-    deinit { work?.task.cancel() }
+    private func complete(id: UUID, value: LSPProjectUsageSummary?) {
+        retiring[id] = nil
+        guard let active = work, active.id == id else { return }
+        work = nil
+        if let value, active.consumers.values.contains(where: { !$0.cancellation.isCancelled }) {
+            cached = (active.request, value)
+        }
+        state = cached == nil ? .idle : .ready
+        active.consumers.values.forEach { $0.continuation.resume() }
+    }
+
+    private func retireWork() {
+        guard let active = work else { return }
+        work = nil
+        // Cancellation is cooperative: own the worker until its next batch
+        // exits, but never put that completion on the next page's critical path.
+        retiring[active.id] = active.task
+        active.task.cancel()
+        active.consumers.values.forEach { $0.continuation.resume() }
+    }
+
+    deinit {
+        work?.task.cancel()
+        work?.consumers.values.forEach { $0.continuation.resume() }
+        retiring.values.forEach { $0.cancel() }
+    }
 }

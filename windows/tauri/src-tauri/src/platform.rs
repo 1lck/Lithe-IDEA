@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use tauri::ipc::Channel;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -34,7 +34,7 @@ pub async fn platform_invoke(
     let log_started = std::time::Instant::now();
     let ide_owner = if bind_ide_host_owner(&command, &mut args, webview.window().label()) {
         let owner = webview.window().label().to_owned();
-        Some((webview.app_handle().clone(), owner))
+        Some((webview.clone(), owner))
     } else {
         None
     };
@@ -116,13 +116,20 @@ pub async fn platform_invoke(
             return lithe_core::execute_json_with_events(&request, events);
         }
         let response = lithe_core::execute_json(&request);
-        if let Some((app, owner)) = ide_owner {
+        if let Some((webview, owner)) = &ide_owner {
             // Destruction can run before a blocking open registers its host. Clean
             // up here as well, even if the WebView's awaiting IPC future is gone.
-            if app.get_webview_window(&owner).is_none() {
-                crate::core::close_ide_hosts(&owner);
+            if webview.get_webview_window(owner).is_none() {
+                crate::core::close_ide_hosts(owner);
                 return json!({"ok":false,"error":{"message":"The authorized project window was closed"}}).to_string();
             }
+        }
+        if let Some((webview, owner)) = ide_owner {
+            let target = tauri::EventTarget::webview(webview.label().to_owned());
+            return attach_ide_events(&response, &owner, move |event| {
+                webview.emit_to(target.clone(), "lithe-ide-request", event)
+                    .map_err(|error| error.to_string())
+            });
         }
         response
     })
@@ -151,6 +158,46 @@ pub async fn platform_invoke(
         preserve_history_rewrite,
         preserve_stash_restore,
     )
+}
+
+// Independent window events have no Channel sequence gap: losing one notification
+// must not block later requests. The broker owns this sink until authorization closes.
+fn attach_ide_events(
+    response: &str,
+    owner: &str,
+    send: impl Fn(Value) -> Result<(), String> + Send + Sync + 'static,
+) -> String {
+    let Ok(envelope) = serde_json::from_str::<Value>(response) else {
+        return response.into();
+    };
+    if envelope["ok"] != true {
+        return response.into();
+    }
+    let Some(host_id) = envelope.pointer("/data/hostID").and_then(Value::as_str) else {
+        return response.into();
+    };
+    let event_host = host_id.to_owned();
+    let result = lithe_core::attach_ide_request_dispatcher(
+        host_id,
+        owner,
+        Arc::new(move |request_id| send(json!({"hostID":event_host,"requestID":request_id}))),
+    );
+    if let Err(error) = result {
+        let cleanup = lithe_core::execute_json(
+            &json!({"command":"ideHost.control", "payload":{
+                "action":"close", "arguments":{"hostID":host_id}
+            }})
+            .to_string(),
+        );
+        if serde_json::from_str::<Value>(&cleanup)
+            .ok()
+            .is_none_or(|value| value["ok"] != true)
+        {
+            eprintln!("Could not close unattached IDE host");
+        }
+        return json!({"ok":false,"error":{"message":error}}).to_string();
+    }
+    response.into()
 }
 
 /// IDE operation output may describe a failed process while the inspection itself
@@ -957,6 +1004,100 @@ mod tests {
                 .contains("absolute writable storage and helper paths"),
             "{response}"
         );
+    }
+
+    #[test]
+    fn mcp_native_events_deliver_and_claim_without_frontend_polling() {
+        use serde_json::{json, Value};
+        use std::io::{Read, Write};
+        use std::sync::{Arc, Mutex};
+        use std::time::Duration;
+
+        fn control(action: &str, arguments: Value) -> Value {
+            serde_json::from_str(&lithe_core::execute_json(&json!({"command":"ideHost.control", "payload":{ "action":action, "arguments":arguments }}).to_string())).unwrap()
+        }
+        struct Fixture {
+            root: std::path::PathBuf,
+            host: String,
+        }
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                control("close", json!({"hostID":self.host}));
+                let _ = std::fs::remove_dir_all(&self.root);
+            }
+        }
+        let root = std::env::temp_dir().join(format!(
+            "lithe-mcp-channel-{}-{}",
+            std::process::id(),
+            super::REQUEST_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let mut fixture = Fixture {
+            root: root.clone(),
+            host: String::new(),
+        };
+        let helper = root.join("helper.exe");
+        std::fs::write(&helper, b"immutable").unwrap();
+        let opened = control(
+            "open",
+            json!({"directory":root.join("data"), "workspaceKey":"fixture", "helperPath":helper,
+            "permissions":{"configure":false,"execute":false}, "ownerId":"fixture-window"}),
+        );
+        assert_eq!(opened["ok"], true, "{opened}");
+        fixture.host = opened["data"]["hostID"].as_str().unwrap().into();
+        let captured = Arc::new(Mutex::new(Vec::<Value>::new()));
+        let recorder = captured.clone();
+        let send = move |event: Value| {
+            let claimed = control("claim", event.clone());
+            assert_eq!(claimed["data"]["request"]["name"], "lithe_project_inspect");
+            let delivered = control(
+                "respond",
+                json!({"hostID":event["hostID"],"requestID":event["requestID"],"result":{"workspaceID":"fixture"}}),
+            );
+            assert_eq!(delivered["data"]["delivered"], true);
+            recorder.lock().unwrap().push(event);
+            Ok(())
+        };
+        let attached: Value = serde_json::from_str(&super::attach_ide_events(
+            &opened.to_string(),
+            "fixture-window",
+            send,
+        ))
+        .unwrap();
+        assert_eq!(attached["ok"], true, "{attached}");
+        let descriptor_path = opened["data"]["configuration"]["mcpServers"]["lithe"]["args"][1]
+            .as_str()
+            .unwrap();
+        let descriptor: Value =
+            serde_json::from_slice(&std::fs::read(descriptor_path).unwrap()).unwrap();
+        let address: std::net::SocketAddr = descriptor["endpoint"]
+            .as_str()
+            .unwrap()
+            .strip_prefix("http://")
+            .unwrap()
+            .strip_suffix("/call")
+            .unwrap()
+            .parse()
+            .unwrap();
+        let mut stream =
+            std::net::TcpStream::connect_timeout(&address, Duration::from_secs(2)).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        stream
+            .set_write_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let body = r#"{"name":"lithe_project_inspect","arguments":{}}"#;
+        write!(stream,"POST /call HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",descriptor["token"].as_str().unwrap(),body.len(),body).unwrap();
+        let mut response = String::new();
+        stream.take(65536).read_to_string(&mut response).unwrap();
+        assert!(
+            response.contains(r#""workspaceID":"fixture""#),
+            "{response}"
+        );
+        assert_eq!(captured.lock().unwrap().len(), 1);
+        assert_eq!(captured.lock().unwrap()[0]["hostID"], fixture.host);
+        assert_eq!(std::fs::read(helper).unwrap(), b"immutable");
     }
 
     #[test]

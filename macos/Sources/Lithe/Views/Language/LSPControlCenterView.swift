@@ -7,18 +7,26 @@ struct LSPControlCenterView: View {
     var body: some View {
         LSPControlCenterContent(
             usageModel: model.languageToolingFeature.projectUsage,
-            request: model.languageToolingFeature.projectUsageRequest(
-                workspaceURL: model.workspaceURL, snapshotID: model.workspaceSnapshotID
+            input: model.languageToolingFeature.projectUsageInput(
+                workspaceURL: model.workspaceURL, snapshot: model.workspaceFeature.appliedSnapshot
             )
         )
     }
 }
 
-private struct LSPControlCenterContent: View {
+struct LSPControlCenterContent: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var settings: AppSettings
     @ObservedObject var usageModel: LSPProjectUsageModel
-    let request: LSPProjectUsageRequest
+    let input: LSPProjectUsageInput
+    private let localizationBundle: Bundle
+    private var request: LSPProjectUsageRequest { input.request }
+
+    init(usageModel: LSPProjectUsageModel, input: LSPProjectUsageInput, localizationBundle: Bundle = .main) {
+        self.usageModel = usageModel
+        self.input = input
+        self.localizationBundle = localizationBundle
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -48,7 +56,7 @@ private struct LSPControlCenterContent: View {
                             }
                         }
                     } else {
-                        ProgressView().accessibilityLabel(Text("Loading…"))
+                        ProgressView().accessibilityLabel(Text(settings.language.localizedString("native.loading", bundle: localizationBundle)))
                     }
                     if model.languageProviderCatalogSnapshot.isDegraded {
                         degradedCatalogNotice
@@ -70,7 +78,7 @@ private struct LSPControlCenterContent: View {
             }
         }
         .task(id: request) {
-            await usageModel.load(request, files: model.projectFiles)
+            await usageModel.load(input.request, files: input.files)
         }
     }
 

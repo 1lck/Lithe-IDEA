@@ -79,6 +79,13 @@ final class LanguageToolingFeatureModel: ObservableObject {
         return LSPProjectUsageRequest(workspaceURL: workspaceURL, snapshotID: snapshotID, rules: providers + plugins)
     }
 
+    func projectUsageInput(workspaceURL: URL?, snapshot: WorkspaceSnapshot?) -> LSPProjectUsageInput {
+        LSPProjectUsageInput(
+            request: projectUsageRequest(workspaceURL: workspaceURL, snapshotID: snapshot?.id),
+            files: snapshot?.files ?? []
+        )
+    }
+
     func reloadCatalog(for workspaceURL: URL?) {
         // Runtime/index resets also call resetWorkspaceState while Settings is
         // still visible. Only a workspace boundary invalidates the usage cache;

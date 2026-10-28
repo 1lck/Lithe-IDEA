@@ -12,8 +12,8 @@ use super::decode::{self, join_relative};
 use super::integrations;
 use super::manifest::{
     BuildExecution, BuildSystemDeclaration, DependenciesSource, ExecutableCandidate, ModelSource,
-    OutputChannel, ProviderDeclaration, RunDeclaration, Scope, TestFilter, TestResultsSource,
-    WorkingDirectory,
+    OutputChannel, ProviderDeclaration, RunDeclaration, Scope, TaskSource, TestFilter,
+    TestResultsSource, WorkingDirectory,
 };
 use super::model::{entry_id, BuildModel, ModelProject};
 use super::options::{self, OptionContribution};
@@ -68,6 +68,9 @@ pub(crate) struct SelectedEntity {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PlanBase {
+    /// Host-resolved public input snapshot, validated against declared slots.
+    #[serde(default)]
+    pub(crate) model_inputs: Option<Value>,
     /// Instance root, workspace-relative.
     pub(crate) root: String,
     /// Stored option values by option ID.
@@ -154,7 +157,7 @@ pub(crate) struct ProviderTool {
 /// Validates what the host adds to a provider request and returns the
 /// params it contributes: `refresh` only when set and `tool` only when
 /// resolved, so a request without them matches a host that predates both.
-fn provider_hints(request: &OutputPlanRequest) -> Validation<Map<String, Value>> {
+pub(crate) fn provider_hints(request: &OutputPlanRequest) -> Validation<Map<String, Value>> {
     let mut params = Map::new();
     if request.refresh {
         params.insert("refresh".to_string(), json!(true));
@@ -248,6 +251,7 @@ pub(crate) struct PlanContext<'a> {
     pub(crate) fingerprint: String,
     /// Effective option values by option ID.
     option_values: BTreeMap<String, Value>,
+    model_inputs: Option<Value>,
     plugin_directory: Option<String>,
     workspace_state_directory: Option<String>,
 }
@@ -273,6 +277,15 @@ impl<'a> PlanContext<'a> {
         build_system: &'a BuildSystemDeclaration,
         base: &PlanBase,
     ) -> Validation<Self> {
+        match (&base.model_inputs, build_system.model_inputs.is_empty()) {
+            (None, true) => {}
+            (Some(value), false) => super::model_inputs::check_snapshot(build_system, value)?,
+            _ => {
+                return Err(invalid_selection(
+                    "The provider needs exactly its declared shared model inputs.",
+                ))
+            }
+        }
         Self::with_model_options(build_system, base, None)
     }
 
@@ -286,6 +299,7 @@ impl<'a> PlanContext<'a> {
         let fingerprint = options::fingerprint(build_system, &resolved);
         Ok(Self {
             build_system,
+            model_inputs: base.model_inputs.clone(),
             root: decode::request_path(&base.root, "root")?,
             contribution,
             fingerprint,
@@ -349,7 +363,7 @@ impl<'a> PlanContext<'a> {
     /// would contribute to a command line, so the provider can hand either
     /// to the tool. `params` already holds the source's own fields and the
     /// host's `refresh` and `tool` hints.
-    fn provider_plan(
+    pub(crate) fn provider_plan(
         &self,
         provider: &ProviderDeclaration,
         method: &str,
@@ -370,6 +384,9 @@ impl<'a> PlanContext<'a> {
             "environment".to_string(),
             json!(self.contribution.environment),
         );
+        if let Some(inputs) = &self.model_inputs {
+            params.insert("modelInputs".into(), inputs.clone());
+        }
         json!({
             "buildSystemID": self.build_system.id,
             "root": self.root,
@@ -397,6 +414,11 @@ fn check_user_arguments(arguments: &[String], declared: &[BuildArgument]) -> Val
     if !template::uses(declared, &template::Variable::UserArguments) {
         return Err(invalid_selection("This command takes no extra arguments."));
     }
+    check_argument_limits(arguments)
+}
+
+/// Provider calls accept raw argument values without a CLI placeholder.
+pub(crate) fn check_argument_limits(arguments: &[String]) -> Validation<()> {
     if arguments.len() > MAX_USER_ARGUMENTS
         || arguments
             .iter()
@@ -463,7 +485,11 @@ pub(crate) fn task_plan(
             build_system.display_name, request.task
         ))
     })?;
-    check_user_arguments(&request.user_arguments, &declaration.arguments)?;
+    if declaration.source == TaskSource::Provider {
+        check_argument_limits(&request.user_arguments)?;
+    } else {
+        check_user_arguments(&request.user_arguments, &declaration.arguments)?;
+    }
     let project = request
         .project
         .as_ref()
@@ -523,6 +549,39 @@ pub(crate) fn task_plan(
     values.project = project.as_ref().map(Selection::selected);
     values.target = target.as_ref().map(Selection::selected);
     values.task = task.as_ref().map(Selection::selected);
+    if declaration.source == TaskSource::Provider {
+        // A model may override the template execution; do not turn an
+        // unbounded application/service into a single bounded RPC task.
+        if execution != BuildExecution::Task {
+            return Err(invalid_selection(
+                "A provider task supports task execution only.",
+            ));
+        }
+        let mut params = Map::new();
+        params.insert("task".to_string(), json!(request.task));
+        params.insert("userArguments".to_string(), json!(request.user_arguments));
+        for (name, selected) in [
+            ("project", &project),
+            ("target", &target),
+            ("modelTask", &task),
+        ] {
+            if let Some(selected) = selected {
+                params.insert(
+                    name.to_string(),
+                    json!({
+                        "name": selected.name, "path": selected.path,
+                        "tags": selected.tags, "properties": selected.properties
+                    }),
+                );
+            }
+        }
+        return Ok(context.provider_plan(
+            declared_provider(build_system)?,
+            "lithe/build/execute",
+            "execution",
+            params,
+        ));
+    }
     context.plan(&declaration.arguments, &values, execution, Map::new())
 }
 
@@ -531,6 +590,32 @@ fn check_test_text(value: &Option<String>, what: &str) -> Validation<()> {
         selection_text(value, what)?;
     }
     Ok(())
+}
+
+/// Discovers the instance's tests; individual selectors are validated on decode.
+pub(crate) fn test_discovery_plan(
+    build_system: &BuildSystemDeclaration,
+    request: &OutputPlanRequest,
+) -> Validation<Value> {
+    if !build_system
+        .test
+        .as_ref()
+        .is_some_and(|test| test.discovery)
+    {
+        return Err(unavailable(build_system, "test discovery"));
+    }
+    if request.project.is_some() || request.output_file.is_some() {
+        return Err(invalid_selection(
+            "Test discovery addresses the whole instance.",
+        ));
+    }
+    let context = PlanContext::new(build_system, &request.base)?;
+    Ok(context.provider_plan(
+        declared_provider(build_system)?,
+        "lithe/build/discoverTests",
+        "litheTestDiscovery",
+        provider_hints(request)?,
+    ))
 }
 
 /// `build.testPlan`: the command and where its results will be.
@@ -549,7 +634,11 @@ pub(crate) fn test_plan(
         .as_ref()
         .ok_or_else(|| unavailable(build_system, "tests"))?;
     let context = PlanContext::new(build_system, &request.base)?;
-    check_user_arguments(&request.user_arguments, &test.arguments)?;
+    if test.source == TaskSource::Provider {
+        check_argument_limits(&request.user_arguments)?;
+    } else {
+        check_user_arguments(&request.user_arguments, &test.arguments)?;
+    }
     check_test_text(&request.suite, "test suite")?;
     check_test_text(&request.case, "test case")?;
     for (requested, filter) in [
@@ -612,7 +701,10 @@ pub(crate) fn test_plan(
             "this test case without its suite",
         ),
     ] {
-        if requested && !template::applies_any(&test.arguments, &values, variables) {
+        if test.source != TaskSource::Provider
+            && requested
+            && !template::applies_any(&test.arguments, &values, variables)
+        {
             return Err(invalid_selection(format!(
                 "{} cannot select {what}.",
                 build_system.display_name
@@ -652,6 +744,38 @@ pub(crate) fn test_plan(
     };
     let mut extra = Map::new();
     extra.insert("results".to_string(), results);
+    if test.source == TaskSource::Provider {
+        let mut params = Map::new();
+        params.insert("userArguments".to_string(), json!(request.user_arguments));
+        // Filters stay separate values; the owning backend interprets them
+        // using its upstream test engine, never a host-generated CLI string.
+        for (name, value) in [("suite", &request.suite), ("case", &request.case)] {
+            if let Some(value) = value {
+                params.insert(name.to_string(), json!(value));
+            }
+        }
+        for (name, selected) in [("project", &project), ("target", &target)] {
+            if let Some(selected) = selected {
+                params.insert(
+                    name.to_string(),
+                    json!({
+                        "name": selected.name, "path": selected.path,
+                        "tags": selected.tags, "properties": selected.properties
+                    }),
+                );
+            }
+        }
+        let mut plan = context.provider_plan(
+            declared_provider(build_system)?,
+            "lithe/build/test",
+            "execution",
+            params,
+        );
+        plan.as_object_mut()
+            .expect("provider plan is an object")
+            .extend(extra);
+        return Ok(plan);
+    }
     context.plan(&test.arguments, &values, BuildExecution::Task, extra)
 }
 
@@ -859,6 +983,7 @@ pub(crate) fn run_entries(
         return Ok(Vec::new());
     }
     let base = PlanBase {
+        model_inputs: None,
         root: root.to_string(),
         options: stored_options.clone(),
         plugin_directory: None,
@@ -872,6 +997,11 @@ pub(crate) fn run_entries(
         .collect();
     let mut parts = Vec::new();
     for run in &build_system.run {
+        // A provider-owned launch is prepared on demand; it must not be
+        // persisted as a command or emitted with an empty argument list.
+        if run.source == TaskSource::Provider {
+            continue;
+        }
         if let Some(from) = &run.from_targets {
             for target in model
                 .targets

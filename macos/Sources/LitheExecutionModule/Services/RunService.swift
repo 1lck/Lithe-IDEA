@@ -5,7 +5,7 @@ import LitheCoreContracts
 import LitheModuleAPI
 
 @MainActor
-package final class RunService: ObservableObject {
+package final class RunService: ObservableObject, BuildRunLaunching {
     @Published package private(set) var configurations: [RunConfiguration] = [.currentFile]
     package private(set) var defaultConfigurationID: String?
     @Published package var selectedConfigurationID = RunConfiguration.currentFileID {
@@ -40,6 +40,68 @@ package final class RunService: ObservableObject {
     @Published package private(set) var configurationSaveError: String?
     @Published package private(set) var dependencyRevision = 0
     @Published package private(set) var dependencyConfigurationSaveError: String?
+
+    @Published package private(set) var isPreparingBuildRun = false
+    private var buildPreparationID: UUID?
+    private var buildRunWorkspace: URL?
+    private var buildRunHandler: (@MainActor (RunConfiguration, URL) -> UUID?)?
+    private var cancelBuildRun: (@MainActor (UUID) -> Void)?
+    package var hasBuildProviderRun: Bool { lastRunConfiguration?.buildProvider != nil }
+
+    package func configureBuildProviderRuns(start: @escaping @MainActor (RunConfiguration, URL) -> UUID?,
+                                          cancel: @escaping @MainActor (UUID) -> Void) {
+        buildRunHandler = start; cancelBuildRun = cancel
+    }
+
+    package func finishBuildPreparation(_ id: UUID, message: String?) {
+        guard buildPreparationID == id else { return }
+        buildPreparationID = nil
+        isPreparingBuildRun = false
+        runningTitle = nil
+        if let message { fail(message) }
+    }
+
+    private func startBuildProviderRun(_ configuration: RunConfiguration) {
+        let workspace = projectURL ?? buildRunWorkspace
+        let available = configurations.contains { $0.id == configuration.id && $0.buildProvider == configuration.buildProvider }
+            || (lastRunConfiguration == configuration && buildRunWorkspace == workspace)
+        stop()
+        primaryExecutionID = UUID().uuidString
+        configurationSaveError = nil
+        output = ""; lastExitCode = nil
+        lastRunConfiguration = configuration
+        runningTitle = configuration.name
+        isPreparingBuildRun = true
+        guard available, let workspace, let id = buildRunHandler?(configuration, workspace) else {
+            isPreparingBuildRun = false
+            fail(L10n.string("Load the current build model and enable its provider before running this configuration."))
+            return
+        }
+        buildPreparationID = id
+        primaryExecutionID = id.uuidString
+    }
+
+    @discardableResult
+    package func saveBuildProviderConfiguration() -> Bool {
+        guard let configuration = lastRunConfiguration, let reference = configuration.buildProvider,
+              let workspace = buildRunWorkspace ?? projectURL else { return false }
+        configurationSaveError = nil
+        do {
+            let id = try runConfigurationOperations.saveBuildProviderConfiguration(reference, name: configuration.name, at: workspace)
+            let resolution = try resolveWithServiceToolchains(operations: runConfigurationOperations, projectURL: workspace,
+                mavenProject: mavenProject, preferredConfigurationID: id)
+            guard let saved = resolution.configurations.first(where: { $0.configuration.id == id }),
+                  saved.configuration.buildProvider == reference else {
+                throw RunConfigurationEditorSaveFailure(stage: .reload,
+                    message: L10n.string("The saved provider run configuration is unavailable."))
+            }
+            configurationStatus = .ready
+            configurationDiagnostics = resolution.diagnostics
+            apply(resolution.configurations, projectToolchain: resolution.projectToolchain, preferredConfigurationID: id)
+            lastRunConfiguration = saved.configuration
+            return true
+        } catch { configurationSaveError = error.localizedDescription; return false }
+    }
 
     private let process: any StreamingProcess
     private let processFactory: () -> any StreamingProcess
@@ -128,20 +190,25 @@ package final class RunService: ObservableObject {
         })
         dependencyWriter = WorkspaceDependencyWriter(store: dependencyStore)
         self.executableResolver = executableResolver
+    }
+
+    /// Platform callbacks may already be queued when a process is replaced.
+    /// Retain the operation that produced them through the main-actor hop.
+    private func configurePrimaryProcess(operationID: String) {
         process.onOutput = { [weak self] chunk in
             Task { @MainActor [weak self] in
-                self?.append(chunk)
+                guard let self, self.activeOperationID == operationID else { return }
+                self.append(chunk)
             }
         }
         process.onTermination = { [weak self] exitCode in
             Task { @MainActor [weak self] in
-                self?.finishProcess(exitCode: exitCode)
+                guard let self, self.activeOperationID == operationID else { return }
+                self.finishProcess(exitCode: exitCode)
             }
         }
         process.onStateChange = { [weak self] event in
-            Task { @MainActor [weak self] in
-                self?.consumeLifecycle(event)
-            }
+            Task { @MainActor [weak self] in self?.consumeLifecycle(event) }
         }
     }
 
@@ -407,6 +474,15 @@ package final class RunService: ObservableObject {
         let modelRevision = mavenModelRevision
         projectLoadID = loadID
         let workspace = projectURL.standardizedFileURL
+        if let buildRunWorkspace, buildRunWorkspace != workspace {
+            stop()
+            self.buildRunWorkspace = nil
+            if lastRunConfiguration?.buildProvider != nil {
+                lastRunConfiguration = nil
+                primaryExecutionID = nil
+                output = ""; lastExitCode = nil
+            }
+        }
         defaultConfigurationID = nil
         isLoadingProject = true
         projectLoadState = .loading(workspace: workspace)
@@ -836,6 +912,68 @@ package final class RunService: ObservableObject {
         run(configuration: configuration, currentFileURL: currentFileURL, javaLaunch: javaLaunch)
     }
 
+    /// A build provider has already prepared and Core has validated the launch.
+    /// Reuse the native resolver/process/argument lease without a shadow run configuration.
+    package func launchPreparedRun(_ preparation: BuildRunPreparation, workspaceURL: URL, title: String, configuration: RunConfiguration? = nil) throws -> String {
+        let plan = preparation.launchPlan
+        let workspace = workspaceURL.standardizedFileURL
+        if let projectURL, projectURL != workspace { throw CancellationError() }
+        let directory = workspace.appendingPathComponent(plan.workingDirectory, isDirectory: true).standardizedFileURL
+        guard (directory == workspace || directory.path.hasPrefix(workspace.path + "/")),
+              fileAccess.isDirectory(at: directory) else {
+            throw RunConfigurationOperationFailure(message: L10n.string("The build provider returned an invalid launch plan."))
+        }
+        // Read the workspace's actual defaults even before Run configurations
+        // are generated; a cached selection may belong to a different workspace.
+        let inspection = runConfigurationOperations.inspect(at: workspace, checkFingerprint: false, javaEntrypoints: nil)
+        if case .invalid(let message) = inspection.status {
+            throw RunConfigurationOperationFailure(message: message)
+        }
+        let toolchain = inspection.projectToolchain ?? ProjectToolchainSelection()
+        let options = RunOptions(javaHomePath: toolchain.javaHomePath,
+            mavenExecutablePath: toolchain.mavenExecutablePath, mavenJavaHomePath: toolchain.mavenJavaHomePath)
+        let resolved = try executableResolver.resolve(plan, projectURL: workspace, options: options)
+        let arguments = try prepareJavaLaunch(executablePath: resolved.executableURL.path, arguments: plan.arguments)
+        // The preparation is handing off successfully, so Stop must not cancel
+        // the provider request that is currently returning this application.
+        let runIdentity = buildPreparationID == nil ? nil : primaryExecutionID
+        buildPreparationID = nil
+        isPreparingBuildRun = false
+        stop()
+        output = ""
+        lastExitCode = nil
+        lastRunConfiguration = configuration
+        buildRunWorkspace = workspace
+        selectedConfigurationID = configurations.first(where: { $0.id == configuration?.id })?.id ?? RunConfiguration.currentFileID
+        lastCurrentFileURL = nil
+        let operationID = UUID().uuidString
+        primaryExecutionID = runIdentity ?? operationID
+        activeOperationID = operationID
+        configurePrimaryProcess(operationID: operationID)
+        activeLaunchArgumentLease = arguments.lease
+        runningTitle = title
+        isRunning = true
+        append("$ " + resolved.executableURL.lastPathComponent + " " + plan.arguments.joined(separator: " ") + "\n\n")
+        do {
+            try process.start(ProcessRequest(operationID: operationID, executablePath: resolved.executableURL.path,
+                arguments: arguments.arguments, workingDirectory: directory.path, environment: resolved.environment))
+            return operationID
+        } catch {
+            activeLaunchArgumentLease = nil
+            activeOperationID = nil
+            isRunning = false
+            runningTitle = nil
+            lastExitCode = 1
+            append(error.localizedDescription + "\n")
+            throw error
+        }
+    }
+
+    package func stopPreparedRun(_ operationID: String) {
+        guard activeOperationID == operationID else { return }
+        stop()
+    }
+
     package func restart(javaLaunch: JavaDebugLaunchTarget? = nil) {
         guard let lastRunConfiguration else { return }
         run(
@@ -850,6 +988,7 @@ package final class RunService: ObservableObject {
         currentFileURL: URL?,
         javaLaunch: JavaDebugLaunchTarget? = nil
     ) {
+        if configuration.buildProvider != nil { startBuildProviderRun(configuration); return }
         stop()
         output = ""
         lastExitCode = nil
@@ -974,6 +1113,7 @@ package final class RunService: ObservableObject {
 
         let operationID = UUID().uuidString
         activeOperationID = operationID
+        configurePrimaryProcess(operationID: operationID)
         // The main process starts only after every compile step exits zero, so a
         // standalone Java file is compiled with `javac` before `java <class>`.
         let startMain: @MainActor () -> Void = { [weak self] in
@@ -1040,6 +1180,7 @@ package final class RunService: ObservableObject {
         _ configuration: RunConfiguration,
         javaLaunch: JavaDebugLaunchTarget? = nil
     ) {
+        if configuration.buildProvider != nil { startBuildProviderRun(configuration); return }
         guard configuration.kind != .currentFile else { return }
         stopModule(sessionID: configuration.id)
         startModuleSession(configuration, javaLaunch: javaLaunch)
@@ -1085,6 +1226,10 @@ package final class RunService: ObservableObject {
     }
 
     package func stop() {
+        let preparation = buildPreparationID
+        buildPreparationID = nil
+        isPreparingBuildRun = false
+        if let preparation { cancelBuildRun?(preparation) }
         activeLanguageExecutionSession?.stop()
         activeLanguageExecutionSession = nil
         activePreLaunchProcess?.stop()
@@ -1101,6 +1246,7 @@ package final class RunService: ObservableObject {
         stopAllServices()
         projectLoadID = UUID()
         projectURL = nil
+        buildRunWorkspace = nil
         projectLoadState = .idle
         selectedConfigurationIDsByProject = [:]
         projectFiles = []
