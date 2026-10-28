@@ -209,6 +209,7 @@
 "Active Maven Profiles" = "Active Maven Profiles";
 "Active profiles" = "Active profiles";
 "Activity" = "Activity";
+"Adapter Arguments (JSON)" = "Adapter Arguments (JSON)";
 "Adapter Ready" = "Adapter Ready";
 "Add" = "Add";
 "Add Hook" = "Add Hook";
@@ -383,6 +384,7 @@
 "Assignees" = "Assignees";
 "Astro Support" = "Astro Support";
 "Attach" = "Attach";
+"Attach Request" = "Attach Request";
 "Attach file" = "Attach file";
 "Attach files" = "Attach files";
 "Attach to a remote JVM or Tomcat" = "Attach to a remote JVM or Tomcat";
@@ -852,8 +854,12 @@
 "Conflicts with %@" = "Conflicts with %@";
 "Connect" = "Connect";
 "Connect a GitHub account before continuing" = "Connect a GitHub account before continuing";
+"Connect to Debug Adapter" = "Connect to Debug Adapter";
+"Connect to Debug Adapter…" = "Connect to Debug Adapter…";
 "Connect to Running JVM" = "Connect to Running JVM";
 "Connect to Running JVM…" = "Connect to Running JVM…";
+"Connect to an already running DAP server using the active file's installed debugger. This is not a JVM JDWP or gdbserver port. No proxy or tunnel is created." = "Connect to an already running DAP server using the active file's installed debugger. This is not a JVM JDWP or gdbserver port. No proxy or tunnel is created.";
+"Connect to an external debug adapter?" = "Connect to an external debug adapter?";
 "Connect to databases, browse schemas, edit data, run SQL, and manage backups from the Database workspace." = "Connect to databases, browse schemas, edit data, run SQL, and manage backups from the Database workspace.";
 "Connect to running JVM" = "Connect to running JVM";
 "Connected" = "Connected";
@@ -1318,6 +1324,7 @@
 "Enlarge image" = "Enlarge image";
 "Enter API key" = "Enter API key";
 "Enter a ChangeList name (1–100 characters)." = "Enter a ChangeList name (1–100 characters).";
+"Enter a JSON object of adapter arguments no larger than 256 KiB." = "Enter a JSON object of adapter arguments no larger than 256 KiB.";
 "Enter a JVM debug port between 1 and 65535." = "Enter a JVM debug port between 1 and 65535.";
 "Enter a branch name" = "Enter a branch name";
 "Enter a branch name before publishing." = "Enter a branch name before publishing.";
@@ -1334,6 +1341,7 @@
 "Enter a size such as 200K or 1M, between 10K and 10M." = "Enter a size such as 200K or 1M, between 10K and 10M.";
 "Enter a tag name" = "Enter a tag name";
 "Enter a tag name, branch name, commit hash, or other Git revision." = "Enter a tag name, branch name, commit hash, or other Git revision.";
+"Enter a valid debug adapter host and a port between 1 and 65535." = "Enter a valid debug adapter host and a port between 1 and 65535.";
 "Enter a value." = "Enter a value.";
 "Enter a whole number from %d to %d." = "Enter a whole number from %d to %d.";
 "Enter address" = "Enter address";
@@ -1347,6 +1355,7 @@
 "Enter the executable and arguments as in a terminal. Quote paths with spaces. Lithe passes exact arguments without running a shell; pipes and redirects are not evaluated." = "Enter the executable and arguments as in a terminal. Quote paths with spaces. Lithe passes exact arguments without running a shell; pipes and redirects are not evaluated.";
 "Enter the host name of the running JVM." = "Enter the host name of the running JVM.";
 "Enter the host without a user name or spaces; put the user in User name." = "Enter the host without a user name or spaces; put the user in User name.";
+"Enter the launch or attach arguments required by this adapter, including its source path mappings if needed. These are separate from the DAP server's TCP address." = "Enter the launch or attach arguments required by this adapter, including its source path mappings if needed. These are separate from the DAP server's TCP address.";
 "Enter the new symbol name." = "Enter the new symbol name.";
 "Enter the next function call" = "Enter the next function call";
 "Enter the one-time code" = "Enter the one-time code";
@@ -1401,6 +1410,7 @@
 "Export…" = "Export…";
 "Expression" = "Expression";
 "Expression history" = "Expression history";
+"External Debug Adapter" = "External Debug Adapter";
 "External change" = "External change";
 "External edits conflict with unsaved changes" = "External edits conflict with unsaved changes";
 "Extra deep reasoning for demanding tasks" = "Extra deep reasoning for demanding tasks";
@@ -1885,6 +1895,7 @@
 "Latest Version" = "Latest Version";
 "Latest turn as reported by the Agent; its accounting scope depends on the Agent. Turn on Model call statistics for session totals." = "Latest turn as reported by the Agent; its accounting scope depends on the Agent. Turn on Model call statistics for session totals.";
 "Launch" = "Launch";
+"Launch Request" = "Launch Request";
 "Launching" = "Launching";
 "Layout" = "Layout";
 "Leave a review" = "Leave a review";
@@ -3004,6 +3015,7 @@
 "Repository changed; review and retry" = "Repository changed; review and retry";
 "Repository identity overrides inherited global values. Clear an override to use inherited settings." = "Repository identity overrides inherited global values. Clear an override to use inherited settings.";
 "Repository needs attention" = "Repository needs attention";
+"Request" = "Request";
 "Request changes" = "Request changes";
 "Requested by the plugin “%@”." = "Requested by the plugin “%@”.";
 "Required fields are marked with *" = "Required fields are marked with *";
@@ -3588,6 +3600,7 @@
 "Stop service" = "Stop service";
 "Stop test run" = "Stop test run";
 "Stop the current debug session" = "Stop the current debug session";
+"Stop the current debug session before connecting to a debug adapter." = "Stop the current debug session before connecting to a debug adapter.";
 "Stop the current run" = "Stop the current run";
 "Stop without asking" = "Stop without asking";
 "Stopped moving the remaining items to Trash" = "Stopped moving the remaining items to Trash";
@@ -3781,8 +3794,14 @@
 "The debug adapter %@ names no language server to host it." = "The debug adapter %@ names no language server to host it.";
 "The debug adapter %@ needs %@, which was not found. Install it, then try again." = "The debug adapter %@ needs %@, which was not found. Install it, then try again.";
 "The debug adapter %@ uses the %@ transport, which Lithe cannot start yet. Only stdio and language server hosted adapters are supported." = "The debug adapter %@ uses the %@ transport, which Lithe cannot start yet. Only stdio and language server hosted adapters are supported.";
+"The debug adapter at %@ can access your debugging data. Plain TCP is not encrypted or authenticated. Connect only over a trusted network or a tunnel you configured." = "The debug adapter at %@ can access your debugging data. Plain TCP is not encrypted or authenticated. Connect only over a trusted network or a tunnel you configured.";
+"The debug adapter connection could not be started." = "The debug adapter connection could not be started.";
 "The debug adapter connection is stopped." = "The debug adapter connection is stopped.";
+"The debug adapter connection timed out." = "The debug adapter connection timed out.";
+"The debug adapter connection was not approved." = "The debug adapter connection was not approved.";
+"The debug adapter did not accept outgoing data in time." = "The debug adapter did not accept outgoing data in time.";
 "The debug adapter did not provide a terminal executable." = "The debug adapter did not provide a terminal executable.";
+"The debug adapter outgoing buffer is full." = "The debug adapter outgoing buffer is full.";
 "The debug adapter provided an invalid terminal working directory." = "The debug adapter provided an invalid terminal working directory.";
 "The debugger did not return object fields in time." = "The debugger did not return object fields in time.";
 "The default ChangeList cannot be renamed." = "The default ChangeList cannot be renamed.";
@@ -4425,6 +4444,25 @@
 "code" = "code";
 "commit messages" = "commit messages";
 "conflict -> %@" = "conflict -> %@";
+"debug.tcp.arguments" = "Adapter Arguments (JSON)";
+"debug.tcp.argumentsHelp" = "Enter the launch or attach arguments required by this adapter, including its source path mappings if needed. These are separate from the DAP server's TCP address.";
+"debug.tcp.attachRequest" = "Attach Request";
+"debug.tcp.bufferFull" = "The debug adapter outgoing buffer is full.";
+"debug.tcp.confirmBody" = "The debug adapter at %1$@ can access your debugging data. Plain TCP is not encrypted or authenticated. Connect only over a trusted network or a tunnel you configured.";
+"debug.tcp.confirmTitle" = "Connect to an external debug adapter?";
+"debug.tcp.declined" = "The debug adapter connection was not approved.";
+"debug.tcp.help" = "Connect to an already running DAP server using the active file's installed debugger. This is not a JVM JDWP or gdbserver port. No proxy or tunnel is created.";
+"debug.tcp.invalidArguments" = "Enter a JSON object of adapter arguments no larger than 256 KiB.";
+"debug.tcp.invalidEndpoint" = "Enter a valid debug adapter host and a port between 1 and 65535.";
+"debug.tcp.launchRequest" = "Launch Request";
+"debug.tcp.menu" = "Connect to Debug Adapter…";
+"debug.tcp.name" = "External Debug Adapter";
+"debug.tcp.notStarted" = "The debug adapter connection could not be started.";
+"debug.tcp.request" = "Request";
+"debug.tcp.sessionActive" = "Stop the current debug session before connecting to a debug adapter.";
+"debug.tcp.startupTimedOut" = "The debug adapter connection timed out.";
+"debug.tcp.title" = "Connect to Debug Adapter";
+"debug.tcp.writeTimedOut" = "The debug adapter did not accept outgoing data in time.";
 "debugger.continue" = "Continue";
 "debugger.disassembly.copyAddress" = "Copy Address";
 "debugger.disassembly.copyInstruction" = "Copy Instruction";

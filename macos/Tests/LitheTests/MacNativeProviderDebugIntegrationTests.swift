@@ -93,7 +93,7 @@ struct MacNativeProviderDebugIntegrationTests {
                 transport: NativeDebugRecordingTransport(wrapping: MacPluginDebugAdapterTransport(adapterID: entry.adapter.id, resolve: {
                     try resolver.resolveDebugAdapter(pluginID: descriptor.id.rawValue, adapterID: entry.adapter.id,
                         manifest: descriptor.normalizedManifest, packageURL: package, workspaceRootURL: $0)
-                }, makeProcess: { NativeDebugScopedProcess(scope: processScope) }, findCommand: { commands in
+                }, makeProcess: { NativeDebugScopedProcess(scope: processScope) }, core: core, findCommand: { commands in
                     #expect(commands == ["lldb-dap"])
                     return lldb
                 }), trace: trace), core: core, deadlineScheduler: MacDebugOperationDeadlineScheduler())

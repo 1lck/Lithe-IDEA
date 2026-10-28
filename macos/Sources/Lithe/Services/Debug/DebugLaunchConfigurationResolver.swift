@@ -131,7 +131,8 @@ struct DebugLaunchConfigurationResolver {
             request: configuration.request,
             arguments: arguments,
             steppingFilters: configuration.steppingFilters,
-            adapterProviderID: configuration.adapterProviderID
+            adapterProviderID: configuration.adapterProviderID,
+            adapterEndpoint: configuration.adapterEndpoint
         )
     }
 

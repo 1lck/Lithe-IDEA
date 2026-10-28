@@ -266,6 +266,15 @@ LLDB、debugserver、后端或被调试程序残留。这是生产 adapter/Regis
 最终组合计时报告 `stage-c-final-macos.json` 共 20 组 506 项通过，真实 Maven 和
 LLDB 集成分别为 3.776 秒与 2.032 秒；两项有对应 HTML/JUnit 和完整清理断言。
 
+准备解除 Draft 时，再与 `preview` 的 `0beb43c936f61e68b983533805d6534a01fdf8b4`
+合并。新增的用户显式 DAP 端点与本 PR 的适配器 Registry 身份是两个独立维度：
+先校验所选身份与 launch/attach 能力，再经已获授权的端点工厂连接；缺少身份、
+能力、端点工厂或授权时均不能退回按源码匹配的本地进程。配置编码、步进过滤器
+变换和 Java 重启准备保留两项字段；普通启动不复用已有 TCP 会话。组合回归同时
+覆盖默认/明确适配器身份与 launch/attach，避免合并后只保留一条路径。最终 `stage-c-ready-macos.json`
+在 21 组记录 536 项通过，包括真实 Maven、LLDB 与新 TCP 传输；合并后的 Core
+1,336 项单元/集成检查通过。
+
 在 `lithe-plugin-docs` 运行以下入口可以复验 SDK 部分：
 
 ```bash

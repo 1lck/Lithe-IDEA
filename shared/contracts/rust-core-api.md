@@ -977,6 +977,10 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `maven.diagnostics` | Parse stable Maven compiler diagnostics from build output |
 | `maven.testResults` | Parse bounded JUnit/Surefire result summaries and failure locations |
 | `debug.createSession` | Create a transport-neutral DAP session and return its initialize frame |
+| `debug.validateAdapterEndpoint` | Validate an IDE-to-DAP TCP endpoint and classify whether remote consent is required; performs no DNS or network I/O |
+| `debug.transport.policy` | Return the default byte-stream deadlines, queue budgets and the session `initialize` deadline; creates no state |
+| `debug.transport.handle` | Apply one platform event to an IDE-to-adapter byte-stream lifecycle and return the effects the platform runs next |
+| `debug.transport.release` | Forget the lifecycle of a stopped byte stream once the platform dropped its handles |
 | `debug.launch` | Queue a launch or attach request, including during initialization |
 | `debug.javaTestLaunch` | Normalize JUnit or TestNG launch metadata into Java DAP arguments |
 | `debug.steppingFilters` | Return adapter defaults or normalize portable stepping filters |
@@ -2097,6 +2101,121 @@ execution state, deterministic breakpoint sets, and normalized thread, stack,
 scope, variable, evaluation, output, stop, continue, and termination events.
 Platforms own adapter discovery, JDT LS activation, sockets or process pipes,
 native process termination, persistence, and UI rendering.
+
+`debug.validateAdapterEndpoint` accepts exactly `{ host, port }`. `host` is a
+bare IPv4, unbracketed IPv6, or DNS name, not a URL, authority, credential,
+path, or scoped address; `port` is an integer from 1 through 65535. It returns
+`{ host, port, remote }`, preserving the input. `localhost` (case insensitive),
+127.0.0.0/8 and `::1` are loopback; every other spelling requires remote
+consent, without resolving DNS. Invalid inputs return `invalid_request`.
+Compatibility cases live in `shared/fixtures/debug/adapter-endpoints-v1.json`.
+The platform obtains approval before connecting a non-loopback endpoint, once
+per connection with no remembered approval, and warns that plain TCP provides
+neither authentication nor encryption. This endpoint is the **IDE-to-adapter**
+address, not a `targetBindings.connection` debuggee address.
+
+The macOS launch envelope may carry optional `adapterEndpoint: { host, port }`
+beside `arguments`. Its session manager selects an already-running DAP server
+instead of starting a local adapter. Missing platform support fails without a
+local fallback. This host-only field is not forwarded as DAP arguments: Core's
+launch configuration ignores it. `request` still independently chooses `launch`
+or `attach`. The provider's language-server port source remains loopback-only.
+Closing the byte stream never terminates the external server, shared language
+server or user-managed tunnel. DAP disconnect retains its request-specific
+ownership: an `attach` sends `terminateDebuggee: false`, while a `launch` can
+terminate the debuggee it launched. On user stop, the TCP host makes a
+bounded best-effort drain of queued frames (including disconnect) for up to one
+second before closing; this is local write completion, not a remote acknowledgement.
+Failure and explicit transport abort close immediately. There is no automatic reconnect or request
+replay. Proxy/tunnel implementations and plugin `tcpPort` / `tcpAnnounced`
+process hosting are not enabled by this API.
+
+The `debug.transport.*` commands hold the lifecycle rules of that byte stream
+so every platform network layer shares one rule set. They are separate from the
+DAP session state: Core never opens a socket, resolves DNS, reads a clock or
+sees the bytes. The platform keeps the socket, the DNS and system timers, and
+the queued frames; only byte counts cross the JSON boundary.
+
+`debug.transport.policy` ignores its payload and returns `{ limits,
+initializationMilliseconds }`. `limits` holds `discoveryMilliseconds` (10000,
+endpoint discovery such as a cold language-server start), `connectMilliseconds`
+(10000), `writeMilliseconds` (10000, one stalled write, never the length of a
+session), `bufferedBytes` (8 MiB), `bufferedWrites` (1024) and
+`drainMilliseconds` (1000). `initializationMilliseconds` is the connect budget
+plus 10000, the window a DAP `initialize` round trip gets, so a session never
+gives up before its transport does.
+
+`debug.transport.handle` accepts exactly `{ transportId, event }` and returns a
+step `{ generation, phase, outcome, effects }`. `transportId` is a host-chosen
+non-empty identifier of at most 512 bytes. Only a `start` event creates a
+transport. A callback for an unknown or released one is `ignored`, and `send`
+to it is `rejectedNotRunning`. `event.type` is one of:
+
+- `start { limits? }` begins a lifecycle; `limits` overrides any of the six
+  defaults with an integer from 1 through 2147483647, otherwise
+  `invalid_request`. A repeat while running is `ignored`. A `start` while the
+  previous lifecycle is draining replaces it.
+- `send { bytes }` queues one frame of that size. The host keeps the bytes in
+  first-in, first-out order. An empty frame is accepted and queued as nothing.
+- `stop {}` is a user cancel: silent teardown, no termination.
+- `finishSendingAndStop {}` flushes queued frames of a ready stream for at most
+  `drainMilliseconds`, then closes silently; with nothing queued or before the
+  stream is ready it closes at once. While draining, new `send` is
+  `rejectedNotRunning`, received data is `ignored` and any failure is silent
+  because the owner already released its session.
+- `endpointResolved { generation, host, port }`, `connectionReady`,
+  `dataReceived`, `peerClosed`, `failed { message }`, `writeCompleted {
+  writeId }` and `timerFired { timerId }`, each carrying the `generation` the
+  host captured when it started the work being answered. `port` is a signed
+  integer so that an out-of-range provider value fails the transport
+  (`invalidEndpoint`) instead of the request.
+
+Every event field is checked strictly: an unknown event, an unknown field or a
+missing field is `invalid_request`.
+
+`generation` rises whenever outstanding work is invalidated (a start, a finish,
+a stop). A callback whose generation is not the live one, or that arrives in
+the wrong phase, is `ignored`. Timer and write ids are unique per transport and
+never reused, so a timer the host failed to cancel and a write completion from
+a replaced write are `ignored` too. `phase` is `stopped`, `discovering`,
+`connecting`, `ready` or `draining`. `outcome` is `applied`, `ignored`,
+`rejectedNotRunning` or `rejectedBufferLimit`. The last one means the queue went
+over its byte or count budget: Core has already failed the transport and the host
+rejects that one `send`.
+
+`effects` is an ordered list the host runs top to bottom:
+
+- `discoverEndpoint` asks for the endpoint and reports `endpointResolved` or `failed`.
+- `armTimer { timerId, purpose, afterMilliseconds }` and `cancelTimer { timerId }`.
+  `purpose` is `discovery`, `connect`, `write` or `drain`. The host reports
+  `timerFired` when an armed timer elapses.
+- `connect { host, port }` opens the socket; `port` is already 1 through 65535.
+- `write { writeId, bytes }` sends the oldest queued frame, which has that size,
+  and reports `writeCompleted` or `failed`. At most one write is in flight.
+- `deliverData` forwards the received bytes to the owner.
+- `close` cancels pending discovery, unhooks and stops the socket and drops
+  queued frames.
+- `reportFailure { reason, message? }` shows the failure on the owner's error
+  output. `reason` is `startupTimedOut`, `writeTimedOut`, `bufferLimit`,
+  `invalidEndpoint` or `host`. The platform owns the localized text of the first
+  four; for `host` the message is the host's own upstream diagnostic, echoed
+  back unchanged.
+- `notifyTermination { exitCode }` ends the owner's session: 0 for a clean peer
+  close, 1 after a failure. It comes last, after `reportFailure`.
+
+A host that re-enters Core while it runs a step's effects, for example an error
+observer that restarts the transport, compares the live generation with the
+step's and abandons the remainder of the older step. `debug.transport.release`
+accepts `{ transportId }` and returns `{ released }`; hosts call it after `stop`
+once they dropped the socket. Releasing a registration resets its generation,
+timer and write counters. A host that restarts after releasing Core state must
+use a fresh `transportId` and reject callbacks from the previous registration
+before dispatching them or touching native timer handles. Host-side Core call
+failures must tear down native resources for `send` as well as callback events;
+an error observer restarting the stream invalidates the old termination too.
+Scripted scenarios, with the exact steps expected,
+live in `shared/fixtures/debug/transport-lifecycle-v1.json`; platform adapter
+tests can replay them.
 
 `debug.createSession` accepts `{ sessionId, adapterId, rootPath,
 supportsRunInTerminalRequest, disabledCapabilities? }`.

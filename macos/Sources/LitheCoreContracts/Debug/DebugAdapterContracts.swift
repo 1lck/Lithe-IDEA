@@ -20,6 +20,13 @@ public protocol DebugAdapterTransport: AnyObject {
     func stop()
 }
 
+/// Optional bounded best-effort flush for the final DAP disconnect frame.
+/// This ends the transport, never the external server; `stop` still aborts now.
+@MainActor
+public protocol DebugAdapterDrainingTransport: DebugAdapterTransport {
+    func finishSendingAndStop()
+}
+
 @MainActor
 public protocol DebugOperationDeadline: AnyObject {
     func cancel()
@@ -45,6 +52,18 @@ public enum DebugRequestKind: String, Codable, Hashable, Sendable {
     case launch, attach
 }
 
+/// IDE-to-adapter DAP endpoint, never the adapter-to-debuggee attach target.
+/// Core validates it before the platform asks consent or opens a connection.
+public struct DebugAdapterEndpoint: Codable, Equatable, Sendable {
+    public let host: String
+    public let port: Int
+
+    public init(host: String, port: Int) {
+        self.host = host
+        self.port = port
+    }
+}
+
 public struct DebugLaunchConfiguration: Codable, Equatable, Sendable {
     public let name: String
     public let request: DebugRequestKind
@@ -54,19 +73,23 @@ public struct DebugLaunchConfiguration: Codable, Equatable, Sendable {
     /// A missing identity selects by source file; an unavailable explicit
     /// identity must fail rather than select another adapter for that file.
     public let adapterProviderID: String?
+    /// An already running DAP server; absent means the provider's normal transport.
+    public let adapterEndpoint: DebugAdapterEndpoint?
 
     public init(
         name: String,
         request: DebugRequestKind,
         arguments: [String: ToolingJSONValue],
         steppingFilters: DebugSteppingFilters? = nil,
-        adapterProviderID: String? = nil
+        adapterProviderID: String? = nil,
+        adapterEndpoint: DebugAdapterEndpoint? = nil
     ) {
         self.name = name
         self.request = request
         self.arguments = arguments
         self.steppingFilters = steppingFilters
         self.adapterProviderID = adapterProviderID
+        self.adapterEndpoint = adapterEndpoint
     }
 
     public func applying(steppingFilters: DebugSteppingFilters) -> Self {
@@ -75,7 +98,8 @@ public struct DebugLaunchConfiguration: Codable, Equatable, Sendable {
             request: request,
             arguments: arguments,
             steppingFilters: steppingFilters,
-            adapterProviderID: adapterProviderID
+            adapterProviderID: adapterProviderID,
+            adapterEndpoint: adapterEndpoint
         )
     }
 }

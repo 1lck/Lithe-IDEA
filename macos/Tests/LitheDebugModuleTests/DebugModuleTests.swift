@@ -7,6 +7,63 @@ import Testing
 
 @MainActor
 struct DebugModuleTests {
+    @Test(arguments: [DebugRequestKind.launch, .attach], [false, true])
+    func explicitEndpointUsesItsFactoryAndPreservesTheDAPRequest(request: DebugRequestKind, explicit: Bool) throws {
+        let descriptor = DebugProviderDescriptor(id: "python", displayName: "Python", fileExtensions: ["py"])
+        let selected = DebugProviderDescriptor(id: "org.example/debug", displayName: "Explicit",
+            fileExtensions: ["py"], selectsByFile: false, requests: [.launch, .attach])
+        let providerID = explicit ? selected.id : descriptor.id
+        var localCount = 0
+        let manager = DebugAdapterSessionManager(providers: [descriptor, selected]) { provider, _ in
+            #expect(provider.id == providerID)
+            localCount += 1
+            return DeferredInspectionDebugSession()
+        }
+        defer { manager.stopAll() }
+        let external = DeferredInspectionDebugSession()
+        let endpoint = DebugAdapterEndpoint(host: "debug.example.org", port: 5678)
+        manager.makeEndpointSession = { provider, destination, root in
+            #expect(provider.id == providerID)
+            #expect(destination == endpoint)
+            #expect(root.path == "/workspace")
+            return external
+        }
+        let configuration = DebugLaunchConfiguration(
+            name: "Remote", request: request, arguments: ["connect": .object(["port": .integer(9000)])],
+            adapterProviderID: explicit ? selected.id : nil,
+            adapterEndpoint: endpoint
+        )
+        let source = URL(fileURLWithPath: "/workspace/main.py")
+        _ = try manager.launch(for: source, rootURL: source.deletingLastPathComponent(), configuration: configuration)
+        #expect(external.launchConfigurations == [configuration])
+        #expect(localCount == 0)
+        // A subsequent ordinary launch must not reuse the external TCP session.
+        _ = try manager.activate(for: source, rootURL: source.deletingLastPathComponent(),
+            adapterProviderID: explicit ? selected.id : nil)
+        #expect(localCount == 1)
+        #expect(!external.isRunning)
+    }
+
+    @Test(arguments: [false, true])
+    func unsupportedOrDeclinedEndpointNeverFallsBackOrRegistersASession(declined: Bool) {
+        let descriptor = DebugProviderDescriptor(id: "python", displayName: "Python", fileExtensions: ["py"])
+        let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in
+            Issue.record("External endpoint fell back to a local process")
+            return nil
+        }
+        defer { manager.stopAll() }
+        if declined {
+            manager.makeEndpointSession = { _, _, _ in throw DeferredDebugSessionError.launchFailed }
+        }
+        #expect(throws: (any Error).self) {
+            _ = try manager.activateNew(
+                for: URL(fileURLWithPath: "/workspace/main.py"), rootURL: URL(fileURLWithPath: "/workspace"),
+                adapterEndpoint: DebugAdapterEndpoint(host: "localhost", port: 5678)
+            )
+        }
+        #expect(manager.activeSessionIDs.isEmpty)
+    }
+
     @Test
     func explicitHotUpdateRestartReplacesTheOriginalSessionWithNewRuntimePaths() async {
         let session = DeferredInspectionDebugSession()
@@ -78,7 +135,8 @@ struct DebugModuleTests {
     func explicitAdapterIdentitySurvivesCodingAndSteppingFilterChanges() throws {
         let configuration = DebugLaunchConfiguration(
             name: "engine target", request: .launch, arguments: ["program": .string("bin/example")],
-            adapterProviderID: "dev.example.native/lldb"
+            adapterProviderID: "dev.example.native/lldb",
+            adapterEndpoint: DebugAdapterEndpoint(host: "localhost", port: 5678)
         )
         let filters = DebugSteppingFilters(classNameFilters: [], skipSynthetics: true,
             skipStaticInitializers: false, skipConstructors: false, hideFilteredStackFrames: true)
@@ -86,6 +144,7 @@ struct DebugModuleTests {
         let decoded = try JSONDecoder().decode(DebugLaunchConfiguration.self, from: JSONEncoder().encode(updated))
         #expect(decoded == updated)
         #expect(decoded.adapterProviderID == "dev.example.native/lldb")
+        #expect(decoded.adapterEndpoint == configuration.adapterEndpoint)
         let oldJSON = Data(#"{"name":"file","request":"launch","arguments":{}}"#.utf8)
         #expect(try JSONDecoder().decode(DebugLaunchConfiguration.self, from: oldJSON).adapterProviderID == nil)
     }

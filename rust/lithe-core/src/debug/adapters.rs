@@ -1764,7 +1764,7 @@ fn connection_endpoint(target: &TargetFacts) -> Validation<StartConnection> {
 /// name or an IP literal, without scheme, credentials, port, path, brackets,
 /// or whitespace. Non-ASCII names are written in punycode; an IPv6 zone is not
 /// supported.
-fn host_problem(host: &str) -> Option<&'static str> {
+pub(super) fn host_problem(host: &str) -> Option<&'static str> {
     if host.is_empty() || host.len() > MAX_HOST {
         return Some("A host is 1-253 characters.");
     }
@@ -1797,7 +1797,7 @@ fn host_problem(host: &str) -> Option<&'static str> {
 }
 
 /// Whether Core can tell from the text alone that the host is this machine.
-fn is_loopback_host(host: &str) -> bool {
+pub(super) fn is_loopback_host(host: &str) -> bool {
     host.eq_ignore_ascii_case("localhost")
         || host
             .parse::<IpAddr>()

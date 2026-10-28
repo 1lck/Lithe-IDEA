@@ -5,7 +5,7 @@
 ## 当前交付边界
 
 - 阶段 A 清单在 [PR #1513](https://github.com/1lck/Lithe-IDEA/pull/1513)，独立分发在 [PR #1483](https://github.com/1lck/Lithe-IDEA/pull/1483)，保持原范围，不重复认领。
-- 宿主/Core 的原生构建、测试发现/执行、运行/原生调试准备、保存的运行配置和只读模型共享在 [Draft PR #1517](https://github.com/1lck/Lithe-IDEA/pull/1517)。配套实现为 [SDK Draft PR #4](https://github.com/Lithe-IDEA/lithe-plugin-docs/pull/4) 和 [Maven Draft PR #7](https://github.com/Lithe-IDEA/lithe-plugin-maven/pull/7)。
+- 宿主/Core 的原生构建、测试发现/执行、运行/原生调试准备、保存的运行配置和只读模型共享在 [PR #1517](https://github.com/1lck/Lithe-IDEA/pull/1517)。配套实现为 [SDK PR #4](https://github.com/Lithe-IDEA/lithe-plugin-docs/pull/4) 和 [Maven Draft PR #7](https://github.com/Lithe-IDEA/lithe-plugin-maven/pull/7)。
 - Maven 插件已完成本地原生执行切片：生命周期、插件目标、自定义目标和测试由工作区后端执行；模型仍来自现有 Maven 扩展。它尚未替换宿主全部 Maven 消费者。
 - 这些是开发源码和本地验证；正式 SDK/插件发行、完整 macOS UI、Java/JDT 和 Windows 实机验收不能据此勾选完成。#1495 保持开放。
 
@@ -32,7 +32,7 @@
 | 配置快照与跨插件协作 | 协议 6 的只读模型输入公开选定事实，配置/源码/模型/插件/工作区变化撤销旧输入；两个真实 SDK 后端经过 Core 交换公开投影。不能据此声称 Java 已消费 Maven 全部配置。 |
 | 最低 SDK 运行时 | [显式宿主 CI](https://github.com/Lithe-IDEA/lithe-plugin-docs/actions/runs/40531099687) 的 Node 20、Java 8 原生端到端作业通过，宿主固定为 `58ca81cf66c5c6e281c7df73ac67adb3526174f3`。该整轮工作流的契约漂移检查仍失败，镜像等待主 PR 合并后同步。 |
 | Maven 最低运行时 | [固定 SDK 提交的开发验证](https://github.com/Lithe-IDEA/lithe-plugin-maven/actions/runs/40533306865) 已通过 Java 8 后端及当前/3.6.3 Maven，每组 55 项计时检查（含 3 项打包）；不能代替旧 SDK 锁定下仍失败的正式打包检查。 |
-| 正式合并、契约同步与发行 | 三个 PR 目前保持 Draft，尚未合并和发布。必须依次合并宿主、用最终 preview commit 同步契约、发布 SDK，再更新 Maven 的真实版本/URL/SHA-256 和完成正式包验收；不能先填预期校验值。 |
+| 正式合并、契约同步与发行 | 宿主和 SDK PR 在本地门禁通过后按用户要求转为 Ready；Maven PR 因正式 SDK 锁定依赖继续保持 Draft，三个 PR 尚未合并或发布。必须依次合并宿主、用最终 preview commit 同步契约、发布 SDK，再更新 Maven 的真实版本/URL/SHA-256 和完成正式包验收；不能先填预期校验值。 |
 
 阶段 C 不能仅凭接口存在或本地开发包通过就勾选完成。下面的任务二至四不阻塞通用接口继续评审，但不会代替上表中尚未完成的验收与发行条件。
 
