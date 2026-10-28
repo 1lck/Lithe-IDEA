@@ -31,7 +31,9 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle.git", exact: "2.10.0"),
-        .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", exact: "1.15.0"),
+        // Pinned to the upstream commit that merged the first-frame fix (#778).
+        // Switch to `from:` once an upstream tag includes it.
+        .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", revision: "367958aec31c78a7c64630e3265a0a900e35f922"),
         .package(url: "https://github.com/swiftlang/swift-testing.git", exact: "6.2.4")
     ],
     targets: [

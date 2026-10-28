@@ -102,8 +102,6 @@ prepare_baseline_app() {
     zsh "$project_root/scripts/embed-sparkle.sh" "$app_dir"
     cp -R "$build_root/Lithe_Lithe.bundle" \
         "$app_dir/Contents/Resources/Lithe_Lithe.bundle"
-    cp -R "$build_root/SwiftTerm_SwiftTerm.bundle" \
-        "$app_dir/Contents/Resources/SwiftTerm_SwiftTerm.bundle"
     cp "$project_root/macos/Resources/AppIcon.icns" "$app_dir/Contents/Resources/AppIcon.icns"
     cp -R "$project_root/macos/Resources/Fonts" "$app_dir/Contents/Resources/Fonts"
     cp -R "$project_root/.artifacts/editor/macos" "$app_dir/Contents/Resources/MonacoEditor"

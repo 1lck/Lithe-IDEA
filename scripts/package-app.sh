@@ -73,9 +73,9 @@ if [[ "$ARCH" == "universal" ]]; then
 else
     swiftpm_resource_root="$ROOT_DIR/.build/$ARCH-apple-macosx/release"
 fi
-# SwiftTerm compiles its Metal shaders from this SwiftPM bundle at runtime.
-# Without it, setUseMetal(true) falls back to Core Graphics in packaged apps.
-for bundle_name in Lithe_Lithe.bundle SwiftTerm_SwiftTerm.bundle; do
+# SwiftTerm 1.99+ embeds its Metal shaders in source, so only Lithe's own
+# SwiftPM bundle needs packaging; without it Bundle.module reads fail at runtime.
+for bundle_name in Lithe_Lithe.bundle; do
     resource_bundle="$swiftpm_resource_root/$bundle_name"
     if [[ ! -d "$resource_bundle" ]]; then
         print -u2 -- "Missing SwiftPM resource bundle: $resource_bundle"

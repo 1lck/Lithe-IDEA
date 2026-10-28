@@ -34,7 +34,7 @@ mkdir -p \
     "$APP_DIR/Contents/Resources/OfficialPlugins" \
     "$APP_DIR/Contents/Helpers"
 cp ".build/$TRIPLE/debug/Lithe" "$APP_DIR/Contents/MacOS/Lithe"
-for bundle_name in Lithe_Lithe.bundle SwiftTerm_SwiftTerm.bundle; do
+for bundle_name in Lithe_Lithe.bundle; do
     resource_bundle=".build/$TRIPLE/debug/$bundle_name"
     if [[ ! -d "$resource_bundle" ]]; then
         print -u2 -- "Missing SwiftPM resource bundle: $resource_bundle"

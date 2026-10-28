@@ -3,30 +3,56 @@ import Foundation
 import MetalKit
 import SwiftTerm
 import LitheTerminalModule
+import os
 
 /// SwiftTerm's default link handler opens URLs in the system. Lithe needs the
 /// link event so workspace-relative paths can open in its own editor instead.
-final class LitheTerminalView: LocalProcessTerminalView {
+final class LitheTerminalView: SwiftTerm.TerminalView, SwiftTerm.TerminalViewDelegate {
     static let focusDidChange = Notification.Name("LitheTerminalView.focusDidChange")
     var onOpenLink: ((String, [String: String]) -> Void)?
-    var onProcessOutput: ((Data) -> Void)?
+    var onTitle: ((String) -> Void)?
+    var onDirectoryUpdate: ((String?) -> Void)?
+    var onProcessTermination: ((Int32?) -> Void)?
+    private nonisolated let processHostLock = NSLock()
+    private nonisolated(unsafe) var storedProcessHost: MacTerminalProcessHost?
+    /// Lock-protected because the parse-thread response path reads it.
+    nonisolated var processHost: MacTerminalProcessHost? {
+        get {
+            processHostLock.lock()
+            defer { processHostLock.unlock() }
+            return storedProcessHost
+        }
+        set {
+            processHostLock.lock()
+            storedProcessHost = newValue
+            processHostLock.unlock()
+        }
+    }
     private var showsWorkbenchBackground = false
-    private weak var metalActivationFailedWindow: NSWindow?
-    private var metalFocusDelegates: [TerminalMetalFocusDelegate] = []
-    private var shellShowsCursor = true
+    private var requestedCaretColor = NSColor.selectedControlColor
+    private var visibleCaretColor: NSColor?
+    private nonisolated let caretRefreshLock = NSLock()
+    private nonisolated(unsafe) var caretRefreshScheduled = false
+    private nonisolated(unsafe) var caretRefreshPending = false
     /// App theme light/dark preference while the view is not yet in a window; nil follows the system appearance.
     var preferredAppearanceIsDark: (() -> Bool?)?
-    private var lastReportedBackgroundPayload: String?
-    private var backgroundChangeNotifications = MacTerminalBackgroundSubscription()
+    private static let logger = Logger(subsystem: "com.openres.Lithe", category: "Terminal")
+    /// Windows whose Metal enablement already failed, so the fallback is logged once per window.
+    private let metalFallbackWindows = NSHashTable<NSWindow>.weakObjects()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        configureRendererPolicy()
+        terminalDelegate = self
+    }
+
+    init(frame: NSRect, font: NSFont?, startupOptions: TerminalOptions) {
+        super.init(frame: frame, font: font, options: startupOptions)
+        terminalDelegate = self
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
-        configureRendererPolicy()
+        terminalDelegate = self
     }
 
     override func viewDidMoveToWindow() {
@@ -40,31 +66,24 @@ final class LitheTerminalView: LocalProcessTerminalView {
             }
         }
         windowFocusDidChange()
-        guard let currentWindow = window,
-              !isUsingMetalRenderer,
-              currentWindow !== metalActivationFailedWindow else { return }
-
-        do {
-            try setUseMetal(true)
-            metalActivationFailedWindow = nil
-            invalidateCursorSurface()
-        } catch {
-            // A different window gets one fresh attempt because SwiftTerm's
-            // CAMetalLayer must be rebound when the persistent terminal moves.
-            metalActivationFailedWindow = currentWindow
-            NSLog(
-                "Lithe terminal Metal renderer could not be enabled; using Core Graphics: %@",
-                String(describing: error)
-            )
-        }
+        enableMetalRendererIfAvailable()
     }
 
-    private func configureRendererPolicy() {
-        // Ghostty's renderer keeps unchanged terminal content on the GPU and
-        // redraws only invalidated cells. SwiftTerm's persistent row mode gives
-        // Lithe the same workload shape while its paused MTKView remains
-        // event-driven instead of running a continuous display loop.
-        metalBufferingMode = .perRowPersistent
+    /// Enables the Metal renderer once the view has a window to bind its `CAMetalLayer` to.
+    /// A host without a usable Metal device or shader pipeline keeps the Core Graphics renderer.
+    /// That fallback is logged once per window rather than thrown at the embedding view.
+    private func enableMetalRendererIfAvailable() {
+        guard let window, !isUsingMetalRenderer else { return }
+        do {
+            try setUseMetal(true)
+            metalFallbackWindows.remove(window)
+        } catch {
+            guard !metalFallbackWindows.contains(window) else { return }
+            metalFallbackWindows.add(window)
+            Self.logger.error(
+                "Metal renderer unavailable; keeping Core Graphics: \(String(describing: error), privacy: .public)",
+            )
+        }
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -72,7 +91,13 @@ final class LitheTerminalView: LocalProcessTerminalView {
         // SwiftTerm's Metal surface only renders pixels. Returning it as the
         // mouse target leaves keyboard focus in the previously active editor.
         // Preserve interactive children such as the scrollbar and find field.
-        return hitView is MTKView ? self : hitView
+        if hitView is MTKView {
+            return self
+        }
+        if hitView?.layer is CAMetalLayer {
+            return self
+        }
+        return hitView
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -83,24 +108,95 @@ final class LitheTerminalView: LocalProcessTerminalView {
     }
 
     override var hasFocus: Bool {
-        // AppKit's actual responder is authoritative; SwiftTerm's cached flag
-        // can outlive a responder transition while a persistent surface moves.
-        get { window?.isKeyWindow == true && window?.firstResponder === self }
+        // SwiftTerm's cached flag is part of the answer: become/resign and the other first-responder transitions keep it synchronized.
+        // AppKit's key-window and responder state guard against a stale cache while a persistent surface moves between windows.
+        get { super.hasFocus && window?.isKeyWindow == true && window?.firstResponder === self }
         set {
             super.hasFocus = newValue
-            setNativeCursorVisible(newValue && window?.isKeyWindow == true && shellShowsCursor)
+            applyCaretFocus(newValue && window?.isKeyWindow == true)
             invalidateCursorSurface()
             notifyFocusChange(newValue && window?.isKeyWindow == true)
         }
     }
 
-    private func setNativeCursorVisible(_ visible: Bool) {
-        if visible { super.showCursor(source: terminal) }
-        else { super.hideCursor(source: terminal) }
+    /// Hides the caret on an unfocused surface and restores the color that was visible there.
+    /// An application-set OSC 12 color is therefore not replaced by Lithe's theme color on the next focus transition.
+    private func applyCaretFocus(_ focused: Bool) {
+        if focused {
+            let color = super.caretColor.alphaComponent > 0
+                ? super.caretColor
+                : (visibleCaretColor ?? requestedCaretColor)
+            super.caretColor = color
+            visibleCaretColor = nil
+        } else if super.caretColor.alphaComponent > 0 {
+            visibleCaretColor = super.caretColor
+            super.caretColor = .clear
+        }
+    }
+
+    /// Records the theme caret while keeping the inactive surface transparent.
+    ///
+    /// SwiftTerm's `caretColor` is public but not open, so Lithe cannot override it.
+    /// Every theme write goes through this helper instead.
+    private func setCaretColor(_ color: NSColor) {
+        let previous = requestedCaretColor
+        requestedCaretColor = color
+        if hasFocus {
+            super.caretColor = color
+            visibleCaretColor = nil
+        } else {
+            if super.caretColor.alphaComponent > 0 {
+                visibleCaretColor = super.caretColor
+            }
+            if visibleCaretColor == nil || visibleCaretColor == previous {
+                visibleCaretColor = color
+            }
+            super.caretColor = .clear
+        }
+    }
+
+    /// Re-applies focus state after OSC 12 wrote the caret directly on main.
+    func refreshCaretFocus() {
+        guard !hasFocus else { return }
+        applyCaretFocus(false)
+        invalidateCursorSurface()
+    }
+
+    /// Coalesces caret refresh requests from the IO parse thread.
+    /// At most one main-queue refresh is queued, but a request that arrives while the refresh runs schedules one more.
+    /// An OSC 12 hop dispatched after the current refresh still gets the unfocused caret cleared.
+    nonisolated func requestCaretRefresh() {
+        caretRefreshLock.lock()
+        caretRefreshPending = true
+        if caretRefreshScheduled {
+            caretRefreshLock.unlock()
+            return
+        }
+        caretRefreshScheduled = true
+        caretRefreshLock.unlock()
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                self?.runCaretRefresh()
+            }
+        }
+    }
+
+    private func runCaretRefresh() {
+        caretRefreshLock.lock()
+        caretRefreshPending = false
+        caretRefreshScheduled = false
+        caretRefreshLock.unlock()
+        refreshCaretFocus()
+        caretRefreshLock.lock()
+        let again = caretRefreshPending
+        caretRefreshLock.unlock()
+        if again {
+            requestCaretRefresh()
+        }
     }
 
     @objc private func windowFocusDidChange() {
-        setNativeCursorVisible(hasFocus && shellShowsCursor)
+        applyCaretFocus(hasFocus)
         invalidateCursorSurface()
         notifyFocusChange(hasFocus)
     }
@@ -113,33 +209,8 @@ final class LitheTerminalView: LocalProcessTerminalView {
         )
     }
 
-    override func showCursor(source: Terminal) {
-        shellShowsCursor = true
-        if hasFocus { super.showCursor(source: source) }
-        else { super.hideCursor(source: source) }
-    }
-
-    override func hideCursor(source: Terminal) {
-        shellShowsCursor = false
-        super.hideCursor(source: source)
-    }
-
     @objc private func invalidateCursorSurface() {
-        // SwiftTerm invalidates its Core Graphics caret on focus changes, but
-        // its paused Metal surface also needs a frame when no output arrives.
         needsDisplay = true
-        for case let renderer as MTKView in subviews {
-            renderer.layer?.isOpaque = !showsWorkbenchBackground
-            if !(renderer.delegate is TerminalMetalFocusDelegate), let delegate = renderer.delegate {
-                let focusDelegate = TerminalMetalFocusDelegate(
-                    view: renderer, terminalView: self, renderer: delegate
-                )
-                metalFocusDelegates.append(focusDelegate)
-                renderer.delegate = focusDelegate
-            }
-            renderer.setNeedsDisplay(renderer.bounds)
-        }
-        metalFocusDelegates.removeAll { $0.view?.superview !== self }
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
@@ -183,11 +254,7 @@ final class LitheTerminalView: LocalProcessTerminalView {
         // Metal clear colors are premultiplied; RGB with zero alpha over-exposes glyph edges on light backgrounds.
         let showsWallpaper = showsWorkbenchBackground
         nativeBackgroundColor = showsWallpaper ? .black.withAlphaComponent(0) : editorColor
-        layer?.backgroundColor = (showsWallpaper ? NSColor.clear : editorColor).cgColor
         layer?.isOpaque = !showsWallpaper
-        for case let renderer as MTKView in subviews {
-            renderer.layer?.isOpaque = !showsWallpaper
-        }
         // OSC 11 answers with this same color.
         // With a wallpaper the canvas is transparent, so applications are told black.
         // Reporting an opaque color there would make the compositor blend it twice.
@@ -195,9 +262,9 @@ final class LitheTerminalView: LocalProcessTerminalView {
         // own opaque background. The terminal is composited over Lithe's
         // editor or wallpaper, so keep the default text tied to the app theme.
         nativeForegroundColor = LitheTheme.nsColor(.primaryText, theme: theme, isDark: isDark)
-        caretColor = isDark
+        setCaretColor(isDark
             ? NSColor(srgbRed: 0.35, green: 0.67, blue: 0.98, alpha: 1)
-            : NSColor(srgbRed: 0.18, green: 0.43, blue: 0.79, alpha: 1)
+            : NSColor(srgbRed: 0.18, green: 0.43, blue: 0.79, alpha: 1))
         selectedTextBackgroundColor = isDark
             ? NSColor(srgbRed: 0.16, green: 0.31, blue: 0.48, alpha: 1)
             : NSColor(srgbRed: 0.69, green: 0.82, blue: 0.98, alpha: 1)
@@ -210,21 +277,8 @@ final class LitheTerminalView: LocalProcessTerminalView {
                 blue: UInt16(fallback & 0xff) * 257
             )
         })
+        updateColorScheme(showsWallpaper || isDark ? .dark : .light, notify: true)
         needsDisplay = true
-        reportBackgroundChangeIfNeeded()
-    }
-
-    /// Reports background changes only to programs subscribed to kitty DEC mode 2031.
-    private func reportBackgroundChangeIfNeeded() {
-        let payload = MacTerminalBackgroundReporting.osc11Payload(for: nativeBackgroundColor)
-        guard payload != lastReportedBackgroundPayload else { return }
-        lastReportedBackgroundPayload = payload
-        guard process.running,
-              let notification = MacTerminalBackgroundReporting.changeNotification(
-                for: nativeBackgroundColor,
-                isSubscribed: backgroundChangeNotifications.isSubscribed
-              ) else { return }
-        terminal.sendResponse(text: notification)
     }
 
     func updateWorkbenchSurface(isVisible: Bool) {
@@ -237,39 +291,288 @@ final class LitheTerminalView: LocalProcessTerminalView {
         applyThemeColors(theme: theme, isDark: isDark)
     }
 
+    /// Current PTY window size derived from the rendered terminal grid.
+    func currentWindowSize() -> winsize {
+        let dimensions = terminalDimensions
+        return windowSize(cols: dimensions.cols, rows: dimensions.rows)
+    }
 
-    override func requestOpenLink(source: SwiftTerm.TerminalView, link: String, params: [String: String]) {
+    private func windowSize(cols: Int, rows: Int) -> winsize {
+        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
+        return winsize(
+            ws_row: UInt16(clamping: rows),
+            ws_col: UInt16(clamping: cols),
+            ws_xpixel: UInt16(clamping: Int((bounds.width * scale).rounded())),
+            ws_ypixel: UInt16(clamping: Int((bounds.height * scale).rounded())),
+        )
+    }
+
+    override func layout() {
+        super.layout()
+        processHost?.updateWindowSize(currentWindowSize())
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        processHost?.updateWindowSize(currentWindowSize())
+    }
+
+    func processTerminated(source _: LocalProcess, exitCode: Int32?) {
+        onProcessTermination?(exitCode)
+    }
+
+    func processFailedToStart(source _: LocalProcess, error: LocalProcessError) {
+        feed(text: "\r\nProcess launch failed: \(error)\r\n")
+    }
+
+    // MARK: TerminalViewDelegate
+
+    /// Mirrors 1.15's synchronous path: DA/DSR/OSC replies go straight to the process that produced them, on its parse thread.
+    /// SwiftTerm 1.99 routes them through `onMain`, where a restart could deliver an old reply to the new process.
+    override nonisolated func send(source _: SwiftTerm.Terminal, data: ArraySlice<UInt8>) {
+        processHost?.process.send(data: data)
+    }
+
+    func send(source _: SwiftTerm.TerminalView, data: ArraySlice<UInt8>) {
+        processHost?.process.send(data: data)
+    }
+
+    func sizeChanged(source _: SwiftTerm.TerminalView, newCols: Int, newRows: Int) {
+        processHost?.updateWindowSize(windowSize(cols: newCols, rows: newRows))
+    }
+
+    func setTerminalTitle(source _: SwiftTerm.TerminalView, title: String) {
+        onTitle?(title)
+    }
+
+    func hostCurrentDirectoryUpdate(source _: SwiftTerm.TerminalView, directory: String?) {
+        onDirectoryUpdate?(directory)
+    }
+
+    func scrolled(source _: SwiftTerm.TerminalView, position _: Double) {}
+
+    func rangeChanged(source _: SwiftTerm.TerminalView, startY _: Int, endY _: Int) {}
+
+    func requestOpenLink(source _: SwiftTerm.TerminalView, link: String, params: [String: String]) {
         onOpenLink?(link, params)
     }
 
-    override func dataReceived(slice: ArraySlice<UInt8>) {
-        backgroundChangeNotifications.feed(slice)
-        onProcessOutput?(Data(slice))
-        super.dataReceived(slice: slice)
+    /// OSC 52 parity: these preserve LocalProcessTerminalView's clipboard behavior from 1.15.
+    /// They are not newly enabled by the 1.99 migration.
+    func clipboardCopy(source _: SwiftTerm.TerminalView, content: Data) {
+        guard let string = String(bytes: content, encoding: .utf8) else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.writeObjects([string as NSString])
     }
 
-    func resetBackgroundChangeNotifications() {
-        backgroundChangeNotifications.reset()
+    func clipboardRead(source _: SwiftTerm.TerminalView) -> Data? {
+        // Denied: 1.99 answers OSC 52 reads asynchronously on main, so an old process's reply can cross a PTY restart into the new child.
+        // 1.15's synchronous path did not expose that window.
+        // Writes remain for parity; reads return once a generation-checked or setting-based implementation exists.
+        nil
     }
 
     deinit {
+
         NotificationCenter.default.removeObserver(self)
     }
 }
 
+/// Owns the PTY for one terminal surface so Lithe still sees every raw byte.
+///
+/// One host serves one launch.
+/// A terminating `LocalProcess` cannot be reused, so a restart detaches the old host and installs a fresh one.
+final class MacTerminalProcessHost: NSObject, LocalProcessDelegate {
+    /// Caps queued raw output when the main queue is busy.
+    /// The IO parse thread waits instead of growing memory, which also backpressures the PTY.
+    private static let maximumPendingOutputBytes = 4 * 1024 * 1024
 
-/// Reports changed backgrounds to subscribers; kitty DSR 997 uses 1 for dark and 2 for light.
-enum MacTerminalBackgroundReporting {
-    static func osc11Payload(for color: NSColor) -> String {
-        let srgb = color.usingColorSpace(.sRGB) ?? color
-        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 1
-        srgb.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
-        func channel(_ value: CGFloat) -> String {
-            String(format: "%04x", UInt16(max(0, min(1, value)) * 65535))
+    private let condition = NSCondition()
+    private var attached = true
+    private weak var view: LitheTerminalView?
+    private var outputSink: (@Sendable (Data) -> Void)?
+    private var pendingOutput = Data()
+    private var outputScheduled = false
+    /// Data callbacks that have entered but not yet handed their slice over.
+    private var activeDataReceives = 0
+    /// Set by flush/detach so output that loses the race for the condition cannot be attributed to the next session.
+    private var terminated = false
+
+    private(set) var process: LocalProcess!
+    private let windowSizeLock = NSLock()
+    private var windowSize = winsize()
+
+    var onOutput: (@Sendable (Data) -> Void)? {
+        get {
+            condition.lock()
+            defer { condition.unlock() }
+            return outputSink
         }
-        return "rgb:\(channel(red))/\(channel(green))/\(channel(blue))"
+        set {
+            condition.lock()
+            outputSink = newValue
+            if newValue == nil {
+                pendingOutput.removeAll(keepingCapacity: false)
+                outputScheduled = false
+            }
+            condition.broadcast()
+            condition.unlock()
+        }
     }
 
+    init(view: LitheTerminalView) {
+        self.view = view
+        super.init()
+        process = LocalProcess(delegate: self, dispatchQueue: .main, directDelivery: true)
+    }
+
+    /// Permanently stops this host from feeding the view or the transport.
+    /// Callers replace it with a new host for the next launch.
+    func detach() {
+        condition.lock()
+        attached = false
+        terminated = true
+        view = nil
+        outputSink = nil
+        pendingOutput.removeAll(keepingCapacity: false)
+        outputScheduled = false
+        condition.broadcast()
+        condition.unlock()
+    }
+
+    func dataReceived(slice: ArraySlice<UInt8>) {
+        // Runs on the IO parse thread; `feed` accepts bytes from any thread.
+        // Holding the condition across the enqueue makes detach() wait until this batch has been handed over.
+        // A detached host therefore never feeds.
+        condition.lock()
+        guard attached, !terminated, let view else {
+            condition.unlock()
+            return
+        }
+        activeDataReceives += 1
+        view.feed(byteArray: slice)
+        view.requestCaretRefresh()
+        enqueueOutputLocked(Data(slice))
+        activeDataReceives -= 1
+        condition.broadcast()
+        condition.unlock()
+    }
+
+    func getWindowSize() -> winsize {
+        windowSizeLock.lock()
+        defer { windowSizeLock.unlock() }
+        return windowSize
+    }
+
+    func updateWindowSize(_ size: winsize) {
+        windowSizeLock.lock()
+        let changed = windowSize.ws_row != size.ws_row
+            || windowSize.ws_col != size.ws_col
+            || windowSize.ws_xpixel != size.ws_xpixel
+            || windowSize.ws_ypixel != size.ws_ypixel
+        windowSize = size
+        windowSizeLock.unlock()
+        guard changed, process.running else { return }
+        var size = size
+        _ = process.updateWindowSize(&size)
+    }
+
+    func processTerminated(_ source: LocalProcess, exitCode: Int32?) {
+        MainActor.assumeIsolated {
+            condition.lock()
+            guard attached else {
+                condition.unlock()
+                return
+            }
+            let view = view
+            condition.unlock()
+            // The final read callback has already queued its bytes.
+            // Flush them synchronously so termination cannot overtake output on `.main`.
+            flushOutput()
+            view?.processTerminated(source: source, exitCode: exitCode)
+        }
+    }
+
+    func processFailedToStart(_ source: LocalProcess, error: LocalProcessError) {
+        MainActor.assumeIsolated {
+            condition.lock()
+            guard attached else {
+                condition.unlock()
+                return
+            }
+            let view = view
+            condition.unlock()
+            view?.processFailedToStart(source: source, error: error)
+        }
+    }
+
+    /// Appends one slice. The caller owns the condition lock and must unlock.
+    private func enqueueOutputLocked(_ data: Data) {
+        while attached, outputSink != nil,
+              pendingOutput.count >= Self.maximumPendingOutputBytes
+        {
+            condition.wait()
+        }
+        guard attached, outputSink != nil else { return }
+        pendingOutput.append(data)
+        if !outputScheduled {
+            outputScheduled = true
+            DispatchQueue.main.async { [weak self] in
+                self?.drainOutput()
+            }
+        }
+    }
+
+    private func drainOutput() {
+        condition.lock()
+        let data = pendingOutput
+        pendingOutput.removeAll(keepingCapacity: false)
+        outputScheduled = false
+        let sink = attached ? outputSink : nil
+        condition.broadcast()
+        condition.unlock()
+        if !data.isEmpty {
+            sink?(data)
+        }
+    }
+
+    /// Delivers queued output synchronously.
+    /// Used before termination is forwarded so the transport sees the shell's last bytes first.
+    private func flushOutput() {
+        condition.lock()
+        var data = pendingOutput
+        pendingOutput.removeAll(keepingCapacity: false)
+        outputScheduled = false
+        // Drain first: this frees any data callback blocked at the size cap.
+        condition.broadcast()
+        // LocalProcess bounds its exit drain at 0.5 s, so a timed-out drain can deliver termination while one data callback is still in flight.
+        // Wait it out briefly; the bound keeps the main thread from stalling.
+        let deadline = Date(timeIntervalSinceNow: 1)
+        while attached, activeDataReceives > 0 {
+            if !condition.wait(until: deadline) {
+                break
+            }
+        }
+        if !pendingOutput.isEmpty {
+            data.append(pendingOutput)
+            pendingOutput.removeAll(keepingCapacity: false)
+        }
+        // Output that loses the race for this lock is dropped instead of being attributed to the next session.
+        // The tombstone closes the pre-lock window without making main wait on a parse.
+        terminated = true
+        outputScheduled = false
+        let sink = attached ? outputSink : nil
+        condition.broadcast()
+        condition.unlock()
+        if !data.isEmpty {
+            sink?(data)
+        }
+    }
+}
+
+/// Reports whether the terminal background is dark, using WCAG relative luminance.
+enum MacTerminalBackgroundReporting {
     static func reportsDarkBackground(for color: NSColor) -> Bool {
         let srgb = color.usingColorSpace(.sRGB) ?? color
         var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 1
@@ -280,89 +583,6 @@ enum MacTerminalBackgroundReporting {
         }
         let luminance = 0.2126 * linearize(red) + 0.7152 * linearize(green) + 0.0722 * linearize(blue)
         return luminance < 0.5
-    }
-
-    static func changeNotification(for color: NSColor, isSubscribed: Bool) -> String? {
-        guard isSubscribed else { return nil }
-        let backgroundState = reportsDarkBackground(for: color) ? 1 : 2
-        return "\u{1b}]11;\(osc11Payload(for: color))\u{1b}\\\u{1b}[?997;\(backgroundState)n"
-    }
-}
-
-/// Tracks kitty DEC mode 2031 so change notifications are sent only to programs that requested them.
-struct MacTerminalBackgroundSubscription {
-    private(set) var isSubscribed = false
-    private var pendingEscape: [UInt8] = []
-
-    private static let escape = UInt8(0x1b)
-    private static let mode2031: [UInt8] = [0x32, 0x30, 0x33, 0x31]
-    private static let altScreenModes: [[UInt8]] = [
-        [0x34, 0x37],
-        [0x31, 0x30, 0x34, 0x37],
-        [0x31, 0x30, 0x34, 0x39],
-    ]
-    private static let maximumSequenceLength = 64
-
-    init() {
-        pendingEscape.reserveCapacity(Self.maximumSequenceLength)
-    }
-
-    mutating func feed<S: Sequence>(_ bytes: S) where S.Element == UInt8 {
-        for byte in bytes {
-            if pendingEscape.isEmpty {
-                if byte == Self.escape { pendingEscape.append(byte) }
-                continue
-            }
-            if byte == Self.escape {
-                pendingEscape = [Self.escape]
-                continue
-            }
-            pendingEscape.append(byte)
-            if pendingEscape == [Self.escape, 0x63] {
-                isSubscribed = false
-                pendingEscape.removeAll(keepingCapacity: true)
-                continue
-            }
-            if pendingEscape.count == 2 {
-                if byte != 0x5b { pendingEscape.removeAll(keepingCapacity: true) }
-                continue
-            }
-            if pendingEscape.count == 3 {
-                if byte != 0x3f { pendingEscape.removeAll(keepingCapacity: true) }
-                continue
-            }
-            if (0x40...0x7e).contains(byte) {
-                if byte == 0x68 || byte == 0x6c,
-                   contains(Self.mode2031, in: pendingEscape[3..<(pendingEscape.count - 1)]) {
-                    isSubscribed = byte == 0x68
-                } else if byte == 0x6c,
-                          leavesAltScreen(pendingEscape[3..<(pendingEscape.count - 1)]) {
-                    // A subscribed TUI runs inside the alternate screen; when it leaves, the shell must not inherit pushes.
-                    isSubscribed = false
-                }
-                pendingEscape.removeAll(keepingCapacity: true)
-            } else if pendingEscape.count >= Self.maximumSequenceLength {
-                pendingEscape.removeAll(keepingCapacity: true)
-            }
-        }
-    }
-
-    mutating func reset() {
-        isSubscribed = false
-        pendingEscape.removeAll(keepingCapacity: true)
-    }
-
-    private func contains(_ parameter: [UInt8], in parameters: ArraySlice<UInt8>) -> Bool {
-        var start = parameters.startIndex
-        for index in parameters.indices where parameters[index] == 0x3b {
-            if parameters[start..<index].elementsEqual(parameter) { return true }
-            start = parameters.index(after: index)
-        }
-        return parameters[start..<parameters.endIndex].elementsEqual(parameter)
-    }
-
-    private func leavesAltScreen(_ parameters: ArraySlice<UInt8>) -> Bool {
-        Self.altScreenModes.contains { contains($0, in: parameters) }
     }
 }
 
@@ -455,53 +675,17 @@ struct MacTerminalPalette {
         return color
     }
 }
-
-/// SwiftTerm 1.15's Metal blink timer ignores focus. Draw the inactive cursor
-/// transparently with a steady style, preserving shell state while hiding both
-/// the caret and its blink animation outside the actual keyboard owner.
-final class TerminalMetalFocusDelegate: NSObject, MTKViewDelegate {
-    weak var view: MTKView?
-    private weak var terminalView: LitheTerminalView?
-    private let renderer: MTKViewDelegate
-
-    init(view: MTKView, terminalView: LitheTerminalView, renderer: MTKViewDelegate) {
-        self.view = view
-        self.terminalView = terminalView
-        self.renderer = renderer
-    }
-
-    func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
-        renderer.mtkView(view, drawableSizeWillChange: size)
-    }
-
-    func draw(in view: MTKView) {
-        guard let terminalView, !terminalView.hasFocus else {
-            renderer.draw(in: view)
-            return
-        }
-        let requestedStyle = terminalView.terminal.options.cursorStyle
-        let requestedColor = terminalView.caretColor
-        terminalView.terminal.options.cursorStyle = .steadyBlock
-        terminalView.caretColor = .clear
-        defer {
-            terminalView.terminal.options.cursorStyle = requestedStyle
-            terminalView.caretColor = requestedColor
-        }
-        // MTKView's paused, event-driven draw is synchronous on the main thread;
-        // restore the protocol state before any subsequent shell input is parsed.
-        renderer.draw(in: view)
-    }
-}
-
 /// Owns one persistent SwiftTerm surface and the local PTY process connected to it.
 /// The surface intentionally lives with the session instead of the SwiftUI view so
 /// switching terminal tabs or hiding the tool window does not reset a TUI screen.
 @MainActor
-final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency LocalProcessTerminalViewDelegate {
+final class MacTerminalTransport: NSObject, TerminalTransport {
     static func availableShells(fileManager: FileManager = .default) -> [String] {
         MacTerminalShellDiscovery.availableShells(fileManager: fileManager)
     }
+
     let view: LitheTerminalView
+    private var processHost: MacTerminalProcessHost
 
     var onTermination: ((Int32?) -> Void)?
     var onOutput: ((Data) -> Void)?
@@ -519,11 +703,11 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
     private var pendingSessionTermination: Task<Void, Never>?
 
     var isRunning: Bool {
-        view.process.running
+        processHost.process.running
     }
 
     var processID: Int32? {
-        let processID = view.process.shellPid
+        let processID = processHost.process.shellPid
         return processID > 0 ? processID : nil
     }
 
@@ -541,32 +725,60 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
     // Keep the exported COLORFGBG in sync with the OSC 11 answer: wallpaper transparency reports black, so it must export dark.
     var reportsLightBackground: Bool? { !MacTerminalBackgroundReporting.reportsDarkBackground(for: view.nativeBackgroundColor) }
 
-    private let scrollbackLines: Int
-
     init(scrollbackLines: Int = 2_000, preferredAppearanceIsDark: (() -> Bool?)? = nil) {
-        self.scrollbackLines = scrollbackLines
-        view = LitheTerminalView(frame: .zero)
-        super.init()
-
-        view.processDelegate = self
-        view.onOpenLink = { [weak self] link, params in
-            self?.onLink?(link, params)
-        }
-        view.onProcessOutput = { [weak self] data in
-            self?.onOutput?(data)
-        }
-        view.font = Self.preferredTerminalFont()
-        view.preferredAppearanceIsDark = preferredAppearanceIsDark
-        view.applyThemeColors(theme: LitheTheme.activeTheme)
-        view.allowMouseReporting = true
-        view.linkReporting = .implicit
-        view.linkHighlightMode = .hoverWithModifier
-
-        var options = view.terminal.options
+        var options = TerminalOptions.default
         options.termName = "xterm-256color"
         options.scrollback = scrollbackLines
-        view.terminal.options = options
-        view.terminal.setup(isReset: false)
+        let terminalView = LitheTerminalView(
+            frame: .zero,
+            font: Self.preferredTerminalFont(),
+            startupOptions: options,
+        )
+        view = terminalView
+        processHost = MacTerminalProcessHost(view: terminalView)
+        super.init()
+
+        installProcessHost(processHost)
+        terminalView.preferredAppearanceIsDark = preferredAppearanceIsDark
+        terminalView.onOpenLink = { [weak self] link, params in
+            self?.onLink?(link, params)
+        }
+        terminalView.onTitle = { [weak self] title in
+            self?.onTitle?(title)
+        }
+        terminalView.onDirectoryUpdate = { [weak self] directory in
+            self?.onDirectoryUpdate?(directory)
+        }
+        terminalView.onProcessTermination = { [weak self] exitCode in
+            self?.handleProcessTerminated(exitCode: exitCode)
+        }
+        terminalView.applyThemeColors(theme: LitheTheme.activeTheme)
+        terminalView.allowMouseReporting = true
+        terminalView.linkReporting = .implicit
+        terminalView.linkHighlightMode = .hoverWithModifier
+    }
+
+    /// Points the view and the transport at one fresh PTY host.
+    private func installProcessHost(_ host: MacTerminalProcessHost) {
+        // The host drains output on the main queue, which shares FIFO ordering with LocalProcess's `.main` termination callback.
+        // The final output chunks therefore stay ahead of finishDecodedOutput().
+        // Stay inline when already on main: an extra async hop would land after that termination callback.
+        host.onOutput = { [weak self] data in
+            if Thread.isMainThread {
+                MainActor.assumeIsolated {
+                    self?.view.refreshCaretFocus()
+                    self?.onOutput?(data)
+                }
+                return
+            }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    self?.view.refreshCaretFocus()
+                    self?.onOutput?(data)
+                }
+            }
+        }
+        view.processHost = host
     }
 
     private static func preferredTerminalFont() -> NSFont {
@@ -622,6 +834,10 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
         environment: [String: String]
     ) throws -> Int32 {
         stop()
+        processHost.detach()
+        let host = MacTerminalProcessHost(view: view)
+        processHost = host
+        installProcessHost(host)
         suppressNextTermination = false
         launchedInteractiveShell = false
         let executablePath = try resolveExecutablePath(
@@ -638,25 +854,24 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
         }
         selectedShellPath = executablePath
 
-        view.terminal.resetToInitialState()
-        view.resetBackgroundChangeNotifications()
-        var options = view.terminal.options
-        options.termName = environment["TERM"] ?? "xterm-256color"
-        view.terminal.options = options
-        view.terminal.setup(isReset: false)
+        view.resetToInitialState()
 
         let environmentArray = environment.keys.sorted().map { key in
             "\(key)=\(environment[key] ?? "")"
         }
 
-        view.startProcess(
+        host.updateWindowSize(view.currentWindowSize())
+        let launchResult = host.process.startProcessChecked(
             executable: executablePath,
             args: launch.arguments,
             environment: environmentArray,
             currentDirectory: launch.workingDirectory
         )
+        if case let .failure(error) = launchResult {
+            throw terminalError("Unable to start \(executablePath): \(error)")
+        }
 
-        guard view.process.running, let processID else {
+        guard host.process.running, let processID else {
             throw terminalError("Unable to start \(executablePath)")
         }
         session = MacProcessTable.info(processID: processID).map { MacTerminalSessionOwnership(leader: $0.identity) }
@@ -664,13 +879,13 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
     }
 
     func send(_ input: Data) throws {
-        guard view.process.running else { return }
-        view.process.send(data: Array(input)[...])
+        guard processHost.process.running else { return }
+        processHost.process.send(data: Array(input)[...])
     }
 
     func interrupt() throws {
-        guard view.process.running else { return }
-        view.process.send(data: [UInt8(0x03)][...])
+        guard processHost.process.running else { return }
+        processHost.process.send(data: [UInt8(0x03)][...])
     }
 
     func focus() {
@@ -679,7 +894,7 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
     }
 
     func clear() {
-        view.terminal.resetToInitialState()
+        view.resetToInitialState()
     }
 
     func stop() {
@@ -694,11 +909,12 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
                 await MacProcessSessionTerminator.terminate(session, gracePeriod: gracePeriod)
             }
         }
-        guard let processID else { return }
-        suppressNextTermination = true
-        if view.process.running {
-            view.terminate()
+        let shouldSuppress = processHost.process.running || processHost.process.windingDown
+        if shouldSuppress {
+            suppressNextTermination = true
+            processHost.process.terminate()
         }
+        guard let processID else { return }
         stoppedChildProcessReaper.reapWhenExited(processID)
     }
 
@@ -759,17 +975,7 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
             .sorted { $0.processID < $1.processID }
     }
 
-    func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {}
-
-    func setTerminalTitle(source: LocalProcessTerminalView, title: String) {
-        onTitle?(title)
-    }
-
-    func hostCurrentDirectoryUpdate(source: SwiftTerm.TerminalView, directory: String?) {
-        onDirectoryUpdate?(directory)
-    }
-
-    func processTerminated(source: SwiftTerm.TerminalView, exitCode: Int32?) {
+    private func handleProcessTerminated(exitCode: Int32?) {
         // Jobs that outlived the shell stay stoppable from this tab, but only by
         // identity: the session ID is reusable once they are gone too.
         if session?.pinMembers() == false { session = nil }
