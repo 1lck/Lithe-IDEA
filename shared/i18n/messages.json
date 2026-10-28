@@ -90265,6 +90265,17 @@
         "key": "This action cannot be undone by Lithe. Untracked files will be deleted.",
         "arguments": []
       }
+    },
+    {
+      "id": "native.enableClassAndMethodNavigation",
+      "description": "Native editor preference: opt in to definition navigation",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Enable class and method navigation (Command-click / F12)",
+        "arguments": []
+      }
     }
   ]
 }

@@ -9468,7 +9468,8 @@
     "native.stageFiles": "Stage Files",
     "native.unstageFiles": "Unstage Files",
     "native.discardChangesToSelectedFiles": "Discard changes to selected files?",
-    "native.discardWorktreeChangesWarning": "This action cannot be undone by Lithe. Untracked files will be deleted."
+    "native.discardWorktreeChangesWarning": "This action cannot be undone by Lithe. Untracked files will be deleted.",
+    "native.enableClassAndMethodNavigation": "Enable class and method navigation (Command-click / F12)"
   },
   "overrides": {
     "windows": {

@@ -9468,7 +9468,8 @@
     "native.stageFiles": "暂存文件",
     "native.unstageFiles": "取消暂存文件",
     "native.discardChangesToSelectedFiles": "要丢弃所选文件的更改吗？",
-    "native.discardWorktreeChangesWarning": "此操作无法通过 Lithe 撤销。未跟踪的文件将被删除。"
+    "native.discardWorktreeChangesWarning": "此操作无法通过 Lithe 撤销。未跟踪的文件将被删除。",
+    "native.enableClassAndMethodNavigation": "启用类和方法跳转（Command＋点击 / F12）"
   },
   "overrides": {
     "macos": {

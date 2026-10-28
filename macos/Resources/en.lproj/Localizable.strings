@@ -1309,6 +1309,7 @@
 "Enable MCP" = "Enable MCP";
 "Enable breakpoint" = "Enable breakpoint";
 "Enable breakpoints" = "Enable breakpoints";
+"Enable class and method navigation (Command-click / F12)" = "Enable class and method navigation (Command-click / F12)";
 "Enable for this project" = "Enable for this project";
 "Enable skill" = "Enable skill";
 "Enabled" = "Enabled";
@@ -5751,6 +5752,7 @@
 "native.enableAgentConversation" = "Enable Agent conversation";
 "native.enableBreakpoint" = "Enable breakpoint";
 "native.enableBreakpoints" = "Enable breakpoints";
+"native.enableClassAndMethodNavigation" = "Enable class and method navigation (Command-click / F12)";
 "native.enableExceptionBreakpoint" = "Enable %1$@ exception breakpoint";
 "native.enableFieldBreakpoint" = "Enable %1$@ field breakpoint";
 "native.enableForThisProject" = "Enable for this project";

@@ -86,6 +86,7 @@ private struct MonacoWorkbenchDisplayConfiguration: Equatable {
     let fontFamily: String
     let wrap: Bool
     let minimap: Bool
+    let classMethodNavigationEnabled: Bool
     let theme: MonacoWorkbenchThemeConfiguration
 
     var bridgePayload: [String: Any] {
@@ -94,6 +95,7 @@ private struct MonacoWorkbenchDisplayConfiguration: Equatable {
             "fontFamily": fontFamily,
             "wrap": wrap,
             "minimap": minimap,
+            "classMethodNavigationEnabled": classMethodNavigationEnabled,
             "dark": theme.dark,
             "theme": theme.bridgePayload
         ]
@@ -913,6 +915,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             fontFamily: MacEditorFontCatalog.editorFontStack(fontFamily),
             wrap: wrap,
             minimap: minimap,
+            classMethodNavigationEnabled: model.settings.classMethodNavigationEnabled,
             theme: theme
         )
         if lastConfiguration != configuration {
@@ -1612,7 +1615,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                 }
             }
         case "definitionHover":
-            guard let model, !failed, body["revision"] as? Int == revisions[id],
+            guard let model, model.settings.classMethodNavigationEnabled, !failed, body["revision"] as? Int == revisions[id],
                   let line = body["line"] as? Int, line >= 0,
                   let column = body["column"] as? Int, column >= 0 else {
                 reply(["available": false], nil); return
@@ -1628,7 +1631,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
                 }
             }
         case "definition":
-            guard let model, !failed, body["revision"] as? Int == revisions[id],
+            guard let model, model.settings.classMethodNavigationEnabled, !failed, body["revision"] as? Int == revisions[id],
                   let line = body["line"] as? Int, let column = body["column"] as? Int else {
                 reply(["cancelled": true], nil); return
             }

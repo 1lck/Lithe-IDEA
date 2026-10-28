@@ -1309,6 +1309,7 @@
 "Enable MCP" = "开启 MCP";
 "Enable breakpoint" = "启用断点";
 "Enable breakpoints" = "启用断点";
+"Enable class and method navigation (Command-click / F12)" = "启用类和方法跳转（Command＋点击 / F12）";
 "Enable for this project" = "在本项目启用";
 "Enable skill" = "启用技能";
 "Enabled" = "已启用";
@@ -5751,6 +5752,7 @@
 "native.enableAgentConversation" = "启用 Agent 对话";
 "native.enableBreakpoint" = "启用断点";
 "native.enableBreakpoints" = "启用断点";
+"native.enableClassAndMethodNavigation" = "启用类和方法跳转（Command＋点击 / F12）";
 "native.enableExceptionBreakpoint" = "启用异常断点 %1$@";
 "native.enableFieldBreakpoint" = "启用字段断点 %1$@";
 "native.enableForThisProject" = "在本项目启用";

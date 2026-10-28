@@ -108,6 +108,21 @@ struct AppSettingsTests {
     }
 
     @Test
+    func classMethodNavigationIsOptInAndPersistsUntilReset() {
+        let store = AppSettingsTestStore()
+        let settings = AppSettings(store: store)
+        #expect(!settings.classMethodNavigationEnabled)
+        settings.classMethodNavigationEnabled = true
+        #expect(AppSettings(store: store).classMethodNavigationEnabled)
+        settings.classMethodNavigationEnabled = false
+        #expect(!AppSettings(store: store).classMethodNavigationEnabled)
+        settings.classMethodNavigationEnabled = true
+        settings.restoreDefaults()
+        #expect(!settings.classMethodNavigationEnabled)
+        #expect(!AppSettings(store: store).classMethodNavigationEnabled)
+    }
+
+    @Test
     func editorMinimapDefaultsToEnabledAndPersistsDisabledSelection() {
         let store = AppSettingsTestStore()
         let settings = AppSettings(store: store)

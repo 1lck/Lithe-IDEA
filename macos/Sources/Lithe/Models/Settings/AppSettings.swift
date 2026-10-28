@@ -35,6 +35,7 @@ final class AppSettings: ObservableObject {
         static let projectTreeRowHeight = "settings.projectTreeRowHeight"
         static let tabWidth = "settings.tabWidth"
         static let editorTabLayoutMode = "settings.editorTabLayoutMode"
+        static let classMethodNavigation = "settings.classMethodNavigation"
         static let showCodeVision = "settings.showCodeVision"
         static let autoSave = "settings.autoSave"
         static let autoSaveDelay = "settings.autoSaveDelay"
@@ -126,6 +127,7 @@ final class AppSettings: ObservableObject {
     @Published var editorTabLayoutMode: EditorTabLayoutMode {
         didSet { defaults.set(editorTabLayoutMode.rawValue, forKey: Key.editorTabLayoutMode) }
     }
+    @Published var classMethodNavigationEnabled: Bool { didSet { defaults.set(classMethodNavigationEnabled, forKey: Key.classMethodNavigation) } }
     @Published var showCodeVision: Bool { didSet { defaults.set(showCodeVision, forKey: Key.showCodeVision) } }
     @Published var autoSave: Bool { didSet { defaults.set(autoSave, forKey: Key.autoSave) } }
     @Published var autoSaveDelay: Double { didSet { defaults.set(autoSaveDelay, forKey: Key.autoSaveDelay) } }
@@ -318,6 +320,7 @@ final class AppSettings: ObservableObject {
         editorTabLayoutMode = EditorTabLayoutMode(
             rawValue: defaults.string(forKey: Key.editorTabLayoutMode) ?? ""
         ) ?? .singleLine
+        classMethodNavigationEnabled = defaults.object(forKey: Key.classMethodNavigation) as? Bool ?? false
         showCodeVision = defaults.object(forKey: Key.showCodeVision) as? Bool ?? true
         autoSave = defaults.object(forKey: Key.autoSave) as? Bool ?? true
         autoSaveDelay = defaults.object(forKey: Key.autoSaveDelay) as? Double ?? 1.5
@@ -513,6 +516,7 @@ final class AppSettings: ObservableObject {
         projectTreeRowHeight = 24
         tabWidth = 4
         editorTabLayoutMode = .singleLine
+        classMethodNavigationEnabled = false
         showCodeVision = true
         autoSave = true
         autoSaveDelay = 1.5

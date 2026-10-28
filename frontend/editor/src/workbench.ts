@@ -1,3 +1,4 @@
+import { DisposableStore, toDisposable } from "monaco-editor/esm/vs/base/common/lifecycle.js";
 import { FoldingController } from "monaco-editor/esm/vs/editor/contrib/folding/browser/folding.js";
 import { ContentHoverController } from "monaco-editor/esm/vs/editor/contrib/hover/browser/contentHoverController.js";
 import { ClickLinkGesture } from "monaco-editor/esm/vs/editor/contrib/gotoSymbol/browser/link/clickLinkGesture.js";
@@ -142,6 +143,8 @@ export function mountWorkbench(host: WorkbenchHost) {
   }
   let updating = false;
   let failed = false;
+  let classMethodNavigationEnabled = false;
+  const definitionNavigation = new Map<monaco.editor.IStandaloneCodeEditor, DisposableStore>();
   let activation: Promise<unknown> = Promise.resolve();
   let textmate: Awaited<ReturnType<typeof installJavaTextMate>>;
   const semanticChanges = new Emitter<void>();
@@ -614,6 +617,7 @@ export function mountWorkbench(host: WorkbenchHost) {
     view.onDidDispose(() => node.removeEventListener("paste", paste, true));
   }
   function attachDefinitionNavigation(view: monaco.editor.IStandaloneCodeEditor) {
+    const lifetime = new DisposableStore();
     const isCodePosition = (position: monaco.IPosition | null) => {
       const tokens = (view.getModel() as any)?.tokenization;
       // Reuse Monaco/TextMate lexical state, including multiline comments. Do not
@@ -625,19 +629,19 @@ export function mountWorkbench(host: WorkbenchHost) {
     };
     const navigate = async (position: monaco.IPosition | null) => {
       const pair = [...entries].find(([, entry]) => entry.model === view.getModel());
-      if (!pair || !position) return;
+      if (!pair || !position || lifetime.isDisposed) return;
       const [id, entry] = pair, current = documentCheckpoint(id, entry);
       await entry.chain;
-      if (!current() || view.getModel() !== entry.model) return;
+      if (lifetime.isDisposed || !current() || view.getModel() !== entry.model) return;
       await languageRequest({ type: "definition", id, revision: entry.revision,
         line: position.lineNumber - 1, column: position.column - 1 });
     };
-    view.addAction({ id: "lithe.goToDefinition", label: "Go to Definition", keybindings: [monaco.KeyCode.F12],
-      contextMenuGroupId: "navigation", contextMenuOrder: 1, run: () => navigate(view.getPosition()) });
+    lifetime.add(view.addAction({ id: "lithe.goToDefinition", label: "Go to Definition", keybindings: [monaco.KeyCode.F12],
+      contextMenuGroupId: "navigation", contextMenuOrder: 1, run: () => navigate(view.getPosition()) }));
     // Reuse Monaco's modifier/drag/key lifecycle, but keep file ownership,
     // virtual sources and navigation history in the native host. Monaco's full
     // definition contribution requires loading target files into its model store.
-    const gesture = new ClickLinkGesture(view);
+    const gesture = lifetime.add(new ClickLinkGesture(view));
     const links = view.createDecorationsCollection();
     let generation = 0;
     let hovered = "";
@@ -652,16 +656,16 @@ export function mountWorkbench(host: WorkbenchHost) {
       }
     };
     const dismiss = () => { clear(); ContentHoverController.get(view)?.hideContentHover(); };
-    gesture.onCancel(() => clear());
+    lifetime.add(gesture.onCancel(() => clear()));
     // Monaco owns movement into the popup, its sticky corridor and link selection.
-    view.onMouseLeave(() => clear(false));
-    view.onDidBlurEditorWidget(dismiss);
-    view.onDidChangeModel(dismiss);
-    view.onDidChangeModelContent(dismiss);
-    view.onDidScrollChange(event => { if (event.scrollTopChanged || event.scrollLeftChanged) dismiss(); });
-    view.onKeyDown(event => { if (event.keyCode === monaco.KeyCode.Escape) dismiss(); });
+    lifetime.add(view.onMouseLeave(() => clear(false)));
+    lifetime.add(view.onDidBlurEditorWidget(dismiss));
+    lifetime.add(view.onDidChangeModel(dismiss));
+    lifetime.add(view.onDidChangeModelContent(dismiss));
+    lifetime.add(view.onDidScrollChange(event => { if (event.scrollTopChanged || event.scrollLeftChanged) dismiss(); }));
+    lifetime.add(view.onKeyDown(event => { if (event.keyCode === monaco.KeyCode.Escape) dismiss(); }));
     window.addEventListener("blur", dismiss);
-    gesture.onMouseMoveOrRelevantKeyDown(async ([mouse, key]) => {
+    lifetime.add(gesture.onMouseMoveOrRelevantKeyDown(async ([mouse, key]) => {
       const position = mouse.target.position;
       const pair = [...entries].find(([, entry]) => entry.model === view.getModel());
       if (!(mouse.hasTriggerModifier || key?.keyCodeIsTriggerKey) || mouse.hasSideBySideModifier) { clear(); return; }
@@ -699,15 +703,16 @@ export function mountWorkbench(host: WorkbenchHost) {
         // A new gesture may retry a transient miss.
         hovered = identity;
       }
-    });
-    gesture.onExecute(mouse => {
+    }));
+    lifetime.add(gesture.onExecute(mouse => {
       if (mouse.isLeftClick && mouse.hasTriggerModifier && !mouse.hasSideBySideModifier &&
           mouse.target.type === monaco.editor.MouseTargetType.CONTENT_TEXT && isCodePosition(mouse.target.position)) {
         clear();
         void navigate(mouse.target.position);
       }
-    });
-    view.onDidDispose(() => { clear(); window.removeEventListener("blur", dismiss); gesture.dispose(); });
+    }));
+    lifetime.add(toDisposable(() => { clear(); window.removeEventListener("blur", dismiss); }));
+    return lifetime;
   }
 
   function attachRunInteractions(view: monaco.editor.IStandaloneCodeEditor) {
@@ -847,7 +852,8 @@ export function mountWorkbench(host: WorkbenchHost) {
     }
     attachGitInteractions(view);
     attachImagePaste(view);
-    attachDefinitionNavigation(view);
+    if (classMethodNavigationEnabled) definitionNavigation.set(view, attachDefinitionNavigation(view));
+    view.onDidDispose(() => { definitionNavigation.get(view)?.dispose(); definitionNavigation.delete(view); });
     attachRunInteractions(view);
     debugRunContexts.set(view, view.createContextKey("litheCanRunToCursor", false));
     function request(type: "toggleBreakpoint" | "editBreakpoint" | "runToCursor", line: number, column = 1) {
@@ -1162,6 +1168,12 @@ export function mountWorkbench(host: WorkbenchHost) {
       } finally { updating = false; }
     },
     configure(payload: any) {
+      if (typeof payload.classMethodNavigationEnabled === "boolean" && payload.classMethodNavigationEnabled !== classMethodNavigationEnabled) {
+        classMethodNavigationEnabled = payload.classMethodNavigationEnabled;
+        for (const lifetime of definitionNavigation.values()) lifetime.dispose();
+        definitionNavigation.clear();
+        if (classMethodNavigationEnabled) for (const view of allEditors()) definitionNavigation.set(view, attachDefinitionNavigation(view));
+      }
       const theme = payload.theme as WorkbenchThemeInput | undefined;
       const name = theme ? defineWorkbenchTheme(theme, host.palette)
         : payload.dark ? "lithe-dark" : "lithe-light";

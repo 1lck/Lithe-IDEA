@@ -39,6 +39,9 @@ const withDeadline = async <T>(operation: Promise<T>, message: string): Promise<
 
 async function verify() {
   await ready;
+  const initialEditor = monacoEditor.getEditors()[0];
+  assert(!initialEditor.getAction("lithe.goToDefinition"), "definition navigation was registered while default-off");
+  window.lithe.configure({ classMethodNavigationEnabled: true, dark: true, fontFamily: "monospace", fontSize: 13, wrap: false });
   const cases: { name: string; durationMs: number }[] = [];
   async function check(name: string, operation: () => Promise<void>) {
     await send({ type: "progress", name });
@@ -1931,6 +1934,72 @@ async function verify() {
       await Promise.resolve();
       assert((await send({ type: "definitionRequests" })).requests.length === before, "Command click navigated from a comment/string");
     } finally { await window.lithe.retain([]); }
+  });
+  await check("navigation opt-out disposes gestures and rejects pending hints across re-enable", async () => {
+    const id = "definition-toggle", text = "class Probe {}";
+    await send({ type: "open", id, text });
+    await window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", readonly: false });
+    const input = editor as any, root = editor.getDomNode()!, model = editor.getModel()!;
+    const configure = (enabled: boolean) => window.lithe.configure({ classMethodNavigationEnabled: enabled,
+      dark: false, fontFamily: "monospace", fontSize: 13, wrap: false });
+    const target = { type: monacoEditor.MouseTargetType.CONTENT_TEXT, position: new Position(1, 9),
+      range: new Range(1, 9, 1, 10), detail: {} };
+    const move = () => input._onMouseMove.fire({ event: { metaKey: true, leftButton: false, detail: 0 }, target });
+    const controller = ContentHoverController.get(editor)!;
+    const original = controller.showContentHover;
+    let hints = 0;
+    controller.showContentHover = function (...args) { hints++; original.apply(this, args); };
+    try {
+      await send({ type: "holdDefinitionHover", hold: true });
+      move();
+      await withDeadline(send({ type: "waitDefinitionHover" }), "hover request never reached host");
+      configure(false);
+      assert(!editor.getAction("lithe.goToDefinition"), "disabled navigation retained its F12/context-menu action");
+      assert(!root.classList.contains("lithe-definition-pointer"), "disabled navigation retained pointer");
+      assert(!model.getAllDecorations().some(value => value.options.inlineClassName === "goto-definition-link"), "disabled navigation retained link");
+      const disabledCount = (await send({ type: "definitionRequests" })).hoverRequests;
+      move();
+      assert(!root.classList.contains("lithe-definition-pointer"), "disabled navigation still processed movement");
+      assert((await send({ type: "definitionRequests" })).hoverRequests === disabledCount, "disabled navigation sent a hover request");
+      configure(true);
+      await send({ type: "holdDefinitionHover", hold: false });
+      await Promise.resolve();
+      assert(hints === 0, "old request reopened hint after re-enable");
+      for (let index = 0; index < 3; index++) { configure(false); configure(true); }
+      const before = (await send({ type: "definitionRequests" })).requests.length;
+      const click = { event: { metaKey: true, leftButton: true, detail: 1 }, target };
+      input._onMouseDown.fire(click); input._onMouseUp.fire(click);
+      await Promise.resolve();
+      assert((await send({ type: "definitionRequests" })).requests.length === before + 1, "toggle accumulated click listeners");
+    } finally {
+      controller.showContentHover = original; controller.hideContentHover();
+      await send({ type: "holdDefinitionHover", hold: false });
+      configure(true); await window.lithe.retain([]);
+    }
+  });
+  await check("navigation opt-out applies to existing and newly attached split editors", async () => {
+    const id = "definition-toggle-split", text = "class Probe {}";
+    const container = document.createElement("div");
+    container.style.cssText = "position:absolute;left:50%;top:0;width:50%;height:100%";
+    document.body.append(container);
+    const configure = (enabled: boolean) => window.lithe.configure({ classMethodNavigationEnabled: enabled,
+      dark: false, fontFamily: "monospace", fontSize: 13, wrap: false });
+    try {
+      await send({ type: "open", id, text });
+      await window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", readonly: false });
+      await window.lithe.attachSurface("toggle-split", container, { id });
+      assert(monacoEditor.getEditors().every(view => view.getAction("lithe.goToDefinition")), "enabled split did not register navigation");
+      configure(false);
+      assert(monacoEditor.getEditors().every(view => !view.getAction("lithe.goToDefinition")), "existing split retained navigation");
+      window.lithe.detachSurface("toggle-split");
+      await window.lithe.attachSurface("toggle-split", container, { id });
+      assert(monacoEditor.getEditors().every(view => !view.getAction("lithe.goToDefinition")), "new split registered disabled navigation");
+      configure(true);
+      assert(monacoEditor.getEditors().every(view => view.getAction("lithe.goToDefinition")), "re-enable missed a split");
+    } finally {
+      window.lithe.detachSurface("toggle-split"); container.remove();
+      configure(true); await window.lithe.retain([]);
+    }
   });
   await check("Command pointer stays stable during slow definition lookup and repaint", async () => {
     const id = "slow-definition-hover", text = "class Probe {}";

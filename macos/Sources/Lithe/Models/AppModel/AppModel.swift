@@ -630,6 +630,9 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         configureMediaViewerRegistry()
         shortcutSessionCoordinator?.setActive(true)
         settingsChangeObservations = [
+            settings.$classMethodNavigationEnabled.removeDuplicates().dropFirst().sink { [weak self] enabled in
+                if !enabled { self?.closeLanguageNavigationResults() }
+            },
             objectWillChange.sink { [weak self] _ in
                 guard let self, !self.isRelayingWorkbenchOnlyChange else { return }
                 self.settingsChanges.send()

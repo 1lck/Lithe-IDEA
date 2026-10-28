@@ -626,6 +626,10 @@ struct SettingsView: View {
                     )
                 }
                 LitheSettingsCheckbox(
+                    isOn: $settings.classMethodNavigationEnabled,
+                    title: "Enable class and method navigation (Command-click / F12)"
+                )
+                LitheSettingsCheckbox(
                     isOn: $settings.showCodeVision,
                     title: "Show usages and Git author"
                 )

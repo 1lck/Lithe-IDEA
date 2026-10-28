@@ -63,6 +63,7 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
     ]]
     var softWrapToggleCount = 0
     var debugRequests: [[String: Any]] = []
+    var definitionHoverRequestCount = 0
     var definitionRequests: [[String: Any]] = []
     var definitionHoverReady: ((Any?, String?) -> Void)?
     var holdDefinitionHover = false
@@ -342,6 +343,7 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
                 }
                 replyHandler(["ok": true], nil)
             case "definitionHover":
+                definitionHoverRequestCount += 1
                 if holdDefinitionHover {
                     definitionHoverReplies.append(replyHandler)
                     definitionHoverReady?(["ready": true], nil)
@@ -352,7 +354,7 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
                 definitionRequests.append(body)
                 replyHandler(["ok": true], nil)
             case "definitionRequests":
-                replyHandler(["requests": definitionRequests], nil)
+                replyHandler(["requests": definitionRequests, "hoverRequests": definitionHoverRequestCount], nil)
             case "editorLayout":
                 editorLayout = body
                 replyHandler(["ok": true], nil)

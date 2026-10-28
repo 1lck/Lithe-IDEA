@@ -8,6 +8,19 @@ import Testing
 @MainActor
 struct AppModelSettingsChangesTests {
     @Test
+    func disablingDefinitionNavigationClosesResultsAndInvalidatesPendingOperation() {
+        let probe = SettingsChangesProbe()
+        defer { probe.cancel() }
+        probe.model.settings.classMethodNavigationEnabled = true
+        let operation = probe.model.languageNavigationCoordinator.begin(providerID: "test", kind: .definitions)
+        probe.model.isImplementationChooserVisible = true
+        probe.model.settings.classMethodNavigationEnabled = false
+        #expect(!probe.model.isImplementationChooserVisible)
+        #expect(!probe.model.languageNavigationCoordinator.owns(operation))
+        #expect(!probe.model.canPerformShortcutCommand(id: "go-to-definition"))
+    }
+
+    @Test
     func workbenchOnlyRelayDoesNotReachSettings() async {
         let probe = SettingsChangesProbe()
         defer { probe.cancel() }

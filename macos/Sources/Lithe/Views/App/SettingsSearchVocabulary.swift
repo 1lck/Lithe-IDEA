@@ -18,7 +18,7 @@ enum SettingsSearchVocabulary {
         case .general:
             ["General", "Appearance", "Color theme", "Appearance mode", "Language", "Projects", "Files", "Version control", "Hidden paths"]
         case .editor:
-            ["Editor", "Display", "Editor tabs", "tabs", "Font", "Font size", "Search fonts", "File tree row height", "Show minimap", "Minimap", "Indentation", "Tab width"]
+            ["Editor", "Display", "Editor tabs", "tabs", "Font", "Font size", "Search fonts", "File tree row height", "Show minimap", "Minimap", "Enable class and method navigation (Command-click / F12)", "Indentation", "Tab width"]
         case .keymap:
             ["Keymap", "Keyboard shortcuts", "Shortcuts", "Actions"]
         case .project:
