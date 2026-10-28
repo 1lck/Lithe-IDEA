@@ -122,8 +122,9 @@ macOS 保留用户接受的 `FindBarView` 外观。`EditorChromeModel` 有意不
   adapter 允许随包已有的 Inter OTF，仍校验真实路径在字体目录内，不写发行资源、不影响签名或 delta。
   普通悬停延迟为 500 ms，依据同 revision 的 `platform/ide-core-impl/src/com/intellij/openapi/editor/ex/EditorSettingsExternalizable.java`
   的 `TOOLTIPS_DELAY_RANGE` 初始值，以及 `platform/lang-impl/src/com/intellij/openapi/editor/HoverPopupContext.kt` 的剩余延迟计算。
-  Command 导航提示沿 `CtrlMouseHandler.kt` 在语义结果返回后立即显示，复用 Monaco 文档面板的内容、屏幕定位、
-  滚动和键盘可访问性，不另建窗口或计时器；单目标导航会收起旧结果面板。Windows 宿主没有使用该 macOS 入口，未改其实现。
+  Community 的 `CtrlMouseHandler.kt` 在语义结果返回后立即显示提示。根据用户对频繁弹出遮挡代码的反馈，
+  Lithe 有意改用 Monaco Delayed 模式，沿用 macOS 普通文档的 500ms 延迟；语义查询完成后开始等待，
+  手形与下划线不等待面板。复用 Monaco 的延迟、取消、内容、定位及键盘可访问性，不另建计时器；单目标导航会收起旧结果面板。Windows 宿主没有使用该 macOS 入口，未改其实现。
 
 - Markdown split 将原有 `MarkdownScrollPosition` binding 接回 Monaco，沿用来源与 revision 防回环；
   只在该视图启用滚动消息，33 ms 合并连续输入，切换文档或接收预览滚动时撤销旧回传。
@@ -834,7 +835,7 @@ UTF-16 编辑、保存屏障、Worker 和迟到语义结果；Swift 串行回归
 不是同一个显隐状态。已有普通说明时不新建 Command 提示；松开 Command 只关闭本次 Command 打开的提示。
 命令点击、Esc、编辑、切换模型、视口滚动、编辑器组件失焦和窗口失焦清理提示及未完成的导航悬停结果。
 鼠标进入说明面板、选择文字或点击链接继续交给 Monaco sticky hover 处理，避免用编辑区 mouseleave
-无条件关闭交互面板。所有窗口监听随编辑器销毁移除，迟到结果仍需通过 generation/文档快照检查。
+无条件关闭交互面板；但尚未显示的延迟提示必须在移出时取消，避免移走后才弹出。所有窗口监听随编辑器销毁移除，迟到结果仍需通过 generation/文档快照检查。
 Command 提示采用上游信息标签的 6/6/5/6 内边距，去掉首尾段落额外外边距；外层依旧消费 Lithe 共享
 popup chrome，不复制另一套主题。普通说明维持 500ms 和 Monaco 文档排版。
 真实 WebKit 生命周期回归检查松键、Esc、滚动、失焦、编辑、切换模型、移入提示及普通说明不受松键影响，

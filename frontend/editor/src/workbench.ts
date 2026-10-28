@@ -636,7 +636,7 @@ export function mountWorkbench(host: WorkbenchHost) {
     const clear = (hideHint = true) => {
       generation++; hovered = ""; links.clear();
       view.getDomNode()?.classList.remove("lithe-definition-pointer");
-      if (hideHint && ownsHover) {
+      if (ownsHover && (hideHint || !ContentHoverController.get(view)?.isHoverVisible)) {
         ownsHover = false;
         view.getDomNode()?.classList.remove("lithe-command-hover");
         ContentHoverController.get(view)?.hideContentHover();
@@ -676,12 +676,13 @@ export function mountWorkbench(host: WorkbenchHost) {
       if (reply.available === true) {
         const range = new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn);
         links.set([{ range, options: { inlineClassName: "goto-definition-link" } }]);
-        // IDEA's Command hint has no extra timer after semantic resolution.
+        // Keep link feedback immediate, but let Monaco apply the host's normal
+        // hover delay so passing over symbols does not flash a documentation popup.
         const hover = ContentHoverController.get(view);
         if (hover && !hover.isHoverVisible) {
           ownsHover = true;
           view.getDomNode()?.classList.add("lithe-command-hover");
-          hover.showContentHover(range, 1 /* Immediate */, 0 /* Mouse */, false);
+          hover.showContentHover(range, 0 /* Delayed */, 0 /* Mouse */, false);
         }
       } else {
         // Keep the negative result for this gesture: pixel movement must not

@@ -1838,6 +1838,13 @@ async function verify() {
     await send({ type: "open", id, text });
     await window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", readonly: false });
     const model = editor.getModel()!, version = model.getVersionId();
+    const controller = ContentHoverController.get(editor)!;
+    const originalShow = controller.showContentHover;
+    let startMode: number | undefined;
+    controller.showContentHover = function (...args) {
+      startMode = args[1];
+      return originalShow.apply(this, args);
+    };
     const before = (await send({ type: "definitionRequests" })).requests.length;
     let listener: { dispose(): void } | undefined;
     const links = () => model.getAllDecorations().filter(value => value.options.inlineClassName === "goto-definition-link");
@@ -1851,6 +1858,8 @@ async function verify() {
       input._onMouseMove.fire({ event: { metaKey: true, leftButton: false, detail: 0 },
         target: { type: monacoEditor.MouseTargetType.CONTENT_TEXT, position: new Position(1, 9), range: new Range(1, 9, 1, 10), detail: {} } });
       await withDeadline(highlighted, "Command hover did not highlight the definition");
+      assert(startMode === 0, "Command hint bypassed Monaco's configured hover delay");
+      assert(!controller.isHoverVisible, "Command hint appeared immediately with the link feedback");
       assert(links()[0].range.equalsRange(new Range(1, 7, 1, 12)), "link did not cover the whole identifier");
       editor.render(true);
       const link = editor.getDomNode()!.querySelector(".goto-definition-link");
@@ -1871,7 +1880,31 @@ async function verify() {
       assert(requests.length === before + 1 && requests[before].id === id && requests[before].column === 8,
         "Command click did not dispatch exactly one navigation at the hovered symbol");
 
-    } finally { listener?.dispose(); await window.lithe.retain([]); }
+    } finally { controller.showContentHover = originalShow; listener?.dispose(); await window.lithe.retain([]); }
+  });
+  await check("leaving a symbol cancels its delayed Command hint", async () => {
+    const id = "pending-command-hint", text = "class Probe {}";
+    await send({ type: "open", id, text });
+    await window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", readonly: false });
+    const controller = ContentHoverController.get(editor)!, input = editor as any;
+    const originalShow = controller.showContentHover, originalHide = controller.hideContentHover;
+    let scheduled!: () => void, hideCount = 0;
+    const requested = new Promise<void>(resolve => { scheduled = resolve; });
+    controller.showContentHover = function (...args) { originalShow.apply(this, args); scheduled(); };
+    controller.hideContentHover = function () { hideCount++; originalHide.call(this); };
+    try {
+      input._onMouseMove.fire({ event: { metaKey: true, leftButton: false, detail: 0 },
+        target: { type: monacoEditor.MouseTargetType.CONTENT_TEXT, position: new Position(1, 9), range: new Range(1, 9, 1, 10), detail: {} } });
+      await withDeadline(requested, "Command hint was not scheduled");
+      assert(!controller.isHoverVisible, "hint appeared before the dwell delay");
+      const before = hideCount;
+      input._onMouseLeave.fire({});
+      assert(hideCount > before, "leaving the editor did not cancel the pending hover operation");
+      assert(!editor.getDomNode()!.classList.contains("lithe-command-hover"), "pending hint retained its owner after leaving");
+    } finally {
+      controller.showContentHover = originalShow; controller.hideContentHover = originalHide;
+      controller.hideContentHover(); await window.lithe.retain([]);
+    }
   });
   await check("Command pointer stays stable during slow definition lookup and repaint", async () => {
     const id = "slow-definition-hover", text = "class Probe {}";
