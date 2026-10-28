@@ -76,6 +76,17 @@ try {
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /vcs-root-mappings.*cannot be reused/);
   });
+  await test("npm source identity cannot authorize separate lifecycle binary reuse", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const bun = registry.resources.find(item => item.id === "bun");
+    assert.match(bun.identity, /source-only lock migration invalidates/);
+    const state = registry.excludedResources.find(item => item.id === "frontend-install-state");
+    assert.match(state.reason, /null digest cannot establish a binary reuse identity/);
+    assert.ok(!registry.resources.some(item => /tree-sitter/.test(item.id)));
+    const refused = reuse(["--resource", state.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /frontend-install-state.*cannot be reused/);
+  });
   await test("shared translations are regenerated locally rather than reused", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const resource = registry.excludedResources.find(item => item.id === "shared-i18n");

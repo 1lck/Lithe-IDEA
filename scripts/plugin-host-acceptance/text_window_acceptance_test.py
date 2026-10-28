@@ -7,6 +7,7 @@ import contextlib
 import copy
 import io
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -38,6 +39,38 @@ class TextWindowHelperTests(unittest.TestCase):
                       self.endpoint + "?x", "http://user@127.0.0.1:123/literal-probe", "http://127.0.0.1/literal-probe"):
             with self.assertRaises(ValueError):
                 fixture.declaration(value)
+
+    def test_driver_progress_does_not_break_final_report_aggregation(self):
+        import acceptance_driver as driver
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            values = {
+                "fixture-root": root / "fixture", "host-identity": root / "identity.json",
+                "executable": root / "host.exe", "run-image": root / "image",
+                "artifact-root": root / "evidence", "report": root / "reports/acceptance.json",
+                "app-local-data": root / "local" / driver.ACCEPTANCE_IDENTIFIER,
+                "app-roaming-data": root / "roaming" / driver.ACCEPTANCE_IDENTIFIER,
+                "webview-data": root / "runtime/webview2",
+            }
+            argv = ["text_window_acceptance.py"]
+            for key, value in values.items():
+                argv.extend(["--" + key, str(value)])
+            def complete(_args, _driver, reporter):
+                for name in acceptance.CASES:
+                    with reporter.step("controlled-ui1-literal / " + name):
+                        pass
+            with patch.object(sys, "argv", argv), \
+                    patch.dict(os.environ, {"LOCALAPPDATA": str(root / "local"), "APPDATA": str(root / "roaming")}), \
+                    patch.object(acceptance, "run", side_effect=complete), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(acceptance.main(), 0)
+            self.assertTrue((root / "evidence/progress.json").is_file())
+            self.assertEqual(list((root / "reports").glob("*.json")), [values["report"]])
+            generator = fixture.ROOT / ".agents/skills/write-stable-tests/scripts/generate-test-report.mjs"
+            result = subprocess.run(["node", str(generator), "--input-dir", str(root / "reports")],
+                                    capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue((root / "reports/index.html").is_file())
+            self.assertTrue((root / "reports/acceptance.junit.xml").is_file())
 
     def test_tampered_archive_cannot_be_adopted_by_updating_plan_hash(self):
         parent = fixture.ROOT / ".artifacts/plugin-host-acceptance"
@@ -75,6 +108,25 @@ class TextWindowHelperTests(unittest.TestCase):
                     patch.object(fixture.time, "monotonic", side_effect=[0, 0, 0, 301]):
                 with self.assertRaisesRegex(TimeoutError, "300 seconds"):
                     real_source_inventory()
+
+    def test_source_inventory_canonicalizes_import_alias_before_relative_keys(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            (root / "alias").mkdir()
+            scripts = root / "scripts/plugin-host-acceptance"
+            scripts.mkdir(parents=True)
+            names = ("text_window_fixture.py", "text_window_acceptance.py", "text_window_acceptance_test.py")
+            for name in names:
+                (scripts / name).write_bytes(b"controlled source")
+            # An import alias must produce the same keys as the canonical ROOT.
+            # No system drive mapping or link privilege is needed for this case.
+            alias = root / "alias/../scripts/plugin-host-acceptance/text_window_fixture.py"
+            with patch.object(fixture, "ROOT", root), patch.object(fixture, "__file__", str(alias)), \
+                    patch.object(fixture, "host_source_inventory", return_value={}), \
+                    patch.object(fixture.subprocess, "run", return_value=SimpleNamespace(stdout=b"")):
+                inventory = real_source_inventory()
+            self.assertEqual(sorted(inventory), ["scripts/plugin-host-acceptance/" + name for name in sorted(names)])
+            self.assertEqual(len(set(inventory.values())), 1)
 
     def test_run_source_is_reusable_at_new_revision_but_rejects_later_drift(self):
         parent = fixture.ROOT / ".artifacts/plugin-host-acceptance"

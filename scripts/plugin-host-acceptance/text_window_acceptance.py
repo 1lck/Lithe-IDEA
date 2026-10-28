@@ -468,7 +468,9 @@ def main():
     if (args.app_local_data != Path(os.environ["LOCALAPPDATA"]) / driver.ACCEPTANCE_IDENTIFIER
             or args.app_roaming_data != Path(os.environ["APPDATA"]) / driver.ACCEPTANCE_IDENTIFIER or args.webview_data.name != "webview2"):
         parser.error("unexpected acceptance profile identity")
-    reporter = driver.Reporter(args.report.with_suffix(".progress.json"))
+    # Progress lacks the normalized runner envelope; keep it with raw evidence
+    # so directory report aggregation consumes only final timing reports.
+    reporter = driver.Reporter(args.artifact_root / "progress.json")
     code = 0
     try:
         run(args, driver, reporter)

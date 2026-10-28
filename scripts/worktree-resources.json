@@ -14,7 +14,8 @@
     {
       "id": "bun",
       "path": ".artifacts/bun-cache",
-      "validator": "bun"
+      "validator": "bun",
+      "identity": "Bun version, exact bun.lock bytes (including official registry URLs), and sealed file inventory; a source-only lock migration invalidates the old seal. Lifecycle executables are installation state, not npm tarball-authenticated reusable downloads."
     },
     {
       "id": "jdtls",
@@ -144,8 +145,8 @@
         "frontend/editor/node_modules",
         ".artifacts/bun-tmp"
       ],
-      "identity": "Mutable installation state tied to one worktree, OS, architecture, Bun version and lifecycle attempt; no sealed reusable identity stamp",
-      "reason": "Each Windows install attempt owns its lifecycle processes in a worker Job Object. Release that tree before clearing partial dependencies or retrying. Never copy install temp data or node_modules across worktrees; only the sealed Bun download cache may be reused."
+      "identity": "Mutable installation state tied to one worktree, OS, architecture, Bun version and lifecycle attempt; no sealed reusable identity stamp. Private installation-tool candidate metadata, tarballs, executables, route probes and SUBST aliases are diagnostics, never reusable build resources.",
+      "reason": "Each Windows install attempt owns its lifecycle processes in a worker Job Object. Release that tree before clearing partial dependencies or retrying. Never copy install temp data or node_modules across worktrees; only the sealed Bun download cache may be reused. tree-sitter-cli lifecycle executables remain here: npm tarball SRI does not authenticate the separate GitHub binary, and an official null digest cannot establish a binary reuse identity."
     },
     {
       "id": "jdt-maven-settings",

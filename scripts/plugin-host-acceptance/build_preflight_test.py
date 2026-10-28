@@ -49,7 +49,7 @@ def main() -> int:
             version = run_bounded_process([str(native / "bun.exe"), "--version"], 5).stdout.strip()
             package = app / "package.json"
             package.write_text(json.dumps({"packageManager": "bun@" + version}), encoding="utf-8")
-            for name in ("windows-build-preflight.ps1", "build-windows.ps1", "install-windows-frontend-dependencies.ps1", "invoke-windows-tauri-build.ps1", "prepare-jdtls.ps1"):
+            for name in ("windows-build-preflight.ps1", "build-windows.ps1", "install-windows-frontend-dependencies.ps1", "invoke-windows-tauri-build.ps1", "prepare-jdtls.ps1", "windows-tree-sitter-proxy.cjs"):
                 shutil.copyfile(ROOT / "scripts" / name, scripts / name)
             powershell = shutil.which("pwsh")
 

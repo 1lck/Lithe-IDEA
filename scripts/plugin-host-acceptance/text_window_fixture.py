@@ -42,7 +42,8 @@ def source_inventory() -> dict:
         if name and (ROOT / name).is_file():
             inventory[name] = bounded_hash(ROOT / name)
     for name in ("text_window_fixture.py", "text_window_acceptance.py", "text_window_acceptance_test.py"):
-        path = Path(__file__).with_name(name)
+        # ROOT is canonical; resolve a SUBST/alias import before deriving its key.
+        path = Path(__file__).resolve().with_name(name)
         inventory[path.relative_to(ROOT).as_posix()] = bounded_hash(path)
     return dict(sorted(inventory.items()))
 

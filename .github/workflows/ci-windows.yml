@@ -47,6 +47,7 @@ jobs:
         run: |
           node scripts/test-verify-download-cache.mjs
           node scripts/test-reuse-worktree-resources.mjs
+          node --test --test-timeout=15000 scripts/windows-tree-sitter-proxy.test.cjs
           node --test --test-timeout=15000 scripts/test-codex-config-relay.mjs
 
       - name: Resolve comparison base

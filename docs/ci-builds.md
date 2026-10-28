@@ -359,6 +359,25 @@ Swift 单元和插件 CI 通道复用已有 Cargo 下载缓存。先通过
 
 ### 独立工作树的本地编译
 
+根工作区使用 Bun 1.3.14；`bunfig.toml` 与 `bun.lock` 的显式 tarball URL 均使用
+`https://registry.npmjs.org`。不要假定 `--registry` 会替换 lock 中的显式地址。
+仅迁移来源也会改变 lock 原字节，旧 Bun 缓存 seal 必须重新校验；版本、完整依赖图和
+SRI 保持不变。仍通过既有 `bun` 路由校验复制下载缓存，不复制 `node_modules` 或
+`.artifacts/bun-tmp`。两个 tree-sitter-cli 的 GitHub lifecycle 二进制不属于 npm
+tarball SRI 的认证范围，尤其官方 digest 为 null 时不得登记为跨工作树二进制缓存。
+Bun 1.3.14 的官方修复覆盖 TLS 握手停滞及 isolated linker 下载/摘要错误后挂起；
+这里只升级安装工具，产品依赖精确版本不变。Windows 路径过长时可在本次调用独占的
+空闲 SUBST 盘符运行同一工作树，结束后移除自己创建的映射，不修改系统 long-path
+设置、不使用其他任务的盘符。工具候选的 npm metadata/tgz/EXE 和独立安装探针仅放
+ignored 诊断目录，不进入工作树下载缓存或资源复用清单。
+
+Windows 安装 worker 为 tree-sitter-cli 的原始 `install.js` 加载专用代理适配器；
+有 HTTPS 代理时要求 Node 22.21+ 或 24.5+，由 Node 的原生 `https.Agent({proxyEnv})`
+负责 CONNECT/TLS。适配器只在该生命周期进程中移除上游手动代理分支读取的两个变量，
+其它包与父进程环境不变，不禁用 TLS、SRI 或 lifecycle。无代理时沿用上游直连。
+该适配器不下载、解压或缓存文件；输出仍归本次 Job-owned 安装状态，安装结束由既有
+流程封存允许复用的 Bun 下载缓存。运行时不写发行资源，不影响签名或增量更新基线。
+
 共享翻译源文件位于 `shared/i18n/`。每个工作树通过 Git 获取源文件和已提交的
 macOS 字符串表、`AppLanguage.generated.swift`、Windows `shared.generated.ts`，
 然后运行 `node scripts/generate-i18n.mjs --check` 校验。修改源翻译后运行不带

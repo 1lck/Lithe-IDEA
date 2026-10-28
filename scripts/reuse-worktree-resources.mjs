@@ -195,6 +195,9 @@ async function validatorArguments(resource, cachePath, targetRoot) {
   if (resource.validator === "bun") {
     // This route validates sealed downloads only. Job-owned installation temp
     // data and node_modules stay in the registry's non-reusable exclusions.
+    // Exact lock bytes include source URLs: switching registry with an unchanged
+    // dependency graph still rejects the old seal. GitHub lifecycle binaries have
+    // no validator here; their identity cannot be inferred from npm tarball SRI.
     const packagePath = await requiredFile(targetRoot, "package.json", resource.id);
     const packageManifest = JSON.parse(await fs.readFile(packagePath, "utf8"));
     const match = String(packageManifest.packageManager ?? "").match(/^bun@(.+)$/);

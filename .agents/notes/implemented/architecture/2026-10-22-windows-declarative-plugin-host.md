@@ -134,11 +134,36 @@ Windows x64 对上述固定 Provider 源码和历史 SDK 的直接 stdio 诊断�
 - `install_extension_from_url` 等 Worker 非语言市场命令（M2 已处置）：在 Rust 宿主注册为显式占位错误（`extensionStore.notAvailable`），调用方得到可诊断的结构化失败而不是"命令不存在"；完整落盘后端是独立工作项，不与契约宿主混淆。
 - 管理界面按模型分组展示两类扩展并使用不同文案，避免用户把 Worker 扩展当成契约插件。
 
+### Windows 构建依赖的来源与代理边界
+
+根 Bun 工作区的显式 tarball 来源改用 npm 官方仓库，保留全部精确版本、依赖声明和
+SRI（压缩包的完整性摘要）。来源迁移必须机器比较完整 lock 图；只传 `--registry`
+不能证明显式 URL 已改变。Bun 缓存仍以工具版本、lock 原字节和文件清单封存，来源
+变化会使旧 seal 失效；安装目录、临时目录和 GitHub lifecycle 二进制不能跨树复制。
+工具版本固定为 Bun 1.3.14：该版本官方说明明确修复安装时 TLS 握手停滞、下载 HTTP
+错误及 isolated linker 摘要失败后的挂起；1.3.12 实测停在 GitHub 归档路径，而
+1.3.14 同一归档能进入原生构建。此处升级的是安装工具，不升级产品依赖图。
+
+tree-sitter-cli 的两个上游 `install.js` 保持原样。Windows worker 只为该包加载
+`windows-tree-sitter-proxy.cjs`：有 HTTPS 代理时，把连接管理交给 Node 原生
+`https.Agent({proxyEnv})`，并仅在当前 lifecycle 中移除上游手动 CONNECT 分支读取的
+环境变量；TLS 校验、重定向、响应解压和可执行文件落盘仍由 Node 与上游实现。
+正确做法是验证完整响应体、gzip 解压及 `--version` 后再运行 frozen 全量安装；
+不要因响应头为 200、增加超时或手工放置 EXE 就宣称修复。代理适配要求支持该能力的
+Node 22.21+ 或 24.5+，不新增下载器和长期二进制缓存。代价是代理安装的 Node 最低版本
+更明确；收益是复用上游原生连接管理，避免维护第二套 CONNECT/TLS 实现。
+源码清单先解析模块的真实路径，再相对已解析的仓库根生成键；SUBST 导入路径和物理
+路径必须得到同一清单，不能因开发者用短路径避开 Windows 编译路径上限而拒绝构建。
+
 ### 实施切分
 
 M1 包存储 + 启动校验 + 语言注册 + LSP 启动（已落地）；M2 磁盘安装链路 + 管理界面 v1 + 死链处置（已落地）；M3 声明式设置 + 运行/测试计划 + PHP 契约包（已落地，Worker 版保留见上文）；M4 Web 工具窗口（已落地，桥 v0 只含 state/openFile/主题，build.* 与 functions.* 等 Windows 构建系统能力接入后开放）。路线图 M1（发布者签名 + 全包完整性 + 安装记录事务，`signature.rs` 与 schema 2 安装记录）已落地；本 Note 早期的 M1–M4 编号是宿主 PR 的内部切分，与路线图的 M0–M10 不是同一序列。每个里程碑独立 PR，矩阵条目随代码同 PR 更新。总体方向遵循[公共扩展契约与 Provider 接入方向](../../proposed/architecture/2026-10-13-public-extension-contract-and-provider-api.md)，本 Note 只落地其中 Windows 契约宿主的第一阶段。
 
 ## 考虑过的备选方案
+
+- 仅扩大安装预算、反复冷装或自建 tree-sitter 二进制缓存：不能消除实际 TLS 路径差异，
+  npm SRI 也不认证另行下载的 GitHub 二进制；尤其官方摘要为 null 时不能建立可靠复用身份。
+  采用官方 npm 来源与 Node 原生 Agent 的最小适配，保留上游生命周期。
 
 - 把 Worker 扩展模型整体改造成契约宿主：契约没有主题、AI provider 这些概念，改造成本高且无收益，不采用。
 - 在 Tauri 侧另写一套清单校验：违反"校验只在 Core 实现一次"，共享 fixtures 无法复用，双端语义必然漂移，不采用。
