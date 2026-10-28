@@ -48,6 +48,17 @@ package final class GitRepositoryDiffSession: ObservableObject, Identifiable {
         comparisonRoot = nil
     }
 
+    /// Shows a re-read document. Every assignment to a `@Published` property
+    /// redraws the diff and drops its scroll position, even for equal values, so
+    /// an unchanged document must leave the session untouched. The patch alone
+    /// cannot tell: comparisons against HEAD carry rows and no patch text.
+    func updateDocument(patch: String, rows: [DiffRow], hunks: [DiffHunk]) {
+        guard selectedDiffPatch != patch || diffRows != rows else { return }
+        selectedDiffPatch = patch
+        diffRows = rows
+        diffHunks = hunks
+    }
+
     func close() {
         isClosed = true
         reset()

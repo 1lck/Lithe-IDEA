@@ -1612,7 +1612,11 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     func showSavedChangesDiff(_ snapshot: GitSavedChangesSnapshot, version: String, file: GitCommitFile) {
-        guard let feature = gitFeatureIfActive else { return }
+        // Validate before opening a tab: a snapshot of another repository, or one
+        // without this version/file, must not leave an empty comparison behind.
+        guard let feature = gitFeatureIfActive,
+              feature.gitRepositoryRoot == snapshot.repositoryRoot,
+              snapshot.files.contains(where: { $0.version == version && $0.file == file }) else { return }
         let id = beginRepositoryDiffRequest(key: RepositoryDiffTabKey(repositoryRoot: snapshot.repositoryRoot.standardizedFileURL,
             source: .saved(String(describing: snapshot.id), version, file.path)))
         let session = feature.repositoryDiffSession(id: id)

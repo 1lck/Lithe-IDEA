@@ -39,15 +39,19 @@ struct GitModuleTests {
     }
 
     @Test
-    func independentSavedDiffSessionsSurviveHistorySelectionAndOtherTabClose() {
+    func independentSavedDiffSessionsSurviveHistorySelectionAndOtherTabClose() async {
         let root = URL(fileURLWithPath: "/workspace")
         let file = GitCommitFile(status: "M", path: "same.txt")
         let snapshot = GitSavedChangesSnapshot(id: "stash", repositoryRoot: root, files: ["one", "two"].map {
             GitSavedPatchFile(file: file, version: $0, base: "base",
                 patch: "diff --git a/same.txt b/same.txt\n--- a/same.txt\n+++ b/same.txt\n@@ -1 +1 @@\n-old\n+\($0)\n")
         })
-        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations()))
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []))))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {})
         defer { feature.reset() }
+        await feature.refreshGit()
         let first = feature.repositoryDiffSession(id: UUID()), second = feature.repositoryDiffSession(id: UUID())
         feature.showSavedChangesDiff(snapshot, version: "one", file: file, session: first)
         feature.showSavedChangesDiff(snapshot, version: "two", file: file, session: second)
@@ -59,6 +63,125 @@ struct GitModuleTests {
         #expect(second.diffRows.contains { $0.rightText == "two" })
         feature.closeRepositoryDiffSession(first.id)
         #expect(second.diffRows.contains { $0.rightText == "two" })
+    }
+
+    @Test
+    func savedDiffRejectsAnotherRepositoryAndUnknownFileWithoutTouchingTheSession() async {
+        let root = URL(fileURLWithPath: "/workspace"), other = URL(fileURLWithPath: "/other")
+        let file = GitCommitFile(status: "M", path: "same.txt")
+        func snapshot(in repository: URL) -> GitSavedChangesSnapshot {
+            GitSavedChangesSnapshot(id: "stash", repositoryRoot: repository, files: [
+                GitSavedPatchFile(file: file, version: "one", base: "base",
+                    patch: "diff --git a/same.txt b/same.txt\n--- a/same.txt\n+++ b/same.txt\n@@ -1 +1 @@\n-old\n+one\n")
+            ])
+        }
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []))))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        let session = feature.repositoryDiffSession(id: UUID())
+
+        feature.showSavedChangesDiff(snapshot(in: other), version: "one", file: file, session: session)
+        feature.showSavedChangesDiff(snapshot(in: root), version: "missing", file: file, session: session)
+        #expect(session.savedDiffSnapshot == nil && session.selectedGitCommitFile == nil && session.diffRows.isEmpty)
+
+        feature.showSavedChangesDiff(snapshot(in: root), version: "one", file: file, session: session)
+        #expect(session.selectedGitCommitFile == file && session.diffRows.contains { $0.rightText == "one" })
+    }
+
+    @Test
+    func workspaceRefreshKeepsLinkedWorktreeDiffItDoesNotObserveUntilItsOwnReadConfirmsClean() async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let worktree = makeTestWorktree(path: "/linked", branch: "linked")
+        let other = makeTestWorktree(path: "/other", branch: "other")
+        let change = GitChange(repositoryRoot: worktree.url, path: "file.txt", originalPath: nil,
+            indexStatus: " ", workTreeStatus: "M")
+        let probe = WorktreeChangesProbe(root: root, changes: [change])
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(snapshotHandler: { probe.snapshot($0) })),
+            worktreesProvider: { _ in [worktree, other] },
+            diffDocumentProvider: { _, _ in DiffDocument(patch: "linked diff", rows: [], hunks: []) })
+        defer { feature.reset() }
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {})
+        await feature.refreshGit(); await feature.refreshWorktrees(); await feature.inspectWorktree(worktree)
+        let session = feature.repositoryDiffSession(id: UUID())
+        await feature.selectChange(change, session: session)
+        #expect(session.selectedChange == change)
+
+        // The workspace snapshot never lists a linked checkout, and the Worktrees
+        // panel now shows another one, so neither source can vouch for this file.
+        await feature.inspectWorktree(other)
+        await feature.refreshGit()
+        #expect(session.selectedChange == change)
+        #expect(session.selectedDiffPatch == "linked diff")
+
+        // A status read of the linked checkout itself is what proves it clean.
+        await feature.inspectWorktree(worktree)
+        _ = probe.mutate(change, action: "discard")
+        await feature.refreshWorktreeChanges(worktree)
+        #expect(session.selectedChange == nil && session.selectedDiffPatch.isEmpty)
+    }
+
+    @Test
+    func unchangedWorkingDiffRefreshLeavesTheSessionUntouchedAndChangedRowsStillPublish() async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let change = GitChange(repositoryRoot: root, path: "file.txt", originalPath: nil,
+            indexStatus: " ", workTreeStatus: "M")
+        let source = MutableDiffDocumentSource(text: "before")
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: [change]))),
+            diffDocumentProvider: { _, _ in source.document() })
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        await feature.selectChange(change)
+        let session = feature.activeRepositoryDiffSession
+        var publications = 0
+        let observation = session.objectWillChange.sink { publications += 1 }
+        defer { observation.cancel() }
+
+        await feature.refreshGit()
+        #expect(publications == 0, "Equal content must not redraw the diff or reset its scroll position")
+        #expect(session.diffRows.first?.rightText == "before")
+
+        source.set(text: "after")
+        await feature.refreshGit()
+        #expect(publications > 0)
+        #expect(session.selectedDiffPatch == "after" && session.diffRows.first?.rightText == "after")
+    }
+
+    @Test
+    func directoryDiffRefreshKeepsRowsVisibleAndOnlyPublishesRealChanges() async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let changes = ["one.txt", "two.txt"].map {
+            GitChange(repositoryRoot: root, path: "dir/\($0)", originalPath: nil, indexStatus: " ", workTreeStatus: "M")
+        }
+        let source = MutableDiffDocumentSource(text: "before", includesPatch: false)
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: changes),
+            comparisonRowsRead: { source.document() })))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        let session = feature.repositoryDiffSession(id: UUID())
+        await feature.showDirectoryDiff(at: root.appendingPathComponent("dir"), session: session)
+        #expect(session.diffRows.map(\.rightText) == ["before", "before"] && !session.isLoadingDiff)
+        var publications = 0
+        let observation = session.objectWillChange.sink { publications += 1 }
+        defer { observation.cancel() }
+
+        await feature.refreshGit()
+        #expect(publications == 0, "A refresh must not blank the rows or flash the loading state")
+        #expect(session.diffRows.map(\.rightText) == ["before", "before"])
+
+        source.set(text: "after")
+        await feature.refreshGit()
+        #expect(session.diffRows.map(\.rightText) == ["after", "after"] && !session.isLoadingDiff)
+        #expect(session.directoryURL != nil)
     }
 
     @Test(arguments: [false, true])
@@ -2231,6 +2354,40 @@ struct GitModuleTests {
             #expect(feature.canLoadMoreGitHistory == fails)
             #expect(feature.gitCommits.map(\.hash) == ["one"])
         }
+    }
+
+    @Test
+    func historyPageRetryKeepsTheLoadedWindowAndSelection() async {
+        let root = URL(fileURLWithPath: "/workspace")
+        let commits = (0..<300).map { makeTestCommit(hash: "commit-\($0)", subject: "Commit \($0)") }
+        let controller = GitPagingRefreshController(commits: commits)
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: []),
+            historyPageRequestHandler: { reference, cursor, limit in
+                controller.page(reference: reference, cursor: cursor, limit: limit)
+            }
+        )))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { true },
+                          notify: { _ in }, onStateRefreshed: {})
+        defer { feature.reset() }
+        await feature.refreshGit()
+        await feature.loadMoreGitHistory()
+        await feature.selectGitCommit(commits[150])
+        #expect(feature.gitCommits == Array(commits.prefix(200)))
+
+        controller.setFailsContinuations(true)
+        await feature.loadMoreGitHistory()
+        #expect(feature.gitHistoryPageFailed)
+        #expect(feature.gitCommits == Array(commits.prefix(200)))
+
+        controller.setFailsContinuations(false)
+        await feature.loadMoreGitHistory()
+        #expect(!feature.gitHistoryPageFailed)
+        #expect(feature.gitCommits == Array(commits.prefix(200)), "Retry must not shrink the list to the first page")
+        #expect(feature.selectedGitCommit?.hash == commits[150].hash, "Retry must not move the selection")
+        #expect(feature.canLoadMoreGitHistory)
+        await feature.loadMoreGitHistory()
+        #expect(feature.gitCommits == commits)
     }
 
     @Test
@@ -4538,11 +4695,15 @@ private final class GitPagingRefreshController: @unchecked Sendable {
     private let lock = NSLock()
     private var commits: [GitCommit]
     private var limits: [Int] = []
+    private var failsContinuations = false
     init(commits: [GitCommit]) { self.commits = commits }
     var visibleLimits: [Int] { lock.withLock { limits } }
     func prepend(_ commit: GitCommit) { lock.withLock { commits.insert(commit, at: 0) } }
-    func page(reference: GitReference?, cursor: String?, limit: Int) -> GitHistoryPage {
+    /// Makes every request that continues from a cursor fail, like a consumed Core cursor.
+    func setFailsContinuations(_ fails: Bool) { lock.withLock { failsContinuations = fails } }
+    func page(reference: GitReference?, cursor: String?, limit: Int) -> GitHistoryPage? {
         lock.withLock {
+            if failsContinuations, cursor != nil { return nil }
             if reference != nil { limits.append(limit) }
             let offset = cursor.flatMap(Int.init) ?? 0
             let page = Array(commits.dropFirst(offset).prefix(limit))
@@ -4567,6 +4728,21 @@ private func makeTestWorktree(path: String, branch: String) -> GitWorktree {
         isPrunable: false,
         pruneReason: nil
     )
+}
+
+/// A diff document whose content a test can change between refreshes.
+private final class MutableDiffDocumentSource: @unchecked Sendable {
+    private let lock = NSLock()
+    private let includesPatch: Bool
+    private var text: String
+    /// `includesPatch: false` mirrors comparisons against HEAD, which carry rows only.
+    init(text: String, includesPatch: Bool = true) { self.text = text; self.includesPatch = includesPatch }
+    func set(text: String) { lock.withLock { self.text = text } }
+    func document() -> DiffDocument {
+        let text = lock.withLock { self.text }
+        return DiffDocument(patch: includesPatch ? text : "",
+            rows: [DiffRow(oldLine: 1, newLine: 1, left: "old", right: text, kind: .changed)], hunks: [])
+    }
 }
 
 private actor RepositoryDiffDocumentProbe {

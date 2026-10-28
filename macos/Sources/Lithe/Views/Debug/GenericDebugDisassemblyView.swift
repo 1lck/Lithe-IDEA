@@ -155,13 +155,25 @@ struct GenericDebugDisassemblyView: View {
         let visibleItems = items
         let ids = visibleItems.map(\.id)
         let font = LitheTheme.editorFont(size: Self.fontSize)
-        let textWidth = disassembly.rows.map { instruction in
-            (instruction.instruction as NSString).size(withAttributes: [.font: font]).width
-                + (sourceLocation(instruction).map { ($0 as NSString).size(withAttributes: [.font: font]).width + 10 } ?? 0)
-        }.max() ?? 0
-        let symbolWidth = disassembly.rows.compactMap(\.symbol).map {
-            (($0 + ":") as NSString).size(withAttributes: [.font: font]).width
-        }.max() ?? 0
+        // Rows only ever append, but this runs on every body pass: lay out just the
+        // longest candidates (the editor font is monospaced) instead of every row.
+        var widestRow: (instruction: String, location: String?)?
+        var widestRowLength = -1
+        var longestSymbol: String?
+        for row in disassembly.rows {
+            let location = sourceLocation(row)
+            let length = row.instruction.count + (location?.count ?? 0)
+            if length > widestRowLength {
+                widestRowLength = length
+                widestRow = (row.instruction, location)
+            }
+            if let symbol = row.symbol, symbol.count > (longestSymbol?.count ?? -1) { longestSymbol = symbol }
+        }
+        let textWidth = widestRow.map { row in
+            (row.instruction as NSString).size(withAttributes: [.font: font]).width
+                + (row.location.map { ($0 as NSString).size(withAttributes: [.font: font]).width + 10 } ?? 0)
+        } ?? 0
+        let symbolWidth = longestSymbol.map { (($0 + ":") as NSString).size(withAttributes: [.font: font]).width } ?? 0
         let contentWidth = Self.gutterWidth + 20 + max(symbolWidth,
             addressColumn + 10 + (bytesColumn > 0 ? bytesColumn + 10 : 0) + textWidth)
         return GeometryReader { viewport in

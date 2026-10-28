@@ -827,7 +827,9 @@ package final class GitFeatureModel: ObservableObject {
             }
 
             for session in allDiffSessions where session.selectedChange != nil {
-                await refreshWorkingDiff(session, changes: changes)
+                await refreshWorkingDiff(
+                    session, changes: changes, confirmedRoots: observation.successfullyReadRepositoryRoots
+                )
                 guard !Task.isCancelled else { return }
             }
         } else {
@@ -1013,25 +1015,34 @@ package final class GitFeatureModel: ObservableObject {
         isFilteringGitLog = false
     }
 
-    private func refreshWorkingDiff(_ session: GitRepositoryDiffSession, changes: [GitChange]) async {
+    /// Re-reads one working-tree comparison after a status refresh.
+    ///
+    /// `confirmedRoots` are the repositories whose status this refresh actually
+    /// read. A path missing from `changes` means "clean" only inside one of them:
+    /// a linked worktree's tab is not covered by the workspace snapshot, so its
+    /// absence proves nothing and the tab keeps its content.
+    private func refreshWorkingDiff(
+        _ session: GitRepositoryDiffSession, changes: [GitChange], confirmedRoots: Set<URL>
+    ) async {
         guard let previous = session.selectedChange, !session.isClosed else { return }
         if let directory = session.directoryURL {
-            await showDirectoryDiff(at: directory, session: session)
+            await showDirectoryDiff(at: directory, session: session, refreshingConfirmedRoots: confirmedRoots)
             return
         }
         let updated = changes.first {
             $0.repositoryRoot.standardizedFileURL == previous.repositoryRoot.standardizedFileURL && $0.path == previous.path
         } ?? inspectedWorktreeChange(matching: previous) ?? untrackedChange(at: previous.url, in: previous.repositoryRoot)
-        guard let updated else { session.reset(); return }
-        session.selectedChange = updated
-        session.repositoryDiffGeneration = UUID()
-        let generation = session.repositoryDiffGeneration
+        guard let updated else {
+            if confirmedRoots.contains(previous.repositoryRoot.standardizedFileURL) { session.reset() }
+            return
+        }
+        let generation = UUID()
+        session.repositoryDiffGeneration = generation
         let document = await diffDocumentProvider(updated, session.gitDiffWhitespaceMode)
         guard session.repositoryDiffGeneration == generation, !session.isClosed, !Task.isCancelled else { return }
-        session.selectedDiffPatch = document.patch
-        session.diffRows = document.rows
-        session.diffHunks = document.hunks
-        session.isLoadingDiff = false
+        if session.selectedChange != updated { session.selectedChange = updated }
+        session.updateDocument(patch: document.patch, rows: document.rows, hunks: document.hunks)
+        if session.isLoadingDiff { session.isLoadingDiff = false }
     }
 
     package func selectChange(_ change: GitChange, session: GitRepositoryDiffSession? = nil) async {
@@ -1061,7 +1072,14 @@ package final class GitFeatureModel: ObservableObject {
     /// Compatibility close for commands acting on the focused comparison only.
     package func closeRepositoryDiff() { activeRepositoryDiffSession.reset() }
 
-    package func showDirectoryDiff(at directoryURL: URL, session: GitRepositoryDiffSession? = nil) async {
+    /// A non-nil `refreshingConfirmedRoots` re-reads a directory comparison that is
+    /// already open: the session keeps showing its rows until the new ones differ,
+    /// and it closes only when the status of its repository was read and is clean.
+    package func showDirectoryDiff(
+        at directoryURL: URL,
+        session: GitRepositoryDiffSession? = nil,
+        refreshingConfirmedRoots: Set<URL>? = nil
+    ) async {
         let session = session ?? activeRepositoryDiffSession
         let directoryPath = directoryURL.standardizedFileURL.path
         guard let repositoryRoot = (availableRepositoryRoots.isEmpty
@@ -1081,7 +1099,12 @@ package final class GitFeatureModel: ObservableObject {
             $0.repositoryRoot.standardizedFileURL == repositoryRoot.standardizedFileURL
                 && (relativePath.isEmpty || $0.path == relativePath || $0.path.hasPrefix(prefix))
         }.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
-        guard !changes.isEmpty else { return }
+        guard !changes.isEmpty else {
+            if let confirmed = refreshingConfirmedRoots, confirmed.contains(repositoryRoot.standardizedFileURL) {
+                session.reset()
+            }
+            return
+        }
 
         let hasWorkingTreeChange = changes.contains(where: \.hasWorkingTreeChange)
         let isEntirelyUntracked = changes.allSatisfy(\.isUntracked)
@@ -1093,14 +1116,21 @@ package final class GitFeatureModel: ObservableObject {
             workTreeStatus: isEntirelyUntracked ? "?" : (hasWorkingTreeChange ? "M" : " ")
         )
 
-        session.reset()
-        let generation = session.repositoryDiffGeneration
-        session.directoryURL = directoryURL
-        session.selectedChange = summary
-        session.selectedDiffPatch = ""
-        session.diffRows = []
-        session.diffHunks = []
-        session.isLoadingDiff = true
+        let refreshing = refreshingConfirmedRoots != nil
+        let generation: UUID
+        if refreshing {
+            generation = UUID()
+            session.repositoryDiffGeneration = generation
+        } else {
+            session.reset()
+            generation = session.repositoryDiffGeneration
+            session.directoryURL = directoryURL
+            session.selectedChange = summary
+            session.selectedDiffPatch = ""
+            session.diffRows = []
+            session.diffHunks = []
+            session.isLoadingDiff = true
+        }
         var documents: [DiffDocument] = []
         for change in changes {
             documents.append(
@@ -1109,12 +1139,18 @@ package final class GitFeatureModel: ObservableObject {
                     whitespace: session.gitDiffWhitespaceMode
                 )
             )
+            // A refresh has nothing to show for a cancelled read; a first load
+            // still resolves its loading state below.
+            if refreshing, Task.isCancelled { return }
         }
-        guard session.repositoryDiffGeneration == generation, session.selectedChange?.id == summary.id else { return }
-        session.selectedDiffPatch = documents.map(\.patch).filter { !$0.isEmpty }.joined(separator: "\n")
-        session.diffRows = documents.flatMap(\.rows)
-        session.diffHunks = documents.flatMap(\.hunks)
-        session.isLoadingDiff = false
+        guard session.repositoryDiffGeneration == generation, !session.isClosed else { return }
+        if session.selectedChange != summary { session.selectedChange = summary }
+        session.updateDocument(
+            patch: documents.map(\.patch).filter { !$0.isEmpty }.joined(separator: "\n"),
+            rows: documents.flatMap(\.rows),
+            hunks: documents.flatMap(\.hunks)
+        )
+        if session.isLoadingDiff { session.isLoadingDiff = false }
     }
 
     package func selectConflictPath(_ path: String, session: GitRepositoryDiffSession? = nil) async {
@@ -2234,8 +2270,10 @@ package final class GitFeatureModel: ObservableObject {
     package func loadMoreGitHistory() async {
         // Core consumes a failed cursor. Retry by opening a fresh history rather than
         // reusing an invalid cursor or repeatedly fetching at the visible bottom edge.
+        // The reopened history spans the commits already loaded, so a retry deep in
+        // the list neither shrinks it to the first page nor moves the selection.
         if gitHistoryPageFailed {
-            await refreshGitHistory()
+            await refreshGitHistory(preservingLoadedHistory: true)
             return
         }
         guard let gitRepositoryRoot,
@@ -2401,7 +2439,8 @@ package final class GitFeatureModel: ObservableObject {
 
     package func showSavedChangesDiff(_ snapshot: GitSavedChangesSnapshot, version: String, file: GitCommitFile, session: GitRepositoryDiffSession? = nil) {
         let session = session ?? activeRepositoryDiffSession
-        guard let saved = snapshot.files.first(where: { $0.version == version && $0.file == file }) else { return }
+        guard snapshot.repositoryRoot == gitRepositoryRoot,
+              let saved = snapshot.files.first(where: { $0.version == version && $0.file == file }) else { return }
         session.reset()
         session.savedDiffSnapshot = snapshot
         session.savedDiffVersion = version
@@ -2770,9 +2809,10 @@ package final class GitFeatureModel: ObservableObject {
         }
         gitWorktreeInspection = GitWorktreeInspection(worktreeID: current.worktreeID, changes: snapshot.changes,
             commits: current.commits, hasMoreCommits: current.hasMoreCommits)
-        reconcilePendingStagingStates(with: snapshot.changes, successfullyReadRepositoryRoots: [worktree.url.standardizedFileURL])
+        let confirmedRoots: Set<URL> = [worktree.url.standardizedFileURL]
+        reconcilePendingStagingStates(with: snapshot.changes, successfullyReadRepositoryRoots: confirmedRoots)
         for session in allDiffSessions where session.selectedChange?.repositoryRoot.standardizedFileURL == worktree.url.standardizedFileURL {
-            await refreshWorkingDiff(session, changes: snapshot.changes)
+            await refreshWorkingDiff(session, changes: snapshot.changes, confirmedRoots: confirmedRoots)
         }
     }
 
