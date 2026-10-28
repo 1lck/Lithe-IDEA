@@ -1750,6 +1750,31 @@ async function verify() {
       assert(model.getVersionId() === version && model.getValue() === text, "scroll synchronization mutated source or undo");
     } finally { await window.lithe.markdownScroll(null); await window.lithe.retain([]); }
   });
+  await check("Java first visible frame waits for import folding without exposing expanded lines", async () => {
+    const id = "first-frame-fold", text = "package demo;\n\nimport java.util.List;\nimport java.util.Map;\nclass Probe {}";
+    let release!: () => void, arrived!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const requested = new Promise<void>(resolve => { arrived = resolve; });
+    const provider = languages.registerFoldingRangeProvider("java", {
+      async provideFoldingRanges(model) {
+        if (model.getValue() !== text) return null;
+        arrived(); await gate;
+        return [{ start: 3, end: 4, kind: languages.FoldingRangeKind.Imports }];
+      },
+    });
+    let opening: Promise<unknown> | undefined;
+    try {
+      await send({ type: "open", id, text });
+      opening = window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", readonly: false });
+      await withDeadline(requested, "initial folding was not requested");
+      assert(getComputedStyle(editor.getContainerDomNode()).opacity === "0" && editor.getContainerDomNode().inert, "expanded imports leaked before initial folding");
+      release();
+      await withDeadline(opening!, "opening did not finish after folding");
+      assert(getComputedStyle(editor.getContainerDomNode()).opacity === "1" && !editor.getContainerDomNode().inert, "editor remained hidden after folding");
+      const folding = await (editor.getContribution("editor.contrib.folding") as any).getFoldingModel();
+      assert(folding.getRegionAtLine(3)?.isCollapsed, "first visible frame did not contain collapsed imports");
+    } finally { release(); await opening; provider.dispose(); await window.lithe.retain([]); }
+  });
   await check("Java imports fold on first open and preserve manual expansion across tabs", async () => {
     const id = "default-import-fold", text = "package demo;\n\nimport java.util.List;\nimport java.util.Map;\nimport static java.util.Collections.emptyList;\n\nclass Probe {\n  void run() {}\n}";
     await send({ type: "open", id, text });

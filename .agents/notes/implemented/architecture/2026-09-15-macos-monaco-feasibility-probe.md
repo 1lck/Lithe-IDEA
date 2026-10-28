@@ -862,3 +862,11 @@ Command 悬停的光标反馈不再依赖异步返回后才创建的文字 span�
 I-beam 交替；移出词、松键或文档/视图生命周期变化后可以重新查询。取消同时移除视图指针状态，迟到
 响应不得恢复。原生 WebKit 回归用显式请求到达/释放闸门模拟慢服务，检查等待期间、重绘、负结果及松键后
 的真实 computed cursor，不使用时间睡眠。
+
+
+Java 首帧通过统一 `attachModel` 等待 Monaco `FoldingController.getFoldingModel()` 后发布：切换到 Java
+模型前仅暂时隐藏该编辑视图，完成 setModel、保存状态恢复及初始折叠后同步 render，再恢复原 opacity/inert。容器用 opacity 隐藏，避免 Monaco 自身重绘覆盖内部 visibility；准备期间 inert 禁止输入。
+主编辑器与分屏复用该顺序，同一模型更新和非 Java 文件不等待；不使用固定 sleep，也不重复实现折叠规则。
+这消除了先呈现全部 imports、随后异步收起的布局跳变，代价是首次内容呈现等待已有折叠计算；原生请求
+仍受现有桥接超时控制，finally 保证错误路径恢复可见性。真实 WebKit 通过折叠 provider 的显式闸门验证
+等待期间不可见，完成后的首个可见状态已经折叠，并继续覆盖手动展开状态的标签恢复。

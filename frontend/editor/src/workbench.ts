@@ -1,3 +1,4 @@
+import { FoldingController } from "monaco-editor/esm/vs/editor/contrib/folding/browser/folding.js";
 import { ContentHoverController } from "monaco-editor/esm/vs/editor/contrib/hover/browser/contentHoverController.js";
 import { ClickLinkGesture } from "monaco-editor/esm/vs/editor/contrib/gotoSymbol/browser/link/clickLinkGesture.js";
 import { runEditorCommand } from "./editor-commands";
@@ -362,6 +363,27 @@ export function mountWorkbench(host: WorkbenchHost) {
     return entry;
   }
 
+  async function attachModel(view: monaco.editor.IStandaloneCodeEditor, entry: Entry,
+                             state: monaco.editor.ICodeEditorViewState | null | undefined) {
+    const node = view.getContainerDomNode();
+    const prepareFolds = host.foldJavaImportsByDefault && entry.model.getLanguageId() === "java"
+      && view.getModel() !== entry.model;
+    const opacity = node.style.opacity, inert = node.inert;
+    if (prepareFolds) { node.style.opacity = "0"; node.inert = true; }
+    try {
+      view.setModel(entry.model);
+      if (state) view.restoreViewState(state);
+      // Monaco applies default import folds and saved fold state asynchronously.
+      // Publish the first frame only after that same upstream operation completes.
+      if (prepareFolds) await FoldingController.get(view)?.getFoldingModel();
+    } finally {
+      if (prepareFolds) {
+        if (view.getModel() === entry.model && !entry.model.isDisposed()) view.render(true);
+        node.style.opacity = opacity; node.inert = inert;
+      }
+    }
+  }
+
   async function activate(payload: any) {
     const started = performance.now();
     const previous = active && entries.get(active);
@@ -373,9 +395,8 @@ export function mountWorkbench(host: WorkbenchHost) {
     const modelMs = performance.now() - modelStarted;
     const attachStarted = performance.now();
     active = payload.id;
-    editor.setModel(entry.model);
+    await attachModel(editor, entry, entry.state);
     scheduleNavigation(payload.id, entry);
-    if (entry.state) editor.restoreViewState(entry.state);
     editor.updateOptions({ readOnly: entry.readonly || !!entry.closingHolds || failed });
     if (payload.focus) editor.focus();
     const metrics = { reused, modelMs, attachMs: performance.now() - attachStarted,
@@ -1036,9 +1057,7 @@ export function mountWorkbench(host: WorkbenchHost) {
           const state = surface.editor.saveViewState();
           if (state) surface.states.set(surface.id, state);
           surface.id = payload.id;
-          surface.editor.setModel(entry.model);
-          const retained = surface.states.get(payload.id);
-          if (retained) surface.editor.restoreViewState(retained);
+          await attachModel(surface.editor, entry, surface.states.get(payload.id));
         }
         applyReadOnly(entry);
         if (payload.focus) surface.editor.focus();
