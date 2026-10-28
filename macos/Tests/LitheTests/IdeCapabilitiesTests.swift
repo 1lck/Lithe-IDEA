@@ -421,8 +421,7 @@ private final class ProviderCapabilityExecutionFixture {
                 serverPortParser: CapabilityPortParserFixture(), runConfigurationOperations: store,
                 executableResolver: resolver, languageProviderCatalog: .compatibilityFallback,
                 languageRunProviders: .standard(catalog: .compatibilityFallback))
-            let maven = MavenFeatureModel(service: MavenService(runtimeService: runtime,
-                dependencyProcess: CapabilityProcessFixture(), mavenOperations: RustJavaMavenOperations(core: core)))
+            let maven = MavenFeatureModel(service: MavenService(runtimeService: runtime, mavenOperations: RustJavaMavenOperations(core: core)))
             let runFeature = RunFeatureModel(service: run)
             execution = ExecutionFeatureAccess(mavenFeature: maven, runFeature: runFeature,
                 tests: LanguageTestService(executableResolver: resolver, processFactory: { CapabilityProcessFixture() }),

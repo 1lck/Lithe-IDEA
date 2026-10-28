@@ -491,78 +491,6 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         }
     }
 
-    struct MavenDependenciesPayload: Decodable, Sendable {
-        struct Dependency: Decodable, Sendable {
-            let modulePath: String
-            let groupID: String
-            let artifactID: String
-            let version: String
-            let type: String
-            let classifier: String?
-            let scope: String
-            let resolution: String
-            let selectedVersion: String?
-            let premanagedVersion: String?
-            let premanagedScope: String?
-            let originalScope: String?
-            let ignoredScope: String?
-            let children: [Dependency]
-
-            enum CodingKeys: String, CodingKey {
-                case modulePath
-                case groupID = "groupId"
-                case artifactID = "artifactId"
-                case version
-                case type
-                case classifier
-                case scope
-                case resolution
-                case selectedVersion
-                case premanagedVersion
-                case premanagedScope
-                case originalScope
-                case ignoredScope
-                case children
-            }
-
-            func makeModel() throws -> MavenDependency {
-                guard let resolution = MavenDependencyResolution(rawValue: resolution) else {
-                    throw MavenOperationError(
-                        code: "parse_failed",
-                        message: "Maven dependency resolution state is invalid.",
-                        details: resolution
-                    )
-                }
-                return MavenDependency(
-                    modulePath: modulePath,
-                    groupID: groupID,
-                    artifactID: artifactID,
-                    version: version,
-                    type: type,
-                    classifier: classifier,
-                    scope: scope,
-                    resolution: resolution,
-                    selectedVersion: selectedVersion,
-                    premanagedVersion: premanagedVersion,
-                    premanagedScope: premanagedScope,
-                    originalScope: originalScope,
-                    ignoredScope: ignoredScope,
-                    children: try children.map { try $0.makeModel() }
-                )
-            }
-        }
-
-        let modulePath: String
-        let dependencies: [Dependency]
-
-        func makeModel() throws -> MavenDependencyTree {
-            MavenDependencyTree(
-                modulePath: modulePath,
-                dependencies: try dependencies.map { try $0.makeModel() }
-            )
-        }
-    }
-
     struct SpringIndexPayload: Decodable, Sendable {
         struct Property: Decodable, Sendable {
             let name: String
@@ -1622,13 +1550,6 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let goals: [String]
     }
 
-    private struct MavenDependencyPlanRequest: Encodable {
-        let root: String
-        let context: MavenLaunchContext
-        let module: String?
-        let outputFile: String
-    }
-
     private struct MarkdownRenderRequest: Encodable {
         let source: String
     }
@@ -2145,11 +2066,6 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let mainMethods: [JavaMainMethod]
         let testItems: [JavaTestItem]
         let testCases: [MavenTestCaseOutcome]
-    }
-
-    private struct MavenDependenciesRequest: Encodable {
-        let modulePath: String
-        let outputFile: String
     }
 
     private struct RunConfigurationInspectRequest: Encodable {
@@ -2720,36 +2636,6 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 context: context,
                 module: module,
                 goals: goals
-            )
-        )
-    }
-
-    func mavenDependencyPlan(
-        at rootURL: URL,
-        context: MavenLaunchContext,
-        module: String?,
-        outputFile: URL
-    ) -> Result<MavenLaunchPlanPayload, CoreCallError> {
-        executeResult(
-            command: "maven.dependencyPlan",
-            payload: MavenDependencyPlanRequest(
-                root: rootURL.standardizedFileURL.path,
-                context: context,
-                module: module,
-                outputFile: outputFile.standardizedFileURL.path
-            )
-        )
-    }
-
-    func mavenDependencies(
-        modulePath: String,
-        outputFile: URL
-    ) -> Result<MavenDependenciesPayload, CoreCallError> {
-        executeResult(
-            command: "maven.dependencies",
-            payload: MavenDependenciesRequest(
-                modulePath: modulePath,
-                outputFile: outputFile.standardizedFileURL.path
             )
         )
     }

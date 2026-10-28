@@ -1,0 +1,28 @@
+{
+  "id": "build-model-project-presentation",
+  "area": "扩展",
+  "group": "插件与主题",
+  "capability": "搜索模块标签与编辑器测试源角色消费插件构建模型，按最深路径匹配并拒绝过期模型",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/LitheExecutionModule/Application/BuildProjectPresentation.swift",
+      "macos/Sources/LitheExecutionModule/Application/BuildSystemsFeatureModel.swift",
+      "macos/Sources/Lithe/Models/Editor/EditorDocument.swift",
+      "macos/Sources/Lithe/Views/Editor/EditorAreaView.swift",
+      "macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift",
+      "macos/Tests/LitheExecutionModuleTests/BuildProjectPresentationTests.swift",
+      "macos/Tests/LitheTests/EditorTabLayoutTests.swift"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
+    "evidence": [
+      "windows/tauri/src-tauri/src/plugin_host/mod.rs"
+    ]
+  },
+  "owner": "Extensions",
+  "verification": "使用 Maven Provider 的多模块模型与自定义源码/测试目录，加载模型后检查搜索结果模块名称、普通/测试/生成测试/测试资源标签角色；父工程与子模块匹配最深路径，app-copy 不得匹配 app。源码模型过期后不沿用旧角色，JDT 的 Java 测试语义仍作未导入文件的回显依据。检查虚拟文档和工作区外路径不误匹配。BuildProjectPresentationTests、EditorTabLayoutTests 自动化；完整 UI 验收仍 pending。Windows 尚未接 Build Provider，不能把其旧 Maven 模型路径计入此能力。"
+}

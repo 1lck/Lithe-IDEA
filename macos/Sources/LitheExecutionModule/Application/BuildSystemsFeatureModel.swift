@@ -45,6 +45,17 @@ package final class BuildSystemsFeatureModel: ObservableObject {
     }
 
     package func entry(_ id: String) -> BuildSystemEntry? { service.entry(id) }
+    private var currentModels: [BuildModel] {
+        entries.filter { $0.modelState == .loaded && !$0.isReloadRequired }.compactMap(\.model)
+    }
+    package func projectName(containing fileURL: URL) -> String? {
+        guard let workspaceURL else { return nil }
+        return BuildProjectPresentation.projectName(for: fileURL, workspace: workspaceURL, models: currentModels)
+    }
+    package func sourceRootKind(containing fileURL: URL) -> String? {
+        guard let workspaceURL else { return nil }
+        return BuildProjectPresentation.sourceRootKind(for: fileURL, workspace: workspaceURL, models: currentModels)
+    }
     package func reset(workspaceURL: URL?) { service.reset(workspaceURL: workspaceURL) }
     package func detect() { service.detect() }
     package func workspaceFilesChanged(_ urls: [URL]) { service.workspaceFilesChanged(urls) }

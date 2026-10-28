@@ -63,8 +63,8 @@
 | --- | --- | --- |
 | Agent 构建 → 输出/状态 → 停止 | 已实现并验证；`MavenService` 任务进程/API/状态机已删除；原生回归 159 项/6 组通过，真实 Agent + Maven 模块编译 4.787 秒通过 | Draft PR；不代替整阶段配置/加载/平台验收 |
 | Maven 配置和项目运行设置 | 未迁移 | `.lithe/maven/config.json`、旧本机 Maven 文件、运行偏好与 Build 选项的唯一持有方；一次性迁移保留失败源；原生 XML 草稿/冲突/读回 |
-| 项目加载、标签/搜索模块事实、运行配置 | 未迁移 | 用 Provider 模型替代 POM scanner，删除旧 MavenProject 注入；Java 入口继续复用 JDT |
-| 依赖树与依赖导航 | Build 树已有 Provider；旧 macOS 依赖路径仍待删除 | `MavenFeatureModel.resolvedDependencyArtifactPaths`、组合根 fallback、专属依赖进程/临时输出 adapter；保留 JDT 的真实类路径及虚拟文档 |
+| 项目加载、标签/搜索模块事实、运行配置 | 展示层已切通用 Build 模型；项目加载/运行配置未迁移 | 用 Provider 模型替代 POM scanner，删除旧 MavenProject 注入；Java 入口继续复用 JDT |
+| 依赖树与依赖导航 | 已删除旧 macOS 依赖进程、Swift 文本树桥、临时 adapter 与坐标路径 fallback；Build 用 Provider，导航用 JDT；245 项受影响原生回归通过，真实 Agent 构建及 Provider 编译/精确测试 2 项通过 | 完整 UI/JDT 实机流程、Windows 现存共享命令仍待迁移 |
 | Java 导入、运行/测试/调试准备 | 未迁移 Maven 协作边界 | 删除 `launchContext` fallback，全部消费同一配置代次；Java/JDT 全领域迁移留在阶段 E |
 | 共享 Maven 命令 | 未删除 | Windows 当前仍直接使用 scanner/launch/dependency/report 命令；接替当前消费者后才能删 Core 命令/fixture |
 | 发行包和双平台验收 | 未完成 | 最新正式 SDK/插件组合、macOS 完整 UI、Windows 实机、安装目录字节不变与进程清理 |

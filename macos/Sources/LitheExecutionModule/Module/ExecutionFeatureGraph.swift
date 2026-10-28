@@ -46,15 +46,11 @@ package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
         maven.onProjectReloaded = { [weak run] workspace, project in
             run?.acceptMavenProject(project, at: workspace)
         }
-        maven.$dependencyStates.dropFirst().sink { [weak run] _ in
-            Task { @MainActor [weak run] in
-                run?.syncLanguageDependencyPaths(languageID: "java")
-            }
-        }.store(in: &activityObservers)
+
     }
 
     package var isActive: Bool {
-        maven.isResolvingDependencies || maven.isReloading
+        maven.isReloading
             || run.isRunning || run.hasRunningServices || tests.isRunning
             || buildSystems?.hasActiveWork == true
     }
@@ -67,13 +63,7 @@ package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
     }
 
     package func configureModuleLeases(acquire: @escaping @MainActor (String) -> ModuleLease) {
-        Publishers.CombineLatest(maven.$dependencyStates, maven.$isReloading).map { dependencies, reloading in
-            let dependenciesAreActive = dependencies.values.contains {
-                if case .loading = $0 { return true }
-                return false
-            }
-            return dependenciesAreActive || reloading
-        }.removeDuplicates().sink { [weak self] active in
+        maven.$isReloading.removeDuplicates().sink { [weak self] active in
             guard let self else { return }
             if active, mavenLease == nil { mavenLease = acquire("Maven operation is running") }
             if !active { mavenLease?.release(); mavenLease = nil }
@@ -111,7 +101,6 @@ package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
         buildLease?.release(); buildLease = nil
     }
 }
-
 
 private struct ExecutionModuleSleepError: LocalizedError {
     let errorDescription: String? = "Build, run, or test work is still active."

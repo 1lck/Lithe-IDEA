@@ -25,13 +25,13 @@ enum EditorDocumentIconResolver {
 private struct EditorDocumentTabStyle: ViewModifier {
     @ObservedObject var document: EditorDocument
     @Environment(\.colorScheme) private var colorScheme
-    let project: MavenProject?
+    let importedSourceRootKind: String?
     let isSelected: Bool
     let isActive: Bool
 
     func body(content: Content) -> some View {
         content.modifier(LitheToolWindowTabStyle(isSelected: isSelected, isActive: isActive,
-            fileColor: EditorDocument.isTestSourceFile(document.url, project: project, hasTests: document.hasJavaTests)
+            fileColor: EditorDocument.isTestSourceFile(document.url, importedSourceRootKind: importedSourceRootKind, hasTests: document.hasJavaTests)
                 ? LitheToolWindowTabStyle.testSourceColor(for: colorScheme) : nil))
     }
 }
@@ -723,7 +723,7 @@ struct EditorAreaView: View {
             .allowsHitTesting(isActive || hoveredTabItem == .document(document.id))
             .padding(.trailing, 4)
         }
-        .modifier(EditorDocumentTabStyle(document: document, project: model.mavenFeatureIfActive?.project,
+        .modifier(EditorDocumentTabStyle(document: document, importedSourceRootKind: model.buildSystemsFeatureIfActive?.sourceRootKind(containing: document.url),
             isSelected: isActive, isActive: editorGroupIsActive))
         .padding(.horizontal, 4)
         .padding(.vertical, 4)

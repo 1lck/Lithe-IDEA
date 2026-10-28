@@ -50,6 +50,7 @@ extension AppModel {
         // hand back a run feature that teardown releases moments later, and the
         // deferred action waiting on it would never be resumed.
         guard let access = await executionModuleCoordinator.activateAccess() else { return nil }
+        loadBuildSystems(access)
         access.mavenFeature.configureJavaConfigurationSync { [weak self] rootURL in
             guard let self, self.workspaceURL?.standardizedFileURL == rootURL.standardizedFileURL,
                   let sessions = self.languageToolingSessionsIfActive else { return false }

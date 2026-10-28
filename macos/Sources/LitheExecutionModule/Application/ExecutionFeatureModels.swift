@@ -44,66 +44,7 @@ package final class MavenFeatureModel: ObservableObject {
     ) async {
         await service.reloadProject(files: files, rescan: rescan, synchronizeJava: synchronizeJava)
     }
-    package var dependencyStates: [String: MavenDependencyLoadState] { service.dependencyStates }
-    package var isResolvingDependencies: Bool { service.isResolvingDependencies }
     package var launchContext: MavenLaunchContext? { service.launchContext }
-
-    /// Projects artifacts from Maven's already-resolved dependency tree into
-    /// paths that the generic dependency Provider can display. It never starts
-    /// Maven or scans the local repository.
-    package func resolvedDependencyArtifactPaths(
-        modulePath: String,
-        defaultRepositoryURL: URL? = nil
-    ) -> [URL] {
-        guard case .ready(let dependencies) = service.dependencyState(for: modulePath) else {
-            return []
-        }
-        let repositoryURL: URL
-        if let repository = service.localRepositoryPath {
-            let expanded = (repository as NSString).expandingTildeInPath
-            repositoryURL = URL(
-                fileURLWithPath: expanded,
-                relativeTo: service.project?.rootURL
-            ).standardizedFileURL
-        } else if let defaultRepositoryURL {
-            repositoryURL = defaultRepositoryURL.standardizedFileURL
-        } else {
-            return []
-        }
-        var paths: Set<String> = []
-        for dependency in dependencies {
-            Self.collectResolvedArtifacts(
-                dependency,
-                repositoryURL: repositoryURL,
-                into: &paths
-            )
-        }
-        return paths.map { URL(fileURLWithPath: $0) }
-            .sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
-    }
-
-    private static func collectResolvedArtifacts(
-        _ dependency: MavenDependency,
-        repositoryURL: URL,
-        into paths: inout Set<String>
-    ) {
-        if dependency.resolution == .resolved {
-            let groupPath = dependency.groupID.replacingOccurrences(of: ".", with: "/")
-            let classifier = dependency.classifier.map { "-\($0)" } ?? ""
-            let fileName = "\(dependency.artifactID)-\(dependency.version)\(classifier).\(dependency.type)"
-            paths.insert(
-                repositoryURL
-                    .appendingPathComponent(groupPath, isDirectory: true)
-                    .appendingPathComponent(dependency.artifactID, isDirectory: true)
-                    .appendingPathComponent(dependency.version, isDirectory: true)
-                    .appendingPathComponent(fileName)
-                    .standardizedFileURL.path
-            )
-        }
-        for child in dependency.children {
-            collectResolvedArtifacts(child, repositoryURL: repositoryURL, into: &paths)
-        }
-    }
 
     package func loadProject(at workspaceURL: URL, files: [URL], snapshotID: UUID? = nil) async {
         await service.loadProject(at: workspaceURL, files: files)
@@ -146,18 +87,6 @@ package final class MavenFeatureModel: ObservableObject {
 
     package func acknowledgeReload() {
         service.acknowledgeReload()
-    }
-
-    package func dependencyState(for modulePath: String) -> MavenDependencyLoadState {
-        service.dependencyState(for: modulePath)
-    }
-
-    package func loadDependencies(for modulePath: String) {
-        service.loadDependencies(for: modulePath)
-    }
-
-    package func cancelDependencies(for modulePath: String) {
-        service.cancelDependencies(for: modulePath)
     }
 
     package func reset() { service.reset() }

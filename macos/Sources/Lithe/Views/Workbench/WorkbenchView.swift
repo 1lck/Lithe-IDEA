@@ -603,16 +603,7 @@ struct WorkbenchView: View {
                     copyPath: { model.copyProjectItemPath($0, relative: $1) },
                     relativePath: { model.relativePath(for: $0) },
                     moduleLabel: { url in
-                        let path = url.standardizedFileURL.path
-                        if let project = model.mavenFeatureIfActive?.project {
-                            let owning = project.allModules
-                                .filter { path.hasPrefix($0.url.standardizedFileURL.path + "/") }
-                                .max { $0.url.standardizedFileURL.path.count < $1.url.standardizedFileURL.path.count }
-                            if let owning { return owning.displayName }
-                            if path.hasPrefix(project.rootURL.standardizedFileURL.path + "/") {
-                                return project.displayName
-                            }
-                        }
+                        if let name = model.buildSystemsFeatureIfActive?.projectName(containing: url) { return name }
                         return model.relativePath(for: url).components(separatedBy: "/").first ?? ""
                     },
                     actionIcon: { action in

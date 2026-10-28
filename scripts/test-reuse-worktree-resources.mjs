@@ -239,9 +239,13 @@ try {
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /plugin-web-state.*cannot be reused/);
   });
-  await test("plugin packages and marketplace state stay isolated in each worktree", { timeout: 15000 }, () => {
+  await test("plugin packages and marketplace state stay isolated in each worktree", { timeout: 15000 }, async () => {
     const listed = run(process.execPath, [reuseScript, "--list"]);
     assertSucceeded(listed);
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const pluginState = registry.excludedResources.find(resource => resource.id === "official-plugin-packages");
+    assert.ok(pluginState.locations.includes("<app-support>/Lithe/PluginState/<plugin-id>/build-systems/<build-system-id>/workspaces/<workspace-digest>/"));
+    assert.equal(pluginState.reusable, false);
     for (const id of ["official-plugin-packages", "plugin-marketplace-state", "mcp-registry-metadata", "mcp-tool-probe-state", "agent-instruction-library-state", "agent-hook-library-state"]) {
       assert.ok(!listed.stdout.includes(id));
       const refused = reuse(["--resource", id]);

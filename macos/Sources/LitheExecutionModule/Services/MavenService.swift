@@ -55,18 +55,10 @@ package final class MavenService: ObservableObject {
     /// session. Returns whether a running session took it and throws when one
     /// could not. JDT LS re-resolves in place, so no reload is needed (#970).
     package var applyConfigurationToJava: (@MainActor (URL) throws -> Bool)?
-    @Published package private(set) var dependencyStates: [String: MavenDependencyLoadState] = [:]
 
     package var isLoadingProject: Bool {
         if case .loading = projectState { return true }
         return false
-    }
-
-    package var isResolvingDependencies: Bool {
-        dependencyStates.values.contains { state in
-            if case .loading = state { return true }
-            return false
-        }
     }
 
     package var availableProfiles: [MavenProfile] {
@@ -106,9 +98,7 @@ package final class MavenService: ObservableObject {
         return runtimeService.mavenExecutable(for: project, overridePath: nil)?.path
     }
 
-    private let dependencyProcess: any StreamingProcess
     private let mavenOperations: any MavenProjectOperations
-    private let dependencyOutputs: (any MavenDependencyOutputStoring)?
     private let runtimeService: any MavenRuntimePort
     private let configurationWriter: MavenConfigurationWriter
     private var workspaceURL: URL?
@@ -117,44 +107,19 @@ package final class MavenService: ObservableObject {
     private var acceptedProjectInventory: MavenProjectInventory?
     private var projectLoadInventory: MavenProjectInventory?
     private var projectLoadTask: Task<Void, Never>?
-    private var dependencyLoadID = UUID()
-    private var activeDependencyOperationID: String?
-    private var activeDependencyModulePath: String?
-    /// Scratch file the active dependency operation's Maven writes its tree to.
-    private var activeDependencyOutputFile: URL?
-    private var dependencyTimedOut = false
     private var configurationRevision = 0
     private var configurationSaveTask: Task<String?, Never>?
     private var configurationFingerprint: String?
     private var fingerprintRevision = 0
-    private let dependencyTimeoutMilliseconds = 60_000
 
     package init(
         runtimeService: any MavenRuntimePort,
-        dependencyProcess: any StreamingProcess,
         mavenOperations: any MavenProjectOperations,
-        configurationStore: (any MavenConfigurationStoring)? = nil,
-        dependencyOutputs: (any MavenDependencyOutputStoring)? = nil
+        configurationStore: (any MavenConfigurationStoring)? = nil
     ) {
         self.runtimeService = runtimeService
-        self.dependencyProcess = dependencyProcess
         self.mavenOperations = mavenOperations
-        self.dependencyOutputs = dependencyOutputs
         configurationWriter = MavenConfigurationWriter(store: configurationStore)
-        // The dependency process writes its tree to a scratch file; its
-        // console output is Maven's log, not dependency data.
-        dependencyProcess.onOutput = { _ in }
-        dependencyProcess.onTermination = { [weak self] exitCode in
-            Task { @MainActor [weak self] in
-                guard self?.activeDependencyOperationID != nil else { return }
-                self?.finishDependencyProcess(exitCode: exitCode)
-            }
-        }
-        dependencyProcess.onStateChange = { [weak self] event in
-            Task { @MainActor [weak self] in
-                self?.consumeDependencyLifecycle(event)
-            }
-        }
     }
 
     package func loadProject(at workspaceURL: URL, files: [URL]) async {
@@ -187,7 +152,6 @@ package final class MavenService: ObservableObject {
             projectLoadInventory = nil
         }
 
-        invalidateDependencies()
         let loadID = UUID()
         projectLoadID = loadID
         projectLoadInventory = inventory
@@ -414,7 +378,6 @@ package final class MavenService: ObservableObject {
                 self.acceptedProjectInventory = inventory
                 self.configurationFingerprint = candidate.1
                 self.fingerprintRevision += 1
-                self.invalidateDependencies()
                 self.isProjectReloadRequired = false
                 self.isReloadRequired = false
                 self.javaConfigurationError = nil
@@ -436,89 +399,8 @@ package final class MavenService: ObservableObject {
         await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
     }
 
-    package func dependencyState(for modulePath: String) -> MavenDependencyLoadState {
-        dependencyStates[modulePath] ?? .idle
-    }
-
-    package func loadDependencies(for modulePath: String) {
-        if case .ready = dependencyState(for: modulePath) { return }
-        if activeDependencyModulePath == modulePath,
-           case .loading = dependencyState(for: modulePath) { return }
-        guard let project, let workspaceURL, let context = launchContext else { return }
-
-        cancelActiveDependency(markCancelled: true)
-        let loadID = UUID()
-        dependencyLoadID = loadID
-        activeDependencyModulePath = modulePath
-        activeDependencyOperationID = nil
-        dependencyTimedOut = false
-        dependencyStates[modulePath] = .loading
-        let outputFile: URL
-        do {
-            guard let dependencyOutputs else {
-                throw MavenOperationError(
-                    code: "not_supported",
-                    message: "Maven dependency resolution is unavailable."
-                )
-            }
-            outputFile = try dependencyOutputs.makeDependencyOutputFile(operationID: loadID.uuidString)
-        } catch {
-            failDependency(modulePath: modulePath, message: error.localizedDescription)
-            return
-        }
-        activeDependencyOutputFile = outputFile
-        let operations = mavenOperations
-        Task { [weak self] in
-            let result = await Task.detached(priority: .utility) {
-                do {
-                    return MavenPlanResult(
-                        plan: try operations.mavenDependencyPlan(
-                            at: workspaceURL,
-                            context: context,
-                            module: modulePath == "." ? nil : modulePath,
-                            outputFile: outputFile
-                        ),
-                        errorMessage: nil
-                    )
-                } catch {
-                    return MavenPlanResult(plan: nil, errorMessage: error.localizedDescription)
-                }
-            }.value
-            guard let self,
-                  self.dependencyLoadID == loadID,
-                  self.activeDependencyModulePath == modulePath else { return }
-            guard let plan = result.plan else {
-                self.failDependency(
-                    modulePath: modulePath,
-                    message: result.errorMessage ?? "Unable to create the Maven dependency plan."
-                )
-                return
-            }
-            self.startDependencyProcess(
-                plan: plan,
-                project: project,
-                context: context,
-                modulePath: modulePath
-            )
-        }
-    }
-
-    package func cancelDependencies(for modulePath: String) {
-        guard case .loading = dependencyState(for: modulePath) else { return }
-        guard activeDependencyModulePath == modulePath else {
-            dependencyStates[modulePath] = .cancelled
-            return
-        }
-        cancelActiveDependency(markCancelled: true)
-    }
-
-    package func cancelAllDependencies() {
-        cancelActiveDependency(markCancelled: true)
-    }
-
     package func stop() {
         reloadTask?.cancel()
-        cancelActiveDependency(markCancelled: true)
     }
 
     package func reset() {
@@ -534,7 +416,6 @@ package final class MavenService: ObservableObject {
         reloadRevision += 1
         isProjectReloadRequired = false
         stop()
-        invalidateDependencies()
         projectLoadID = UUID()
         project = nil
         workspaceURL = nil
@@ -552,171 +433,6 @@ package final class MavenService: ObservableObject {
         fingerprintRevision += 1
         configurationSaveError = nil
         isReloadRequired = false
-        dependencyStates = [:]
-    }
-
-    private func startDependencyProcess(
-        plan: MavenLaunchPlan,
-        project: MavenProject,
-        context: MavenLaunchContext,
-        modulePath: String
-    ) {
-        guard let workspaceURL else { return }
-        guard let executable = runtimeService.mavenExecutable(
-            for: project,
-            overridePath: context.mavenExecutablePath
-        ) else {
-            failDependency(
-                modulePath: modulePath,
-                message: "No Maven executable was found. Choose Maven Home or an executable in Maven Settings."
-            )
-            return
-        }
-        let operationID = UUID().uuidString
-        activeDependencyOperationID = operationID
-        let workingDirectory = plan.workingDirectory == "."
-            ? workspaceURL
-            : workspaceURL.appendingPathComponent(plan.workingDirectory, isDirectory: true)
-        do {
-            try dependencyProcess.start(ProcessRequest(
-                operationID: operationID,
-                executablePath: executable.path,
-                arguments: plan.arguments,
-                workingDirectory: workingDirectory.standardizedFileURL.path,
-                environment: runtimeService.mavenProcessEnvironment(javaHomePath: context.javaHomePath),
-                timeoutMilliseconds: dependencyTimeoutMilliseconds
-            ))
-        } catch {
-            guard activeDependencyOperationID == operationID else { return }
-            failDependency(
-                modulePath: modulePath,
-                message: "Unable to start Maven dependency resolution: " + error.localizedDescription
-            )
-        }
-    }
-
-    private func finishDependencyProcess(exitCode: Int32) {
-        guard let modulePath = activeDependencyModulePath else { return }
-        let loadID = dependencyLoadID
-        let timedOut = dependencyTimedOut
-        activeDependencyOperationID = nil
-        dependencyTimedOut = false
-        if timedOut {
-            failDependency(
-                modulePath: modulePath,
-                message: "Maven dependency resolution timed out after 60 seconds."
-            )
-            return
-        }
-        guard exitCode == 0 else {
-            failDependency(
-                modulePath: modulePath,
-                message: "Maven dependency resolution exited with code \(exitCode)."
-            )
-            return
-        }
-        guard let outputFile = activeDependencyOutputFile else {
-            failDependency(
-                modulePath: modulePath,
-                message: "Unable to parse Maven dependencies for this module."
-            )
-            return
-        }
-        // The read below now owns the file, so a later cancellation or a new
-        // request cannot remove it while Core is still reading it.
-        activeDependencyOutputFile = nil
-        let operations = mavenOperations
-        let dependencyOutputs = dependencyOutputs
-        Task { [weak self] in
-            let result = await Task.detached(priority: .utility) {
-                defer { dependencyOutputs?.removeDependencyOutputFile(outputFile) }
-                do {
-                    return MavenDependencyParseResult(
-                        tree: try operations.mavenDependencies(
-                            modulePath: modulePath,
-                            outputFile: outputFile
-                        ),
-                        errorMessage: nil
-                    )
-                } catch {
-                    return MavenDependencyParseResult(
-                        tree: nil,
-                        errorMessage: error.localizedDescription
-                    )
-                }
-            }.value
-            guard let self,
-                  self.dependencyLoadID == loadID,
-                  self.activeDependencyModulePath == modulePath,
-                  case .loading = self.dependencyState(for: modulePath) else { return }
-            self.activeDependencyModulePath = nil
-            if let tree = result.tree {
-                self.dependencyStates[modulePath] = .ready(tree.dependencies)
-            } else {
-                self.dependencyStates[modulePath] = .failed(
-                    result.errorMessage ?? "Unable to parse Maven dependencies for this module."
-                )
-            }
-        }
-    }
-
-    private func consumeDependencyLifecycle(_ event: ProcessLifecycleEvent) {
-        guard event.operationID == activeDependencyOperationID else { return }
-        switch event.state {
-        case .starting, .running:
-            break
-        case .stopping:
-            if event.message == "Process timed out" {
-                dependencyTimedOut = true
-            }
-        case .failed:
-            guard let modulePath = activeDependencyModulePath else { return }
-            failDependency(
-                modulePath: modulePath,
-                message: event.message ?? "Unable to resolve Maven dependencies."
-            )
-        case .finished:
-            if let exitCode = event.exitCode {
-                finishDependencyProcess(exitCode: exitCode)
-            }
-        }
-    }
-
-    private func failDependency(modulePath: String, message: String) {
-        dependencyStates[modulePath] = .failed(message)
-        activeDependencyOperationID = nil
-        activeDependencyModulePath = nil
-        releaseDependencyOutputFile()
-        dependencyTimedOut = false
-    }
-
-    /// Removes the active operation's scratch file once it can no longer
-    /// produce a result. A file Maven writes after a stop is left for the
-    /// store's startup cleanup rather than read by a later operation.
-    private func releaseDependencyOutputFile() {
-        guard let outputFile = activeDependencyOutputFile else { return }
-        activeDependencyOutputFile = nil
-        dependencyOutputs?.removeDependencyOutputFile(outputFile)
-    }
-
-    private func cancelActiveDependency(markCancelled: Bool) {
-        dependencyLoadID = UUID()
-        let modulePath = activeDependencyModulePath
-        if activeDependencyOperationID != nil {
-            dependencyProcess.stop()
-        }
-        activeDependencyOperationID = nil
-        activeDependencyModulePath = nil
-        releaseDependencyOutputFile()
-        dependencyTimedOut = false
-        if markCancelled, let modulePath {
-            dependencyStates[modulePath] = .cancelled
-        }
-    }
-
-    private func invalidateDependencies() {
-        cancelActiveDependency(markCancelled: false)
-        dependencyStates = [:]
     }
 
     private func applyStoredConfiguration(
@@ -736,7 +452,6 @@ package final class MavenService: ObservableObject {
 
     private func configurationDidChange() {
         reloadRevision += 1
-        invalidateDependencies()
         configurationSaveError = nil
         persistConfiguration()
         guard let workspaceURL, let applyConfigurationToJava else {
@@ -874,11 +589,6 @@ private struct MavenProjectLoadResult: Sendable {
 
 private struct MavenPlanResult: Sendable {
     let plan: MavenLaunchPlan?
-    let errorMessage: String?
-}
-
-private struct MavenDependencyParseResult: Sendable {
-    let tree: MavenDependencyTree?
     let errorMessage: String?
 }
 
