@@ -5,6 +5,9 @@ param(
     [switch]$SkipBuild,
     [switch]$ResumeBuild,
     [string]$ResourceSource = "",
+    [string]$NativeBunPath = "",
+    # Per install attempt (one clean retry); retains the installer default.
+    [ValidateRange(1, 1200)][int]$InstallTimeoutSeconds = 300,
     [switch]$Marketplace,
     [switch]$LspLifecycle,
     [switch]$SettingsFunctions,
@@ -292,6 +295,7 @@ Invoke-NativeChecked -Executable "python" -Arguments @(
     "import ast,pathlib; [ast.parse(pathlib.Path(p).read_text(encoding='utf-8')) for p in __import__('sys').argv[1:]]",
     (Join-Path $fixtureRoot "acceptance_driver.py"),
     (Join-Path $fixtureRoot "acceptance_driver_test.py"),
+    (Join-Path $fixtureRoot "build_preflight_test.py"),
     (Join-Path $fixtureRoot "marketplace_acceptance.py"),
     (Join-Path $fixtureRoot "marketplace_acceptance_test.py"),
     (Join-Path $fixtureRoot "lsp_lifecycle_acceptance.py"),
@@ -317,6 +321,12 @@ Invoke-NativeChecked -Executable "python" -Arguments @(
     (Join-Path $fixtureRoot "acceptance_driver_test.py"),
     "--report", $driverUnitReport
 ) -FailureMessage "The acceptance process-owner unit checks failed"
+
+$preflightExit = Invoke-BoundedDriver -Arguments @(
+    "-B", (Join-Path $fixtureRoot "build_preflight_test.py"),
+    "--report", (Join-Path $stabilityRoot "plugin-build-preflight.json")
+) -LogPath (Join-Path $artifactRoot "build-preflight-tests.log") -TimeoutSeconds 190
+if ($preflightExit -ne 0) { throw "The offline build preparation checks failed." }
 
 Invoke-NativeChecked -Executable "python" -Arguments @(
     "-B",
@@ -373,6 +383,9 @@ if (-not $SkipBuild) {
         throw "Refusing to overlap the formal Release build with existing Cargo/Rust processes: $($heavyProcesses.Id -join ', ')"
     }
 
+    . (Join-Path $PSScriptRoot "windows-build-preflight.ps1")
+    Initialize-WindowsNativeBun -RepositoryRoot $root -NativeBunPath $NativeBunPath
+
     if (-not [string]::IsNullOrWhiteSpace($ResourceSource)) {
         $resourceSourcePath = [IO.Path]::GetFullPath($ResourceSource)
         if (-not (Test-Path -LiteralPath $resourceSourcePath -PathType Container)) {
@@ -400,7 +413,7 @@ if (-not $SkipBuild) {
 
         # This is deliberately the only formal Release build invocation in the lane.
         if (-not $ResumeBuild) {
-            & (Join-Path $root "scripts/build-windows.ps1") -Configuration Release -RustTarget $RustTarget
+            & (Join-Path $root "scripts/build-windows.ps1") -Configuration Release -RustTarget $RustTarget -InstallTimeoutSeconds $InstallTimeoutSeconds
             if ($LASTEXITCODE -ne 0) { throw "The formal Windows Release build failed." }
         } else {
             Push-Location (Join-Path $root "windows/tauri")

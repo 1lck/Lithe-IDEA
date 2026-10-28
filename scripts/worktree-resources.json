@@ -44,9 +44,13 @@
         ".artifacts/native-browser-*/job-result.json",
         ".artifacts/native-browser-*/worker.log",
         ".artifacts/test-stability/native-panel-browser.{json,html,junit.xml}",
-        "<explicit-native-browser-report>.{json,html,junit.xml}"
+        ".artifacts/test-stability/native-panel-browser.worker.log",
+        ".artifacts/test-stability/native-tree-browser.{json,html,junit.xml,worker.log}",
+        ".artifacts/test-stability/native-browser-{worker-exit,worker-hang}.{json,html,junit.xml,worker.log}",
+        "<explicit-native-browser-report>.{json,html,junit.xml,worker.log}",
+        "<native-browser-report-parent>/expected-failures/<report-name>.{json,html,junit.xml}"
       ],
-      "identity": "One controlled Windows browser regression invocation owns its scratch profile, Vite optimizer cache, worker evidence, Job Object result, log and JSON/HTML/JUnit report. Source, browser and viewport observations describe that run, not a reusable version/platform/architecture/toolchain build identity stamp.",
+      "identity": "One controlled Windows action-group, tree keyboard/menu or injected lifecycle regression invocation owns its scratch profile, Vite optimizer cache, worker evidence, Job Object result, copied worker log and JSON/HTML/JUnit reports, including separate expected-failure evidence. Source, browser and viewport observations describe that run, not a reusable version/platform/architecture/toolchain build identity stamp.",
       "reason": "Never copy these resources at any worktree stage. The runner owns bounded browser/driver/server process cleanup and removes scratch only after termination is proven; unresolved ownership remains isolated and fails the run. Reports remain with the invocation until local or CI retention removes them. Regenerate in the target worktree using its sources and configured dependencies. No state enters installed plugins, app resources, code signatures or Sparkle delta baselines."
     },
     {
@@ -66,6 +70,7 @@
       "reusable": false,
       "locations": [
         ".artifacts/plugin-host-acceptance/",
+        "<os-temp>/lithe-build-preflight-*/",
         "<explicit-vcs-move-diagnostic-output>/",
         "<os-temp>/vcs-move-<random>/runtime/",
         "<os-temp>/vcs-move-<random>/<case>/{repo,wc,appdata,localappdata}/",
@@ -73,7 +78,7 @@
         "<windows-roaming-app-data>/app.lithe.windows.host-acceptance/"
       ],
       "identity": "One isolated native acceptance or explicit fixed-source SVN move diagnostic invocation owns its temporary runtime, independent repo/WC/profiles, observed endpoint bytes/identity/WC schedules, and generated marketplace ZIPs/indexes, build-fixture packages/tools/workspaces/plan, settings-functions-fixture packages/workspaces/identity plan and resource snapshots, text-window-fixture* complete unsigned ui:1 ZIPs/workspaces/source plans, private host-page DOM/CSP/request/descriptor/callback traces and loopback-counter evidence, web-bridge-fallback-fixture static unsigned ui:2 ZIPs/workspaces/source plans and private-target CDP request/descriptor/callback/resource evidence, run image, reports, profiles and mutable installation state. Deterministic fixture hashes verify the selected test bytes, not a reusable source/platform/architecture/toolchain build stamp.",
-      "reason": "Regenerate fixtures in the target worktree. Never copy or share the run image, user profile, downloaded packages or TLS private keys through resource reuse. The driver owns bounded listeners and process handles, closes them on every path and removes its isolated app data; diagnostic artifacts remain with that run. Native HTTPS uses an existing trusted certificate without copying keys or mutating client trust. No writes enter published resources, signatures or update baselines."
+      "reason": "Regenerate fixtures in the target worktree. Never copy or share the run image, user profile, downloaded packages or TLS private keys through resource reuse. Offline build-preflight temporary trees contain copied scripts, fake native Bun/IPC workers, mutable manifests and recording stubs; their bytes prove only one test run, not reusable build identity. The driver owns bounded listeners and process handles, closes them on every path and removes its isolated app data; diagnostic artifacts remain with that run. Native HTTPS uses an existing trusted certificate without copying keys or mutating client trust. No writes enter published resources, signatures or update baselines."
     },
     {
       "id": "agent-edit-and-paste-state",

@@ -759,6 +759,28 @@ ui:1 字面文本验收由 `text_window_acceptance.py` 为本次已绑定端口�
 
 执行入口为 `pwsh -NoProfile -File scripts/test-windows-declarative-plugin-host.ps1 -TextWindow`，与 marketplace/LSP/settings 模式互斥。入口保存构建前后的完整源码库存，确认相同后写入隔离宿主 identity；`-SkipBuild -TextWindow` 只能消费已有且源码、配置、EXE 哈希均匹配的 identity，旧 marker 缺失库存时必须重建，不能事后补填。源码扫描共用 300 秒截止时间，运行驱动由外层 900 秒 deadline 约束。浏览器网络观察不能计数原生 postMessage IPC，报告明确保留该限制，不能把回调排空解释为精确零 IPC。R19 仅完成工具及离线失败边界，lane 构建超时且未产出验收 EXE，真实产品步骤仍 pending。
 
+正式 Windows 构建与插件宿主验收入口接受 `-NativeBunPath <native-bun.exe>`；
+该参数只选择已有的原生可执行文件，不安装 Bun。入口先检查其版本与目标工作树的
+`packageManager` 固定版本一致，再把所在目录加入继承的 PATH，确保 Node 资源校验器及
+安装子进程找到原生 Bun；PowerShell/npm shim 本身不能作为 Node 的执行目标。
+`-InstallTimeoutSeconds` 默认为 300，范围为 1～1200 秒，逐层传到既有安装 worker；
+这是每次安装尝试的时限，缓存失败后的既有无缓存重试各自使用该值，不能当作整个构建时限。
+
+Tauri 构建包装器保留原始 `Cargo.toml` 字节。动作结束后，只有内容恰好等于原始字节的
+CRLF→LF 转换才允许恢复；比较和恢复使用同一个独占文件句柄，未改动的字节和写入时间不变。
+其它语义改动、删除或被并发进程锁定的文件保持现状并使构建失败，不能重新创建或覆盖它们；
+若构建动作和恢复检查同时失败，两条诊断均保留。该边界不允许以 TOML 等价或文本摘要
+代替构建前后源码的精确字节身份。
+
+离线准备回归 `build_preflight_test.py` 使用 `<os-temp>/lithe-build-preflight-*/` 的一次性
+副本、伪 Bun/IPC 子进程、可变 manifest 和记录 stub；不调用 Cargo、Tauri 或产品。
+测试套件使用 180 秒预算，CI 与正式验收入口另有 190 秒的既有保留句柄进程 owner；
+单项等待仍各自有界，超时按原进程身份回收。报告为
+`.artifacts/test-stability/plugin-build-preflight.{json,html,junit.xml}`，
+临时树和伪工具按 `plugin-host-acceptance-state` 排除路由拒绝所有 worktree 复制，
+没有可复用的版本、平台、架构或工具链 stamp，退出时清理本次资源。
+这些离线检查只能证明准备流程和失败边界，真实 `ui:1` 产品步骤仍须另外验收。
+
 原生插件验收的 `.artifacts/plugin-host-acceptance/`（含市场 ZIP/索引、构建夹具的包、工具、工作区及 plan、`settings-functions-fixture*` 的包/工作区/身份 plan、设置与函数验收资源快照、隔离运行镜像和报告）及
 `app.lithe.windows.host-acceptance` 用户配置走 `plugin-host-acceptance-state` 排除路由：
 每次在目标工作树重新生成，无可复用 identity，不跨 worktree 复制；驱动回收监听器、进程和隔离用户数据，
@@ -769,7 +791,7 @@ ui:1 字面文本验收由 `text_window_acceptance.py` 为本次已绑定端口�
 plan、当前 checkout 和隔离宿主的提交标识必须一致；切换提交后重新生成输入，不得清理该输入目录后冒用旧 plan。
 `-SkipBuild` 同时检查目标架构、已冻结配置和可执行文件哈希，并保留该配置；配置或提交变化时重新构建隔离宿主。驱动先恢复原生 invoke 并有界等待已观测调用结束，再退出本次产品进程，最后比较资源快照；退出失败或调用未结束不能报告资源工作流通过。
 驱动在插件详情验证普通设置，再经已注册的语言设置页保存 reload；受控设置子集通过不会把缺少兼容签名包、关闭中的 Provider 能力、arm64 或人工视觉验收算作通过。
-原生动作组的受控浏览器回归使用目标工作树的前端依赖和 Python Playwright 1.60.0
+原生动作组和树菜单的受控浏览器回归使用目标工作树的前端依赖和 Python Playwright 1.60.0
 （与原生验收驱动共用 `psutil==7.2.2`），不由 runner 安装或下载工具。Windows CI 在已有
 Python 依赖步骤后独立运行以下命令；本地已有 Edge 时可复用相同入口：
 
@@ -777,13 +799,28 @@ Python 依赖步骤后独立运行以下命令；本地已有 Edge 时可复用�
 $playwrightModule = python -c "from pathlib import Path; import playwright; print(Path(playwright.__file__).parent / 'driver/package/index.mjs')"
 if ($LASTEXITCODE -ne 0) { throw 'Cannot resolve the configured Playwright driver' }
 node scripts/test-windows-native-plugin-ui-browser.mjs --browser msedge --playwright-module $playwrightModule --timeout-ms 120000 --report .artifacts/test-stability/native-panel-browser.json
+if ($LASTEXITCODE -ne 0) { throw 'Action-group browser regression failed' }
+node scripts/test-windows-native-plugin-ui-browser.mjs --mode native-tree --browser msedge --playwright-module $playwrightModule --timeout-ms 120000 --report .artifacts/test-stability/native-tree-browser.json
+if ($LASTEXITCODE -ne 0) { throw 'Native-tree browser regression failed' }
+foreach ($failure in @('worker-exit', 'worker-hang')) {
+  node scripts/test-windows-native-plugin-ui-browser.mjs --mode lifecycle --inject-failure $failure --timeout-ms 25000 --report ".artifacts/test-stability/native-browser-$failure.json"
+  if ($LASTEXITCODE -ne 0) { throw "Lifecycle regression failed: $failure" }
+}
 ```
 
-该入口加载生产样式和真实 React 组件，使用官方 Tauri mocks，只验证动作组的六阶段几何、
-状态、焦点、禁用提示与单次完整值提交。成功或失败都生成 JSON、HTML 和 JUnit，
-不代表产品 WebView2、物理键盘、IME 或 `ui:3` 准入。
+动作组和树模式加载生产样式及真实 React 组件，使用官方 Tauri mocks；动作组检查六阶段
+几何、状态、焦点、禁用提示与单次完整值提交，树模式由 Playwright 的浏览器键盘输入
+检查菜单触发、导航、关闭、焦点和一次性动作。两者各有 120 秒整体时限；
+生命周期模式不加载 Vite 或浏览器，用提前退出和挂起的受控 worker 验证独立 owner 的清理，
+25 秒整体时限中保留 20 秒收尾。Windows CI 的组合步骤另有 6 分钟外层上限。
+各模式成功或失败都生成独立 JSON、HTML 和 JUnit，不代表产品 WebView2、物理键盘、IME
+或 `ui:3` 准入。
+生命周期的预期红报告留在报告父目录的 `expected-failures/` 子目录，普通报告只记录
+实际验证失败分类、子进程启动、Job 零成员证明和临时目录清理的正向断言；
+不能把预期红报告混入顶层通过总数，也不能把一次注入失败解释为产品验收通过。
 每次调用独占 `.artifacts/native-browser-*/` 下的 `profile/`、Vite `cache/`、
-`worker-evidence.json`、`job-result.json` 和 `worker.log`；进程先受 Windows Job Object
+`worker-evidence.json`、`job-result.json` 和 `worker.log`；退出后把 worker 日志复制到
+报告同名的 `.worker.log`，便于 scratch 删除后诊断。进程先受 Windows Job Object
 约束再执行，整体时限包含清理预留。只有进程树终止得到证明后才能删除 scratch，
 无证明则失败并保留隔离目录。报告由本地审查或 CI retention 回收。
 这些路径及显式报告没有版本、平台、架构或工具链构建 stamp，

@@ -416,14 +416,57 @@ jobs:
           node scripts/test-plugin-vcs-move-diagnostic.mjs --report .artifacts/test-stability/plugin-vcs-move-node.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Test native plugin action groups in Edge
+      - name: Test offline Windows build preparation
         shell: pwsh
         timeout-minutes: 4
+        run: |
+          @'
+          import json
+          import sys
+          import time
+          from pathlib import Path
+          sys.path.insert(0, str(Path('scripts/plugin-host-acceptance').resolve()))
+          from acceptance_driver import run_bounded_process
+          report = Path('.artifacts/test-stability/plugin-build-preflight.json')
+          report.parent.mkdir(parents=True, exist_ok=True)
+          report.write_text(json.dumps({'runner': 'acceptance', 'maxMs': 190000, 'tests': [{'name': 'offline preparation pending completion', 'status': 'incomplete', 'durationMs': 0}]}), encoding='utf-8')
+          started = time.perf_counter()
+          try:
+              result = run_bounded_process([sys.executable, '-B', 'scripts/plugin-host-acceptance/build_preflight_test.py', '--report', str(report)], 190)
+              print(result.stdout, end='')
+              print(result.stderr, end='', file=sys.stderr)
+              code = result.returncode
+              if code != 0:
+                  evidence = json.loads(report.read_text(encoding='utf-8'))
+                  evidence['tests'].append({'name': 'offline preparation process result', 'status': 'failed', 'durationMs': (time.perf_counter()-started)*1000, 'message': f'process exited {code}'})
+                  report.write_text(json.dumps(evidence, indent=2), encoding='utf-8')
+          except Exception as error:
+              evidence = json.loads(report.read_text(encoding='utf-8'))
+              evidence['tests'].append({'name': 'offline preparation process owner', 'status': 'failed', 'durationMs': (time.perf_counter()-started)*1000, 'message': str(error)})
+              report.write_text(json.dumps(evidence, indent=2), encoding='utf-8')
+              print(error, file=sys.stderr)
+              code = 1
+          raise SystemExit(code)
+          '@ | python -B -
+          $preflightExit = $LASTEXITCODE
+          node --input-type=module -e "import {writeTestReportArtifacts} from './.agents/skills/write-stable-tests/scripts/generate-test-report.mjs'; writeTestReportArtifacts('.artifacts/test-stability/plugin-build-preflight.json');"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($preflightExit -ne 0) { exit $preflightExit }
+
+      - name: Test native plugin action groups, tree keyboard menus and lifecycle in Edge
+        shell: pwsh
+        timeout-minutes: 6
         run: |
           $playwrightModule = python -c "from pathlib import Path; import playwright; print(Path(playwright.__file__).parent / 'driver/package/index.mjs')"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts/test-windows-native-plugin-ui-browser.mjs --browser msedge --playwright-module $playwrightModule --timeout-ms 120000 --report .artifacts/test-stability/native-panel-browser.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/test-windows-native-plugin-ui-browser.mjs --mode native-tree --browser msedge --playwright-module $playwrightModule --timeout-ms 120000 --report .artifacts/test-stability/native-tree-browser.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          foreach ($failure in @('worker-exit', 'worker-hang')) {
+            node scripts/test-windows-native-plugin-ui-browser.mjs --mode lifecycle --inject-failure $failure --timeout-ms 25000 --report ".artifacts/test-stability/native-browser-$failure.json"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
 
       - name: Test Agent panel and capability gate
         shell: pwsh

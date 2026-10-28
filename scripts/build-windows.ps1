@@ -2,12 +2,16 @@
 param(
     [ValidateSet("Debug", "Release")]
     [string]$Configuration = "Debug",
-    [string]$RustTarget = "x86_64-pc-windows-msvc"
+    [string]$RustTarget = "x86_64-pc-windows-msvc",
+    [ValidateRange(1, 1200)][int]$InstallTimeoutSeconds = 300,
+    [string]$NativeBunPath = ""
 )
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $windowsApp = Join-Path $root "windows/tauri"
+. (Join-Path $PSScriptRoot "windows-build-preflight.ps1")
+Initialize-WindowsNativeBun -RepositoryRoot $root -NativeBunPath $NativeBunPath
 $bundledExtensionsSource = [System.IO.Path]::GetFullPath((Join-Path $windowsApp "src/extensions/bundled"))
 if (-not (Test-Path -LiteralPath $bundledExtensionsSource -PathType Container)) {
     throw "Bundled extensions source directory is missing: $bundledExtensionsSource"
@@ -48,7 +52,7 @@ $env:RUSTUP_TOOLCHAIN = $rustToolchain
 & rustup target add $RustTarget --toolchain $rustToolchain
 if ($LASTEXITCODE -ne 0) { throw "Could not install Rust target $RustTarget" }
 
-& (Join-Path $root "scripts/install-windows-frontend-dependencies.ps1")
+& (Join-Path $root "scripts/install-windows-frontend-dependencies.ps1") -InstallTimeoutSeconds $InstallTimeoutSeconds
 
 & bun run typecheck
 if ($LASTEXITCODE -ne 0) { throw "Windows frontend type check failed" }

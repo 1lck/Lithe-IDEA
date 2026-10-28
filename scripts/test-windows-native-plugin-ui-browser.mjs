@@ -6,6 +6,9 @@
  * Omit --playwright-module only when playwright is installed by repo configuration.
  * --step-timeout-ms defaults to 60000; --timeout-ms defaults to 120000
  * (minimum 25000, including a 20000ms cleanup reserve).
+ * --mode native-tree drives real browser keyboard/menu/focus regressions.
+ * --mode lifecycle --inject-failure worker-exit|worker-hang verifies fail-closed
+ * cleanup without Vite/browser dependencies; expected red reports are separate.
  */
 import { spawn } from "node:child_process";
 import { writeFileSync } from "node:fs";
@@ -21,6 +24,232 @@ const app = path.join(root, "windows/tauri");
 const require = createRequire(path.join(app, "package.json"));
 const started = performance.now();
 const textError = (error) => String(error?.stack ?? error);
+
+// Playwright drives the browser's default keyboard path; fixture evaluation is
+// limited to controlled port gates, DOM observation and deliberate scrolling.
+async function nativeTreeRegression(page, step) {
+  const snapshots = [];
+  let primaryError;
+  const check = (condition, message) => {
+    if (!condition) throw new Error(message);
+  };
+  const observe = (predicate) => page.waitForFunction(predicate);
+  // Context menus hide background content from the accessibility tree while
+  // open. Observe its mounted DOM without changing the public modal behavior;
+  // all keyboard and pointer actions below still use real browser input.
+  const tree = page.locator('[role="tree"][aria-label="Sample Explorer"]');
+  const menu = page.getByRole("menu");
+  const selected = () => tree.getAttribute("aria-activedescendant");
+  const calls = () => page.evaluate(() => window.nativeTreeProbe.calls);
+  const phase = async (name, action) => {
+    const begin = performance.now();
+    await step(name, action);
+    snapshots.push({ name, durationMs: performance.now() - begin });
+  };
+  const closed = () => menu.waitFor({ state: "detached" });
+  const treeFocused = () => observe(() => document.activeElement?.getAttribute("role") === "tree");
+  const open = async (key) => {
+    await tree.press(key);
+    await menu.waitFor({ state: "visible" });
+    await observe(() => document.querySelector('[role="menu"]')?.contains(document.activeElement));
+    // Base UI intentionally guards outside presses for 500ms after a
+    // controlled context-menu open. Advance its browser clock deterministically
+    // before testing dismissal, without sleeping or changing product handlers.
+    await page.clock.runFor(500);
+    check((await menu.count()) === 1, "expected exactly one public context menu");
+  };
+  try {
+    await phase("ready real tree and disabled no-selection action", async () => {
+      await tree.waitFor({ state: "visible" });
+      await page.getByRole("treeitem", { name: "Branch", exact: false }).waitFor();
+      const inspect = page.getByRole("button", { name: "Inspect", exact: true });
+      check(await inspect.isDisabled(), "selection-required Inspect should be disabled");
+      await inspect.focus();
+      await page.keyboard.press("Enter");
+      check((await calls()).length === 0, "disabled toolbar action ran");
+      check((await tree.getByRole("treeitem").count()) < 100, "tree is not virtualized");
+      await tree.focus();
+      await tree.press("Home");
+      await tree.press("ArrowRight");
+      await tree.press("ArrowDown");
+      await observe(
+        () =>
+          document.querySelector('[role="treeitem"][aria-selected="true"]')?.textContent ===
+          "Child row",
+      );
+    });
+    for (const key of ["Shift+F10", "ContextMenu"]) {
+      await phase(`${key} mounts offscreen selection and Escape returns to tree`, async () => {
+        await tree.evaluate((element) => {
+          element.scrollTop = 8000;
+        });
+        await observe(
+          () => !document.querySelector('[role="tree"]')?.hasAttribute("aria-activedescendant"),
+        );
+        await open(key);
+        const mounted = tree.locator('[role="treeitem"][aria-selected="true"]');
+        check(
+          (await mounted.count()) === 1 && (await mounted.textContent()) === "Child row",
+          "selected child not remounted",
+        );
+        const row = await tree.locator('[aria-selected="true"]').boundingBox();
+        const viewport = await tree.boundingBox();
+        const popup = await menu.boundingBox();
+        check(
+          row &&
+            viewport &&
+            popup &&
+            row.y >= viewport.y &&
+            row.y + row.height <= viewport.y + viewport.height + 1,
+          "selected row not scrolled into viewport",
+        );
+        check(
+          Math.abs(popup.y - row.y) < 4 && Math.abs(popup.x - (row.x + row.width)) < 4,
+          "public menu not anchored beside selected row",
+        );
+        const before = await selected();
+        for (const arrow of ["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "End", "Home"]) {
+          await page.keyboard.press(arrow);
+          check((await selected()) === before, `${arrow} leaked into tree navigation`);
+        }
+        await page.keyboard.press("Escape");
+        await closed();
+        await treeFocused();
+      });
+    }
+    await phase("outside pointer dismisses menu; subsequent input retains focus", async () => {
+      await open("Shift+F10");
+      // The public modal backdrop consumes the first pointer click to dismiss.
+      // Hit the real input coordinates, then edit after dismissal using another
+      // normal click; never force a click through the modal backdrop.
+      const input = page.locator('input[aria-label="Other setting"]');
+      const bounds = await input.boundingBox();
+      check(bounds, "outside input has no geometry");
+      await step("outside pointer dismisses modal menu", () =>
+        page.mouse.click(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2),
+      );
+      await step("menu closes after outside click", closed, 10000);
+      await input.click();
+      await observe(() => document.activeElement?.getAttribute("aria-label") === "Other setting");
+      await page.keyboard.type("outside draft");
+      check(
+        (await page.getByRole("textbox", { name: "Other setting" }).inputValue()) ===
+          "outside draft",
+        "outside editing lost focus",
+      );
+    });
+    await phase("Inspect exactly once with child target; busy menu blocks activation", async () => {
+      await page.evaluate(() => window.nativeTreeProbe.configure({ hold: true }));
+      await tree.focus();
+      await open("ContextMenu");
+      await page.keyboard.press("End");
+      await page.keyboard.down("Enter");
+      await page.keyboard.down("Enter");
+      await page.keyboard.up("Enter");
+      await closed();
+      await observe(
+        () => window.nativeTreeProbe.calls.length === 1 && window.nativeTreeProbe.pending() === 1,
+      );
+      check((await calls())[0].context.selectedID === "child", "Inspect target changed");
+      check((await calls())[0].action === "inspect", "wrong action invoked");
+      await tree.focus();
+      await open("Shift+F10");
+      check(
+        (await menu.getByRole("menuitem", { name: "Inspect" }).getAttribute("aria-disabled")) ===
+          "true",
+        "busy Inspect is enabled",
+      );
+      await page.keyboard.press("End");
+      await page.keyboard.press("Enter");
+      check((await calls()).length === 1, "busy action executed");
+      await page.keyboard.press("Escape");
+      await closed();
+      await treeFocused();
+      await page.evaluate(() => window.nativeTreeProbe.release());
+      await observe(
+        () =>
+          window.nativeTreeProbe.pending() === 0 &&
+          !document.querySelector('button[aria-label="Inspect"]')?.disabled,
+      );
+    });
+    await phase("action dialog retains its new focus owner", async () => {
+      await page.evaluate(() => window.nativeTreeProbe.configure({ dialog: true }));
+      await open("ContextMenu");
+      await page.keyboard.press("End");
+      await page.keyboard.press("Enter");
+      await closed();
+      await page.getByRole("dialog").waitFor({ state: "visible" });
+      await observe(() => document.activeElement?.getAttribute("aria-label") === "Action input");
+      await page.keyboard.type("action draft");
+      check(
+        (await page.getByRole("textbox", { name: "Action input" }).inputValue()) === "action draft",
+        "menu stole dialog input focus",
+      );
+      const invoked = await calls();
+      check(
+        invoked.length === 2 && invoked.every((call) => call.context.selectedID === "child"),
+        "dialog action target/count changed",
+      );
+      await page.evaluate(() => window.nativeTreeProbe.closeDialog());
+      await page.getByRole("dialog").waitFor({ state: "detached" });
+    });
+    await phase("virtual row unmount closes menu without reopening", async () => {
+      await tree.focus();
+      await open("Shift+F10");
+      await tree.evaluate((element) => {
+        element.scrollTop = 8000;
+      });
+      await closed();
+      await observe(
+        () => !document.querySelector('[role="tree"]')?.hasAttribute("aria-activedescendant"),
+      );
+      await tree.evaluate((element) => {
+        element.scrollTop = 0;
+      });
+      await tree.getByRole("treeitem", { name: "Child row", exact: true }).waitFor();
+      check((await menu.count()) === 0, "menu reopened after row remount");
+    });
+    const keyboardEvents = await page.evaluate(() => window.nativeTreeKeyboardEvents);
+    check(
+      ["F10", "ContextMenu"].every((key) =>
+        keyboardEvents.some((event) => event.key === key && event.isTrusted),
+      ),
+      "both menu triggers must traverse trusted browser keyboard events",
+    );
+    return {
+      snapshots,
+      calls: await calls(),
+      keyboardEvents,
+      input: "Playwright trusted keyboard; no synthetic click fallback",
+    };
+  } catch (error) {
+    const diagnostic = await page
+      .evaluate(() => ({
+        active: document.activeElement?.outerHTML,
+        menus: [...document.querySelectorAll('[role="menu"]')].map((element) => element.outerHTML),
+        input: document.querySelector('input[aria-label="Other setting"]')?.outerHTML,
+      }))
+      .catch(() => null);
+    primaryError = new Error(`${textError(error)}; DOM diagnostic: ${JSON.stringify(diagnostic)}`);
+    throw primaryError;
+  } finally {
+    try {
+      await step("dispose tree fixture", () =>
+        page.evaluate(() => window.nativeTreeProbe.dispose()),
+      );
+      await closed();
+      await page.getByRole("dialog").waitFor({ state: "detached" });
+      check(
+        (await page.evaluate(() => window.nativeTreeProbe.pending())) === 0,
+        "controlled port gate leaked",
+      );
+    } catch (cleanupError) {
+      throw new Error(
+        `${primaryError ? textError(primaryError) + "; " : ""}fixture cleanup: ${textError(cleanupError)}`,
+      );
+    }
+  }
+}
 
 async function worker(options) {
   if (["worker-exit", "worker-hang", "supervisor-exit"].includes(options.injectFailure)) {
@@ -77,7 +306,13 @@ async function worker(options) {
         root: app,
         configFile: path.join(app, "vite.config.ts"),
         cacheDir: path.join(options.scratch, "cache"),
-        optimizeDeps: { entries: ["src/features/plugins/native-ui/native-panel.browser-test.tsx"] },
+        optimizeDeps: {
+          entries: [
+            options.mode === "native-tree"
+              ? "src/features/plugins/native-ui/native-tree.browser-test.tsx"
+              : "src/features/plugins/native-ui/native-panel.browser-test.tsx",
+          ],
+        },
         server: { port: 0, host: "127.0.0.1", open: false },
         plugins: [
           {
@@ -98,8 +333,18 @@ async function worker(options) {
                 if (command === 'plugin:window|get_all_windows') return ['browser-test'];
                 throw new Error('Unexpected native command in component test: ' + command);
               });
+              ${
+                options.mode === "native-tree"
+                  ? `
+              const { mountNativeTreeBrowserTest } = await import('/src/features/plugins/native-ui/native-tree.browser-test.tsx');
+              window.nativeTreeProbe = mountNativeTreeBrowserTest(document.getElementById('probe'));
+              window.runNativePanelTest = () => true;
+              `
+                  : `
               const { testNativeActionGroupLayout } = await import('/src/features/plugins/native-ui/native-panel.browser-test.tsx');
               window.runNativePanelTest = () => testNativeActionGroupLayout(document.getElementById('probe'));
+              `
+              }
             </script></body></html>`,
                   );
                   response.setHeader("Content-Type", "text/html");
@@ -130,6 +375,15 @@ async function worker(options) {
     await step("install window.error listener", () =>
       page.addInitScript(() => {
         window.nativePanelWindowErrors = [];
+        window.nativeTreeKeyboardEvents = [];
+        document.addEventListener("keydown", (event) => {
+          window.nativeTreeKeyboardEvents.push({
+            key: event.key,
+            shiftKey: event.shiftKey,
+            isTrusted: event.isTrusted,
+            defaultPrevented: event.defaultPrevented,
+          });
+        });
         window.addEventListener(
           "error",
           (event) =>
@@ -161,9 +415,14 @@ async function worker(options) {
           window.dispatchEvent(new ErrorEvent("error", { message: "controlled runner failure" }));
         }),
       );
-    evidence.component = await step("six-stage component regression", () =>
-      page.evaluate(() => window.runNativePanelTest()),
-    );
+    if (options.mode === "native-tree")
+      await step("install controlled browser clock", () => page.clock.install());
+    evidence.component =
+      options.mode === "native-tree"
+        ? await nativeTreeRegression(page, step)
+        : await step("six-stage component regression", () =>
+            page.evaluate(() => window.runNativePanelTest()),
+          );
     evidence.windowErrors = await step("collect window errors", () =>
       page.evaluate(() => window.nativePanelWindowErrors),
     );
@@ -198,6 +457,7 @@ async function worker(options) {
 
 async function main() {
   const options = {
+    mode: "action-group",
     browser: "msedge",
     stepMs: 60000,
     overallMs: 120000,
@@ -216,6 +476,7 @@ async function main() {
       const value = args[++index];
       if (!value) throw new Error(`Missing value for ${flag}`);
       if (flag === "--browser") options.browser = value;
+      else if (flag === "--mode") options.mode = value;
       else if (flag === "--playwright-module") options.module = value;
       else if (flag === "--report") options.report = path.resolve(value);
       else if (flag === "--step-timeout-ms") options.stepMs = Number(value);
@@ -229,6 +490,13 @@ async function main() {
     }
     if (process.platform !== "win32")
       throw new Error("This runner requires Windows process-tree cleanup");
+    if (!["action-group", "native-tree", "lifecycle"].includes(options.mode))
+      throw new Error("mode must be action-group, native-tree or lifecycle");
+    if (
+      options.mode === "lifecycle" &&
+      !["worker-exit", "worker-hang"].includes(options.injectFailure)
+    )
+      throw new Error("lifecycle requires --inject-failure worker-exit or worker-hang");
     if (!["msedge", "chrome", "chromium"].includes(options.browser))
       throw new Error("browser must be msedge, chrome or chromium");
     for (const ms of [options.stepMs, options.overallMs])
@@ -366,8 +634,11 @@ async function main() {
       );
     }
     const evidence = result.evidence;
-    if (evidence.component?.snapshots?.length !== 6 && !evidence.error)
-      throw new Error("Expected six geometry stages");
+    if (
+      evidence.component?.snapshots?.length !== (options.mode === "native-tree" ? 7 : 6) &&
+      !evidence.error
+    )
+      throw new Error("Expected all component regression stages");
     if (evidence.error) throw new Error(evidence.error);
     if (evidence.cleanup.errors?.length || evidence.cleanup.serverListening)
       throw new Error("Worker cleanup failed");
@@ -413,6 +684,8 @@ async function main() {
     if (scratch && ownershipProven) {
       let cleanupTimer;
       try {
+        result.workerLog = options.report.replace(/\.json$/, ".worker.log");
+        await writeFile(result.workerLog, await readFile(path.join(scratch, "worker.log")));
         await Promise.race([
           rm(scratch, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }),
           new Promise((_, reject) => {
@@ -436,7 +709,7 @@ async function main() {
       result.error ??= `Overall deadline ${options.overallMs}ms exceeded including cleanup`;
       result.exitCode = 1;
     }
-    const report = {
+    let report = {
       schemaVersion: 1,
       runner: "native-panel controlled browser",
       warnMs: 30000,
@@ -445,20 +718,76 @@ async function main() {
       result,
       tests: [
         {
-          name: "six-stage native action group browser regression",
-          suite: "native-panel.browser-test.tsx",
+          name: `${options.mode} browser regression`,
+          suite:
+            options.mode === "native-tree"
+              ? "native-tree.browser-test.tsx"
+              : "native-panel.browser-test.tsx",
           status: result.exitCode === 0 ? "passed" : "failed",
           durationMs: result.durationMs,
           message: result.error ?? result.cleanup.error,
         },
         ...(result.evidence?.component?.snapshots ?? []).map((stage) => ({
           name: stage.name,
-          suite: "native-panel geometry",
+          suite: options.mode === "native-tree" ? "native-tree keyboard" : "native-panel geometry",
           status: "passed",
           durationMs: stage.durationMs,
         })),
       ],
     };
+    if (options.mode === "lifecycle") {
+      // Preserve the expected red report separately. Only positive assertions
+      // about that failure and its cleanup enter the lifecycle pass totals.
+      const expectedCode = options.injectFailure === "worker-exit" ? 17 : 124;
+      report.expectedFailure = { injection: options.injectFailure, workerExitCode: expectedCode };
+      const expectedReport = path.join(
+        path.dirname(options.report),
+        "expected-failures",
+        path.basename(options.report),
+      );
+      await mkdir(path.dirname(expectedReport), { recursive: true });
+      await writeFile(expectedReport, JSON.stringify(report, null, 2));
+      writeTestReportArtifacts(expectedReport);
+      const assertions = {
+        "runner fails closed": result.exitCode === 1 && !!result.error,
+        "injected worker and descendant started":
+          Number.isInteger(result.lifecycleInjection?.workerPid) &&
+          Number.isInteger(result.lifecycleInjection?.descendantPid) &&
+          result.lifecycleInjection.workerPid !== result.lifecycleInjection.descendantPid,
+        "expected worker failure observed":
+          result.job?.exitCode === expectedCode &&
+          result.job?.status === "failed" &&
+          result.supervisorExit?.code === 1,
+        "job proves owned descendants terminated":
+          result.cleanup.ownershipProven === true && result.job?.cleanup?.totalProcesses >= 3,
+        "owned profile and cache removed":
+          result.cleanup.profileAndCacheRemoved === true && !result.cleanup.retainedScratch,
+        "total deadline respected": result.durationMs < options.overallMs,
+      };
+      report = {
+        schemaVersion: 1,
+        runner: `native browser lifecycle ${options.injectFailure}`,
+        warnMs: 30000,
+        maxMs: options.overallMs,
+        processDurationMs: result.durationMs,
+        expectedFailureReport: expectedReport,
+        result,
+        assertions,
+        tests: [
+          {
+            name: "bounded injected worker lifecycle",
+            suite: `native browser lifecycle ${options.injectFailure}`,
+            status: Object.values(assertions).every(Boolean) ? "passed" : "failed",
+            durationMs: result.durationMs,
+            message: Object.entries(assertions)
+              .filter(([, passed]) => !passed)
+              .map(([name]) => name)
+              .join("; "),
+          },
+        ],
+      };
+      result.exitCode = Object.values(assertions).every(Boolean) ? 0 : 1;
+    }
     await mkdir(path.dirname(options.report), { recursive: true });
     await writeFile(options.report, JSON.stringify(report, null, 2));
     writeTestReportArtifacts(options.report);

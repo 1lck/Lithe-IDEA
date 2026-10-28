@@ -178,9 +178,11 @@ Windows 虚拟树的键盘焦点属于 viewport（只挂载可见行的滚动容
 
 Windows 原生表单动作组按完整组宽度选择横排或纵排：测量现有公共 Button/InfoTip 行的自然宽度和既有间距，空间不足时整组纵排，不能用 flex-wrap 留下多列折行。只切换同一个容器的方向，保留 DOM、输入草稿、焦点和单次完整 values 提交；首次同步测量，后续 ResizeObserver 通知合并到一个动画帧，卸载取消待执行帧，避免观察回调改高度产生反馈错误；字段栅格与旧 width/span 兼容语义不变。组件与真实 Edge 几何回归证明宽窄切换，不代表真实 MainLayout/WebView2、物理键盘、IME 或完整包验收。仓库入口 `scripts/test-windows-native-plugin-ui-browser.mjs` 使用真实 Edge、生产样式和公共组件，Tauri 调用使用官方 mock；导航前捕获全部 window.error/pageerror。执行与清理共用总期限，工作进程先归属 Windows Job（关闭即终止全部成员的系统进程组）再释放，退出后核实零成员才删除 profile/cache；早退、超时或缺失清理证明均失败。JSON/HTML/JUnit 与独立 CI 步骤维护六阶段组件回归；它不启动产品，不等于 WebView2 或 ui:3 完整包验收，ui:3 继续关闭。
 
+R21 为 NativeTree 增加真实 Edge 七阶段回归，复用上述 runner、生产样式、公共 ContextMenu/Dialog 和受控 typed 函数端口；键盘操作走 Playwright 浏览器默认行为。公共 modal 会把背景移出可访问树，测试使用局部 DOM locator 观察挂载行，不改变 modal。菜单打开后的上游 500ms 外点击保护期由 Playwright 受控时钟推进；随后第一次外点击由遮罩消费并关闭菜单，下一次正常点击才编辑输入，不声称立即穿透或同一次点击取得输入焦点。回归覆盖两种菜单键、Escape 焦点恢复、单次 Inspect、busy 禁用、对话框焦点和虚拟行卸载；真实包、WebView2、物理键盘、IME 与 ui:3 仍待验收。
+
 ## 验证
 
-- Windows 受控浏览器：按 `docs/ci-builds.md` 中的 Playwright driver 解析命令运行 `scripts/test-windows-native-plugin-ui-browser.mjs`。R20 的 Edge 六阶段通过；页面错误、缺失模块、执行超时、worker 早退/挂起均非零退出并取得 Job 零成员证明。supervisor 早退时缺失证明，报告失败并保留隔离 scratch，不把故障注入算作产品验收。
+- Windows 受控浏览器：按 `docs/ci-builds.md` 中的 Playwright driver 解析命令运行 `scripts/test-windows-native-plugin-ui-browser.mjs`。R21 的动作组六阶段（41.0 秒）及 NativeTree 七阶段（38.5 秒）通过，window.error/pageerror 均为零，Job 归零后 profile/cache 已清理；worker 早退/挂起的生命周期回归通过，原始预期失败报告单独保留。R20 的页面错误、缺失模块、执行超时故障注入保持原证据范围。supervisor 早退时缺失证明，报告失败并保留隔离 scratch，不把故障注入算作产品验收。
 - `./scripts/verify-shared-contracts.sh`
 - `cargo test --manifest-path rust/lithe-core/Cargo.toml --lib native_ui_validates_version_ownership_actions_and_budgets`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'PluginNativeUI|PluginWeb|WorkbenchContributionHostTests'`

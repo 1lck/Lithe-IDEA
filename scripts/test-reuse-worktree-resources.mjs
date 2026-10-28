@@ -308,6 +308,8 @@ try {
       ".artifacts/native-browser-*/worker-evidence.json", ".artifacts/native-browser-*/job-result.json",
       ".artifacts/native-browser-*/worker.log",
       ".artifacts/test-stability/native-panel-browser.{json,html,junit.xml}",
+      "<explicit-native-browser-report>.{json,html,junit.xml,worker.log}",
+      "<native-browser-report-parent>/expected-failures/<report-name>.{json,html,junit.xml}",
     ]) assert.ok(resource.locations.includes(location));
     for (const fixture of [
       ".artifacts/native-browser-first/profile/Preferences",
@@ -318,6 +320,11 @@ try {
       ".artifacts/test-stability/native-panel-browser.json",
       ".artifacts/test-stability/native-panel-browser.html",
       ".artifacts/test-stability/native-panel-browser.junit.xml",
+      ".artifacts/test-stability/native-panel-browser.worker.log",
+      ".artifacts/test-stability/native-tree-browser.json",
+      ".artifacts/test-stability/native-browser-worker-hang.worker.log",
+      ".artifacts/test-stability/expected-failures/native-browser-worker-exit.json",
+      ".artifacts/test-stability/expected-failures/native-browser-worker-hang.html",
     ]) {
       const source = path.join(sourceRoot, fixture);
       await fs.mkdir(path.dirname(source), { recursive: true });
@@ -326,6 +333,29 @@ try {
       assert.notEqual(refused.status, 0);
       assert.match(diagnostics(refused), /native-browser-regression-state.*cannot be reused/);
       assert.equal(await fs.readFile(source, "utf8"), "run-owned browser bytes");
+      await assert.rejects(fs.access(path.join(targetRoot, fixture)));
+    }
+  });
+  await test("offline build-preflight fake tools and mutable manifests cannot transfer ownership", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "plugin-host-acceptance-state");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.includes("<os-temp>/lithe-build-preflight-*/"));
+    assert.match(resource.reason, /fake native Bun\/IPC workers/);
+    // Refuse before worktree resolution or any copy stage, even if the source
+    // looks like a complete disposable checkout with an executable and manifest.
+    for (const fixture of [
+      "preflight-fixture/native/bun.exe",
+      "preflight-fixture/windows/tauri/src-tauri/Cargo.toml",
+      "preflight-fixture/scripts/install-windows-frontend-dependencies.ps1",
+    ]) {
+      const source = path.join(sourceRoot, fixture);
+      await fs.mkdir(path.dirname(source), { recursive: true });
+      await fs.writeFile(source, "isolated offline preflight fixture bytes");
+      const refused = reuse(["--resource", resource.id]);
+      assert.notEqual(refused.status, 0);
+      assert.match(diagnostics(refused), /plugin-host-acceptance-state.*cannot be reused/);
+      assert.equal(await fs.readFile(source, "utf8"), "isolated offline preflight fixture bytes");
       await assert.rejects(fs.access(path.join(targetRoot, fixture)));
     }
   });

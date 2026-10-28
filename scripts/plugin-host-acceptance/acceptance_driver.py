@@ -123,7 +123,12 @@ class OwnedProcess:
                 kernel32.CloseHandle(handle)
 
     def running(self) -> bool:
-        return bool(self.handle) and kernel32.WaitForSingleObject(self.handle, 0) == WAIT_TIMEOUT
+        if not self.handle:
+            return False
+        state = kernel32.WaitForSingleObject(self.handle, 0)
+        if state not in (0, WAIT_TIMEOUT):
+            raise ctypes.WinError(kernel32.GetLastError())
+        return state == WAIT_TIMEOUT
 
     def terminate(self) -> None:
         if self.running() and not kernel32.TerminateProcess(self.handle, 1):
@@ -321,6 +326,29 @@ def process_tree_ids(root_pid: int) -> list[int]:
     return result
 
 
+def process_exit_proven(pid: int) -> bool:
+    """A signaled kernel object or ERROR_INVALID_PARAMETER proves exit.
+
+    Access denied and failed waits are inspection failures, never absence.
+    This query-only handle does not authorize termination or adopt a reused PID.
+    """
+    handle = kernel32.OpenProcess(SYNCHRONIZE, False, pid)
+    if not handle:
+        error = kernel32.GetLastError()
+        if error == 87:  # ERROR_INVALID_PARAMETER: PID no longer exists.
+            return True
+        raise ctypes.WinError(error)
+    try:
+        state = kernel32.WaitForSingleObject(handle, 0)
+        if state == 0:  # WAIT_OBJECT_0, including exit status STILL_ACTIVE (259).
+            return True
+        if state == WAIT_TIMEOUT:
+            return False
+        raise ctypes.WinError(kernel32.GetLastError())
+    finally:
+        kernel32.CloseHandle(handle)
+
+
 def process_record(pid: int) -> dict | None:
     """Use upstream native inspection, retaining exact Win32 identity ticks.
 
@@ -334,9 +362,9 @@ def process_record(pid: int) -> dict | None:
         process.create_time()  # Freeze psutil's original process identity.
         identity = OwnedProcess.capture(pid)
         if identity is None:
-            if process.is_running():
-                raise RuntimeError(f"could not inspect the process identity for {pid}")
-            return None
+            if not process.is_running() or process_exit_proven(pid):
+                return None
+            raise RuntimeError(f"could not inspect the process identity for {pid}")
         record = {
             "ProcessId": pid,
             "ParentProcessId": process.ppid(),
@@ -350,6 +378,12 @@ def process_record(pid: int) -> dict | None:
         return record
     except psutil.NoSuchProcess:
         return None
+    except psutil.AccessDenied:
+        # psutil can query after the short-lived process has exited. Recheck
+        # with a non-terminating handle; a live/uninspectable owner still fails.
+        if (identity is not None and not identity.running()) or process_exit_proven(pid):
+            return None
+        raise
     finally:
         if identity is not None:
             identity.close()
@@ -404,6 +438,10 @@ def capture_owned_tree(root: OwnedProcess, records: list[dict] | None = None) ->
             if int(record.get("CreationTime", -1)) < parent.creation_time:
                 continue
             child = remember_owned_process(pid, record)
+            if child is None:
+                if process_exit_proven(pid):
+                    continue
+                raise RuntimeError(f"could not retain the live process identity for {pid}")
             if child is not None and child not in accepted:
                 accepted.append(child)
                 if child not in root.descendants:

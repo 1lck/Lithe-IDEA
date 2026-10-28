@@ -22,19 +22,22 @@ function Write-CacheWarning {
 
 Push-Location $windowsApp
 try {
-    & bunx @TauriArguments
-    if ($LASTEXITCODE -eq 0) { return }
+    . (Join-Path $PSScriptRoot "windows-build-preflight.ps1")
+    Invoke-TauriWithOriginalManifestBytes -Manifest (Join-Path $windowsApp "src-tauri/Cargo.toml") -Action {
+        & bunx @TauriArguments
+        if ($LASTEXITCODE -eq 0) { return }
 
-    if ($env:LITHE_CARGO_BUILD_CACHE_RESTORED -ne "true") {
-        throw $FailureMessage
-    }
+        if ($env:LITHE_CARGO_BUILD_CACHE_RESTORED -ne "true") {
+            throw $FailureMessage
+        }
 
-    Write-CacheWarning "The Tauri build failed after restoring Cargo outputs. Clearing the repository target directory and retrying once without cached outputs."
-    if (Test-Path -LiteralPath $targetRoot) {
-        Remove-Item -Recurse -Force -LiteralPath $targetRoot
+        Write-CacheWarning "The Tauri build failed after restoring Cargo outputs. Clearing the repository target directory and retrying once without cached outputs."
+        if (Test-Path -LiteralPath $targetRoot) {
+            Remove-Item -Recurse -Force -LiteralPath $targetRoot
+        }
+        & bunx @TauriArguments
+        if ($LASTEXITCODE -ne 0) { throw "$FailureMessage after a clean retry" }
     }
-    & bunx @TauriArguments
-    if ($LASTEXITCODE -ne 0) { throw "$FailureMessage after a clean retry" }
 } finally {
     Pop-Location
 }

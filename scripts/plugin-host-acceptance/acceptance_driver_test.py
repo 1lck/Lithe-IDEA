@@ -187,7 +187,7 @@ def main() -> int:
         assert result.stderr == "查询错误\ufffd", repr(result.stderr)
 
     def inspection_failure_is_not_an_empty_tree():
-        with patch.object(driver, "process_tree_ids", return_value=[123]):
+        with patch.object(driver, "process_tree_ids", return_value=[123]), patch.object(driver, "process_exit_proven", return_value=False):
             with patch.object(driver.psutil, "Process", side_effect=driver.psutil.AccessDenied(123)):
                 try:
                     driver.process_tree(123)
@@ -195,6 +195,90 @@ def main() -> int:
                     pass
                 else:
                     raise AssertionError("inspection failure was accepted as an empty tree")
+
+    def exited_identity_race_requires_positive_proof():
+        process = MagicMock()
+        process.is_running.return_value = True
+        with patch.object(driver.psutil, "Process", return_value=process), patch.object(OwnedProcess, "capture", return_value=None):
+            with patch.object(driver, "process_exit_proven", return_value=True):
+                assert driver.process_record(123) is None
+            with patch.object(driver, "process_exit_proven", return_value=False):
+                try:
+                    driver.process_record(123)
+                except RuntimeError as error:
+                    assert "could not inspect" in str(error)
+                else:
+                    raise AssertionError("live identity failure was swallowed")
+        with patch.object(driver.psutil, "Process", side_effect=driver.psutil.AccessDenied(123)):
+            with patch.object(driver, "process_exit_proven", return_value=True):
+                assert driver.process_record(123) is None
+            with patch.object(driver, "process_exit_proven", return_value=False):
+                try:
+                    driver.process_record(123)
+                except driver.psutil.AccessDenied:
+                    pass
+                else:
+                    raise AssertionError("live AccessDenied owner was swallowed")
+
+    def native_exit_proof_rejects_denied_or_failed_inspection():
+        for state, expected in ((0, True), (driver.WAIT_TIMEOUT, False)):
+            with patch.object(driver.kernel32, "OpenProcess", return_value=456), patch.object(driver.kernel32, "WaitForSingleObject", return_value=state):
+                with patch.object(driver.kernel32, "CloseHandle") as close:
+                    assert driver.process_exit_proven(123) is expected
+                    close.assert_called_once_with(456)
+        for open_handle, error, state in ((0, 87, 0), (0, 5, 0), (456, 5, 0xFFFFFFFF)):
+            with patch.object(driver.kernel32, "OpenProcess", return_value=open_handle), patch.object(driver.kernel32, "GetLastError", return_value=error):
+                with patch.object(driver.kernel32, "WaitForSingleObject", return_value=state), patch.object(driver.kernel32, "CloseHandle") as close:
+                    if error == 87:
+                        assert driver.process_exit_proven(123)
+                    else:
+                        try:
+                            driver.process_exit_proven(123)
+                        except OSError as failure:
+                            assert failure.winerror == 5
+                        else:
+                            raise AssertionError("uninspectable process was reported exited")
+                    assert close.call_count == bool(open_handle)
+        owner = OwnedProcess(123, 456, 1000, "fixture.exe")
+        with patch.object(driver.kernel32, "WaitForSingleObject", return_value=0xFFFFFFFF), patch.object(driver.kernel32, "GetLastError", return_value=5):
+            try:
+                owner.running()
+            except OSError as failure:
+                assert failure.winerror == 5
+            else:
+                raise AssertionError("failed retained-handle wait was reported exited")
+
+    def capture_tree_rejects_live_uninspectable_child():
+        root = MagicMock(pid=101, creation_time=1000, descendants=[])
+        root.running.return_value = True
+        records = [{"ProcessId": 101, "ParentProcessId": 0, "CreationTime": 1000},
+                   {"ProcessId": 102, "ParentProcessId": 101, "CreationTime": 1001}]
+        with patch.object(driver, "remember_owned_process", return_value=None):
+            with patch.object(driver, "process_exit_proven", return_value=True):
+                assert driver.capture_owned_tree(root, records) == []
+            with patch.object(driver, "process_exit_proven", return_value=False):
+                try:
+                    driver.capture_owned_tree(root, records)
+                except RuntimeError as error:
+                    assert "could not retain the live process identity" in str(error)
+                else:
+                    raise AssertionError("live uninspectable child was omitted")
+
+    def short_lived_native_process_has_signaled_exit_proof():
+        # Popen retains the original kernel object until context exit. Waiting
+        # establishes the race order without timing sleeps or PID-name cleanup.
+        with subprocess.Popen([sys.executable, "-c", "pass"], creationflags=driver.CREATE_NO_WINDOW) as child:
+            try:
+                child.wait(timeout=5)
+                assert driver.process_exit_proven(child.pid)
+                process = MagicMock()
+                process.is_running.return_value = True
+                with patch.object(driver.psutil, "Process", return_value=process), patch.object(OwnedProcess, "capture", return_value=None):
+                    assert driver.process_record(child.pid) is None
+            finally:
+                if child.poll() is None:
+                    child.kill()
+                    child.wait(timeout=5)
 
     def metadata_rejects_pid_reuse_and_closes_identity():
         process, identity = MagicMock(), MagicMock()
@@ -630,6 +714,10 @@ def main() -> int:
         run_case("bounded process captures a successful child", completes, tests)
         run_case("process output decodes UTF-8 and replaces malformed bytes", output_is_utf8_and_loss_tolerant, tests)
         run_case("inspection errors cannot become an empty process tree", inspection_failure_is_not_an_empty_tree, tests)
+        run_case("exited identity races require positive proof and live owners fail", exited_identity_race_requires_positive_proof, tests)
+        run_case("native exit proof rejects denied handles and failed waits", native_exit_proof_rejects_denied_or_failed_inspection, tests)
+        run_case("tree retention skips proven exit but rejects a live uninspectable child", capture_tree_rejects_live_uninspectable_child, tests)
+        run_case("short-lived native process exposes a signaled original object", short_lived_native_process_has_signaled_exit_proof, tests)
         run_case("metadata rejects PID reuse and preserves exact native identity", metadata_rejects_pid_reuse_and_closes_identity, tests)
         run_case("topology snapshots close their handles and reject inspection errors", topology_snapshot_closes_handles_and_rejects_errors, tests)
         run_case("wrapper inventory rejects unrelated fixture path lookalikes", wrapper_inventory_rejects_unrelated_lookalikes, tests)
