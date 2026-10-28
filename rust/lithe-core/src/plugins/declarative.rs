@@ -976,6 +976,7 @@ impl DeclarativePluginManifest {
                 debug_adapters: &self.debug_adapters,
                 plugin_api_version: self.plugin_api_version,
                 build_systems_version: self.requires.get("buildSystems").copied().unwrap_or(1),
+                executable_resolution_version: self.requires.get("executableResolution").copied().unwrap_or(0),
                 build_providers_version: self.requires.get("buildProviders").copied().unwrap_or(1),
                 model_inputs_version: self.requires.get("buildModelInputs").copied().unwrap_or(0),
                 official: is_official_namespace(&self.id),

@@ -183,7 +183,7 @@ package final class BuildNativeConfigurationCoordinator: ObservableObject {
         guard let providers else { throw NativeConfigurationOperationError.unavailable }
         let planner = planner
         let invocation = try planner.invocationPlan(context.target, root: context.plan.root, settings: context.settings)
-        let tool: URL?
+        let tool: ResolvedBuildTool?
         do {
             if invocation.executables.isEmpty { tool = nil }
             else {
@@ -194,7 +194,7 @@ package final class BuildNativeConfigurationCoordinator: ObservableObject {
                 // Opening a settings page cannot run a repository wrapper or
                 // trigger its cold download. Explicit Read/Save owns that work.
                 if selected.executesProjectCode && !allowProjectTool { throw NativeConfigurationOperationError.explicitRead }
-                tool = selected.executableURL
+                tool = selected
             }
         } catch is CancellationError { throw CancellationError() }
         catch {
@@ -205,7 +205,7 @@ package final class BuildNativeConfigurationCoordinator: ObservableObject {
         }
         try Task.checkCancellation()
         let request = try planner.configurationPlan(context.target, context: context.plan,
-            hints: BuildProviderHints(reason: .refresh, toolExecutable: tool))
+            hints: BuildProviderHints(reason: .refresh, toolExecutable: tool?.executableURL, toolEnvironment: tool?.providerEnvironment ?? [:]))
         let result = try await providers.send(request, to: context.provider, timeout: .seconds(60))
         try Task.checkCancellation()
         return try await Task.detached(priority: .userInitiated) {

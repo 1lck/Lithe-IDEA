@@ -18,11 +18,15 @@ protocol RunToolchainProvider: AnyObject {
     /// Owning language pack, when this provider is language-specific.  A nil
     /// value is reserved for shared build tools such as Maven or Gradle.
     var languageProviderID: String? { get }
+    var discoverable: Bool { get }
     func resolve(
         projectURL: URL,
         options: RunOptions,
         runtimeService: ProjectRuntimeService
     ) throws -> ResolvedRunToolchain
+
+    /// Discovery only: no process, runtime probe, or project code may run.
+    func resolvePassive(projectURL: URL, options: RunOptions, runtimeService: ProjectRuntimeService) throws -> ResolvedRunToolchain?
 
     func candidates(
         projectURL: URL,
@@ -32,6 +36,8 @@ protocol RunToolchainProvider: AnyObject {
 
 extension RunToolchainProvider {
     var languageProviderID: String? { nil }
+    var discoverable: Bool { true }
+    func resolvePassive(projectURL: URL, options: RunOptions, runtimeService: ProjectRuntimeService) throws -> ResolvedRunToolchain? { nil }
 
     func candidates(
         projectURL: URL,
@@ -71,6 +77,11 @@ final class RunToolchainRegistry {
         providersByIdentifier[identifier] != nil
     }
 
+    func resolvePassive(identifier: String, projectURL: URL, options: RunOptions,
+                        runtimeService: ProjectRuntimeService) throws -> ResolvedRunToolchain? {
+        try providersByIdentifier[identifier]?.resolvePassive(projectURL: projectURL, options: options, runtimeService: runtimeService)
+    }
+
     func resolve(
         identifier: String,
         projectURL: URL,
@@ -108,6 +119,7 @@ final class RunToolchainRegistry {
     ) -> [DiscoveredRunToolchain] {
         var visited = Set<ObjectIdentifier>()
         return providersByIdentifier.values.flatMap { provider -> [DiscoveredRunToolchain] in
+            guard provider.discoverable else { return [] }
             guard visited.insert(ObjectIdentifier(provider)).inserted else { return [] }
             guard !excludingTypes.contains(provider.toolchainType) else { return [] }
             return provider.identifiers.sorted().compactMap { identifier in
@@ -136,6 +148,7 @@ final class RunToolchainRegistry {
     static func standardProviders() -> [any RunToolchainProvider] {
         [
             JavaRunToolchainProvider(),
+            BuildJavaRunToolchainProvider(),
             MavenRunToolchainProvider(),
             GradleRunToolchainProvider(),
             PathRunToolchainProvider(
@@ -215,10 +228,34 @@ private final class JavaRunToolchainProvider: RunToolchainProvider {
 }
 
 @MainActor
+private final class BuildJavaRunToolchainProvider: RunToolchainProvider {
+    let identifiers: Set<String> = ["project-maven-jdk"]
+    let toolchainType = "java"
+    let languageProviderID: String? = "java"
+    let discoverable = false
+    func resolve(projectURL: URL, options: RunOptions, runtimeService: ProjectRuntimeService) throws -> ResolvedRunToolchain {
+        let selection = options.mavenJavaHomePath.isEmpty ? options.javaHomePath : options.mavenJavaHomePath
+        guard let home = runtimeService.mavenJavaHomeURL(overridePath: selection),
+              let executable = runtimeService.javaExecutableURL(overridePath: home.path) else {
+            throw RunExecutableResolutionError(message: L10n.string("No Java runtime was found. Set JAVA_HOME or install a JDK."))
+        }
+        return ResolvedRunToolchain(executableURL: executable,
+            environment: runtimeService.environment(for: .maven, javaHomeOverride: home.path))
+    }
+}
+
+@MainActor
 private final class MavenRunToolchainProvider: RunToolchainProvider {
     let identifiers: Set<String> = ["project-maven"]
     let toolchainType = "maven"
     let languageProviderID: String? = "java"
+
+    func resolvePassive(projectURL: URL, options: RunOptions, runtimeService: ProjectRuntimeService) throws -> ResolvedRunToolchain? {
+        guard let executable = runtimeService.mavenExecutable(at: projectURL, overridePath: options.mavenExecutablePath) else {
+            throw RunExecutableResolutionError(message: L10n.string("No Maven executable was found. Edit this service configuration."))
+        }
+        return ResolvedRunToolchain(executableURL: executable, environment: [:])
+    }
 
     func resolve(
         projectURL: URL,

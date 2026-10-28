@@ -1876,7 +1876,10 @@ package final class BuildSystemService: ObservableObject {
         let tool = try await providerTool(entry, workspaceURL: workspaceURL, owner: .run(run))
         var params = request.params
         if let tool, case .object(var object) = params {
-            object["tool"] = .object(["executable": .string(tool.path)])
+            object["tool"] = .object(["executable": .string(tool.executableURL.path)])
+            var environment = tool.providerEnvironment.mapValues(ToolingJSONValue.string)
+            if case .object(let options)? = object["environment"] { environment.merge(options) { _, contribution in contribution } }
+            object["environment"] = .object(environment)
             params = .object(object)
         }
         return BuildProviderRequest(method: request.method, params: params, optionFingerprint: request.optionFingerprint,
@@ -1900,13 +1903,13 @@ package final class BuildSystemService: ObservableObject {
         guard let executable = try await providerTool(entry, workspaceURL: workspaceURL, owner: owner) else {
             return planned
         }
-        return try plan(BuildProviderHints(reason: reason, toolExecutable: executable))
+        return try plan(BuildProviderHints(reason: reason, toolExecutable: executable.executableURL, toolEnvironment: executable.providerEnvironment))
     }
 
     /// The executable the build system's invocation resolves to, as a run
     /// would use it. Automatic discovery may fall back to the provider's lookup;
     /// an explicit selection must fail rather than use a different installation.
-    private func providerTool(_ entry: BuildSystemEntry, workspaceURL: URL, owner: CommandOwner) async throws -> URL? {
+    private func providerTool(_ entry: BuildSystemEntry, workspaceURL: URL, owner: CommandOwner) async throws -> ResolvedBuildTool? {
         let planner = planner
         let target = entry.target
         let invocation = try planner.invocationPlan(
@@ -1918,7 +1921,7 @@ package final class BuildSystemService: ObservableObject {
                 invocation, displayName: entry.instance.displayName, workspaceURL: workspaceURL
             ) { runtime, output in
                 try planner.checkToolVersion(target, runtime: runtime, output: output)
-            }.executableURL
+            }
         } catch is CancellationError {
             throw CancellationError()
         } catch {

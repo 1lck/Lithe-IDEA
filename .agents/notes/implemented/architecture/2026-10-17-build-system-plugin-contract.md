@@ -418,3 +418,16 @@ BuildSystemService 验证上述组合：前置 Runtime 缺失或版本不足时�
 Runtime 的显式选择均阻止模型和依赖 Provider 请求；全部设置为空时仍发送无 tool 的请求。
 `MacBuildToolResolverTests.customRuntimeProbeAndExecutionUseTheSameSiblingHelper`
 用临时可执行脚本验证带空格目录里的 Runtime 在探测和执行时都能找到同目录 helper。
+
+
+### 构建与运行复用本机工具链选择（2026-10-28）
+
+`executableResolution: 2` 的工具链候选引用已有 Run 注册表。Core 只传递工具链 ID 与
+规范化实例根，平台从同一份 local.json 读取项目和子项目选择，不在 Build 中再建 Maven
+路径偏好。显式选择不可用或前置 Runtime 失败时停止请求，不能把无 tool 的请求交给
+Provider 自行找另一套 Maven。被动导入经只读发现入口，不运行 Wrapper 或版本探测。
+
+Maven 构建所用 JDK 与后端进程自身的 JDK 是两项独立选择。宿主把解析得到的少量运行时
+环境与 Maven 路径一起传给 Core；Core 合并插件选项环境后使用既有 Provider 参数。
+模型、依赖、任务、测试和原生配置使用同一输入。不把整个宿主环境经 RPC 转发，否则会
+携带无关凭据。工具链解析到工作区内的程序或文件别名时，仍按项目代码限制显式读取。

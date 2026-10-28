@@ -1660,6 +1660,7 @@ struct BuildSystemServiceTests {
         providers.executionResult = BuildProviderExecutionResult(exitCode: exitCode, output: "completed")
         let runner = FakeBuildRunner()
         let harness = Harness(planner: planner, runner: runner, providers: providers)
+        harness.tools.providerEnvironment = ["JAVA_HOME": "/fixture/selected-build-jdk"]
         defer { harness.service.stop() }
         harness.service.reset(workspaceURL: Self.workspace)
         try #require(await harness.waitForEntries { !$0.isEmpty })
@@ -1671,6 +1672,9 @@ struct BuildSystemServiceTests {
         #expect(harness.service.operation?.output == "completed")
         #expect(providers.sent.map(\.request.method) == ["lithe/build/execute"])
         #expect(providers.sent.first?.target.workspaceURL == Self.workspace)
+        if case .object(let params)? = providers.sent.first?.request.params {
+            #expect(params["environment"] == .object(["JAVA_HOME": .string("/fixture/selected-build-jdk")]))
+        } else { Issue.record("The task must carry the selected runtime environment") }
         #expect(runner.requests.isEmpty)
         #expect(harness.service.output.contains("completed"))
         if exitCode == 0 { #expect(harness.service.runState == .succeeded) }
@@ -1779,12 +1783,16 @@ struct BuildSystemServiceTests {
         providers.executionResult = BuildProviderExecutionResult(exitCode: exitCode, output: "test output")
         let runner = FakeBuildRunner()
         let harness = Harness(planner: planner, runner: runner, providers: providers)
+        harness.tools.providerEnvironment = ["JAVA_HOME": "/fixture/selected-test-jdk"]
         defer { harness.service.stop() }
         harness.service.reset(workspaceURL: Self.workspace)
         try #require(await harness.waitForEntries { !$0.isEmpty })
         harness.service.runTests(Self.instanceID, request: BuildTestRequest(projects: ["app"]), title: "Tests")
         try #require(await harness.waitForRunState { $0 != .running })
         #expect(providers.sent.map(\.request.method) == ["lithe/build/test"])
+        if case .object(let params)? = providers.sent.first?.request.params {
+            #expect(params["environment"] == .object(["JAVA_HOME": .string("/fixture/selected-test-jdk")]))
+        } else { Issue.record("The test must carry the selected runtime environment") }
         #expect(runner.requests.isEmpty)
         #expect(harness.service.testResults == expected)
         #expect(planner.diagnosticOutputs == ["test output"])
@@ -2005,6 +2013,7 @@ struct BuildSystemServiceTests {
         planner.providerRequest = Self.providerRequest(method: "lithe/build/model")
         let providers = FakeBuildProviders()
         let harness = Harness(planner: planner, providers: providers)
+        harness.tools.providerEnvironment = ["JAVA_HOME": "/fixture/selected-model-jdk"]
         defer { harness.service.stop() }
         harness.service.reset(workspaceURL: Self.workspace)
         #expect(await harness.waitForEntries { $0.first?.modelState == .notLoaded })
@@ -2016,7 +2025,7 @@ struct BuildSystemServiceTests {
         // provider, and the request is planned again with it.
         #expect(planner.modelPlanHints == [
             BuildProviderHints(reason: .initial),
-            BuildProviderHints(reason: .initial, toolExecutable: FakeToolResolver.executableURL),
+            BuildProviderHints(reason: .initial, toolExecutable: FakeToolResolver.executableURL, toolEnvironment: harness.tools.providerEnvironment),
         ])
         #expect(harness.tools.resolutions == 1)
         #expect(providers.sent.count == 1)
@@ -2033,6 +2042,7 @@ struct BuildSystemServiceTests {
         planner.providerRequest = Self.providerRequest(method: "lithe/build/model")
         let providers = FakeBuildProviders()
         let harness = Harness(planner: planner, providers: providers)
+        harness.tools.providerEnvironment = ["JAVA_HOME": "/fixture/selected-refresh-jdk"]
         defer { harness.service.stop() }
         harness.service.reset(workspaceURL: Self.workspace)
         #expect(await harness.waitForEntries { !$0.isEmpty })
@@ -2040,7 +2050,7 @@ struct BuildSystemServiceTests {
         harness.service.loadModel(Self.instanceID, reason: .refresh)
         #expect(await harness.waitForEntries { $0.first?.modelState == .loaded })
         #expect(planner.modelPlanHints.last == BuildProviderHints(
-            reason: .refresh, toolExecutable: FakeToolResolver.executableURL
+            reason: .refresh, toolExecutable: FakeToolResolver.executableURL, toolEnvironment: harness.tools.providerEnvironment
         ))
 
         harness.service.loadDependencies(Self.instanceID, project: nil, reason: .refresh)
@@ -2050,7 +2060,7 @@ struct BuildSystemServiceTests {
         })
         #expect(planner.dependencyPlanHints == [
             BuildProviderHints(reason: .refresh),
-            BuildProviderHints(reason: .refresh, toolExecutable: FakeToolResolver.executableURL),
+            BuildProviderHints(reason: .refresh, toolExecutable: FakeToolResolver.executableURL, toolEnvironment: harness.tools.providerEnvironment),
         ])
     }
 
@@ -3303,6 +3313,7 @@ private final class FakeToolResolver: BuildToolResolving {
     /// When set, resolution fails like a build tool that is not installed.
     var failure: (any Error)?
     var executesProjectCode = false
+    var providerEnvironment: [String: String] = [:]
     private(set) var resolutions = 0
 
     func resolve(
@@ -3317,7 +3328,8 @@ private final class FakeToolResolver: BuildToolResolving {
             executableURL: Self.executableURL,
             environment: ["PATH": "/tool/bin"],
             executesProjectCode: executesProjectCode,
-            version: nil
+            version: nil,
+            providerEnvironment: providerEnvironment
         )
     }
 }

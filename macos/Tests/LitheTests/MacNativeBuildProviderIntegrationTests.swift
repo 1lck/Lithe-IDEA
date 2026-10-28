@@ -34,7 +34,18 @@ struct MacNativeBuildProviderIntegrationTests {
         for (url, name) in [(a, "a"), (b, "b"), (replacement, "replacement")] {
             try Data("<settings><localRepository>\(scratch.appendingPathComponent(name + "-repository").path)</localRepository></settings>".utf8).write(to: url)
         }
-        let originalB = try Data(contentsOf: b)
+        // The backend itself runs with the test-selected Java. Maven must use
+        // the distinct canonical selection for each reactor, transmitted as
+        // environment rather than inferred from the backend's java.home.
+        let javaHome = java.resolvingSymlinksInPath().deletingLastPathComponent().deletingLastPathComponent()
+        var runtimeSettings = ProjectRuntimeSettings()
+        for root in ["a", "b"] {
+            let alias = scratch.appendingPathComponent("runtime-\(root)")
+            try files.createSymbolicLink(at: alias, withDestinationURL: javaHome)
+            runtimeSettings.setOverride(path: root, mavenExecutablePath: maven.path, mavenJavaHomePath: alias.path)
+        }
+        let bSettings = "<settings><localRepository>\(scratch.appendingPathComponent("b-repository").path)</localRepository><activeProfiles><activeProfile>${env.JAVA_HOME}</activeProfile></activeProfiles></settings>"
+        try Data(bSettings.utf8).write(to: b)
         let before = try Self.inventory(package)
         let core = RustCoreBridge()
         let planner = RustBuildSystemOperations(core: core)
@@ -58,7 +69,13 @@ struct MacNativeBuildProviderIntegrationTests {
         options.setInstanceOptions(["a": ["settingsFile": .string(a.path)], "b": ["settingsFile": .string(b.path)]],
             workspaceURL: workspace, buildSystemID: "maven")
         let storage = MacFileStorage()
-        let build = BuildSystemService(planner: planner, tools: ExplicitNativeConfigurationTool(maven: maven), optionsStore: options,
+        let preferences = MacUserDefaultsStore(defaults: defaults)
+        let runtimeStore = MacProjectRuntimeSettingsStore(core: core, storage: storage, preferences: preferences)
+        _ = try runtimeStore.save(runtimeSettings, at: workspace, expecting: runtimeStore.load(at: workspace, migrateLegacy: false))
+        let projectRuntime = ProjectRuntimeService(runtimeLocator: CanonicalToolchainRuntimeLocator(), settingsStore: runtimeStore)
+        projectRuntime.openProject(at: workspace)
+        let build = BuildSystemService(planner: planner,
+            tools: MacBuildToolResolver(runtime: projectRuntime, processRunner: MacProcessRunner(), fileStorage: storage), optionsStore: options,
             stateLocator: MacBuildSystemStateLocator(directories: directories, fileStorage: storage),
             runner: MacBuildCommandRunner(), providers: sessions,
             nativeConfigurationFiles: MacBuildNativeConfigurationStore(storage: storage, planner: planner,
@@ -74,13 +91,14 @@ struct MacNativeBuildProviderIntegrationTests {
             let userB = try #require(firstB.sources.first { $0.id == "user" })
             #expect(userA.uri == a.absoluteString)
             #expect(userB.uri == b.absoluteString)
+            #expect(userB.fields.first { $0.id == "activeProfiles" }?.effectiveValue == .array([.string(scratch.appendingPathComponent("runtime-b").path)]))
             let savedPath = scratch.appendingPathComponent("saved-a-repository").path
             _ = try await build.saveNativeConfiguration("maven:a", snapshot: firstA,
                 edits: BuildNativeConfigurationEdits(sourceID: userA.id, revision: userA.revision,
                     values: ["localRepository": .string(savedPath)]))
             let freshB = try await build.readNativeConfiguration("maven:b")
             #expect(freshB.sources.first { $0.id == "user" } == userB)
-            #expect(try Data(contentsOf: b) == originalB)
+            #expect(try String(contentsOf: b, encoding: .utf8) == bSettings)
             _ = try build.configureOption("maven:a", optionID: "settingsFile", value: .string(replacement.path))
             _ = try await build.prepareLanguageImport(workspaceURL: workspace)
             let changedA = try await build.readNativeConfiguration("maven:a")
@@ -90,6 +108,9 @@ struct MacNativeBuildProviderIntegrationTests {
             #expect(options.instanceOptions(workspaceURL: workspace, buildSystemID: "maven")["b"]?["settingsFile"] == .string(b.path))
             #expect(!files.fileExists(atPath: workspace.appendingPathComponent("a/target").path))
             #expect(!files.fileExists(atPath: workspace.appendingPathComponent("b/target").path))
+            for path in ["a-repository", "b-repository", "saved-a-repository", "replacement-repository"] {
+                #expect(!files.fileExists(atPath: scratch.appendingPathComponent(path).path))
+            }
             outcome = .success(())
         } catch { outcome = .failure(error) }
         build.stop(); sessions.retainProviders { _ in false }
@@ -188,6 +209,8 @@ struct MacNativeBuildProviderIntegrationTests {
             let fresh = try await next.readNativeConfiguration(nextEntry.id)
             #expect(fresh.sources.first { $0.id == "user" }?.fields.first { $0.id == "localRepository" }?.value == .string(selectedRepository))
             #expect(!files.fileExists(atPath: workspace.appendingPathComponent("target").path))
+            #expect(!files.fileExists(atPath: inheritedRepository))
+            #expect(!files.fileExists(atPath: selectedRepository))
             outcome = .success(())
         } catch { outcome = .failure(error) }
         build.stop(); reopened?.stop(); sessions.retainProviders { _ in false }

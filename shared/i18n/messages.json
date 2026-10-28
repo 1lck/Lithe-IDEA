@@ -90394,6 +90394,17 @@
         "key": "Build option migration could not be verified. The previous configuration has been retained. Reload the build instance to retry.",
         "arguments": []
       }
+    },
+    {
+      "id": "native.selectedToolchainUnavailable",
+      "description": "Native UI: The selected toolchain is unavailable.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "The selected toolchain is unavailable.",
+        "arguments": []
+      }
     }
   ]
 }

@@ -32,7 +32,7 @@
         "buildProviders": { "description": "Required exactly when any buildSystems[].provider is present, including own-process and shared language-server providers. Declares host support for Provider orchestration, independent of declarative buildSystems and serverProcess launch support; version 2 adds task execution, version 3 test execution/discovery, version 4 application run preparation, and version 5 native debug preparation; version 6 optional read-only model inputs; version 7 non-sensitive native configuration sources.", "enum": [1, 2, 3, 4, 5, 6, 7] },
         "buildSystems": { "description": "Declarative build detection, models, and command plans; v3 adds instance-scoped options; does not imply buildProviders support.", "enum": [1, 2, 3] },
         "debugAdapters": { "description": "Required exactly when debugAdapters is non-empty. Version 2 adds bounded target argument and environment bindings. The DAP session itself is negotiated by the adapter in initialize.", "enum": [1, 2] },
-        "executableResolution": { "enum": [1], "description": "Shared executable candidate ordering and strict selection." },
+        "executableResolution": { "enum": [1, 2], "description": "Shared executable candidate ordering and strict selection." },
     "executionProviders": { "enum": [1] },
         "languageServers": { "enum": [1] },
         "languages": { "enum": [1] },
@@ -1740,6 +1740,77 @@
               }
             }
           ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "toolchainID"
+          ],
+          "properties": {
+            "kind": {
+              "const": "toolchain"
+            },
+            "toolchainID": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]*$"
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "priority": {
+              "type": "integer",
+              "minimum": -2147483648,
+              "maximum": 2147483647
+            },
+            "insertBefore": {
+              "type": "string",
+              "minLength": 1
+            },
+            "insertAfter": {
+              "type": "string",
+              "minLength": 1
+            },
+            "platforms": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "macos",
+                  "linux",
+                  "windows"
+                ]
+              }
+            }
+          },
+          "allOf": [
+            {
+              "not": {
+                "required": [
+                  "priority",
+                  "insertBefore"
+                ]
+              }
+            },
+            {
+              "not": {
+                "required": [
+                  "priority",
+                  "insertAfter"
+                ]
+              }
+            },
+            {
+              "not": {
+                "required": [
+                  "insertBefore",
+                  "insertAfter"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
@@ -2189,7 +2260,7 @@
                     "$ref": "#/$defs/buildVersionProbe"
                   }
                 },
-                "description": "java, node, and go are host-managed and take only id and minimumVersion; any other runtime declares its executables and version probe."
+                "description": "java, node, and go use host version probes. With executableResolution 2 they may select one toolchain candidate; otherwise they take only id and minimumVersion. Other runtimes declare their executables and version probe."
               }
             },
             "version": {

@@ -77,6 +77,12 @@ DTD、含糊绑定和超限文档。Core 不读写文件，也不认识 Maven �
 Provider 读取实际生效值及已发布的源哈希；回读失败保留草稿并要求重载，不能把草稿当成结果。
 
 探针目录和实际来源哈希缓存只写平台的工作区状态，调用结束清理临时输出，不跨工作树复用。
+配置探针还观察 Maven 官方发布的完整 `MavenExecutionRequest`，在上游已填入默认值、
+尚未创建仓库会话时记录生效结果。仅把这次探针的仓库管理器改到操作拥有的私有临时目录，
+随后在工程导入前退出；不能因打开设置页或保存回读而创建真实用户仓库。早先仅在
+`afterSessionStart` 导出已经太晚，Maven 会先创建所选目录。两种路径的非敏感字段仍由
+同一官方请求提供，不重算优先级。依据是 [Maven 3.9.16 的 CLI 执行顺序](https://github.com/apache/maven/blob/maven-3.9.16/maven-embedder/src/main/java/org/apache/maven/cli/MavenCli.java)。
+
 Maven 模型缓存版本 2 保存上游实际选中的来源，即使来源由带空格路径的 `.mvn/maven.config`
 指定，外部编辑或删除也会使缓存失效；不以宿主猜测的默认路径代替上游事实。
 

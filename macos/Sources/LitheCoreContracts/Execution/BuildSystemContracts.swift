@@ -490,6 +490,7 @@ package struct BuildInvocation: Equatable, Sendable {
     /// earlier successful candidate still wins over a later setting.
     package var hasExplicitExecutableSelection: Bool {
         (executables + runtimeDependencies.flatMap(\.executables)).contains {
+            if case .toolchain = $0 { return true }
             if case .setting(_, let path) = $0 { return path.map { !$0.isEmpty } ?? false }
             return false
         }
@@ -522,10 +523,13 @@ package struct ResolvedBuildTool: Equatable, Sendable {
     /// True for a wrapper inside the project, whatever the plugin declares.
     package let executesProjectCode: Bool
     package let version: String?
+    /// Only selected runtime/tool lookup inputs; never the complete host environment.
+    package let providerEnvironment: [String: String]
 
-    package init(executableURL: URL, environment: [String: String], executesProjectCode: Bool, version: String?) {
+    package init(executableURL: URL, environment: [String: String], executesProjectCode: Bool, version: String?, providerEnvironment: [String: String] = [:]) {
         self.executableURL = executableURL; self.environment = environment
         self.executesProjectCode = executesProjectCode; self.version = version
+        self.providerEnvironment = providerEnvironment
     }
 }
 
@@ -880,9 +884,11 @@ package struct BuildProviderHints: Equatable, Sendable {
     /// The build tool resolved from the build system's invocation, so the
     /// provider need not repeat the lookup. Nil when resolution failed.
     package let toolExecutable: URL?
+    package let toolEnvironment: [String: String]
 
-    package init(reason: BuildLoadReason = .initial, toolExecutable: URL? = nil) {
+    package init(reason: BuildLoadReason = .initial, toolExecutable: URL? = nil, toolEnvironment: [String: String] = [:]) {
         self.reason = reason; self.toolExecutable = toolExecutable
+        self.toolEnvironment = toolEnvironment
     }
 }
 

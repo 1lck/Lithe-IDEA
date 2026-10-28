@@ -3953,6 +3953,7 @@
 "The selected language-server path is not executable: %@" = "所选语言服务器路径不可执行：%@";
 "The selected table has no columns to display." = "所选表没有可显示的列。";
 "The selected test identifier is invalid." = "所选测试标识符无效。";
+"The selected toolchain is unavailable." = "所选工具链不可用。";
 "The selected versions match" = "所选版本相同";
 "The server asked again. Check the previous answer." = "服务器再次提问，请检查上一次的回答。";
 "The server rejected the credentials. Check the user name and the authentication method." = "服务器拒绝了凭据，请检查用户名和认证方式。";
@@ -7936,6 +7937,7 @@
 "native.selectedDirectory" = "当前选择的目录";
 "native.selectedFromDiskThePublisherAndRepositoryHaveNotBeenVerified" = "从本地磁盘选择，尚未验证发布者与源码仓库。";
 "native.selectedRuntime" = "已选择";
+"native.selectedToolchainUnavailable" = "所选工具链不可用。";
 "native.selectedVersion" = "已选版本";
 "native.selfUpdateIsOnlyAvailableWhenLitheIsRunningFromAPackagedLitheApp" = "只有从打包后的 Lithe.app 运行时才支持自动覆盖更新。";
 "native.send" = "发送";

@@ -27,5 +27,5 @@
     ]
   },
   "owner": "Plugin Platform / Build",
-  "verification": "Core 定向 120 项和 macOS 配置/生命周期 11 项通过。显式 stage D 真实 Maven macOS 场景通过：损坏 POM 前读取、安装继承、明确保存、敏感内容/权限保留、外部修改冲突、重开回读、Provider 退出及包清单不变。Node SDK 58 项、Java SDK 单元测试与 Node/Java SDK 端到端示例通过。设置页原生控件在 600/900 宽度、浅色/深色主题四个组合通过，已记录截图；发行组合、正式 SDK 锁定与完整 Maven/Java 工作流尚未完成，因此保持 pending；Windows 尚无 Provider 原生配置页和保存 adapter，不宣称运行验证。执行 BuildNativeConfigurationTests、NativeConfigurationSettingsControlTests、BuildSystemServiceTests 及带 LITHE_STAGE_D_MAVEN_PACKAGE 的 MacNativeBuildProviderIntegrationTests；手工从插件注册的设置页读取、启用覆盖、保存/取消/重载，覆盖外部编辑、旧选项 ABA、切换项目、插件停用和读取失败。 自动读取项目 Wrapper 或自动工具解析失败时不发 Provider 请求；显式读取才运行项目工具，定向测试通过。"
+  "verification": "Core 定向 120 项和 macOS 配置/生命周期 11 项通过。显式 stage D 真实 Maven macOS 场景通过：损坏 POM 前读取、安装继承、明确保存、敏感内容/权限保留、外部修改冲突、重开回读、Provider 退出及包清单不变。Node SDK 58 项、Java SDK 单元测试与 Node/Java SDK 端到端示例通过。设置页原生控件在 600/900 宽度、浅色/深色主题四个组合通过，已记录截图；发行组合、正式 SDK 锁定与完整 Maven/Java 工作流尚未完成，因此保持 pending；Windows 尚无 Provider 原生配置页和保存 adapter，不宣称运行验证。执行 BuildNativeConfigurationTests、NativeConfigurationSettingsControlTests、BuildSystemServiceTests 及带 LITHE_STAGE_D_MAVEN_PACKAGE 的 MacNativeBuildProviderIntegrationTests；手工从插件注册的设置页读取、启用覆盖、保存/取消/重载，覆盖外部编辑、旧选项 ABA、切换项目、插件停用和读取失败。 自动读取项目 Wrapper 或自动工具解析失败时不发 Provider 请求；显式读取才运行项目工具，定向测试通过。 只读探针还验证继承、保存后回读和 CLI 指定的实际仓库均未被创建；Maven 官方完整执行请求提供有效值，仓库管理器仅在本次可清理状态目录初始化。"
 }

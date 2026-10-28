@@ -3667,6 +3667,16 @@ and the directories are absolute host paths used only as substitution text.
 | `build.syncFingerprint` | `{ workspaceRoot, root, projects, options? }` | `sync`: `{ fingerprint, watch }` |
 | `build.languageImport` | `{ workspaceRoot, root, options?, executablePath? }` | `languageImport`: `null` without a `languageImport` declaration; `{ kind: "maven", mavenContext: { version, reactorPath, profiles, settingsPath?, localRepositoryPath?, mavenExecutablePath? } }` for `lsp.startServer.mavenContext` and `lsp.updateMavenConfiguration`; or `{ kind: "gradle", javaGradle: { wrapperPresent, offline, userHome? } }` for `lsp.startServer.javaGradle`, where `wrapperPresent` reports `gradle/wrapper/gradle-wrapper.properties` under `root` |
 
+`executableResolution: 2` adds `{ kind: "toolchain", toolchainID, root }` invocation
+candidates. Hosts resolve them through the same canonical project/subproject
+selection used by Run, preserving terminal failure and project-code identity.
+The optional plan hint `tool.environment` is a bounded string map (64 entries,
+valid environment names, 32768 bytes per value, no NUL). It merges into Provider
+`environment` before option contributions, for models, dependencies and native
+configuration; task/test hosts apply the same selected environment. Only selected
+lookup/runtime inputs cross this boundary, never the full process environment.
+
+
 `outputFile` is an absolute host-allocated path the host creates fresh for
 each run and removes afterwards; a command whose declaration writes to a
 file refuses a plan without it. Unlike the `plugins.declarative.*` commands,

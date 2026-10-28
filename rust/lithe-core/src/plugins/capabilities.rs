@@ -73,7 +73,7 @@ pub const SUPPORTED_CAPABILITIES: &[(&str, &[u32])] = &[
     (BUILD_SYSTEMS, &[1, 2, 3]),
     (DEBUG_ADAPTERS, &[1, 2]),
     (EXECUTION_PROVIDERS, &[1]),
-    (EXECUTABLE_RESOLUTION, &[1]),
+    (EXECUTABLE_RESOLUTION, &[1, 2]),
     (LANGUAGE_SERVERS, &[1, 2]),
     (LANGUAGES, &[1]),
     (PROJECT_GENERATORS, &[1]),

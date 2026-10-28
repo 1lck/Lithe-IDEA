@@ -232,6 +232,7 @@ try {
     const resource = registry.excludedResources.find(item => item.id === "build-native-configuration-state");
     assert.equal(resource.reusable, false);
     assert.ok(resource.locations.some(location => location.endsWith("configuration-*/configuration.json")));
+    assert.ok(resource.locations.some(location => location.endsWith("configuration-*/repository")));
     assert.ok(resource.locations.some(location => location.endsWith("maven-snapshot.json")));
     assert.ok(resource.locations.some(location => location.includes(".<filename>.lithe-<uuid>")));
     const listed = run(process.execPath, [reuseScript, "--list"]);

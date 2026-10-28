@@ -440,6 +440,7 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
 
         struct Tool: Encodable {
             let executable: String
+            let environment: [String: String]
         }
 
         init(context: BuildPlanContext, project: BuildSelection?, outputFile: URL?, hints: BuildProviderHints) {
@@ -451,7 +452,7 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
             self.project = project
             self.outputFile = outputFile?.path
             refresh = hints.reason == .refresh
-            tool = hints.toolExecutable.map { Tool(executable: $0.path) }
+            tool = hints.toolExecutable.map { Tool(executable: $0.path, environment: hints.toolEnvironment) }
         }
     }
 
@@ -602,9 +603,12 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         let command: String?
         let runtime: String?
         let settingID: String?
+        let toolchainID: String?
+        let root: String?
 
         func executable() throws -> BuildInvocation.Executable {
             if kind == "setting", let settingID { return .setting(id: settingID, path: path) }
+            if kind == "toolchain", let toolchainID, let root { return .toolchain(id: toolchainID, root: root) }
             switch (kind, path, variable, command, runtime) {
             case ("projectFile", let path?, _, _, _):
                 return .projectFile(path: path, requires: requires ?? [])

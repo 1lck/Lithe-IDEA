@@ -9479,7 +9479,8 @@
     "native.buildOptionReadBackFailed": "The saved build option could not be verified. Reload before editing again.",
     "native.nativeConfigurationExplicitRead": "Reading configuration with this project tool requires an explicit action.",
     "native.nativeConfigurationReadUsingProjectTool": "Read using project tool",
-    "native.buildOptionMigrationCouldNotBeVerified": "Build option migration could not be verified. The previous configuration has been retained. Reload the build instance to retry."
+    "native.buildOptionMigrationCouldNotBeVerified": "Build option migration could not be verified. The previous configuration has been retained. Reload the build instance to retry.",
+    "native.selectedToolchainUnavailable": "The selected toolchain is unavailable."
   },
   "overrides": {
     "windows": {

@@ -41,6 +41,7 @@ fn fixture(name: &str) -> Value {
     let source = match name {
         "build-static-file.plugin.json" => CARGO_FIXTURE,
         "build-instance-options.plugin.json" => contract_file!("fixtures/build-instance-options.plugin.json"),
+        "build-toolchains.plugin.json" => contract_file!("fixtures/build-toolchains.plugin.json"),
         "build-command-stdout.plugin.json" => GO_FIXTURE,
         "build-command-output-file.plugin.json" => GRADLE_FIXTURE,
         "build-host-integration.plugin.json" => MAVEN_FIXTURE,
@@ -226,6 +227,37 @@ fn instance_option_scope_requires_a_capable_host_and_valid_declaration() {
     manifest["buildSystems"][0]["options"][0]["scope"] = json!("project");
     let rejected = validate_command(json!({"manifest": manifest})).unwrap();
     assert_eq!(rejected["status"], "rejected", "{rejected}");
+}
+
+#[test]
+fn canonical_toolchain_candidates_keep_instance_identity_and_require_version_two() {
+    let mut manifest = fixture("build-toolchains.plugin.json");
+    let plan = call("invocationPlan", manifest.clone(), "cargo", json!({"root":"services/a","platform":"windows"}));
+    assert_eq!(plan["invocation"]["executables"], json!([{"kind":"toolchain","toolchainID":"project-maven","root":"services/a"}]));
+    assert_eq!(plan["invocation"]["runtimeDependencies"][0]["executables"], json!([{"kind":"toolchain","toolchainID":"project-maven-jdk","root":"services/a"}]));
+    assert_eq!(plan["invocation"]["runtimeDependencies"][0]["version"]["arguments"], json!(["-version"]));
+    manifest["requires"]["executableResolution"] = json!(1);
+    let rejected = validate_command(json!({"manifest":manifest})).unwrap();
+    assert_eq!(rejected["status"], "rejected", "{rejected}");
+    manifest["requires"]["executableResolution"] = json!(2);
+    manifest["buildSystems"][0]["invocation"]["runtimeDependencies"][0]["executables"][0]["toolchainID"] = json!("../invalid");
+    let rejected = validate_command(json!({"manifest":manifest})).unwrap();
+    assert_eq!(rejected["status"], "rejected", "{rejected}");
+}
+
+#[test]
+fn resolved_tool_environment_reaches_providers_with_option_precedence_and_bounded_inputs() {
+    let mut manifest = fixture("build-provider.plugin.json");
+    manifest["buildSystems"][0]["options"] = json!([{"id":"mode","displayName":"Mode","kind":"boolean","environment":{"JAVA_HOME":"/fixture/option-jdk"}}]);
+    let request = json!({"root":".","options":{"mode":true},"tool":{"executable":"/fixture/mvn", "environment":{"JAVA_HOME":"/fixture/selected-jdk","PATH":"/fixture/bin"}}});
+    let plan = call("modelPlan", manifest.clone(), "gradle", request.clone());
+    assert_eq!(plan["plan"]["provider"]["params"]["environment"], json!({"JAVA_HOME":"/fixture/option-jdk","PATH":"/fixture/bin"}));
+    for (key, value) in [("invalid-name", "value"), ("PATH", "bad\0path")] {
+        let mut request = request.clone();
+        request["tool"]["environment"] = json!({key:value});
+        let rejected = call("modelPlan", manifest.clone(), "gradle", request);
+        assert_eq!(rejected["status"], "rejected", "{rejected}");
+    }
 }
 
 #[test]

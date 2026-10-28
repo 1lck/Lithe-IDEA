@@ -408,6 +408,7 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 | `buildSystems` | Declarative build detection, models, and command plans; v2 executable setting adapter; v3 instance-scoped options | `1`, `2`, `3` |
 | `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers; v2 tasks, v3 tests, v4 run, v5 native debug preparation, v6 read-only model inputs, v7 native configuration | `1`, `2`, `3`, `4`, `5`, `6`, `7` |
 | `buildModelInputs` | Optional public model sharing between enabled workspace plugins | `1` |
+| `executableResolution` | Shared executable candidate ordering and strict selection; v2 canonical project/subproject toolchain registry bindings | `1`, `2` |
 | `vcsProviders` | `vcsProviders[]` | `1` |
 | `debugAdapters` | [`debugAdapters[]`](#api-level-4-debug-adapters); v2 adds target arguments/environment | `1`, `2` |
 | `projectGenerators` | [`projectGenerators[]`](#project-generators): entries of the New Project window | `1` |
@@ -1298,10 +1299,12 @@ with `buildSystemID`. For a provider source, `build.modelPlan` and
 | --- | --- |
 | `buildSystemID`, `root` | The instance. A model request always covers the whole instance. |
 | `options` | Effective option values by option ID. |
-| `optionArguments`, `environment` | What the options contribute, for a provider that runs the tool. |
+| `optionArguments`, `environment` | Arguments from options, and selected runtime/tool environment merged with option contributions (options win). The host does not forward its complete environment. Providers use this environment for every invocation and cache identity. |
 | `project` | Dependencies only: `{ name, path }` of the selected project, or `null` for the workspace. |
 | `refresh` | Optional; `true` when the user asked to reload (Reload, Retry, a page's `build.refresh`) or the host reloads after a `sync` file changed. The provider must then recompute instead of answering from a cache or snapshot of its own. Absent or `false` for a first load, which a provider may answer from a snapshot it still trusts. |
-| `tool` | Optional; `{ executable }`, the absolute path of the build tool the host resolved from the build system's `invocation` the same way a task run does (project wrapper, environment variable, `PATH`, the user's override), so the provider need not repeat the lookup. Absent when the host could not resolve it; the provider then looks the tool up itself. It is never a reason to fail the request. |
+| `tool` | Optional; `{ executable }`, the absolute path of the build tool the host resolved from the build system's `invocation` the same way a task run does (project wrapper, environment variable, `PATH`, the user's override), so the provider need not repeat the lookup. Absent when the host could not resolve it; the provider then looks the tool up itself. An explicit toolchain or path selection that cannot resolve fails before the Provider request; it cannot be dropped to trigger independent lookup. |
+
+The Core-only `tool` hint may include a bounded `environment` string map. Core merges it into the existing Provider `environment` parameter, with option contributions taking precedence; the wire `tool` remains `{ executable }`. This also applies to native configuration, tasks and tests. The backend process runtime and the selected build runtime are independent.
 
 The host passes `refresh` and `tool` in the `build.modelPlan` and
 `build.dependencyPlan` requests; Core validates `tool.executable` as an
@@ -2304,7 +2307,7 @@ macOS 动作的可见、可用、勾选和激活中状态由宿主计算，不�
 仍可取消显示。多个窗口同时请求同一插件模块时只构造一次；禁用或关闭会取消
 并清理在途激活，旧的菜单或命令引用不能重新调用已禁用的贡献。
 
-#### Shared executable candidates (`executableResolution` 1)
+#### Shared executable candidates (`executableResolution` 1/2)
 
 Declare executable sources in `invocation.executables`, in preference order.
 Array order is the recommended form; no custom path setting is required for a
@@ -2385,6 +2388,21 @@ without it reject new-style plugins before decoding unknown fields. Published
 0.1.0/0.1.1 archives remain immutable; migration is a new plugin version.
 
 See [`build-tool-path.plugin.json`](fixtures/build-tool-path.plugin.json).
+
+With `executableResolution: 2`, a candidate may use
+`{ "kind": "toolchain", "toolchainID": "project-maven" }` (or another registered
+host toolchain ID). Core adds the normalized instance `root`; the native adapter
+uses the existing Run toolchain registry and canonical local project/subproject
+selection. Unavailable selections are terminal, including when a prerequisite
+runtime fails first; they cannot silently fall back to Provider discovery.
+Host-managed `java`, `node` or `go` dependencies may select one such candidate,
+while retaining Core's version probe. Maven declares `project-maven-jdk` for its
+Java dependency so the Maven JDK is distinct from the Provider's own runtime.
+Passive import uses a discovery-only registry route and performs no version or
+runtime probes. A toolchain that resolves to a project file remains project code,
+including through a symlink, and native configuration requires explicit Read
+before running it. See [`build-toolchains.plugin.json`](fixtures/build-toolchains.plugin.json).
+
 
 ### Host-rendered native content (`ui` 3, native schema 1)
 

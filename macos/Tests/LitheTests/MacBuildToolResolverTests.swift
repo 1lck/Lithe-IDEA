@@ -7,6 +7,67 @@ import Testing
 @MainActor
 struct MacBuildToolResolverTests {
     @Test
+    func canonicalToolchainsKeepEachRootAndSendOnlySelectedEnvironment() async throws {
+        let files = FileManager.default
+        let scratch = files.temporaryDirectory.appendingPathComponent("lithe-build-toolchains-\(UUID().uuidString)")
+        defer { try? files.removeItem(at: scratch) }
+        let workspace = scratch.appendingPathComponent("workspace")
+        try files.createDirectory(at: workspace, withIntermediateDirectories: true)
+        let marker = scratch.appendingPathComponent("probe-ran")
+        var settings = ProjectRuntimeSettings()
+        for root in ["a", "b"] {
+            let home = scratch.appendingPathComponent("\(root) jdk")
+            let tool = scratch.appendingPathComponent("\(root) tool/mvn")
+            for (url, output) in [(home.appendingPathComponent("bin/java"), "openjdk version 21.0.1"), (tool, "Fixture 1.0")] {
+                try files.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try Data("#!/bin/sh\ntouch '\(marker.path)'\nprintf '%s\\n' '\(output)'\n".utf8).write(to: url)
+                try files.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+            }
+            settings.setOverride(path: root, javaHomePath: home.path, mavenExecutablePath: tool.path, mavenJavaHomePath: home.path)
+        }
+        let preferences = ToolchainPreferenceStore()
+        let store = MacProjectRuntimeSettingsStore(core: RustCoreBridge(), storage: MacFileStorage(), preferences: preferences)
+        let empty = try store.load(at: workspace, migrateLegacy: false)
+        _ = try store.save(settings, at: workspace, expecting: empty)
+        let runtime = ProjectRuntimeService(runtimeLocator: CanonicalToolchainRuntimeLocator(), settingsStore: store)
+        runtime.openProject(at: workspace)
+        let resolver = MacBuildToolResolver(runtime: runtime, processRunner: MacProcessRunner(), fileStorage: MacFileStorage())
+        let fixture = DeclarativePluginTestSupport.repositoryRoot.appendingPathComponent("shared/contracts/plugins/v1/fixtures/build-toolchains.plugin.json")
+        let target = BuildSystemTarget(manifest: try Data(contentsOf: fixture), buildSystemID: "cargo")
+        let core = RustBuildSystemOperations(core: RustCoreBridge())
+        for root in ["a", "b"] {
+            let invocation = try core.invocationPlan(target, root: root, settings: [:])
+            let expected = scratch.appendingPathComponent("\(root) tool/mvn")
+            #expect(resolver.languageImportExecutable(invocation, workspaceURL: workspace) == expected)
+            #expect(!files.fileExists(atPath: marker.path))
+        }
+        for root in ["a", "b"] {
+            let invocation = try core.invocationPlan(target, root: root, settings: [:])
+            let tool = try await resolver.resolve(invocation, displayName: "Fixture", workspaceURL: workspace) { runtime, output in
+                try core.checkToolVersion(target, runtime: runtime, output: output)
+            }
+            let home = scratch.appendingPathComponent("\(root) jdk").path
+            #expect(tool.executableURL == scratch.appendingPathComponent("\(root) tool/mvn"))
+            #expect(tool.environment["JAVA_HOME"] == home)
+            #expect(tool.providerEnvironment["JAVA_HOME"] == home)
+            #expect(tool.environment["FIXTURE_SECRET"] == "test-only-secret")
+            #expect(tool.providerEnvironment["FIXTURE_SECRET"] == nil)
+            #expect(!tool.executesProjectCode)
+        }
+        let baseline = try store.load(at: workspace, migrateLegacy: false)
+        var invalid = baseline.settings
+        invalid.setOverride(path: "a", mavenExecutablePath: "/fixture/missing-tool")
+        _ = try store.save(invalid, at: workspace, expecting: baseline)
+        let invocation = try core.invocationPlan(target, root: "a", settings: [:])
+        #expect(resolver.languageImportExecutable(invocation, workspaceURL: workspace) == nil)
+        await #expect(throws: BuildToolResolutionError.self) {
+            try await resolver.resolve(invocation, displayName: "Fixture", workspaceURL: workspace) { runtime, output in
+                try core.checkToolVersion(target, runtime: runtime, output: output)
+            }
+        }
+    }
+
+    @Test
     func emptySettingSkipsToWrapperAndPassiveSelectionNeverProbes() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -275,4 +336,30 @@ private struct BuildProbeEmptyStore: KeyValueStore {
     func string(forKey key: String) -> String? { nil }
     func stringArray(forKey key: String) -> [String]? { nil }
     func set(_ value: Any?, forKey key: String) {}
+}
+
+struct CanonicalToolchainRuntimeLocator: RuntimeLocator {
+    func environment() -> [String: String] { ["PATH": "/usr/bin:/bin", "FIXTURE_SECRET": "test-only-secret"] }
+    func discover() -> RuntimeDiscoveryResult {
+        Issue.record("An explicit toolchain must not discover other JDKs")
+        return .init(javaRuntimes: [], mavenRuntimes: [])
+    }
+    func validJavaHome(path: String) -> URL? {
+        let url = URL(fileURLWithPath: path)
+        return isExecutable(at: url.appendingPathComponent("bin/java")) ? url : nil
+    }
+    func javaRuntime(at homeURL: URL) -> JavaRuntimeCandidate? { nil }
+    func isExecutable(at url: URL) -> Bool { FileManager.default.isExecutableFile(atPath: url.path) }
+    func systemMavenExecutable() -> URL? { nil }
+    func mavenExecutable(forHomePath path: String) -> URL? { nil }
+    func mavenRuntime(at executableURL: URL) -> MavenRuntimeCandidate? { nil }
+}
+
+private final class ToolchainPreferenceStore: KeyValueStore {
+    private var values: [String: Any] = [:]
+    func data(forKey key: String) -> Data? { values[key] as? Data }
+    func object(forKey key: String) -> Any? { values[key] }
+    func string(forKey key: String) -> String? { values[key] as? String }
+    func stringArray(forKey key: String) -> [String]? { values[key] as? [String] }
+    func set(_ value: Any?, forKey key: String) { values[key] = value }
 }

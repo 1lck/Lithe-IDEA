@@ -683,7 +683,9 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
 
 Build Provider 原生配置探针的 `configuration-*/configuration.json`、模型读取时的
 `run-*/configuration.json` 及 Maven v2 模型缓存中的实际来源 URI/哈希，均属于当前
-插件/构建系统/工作区的可变状态。探针与模型读取的临时目录在调用结束后删除；模型缓存
+插件/构建系统/工作区的可变状态。只读配置探针在 Maven 的完整执行请求发布后，记录上游生效事实，再把探针自己的仓库管理器改到
+`configuration-*/repository`，随后在读取工程前退出，不能因此创建实际选择的用户仓库目录。
+探针与模型读取的临时目录在调用结束后删除；模型缓存
 由 Provider 管理，并在原生来源变化时失效。源哈希不是构建 identity stamp，不能跨工作树
 复制。宿主保存原生 XML 时在目标旁准备的 `.<filename>.lithe-<uuid>` 可能含凭据，
 只归该条件替换操作所有；成功后清理，无法安全恢复时明确报告保留路径。资源清单

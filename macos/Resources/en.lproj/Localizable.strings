@@ -3953,6 +3953,7 @@
 "The selected language-server path is not executable: %@" = "The selected language-server path is not executable: %@";
 "The selected table has no columns to display." = "The selected table has no columns to display.";
 "The selected test identifier is invalid." = "The selected test identifier is invalid.";
+"The selected toolchain is unavailable." = "The selected toolchain is unavailable.";
 "The selected versions match" = "The selected versions match";
 "The server asked again. Check the previous answer." = "The server asked again. Check the previous answer.";
 "The server rejected the credentials. Check the user name and the authentication method." = "The server rejected the credentials. Check the user name and the authentication method.";
@@ -7936,6 +7937,7 @@
 "native.selectedDirectory" = "Selected directory";
 "native.selectedFromDiskThePublisherAndRepositoryHaveNotBeenVerified" = "Selected from disk. The publisher and repository have not been verified.";
 "native.selectedRuntime" = "Selected runtime";
+"native.selectedToolchainUnavailable" = "The selected toolchain is unavailable.";
 "native.selectedVersion" = "selected version";
 "native.selfUpdateIsOnlyAvailableWhenLitheIsRunningFromAPackagedLitheApp" = "Self-update is only available when Lithe is running from a packaged Lithe.app.";
 "native.send" = "Send";
