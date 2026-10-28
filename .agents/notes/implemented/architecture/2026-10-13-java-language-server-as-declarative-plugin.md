@@ -67,6 +67,10 @@ JDK 也一样：`ProjectRuntimeService` 不再问“app 内置的 JDK 在哪”�
 
 新增一个集成时，只需要新增一个实现协议的类型并在注册处加一行；Rust Core 的契约校验仍然决定哪些 ID 可以被声明。
 
+插件身份与宿主集成必须同时传入 Core（#1523）：`StdioLanguageServerSession` 的插件启动入口携带 `hostIntegrationLaunch`、平台缓存目录、工作区指纹、Maven/Gradle 上下文，以及插件配置和 host services。不能因为存在 `pluginID` 就退回只传可执行文件和静态参数的入口，否则 JDT 会把 Equinox jar 当包装脚本，缺少 `-configuration`，随后退出并在发行目录写日志。继续复用 Core 的 `prepare_jdt_configuration_area`，从包内只读配置生成宿主缓存中的可写副本；没有新增资源目录或缓存所有者，也不改变应用签名和增量更新的发行基线。
+
+同一工作区的服务连续三次启动失败后，自动同步直接返回已有失败，直到显式停止/重启或切换工作区；进入 ready 后清零。这保留短暂故障后的重试，但阻止每次编辑器同步重新创建 JVM。这里选择有限尝试而非增加定时器和无限退避；代价是持续失败需要用户修复环境后重新启动服务。
+
 ### 4. 运行、测试、调试由插件声明后交还宿主
 
 插件一旦声明某个语言，宿主就认为这个语言的进程类能力归插件所有：能力目录（`PluginLanguageProviderCatalogSource`）去掉运行、测试、调试标记，语言包注册表（`LanguagePackRegistry`）不再创建内置的测试提供方，运行和测试服务要求必须有插件的执行模块。这条规则是为 PHP、Go 这类整套由插件提供的语言定的，目的是插件缺失或停用时宿主不偷偷退回内置工具。
@@ -185,6 +189,8 @@ dev.lithe.plugin.java-support/
 - `./scripts/test-macos.sh --filter '(LanguageProviderCatalogSourceTests|RunWorkflowCoordinatorTests|RunConfigurationIntegrationTests)'`：用仓库里的官方 Java 清单验证能力目录保留运行、测试、调试；未声明的插件得不到任何宿主能力；注册表只为声明的能力创建内置工具；声明了 `run` 的语言不要求执行模块。
 - `./scripts/verify-macos-package.sh`：打出的应用里 Java Support 的文件齐全，且不存在 `Contents/Resources/LanguageServers`。
 - `./scripts/verify-runtime-bundle-immutability.sh`：启动与插件工作流不改写安装目录。
+
+生产启动适配的回归使用 `RustLanguageServerLaunchTests`，直接从 `RustCoreBridge.startPluginLanguageServer` 经 C ABI 启动本地标准输入输出协议夹具；不经过协议默认回退。它用函数所属插件校验、credentials 请求与响应、通用插件配置查询、Java 启动参数、缓存配置副本和工作区指纹日志验证实际接线。夹具使用 macOS 开发工具已有的 Python，不依赖真实 JVM 或联网；Core 会话负责子进程，测试始终停止并销毁会话，再移除临时资源。运行命令：`./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter RustLanguageServerLaunchTests`。
 
 ## 适用范围
 

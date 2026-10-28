@@ -66,9 +66,7 @@ extension AppModel {
     {
         guard let identity = expectedIdentity ?? currentWorkspaceIdentity,
               isCurrentWorkspace(identity), !Task.isCancelled else { throw CancellationError() }
-        let sessions = try await languageIntelligenceModuleCoordinator.sessionsForMaintenance(
-            current: languageToolingSessionsIfActive
-        )
+        let sessions = try await languageIntelligenceModuleCoordinator.sessionsForMaintenance()
         try Task.checkCancellation()
         guard isCurrentWorkspace(identity) else { throw CancellationError() }
         await registerPluginLanguageServers(in: sessions)

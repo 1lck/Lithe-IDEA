@@ -261,6 +261,10 @@ pub(crate) struct DebugExecutable {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct DebugTargetBindings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) args: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) env: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) program: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) process_id: Option<String>,
@@ -903,6 +907,8 @@ impl DebugConfiguration {
         if bindings.program.is_none()
             && bindings.process_id.is_none()
             && bindings.cwd.is_none()
+            && bindings.args.is_none()
+            && bindings.env.is_none()
             && bindings.connection.is_none()
         {
             return Err(invalid(
@@ -918,6 +924,8 @@ impl DebugConfiguration {
             ),
             ("processId", &bindings.process_id, &["target.processID"][..]),
             ("cwd", &bindings.cwd, &["target.workingDirectory"][..]),
+            ("args", &bindings.args, &["target.arguments"][..]),
+            ("env", &bindings.env, &["target.environment"][..]),
         ] {
             if source
                 .as_deref()
@@ -1468,6 +1476,11 @@ impl Generation {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct TargetFacts {
+    /// Host-validated process arguments and environment; absent differs from empty.
+    #[serde(default)]
+    pub(crate) arguments: Option<Vec<String>>,
+    #[serde(default)]
+    pub(crate) environment: Option<std::collections::BTreeMap<String, String>>,
     // Selection by kind happens before a start; the host still states it so a
     // start names what it was prepared for. A `connection` target is also
     // checked against the adapter, see `plan`.
@@ -1574,6 +1587,16 @@ pub(crate) fn start_arguments(
         "cwd",
         &bindings.cwd,
         target.working_directory.clone().map(Value::from),
+    );
+    bind(
+        "args",
+        &bindings.args,
+        target.arguments.as_ref().map(|args| json!(args)),
+    );
+    bind(
+        "env",
+        &bindings.env,
+        target.environment.as_ref().map(|env| json!(env)),
     );
     let connection = match &bindings.connection {
         Some(binding) => Some(bind_connection(binding, target, &mut arguments)?),
@@ -1943,6 +1966,34 @@ pub(crate) fn plan(
         }
         _ => {}
     }
+    if bindings.args.is_some()
+        && target.arguments.as_ref().map_or(true, |args| {
+            args.len() > 1024
+                || args
+                    .iter()
+                    .any(|arg| arg.len() > 65536 || arg.contains('\0'))
+        })
+    {
+        return Err(missing("target.arguments", "bounded arguments"));
+    }
+    if bindings.env.is_some()
+        && target.environment.as_ref().map_or(true, |env| {
+            env.len() > 64
+                || env.iter().any(|(key, value)| {
+                    key.is_empty()
+                        || key.len() > 128
+                        || !key.bytes().enumerate().all(|(index, byte)| {
+                            byte == b'_'
+                                || byte.is_ascii_alphabetic()
+                                || index > 0 && byte.is_ascii_digit()
+                        })
+                        || value.len() > 65536
+                        || value.contains('\0')
+                })
+        })
+    {
+        return Err(missing("target.environment", "bounded environment"));
+    }
     if bindings.process_id.is_some() && target.process_id.is_none() {
         return Err(missing("target.processID", "process ID"));
     }
@@ -2068,4 +2119,18 @@ fn sort_unique(values: &mut Vec<String>, field: &str) -> Validation<()> {
     } else {
         Err(invalid(field, "An entry is listed more than once."))
     }
+}
+
+/// New bindings have their own manifest admission version.
+pub(crate) fn uses_target_arguments(adapters: &[DebugAdapterDeclaration]) -> bool {
+    adapters
+        .iter()
+        .filter_map(|adapter| adapter.configurations.as_ref())
+        .any(|configs| {
+            [configs.launch.as_ref(), configs.attach.as_ref()]
+                .into_iter()
+                .flatten()
+                .filter_map(|config| config.target_bindings.as_ref())
+                .any(|bindings| bindings.args.is_some() || bindings.env.is_some())
+        })
 }

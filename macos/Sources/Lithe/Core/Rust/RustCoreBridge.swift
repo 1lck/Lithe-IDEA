@@ -693,6 +693,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             struct Extensions: Codable, Sendable {
                 let maven: Maven?
                 let java: Java?
+                var build: BuildProviderRunReference? = nil
             }
             let id: String
             let name: String
@@ -2192,6 +2193,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let type: String
         let module: String
         let mainClass: String
+        var build: BuildProviderRunReference? = nil
     }
     private struct LaunchPlanRequest: Encodable {
         struct JavaLaunch: Encodable {
@@ -2932,6 +2934,13 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 toolchain: toolchain
             )
         )
+    }
+
+    func createBuildProviderRunConfiguration(at rootURL: URL, reference: BuildProviderRunReference,
+                                             name: String) -> Result<RunConfigurationMutationPayload, CoreCallError> {
+        executeResult(command: "runConfig.createUserConfiguration", payload: RunConfigurationCreateUserRequest(
+            root: rootURL.standardizedFileURL.path, scope: "local", name: name, type: "buildProvider",
+            module: "", mainClass: "", build: reference))
     }
 
     func createUserRunConfiguration(

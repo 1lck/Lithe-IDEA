@@ -504,6 +504,30 @@
         }
       ],
       "gaps": []
+    },
+    {
+      "id": "explicit-adapter-routing",
+      "behavior": "host-selected adapter identities survive configuration transforms and retry; missing registrations and unsupported requests never fall back to a matching source-file adapter; fileless targets and concurrent matching adapters retain session ownership",
+      "status": "covered",
+      "evidence": [
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift",
+          "test": "adapterSelectionMatchesTheSharedHostFixture",
+          "fixture": "shared/fixtures/debug/adapter-selection-v1.json"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift",
+          "test": "explicitFeatureRetryKeepsItsAdapterAndFailureCleansUpOnlyItsNewSession"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheTests/PluginLiveActivationTests.swift",
+          "test": "qualifiedAdaptersKeepEveryPackageAndNeverBecomeFileDefaults"
+        }
+      ],
+      "gaps": []
     }
   ]
 }

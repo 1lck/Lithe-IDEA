@@ -15,6 +15,35 @@ struct PluginDebugAdapterEntry {
     let plugin: InstalledPluginPackage
     let adapter: DeclarativeDebugAdapter
 
+    var providerID: String { "\(plugin.descriptor.id.rawValue)/\(adapter.id)" }
+
+    /// Every declared adapter has an explicit identity, independently of the
+    /// default debugger of its language or the presence of a source file.
+    static func qualifiedIndex(of packages: [InstalledPluginPackage]) -> [String: PluginDebugAdapterEntry] {
+        var entries: [String: PluginDebugAdapterEntry] = [:]
+        for plugin in packages.sorted(by: { $0.manifest.id < $1.manifest.id }) {
+            for adapter in plugin.descriptor.debugAdapters {
+                let entry = PluginDebugAdapterEntry(plugin: plugin, adapter: adapter)
+                entries[entry.providerID] = entry
+            }
+        }
+        return entries
+    }
+
+    func provider(languages: [DebugProviderDescriptor]) -> DebugProviderDescriptor {
+        let supported = languages.filter { adapter.languageIDs.contains($0.id) }
+        return DebugProviderDescriptor(
+            id: providerID,
+            displayName: adapter.displayName,
+            fileExtensions: Set(supported.flatMap(\.fileExtensions)),
+            fileNames: Set(supported.flatMap(\.fileNames)),
+            fileNamePrefixes: Set(supported.flatMap(\.fileNamePrefixes)),
+            selectsByFile: false,
+            matchesAllSources: adapter.languageIDs.isEmpty,
+            requests: adapter.requests
+        )
+    }
+
     /// The adapter that launches a debug session for a language's open file,
     /// first package in ID order first. An adapter that only attaches, or only
     /// debugs executables and processes, is not chosen for a file.
