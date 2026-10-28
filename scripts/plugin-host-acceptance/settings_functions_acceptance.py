@@ -179,7 +179,7 @@ class SettingsFunctionsAcceptance:
             category.wait_for(state="visible", timeout=15_000)
             category.click(timeout=10_000)
         else:
-            self.details(page).get_by_role("tab", name=re.compile(r"^Settings(?:\s|$)")).click(timeout=10_000)
+            self.details(page).get_by_role("tab", name=re.compile(r"^Settings(?:\s|\d|$)")).click(timeout=10_000)
             route = "declarative-plugins"
         # The dialog retains visited pages. Scope to the selected content so a
         # hidden detail editor cannot satisfy the registered-page workflow.
@@ -230,12 +230,23 @@ class SettingsFunctionsAcceptance:
         self.driver.write_json(self.evidence / f"{version}-review.json", {"text": review_text, "archive": asset})
         if "Unverified publisher" not in review_text:
             raise AssertionError("the controlled fixture was not shown as an unverified publisher")
+        if "languageServer.launch" not in review_text:
+            raise AssertionError("the controlled language server permission was not disclosed")
+        review.get_by_role("button", name=re.compile(r"Program declaration \(\d+\)")).click(timeout=10_000)
+        programs = json.loads(review.locator("pre").inner_text(timeout=5000))
+        if (len(programs) != 2 or programs[0] != {"kind": "runtime", "tool": "node"}
+                or programs[1] != {"kind": "runtimeLanguageServer", "tool": "node", "packagedRuntime": None,
+                    "entry": "server/fake-lsp-server.mjs", "runtimeArguments": [], "validationArguments": [],
+                    "arguments": ["--stdio", "--state-dir", "${workspaceStateDir}", "--fixture-version", version],
+                    "languageID": "lithesettingsaccept"}):
+            raise AssertionError("the controlled language server declaration changed")
         self.driver.confirm_review(self.page, review)
         self.wait(lambda: (row if (row := self.catalog(self.page)) and row["status"] == "accepted"
                            and row["version"] == version and row["enabled"] else None), "accepted complete package")
         record = json.loads((self.args.app_local_data / "plugins" / PLUGIN_ID / "installation.json").read_text(encoding="utf-8"))
-        if record["disk"]["archiveSha256"] != asset["sha256"] or record["disk"]["approvedPrograms"]:
-            raise AssertionError("installed approval does not match the settings-only archive")
+        if (record["disk"]["archiveSha256"] != asset["sha256"]
+                or [json.loads(program) for program in record["disk"]["approvedPrograms"]] != programs):
+            raise AssertionError("installed approval does not match the complete controlled archive")
         self.driver.write_json(self.evidence / f"{version}-installation.json", record)
         self.package_root = self.args.app_local_data / "plugins" / PLUGIN_ID / version
         before = snapshot_resources(self.package_root)
@@ -426,29 +437,42 @@ class SettingsFunctionsAcceptance:
 # Transparent IPC observation only. Original results/errors pass unchanged;
 # the window's production frontend owns calls, approvals and effect dispatch.
 OBSERVER = r"""() => {
+  'use strict';
   if (window.__litheSettingsAcceptance) throw new Error('observer already active');
-  const internals=window.__TAURI_INTERNALS__, original=internals.invoke;
+  const internals=window.__TAURI_INTERNALS__, original=internals.invoke, originalFetch=window.fetch;
   const state={calls:[],dropped:0}, pending=new Set();
-  internals.invoke=function(command,args,...rest) {
-    if (!command.startsWith('declarative_plugins_')) return original.call(this,command,args,...rest);
-    const call={command,args,settled:false};
-    if(state.calls.length<2048) state.calls.push(call); else state.dropped++;
-    let result;
-    try { result=original.call(this,command,args,...rest); }
-    catch(error) {call.settled=true;call.error=String(error);throw error;}
-    const response=Promise.resolve(result).then(value=>{
-      call.settled=true;call.value=value;pending.delete(response);return value;
-    }, error=>{call.settled=true;call.error=String(error);pending.delete(response);throw error;});
-    pending.add(response);
-    return response;
+  // Tauri 2 freezes invoke/ipc. Observe the pinned Windows fetch transport and
+  // its real callback Map instead; never replace the native command or result.
+  const observed=function(input,options) {
+    let url;
+    try {url=new URL(typeof input==='string'?input:input.url ?? String(input),window.location.href);}
+    catch {return originalFetch.apply(this,arguments);}
+    if(url.hostname==='ipc.localhost' && decodeURIComponent(url.pathname.slice(1)).startsWith('declarative_plugins_')) {
+      const call={command:decodeURIComponent(url.pathname.slice(1)),args:JSON.parse(options.body),settled:false};
+      if(state.calls.length<2048) state.calls.push(call); else state.dropped++;
+      let finish;
+      const completion=new Promise(resolve=>{finish=resolve;});
+      pending.add(completion);
+      for(const [header,key] of [['Tauri-Callback','value'],['Tauri-Error','error']]) {
+        const id=Number(options.headers.get(header)), callback=internals.callbacks.get(id);
+        if(typeof callback!=='function') throw new Error('native IPC callback unavailable');
+        internals.callbacks.set(id,function(value) {
+          call.settled=true;call[key]=key==='error'?String(value):value;
+          pending.delete(completion);finish();
+          return callback.apply(this,arguments);
+        });
+      }
+    }
+    return originalFetch.apply(this,arguments);
   };
+  window.fetch=observed;
+  if(window.fetch!==observed) throw new Error('native fetch observation unavailable');
   state.snapshot=()=>({calls:state.calls,dropped:state.dropped});
-  const observed=internals.invoke;
   state.stop=async()=>{
-    if(internals.invoke!==observed) throw new Error('native invoke changed while observer was active');
-    // Restore admission first, then retain the already observed promises until
-    // settlement or a local deadline. Late replies stay in the final evidence.
-    internals.invoke=original;
+    if(window.fetch!==observed || internals.invoke!==original) throw new Error('native invoke changed while observer was active');
+    // Restore admission first; already admitted callback wrappers forward late
+    // replies and remain owned until their settlement or the local deadline.
+    window.fetch=originalFetch;
     let deadline;
     try {
       await Promise.race([Promise.allSettled([...pending]),
@@ -456,7 +480,7 @@ OBSERVER = r"""() => {
     } finally {clearTimeout(deadline);}
     delete window.__litheSettingsAcceptance;
     return {...state.snapshot(),pending:pending.size,
-      originalInvokeRestored:internals.invoke===original && !window.__litheSettingsAcceptance};
+      originalInvokeRestored:internals.invoke===original && window.fetch===originalFetch && !window.__litheSettingsAcceptance};
   };
   window.__litheSettingsAcceptance=state;
 }"""

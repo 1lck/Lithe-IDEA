@@ -845,7 +845,10 @@ def finish_onboarding(page: Page) -> None:
 def open_plugin_settings(page: Page) -> None:
     category = page.locator("[data-settings-category='declarative-plugins']")
     if category.count() == 0 or not category.first.is_visible():
-        page.keyboard.press("Control+Comma")
+        # A clean profile can select the None keymap during onboarding. Use
+        # the real toolbar action, whose visibility also waits for React to
+        # publish the workbench after the native invoke boundary is ready.
+        page.get_by_role("button", name="Settings", exact=True).first.click(timeout=15_000)
     category.first.wait_for(state="visible", timeout=15_000)
     category.first.click()
     page.locator("[data-settings-content='declarative-plugins']").wait_for(

@@ -364,6 +364,7 @@ jobs:
         run: |
           $runner = ".agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs"
           $suites = @(
+            "src/ui/search.test.tsx",
             "src/ui/info-tip.test.tsx",
             "src/ui/icons.test.tsx",
             "src/features/plugins/native-ui/native-docking.test.tsx",

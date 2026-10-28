@@ -103,6 +103,18 @@ def grouped_plugin_dom(browser_channel: str) -> None:
             expect(page.locator("[data-plugin-id='io.example.other']")).to_have_count(1)
             assert page.locator("body").get_attribute("data-trap") is None
             page.set_content('''
+                <button aria-label="Settings" onclick="document.querySelector('#settings').hidden=false">Settings</button>
+                <section id="settings" hidden>
+                  <button data-settings-category="declarative-plugins"
+                    onclick="document.querySelector('[data-settings-content]').hidden=false">Declarative plugins</button>
+                  <div data-settings-content="declarative-plugins" hidden>Plugin list</div>
+                </section>
+            ''', timeout=2_000)
+            page.evaluate("document.addEventListener('keydown', () => {document.body.dataset.keyboardTrap='true'})")
+            driver.open_plugin_settings(page)
+            assert page.locator("body").get_attribute("data-keyboard-trap") is None
+            assert page.locator("[data-settings-content='declarative-plugins']").is_visible()
+            page.set_content('''
                 <div role="treeitem" data-root="true" aria-expanded="true">workspace</div>
                 <div role="tab" aria-selected="false" onclick="this.setAttribute('aria-selected','true')">
                   acceptance.litheaccept
@@ -379,9 +391,32 @@ def main() -> int:
                 "time.sleep(60)"
             )
             child_owner = None
+            command = [sys.executable, "-B", "-c", script]
+            communicate = subprocess.Popen.communicate
+
+            def fixture_ready():
+                try:
+                    identity = json.loads(pid_file.read_text(encoding="utf-8"))
+                    return bool(identity.get("pid") and identity.get("CreationTime") and identity.get("ExecutablePath"))
+                except (FileNotFoundError, json.JSONDecodeError):
+                    return False
+
+            def communicate_after_ready(process, *arguments, **keywords):
+                # This case checks an already-created tree. Arm its timeout only
+                # after the fixture's child identity is complete, not after an
+                # assumed Python startup duration. Failure still enters the
+                # production timeout cleanup with its retained root handle.
+                if process.args == command:
+                    try:
+                        driver.wait_until(fixture_ready, 5, "the timeout fixture child identity")
+                    except (TimeoutError, OSError) as error:
+                        raise subprocess.TimeoutExpired(command, 5) from error
+                return communicate(process, *arguments, **keywords)
+
             try:
                 try:
-                    run_bounded_process([sys.executable, "-B", "-c", script], timeout_seconds=1)
+                    with patch.object(subprocess.Popen, "communicate", communicate_after_ready):
+                        run_bounded_process(command, timeout_seconds=1)
                 except TimeoutError as error:
                     timeout_error = str(error)
                 else:

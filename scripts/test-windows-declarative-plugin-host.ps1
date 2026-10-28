@@ -308,7 +308,14 @@ if ($null -eq $zsh) {
         -Details "zsh is unavailable on this Windows host; scripts/verify-runtime-bundle-immutability.sh remains pending and no substitute scan is labeled runtime acceptance."
 } else {
     $timer = [Diagnostics.Stopwatch]::StartNew()
-    & $zsh.Source (Join-Path $root "scripts/verify-runtime-bundle-immutability.sh")
+    # MSYS zsh does not normalize a native drive prefix in $0 before its :A
+    # expansion. A relative entry preserves the guard's root on SUBST drives.
+    Push-Location $root
+    try {
+        & $zsh.Source "./scripts/verify-runtime-bundle-immutability.sh"
+    } finally {
+        Pop-Location
+    }
     if ($LASTEXITCODE -ne 0) { throw "The original runtime bundle immutability source guard failed." }
     Write-NormalizedReport -Path $immutabilityReport `
         -Name "original runtime bundle immutability source guard" `

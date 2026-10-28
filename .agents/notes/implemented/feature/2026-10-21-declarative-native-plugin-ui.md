@@ -170,6 +170,8 @@ Windows 工具栏按 Core 批准的 15 个 host 图标 ID 显式映射到公共�
 
 字段和动作说明统一调用公共 `ui/info-tip.tsx`，由既有 Button 与 Base UI Popover 管理 500ms 悬停、点击或按钮键盘激活后的固定、再次激活关闭、Escape/外点击及卸载清理。禁用字段和动作只禁用实际输入或执行，说明按钮保持可用；关闭时仍保留可访问的辅助说明。不要在每个 renderer 内复制悬停计时或弹层，也不要修改全站 Tooltip 语义来兼容一个调用方。
 
+Windows 搜索统一使用公共 `SearchField`。非空时的本地化清空按钮只把值交回调用者并恢复输入焦点；原生表单仅保存空草稿，按 Enter 后才提交包括空字符串在内的当前值。禁用或只读字段不能清空，说明按钮仍独立可用。尾部按钮的定位由公共 `Input` 的 accessory 接口负责，不在原生 renderer 复制输入框布局。组件键盘测试显式补发 Happy DOM 缺少的原生按钮默认 click，不代替真实 WebView2、输入法或主题验收。
+
 ## 验证
 
 - `./scripts/verify-shared-contracts.sh`

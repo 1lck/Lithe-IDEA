@@ -19,6 +19,7 @@ from build_fixture import ROOT, confined, json_bytes, ordinary_tree, write_archi
 PLUGIN_ID = "io.github.lithe-acceptance.settings"
 DISPLAY_NAME = "Lithe Settings Acceptance"
 LOCK = Path(__file__).with_name("settings_functions_inputs.json")
+SERVER = Path(__file__).with_name("fake-lsp-server.mjs")
 
 
 def sha256(path: Path) -> str:
@@ -27,17 +28,20 @@ def sha256(path: Path) -> str:
 
 
 def declaration(version: str) -> dict:
-    # A new test package with its own identity and no executable contributions.
+    # A new controlled package, using the existing acceptance LSP transport.
     # It is not a reduced copy of settings-v2 or an external Provider package.
     return {
         "schemaVersion": 2, "id": PLUGIN_ID, "displayName": DISPLAY_NAME,
         "version": version, "pluginAPIVersion": 3,
-        "requires": {"languages": 1, "settings": 2},
+        "requires": {"languages": 1, "settings": 2, "languageServers": 1, "serverProcess": 1},
         "vendor": {"id": "io.github.lithe-acceptance", "displayName": "Unsigned controlled fixture",
                    "signatureRequirement": "none"},
-        "permissions": [], "activationEvents": ["onLanguage:lithesettingsaccept"],
+        "permissions": ["languageServer.launch"], "activationEvents": ["onLanguage:lithesettingsaccept"],
         "languages": [{"id": "lithesettingsaccept", "displayName": DISPLAY_NAME,
                        "fileExtensions": ["lithesettingsaccept"]}],
+        "languageServers": [{"languageID": "lithesettingsaccept", "languageIdentifier": "lithesettingsaccept",
+            "launch": {"kind": "runtime", "tool": "node", "entry": "server/fake-lsp-server.mjs"},
+            "arguments": ["--stdio", "--state-dir", "${workspaceStateDir}", "--fixture-version", version]}],
         "settings": [
             {"id": "message", "title": "Acceptance message", "type": "text", "default": "default",
              "scope": "project", "effect": "nextRun", "pattern": ".*", "maxLength": 64},
@@ -72,7 +76,8 @@ def generate(output: Path) -> dict:
     for version in ("1.0.0", "1.1.0"):
         path = output / f"settings-{version}.zip"
         write_archive(path, {"plugin.json": json_bytes(declaration(version)),
-                             "fixture-version.txt": (version + "\n").encode()})
+                             "fixture-version.txt": (version + "\n").encode(),
+                             "server/fake-lsp-server.mjs": SERVER.read_bytes()})
         archives[version] = {"path": path.name, "sha256": sha256(path), "version": version}
     for name in ("one", "two"):
         workspace = output / name
@@ -81,7 +86,8 @@ def generate(output: Path) -> dict:
     revision = source_revision()
     plan = {"schemaVersion": 1, "kind": "controlled-settings-only", "pluginId": PLUGIN_ID,
             "sourceCommit": revision, "generatorSha256": sha256(Path(__file__)),
-            "inputLockSha256": sha256(LOCK), "sdk": {"used": False, "reference": json.loads(LOCK.read_text(encoding="utf-8"))},
+            "inputLockSha256": sha256(LOCK), "serverSha256": sha256(SERVER),
+            "sdk": {"used": False, "reference": json.loads(LOCK.read_text(encoding="utf-8"))},
             "requires": declaration("1.0.0")["requires"], "archives": archives,
             "workspaces": ["one", "two"]}
     (output / "settings-functions-plan.json").write_bytes(json_bytes(plan))
@@ -97,6 +103,7 @@ def load_plan(root: Path) -> dict:
             or plan.get("pluginId") != PLUGIN_ID or plan.get("requires") != declaration("1.0.0")["requires"]
             or plan.get("sourceCommit") != source_revision()
             or plan.get("generatorSha256") != sha256(Path(__file__)) or plan.get("inputLockSha256") != sha256(LOCK)
+            or plan.get("serverSha256") != sha256(SERVER)
             or plan.get("sdk") != {"used": False, "reference": json.loads(LOCK.read_text(encoding="utf-8"))}
             or plan.get("workspaces") != ["one", "two"] or set(plan.get("archives", {})) != {"1.0.0", "1.1.0"}):
         raise ValueError("fixture identity changed; regenerate in this worktree")
@@ -105,8 +112,10 @@ def load_plan(root: Path) -> dict:
         if asset.get("version") != version or sha256(path) != asset["sha256"]:
             raise ValueError("fixture archive digest/version changed")
         with zipfile.ZipFile(path) as archive:
-            if sorted(archive.namelist()) != ["fixture-version.txt", "plugin.json"]:
+            if sorted(archive.namelist()) != ["fixture-version.txt", "plugin.json", "server/fake-lsp-server.mjs"]:
                 raise ValueError("unexpected settings fixture package content")
+            if archive.read("server/fake-lsp-server.mjs") != SERVER.read_bytes():
+                raise ValueError("settings fixture server identity changed")
             if json.loads(archive.read("plugin.json")) != declaration(version):
                 raise ValueError("complete settings manifest changed")
     for name in plan["workspaces"]:

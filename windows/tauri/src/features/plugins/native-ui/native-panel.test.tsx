@@ -497,6 +497,79 @@ test("public selectors, segmented choices, checkbox, stepper, search and form bu
   }
 }, 3000);
 
+test("native-controls search clears only its draft, submits empty on Enter and restores the empty draft after hide", async () => {
+  const ui = structuredClone(controlsFixture.ui.toolWindows[0].native) as unknown as NativeUI;
+  const search = ui.controls!.find((control) => control.kind === "search")!;
+  // A nonempty declared default distinguishes a restored empty draft from reset.
+  search.value = "declared query";
+  const store = new NativePanelStateStore();
+  const binding = nativeFunctionFixture(identity, ui);
+  const port = { validate, functions: binding.port };
+  const mounted = await mount(panel(ui, port, store));
+  const input = () =>
+    mounted.host.querySelector<HTMLInputElement>(`input[aria-label="${search.label}"]`)!;
+  const actions = () => binding.calls.filter((call) => !!call.actionId);
+  try {
+    expect(input().value).toBe("declared query");
+    await act(async () => inputValue(input(), "draft 😀"));
+    expect(actions()).toHaveLength(0);
+    const clear = mounted.host.querySelector<HTMLButtonElement>(
+      'button[aria-label="Clear search"]',
+    )!;
+    await act(async () => clear.click());
+    expect(input().value).toBe("");
+    expect(document.activeElement).toBe(input());
+    expect(mounted.host.querySelector('button[aria-label="Clear search"]')).toBeNull();
+    expect(actions()).toHaveLength(0);
+    await act(async () =>
+      input().dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
+    );
+    expect(actions()).toHaveLength(1);
+    expect(actions()[0].actionId).toBe(search.onCommit!);
+    expect(actions()[0].context.values?.[search.id]).toBe("");
+    await mounted.render(<div />);
+    await mounted.render(panel(ui, port, store));
+    expect(input().value).toBe("");
+    expect(mounted.host.querySelector('button[aria-label="Clear search"]')).toBeNull();
+    expect(actions()).toHaveLength(1);
+    expect(binding.owners.size).toBe(0);
+  } finally {
+    await mounted.close();
+    await binding.close();
+  }
+}, 3000);
+
+test("native-controls disabled search cannot clear while its InfoTip remains operable", async () => {
+  const ui = structuredClone(controlsFixture.ui.toolWindows[0].native) as unknown as NativeUI;
+  const search = ui.controls!.find((control) => control.kind === "search")!;
+  search.enabled = false;
+  search.value = "locked query";
+  const mounted = await mount(panel(ui, { validate }));
+  try {
+    const input = mounted.host.querySelector<HTMLInputElement>(
+      `input[aria-label="${search.label}"]`,
+    )!;
+    const clear = mounted.host.querySelector<HTMLButtonElement>(
+      'button[aria-label="Clear search"]',
+    )!;
+    expect(input.disabled).toBe(true);
+    expect(clear.disabled).toBe(true);
+    await act(async () => clear.click());
+    expect(input.value).toBe("locked query");
+    const tip = [...mounted.host.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.getAttribute("aria-label") === `Information for ${search.label}`,
+    )!;
+    expect(tip.disabled).toBe(false);
+    await act(async () => tip.click());
+    expect(document.querySelector('[role="dialog"]')?.textContent).toBe(search.info!);
+    await act(async () => tip.click());
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  } finally {
+    await mounted.close();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  }
+}, 3000);
+
 test("a source form without a refresh action retries unavailable registration and cancels pending consent through public controls", async () => {
   const ui = controlsFixture.ui.toolWindows[0].native as unknown as NativeUI;
   expect(ui.actions.some((action) => action.kind === "refresh")).toBe(false);

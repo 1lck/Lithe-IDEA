@@ -160,6 +160,10 @@ Swift 和 Windows 各写一遍合并规则最直接，但两边一旦有细微�
 - 代价：项目设置文件会出现在用户仓库里，团队需要决定是否提交它。
 - 现有的 Java/Maven 项目设置页（`ProjectRuntimeSettingsView`、`LSPControlCenterView` 中的 Maven 重试）仍是宿主代码，属于历史遗留，后续应迁移到 Java 插件的声明里，不能作为新增特判的先例。
 
+Windows 设置验收使用独立 API3 受控插件，而不是删减正式包的 requires。受控包包含既有 LSP fixture，因此必须披露语言服务器权限和完整程序声明，并把获批声明及归档摘要与安装记录逐项比较。注册语言设置页与真实双窗口覆盖保存、空值、重置、字节冲突、项目及全局重载、升级停用卸载；这些受控检查不能替代正式发布包或插件函数验收。
+
+验收观察器适配锁定 Tauri 的 Windows fetch IPC 与真实 callback Map，不改写被冻结的 invoke，不替换原生命令或回复。收尾先恢复 fetch，随后等待已接纳回调有界排空，再正常退出宿主，最后比较运行镜像和插件资源；未退出、未排空、丢失调用或资源变化都不能报告通过。postMessage 回退传输未覆盖，仍是待验范围。
+
 ## 验证
 
 - `cargo test -p lithe-core --lib settings_v2`：清单校验、分层合并与 `workspaceConfiguration` 展开。

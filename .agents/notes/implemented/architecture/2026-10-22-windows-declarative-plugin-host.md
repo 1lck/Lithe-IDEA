@@ -123,6 +123,8 @@ resolve 使用实际协商的 `conflicts` 能力，只接受状态为 conflicted
 
 文件移动不能沿用已存在双端点的校验后直接执行。正式 v1 的 `fileOperations:1` 只声明操作可用，不承诺原子地拒绝覆盖，也不保证缺失叶子不会被解释为后来出现的目录；最后一次目标不存在预检无法消除 Provider 调用期间的竞态。固定 Subversion Provider v0.1.0（commit `3a558be049f47a3ebe24ae770faf7999df883c29`，SDK `54598ae6e0b9fd71a07b77e1fea6917ba8897a6f`）把已跟踪移动交给 `svn move --parents`；没有 `--force` 不是并发安全证明。当前 Windows 不增加 move 菜单、未接线的计划器或磁盘 fallback。保证应由 Provider 与成熟 SVN 事务实现提供，契约如何表达该保证须先评审，不能按插件 ID 特判或重新解释既有 v1 能力。源码审查和当前控制器拒绝不证明真实 Provider、安全目标发布或固定 Windows 包已验收。
 
+Windows x64 对上述固定 Provider 源码和历史 SDK 的直接 stdio 诊断，使用 VisualSVN 官方签名的 Apache Subversion 1.15.0 复现了这个边界。事件门位于真实 status 完成及 handler 进入之后、最终 SVN 启动之前；诊断 wrapper 原样转发参数与输出，不属于发布包，Provider 已跟踪 move 分支本身没有目标预检。目标始终缺失时，源移到精确叶子；目标随后出现文件时返回 E155033，字节和文件身份未变，但 `--parents` 已把目标调度为 added；目标随后出现目录时返回成功，源实际移入 `target.txt/source.txt`。因此失败也不能假定工作副本无副作用，成功也不能假定目标是精确叶子。三例只证明诊断设备完成并给出反例，不证明生产宿主或正式包验收；当前一次性脚本还缺少长期 CI 所需的外层 watchdog 和异常清理，不能直接注册为长期回归。
+
 新增状态全部在内存中；Provider 可写目录仍由现有平台存储 adapter 提供，没有新下载、生成或缓存路径，安装包和发行资源保持只读。`ui:3` 与 `vcsProviders` 继续关闭；文件 move、缺失节点类型证明与 gutter/Annotate 未扩展。resolve/cleanup 已接入不代表真实 SVN 客户端、生产插件包、原生进程树或 WebView2 人工验收通过，这些验证继续 pending。
 
 ### 与 Worker 扩展模型共存（产品分工）
