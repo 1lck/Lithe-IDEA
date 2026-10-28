@@ -989,8 +989,11 @@ impl DeclarativePluginManifest {
         crate::build::validate_declarations(
             &mut self.build_systems,
             &crate::build::DeclarationContext {
+                debug_adapters: &self.debug_adapters,
                 plugin_api_version: self.plugin_api_version,
                 build_systems_version: self.requires.get("buildSystems").copied().unwrap_or(1),
+                build_providers_version: self.requires.get("buildProviders").copied().unwrap_or(1),
+                model_inputs_version: self.requires.get("buildModelInputs").copied().unwrap_or(0),
                 official: is_official_namespace(&self.id),
                 declared_settings: &declared_settings,
                 language_servers: &server_languages,
@@ -1080,6 +1083,12 @@ impl DeclarativePluginManifest {
                     .iter()
                     .any(|system| system.provider.is_some()),
             ),
+            (
+                capabilities::BUILD_MODEL_INPUTS,
+                self.build_systems.iter().any(|system| {
+                    system.model_sharing.is_some() || !system.model_inputs.is_empty()
+                }),
+            ),
             (capabilities::VCS_PROVIDERS, !self.vcs_providers.is_empty()),
             (
                 capabilities::DEBUG_ADAPTERS,
@@ -1119,6 +1128,19 @@ impl DeclarativePluginManifest {
                 language_servers: &language_servers,
             },
         )?;
+        if crate::debug::adapters::uses_target_arguments(&self.debug_adapters)
+            && self
+                .requires
+                .get(capabilities::DEBUG_ADAPTERS)
+                .copied()
+                .unwrap_or(1)
+                < 2
+        {
+            return Err(invalid(
+                "requires.debugAdapters",
+                "Argument and environment bindings require debugAdapters 2.",
+            ));
+        }
         if self.plugin_api_version >= CAPABILITIES_API_VERSION {
             // serverProcess 2 exists for the selected-runtime launch alone, so
             // a host without it never accepts an adapter it cannot start.

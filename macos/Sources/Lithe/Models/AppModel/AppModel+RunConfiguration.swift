@@ -6,6 +6,16 @@ import LitheModuleAPI
 /// Run configuration entry points and workspace readiness gates.
 @MainActor
 extension AppModel {
+    func runBuildProviderApplication(entryID: String, request: BuildRunRequest, title: String) {
+        guard let identity = currentWorkspaceIdentity, let feature = buildSystemsFeatureIfActive else { return }
+        guard feature.runApplication(entryID, request: request, title: title, beforePreparing: { [weak self] in
+            guard let self, !Task.isCancelled, isCurrentWorkspace(identity),
+                  await saveAllDocuments(), !Task.isCancelled, isCurrentWorkspace(identity) else { return false }
+            return true
+        }) != nil else { return }
+        showToolWindow(.buildOutput)
+    }
+
     func updateRunningService(_ session: RunSession) {
         guard let feature = runFeatureIfActive, let identity = currentWorkspaceIdentity else { return }
         Task { [weak self] in
@@ -287,6 +297,9 @@ extension AppModel {
                 return
             }
             guard let configuration = runFeature.lastConfiguration else { return }
+            if runFeature.lastConfiguration?.buildProvider != nil {
+                guard await saveAllDocuments(), isCurrentWorkspace(identity) else { return }
+            }
             if !(await activateLanguageRunExtensionIfNeeded(
                 for: configuration,
                 currentFileURL: runFeature.lastRunFileURL,
@@ -388,6 +401,9 @@ extension AppModel {
             return
         case .stale:
             return
+        }
+        if configuration.buildProvider != nil {
+            guard await saveAllDocuments(), isCurrentWorkspace(identity) else { return }
         }
         guard await activateLanguageRunExtensionIfNeeded(
             for: configuration,
@@ -539,7 +555,7 @@ extension AppModel {
     func stopSelectedRun() {
         if let feature = runFeatureIfActive,
            let configuration = feature.selectedConfiguration,
-           configuration.kind != .currentFile {
+           configuration.kind != .currentFile, configuration.buildProvider == nil {
             if let session = feature.moduleSessions.first(where: { $0.configurationID == configuration.id }) {
                 feature.stopModule(session)
             }

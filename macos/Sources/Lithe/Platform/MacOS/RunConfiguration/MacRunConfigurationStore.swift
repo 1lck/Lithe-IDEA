@@ -122,7 +122,8 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
                     sourcePath: java?.source,
                     mavenReactorPath: maven?.reactorPath,
                     debugAdapter: value.debug?.adapter,
-                    disabled: value.disabled
+                    disabled: value.disabled,
+                    buildProvider: value.extensions?.build
                 ),
                 options: RunOptions(
                     javaHomePath: java?.homePath ?? "",
@@ -317,6 +318,22 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
         } catch {
             throw RunConfigurationEditorSaveFailure(stage: .write, message: error.localizedDescription)
         }
+    }
+
+    func saveBuildProviderConfiguration(_ reference: BuildProviderRunReference, name: String, at projectURL: URL) throws -> String {
+        let root = projectURL.standardizedFileURL
+        let url = root.appendingPathComponent(".lithe/run/local.json")
+        let baseline = storage.fileExists(at: url) ? try storage.readData(from: url, options: []) : nil
+        let result = try core.createBuildProviderRunConfiguration(at: root, reference: reference, name: name).get()
+        guard let id = result.id, let data = result.document.data(using: .utf8) else { throw MacRunConfigurationStoreError.generationFailed }
+        try ensureLocalRunIgnored(at: root)
+        let current = storage.fileExists(at: url) ? try storage.readData(from: url, options: []) : nil
+        guard current == baseline else {
+            throw MacRunConfigurationStoreError.invalidConfiguration(L10n.string("Run configuration changed while saving. Reload and try again."))
+        }
+        try writeMutation(RunConfigurationDocumentMutation(configurationID: id, document: data),
+                          to: root.appendingPathComponent(".lithe/run/local.json"), root: root)
+        return id
     }
 
     func createConfiguration(_ draft: RunConfigurationDraft, at projectURL: URL) throws -> String {

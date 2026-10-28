@@ -4,6 +4,7 @@ import LitheCoreContracts
 
 enum DebugLaunchConfigurationResolutionError: LocalizedError, Equatable {
     case unsupportedProvider(String)
+    case providerDebugUnavailable
     case javaLaunchTargetUnavailable
     case invalidJavaAttachHost
     case invalidJavaAttachPort
@@ -18,6 +19,8 @@ enum DebugLaunchConfigurationResolutionError: LocalizedError, Equatable {
         switch self {
         case .unsupportedProvider(let provider):
             return L10n.string("The \(provider) Debug Adapter is not installed yet.")
+        case .providerDebugUnavailable:
+            return L10n.string("The build provider's debug program or adapter is unavailable. Build it again and check that the plugin is enabled.")
         case .javaLaunchTargetUnavailable:
             return L10n.string("The Java language service could not resolve a main class for this file.")
         case .invalidJavaAttachHost:
@@ -71,11 +74,22 @@ struct DebugLaunchConfigurationResolver {
     /// when no adapter serves the language.
     private let pluginLaunch: (@MainActor (_ languageID: String, _ documentURL: URL, _ workspaceURL: URL) throws -> DebugLaunchConfiguration?)?
 
+    private let providerLaunch: (@MainActor (BuildSystemPluginSource, BuildDebugPreparation, URL, String) throws -> DebugLaunchConfiguration)?
+
+    @MainActor
+    func resolveProvider(source: BuildSystemPluginSource, preparation: BuildDebugPreparation,
+                         workspaceURL: URL, title: String) throws -> DebugLaunchConfiguration {
+        guard let providerLaunch else { throw DebugLaunchConfigurationResolutionError.providerDebugUnavailable }
+        return try providerLaunch(source, preparation, workspaceURL, title)
+    }
+
     init(
         javaTestLaunchResolver: (any JavaTestDebugLaunchResolving)? = nil,
+        providerLaunch: (@MainActor (BuildSystemPluginSource, BuildDebugPreparation, URL, String) throws -> DebugLaunchConfiguration)? = nil,
         javaExecutablePath: (@MainActor (DebugJavaRuntime) -> String?)? = nil,
         pluginLaunch: (@MainActor (String, URL, URL) throws -> DebugLaunchConfiguration?)? = nil
     ) {
+        self.providerLaunch = providerLaunch
         self.pluginLaunch = pluginLaunch
         self.javaTestLaunchResolver = javaTestLaunchResolver
         self.javaExecutablePath = javaExecutablePath
@@ -116,7 +130,9 @@ struct DebugLaunchConfigurationResolver {
             name: configuration.name,
             request: configuration.request,
             arguments: arguments,
-            steppingFilters: configuration.steppingFilters
+            steppingFilters: configuration.steppingFilters,
+            adapterProviderID: configuration.adapterProviderID,
+            adapterEndpoint: configuration.adapterEndpoint
         )
     }
 

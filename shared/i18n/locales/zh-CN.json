@@ -9442,7 +9442,19 @@
     "plugins.java.installNotice": "Java Support 现已独立安装。请从插件市场安装，或使用“从磁盘安装”导入离线包。原有 Java 设置会保留。",
     "plugins.java.installTemplates": "安装 Java Support，获取 Java、Maven 和 Spring 项目模板…",
     "run.incompleteProjectScanTitle": "项目扫描不完整",
-    "run.incompleteProjectScanMessage": "部分项目目录无法读取，已有运行配置已保留。请恢复访问权限后重新识别运行配置。"
+    "run.incompleteProjectScanMessage": "部分项目目录无法读取，已有运行配置已保留。请恢复访问权限后重新识别运行配置。",
+    "native.theLanguageServerThisBuildSystemUsesIsNotAvailable": "此构建系统使用的语言服务器不可用。请打开该语言的文件后重试。",
+    "native.loadModelBeforeWorkspaceTests": "运行全部测试前，请加载或重新加载项目模型，以便收集子项目的测试报告。",
+    "native.discoverTests": "发现测试",
+    "native.discoveredTests": "已发现的测试",
+    "native.noTestsDiscovered": "未发现测试。",
+    "native.invalidBuildProviderLaunchPlan": "构建提供方返回了无效的启动计划。",
+    "native.saveProviderRunConfiguration": "将提供方运行配置保存到 .lithe/run/local.json",
+    "native.providerRunSavingUnavailable": "当前无法保存构建提供方运行配置。",
+    "native.loadProviderModelBeforeRun": "请先加载当前构建模型并启用对应提供方，再运行此配置。",
+    "native.providerRunSaveConflict": "保存期间运行配置已更改。请重新加载后再试。",
+    "native.savedProviderRunUnavailable": "已保存的提供方运行配置不可用。",
+    "native.providerDebugUnavailable": "构建插件的调试程序或适配器不可用。请重新构建，并检查插件是否已启用。"
   },
   "overrides": {
     "macos": {
