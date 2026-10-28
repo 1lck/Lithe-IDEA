@@ -52,6 +52,12 @@ final class AppSettings: ObservableObject {
         static let gitFetchOptions = "settings.gitFetchOptions"
         static let gitSaveChangesPolicy = "settings.gitSaveChangesPolicy"
         static let projectOpenBehavior = "settings.projectOpenBehavior"
+        static let networkProxyMode = "settings.networkProxyMode"
+        static let networkProxyType = "settings.networkProxyType"
+        static let networkProxyHost = "settings.networkProxyHost"
+        static let networkProxyPort = "settings.networkProxyPort"
+        static let networkProxyUsername = "settings.networkProxyUsername"
+        static let networkProxyExclusions = "settings.networkProxyExclusions"
         static let commitMessageAI = "settings.commitMessageAI"
         static let agentCommand = "settings.agentCommand"
         static let agentArguments = "settings.agentArguments"
@@ -187,6 +193,76 @@ final class AppSettings: ObservableObject {
     }
     @Published var projectOpenBehavior: ProjectOpenBehavior {
         didSet { defaults.set(projectOpenBehavior.rawValue, forKey: Key.projectOpenBehavior) }
+    }
+    /// Read by the Keychain migration in the composition root, which runs
+    /// without an `AppSettings` path for secrets.
+    nonisolated static let networkProxyPasswordKey = "proxy.password"
+    let networkProxyPreferences = NetworkProxyPreferences()
+    @Published var networkProxyMode: NetworkProxyMode {
+        didSet {
+            defaults.set(networkProxyMode.rawValue, forKey: Key.networkProxyMode)
+            updateNetworkProxyPreferences()
+        }
+    }
+    @Published var networkProxyType: NetworkProxyType {
+        didSet {
+            defaults.set(networkProxyType.rawValue, forKey: Key.networkProxyType)
+            updateNetworkProxyPreferences()
+        }
+    }
+    @Published var networkProxyHost: String {
+        didSet {
+            defaults.set(networkProxyHost, forKey: Key.networkProxyHost)
+            updateNetworkProxyPreferences()
+        }
+    }
+    @Published var networkProxyPort: Int {
+        didSet {
+            defaults.set(networkProxyPort, forKey: Key.networkProxyPort)
+            updateNetworkProxyPreferences()
+        }
+    }
+    @Published var networkProxyUsername: String {
+        didSet {
+            defaults.set(networkProxyUsername, forKey: Key.networkProxyUsername)
+            updateNetworkProxyPreferences()
+        }
+    }
+    /// Hosts that bypass a custom proxy, one entry per element; the settings
+    /// page edits them as one comma-separated string.
+    @Published var networkProxyExclusions: [String] {
+        didSet {
+            defaults.set(networkProxyExclusions, forKey: Key.networkProxyExclusions)
+            updateNetworkProxyPreferences()
+        }
+    }
+
+    private func updateNetworkProxyPreferences() {
+        var configuration = networkProxyPreferences.snapshot
+        configuration.mode = networkProxyMode
+        configuration.type = networkProxyType
+        // Normalized once here so every reader sees the same trimmed values.
+        configuration.host = networkProxyHost.trimmingCharacters(in: .whitespacesAndNewlines)
+        configuration.port = networkProxyPort
+        configuration.username = networkProxyUsername.trimmingCharacters(in: .whitespacesAndNewlines)
+        configuration.exclusions = Self.parsedNetworkProxyExclusions(networkProxyExclusions)
+        networkProxyPreferences.update(configuration)
+    }
+
+    nonisolated static func parsedNetworkProxyExclusions(_ raw: [String]) -> [String] {
+        raw.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+    }
+
+    /// The password lives in the Keychain, never in defaults; callers merge
+    /// it into the live snapshot after loading or changing it.
+    func updateNetworkProxyPassword(_ password: String) {
+        var configuration = networkProxyPreferences.snapshot
+        configuration.password = password
+        networkProxyPreferences.update(configuration)
+    }
+
+    var networkProxyHasSavedPassword: Bool {
+        !networkProxyPreferences.snapshot.password.isEmpty
     }
     @Published var commitMessageAI: CommitMessageAISettings {
         didSet { saveCommitMessageAI() }
@@ -343,6 +419,16 @@ final class AppSettings: ObservableObject {
         projectOpenBehavior = ProjectOpenBehavior(
             rawValue: defaults.string(forKey: Key.projectOpenBehavior) ?? ""
         ) ?? .ask
+        networkProxyMode = NetworkProxyMode(
+            rawValue: defaults.string(forKey: Key.networkProxyMode) ?? ""
+        ) ?? .system
+        networkProxyType = NetworkProxyType(
+            rawValue: defaults.string(forKey: Key.networkProxyType) ?? ""
+        ) ?? .http
+        networkProxyHost = defaults.string(forKey: Key.networkProxyHost) ?? ""
+        networkProxyPort = defaults.object(forKey: Key.networkProxyPort) as? Int ?? 0
+        networkProxyUsername = defaults.string(forKey: Key.networkProxyUsername) ?? ""
+        networkProxyExclusions = defaults.stringArray(forKey: Key.networkProxyExclusions) ?? []
         let selectedPreset = KeyboardShortcutPreset(
             rawValue: defaults.string(forKey: Key.keyboardShortcutPreset) ?? ""
         ) ?? .macOS
@@ -527,6 +613,12 @@ final class AppSettings: ObservableObject {
         gitUseCredentialHelper = true
         gitSaveChangesPolicy = .stash
         projectOpenBehavior = .ask
+        networkProxyMode = .system
+        networkProxyType = .http
+        networkProxyHost = ""
+        networkProxyPort = 0
+        networkProxyUsername = ""
+        networkProxyExclusions = []
         commitMessageAI = .default
         agentCommand = ""
         agentArguments = ""
@@ -547,6 +639,8 @@ final class AppSettings: ObservableObject {
         setKeyboardShortcutOverrides([:])
         javaBuildFailurePolicies = [:]
         defaults.set(nil, forKey: Key.javaBuildFailurePolicies)
+        // All stored properties are initialized; the snapshot can now read self.
+        updateNetworkProxyPreferences()
     }
 
     func setKeyboardShortcutOverrides(_ value: [String: [KeyboardShortcutBinding]]) {

@@ -88,7 +88,8 @@ final class MacServiceContainer {
         aiConfigurationSources providedAIConfigurationSources: [any AIConfigurationSource]? = nil,
         gitPerformanceLogger: (any GitPerformanceLogger)? = nil,
         pluginWebPageLifecycle providedPluginWebPageLifecycle: PluginWebPageLifecycle? = nil,
-        applicationLogging: (any ApplicationLogging)? = nil
+        applicationLogging: (any ApplicationLogging)? = nil,
+        networkSessionProvider providedNetworkSessionProvider: MacNetworkSessionProvider? = nil
     ) {
         let pluginWebPageLifecycle = providedPluginWebPageLifecycle ?? .shared
         let gitExecutionJournal = GitExecutionJournal()
@@ -111,6 +112,16 @@ final class MacServiceContainer {
             metadataRepositoryURLs: [mavenRepositoryURL, gradleRepositoryURL]
         )
         let fileStorage = MacFileStorage()
+        // One proxy-aware session factory per process: LitheApp creates it so
+        // the rollback downloader outside this container shares the policy,
+        // and every transport inside resolves sessions through it per request.
+        let networkSessionProvider = providedNetworkSessionProvider
+            ?? MacNetworkSessionProvider(preferences: settings.networkProxyPreferences)
+        let proxyPasswordStore = MacKeychainSecureStore(service: fileStorage.identity.keychainService("proxy"))
+        if let storedProxyPassword = proxyPasswordStore.read(key: AppSettings.networkProxyPasswordKey) {
+            settings.updateNetworkProxyPassword(storedProxyPassword)
+        }
+        let proxyConnectionChecker = MacNetworkProxyTester()
         let workspaceLanguageServerPreferences = MacWorkspaceLanguageServerPreferencesStore(store: store)
         let directoryMarkStore = WorkspaceDirectoryMarkStore(store: store)
         let runConfigurationStore = MacRunConfigurationStore(
@@ -137,7 +148,7 @@ final class MacServiceContainer {
         let secureStore = MacLocalSecretStore()
         let githubService = GitHubService(
             core: RustGitHubCore(bridge: rustCore),
-            transport: MacGitHubHTTPTransport(),
+            transport: MacGitHubHTTPTransport(sessionProvider: { [networkSessionProvider] in networkSessionProvider.currentSession() }),
             configuration: MacGitHubConfiguration(),
             secureStore: MacKeychainSecureStore(service: fileStorage.identity.keychainService("github")),
             git: MacGitHubGitOperations(core: rustCore)
@@ -263,11 +274,12 @@ final class MacServiceContainer {
         }
         let pluginMarketplaceEvaluator = RustPluginMarketplaceOperations(core: rustCore)
         let pluginMarketplaceTransport: any MacPluginMarketplaceTransport
+        let proxySessionProvider: @Sendable () -> URLSession = { [networkSessionProvider] in networkSessionProvider.currentSession() }
         #if DEBUG
         pluginMarketplaceTransport = MacPluginMarketplaceFixtureTransport.fromEnvironment()
-            ?? MacURLSessionPluginMarketplaceTransport()
+            ?? MacURLSessionPluginMarketplaceTransport(sessionProvider: proxySessionProvider)
         #else
-        pluginMarketplaceTransport = MacURLSessionPluginMarketplaceTransport()
+        pluginMarketplaceTransport = MacURLSessionPluginMarketplaceTransport(sessionProvider: proxySessionProvider)
         #endif
         let remotePluginPackages = MacRemotePluginPackageDeployer(
             installed: pluginStartup.registeredPlugins,
@@ -297,7 +309,9 @@ final class MacServiceContainer {
                 contributions: AIAssistanceModule.moduleContributions
             ) {
                 AIAssistanceModule(
-                    transportFactory: { MacURLSessionTransport() },
+                    transportFactory: {
+                        MacURLSessionTransport(sessionProvider: { [networkSessionProvider] in networkSessionProvider.currentSession() })
+                    },
                     credentialResolver: credentialResolver
                 )
             })
@@ -1084,6 +1098,8 @@ final class MacServiceContainer {
         services.ideCapabilityRegistry = ideCapabilityRegistry
         services.pluginRegistrationChanges = livePlugins.changes
         services.ideHostTransport = MacIdeHostTransport(core: rustCore, storage: fileStorage)
+        services.proxyPasswordStore = proxyPasswordStore
+        services.proxyConnectionChecker = proxyConnectionChecker
         services.mcpConfigurationStore = MacAgentMcpConfigurationStore(
             core: rustCore, storage: fileStorage
         )

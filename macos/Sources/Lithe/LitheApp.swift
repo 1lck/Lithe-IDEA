@@ -508,6 +508,9 @@ struct LitheApp: App {
             store: store,
             logDirectoryProvider: MacServiceContainer.makeLogDirectoryProvider()
         )
+        // Created outside the service container so the update checker (which
+        // is not part of any project model) shares the proxy policy.
+        let networkSessionProvider = MacNetworkSessionProvider(preferences: settings.networkProxyPreferences)
         let applicationLogWriter = MacServiceContainer.makeApplicationLogWriter { [weak settings] in
             Task { @MainActor [weak settings] in settings?.setCustomLogDirectory(nil) }
         }
@@ -547,7 +550,8 @@ struct LitheApp: App {
                             : .normal,
                         moduleStore: moduleStore,
                         gitPerformanceLogger: gitPerformanceLogger,
-                        applicationLogging: applicationLogWriter
+                        applicationLogging: applicationLogWriter,
+                        networkSessionProvider: networkSessionProvider
                     ).services
                 )
             },
@@ -573,9 +577,14 @@ struct LitheApp: App {
             memorySampler: MacProcessMemorySampler()
         ))
         Self.emitPerformanceBaselineMarker(LithePerformanceBaseline.configurationMarker())
-        let updateChecker = UpdateChecker(diagnosticSink: { message in
-            Self.appendApplicationLog(applicationLogWriter, message: message)
-        })
+        let updateChecker = UpdateChecker(
+            diagnosticSink: { message in
+                Self.appendApplicationLog(applicationLogWriter, message: message)
+            },
+            proxySessionPolicy: { [networkSessionProvider] configuration in
+                networkSessionProvider.applyPolicy(to: configuration)
+            }
+        )
         _updateChecker = StateObject(wrappedValue: updateChecker)
         appDelegate.projectSessions = projectSessions
         appDelegate.flushApplicationLogs = { await applicationLogWriter.finishSession() }

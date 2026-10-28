@@ -26,10 +26,11 @@ final class MacStableRollback: ObservableObject {
     private let diagnosticSink: @Sendable (String) -> Void
 
     init(diagnosticSink: @escaping @Sendable (String) -> Void = { NSLog("%@", $0) },
-         loadPackage: @escaping PackageLoader = { bundle, preparing in
-        try await StableRollbackPackage.download(bundle: bundle, preparing: preparing)
-    }) {
-        self.loadPackage = loadPackage
+         proxyPolicy: @escaping @Sendable (URLSessionConfiguration) -> Void = { _ in },
+         loadPackage: PackageLoader? = nil) {
+        self.loadPackage = loadPackage ?? { bundle, preparing in
+            try await StableRollbackPackage.download(bundle: bundle, preparing: preparing, applyProxyPolicy: proxyPolicy)
+        }
         self.diagnosticSink = diagnosticSink
     }
 
@@ -158,7 +159,9 @@ struct StableRollbackPackage: Sendable {
     let target: URL
     let version: String
 
-    static func download(bundle: Bundle, preparing: @escaping @Sendable () async -> Void) async throws -> Self {
+    static func download(bundle: Bundle,
+                         preparing: @escaping @Sendable () async -> Void,
+                         applyProxyPolicy: @escaping @Sendable (URLSessionConfiguration) -> Void = { _ in }) async throws -> Self {
         let target = bundle.bundleURL.resolvingSymlinksInPath()
         guard target.pathExtension == "app", let identifier = bundle.bundleIdentifier,
               let architecture = UpdateArchitecture.current else { throw UpdateCheckError.notAppBundle }
@@ -170,6 +173,7 @@ struct StableRollbackPackage: Sendable {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 60
         configuration.timeoutIntervalForResource = 1800
+        applyProxyPolicy(configuration)
         let session = URLSession(configuration: configuration)
         defer { session.invalidateAndCancel() }
         let (data, response) = try await session.data(from: UpdateEndpointConfiguration.productionManifestURL)

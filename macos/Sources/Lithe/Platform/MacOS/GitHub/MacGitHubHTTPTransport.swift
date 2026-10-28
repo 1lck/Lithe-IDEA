@@ -17,10 +17,12 @@ final class MacGitHubHTTPTransport: GitHubHTTPTransport, @unchecked Sendable {
         }
     }
 
-    private let session: URLSession
+    /// Resolved per request so a proxy settings change takes effect without
+    /// recreating the transport.
+    private let sessionProvider: @Sendable () -> URLSession
 
-    init(session: URLSession = .shared) {
-        self.session = session
+    init(sessionProvider: @escaping @Sendable () -> URLSession = { .shared }) {
+        self.sessionProvider = sessionProvider
     }
 
     func execute(plan: GitHubRequestPlan, token: String?) async throws -> GitHubHTTPResponse {
@@ -47,7 +49,7 @@ final class MacGitHubHTTPTransport: GitHubHTTPTransport, @unchecked Sendable {
         if plan.requiresAuthentication, let token {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await sessionProvider().data(for: request)
         guard let response = response as? HTTPURLResponse else {
             throw TransportError.invalidResponse
         }

@@ -4,6 +4,15 @@ import LitheCoreContracts
 import Network
 
 struct MacURLSessionTransport: AIHTTPTransport {
+    /// Resolved per request so a proxy settings change takes effect without
+    /// recreating the transport. The plaintext HTTP branch bypasses
+    /// URLSession (`NWConnection`) and therefore never uses a proxy.
+    let sessionProvider: @Sendable () -> URLSession
+
+    init(sessionProvider: @escaping @Sendable () -> URLSession = { .shared }) {
+        self.sessionProvider = sessionProvider
+    }
+
     func send(_ request: AIHTTPRequest) async throws -> AIHTTPResponse {
         switch request.url.scheme?.lowercased() {
         case "http":
@@ -20,7 +29,7 @@ struct MacURLSessionTransport: AIHTTPTransport {
                 urlRequest.setValue(value, forHTTPHeaderField: key)
             }
 
-            let (data, response) = try await URLSession.shared.data(for: urlRequest)
+            let (data, response) = try await sessionProvider().data(for: urlRequest)
             guard let httpResponse = response as? HTTPURLResponse else {
                 throw AIHTTPTransportError.invalidResponse
             }
