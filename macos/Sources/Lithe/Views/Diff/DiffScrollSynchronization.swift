@@ -32,7 +32,7 @@ struct DiffScrollMapping {
 /// Native clip offsets never publish through SwiftUI or rebuild prepared code.
 @MainActor
 final class DiffScrollSynchronization: ObservableObject {
-    private var identity: UUID?
+    private var identity: DiffSplitLayout.Identity?
     private var mapping: DiffScrollMapping?
     private var updating = false
     private weak var left: NSScrollView?

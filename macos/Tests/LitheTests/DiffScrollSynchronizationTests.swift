@@ -47,7 +47,8 @@ struct DiffScrollSynchronizationTests {
             defer { window.contentView = nil; window.close() }
             host.layoutSubtreeIfNeeded(); await Task.yield(); host.layoutSubtreeIfNeeded()
             let editors = descendants(host).compactMap { $0 as? DiffNativeTextView }
-            #expect(editors.count == (status == "M" ? 2 : 1))
+            // Added and deleted files are side-by-side too; the side without a version stays empty.
+            #expect(editors.count == 2)
             #expect(!descendants(host).compactMap { $0 as? DiffStripeScroller }.isEmpty)
             #expect(editors.contains { $0.column?.lines.isEmpty == false })
         }

@@ -251,6 +251,69 @@ struct GitModuleTests {
         #expect(!feature.isMutatingWorktreeChanges)
     }
 
+    @Test(arguments: [true, false])
+    func worktreeStagingShowsTheRequestedStateAtOnceAndSettlesToWhatGitDid(succeeds: Bool) async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let worktree = makeTestWorktree(path: "/linked", branch: "linked")
+        let change = GitChange(repositoryRoot: worktree.url, path: "file.txt", originalPath: nil, indexStatus: " ", workTreeStatus: "M")
+        let probe = WorktreeChangesProbe(root: root, changes: [change])
+        let started = GitModuleTestGate(), release = GitModuleTestGate()
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(snapshotHandler: { probe.snapshot($0) },
+            stageHandler: { change in
+                started.open()
+                guard release.waitSynchronously() else { return nil }
+                return probe.mutate(change, action: "stage", succeeds: succeeds)
+            })), worktreesProvider: { _ in [worktree] })
+        defer { release.open(); feature.reset() }
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        await feature.refreshGit(); await feature.refreshWorktrees(); await feature.inspectWorktree(worktree)
+        let task = Task { await feature.setWorktreeStaging([change], staged: true, in: worktree) }
+        defer { task.cancel(); release.open() }
+        try #require(await started.waitUntilOpen())
+        // Git has not answered yet: the row already reads as staged, though the status has not changed.
+        #expect(feature.pendingStagedStates == [change.id: true])
+        #expect(feature.effectiveStagingState(for: change))
+        #expect(feature.gitWorktreeInspection?.changes.first?.isStaged == false)
+        release.open()
+        try #require(await waitForGitTaskCompletion(task))
+        #expect(feature.pendingStagedStates.isEmpty && !feature.isStagingChanges)
+        #expect(feature.gitWorktreeInspection?.changes.first?.isStaged == succeeds)
+    }
+
+    @Test
+    func worktreeChangesAreIdleOnceTheirStatusIsReadWithoutWaitingForTheProjectRefresh() async throws {
+        let root = URL(fileURLWithPath: "/workspace")
+        let worktree = makeTestWorktree(path: "/linked", branch: "linked")
+        let change = GitChange(repositoryRoot: worktree.url, path: "file.txt", originalPath: nil, indexStatus: " ", workTreeStatus: "M")
+        let probe = WorktreeChangesProbe(root: root, changes: [change])
+        let staged = GitModuleTestGate(), projectRefreshEntered = GitModuleTestGate(), releaseProjectRefresh = GitModuleTestGate()
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotHandler: { url in
+                // After the stage, hold the project-wide status read that refreshGit() performs last.
+                if url == root, staged.waitSynchronously(timeout: 0) {
+                    projectRefreshEntered.open()
+                    _ = releaseProjectRefresh.waitSynchronously()
+                }
+                return probe.snapshot(url)
+            },
+            stageHandler: { change in
+                defer { staged.open() }
+                return probe.mutate(change, action: "stage")
+            })), worktreesProvider: { _ in [worktree] })
+        defer { releaseProjectRefresh.open(); feature.reset() }
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        await feature.refreshGit(); await feature.refreshWorktrees(); await feature.inspectWorktree(worktree)
+        let task = Task { await feature.setWorktreeStaging([change], staged: true, in: worktree) }
+        defer { task.cancel(); releaseProjectRefresh.open() }
+        try #require(await projectRefreshEntered.waitUntilOpen())
+        // The worktree's own status is already confirmed, so its rows accept the next click.
+        #expect(feature.gitWorktreeInspection?.changes.first?.isStaged == true)
+        #expect(!feature.isMutatingWorktreeChanges && !feature.isRefreshingWorktreeChanges)
+        #expect(feature.pendingStagedStates.isEmpty && !feature.isStagingChanges)
+        releaseProjectRefresh.open()
+        try #require(await waitForGitTaskCompletion(task))
+    }
+
     @Test(arguments: [false, true])
     func worktreeChangesCancellationOrResetStopsBatchAndRejectsLateFailure(reset: Bool) async throws {
         let root = URL(fileURLWithPath: "/workspace")

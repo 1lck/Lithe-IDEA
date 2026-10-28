@@ -1658,6 +1658,7 @@
 "Hide Session Details" = "隐藏会话详情";
 "Hide Terminal tool window" = "隐藏终端工具窗口";
 "Hide commit decorations" = "隐藏提交装饰";
+"Hide commit details" = "隐藏提交详情";
 "Hide configuration list" = "收起运行配置列表";
 "Hide plan" = "收起计划";
 "Hide thinking" = "收起思考";
@@ -3446,6 +3447,7 @@
 "Showing the previous Java entries while the Java language service prepares the project." = "Java 语言服务正在准备项目，暂时显示上次的 Java 入口。";
 "Shown across the entire workbench, including toolbars, project tree, editor, tabs, terminals, and status bar." = "显示在整个工作台内，包括工具栏、项目文件树、编辑区、标签栏、终端和状态栏。";
 "Side-by-side" = "并排";
+"Side-by-side view" = "并排视图";
 "Sign in again" = "重新登录";
 "Sign in to Codex" = "登录 Codex";
 "Sign in to GitHub" = "登录 GitHub";
@@ -4170,6 +4172,7 @@
 "Undo Commit" = "撤销最近一次提交（保留更改）";
 "Undo Commit…" = "撤销最近一次提交（保留更改）…";
 "Unhandled" = "未处理";
+"Unified view" = "统一视图";
 "Uninstall" = "卸载";
 "Uninstall %@ from the Installed tab and restart Lithe first. It is the retired official version of this plugin and supports the same language." = "请先在“已安装”中卸载 %@ 并重启 Lithe。它是此插件已退役的官方版本，支持同一种语言。";
 "Uninstall %@?" = "卸载 %@？";
@@ -4540,6 +4543,7 @@
 "git.diff.repositoryPreviewEmptyTitle" = "仓库差异";
 "git.diff.repositoryPreviewTitle" = "仓库差异: %1$@";
 "git.log.olderCommitsFailed" = "无法加载更早的提交，点击刷新历史";
+"git.unifiedView" = "统一视图";
 "https://github.com/owner/repository" = "https://github.com/owner/repository";
 "just now" = "刚刚";
 "local commit(s)" = "个本地提交";
@@ -6083,6 +6087,7 @@
 "native.hideBuildOutputToolWindow" = "隐藏构建输出工具窗口";
 "native.hideBuildToolWindow" = "隐藏构建工具窗口";
 "native.hideCommitDecorations" = "隐藏提交装饰";
+"native.hideCommitDetails" = "隐藏提交详情";
 "native.hideConfigurationList" = "收起运行配置列表";
 "native.hideDebugToolWindow" = "隐藏调试工具窗口";
 "native.hideDetails" = "隐藏详情";
@@ -8012,6 +8017,7 @@
 "native.showingThePreviousJavaEntriesWhileTheJavaLanguageServicePreparesTheProject" = "Java 语言服务正在准备项目，暂时显示上次的 Java 入口。";
 "native.shownAcrossTheEntireWorkbenchIncludingToolbarsProjectTreeEditorTabsTerminalsAndStatusBar" = "显示在整个工作台内，包括工具栏、项目文件树、编辑区、标签栏、终端和状态栏。";
 "native.sideBySide" = "并排";
+"native.sideBySideView" = "并排视图";
 "native.signInToCodex" = "登录 Codex";
 "native.signInToGitHub" = "登录 GitHub";
 "native.signInToViewAndManagePullRequests" = "登录后即可查看和管理拉取请求。";

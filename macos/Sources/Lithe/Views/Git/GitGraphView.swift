@@ -368,6 +368,7 @@ struct GitGraphScrollView: NSViewRepresentable {
 final class GitGraphScrollNSView: NSScrollView {
     override func reflectScrolledClipView(_ clipView: NSClipView) {
         super.reflectScrolledClipView(clipView)
+        (documentView as? GitGraphScrollDocumentView)?.refreshHover()
         (documentView as? GitGraphScrollDocumentView)?.scheduleAutomaticLoading()
     }
 
@@ -486,11 +487,14 @@ final class GitGraphScrollDocumentView: NSView {
         }
         self.onLoadMore = onLoadMore
         if !didConfigureLoadMoreButton || loadMoreStateChanged || loadingStateChanged || localeChanged {
-            loadMoreButton.title = loadMoreFailed
-                ? gitLocalizedFormat("Could not load older commits. Refresh history", locale: locale)
-                : gitLocalizedFormat("Loading commits…", locale: locale)
-            loadMoreButton.isHidden = !canLoadMore || (!isLoadingMore && !loadMoreFailed)
-            loadMoreButton.isEnabled = loadMoreFailed && !isLoadingMore
+            // The footer row is reserved whenever older history exists, so it always says
+            // what it is for: idle it offers the next page instead of leaving a blank band.
+            loadMoreButton.title = gitLocalizedFormat(
+                loadMoreFailed ? "Could not load older commits. Refresh history"
+                    : isLoadingMore ? "Loading commits…" : "Load more commits",
+                locale: locale)
+            loadMoreButton.isHidden = !canLoadMore
+            loadMoreButton.isEnabled = !isLoadingMore
             didConfigureLoadMoreButton = true
         }
         // The callback may capture refreshed feature state, so keep the
@@ -532,6 +536,9 @@ final class GitGraphScrollDocumentView: NSView {
 
     /// One request per rendered page, even before SwiftUI publishes the loading state.
     /// Appends retain the native clip origin; no per-pixel state reaches the workbench.
+    /// Scrolling moves rows under a stationary pointer without a mouse event.
+    func refreshHover() { commitRowsView.refreshHoverFromPointer() }
+
     func scheduleAutomaticLoading() {
         guard !automaticLoadingScheduled else { return }
         automaticLoadingScheduled = true
@@ -742,6 +749,7 @@ final class GitGraphCommitRowsNSView: NSView, NSViewToolTipOwner {
         self.rowHeight = rowHeight
         self.actions = actions
         needsDisplay = true
+        refreshHoverFromPointer()
     }
 
     func isSelected(_ hash: String) -> Bool { selectedHashes?.contains(hash) ?? (selectedHash == hash) }
@@ -813,8 +821,22 @@ final class GitGraphCommitRowsNSView: NSView, NSViewToolTipOwner {
     }
 
     override func mouseMoved(with event: NSEvent) {
-        let index = Int(floor(convert(event.locationInWindow, from: nil).y / rowHeight))
-        let next = rows.indices.contains(index) ? index : nil
+        setHoveredIndex(rowIndex(atWindowLocation: event.locationInWindow))
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        setHoveredIndex(nil)
+    }
+
+    /// The row under the pointer, or nil when the pointer is outside the visible rows.
+    private func rowIndex(atWindowLocation location: NSPoint) -> Int? {
+        let point = convert(location, from: nil)
+        guard visibleRect.contains(point) else { return nil }
+        let index = Int(floor(point.y / rowHeight))
+        return rows.indices.contains(index) ? index : nil
+    }
+
+    private func setHoveredIndex(_ next: Int?) {
         guard hoveredIndex != next else { return }
         let previous = hoveredIndex
         hoveredIndex = next
@@ -826,11 +848,26 @@ final class GitGraphCommitRowsNSView: NSView, NSViewToolTipOwner {
         }
     }
 
-    override func mouseExited(with event: NSEvent) {
-        guard let previous = hoveredIndex else { return }
-        hoveredIndex = nil
-        setNeedsDisplay(NSRect(x: 0, y: CGFloat(previous) * rowHeight, width: bounds.width, height: rowHeight))
+    /// Pointer position in window coordinates. Tests place the pointer here, because a synthetic
+    /// event cannot move the real one.
+    var pointerLocationInWindow: (() -> NSPoint?)?
+
+    /// Re-resolves the hovered row from where the pointer is now. `mouseMoved` does not fire when
+    /// the rows scroll or change under a stationary pointer, which left the grey hover band on the
+    /// old row index, a different commit than the one under the pointer.
+    func refreshHoverFromPointer() {
+        let location: NSPoint?
+        if let pointerLocationInWindow {
+            location = pointerLocationInWindow()
+        } else if let window, window.isKeyWindow {
+            location = window.mouseLocationOutsideOfEventStream
+        } else {
+            location = nil
+        }
+        setHoveredIndex(location.flatMap(rowIndex(atWindowLocation:)))
     }
+
+    var hoveredRowIndex: Int? { hoveredIndex }
 
     override func draw(_ dirtyRect: NSRect) {
         guard !rows.isEmpty, let style = resolvedDrawingStyle() else { return }

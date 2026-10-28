@@ -543,6 +543,44 @@ struct GitGraphInteractionTests {
         #expect(targets.isEmpty)
     }
 
+    @Test("The hovered row follows a stationary pointer while rows scroll under it")
+    func hoverFollowsThePointerWhenRowsScroll() throws {
+        let layout = GitGraphLayoutService.layout(commits: commits())
+        let scroll = GitGraphScrollView.makeScrollView(
+            presentation: presentation(layout), selectedHash: nil, showCommitDecorations: true,
+            canLoadMore: false, isLoadingMore: false,
+            actions: actions { _ in }, onLoadMore: {}
+        )
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 180),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = scroll
+        defer { window.orderOut(nil); window.close() }
+        let document = try #require(scroll.documentView as? GitGraphScrollDocumentView)
+        document.updateLayout(width: 800, viewportHeight: 180)
+        func rowsViews(_ view: NSView) -> [GitGraphCommitRowsNSView] {
+            (view as? GitGraphCommitRowsNSView).map { [$0] } ?? view.subviews.flatMap(rowsViews)
+        }
+        let rowsView = try #require(rowsViews(document).first)
+        let rowHeight = GitGraphGeometry.rowHeight
+
+        // The pointer rests on the middle of the second row and never moves again.
+        let pointer = rowsView.convert(NSPoint(x: 400, y: rowHeight * 1.5), to: nil)
+        rowsView.pointerLocationInWindow = { pointer }
+        rowsView.refreshHoverFromPointer()
+        #expect(rowsView.hoveredRowIndex == 1)
+
+        // Scrolling raises the rows by three; the row under the same pointer is now the fifth.
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: rowHeight * 3))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        #expect(rowsView.hoveredRowIndex == 4, "the hover band must not stay on the row that scrolled away")
+
+        // A pointer outside the viewport hovers nothing.
+        rowsView.pointerLocationInWindow = { NSPoint(x: -40, y: -40) }
+        scroll.reflectScrolledClipView(scroll.contentView)
+        #expect(rowsView.hoveredRowIndex == nil)
+    }
+
     @Test("Arrow activation selects and scrolls to parent, then back to child")
     func bidirectionalNavigation() throws {
         let layout = GitGraphLayoutService.layout(commits: commits())
@@ -778,6 +816,54 @@ struct GitGraphInteractionTests {
             actions: callbacks, onLoadMore: { requests += 1 })
         await turn()
         #expect(requests == 2, "Exhausted history never requests another page")
+    }
+
+    @Test("The reserved footer row is never blank: it offers the next page, shows progress, and goes away with the history")
+    func footerRowIsNeverBlankWhileOlderHistoryExists() throws {
+        let all = try reportedCommits("issue410-date-history")
+        let page = presentation(GitGraphLayoutService.layout(commits: Array(all.prefix(50))))
+        let callbacks = actions { _ in }
+        var requests = 0
+        let scroll = GitGraphScrollView.makeScrollView(presentation: page,
+            selectedHash: page.rows.first?.commit.hash, showCommitDecorations: true,
+            canLoadMore: true, isLoadingMore: false, actions: callbacks, onLoadMore: { requests += 1 })
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 850, height: 300),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = scroll
+        defer { window.contentView = nil; window.close() }
+        scroll.layoutSubtreeIfNeeded()
+        let document = try #require(scroll.documentView as? GitGraphScrollDocumentView)
+        func update(canLoadMore: Bool, isLoadingMore: Bool, failed: Bool = false) {
+            document.update(presentation: page, selectedHash: page.rows.first?.commit.hash,
+                showCommitDecorations: true, canLoadMore: canLoadMore, isLoadingMore: isLoadingMore,
+                actions: callbacks, onLoadMore: { requests += 1 }, loadMoreFailed: failed)
+            scroll.layoutSubtreeIfNeeded()
+        }
+        let footer = try #require(document.subviews.compactMap { $0 as? NSButton }.first)
+
+        // Idle with older history: the reserved row is a usable button, not an empty band.
+        #expect(!footer.isHidden)
+        #expect(footer.isEnabled)
+        #expect(!footer.title.isEmpty)
+        #expect(document.bounds.contains(footer.frame), "The row sits inside the space reserved for it")
+        let idleTitle = footer.title
+        footer.performClick(nil)
+        #expect(requests == 1, "Clicking the idle row requests the next page")
+
+        update(canLoadMore: true, isLoadingMore: true)
+        #expect(!footer.isHidden)
+        #expect(!footer.isEnabled, "A page already in flight cannot be requested again")
+        #expect(footer.title != idleTitle)
+        let loadingTitle = footer.title
+
+        update(canLoadMore: true, isLoadingMore: false, failed: true)
+        #expect(!footer.isHidden)
+        #expect(footer.isEnabled)
+        #expect(footer.title != idleTitle && footer.title != loadingTitle)
+
+        update(canLoadMore: false, isLoadingMore: false)
+        #expect(footer.isHidden, "No row is reserved once the history is exhausted")
     }
 
     @Test("Background history refresh retains the visible commit and pixel inset while explicit navigation still wins")

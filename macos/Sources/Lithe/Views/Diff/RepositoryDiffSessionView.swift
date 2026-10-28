@@ -4,7 +4,8 @@ import LitheGitModule
 /// Observes the pane's session rather than whichever Diff has global focus.
 struct RepositoryDiffSessionView: View {
     @EnvironmentObject private var model: AppModel
-    @ObservedObject var feature: GitFeatureModel
+    /// Used only to run actions. Observing it re-rendered every mounted diff on any Git publish.
+    let feature: GitFeatureModel
     @ObservedObject var session: GitRepositoryDiffSession
     let fontFamily: String
 
@@ -12,7 +13,6 @@ struct RepositoryDiffSessionView: View {
         Group {
             if let comparison = session.branchComparison {
                 BranchComparisonView(feature: feature, session: session, comparison: comparison,
-                    onClose: { model.closeRepositoryDiffTab(session.id) },
                     onRefresh: {
                         let root = session.comparisonRoot
                         if let target = comparison.targetReference {

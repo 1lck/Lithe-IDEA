@@ -19341,8 +19341,13 @@
       "id": "git.unifiedView",
       "description": "Windows UI: git.unifiedView",
       "platforms": [
+        "macos",
         "windows"
-      ]
+      ],
+      "macos": {
+        "key": "Unified view",
+        "arguments": []
+      }
     },
     {
       "id": "git.unstageAllChanges",
@@ -39602,6 +39607,17 @@
       }
     },
     {
+      "id": "native.hideCommitDetails",
+      "description": "Native UI: Hide commit details",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Hide commit details",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.hideConfigurationList",
       "description": "Native UI: Hide configuration list",
       "platforms": [
@@ -57088,6 +57104,17 @@
       ],
       "macos": {
         "key": "Side-by-side",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.sideBySideView",
+      "description": "Native UI: Side-by-side view",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Side-by-side view",
         "arguments": []
       }
     },

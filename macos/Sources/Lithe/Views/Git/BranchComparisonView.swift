@@ -2,19 +2,19 @@ import SwiftUI
 import LitheGitModule
 
 struct BranchComparisonView: View {
-    @ObservedObject var feature: GitFeatureModel
+    /// Used only to run actions. Observing it re-rendered every mounted diff on any Git publish.
+    let feature: GitFeatureModel
     @ObservedObject var session: GitRepositoryDiffSession
     let comparison: GitBranchComparison
-    let onClose: () -> Void
     let onRefresh: () async -> Void
     /// Family for the comparison text. Defaults to the bundled monospaced family;
     /// the editor area passes the configured family from its own settings.
     var fontFamily: String = EditorFontDefaults.monospacedFamily
 
     var body: some View {
+        // The editor tab already names this comparison and closes it, so the content starts
+        // at its own toolbar instead of repeating a title bar with a Close button.
         VStack(spacing: 0) {
-            header
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
             comparisonToolbar
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
@@ -26,35 +26,6 @@ struct BranchComparisonView: View {
             }
         }
         .litheWorkbenchSurface(LitheTheme.editor)
-    }
-
-    private var header: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "arrow.left.arrow.right")
-                .font(LitheTheme.uiFont(size: 11.5))
-                .foregroundStyle(LitheTheme.accent)
-            Text("Diff: \(comparison.reference.shortName) with \(targetTitle)")
-                .font(LitheTheme.uiFont(size: 12.5, weight: .medium))
-                .foregroundStyle(LitheTheme.primaryText)
-                .lineLimit(1)
-            Spacer()
-            Text("\(comparison.files.count) files")
-                .font(LitheTheme.uiFont(size: 11.5))
-                .foregroundStyle(LitheTheme.secondaryText)
-            Button("Close") {
-                onClose()
-            }
-            .buttonStyle(LitheActionButtonStyle())
-            .lithePointer()
-            .help("Close comparison")
-        }
-        .padding(.leading, 12)
-        .padding(.trailing, 5)
-        .frame(height: 36)
-        .litheWorkbenchSurface(LitheTheme.sidebar)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(LitheTheme.accent).frame(height: 2)
-        }
     }
 
     private var comparisonToolbar: some View {

@@ -4,7 +4,8 @@ import LitheGitModule
 
 /// Shared repository diff. Working changes retain mutation actions; saved/history inputs stay read-only.
 struct RepositoryDiffView: View {
-    @ObservedObject var feature: GitFeatureModel
+    /// Used only to run actions. Observing it re-rendered every mounted diff on any Git publish.
+    let feature: GitFeatureModel
     @ObservedObject var session: GitRepositoryDiffSession
     let context: GitCommitDiffContext?
     let change: GitChange?
@@ -82,7 +83,7 @@ struct RepositoryDiffView: View {
         .onChange(of: diffSearchQuery) { _ in selectedDiffSearchIndex = 0 }
     }
 
-    private var usesUnifiedPane: Bool { unified || kind == .added || kind == .deleted }
+    private var usesUnifiedPane: Bool { unified }
 
     private func toolbar(proxy: ScrollViewProxy) -> some View {
         HStack(spacing: 4) {
@@ -284,19 +285,20 @@ struct RepositoryDiffView: View {
             ? DiffCollapse.plan(rows: rows, expandedRegionIDs: expandedRegionIDs, pinnedRowIDs: Set(diffSearchMatches))
             : rows.enumerated().map { DiffDisplayRow.row($0.element, index: $0.offset) }
         let kinds = displayRows.map { $0.layoutRow.kind }
-        let layout = DiffSplitLayout.plan(displayRows: displayRows, kinds: kinds, gutterWidth: DiffLayoutMetrics.lineNumberGutterWidth(rows: rows, family: fontFamily))
-        let unifiedLayout = DiffUnifiedLayout(rows: rows, displayRows: displayRows, fontFamily: fontFamily)
+        // Plan only the layout this render shows; each plan walks and fingerprints every row.
+        let layout = usesUnifiedPane ? nil : DiffSplitLayout.plan(displayRows: displayRows, kinds: kinds, gutterWidth: DiffLayoutMetrics.lineNumberGutterWidth(rows: rows, family: fontFamily))
+        let unifiedLayout = usesUnifiedPane ? DiffUnifiedLayout(rows: rows, displayRows: displayRows, fontFamily: fontFamily) : nil
         let measuredWidth = DiffLayoutMetrics.contentWidth(rows: rows, viewportWidth: 0,
             minimumWidth: usesUnifiedPane ? 680 : 980, paneCount: usesUnifiedPane ? 1 : 2, family: fontFamily)
         let selectedIDs = Set(differenceIndexByRow.compactMap { $0.value == selectedDifferenceIndex ? $0.key : nil })
         return GeometryReader { geometry in
-            if usesUnifiedPane {
+            if let unifiedLayout {
                 DiffUnifiedPaneView(layout: unifiedLayout, fileExtension: fileURL.pathExtension,
                     contentWidth: measuredWidth, highlightsWords: highlightsWords, selectedRowIDs: selectedIDs,
                     fontFamily: fontFamily, currentSearchMatchID: selectedDiffSearchRowID,
                     rowOverlay: { row in AnyView(hunkActions(actionHunks[row.id])) },
                     onExpand: { expandedRegionIDs.insert($0.id) })
-            } else {
+            } else if let layout {
                 DiffSplitPaneView(displayRows: displayRows, kinds: kinds, layout: layout,
                     fileExtension: fileURL.pathExtension, contentWidth: max(geometry.size.width, measuredWidth),
                     viewportWidth: geometry.size.width, highlightsWords: highlightsWords,

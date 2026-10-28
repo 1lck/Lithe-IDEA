@@ -58,6 +58,7 @@ struct GitLogView: View {
     @State private var showsGitLogBranchFilterPopover = false
     @State private var showsFetchOptions = false
     @State private var branchesCollapsed = false
+    @State private var detailsCollapsed = false
     @State private var branchSearchQuery = ""
     @State private var headSelected = false
     @State private var showsGitLogAuthorFilterPopover = false
@@ -394,6 +395,7 @@ struct GitLogView: View {
                 GitLogThreePaneLayout(
                     availableWidth: max(0, geometry.size.width - 36),
                     branchesCollapsed: branchesCollapsed,
+                    detailsCollapsed: detailsCollapsed,
                     referencePane: { references },
                     commitPane: { commits },
                     detailPane: { details }
@@ -1129,7 +1131,12 @@ struct GitLogView: View {
                         Task { await navigation.compareWithWorkingTree(currentReference) }
                     }
                     .disabled(currentReference == nil)
-                    gitToolbarIcon(systemImage: "sidebar.right", help: "Show commit details")
+                    gitToolbarButton(
+                        systemImage: "sidebar.right",
+                        help: detailsCollapsed ? "Show commit details" : "Hide commit details"
+                    ) {
+                        detailsCollapsed.toggle()
+                    }
                     gitToolbarButton(systemImage: "arrow.clockwise", help: "Refresh Git log") {
                         Task { await feature.refreshGitHistory() }
                     }
@@ -1218,9 +1225,16 @@ struct GitLogView: View {
     private var commitFilesPane: some View {
         VStack(spacing: 0) {
             HStack(spacing: 5) {
-                gitToolbarIcon(systemImage: "arrow.left.arrow.right", help: "Compare changes")
-                gitToolbarIcon(systemImage: "clock", help: "Show file history")
-                gitToolbarIcon(systemImage: "eye", help: "Toggle preview")
+                // Both act on the file selected in the tree below, so they wait for one.
+                gitToolbarButton(systemImage: "arrow.left.arrow.right", help: "Compare changes") {
+                    if let file = feature.selectedGitCommitFile { navigation.openCommitDiff(file) }
+                }
+                .disabled(feature.selectedGitCommitFile == nil)
+                gitToolbarButton(systemImage: "clock", help: "Show file history") {
+                    // The log's own path filter lists exactly the commits that touched the file.
+                    if let file = feature.selectedGitCommitFile { gitLogPathFilter = file.path }
+                }
+                .disabled(feature.selectedGitCommitFile == nil)
                 Spacer()
             }
             .font(GitVisual.meta)
@@ -1291,23 +1305,26 @@ struct GitLogView: View {
                             .font(LitheTheme.uiFont(size: 13, weight: .bold, design: .monospaced))
                             .foregroundStyle(LitheTheme.Tree.text)
                             .fixedSize(horizontal: false, vertical: true)
-                            .padding(.bottom, 10)
+                            .padding(.bottom, 4)
                         (Text(verbatim: "\(commit.shortHash) \(commit.authorName) ")
                          + Text(verbatim: "<\(commit.authorEmail)>").foregroundColor(LitheTheme.link)
                          + Text(verbatim: " on \(GitLogDatePresentation.string(commit.date, locale: locale))"))
-                            .font(LitheTheme.uiFont(size: 13))
+                            .font(GitVisual.meta)
                             .foregroundStyle(LitheTheme.Tree.text)
                             .fixedSize(horizontal: false, vertical: true)
-                            .padding(.vertical, 10)
+                            .padding(.bottom, 6)
                         if let row = graphPresentation.rows.first(where: { $0.commit.hash == commit.hash }) {
-                            ForEach(row.labels.filter { $0.kind != .head }) { label in
-                                GitGraphLabelView(label: label, fontSize: 13, height: 17)
-                                    .padding(.bottom, 10)
+                            // Branches and tags wrap side by side; one row each used most of the pane.
+                            LitheChipFlowLayout(spacing: 4, clampsToWidth: true) {
+                                ForEach(row.labels.filter { $0.kind != .head }) { label in
+                                    GitGraphLabelView(label: label, fontSize: 12, height: 16)
+                                }
                             }
                         }
                         Spacer(minLength: 0)
                     }
-                    .padding(14)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     .textSelection(.enabled)
                 }
@@ -1555,7 +1572,8 @@ struct GitLogView: View {
                         onSelect: { item in
                             showsGitLogAuthorFilterPopover = false
                             selectedGitLogAuthor = item.selection
-                        }
+                        },
+                        width: 480
                     )
                     }
                 }
@@ -1837,14 +1855,6 @@ struct GitLogView: View {
         }
         return LitheIDEAIcon(resourcePath: path, size: LitheTheme.GitLog.toolbarIconSize,
                              fallbackSystemImage: systemImage, preservesOriginalColors: true)
-    }
-
-    private func gitToolbarIcon(systemImage: String, help: String) -> some View {
-        gitToolbarImage(systemImage)
-            .frame(width: LitheTheme.GitLog.toolbarButtonSize, height: LitheTheme.GitLog.toolbarButtonSize)
-            .contentShape(Rectangle())
-            .litheRowHover(cornerRadius: 4)
-            .workbenchHoverHelp(Text(LocalizedStringKey(help)))
     }
 
     private func gitToolbarButton(
@@ -2807,6 +2817,7 @@ private struct GitLogThreePaneLayout<ReferencePane: View, CommitPane: View, Deta
     @Environment(\.colorScheme) private var colorScheme
     let availableWidth: CGFloat
     let branchesCollapsed: Bool
+    let detailsCollapsed: Bool
     @State private var referenceWidth: CGFloat = 220
     @State private var detailWidth: CGFloat = 350
     private let referencePane: ReferencePane
@@ -2816,12 +2827,14 @@ private struct GitLogThreePaneLayout<ReferencePane: View, CommitPane: View, Deta
     init(
         availableWidth: CGFloat,
         branchesCollapsed: Bool,
+        detailsCollapsed: Bool,
         @ViewBuilder referencePane: () -> ReferencePane,
         @ViewBuilder commitPane: () -> CommitPane,
         @ViewBuilder detailPane: () -> DetailPane
     ) {
         self.availableWidth = availableWidth
         self.branchesCollapsed = branchesCollapsed
+        self.detailsCollapsed = detailsCollapsed
         self.referencePane = referencePane()
         self.commitPane = commitPane()
         self.detailPane = detailPane()
@@ -2879,6 +2892,8 @@ private struct GitLogThreePaneLayout<ReferencePane: View, CommitPane: View, Deta
             defaultSize: detailWidth,
             minimum: GitLogThreePaneMetrics.minimumDetailPaneWidth,
             maximum: detailPaneMaximum,
+            clipsSizedPane: true,
+            isSizedPaneCollapsed: detailsCollapsed,
             dividerColor: LitheTheme.toolWindowBorder(for: colorScheme),
             onCommit: { detailWidth = $0 },
             sized: { detailPane },
@@ -2923,13 +2938,19 @@ struct GitLogFilterLabel: View {
         .onHover { isHovered = $0 }
     }
 
+    /// The filter name strengthens on hover, to the theme's text color. The label has no hover
+    /// background, so a fixed white made the name vanish on light themes.
+    static func nameColor(isHovered: Bool) -> Color {
+        isHovered ? LitheTheme.searchFieldText : LitheTheme.searchFieldPlaceholder
+    }
+
     private var labelText: Text {
-        let nameColor = isHovered ? Color.white : LitheTheme.searchFieldPlaceholder
+        let nameColor = Self.nameColor(isHovered: isHovered)
         let name = Text(title).foregroundColor(nameColor)
         guard let selection else { return name }
         let value = localizeSelection ? Text(LocalizedStringKey(selection)) : Text(verbatim: selection)
         let separator = Text(verbatim: ": ").foregroundColor(nameColor)
-        let selectedValue = value.foregroundColor(isHovered ? .white : LitheTheme.searchFieldText)
+        let selectedValue = value.foregroundColor(LitheTheme.searchFieldText)
         // One text layout truncates the complete label instead of letting the
         // name and value compress independently and paint over one another.
         return Text("\(name)\(separator)\(selectedValue)")

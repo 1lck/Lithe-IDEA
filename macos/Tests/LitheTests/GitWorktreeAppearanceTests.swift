@@ -119,16 +119,22 @@ struct GitWorktreeAppearanceTests {
         defer { window.contentView = nil; window.close() }
         func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
         _ = try await AgentNativeControlTestSupport.frame(of: "worktree-changes-Refresh changes", in: host)
+        // Nothing is selected, yet the toolbar is not a row of dead buttons: staging and the diff
+        // work on the files as a whole, and only the irreversible discard waits for a selection.
+        #expect(try await AgentNativeControlTestSupport.isEnabled("worktree-changes-Stage all files", in: host))
+        #expect(try await AgentNativeControlTestSupport.isEnabled("worktree-changes-Show Diff", in: host))
+        #expect(try await !AgentNativeControlTestSupport.isEnabled("worktree-changes-Discard selected change", in: host))
         let document = try #require(descendants(host).compactMap { $0 as? GitWorktreeRowsNSView }.first)
         let point = document.convert(CGPoint(x: 100, y: GitWorktreeRowsView.rowHeight / 2), to: nil)
         document.mouseDown(with: try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: point,
             modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
             eventNumber: 0, clickCount: 1, pressure: 1)))
         #expect(opened == [change] && opened.first?.repositoryRoot == worktree.url)
+        #expect(try await AgentNativeControlTestSupport.isEnabled("worktree-changes-Discard selected change", in: host))
         for width: CGFloat in [850, 320, 600] {
             window.setContentSize(CGSize(width: width, height: 300))
             host.layoutSubtreeIfNeeded()
-            for title in ["Stage Files", "Unstage Files", "Discard selected change", "Show Diff"] {
+            for title in ["Stage all files", "Discard selected change", "Show Diff"] {
                 let frame = try await AgentNativeControlTestSupport.frame(of: "worktree-changes-" + title, in: host)
                 #expect(host.bounds.contains(frame))
             }
@@ -166,6 +172,53 @@ struct GitWorktreeAppearanceTests {
             #expect(abs(pixel.greenComponent * 255 - CGFloat((expected >> 8) & 255)) <= 2)
             #expect(abs(pixel.blueComponent * 255 - CGFloat(expected & 255)) <= 2)
         }
+    }
+
+    @Test
+    func requestedStagedStateReachesTheRowWhileClicksAreStillRefused() throws {
+        let change = GitChange(repositoryRoot: URL(fileURLWithPath: "/linked"), path: "file.swift",
+                               originalPath: nil, indexStatus: " ", workTreeStatus: "M")
+        var snapshot = GitWorktreeRowsSnapshot(identity: .changes(inspectionVersion: 1), rows: [.change(change)])
+        #expect(!snapshot.isStaged(change))
+        snapshot.stagedOverrides = [change.id: true]
+        #expect(snapshot.isStaged(change))
+        let view = GitWorktreeRowsNSView(frame: CGRect(x: 0, y: 0, width: 600, height: 60))
+        view.update(snapshot: snapshot, rowHeight: GitWorktreeRowsView.rowHeight)
+        var toggles = 0
+        view.configureInteraction(GitWorktreeChangeInteraction(selectedIDs: [], isEnabled: false, paintsAsEnabled: true,
+            onSelection: { _ in }, onToggle: { _ in toggles += 1 }, onOpen: { _ in }, menuItems: { _ in [] }))
+        let rows = try #require(view.accessibilityChildren() as? [NSAccessibilityElement])
+        let checkbox = try #require(rows[0].accessibilityChildren()?.first as? NSAccessibilityElement)
+        #expect(checkbox.accessibilityValue() as? Int == 1)
+        // A toggle still being applied refuses the next click; it only stays painted as usable.
+        #expect(!checkbox.isAccessibilityEnabled())
+        let point = view.convert(CGPoint(x: GitWorktreeRowsNSView.checkboxRect(in: CGRect(x: 0, y: 0, width: 600,
+            height: GitWorktreeRowsView.rowHeight)).midX, y: GitWorktreeRowsView.rowHeight / 2), to: nil)
+        view.mouseDown(with: try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [],
+            timestamp: 0, windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)))
+        #expect(toggles == 0)
+    }
+
+    @Test(arguments: [(false, false), (false, true), (true, false)])
+    func historyFooterIsNeverABlankBandAndKeepsOneHeight(isLoading: Bool, failed: Bool) async throws {
+        var loads = 0
+        let host = NSHostingView(rootView: GitWorktreeHistoryFooter(isLoading: isLoading, failed: failed, onLoad: { loads += 1 })
+            .environment(\.locale, Locale(identifier: "en")))
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 600, height: 120),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderFront(nil)
+        defer { window.contentView = nil; window.close() }
+        host.layoutSubtreeIfNeeded()
+        // One height in every state, so the list viewport never moves at a page boundary.
+        #expect(abs(host.fittingSize.height - GitWorktreeRowsView.rowHeight) < 0.5)
+        if !isLoading {
+            // Idle it offers the next page rather than leaving the band empty.
+            let frame = try await AgentNativeControlTestSupport.frame(of: "worktree-history-load-more", in: host)
+            #expect(host.bounds.contains(frame))
+        }
+        #expect(loads == 0)
     }
 
     @Test
@@ -375,11 +428,19 @@ struct GitWorktreeAppearanceTests {
             let newWindow = try await AgentNativeControlTestSupport.frame(of: "worktree-action-Open in New Window", in: host)
             let finder = try await AgentNativeControlTestSupport.frame(of: "worktree-action-Show in Finder", in: host)
             let copy = try await AgentNativeControlTestSupport.frame(of: "worktree-action-Copy Path", in: host)
-            #expect(abs(open.minX - finder.minX) < 0.5)
-            #expect(abs(newWindow.minX - open.maxX - LitheTheme.ActionButton.spacing) < 0.5)
-            #expect(abs(copy.minX - finder.maxX - LitheTheme.ActionButton.spacing) < 0.5)
-            #expect(abs(open.midY - newWindow.midY) < 0.5)
-            #expect(abs(finder.midY - copy.midY) < 0.5)
+            // One flow in label order: a button that fits follows its neighbour, one that does not
+            // wraps back to the left edge, so no row is padded to line up with another.
+            let actions = [open, newWindow, finder, copy]
+            for (previous, next) in zip(actions, actions.dropFirst()) {
+                if abs(next.midY - previous.midY) < 0.5 {
+                    #expect(abs(next.minX - previous.maxX - LitheTheme.ActionButton.spacing) < 0.5)
+                } else {
+                    #expect(abs(next.minX - open.minX) < 0.5)
+                }
+            }
+            if width == 1400 {
+                #expect(actions.allSatisfy { abs($0.midY - open.midY) < 0.5 }, "Wide windows keep every action on one row")
+            }
             #expect(abs(open.height - LitheTheme.ActionButton.height) < 0.5)
             #expect(open.width > finder.width, "Actions keep their natural label widths, rather than equal grid cells")
             #expect([open, newWindow, finder, copy].allSatisfy { host.bounds.contains($0) })

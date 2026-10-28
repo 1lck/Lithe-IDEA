@@ -22,23 +22,40 @@ struct GitWorktreeChangesView: View {
             && !feature.isPerformingWorktreeOperation && !feature.isCommitting && !feature.isStagingChanges
     }
 
+    /// Checkboxes stay painted as usable while a toggle is being applied, so rapid clicking
+    /// does not flash them grey. Only a refresh or operation the user started greys them.
+    private var checkboxesLookEnabled: Bool {
+        !feature.isPerformingWorktreeOperation && !feature.isCommitting
+            && !(feature.isRefreshingWorktreeChanges && !feature.isMutatingWorktreeChanges)
+    }
+
+    /// Requested staged states Git has not confirmed yet, by change ID. While the row
+    /// projection trails a fresh status read, the fresh states stand in for the old rows.
+    private var stagedOverrides: [GitChange.ID: Bool] {
+        var overrides = feature.pendingStagedStates
+        if snapshot.identity != .changes(inspectionVersion: feature.gitWorktreeInspectionVersion) {
+            for change in changes where overrides[change.id] == nil { overrides[change.id] = change.isStaged }
+        }
+        return overrides
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 2) {
                 toolbarButton("Refresh changes", icon: "expui/general/refresh.svg", enabled: enabled) {
                     Task { await feature.refreshWorktreeChanges(worktree) }
                 }
-                toolbarButton("Stage Files", icon: "expui/general/add.svg",
-                    enabled: enabled && targets.contains { GitFileContextMenuPlan(change: $0).showsAdd }) {
-                    setStaging(targets, true)
+                // Same set as the Commit toolbar. Only discarding needs a selection, because it cannot
+                // be undone; the rest work on every file when nothing is selected.
+                toolbarButton("Stage all files", icon: "expui/general/download.svg",
+                    enabled: enabled && changes.contains { GitFileContextMenuPlan(change: $0).showsAdd }) {
+                    setStaging(changes, true)
                 }
-                toolbarButton("Unstage Files", icon: "expui/vcs/revert.svg",
-                    enabled: enabled && targets.contains(where: \.isStaged)) { setStaging(targets, false) }
                 toolbarButton("Discard selected change", icon: "expui/vcs/revert.svg",
                     enabled: enabled && targets.contains(where: \.hasWorkingTreeChange)) { pendingDiscard = targets }
                 toolbarButton("Show Diff", icon: "expui/general/show.svg",
-                    enabled: targets.contains { !$0.isUntrackedDirectory } && actions.showChange != nil) {
-                    if let first = targets.first(where: { !$0.isUntrackedDirectory }) { actions.showChange?(first) }
+                    enabled: diffTarget != nil && actions.showChange != nil) {
+                    if let diffTarget { actions.showChange?(diffTarget) }
                 }
                 Spacer(minLength: 0)
                 if feature.isMutatingWorktreeChanges || feature.isRefreshingWorktreeChanges {
@@ -56,22 +73,26 @@ struct GitWorktreeChangesView: View {
                     .font(LitheTheme.uiFont(size: 13)).foregroundStyle(LitheTheme.secondaryText)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
+                let overrides = stagedOverrides
+                let allStaged = changes.allSatisfy { overrides[$0.id] ?? $0.isStaged }
                 HStack(spacing: LitheTheme.Tree.iconTextGap) {
-                    LitheTreeCheckbox(state: stagingState, accessibilityTitle: "Include in commit") {
-                        setStaging(changes, !changes.allSatisfy(\.isStaged))
+                    LitheTreeCheckbox(state: stagingState(overrides), accessibilityTitle: "Include in commit") {
+                        guard enabled else { return }
+                        setStaging(changes, !allStaged)
                     }
-                    .disabled(!enabled || !changes.contains(where: \.canToggleStaging))
-                    .help(changes.allSatisfy(\.isStaged) ? "Unstage all files" : "Stage all files")
+                    .disabled(!checkboxesLookEnabled || !changes.contains(where: \.canToggleStaging))
+                    .help(allStaged ? "Unstage all files" : "Stage all files")
                     Text("\(changes.reduce(0) { $0 + $1.fileCount }) files")
                         .font(LitheTheme.uiFont(size: 13)).foregroundStyle(LitheTheme.secondaryText)
                     Spacer(minLength: 0)
                 }.padding(.horizontal, LitheTheme.Tree.horizontalInset * 2)
 
-                LitheTreeList(native: GitWorktreeRowsScrollView(snapshot: snapshot, contextID: worktree.id,
+                LitheTreeList(native: GitWorktreeRowsScrollView(snapshot: displayed(overrides), contextID: worktree.id,
                     interaction: GitWorktreeChangeInteraction(selectedIDs: selection.ids, isEnabled: enabled,
+                        paintsAsEnabled: checkboxesLookEnabled,
                         onSelection: { selection.replace(with: $0) },
                         onToggle: { change in
-                            setStaging(selection.actionTargets(in: changes, clicked: change), !change.isStaged)
+                            setStaging(selection.actionTargets(in: changes, clicked: change), !(overrides[change.id] ?? change.isStaged))
                         }, onOpen: { actions.showChange?($0) }, menuItems: menu)))
             }
         }
@@ -93,8 +114,20 @@ struct GitWorktreeChangesView: View {
 
     private var targets: [GitChange] { selection.actionTargets(in: changes) }
 
-    private var stagingState: NSControl.StateValue {
-        changes.allSatisfy(\.isStaged) ? .on : changes.contains(where: \.isStaged) ? .mixed : .off
+    /// The selected file, or the first one when nothing is selected.
+    private var diffTarget: GitChange? {
+        targets.first { !$0.isUntrackedDirectory } ?? changes.first { !$0.isUntrackedDirectory }
+    }
+
+    private func displayed(_ overrides: [GitChange.ID: Bool]) -> GitWorktreeRowsSnapshot {
+        var displayed = snapshot
+        displayed.stagedOverrides = overrides
+        return displayed
+    }
+
+    private func stagingState(_ overrides: [GitChange.ID: Bool]) -> NSControl.StateValue {
+        let staged = { (change: GitChange) in overrides[change.id] ?? change.isStaged }
+        return changes.allSatisfy(staged) ? .on : changes.contains(where: staged) ? .mixed : .off
     }
 
     private func setStaging(_ changes: [GitChange], _ staged: Bool) {

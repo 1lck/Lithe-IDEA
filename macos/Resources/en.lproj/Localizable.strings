@@ -1658,6 +1658,7 @@
 "Hide Session Details" = "Hide Session Details";
 "Hide Terminal tool window" = "Hide Terminal tool window";
 "Hide commit decorations" = "Hide commit decorations";
+"Hide commit details" = "Hide commit details";
 "Hide configuration list" = "Hide configuration list";
 "Hide plan" = "Hide plan";
 "Hide thinking" = "Hide thinking";
@@ -3446,6 +3447,7 @@
 "Showing the previous Java entries while the Java language service prepares the project." = "Showing the previous Java entries while the Java language service prepares the project.";
 "Shown across the entire workbench, including toolbars, project tree, editor, tabs, terminals, and status bar." = "Shown across the entire workbench, including toolbars, project tree, editor, tabs, terminals, and status bar.";
 "Side-by-side" = "Side-by-side";
+"Side-by-side view" = "Side-by-side view";
 "Sign in again" = "Sign in again";
 "Sign in to Codex" = "Sign in to Codex";
 "Sign in to GitHub" = "Sign in to GitHub";
@@ -4170,6 +4172,7 @@
 "Undo Commit" = "Undo Last Commit (Keep Changes)";
 "Undo Commit…" = "Undo Last Commit (Keep Changes)…";
 "Unhandled" = "Unhandled";
+"Unified view" = "Unified view";
 "Uninstall" = "Uninstall";
 "Uninstall %@ from the Installed tab and restart Lithe first. It is the retired official version of this plugin and supports the same language." = "Uninstall %@ from the Installed tab and restart Lithe first. It is the retired official version of this plugin and supports the same language.";
 "Uninstall %@?" = "Uninstall %@?";
@@ -4540,6 +4543,7 @@
 "git.diff.repositoryPreviewEmptyTitle" = "Repository Diff";
 "git.diff.repositoryPreviewTitle" = "Repository Diff: %1$@";
 "git.log.olderCommitsFailed" = "Could not load older commits. Refresh history";
+"git.unifiedView" = "Unified view";
 "https://github.com/owner/repository" = "https://github.com/owner/repository";
 "just now" = "just now";
 "local commit(s)" = "local commit(s)";
@@ -6083,6 +6087,7 @@
 "native.hideBuildOutputToolWindow" = "Hide Build Output tool window";
 "native.hideBuildToolWindow" = "Hide Build tool window";
 "native.hideCommitDecorations" = "Hide commit decorations";
+"native.hideCommitDetails" = "Hide commit details";
 "native.hideConfigurationList" = "Hide configuration list";
 "native.hideDebugToolWindow" = "Hide Debug tool window";
 "native.hideDetails" = "Hide Details";
@@ -8012,6 +8017,7 @@
 "native.showingThePreviousJavaEntriesWhileTheJavaLanguageServicePreparesTheProject" = "Showing the previous Java entries while the Java language service prepares the project.";
 "native.shownAcrossTheEntireWorkbenchIncludingToolbarsProjectTreeEditorTabsTerminalsAndStatusBar" = "Shown across the entire workbench, including toolbars, project tree, editor, tabs, terminals, and status bar.";
 "native.sideBySide" = "Side-by-side";
+"native.sideBySideView" = "Side-by-side view";
 "native.signInToCodex" = "Sign in to Codex";
 "native.signInToGitHub" = "Sign in to GitHub";
 "native.signInToViewAndManagePullRequests" = "Sign in to view and manage pull requests.";

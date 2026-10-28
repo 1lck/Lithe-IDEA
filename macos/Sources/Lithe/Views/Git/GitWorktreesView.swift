@@ -467,8 +467,12 @@ struct GitWorktreesView: View {
         case .overview:
             ScrollView {
                 VStack(spacing: 12) {
-                    basicInformationCard(worktree)
-                    statusCard(worktree)
+                    // Identity and state read together, so a wide pane shows them side by side
+                    // instead of leaving the right half of each card empty.
+                    LitheAdaptiveColumnsLayout(minimumColumnWidth: 360, spacing: 24) {
+                        basicInformationCard(worktree)
+                        statusCard(worktree)
+                    }
                     actionCard(worktree)
                 }
                 // Keep every overview card on the same content width. Without
@@ -535,52 +539,46 @@ struct GitWorktreesView: View {
 
     private func actionCard(_ worktree: GitWorktree) -> some View {
         worktreeCard(title: "Actions") {
-            VStack(alignment: .leading, spacing: LitheTheme.ActionButton.spacing) {
-                LitheChipFlowLayout(spacing: LitheTheme.ActionButton.spacing) {
-                    worktreeAction("Open in Current Window") {
-                        (actions.openProjectInCurrentWindow ?? actions.openProject)(worktree.url)
-                    }
-                    .disabled(worktree.isPrunable)
-                    .help(pathActionHelp(for: worktree))
-                    worktreeAction("Open in New Window") {
-                        actions.openProjectInNewWindow?(worktree.url)
-                    }
-                    .disabled(worktree.isPrunable || actions.openProjectInNewWindow == nil)
-                    .help(pathActionHelp(for: worktree))
+            // One wrapping row: a wide pane shows the buttons on a line or two instead of one
+            // fixed pair per line with the right side empty.
+            LitheChipFlowLayout(spacing: LitheTheme.ActionButton.spacing) {
+                worktreeAction("Open in Current Window") {
+                    (actions.openProjectInCurrentWindow ?? actions.openProject)(worktree.url)
                 }
-                LitheChipFlowLayout(spacing: LitheTheme.ActionButton.spacing) {
-                    worktreeAction("Show in Finder") {
-                        actions.reveal(worktree.url)
-                    }
-                    .disabled(worktree.isPrunable)
-                    .help(pathActionHelp(for: worktree))
-                    worktreeAction("Copy Path") {
-                        actions.copyPath(worktree.url)
+                .disabled(worktree.isPrunable)
+                .help(pathActionHelp(for: worktree))
+                worktreeAction("Open in New Window") {
+                    actions.openProjectInNewWindow?(worktree.url)
+                }
+                .disabled(worktree.isPrunable || actions.openProjectInNewWindow == nil)
+                .help(pathActionHelp(for: worktree))
+                worktreeAction("Show in Finder") {
+                    actions.reveal(worktree.url)
+                }
+                .disabled(worktree.isPrunable)
+                .help(pathActionHelp(for: worktree))
+                worktreeAction("Copy Path") {
+                    actions.copyPath(worktree.url)
+                }
+                worktreeAction(worktree.isLocked ? "Unlock Worktree" : "Lock Worktree") {
+                    toggleLock(for: worktree)
+                }
+                .disabled(worktree.isPrimary || worktree.isPrunable)
+                .help(lockHelp(for: worktree))
+                worktreeAction("Remove Worktree…", destructive: true) {
+                    requestRemoval(for: worktree)
+                }
+                .disabled(worktree.isPrimary || worktree.isCurrent || worktree.isLocked || worktree.isPrunable)
+                .help(removalHelp(for: worktree))
+                if worktree.isPrunable {
+                    worktreeAction("Repair Worktree Records") {
+                        Task { await feature.repairWorktrees() }
                     }
                 }
-                LitheChipFlowLayout(spacing: LitheTheme.ActionButton.spacing) {
-                    worktreeAction(worktree.isLocked ? "Unlock Worktree" : "Lock Worktree") {
-                        toggleLock(for: worktree)
-                    }
-                    .disabled(worktree.isPrimary || worktree.isPrunable)
-                    .help(lockHelp(for: worktree))
-                    worktreeAction("Remove Worktree…", destructive: true) {
-                        requestRemoval(for: worktree)
-                    }
-                    .disabled(worktree.isPrimary || worktree.isCurrent || worktree.isLocked || worktree.isPrunable)
-                    .help(removalHelp(for: worktree))
+                worktreeAction("Prune Stale Records", destructive: worktree.isPrunable) {
+                    worktreeConfirmation = .prune
                 }
-                LitheChipFlowLayout(spacing: LitheTheme.ActionButton.spacing) {
-                    if worktree.isPrunable {
-                        worktreeAction("Repair Worktree Records") {
-                            Task { await feature.repairWorktrees() }
-                        }
-                    }
-                    worktreeAction("Prune Stale Records", destructive: worktree.isPrunable) {
-                        worktreeConfirmation = .prune
-                    }
-                    .disabled(!feature.gitWorktrees.contains(where: \.isPrunable))
-                }
+                .disabled(!feature.gitWorktrees.contains(where: \.isPrunable))
             }
         }
     }
@@ -639,21 +637,10 @@ struct GitWorktreesView: View {
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
                         if query.isEmpty && inspection.hasMoreCommits {
-                            // Reserve the same footer while idle/loading to avoid
-                            // changing viewport height at every page boundary.
-                            HStack {
-                                Spacer()
-                                if feature.isLoadingMoreWorktreeHistory {
-                                    ProgressView().controlSize(.small)
-                                } else if feature.worktreeHistoryPageFailed {
-                                    Button("Could not load older commits. Refresh history") {
-                                        Task { await feature.loadMoreWorktreeHistory(for: worktree) }
-                                    }
-                                    .buttonStyle(.link)
-                                }
-                                Spacer()
-                            }
-                            .frame(height: GitWorktreeRowsView.rowHeight)
+                            GitWorktreeHistoryFooter(
+                                isLoading: feature.isLoadingMoreWorktreeHistory,
+                                failed: feature.worktreeHistoryPageFailed,
+                                onLoad: { Task { await feature.loadMoreWorktreeHistory(for: worktree) } })
                         }
                     }
                 }
@@ -1112,4 +1099,37 @@ private struct WorktreeHistoryProjectionIdentity: Hashable {
 private struct WorktreeChangesProjectionIdentity: Hashable {
     let worktreeID: String?
     let inspectionVersion: Int
+}
+
+/// The row under the history list while older commits exist. It is always the same height, so the
+/// viewport never changes at a page boundary, and idle it offers the next page, as the Git Log
+/// footer does, instead of leaving a blank band under the list.
+struct GitWorktreeHistoryFooter: View {
+    let isLoading: Bool
+    let failed: Bool
+    let onLoad: () -> Void
+
+    var body: some View {
+        HStack {
+            Spacer()
+            if isLoading {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("Loading commits…")
+                        .font(LitheTheme.uiFont(size: 12.5))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                }
+            } else if failed {
+                Button("Could not load older commits. Refresh history", action: onLoad)
+                    .buttonStyle(.link)
+                    .accessibilityIdentifier("worktree-history-load-more")
+            } else {
+                Button("Load more commits", action: onLoad)
+                    .buttonStyle(.link)
+                    .accessibilityIdentifier("worktree-history-load-more")
+            }
+            Spacer()
+        }
+        .frame(height: GitWorktreeRowsView.rowHeight)
+    }
 }

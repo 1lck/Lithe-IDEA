@@ -1479,6 +1479,9 @@ Native journals track `requestStarted` separately from visible command records.
 The native receiver retains the originating request directory so a failure before
 `started` can be shown as an unconfirmed request with no fabricated arguments or
 exit code. Successfully completed internal queries still produce no history row.
+A request that ends with the `cancelled` error before any command started was
+superseded, not a Git failure, and also produces no row; a cancelled request that
+had started a command keeps that command with the cancellation as its reason.
 A request-start event must not allocate a placeholder or consume command-history capacity. Clearing
 history suppresses late invocations from requests already in preflight, while
 started operations remain cancellable until `requestFinished`, even after their

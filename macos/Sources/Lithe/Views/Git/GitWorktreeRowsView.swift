@@ -21,6 +21,13 @@ struct GitWorktreeRowsSnapshot: Equatable, Sendable {
 
     let identity: Identity
     let rows: [Row]
+    /// Staged state to show for a change instead of the row's own: the state the user just
+    /// asked for, which Git has not confirmed yet.
+    var stagedOverrides: [String: Bool] = [:]
+
+    func isStaged(_ change: GitChange) -> Bool {
+        stagedOverrides[change.id] ?? change.isStaged
+    }
 }
 
 struct GitWorktreeRowsView: NSViewRepresentable {
@@ -137,6 +144,9 @@ final class GitWorktreeRowsScrollNSView: NSScrollView {
 struct GitWorktreeChangeInteraction {
     var selectedIDs: Set<String>
     var isEnabled: Bool
+    /// Whether checkboxes look usable. A click that arrives while a toggle is still being
+    /// applied is ignored, but the boxes must not grey out and flash on every click.
+    var paintsAsEnabled: Bool?
     var onSelection: (Set<String>) -> Void
     var onToggle: (GitChange) -> Void
     var onOpen: (GitChange) -> Void
@@ -201,7 +211,7 @@ final class GitWorktreeRowsNSView: NSControl {
             checkbox.setAccessibilityParent(row)
             checkbox.setAccessibilityRole(.checkBox)
             checkbox.setAccessibilityLabel(gitLocalizedFormat("Include in commit", locale: locale))
-            checkbox.setAccessibilityValue(change.isStaged ? 1 : 0)
+            checkbox.setAccessibilityValue(snapshot.isStaged(change) ? 1 : 0)
             checkbox.setAccessibilityEnabled(interaction?.isEnabled == true && change.canToggleStaging)
             checkbox.setAccessibilityFrameInParentSpace(Self.checkboxRect(in: rowRect(index)).offsetBy(dx: 0, dy: -CGFloat(index) * rowHeight))
             checkbox.onPress = { [weak self] in
@@ -439,13 +449,14 @@ final class GitWorktreeRowsNSView: NSControl {
     }
 
     private func drawChange(_ change: GitChange, in rect: CGRect, style: DrawingStyle) {
-        let stageText = change.isStaged ? gitLocalizedFormat("Staged", locale: locale) : gitLocalizedFormat("Unstaged", locale: locale)
+        let isStaged = snapshot.isStaged(change)
+        let stageText = isStaged ? gitLocalizedFormat("Staged", locale: locale) : gitLocalizedFormat("Unstaged", locale: locale)
         let content = LitheTreeListAppearance.highlightRect(rect).insetBy(dx: LitheTheme.Tree.horizontalInset, dy: 0)
         let stageWidth = ceil((stageText as NSString).size(withAttributes: [.font: style.bodyFont]).width)
         let stageX = max(content.minX, content.maxX - stageWidth)
         let checkbox = Self.checkboxRect(in: rect)
-        let path = LitheTreeCheckbox.assetPath(state: change.isStaged ? .on : .off,
-            enabled: interaction?.isEnabled == true && change.canToggleStaging, focused: false)
+        let path = LitheTreeCheckbox.assetPath(state: isStaged ? .on : .off,
+            enabled: (interaction?.paintsAsEnabled ?? interaction?.isEnabled) == true && change.canToggleStaging, focused: false)
         let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         let image = (dark ? LitheIcons.ideaImage(resourcePath: LitheIcons.darkIdeaAssetPath(for: path)) : nil)
             ?? LitheIcons.ideaImage(resourcePath: path)

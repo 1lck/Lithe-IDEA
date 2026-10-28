@@ -1613,6 +1613,9 @@ package final class GitFeatureModel: ObservableObject {
 
     package var isStagingChanges: Bool { !pendingStagingStates.isEmpty }
 
+    /// Staged state the user just asked for, by change ID, while Git is still applying it.
+    package var pendingStagedStates: [GitChange.ID: Bool] { pendingStagingStates.mapValues(\.staged) }
+
     package func effectiveStagingState(for change: GitChange) -> Bool {
         pendingStagingStates[change.id]?.staged ?? change.isStaged
     }
@@ -2694,12 +2697,23 @@ package final class GitFeatureModel: ObservableObject {
         worktreeChangesMutationID = mutationID
         isMutatingWorktreeChanges = true
         worktreeChangesError = nil
-        defer {
+        // The rows show the requested state at once, as Commit's do. Git and the status
+        // refresh only confirm it, so a click never waits on them to look applied.
+        var optimisticIDs: [GitChange.ID] = []
+        if let staged {
+            for change in targets where change.canToggleStaging && change.isStaged != staged {
+                pendingStagingStates[change.id] = (worktree.url.standardizedFileURL, staged)
+                optimisticIDs.append(change.id)
+            }
+        }
+        func settle() {
+            for id in optimisticIDs { pendingStagingStates.removeValue(forKey: id) }
             if worktreeChangesMutationID == mutationID {
                 worktreeChangesMutationID = nil
                 isMutatingWorktreeChanges = false
             }
         }
+        defer { settle() }
         await withGitOperation {
             for change in targets {
                 guard !Task.isCancelled, gitRepositoryRoot == repositoryRoot,
@@ -2721,16 +2735,19 @@ package final class GitFeatureModel: ObservableObject {
         }
         guard gitRepositoryRoot == repositoryRoot, worktreeChangesMutationID == mutationID,
               !Task.isCancelled else { return }
-        await refreshAfterChangeMutation(targets)
+        // The rows are settled once this worktree's status is read. The project-wide refresh
+        // that follows must not keep the checkboxes busy.
+        await refreshAfterChangeMutation(targets, onWorktreeSettled: settle)
     }
 
-    private func refreshAfterChangeMutation(_ changes: [GitChange]) async {
+    private func refreshAfterChangeMutation(_ changes: [GitChange], onWorktreeSettled: () -> Void = {}) async {
         let root = gitRepositoryRoot
         if let inspection = gitWorktreeInspection,
            let worktree = gitWorktrees.first(where: { $0.id == inspection.worktreeID }),
            changes.contains(where: { $0.repositoryRoot.standardizedFileURL == worktree.url.standardizedFileURL }) {
             await refreshWorktreeChanges(worktree, clearingError: false)
         }
+        onWorktreeSettled()
         guard gitRepositoryRoot == root, !Task.isCancelled else { return }
         await refreshGit()
     }
