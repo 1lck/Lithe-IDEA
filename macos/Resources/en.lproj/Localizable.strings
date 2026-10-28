@@ -2754,6 +2754,7 @@
 "Project run configuration is invalid" = "Project run configuration is invalid";
 "Project run configuration not found" = "Project run configuration not found";
 "Project runtime settings are saved locally for this project." = "Project runtime settings are saved locally for this project.";
+"Project scan is incomplete" = "Project scan is incomplete";
 "Project skills" = "Project skills";
 "Project toolchain needs attention" = "Project toolchain needs attention";
 "Project will be created in: %@" = "Project will be created in: %@";
@@ -3488,6 +3489,7 @@
 "Solidity Support" = "Solidity Support";
 "Some MCP configuration files could not be restored: %@. Refresh and check these files before retrying." = "Some MCP configuration files could not be restored: %@. Refresh and check these files before retrying.";
 "Some dependencies are not shown." = "Some dependencies are not shown.";
+"Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations." = "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations.";
 "Sort by Last Updated" = "Sort by Last Updated";
 "Sort by Name" = "Sort by Name";
 "Sort plugins" = "Sort plugins";
@@ -8985,6 +8987,8 @@
 "results" = "results";
 "revert" = "revert";
 "run configuration" = "run configuration";
+"run.incompleteProjectScanMessage" = "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations.";
+"run.incompleteProjectScanTitle" = "Project scan is incomplete";
 "running for %@" = "running for %@";
 "scope managed from %@" = "scope managed from %@";
 "scope not updated to %@" = "scope not updated to %@";

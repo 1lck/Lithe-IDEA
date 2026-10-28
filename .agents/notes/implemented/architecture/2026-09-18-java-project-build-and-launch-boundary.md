@@ -188,6 +188,19 @@ Run 控件，也不在 `java-run-launch` 或平台 adapter 再做一次 `blocksR
 用户点击后可以在准备状态可见的同时排队等待 Core。否则快照更新时序会产生“面板
 已就绪、启动仍被准备中拦截”的自相矛盾状态。
 
+### 每一步使用自己的工具链环境（#1216）
+
+Windows 曾先填入自动发现的 JAVA_HOME，再用“仅为空时插入”应用 Maven JDK，
+导致用户选的 Maven JDK 永远无法覆盖先填的 Java 值。两个宿主现在调用 Core 的
+execution.resolveEnvironment：继承环境低于当前步骤选定的工具链，用户显式
+字符串最高。Maven 资源处理步骤即使继承主程序的 Java 绑定，也选择 Maven JDK；
+后续 JVM 保持项目 JDK。Windows 环境键按不区分大小写处理。
+
+平台仍负责定位可执行文件与 JDK home，Core 不探测机器、不执行 Maven，也不
+复制上游构建模型。不要在 Windows 调换两次 insert 就结束：这会让后续前置
+步骤继续各自解释优先级。共享 fixture 和真实 Windows 宿主解析测试覆盖选定
+Maven JDK、显式覆盖及资源步骤；#1133 的 Maven 原生资源步骤保留，不改成手工复制。
+
 ## 考虑过的备选方案
 
 - 先执行 `mvn compile`，再手工猜 `target/classes` 与依赖：被否。自定义输出目录、

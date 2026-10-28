@@ -191,6 +191,13 @@ struct RunView: View {
     }
 
     private var configurationNotice: (title: String, message: String, systemImage: String)? {
+        if feature.configurationDiagnostics.contains(where: { $0.code == "incompleteProjectScan" }) {
+            return (
+                runText("Project scan is incomplete"),
+                runText("Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations."),
+                "exclamationmark.triangle.fill"
+            )
+        }
         if let diagnostic = feature.configurationDiagnostics.first(where: { $0.code == "staleFingerprint" }) {
             return (
                 runText("Run configurations may be out of date"),
