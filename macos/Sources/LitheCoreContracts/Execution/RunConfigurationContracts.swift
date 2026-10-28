@@ -57,19 +57,22 @@ package struct ProjectRunConfigurationInspection: Equatable, Sendable {
     /// Project defaults saved in the machine-local run layer. `nil` means that
     /// layer holds no defaults yet, which differs from explicitly automatic ones.
     package var projectToolchain: ProjectToolchainSelection? = nil
+    package var hasSavedToolchainPathOverrides = false
 
     package init(
         status: ProjectRunConfigurationStatus,
         diagnostics: [RunConfigurationDiagnostic],
         recoveryAction: RunConfigurationRecoveryAction = .none,
         recoveryPath: String? = nil,
-        projectToolchain: ProjectToolchainSelection? = nil
+        projectToolchain: ProjectToolchainSelection? = nil,
+        hasSavedToolchainPathOverrides: Bool = false
     ) {
         self.status = status
         self.diagnostics = diagnostics
         self.recoveryAction = recoveryAction
         self.recoveryPath = recoveryPath
         self.projectToolchain = projectToolchain
+        self.hasSavedToolchainPathOverrides = hasSavedToolchainPathOverrides
     }
 }
 
@@ -279,19 +282,49 @@ package protocol RunConfigurationDocumentMutating: Sendable {
 }
 
 package struct ProjectToolchainSelection: Codable, Equatable, Sendable {
+    package struct PathOverride: Codable, Equatable, Sendable {
+        package var javaHomePath: String
+        package var mavenExecutablePath: String
+        package var mavenJavaHomePath: String
+        package init(javaHomePath: String = "", mavenExecutablePath: String = "", mavenJavaHomePath: String = "") {
+            self.javaHomePath = javaHomePath
+            self.mavenExecutablePath = mavenExecutablePath
+            self.mavenJavaHomePath = mavenJavaHomePath
+        }
+        package init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            javaHomePath = try values.decodeIfPresent(String.self, forKey: .javaHomePath) ?? ""
+            mavenExecutablePath = try values.decodeIfPresent(String.self, forKey: .mavenExecutablePath) ?? ""
+            mavenJavaHomePath = try values.decodeIfPresent(String.self, forKey: .mavenJavaHomePath) ?? ""
+        }
+        private enum CodingKeys: String, CodingKey { case javaHomePath, mavenExecutablePath, mavenJavaHomePath }
+    }
     package var javaHomePath = ""
     package var mavenExecutablePath = ""
     package var mavenJavaHomePath = ""
+    package var pathOverrides: [String: PathOverride] = [:]
 
     package init(
         javaHomePath: String = "",
         mavenExecutablePath: String = "",
-        mavenJavaHomePath: String = ""
+        mavenJavaHomePath: String = "",
+        pathOverrides: [String: PathOverride] = [:]
     ) {
         self.javaHomePath = javaHomePath
         self.mavenExecutablePath = mavenExecutablePath
         self.mavenJavaHomePath = mavenJavaHomePath
+        self.pathOverrides = pathOverrides
     }
+
+    package init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        javaHomePath = try values.decodeIfPresent(String.self, forKey: .javaHomePath) ?? ""
+        mavenExecutablePath = try values.decodeIfPresent(String.self, forKey: .mavenExecutablePath) ?? ""
+        mavenJavaHomePath = try values.decodeIfPresent(String.self, forKey: .mavenJavaHomePath) ?? ""
+        pathOverrides = try values.decodeIfPresent([String: PathOverride].self, forKey: .pathOverrides) ?? [:]
+    }
+
+    private enum CodingKeys: String, CodingKey { case javaHomePath, mavenExecutablePath, mavenJavaHomePath, pathOverrides }
 }
 
 package protocol RunConfigurationOperations: Sendable {

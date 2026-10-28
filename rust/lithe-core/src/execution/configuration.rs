@@ -134,6 +134,25 @@ pub struct ToolchainPaths {
     /// Explicit executables for generic runtime toolchain IDs such as `project-node`.
     #[serde(default)]
     pub runtime_executable_paths: BTreeMap<String, String>,
+    /// Machine-local selections by subproject root. Absent preserves saved
+    /// selections; an explicit empty map clears them.
+    #[serde(default)]
+    pub path_overrides: Option<BTreeMap<String, PathToolchainOverride>>,
+}
+
+/// Tool paths owned by a subproject; empty fields inherit the project defaults.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PathToolchainOverride {
+    /// JDK home; empty inherits the project JDK.
+    #[serde(default)]
+    pub java_home_path: String,
+    /// Maven executable or wrapper selection; empty inherits the project choice.
+    #[serde(default)]
+    pub maven_executable_path: String,
+    /// Maven's JDK home; empty inherits the project Maven JDK.
+    #[serde(default)]
+    pub maven_java_home_path: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1425,6 +1444,8 @@ fn update_toolchain_document(
 ) -> Result<Value, CoreError> {
     let mut document = local_layer_document(root, local_document)?;
     validate_version_value(&document)?;
+    let overrides = toolchain.path_overrides.map(|value| json!(value))
+        .or_else(|| document.get("toolchain").and_then(|value| value.get("pathOverrides")).cloned());
     document["toolchain"] = json!({
         "java": { "homePath": toolchain.java_home_path },
         "maven": {
@@ -1432,6 +1453,10 @@ fn update_toolchain_document(
             "javaHomePath": toolchain.maven_java_home_path
         }
     });
+    if let Some(overrides) = overrides {
+        document["toolchain"]["pathOverrides"] = overrides;
+    }
+    validate_toolchain_path_overrides(&document)?;
     Ok(document)
 }
 
@@ -2530,7 +2555,33 @@ fn string_arguments(values: &[Value]) -> String {
 
 fn validate_version_value(document: &Value) -> Result<(), CoreError> {
     let version = document.get("version").and_then(Value::as_u64).unwrap_or(0) as u32;
-    validate_version(version)
+    validate_version(version)?;
+    validate_toolchain_path_overrides(document)
+}
+
+fn validate_toolchain_path_overrides(document: &Value) -> Result<(), CoreError> {
+    let Some(value) = document.get("toolchain").and_then(|value| value.get("pathOverrides")) else {
+        return Ok(());
+    };
+    let invalid = || CoreError::new(ErrorCode::InvalidRequest, "Subproject toolchain paths must use bounded workspace-relative roots and valid tool paths");
+    let overrides = value.as_object().ok_or_else(invalid)?;
+    if overrides.len() > 256 {
+        return Err(invalid());
+    }
+    for (path, value) in overrides {
+        if path.is_empty() || path.len() > 1024 || path.contains(['\\', ':'])
+            || path.chars().any(char::is_control)
+            || path.split('/').any(|part| part.is_empty() || matches!(part, "." | "..")) {
+            return Err(invalid());
+        }
+        let paths: PathToolchainOverride = serde_json::from_value(value.clone()).map_err(|_| invalid())?;
+        for value in [&paths.java_home_path, &paths.maven_executable_path, &paths.maven_java_home_path] {
+            if value.len() > 4096 || value.trim() != value || value.chars().any(char::is_control) {
+                return Err(invalid());
+            }
+        }
+    }
+    Ok(())
 }
 
 fn validate_version(version: u32) -> Result<(), CoreError> {

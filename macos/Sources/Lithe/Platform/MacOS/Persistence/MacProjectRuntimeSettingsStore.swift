@@ -11,7 +11,7 @@ struct MacProjectRuntimeSettingsStore: ProjectRuntimeSettingsStoring {
     let storage: any FileStorage
     let preferences: any KeyValueStore
 
-    private static let toolKeys = ["javaHomePath", "mavenHomeSelection", "mavenHomePath", "mavenJavaHomePath"]
+    private static let toolKeys = ["javaHomePath", "mavenHomeSelection", "mavenHomePath", "mavenJavaHomePath", "moduleOverrides"]
 
     func load(at workspace: URL, migrateLegacy: Bool) throws -> ProjectRuntimeSettingsSnapshot {
         let root = workspace.standardizedFileURL
@@ -20,15 +20,28 @@ struct MacProjectRuntimeSettingsStore: ProjectRuntimeSettingsStoring {
         let legacy = try preferenceData.map { try JSONDecoder().decode(ProjectRuntimeSettings.self, from: $0) }
             ?? ProjectRuntimeSettings()
         let before = try localData(root)
-        let inspected = try inspect(root)
+        let inspection = try inspect(root)
+        let inspected = inspection.projectToolchain
         guard try localData(root) == before else { throw ProjectRuntimeSettingsStoreError.conflict }
         if migrateLegacy, let preferenceData,
            var document = try JSONSerialization.jsonObject(with: preferenceData) as? [String: Any],
            Self.toolKeys.contains(where: { document[$0] != nil }) {
-            let selection = legacy.projectToolchainSelection()
-            if inspected == nil, selection != ProjectToolchainSelection() {
+            let paths = legacy.moduleOverrides.map(\.path)
+            let known = Set(["path", "javaHomePath", "mavenExecutablePath", "mavenJavaHomePath"])
+            let rawOverrides = document["moduleOverrides"] as? [[String: Any]] ?? []
+            guard Set(paths).count == paths.count,
+                  rawOverrides.allSatisfy({ Set($0.keys).isSubset(of: known) }) else {
+                throw ProjectRuntimeSettingsStoreError.readBack
+            }
+            let previous = legacy.projectToolchainSelection()
+            var selection = inspected ?? previous
+            if inspected != nil, !inspection.hasSavedToolchainPathOverrides {
+                selection.pathOverrides = previous.pathOverrides
+            }
+            if (inspected == nil && selection != ProjectToolchainSelection())
+                || (inspected != nil && !inspection.hasSavedToolchainPathOverrides) {
                 try runStore.saveProjectToolchain(selection, at: root, expecting: before)
-                guard try inspect(root) == selection else { throw ProjectRuntimeSettingsStoreError.readBack }
+                guard try inspect(root).projectToolchain == selection else { throw ProjectRuntimeSettingsStoreError.readBack }
             }
             // Keep the source until the target has been read successfully. An
             // existing (including explicitly automatic) toolchain always wins.
@@ -58,11 +71,11 @@ struct MacProjectRuntimeSettingsStore: ProjectRuntimeSettingsStoring {
         let selected = settings.projectToolchainSelection()
         if selected != current.settings.projectToolchainSelection() {
             try runStore.saveProjectToolchain(selected, at: root, expecting: before)
-            guard try inspect(root) == selected else { throw ProjectRuntimeSettingsStoreError.readBack }
+            guard try inspect(root).projectToolchain == selected else { throw ProjectRuntimeSettingsStoreError.readBack }
         }
         guard preferences.data(forKey: key) == preferenceData else { throw ProjectRuntimeSettingsStoreError.conflict }
-        // Preserve unknown legacy fields, while permanently removing the three
-        // duplicated project tool selections (Maven's mode and path form one).
+        // Preserve unrelated legacy fields while removing tool selections now
+        // owned by the canonical document, including all subproject overrides.
         var document = try preferenceData.flatMap { try JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
         guard let encoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(settings)) as? [String: Any] else {
             throw ProjectRuntimeSettingsStoreError.readBack
@@ -79,12 +92,12 @@ struct MacProjectRuntimeSettingsStore: ProjectRuntimeSettingsStoring {
         MacRunConfigurationStore(core: core, storage: storage, preferences: preferences)
     }
 
-    private func inspect(_ root: URL) throws -> ProjectToolchainSelection? {
+    private func inspect(_ root: URL) throws -> ProjectRunConfigurationInspection {
         let result = runStore.inspect(at: root, checkFingerprint: false, javaEntrypoints: nil)
         if case .invalid(let message) = result.status {
             throw MacRunConfigurationStoreError.invalidConfiguration(message)
         }
-        return result.projectToolchain
+        return result
     }
 
     private func localData(_ root: URL) throws -> Data? {

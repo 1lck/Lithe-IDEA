@@ -181,13 +181,23 @@ struct ProjectRuntimeSettings: Codable, Hashable, Sendable {
         ProjectToolchainSelection(
             javaHomePath: javaHomePath.trimmingCharacters(in: .whitespacesAndNewlines),
             mavenExecutablePath: mavenExecutableOverride,
-            mavenJavaHomePath: mavenJavaHomePath.trimmingCharacters(in: .whitespacesAndNewlines)
+            mavenJavaHomePath: mavenJavaHomePath.trimmingCharacters(in: .whitespacesAndNewlines),
+            pathOverrides: Dictionary(moduleOverrides.filter(\.hasOverride).map { value in
+                (value.path, ProjectToolchainSelection.PathOverride(
+                    javaHomePath: value.javaHomePath.trimmingCharacters(in: .whitespacesAndNewlines),
+                    mavenExecutablePath: value.mavenExecutablePath.trimmingCharacters(in: .whitespacesAndNewlines),
+                    mavenJavaHomePath: value.mavenJavaHomePath.trimmingCharacters(in: .whitespacesAndNewlines)))
+            }, uniquingKeysWith: { _, last in last })
         )
     }
 
     mutating func applyProjectToolchain(_ selection: ProjectToolchainSelection) {
         javaHomePath = selection.javaHomePath
         mavenJavaHomePath = selection.mavenJavaHomePath
+        moduleOverrides = selection.pathOverrides.sorted { $0.key < $1.key }.map { path, value in
+            ProjectModuleRuntimeOverride(path: path, javaHomePath: value.javaHomePath,
+                mavenExecutablePath: value.mavenExecutablePath, mavenJavaHomePath: value.mavenJavaHomePath)
+        }
         let maven = selection.mavenExecutablePath
         if maven.isEmpty {
             mavenHomeSelection = .automatic

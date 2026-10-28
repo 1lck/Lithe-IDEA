@@ -7,6 +7,63 @@ use std::fs;
 use std::path::PathBuf;
 
 #[test]
+fn subproject_toolchain_paths_roundtrip_and_reject_invalid_scope_keys() {
+    let root = temporary_root("subproject-toolchain-paths");
+    fs::create_dir_all(&root).unwrap();
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) { fs::remove_dir_all(&self.0).unwrap(); }
+    }
+    let _cleanup = Cleanup(root.clone());
+    let fixture: Value = serde_json::from_str(include_str!("../../../../shared/fixtures/run-configuration/subproject-toolchains.json")).unwrap();
+    let call = |command: &str, payload: Value| -> Value {
+        serde_json::from_str(&execute_json(&serde_json::json!({"id":"subproject-toolchains", "command":command,"payload":payload}).to_string())).unwrap()
+    };
+    let updated = call("runConfig.updateOptions", serde_json::json!({
+        "root":root,"scope":"local","configurationId":"", "toolchain":fixture["toolchain"]
+    }));
+    assert_eq!(updated["ok"], true, "{updated}");
+    let saved: Value = serde_json::from_str(updated["data"]["document"].as_str().unwrap()).unwrap();
+    assert_eq!(saved["toolchain"]["pathOverrides"], fixture["expected"]["pathOverrides"]);
+    let read = call("runConfig.inspect", serde_json::json!({"root":root,"localDocument":saved,"checkFingerprint":false}));
+    assert_eq!(read["ok"], true, "{read}");
+    assert_eq!(read["data"]["toolchain"]["pathOverrides"], fixture["expected"]["pathOverrides"]);
+    let changed_defaults = call("runConfig.updateOptions", serde_json::json!({
+        "root":root,"scope":"local","configurationId":"", "localDocument":saved,
+        "toolchain":{"javaHomePath":"/fixture/changed-project-jdk"}
+    }));
+    assert_eq!(changed_defaults["ok"], true, "{changed_defaults}");
+    let retained: Value = serde_json::from_str(changed_defaults["data"]["document"].as_str().unwrap()).unwrap();
+    assert_eq!(retained["toolchain"]["pathOverrides"], fixture["expected"]["pathOverrides"]);
+    let reset = call("runConfig.updateOptions", serde_json::json!({
+        "root":root,"scope":"local","configurationId":"", "localDocument":retained,
+        "toolchain":{"pathOverrides":{}}
+    }));
+    assert_eq!(reset["ok"], true, "{reset}");
+    let reset: Value = serde_json::from_str(reset["data"]["document"].as_str().unwrap()).unwrap();
+    assert_eq!(reset["toolchain"]["pathOverrides"], serde_json::json!({}));
+    for invalid in fixture["invalidRoots"].as_array().unwrap() {
+        let mut toolchain = fixture["toolchain"].clone();
+        toolchain["pathOverrides"] = serde_json::json!({invalid.as_str().unwrap(): {"javaHomePath":"/fixture/jdk"}});
+        let result = call("runConfig.updateOptions", serde_json::json!({"root":root,"scope":"local","configurationId":"","toolchain":toolchain}));
+        assert_eq!(result["ok"], false, "{invalid}: {result}");
+        let result = call("runConfig.inspect", serde_json::json!({"root":root,"localDocument":{
+            "version":2,"configurations":[],"toolchain":{"pathOverrides":toolchain["pathOverrides"]}
+        },"checkFingerprint":false}));
+        assert_eq!(result["ok"], false, "{invalid}: {result}");
+    }
+    for value in [serde_json::json!(null), serde_json::json!([]),
+        serde_json::json!({"a":{"javaHomePath":42}}), serde_json::json!({"a":{"javaHomePath":"\n"}}),
+        serde_json::json!({"a":{"unknownField":"preserve-this-value"}})] {
+        let result = call("runConfig.inspect", serde_json::json!({"root":root,"localDocument":{
+            "version":2,"configurations":[],"toolchain":{"pathOverrides":value}
+        },"checkFingerprint":false}));
+        assert_eq!(result["ok"], false, "{result}");
+    }
+    assert!(!root.join(".lithe/run/local.json").exists());
+}
+
+#[test]
 fn project_environment_saves_before_generation_and_preserves_service_overrides() {
     let fixture: Value = serde_json::from_str(include_str!(
         "../../../../shared/fixtures/run-configuration/project-environment.json"

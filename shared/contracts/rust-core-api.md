@@ -3207,6 +3207,18 @@ When `updateOptions` carries a `toolchain` object (`javaHomePath`,
 global toolchain into the local layer instead of patching a configuration;
 project scope rejects this payload because toolchain paths are machine-local.
 
+The project toolchain may also carry `pathOverrides`, a map of normalized
+workspace-relative subproject roots to `{ javaHomePath?, mavenExecutablePath?,
+mavenJavaHomePath? }`. The map has at most 256 entries; roots reject absolute,
+parent, dot, empty-segment, drive, backslash and control-character forms. Empty
+fields inherit project defaults. This map lives only in `.lithe/run/local.json`
+and is returned by inspection/resolution; hosts preserve it when saving a run
+configuration or project defaults. An absent map identifies a document predating
+subproject migration; a saved empty map is an explicit choice. Old platform
+preferences are copied and read back before cleanup, with already saved choices
+remaining authoritative. See `shared/fixtures/run-configuration/subproject-toolchains.json`.
+
+
 `runConfig.saveEditorChanges` accepts the normal option-edit payload plus the
 required `toolchain` object. In addition to Java and Maven paths, that object
 may contain `runtimeExecutablePaths`, keyed by stable generic toolchain ID. It

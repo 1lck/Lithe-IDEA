@@ -7,6 +7,60 @@ import Testing
 @MainActor
 struct ProjectRuntimePersistenceTests {
     @Test(arguments: [false, true])
+    func migratesSubprojectPathsIntoExistingCanonicalDefaultsWithoutReplacingSavedChoices(existingPaths: Bool) throws {
+        let root = try workspace()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let preferences = RuntimeMigrationPreferences()
+        let key = MacProjectRuntimeSettingsStore.preferencesKey(root)
+        var legacy = ProjectRuntimeSettings(javaHomePath: "/fixture/old-project-jdk")
+        legacy.setOverride(path: "services/a", javaHomePath: "/fixture/a-jdk", mavenExecutablePath: "/fixture/a-mvn")
+        legacy.setOverride(path: "services/b", mavenExecutablePath: "./mvnw", mavenJavaHomePath: "/fixture/b-maven-jdk")
+        preferences.set(try JSONEncoder().encode(legacy), forKey: key)
+        let local = root.appendingPathComponent(".lithe/run/local.json")
+        try FileManager.default.createDirectory(at: local.deletingLastPathComponent(), withIntermediateDirectories: true)
+        var toolchain: [String: Any] = ["java": ["homePath": "/fixture/saved-project-jdk"]]
+        if existingPaths { toolchain["pathOverrides"] = ["services/a": ["javaHomePath": "/fixture/saved-a-jdk"]] }
+        try JSONSerialization.data(withJSONObject: ["version": 2, "toolchain": toolchain, "configurations": []]).write(to: local)
+        let store = MacProjectRuntimeSettingsStore(core: RustCoreBridge(), storage: MacFileStorage(), preferences: preferences)
+        let migrated = try store.load(at: root, migrateLegacy: true)
+        #expect(migrated.settings.javaHomePath == "/fixture/saved-project-jdk")
+        #expect(migrated.settings.exactOverride(for: "services/a")?.javaHomePath == (existingPaths ? "/fixture/saved-a-jdk" : "/fixture/a-jdk"))
+        #expect(migrated.settings.exactOverride(for: "services/b")?.mavenExecutablePath == (existingPaths ? nil : "./mvnw"))
+        let preferenceData = try #require(preferences.data(forKey: key))
+        let cleaned = try #require(JSONSerialization.jsonObject(with: preferenceData) as? [String: Any])
+        #expect(cleaned["moduleOverrides"] == nil)
+        let bytes = try Data(contentsOf: local)
+        let reopened = try store.load(at: root, migrateLegacy: false)
+        #expect(reopened.settings == migrated.settings)
+        #expect(try Data(contentsOf: local) == bytes)
+        var edited = reopened.settings
+        edited.setOverride(path: "services/a", javaHomePath: "/fixture/edited-a-jdk")
+        let saved = try store.save(edited, at: root, expecting: reopened)
+        #expect(saved.settings.exactOverride(for: "services/a")?.javaHomePath == "/fixture/edited-a-jdk")
+        #expect(try store.load(at: root, migrateLegacy: false).settings == saved.settings)
+        #expect(saved.settings.overlay(onto: RunOptions(), workspaceRelativePath: "services/a/module").javaHomePath == "/fixture/edited-a-jdk")
+        #expect(saved.settings.overlay(onto: RunOptions(), workspaceRelativePath: "services/another").javaHomePath == "/fixture/saved-project-jdk")
+    }
+
+    @Test(arguments: ["outside", "duplicate", "unknown"])
+    func invalidSubprojectPathRetainsLegacyDataAndDoesNotCreateCanonicalDocument(kind: String) throws {
+        let root = try workspace()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let preferences = RuntimeMigrationPreferences()
+        let key = MacProjectRuntimeSettingsStore.preferencesKey(root)
+        let path = kind == "outside" ? "../escape" : "services/a"
+        var overrides: [[String: Any]] = [["path": path, "javaHomePath": "/fixture/jdk"]]
+        if kind == "duplicate" { overrides.append(["path": path, "javaHomePath": "/fixture/another-jdk"]) }
+        if kind == "unknown" { overrides[0]["futureField"] = "preserve-this-value" }
+        let original = try JSONSerialization.data(withJSONObject: ["moduleOverrides": overrides])
+        preferences.set(original, forKey: key)
+        let store = MacProjectRuntimeSettingsStore(core: RustCoreBridge(), storage: MacFileStorage(), preferences: preferences)
+        #expect(throws: (any Error).self) { try store.load(at: root, migrateLegacy: true) }
+        #expect(preferences.data(forKey: key) == original)
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".lithe/run/local.json").path))
+    }
+
+    @Test(arguments: [false, true])
     func migratesLegacyOnlyAfterReadingTheCanonicalSelection(existingCanonical: Bool) throws {
         let root = try workspace()
         defer { try? FileManager.default.removeItem(at: root) }

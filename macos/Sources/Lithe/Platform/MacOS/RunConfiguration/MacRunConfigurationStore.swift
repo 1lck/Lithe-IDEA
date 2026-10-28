@@ -60,9 +60,11 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
                     ProjectToolchainSelection(
                         javaHomePath: toolchain.java?.homePath ?? "",
                         mavenExecutablePath: toolchain.maven?.executablePath ?? "",
-                        mavenJavaHomePath: toolchain.maven?.javaHomePath ?? ""
+                        mavenJavaHomePath: toolchain.maven?.javaHomePath ?? "",
+                        pathOverrides: toolchain.pathOverrides ?? [:]
                     )
-                }
+                },
+                hasSavedToolchainPathOverrides: payload.toolchain?.pathOverrides != nil
             )
         case .failure(let error):
             return ProjectRunConfigurationInspection(
@@ -146,7 +148,8 @@ struct MacRunConfigurationStore: RunConfigurationOperations, @unchecked Sendable
             projectToolchain: ProjectToolchainSelection(
                 javaHomePath: payload.toolchain?.java?.homePath ?? "",
                 mavenExecutablePath: payload.toolchain?.maven?.executablePath ?? "",
-                mavenJavaHomePath: payload.toolchain?.maven?.javaHomePath ?? ""
+                mavenJavaHomePath: payload.toolchain?.maven?.javaHomePath ?? "",
+                pathOverrides: payload.toolchain?.pathOverrides ?? [:]
             )
         )
     }

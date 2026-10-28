@@ -593,6 +593,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 
             let java: Java?
             let maven: Maven?
+            var pathOverrides: [String: ProjectToolchainSelection.PathOverride]? = nil
         }
         struct Generator: Codable, Sendable {
             let fingerprint: String
