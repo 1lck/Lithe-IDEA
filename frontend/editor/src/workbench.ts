@@ -1,3 +1,6 @@
+import { FoldingController } from "monaco-editor/esm/vs/editor/contrib/folding/browser/folding.js";
+import { ContentHoverController } from "monaco-editor/esm/vs/editor/contrib/hover/browser/contentHoverController.js";
+import { ClickLinkGesture } from "monaco-editor/esm/vs/editor/contrib/gotoSymbol/browser/link/clickLinkGesture.js";
 import { runEditorCommand } from "./editor-commands";
 import { installWordHighlightLifecycle } from "./word-highlight-lifecycle";
 import { IBulkEditService } from "monaco-editor/esm/vs/editor/browser/services/bulkEditService.js";
@@ -31,6 +34,8 @@ const nativeFoldingOffset = nativeGutter.gap * 2 + nativeGutter.icon;
 
 export interface WorkbenchHost {
   request(payload: object): Promise<any>;
+  hoverDelay?: number;
+  foldJavaImportsByDefault?: boolean;
   palette: { defaults: Record<string, { light: string; dark: string }> };
   javaNavigationIcons?: Record<"up-interface" | "up-inheritance" | "down-interface" | "down-inheritance", string>;
   /** IDEA test-state SVGs for Java Run markers. */
@@ -358,6 +363,27 @@ export function mountWorkbench(host: WorkbenchHost) {
     return entry;
   }
 
+  async function attachModel(view: monaco.editor.IStandaloneCodeEditor, entry: Entry,
+                             state: monaco.editor.ICodeEditorViewState | null | undefined) {
+    const node = view.getContainerDomNode();
+    const prepareFolds = host.foldJavaImportsByDefault && entry.model.getLanguageId() === "java"
+      && view.getModel() !== entry.model;
+    const opacity = node.style.opacity, inert = node.inert;
+    if (prepareFolds) { node.style.opacity = "0"; node.inert = true; }
+    try {
+      view.setModel(entry.model);
+      if (state) view.restoreViewState(state);
+      // Monaco applies default import folds and saved fold state asynchronously.
+      // Publish the first frame only after that same upstream operation completes.
+      if (prepareFolds) await FoldingController.get(view)?.getFoldingModel();
+    } finally {
+      if (prepareFolds) {
+        if (view.getModel() === entry.model && !entry.model.isDisposed()) view.render(true);
+        node.style.opacity = opacity; node.inert = inert;
+      }
+    }
+  }
+
   async function activate(payload: any) {
     const started = performance.now();
     const previous = active && entries.get(active);
@@ -369,9 +395,8 @@ export function mountWorkbench(host: WorkbenchHost) {
     const modelMs = performance.now() - modelStarted;
     const attachStarted = performance.now();
     active = payload.id;
-    editor.setModel(entry.model);
+    await attachModel(editor, entry, entry.state);
     scheduleNavigation(payload.id, entry);
-    if (entry.state) editor.restoreViewState(entry.state);
     editor.updateOptions({ readOnly: entry.readonly || !!entry.closingHolds || failed });
     if (payload.focus) editor.focus();
     const metrics = { reused, modelMs, attachMs: performance.now() - attachStarted,
@@ -589,6 +614,15 @@ export function mountWorkbench(host: WorkbenchHost) {
     view.onDidDispose(() => node.removeEventListener("paste", paste, true));
   }
   function attachDefinitionNavigation(view: monaco.editor.IStandaloneCodeEditor) {
+    const isCodePosition = (position: monaco.IPosition | null) => {
+      const tokens = (view.getModel() as any)?.tokenization;
+      // Reuse Monaco/TextMate lexical state, including multiline comments. Do not
+      // synchronously tokenize a large prefix just to respond to mouse movement.
+      if (!position || !tokens?.isCheapToTokenize(position.lineNumber)) return false;
+      tokens.forceTokenization(position.lineNumber);
+      const line = tokens.getLineTokens(position.lineNumber);
+      return line.getStandardTokenType(line.findTokenIndexAtOffset(position.column - 1)) === 0 /* Other (code) */;
+    };
     const navigate = async (position: monaco.IPosition | null) => {
       const pair = [...entries].find(([, entry]) => entry.model === view.getModel());
       if (!pair || !position) return;
@@ -600,14 +634,80 @@ export function mountWorkbench(host: WorkbenchHost) {
     };
     view.addAction({ id: "lithe.goToDefinition", label: "Go to Definition", keybindings: [monaco.KeyCode.F12],
       contextMenuGroupId: "navigation", contextMenuOrder: 1, run: () => navigate(view.getPosition()) });
-    view.onMouseDown(event => {
-      const gesture = event.event;
-      if (!(isMacintosh ? gesture.metaKey : gesture.ctrlKey) || !gesture.leftButton || gesture.altKey || gesture.shiftKey ||
-          event.target.type !== monaco.editor.MouseTargetType.CONTENT_TEXT || !event.target.position) return;
-      gesture.preventDefault();
-      gesture.stopPropagation();
-      void navigate(event.target.position);
+    // Reuse Monaco's modifier/drag/key lifecycle, but keep file ownership,
+    // virtual sources and navigation history in the native host. Monaco's full
+    // definition contribution requires loading target files into its model store.
+    const gesture = new ClickLinkGesture(view);
+    const links = view.createDecorationsCollection();
+    let generation = 0;
+    let hovered = "";
+    let ownsHover = false;
+    const clear = (hideHint = true) => {
+      generation++; hovered = ""; links.clear();
+      view.getDomNode()?.classList.remove("lithe-definition-pointer");
+      if (ownsHover && (hideHint || !ContentHoverController.get(view)?.isHoverVisible)) {
+        ownsHover = false;
+        view.getDomNode()?.classList.remove("lithe-command-hover");
+        ContentHoverController.get(view)?.hideContentHover();
+      }
+    };
+    const dismiss = () => { clear(); ContentHoverController.get(view)?.hideContentHover(); };
+    gesture.onCancel(() => clear());
+    // Monaco owns movement into the popup, its sticky corridor and link selection.
+    view.onMouseLeave(() => clear(false));
+    view.onDidBlurEditorWidget(dismiss);
+    view.onDidChangeModel(dismiss);
+    view.onDidChangeModelContent(dismiss);
+    view.onDidScrollChange(event => { if (event.scrollTopChanged || event.scrollLeftChanged) dismiss(); });
+    view.onKeyDown(event => { if (event.keyCode === monaco.KeyCode.Escape) dismiss(); });
+    window.addEventListener("blur", dismiss);
+    gesture.onMouseMoveOrRelevantKeyDown(async ([mouse, key]) => {
+      const position = mouse.target.position;
+      const pair = [...entries].find(([, entry]) => entry.model === view.getModel());
+      if (!(mouse.hasTriggerModifier || key?.keyCodeIsTriggerKey) || mouse.hasSideBySideModifier) { clear(); return; }
+      if (mouse.target.element?.closest(".monaco-hover,.monaco-resizable-hover")) return;
+      if (!pair || !position || mouse.target.type !== monaco.editor.MouseTargetType.CONTENT_TEXT) { clear(false); return; }
+      const [id, entry] = pair;
+      const word = entry.model.getWordAtPosition(position);
+      if (!word || !isCodePosition(position)) { clear(); return; }
+      const identity = `${id}:${entry.model.getVersionId()}:${position.lineNumber}:${word.startColumn}:${word.endColumn}`;
+      if (hovered === identity) return;
+      clear();
+      hovered = identity;
+      // Candidate feedback must not wait for the native semantic round trip.
+      // Availability validates this presentation; clicking still resolves real targets.
+      const range = new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn);
+      view.getDomNode()?.classList.add("lithe-definition-pointer");
+      links.set([{ range, options: { inlineClassName: "goto-definition-link" } }]);
+      const request = generation, current = documentCheckpoint(id, entry);
+      await entry.chain;
+      if (request !== generation || !current() || view.getModel() !== entry.model) return;
+      const reply = await languageRequest({ type: "definitionHover", id, revision: entry.revision,
+        line: position.lineNumber - 1, column: position.column - 1 });
+      if (request !== generation || !current() || view.getModel() !== entry.model) return;
+      if (reply.available === true) {
+        const hover = ContentHoverController.get(view);
+        if (hover && !hover.isHoverVisible) {
+          ownsHover = true;
+          view.getDomNode()?.classList.add("lithe-command-hover");
+          // Documentation remains delayed independently of immediate link feedback.
+          hover.showContentHover(range, 0 /* Delayed */, 0 /* Mouse */, false);
+        }
+      } else {
+        clear();
+        // Do not restart candidate feedback on each pixel of a rejected word.
+        // A new gesture may retry a transient miss.
+        hovered = identity;
+      }
     });
+    gesture.onExecute(mouse => {
+      if (mouse.isLeftClick && mouse.hasTriggerModifier && !mouse.hasSideBySideModifier &&
+          mouse.target.type === monaco.editor.MouseTargetType.CONTENT_TEXT && isCodePosition(mouse.target.position)) {
+        clear();
+        void navigate(mouse.target.position);
+      }
+    });
+    view.onDidDispose(() => { clear(); window.removeEventListener("blur", dismiss); gesture.dispose(); });
   }
 
   function attachRunInteractions(view: monaco.editor.IStandaloneCodeEditor) {
@@ -967,9 +1067,7 @@ export function mountWorkbench(host: WorkbenchHost) {
           const state = surface.editor.saveViewState();
           if (state) surface.states.set(surface.id, state);
           surface.id = payload.id;
-          surface.editor.setModel(entry.model);
-          const retained = surface.states.get(payload.id);
-          if (retained) surface.editor.restoreViewState(retained);
+          await attachModel(surface.editor, entry, surface.states.get(payload.id));
         }
         applyReadOnly(entry);
         if (payload.focus) surface.editor.focus();
@@ -1256,6 +1354,8 @@ export function mountWorkbench(host: WorkbenchHost) {
       // Full-width punctuation is normal in Chinese prose; Monaco's confusable-character
       // warning misfires there and its "Adjust settings" link has no target in embedded Monaco.
       unicodeHighlight: { ambiguousCharacters: false },
+      foldingImportsByDefault: host.foldJavaImportsByDefault ?? false,
+      ...(host.hoverDelay !== undefined ? { hover: { delay: host.hoverDelay } } : {}),
     };
     editor = monaco.editor.create(document.querySelector("#editor") as HTMLElement, displayOptions);
     installWordHighlightLifecycle(editor);
@@ -1333,6 +1433,24 @@ export function mountWorkbench(host: WorkbenchHost) {
       .monaco-editor .lithe-debug-value{color:var(--vscode-editor-inlineValuesForeground,#888);background:var(--vscode-editor-inlineValuesBackground,transparent);font-style:italic}`;
     document.head.append(debugStyle);
     textmate = await installJavaTextMate();
+    if (host.foldJavaImportsByDefault) monaco.languages.registerFoldingRangeProvider("java", {
+      async provideFoldingRanges(model, _context, token) {
+        const pair = [...entries].find(([, entry]) => entry.model === model);
+        if (!pair) return null;
+        const [id, entry] = pair, current = documentCheckpoint(id, entry);
+        await entry.chain;
+        if (!current() || token.isCancellationRequested) return null;
+        const reply = await languageRequest({ type: "javaFolding", id, revision: entry.revision });
+        if (!current() || token.isCancellationRequested || reply.cancelled) return null;
+        return (reply.ranges ?? []).filter((range: any) => Number.isInteger(range.start) &&
+          Number.isInteger(range.end) && range.start >= 1 && range.end > range.start &&
+          range.end <= model.getLineCount()).map((range: any) => ({
+            start: range.start, end: range.end,
+            kind: range.kind === "imports" ? monaco.languages.FoldingRangeKind.Imports :
+              range.kind === "comment" ? monaco.languages.FoldingRangeKind.Comment : undefined,
+          }));
+      },
+    });
     monaco.languages.registerDocumentSemanticTokensProvider("java", {
       getLegend: () => MONACO_SEMANTIC_TOKEN_LEGEND,
       onDidChange: semanticChanges.event,

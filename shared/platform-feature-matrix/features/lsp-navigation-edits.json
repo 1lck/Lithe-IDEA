@@ -6,7 +6,15 @@
   "macos": {
     "evidence": [
       "macos/Sources/Lithe/Core/Language",
-      "shared/contracts/rust-core-api.md"
+      "shared/contracts/rust-core-api.md",
+      "frontend/editor/src/workbench.ts",
+      "macos/Sources/Lithe/Models/AppModel/AppModel+CodeNavigation.swift",
+      "macos/Tests/LitheTests/LanguageNavigationCoordinatorTests.swift",
+      "macos/Experiments/Monaco/workbench.integration.ts",
+      "macos/EditorFrontend/main.ts",
+      "macos/Tests/LitheTests/MonacoWorkbenchThemeTests.swift",
+      "macos/Sources/Lithe/Views/Language/JavaReferencesView.swift",
+      "macos/Tests/LitheTests/ContextMenuCoverageTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -22,5 +30,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Language Tooling",
-  "verification": "验证定义、引用、语义标记和 UTF-16 文本编辑的坐标转换。 Windows 验证 Ctrl+点击临时失败后无需修改源码即可重试成功，服务重启或文档重新连接后不复用旧位置，切换编辑器时丢弃迟到结果。"
+  "verification": "验证定义、引用、语义标记和 UTF-16 文本编辑的坐标转换。 Windows 验证 Ctrl+点击临时失败后无需修改源码即可重试成功，服务重启或文档重新连接后不复用旧位置，切换编辑器时丢弃迟到结果。 macOS 验证 Command 悬停仅在定义可用时显示链接颜色、下划线和手形，松键/移出/切换文档后清除；点击单目标直接打开定义，同文件方法调用不误转实现查询，主/分屏均保留原生导航历史。 macOS 普通说明悬停 500 ms，Command 提示在语义解析后立即显示；深浅主题及透明编辑器背景下，说明面板复用共享 popup chrome 并保持不透明，代码和说明文字分别使用编程/UI 字体。 macOS 悬停生命周期回归：普通说明与 Command 提示分别拥有状态；松键仅关闭 Command 提示；Esc、滚动、编辑、模型切换和失焦清除提示，取消后迟到结果不得重开；鼠标进入面板仍可交互。Command 内边距对齐 IDEA 6/6/5/6，普通说明保留原排版。运行真实 WebKit 生命周期检查；完整应用人工视觉验收待补。 macOS 实现选择列表使用原生共享 litheDropdown，验证 Esc、点击外部、关闭后重开、选择目标与切换标签关闭，并清除旧导航操作。共享搜索框、行选择样式及外框，列表按结果数收缩；上下键与回车可操作，输入法组合不误导航。查询语义分流问题不在本轮布局修复范围内。 Command 候选符号在异步解析期间立即使用稳定视图层小手光标，链接色与下划线仍等待确认；负结果在同一手势内不重复查询，松键/移出后允许重试。真实 WebKit 使用原生回复闸门验证慢服务、重绘、逐像素移动和迟到回复不造成指针闪烁或残留。 macOS Command 导航提示使用 Monaco Delayed 模式及既有 500ms hover 延迟，避免快速经过符号时立即弹窗；手形/下划线独立反馈。WebKit 验证延迟模式与首刻不显示，并覆盖松键、滚动、失焦、编辑、切换取消及统一样式。 Command 悬停候选词同步呈现手形、变色、下划线，不等待 native definitionHover；面板仍在语义确认后延迟 500ms，与即时导航装饰分离。无目标或失败撤销候选反馈，同一词内移动不重复闪动；真实导航仍由点击请求解析。WebKit 显式阻塞 native 回复验证即时装饰，并验证负结果清除。 Command hover 与点击复用 Monaco/TextMate token 类型过滤注释、字符串和正则正文；多行注释不凭单行文本猜测。词法解析成本过高时暂不显示候选。WebKit 覆盖行注释、多行注释、字符串不高亮且不导航，真实代码慢回复仍即时反馈。"
 }

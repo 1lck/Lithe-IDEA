@@ -150,12 +150,18 @@ struct EditorAreaView: View {
                     }
                 }
             }
-
-            if model.isImplementationChooserVisible && groupID == nil {
-                LanguageImplementationChooserView()
+        }
+        .overlay(alignment: .topLeading) {
+            if groupID == nil {
+                Color.clear.frame(width: 1, height: 1)
+                    .litheDropdown(isPresented: Binding(
+                        get: { model.isImplementationChooserVisible },
+                        set: { if !$0 { model.closeLanguageNavigationResults() } }
+                    ), searchOnTyping: true) {
+                        LanguageImplementationChooserView().environmentObject(model)
+                    }
                     .padding(.top, 48)
-                    .padding(.horizontal, 24)
-                    .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
+                    .padding(.leading, 24)
             }
         }
         .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.editor)
@@ -168,6 +174,7 @@ struct EditorAreaView: View {
         }
         .onAppear { if groupID == nil, let activeItem { model.editorTabOrderFeature.focus(activeItem) } }
         .onChange(of: activeItem) { item in
+            if groupID == nil, model.isImplementationChooserVisible { model.closeLanguageNavigationResults() }
             if groupID == nil, let item { model.editorTabOrderFeature.focus(item) }
         }
         .onChange(of: model.openDocuments.map(\.id)) { ids in

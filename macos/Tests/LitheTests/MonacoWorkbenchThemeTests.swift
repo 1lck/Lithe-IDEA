@@ -22,6 +22,20 @@ struct MonacoWorkbenchThemeTests {
         #expect(wallpaper.id != solid.id)
     }
 
+    @Test(arguments: [false, true])
+    func hoverUsesSharedPopupChromeEvenOverWallpaper(isDark: Bool) {
+        let theme = MonacoWorkbenchThemeConfiguration(colorTheme: .lithe, isDark: isDark, revealsWorkbenchBackground: true)
+        for (key, token): (String, LitheTheme.ResolvedColorToken) in [
+            ("background", .popupBackground), ("foreground", .primaryText), ("border", .panelBorder)
+        ] {
+            #expect(theme.popupStyles[key] == MonacoWorkbenchThemeConfiguration.cssColor(
+                LitheTheme.nsColor(token, theme: .lithe, isDark: isDark)))
+        }
+        #expect(theme.popupStyles["radius"] == "\(LitheTheme.Metrics.popupCornerRadius)px")
+        #expect(theme.colors["background"] == "#00000000")
+        #expect(theme.popupStyles["background"]?.hasSuffix("FF") == true)
+    }
+
     @Test func appColorThemeAndAppearanceProduceDistinctMonacoThemes() {
         let lithe = MonacoWorkbenchThemeConfiguration(
             colorTheme: .lithe,
