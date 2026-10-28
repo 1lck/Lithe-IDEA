@@ -665,8 +665,11 @@ export function mountWorkbench(host: WorkbenchHost) {
       if (hovered === identity) return;
       clear();
       hovered = identity;
-      // Keep the cursor on the stable view layer while semantic lookup/rendering is pending.
+      // Candidate feedback must not wait for the native semantic round trip.
+      // Availability validates this presentation; clicking still resolves real targets.
+      const range = new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn);
       view.getDomNode()?.classList.add("lithe-definition-pointer");
+      links.set([{ range, options: { inlineClassName: "goto-definition-link" } }]);
       const request = generation, current = documentCheckpoint(id, entry);
       await entry.chain;
       if (request !== generation || !current() || view.getModel() !== entry.model) return;
@@ -674,21 +677,18 @@ export function mountWorkbench(host: WorkbenchHost) {
         line: position.lineNumber - 1, column: position.column - 1 });
       if (request !== generation || !current() || view.getModel() !== entry.model) return;
       if (reply.available === true) {
-        const range = new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn);
-        links.set([{ range, options: { inlineClassName: "goto-definition-link" } }]);
-        // Keep link feedback immediate, but let Monaco apply the host's normal
-        // hover delay so passing over symbols does not flash a documentation popup.
         const hover = ContentHoverController.get(view);
         if (hover && !hover.isHoverVisible) {
           ownsHover = true;
           view.getDomNode()?.classList.add("lithe-command-hover");
+          // Documentation remains delayed independently of immediate link feedback.
           hover.showContentHover(range, 0 /* Delayed */, 0 /* Mouse */, false);
         }
       } else {
-        // Keep the negative result for this gesture: pixel movement must not
-        // repeatedly alternate between pending-pointer and unavailable-text.
-        // Leaving the word or releasing Command permits a fresh lookup.
-        view.getDomNode()?.classList.remove("lithe-definition-pointer");
+        clear();
+        // Do not restart candidate feedback on each pixel of a rejected word.
+        // A new gesture may retry a transient miss.
+        hovered = identity;
       }
     });
     gesture.onExecute(mouse => {

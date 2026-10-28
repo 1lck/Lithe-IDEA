@@ -123,8 +123,9 @@ macOS 保留用户接受的 `FindBarView` 外观。`EditorChromeModel` 有意不
   普通悬停延迟为 500 ms，依据同 revision 的 `platform/ide-core-impl/src/com/intellij/openapi/editor/ex/EditorSettingsExternalizable.java`
   的 `TOOLTIPS_DELAY_RANGE` 初始值，以及 `platform/lang-impl/src/com/intellij/openapi/editor/HoverPopupContext.kt` 的剩余延迟计算。
   Community 的 `CtrlMouseHandler.kt` 在语义结果返回后立即显示提示。根据用户对频繁弹出遮挡代码的反馈，
-  Lithe 有意改用 Monaco Delayed 模式，沿用 macOS 普通文档的 500ms 延迟；语义查询完成后开始等待，
-  手形与下划线不等待面板。复用 Monaco 的延迟、取消、内容、定位及键盘可访问性，不另建计时器；单目标导航会收起旧结果面板。Windows 宿主没有使用该 macOS 入口，未改其实现。
+  Lithe 有意改用 Monaco Delayed 模式，沿用 macOS 普通文档的 500ms 延迟；候选词的手形、变色与下划线同步显示，
+  说明面板仍在语义确认后启动延迟，避免为不可导航候选请求说明。反馈是候选状态，查询失败或无目标时撤销；
+  点击仍通过真实导航解析，不把候选装饰当作已确认目标。复用 Monaco 的延迟、取消、内容、定位及键盘可访问性，不另建计时器；单目标导航会收起旧结果面板。Windows 宿主没有使用该 macOS 入口，未改其实现。
 
 - Markdown split 将原有 `MarkdownScrollPosition` binding 接回 Monaco，沿用来源与 revision 防回环；
   只在该视图启用滚动消息，33 ms 合并连续输入，切换文档或接收预览滚动时撤销旧回传。
@@ -858,7 +859,7 @@ popup chrome，不复制另一套主题。普通说明维持 500ms 和 Monaco �
 
 
 Command 悬停的光标反馈不再依赖异步返回后才创建的文字 span：候选词命中时立即在所属编辑视图上设置
-指针状态，只覆盖代码行及其子元素，语义确认后才添加链接色和下划线。文字重绘与慢语言服务回复不会
+指针状态，只覆盖代码行及其子元素；候选词同时显示链接色与下划线，无目标回复再撤销。文字重绘与慢语言服务回复不会
 把候选词重新变回编辑光标。无目标/失败的结果在当前手势内保持，防止逐像素移动反复请求造成小手与
 I-beam 交替；移出词、松键或文档/视图生命周期变化后可以重新查询。取消同时移除视图指针状态，迟到
 响应不得恢复。原生 WebKit 回归用显式请求到达/释放闸门模拟慢服务，检查等待期间、重绘、负结果及松键后

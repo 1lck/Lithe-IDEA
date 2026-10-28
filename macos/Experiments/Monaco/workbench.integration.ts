@@ -1840,10 +1840,12 @@ async function verify() {
     const model = editor.getModel()!, version = model.getVersionId();
     const controller = ContentHoverController.get(editor)!;
     const originalShow = controller.showContentHover;
-    let startMode: number | undefined;
+    let startMode: number | undefined, scheduled!: () => void;
+    const hintScheduled = new Promise<void>(resolve => { scheduled = resolve; });
     controller.showContentHover = function (...args) {
       startMode = args[1];
-      return originalShow.apply(this, args);
+      originalShow.apply(this, args);
+      scheduled();
     };
     const before = (await send({ type: "definitionRequests" })).requests.length;
     let listener: { dispose(): void } | undefined;
@@ -1858,6 +1860,7 @@ async function verify() {
       input._onMouseMove.fire({ event: { metaKey: true, leftButton: false, detail: 0 },
         target: { type: monacoEditor.MouseTargetType.CONTENT_TEXT, position: new Position(1, 9), range: new Range(1, 9, 1, 10), detail: {} } });
       await withDeadline(highlighted, "Command hover did not highlight the definition");
+      await withDeadline(hintScheduled, "Command hint was not scheduled after validation");
       assert(startMode === 0, "Command hint bypassed Monaco's configured hover delay");
       assert(!controller.isHoverVisible, "Command hint appeared immediately with the link feedback");
       assert(links()[0].range.equalsRange(new Range(1, 7, 1, 12)), "link did not cover the whole identifier");
@@ -1917,6 +1920,10 @@ async function verify() {
     try {
       await send({ type: "holdDefinitionHover", hold: true });
       move(); editor.render(true);
+      const link = root.querySelector(".goto-definition-link");
+      assert(link && getComputedStyle(link).textDecorationLine.includes("underline"),
+        "candidate link feedback waited for the held native lookup");
+      assert(!ContentHoverController.get(editor)!.isHoverVisible, "candidate feedback bypassed popup dwell");
       const line = root.querySelector(".view-line span")!;
       assert(root.classList.contains("lithe-definition-pointer") && getComputedStyle(line).cursor === "pointer",
         "slow semantic lookup left the candidate under an editing cursor");
@@ -1932,6 +1939,8 @@ async function verify() {
       await send({ type: "holdDefinitionHover", hold: false, available: false });
       await withDeadline(rejected, "unavailable target did not restore normal cursor");
       observer.disconnect(); observer = undefined;
+      assert(!editor.getModel()!.getAllDecorations().some(value => value.options.inlineClassName === "goto-definition-link"),
+        "unavailable candidate retained a link decoration");
       move();
       assert(!root.classList.contains("lithe-definition-pointer"), "negative result restarted the cursor flicker on pixel movement");
       input._onKeyUp.fire({ keyCode: 57, metaKey: false });
@@ -1956,13 +1965,15 @@ async function verify() {
     let observer: MutationObserver | undefined;
     const move = () => input._onMouseMove.fire({ event: { metaKey: true, leftButton: false, detail: 0 },
       target: { type: monacoEditor.MouseTargetType.CONTENT_TEXT, position: new Position(1, 9), range: new Range(1, 9, 1, 10), detail: {} } });
+    let showAttempt = 0;
     const show = async (command: boolean) => {
+      showAttempt++;
       const visible = new Promise<void>(resolve => {
         observer = new MutationObserver(() => { if (controller.isHoverVisible) resolve(); });
         observer.observe(editor.getDomNode()!, { childList: true, subtree: true, attributes: true });
       });
       if (command) move(); else controller.showContentHover(new Range(1, 7, 1, 12), 1, 2, false);
-      try { await withDeadline(visible, "hover did not become visible"); }
+      try { await withDeadline(visible, `hover did not become visible (attempt ${showAttempt}, command ${command})`); }
       finally { observer?.disconnect(); observer = undefined; }
     };
     try {
