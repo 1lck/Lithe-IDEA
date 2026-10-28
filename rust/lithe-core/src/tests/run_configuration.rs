@@ -4280,3 +4280,72 @@ fn automatic_java_selection_uses_shared_fixture_and_current_requirements() {
         }
     }
 }
+
+#[test]
+fn shared_run_scan_excludes_caches_and_keeps_hidden_sources() {
+    let root = temporary_root("shared-run-scan");
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
+    fs::create_dir_all(&root).unwrap();
+    let _cleanup = Cleanup(root.clone());
+    for path in [
+        ".sources/Main.java",
+        "src/Main.java",
+        ".pytest_cache/Bad.java",
+        "node_modules/Bad.java",
+        "target/Bad.java",
+    ] {
+        let file = root.join(path);
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(file, "class Main {}").unwrap();
+    }
+    let paths = crate::execution::list_run_java_sources(&root, 100).unwrap();
+    assert_eq!(paths, vec![".sources/Main.java", "src/Main.java"]);
+    let call = |command, payload| -> Value {
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "scan", "command": command, "payload": payload
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        response["data"].clone()
+    };
+    let generated = call(
+        "runConfig.generate",
+        serde_json::json!({"root": root, "paths": paths}),
+    );
+    let inputs = generated["generated"]["generator"]["inputs"]
+        .as_object()
+        .unwrap();
+    assert!(inputs.contains_key(".sources/Main.java"));
+    assert!(!inputs.keys().any(|path| path.contains("Bad.java")));
+    let mut document = generated["generated"].clone();
+    // A persisted incomplete baseline cannot certify freshness or infer deletion,
+    // even after the previously inaccessible directory becomes readable again.
+    document["generator"]["unreadablePaths"] = serde_json::json!(["blocked"]);
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::write(root.join(".lithe/run/generated.json"), document.to_string()).unwrap();
+    for full in [false, true] {
+        let inspected = call(
+            "runConfig.inspect",
+            serde_json::json!({"root": root, "checkFingerprint": full}),
+        );
+        assert_eq!(inspected["status"], "ready");
+        assert!(inspected["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["code"] == "incompleteProjectScan"));
+        assert!(!inspected["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["code"] == "staleFingerprint"));
+    }
+}

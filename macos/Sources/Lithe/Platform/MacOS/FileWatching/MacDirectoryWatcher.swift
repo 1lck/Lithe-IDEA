@@ -10,6 +10,7 @@ final class MacDirectoryWatcher: DirectoryChangeSource, @unchecked Sendable {
         }
     }
 
+    private let core = RustCoreBridge()
     private let configuration: DirectoryWatchConfiguration
     private let visibilityRules: FileVisibilityRules
     private let queue = DispatchQueue(label: "app.lithe.file-events", qos: .utility)
@@ -175,7 +176,23 @@ final class MacDirectoryWatcher: DirectoryChangeSource, @unchecked Sendable {
             batch.requiresFullRescan = true
             batch.gitStateMayHaveChanged = true
         }
-        batch.workspacePaths = workspacePaths.sorted()
+        let rootPrefix = configuration.workspaceRoot.standardizedFileURL.path + "/"
+        let relativePaths = workspacePaths.sorted().map { path in
+            path.hasPrefix(rootPrefix) ? String(path.dropFirst(rootPrefix.count)) : ""
+        }
+        // One Core call per batch; native loss flags above remain unconditional.
+        let filtered: Result<[String], RustCoreBridge.CoreCallError> = core.executeResult(
+            command: "workspace.filterChanges", payload: relativePaths
+        )
+        switch filtered {
+        case .success(let paths):
+            let accepted = Set(paths)
+            batch.workspacePaths = zip(workspacePaths.sorted(), relativePaths)
+                .filter { accepted.contains($0.1) }.map(\.0)
+        case .failure:
+            // A failed classifier cannot prove that a source change is irrelevant.
+            batch.requiresFullRescan = true
+        }
         return batch
     }
 

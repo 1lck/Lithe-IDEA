@@ -272,6 +272,13 @@ describe("run configuration mapping", () => {
     });
   });
 
+  test("explicit user JAVA_HOME overrides a generated toolchain binding", () => {
+    expect(mergeLaunchEnvironment({ JAVA_HOME: "fixture/user-jdk" }, {
+      environment: { JAVA_HOME: { toolchain: "project-jdk", property: "home" } },
+      env: { JAVA_HOME: "fixture/plan-jdk" },
+    }).JAVA_HOME).toBe("fixture/user-jdk");
+  });
+
   test("blocks only the configuration named by a toolchain diagnostic", () => {
     const diagnostics = [
       {

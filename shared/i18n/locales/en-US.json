@@ -9440,7 +9440,9 @@
     "debugger.step.intoInstruction": "Step Into Instruction",
     "debugger.disassembly.stepsByLine": "This adapter cannot step by instruction; steps still move by line",
     "plugins.java.installNotice": "Java Support is installed separately. Install it from the Marketplace, or use Install from Disk for an offline package. Your Java settings are kept.",
-    "plugins.java.installTemplates": "Install Java Support for Java, Maven and Spring templates…"
+    "plugins.java.installTemplates": "Install Java Support for Java, Maven and Spring templates…",
+    "run.incompleteProjectScanTitle": "Project scan is incomplete",
+    "run.incompleteProjectScanMessage": "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations."
   },
   "overrides": {
     "windows": {

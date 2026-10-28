@@ -89966,6 +89966,30 @@
         "key": "Install Java Support for Java, Maven and Spring templates…",
         "arguments": []
       }
+    },
+    {
+      "id": "run.incompleteProjectScanTitle",
+      "description": "Run: incomplete workspace scan warning",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Project scan is incomplete",
+        "arguments": []
+      }
+    },
+    {
+      "id": "run.incompleteProjectScanMessage",
+      "description": "Run: incomplete workspace scan warning",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations.",
+        "arguments": []
+      }
     }
   ]
 }

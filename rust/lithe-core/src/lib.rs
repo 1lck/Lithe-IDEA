@@ -71,3 +71,6 @@ pub fn execute_json_with_events(
 pub fn git_askpass_main(prompt: &str) -> i32 {
     lithe_git_host::authentication::helper_main(prompt)
 }
+
+/// Shared classification for ordinary project watcher events after root resolution.
+pub use project::is_workspace_event_relevant;

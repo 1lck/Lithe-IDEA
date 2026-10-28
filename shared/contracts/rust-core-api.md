@@ -952,6 +952,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `editor.lineEdit` | Apply a deterministic line-level text transform and return the replacement plus selection to restore |
 | `editor.lineCommentToken` | Resolve the line comment token for a file extension or language id |
 | `workspace.snapshot` | Enumerate visible workspace nodes and relative file paths; `nestedWorktrees` lists linked worktrees checked out inside their own repository, which are left out of the tree, files, and search index ; `includeTree: false` returns only `files` and a childless `root`; `files` (and the tree, when included) keep the lowercase traversal order that bounded consumers such as Windows Quick Open rely on, not the natural display order of `workspace.listDirectories` |
+| `workspace.filterChanges` | Filter an array of workspace-relative paths against Core's default build/cache exclusions; preserve order, spelling, and the empty root path. Native event loss bypasses filtering. Hosts relativize to the most specific explicit watch root and retain explicitly watched files. |
 | `workspace.listDirectories` | Return one visible level of children for each requested workspace-relative directory (`""` is the root); missing, hidden, symlinked, or nested-worktree paths are omitted, and each listing reports the nested worktrees it left out. Child directories have `children: []` only when a shallow probe proves them visibly empty; otherwise children remain omitted (unloaded), with no recursive tree allocation. Children list directories first, then names in IDEA's natural file-name order (digit runs compare by value, case-insensitive, `-` next to `_`; fixture `shared/fixtures/workspace/file-name-order-v1.json`) |
 | `workspace.repositories` | Discover deterministic Git repository roots for an opened workspace |
 | `workspace.search` | Search visible file names and UTF-8 text files |
@@ -968,6 +969,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `history.delete` | Delete one history entry and its snapshot |
 | `maven.scan` | Parse a Maven project descriptor and recursively return modules/profiles |
 | `maven.launchPlan` | Produce a deterministic Maven invocation from a versioned project context |
+| `execution.resolveEnvironment` | Merge native `inherited` string values, selected `javaHome`/`mavenJavaHome` for the current `toolchain`, and `overrides` into `{ environment }`. `caseInsensitive: true` canonicalizes Windows keys to uppercase. Maven uses Maven JDK with project-JDK fallback; Java uses project JDK. String overrides win; structured `{ toolchain, property: "home" }` bindings use the current step's home for JAVA_HOME, and the named toolchain for other variables. Unknown bindings are omitted. |
 | `execution.planLaunchCommand` | Move oversized Java path-list options into a JDK argument file |
 | `processLifecycle.resolve` | Decide how each process or resource of one Lithe instance ends |
 | `processLifecycle.inventory` | Group a process snapshot of one Lithe instance into terminals, Agent tasks and background services |
@@ -3053,6 +3055,18 @@ the sources of generated Java entries by content (`sha256:<hex>` in
 editing a class body is not a staleness. When the stored inputs no longer
 reproduce the stored fingerprint, the document came from another generator
 revision and the diagnostic says so instead of listing modified files.
+Automatic run discovery, fingerprint traversal, Node manifest discovery and the
+Windows Java source list use Core's shared scan policy. Known caches/build outputs
+are pruned before descending; other hidden source directories remain visible and
+symlinks are not followed. Failure to read the workspace root is an error. An
+unreadable optional child or fingerprint input is recorded in
+`generator.unreadablePaths`; generation retains previous configurations and input
+hashes beneath those unknown paths. Inspection returns `incompleteProjectScan`
+instead of claiming fingerprint freshness or inferred removals when either the
+current scan or saved baseline is incomplete. The persisted diagnostic also appears
+with `checkFingerprint: false`; a successful complete regeneration clears it.
+This does not replace declared build-system modules or JDT's entrypoint facts.
+
 `runConfig.inspect` also accepts optional schema-versioned `javaEntrypoints`
 from the current `lsp.request` result, independent of `checkFingerprint`. Core
 then compares JDT's `(sourcePath, mainClass)` pairs, with a `module/` prefix

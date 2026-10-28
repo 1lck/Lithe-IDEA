@@ -9440,7 +9440,9 @@
     "debugger.step.intoInstruction": "按指令单步进入",
     "debugger.disassembly.stepsByLine": "该适配器不支持按指令单步，单步仍按源码行前进",
     "plugins.java.installNotice": "Java Support 现已独立安装。请从插件市场安装，或使用“从磁盘安装”导入离线包。原有 Java 设置会保留。",
-    "plugins.java.installTemplates": "安装 Java Support，获取 Java、Maven 和 Spring 项目模板…"
+    "plugins.java.installTemplates": "安装 Java Support，获取 Java、Maven 和 Spring 项目模板…",
+    "run.incompleteProjectScanTitle": "项目扫描不完整",
+    "run.incompleteProjectScanMessage": "部分项目目录无法读取，已有运行配置已保留。请恢复访问权限后重新识别运行配置。"
   },
   "overrides": {
     "macos": {
