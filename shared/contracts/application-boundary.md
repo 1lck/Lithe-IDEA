@@ -582,6 +582,20 @@ log stream. Changing repositories or references and closing the history view
 cancels the owning `operationID` and closes any retained cursor; a late result
 cannot replace the active selection and its returned cursor is also closed.
 
+Launch environment precedence and automatic run scanning are Rust Core policy.
+Platform adapters discover executable/home paths and provide the native parent
+environment; `execution.resolveEnvironment` applies inherited < selected current
+step toolchain < explicit user values. A Maven resource step uses its Maven JVM,
+while the subsequent Java process uses the project JVM. Automatic scan exclusions,
+partial-snapshot retention and diagnostics share one implementation; unreadable
+optional subtrees must not erase previously discovered configurations.
+
+Ordinary workspace events use Core's `workspace.filterChanges` policy before a
+host applies event-count recovery thresholds. Native lost-event/error flags always
+request recovery. Hosts retain native watch registration, Git/document channels,
+explicit watches and platform-specific lifecycle; the shared filter must not
+replace those channels or swallow real source changes mixed with build output.
+
 Run configuration behavior is exposed through the `runConfig.*` commands.
 Platform clients coordinate inspection, generation, resolution, typed document
 edits, and launch planning, but must not implement a second JSON merger,

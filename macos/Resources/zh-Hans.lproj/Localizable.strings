@@ -2754,6 +2754,7 @@
 "Project run configuration is invalid" = "项目运行配置无效";
 "Project run configuration not found" = "未找到项目运行配置";
 "Project runtime settings are saved locally for this project." = "项目运行时设置会保存在本机的项目配置中。";
+"Project scan is incomplete" = "项目扫描不完整";
 "Project skills" = "项目技能";
 "Project toolchain needs attention" = "项目工具链需要处理";
 "Project will be created in: %@" = "项目将在以下位置创建：%@";
@@ -3488,6 +3489,7 @@
 "Solidity Support" = "Solidity 支持";
 "Some MCP configuration files could not be restored: %@. Refresh and check these files before retrying." = "部分 MCP 配置文件未能恢复：%@。请刷新并检查这些文件后重试。";
 "Some dependencies are not shown." = "部分依赖未显示。";
+"Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations." = "部分项目目录无法读取，已有运行配置已保留。请恢复访问权限后重新识别运行配置。";
 "Sort by Last Updated" = "按最近更新排序";
 "Sort by Name" = "按名称排序";
 "Sort plugins" = "插件排序";
@@ -8985,6 +8987,8 @@
 "results" = "个结果";
 "revert" = "反向提交";
 "run configuration" = "运行配置";
+"run.incompleteProjectScanMessage" = "部分项目目录无法读取，已有运行配置已保留。请恢复访问权限后重新识别运行配置。";
+"run.incompleteProjectScanTitle" = "项目扫描不完整";
 "running for %@" = "已运行 %@";
 "scope managed from %@" = "依赖管理前 scope 为 %@";
 "scope not updated to %@" = "未提升为 %@ scope";

@@ -1,0 +1,25 @@
+{
+  "paths": [
+    "",
+    "src/Main.java",
+    "target/classes/Main.class",
+    "TARGET/classes/Main.class",
+    "module/build/generated.java",
+    ".gradle/cache.bin",
+    "src/targeted/Main.java",
+    ".sources/Main.java",
+    ".lithe/run/generated.json",
+    "pom.xml",
+    "module/target/X.class",
+    "module/src/main/resources/application.yml"
+  ],
+  "expected": [
+    "",
+    "src/Main.java",
+    "src/targeted/Main.java",
+    ".sources/Main.java",
+    ".lithe/run/generated.json",
+    "pom.xml",
+    "module/src/main/resources/application.yml"
+  ]
+}
