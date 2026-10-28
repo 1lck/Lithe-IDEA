@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import LitheApplicationKernel
 import LitheCoreContracts
@@ -5,6 +6,8 @@ import LitheModuleAPI
 
 @MainActor
 final class MacPluginManager: PluginManaging {
+    private let mutations = PassthroughSubject<Void, Never>()
+    var changes: AnyPublisher<Void, Never> { mutations.eraseToAnyPublisher() }
     private let packageStore: MacPluginPackageStore
     private let moduleRuntime: ModuleRuntime
     private let configurationStore: MacModuleConfigurationStore
@@ -135,6 +138,7 @@ final class MacPluginManager: PluginManaging {
     }
 
     func setEnabled(_ enabled: Bool, for pluginID: PluginID) async throws {
+        defer { mutations.send() }
         guard let manifest = manifest(for: pluginID) else {
             throw PluginManagerError.unknownPlugin(pluginID)
         }
@@ -242,6 +246,7 @@ final class MacPluginManager: PluginManaging {
     }
 
     func rollback(_ pluginID: PluginID) throws {
+        defer { mutations.send() }
         // The version being restored is only known once it is read, so a live
         // plugin rolls back in place and the result decides about a restart.
         let wasLive = livePlugins?.snapshot.entries[pluginID] != nil
@@ -255,6 +260,7 @@ final class MacPluginManager: PluginManaging {
     }
 
     func uninstall(_ pluginID: PluginID) async throws {
+        defer { mutations.send() }
         guard let installed = installedPlugins[pluginID] else {
             guard issues.contains(where: { $0.pluginID == pluginID }) else {
                 throw PluginManagerError.unknownPlugin(pluginID)
@@ -328,6 +334,7 @@ final class MacPluginManager: PluginManaging {
     }
 
     func restore(_ pluginID: PluginID) throws {
+        defer { mutations.send() }
         guard let installed = installedPlugins[pluginID],
               installed.installation.status == .removed else {
             throw PluginManagerError.unknownPlugin(pluginID)
@@ -579,6 +586,7 @@ final class MacPluginManager: PluginManaging {
         for pluginID: PluginID,
         layer: PluginSettingLayer
     ) throws {
+        defer { mutations.send() }
         guard let declaration = installedPlugins[pluginID]?.descriptor.settings.first(where: { $0.id == settingID })
         else { throw PluginManagerError.unknownSetting(pluginID, settingID) }
         if let value, !declaration.accepts(value) {

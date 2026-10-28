@@ -62,6 +62,7 @@ macOS 设置窗口现在可以由插件“注册”页面：插件在 `plugin.js
 | `immediate` | 让 Core 展开 `workspaceConfiguration`，用 `lsp.updateWorkspaceConfiguration` 推给该插件正在运行的服务器；清单校验会拒绝没有被任何 `workspaceConfiguration` 引用的 immediate 设置。连续编辑时，已被新值淘汰的旧发送静默结束，只有真实发送失败才提示重启。 |
 | `reload` | 重新加载该插件的构建模型 |
 | `nextRun` | 不做任何事，下次运行或构建读取 |
+| `editorNavigation`（settings 3） | 按插件语言立即注册或释放定义跳转手势、动作和提示；不写语言服务器配置，不重启共享服务 |
 
 为了保证“立即生效”真的不需要新进程，Core 在校验时拒绝把 `immediate` 设置用在命令行参数或 `initializationOptions` 里。
 
@@ -99,7 +100,7 @@ configuredExecutable。新插件必须用第五种候选和新能力；既有发
 
 ### 6. 宿主能力版本
 
-macOS 的 `hostCapabilities` 声明 `settings: [1, 2]`、`languageServers: [1, 2]` 和 `buildSystems: [1, 2]`。Windows 还没有这些界面和推送，所以仍只声明 1，需要 v2 的插件在 Windows 上会被市场隐藏，而不是装上后行为不完整。
+macOS 的 `hostCapabilities` 声明 `settings: [1, 2, 3]`、`languageServers: [1, 2]` 和 `buildSystems: [1, 2]`。Windows 还没有这些界面和推送，所以仍只声明 1，需要 settings v2/v3 的插件在 Windows 上会被市场隐藏，而不是装上后行为不完整。
 
 ### 7. 路径选择按钮保留完整宽度
 
@@ -182,3 +183,17 @@ Swift 和 Windows 各写一遍合并规则最直接，但两边一旦有细微�
 - `macos/Sources/Lithe/Views/Components/LitheSettingsControls.swift`
 - `macos/Sources/Lithe/Views/App/ContributedSettingsPageView.swift`
 - `shared/contracts/plugins/v1/README.md`
+
+
+### Java Support 的定义跳转开关
+
+Java Support 通过 settings 3 声明全局布尔设置 `classMethodNavigation`，默认关闭，归入 Java 页面；
+插件详情和语言设置页读取同一个插件存储值。宿主只识别通用 effect 和语言，不硬编码 Java 插件 ID。
+清单必须引用自身提供的语言服务器，每种语言只能声明一次，不能把此值作为服务启动参数。
+
+插件管理器在设置、启用、卸载等变更后通知项目窗口。窗口重新解析可用贡献，仅为允许的语言接入编辑器；
+关闭或禁用插件会清理手势、动作、指针和悬停，拒绝旧结果，但不关闭标签或分屏。
+仍在共享服务中的请求按原有完成或超时生命周期结束。已有诊断、补全、用法和继承标记不归此开关。
+
+不能仅把编辑器全局布尔开关搬到插件页面：这会留下第二份配置源，也无法随插件禁用撤销能力。
+Windows 暂不宣告 settings 3，避免把不执行资源约束的宿主误报为兼容。

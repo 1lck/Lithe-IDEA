@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 @testable import Lithe
 import LitheApplicationKernel
@@ -9,6 +10,48 @@ import Testing
 /// the plugin page presents them, and which values the host will store.
 @MainActor
 struct PluginSettingsTests {
+    @Test
+    func pluginNavigationChangesArePublishedAndDisablementWithdrawsContribution() async throws {
+        let settings = InMemoryPluginSettings()
+        let manager = try makeManager(settings: settings, fixture: "editor-navigation.plugin.json", enabled: true)
+        let id = PluginID("dev.lithe.fixture.editor-navigation")
+        var changes = 0
+        let subscription = manager.changes.sink { changes += 1 }
+        defer { subscription.cancel() }
+        #expect(PluginSettingsRegistry.definitionNavigationLanguages(in: manager.snapshots).isEmpty)
+        try manager.setSetting(.bool(true), id: "navigation", for: id)
+        #expect(changes == 1)
+        let enabled = try #require(manager.snapshots.first { $0.id == id })
+        #expect(enabled.isEnabled)
+        #expect(!enabled.requiresRestart)
+        #expect(enabled.settings.first?.value == .bool(true))
+        #expect(PluginSettingsRegistry.definitionNavigationLanguages(in: manager.snapshots) == ["fixture"])
+        try manager.setSetting(.bool(false), id: "navigation", for: id)
+        #expect(PluginSettingsRegistry.definitionNavigationLanguages(in: manager.snapshots).isEmpty)
+        try manager.setSetting(.bool(true), id: "navigation", for: id)
+        try await manager.setEnabled(false, for: id)
+        #expect(PluginSettingsRegistry.definitionNavigationLanguages(in: manager.snapshots).isEmpty)
+        #expect(changes == 4)
+    }
+
+    @Test
+    func javaNavigationIsPluginOwnedOptInAndPersistsWithoutChangingOtherSettings() throws {
+        let descriptor = try DeclarativePluginTestSupport.officialDescriptor("JavaSupport")
+        let navigation = try #require(descriptor.settings.first { $0.effect == .editorNavigation })
+        #expect(navigation.defaultValue == .bool(false))
+        #expect(navigation.page == .language("java"))
+        #expect(navigation.scope == .global)
+        let preferences = SettingsKeyValueStore()
+        let store = MacPluginSettingsStore(store: preferences)
+        let plugin = descriptor.id.rawValue
+        store.setValue(.integer(4096), forSetting: "heapMaxMB", plugin: plugin)
+        store.setValue(.bool(true), forSetting: navigation.id, plugin: plugin)
+        #expect(MacPluginSettingsStore(store: preferences).values(forPlugin: plugin)[navigation.id] == .bool(true))
+        store.setValue(nil, forSetting: navigation.id, plugin: plugin)
+        #expect(PluginSettingState.resolve(navigation, global: store.values(forPlugin: plugin)[navigation.id], project: nil).value == .bool(false))
+        #expect(store.values(forPlugin: plugin)["heapMaxMB"] == .integer(4096))
+    }
+
     @Test
     func valuesAreKeptPerPluginAndAnEmptyRecordLeavesNothingBehind() {
         let preferences = SettingsKeyValueStore()
@@ -104,7 +147,7 @@ struct PluginSettingsTests {
     func theJavaPluginOffersMaximumMemoryAndLogLevelWithTheCurrentBehaviorAsDefault() throws {
         let descriptor = try DeclarativePluginTestSupport.officialDescriptor("JavaSupport")
 
-        #expect(descriptor.settings.map(\.id) == ["heapMaxMB", "logLevel"])
+        #expect(descriptor.settings.map(\.id) == ["classMethodNavigation", "heapMaxMB", "logLevel"])
         let heap = try #require(descriptor.settings.first { $0.id == "heapMaxMB" })
         // The language server starts with a 2 GB heap and full logging. A smaller
         // heap makes JDT LS import Maven modules in its constrained-memory mode,
@@ -373,6 +416,7 @@ struct PluginSettingsTests {
     private func makeManager(
         settings: any PluginSettingsStoring,
         fixture: String = "node-runtime.plugin.json",
+        enabled: Bool = false,
         packageURL: URL = FileManager.default.temporaryDirectory
     ) throws -> MacPluginManager {
         let descriptor = try DeclarativePluginTestSupport.operations.validate(
@@ -389,6 +433,9 @@ struct PluginSettingsTests {
             packageURL: packageURL
         )
         let configuration = MacModuleConfigurationStore(store: SettingsKeyValueStore())
+        if enabled {
+            for module in descriptor.pluginManifest.modules { configuration.setEnabledState(true, for: module.manifest.id) }
+        }
         return MacPluginManager(
             packageStore: MacPluginPackageStore(
                 rootURL: FileManager.default.temporaryDirectory

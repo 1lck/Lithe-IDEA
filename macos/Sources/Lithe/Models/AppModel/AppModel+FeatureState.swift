@@ -360,7 +360,7 @@ extension AppModel {
         case "navigate-forward":
             canNavigateForward
         case "go-to-definition":
-            settings.classMethodNavigationEnabled && (
+            activeDocument.map { isDefinitionNavigationEnabled(for: $0.url) } == true && (
                 activeDocument.map { springFeature.handles($0.url) || mybatisFeature.handles($0.url) } == true
                     || supportsLanguageServerFeature(.definition)
             )

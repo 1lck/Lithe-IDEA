@@ -50,6 +50,8 @@ extension AppModel {
     ) -> PluginSettingApplication {
         let running = languageToolingSessionsIfActive?.runningLanguageIDs(ofPlugin: pluginID.rawValue) ?? []
         switch effect {
+        case .editorNavigation:
+            return .applied
         case .immediate:
             guard let sessions = languageToolingSessionsIfActive else { return .applied }
             let updates = running.compactMap { languageID -> (String, ToolingJSONValue)? in
@@ -145,5 +147,21 @@ extension AppModel {
                     : self.platformUI.chooseFile(title: title, prompt: title)
             }
         )
+    }
+}
+
+
+extension AppModel {
+    /// Plugin declarations own opt-in; the editor only implements the generic gesture.
+    func refreshPluginEditorNavigation() {
+        let enabled = PluginSettingsRegistry.definitionNavigationLanguages(in: pluginSnapshots)
+        guard enabled != definitionNavigationLanguages else { return }
+        if !definitionNavigationLanguages.subtracting(enabled).isEmpty { closeLanguageNavigationResults() }
+        definitionNavigationLanguages = enabled
+    }
+
+    func isDefinitionNavigationEnabled(for url: URL) -> Bool {
+        guard let provider = languageProviderCatalog.provider(for: url) else { return false }
+        return definitionNavigationLanguages.contains(provider.languageIdentifier(for: url))
     }
 }

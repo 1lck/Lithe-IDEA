@@ -885,8 +885,9 @@ Java TextMate 的 `punctuation.definition.comment` 是注释边界，不是普�
 
 ### 定义跳转按需启用（macOS）
 
-编辑器设置提供默认关闭的“启用类和方法跳转（Command＋点击 / F12）”。这是 Lithe 自己拥有的全局偏好，
-不是 JDTLS 原生配置；语义解析仍交给当前语言插件，宿主不新增 Java 符号索引。既有用法、继承标记、
+Java Support 插件清单提供默认关闭的“启用类和方法跳转（Command＋点击 / F12）”，通过 settings 3 的
+editorNavigation 声明将设置、默认值及语言归属一起交给插件。唯一值源是现有插件设置存储；编辑器全局
+开关已删除。语义解析仍交给插件中的 JDTLS，宿主只实现声明触发的通用手势，不新增 Java 符号索引。既有用法、继承标记、
 诊断、补全与普通文档悬停属于独立能力，不随此开关停服，也不把共享语言进程的内存承诺为零。
 
 启用时为每个编辑视图创建 Monaco DisposableStore（上游提供的资源集合）；关闭时释放整个集合中的手势、
@@ -899,4 +900,4 @@ Java TextMate 的 `punctuation.definition.comment` 是注释边界，不是普�
 因此这里保证的是关闭后不再开展跳转专属活动，而非关闭瞬间进程 RSS 必须下降或所有在途请求物理中断。
 
 验证：真实 WebKit 测试控制慢请求返回顺序，覆盖关闭、重开、旧回复、重复开关无重复点击和现存/新建分屏；
-AppSettingsTests 验证默认关闭、持久化与恢复默认值，AppModelSettingsChangesTests 验证关闭面板和旧操作失效。
+PluginSettingsTests 验证插件声明、默认关闭、持久化、通知和禁用撤销；AppModelSettingsChangesTests 验证关闭面板和旧操作失效。

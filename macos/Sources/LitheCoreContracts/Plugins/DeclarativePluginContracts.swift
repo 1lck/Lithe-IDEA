@@ -210,6 +210,8 @@ public struct DeclarativePluginSetting: Equatable, Identifiable, Sendable {
         case reload
         /// The next run, test, or build uses it.
         case nextRun
+        /// Registers or disposes host editor navigation for the plugin language.
+        case editorNavigation
     }
 
     /// The generated settings page that shows the declaration. Without one it

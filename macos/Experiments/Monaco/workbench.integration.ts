@@ -41,7 +41,7 @@ async function verify() {
   await ready;
   const initialEditor = monacoEditor.getEditors()[0];
   assert(!initialEditor.getAction("lithe.goToDefinition"), "definition navigation was registered while default-off");
-  window.lithe.configure({ classMethodNavigationEnabled: true, dark: true, fontFamily: "monospace", fontSize: 13, wrap: false });
+  window.lithe.configure({ definitionNavigationLanguages: ["java"], dark: true, fontFamily: "monospace", fontSize: 13, wrap: false });
   const cases: { name: string; durationMs: number }[] = [];
   async function check(name: string, operation: () => Promise<void>) {
     await send({ type: "progress", name });
@@ -1940,7 +1940,7 @@ async function verify() {
     await send({ type: "open", id, text });
     await window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", readonly: false });
     const input = editor as any, root = editor.getDomNode()!, model = editor.getModel()!;
-    const configure = (enabled: boolean) => window.lithe.configure({ classMethodNavigationEnabled: enabled,
+    const configure = (enabled: boolean) => window.lithe.configure({ definitionNavigationLanguages: enabled ? ["java"] : [],
       dark: false, fontFamily: "monospace", fontSize: 13, wrap: false });
     const target = { type: monacoEditor.MouseTargetType.CONTENT_TEXT, position: new Position(1, 9),
       range: new Range(1, 9, 1, 10), detail: {} };
@@ -1982,7 +1982,7 @@ async function verify() {
     const container = document.createElement("div");
     container.style.cssText = "position:absolute;left:50%;top:0;width:50%;height:100%";
     document.body.append(container);
-    const configure = (enabled: boolean) => window.lithe.configure({ classMethodNavigationEnabled: enabled,
+    const configure = (enabled: boolean) => window.lithe.configure({ definitionNavigationLanguages: enabled ? ["java"] : [],
       dark: false, fontFamily: "monospace", fontSize: 13, wrap: false });
     try {
       await send({ type: "open", id, text });
@@ -1996,6 +1996,10 @@ async function verify() {
       assert(monacoEditor.getEditors().every(view => !view.getAction("lithe.goToDefinition")), "new split registered disabled navigation");
       configure(true);
       assert(monacoEditor.getEditors().every(view => view.getAction("lithe.goToDefinition")), "re-enable missed a split");
+      monacoEditor.setModelLanguage(editor.getModel()!, "plaintext");
+      assert(monacoEditor.getEditors().every(view => !view.getAction("lithe.goToDefinition")), "navigation leaked into a language not contributed by the plugin");
+      monacoEditor.setModelLanguage(editor.getModel()!, "java");
+      assert(monacoEditor.getEditors().every(view => view.getAction("lithe.goToDefinition")), "restoring the plugin language did not restore navigation");
     } finally {
       window.lithe.detachSurface("toggle-split"); container.remove();
       configure(true); await window.lithe.retain([]);

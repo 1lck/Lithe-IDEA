@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import LitheCoreContracts
 import LitheModuleAPI
@@ -264,6 +265,7 @@ struct PluginCapability: Equatable, Sendable, Identifiable {
 }
 
 extension PluginManaging {
+    var changes: AnyPublisher<Void, Never> { Empty().eraseToAnyPublisher() }
     func setSetting(
         _ value: ToolingJSONValue?,
         id settingID: String,
@@ -289,6 +291,7 @@ extension PluginManaging {
 
 @MainActor
 protocol PluginManaging: AnyObject {
+    var changes: AnyPublisher<Void, Never> { get }
     var snapshots: [PluginManagementSnapshot] { get }
     var issues: [PluginManagementIssue] { get }
 

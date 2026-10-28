@@ -143,7 +143,7 @@ export function mountWorkbench(host: WorkbenchHost) {
   }
   let updating = false;
   let failed = false;
-  let classMethodNavigationEnabled = false;
+  let definitionNavigationLanguages = new Set<string>();
   const definitionNavigation = new Map<monaco.editor.IStandaloneCodeEditor, DisposableStore>();
   let activation: Promise<unknown> = Promise.resolve();
   let textmate: Awaited<ReturnType<typeof installJavaTextMate>>;
@@ -616,6 +616,11 @@ export function mountWorkbench(host: WorkbenchHost) {
     node.addEventListener("paste", paste, true);
     view.onDidDispose(() => node.removeEventListener("paste", paste, true));
   }
+  function syncDefinitionNavigation(view: monaco.editor.IStandaloneCodeEditor) {
+    const enabled = definitionNavigationLanguages.has(view.getModel()?.getLanguageId() ?? "");
+    if (enabled && !definitionNavigation.has(view)) definitionNavigation.set(view, attachDefinitionNavigation(view));
+    if (!enabled) { definitionNavigation.get(view)?.dispose(); definitionNavigation.delete(view); }
+  }
   function attachDefinitionNavigation(view: monaco.editor.IStandaloneCodeEditor) {
     const lifetime = new DisposableStore();
     const isCodePosition = (position: monaco.IPosition | null) => {
@@ -852,7 +857,9 @@ export function mountWorkbench(host: WorkbenchHost) {
     }
     attachGitInteractions(view);
     attachImagePaste(view);
-    if (classMethodNavigationEnabled) definitionNavigation.set(view, attachDefinitionNavigation(view));
+    syncDefinitionNavigation(view);
+    view.onDidChangeModel(() => syncDefinitionNavigation(view));
+    view.onDidChangeModelLanguage(() => syncDefinitionNavigation(view));
     view.onDidDispose(() => { definitionNavigation.get(view)?.dispose(); definitionNavigation.delete(view); });
     attachRunInteractions(view);
     debugRunContexts.set(view, view.createContextKey("litheCanRunToCursor", false));
@@ -1168,11 +1175,9 @@ export function mountWorkbench(host: WorkbenchHost) {
       } finally { updating = false; }
     },
     configure(payload: any) {
-      if (typeof payload.classMethodNavigationEnabled === "boolean" && payload.classMethodNavigationEnabled !== classMethodNavigationEnabled) {
-        classMethodNavigationEnabled = payload.classMethodNavigationEnabled;
-        for (const lifetime of definitionNavigation.values()) lifetime.dispose();
-        definitionNavigation.clear();
-        if (classMethodNavigationEnabled) for (const view of allEditors()) definitionNavigation.set(view, attachDefinitionNavigation(view));
+      if (Array.isArray(payload.definitionNavigationLanguages)) {
+        definitionNavigationLanguages = new Set(payload.definitionNavigationLanguages);
+        for (const view of allEditors()) syncDefinitionNavigation(view);
       }
       const theme = payload.theme as WorkbenchThemeInput | undefined;
       const name = theme ? defineWorkbenchTheme(theme, host.palette)

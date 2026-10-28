@@ -13,7 +13,7 @@ import LitheModuleAPI
 @MainActor
 extension AppModel {
     func goToDefinition() {
-        guard settings.classMethodNavigationEnabled else { return }
+        guard let fileURL = focusedEditorDocument?.url, isDefinitionNavigationEnabled(for: fileURL) else { return }
         if let document = focusedEditorDocument, let caret = editorCaret,
            caret.url.standardizedFileURL == document.url.standardizedFileURL {
             let productLocations = productNavigationLocations(
@@ -64,7 +64,7 @@ extension AppModel {
         for document: EditorDocument, line: Int, utf16Column: Int,
         completion: @escaping (Result<Bool, Error>) -> Void
     ) {
-        guard settings.classMethodNavigationEnabled, documentFeature.editorDocuments.contains(where: { $0 === document }) else {
+        guard isDefinitionNavigationEnabled(for: document.url), documentFeature.editorDocuments.contains(where: { $0 === document }) else {
             completion(.success(false)); return
         }
         if !productNavigationLocations(for: document.url, line: line, utf16Column: utf16Column).isEmpty {
@@ -83,7 +83,7 @@ extension AppModel {
     }
 
     func navigateToSymbol(line: Int, utf16Column: Int, in fileURL: URL) {
-        guard settings.classMethodNavigationEnabled else { return }
+        guard isDefinitionNavigationEnabled(for: fileURL) else { return }
         let normalizedURL = fileURL.standardizedFileURL
         editorCaret = EditorCaret(
             url: normalizedURL,

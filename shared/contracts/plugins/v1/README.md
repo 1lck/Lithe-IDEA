@@ -404,7 +404,7 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 | `languageServers` | `languageServers[]` apart from their launch fields | `1`, `2` (adds [`workspaceConfiguration`](#workspace-configuration-languageservers-2)) |
 | `serverProcess` | The launch fields of language servers, of build providers with a process of their own, of VCS providers, and of the plugin backend: `launch`, `arguments`, `validationArguments`, `runtimeDependencies`, `initializationOptions` | `1` |
 | `executionProviders` | `executionProviders[]` | `1` |
-| `settings` | `settings[]` and `settingActions[]` | `1`, `2` (adds [placement, scope, effect, page buttons](#settings-v2-placement-scope-effect-and-page-buttons)) |
+| `settings` | `settings[]` and `settingActions[]` | `1`, `2` (adds [placement, scope, effect, page buttons](#settings-v2-placement-scope-effect-and-page-buttons)), `3` (adds editor navigation opt-in) |
 | `ui` | `ui` | `1`, `2` (adds [web content](#web-content-ui-2)) |
 | `buildSystems` | Declarative build detection, models, and command plans | `1` |
 | `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers; v2 tasks, v3 tests, v4 run, v5 native debug preparation, v6 read-only model inputs | `1`, `2`, `3`, `4`, `5`, `6` |
@@ -2434,3 +2434,25 @@ Schema 1 loads the complete node set on refresh. Forms, lazy child data sources,
 multi-instance selectors, global function commands, native renderer factories
 and Windows rendering remain follow-up work under #1209; this subset does not
 claim completion of that whole issue.
+
+
+### Settings v3: plugin-owned editor navigation
+
+`requires.settings: 3` adds `effect: "editorNavigation"`. It is a global boolean
+with `page.languageID` naming a language server owned by this plugin. At most one
+such setting may be declared per language. Its value controls definition hover,
+modifier-click, and definition commands immediately; it is not server configuration
+and cannot be substituted into server launch arguments. Java Support declares the
+setting with a default of `false`.
+
+Hosts register editor navigation only for enabled, usable plugin contributions with
+the setting enabled, and remove gesture listeners, actions, decorations and pending
+hints on opt-out or plugin disablement. Existing editor tabs/splits stay open.
+Late replies cannot restore a disposed contribution. Shared language services and
+independent completion, diagnostics, usages and hierarchy features remain available.
+Existing in-flight server requests retain their bounded completion/timeout lifecycle;
+turning off editor navigation must not terminate a shared language server.
+
+macOS advertises settings 3. Hosts without that capability must reject the package,
+not silently ignore the resource-control setting. The settings declaration and
+stored plugin value are the only source of truth; no parallel global editor toggle.
