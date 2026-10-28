@@ -271,12 +271,12 @@ class SettingsFunctionsHelperTests(unittest.TestCase):
             (args.run_image / "shutdown-write").write_bytes(b"forbidden")
             raise RuntimeError("native graceful quit failed")
         lane = acceptance.SettingsFunctionsAcceptance(driver, args, reporter, Mock(return_value=(page, Mock())), stop)
-        for name in ("install", "explicit_save", "two_windows", "reload", "lifecycle"):
+        for name in ("install", "public_search_clear", "explicit_save", "two_windows", "reload", "lifecycle"):
             setattr(lane, name, Mock())
         with patch.object(acceptance, "verify_host", return_value={}), contextlib.redirect_stdout(io.StringIO()):
             with self.assertRaisesRegex(AssertionError, "read-only resource mutation"):
                 lane.run()
-        self.assertEqual([row["status"] for row in reporter.tests], ["passed"] * 6 + ["failed", "failed"])
+        self.assertEqual([row["status"] for row in reporter.tests], ["passed"] * 7 + ["failed", "failed"])
         self.assertIn("native graceful quit failed", reporter.tests[-2]["details"])
         self.assertIn("shutdown-write", reporter.tests[-1]["details"])
 
@@ -291,7 +291,7 @@ class SettingsFunctionsHelperTests(unittest.TestCase):
         driver.run_bounded_process.return_value = SimpleNamespace(returncode=0, stdout="v22.0.0")
         stop = Mock(side_effect=RuntimeError("native graceful quit failed"))
         lane = acceptance.SettingsFunctionsAcceptance(driver, args, reporter, Mock(return_value=(page, Mock())), stop)
-        for name in ("install", "explicit_save", "two_windows", "reload", "lifecycle"):
+        for name in ("install", "public_search_clear", "explicit_save", "two_windows", "reload", "lifecycle"):
             setattr(lane, name, Mock())
         with patch.object(acceptance, "verify_host", return_value={}), contextlib.redirect_stdout(io.StringIO()):
             with self.assertRaisesRegex(AssertionError, "native shutdown did not complete"):
@@ -393,6 +393,50 @@ function setup() {
         acceptance.record_unreached_cases(reporter, self.plan)
         self.assertEqual(sum(row["name"] == name for row in reporter.tests), 1)
         self.assertEqual(reporter.tests[0]["status"], "failed")
+
+    def test_search_baseline_failure_saves_partial_evidence_and_disposes_input(self):
+        # Helper evidence covers failure/cleanup only, never keyboard acceptance.
+        args = SimpleNamespace(settings_functions_fixture_root=self.root, artifact_root=self.directory / "evidence")
+        driver, page = Mock(), Mock()
+        lane = acceptance.SettingsFunctionsAcceptance(driver, args, Mock(), Mock(), Mock())
+        lane.page = page
+        lane.details = Mock()
+        handle = page.locator.return_value.get_by_role.return_value.element_handle.return_value
+        handle.evaluate.return_value = {"value": "persisted stale filter"}
+        with self.assertRaisesRegex(AssertionError, "search baseline"):
+            lane.public_search_clear()
+        handle.dispose.assert_called_once_with()
+        page.keyboard.insert_text.assert_not_called()
+        page.keyboard.down.assert_not_called()
+        page.keyboard.up.assert_not_called()
+        path, evidence = driver.write_json.call_args.args
+        self.assertEqual(path.name, "public-search-clear-default-activation.json")
+        self.assertNotIn("passed", evidence)
+        self.assertEqual(evidence["snapshots"]["before"]["value"], "persisted stale filter")
+
+    def test_search_failure_is_registered_and_native_finally_cleanup_still_runs(self):
+        from acceptance_driver import Reporter
+        args = SimpleNamespace(settings_functions_fixture_root=self.root, artifact_root=self.directory / "evidence",
+                               run_image=self.directory / "image", app_local_data=self.directory / "app",
+                               settings_functions_host_identity=self.directory / "identity.json", executable=self.directory / "host.exe")
+        args.run_image.mkdir()
+        page, driver, reporter, stop = Mock(), Mock(), Reporter(), Mock()
+        driver.run_bounded_process.return_value = SimpleNamespace(returncode=0, stdout="v22.0.0")
+        page.evaluate.return_value = {"calls": [], "dropped": 0, "pending": 0, "originalInvokeRestored": True}
+        lane = acceptance.SettingsFunctionsAcceptance(driver, args, reporter, Mock(return_value=(page, Mock())), stop)
+        lane.install = Mock()
+        lane.public_search_clear = Mock(side_effect=AssertionError("browser default activation failed"))
+        lane.explicit_save = Mock()
+        with patch.object(acceptance, "verify_host", return_value={}), contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(AssertionError, "browser default activation failed"):
+                lane.run()
+        acceptance.record_unreached_cases(reporter, self.plan)
+        rows = [row for row in reporter.tests if row["name"] == "controlled-settings / public-search-clear-default-activation"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["status"], "failed")
+        lane.explicit_save.assert_not_called()
+        stop.assert_called_once_with()
+        self.assertTrue(any(".stop()" in call.args[0] for call in page.evaluate.call_args_list))
 
 
 def main() -> int:

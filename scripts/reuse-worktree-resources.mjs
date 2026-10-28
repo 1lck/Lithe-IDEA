@@ -390,6 +390,8 @@ async function main() {
       // and AutoBuild staging (including per-tag baselines and local/downloaded publication checkpoints), per-launch
       // Codex relays and isolated plugin packages take this rejection route, never a content-hash validator.
       // Identical bytes do not establish transferable execution ownership.
+      // Includes plugin-host-acceptance-state: fixed-source SVN diagnostic runtime,
+      // repo/WC/profiles and explicit evidence output stay run-owned, never reusable.
       // Includes application-log-state: logs, confirmation snapshots and export ZIP
       // staging belong to one runtime session; no validator or copy stage applies.
       // Includes test-jfr-recordings: worker-owned profiling output has no transferable build identity.

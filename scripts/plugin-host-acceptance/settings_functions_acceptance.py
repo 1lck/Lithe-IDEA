@@ -22,7 +22,7 @@ from build_fixture import ROOT, confined
 from settings_functions_fixture import DISPLAY_NAME, LOCK, PLUGIN_ID, load_plan, sha256
 
 SUITE = "plugin-host-acceptance / settings-functions"
-SETTINGS_CASES = ("trusted-install-review", "explicit-save-empty-reset-CAS", "two-window-isolation",
+SETTINGS_CASES = ("trusted-install-review", "public-search-clear-default-activation", "explicit-save-empty-reset-CAS", "two-window-isolation",
                   "project-reload-receipt", "global-reload", "upgrade-disable-uninstall", "observer-cleanup", "resource-invariance")
 FUNCTION_CASES = ("discovery-approval-result", "progress-cancel-plugin-error", "settings-and-web-production-entry",
                   "two-window-workspace-isolation", "reload-late-callback", "cleanup-failure-retry",
@@ -253,6 +253,89 @@ class SettingsFunctionsAcceptance:
         self.package_baselines[version] = before
         self.driver.write_json(self.evidence / f"{version}-package-before.json", before)
 
+    def public_search_clear(self):
+        # This is a real WebView2 workflow. DOM evaluation only observes state;
+        # the browser's input channel owns text and default button activation.
+        self.details(self.page)  # Explicitly select the installed fixture row.
+        content = self.page.locator("[data-settings-content='declarative-plugins']")
+        search = content.get_by_role("textbox", name="Search name or ID; / for filters", exact=True)
+        search.wait_for(state="visible", timeout=10_000)
+        handle = search.element_handle(timeout=10_000)
+        evidence = {"inputCommands": [], "snapshots": {}, "boundary":
+                    "Real WebView2/CDP browser input; not physical keyboard or IME. No synthetic events or activation click."}
+
+        def snapshot():
+            return handle.evaluate(r"""input => {
+              const content=input.closest('[data-settings-content]');
+              const rows=[...content.querySelectorAll('[data-testid="declarative-plugin-list"] [data-plugin-id]')];
+              const identity=row=>({pluginId:row.dataset.pluginId,source:row.dataset.pluginSource});
+              const active=document.activeElement;
+              return {value:input.value,connected:input.isConnected,activeIsSameInput:active===input,
+                activeElement:{tag:active?.tagName,label:active?.getAttribute('aria-label')},
+                rows:rows.map(identity),selected:rows.filter(row=>row.querySelector('[aria-pressed="true"]')).map(identity),
+                count:content.querySelector('[role="status"]')?.textContent,
+                clearButtons:content.querySelectorAll('button[aria-label="Clear search"]').length,
+                noMatches:content.textContent.includes('No plugins match these filters.'),
+                hiddenSelection:content.textContent.includes('The selected plugin is hidden by the current filters.'),
+                selectedDetails:[...content.querySelectorAll('section[aria-label], [role="region"]')].map(region=>region.getAttribute('aria-label'))};
+            }""")
+
+        def capture(name):
+            state = snapshot()
+            evidence["snapshots"][name] = state
+            return state
+
+        def input_command(method, value):
+            record = {"method": "page.keyboard." + method, "value": value, "completed": False}
+            evidence["inputCommands"].append(record)
+            getattr(self.page.keyboard, method)(value)
+            record["completed"] = True
+
+        try:
+            offset = self.page.evaluate("() => window.__litheSettingsAcceptance.calls.length")
+            search.focus(timeout=10_000)
+            before = capture("before")
+            if (before["value"] or not before["rows"] or before["clearButtons"]
+                    or before["selected"] != [{"pluginId": PLUGIN_ID, "source": "installed"}]
+                    or DISPLAY_NAME not in before["selectedDetails"]
+                    or before["count"] != f"Showing {len(before['rows'])} of {len(before['rows'])} plugins"):
+                raise AssertionError("search baseline must retain the explicitly selected installed row and unfiltered count")
+            for key, sentinel in (("Enter", "lithe-r17-no-match-enter-7d91"), ("Space", "lithe-r17-no-match-space-83b2")):
+                # The second insert deliberately uses the focus returned by Enter;
+                # no fill/focus between the restoration and this input is allowed.
+                input_command("insert_text", sentinel)
+                self.wait(lambda: snapshot()["value"] == sentinel and not snapshot()["rows"], f"{key} no-match filter")
+                filtered = capture(key + "-filtered")
+                if (not filtered["activeIsSameInput"] or not filtered["noMatches"] or not filtered["hiddenSelection"]
+                        or filtered["clearButtons"] != 1 or filtered["count"] != f"Showing 0 of {len(before['rows'])} plugins"
+                        or filtered["selectedDetails"] != before["selectedDetails"]):
+                    raise AssertionError("filter lost focus, no-match/count or hidden selection evidence")
+                clear = content.get_by_role("button", name="Clear search", exact=True)
+                clear.focus(timeout=10_000)
+                focused = capture(key + "-button-focused")
+                if focused["activeElement"] != {"tag": "BUTTON", "label": "Clear search"}:
+                    raise AssertionError("real clear button is not focused")
+                try:
+                    input_command("down", key)
+                finally:
+                    input_command("up", key)
+                self.wait(lambda: snapshot()["value"] == "" and snapshot()["clearButtons"] == 0, f"{key} browser default clear")
+                restored = capture(key + "-restored")
+                if (not restored["connected"] or not restored["activeIsSameInput"] or restored["noMatches"]
+                        or restored["hiddenSelection"] or any(restored[field] != before[field]
+                        for field in ("rows", "count", "selected", "selectedDetails"))):
+                    raise AssertionError(f"{key} did not restore rows/count/selection and focus to the same input")
+            calls = self.page.evaluate("offset => window.__litheSettingsAcceptance.calls.slice(offset)", offset)
+            evidence["observedCallsDuringSearch"] = calls
+            if calls:
+                raise AssertionError("local search unexpectedly sent declarative plugin IPC")
+            evidence["passed"] = True
+        finally:
+            try:
+                self.driver.write_json(self.evidence / "public-search-clear-default-activation.json", evidence)
+            finally:
+                handle.dispose()
+
     def explicit_save(self):
         before = self.snapshot(self.page, self.workspace)
         self.editor(self.page)
@@ -399,6 +482,8 @@ class SettingsFunctionsAcceptance:
                     "node": {"version": node_version.stdout.strip(), "executableSha256": sha256(node)},
                     "sdkExecuted": False})
                 self.install("1.0.0")
+            with self.step("public-search-clear-default-activation"):
+                self.public_search_clear()
             with self.step("explicit-save-empty-reset-CAS"):
                 self.explicit_save()
             with self.step("two-window-isolation"):

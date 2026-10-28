@@ -172,6 +172,8 @@ Windows 工具栏按 Core 批准的 15 个 host 图标 ID 显式映射到公共�
 
 Windows 搜索统一使用公共 `SearchField`。非空时的本地化清空按钮只把值交回调用者并恢复输入焦点；原生表单仅保存空草稿，按 Enter 后才提交包括空字符串在内的当前值。禁用或只读字段不能清空，说明按钮仍独立可用。尾部按钮的定位由公共 `Input` 的 accessory 接口负责，不在原生 renderer 复制输入框布局。组件键盘测试显式补发 Happy DOM 缺少的原生按钮默认 click，不代替真实 WebView2、输入法或主题验收。
 
+表单的 primary/normal 只选择公共 Button 的语义变体：primary 使用 accent，普通动作使用 default；渲染器不自定义颜色或重做按钮。真实 native-controls 夹具回归同时检查禁用、说明、草稿恢复与完整动作参数。已开放插件设置列表中的公共 SearchField 另有真实 WebView2/CDP Enter、Space 默认清空、同一输入焦点、过滤和选中恢复证据；这不等于原生 ui:3、物理键盘、输入法或主题视觉验收。
+
 ## 验证
 
 - `./scripts/verify-shared-contracts.sh`

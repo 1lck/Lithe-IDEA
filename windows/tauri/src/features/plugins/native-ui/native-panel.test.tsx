@@ -225,6 +225,73 @@ test("native disabled fields and actions keep their explanations operable", asyn
   }
 }, 3000);
 
+test("native-controls primary and normal actions retain public button variants and the restored draft", async () => {
+  const ui = controlsFixture.ui.toolWindows[0].native as unknown as NativeUI;
+  const store = new NativePanelStateStore();
+  const binding = nativeFunctionFixture(identity, ui);
+  const port = { validate, functions: binding.port };
+  const mounted = await mount(panel(ui, port, store));
+  const button = (id: string) => {
+    const declaration = ui.buttons!.find((entry) => entry.id === id)!;
+    return [...mounted.host.querySelectorAll<HTMLButtonElement>('button[data-slot="button"]')].find(
+      (element) => element.textContent === declaration.label,
+    )!;
+  };
+  try {
+    for (const id of ["primary-content", "primary-fill", "disabled-primary"])
+      expect(button(id).getAttribute("data-variant")).toBe("accent");
+    for (const id of ["secondary-content", "secondary-fill", "disabled-button"])
+      expect(button(id).getAttribute("data-variant")).toBe("default");
+
+    await act(async () => {
+      button("disabled-primary").click();
+      button("disabled-button").click();
+    });
+    expect(button("disabled-primary").disabled).toBe(true);
+    expect(button("disabled-button").disabled).toBe(true);
+    expect(binding.calls.filter((call) => !!call.actionId)).toHaveLength(0);
+
+    const name = ui.controls!.find((control) => control.id === "name")!;
+    await act(async () => {
+      inputValue(
+        mounted.host.querySelector<HTMLInputElement>(`input[aria-label="${name.label}"]`)!,
+        "草稿 😀",
+      );
+    });
+    await mounted.render(<div />);
+    await mounted.render(panel(ui, port, store));
+    for (const id of ["primary-content", "secondary-content"]) {
+      expect(button(id).disabled).toBe(false);
+      const before = binding.calls.filter((call) => !!call.actionId).length;
+      await act(async () => button(id).click());
+      const actions = binding.calls.filter((call) => !!call.actionId);
+      expect(actions).toHaveLength(before + 1);
+      expect(actions[actions.length - 1].actionId).toBe("changed");
+      expect(actions[actions.length - 1].context.values).toEqual(
+        Object.fromEntries(
+          ui.controls!.map((control) => [
+            control.id,
+            control.id === "name" ? "草稿 😀" : control.value,
+          ]),
+        ),
+      );
+    }
+
+    const normal = ui.buttons!.find((entry) => entry.id === "secondary-content")!;
+    const tip = mounted.host.querySelector<HTMLButtonElement>(
+      `button[aria-label="Information for ${normal.label}"]`,
+    )!;
+    expect(tip.disabled).toBe(false);
+    await act(async () => tip.click());
+    expect(document.querySelector('[role="dialog"]')?.textContent).toBe(normal.info!);
+    await act(async () => tip.click());
+  } finally {
+    await mounted.close();
+    await binding.close();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  }
+}, 3000);
+
 test("the real native-controls form renders shared controls and IME Enter commits all current fields once", async () => {
   const ui = controlsFixture.ui.toolWindows[0].native as unknown as NativeUI;
   const invocations: NativeCallContext[] = [];

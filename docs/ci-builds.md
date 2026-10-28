@@ -751,6 +751,8 @@ Windows 命令模型的 `<windows-app-local-data>/plugin-state/<plugin-id>/build
 按 `official-plugin-packages` 排除路由处理：由当前窗口、工作区代次和操作独占，确认后以
 `create_new` 创建，进程树清理完成后删除；清理失败时与原 owner 一起保留，崩溃遗留由插件状态/卸载流程回收。
 二者均无版本/平台/工具链复用身份，不跨工作树复制，不改变发行资源、签名或增量更新基线。
+显式 SVN move 诊断入口 `python -B scripts/plugin-host-acceptance/vcs_move_diagnostic.py --inputs <fixed-inputs.json> --output <new-evidence-directory>` 只接受固定 Provider、历史 SDK、已校验 VisualSVN ZIP/解压树和诊断 gate。它在 OS 临时目录创建 suite-owned runtime，以及每 case 独立的 repo/WC 和 profile；这些状态及显式 ignored 输出均走 `plugin-host-acceptance-state` 排除路由，不跨 worktree 复制。源码字节身份只证明本次诊断输入，不是可复用构建 stamp。Job 零成员证明成立后移除临时状态，保留诊断证据；清理未获证明时保留隔离目录并停止恢复读取，不承诺已清理。不写发行资源、不影响签名或 Sparkle delta。该入口不下载、不构建、不运行产品，不代表 move 准入。
+
 原生插件验收的 `.artifacts/plugin-host-acceptance/`（含市场 ZIP/索引、构建夹具的包、工具、工作区及 plan、`settings-functions-fixture*` 的包/工作区/身份 plan、设置与函数验收资源快照、隔离运行镜像和报告）及
 `app.lithe.windows.host-acceptance` 用户配置走 `plugin-host-acceptance-state` 排除路由：
 每次在目标工作树重新生成，无可复用 identity，不跨 worktree 复制；驱动回收监听器、进程和隔离用户数据，

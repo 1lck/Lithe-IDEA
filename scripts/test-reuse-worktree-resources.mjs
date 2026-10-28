@@ -299,6 +299,16 @@ try {
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /official-plugin-packages.*cannot be reused/);
   });
+  await test("explicit SVN diagnostic state remains excluded from worktree reuse", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "plugin-host-acceptance-state");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.includes("<explicit-vcs-move-diagnostic-output>/"));
+    assert.ok(resource.locations.some(location => location.startsWith("<os-temp>/vcs-move-")));
+    const refused = reuse(["--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /plugin-host-acceptance-state.*cannot be reused/);
+  });
   await test("native acceptance refuses copying even a deterministic marketplace fixture", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const resource = registry.excludedResources.find(item => item.id === "plugin-host-acceptance-state");

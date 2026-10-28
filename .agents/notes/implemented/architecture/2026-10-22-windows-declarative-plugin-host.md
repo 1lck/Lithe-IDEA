@@ -153,6 +153,8 @@ M1 包存储 + 启动校验 + 语言注册 + LSP 启动（已落地）；M2 磁�
 - 已知风险：签名延后意味着 v0 社区包信任完全依赖审批界面（M2），文案必须明示未认证状态；Windows 的 reparse point/junction 语义与 macOS symlink 不完全相同，包内路径逃逸判断已按 Windows 语义单独测试；WebView2 对自定义 scheme 与 CSP 的实现细节与 WKWebView 有差异，`ui:2` 网页链路已用 Windows Release/WebView2 实机验证，停靠、图标、动作状态及布局仍为 partial。
 - M2–M4 里程碑：磁盘/市场安装链路 + 管理界面；声明式设置 + 运行/测试计划 + PHP 契约包替换；Web 工具窗口。每个里程碑独立 PR，能力声明与矩阵条目随代码同 PR 更新。
 
+显式 SVN move 诊断通过 vcs_move_diagnostic.py 接收固定源码、SDK、SVN 和 gate 的绝对输入，先解析真实路径并拒绝输出与输入树重叠（含 junction 别名），再创建独立临时 runtime/repo/WC/profile。每个工作进程先归属 Windows Job 再释放启动，case/suite 有硬 deadline，退出核实零成员后才允许恢复快照；清理无证明时记录 unknown、隔离保留临时树，禁止继续 SVN 读取或删除。最终固定输入/runtime 字节变化或读取失败必须写入失败报告，不能仅让 CLI 非零却留下绿色 JUnit。离线回归验证这些边界，真实三例仅记录诊断匹配且 safetyPass 始终 false；不启用生产 move，不把 wrapper gate 当作 Provider 内部预检。临时状态及证据通过既有 plugin-host-acceptance-state 排除路由拒绝跨工作树复用。
+
 ## 验证
 
 - 设置作用域回归：`declarative-plugin-settings-editor.test.tsx` 使用真实生产控件验证继承、全局项锁定、空值、保存/取消、重置与冲突；`declarative-plugin-reload-project.test.ts` 使用真实模型服务验证保存凭据、审批、不可取消预检与可取消模型阶段、清理失败重试和同路径重开拒绝迟到结果。`build_tests.rs`、`build/tests.rs` 和 `settings/snapshot/tests.rs` 覆盖目标窗口隔离、持久设置修订、真实窗口资源实例、精确原操作清理重试与 Core 归属。集成窗口已通过原生逐项计时测试；前端使用原生端口替身，真实双窗口 Provider 与发行目录哈希验收仍须另行完成。

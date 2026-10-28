@@ -192,7 +192,7 @@ function MountedNativePanel({ identity, title, ui, port, store, onClose }: Nativ
                 return (
                   <div key={button.id} className="flex min-w-0 items-center gap-1.5">
                     <Button
-                      variant={button.primary ? "default" : "accent"}
+                      variant={button.primary ? "accent" : "default"}
                       disabled={button.enabled === false || !owner.canPerform(declared)}
                       onClick={() => action(button.action)}
                     >
