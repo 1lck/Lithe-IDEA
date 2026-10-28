@@ -611,13 +611,13 @@ enum PluginManagerError: Error, Equatable, LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .unknownPlugin(let id): L10n.string("Plugin \(id) is not installed.")
+        case .unknownPlugin(let id): L10n.string("Plugin \(id.rawValue) is not installed.")
         case .unsupportedInstallationOrigin(let origin): L10n.string("Marketplace packages cannot be installed as \(origin.rawValue).")
-        case .requiredPluginCannotBeDisabled(let id): L10n.string("Required plugin \(id) cannot be disabled.")
-        case .requiredPluginCannotBeUninstalled(let id): L10n.string("Required plugin \(id) cannot be uninstalled.")
-        case .unknownSetting(let id, let setting): L10n.string("Plugin \(id) has no setting \(setting).")
-        case .settingValueRejected(let id, let setting): L10n.string("The value is not allowed for setting \(setting) of plugin \(id).")
-        case .projectSettingUnavailable(let id, let setting): L10n.string("Setting \(setting) of plugin \(id) cannot be set for this project.")
+        case .requiredPluginCannotBeDisabled(let id): L10n.string("Required plugin \(id.rawValue) cannot be disabled.")
+        case .requiredPluginCannotBeUninstalled(let id): L10n.string("Required plugin \(id.rawValue) cannot be uninstalled.")
+        case .unknownSetting(let id, let setting): L10n.string("Plugin \(id.rawValue) has no setting \(setting).")
+        case .settingValueRejected(let id, let setting): L10n.string("The value is not allowed for setting \(setting) of plugin \(id.rawValue).")
+        case .projectSettingUnavailable(let id, let setting): L10n.string("Setting \(setting) of plugin \(id.rawValue) cannot be set for this project.")
         }
     }
 }

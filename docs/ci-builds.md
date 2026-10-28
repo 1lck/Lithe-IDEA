@@ -359,6 +359,17 @@ Swift 单元和插件 CI 通道复用已有 Cargo 下载缓存。先通过
 
 ### 独立工作树的本地编译
 
+SwiftPM 的 `.build/`、资源 bundle 和 `.lithe-swift-toolchain` 标记登记为
+`swiftpm-build-state`，所有工作树复用阶段均拒绝复制。编译器标记只用于本工作树
+缓存失效，不是可转移的源码、平台、架构、SDK 和工具链完整性证明；只复用经过校验的
+`.artifacts/swiftpm-cache` 下载缓存。构建脚本在实际 scratch 目录保存带策略版本的
+完整编译器身份：新版 SwiftPM 的 `.build/<triple>/` 各自独立，旧布局仍用 `.build/`。
+身份未知或变化时，用同一 scratch 参数执行 `swift package clean`，保留它的依赖下载
+和 checkout，再生成资源、签名；清理失败不更新标记。不要手工合并旧的平铺资源与
+新 `Contents/Resources` 布局，也不要通过关闭 codesign 规避旧资源污染。状态生命周期
+由本工作树 SwiftPM 清理管理；这些操作仅作用于构建目录，不修改已安装应用、签名
+发行基线或 Sparkle delta。
+
 共享翻译源文件位于 `shared/i18n/`。每个工作树通过 Git 获取源文件和已提交的
 macOS 字符串表、`AppLanguage.generated.swift`、Windows `shared.generated.ts`，
 然后运行 `node scripts/generate-i18n.mjs --check` 校验。修改源翻译后运行不带

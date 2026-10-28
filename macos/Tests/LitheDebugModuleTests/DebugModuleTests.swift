@@ -4057,6 +4057,145 @@ struct DebugModuleTests {
     }
 
     @Test
+    func automaticDisassemblyPagingStopsOnNoProgressAndRequiresExplicitRetryAfterFailure() throws {
+        let session = DeferredInspectionDebugSession(capabilities: Self.disassemblyCapabilities)
+        let (feature, _) = makeSourcelessStop(session: session, rootPath: "/tmp/lldb-auto-paging")
+        defer { feature.stop() }
+        let row = instruction("0x19b5f2a4c", "svc #0x80")
+        session.completeDisassembly(at: 0, with: .success([row]))
+        feature.disassembly.loadMore(.before, automatically: true)
+        feature.disassembly.loadMore(.before, automatically: true)
+        #expect(session.disassemblyOffsets.count == 2, "Only one edge request may be in flight")
+        session.completeDisassembly(at: 1, with: .success([instruction("0x000019b5f2a4c", "svc #0x80")]))
+        feature.disassembly.loadMore(.before, automatically: true)
+        #expect(session.disassemblyOffsets.count == 2)
+        #expect(!feature.disassembly.canLoadEarlier)
+        #expect(feature.disassembly.canLoadLater)
+
+        feature.disassembly.loadMore(.after, automatically: true)
+        session.completeDisassembly(at: 2, with: .failure(DeferredDebugSessionError.launchFailed))
+        feature.disassembly.loadMore(.after, automatically: true)
+        #expect(session.disassemblyOffsets.count == 3, "A visible edge must not retry failures")
+        #expect(feature.disassembly.failedDirection == .after)
+        feature.disassembly.loadMore(.after)
+        let next = instruction("0x19b5f2a50", "ret")
+        session.completeDisassembly(at: 3, with: .success([next, next]))
+        #expect(feature.disassembly.rows == [row, next], "Duplicates within a page are removed too")
+        #expect(feature.disassembly.loadFailure == nil)
+        #expect(feature.disassembly.failedDirection == nil)
+
+        feature.disassembly.loadMore(.after, automatically: true)
+        feature.disassembly.dismiss()
+        session.completeDisassembly(at: 4, with: .success([instruction("0x19b5f2a54", "nop")]))
+        #expect(feature.disassembly.rows == [row, next], "Closing the view retires pending pages")
+        feature.disassembly.loadMore(.after, automatically: true)
+        #expect(session.disassemblyOffsets.count == 5)
+    }
+
+    @Test(arguments: [false, true])
+    func disassemblyPagingShrinksRejectedWindowsWithoutSkippingReadableNeighbours(before: Bool) throws {
+        let session = DeferredInspectionDebugSession(capabilities: Self.disassemblyCapabilities)
+        let (feature, _) = makeSourcelessStop(session: session, rootPath: "/tmp/lldb-partial-disassembly")
+        defer { feature.stop() }
+        let edge = instruction("0x100000014", "udf #0x420")
+        let neighbour = instruction(before ? "0x100000010" : "0x100000018", "nop")
+        let padding = instruction("0xffffffffffffffff", "")
+        session.completeDisassembly(at: 0, with: .success([edge, padding]))
+        #expect(feature.disassembly.rows == [edge], "Invalid DAP padding cannot become a paging anchor")
+
+        feature.disassembly.loadMore(before ? .before : .after, automatically: true)
+        session.completeDisassembly(at: 1, with: .failure(DebugAdapterProtocolError.requestFailed(
+            command: "disassemble", message: "Unexpected error while disassembling instructions.")))
+        #expect(session.disassemblyCounts.count == 3)
+        #expect(session.disassemblyCounts[2] == 32)
+        #expect(session.disassemblyOffsets.last == (before ? -32 : 1))
+        #expect(session.disassemblyReferences.last == edge.address)
+        #expect(feature.disassembly.isLoading)
+        #expect(feature.disassembly.loadFailure == nil)
+        session.completeDisassembly(at: 2, with: .success([neighbour, padding]))
+        #expect(feature.disassembly.rows == (before ? [neighbour, edge] : [edge, neighbour]))
+        #expect(!feature.disassembly.isLoading)
+        #expect(feature.disassembly.canLoadEarlier && feature.disassembly.canLoadLater)
+    }
+
+    @Test(arguments: [false, true])
+    func disassemblyMappingBoundaryStopsOnlyAfterTheKnownEdgeIsVerified(before: Bool) throws {
+        let session = DeferredInspectionDebugSession(capabilities: Self.disassemblyCapabilities)
+        let (feature, _) = makeSourcelessStop(session: session, rootPath: "/tmp/lldb-disassembly-boundary")
+        defer { feature.stop() }
+        let edge = instruction("0x100000000", "; _mh_execute_header")
+        session.completeDisassembly(at: 0, with: .success([edge]))
+        feature.disassembly.loadMore(before ? .before : .after, automatically: true)
+        for (index, count) in [64, 32, 16, 8, 4, 2, 1].enumerated() {
+            #expect(session.disassemblyCounts[index + 1] == count)
+            #expect(session.disassemblyOffsets[index + 1] == (before ? -count : 1))
+            #expect(session.disassemblyReferences[index + 1] == edge.address)
+            session.completeDisassembly(at: index + 1, with: .failure(DebugAdapterProtocolError.requestFailed(
+                command: "disassemble", message: "Unexpected error while disassembling instructions.")))
+        }
+        #expect(session.disassemblyOffsets.last == 0)
+        #expect(session.disassemblyCounts.last == 1)
+        #expect(feature.disassembly.isLoading)
+        feature.disassembly.loadMore(before ? .before : .after, automatically: true)
+        #expect(session.disassemblyCounts.count == 9, "The bounded boundary probe is part of the same in-flight page")
+        session.completeDisassembly(at: 8, with: .success([instruction("0x0000000100000000", "; _mh_execute_header")]))
+        #expect(feature.disassembly.rows == [edge])
+        #expect(feature.disassembly.loadFailure == nil)
+        #expect(feature.disassembly.failedDirection == nil)
+        #expect(!feature.disassembly.isLoading)
+        #expect(feature.disassembly.canLoadEarlier == !before)
+        #expect(feature.disassembly.canLoadLater == before)
+        feature.disassembly.loadMore(before ? .before : .after, automatically: true)
+        #expect(session.disassemblyCounts.count == 9, "An exhausted edge must not be probed again on each wheel event")
+        feature.disassembly.loadMore(before ? .after : .before, automatically: true)
+        #expect(session.disassemblyCounts.count == 10, "The other direction remains browsable")
+    }
+
+    @Test
+    func disassemblyTransportFailuresAreNotMistakenForMappingBoundaries() throws {
+        let failures: [DebugAdapterProtocolError] = [.timedOut("disassemble"), .cancelled("disassemble"),
+            .stopped, .invalidResponse("disassemble"), .requestFailed(command: "other", message: "rejected")]
+        for failure in failures {
+            let session = DeferredInspectionDebugSession(capabilities: Self.disassemblyCapabilities)
+            let (feature, _) = makeSourcelessStop(session: session, rootPath: "/tmp/lldb-disassembly-transport-failure")
+            defer { feature.stop() }
+            let edge = instruction("0x100000000", "nop")
+            session.completeDisassembly(at: 0, with: .success([edge]))
+            feature.disassembly.loadMore(.before, automatically: true)
+            session.completeDisassembly(at: 1, with: .failure(failure))
+            #expect(session.disassemblyCounts.count == 2, "Only rejected disassemble windows may be narrowed")
+            #expect(feature.disassembly.loadFailure == failure.localizedDescription)
+            #expect(feature.disassembly.failedDirection == .before)
+            #expect(feature.disassembly.canLoadEarlier)
+            #expect(!feature.disassembly.isLoading)
+            #expect(feature.disassembly.rows == [edge])
+        }
+    }
+
+    @Test
+    func failedOrStaleDisassemblyEdgeVerificationDoesNotSilentlyExhaustTheListing() throws {
+        for stale in [false, true] {
+            let session = DeferredInspectionDebugSession(capabilities: Self.disassemblyCapabilities)
+            let (feature, _) = makeSourcelessStop(session: session, rootPath: "/tmp/lldb-disassembly-probe-failure")
+            defer { feature.stop() }
+            let edge = instruction("0x100000000", "nop")
+            session.completeDisassembly(at: 0, with: .success([edge]))
+            feature.disassembly.loadMore(.before, automatically: true)
+            for index in 1...7 {
+                session.completeDisassembly(at: index, with: .failure(DebugAdapterProtocolError.requestFailed(
+                    command: "disassemble", message: "Could not decode the requested window")))
+            }
+            if stale { feature.disassembly.suspendRequests() }
+            session.completeDisassembly(at: 8, with: .failure(DebugAdapterProtocolError.timedOut("disassemble")))
+            #expect(feature.disassembly.loadFailure == (stale ? nil : DebugAdapterProtocolError.timedOut("disassemble").localizedDescription))
+            #expect(feature.disassembly.canLoadEarlier)
+            #expect(feature.disassembly.rows == [edge])
+            #expect(!feature.disassembly.isLoading)
+            #expect(session.disassemblyCounts.count == 9)
+        }
+    }
+
+    @Test
     func disassemblyReplyAfterTheDebuggeeResumedIsDropped() throws {
         let session = DeferredInspectionDebugSession(capabilities: Self.disassemblyCapabilities)
         let (feature, _) = makeSourcelessStop(session: session, rootPath: "/tmp/lldb-stale-disassembly")
@@ -5105,6 +5244,7 @@ private final class DeferredInspectionDebugSession: DebugAdapterControllingSessi
 
     var disassemblyReferences: [String] { disassemblyRequests.map(\.reference) }
     var disassemblyOffsets: [Int] { disassemblyRequests.map(\.offset) }
+    var disassemblyCounts: [Int] { disassemblyRequests.map(\.count) }
     var memoryReferences: [String] { memoryRequests.map(\.reference) }
     var memoryOffsets: [Int] { memoryRequests.map(\.offset) }
     var stackTraceThreadIDs: [Int] { stackTraceRequests.map(\.threadID) }

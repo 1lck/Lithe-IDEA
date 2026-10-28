@@ -130,6 +130,9 @@ public final class GenericDebugDisassemblyModel: ObservableObject {
     @Published public private(set) var rows: [DebugDisassembledInstruction] = []
     @Published public private(set) var isLoading = false
     @Published public private(set) var loadFailure: String?
+    @Published public private(set) var failedDirection: Direction?
+    @Published public private(set) var canLoadEarlier = true
+    @Published public private(set) var canLoadLater = true
     @Published public private(set) var breakpoints: [GenericDebugInstructionBreakpoint] = []
     @Published public private(set) var memory: GenericDebugMemoryDump?
     @Published public private(set) var isLoadingMemory = false
@@ -237,7 +240,7 @@ public final class GenericDebugDisassemblyModel: ObservableObject {
     private func followInstructionPointer() -> Bool {
         guard let index = rows.firstIndex(where: { isCurrent($0) }) else { return false }
         // Stepping towards the end of the listing: extend it before the marker runs off.
-        if rows.count - index <= Self.edgeInstructionCount { loadMore(.after) }
+        if rows.count - index <= Self.edgeInstructionCount { loadMore(.after, automatically: true) }
         return true
     }
 
@@ -248,6 +251,9 @@ public final class GenericDebugDisassemblyModel: ObservableObject {
         rows = []
         isLoading = false
         loadFailure = nil
+        failedDirection = nil
+        canLoadEarlier = true
+        canLoadLater = true
         memory = nil
         memoryChangedIndices = []
         memoryFailure = nil
@@ -295,6 +301,9 @@ public final class GenericDebugDisassemblyModel: ObservableObject {
         let token = disassemblyGeneration
         isLoading = true
         loadFailure = nil
+        failedDirection = nil
+        canLoadEarlier = true
+        canLoadLater = true
         request(
             session: session,
             generation: token,
@@ -306,40 +315,91 @@ public final class GenericDebugDisassemblyModel: ObservableObject {
             guard let self, self.disassemblyGeneration == token else { return }
             self.rows = instructions
             self.isLoading = false
-        } onFailure: { [weak self] message in
+        } onFailure: { [weak self] error in
             guard let self, self.disassemblyGeneration == token else { return }
             self.rows = []
-            self.loadFailure = message
+            self.loadFailure = error.localizedDescription
             self.isLoading = false
         }
     }
 
     /// Lists another page above the first or below the last instruction.
-    public func loadMore(_ direction: Direction) {
-        guard !isLoading,
+    public func loadMore(_ direction: Direction, automatically: Bool = false) {
+        guard isPresented, currentAddress != nil, canDisassemble, !isLoading,
+              direction == .before ? canLoadEarlier : canLoadLater,
+              !automatically || loadFailure == nil,
               let session = environment?.session(),
               let edge = direction == .before ? rows.first : rows.last else { return }
         disassemblyGeneration &+= 1
         let token = disassemblyGeneration
         isLoading = true
         loadFailure = nil
-        request(
+        failedDirection = nil
+        requestPage(
             session: session,
             generation: token,
             reference: edge.address,
-            offset: direction == .before ? -Self.pageInstructionCount : 1,
-            count: Self.pageInstructionCount,
-            retriesForward: false
+            direction: direction,
+            count: Self.pageInstructionCount
         ) { [weak self] instructions in
             guard let self, self.disassemblyGeneration == token else { return }
-            let known = Set(self.rows.map { DebugAddressText.canonical($0.address) })
-            let fresh = instructions.filter { !known.contains(DebugAddressText.canonical($0.address)) }
+            var known = Set(self.rows.map { DebugAddressText.canonical($0.address) })
+            let fresh = instructions.filter { known.insert(DebugAddressText.canonical($0.address)).inserted }
+            // Some adapters repeat the edge forever at an unmapped boundary.
+            if fresh.isEmpty {
+                if direction == .before { self.canLoadEarlier = false }
+                else { self.canLoadLater = false }
+            }
             self.rows = direction == .before ? fresh + self.rows : self.rows + fresh
             self.isLoading = false
-        } onFailure: { [weak self] message in
+        } onFailure: { [weak self] error in
             guard let self, self.disassemblyGeneration == token else { return }
-            self.loadFailure = message
+            self.loadFailure = error.localizedDescription
+            self.failedDirection = direction
             self.isLoading = false
+        }
+    }
+
+    /// A page can cross an unmapped boundary even though nearer instructions remain readable.
+    /// Ask the adapter for smaller windows; never infer instruction sizes or compute addresses.
+    private func requestPage(
+        session: any DebugAdapterControllingSession,
+        generation: Int,
+        reference: String,
+        direction: Direction,
+        count: Int,
+        onSuccess: @escaping ([DebugDisassembledInstruction]) -> Void,
+        onFailure: @escaping (Error) -> Void
+    ) {
+        request(
+            session: session, generation: generation, reference: reference,
+            offset: direction == .before ? -count : 1, count: count, retriesForward: false,
+            onSuccess: onSuccess
+        ) { [weak self] error in
+            guard let self, self.disassemblyGeneration == generation else { return }
+            guard case DebugAdapterProtocolError.requestFailed(command: "disassemble", message: _) = error else {
+                onFailure(error)
+                return
+            }
+            if count > 1 {
+                self.requestPage(
+                    session: session, generation: generation, reference: reference,
+                    direction: direction, count: count / 2, onSuccess: onSuccess, onFailure: onFailure
+                )
+                return
+            }
+            // LLDB reports an unmapped neighbour as a generic request failure. Only
+            // treat it as exhaustion if the known edge still disassembles in this stop.
+            self.request(
+                session: session, generation: generation, reference: reference,
+                offset: 0, count: 1, retriesForward: false
+            ) { instructions in
+                if instructions.contains(where: { DebugAddressText.areEqual($0.address, reference) }) {
+                    onSuccess([])
+                } else {
+                    onFailure(error)
+                }
+            } onFailure: { onFailure($0) }
         }
     }
 
@@ -353,7 +413,7 @@ public final class GenericDebugDisassemblyModel: ObservableObject {
         count: Int,
         retriesForward: Bool,
         onSuccess: @escaping ([DebugDisassembledInstruction]) -> Void,
-        onFailure: @escaping (String) -> Void
+        onFailure: @escaping (Error) -> Void
     ) {
         session.requestDisassembly(
             memoryReference: reference,
@@ -363,7 +423,12 @@ public final class GenericDebugDisassemblyModel: ObservableObject {
             guard let self, self.disassemblyGeneration == generation else { return }
             switch result {
             case .success(let instructions):
-                onSuccess(instructions)
+                // Adapters may pad a short window with empty invalid instructions. They
+                // are not addressable rows and must not become the next paging anchor.
+                onSuccess(instructions.filter {
+                    !$0.instruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        || !($0.instructionBytes ?? "").isEmpty
+                })
             case .failure(let error):
                 if retriesForward, offset < 0 {
                     self.request(
@@ -377,7 +442,7 @@ public final class GenericDebugDisassemblyModel: ObservableObject {
                         onFailure: onFailure
                     )
                 } else {
-                    onFailure(error.localizedDescription)
+                    onFailure(error)
                 }
             }
         }

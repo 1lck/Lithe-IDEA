@@ -47,7 +47,8 @@ struct DiffScrollSynchronizationTests {
             defer { window.contentView = nil; window.close() }
             host.layoutSubtreeIfNeeded(); await Task.yield(); host.layoutSubtreeIfNeeded()
             let editors = descendants(host).compactMap { $0 as? DiffNativeTextView }
-            #expect(editors.count == (status == "M" ? 2 : 1))
+            // Added and deleted files are side-by-side too; the side without a version stays empty.
+            #expect(editors.count == 2)
             #expect(!descendants(host).compactMap { $0 as? DiffStripeScroller }.isEmpty)
             #expect(editors.contains { $0.column?.lines.isEmpty == false })
         }
@@ -331,7 +332,7 @@ struct DiffScrollSynchronizationTests {
         let model = AppModel(settings: settings, services:
             MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode).services)
         do {
-            let hosting = NSHostingView(rootView: RepositoryDiffView(feature: feature, context: context, onClose: { model.closeGitCommitDiff() }, onOpenFile: {}, onOpenCommitDiff: { _ in }).environmentObject(model).environment(\.colorScheme, dark ? .dark : .light))
+            let hosting = NSHostingView(rootView: RepositoryDiffView(feature: feature, context: context, onClose: { model.closeRepositoryDiffTab() }, onOpenFile: {}, onOpenCommitDiff: { _ in }).environmentObject(model).environment(\.colorScheme, dark ? .dark : .light))
             hosting.frame = NSRect(x: 0, y: 0, width: 900, height: 250)
             let window = NSWindow(contentRect: hosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false; window.contentView = hosting
@@ -430,7 +431,7 @@ struct DiffScrollSynchronizationTests {
         let settings = AppSettings(store: store)
         let model = AppModel(settings: settings, services: MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode).services)
         func content() -> AnyView {
-            AnyView(RepositoryDiffView(feature: feature, context: context, onClose: { model.closeGitCommitDiff() },
+            AnyView(RepositoryDiffView(feature: feature, context: context, onClose: { model.closeRepositoryDiffTab() },
                 onOpenFile: { openedFile = true }, onOpenCommitDiff: { requestedFile = $0 }).environmentObject(model))
         }
         let host = NSHostingView(rootView: content())
@@ -504,14 +505,17 @@ struct DiffScrollSynchronizationTests {
 
 /// Supplies the same two modified files and foldable context through the normal
 /// service boundary, leaving native rendering and feature actions under test.
-private struct DiffToolbarGitOperations: GitOperations {
+struct DiffToolbarGitOperations: GitOperations {
     let root: URL
+    var includesWorkingChanges = false
     let commitValue = GitCommit(hash: "aaaaaaaa", shortHash: "aaaaaaaa", parentHashes: ["bbbbbbbb"],
         authorName: "Test", authorEmail: "test@example.invalid", date: "", subject: "change", decorations: "")
     let filesValue = [GitCommitFile(status: "M", path: "a.swift"), GitCommitFile(status: "M", path: "b.swift")]
 
     func snapshot(at rootURL: URL) -> GitSnapshot? {
-        rootURL == root ? GitSnapshot(repositoryRoot: root, branch: "fixture", changes: []) : nil
+        rootURL == root ? GitSnapshot(repositoryRoot: root, branch: "fixture", changes: includesWorkingChanges ? [
+            GitChange(repositoryRoot: root, path: "a.swift", originalPath: nil, indexStatus: " ", workTreeStatus: "M")
+        ] : []) : nil
     }
     func files(in commit: GitCommit, at rootURL: URL) -> [GitCommitFile]? {
         rootURL == root && commit.hash == commitValue.hash ? filesValue : nil
@@ -531,15 +535,25 @@ private struct DiffToolbarGitOperations: GitOperations {
     }
     func watchContext(at rootURL: URL) -> GitWatchContext? { nil }
     func worktrees(at rootURL: URL) -> [GitWorktree]? { [] }
-    func diffDocument(at rootURL: URL, pathspecs: [String], staged: Bool, untracked: Bool, whitespace: GitDiffWhitespaceMode) -> DiffDocument? { nil }
+    func diffDocument(at rootURL: URL, pathspecs: [String], staged: Bool, untracked: Bool, whitespace: GitDiffWhitespaceMode) -> DiffDocument? {
+        commitDiffDocument(at: rootURL, commit: commitValue.hash, pathspecs: pathspecs, whitespace: whitespace)
+    }
     func diffPatch(at rootURL: URL, pathspecs: [String], staged: Bool, untracked: Bool, whitespace: GitDiffWhitespaceMode) -> String? { nil }
-    func comparisonDiffDocument(at rootURL: URL, reference: String, pathspecs: [String], whitespace: GitDiffWhitespaceMode) -> DiffDocument? { nil }
-    func comparisonDiffDocument(at rootURL: URL, reference: GitReference, targetReference: GitReference?, pathspecs: [String], whitespace: GitDiffWhitespaceMode) -> DiffDocument? { nil }
+    func comparisonDiffDocument(at rootURL: URL, reference: String, pathspecs: [String], whitespace: GitDiffWhitespaceMode) -> DiffDocument? {
+        commitDiffDocument(at: rootURL, commit: commitValue.hash, pathspecs: pathspecs, whitespace: whitespace)
+    }
+    func comparisonDiffDocument(at rootURL: URL, reference: GitReference, targetReference: GitReference?, pathspecs: [String], whitespace: GitDiffWhitespaceMode) -> DiffDocument? {
+        commitDiffDocument(at: rootURL, commit: commitValue.hash, pathspecs: pathspecs, whitespace: whitespace)
+    }
     func applyPatch(_ patch: String, at rootURL: URL, mode: String) -> GitProcessResult? { nil }
     func history(at rootURL: URL, reference: GitReference?, limit: Int) -> GitHistorySnapshot? { nil }
     func commit(at rootURL: URL, hash: String) -> GitCommit? { nil }
-    func comparison(for reference: GitReference, at rootURL: URL) -> GitBranchComparison? { nil }
-    func comparison(from reference: GitReference, to target: GitReference, at rootURL: URL) -> GitBranchComparison? { nil }
+    func comparison(for reference: GitReference, at rootURL: URL) -> GitBranchComparison? {
+        GitBranchComparison(reference: reference, files: [GitBranchComparisonFile(status: "M", path: "a.swift")])
+    }
+    func comparison(from reference: GitReference, to target: GitReference, at rootURL: URL) -> GitBranchComparison? {
+        GitBranchComparison(reference: reference, targetReference: target, files: [GitBranchComparisonFile(status: "M", path: "a.swift")])
+    }
     func stashes(at rootURL: URL) -> [GitStash]? { [] }
     func blame(at rootURL: URL, relativePath: String) -> [GitBlameLine]? { nil }
     func stage(_ change: GitChange) -> GitProcessResult? { nil }

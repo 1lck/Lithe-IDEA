@@ -4595,6 +4595,7 @@
     "native.hideBuildOutputToolWindow": "隐藏构建输出工具窗口",
     "native.hideBuildToolWindow": "隐藏构建工具窗口",
     "native.hideCommitDecorations": "隐藏提交装饰",
+    "native.hideCommitDetails": "隐藏提交详情",
     "native.hideConfigurationList": "收起运行配置列表",
     "native.hideDebugToolWindow": "隐藏调试工具窗口",
     "native.hideEntry": "隐藏入口",
@@ -6064,6 +6065,7 @@
     "native.showingThePreviousJavaEntriesWhileTheJavaLanguageServicePreparesTheProject": "Java 语言服务正在准备项目，暂时显示上次的 Java 入口。",
     "native.shownAcrossTheEntireWorkbenchIncludingToolbarsProjectTreeEditorTabsTerminalsAndStatusBar": "显示在整个工作台内，包括工具栏、项目文件树、编辑区、标签栏、终端和状态栏。",
     "native.sideBySide": "并排",
+    "native.sideBySideView": "并排视图",
     "native.signInToCodex": "登录 Codex",
     "native.signInToGitHub": "登录 GitHub",
     "native.signInToViewAndManagePullRequests": "登录后即可查看和管理拉取请求。",
@@ -9461,7 +9463,12 @@
     "native.loadProviderModelBeforeRun": "请先加载当前构建模型并启用对应提供方，再运行此配置。",
     "native.providerRunSaveConflict": "保存期间运行配置已更改。请重新加载后再试。",
     "native.savedProviderRunUnavailable": "已保存的提供方运行配置不可用。",
-    "native.providerDebugUnavailable": "构建插件的调试程序或适配器不可用。请重新构建，并检查插件是否已启用。"
+    "native.providerDebugUnavailable": "构建插件的调试程序或适配器不可用。请重新构建，并检查插件是否已启用。",
+    "git.log.olderCommitsFailed": "无法加载更早的提交，点击刷新历史",
+    "native.stageFiles": "暂存文件",
+    "native.unstageFiles": "取消暂存文件",
+    "native.discardChangesToSelectedFiles": "要丢弃所选文件的更改吗？",
+    "native.discardWorktreeChangesWarning": "此操作无法通过 Lithe 撤销。未跟踪的文件将被删除。"
   },
   "overrides": {
     "macos": {
