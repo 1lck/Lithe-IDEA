@@ -237,6 +237,15 @@ try {
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /build-project-preferences.*cannot be reused/);
   });
+  await test("Maven operation reports cannot be copied between worktrees", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "maven-operation-report-snapshots");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.includes("<workspaceStateDir>/execution-*/index.json"));
+    const refused = reuse(["--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /maven-operation-report-snapshots.*cannot be reused/);
+  });
   await test("native configuration probe and conditional replacement state cannot be reused", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const resource = registry.excludedResources.find(item => item.id === "build-native-configuration-state");

@@ -282,7 +282,7 @@ struct MacNativeBuildProviderIntegrationTests {
             #expect(tested.exitCode == 0)
             let results = try operations.decodeTestResults(target, request: BuildTestResultsRequest(workspaceURL: workspace,
                 root: context.root, project: project.path, projects: model.projects.map(\.path), output: tested.output,
-                notBefore: nil, suite: "demo.core.GreeterTest"))
+                notBefore: nil, suite: "demo.core.GreeterTest", result: tested.testResults))
             #expect(results.summary.total == 1)
             #expect(results.summary.failed == 0)
             #expect(results.tests.first?.name == "greetsByName")

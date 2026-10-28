@@ -921,7 +921,7 @@ same invocation resolver; explicit invalid tool/runtime selection is a failure,
 never permission for independent discovery. It must reject stale project facts
 rather than guess a target.
 
-The host offers `litheBuild.versions: [7, 6, 5, 4, 3, 2, 1]`. Version 2 adds task execution
+The host offers `litheBuild.versions: [8, 7, 6, 5, 4, 3, 2, 1]`. Version 2 adds task execution
 and its progress notification to the two version 1 methods. A process that
 chooses version 1 cannot receive execution; unsupported negotiation fails
 explicitly. A plugin that needs this behavior declares capability version 2
@@ -1269,6 +1269,34 @@ Java/Maven business migration remain separate work. Shared fixtures:
 `fixtures/build-model-producer.plugin.json` and
 `fixtures/build-model-consumer.plugin.json`.
 
+### Inline provider test reports (buildProviders 8)
+
+A provider test may declare `results: { "decoder": "provider" }` with
+`requires.buildProviders: 8`. Core adds `testResults: true` to the test request;
+wire versions below 8 refuse it before invocation. The reply includes
+`testResults: { "format": "litheTestResults", "version": 1, "tests": [...] }`
+next to `exitCode` and `output`. Ordinary execute replies may include the same
+report when the task also ran tests. Missing required or malformed reports fail
+explicitly; there is no host report-file fallback.
+
+Each case has `suite`, `case`, `status` (`passed`, `failed`, `error`, `skipped`),
+optional workspace-relative `project` and source `path`, one-based `line`,
+`durationMillis`, `message`, and `invocations` (default 1). A report contains at
+most 10,000 cases and 8 MiB UTF-8 JSON. Paths remain inside the selected build
+root, durations are nonnegative safe integers, and messages are bounded. Core
+validates and aggregates by project/suite/case, so identical names in distinct
+projects remain distinct; it computes summary/success from the cases.
+
+The provider owns report discovery, freshness and upstream format semantics.
+It must preserve reports from failing executions and reject unreadable/oversized
+reports instead of returning empty success. The host passes the reply to
+`build.decodeTestResults` as `request.result` with the same run/configuration
+identity, checks ownership again after decode, and only presents the result.
+Cancellation or configuration changes revoke late reports just like late output.
+The report is operation state in a platform-provided writable directory, never
+installed package state or a cross-worktree cache. Fixture:
+`fixtures/build-provider-reports.plugin.json`.
+
 ### Build providers
 
 Some tools expose their model only through their own API (the Gradle Tooling
@@ -1323,12 +1351,13 @@ The manifest only says how to start the provider and which sources use it.
 Everything else is negotiated in the LSP `initialize` exchange, so a provider
 can add optional data within a negotiated protocol version:
 
-- The host sends `capabilities.experimental.litheBuild: { "versions": [7, 6, 5, 4, 3, 2, 1] }`,
+- The host sends `capabilities.experimental.litheBuild: { "versions": [8, 7, 6, 5, 4, 3, 2, 1] }`,
   the build-provider protocol versions it speaks. Version 1 is the two
   requests above with the params and result formats of this section;
   version 2 adds typed task execution; version 3 adds typed test execution
   and discovery; version 4 adds application run preparation; version 5 adds native debug preparation;
-  version 6 accepts the host's explicitly declared read-only model inputs.
+  version 6 accepts the host's explicitly declared read-only model inputs;
+  version 7 adds source-backed native configuration; version 8 adds inline test reports.
 - The provider answers `capabilities.experimental.litheBuild: { "version": 1 }`
   with the version it chose from that list. A provider that answers no
   version, or one the host did not offer, is not used for build requests; a

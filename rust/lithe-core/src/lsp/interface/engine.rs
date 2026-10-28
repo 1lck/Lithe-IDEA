@@ -2129,6 +2129,28 @@ impl RuntimeSession {
                 )
                 .with_details("plugin.build.unavailable"));
             }
+            if request.params.get("testResults").is_some() {
+                if request.method != super::build_provider::TEST_METHOD
+                    || request.params["testResults"] != json!(true)
+                {
+                    return Err(CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Inline test reports require a provider test request.",
+                    ));
+                }
+                if !state
+                    .client
+                    .server_capabilities
+                    .iter()
+                    .any(|feature| feature == super::build_provider::TEST_REPORTS_FEATURE)
+                {
+                    return Err(CoreError::new(
+                        ErrorCode::NotSupported,
+                        "The provider did not negotiate inline test reports.",
+                    )
+                    .with_details("plugin.build.unavailable"));
+                }
+            }
             if request.method == super::build_provider::CONFIGURATION_METHOD
                 && !state
                     .client
@@ -3222,23 +3244,27 @@ impl RuntimeSession {
                 {
                     if let Some(pending) = pending_before.as_ref() {
                         if let Some(operation_id) = &pending.operation_id {
-                            let (result, error) =
-                                match super::build_provider::execution_outcome(&value) {
-                                    Ok(result) => (Some(result), None),
-                                    Err((code, message)) => (
+                            let (result, error) = match super::build_provider::execution_outcome(
+                                &value,
+                                state.client.server_capabilities.iter().any(|feature| {
+                                    feature == super::build_provider::TEST_REPORTS_FEATURE
+                                }),
+                            ) {
+                                Ok(result) => (Some(result), None),
+                                Err((code, message)) => (
+                                    None,
+                                    Some(runtime_error(
+                                        self,
+                                        code,
+                                        "request",
+                                        Some(&pending.method),
                                         None,
-                                        Some(runtime_error(
-                                            self,
-                                            code,
-                                            "request",
-                                            Some(&pending.method),
-                                            None,
-                                            &message,
-                                            None,
-                                            None,
-                                        )),
-                                    ),
-                                };
+                                        &message,
+                                        None,
+                                        None,
+                                    )),
+                                ),
+                            };
                             push_request_event(
                                 self,
                                 &mut state,
@@ -11354,6 +11380,39 @@ public class Main {
     }
 
     #[test]
+    fn inline_test_reports_cannot_reach_a_provider_without_version_eight() {
+        for version in [7, 8] {
+            let mut harness = plugin_backend(json!({"litheBuild":{"version":version}}));
+            let result = build_request(
+                &harness,
+                "lithe/build/test",
+                json!({"testResults":true}),
+                None,
+            );
+            if version == 7 {
+                assert!(matches!(result.unwrap_err().code, ErrorCode::NotSupported));
+                assert!(harness
+                    .server
+                    .messages()
+                    .iter()
+                    .all(|message| message["method"] != "lithe/build/test"));
+            } else {
+                let operation = result.unwrap();
+                let id = harness.server.await_request("lithe/build/test").unwrap();
+                let value = json!({"exitCode":1,"output":"failure","testResults":{"format":"litheTestResults","version":1,"tests":[]}});
+                harness
+                    .server
+                    .send(json!({"jsonrpc":"2.0","id":id,"result":value}));
+                let event = harness.await_event(|event| {
+                    event.kind == "requestCompleted"
+                        && event.operation_id.as_deref() == Some(operation.as_str())
+                });
+                assert_eq!(event.result.as_ref().unwrap()["value"], value);
+            }
+        }
+    }
+
+    #[test]
     fn provider_native_configuration_requires_version_seven_and_returns_only_the_projection() {
         for version in 1..7 {
             let harness = plugin_backend(json!({"litheBuild":{"version":version}}));
@@ -11677,7 +11736,7 @@ public class Main {
             .expect("initialize should have been written");
         assert_eq!(
             initialize["params"]["capabilities"]["experimental"]["litheBuild"],
-            json!({ "versions": [7, 6, 5, 4, 3, 2, 1] })
+            json!({ "versions": [8, 7, 6, 5, 4, 3, 2, 1] })
         );
 
         let error = build_request(&harness, "lithe/build/model", json!({}), None)
@@ -12220,7 +12279,7 @@ public class Main {
         assert_eq!(
             initialize["params"]["capabilities"]["experimental"],
             json!({
-                "litheBuild": { "versions": [7, 6, 5, 4, 3, 2, 1] },
+                "litheBuild": { "versions": [8, 7, 6, 5, 4, 3, 2, 1] },
                 "litheFunctions": { "versions": [1, 2] },
                 "litheVcs": { "versions": [1] }
             })

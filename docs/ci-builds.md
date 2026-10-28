@@ -782,3 +782,10 @@ Maven 配置切换使用本机偏好的 `BuildSystems.Migrations.Maven.<workspac
 源文件的指纹。它只服务当前工作区的一次性恢复：目标全部读回、旧源按原字节移除后清理，
 部分写入后旧源被外部修改则停止自动删除。这个标记不保存原生 settings 文档，不可跨
 worktree 复用；由 `build-project-preferences` 排除项覆盖，不得作为下载缓存增加校验路由。
+
+Maven Provider 随每次任务收集的报告快照在宿主提供的 `workspaceStateDir/execution-*`，
+没有状态目录时在系统临时目录 `lithe-maven-execution-*`。已配置的 Surefire/Failsafe
+实例提供报告位置，私有目录只保留本次新报告、索引和字节哈希；操作返回、失败或取消
+完成后删除，崩溃残留沿用插件工作区状态清理。它不具备构建缓存 identity stamp，
+`maven-operation-report-snapshots` 排除项与脚本拒绝跨 worktree 复制、硬链接和符号链接。
+原始报告仍是上游写入工作区的输出，不可用于替代另一次运行；插件安装包始终只读。

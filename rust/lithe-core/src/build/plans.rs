@@ -765,12 +765,16 @@ pub(crate) fn test_plan(
             "reports": reports(globs),
         }),
         Some(TestResultsSource::HostIntegration) => json!({ "decoder": "hostIntegration" }),
+        Some(TestResultsSource::Provider) => json!({ "decoder": "provider" }),
     };
     let mut extra = Map::new();
     extra.insert("results".to_string(), results);
     if test.source == TaskSource::Provider {
         let mut params = Map::new();
         params.insert("userArguments".to_string(), json!(request.user_arguments));
+        if matches!(test.results, Some(TestResultsSource::Provider)) {
+            params.insert("testResults".to_string(), json!(true));
+        }
         // Filters stay separate values; the owning backend interprets them
         // using its upstream test engine, never a host-generated CLI string.
         for (name, value) in [("suite", &request.suite), ("case", &request.case)] {

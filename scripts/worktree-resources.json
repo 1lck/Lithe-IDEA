@@ -423,6 +423,17 @@
       ],
       "identity": "User-authored team Build preferences and machine-local differences scoped to one workspace; no build, platform, architecture or toolchain artifact identity stamp. A bounded cutover receipt records source identities until guarded data migration completes.",
       "reason": "Team values are ordinary workspace-owned source; local differences belong only to the platform preference store. Neither is a download, generated build input or portable cache. Passive reads never create or rewrite the file; an explicit edit or guarded activation migration preserves unrelated systems and checks exact source bytes. No copy, hardlink or symlink reuse stage is permitted. App/plugin resources and signing/Sparkle baselines remain read-only. Migration receipts are private recovery state, removed after all verified source removals; an external source change after partial publication blocks automatic cleanup. They contain no reusable generated resource and must never leave their owning workspace/profile."
+    },
+    {
+      "id": "maven-operation-report-snapshots",
+      "reusable": false,
+      "locations": [
+        "<workspaceStateDir>/execution-*/index.json",
+        "<workspaceStateDir>/execution-*/report-<sequence>.xml",
+        "<system-temp>/lithe-maven-execution-*/"
+      ],
+      "identity": "One plugin/workspace execution owns bounded fresh upstream reports, bound to the exact Maven operation and source hashes; no reusable version/platform/architecture/toolchain identity stamp.",
+      "reason": "The selected Maven core extension snapshots reports only from configured Surefire/Failsafe mojos, including checked failures; the backend validates captured hashes, parses through Apache Surefire and removes its private operation directory in try-with-resources. Reports and state never enter an installation directory. User project report outputs stay owned by the upstream engine; no copy, symlink or hardlink reuse stage is allowed for operation snapshots. Cancellation terminates Maven before normal cleanup; abandoned state belongs to the existing plugin workspace state retention lifecycle. Package bytes, signing and Sparkle baselines remain unchanged."
     }
   ]
 }

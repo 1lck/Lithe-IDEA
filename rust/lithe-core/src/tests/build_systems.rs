@@ -43,6 +43,9 @@ fn fixture(name: &str) -> Value {
         "build-instance-options.plugin.json" => {
             contract_file!("fixtures/build-instance-options.plugin.json")
         }
+        "build-provider-reports.plugin.json" => {
+            contract_file!("fixtures/build-provider-reports.plugin.json")
+        }
         "build-toolchains.plugin.json" => contract_file!("fixtures/build-toolchains.plugin.json"),
         "build-command-stdout.plugin.json" => GO_FIXTURE,
         "build-command-output-file.plugin.json" => GRADLE_FIXTURE,
@@ -357,6 +360,72 @@ fn instance_options_drive_static_run_entries_without_crossing_roots_or_scopes() 
 /// The Cargo plugin reproduces the built-in Cargo detector's run entries
 /// field for field, so moving Cargo onto the plugin model keeps every stored
 /// run configuration.
+#[test]
+fn provider_test_reports_are_inline_bounded_and_keep_project_identity() {
+    let workspace = TemporaryWorkspace::new("provider-test-reports");
+    workspace
+        .write("nested/a/source.java", "class A {}")
+        .write("nested/b/source.java", "class B {}");
+    let manifest = fixture("build-provider-reports.plugin.json");
+    let plan = call(
+        "testPlan",
+        manifest.clone(),
+        "gradle",
+        json!({"root":"nested","userArguments":[]}),
+    );
+    assert_eq!(plan["plan"]["results"], json!({"decoder":"provider"}));
+    assert_eq!(plan["plan"]["provider"]["params"]["testResults"], true);
+    let report = json!({"format":"litheTestResults","version":1,"tests":[
+        {"project":"nested/a","suite":"demo.Same","case":"checks","status":"passed","path":"nested/a/source.java","line":1},
+        {"project":"nested/b","suite":"demo.Same","case":"checks","status":"failed","message":"assertion failed"}
+    ]});
+    let request = json!({"workspaceRoot":workspace.root(),"root":"nested","result":report});
+    let decoded = call(
+        "decodeTestResults",
+        manifest.clone(),
+        "gradle",
+        request.clone(),
+    );
+    assert_eq!(decoded["results"]["summary"]["total"], 2);
+    assert_eq!(decoded["results"]["summary"]["failed"], 1);
+    assert_eq!(decoded["results"]["tests"][0]["project"], "nested/a");
+    assert_eq!(decoded["results"]["tests"][1]["project"], "nested/b");
+    for invalid in [
+        json!(null),
+        json!({"format":"wrong","version":1,"tests":[]}),
+        json!({"format":"litheTestResults","version":1,"tests":[{"suite":"s","case":"c","status":"unknown"}]}),
+        json!({"format":"litheTestResults","version":1,"tests":[{"suite":"s","case":"c","status":"passed","project":"../escape"}]}),
+        json!({"format":"litheTestResults","version":1,"tests":[{"suite":"s","case":"c","status":"passed","path":"outside.java"}]}),
+        json!({"format":"litheTestResults","version":1,"tests":[{"suite":"s","case":"c","status":"passed","line":0}]}),
+        json!({"format":"litheTestResults","version":1,"tests":[{"suite":"s","case":"c","status":"passed","invocations":0}]}),
+    ] {
+        let mut input = request.clone();
+        input["result"] = invalid;
+        assert_ne!(
+            call("decodeTestResults", manifest.clone(), "gradle", input)["status"],
+            "ok"
+        );
+    }
+    let mut absent = request;
+    absent.as_object_mut().unwrap().remove("result");
+    assert_ne!(
+        call("decodeTestResults", manifest.clone(), "gradle", absent)["status"],
+        "ok"
+    );
+    let mut old = manifest.clone();
+    old["requires"]["buildProviders"] = json!(7);
+    assert_ne!(
+        validate_command(json!({"manifest":old})).unwrap()["status"],
+        "ok"
+    );
+    let mut command = manifest;
+    command["buildSystems"][0]["test"]["source"] = json!("command");
+    assert_ne!(
+        validate_command(json!({"manifest":command})).unwrap()["status"],
+        "ok"
+    );
+}
+
 #[test]
 fn cargo_run_entries_match_the_builtin_detector() {
     let workspace = TemporaryWorkspace::new("build-cargo-parity");

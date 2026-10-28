@@ -1045,6 +1045,16 @@ package final class BuildSystemService: ObservableObject {
             // workspace switch in between must not publish into the new state.
             guard isValid() else { throw CancellationError() }
             service.diagnostics = diagnostics
+            if entry.declaration.providerTestReports, let report = collected.testResults {
+                let target = entry.target
+                let planner = service.planner
+                let request = BuildTestResultsRequest(workspaceURL: workspaceURL, root: entry.instance.root,
+                    project: request.project?.path, projects: entry.model?.projects.map(\.path) ?? [],
+                    output: collected.text, notBefore: nil, suite: nil, result: report)
+                let results = try await Task.detached(priority: .userInitiated) { try planner.decodeTestResults(target, request: request) }.value
+                guard isValid() else { throw CancellationError() }
+                service.testResults = results
+            }
             return collected.exitCode
         }
     }
@@ -1057,7 +1067,7 @@ package final class BuildSystemService: ObservableObject {
             let plan = try service.planner.testPlan(entry.target, context: context, request: request)
             let isValid = service.runValidity(plan.execution, entry: entry, workspaceURL: workspaceURL, run: run)
             defer { if service.providerRunID == run.id { service.providerRunID = nil } }
-            if plan.results != nil, request.project == nil,
+            if plan.results != nil, plan.results != .provider, request.project == nil,
                entry.instance.modelSource != nil,
                entry.model == nil || entry.isReloadRequired {
                 // Report globs are relative to each project; without a current
@@ -1083,7 +1093,8 @@ package final class BuildSystemService: ObservableObject {
                     projects: request.projects,
                     output: collected.text,
                     notBefore: started,
-                    suite: request.suite
+                    suite: request.suite,
+                    result: collected.testResults
                 )
                 let planner = service.planner
                 let target = entry.target
@@ -1097,6 +1108,7 @@ package final class BuildSystemService: ObservableObject {
                     throw CancellationError()
                 } catch {
                     guard isValid() else { throw CancellationError() }
+                    if plan.results == .provider { throw error }
                     service.appendOutput(
                         "\n" + error.localizedDescription + "\n", in: service.outputDirectory(entry), owner: .run(run)
                     )
@@ -1849,6 +1861,7 @@ package final class BuildSystemService: ObservableObject {
         let text: String
         /// Nil when the command timed out.
         let exitCode: Int32?
+        var testResults: ToolingJSONValue? = nil
     }
 
     /// Runs a task or test command; its output is the run's output.
@@ -1933,7 +1946,7 @@ package final class BuildSystemService: ObservableObject {
             // A malformed stream must not hide the final diagnostic output.
             appendOutput(result.output, in: directory, owner: .run(run))
         }
-        return CollectedOutput(text: result.output, exitCode: result.exitCode)
+        return CollectedOutput(text: result.output, exitCode: result.exitCode, testResults: result.testResults)
     }
 
     private func providerRequestWithTool(

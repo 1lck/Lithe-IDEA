@@ -279,6 +279,7 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
                 project: request.project,
                 projects: request.projects,
                 output: request.output,
+                result: request.result,
                 notBeforeMillis: request.notBefore.map { UInt64(max(0, $0.timeIntervalSince1970 * 1000)) },
                 suite: request.suite
             )
@@ -528,6 +529,7 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         let project: String?
         let projects: [String]
         let output: String
+        let result: ToolingJSONValue?
         let notBeforeMillis: UInt64?
         let suite: String?
     }
@@ -672,9 +674,11 @@ struct RustBuildSystemOperations: BuildSystemPlanning {
         let reports: [String]?
 
         var results: BuildTestPlan.Results {
-            decoder == "hostIntegration"
-                ? .hostIntegration
-                : .reports(decoder: decoder, patterns: reports ?? [])
+            switch decoder {
+            case "provider": .provider
+            case "hostIntegration": .hostIntegration
+            default: .reports(decoder: decoder, patterns: reports ?? [])
+            }
         }
     }
 

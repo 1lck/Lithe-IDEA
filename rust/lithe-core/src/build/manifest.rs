@@ -750,6 +750,8 @@ pub(crate) enum TestFilter {
     deny_unknown_fields
 )]
 pub(crate) enum TestResultsSource {
+    /// A canonical document returned by the same provider test operation.
+    Provider,
     /// JUnit XML report files, globbed relative to the project directory.
     JunitXml {
         reports: Vec<String>,
@@ -1409,6 +1411,16 @@ impl BuildSystemDeclaration {
                 super::debug_preparation::adapter(run, context.debug_adapters)?;
             }
         }
+        if matches!(
+            self.test.as_ref().and_then(|test| test.results.as_ref()),
+            Some(TestResultsSource::Provider)
+        ) && context.build_providers_version < 8
+        {
+            return Err(invalid(
+                &field,
+                "Provider-owned test reports require buildProviders 8.",
+            ));
+        }
         if provider_tests && context.build_providers_version < 3 {
             return Err(invalid(&field, "Provider tests require buildProviders 3."));
         }
@@ -2047,6 +2059,12 @@ impl BuildSystemDeclaration {
                 ));
             }
         } else {
+            if matches!(test.results, Some(TestResultsSource::Provider)) {
+                return Err(invalid(
+                    &field,
+                    "Provider-owned reports require provider test execution.",
+                ));
+            }
             check_argument_count(&test.arguments, &format!("{field}.arguments"))?;
             template::validate_arguments(
                 &test.arguments,

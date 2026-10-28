@@ -4239,3 +4239,9 @@ static model/run generation; hosts use the same merge in every subsequent plan.
 `savedChoices` preserves unselected custom choices. Hosts display them only when
 the resolved option permits custom values; they never change selection or upstream
 model facts. Storage validates bounded documents and preserves invalid originals.
+
+`build.decodeTestResults.request.result` accepts a canonical inline report only
+for `test.results.decoder=provider` (buildProviders 8). Provider replies carry
+`testResults` with the same execution. Core validates bounded case fields and
+workspace-relative paths and aggregates by optional project/suite/case identity;
+the host does not read tool-specific report directories for this decoder.

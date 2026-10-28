@@ -107,6 +107,8 @@ public struct DeclarativeBuildSystem: Equatable, Sendable {
     public let testScopes: [BuildScope]
     /// Tags a target must carry to run its tests.
     public let testTargetTags: [String]
+    /// Reports arrive with the completing provider operation; no host file discovery.
+    public let providerTestReports: Bool
     public struct ProviderRun: Equatable, Identifiable, Sendable {
         public let id: String
         public let displayName: String
@@ -137,13 +139,14 @@ public struct DeclarativeBuildSystem: Equatable, Sendable {
     public init(
         id: String, displayName: String, icon: PluginUIIcon? = nil, modelSource: ModelSource?,
         options: [Option] = [], tasks: [Task], testScopes: [BuildScope], testTargetTags: [String] = [],
-        dependencyScopes: [BuildScope], declaresProvider: Bool = false, testDiscovery: Bool = false, providerRuns: [ProviderRun] = [], sharesModel: Bool = false, modelInputs: [ModelInput] = [], nativeConfiguration: Bool = false
+        dependencyScopes: [BuildScope], declaresProvider: Bool = false, testDiscovery: Bool = false, providerRuns: [ProviderRun] = [], sharesModel: Bool = false, modelInputs: [ModelInput] = [], nativeConfiguration: Bool = false, providerTestReports: Bool = false
     ) {
         self.id = id; self.displayName = displayName; self.icon = icon; self.modelSource = modelSource
         self.options = options; self.tasks = tasks
         self.testScopes = testScopes; self.testTargetTags = testTargetTags; self.dependencyScopes = dependencyScopes
         self.declaresProvider = declaresProvider
         self.nativeConfiguration = nativeConfiguration
+        self.providerTestReports = providerTestReports
         self.testDiscovery = testDiscovery
         self.sharesModel = sharesModel; self.modelInputs = modelInputs
         self.providerRuns = providerRuns
@@ -913,6 +916,7 @@ package struct BuildTestPlan: Equatable, Sendable {
     package enum Results: Equatable, Sendable {
         case reports(decoder: String, patterns: [String])
         case hostIntegration
+        case provider
     }
 
     package let execution: BuildOutputPlan
@@ -939,6 +943,7 @@ package struct BuildTestResults: Equatable, Sendable, Decodable {
             case passed, failed, error, skipped
         }
 
+        package let project: String?
         package let suite: String
         package let name: String
         package let status: Status
@@ -948,10 +953,11 @@ package struct BuildTestResults: Equatable, Sendable, Decodable {
         package let path: String?
         package let line: Int?
         package let invocations: Int
-        package var id: String { suite + "#" + name }
+        package var id: String { (project.map { $0 + ":" } ?? "") + suite + "#" + name }
 
         package init(from decoder: Decoder) throws {
             let values = try decoder.container(keyedBy: CodingKeys.self)
+            project = try values.decodeIfPresent(String.self, forKey: .project)
             suite = try values.decode(String.self, forKey: .suite)
             name = try values.decode(String.self, forKey: .case)
             status = Status(rawValue: try values.decode(String.self, forKey: .status)) ?? .error
@@ -963,7 +969,7 @@ package struct BuildTestResults: Equatable, Sendable, Decodable {
         }
 
         private enum CodingKeys: String, CodingKey {
-            case suite, `case`, status, message, durationMillis, path, line, invocations
+            case project, suite, `case`, status, message, durationMillis, path, line, invocations
         }
     }
 
@@ -987,15 +993,16 @@ package struct BuildTestResultsRequest: Equatable, Sendable {
     package let project: String?
     package let projects: [String]
     package let output: String
+    package let result: ToolingJSONValue?
     package let notBefore: Date?
     package let suite: String?
 
     package init(
         workspaceURL: URL, root: String, project: String?, projects: [String], output: String,
-        notBefore: Date?, suite: String?
+        notBefore: Date?, suite: String?, result: ToolingJSONValue? = nil
     ) {
         self.workspaceURL = workspaceURL; self.root = root; self.project = project
-        self.projects = projects; self.output = output; self.notBefore = notBefore; self.suite = suite
+        self.projects = projects; self.output = output; self.notBefore = notBefore; self.suite = suite; self.result = result
     }
 }
 
@@ -1171,7 +1178,11 @@ package struct BuildProviderExecutionResult: Codable, Equatable, Sendable {
     package let exitCode: Int32
     package let output: String
 
-    package init(exitCode: Int32, output: String) { self.exitCode = exitCode; self.output = output }
+    /// A provider-owned canonical report, still validated by the shared decoder.
+    package let testResults: ToolingJSONValue?
+    package init(exitCode: Int32, output: String, testResults: ToolingJSONValue? = nil) {
+        self.exitCode = exitCode; self.output = output; self.testResults = testResults
+    }
 }
 
 // MARK: Provider processes

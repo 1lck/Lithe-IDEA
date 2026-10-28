@@ -1800,6 +1800,65 @@ struct BuildSystemServiceTests {
         else { if case .failed = harness.service.runState {} else { Issue.record("Expected failed test exit") } }
     }
 
+    @Test(arguments: [false, true])
+    func inlineReportsAreDecodedFromTheExactReplyAndDecodeFailureFailsTheRun(fail: Bool) async throws {
+        let planner = FakeBuildPlanner()
+        planner.fingerprint = "o"
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "provider")])
+        planner.providerRequest = Self.providerRequest(method: "lithe/build/test")
+        planner.testPlanDeclaresResults = true
+        planner.inlineTestResults = true
+        let expected = try Self.testResults("failure")
+        if !fail { planner.decodedTestResults = expected }
+        let providers = FakeBuildProviders()
+        let report: ToolingJSONValue = .object(["format": .string("litheTestResults"), "version": .integer(1), "tests": .array([])])
+        providers.executionResult = BuildProviderExecutionResult(exitCode: 0, output: "test output", testResults: report)
+        let harness = Harness(planner: planner, providers: providers)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        #expect(harness.service.runTests(Self.instanceID, request: BuildTestRequest(), title: "Tests") != nil)
+        try #require(await harness.waitForRunState { $0 != .running })
+        #expect(planner.testReportInputs.map(\.result) == [report])
+        #expect(harness.service.testResults == (fail ? nil : expected))
+        if fail { if case .failed = harness.service.runState {} else { Issue.record("A report decode failure must fail the run") } }
+        else { #expect(harness.service.runState == .succeeded) }
+    }
+
+    @Test(arguments: [false, true])
+    func ordinaryProviderTasksPublishInlineReportsOnlyWhileTheRunStillOwnsThem(cancel: Bool) async throws {
+        let planner = FakeBuildPlanner()
+        planner.fingerprint = "o"
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "provider")])
+        planner.providerRequest = Self.providerRequest(method: "lithe/build/execute")
+        let expected = try Self.testResults("task failure")
+        planner.decodedTestResults = expected
+        let gate = GatedBuildDecode()
+        planner.testResultsGate = gate
+        let providers = FakeBuildProviders()
+        let report: ToolingJSONValue = .object(["format": .string("litheTestResults"), "version": .integer(1), "tests": .array([])])
+        providers.executionResult = BuildProviderExecutionResult(exitCode: 1, output: "tests failed during package", testResults: report)
+        let harness = Harness(planner: planner, sources: [fixtureSource(providerTestReports: true)], providers: providers)
+        defer { gate.releaseDecode(); harness.service.stop() }
+        harness.service.reset(workspaceURL: Self.workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        #expect(harness.service.runTask(Self.instanceID, request: BuildTaskRequest(task: "package"), title: "Package") != nil)
+        try #require(await gate.entered.waitUntilOpen())
+        if cancel { harness.service.stopRun() }
+        gate.releaseDecode()
+        try #require(await gate.finished.waitUntilOpen())
+        if cancel {
+            #expect(await harness.waitsForStaleTestResults(expected) == false)
+            #expect(harness.service.testResults == nil)
+            #expect(harness.service.runState == .cancelled)
+        } else {
+            try #require(await harness.waitForRunState { $0 != .running })
+            #expect(harness.service.testResults == expected)
+            #expect(planner.testReportInputs.map(\.result) == [report])
+            if case .failed = harness.service.runState {} else { Issue.record("The task must retain its failing exit code") }
+        }
+    }
+
     /// The provider operation remains cancellable while its reports decode.
     @Test
     func providerTestOptionsCancelDuringReportDecode() async throws {
@@ -1810,6 +1869,7 @@ struct BuildSystemServiceTests {
         ])
         planner.providerRequest = Self.providerRequest(method: "lithe/build/test")
         planner.testPlanDeclaresResults = true
+        planner.inlineTestResults = true
         let stale = try Self.testResults("stale")
         planner.decodedTestResults = stale
         let gate = GatedBuildDecode()
@@ -2674,14 +2734,14 @@ private func nativeEdits(_ snapshot: BuildNativeConfiguration) -> BuildNativeCon
     BuildNativeConfigurationEdits(sourceID: "user", revision: snapshot.sources[0].revision, values: ["localRepository": .string("/raw")])
 }
 
-private func fixtureSource(pluginID: String = "dev.example", testDiscovery: Bool = false, providerRuns: [DeclarativeBuildSystem.ProviderRun] = [], buildSystemID: String = "fixture", sharesModel: Bool = false, modelInputs: [DeclarativeBuildSystem.ModelInput] = [], nativeConfiguration: Bool = false) -> BuildSystemPluginSource {
+private func fixtureSource(pluginID: String = "dev.example", testDiscovery: Bool = false, providerRuns: [DeclarativeBuildSystem.ProviderRun] = [], buildSystemID: String = "fixture", sharesModel: Bool = false, modelInputs: [DeclarativeBuildSystem.ModelInput] = [], nativeConfiguration: Bool = false, providerTestReports: Bool = false) -> BuildSystemPluginSource {
     BuildSystemPluginSource(
         pluginID: pluginID,
         manifest: Data("{}".utf8),
         packageURL: URL(fileURLWithPath: "/plugins/\(pluginID)"),
         buildSystems: [DeclarativeBuildSystem(
             id: buildSystemID, displayName: "Fixture", modelSource: .command, tasks: [],
-            testScopes: [], dependencyScopes: [], testDiscovery: testDiscovery, providerRuns: providerRuns, sharesModel: sharesModel, modelInputs: modelInputs, nativeConfiguration: nativeConfiguration
+            testScopes: [], dependencyScopes: [], testDiscovery: testDiscovery, providerRuns: providerRuns, sharesModel: sharesModel, modelInputs: modelInputs, nativeConfiguration: nativeConfiguration, providerTestReports: providerTestReports
         )]
     )
 }
@@ -2898,6 +2958,8 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         var detectGate: GatedBuildDecode?
         var decodedTestResults: BuildTestResults?
         var testPlanDeclaresResults = false
+        var inlineTestResults = false
+        var testReportInputs: [BuildTestResultsRequest] = []
         var discovery: BuildTestDiscovery?
         var discoveryGate: GatedBuildDecode?
         var runPreparationGate: GatedBuildDecode?
@@ -2996,6 +3058,11 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         set { access { $0.discoveryGate = newValue } }
     }
     var testRequests: [BuildTestRequest] { access { $0.testRequests } }
+    var inlineTestResults: Bool {
+        get { access { $0.inlineTestResults } }
+        set { access { $0.inlineTestResults = newValue } }
+    }
+    var testReportInputs: [BuildTestResultsRequest] { access { $0.testReportInputs } }
     var testPlanDeclaresResults: Bool {
         get { access { $0.testPlanDeclaresResults } }
         set { access { $0.testPlanDeclaresResults = newValue } }
@@ -3160,7 +3227,7 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         let declaresResults = access { $0.testPlanDeclaresResults }
         return BuildTestPlan(
             execution: providerRequest.map { .provider(withInputs($0, context: context)) } ?? .process(plan(["test"], output: nil)),
-            results: declaresResults ? .reports(decoder: "junitXml", patterns: []) : nil
+            results: declaresResults ? (access { $0.inlineTestResults } ? .provider : .reports(decoder: "junitXml", patterns: [])) : nil
         )
     }
 
@@ -3246,6 +3313,7 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
     }
 
     func decodeTestResults(_ target: BuildSystemTarget, request: BuildTestResultsRequest) throws -> BuildTestResults {
+        access { $0.testReportInputs.append(request) }
         let results = access { $0.decodedTestResults }
         if let gate = access({ let gate = $0.testResultsGate; $0.testResultsGate = nil; return gate }) {
             gate.entered.open()

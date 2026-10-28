@@ -351,3 +351,28 @@ node scripts/sdk-e2e.mjs --source /path/to/Lithe-IDEA --working-tree --build-wor
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/MacLivePluginRegistry.swift`
 - `macos/Sources/Lithe/Platform/MacOS/Debug/MacBuildDebugLaunchResolver.swift`
 - `shared/fixtures/debug/adapter-selection-v1.json`
+
+### 后端随执行返回测试报告（2026-10-28）
+
+`buildProviders: 8` 增加随当前操作返回的规范化报告。测试声明选择 Provider 解码后，
+Core 请求明确要求报告，旧协商版本不能忽略这个要求；宿主不再按该工具的目录猜测
+报告来源。普通构建任务执行了测试时也可以返回报告，非零退出码仍保留失败用例。
+Core 只验证数量、字节、路径和字段，按工程／类／方法聚合；Swift 接收解码后的同一
+运行结果，取消或配置失效后不得发布。这样两个模块中的同名测试不会合成一项。
+
+Maven 后端使用 Maven 的 `MojoExecutionListener` 取得已配置 Surefire/Failsafe 实例
+的报告目录，目录插值和命令行优先级仍由 Maven 处理；成功与失败都收集本次新报告。
+Maven 3.9 的 checked test failure 不经过该监听器的失败回调，所以补用公开的
+`ExecutionEvent.MojoFailed` 结束同一份捕获，不通过时间猜测报告是否完成。
+Apache Surefire Report Parser 3.5.2 负责报告语义；读取同一份有界字节前禁用 DTD 和
+外部实体，拒绝非普通文件、越界目录与超限报告。操作结束删除私有快照，保留工程原始
+报告，插件包只读。干净打包验证 Sisu 组件注册，避免依赖上一次编译留下的索引。
+
+考虑过继续由 Core 根据固定 glob 读取 Maven 报告，但自定义目录和插件实际生效配置
+会漂移；也没有再写一套 JUnit 状态解释器。代价是 Maven 插件增加 Apache 报告解析
+依赖与有界的操作快照，许可证随包保留。验证包含真实模块编译、精确单方法、未知
+方法拒绝、自定义带空格目录中的失败用例、坏 XML/外部实体拒绝、取消与包字节不变。
+Java/Node SDK 的真实 Core 场景与计时报告通过；Maven 3.9.16 和最低支持的 3.6.3
+均通过报告及原生配置流程。本轮使用 JDK 26，Java 8 的新报告能力运行验证仍待 CI，
+不能借用阶段 C 旧提交的 Java 8 结果。该报告能力不代表旧 MavenService、Java
+运行/测试后端和 Windows 消费者迁移已完成。

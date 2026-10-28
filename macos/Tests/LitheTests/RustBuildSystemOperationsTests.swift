@@ -11,6 +11,28 @@ struct RustBuildSystemOperationsTests {
     private let operations = RustBuildSystemOperations(core: RustCoreBridge())
 
     @Test
+    func providerReportsTravelInlineAndKeepRepeatedCasesInTheirProject() throws {
+        let source = try Self.source("build-provider-reports")
+        let target = BuildSystemTarget(manifest: source.manifest, buildSystemID: "gradle")
+        #expect(source.buildSystems.first?.providerTestReports == true)
+        let workspace = FileManager.default.temporaryDirectory.appendingPathComponent("provider-reports-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workspace) }
+        let report = try JSONDecoder().decode(ToolingJSONValue.self, from: Data(#"{"format":"litheTestResults","version":1,"tests":[{"project":"a","suite":"Same","case":"checks","status":"failed"},{"project":"b","suite":"Same","case":"checks","status":"passed"}]}"#.utf8))
+        let request = BuildTestResultsRequest(workspaceURL: workspace, root: ".", project: nil, projects: [],
+            output: "", notBefore: nil, suite: nil, result: report)
+        let result = try operations.decodeTestResults(target, request: request)
+        #expect(result.summary.total == 2)
+        #expect(result.summary.failed == 1)
+        #expect(Set(result.tests.map(\.id)).count == 2)
+        #expect(result.tests.map(\.project) == ["a", "b"])
+        #expect(throws: (any Error).self) {
+            try operations.decodeTestResults(target, request: BuildTestResultsRequest(workspaceURL: workspace,
+                root: ".", project: nil, projects: [], output: "", notBefore: nil, suite: nil))
+        }
+    }
+
+    @Test
     func descriptorDeclaresBuildSystemsAndTheirModule() throws {
         let descriptor = try Self.descriptor("build-static-file")
         let cargo = try #require(descriptor.buildSystems.first)
