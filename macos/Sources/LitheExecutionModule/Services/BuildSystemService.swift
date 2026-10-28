@@ -135,6 +135,7 @@ package final class BuildSystemService: ObservableObject {
     package private(set) var workspaceURL: URL?
     /// Nil while detection is pending. An empty value means no plugin import.
     @Published package private(set) var languageImport: JavaLanguageImportConfiguration?
+    private var languageImportsByRoot: [String: JavaLanguageImportConfiguration] = [:]
     package var onLanguageImportChanged: ((URL) -> Void)?
     private var languageImportFailure: String?
     private var detectionID: UUID?
@@ -352,6 +353,7 @@ package final class BuildSystemService: ObservableObject {
         let detectionID = UUID()
         self.detectionID = detectionID
         languageImport = nil
+        languageImportsByRoot = [:]
         languageImportFailure = nil
         let sources = sources()
         guard !sources.isEmpty else {
@@ -509,6 +511,9 @@ package final class BuildSystemService: ObservableObject {
                           !Task.isCancelled else { return }
                     switch configured {
                     case .success(let values):
+                        self.languageImportsByRoot = Dictionary(uniqueKeysWithValues: Set(inputs.map { $0.entry.instance.root }).map { root in
+                            (root, Self.workspaceImport(inputs: inputs.filter { $0.entry.instance.root == root }, imports: values))
+                        })
                         self.publishLanguageImport(Self.workspaceImport(inputs: inputs, imports: values), workspaceURL: workspaceURL)
                     case .failure(let error): self.failLanguageImport(error)
                     }
@@ -594,6 +599,7 @@ package final class BuildSystemService: ObservableObject {
         detectionTask?.cancel(); detectionTask = nil
         detectionID = nil
         languageImport = nil
+        languageImportsByRoot = [:]
         languageImportFailure = nil
         isDetecting = false
         redetectTask?.cancel()
@@ -607,6 +613,18 @@ package final class BuildSystemService: ObservableObject {
     }
 
     // MARK: Language import
+
+    /// Run preparation uses the same accepted options as Java import, scoped to
+    /// its recorded build root. Pending detection must never reuse an old root.
+    package func languageImport(workspaceURL: URL, root: String?) throws -> JavaLanguageImportConfiguration {
+        guard self.workspaceURL == workspaceURL.standardizedFileURL else { throw CancellationError() }
+        if let languageImportFailure { throw BuildSystemServiceError(languageImportFailure) }
+        guard let languageImport else {
+            throw BuildSystemServiceError(L10n.string("Build-system language import is still preparing. Retry when project loading completes."))
+        }
+        guard let root else { return languageImport }
+        return languageImportsByRoot[root] ?? JavaLanguageImportConfiguration()
+    }
 
     /// Waits for the current detection, including option normalization. A
     /// cancelled waiter never cancels detection shared by other consumers.
@@ -1147,6 +1165,7 @@ package final class BuildSystemService: ObservableObject {
         detectionID = nil
         redetectTask?.cancel(); redetectTask = nil
         languageImport = nil
+        languageImportsByRoot = [:]
         languageImportFailure = nil
         isDetecting = false
         finishImportWaiters(.failure(CancellationError()))

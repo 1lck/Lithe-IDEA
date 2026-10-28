@@ -134,7 +134,11 @@ struct ExecutionModuleTests {
         let context = MavenLaunchContext(reactorPath: "services/alpha", profiles: ["dev"],
                                          settingsPath: "/fixture/settings.xml", skipTests: true,
                                          mavenExecutablePath: nil, javaHomePath: nil)
-        graph.run.configureMavenContextProvider { context }
+        graph.run.configureBuildLanguageImportProvider { workspace, requestedRoot in
+            #expect(workspace.path == "/workspace")
+            #expect(requestedRoot == reactor)
+            return .init(mavenContext: context)
+        }
         await graph.run.loadProject(at: URL(fileURLWithPath: "/workspace"), files: [], mavenProject: nil)
         #expect(graph.run.defaultConfigurationID == configuration.id)
         graph.run.startConfiguration(configuration)
@@ -2521,9 +2525,10 @@ private func makeRunService(
 
 @MainActor
 func makeBuildSystemTestRuntime(
-    _ buildSystems: BuildSystemService
+    _ buildSystems: BuildSystemService,
+    runOperations: any RunConfigurationOperations = TestRunConfigurationOperations()
 ) async throws -> (runtime: ModuleRuntime, graph: ExecutionFeatureGraph) {
-    let graph = makeTestGraph(buildSystems: buildSystems)
+    let graph = makeTestGraph(runOperations: runOperations, buildSystems: buildSystems)
     let runtime = ModuleRuntime()
     try runtime.register(ModuleFactory(
         manifest: ModuleManifest(id: .workspace, displayName: "Workspace", scope: .workspace)
@@ -2888,13 +2893,15 @@ private struct FixedServerPortParser: RunServerPortParsing {
     func serverPort(content _: String, fileExtension _: String) -> Int? { port }
 }
 
-private final class MavenContextRunOperations: RunConfigurationOperations, @unchecked Sendable {
+final class MavenContextRunOperations: RunConfigurationOperations, @unchecked Sendable {
     let configuration: RunConfiguration
     private let lock = NSLock()
     private var recordedContext: MavenLaunchContext?
     private var didCall = false
+    private var recordedCallCount = 0
     var context: MavenLaunchContext? { lock.lock(); defer { lock.unlock() }; return recordedContext }
     var called: Bool { lock.lock(); defer { lock.unlock() }; return didCall }
+    var callCount: Int { lock.lock(); defer { lock.unlock() }; return recordedCallCount }
     init(configuration: RunConfiguration) { self.configuration = configuration }
     func inspect(at _: URL) -> ProjectRunConfigurationInspection {
         ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
@@ -2919,6 +2926,7 @@ private final class MavenContextRunOperations: RunConfigurationOperations, @unch
         lock.lock()
         recordedContext = mavenContext
         didCall = true
+        recordedCallCount += 1
         lock.unlock()
         throw RunConfigurationOperationFailure(message: "Fixture launch failure")
     }

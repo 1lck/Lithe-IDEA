@@ -28,6 +28,58 @@ struct BuildSystemServiceTests {
         #expect(harness.service.languageImport == next)
     }
 
+    @Test(arguments: [false, true])
+    func runPreparationUsesItsBuildRootAndRefusesPendingOrOldWorkspaceInputs(primary: Bool) async throws {
+        let planner = FakeBuildPlanner()
+        planner.importEnabled = true
+        planner.dynamicOptions = true
+        planner.detection = BuildDetection(instances: [
+            try Self.nestedInstance(id: "fixture:a", root: "a", features: ["cli"]),
+            try Self.nestedInstance(id: "fixture:b", root: "b", features: ["gui"])
+        ])
+        let harness = Harness(planner: planner)
+        let configuration = RunConfiguration(id: "main", name: "Main", kind: .javaMain,
+            modulePath: "b", mainClass: "example.Main", mavenReactorPath: "b")
+        let operations = MavenContextRunOperations(configuration: configuration)
+        let (runtime, graph) = try await makeBuildSystemTestRuntime(harness.service, runOperations: operations)
+        defer { graph.stop() }
+        harness.optionsStore.values["fixture"] = ["features": .array([.string("cli"), .string("gui")])]
+        harness.service.reset(workspaceURL: Self.workspace)
+        _ = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
+        #expect(harness.service.languageImport?.mavenContext?.reactorPath == "a")
+        await graph.run.loadProject(at: Self.workspace, files: [], mavenProject: nil)
+        func launch() {
+            if primary { graph.run.run(configuration: configuration, currentFileURL: nil) }
+            else { graph.run.startConfiguration(configuration) }
+        }
+        launch()
+        #expect(operations.callCount == 1)
+        #expect(operations.context?.reactorPath == "b")
+        #expect(operations.context?.profiles == ["gui"])
+
+        // Invalidation is synchronous, before coalesced detection can finish.
+        // Both Run entry points must report failure without planning old input.
+        harness.service.setOption("fixture:b", optionID: "features", value: .array([]))
+        launch()
+        #expect(operations.callCount == 1)
+        _ = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
+        launch()
+        #expect(operations.callCount == 2)
+        #expect(operations.context?.profiles == [])
+
+        harness.service.reset(workspaceURL: URL(fileURLWithPath: "/workspace/other"))
+        launch()
+        #expect(operations.callCount == 2)
+        harness.service.reset(workspaceURL: Self.workspace)
+        harness.sources = []
+        harness.service.pluginsChanged()
+        _ = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
+        launch()
+        #expect(operations.callCount == 3)
+        #expect(operations.context == nil)
+        await runtime.shutdownAll()
+    }
+
     @Test
     func languageImportWaiterCancellationDoesNotCancelSharedDetection() async throws {
         let planner = FakeBuildPlanner()

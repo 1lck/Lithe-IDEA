@@ -62,10 +62,11 @@
 | 流程 | 本分支状态 | 仍须处理 |
 | --- | --- | --- |
 | Agent 构建 → 输出/状态 → 停止 | 已实现并验证；`MavenService` 任务进程/API/状态机已删除；原生回归 159 项/6 组通过，真实 Agent + Maven 模块编译 4.787 秒通过 | Draft PR；不代替整阶段配置/加载/平台验收 |
-| Maven 配置和项目运行设置 | 项目默认工具选择已切 local.json，并实现一次性旧偏好迁移、草稿确认、冲突保护与读回，384 项受影响原生回归通过（1 项外部集成单独验证）；Maven 原生配置未迁移 | `.lithe/maven/config.json`、旧本机 Maven 文件、运行偏好与 Build 选项的唯一持有方；一次性迁移保留失败源；原生 XML 草稿/冲突/读回 |
+| Maven 配置和项目运行设置 | 项目默认和按根工具路径已切 Run local.json；Build 选项按实例保留团队默认及本机差异；协议 7 原生 XML 读取、确认保存、冲突保护和回读已经接通通用插件设置页及真实 Maven。旧配置迁移器已验证，但尚未激活 | 删除旧设置表单/Agent/Run 的配置读写后再激活迁移器；旧运行偏好中的 settings/仓库字段仍须转移，不能提前删源；正式包与完整 UI 验收 |
 | 项目加载、标签/搜索模块事实、运行配置 | 展示层已切通用 Build 模型；项目加载/运行配置未迁移 | 用 Provider 模型替代 POM scanner，删除旧 MavenProject 注入；Java 入口继续复用 JDT |
 | 依赖树与依赖导航 | 已删除旧 macOS 依赖进程、Swift 文本树桥、临时 adapter 与坐标路径 fallback；Build 用 Provider，导航用 JDT；245 项受影响原生回归通过，真实 Agent 构建及 Provider 编译/精确测试 2 项通过 | 完整 UI/JDT 实机流程、Windows 现存共享命令仍待迁移 |
-| Java 导入、运行/测试/调试准备 | 未迁移 Maven 协作边界 | 删除 `launchContext` fallback，全部消费同一配置代次；Java/JDT 全领域迁移留在阶段 E |
+| Java 导入、运行/测试/调试准备 | Java 导入和 Run Maven 上下文已停用旧服务回退，按 reactor 根读取同一代 Build 输入；315 项受影响原生测试通过；运行/测试/调试仍含旧 Maven 模型和规划 | 删除 `launchContext` fallback，全部消费同一配置代次；Java/JDT 全领域迁移留在阶段 E |
+| Maven 执行中的测试报告 | 协议 8 随操作返回规范报告，Maven 后端用实际配置的 Surefire/Failsafe Mojo 目录和 Apache parser；删除插件内旧固定目录测试选择报告读取器；真实 Core/macOS/Maven 和两个 SDK 通过，Maven 3.6.3 兼容通过 | Java 精确测试宿主路径及 Windows 旧共享命令仍未迁移；本轮 JDK 26 的结果不能代替新报告能力的 Java 8 CI 和正式包验证 |
 | 共享 Maven 命令 | 未删除 | Windows 当前仍直接使用 scanner/launch/dependency/report 命令；接替当前消费者后才能删 Core 命令/fixture |
 | 发行包和双平台验收 | 未完成 | 最新正式 SDK/插件组合、macOS 完整 UI、Windows 实机、安装目录字节不变与进程清理 |
 

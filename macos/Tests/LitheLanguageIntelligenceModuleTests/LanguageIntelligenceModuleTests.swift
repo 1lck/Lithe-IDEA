@@ -134,7 +134,7 @@ struct LanguageIntelligenceModuleTests {
             localRepositoryPath: "/repository", skipTests: false,
             mavenExecutablePath: "/maven/bin/mvn", javaHomePath: nil
         )
-        manager.configureMavenContextProvider { _, _ in context }
+        manager.configureJavaLanguageImportProvider { _, _ in .init(mavenContext: context) }
         defer { manager.stopLanguageServer(providerID: "java") }
         try manager.startLanguageServer(providerID: "java", rootURL: root)
         session.publish(.ready)
@@ -162,11 +162,11 @@ struct LanguageIntelligenceModuleTests {
             catalog: .compatibilityFallback,
             runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)]
         )
-        manager.configureMavenContextProvider { _, _ in
-            MavenLaunchContext(
+        manager.configureJavaLanguageImportProvider { _, _ in
+            .init(mavenContext: MavenLaunchContext(
                 reactorPath: ".", profiles: [], settingsPath: nil, skipTests: false,
                 mavenExecutablePath: nil, javaHomePath: nil
-            )
+            ))
         }
         try manager.startLanguageServer(providerID: "java", rootURL: root)
         session.publish(.ready)
@@ -197,7 +197,6 @@ struct LanguageIntelligenceModuleTests {
         let next = MavenLaunchContext(reactorPath: ".", profiles: ["next"], settingsPath: "/settings.xml", skipTests: false, mavenExecutablePath: nil, javaHomePath: nil)
         var context = first
         let gradle = JavaGradleImportConfiguration(wrapperPresent: true, offline: true, userHome: "/gradle-cache")
-        manager.configureMavenContextProvider { _, _ in Issue.record("Plugin import must take precedence"); return nil }
         manager.configureJavaLanguageImportProvider { _, requestedRoot in
             #expect(requestedRoot == root)
             return JavaLanguageImportConfiguration(mavenContext: context, javaGradle: gradle)
@@ -268,6 +267,46 @@ struct LanguageIntelligenceModuleTests {
     }
 
     @Test
+    func failedPluginImportDoesNotPublishEmptySettingsAndCanLaterClearItsInputs() throws {
+        let root = URL(fileURLWithPath: "/workspace/failed-import", isDirectory: true)
+        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: root.appendingPathComponent("Main.java")))
+        let session = WorkspaceStateLanguageServerSession()
+        let manager = LanguageToolingSessionManager(runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)])
+        defer { manager.stopAllLanguageServers() }
+        var unavailable = false
+        var configuration = JavaLanguageImportConfiguration(mavenContext: MavenLaunchContext(
+            reactorPath: "nested", profiles: ["plugin"], settingsPath: "/plugin/settings.xml",
+            localRepositoryPath: "/plugin/repository", skipTests: false,
+            mavenExecutablePath: "/plugin/maven/bin/mvn", javaHomePath: nil
+        ))
+        manager.configureJavaLanguageImportProvider { _, _ in
+            if unavailable { throw CancellationError() }
+            return configuration
+        }
+        try manager.startLanguageServer(providerID: "java", rootURL: root)
+        unavailable = true
+        guard case .failed(let failure) = manager.updateJavaMavenConfiguration(rootURL: root, reloadProjects: false) else {
+            Issue.record("An unavailable current import must fail without sending replacement settings")
+            return
+        }
+        #expect(failure.code == "languageImportUnavailable")
+        #expect(session.mavenUpdates.isEmpty)
+
+        // A failed read did not revoke the old session's ownership record.
+        // Once detection confirms removal, clear every old override through the same session.
+        unavailable = false
+        configuration = JavaLanguageImportConfiguration()
+        let update = LanguageServerMavenConfigurationUpdate(settingsChanged: true, projectsReloaded: false, profilesUpdating: false)
+        session.mavenUpdateResult = .success(update)
+        #expect(manager.updateJavaMavenConfiguration(rootURL: root, reloadProjects: false) == .updated(update))
+        #expect(session.mavenUpdates.count == 1)
+        #expect(session.mavenUpdates.first?.context == MavenLaunchContext(
+            reactorPath: "nested", profiles: [], settingsPath: nil, localRepositoryPath: nil,
+            skipTests: false, mavenExecutablePath: nil, javaHomePath: nil
+        ))
+    }
+
+    @Test
     func mavenSettingsReachOnlyARunningJavaSessionOfTheSameWorkspace() throws {
         let root = URL(fileURLWithPath: "/workspace/java-settings", isDirectory: true)
         let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(
@@ -278,11 +317,11 @@ struct LanguageIntelligenceModuleTests {
             catalog: .compatibilityFallback,
             runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)]
         )
-        manager.configureMavenContextProvider { _, _ in
-            MavenLaunchContext(
+        manager.configureJavaLanguageImportProvider { _, _ in
+            .init(mavenContext: MavenLaunchContext(
                 reactorPath: ".", profiles: [], settingsPath: nil, skipTests: false,
                 mavenExecutablePath: nil, javaHomePath: nil
-            )
+            ))
         }
         defer { manager.stopLanguageServer(providerID: "java") }
 
@@ -570,10 +609,10 @@ struct LanguageIntelligenceModuleTests {
                 session: session
             )]
         )
-        manager.configureMavenContextProvider { requestedDescriptor, requestedRoot in
+        manager.configureJavaLanguageImportProvider { requestedDescriptor, requestedRoot in
             #expect(requestedDescriptor.id == "java")
             #expect(requestedRoot == root.standardizedFileURL)
-            return context
+            return .init(mavenContext: context)
         }
 
         try manager.startLanguageServer(providerID: "java", rootURL: root)

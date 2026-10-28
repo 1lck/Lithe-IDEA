@@ -15,7 +15,10 @@
       "macos/Tests/LitheLanguageIntelligenceModuleTests/LanguageIntelligenceModuleTests.swift",
       "macos/Sources/Lithe/Application/Composition/JavaLanguageServerPreparationCoordinator.swift",
       "macos/Tests/LitheTests/JavaLanguageServerRuntimeTests.swift",
-      "rust/lithe-core/src/lsp/languages/jdt_maven_settings.rs"
+      "rust/lithe-core/src/lsp/languages/jdt_maven_settings.rs",
+      "macos/Sources/LitheExecutionModule/Services/RunService.swift",
+      "macos/Sources/LitheExecutionModule/Module/ExecutionFeatureGraph.swift",
+      "macos/Tests/LitheExecutionModuleTests/ExecutionModuleTests.swift"
     ],
     "implementationStatus": "partial",
     "verificationStatus": "pending"
@@ -33,5 +36,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Java / Maven",
-  "verification": "macOS：内置 Maven 工具窗口已由构建插件窗口取代，pom.xml 依赖解析问题暂不在构建窗口中列出（编辑器诊断仍显示）；JDT 的 Maven 配置已优先消费 Core build.languageImport 归一化的插件选项，与原生插件窗口构建计划使用同一实例的生效值；检测、选项修改、模型加载和插件停用通过唯一回调发布，宿主不按插件名字反推设置。项目打开时在插件注册结束后等待导入，Java 运行时准备结束后、同步启动前再等待最新配置，覆盖首次等待结束后又被监听文件变化失效的顺序；选项发布时优先原地热更新，若会话因启动时没有 Maven 输入而拒绝更新，则通过 reloadJavaWorkspace 恢复重启。连续选项发布先取消并等待旧恢复清理，再应用最新输入；工作区关闭、同路径重开代次或停用 Java 会阻止旧任务继续启动。未声明对应导入输入时保留 MavenService 兼容设置；Maven 插件停用且兼容输入也为空时，仅向曾带 Maven 输入的同一活动会话发送空配置清除旧 Profiles/settings/仓库/工具路径，停止后释放记录，纯 Gradle 首次启动和重开保持无 Maven 输入。Gradle 输入经同一通路传递并在下次启动生效。macOS 与现有 Windows 路径均需验收：打开依赖尚未下载的 Maven 项目，在 Java 导入过程中修改 settings.xml、本地仓库或镜像并保存，确认第三方 import 在导入完成后解析成功；修改 settings.xml 内容（路径不变）后重新加载，确认语言服务不重启而依赖重新解析；故意写错依赖版本，检查编辑器诊断和跳转，Windows 另检查原 Maven 问题列表；初始化期间设置不变时重新加载，就绪后仍执行一次强制更新；旧 profile 请求失败或超时期间切换 profile，确认最终应用最新选择；保存与重新加载交错时，已发送的 settings 副本保持可读。本次未执行真实 Java 导入或 Windows 验收，保持 pending。"
+  "verification": "macOS：内置 Maven 工具窗口已由构建插件窗口取代，pom.xml 依赖解析问题暂不在构建窗口中列出（编辑器诊断仍显示）；JDT 的 Maven 配置只消费 Core build.languageImport 归一化的插件选项，与原生插件窗口构建计划使用同一实例的生效值；检测、选项修改、模型加载和插件停用通过唯一回调发布，宿主不按插件名字反推设置。项目打开时在插件注册结束后等待导入，Java 运行时准备结束后、同步启动前再等待最新配置，覆盖首次等待结束后又被监听文件变化失效的顺序；选项发布时优先原地热更新，若会话因启动时没有 Maven 输入而拒绝更新，则通过 reloadJavaWorkspace 恢复重启。连续选项发布先取消并等待旧恢复清理，再应用最新输入；工作区关闭、同路径重开代次或停用 Java 会阻止旧任务继续启动。已删除 AppModel 的 MavenService 补值与语言会话的旧配置回调；导入读取失败明确报告且不发送空设置，恢复后仍能清除该会话以前的覆盖。没有启用 Build 插件时不注入 Lithe 构建覆盖；Maven 插件停用时，仅向曾带 Maven 输入的同一活动会话发送空配置清除旧 Profiles/settings/仓库/工具路径，停止后释放记录，纯 Gradle 首次启动和重开保持无 Maven 输入。Gradle 输入经同一通路传递并在下次启动生效。macOS 与现有 Windows 路径均需验收：打开依赖尚未下载的 Maven 项目，在 Java 导入过程中修改 settings.xml、本地仓库或镜像并保存，确认第三方 import 在导入完成后解析成功；修改 settings.xml 内容（路径不变）后重新加载，确认语言服务不重启而依赖重新解析；故意写错依赖版本，检查编辑器诊断和跳转，Windows 另检查原 Maven 问题列表；初始化期间设置不变时重新加载，就绪后仍执行一次强制更新；旧 profile 请求失败或超时期间切换 profile，确认最终应用最新选择；保存与重新加载交错时，已发送的 settings 副本保持可读。本次未执行真实 Java 导入或 Windows 验收，保持 pending。 Run 准备已停用 MavenService 上下文回调，消费 Build 服务同一代、按 reactor 根隔离的导入值；普通运行和服务运行在选项失效/工作区替换期间拒绝规划旧输入，检测完成后才使用新值。Run 的工程模型、配置生成和 Maven 规划仍未迁移，保持 partial/pending。"
 }

@@ -33,8 +33,8 @@ package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
         self.mavenFeature = mavenFeature
         runFeature = RunFeatureModel(service: run)
         projectDevelopment = ProjectDevelopmentFeatureModel(mavenFeature: mavenFeature, runFeature: runFeature)
-        run.configureMavenContextProvider { [weak maven] in
-            maven?.launchContext
+        run.configureBuildLanguageImportProvider { [weak buildSystems] workspace, root in
+            try buildSystems?.languageImport(workspaceURL: workspace, root: root) ?? JavaLanguageImportConfiguration()
         }
         run.configureBuildProviderRuns(start: { [weak buildSystems] configuration, workspace in
             buildSystems?.runProviderConfiguration(configuration, workspace: workspace)

@@ -502,6 +502,23 @@ macOS 使用 `MacRuntimeDiscoveryTests`、`MacRuntimeProbeCacheTests` 和
 失败保留源、草稿/取消/条件保存/读回与外部编辑冲突；`MavenRuntimeTests` 覆盖
 直接刷新当前项目选择及配置读取失败时拒绝启动。完整原生 UI 与 Maven 配置迁移仍待验收。
 
+### Java 导入停用旧设置回退（2026-10-29）
+
+macOS 的 Java 启动和热更新现在只读取当前 Build 插件发布的导入配置；删除
+AppModel 对 `MavenService.launchContext` 的补值，以及语言会话管理器中独立的旧
+Maven 配置回调。Run 的 Maven 准备也改从 Build 服务读取同一代输入，按保存的
+reactor 根精确选择，不使用工作区默认根替代另一个独立工程。检测尚未完成或失败
+时明确拒绝，不能因为新结果为空而把旧服务的
+Profiles、settings 或仓库重新带回 JDT。没有启用 Build 插件时不注入 Lithe 的
+构建覆盖，JDT 仍按上游默认导入。
+
+插件确认移除 Maven 输入时，原有会话收到空配置以清除旧值；一次读取失败不能
+被当作移除，必须保留会话的输入所有权，以便恢复后完成清除。测试覆盖首次启动、
+热更新、失败后恢复、插件移除及同路径重新启动。这里没有把 Java/JDT 领域逻辑
+迁入插件后端；Run 的工程模型、配置生成和 Maven 启动规划仍待迁移，旧 Maven 的
+Agent 与设置消费者也仍在。后续切换仍要
+完成一次性数据迁移，当前未激活迁移器，不能删除用户的旧配置。
+
 ## 适用范围
 
 - Rust Core Maven 域：`rust/lithe-core/src/project/maven.rs`

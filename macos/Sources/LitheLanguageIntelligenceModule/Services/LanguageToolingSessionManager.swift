@@ -83,7 +83,6 @@ package final class LanguageToolingSessionManager: ObservableObject,
     private let workspaceFingerprintProvider: (LanguageProviderDescriptor, URL) throws -> String?
     private let workspaceStateResetter: ((LanguageProviderDescriptor, URL, String?) throws -> Void)?
     private let workspaceStateCleaner: ((LanguageProviderDescriptor, URL, String?) throws -> Int)?
-    private var mavenContextProvider: (LanguageProviderDescriptor, URL) -> MavenLaunchContext? = { _, _ in nil }
     private var javaLanguageImportProvider: ((LanguageProviderDescriptor, URL) throws -> JavaLanguageImportConfiguration)?
 
     package init(
@@ -211,12 +210,6 @@ package final class LanguageToolingSessionManager: ObservableObject,
         })
     }
 
-    package func configureMavenContextProvider(
-        _ provider: @escaping (LanguageProviderDescriptor, URL) -> MavenLaunchContext?
-    ) {
-        mavenContextProvider = provider
-    }
-
     /// The host must prepare plugin imports before any entry point can start
     /// Java. Throwing here prevents a synchronous document/run path from using
     /// a previous workspace's context while that preparation is pending.
@@ -231,7 +224,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
     ) throws -> JavaLanguageImportConfiguration {
         guard descriptor.id == "java" else { return JavaLanguageImportConfiguration() }
         if let javaLanguageImportProvider { return try javaLanguageImportProvider(descriptor, rootURL) }
-        return JavaLanguageImportConfiguration(mavenContext: mavenContextProvider(descriptor, rootURL))
+        return JavaLanguageImportConfiguration()
     }
 
     package func retryMavenProfiles(providerID: String) {

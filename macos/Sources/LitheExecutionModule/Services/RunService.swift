@@ -153,7 +153,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     private let runtime: any RunRuntimePort
     private let executableResolver: any RunExecutableResolving
     private let javaLaunchArgumentPreparer: (any JavaLaunchArgumentPreparing)?
-    private var mavenContextProvider: @MainActor () -> MavenLaunchContext? = { nil }
+    private var buildLanguageImportProvider: @MainActor (URL, String?) throws -> JavaLanguageImportConfiguration = { _, _ in .init() }
     private var languageDependencyProvider: @MainActor (String, URL, String) -> LanguageDependencySnapshot? = {
         _, _, _ in nil
     }
@@ -245,10 +245,10 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         generationState = .projectNotReady
     }
 
-    package func configureMavenContextProvider(
-        _ provider: @escaping @MainActor () -> MavenLaunchContext?
+    package func configureBuildLanguageImportProvider(
+        _ provider: @escaping @MainActor (URL, String?) throws -> JavaLanguageImportConfiguration
     ) {
-        mavenContextProvider = provider
+        buildLanguageImportProvider = provider
     }
 
     /// Looks up only an already active plugin capability; opening the tree must
@@ -994,7 +994,9 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         primaryExecutionID = UUID().uuidString
         lastRunConfiguration = configuration
         lastCurrentFileURL = currentFileURL
-        let mavenContext = mavenContext(for: configuration)
+        let mavenContext: MavenLaunchContext?
+        do { mavenContext = try self.mavenContext(for: configuration) }
+        catch { fail(error.localizedDescription); return }
         let options = effectiveOptions(for: configuration, mavenContext: mavenContext)
         let usesGenericCurrentFile = configuration.kind == .currentFile
             && isGenericCurrentFile(currentFileURL)
@@ -1906,7 +1908,13 @@ package final class RunService: ObservableObject, BuildRunLaunching {
             ))
             return
         }
-        let mavenContext = mavenContext(for: configuration)
+        let mavenContext: MavenLaunchContext?
+        do { mavenContext = try self.mavenContext(for: configuration) }
+        catch {
+            moduleSessions.append(RunSession(id: configuration.id, configurationID: configuration.id,
+                title: configuration.name, output: error.localizedDescription + "\n", isRunning: false, exitCode: 1))
+            return
+        }
         let options = effectiveOptions(for: configuration, mavenContext: mavenContext)
         let launchesJavaDirectly = configuration.kind == .javaMain || javaLaunch != nil
         let configuredJavaHome = (launchesJavaDirectly || options.mavenJavaHomePath.isEmpty
@@ -2310,8 +2318,9 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         return options
     }
 
-    private func mavenContext(for configuration: RunConfiguration) -> MavenLaunchContext? {
-        guard let context = mavenContextProvider() else { return nil }
+    private func mavenContext(for configuration: RunConfiguration) throws -> MavenLaunchContext? {
+        guard let projectURL, configuration.mavenReactorPath != nil || configuration.kind.isMavenBacked,
+              let context = try buildLanguageImportProvider(projectURL, configuration.mavenReactorPath).mavenContext else { return nil }
         if let reactor = configuration.mavenReactorPath {
             return reactor == context.reactorPath ? context : nil
         }
