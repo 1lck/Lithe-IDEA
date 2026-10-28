@@ -99,6 +99,8 @@ const positionSoftWrapButton = (view: monacoEditor.IStandaloneCodeEditor) => {
 };
 const editorControlStyle = document.createElement("style");
 editorControlStyle.textContent = `
+  .monaco-editor.lithe-definition-pointer .view-lines,
+  .monaco-editor.lithe-definition-pointer .view-lines * {cursor:pointer!important}
   .monaco-editor :is(.monaco-hover,.monaco-resizable-hover) {
     border-color:var(--lithe-popup-border);border-radius:var(--lithe-popup-radius);
     background:var(--lithe-popup-background);color:var(--lithe-popup-foreground)}

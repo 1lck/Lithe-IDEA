@@ -614,6 +614,7 @@ export function mountWorkbench(host: WorkbenchHost) {
     let ownsHover = false;
     const clear = (hideHint = true) => {
       generation++; hovered = ""; links.clear();
+      view.getDomNode()?.classList.remove("lithe-definition-pointer");
       if (hideHint && ownsHover) {
         ownsHover = false;
         view.getDomNode()?.classList.remove("lithe-command-hover");
@@ -643,6 +644,8 @@ export function mountWorkbench(host: WorkbenchHost) {
       if (hovered === identity) return;
       clear();
       hovered = identity;
+      // Keep the cursor on the stable view layer while semantic lookup/rendering is pending.
+      view.getDomNode()?.classList.add("lithe-definition-pointer");
       const request = generation, current = documentCheckpoint(id, entry);
       await entry.chain;
       if (request !== generation || !current() || view.getModel() !== entry.model) return;
@@ -660,8 +663,10 @@ export function mountWorkbench(host: WorkbenchHost) {
           hover.showContentHover(range, 1 /* Immediate */, 0 /* Mouse */, false);
         }
       } else {
-        // An unavailable server is transient; the next gesture must be able to retry.
-        hovered = "";
+        // Keep the negative result for this gesture: pixel movement must not
+        // repeatedly alternate between pending-pointer and unavailable-text.
+        // Leaving the word or releasing Command permits a fresh lookup.
+        view.getDomNode()?.classList.remove("lithe-definition-pointer");
       }
     });
     gesture.onExecute(mouse => {

@@ -1848,6 +1848,48 @@ async function verify() {
 
     } finally { listener?.dispose(); await window.lithe.retain([]); }
   });
+  await check("Command pointer stays stable during slow definition lookup and repaint", async () => {
+    const id = "slow-definition-hover", text = "class Probe {}";
+    await send({ type: "open", id, text });
+    await window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", readonly: false });
+    const input = editor as any, root = editor.getDomNode()!;
+    const move = () => input._onMouseMove.fire({ event: { metaKey: true, leftButton: false, detail: 0 },
+      target: { type: monacoEditor.MouseTargetType.CONTENT_TEXT, position: new Position(1, 9), range: new Range(1, 9, 1, 10), detail: {} } });
+    let observer: MutationObserver | undefined;
+    try {
+      await send({ type: "holdDefinitionHover", hold: true });
+      move(); editor.render(true);
+      const line = root.querySelector(".view-line span")!;
+      assert(root.classList.contains("lithe-definition-pointer") && getComputedStyle(line).cursor === "pointer",
+        "slow semantic lookup left the candidate under an editing cursor");
+      for (let i = 0; i < 5; i++) {
+        move(); editor.render(true);
+        assert(getComputedStyle(root.querySelector(".view-line span")!).cursor === "pointer", "repaint/pixel movement reset the pointer");
+      }
+      await withDeadline(send({ type: "waitDefinitionHover" }), "definition request never reached the held host");
+      const rejected = new Promise<void>(resolve => {
+        observer = new MutationObserver(() => { if (!root.classList.contains("lithe-definition-pointer")) resolve(); });
+        observer.observe(root, { attributes: true, attributeFilter: ["class"] });
+      });
+      await send({ type: "holdDefinitionHover", hold: false, available: false });
+      await withDeadline(rejected, "unavailable target did not restore normal cursor");
+      observer.disconnect(); observer = undefined;
+      move();
+      assert(!root.classList.contains("lithe-definition-pointer"), "negative result restarted the cursor flicker on pixel movement");
+      input._onKeyUp.fire({ keyCode: 57, metaKey: false });
+      await send({ type: "holdDefinitionHover", hold: true });
+      move();
+      assert(root.classList.contains("lithe-definition-pointer"), "new gesture could not retry a transient miss");
+      await withDeadline(send({ type: "waitDefinitionHover" }), "retry never reached the held host");
+      input._onKeyUp.fire({ keyCode: 57, metaKey: false });
+      await send({ type: "holdDefinitionHover", hold: false });
+      assert(!root.classList.contains("lithe-definition-pointer"), "late resolution restored a released pointer");
+    } finally {
+      observer?.disconnect();
+      await send({ type: "holdDefinitionHover", hold: false });
+      await window.lithe.retain([]);
+    }
+  });
   await check("hover lifecycle distinguishes Command hints from ordinary documentation", async () => {
     const id = "hover-lifecycle", text = "class Probe {}";
     await send({ type: "open", id, text });
