@@ -73671,10 +73671,15 @@
     },
     {
       "id": "ui.more",
-      "description": "Windows UI: ui.more",
+      "description": "More actions overflow trigger",
       "platforms": [
-        "windows"
-      ]
+        "windows",
+        "macos"
+      ],
+      "macos": {
+        "key": "More",
+        "arguments": []
+      }
     },
     {
       "id": "ui.morePages",

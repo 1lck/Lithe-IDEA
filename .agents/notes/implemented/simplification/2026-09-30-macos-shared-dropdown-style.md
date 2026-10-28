@@ -927,7 +927,7 @@ Medium字重的普通按钮会变为欢迎页的28px、Regular；不再以 xs �
 以及原生 Go To Line、Search Everywhere 的键盘与点击回归。
 
 按钮同时保留内容所需的水平宽度（`fixedSize(horizontal: true, vertical: false)`），
-避免搜索区与按钮组分配空间时把长文案压缩成省略号；搜索区仍可随可用空间收缩。
+避免搜索区与按钮组分配空间时把长文案压缩成省略号；欢迎页搜索区保留 180–220pt，次要操作放不下时收入更多菜单。
 
 同 revision 的 `ProjectsTabFactory.kt` 为搜索输入指定 `AllIcons.Actions.Search`；
 `RecentProjectFilteringTree.kt.installSearchField` 去掉输入边框，并通过 `emptyText`
@@ -2029,3 +2029,27 @@ PluginNativeUITests验证禁用说明可点击打开真正的公共弹窗。
 有空间时显示完整路径，只有实际宽度不足才从中间省略；名称、分支和第三行状态的位置不因此改变。
 路径截断时复用 Stash 文件列表的 AppKit 原生行内展开（expansion tooltip），只在路径行内悬停展开完整路径；不使用多行 help 气泡，也不重建整份原生列表。
 验证使用 `GitWorktreeAppearanceTests`、`CommitActionButtonStyleTests` 及真实示例项目的深浅主题、键盘焦点和窄宽布局。
+
+
+欢迎页窄窗口保留单行与原有顶部高度。搜索框保持 180–220pt，新建项目和打开常驻；
+`ViewThatFits` 根据次要按钮的实际理想宽度，在完整按钮与 `LitheMenu` 更多入口之间切换。
+克隆仓库、远程开发复用原动作及可用条件，菜单继续使用统一呈现器；不改变窗口最小尺寸，
+不缩小文字，也不换行。搜索框位于切换容器外，避免缩放时重建输入控件。
+`RecentProjectBranchMetadataTests` 在深浅主题下按 800→1100→800pt 验证窄窗口更多入口、
+宽窗口完整操作、搜索区域宽度、单行对齐和窗口边界。原生截图仅验证布局；测试宿主的图标
+资源缺失不能视为产品资源视觉验收通过。
+
+
+欢迎页更多入口使用本地化 `More` 文字（中文为“更多”），继续复用文字动作按钮；不再使用省略号图标。
+克隆仓库面板删除自绘输入边框、圆角与字号，三项输入统一使用 `LitheTextField`，字段标签和间距由
+`LitheFormField` 提供。目录选择按钮放在输入框右侧，不嵌套于输入边框内。保留原克隆任务、禁用条件、目录选择及文件夹名建议。面板保持 560pt 宽，
+高度随统一输入组件和错误提示增长，避免固定 360pt 裁剪表单。原生深浅测试检查输入区域、字体及
+输入 URL 后自动生成文件夹名；不执行真实网络克隆。
+
+
+克隆仓库的实际打开入口也必须使用 `LitheCenteredPopup(dialogTitle:)`，而不仅统一内容控件。
+`RootView` 已移除该入口的系统 `.sheet`，删除内容自绘标题行，由共享有标题面板负责外框、标题、
+关闭控件、居中和无动画呈现。取消与克隆成功复位工作台呈现状态；克隆期间禁止手动关闭，
+父窗口退出仍按共享生命周期清理。使用 `resizesToContent` 让错误提示出现时自然增高。
+`CloneRepositoryStyleTests` 将实际克隆内容放进共享 presenter，检查非 sheet、无动画、原生标题栏、
+关闭状态、深浅输入布局及文件夹建议；`LitheCenteredPopupTests` 覆盖忙碌与父窗口清理边界。

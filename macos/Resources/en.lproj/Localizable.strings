@@ -2168,6 +2168,7 @@
 "Module logs rotate at 10 MiB and expire after 30 days. The combined budget is 100 MiB; performance logs have a separate 20 MiB budget." = "Module logs rotate at 10 MiB and expire after 30 days. The combined budget is 100 MiB; performance logs have a separate 20 MiB budget.";
 "Module path" = "Module path";
 "Module: %@ · Session: %@ · Minimum level: %@" = "Module: %@ · Session: %@ · Minimum level: %@";
+"More" = "More";
 "More Actions" = "More Actions";
 "More Agents…" = "More Agents…";
 "More Debug actions" = "More Debug actions";
@@ -9066,6 +9067,7 @@
 "ui.delete" = "Delete";
 "ui.done" = "Done";
 "ui.edit" = "Edit";
+"ui.more" = "More";
 "ui.next" = "Next";
 "ui.ok" = "OK";
 "ui.open" = "Open";
