@@ -34,6 +34,17 @@
   ],
   "excludedResources": [
     {
+      "id": "swiftpm-build-state",
+      "reusable": false,
+      "locations": [
+        ".build/",
+        ".build/.lithe-swift-toolchain",
+        ".build/<triple>/.lithe-swift-toolchain"
+      ],
+      "identity": "Mutable worktree-owned SwiftPM products, resource bundles, build database and scratch-local compiler identity. The versioned full compiler stamp only controls local invalidation; it is not a sealed source/platform/architecture/SDK/toolchain identity for cross-worktree reuse.",
+      "reason": "Never copy or share this state at any worktree reuse stage. build-macos.sh cleans the actual selected scratch directory with swift package --scratch-path when its compiler stamp changes or is unknown, retaining that scratch's checkouts and downloaded artifacts. Legacy layouts keep the default scratch. Each architecture owns its stamp; failed cleanup cannot advance it. Rebuild resource bundles before signing instead of mixing old flat resources with new Contents layouts or disabling signatures. Only the separately validated SwiftPM download cache is reusable; installed app bundles remain read-only and the Sparkle delta baseline is unaffected. SwiftPM owns build-state lifetime and cleanup."
+    },
+    {
       "id": "agent-edit-and-paste-state",
       "reusable": false,
       "locations": [

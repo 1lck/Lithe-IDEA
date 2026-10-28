@@ -212,9 +212,13 @@ final class MacTCPDebugAdapterTransport: DebugAdapterDrainingTransport {
         // The bounded drain owns the transport: the session manager can release it
         // right after asking to finish, and the queued disconnect still gets its window.
         let registrationID = transportID
-        let fire: @MainActor () -> Void = purpose == .drain
-            ? { [self] in timerFired(timerID, generation: generation, registrationID: registrationID) }
-            : { [weak self] in self?.timerFired(timerID, generation: generation, registrationID: registrationID) }
+        // Assigned per branch: a ternary of closures loses the Sendable inference.
+        let fire: @MainActor @Sendable () -> Void
+        if purpose == .drain {
+            fire = { [self] in timerFired(timerID, generation: generation, registrationID: registrationID) }
+        } else {
+            fire = { [weak self] in self?.timerFired(timerID, generation: generation, registrationID: registrationID) }
+        }
         timers[timerID] = scheduler.schedule(afterMilliseconds: afterMilliseconds, action: fire)
     }
 

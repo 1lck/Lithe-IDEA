@@ -1,10 +1,68 @@
 import AppKit
+import Combine
 import SwiftUI
 import Testing
 @testable import Lithe
 
 @MainActor
 struct McpRegistryTests {
+    @Test func discoveryAutomaticallyContinuesOnlyWhenItsResultGridReachesTheViewport() async throws {
+        let registry = RegistryStub()
+        let feature = McpRegistryFeatureModel(registry: registry)
+        let reached = TestGate(), release = TestGate()
+        let landingApplied = TestGate()
+        let observation = feature.objectWillChange.sink { landingApplied.open() }
+        defer { observation.cancel() }
+        defer { release.open() }
+        registry.response = { cursor in
+            if cursor != nil {
+                reached.open()
+                #expect(await release.waitUntilOpen())
+            }
+            let ids = cursor == nil ? 0..<20 : 20..<40
+            return McpRegistryPage(entries: ids.map {
+                McpRegistryEntry(id: "server-\($0)", title: "Server \($0)", summary: "Description", version: "1", website: nil, draft: nil)
+            }, nextCursor: cursor == nil ? "older" : nil)
+        }
+        let host = NSHostingView(rootView: ScrollView {
+            McpDiscoveryView(feature: feature, add: { _ in }).padding(16)
+        })
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 400),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderFront(nil)
+        defer { window.contentView = nil; window.close() }
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        func settle(until condition: () -> Bool) async -> Bool {
+            let clock = ContinuousClock(), deadline = clock.now.advanced(by: .seconds(2))
+            repeat {
+                host.layoutSubtreeIfNeeded()
+                if condition() { return true }
+                await Task.yield()
+            } while clock.now < deadline
+            return condition()
+        }
+        #expect(await settle { descendants(host).contains { $0 is LitheScrollLoadTrigger.Probe } })
+        #expect(await landingApplied.waitUntilOpen())
+        #expect(registry.requests.isEmpty, "Opening the real discovery view must not start an online search")
+        await feature.search("docs")
+        #expect(await settle { (descendants(host).compactMap { $0 as? NSScrollView }.first?.documentView?.bounds.height ?? 0) > 1_000 })
+        let scroll = try #require(descendants(host).compactMap { $0 as? NSScrollView }.first)
+        let document = try #require(scroll.documentView)
+        #expect(registry.requests.count == 1, "The grid footer is mounted but offscreen")
+        let height = document.bounds.height
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: height - scroll.contentView.bounds.height))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        #expect(await reached.waitUntilOpen())
+        host.layoutSubtreeIfNeeded()
+        let offset = scroll.contentView.bounds.minY
+        release.open()
+        #expect(await settle { feature.entries.count == 40 && document.bounds.height > height + 1_000 })
+        #expect(abs(scroll.contentView.bounds.minY - offset) < 1)
+        #expect(feature.nextCursor == nil && registry.requests.map(\.1) == [nil, "older"])
+    }
+
     @Test func nativeDirectoryCardsReflowInLightAndDarkAppearances() throws {
         struct Payload: Encodable {}
         let root = DeclarativePluginTestSupport.repositoryRoot
@@ -144,6 +202,70 @@ struct McpRegistryTests {
         #expect(feature.entries.isEmpty && feature.error != nil && !feature.isLoading)
     }
 
+    @Test func automaticContinuationKeepsMatchesOnFailureAndExplicitRetryKeepsItsCursor() async {
+        let registry = RegistryStub()
+        let feature = McpRegistryFeatureModel(registry: registry)
+        await feature.search("docs")
+        registry.failure = McpRegistryError.offline
+        await feature.loadNextPage()
+        #expect(feature.entries.map(\.id) == ["one"])
+        #expect(feature.error != nil && feature.nextCursor == "cursor" && !feature.isLoading)
+        await feature.loadNextPage()
+        #expect(registry.requests.count == 2, "Failure pauses automatic network retries")
+        registry.failure = nil
+        await feature.retry(route: .system)
+        #expect(registry.requests.last?.1 == "cursor")
+        #expect(feature.entries.map(\.id) == ["one", "two"] && feature.error == nil)
+        await feature.loadNextPage()
+        #expect(registry.requests.count == 3)
+    }
+
+    @Test func automaticContinuationStopsEmptyPagesAndCursorCycles() async {
+        let registry = RegistryStub()
+        let feature = McpRegistryFeatureModel(registry: registry)
+        await feature.search("docs")
+        registry.returnedEntries = []
+        registry.nextCursor = "empty-page-loop"
+        await feature.loadNextPage()
+        #expect(feature.nextCursor == nil && feature.entries.map(\.id) == ["one"])
+        await feature.loadNextPage()
+        #expect(registry.requests.count == 2)
+        registry.returnedEntries = nil
+        registry.nextCursor = "page1"
+        await feature.search("other")
+        registry.nextCursor = "page2"
+        await feature.loadNextPage()
+        registry.returnedEntries = [McpRegistryEntry(id: "three", title: "Three", summary: "", version: "1", website: nil, draft: nil)]
+        registry.nextCursor = "page1"
+        await feature.loadNextPage()
+        #expect(feature.entries.map(\.id) == ["one", "two", "three"])
+        #expect(feature.nextCursor == nil)
+    }
+
+    @Test func automaticContinuationDeduplicatesInflightAndCannotOverwriteANewerQuery() async {
+        let registry = RegistryStub()
+        let feature = McpRegistryFeatureModel(registry: registry)
+        await feature.search("docs", route: .direct)
+        let reached = TestGate(), release = TestGate()
+        registry.beforeFirstResponse = {
+            reached.open()
+            #expect(await release.waitUntilOpen())
+        }
+        let task = Task { await feature.loadNextPage() }
+        defer { release.open(); task.cancel() }
+        #expect(await reached.waitUntilOpen())
+        await feature.loadNextPage()
+        #expect(registry.requests.count == 2)
+        #expect(registry.routes == [.direct, .direct])
+        await feature.search("new", route: .system)
+        release.open()
+        await task.value
+        #expect(feature.entries.map(\.id) == ["one"])
+        #expect(feature.nextCursor == "cursor" && !feature.isLoading && feature.error == nil)
+        #expect(registry.requests.map(\.0) == ["docs", "docs", "new"])
+        #expect(registry.requests.last?.1 == nil)
+    }
+
     @Test func cancelledSearchNeverPublishesItsResponse() async {
         let registry = RegistryStub()
         let feature = McpRegistryFeatureModel(registry: registry)
@@ -174,7 +296,9 @@ private final class RegistryStub: McpRegistryProviding {
     var featuredEntries: [McpRegistryEntry] = []
     var returnedEntries: [McpRegistryEntry]?
     var routes: [McpRegistryRoute] = []
+    var nextCursor: String? = "cursor"
     var beforeFirstResponse: (() async -> Void)?
+    var response: ((String?) async throws -> McpRegistryPage)?
     func featured() throws -> McpRegistryPage { McpRegistryPage(entries: featuredEntries, nextCursor: nil) }
     func search(query: String, cursor: String?, route: McpRegistryRoute) async throws -> McpRegistryPage {
         requests.append((query, cursor))
@@ -186,9 +310,10 @@ private final class RegistryStub: McpRegistryProviding {
         }
         if let failure { throw failure }
         if fail { throw URLError(.notConnectedToInternet) }
+        if let response { return try await response(cursor) }
         let entries = returnedEntries ?? (cursor == nil ? ["one"] : ["one", "two"]).map {
             McpRegistryEntry(id: $0, title: $0, summary: "", version: "1", website: nil, draft: nil)
         }
-        return McpRegistryPage(entries: entries, nextCursor: "cursor")
+        return McpRegistryPage(entries: entries, nextCursor: nextCursor)
     }
 }

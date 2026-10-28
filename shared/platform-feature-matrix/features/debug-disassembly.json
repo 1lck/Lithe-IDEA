@@ -24,7 +24,8 @@
       "macos/Sources/Lithe/Views/Debug/DebugJSONSyntax.swift",
       "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift",
       "macos/Tests/LitheTests/DebugJSONSyntaxTests.swift",
-      "shared/fixtures/debug/projection-v2-examples.json"
+      "shared/fixtures/debug/projection-v2-examples.json",
+      "macos/Tests/LitheTests/DebugDisassemblyLayoutTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -38,5 +39,5 @@
     "verificationStatus": "not-applicable"
   },
   "owner": "Debug",
-  "verification": "macOS：用只带符号表、没有调试信息的 C 程序（含 raise(SIGTRAP)）经 Xcode lldb-dap 启动调试，暂停后栈帧显示函数名与地址而不是伪造的文件和第 1 行，反汇编标签自动打开并高亮当前指令；适配器不声明 supportsDisassembleRequest 时没有反汇编标签。反汇编中单步改为按指令前进（仅适配器声明 supportsSteppingGranularity 时），关闭反汇编标签后恢复按行单步；点击地址栏设置或移除指令断点（仅适配器声明 supportsInstructionBreakpoints 时），断点只属于当前会话、不写入持久化，新会话不重放。反汇编打开时，步过/步入的按钮提示变为按指令单步，头部显示“按指令单步”；适配器不支持时头部提示单步仍按源码行前进。寄存器作用域出现在寄存器标签，内存标签接受地址或保存着地址的表达式，从目标地址前 64 字节读起并分页，目标字节在十六进制和 ASCII 两侧高亮并滚入可见区，读取不到的字节显示为缺失而不是 00；右侧显示设置可切换进制、每格字节数、每行字节数、字节序与 ASCII 列；只读内存，不开放 writeMemory。连续单步时线程、调用栈、变量、反汇编、内存与 JSON 视图原地更新，不整面板清空重画，变化的内存字节被标出，继续执行或会话结束才清空。单步暂停到新作用域返回之前，旧变量树与 JSON 仍不可操作；同步取消和切换会话后的旧反汇编失败不重试、不覆盖保留的内存；传输失败清空保留数据。内存偏移表头使用请求引用而不是返回的页首地址。地址和引用对宿主是不透明字符串，宿主不做地址运算、不内置 CPU 寄存器表，也不按适配器 ID 分支。Windows 尚未实现，共享 Rust 内核已经提供能力快照与 debug.inspect 的 disassemble、readMemory，待 React 界面接入。"
+  "verification": "macOS：用只带符号表、没有调试信息的 C 程序（含 raise(SIGTRAP)）经 Xcode lldb-dap 启动调试，暂停后栈帧显示函数名与地址而不是伪造的文件和第 1 行，反汇编标签自动打开并高亮当前指令；适配器不声明 supportsDisassembleRequest 时没有反汇编标签。反汇编中单步改为按指令前进（仅适配器声明 supportsSteppingGranularity 时），关闭反汇编标签后恢复按行单步；点击地址栏设置或移除指令断点（仅适配器声明 supportsInstructionBreakpoints 时），断点只属于当前会话、不写入持久化，新会话不重放。反汇编打开时，步过/步入的按钮提示变为按指令单步，头部显示“按指令单步”；适配器不支持时头部提示单步仍按源码行前进。寄存器作用域出现在寄存器标签，内存标签接受地址或保存着地址的表达式，从目标地址前 64 字节读起并分页，目标字节在十六进制和 ASCII 两侧高亮并滚入可见区，读取不到的字节显示为缺失而不是 00；右侧显示设置可切换进制、每格字节数、每行字节数、字节序与 ASCII 列；只读内存，不开放 writeMemory。连续单步时线程、调用栈、变量、反汇编、内存与 JSON 视图原地更新，不整面板清空重画，变化的内存字节被标出，继续执行或会话结束才清空。单步暂停到新作用域返回之前，旧变量树与 JSON 仍不可操作；同步取消和切换会话后的旧反汇编失败不重试、不覆盖保留的内存；传输失败清空保留数据。内存偏移表头使用请求引用而不是返回的页首地址。地址和引用对宿主是不透明字符串，宿主不做地址运算、不内置 CPU 寄存器表，也不按适配器 ID 分支。Windows 尚未实现，共享 Rust 内核已经提供能力快照与 debug.inspect 的 disassemble、readMemory，待 React 界面接入。 macOS 反汇编短指令从左侧地址列开始，长指令可横向滚动，当前指令定位只改变纵向位置；接近上下边缘时自动补充有界指令页，不再点击加载更早/更晚按钮。上方插入保留可见指令像素位置，下方追加不跳回当前指令；同页重复地址和无进展停止、失败需显式重试，关闭/继续执行后的迟到页面不得覆盖。运行 DebugDisassemblyLayoutTests 与 DebugModuleTests，真实 lldb-dap 连续滚动验收仍待完成。 映像边界回归：上下页被适配器拒绝后按 64→32→16→8→4→2→1 条缩小，不跳过仍可读取的相邻指令；单条相邻读取失败且原边缘仍可读才停止该方向，不显示永久失败条。空白无效补位不得成为分页地址，另一方向仍可滚动；超时/停止/无效回复继续显示重试，验证迟到不覆盖新暂停点。独立真实 lldb-dap 21/C 程序已复现首地址的负偏移失败与零偏移成功；运行新增 DebugModuleTests 边界回归及原生错误条左对齐测试，完整工作台连续滚动仍 pending。"
 }

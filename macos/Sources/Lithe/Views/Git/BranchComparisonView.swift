@@ -3,7 +3,9 @@ import LitheGitModule
 
 struct BranchComparisonView: View {
     @ObservedObject var feature: GitFeatureModel
+    @ObservedObject var session: GitRepositoryDiffSession
     let comparison: GitBranchComparison
+    let onClose: () -> Void
     let onRefresh: () async -> Void
     /// Family for the comparison text. Defaults to the bundled monospaced family;
     /// the editor area passes the configured family from its own settings.
@@ -40,7 +42,7 @@ struct BranchComparisonView: View {
                 .font(LitheTheme.uiFont(size: 11.5))
                 .foregroundStyle(LitheTheme.secondaryText)
             Button("Close") {
-                feature.closeBranchComparison()
+                onClose()
             }
             .buttonStyle(LitheActionButtonStyle())
             .lithePointer()
@@ -64,7 +66,7 @@ struct BranchComparisonView: View {
             }
             .buttonStyle(LitheActionButtonStyle())
             .lithePointer()
-            .disabled(feature.isLoadingBranchComparison)
+            .disabled(session.isLoadingBranchComparison)
 
             Button {
                 moveFileSelection(by: -1)
@@ -73,7 +75,7 @@ struct BranchComparisonView: View {
             }
             .buttonStyle(LitheActionButtonStyle())
             .lithePointer()
-            .disabled(previousFile == nil || feature.isLoadingBranchComparison)
+            .disabled(previousFile == nil || session.isLoadingBranchComparison)
 
             Button {
                 moveFileSelection(by: 1)
@@ -82,7 +84,7 @@ struct BranchComparisonView: View {
             }
             .buttonStyle(LitheActionButtonStyle())
             .lithePointer()
-            .disabled(nextFile == nil || feature.isLoadingBranchComparison)
+            .disabled(nextFile == nil || session.isLoadingBranchComparison)
 
             Spacer()
 
@@ -108,7 +110,7 @@ struct BranchComparisonView: View {
                     .font(LitheTheme.uiFont(size: 11.5, weight: .semibold))
                     .foregroundStyle(LitheTheme.primaryText)
                 Spacer()
-                if feature.isLoadingBranchComparison {
+                if session.isLoadingBranchComparison {
                     ProgressView().controlSize(.mini)
                 }
             }
@@ -132,10 +134,10 @@ struct BranchComparisonView: View {
                 LitheTreeList(
                     comparison.files,
                     selection: Binding(
-                        get: { feature.selectedBranchComparisonFile?.id },
+                        get: { session.selectedBranchComparisonFile?.id },
                         set: { id in
                             if let file = comparison.files.first(where: { $0.id == id }) {
-                                Task { await feature.selectBranchComparisonFile(file) }
+                                Task { await feature.selectBranchComparisonFile(file, session: session) }
                             }
                         }), multiline: true
                 ) { file in
@@ -176,7 +178,7 @@ struct BranchComparisonView: View {
             versionHeader
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
-            if feature.isLoadingBranchComparison {
+            if session.isLoadingBranchComparison {
                 VStack(spacing: 8) {
                     ProgressView().controlSize(.small)
                     Text("Loading comparison…")
@@ -184,19 +186,19 @@ struct BranchComparisonView: View {
                 .font(LitheTheme.uiFont)
                 .foregroundStyle(LitheTheme.secondaryText)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if feature.selectedBranchComparisonFile == nil {
+            } else if session.selectedBranchComparisonFile == nil {
                 Text(LocalizedStringKey(comparison.files.isEmpty ? "The selected versions match" : "Select a file"))
                     .font(LitheTheme.uiFont)
                     .foregroundStyle(LitheTheme.secondaryText)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if feature.branchComparisonRows.isEmpty {
+            } else if session.branchComparisonRows.isEmpty {
                 Text("No textual diff available")
                     .font(LitheTheme.uiFont)
                     .foregroundStyle(LitheTheme.secondaryText)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 DiffPaneView(
-                    rows: feature.branchComparisonRows,
+                    rows: session.branchComparisonRows,
                     fileExtension: selectedFileExtension,
                     fontFamily: fontFamily
                 )
@@ -237,7 +239,7 @@ struct BranchComparisonView: View {
             title
                 .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
-            if let file = feature.selectedBranchComparisonFile {
+            if let file = session.selectedBranchComparisonFile {
                 Text(file.path)
                     .font(LitheTheme.uiFont(size: 10.5))
                     .foregroundStyle(LitheTheme.secondaryText)
@@ -250,12 +252,12 @@ struct BranchComparisonView: View {
     }
 
     private var selectedFileExtension: String {
-        guard let file = feature.selectedBranchComparisonFile else { return "" }
+        guard let file = session.selectedBranchComparisonFile else { return "" }
         return URL(fileURLWithPath: file.path).pathExtension
     }
 
     private var selectedFileIndex: Int? {
-        guard let selected = feature.selectedBranchComparisonFile else { return nil }
+        guard let selected = session.selectedBranchComparisonFile else { return nil }
         return comparison.files.firstIndex(where: { $0.id == selected.id })
     }
 
@@ -278,7 +280,7 @@ struct BranchComparisonView: View {
     private func moveFileSelection(by offset: Int) {
         let file = offset < 0 ? previousFile : nextFile
         guard let file else { return }
-        Task { await feature.selectBranchComparisonFile(file) }
+        Task { await feature.selectBranchComparisonFile(file, session: session) }
     }
 
     private func statusColor(_ status: String) -> Color {

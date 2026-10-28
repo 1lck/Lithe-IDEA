@@ -715,6 +715,112 @@ struct GitGraphInteractionTests {
         }
     }
 
+    @Test("Native history scrolling loads pages automatically and stops on failure or exhaustion")
+    func automaticHistoryPaging() async throws {
+        let all = try reportedCommits("issue410-date-history")
+        let initial = presentation(GitGraphLayoutService.layout(commits: Array(all.prefix(50))))
+        let expanded = presentation(GitGraphLayoutService.layout(commits: Array(all.prefix(100))))
+        var requests = 0
+        let callbacks = actions { _ in }
+        let scroll = GitGraphScrollView.makeScrollView(presentation: initial,
+            selectedHash: initial.rows.first?.commit.hash, showCommitDecorations: true,
+            canLoadMore: true, isLoadingMore: false, actions: callbacks, onLoadMore: { requests += 1 })
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 850, height: 300),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = scroll
+        window.orderFront(nil)
+        defer { window.contentView = nil; window.close() }
+        scroll.layoutSubtreeIfNeeded()
+        let document = try #require(scroll.documentView as? GitGraphScrollDocumentView)
+        func turn() async { await Task.yield(); scroll.layoutSubtreeIfNeeded() }
+        await turn()
+        #expect(requests == 0, "Opening the list must not eagerly fetch all history")
+        let y = CGFloat(initial.rows.count) * GitGraphGeometry.rowHeight - scroll.contentView.bounds.height - 100
+        scroll.contentView.scroll(to: CGPoint(x: 0, y: y))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        let clock = ContinuousClock(), deadline = clock.now.advanced(by: .seconds(2))
+        while requests == 0 && clock.now < deadline { await turn() }
+        #expect(requests == 1, "Scrolling near the bottom loads without a button click")
+        document.scheduleAutomaticLoading()
+        await turn()
+        #expect(requests == 1, "Repeated geometry notifications cannot request the same page twice")
+        // A watch refresh can cancel that request and return identical rows.
+        // Its fresh cursor must remain eligible at the still-visible edge.
+        document.update(presentation: initial, selectedHash: initial.rows.first?.commit.hash,
+            showCommitDecorations: true, canLoadMore: true, isLoadingMore: true,
+            actions: callbacks, onLoadMore: { requests += 1 })
+        await turn()
+        #expect(requests == 1)
+        document.update(presentation: initial, selectedHash: initial.rows.first?.commit.hash,
+            showCommitDecorations: true, canLoadMore: true, isLoadingMore: false,
+            actions: callbacks, onLoadMore: { requests += 1 })
+        let refreshDeadline = clock.now.advanced(by: .seconds(2))
+        while requests == 1 && clock.now < refreshDeadline { await turn() }
+        #expect(requests == 2, "An unchanged background refresh cannot leave paging stuck")
+        document.update(presentation: expanded, selectedHash: initial.rows.first?.commit.hash,
+            showCommitDecorations: true, canLoadMore: true, isLoadingMore: false,
+            actions: callbacks, onLoadMore: { requests += 1 })
+        scroll.layoutSubtreeIfNeeded()
+        await turn()
+        #expect(abs(scroll.contentView.bounds.minY - y) < 1, "Append retains the native clip origin")
+        #expect(requests == 2)
+        let bottom = CGFloat(expanded.rows.count) * GitGraphGeometry.rowHeight - scroll.contentView.bounds.height - 100
+        document.update(presentation: expanded, selectedHash: initial.rows.first?.commit.hash,
+            showCommitDecorations: true, canLoadMore: true, isLoadingMore: false,
+            actions: callbacks, onLoadMore: { requests += 1 }, loadMoreFailed: true)
+        scroll.contentView.scroll(to: CGPoint(x: 0, y: bottom))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        await turn()
+        #expect(requests == 2, "Failures pause automatic loading")
+        document.update(presentation: expanded, selectedHash: initial.rows.first?.commit.hash,
+            showCommitDecorations: true, canLoadMore: false, isLoadingMore: false,
+            actions: callbacks, onLoadMore: { requests += 1 })
+        await turn()
+        #expect(requests == 2, "Exhausted history never requests another page")
+    }
+
+    @Test("Background history refresh retains the visible commit and pixel inset while explicit navigation still wins")
+    func backgroundHistoryRefreshAnchorsVisibleCommitInsteadOfSelectedCommit() throws {
+        let all = try reportedCommits("issue410-date-history")
+        let initial = presentation(GitGraphLayoutService.layout(commits: Array(all[1..<201])))
+        let refreshed = presentation(GitGraphLayoutService.layout(commits: Array(all.prefix(200))))
+        let callbacks = actions { _ in }
+        let selected = initial.rows[150].commit.hash
+        let scroll = GitGraphScrollView.makeScrollView(presentation: initial, selectedHash: selected,
+            showCommitDecorations: true, canLoadMore: true, isLoadingMore: false, actions: callbacks, onLoadMore: {})
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 850, height: 300),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = scroll
+        defer { window.contentView = nil; window.close() }
+        scroll.layoutSubtreeIfNeeded()
+        let document = try #require(scroll.documentView as? GitGraphScrollDocumentView)
+        let origin = CGFloat(170) * GitGraphGeometry.rowHeight + 7
+        scroll.contentView.scroll(to: CGPoint(x: 0, y: origin))
+        let anchor = try #require(document.scrollAnchor(at: origin))
+        let height = document.bounds.height
+        for loading in [true, false, true, false] {
+            GitGraphScrollView(presentation: initial, selectedHash: selected, showCommitDecorations: true,
+                canLoadMore: true, isLoadingMore: loading, actions: callbacks, onLoadMore: {})
+                .updateScrollView(scroll, locale: .current, effectiveFocus: true)
+            #expect(abs(scroll.contentView.bounds.minY - origin) < 1)
+            #expect(document.bounds.height == height, "A loading indicator cannot change the scroll range")
+        }
+        GitGraphScrollView(presentation: refreshed, selectedHash: selected, showCommitDecorations: true,
+            canLoadMore: true, isLoadingMore: false, actions: callbacks, onLoadMore: {})
+            .updateScrollView(scroll, locale: .current, effectiveFocus: true)
+        #expect(document.scrollAnchor(at: scroll.contentView.bounds.minY)?.hash == anchor.hash)
+        #expect(abs(scroll.contentView.bounds.minY - origin - GitGraphGeometry.rowHeight) < 1)
+        let navigationHash = refreshed.rows[10].commit.hash
+        GitGraphScrollView(presentation: refreshed, selectedHash: selected, showCommitDecorations: true,
+            canLoadMore: true, isLoadingMore: false, actions: callbacks, onLoadMore: {},
+            navigationHash: navigationHash, navigationID: UUID())
+            .updateScrollView(scroll, locale: .current, effectiveFocus: true)
+        #expect(scroll.contentView.bounds.intersects(CGRect(x: 0, y: 10 * GitGraphGeometry.rowHeight,
+                                                           width: 1, height: GitGraphGeometry.rowHeight)))
+    }
+
     @Test("Continuous native viewport resizing retains document, scroll and multiple selections")
     func continuousViewportResize() throws {
         let layout = GitGraphLayoutService.layout(commits: try reportedCommits("issue410-date-history"))

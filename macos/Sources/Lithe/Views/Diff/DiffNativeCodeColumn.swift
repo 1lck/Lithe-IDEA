@@ -162,6 +162,7 @@ struct DiffNativeCodeColumn: NSViewRepresentable {
     let fontFamily: String
     var unified = false
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.isEnabled) private var isEnabled
 
     func makeNSView(context: Context) -> DiffNativeTextView {
         let view = DiffNativeTextView(frame: .zero)
@@ -186,6 +187,8 @@ struct DiffNativeCodeColumn: NSViewRepresentable {
     }
 
     func updateNSView(_ view: DiffNativeTextView, context: Context) {
+        view.isSelectable = isEnabled
+        if !isEnabled, view.window?.firstResponder === view { view.window?.makeFirstResponder(nil) }
         state.prepare(identity: layoutIdentity, items: items, side: side,
             fileExtension: fileExtension, highlightsWords: highlightsWords, dark: colorScheme == .dark,
             unified: unified, fontFamily: fontFamily)
@@ -207,6 +210,8 @@ final class DiffNativeTextView: NSTextView, NSTextViewDelegate {
     var column: DiffNativeColumnState?
     var appliedRevision = -1
     private let menuPresenter = LitheContextMenuPresenter()
+
+    override var acceptsFirstResponder: Bool { isSelectable && super.acceptsFirstResponder }
 
     override func becomeFirstResponder() -> Bool {
         let accepted = super.becomeFirstResponder()

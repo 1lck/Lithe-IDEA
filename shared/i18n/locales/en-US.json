@@ -9461,7 +9461,12 @@
     "native.loadProviderModelBeforeRun": "Load the current build model and enable its provider before running this configuration.",
     "native.providerRunSaveConflict": "Run configuration changed while saving. Reload and try again.",
     "native.savedProviderRunUnavailable": "The saved provider run configuration is unavailable.",
-    "native.providerDebugUnavailable": "The build provider's debug program or adapter is unavailable. Build it again and check that the plugin is enabled."
+    "native.providerDebugUnavailable": "The build provider's debug program or adapter is unavailable. Build it again and check that the plugin is enabled.",
+    "git.log.olderCommitsFailed": "Could not load older commits. Refresh history",
+    "native.stageFiles": "Stage Files",
+    "native.unstageFiles": "Unstage Files",
+    "native.discardChangesToSelectedFiles": "Discard changes to selected files?",
+    "native.discardWorktreeChangesWarning": "This action cannot be undone by Lithe. Untracked files will be deleted."
   },
   "overrides": {
     "windows": {

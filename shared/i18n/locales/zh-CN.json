@@ -9461,7 +9461,12 @@
     "native.loadProviderModelBeforeRun": "请先加载当前构建模型并启用对应提供方，再运行此配置。",
     "native.providerRunSaveConflict": "保存期间运行配置已更改。请重新加载后再试。",
     "native.savedProviderRunUnavailable": "已保存的提供方运行配置不可用。",
-    "native.providerDebugUnavailable": "构建插件的调试程序或适配器不可用。请重新构建，并检查插件是否已启用。"
+    "native.providerDebugUnavailable": "构建插件的调试程序或适配器不可用。请重新构建，并检查插件是否已启用。",
+    "git.log.olderCommitsFailed": "无法加载更早的提交，点击刷新历史",
+    "native.stageFiles": "暂存文件",
+    "native.unstageFiles": "取消暂存文件",
+    "native.discardChangesToSelectedFiles": "要丢弃所选文件的更改吗？",
+    "native.discardWorktreeChangesWarning": "此操作无法通过 Lithe 撤销。未跟踪的文件将被删除。"
   },
   "overrides": {
     "macos": {

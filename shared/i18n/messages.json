@@ -13984,17 +13984,29 @@
     },
     {
       "id": "git.diff.repositoryPreviewEmptyTitle",
-      "description": "Windows UI: git.diff.repositoryPreviewEmptyTitle",
+      "description": "Shared repository comparison editor tab title",
       "platforms": [
-        "windows"
-      ]
+        "windows",
+        "macos"
+      ],
+      "macos": {
+        "key": "Repository Diff",
+        "arguments": []
+      }
     },
     {
       "id": "git.diff.repositoryPreviewTitle",
-      "description": "Windows UI: git.diff.repositoryPreviewTitle",
+      "description": "Shared repository comparison editor tab file title",
       "platforms": [
-        "windows"
+        "windows",
+        "macos"
       ],
+      "macos": {
+        "key": "Repository Diff: %@",
+        "arguments": [
+          "file"
+        ]
+      },
       "parameters": {
         "file": "string"
       }
@@ -90169,6 +90181,61 @@
       ],
       "macos": {
         "key": "The build provider's debug program or adapter is unavailable. Build it again and check that the plugin is enabled.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "git.log.olderCommitsFailed",
+      "description": "Git history pagination failure; explicitly refresh because the failed Core cursor is consumed.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not load older commits. Refresh history",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.stageFiles",
+      "description": "Native UI: Stage Files",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Stage Files",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.unstageFiles",
+      "description": "Native UI: Unstage Files",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Unstage Files",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.discardChangesToSelectedFiles",
+      "description": "Native UI: Discard changes to selected files?",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Discard changes to selected files?",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.discardWorktreeChangesWarning",
+      "description": "Native UI: This action cannot be undone by Lithe. Untracked files will be deleted.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This action cannot be undone by Lithe. Untracked files will be deleted.",
         "arguments": []
       }
     }

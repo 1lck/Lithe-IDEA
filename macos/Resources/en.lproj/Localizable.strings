@@ -959,6 +959,7 @@
 "Could not load changed files" = "Could not load changed files";
 "Could not load dependencies" = "Could not load dependencies";
 "Could not load file preview" = "Could not load file preview";
+"Could not load older commits. Refresh history" = "Could not load older commits. Refresh history";
 "Could not load project" = "Could not load project";
 "Could not load saved changes" = "Could not load saved changes";
 "Could not load service dependencies" = "Could not load service dependencies";
@@ -1178,6 +1179,7 @@
 "Discard Block" = "Discard Block";
 "Discard Changes" = "Discard Changes";
 "Discard and Retry" = "Discard and Retry";
+"Discard changes to selected files?" = "Discard changes to selected files?";
 "Discard draft and reload?" = "Discard draft and reload?";
 "Discard selected change" = "Discard selected change";
 "Discard this change block" = "Discard this change block";
@@ -3014,6 +3016,8 @@
 "Replays every commit onto the base branch without a merge commit." = "Replays every commit onto the base branch without a merge commit.";
 "Reported change" = "Reported change";
 "Repository" = "Repository";
+"Repository Diff" = "Repository Diff";
+"Repository Diff: %@" = "Repository Diff: %@";
 "Repository URL" = "Repository URL";
 "Repository changed; review and retry" = "Repository changed; review and retry";
 "Repository identity overrides inherited global values. Clear an override to use inherited settings." = "Repository identity overrides inherited global values. Clear an override to use inherited settings.";
@@ -3521,6 +3525,7 @@
 "Stack frame display options" = "Stack frame display options";
 "Stage All and Commit use the current ChangeList." = "Stage All and Commit use the current ChangeList.";
 "Stage File" = "Stage File";
+"Stage Files" = "Stage Files";
 "Stage all changes" = "Stage all changes";
 "Stage all files" = "Stage all files";
 "Stage all files in current ChangeList" = "Stage all files in current ChangeList";
@@ -4003,6 +4008,7 @@
 "This Markdown document is read-only" = "This Markdown document is read-only";
 "This Window" = "This Window";
 "This action cannot be undone by Lithe." = "This action cannot be undone by Lithe.";
+"This action cannot be undone by Lithe. Untracked files will be deleted." = "This action cannot be undone by Lithe. Untracked files will be deleted.";
 "This adapter cannot step by instruction; steps still move by line" = "This adapter cannot step by instruction; steps still move by line";
 "This adapter does not support hot code replacement." = "This adapter does not support hot code replacement.";
 "This address cannot be opened here." = "This address cannot be opened here.";
@@ -4191,6 +4197,7 @@
 "Unsigned Decimal" = "Unsigned Decimal";
 "Unsigned development package. Release builds of Lithe will not load it." = "Unsigned development package. Release builds of Lithe will not load it.";
 "Unstage" = "Unstage";
+"Unstage Files" = "Unstage Files";
 "Unstage all files" = "Unstage all files";
 "Unstage all files in repository" = "Unstage all files in repository";
 "Unstage file" = "Unstage file";
@@ -4530,6 +4537,9 @@
 "from JAVA_HOME" = "from JAVA_HOME";
 "generated main" = "generated main";
 "generated test" = "generated test";
+"git.diff.repositoryPreviewEmptyTitle" = "Repository Diff";
+"git.diff.repositoryPreviewTitle" = "Repository Diff: %1$@";
+"git.log.olderCommitsFailed" = "Could not load older commits. Refresh history";
 "https://github.com/owner/repository" = "https://github.com/owner/repository";
 "just now" = "just now";
 "local commit(s)" = "local commit(s)";
@@ -5610,10 +5620,12 @@
 "native.discardAndRetry" = "Discard and Retry";
 "native.discardBlock" = "Discard Block";
 "native.discardChanges" = "Discard Changes";
+"native.discardChangesToSelectedFiles" = "Discard changes to selected files?";
 "native.discardDraftAndReload" = "Discard draft and reload?";
 "native.discardSelectedChange" = "Discard selected change";
 "native.discardThisChangeBlock" = "Discard this change block";
 "native.discardThisFileAndRetry" = "Discard this file and retry";
+"native.discardWorktreeChangesWarning" = "This action cannot be undone by Lithe. Untracked files will be deleted.";
 "native.discardedEditorChanges" = "Discarded editor changes";
 "native.disconnect" = "Disconnect";
 "native.disconnected" = "Disconnected";
@@ -8089,6 +8101,7 @@
 "native.stageAtLeastOneFileFirst" = "Stage at least one file first";
 "native.stageFile" = "Stage File";
 "native.stageFile.variant2" = "Stage file";
+"native.stageFiles" = "Stage Files";
 "native.stageThisChangeBlock" = "Stage this change block";
 "native.stageYourFilesInChangesEnterACommitMessageAndCreateTheFirstCommit" = "Stage your files in Changes, enter a commit message, and create the first commit.";
 "native.staged" = "STAGED";
@@ -8741,6 +8754,7 @@
 "native.unstageAllFiles" = "Unstage all files";
 "native.unstageAllFilesInRepository" = "Unstage all files in repository";
 "native.unstageFile" = "Unstage file";
+"native.unstageFiles" = "Unstage Files";
 "native.unstageThisChangeBlock" = "Unstage this change block";
 "native.unstaged" = "Unstaged";
 "native.unstagedChanges" = "Unstaged changes";

@@ -959,6 +959,7 @@
 "Could not load changed files" = "无法加载更改的文件";
 "Could not load dependencies" = "无法加载依赖";
 "Could not load file preview" = "无法加载文件预览";
+"Could not load older commits. Refresh history" = "无法加载更早的提交，点击刷新历史";
 "Could not load project" = "无法加载项目";
 "Could not load saved changes" = "无法加载已保存的更改";
 "Could not load service dependencies" = "无法加载服务依赖";
@@ -1178,6 +1179,7 @@
 "Discard Block" = "丢弃代码块";
 "Discard Changes" = "丢弃更改";
 "Discard and Retry" = "放弃并重试";
+"Discard changes to selected files?" = "要丢弃所选文件的更改吗？";
 "Discard draft and reload?" = "放弃草稿并重新加载？";
 "Discard selected change" = "丢弃选中的更改";
 "Discard this change block" = "丢弃此更改代码块";
@@ -3014,6 +3016,8 @@
 "Replays every commit onto the base branch without a merge commit." = "将所有提交重放到目标分支，不创建合并提交。";
 "Reported change" = "上报的修改";
 "Repository" = "仓库";
+"Repository Diff" = "仓库差异";
+"Repository Diff: %@" = "仓库差异: %@";
 "Repository URL" = "仓库 URL";
 "Repository changed; review and retry" = "仓库状态已改变，请检查并重试";
 "Repository identity overrides inherited global values. Clear an override to use inherited settings." = "仓库身份会覆盖继承的全局值。清除覆盖后将使用继承的配置。";
@@ -3521,6 +3525,7 @@
 "Stack frame display options" = "调用栈显示选项";
 "Stage All and Commit use the current ChangeList." = "全部暂存和提交仅使用当前更改列表。";
 "Stage File" = "暂存文件";
+"Stage Files" = "暂存文件";
 "Stage all changes" = "暂存所有更改";
 "Stage all files" = "暂存所有文件";
 "Stage all files in current ChangeList" = "暂存当前更改列表中的所有文件";
@@ -4003,6 +4008,7 @@
 "This Markdown document is read-only" = "此 Markdown 文档为只读";
 "This Window" = "此窗口";
 "This action cannot be undone by Lithe." = "此操作无法在 Lithe 中撤销。";
+"This action cannot be undone by Lithe. Untracked files will be deleted." = "此操作无法通过 Lithe 撤销。未跟踪的文件将被删除。";
 "This adapter cannot step by instruction; steps still move by line" = "该适配器不支持按指令单步，单步仍按源码行前进";
 "This adapter does not support hot code replacement." = "此适配器不支持热代码替换。";
 "This address cannot be opened here." = "无法在此处打开该地址。";
@@ -4191,6 +4197,7 @@
 "Unsigned Decimal" = "无符号十进制";
 "Unsigned development package. Release builds of Lithe will not load it." = "未签名的开发包，正式版 Lithe 不会加载。";
 "Unstage" = "取消暂存";
+"Unstage Files" = "取消暂存文件";
 "Unstage all files" = "取消暂存所有文件";
 "Unstage all files in repository" = "取消暂存仓库的所有文件";
 "Unstage file" = "取消暂存文件";
@@ -4530,6 +4537,9 @@
 "from JAVA_HOME" = "来自 JAVA_HOME";
 "generated main" = "生成的主代码";
 "generated test" = "生成的测试代码";
+"git.diff.repositoryPreviewEmptyTitle" = "仓库差异";
+"git.diff.repositoryPreviewTitle" = "仓库差异: %1$@";
+"git.log.olderCommitsFailed" = "无法加载更早的提交，点击刷新历史";
 "https://github.com/owner/repository" = "https://github.com/owner/repository";
 "just now" = "刚刚";
 "local commit(s)" = "个本地提交";
@@ -5610,10 +5620,12 @@
 "native.discardAndRetry" = "放弃并重试";
 "native.discardBlock" = "丢弃代码块";
 "native.discardChanges" = "丢弃更改";
+"native.discardChangesToSelectedFiles" = "要丢弃所选文件的更改吗？";
 "native.discardDraftAndReload" = "放弃草稿并重新加载？";
 "native.discardSelectedChange" = "丢弃选中的更改";
 "native.discardThisChangeBlock" = "丢弃此更改代码块";
 "native.discardThisFileAndRetry" = "丢弃此文件的更改并重试";
+"native.discardWorktreeChangesWarning" = "此操作无法通过 Lithe 撤销。未跟踪的文件将被删除。";
 "native.discardedEditorChanges" = "丢弃编辑器更改";
 "native.disconnect" = "断开连接";
 "native.disconnected" = "已断开";
@@ -8089,6 +8101,7 @@
 "native.stageAtLeastOneFileFirst" = "请先至少暂存一个文件";
 "native.stageFile" = "暂存文件";
 "native.stageFile.variant2" = "暂存文件";
+"native.stageFiles" = "暂存文件";
 "native.stageThisChangeBlock" = "暂存此更改代码块";
 "native.stageYourFilesInChangesEnterACommitMessageAndCreateTheFirstCommit" = "在“更改”面板暂存文件、填写提交消息，然后创建首次提交。";
 "native.staged" = "已暂存";
@@ -8741,6 +8754,7 @@
 "native.unstageAllFiles" = "取消暂存所有文件";
 "native.unstageAllFilesInRepository" = "取消暂存仓库的所有文件";
 "native.unstageFile" = "取消暂存文件";
+"native.unstageFiles" = "取消暂存文件";
 "native.unstageThisChangeBlock" = "取消暂存此更改代码块";
 "native.unstaged" = "未暂存";
 "native.unstagedChanges" = "未暂存更改";

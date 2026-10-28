@@ -1166,11 +1166,12 @@ struct GitLogView: View {
                     showCommitDecorations: showCommitDecorations,
                     actions: graphRowActions,
                     canLoadMore: feature.canLoadMoreGitHistory,
-                    isLoadingMore: feature.isLoadingMoreGitHistory,
+                    isLoadingMore: feature.isLoadingMoreGitHistory || feature.isLoadingGitHistory,
                     onLoadMore: { Task { await feature.loadMoreGitHistory() } },
                     navigationHash: graphNavigationRequest?.hash,
                     navigationID: graphNavigationRequest?.id,
-                    isFocused: gitLogCommitListFocused && controlActiveState == .key
+                    isFocused: gitLogCommitListFocused && controlActiveState == .key,
+                    loadMoreFailed: feature.gitHistoryPageFailed
                 )
                 .focusable()
                 .focused($gitLogCommitListFocused)
