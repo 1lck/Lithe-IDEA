@@ -193,6 +193,9 @@ macOS 的项目默认 JDK、Maven 与 Maven JDK 直接经 `runConfig.inspect`
 读取 `.lithe/run/local.json` 的 `toolchain`。`MacProjectRuntimeSettingsStore`
 负责平台文件和旧偏好的迁移，运行时服务在选择工具前只读刷新；不再持久化
 UserDefaults 副本，也不再用 `adoptProjectToolchain` 在两个副本间同步。
+子项目工具路径也已迁到同一 `toolchain.pathOverrides`，按规范化工作区相对根保存。
+旧偏好中的 `moduleOverrides` 只有在目标尚未保存这部分选择时才迁入；已有映射（包括
+显式清空）优先。重复路径、未知字段或越界根会保留旧数据并明确报错，避免迁移时丢失内容。
 Maven 自己的旧本机配置仍有待阶段 D 迁移的每个 reactor 覆盖，不能把本次项目默认值
 迁移当成 Maven 全配置迁移完成。
 

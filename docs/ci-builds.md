@@ -769,3 +769,11 @@ CI 在 Windows frontend lane 构建并上传独立包，同时运行包、Worker
 原生 UI 截图位于 `.artifacts/test-stability/hooks-ui/`，绑定本次源码、主题、
 语言和窗口尺寸，不作为可复用资源。运行 `node --test scripts/test-reuse-worktree-resources.mjs`
 验证 `agent-hook-library-state` 被复用入口拒绝。
+
+
+共享 Build 调用偏好 `.lithe/build/options.json` 是用户维护的工作区文件，本机差异位于
+平台偏好的 `BuildSystems.Options.*` / `.Instances`。这些内容没有构建产物 identity stamp，
+不能作为资源从其他工作树复制、链接或发布；共享值随普通源文件流转，本机路径不转移。
+资源清单 `build-project-preferences` 与复用脚本直接拒绝它们。只有明确编辑或带原字节
+检查的一次性激活迁移可以写共享文件，普通检测和设置页读取不创建文件；不写 app 或插件
+安装目录，不改变签名与 Sparkle 增量基线。

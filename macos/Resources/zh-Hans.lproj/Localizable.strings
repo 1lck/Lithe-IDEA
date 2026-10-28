@@ -475,6 +475,7 @@
 "Build files changed. Reload the model to pick up the changes." = "构建文件已更改，请重新加载模型以应用更改。";
 "Build launch did not start" = "构建未能启动";
 "Build option migration could not be verified. The previous configuration has been retained. Reload the build instance to retry." = "无法验证构建选项迁移结果，已保留原配置。请重新加载构建实例以重试。";
+"Build options changed on disk. Reload before saving; your changes have been kept." = "构建选项已在磁盘上变更，请重新加载后保存；你的更改已保留。";
 "Build output" = "构建输出";
 "Build plugins are unavailable" = "构建插件不可用";
 "Build provider" = "构建 Provider";
@@ -3784,6 +3785,7 @@
 "The breakdown needs Model call statistics (on by default). After turning it on, reconnect and send a message." = "分项需要开启“模型调用统计”（默认开启）。开启后请重新连接并发送消息。";
 "The build option is no longer available. Reload the build instance." = "此构建选项已不可用。请重新加载构建实例。";
 "The build option value is invalid. Inspect its current kind and choices." = "构建选项值无效。请查看其当前类型和可选值。";
+"The build options could not be saved or verified. Reload before retrying." = "无法保存或验证构建选项，请重新加载后重试。";
 "The build provider failed to start." = "构建 Provider 启动失败。";
 "The build provider returned an invalid launch plan." = "构建提供方返回了无效的启动计划。";
 "The build provider stopped before it was ready." = "构建 Provider 在就绪前已停止。";
@@ -3936,6 +3938,7 @@
 "The request has no secret." = "请求不包含密钥。";
 "The response stopped at the model's token limit." = "回复已达到模型的 token 上限，已停止。";
 "The saved build option could not be verified. Reload before editing again." = "无法核实已保存的构建选项。请重新加载后再编辑。";
+"The saved build options are invalid. The original configuration has been kept." = "已保存的构建选项无效，原配置已保留。";
 "The saved provider run configuration is unavailable." = "已保存的提供方运行配置不可用。";
 "The selected AI provider has an invalid API URL or model." = "所选 AI 服务商的 API 地址或模型无效。";
 "The selected AI provider has no API key." = "所选 AI 服务商没有 API 密钥。";
@@ -4930,6 +4933,8 @@
 "native.buildOptionMigrationCouldNotBeVerified" = "无法验证构建选项迁移结果，已保留原配置。请重新加载构建实例以重试。";
 "native.buildOptionReadBackFailed" = "无法核实已保存的构建选项。请重新加载后再编辑。";
 "native.buildOptionUnavailable" = "此构建选项已不可用。请重新加载构建实例。";
+"native.buildOptionsConflict" = "构建选项已在磁盘上变更，请重新加载后保存；你的更改已保留。";
+"native.buildOptionsSaveFailed" = "无法保存或验证构建选项，请重新加载后重试。";
 "native.buildOutput" = "构建输出";
 "native.buildOutput.variant2" = "构建输出";
 "native.buildOutputs" = "构建产物";
@@ -7840,6 +7845,7 @@
 "native.saveTitle" = "保存标题";
 "native.saved" = "已保存";
 "native.savedBreakpointsCouldNotBeRead" = "无法读取已保存的断点。";
+"native.savedBuildOptionsInvalid" = "已保存的构建选项无效，原配置已保留。";
 "native.savedDebuggerSteppingFiltersCouldNotBeRead" = "无法读取已保存的调试器步进过滤器。";
 "native.savedInKeychain" = "已保存在钥匙串中";
 "native.savedInLitheRunConfigurationsJsonForTheWholeTeamLocalJDKPathsAreNeverShared" = "保存在 .lithe/run/configurations.json，供整个团队使用。本机 JDK 路径不会共享。";

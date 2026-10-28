@@ -29,6 +29,9 @@ pub(crate) struct DetectRequest {
     /// declared with instance scope may read this map.
     #[serde(default)]
     pub(crate) instance_options: BTreeMap<String, BTreeMap<String, BTreeMap<String, Value>>>,
+    /// Team-owned defaults for instance-scoped options, before root overrides.
+    #[serde(default)]
+    pub(crate) instance_defaults: BTreeMap<String, BTreeMap<String, Value>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -196,7 +199,8 @@ pub(crate) fn detect(request: DetectRequest) -> Validation<Value> {
                 for option in &owner.declaration.options {
                     let value = match option.scope {
                         OptionScope::Workspace => stored.get(&option.id),
-                        OptionScope::Instance => local.and_then(|values| values.get(&option.id)),
+                        OptionScope::Instance => local.and_then(|values| values.get(&option.id))
+                            .or_else(|| request.instance_defaults.get(&owner.declaration.id).and_then(|values| values.get(&option.id))),
                     };
                     if let Some(value) = value {
                         values.insert(option.id.clone(), value.clone());

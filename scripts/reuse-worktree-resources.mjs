@@ -84,6 +84,7 @@ async function readRegistry() {
   // Build Provider snapshots remain under the excluded per-workspace PluginState
   // owner, including after removing the old macOS Maven tree output allocator.
   // They are mutable upstream state and must never gain a download validator.
+  // User-authored Build preferences and their machine-local differences are never reusable.
   // Native configuration probes (including their isolated repository manager), source-identity cache v2 and secret-bearing
   // conditional replacement copies use the same explicit rejection route.
   // Shared i18n source and generated tables take this same refusal route:

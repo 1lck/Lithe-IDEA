@@ -66,7 +66,7 @@ struct MacNativeBuildProviderIntegrationTests {
         let defaults = try #require(UserDefaults(suiteName: domain))
         defer { defaults.removePersistentDomain(forName: domain) }
         let options = MacBuildOptionsStore(store: MacUserDefaultsStore(defaults: defaults))
-        options.setInstanceOptions(["a": ["settingsFile": .string(a.path)], "b": ["settingsFile": .string(b.path)]],
+        try options.setInstanceOptions(["a": ["settingsFile": .string(a.path)], "b": ["settingsFile": .string(b.path)]],
             workspaceURL: workspace, buildSystemID: "maven")
         let storage = MacFileStorage()
         let preferences = MacUserDefaultsStore(defaults: defaults)
@@ -105,7 +105,7 @@ struct MacNativeBuildProviderIntegrationTests {
             let unchangedB = try await build.readNativeConfiguration("maven:b")
             #expect(changedA.sources.first { $0.id == "user" }?.uri == replacement.absoluteString)
             #expect(unchangedB.sources.first { $0.id == "user" } == userB)
-            #expect(options.instanceOptions(workspaceURL: workspace, buildSystemID: "maven")["b"]?["settingsFile"] == .string(b.path))
+            #expect(try options.instanceOptions(workspaceURL: workspace, buildSystemID: "maven")["b"]?["settingsFile"] == .string(b.path))
             #expect(!files.fileExists(atPath: workspace.appendingPathComponent("a/target").path))
             #expect(!files.fileExists(atPath: workspace.appendingPathComponent("b/target").path))
             for path in ["a-repository", "b-repository", "saved-a-repository", "replacement-repository"] {
@@ -161,7 +161,7 @@ struct MacNativeBuildProviderIntegrationTests {
         let defaults = try #require(UserDefaults(suiteName: preferenceDomain))
         defer { defaults.removePersistentDomain(forName: preferenceDomain) }
         let options = MacBuildOptionsStore(store: MacUserDefaultsStore(defaults: defaults))
-        options.setOptions(["settingsFile": .string(user.path)], workspaceURL: workspace, buildSystemID: "maven")
+        try options.setOptions(["settingsFile": .string(user.path)], workspaceURL: workspace, buildSystemID: "maven")
         let storage = MacFileStorage()
         func service() -> BuildSystemService {
             BuildSystemService(planner: planner, tools: ExplicitNativeConfigurationTool(maven: maven), optionsStore: options,

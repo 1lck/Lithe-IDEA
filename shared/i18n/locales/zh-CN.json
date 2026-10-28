@@ -9480,7 +9480,10 @@
     "native.nativeConfigurationExplicitRead": "读取配置需要显式运行此项目工具。",
     "native.nativeConfigurationReadUsingProjectTool": "使用项目工具读取",
     "native.buildOptionMigrationCouldNotBeVerified": "无法验证构建选项迁移结果，已保留原配置。请重新加载构建实例以重试。",
-    "native.selectedToolchainUnavailable": "所选工具链不可用。"
+    "native.selectedToolchainUnavailable": "所选工具链不可用。",
+    "native.savedBuildOptionsInvalid": "已保存的构建选项无效，原配置已保留。",
+    "native.buildOptionsSaveFailed": "无法保存或验证构建选项，请重新加载后重试。",
+    "native.buildOptionsConflict": "构建选项已在磁盘上变更，请重新加载后保存；你的更改已保留。"
   },
   "overrides": {
     "macos": {

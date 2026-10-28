@@ -531,7 +531,8 @@ final class MacServiceContainer {
                             processRunner: processRunner,
                             fileStorage: fileStorage
                         ),
-                        optionsStore: MacBuildOptionsStore(store: store),
+                        optionsStore: MacBuildOptionsStore(store: store, storage: fileStorage,
+                            immutableRoots: [Bundle.main.bundleURL] + pluginPackageStore.runtimeReadOnlyDirectories),
                         stateLocator: MacBuildSystemStateLocator(
                             directories: MacPluginStateDirectories(fileStorage: fileStorage),
                             fileStorage: fileStorage

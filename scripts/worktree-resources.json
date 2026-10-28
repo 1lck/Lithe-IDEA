@@ -410,6 +410,18 @@
       ],
       "identity": "Native configuration source revisions and effective values belong to the selected upstream session, source paths and exact native bytes; they are mutable runtime state without a version/platform/architecture/toolchain build identity stamp. Native UI evidence additionally depends on source revision, fixture, theme and viewport and is regenerated per test run.",
       "reason": "The selected provider owns bounded configuration probes and removes their directories at operation end. Native XML bytes and credentials stay in the host file adapter; guarded adjacent temporary replacements preserve metadata and are removed on success or retained only for explicit error recovery. Maven cache v2 records actual upstream-selected source URI/hash identities and invalidates them after external edits. Never copy, symlink or publish this state between worktrees at any stage; installation resources remain read-only and Sparkle delta inputs are unchanged. Settings-only probes snapshot the upstream-populated execution request before repository-session creation and redirect only their own repository manager to configuration-*/repository, then abort before project import. The private repository is removed with that probe; selected user/native repositories must remain uncreated and unchanged."
+    },
+    {
+      "id": "build-project-preferences",
+      "path": ".lithe/build/options.json",
+      "reusable": false,
+      "locations": [
+        ".lithe/build/options.json",
+        "<platform-preferences>/BuildSystems.Options.<build-system-id>.<workspace-digest>",
+        "<platform-preferences>/BuildSystems.Options.<build-system-id>.<workspace-digest>.Instances"
+      ],
+      "identity": "User-authored team Build preferences and machine-local differences scoped to one workspace; no build, platform, architecture or toolchain artifact identity stamp.",
+      "reason": "Team values are ordinary workspace-owned source; local differences belong only to the platform preference store. Neither is a download, generated build input or portable cache. Passive reads never create or rewrite the file; an explicit edit or guarded activation migration preserves unrelated systems and checks exact source bytes. No copy, hardlink or symlink reuse stage is permitted. App/plugin resources and signing/Sparkle baselines remain read-only."
     }
   ]
 }

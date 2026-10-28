@@ -3015,7 +3015,8 @@ private final class FakeBuildPlanner: BuildSystemPlanning, @unchecked Sendable {
         workspaceURL: URL,
         sources: [BuildSystemPluginSource],
         options: [String: [String: ToolingJSONValue]],
-        instanceOptions: [String: [String: [String: ToolingJSONValue]]]
+        instanceOptions: [String: [String: [String: ToolingJSONValue]]],
+        instanceDefaults: [String: [String: ToolingJSONValue]]
     ) throws -> BuildDetection {
         if let gate = access({ let gate = $0.detectGate; $0.detectGate = nil; return gate }) {
             gate.entered.open()

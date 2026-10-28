@@ -9480,7 +9480,10 @@
     "native.nativeConfigurationExplicitRead": "Reading configuration with this project tool requires an explicit action.",
     "native.nativeConfigurationReadUsingProjectTool": "Read using project tool",
     "native.buildOptionMigrationCouldNotBeVerified": "Build option migration could not be verified. The previous configuration has been retained. Reload the build instance to retry.",
-    "native.selectedToolchainUnavailable": "The selected toolchain is unavailable."
+    "native.selectedToolchainUnavailable": "The selected toolchain is unavailable.",
+    "native.savedBuildOptionsInvalid": "The saved build options are invalid. The original configuration has been kept.",
+    "native.buildOptionsSaveFailed": "The build options could not be saved or verified. Reload before retrying.",
+    "native.buildOptionsConflict": "Build options changed on disk. Reload before saving; your changes have been kept."
   },
   "overrides": {
     "windows": {

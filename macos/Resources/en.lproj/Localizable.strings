@@ -475,6 +475,7 @@
 "Build files changed. Reload the model to pick up the changes." = "Build files changed. Reload the model to pick up the changes.";
 "Build launch did not start" = "Build launch did not start";
 "Build option migration could not be verified. The previous configuration has been retained. Reload the build instance to retry." = "Build option migration could not be verified. The previous configuration has been retained. Reload the build instance to retry.";
+"Build options changed on disk. Reload before saving; your changes have been kept." = "Build options changed on disk. Reload before saving; your changes have been kept.";
 "Build output" = "Build output";
 "Build plugins are unavailable" = "Build plugins are unavailable";
 "Build provider" = "Build provider";
@@ -3784,6 +3785,7 @@
 "The breakdown needs Model call statistics (on by default). After turning it on, reconnect and send a message." = "The breakdown needs Model call statistics (on by default). After turning it on, reconnect and send a message.";
 "The build option is no longer available. Reload the build instance." = "The build option is no longer available. Reload the build instance.";
 "The build option value is invalid. Inspect its current kind and choices." = "The build option value is invalid. Inspect its current kind and choices.";
+"The build options could not be saved or verified. Reload before retrying." = "The build options could not be saved or verified. Reload before retrying.";
 "The build provider failed to start." = "The build provider failed to start.";
 "The build provider returned an invalid launch plan." = "The build provider returned an invalid launch plan.";
 "The build provider stopped before it was ready." = "The build provider stopped before it was ready.";
@@ -3936,6 +3938,7 @@
 "The request has no secret." = "The request has no secret.";
 "The response stopped at the model's token limit." = "The response stopped at the model's token limit.";
 "The saved build option could not be verified. Reload before editing again." = "The saved build option could not be verified. Reload before editing again.";
+"The saved build options are invalid. The original configuration has been kept." = "The saved build options are invalid. The original configuration has been kept.";
 "The saved provider run configuration is unavailable." = "The saved provider run configuration is unavailable.";
 "The selected AI provider has an invalid API URL or model." = "The selected AI provider has an invalid API URL or model.";
 "The selected AI provider has no API key." = "The selected AI provider has no API key.";
@@ -4930,6 +4933,8 @@
 "native.buildOptionMigrationCouldNotBeVerified" = "Build option migration could not be verified. The previous configuration has been retained. Reload the build instance to retry.";
 "native.buildOptionReadBackFailed" = "The saved build option could not be verified. Reload before editing again.";
 "native.buildOptionUnavailable" = "The build option is no longer available. Reload the build instance.";
+"native.buildOptionsConflict" = "Build options changed on disk. Reload before saving; your changes have been kept.";
+"native.buildOptionsSaveFailed" = "The build options could not be saved or verified. Reload before retrying.";
 "native.buildOutput" = "Build Output";
 "native.buildOutput.variant2" = "Build output";
 "native.buildOutputs" = "Build Outputs";
@@ -7840,6 +7845,7 @@
 "native.saveTitle" = "Save title";
 "native.saved" = "Saved";
 "native.savedBreakpointsCouldNotBeRead" = "Saved breakpoints could not be read.";
+"native.savedBuildOptionsInvalid" = "The saved build options are invalid. The original configuration has been kept.";
 "native.savedDebuggerSteppingFiltersCouldNotBeRead" = "Saved debugger stepping filters could not be read.";
 "native.savedInKeychain" = "Saved in Keychain";
 "native.savedInLitheRunConfigurationsJsonForTheWholeTeamLocalJDKPathsAreNeverShared" = "Saved in .lithe/run/configurations.json for the whole team. Local JDK paths are never shared.";

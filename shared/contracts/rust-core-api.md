@@ -3643,7 +3643,7 @@ and the directories are absolute host paths used only as substitution text.
 
 | Command | Request | Result |
 | --- | --- | --- |
-| `build.detect` | `{ workspaceRoot, plugins: [{ manifest }], options?: { <buildSystemID>: { <optionID>: value } }, instanceOptions?: { <buildSystemID>: { <root>: { <optionID>: value } } } }` | `detection`: `{ instances, rejected: [{ index, error }], shadowed: [{ pluginID, buildSystemID, by }] }`; each instance is `{ id, pluginID, buildSystemID, displayName, root, markers, modelSource, optionFingerprint }` plus `model` or `modelError` for `static` and `hostIntegration` sources; a `provider` source has neither |
+| `build.detect` | `{ workspaceRoot, plugins: [{ manifest }], options?: { <buildSystemID>: { <optionID>: value } }, instanceOptions?: { <buildSystemID>: { <root>: { <optionID>: value } } }, instanceDefaults?: { <buildSystemID>: { <optionID>: value } } }` | `detection`: `{ instances, rejected: [{ index, error }], shadowed: [{ pluginID, buildSystemID, by }] }`; each instance is `{ id, pluginID, buildSystemID, displayName, root, markers, modelSource, optionFingerprint }` plus `model` or `modelError` for `static` and `hostIntegration` sources; a `provider` source has neither |
 | `build.invocationPlan` | `{ root, platform: "macos" \| "linux" \| "windows" }` | `invocation`: `{ buildSystemID, root, executables, environmentInputs, runtimeDependencies, version, minimumVersion }` with project-file paths joined to `root`; every runtime dependency with a known probe, host-managed ones included, carries `version: { arguments }` |
 | `build.checkToolVersion` | `{ runtime?, output }` | `version`: `{ satisfied, version? }`; `runtime` checks that runtime dependency instead of the tool |
 | `build.resolveModelInputs` | `{revision, sources: [{manifest, instances: [{buildSystemID, root, state, model?, options?}]}]}` from installed enabled current-workspace sources | `modelInputs`: version 1 public snapshot with exact optional producer slots, state, normalized projects/targets/content roots, configuration fingerprint and explicitly shared options; no tasks/run/settings/private functions; see the [plugin contract](https://github.com/1lck/Lithe-IDEA/blob/preview/shared/contracts/plugins/v1/README.md#optional-read-only-model-inputs-buildmodelinputs-1) |
@@ -4222,3 +4222,20 @@ The macOS settings surface offers search, refresh, file details, native open and
 reveal, creation and import. It keeps native loading separate from management
 and rejects stale results after project changes. Windows can use the same Core
 operations; the settings UI and Windows runtime validation remain pending.
+
+
+Team Build options use `shared/contracts/build-project-options-v1.schema.json`
+at `.lithe/build/options.json`. `options` holds workspace-scoped values;
+`instanceDefaults` applies to every detected root's instance-scoped options;
+`instances` overrides those defaults by normalized root. Platform-local values
+then override that root. Storage writes local differences only; passive detection
+never rewrites the shared document. Explicit local reset reveals the shared value.
+Malformed, unsupported, or inaccessible documents fail instead of becoming empty
+options. Source documents stay read-only during resolution; the host only writes
+one through guarded publication for an explicit edit or activation migration.
+`build.detect.instanceDefaults` receives this same team default snapshot before
+static model/run generation; hosts use the same merge in every subsequent plan.
+
+`savedChoices` preserves unselected custom choices. Hosts display them only when
+the resolved option permits custom values; they never change selection or upstream
+model facts. Storage validates bounded documents and preserves invalid originals.

@@ -166,7 +166,7 @@ struct IdeCapabilitiesTests {
         let options = MacBuildOptionsStore(store: MacUserDefaultsStore(defaults: defaults))
         let settings = fixture.root.appendingPathComponent("settings.xml")
         try Data("<settings/>".utf8).write(to: settings)
-        options.setOptions(["profiles": .array([.string("ci")]), "settingsFile": .string(settings.path)],
+        try options.setOptions(["profiles": .array([.string("ci")]), "settingsFile": .string(settings.path)],
             workspaceURL: fixture.root, buildSystemID: "maven")
         let build = BuildSystemService(planner: RustBuildSystemOperations(core: core),
             tools: CapabilityBuildToolsFixture(executable: maven), optionsStore: options,
@@ -190,11 +190,11 @@ struct IdeCapabilitiesTests {
                 "optionID": "skipTests", "value": true])
             #expect(configured["saved"] as? Bool == true)
             #expect((configured["option"] as? [String: Any])?["value"] as? Bool == true)
-            #expect(options.options(workspaceURL: fixture.root, buildSystemID: "maven")["skipTests"] == .bool(true))
+            #expect(try options.options(workspaceURL: fixture.root, buildSystemID: "maven")["skipTests"] == .bool(true))
             let invalid = await feature.call("lithe_build_configure", arguments: ["instanceID": entry.id,
                 "optionID": "skipTests", "value": "invalid"])
             #expect(invalid["error"] != nil)
-            #expect(options.options(workspaceURL: fixture.root, buildSystemID: "maven")["skipTests"] == .bool(true))
+            #expect(try options.options(workspaceURL: fixture.root, buildSystemID: "maven")["skipTests"] == .bool(true))
             let loaded = TestGate()
             let modelObservation = build.$entries.sink { entries in
                 if entries.contains(where: { $0.id == entry.id && $0.modelState == .loaded }) { loaded.open() }

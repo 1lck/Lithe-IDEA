@@ -263,7 +263,7 @@ fn resolved_tool_environment_reaches_providers_with_option_precedence_and_bounde
 #[test]
 fn instance_options_drive_static_run_entries_without_crossing_roots_or_scopes() {
     let workspace = TemporaryWorkspace::new("build-instance-options");
-    for root in ["a", "b"] {
+    for root in ["a", "b", "c"] {
         workspace.write(&format!("{root}/Cargo.toml"), &format!("[package]\nname = \"{root}\"\nversion = \"1.0.0\"\n[features]\ncli = []\ngui = []\n"))
             .write(&format!("{root}/src/main.rs"), "fn main() {}\n");
     }
@@ -275,7 +275,8 @@ fn instance_options_drive_static_run_entries_without_crossing_roots_or_scopes() 
             "a":{"features":[],"settingsFile":"/fixture/a settings.xml","offline":false,"release":true},
             "b":{"features":["gui"],"settingsFile":"/fixture/b.xml"},
             "../a":{"features":["cli"]}
-        }}
+        }},
+        "instanceDefaults":{"cargo":{"features":["cli"],"settingsFile":"/fixture/team.xml","offline":false}}
     })).unwrap();
     assert_eq!(result["status"], "ok", "{result}");
     let detection = &result["detection"];
@@ -284,6 +285,8 @@ fn instance_options_drive_static_run_entries_without_crossing_roots_or_scopes() 
     assert_ne!(a["optionFingerprint"], b["optionFingerprint"]);
     assert_eq!(a["model"]["run"][0]["args"], json!(["run", "--bin", "a", "--release", "--offline", "--config", "/fixture/a settings.xml"]));
     assert_eq!(b["model"]["run"][0]["args"], json!(["run", "--bin", "b", "--features", "gui", "--offline", "--config", "/fixture/b.xml"]));
+    let c = instance(detection, "cargo:c");
+    assert_eq!(c["model"]["run"][0]["args"], json!(["run", "--bin", "c", "--features", "cli", "--offline", "--config", "/fixture/team.xml"]));
     let options = call("resolveOptions", manifest, "cargo", json!({"options":{"features":[]}}));
     assert_eq!(options["options"]["options"][0]["scope"], "instance");
 }

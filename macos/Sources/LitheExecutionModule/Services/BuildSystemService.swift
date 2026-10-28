@@ -362,24 +362,40 @@ package final class BuildSystemService: ObservableObject {
             return
         }
         isDetecting = true
-        let storedOptions = Dictionary(
-            sources.flatMap(\.buildSystems).map {
-                ($0.id, optionsStore.options(workspaceURL: workspaceURL, buildSystemID: $0.id))
-            },
-            uniquingKeysWith: { first, _ in first }
-        )
-        let emptyMultiSelectOptions = Dictionary(
-            sources.flatMap(\.buildSystems).map {
-                ($0.id, optionsStore.emptyMultiSelectOptions(workspaceURL: workspaceURL, buildSystemID: $0.id))
-            },
-            uniquingKeysWith: { first, _ in first }
-        )
-        let instanceOptions = Dictionary(
-            sources.flatMap(\.buildSystems).map {
-                ($0.id, optionsStore.instanceOptions(workspaceURL: workspaceURL, buildSystemID: $0.id))
-            },
-            uniquingKeysWith: { first, _ in first }
-        )
+        let storedOptions: [String: [String: ToolingJSONValue]]
+        let emptyMultiSelectOptions: [String: [String: Set<String>]]
+        let instanceOptions: [String: [String: [String: ToolingJSONValue]]]
+        let instanceDefaults: [String: [String: ToolingJSONValue]]
+        do {
+            storedOptions = Dictionary(
+                try sources.flatMap(\.buildSystems).map {
+                    ($0.id, try optionsStore.options(workspaceURL: workspaceURL, buildSystemID: $0.id))
+                },
+                uniquingKeysWith: { first, _ in first }
+            )
+            emptyMultiSelectOptions = Dictionary(
+                try sources.flatMap(\.buildSystems).map {
+                    ($0.id, try optionsStore.emptyMultiSelectOptions(workspaceURL: workspaceURL, buildSystemID: $0.id))
+                },
+                uniquingKeysWith: { first, _ in first }
+            )
+            instanceOptions = Dictionary(
+                try sources.flatMap(\.buildSystems).map {
+                    ($0.id, try optionsStore.instanceOptions(workspaceURL: workspaceURL, buildSystemID: $0.id))
+                },
+                uniquingKeysWith: { first, _ in first }
+            )
+            instanceDefaults = Dictionary(
+                try sources.flatMap(\.buildSystems).map {
+                    ($0.id, try optionsStore.instanceDefaults(workspaceURL: workspaceURL, buildSystemID: $0.id))
+                }, uniquingKeysWith: { first, _ in first }
+            )
+        } catch {
+            entries = []
+            isDetecting = false
+            failLanguageImport(error)
+            return
+        }
         let previous = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
         let modelRevisions = modelRevisions
         let dependencyRevisions = dependencyRevisions
@@ -394,6 +410,7 @@ package final class BuildSystemService: ObservableObject {
                         sources: sources,
                         storedOptions: storedOptions,
                         instanceOptions: instanceOptions,
+                        instanceDefaults: instanceDefaults,
                         emptyMultiSelectOptions: emptyMultiSelectOptions,
                         previous: previous
                     )
@@ -445,12 +462,20 @@ package final class BuildSystemService: ObservableObject {
                 }
                 if publishedBefore != self.entries.filter({ $0.declaration.sharesModel }) { self.invalidateModelInputs() }
                 self.issues = detected.issues
-                self.persistDroppedOptions()
-                let inputs = self.entries.map { entry in
-                    LanguageImportInput(
-                        entry: entry,
-                        options: self.storedOptions(for: entry, workspaceURL: workspaceURL)
-                    )
+                let inputs: [LanguageImportInput]
+                do {
+                    try self.persistDroppedOptions()
+                    try self.restoreSavedChoices(workspaceURL: workspaceURL)
+                    inputs = try self.entries.map { entry in
+                        LanguageImportInput(
+                            entry: entry,
+                            options: try self.storedOptions(for: entry, workspaceURL: workspaceURL)
+                        )
+                    }
+                } catch {
+                    self.entries = []
+                    self.failLanguageImport(error)
+                    return
                 }
                 // Discovery is passive: importing a project cannot execute a
                 // wrapper or probe the build tool before user confirmation.
@@ -547,11 +572,18 @@ package final class BuildSystemService: ObservableObject {
             testDiscoveries = [:]
             discoverySnapshots = [:]
         }
-        let affected = entries.contains { entry in
+        let preferencesChanged = changed.contains(".lithe/build/options.json")
+        if preferencesChanged {
+            nativeConfiguration?.invalidate()
+            for id in Set(entries.map(\.instance.buildSystemID)) {
+                nativeOptionsRevisions[id, default: 0] += 1
+            }
+        }
+        let affected = preferencesChanged || entries.contains { entry in
             entry.sync?.watch.contains(where: changed.contains) == true
         }
         guard affected else { return }
-        for entry in entries where entry.declaration.sharesModel && entry.sync?.watch.contains(where: changed.contains) == true {
+        for entry in entries where entry.declaration.sharesModel && (preferencesChanged || entry.sync?.watch.contains(where: changed.contains) == true) {
             update(entry.id) { $0.isReloadRequired = true }
         }
         invalidateModelInputs()
@@ -734,7 +766,12 @@ package final class BuildSystemService: ObservableObject {
                     $0.dependencies = [:]
                 }
                 self.noteModelChanged(entryID)
-                self.refreshOptions(buildSystemID: entry.instance.buildSystemID)
+                do { try self.refreshOptions(buildSystemID: entry.instance.buildSystemID) }
+                catch {
+                    self.entries = []
+                    self.failLanguageImport(error)
+                    return
+                }
                 // Model-provided choices may remove an import option even
                 // when the user has not changed it. Discard any old snapshot.
                 self.detect()
@@ -1356,6 +1393,11 @@ package final class BuildSystemService: ObservableObject {
     }
 
     package func setOption(_ entryID: String, optionID: String, value: ToolingJSONValue?) {
+        do { try writeOption(entryID, optionID: optionID, value: value) }
+        catch { issues.append(error.localizedDescription) }
+    }
+
+    private func writeOption(_ entryID: String, optionID: String, value: ToolingJSONValue?) throws {
         guard let workspaceURL, let entry = entry(entryID) else { return }
         let buildSystemID = entry.instance.buildSystemID
         nativeOptionsRevisions[buildSystemID, default: 0] += 1
@@ -1365,23 +1407,23 @@ package final class BuildSystemService: ObservableObject {
             stopRun()
         }
         if entry.declaration.options.first(where: { $0.id == optionID })?.scope == .instance {
-            var instances = optionsStore.instanceOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+            var instances = try optionsStore.instanceOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
             var stored = instances[entry.instance.root] ?? [:]
             stored[optionID] = value
             instances[entry.instance.root] = stored.isEmpty ? nil : stored
-            optionsStore.setInstanceOptions(instances, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+            try optionsStore.setInstanceOptions(instances, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
         } else {
-            var stored = optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+            var stored = try optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
             stored[optionID] = value
-            var empty = optionsStore.emptyMultiSelectOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+            var empty = try optionsStore.emptyMultiSelectOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
             for root in Array(empty.keys) {
                 empty[root]?.remove(optionID)
                 if empty[root]?.isEmpty == true { empty[root] = nil }
             }
-            optionsStore.setEmptyMultiSelectOptions(empty, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
-            optionsStore.setOptions(stored, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+            try optionsStore.setEmptyMultiSelectOptions(empty, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+            try optionsStore.setOptions(stored, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
         }
-        refreshOptions(buildSystemID: buildSystemID)
+        try refreshOptions(buildSystemID: buildSystemID)
         if entry.declaration.sharesModel {
             invalidateProducerConfiguration(buildSystemID: buildSystemID)
         }
@@ -1395,15 +1437,20 @@ package final class BuildSystemService: ObservableObject {
     /// values would otherwise be rejected by Core and revive a non-empty default.
     /// Reset still removes the option's complete shared and instance overrides.
     package func setInstanceOption(_ entryID: String, optionID: String, value: ToolingJSONValue?) {
+        do { try writeInstanceOption(entryID, optionID: optionID, value: value) }
+        catch { issues.append(error.localizedDescription) }
+    }
+
+    private func writeInstanceOption(_ entryID: String, optionID: String, value: ToolingJSONValue?) throws {
         guard let workspaceURL, let entry = entry(entryID) else { return }
         if entry.declaration.options.first(where: { $0.id == optionID })?.scope == .instance {
-            setOption(entryID, optionID: optionID, value: value)
+            try writeOption(entryID, optionID: optionID, value: value)
             return
         }
         guard case .array(let next)? = value,
               let option = entry.options.first(where: { $0.id == optionID }), option.kind == .multiSelect,
               case .array(let visible) = option.value else {
-            setOption(entryID, optionID: optionID, value: value)
+            try writeOption(entryID, optionID: optionID, value: value)
             return
         }
         let buildSystemID = entry.instance.buildSystemID
@@ -1413,12 +1460,12 @@ package final class BuildSystemService: ObservableObject {
         if providerRunID != nil, let runEntryID, self.entry(runEntryID)?.instance.buildSystemID == buildSystemID {
             stopRun()
         }
-        var stored = optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+        var stored = try optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
         let values: [ToolingJSONValue]
         if case .array(let items)? = stored[optionID] { values = items } else { values = [] }
         let siblingValues = values.filter { !visible.contains($0) }
         stored[optionID] = .array(siblingValues + next.filter { !siblingValues.contains($0) })
-        var empty = optionsStore.emptyMultiSelectOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+        var empty = try optionsStore.emptyMultiSelectOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
         let root = entry.instance.root
         if next.isEmpty {
             empty[root, default: []].insert(optionID)
@@ -1426,9 +1473,9 @@ package final class BuildSystemService: ObservableObject {
             empty[root]?.remove(optionID)
             if empty[root]?.isEmpty == true { empty[root] = nil }
         }
-        optionsStore.setEmptyMultiSelectOptions(empty, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
-        optionsStore.setOptions(stored, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
-        refreshOptions(buildSystemID: buildSystemID)
+        try optionsStore.setEmptyMultiSelectOptions(empty, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+        try optionsStore.setOptions(stored, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+        try refreshOptions(buildSystemID: buildSystemID)
         if entry.declaration.sharesModel {
             invalidateProducerConfiguration(buildSystemID: buildSystemID)
         }
@@ -1451,11 +1498,11 @@ package final class BuildSystemService: ObservableObject {
         for buildSystemID in Set(entries.map(\.instance.buildSystemID)).sorted() {
             let instances = entries.filter { $0.instance.buildSystemID == buildSystemID }
             guard let declaration = instances.first?.declaration else { continue }
-            let shared = optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+            let shared = try optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
             let moving = Set(declaration.options.filter { $0.scope == .instance && shared[$0.id] != nil }.map(\.id))
             guard !moving.isEmpty else { continue }
-            var local = optionsStore.instanceOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
-            var empty = optionsStore.emptyMultiSelectOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+            var local = try optionsStore.instanceOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+            var empty = try optionsStore.emptyMultiSelectOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
             let roots = Set(instances.map(\.instance.root)).union(empty.keys).union(local.keys)
             let multiSelect = Set(instances.first?.options.filter { $0.kind == .multiSelect }.map(\.id) ?? [])
             for root in roots.sorted() {
@@ -1464,31 +1511,47 @@ package final class BuildSystemService: ObservableObject {
                     local[root, default: [:]][id] = isCleared ? .array([]) : shared[id]
                 }
             }
-            optionsStore.setInstanceOptions(local, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
-            guard optionsStore.instanceOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID) == local,
-                  optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID) == shared else {
+            try optionsStore.setInstanceOptions(local, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+            guard try optionsStore.instanceOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID) == local,
+                  try optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID) == shared else {
                 throw BuildSystemServiceError(L10n.string("Build option migration could not be verified. The previous configuration has been retained. Reload the build instance to retry."))
             }
             let remaining = shared.filter { !moving.contains($0.key) }
-            optionsStore.setOptions(remaining, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
-            guard optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID) == remaining else {
+            try optionsStore.setOptions(remaining, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+            guard try optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID) == remaining else {
                 throw BuildSystemServiceError(L10n.string("Build option migration could not be verified. The previous configuration has been retained. Reload the build instance to retry."))
             }
             for root in Array(empty.keys) {
                 empty[root]?.subtract(moving)
                 if empty[root]?.isEmpty == true { empty[root] = nil }
             }
-            optionsStore.setEmptyMultiSelectOptions(empty, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+            try optionsStore.setEmptyMultiSelectOptions(empty, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
             changed = true
         }
         return changed
     }
 
-    private func refreshOptions(buildSystemID: String) {
+    /// Choices are presentation data, never selected values or model facts.
+    private func restoreSavedChoices(workspaceURL: URL) throws {
+        for system in Set(entries.map(\.instance.buildSystemID)).sorted() {
+            let saved = try optionsStore.savedChoices(workspaceURL: workspaceURL, buildSystemID: system)
+            for index in entries.indices where entries[index].instance.buildSystemID == system {
+                for option in entries[index].options.indices where entries[index].options[option].allowCustom {
+                    let existing = Set(entries[index].options[option].choices.map(\.value))
+                    let id = entries[index].options[option].id
+                    entries[index].options[option].choices += Array(Set(saved[id] ?? [])).sorted()
+                        .filter { !existing.contains($0) }.map { BuildResolvedOption.Choice(value: $0) }
+                }
+            }
+        }
+    }
+
+    private func refreshOptions(buildSystemID: String) throws {
         guard let workspaceURL else { return }
-        let stored = optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
-        let empty = optionsStore.emptyMultiSelectOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
-        var instances = optionsStore.instanceOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+        let stored = try optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+        let empty = try optionsStore.emptyMultiSelectOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+        var instances = try optionsStore.instanceOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+        let defaults = try optionsStore.instanceDefaults(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
         let originalInstances = instances
         var resolutions: [BuildOptionsResolution] = []
         for index in entries.indices where entries[index].instance.buildSystemID == buildSystemID {
@@ -1500,7 +1563,8 @@ package final class BuildSystemService: ObservableObject {
             // empty instance override that could hide a sibling's valid choice.
             resolutions.append(resolution)
             let scoped = Self.scopedOptions(
-                declaration: entry.declaration, workspace: stored, instance: instances[entry.instance.root] ?? [:]
+                declaration: entry.declaration, workspace: stored,
+                instance: defaults.merging(instances[entry.instance.root] ?? [:]) { _, root in root }
             )
             let input = Self.applyingEmptySelections(
                 to: scoped, optionIDs: empty[entry.instance.root] ?? [], options: resolution.options
@@ -1521,11 +1585,12 @@ package final class BuildSystemService: ObservableObject {
         // model, so one instance cannot delete another's selection.
         let merged = Self.mergedOptionValues(stored: stored, resolutions: resolutions)
         if merged != stored {
-            optionsStore.setOptions(merged, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+            try optionsStore.setOptions(merged, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
         }
         if instances != originalInstances {
-            optionsStore.setInstanceOptions(instances, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+            try optionsStore.setInstanceOptions(instances, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
         }
+        try restoreSavedChoices(workspaceURL: workspaceURL)
     }
 
     /// Stored values reduced to the ones at least one instance still accepts.
@@ -1580,21 +1645,22 @@ package final class BuildSystemService: ObservableObject {
 
     /// Stores the effective values Core reported after detection, so a value
     /// the current model removed cannot stay in the options of the next plan.
-    private func persistDroppedOptions() {
+    private func persistDroppedOptions() throws {
         for buildSystemID in Set(entries.map(\.instance.buildSystemID)) {
-            refreshOptions(buildSystemID: buildSystemID)
+            try refreshOptions(buildSystemID: buildSystemID)
         }
     }
 
-    private func storedOptions(for entry: BuildSystemEntry, workspaceURL: URL) -> [String: ToolingJSONValue] {
+    private func storedOptions(for entry: BuildSystemEntry, workspaceURL: URL) throws -> [String: ToolingJSONValue] {
         let buildSystemID = entry.instance.buildSystemID
         return Self.applyingEmptySelections(
             to: Self.scopedOptions(
                 declaration: entry.declaration,
-                workspace: optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID),
-                instance: optionsStore.instanceOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)[entry.instance.root] ?? [:]
+                workspace: try optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID),
+                instance: try optionsStore.instanceDefaults(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
+                    .merging(optionsStore.instanceOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)[entry.instance.root] ?? [:]) { _, root in root }
             ),
-            optionIDs: optionsStore.emptyMultiSelectOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)[entry.instance.root] ?? [],
+            optionIDs: try optionsStore.emptyMultiSelectOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)[entry.instance.root] ?? [],
             options: entry.options
         )
     }
@@ -1632,29 +1698,29 @@ package final class BuildSystemService: ObservableObject {
         guard let workspaceURL, let entry = entry(entryID), entry.options.contains(where: { $0.id == optionID }) else {
             throw BuildSystemServiceError(L10n.string("The build option is no longer available. Reload the build instance."))
         }
-        var proposed = storedOptions(for: entry, workspaceURL: workspaceURL)
+        var proposed = try storedOptions(for: entry, workspaceURL: workspaceURL)
         proposed[optionID] = value
         let resolution = try planner.resolveOptions(entry.target, options: proposed, modelValues: entry.model?.optionValues)
         guard let accepted = resolution.options.first(where: { $0.id == optionID }),
               !resolution.dropped.contains(optionID), value == nil || accepted.value == value else {
             throw BuildSystemServiceError(L10n.string("The build option value is invalid. Inspect its current kind and choices."))
         }
-        setInstanceOption(entryID, optionID: optionID, value: value)
-        guard let saved = self.entry(entryID)?.options.first(where: { $0.id == optionID }), saved.value == accepted.value else {
+        try writeInstanceOption(entryID, optionID: optionID, value: value)
+        guard let saved = self.entry(entryID)?.options.first(where: { $0.id == optionID }), value == nil || saved.value == accepted.value else {
             throw BuildSystemServiceError(L10n.string("The saved build option could not be verified. Reload before editing again."))
         }
         return saved
     }
 
     private func optionFingerprint(_ entry: BuildSystemEntry, workspaceURL: URL) -> String? {
-        let stored = storedOptions(for: entry, workspaceURL: workspaceURL)
+        guard let stored = try? storedOptions(for: entry, workspaceURL: workspaceURL) else { return nil }
         return (try? planner.resolveOptions(
             entry.target, options: stored, modelValues: entry.model?.optionValues
         ))?.fingerprint
     }
 
     private func planContext(_ entry: BuildSystemEntry, workspaceURL: URL) throws -> BuildPlanContext {
-        let stored = storedOptions(for: entry, workspaceURL: workspaceURL)
+        let stored = try storedOptions(for: entry, workspaceURL: workspaceURL)
         let resolution = try? planner.resolveOptions(
             entry.target, options: stored, modelValues: entry.model?.optionValues
         )
@@ -1677,8 +1743,8 @@ package final class BuildSystemService: ObservableObject {
         guard !consumer.declaration.modelInputs.isEmpty else { return nil }
         let enabled = sources()
         let required = Set(consumer.declaration.modelInputs.map(\.pluginID))
-        let facts = enabled.filter { required.contains($0.pluginID) }.map { source in
-            BuildModelInputSource(manifest: source.manifest, instances: entries.filter { $0.source == source && $0.declaration.sharesModel }.map { producer in
+        let facts = try enabled.filter { required.contains($0.pluginID) }.map { source in
+            BuildModelInputSource(manifest: source.manifest, instances: try entries.filter { $0.source == source && $0.declaration.sharesModel }.map { producer in
                 let state: String
                 switch producer.modelState {
                 case .loading: state = "loading"
@@ -1687,7 +1753,7 @@ package final class BuildSystemService: ObservableObject {
                 default: state = "stale"
                 }
                 return BuildModelInputSource.Instance(buildSystemID: producer.instance.buildSystemID, root: producer.instance.root,
-                    state: state, model: state == "ready" ? producer.model : nil, options: storedOptions(for: producer, workspaceURL: workspaceURL))
+                    state: state, model: state == "ready" ? producer.model : nil, options: try storedOptions(for: producer, workspaceURL: workspaceURL))
             })
         }
         return try planner.resolveModelInputs(consumer.target, revision: modelInputRevision, sources: facts)
@@ -2122,10 +2188,11 @@ package final class BuildSystemService: ObservableObject {
         sources: [BuildSystemPluginSource],
         storedOptions: [String: [String: ToolingJSONValue]],
         instanceOptions: [String: [String: [String: ToolingJSONValue]]],
+        instanceDefaults: [String: [String: ToolingJSONValue]],
         emptyMultiSelectOptions: [String: [String: Set<String>]],
         previous: [String: BuildSystemEntry]
     ) throws -> Detected {
-        let detection = try planner.detect(workspaceURL: workspaceURL, sources: sources, options: storedOptions, instanceOptions: instanceOptions)
+        let detection = try planner.detect(workspaceURL: workspaceURL, sources: sources, options: storedOptions, instanceOptions: instanceOptions, instanceDefaults: instanceDefaults)
         var issues = detection.rejected.map { rejected in
             let pluginID = sources.indices.contains(rejected.index) ? sources[rejected.index].pluginID : "?"
             return "\(pluginID): \(rejected.error.message)"
@@ -2140,7 +2207,7 @@ package final class BuildSystemService: ObservableObject {
             let stored = Self.scopedOptions(
                 declaration: declaration,
                 workspace: storedOptions[instance.buildSystemID] ?? [:],
-                instance: instanceOptions[instance.buildSystemID]?[instance.root] ?? [:]
+                instance: (instanceDefaults[instance.buildSystemID] ?? [:]).merging(instanceOptions[instance.buildSystemID]?[instance.root] ?? [:]) { _, root in root }
             )
             let target = BuildSystemTarget(manifest: source.manifest, buildSystemID: instance.buildSystemID)
             let earlier = previous[instance.id]

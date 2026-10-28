@@ -592,7 +592,7 @@ package struct BuildResolvedOption: Equatable, Identifiable, Sendable, Decodable
     package let value: ToolingJSONValue
     /// `user` when the value came from the stored options.
     package let source: String
-    package let choices: [Choice]
+    package var choices: [Choice]
     package let allowCustom: Bool
 
     package init(from decoder: Decoder) throws {
@@ -622,14 +622,23 @@ package struct BuildOptionsResolution: Equatable, Sendable, Decodable {
 /// it is stored separately so sibling-only choices survive.
 @MainActor
 package protocol BuildOptionsStoring: AnyObject {
-    func options(workspaceURL: URL, buildSystemID: String) -> [String: ToolingJSONValue]
-    func setOptions(_ options: [String: ToolingJSONValue], workspaceURL: URL, buildSystemID: String)
+    func options(workspaceURL: URL, buildSystemID: String) throws -> [String: ToolingJSONValue]
+    func setOptions(_ options: [String: ToolingJSONValue], workspaceURL: URL, buildSystemID: String) throws
     /// Independent values for options declared with scope=instance, keyed by root.
-    func instanceOptions(workspaceURL: URL, buildSystemID: String) -> [String: [String: ToolingJSONValue]]
-    func setInstanceOptions(_ options: [String: [String: ToolingJSONValue]], workspaceURL: URL, buildSystemID: String)
+    func instanceOptions(workspaceURL: URL, buildSystemID: String) throws -> [String: [String: ToolingJSONValue]]
+    func setInstanceOptions(_ options: [String: [String: ToolingJSONValue]], workspaceURL: URL, buildSystemID: String) throws
+    /// Team-owned defaults for every instance, overridden by that root's local values.
+    func instanceDefaults(workspaceURL: URL, buildSystemID: String) throws -> [String: ToolingJSONValue]
+    /// Unselected user-defined choices, offered only by options that permit custom values.
+    func savedChoices(workspaceURL: URL, buildSystemID: String) throws -> [String: [String]]
     /// Option IDs explicitly cleared at each workspace-relative instance root.
-    func emptyMultiSelectOptions(workspaceURL: URL, buildSystemID: String) -> [String: Set<String>]
-    func setEmptyMultiSelectOptions(_ options: [String: Set<String>], workspaceURL: URL, buildSystemID: String)
+    func emptyMultiSelectOptions(workspaceURL: URL, buildSystemID: String) throws -> [String: Set<String>]
+    func setEmptyMultiSelectOptions(_ options: [String: Set<String>], workspaceURL: URL, buildSystemID: String) throws
+}
+
+package extension BuildOptionsStoring {
+    func savedChoices(workspaceURL: URL, buildSystemID: String) throws -> [String: [String]] { [:] }
+    func instanceDefaults(workspaceURL: URL, buildSystemID: String) throws -> [String: ToolingJSONValue] { [:] }
 }
 
 // MARK: Plans
@@ -1072,7 +1081,8 @@ package protocol BuildSystemPlanning: Sendable {
         workspaceURL: URL,
         sources: [BuildSystemPluginSource],
         options: [String: [String: ToolingJSONValue]],
-        instanceOptions: [String: [String: [String: ToolingJSONValue]]]
+        instanceOptions: [String: [String: [String: ToolingJSONValue]]],
+        instanceDefaults: [String: [String: ToolingJSONValue]]
     ) throws -> BuildDetection
     func languageImport(
         _ target: BuildSystemTarget,
