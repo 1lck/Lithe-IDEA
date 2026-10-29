@@ -20,5 +20,6 @@
     "verificationStatus": "pending"
   },
   "owner": "Editor",
-  "verification": "使用代码高亮、表格、Mermaid、链接和相对路径 fixture 对比渲染结果。打开含上千个代码块的大型 Markdown 预览，渲染不卡住，编辑时预览不会先闪成未高亮的代码；代码里的 `$&`、`$1` 按原文显示。"
+  "verification": "使用代码高亮、表格、Mermaid、链接和相对路径 fixture 对比渲染结果。打开含上千个代码块的大型 Markdown 预览，渲染不卡住，编辑时预览不会先闪成未高亮的代码；代码里的 `$&`、`$1` 按原文显示。",
+  "notes": "Windows 预览中屏幕外的段落、标题、列表和代码块使用 content-visibility: auto 跳过排版（表格除外，避免溢出被裁切）；8.6 万行文档打开预览的最长主线程任务由约 10 秒降到约 1.3 秒，滚动最长任务由约 3.8 秒降到约 0.23 秒。"
 }

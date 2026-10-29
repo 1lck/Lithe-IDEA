@@ -7,6 +7,17 @@
   width: 100%;
 }
 
+/* A long document yields tens of thousands of top-level blocks, and laying all
+   of them out froze the window for seconds whenever the preview rendered.
+   Off-screen blocks now skip layout and paint; `auto` keeps a block's measured
+   height once it has been shown, so scrolling back does not shift content.
+   Paint containment clips overflow, so tables, which may be wider than the
+   preview, stay out. */
+.markdown-content > :is(p, h1, h2, h3, h4, h5, h6, pre, ul, ol) {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 1.7em;
+}
+
 /* Headers */
 .markdown-preview h1 {
   font-size: 1.6em;
