@@ -516,9 +516,10 @@ fn client_core_initializes_and_applies_server_capabilities() {
         client_capabilities["textDocument"]["codeLens"]["dynamicRegistration"],
         true
     );
-    assert!(client_capabilities["textDocument"]["synchronization"]
-        .get("didSave")
-        .is_none());
+    assert_eq!(
+        client_capabilities["textDocument"]["synchronization"]["didSave"],
+        true
+    );
     assert_eq!(
         client_capabilities["textDocument"]["publishDiagnostics"]["relatedInformation"],
         true

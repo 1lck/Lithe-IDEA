@@ -6,7 +6,10 @@
   "macos": {
     "evidence": [
       "macos/Sources/Lithe/Views/Run",
-      "macos/Sources/Lithe/Services/Diagnostics"
+      "macos/Sources/Lithe/Services/Diagnostics",
+      "rust/lithe-core/src/lsp/languages/java_launch.rs",
+      "shared/fixtures/lsp/java-launch-preparation-v1.json",
+      "shared/fixtures/lsp/document-save-v1.json"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -16,11 +19,14 @@
       "windows/tauri/src/features/maven",
       "windows/tauri/src/features/diagnostics",
       "windows/tauri/src/features/maven/components/maven-run-pane.tsx",
-      "windows/tauri/src/features/run/components/run-output-text.tsx"
+      "windows/tauri/src/features/run/components/run-output-text.tsx",
+      "rust/lithe-core/src/lsp/languages/java_launch.rs",
+      "shared/fixtures/lsp/java-launch-preparation-v1.json",
+      "shared/fixtures/lsp/document-save-v1.json"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "owner": "Java / Maven",
-  "verification": "使用成功、编译失败和进程失败构建 fixture，对比诊断位置、输出和退出状态。 Windows Maven 构建输出使用 Geist Mono 显示 ====、==>、=>、!=、>=，确认禁用连字后逐字符显示且复制文本与原始输出一致；检查有输出与空态、ANSI 颜色、自动换行切换及横向滚动；验证构建终态为编译错误或构建器失败时提供重建 Java 索引的恢复动作（取消与未知结果不提供），构建证据随失败上报。"
+  "verification": "使用成功、编译失败和进程失败构建 fixture，对比诊断位置、输出和退出状态。 Windows Maven 构建输出使用 Geist Mono 显示 ====、==>、=>、!=、>=，确认禁用连字后逐字符显示且复制文本与原始输出一致；检查有输出与空态、ANSI 颜色、自动换行切换及横向滚动；验证构建终态为编译错误或构建器失败时提供重建 Java 索引的恢复动作（取消与未知结果不提供），构建证据随失败上报。 Java Run/Debug 使用同一个 Core 启动准备操作，验证同名主类按源码归属选择、多入口按配置消歧、构建后才解析路径、取消或超时后不继续、构建失败可用目标携带报告；macOS 命名 Java 配置启动前保存所有脏文档，保存失败不发起构建。 两端验证保存依赖源码后运行得到新输出；保存期间继续编辑不得被旧保存通知覆盖；语言服务保存通知失败必须阻止启动。未打开文件的外部变更另行验证，不能以编辑器保存用例代替。"
 }

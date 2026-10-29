@@ -9515,7 +9515,19 @@
     "document.fileAccess.theSharedFileCouldNotBeFullySavedAllHardLinksMayContainPartialChangesYourEditorContentsAreRetainedCheckTheFileBeforeRetrying": "未能完整保存共享文件。所有硬链接可能已包含部分修改。编辑器中的内容已保留，请检查文件后再重试。",
     "document.fileAccess.thisFileTypeCannotBeOpenedInThisEditor": "此编辑器不支持打开这种文件类型",
     "document.fileAccess.updateAllHardLinks": "更新所有硬链接",
-    "document.fileAccess.savePermissionDenied": "无法保存 {arg1}：权限不足。请检查文件及其父文件夹的权限，编辑内容尚未保存。"
+    "document.fileAccess.savePermissionDenied": "无法保存 {arg1}：权限不足。请检查文件及其父文件夹的权限，编辑内容尚未保存。",
+    "java.launch.error.buildStatus": "Java 语言服务返回了未知的项目构建状态。",
+    "java.launch.error.classpathEmpty": "Java 语言服务没有返回运行路径。",
+    "java.launch.error.classpathInvalid": "Java 语言服务返回的运行类路径无效。",
+    "java.launch.error.provider": "Java 启动准备需要 Java 语言服务。",
+    "java.launch.error.request": "Java 启动准备请求无效",
+    "java.launch.error.target": "Java 语言服务无法为此源文件确定唯一的启动入口。",
+    "java.launch.error.unsupported": "当前运行环境不支持 Java 启动准备。",
+    "java.launch.error.save": "修改的文件未能保存，Java 启动已停止。",
+    "java.launch.error.compilation": "Java 项目构建报告了编译错误。",
+    "java.launch.error.buildFailed": "Java 语言服务未能完成项目构建，请查看 Java 语言服务器日志了解构建错误。",
+    "java.launch.error.buildCancelled": "Java 项目构建在完成前已被取消。",
+    "java.launch.error.unknownBuildStatus": "Java 语言服务返回了未知的项目构建状态。"
   },
   "overrides": {
     "macos": {

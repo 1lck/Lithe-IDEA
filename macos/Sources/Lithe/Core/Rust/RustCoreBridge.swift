@@ -3802,6 +3802,16 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         )
     }
 
+    func lspSaveDocument(sessionID: String, fileURL: URL, text: String) -> Result<Bool, CoreCallError> {
+        struct Request: Encodable { let sessionId: String; let uri: String; let text: String }
+        struct Response: Decodable { let sent: Bool }
+        let result: Result<Response, CoreCallError> = executeResult(
+            command: "lsp.saveDocument",
+            payload: Request(sessionId: sessionID, uri: fileURL.standardizedFileURL.absoluteString, text: text)
+        )
+        return result.map(\.sent)
+    }
+
     /// Publishes the current text of a document. Rust decides whether that means
     /// an open or a change, and assigns the version.
     func lspSyncDocument(
@@ -3927,6 +3937,22 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 command: command.map(Self.makeCommandRequest)
             )
         )
+    }
+
+    func lspPrepareJavaLaunch(
+        sessionID: String,
+        fileURL: URL,
+        mainClass: String?
+    ) -> Result<LspOperationPayload, CoreCallError> {
+        struct Request: Encodable {
+            let sessionId: String
+            let sourcePath: String
+            let mainClass: String?
+        }
+        return executeResult(command: "java.prepareLaunch", payload: Request(
+            sessionId: sessionID, sourcePath: fileURL.standardizedFileURL.resolvingSymlinksInPath().path,
+            mainClass: mainClass
+        ))
     }
 
     func lspJavaNavigationMarkers(

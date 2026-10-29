@@ -263,7 +263,7 @@ package struct JavaBuildReport: Codable, Equatable, Sendable {
     }
 }
 
-package struct JavaLaunchBuildFailure: Equatable, Sendable {
+package struct JavaLaunchBuildFailure: Codable, Equatable, Sendable {
     package let code: String
     package let message: String
     package let report: JavaBuildReport?
@@ -434,6 +434,7 @@ package protocol LanguageServerRuntimeCore: Sendable {
         sessionID: String,
         changes: [LanguageServerWorkspaceFileChange]
     ) -> Result<Void, LanguageServerRuntimeFailure>
+    func saveLanguageServerDocument(sessionID: String, fileURL: URL, text: String) -> Result<Bool, LanguageServerRuntimeFailure>
     func closeLanguageServerDocument(sessionID: String, fileURL: URL)
     func requestLanguageServerOperation(
         sessionID: String,
@@ -447,6 +448,11 @@ package protocol LanguageServerRuntimeCore: Sendable {
         completionItem: LanguageServerCompletionItem?,
         codeAction: LanguageServerCodeAction?,
         command: LanguageServerCommand?
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
+    func prepareJavaLaunch(
+        sessionID: String,
+        fileURL: URL,
+        mainClass: String?
     ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure>
     func requestJavaNavigationMarkers(
         sessionID: String,
@@ -560,6 +566,10 @@ package protocol LanguageServerRuntimeCore: Sendable {
 }
 
 package extension LanguageServerRuntimeCore {
+    func saveLanguageServerDocument(sessionID _: String, fileURL _: URL, text _: String) -> Result<Bool, LanguageServerRuntimeFailure> {
+        .success(false)
+    }
+
     func requiresBackgroundLanguageServerStart(rootURL _: URL) -> Bool { false }
 
     func startLanguageServer(
@@ -638,6 +648,14 @@ package extension LanguageServerRuntimeCore {
         changes _: [LanguageServerWorkspaceFileChange]
     ) -> Result<Void, LanguageServerRuntimeFailure> {
         .success(())
+    }
+
+    func prepareJavaLaunch(
+        sessionID _: String,
+        fileURL _: URL,
+        mainClass _: String?
+    ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
+        .failure(LanguageServerRuntimeFailure(code: "not_supported", message: L10n.string("Java launch preparation is not supported by this runtime.")))
     }
 
     func requestJavaNavigationMarkers(

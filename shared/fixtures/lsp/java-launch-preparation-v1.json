@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "windows-module-and-case",
+      "rootUri": "file:///C:/Work",
+      "sourcePath": "c:/work/APP/Main.java",
+      "mainClass": "demo.Main",
+      "entries": [
+        {
+          "mainClass": "demo.Main",
+          "projectName": "lib",
+          "filePath": "C:/Work/lib/Main.java"
+        },
+        {
+          "mainClass": "demo.app/demo.Main",
+          "projectName": "app",
+          "filePath": "C:/Work/app/Main.java"
+        },
+        {
+          "mainClass": "demo.Other",
+          "projectName": "app",
+          "filePath": "C:/Work/app/Main.java"
+        }
+      ],
+      "paths": [
+        [
+          "C:/Work/custom/modules"
+        ],
+        [
+          "C:/Work/custom/tests",
+          "C:/cache/test-only.jar"
+        ]
+      ],
+      "target": {
+        "mainClass": "demo.app/demo.Main",
+        "projectName": "app",
+        "modulePaths": [
+          "C:/Work/custom/modules"
+        ],
+        "classPaths": [
+          "C:/Work/custom/tests",
+          "C:/cache/test-only.jar"
+        ]
+      }
+    },
+    {
+      "id": "mac-source-identity",
+      "rootUri": "file:///workspace",
+      "sourcePath": "/workspace/app/Main.java",
+      "mainClass": "demo.Main",
+      "entries": [
+        {
+          "mainClass": "demo.Main",
+          "projectName": "lib",
+          "filePath": "/workspace/lib/Main.java"
+        },
+        {
+          "mainClass": "demo.Main",
+          "projectName": "app",
+          "filePath": "/workspace/app/Main.java"
+        }
+      ],
+      "paths": [
+        [],
+        [
+          "/workspace/app/custom-output"
+        ]
+      ],
+      "target": {
+        "mainClass": "demo.Main",
+        "projectName": "app",
+        "modulePaths": [],
+        "classPaths": [
+          "/workspace/app/custom-output"
+        ]
+      }
+    }
+  ]
+}

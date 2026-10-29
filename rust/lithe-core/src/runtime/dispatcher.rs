@@ -1718,6 +1718,21 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::LspSaveDocument => {
+            match serde_json::from_value::<crate::lsp::SaveDocumentRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid LSP save-document request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::save_document)
+            {
+                Ok(sent) => CoreResponse::success(id, json!({"sent": sent})),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::LspSyncDocument => {
             match serde_json::from_value::<crate::lsp::SyncDocumentRequest>(parsed.payload)
                 .map_err(|error| {
@@ -1829,6 +1844,24 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("Plugin-function response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::JavaPrepareLaunch => {
+            match serde_json::from_value::<crate::lsp::JavaPrepareLaunchRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Java launch preparation request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(crate::lsp::java_prepare_launch)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Java launch operation should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }

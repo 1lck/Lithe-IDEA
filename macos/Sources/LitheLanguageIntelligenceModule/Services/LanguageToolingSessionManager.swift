@@ -617,9 +617,10 @@ package final class LanguageToolingSessionManager: ObservableObject,
     /// by both Run and Debug. Java Debug Server owns these project-model rules.
     package func prepareJavaRunLaunchTarget(
         fileURL: URL,
-        rootURL: URL
+        rootURL: URL,
+        mainClass: String? = nil
     ) async throws -> JavaLaunchPreparation {
-        try await prepareJavaLaunchTarget(fileURL: fileURL, rootURL: rootURL)
+        try await prepareJavaLaunchTarget(fileURL: fileURL, rootURL: rootURL, mainClass: mainClass)
     }
 
     /// Rebuilds the original running target without allowing a failed build to proceed.
@@ -698,102 +699,17 @@ package final class LanguageToolingSessionManager: ObservableObject,
 
     private func prepareJavaLaunchTarget(
         fileURL: URL,
-        rootURL: URL
+        rootURL: URL,
+        mainClass: String? = nil
     ) async throws -> JavaLaunchPreparation {
         let normalizedRoot = rootURL.standardizedFileURL
         let resolvedFile = fileURL.standardizedFileURL.resolvingSymlinksInPath()
         _ = try startLanguageServer(providerID: "java", rootURL: normalizedRoot)
         try await waitUntilLanguageServerReady(providerID: "java", rootURL: normalizedRoot)
-        // JDT decides which classes are launchable; Core normalizes its answer
-        // into workspace-relative entries, so the target is the entry generated
-        // from this exact source file.
-        let entrypoints = try await javaEntrypoints(in: normalizedRoot)
-        let relativeSource = Self.workspaceRelativePath(of: resolvedFile, in: normalizedRoot)
-        let exactMatches = entrypoints.entries.filter { $0.sourcePath == relativeSource }
-        guard exactMatches.count == 1 else {
-            let message = exactMatches.isEmpty
-                ? "No Java main method was found in \(resolvedFile.lastPathComponent)."
-                : "More than one Java main method was found in \(resolvedFile.lastPathComponent)."
-            throw LanguageToolingSessionError.toolingUnavailable(message)
+        guard let session = languageServers["java"], session.isRunning else {
+            throw LanguageToolingSessionError.toolingUnavailable("Java")
         }
-        let selected = JavaDebugLaunchTarget(
-            mainClass: exactMatches[0].mainClass,
-            projectName: exactMatches[0].projectName
-        )
-        let buildPayload = JavaWorkspaceBuildRequest(
-            mainClass: selected.mainClass,
-            projectName: selected.projectName,
-            filePath: resolvedFile.path,
-            isFullBuild: false
-        )
-        let buildData = try JSONEncoder().encode(buildPayload)
-        guard let buildJSON = String(data: buildData, encoding: .utf8) else {
-            throw LanguageToolingSessionError.toolingUnavailable(
-                "The Java workspace build request could not be encoded."
-            )
-        }
-        var buildFailure: JavaLaunchBuildFailure?
-        do {
-            let buildValue = try await executeJavaCommand(
-                "vscode.java.buildWorkspace",
-                arguments: [.string(buildJSON)],
-                rootURL: normalizedRoot
-            )
-            let buildStatus: Int?
-            switch buildValue {
-            case .integer(let value): buildStatus = value
-            case .string(let value): buildStatus = Int(value)
-            default: buildStatus = nil
-            }
-            guard buildStatus == 1 else {
-                throw LanguageToolingSessionError.toolingUnavailable(
-                    "The Java language service returned an unexpected project build status."
-                )
-            }
-        } catch let failure as LanguageServerRequestFailure {
-            let error = failure.runtimeError
-            guard error.code == "javaBuildCompilationErrors" || error.code == "javaBuildFailed" else {
-                throw failure
-            }
-            buildFailure = JavaLaunchBuildFailure(
-                code: error.code,
-                message: failure.localizedDescription,
-                report: error.javaBuildReport
-            )
-        }
-        // Explicit runtime scope excludes test Main classes (issue #379).
-        // Omit it so Java Debug Server selects paths from the owning project.
-        let classpathValue = try await executeJavaCommand(
-            "vscode.java.resolveClasspath",
-            arguments: [
-                .string(selected.mainClass),
-                .string(selected.projectName ?? ""),
-            ],
-            rootURL: normalizedRoot
-        )
-        guard case .array(let pathGroups) = classpathValue,
-              pathGroups.count == 2 else {
-            throw LanguageToolingSessionError.toolingUnavailable(
-                "The Java language service returned an invalid runtime classpath."
-            )
-        }
-        let modulePaths = Self.stringValues(pathGroups[0])
-        let classPaths = Self.stringValues(pathGroups[1])
-        guard !modulePaths.isEmpty || !classPaths.isEmpty else {
-            throw LanguageToolingSessionError.toolingUnavailable(
-                "The Java language service could not resolve the runtime classpath."
-            )
-        }
-        let target = JavaDebugLaunchTarget(
-            mainClass: selected.mainClass,
-            projectName: selected.projectName,
-            modulePaths: modulePaths,
-            classPaths: classPaths
-        )
-        if let buildFailure {
-            return .buildFailed(target: target, failure: buildFailure)
-        }
-        return .ready(target)
+        return try await session.prepareJavaLaunch(fileURL: resolvedFile, mainClass: mainClass)
     }
 
     /// Resolves one Java source file or discovered test item through the Java
@@ -1096,6 +1012,18 @@ package final class LanguageToolingSessionManager: ObservableObject,
               session.isRunning else { return }
         try session.notifyWorkspaceFilesChanged(changes)
         if providerID == "java" { scheduleJavaDependencyRefresh(after: changes) }
+    }
+
+    package func notifyDocumentSaved(_ fileURL: URL, text: String, currentText: String) throws {
+        let fileURL = fileURL.standardizedFileURL
+        guard let session = languageServerSession(for: fileURL),
+              let descriptor = catalog.provider(for: fileURL) else { return }
+        // Flush editor state before didSave, including edits made during the
+        // disk write. Core must see the newer revision to reject a stale save.
+        try session.synchronize(fileURL: fileURL, text: currentText,
+            languageID: extensionLanguageIdentifiers[descriptor.id]
+                ?? descriptor.languageIdentifier(for: fileURL))
+        try session.notifyDocumentSaved(fileURL, text: text)
     }
 
     package func closeDocument(_ fileURL: URL) {
