@@ -318,6 +318,16 @@ See [Repository ownership and sharing boundaries](./.agents/notes/implemented/ar
   </tr>
   <tr>
     <td width="112" align="center">
+      <a href="https://zeusnorun.com/register?ref=AZD4UMG9">
+        <img src="./docs/assets/sponsors/zeus.png" width="64" alt="Zeus">
+      </a>
+    </td>
+    <td>
+      <a href="https://zeusnorun.com/register?ref=AZD4UMG9"><strong>Zeus</strong></a> provides GPT, Claude, Grok, and GPT Image relay access at rates as low as 0.08×, with invoicing and corporate payment support.
+    </td>
+  </tr>
+  <tr>
+    <td width="112" align="center">
       <a href="https://dash.clidex.dev">
         <img src="./docs/assets/sponsors/clidex.svg" width="64" alt="Clidex">
       </a>
@@ -334,16 +344,6 @@ See [Repository ownership and sharing boundaries](./.agents/notes/implemented/ar
     </td>
     <td>
       <a href="https://www.atlascloud.ai/zh"><strong>Atlas Cloud</strong></a> provides AI model relay services with access to <strong>over 400 models</strong>, giving developers more options through one platform. Thank you to Atlas Cloud for supporting Lithe!
-    </td>
-  </tr>
-  <tr>
-    <td width="112" align="center">
-      <a href="https://zeusnorun.com/register?ref=AZD4UMG9">
-        <img src="./docs/assets/sponsors/zeus.png" width="64" alt="Zeus">
-      </a>
-    </td>
-    <td>
-      <a href="https://zeusnorun.com/register?ref=AZD4UMG9"><strong>Zeus</strong></a> provides relay access to GPT, Claude, Grok, Chinese models, and GPT Image, promising GPT access without capability downgrades at rates as low as 0.08×. It pledges authentic models, ethical service, and long-term reliability, supports invoicing and corporate payments, and works with universities and businesses.
     </td>
   </tr>
   <tr>

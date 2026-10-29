@@ -314,6 +314,16 @@ open dist/Lithe.app
   </tr>
   <tr>
     <td width="112" align="center">
+      <a href="https://zeusnorun.com/register?ref=AZD4UMG9">
+        <img src="./docs/assets/sponsors/zeus.png" width="64" alt="Zeus 宙斯中转站">
+      </a>
+    </td>
+    <td>
+      <a href="https://zeusnorun.com/register?ref=AZD4UMG9"><strong>Zeus 宙斯中转站</strong></a> 提供 GPT、Claude、Grok 及 GPT Image 中转服务，最低 0.08 倍率，支持开票与对公付款。
+    </td>
+  </tr>
+  <tr>
+    <td width="112" align="center">
       <a href="https://dash.clidex.dev">
         <img src="./docs/assets/sponsors/clidex.svg" width="64" alt="Clidex">
       </a>
@@ -330,16 +340,6 @@ open dist/Lithe.app
     </td>
     <td>
       <a href="https://www.atlascloud.ai/zh"><strong>Atlas Cloud</strong></a> 提供 <strong>400 多种模型</strong>的 AI 中转服务，开发者可以在同一平台探索和比较模型。感谢 Atlas Cloud 对 Lithe 的支持！
-    </td>
-  </tr>
-  <tr>
-    <td width="112" align="center">
-      <a href="https://zeusnorun.com/register?ref=AZD4UMG9">
-        <img src="./docs/assets/sponsors/zeus.png" width="64" alt="Zeus 宙斯中转站">
-      </a>
-    </td>
-    <td>
-      <a href="https://zeusnorun.com/register?ref=AZD4UMG9"><strong>Zeus 宙斯中转站</strong></a> 提供 GPT、Claude、Grok、国产模型及 GPT Image 中转服务，承诺 GPT 不降智，最低 0.08 倍率。坚持“不掺假、不作恶、不跑路”，支持开票与对公付款，已与多家高校和企业合作。
     </td>
   </tr>
   <tr>
