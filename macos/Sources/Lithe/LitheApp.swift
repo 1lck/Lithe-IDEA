@@ -499,7 +499,7 @@ struct LitheApp: App {
             exit(1)
         }
         let store = MacUserDefaultsStore()
-        if LithePerformanceBaseline.isEnabled {
+        if LithePerformanceBaseline.isEnabled || LitheSignpost.settingsLatencyTracingEnabled {
             LitheSignpost.configureBaselineOutput { line in
                 FileHandle.standardError.write(Data(line.utf8))
             }

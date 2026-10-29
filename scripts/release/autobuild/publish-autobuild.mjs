@@ -19,11 +19,6 @@ function digest(file) {
   } finally { fs.closeSync(descriptor); }
 }
 const numericVersion = value => /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(value);
-const compareVersion = (a, b) => {
-  const left = a.split('.').map(BigInt), right = b.split('.').map(BigInt);
-  for (let i = 0; i < 3; i++) if (left[i] !== right[i]) return left[i] > right[i] ? 1 : -1;
-  return 0;
-};
 
 // gh owns networking, redirects and authentication; every call has a deadline.
 export function runCommand(command, args) {
@@ -39,32 +34,6 @@ export function ghCommand(args, run = runCommand, beforeAttempt = () => {}) {
   }
 }
 
-export function selectPlugins(registry, index) {
-  if (registry.schemaVersion !== 1 || index.schemaVersion !== 1 || !Array.isArray(registry.plugins) || !Array.isArray(index.plugins)) throw new Error('Unsupported marketplace schema');
-  const selected = new Map();
-  const ids = new Set();
-  for (const registered of registry.plugins) {
-    if (ids.has(registered.id)) throw new Error(`Duplicate official plugin ${registered.id}`);
-    ids.add(registered.id);
-    const entries = index.plugins.filter(plugin => plugin.id === registered.id);
-    if (entries.length !== 1) throw new Error(`Missing or duplicate indexed official plugin ${registered.id}`);
-    const versions = entries[0].versions.filter(version => numericVersion(version.version) && Array.isArray(version.downloads) && version.downloads.length > 0)
-      .sort((a, b) => compareVersion(b.version, a.version));
-    if (versions.length === 0) throw new Error(`No downloadable numeric version for ${registered.id}`);
-    const latest = versions[0];
-    for (const download of latest.downloads) {
-      const url = new URL(download.downloadURL);
-      const match = url.pathname.match(/^\/Lithe-IDEA\/([^/]+)\/releases\/download\/([^/]+)\/([^/]+)$/);
-      if (url.origin !== 'https://github.com' || url.search || url.hash || !match || match[2] !== `${registered.tagPrefix}${latest.version}` || !safeName.test(match[3]) || !match[3].endsWith('.zip') || !/^[a-f0-9]{64}$/.test(download.sha256)) throw new Error(`Untrusted official plugin download: ${download.downloadURL}`);
-      const item = { name: match[3], repository: `Lithe-IDEA/${match[1]}`, tag: match[2], sha256: download.sha256 };
-      const previous = selected.get(item.name);
-      if (previous && JSON.stringify(previous) !== JSON.stringify(item)) throw new Error(`Conflicting plugin asset ${item.name}`);
-      selected.set(item.name, item);
-    }
-  }
-  return [...selected.values()].sort((a, b) => a.name.localeCompare(b.name));
-}
-
 export function validateBuildIdentity(build, timestamp) {
   if (typeof timestamp !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(timestamp)) throw new Error('Invalid AutoBuild ISO timestamp');
   const time = new Date(timestamp);
@@ -75,7 +44,7 @@ export function validateBuildIdentity(build, timestamp) {
 }
 
 function releaseNotes({ source, build, timestamp, version }) {
-  return `${validateBuildIdentity(build, timestamp)}\n\n⚠️ 风险提示：AutoBuild 是未经稳定版验证的自动构建，可能包含缺陷或导致数据丢失。普通用户建议使用 Stable 稳定版。\n\n⚠️ Risk warning: AutoBuild is an automatically built prerelease and may contain bugs or cause data loss. Ordinary users should use the Stable release.\n\nSource: ${source}\nVersion: ${version}\nBuild: ${build}\n\nOnly the latest installers, current Sparkle full updates/deltas and latest official downloadable plugins are kept. Plugin ZIPs are byte-identical mirrors; the marketplace index and canonical upstream URLs remain authoritative. Older preview-0.3.0 clients must manually reinstall AutoBuild once. Windows installers may be unsigned when Authenticode is not configured.\n`;
+  return `${validateBuildIdentity(build, timestamp)}\n\n⚠️ 风险提示：AutoBuild 是未经稳定版验证的自动构建，可能包含缺陷或导致数据丢失。普通用户建议使用 Stable 稳定版。\n\n⚠️ Risk warning: AutoBuild is an automatically built prerelease and may contain bugs or cause data loss. Ordinary users should use the Stable release.\n\nSource: ${source}\nVersion: ${version}\nBuild: ${build}\n\nOnly the latest installers and current Sparkle full updates/deltas are kept. Plugins are distributed independently through their marketplace and upstream releases. Older preview-0.3.0 clients must manually reinstall AutoBuild once. Windows installers may be unsigned when Authenticode is not configured.\n`;
 }
 
 export function publishAutoBuild(config, { run = runCommand } = {}) {
@@ -99,12 +68,6 @@ export function publishAutoBuild(config, { run = runCommand } = {}) {
     add(file); add(`${file}.sha256`);
   }
   try {
-    // Execute only workflow-revision code; read source catalog without checkout.
-    const marketplace = path.join(root, 'marketplace');
-    fs.mkdirSync(marketplace);
-    run('git', ['fetch', '--no-tags', '--depth=1', 'origin', source]);
-    for (const name of ['official-plugins.json', 'index.json']) fs.writeFileSync(path.join(marketplace, name), run('git', ['show', `${source}:Plugins/marketplace/${name}`]));
-    const plugins = selectPlugins(JSON.parse(fs.readFileSync(path.join(marketplace, 'official-plugins.json'))), JSON.parse(fs.readFileSync(path.join(marketplace, 'index.json'))));
     for (const platform of ['arm64', 'x86_64', 'windows-x64']) {
       const identity = JSON.parse(fs.readFileSync(path.join(dist, `identity-${platform}.json`)));
       if (identity.source !== source || identity.build !== build || identity.version !== version || identity.timestamp !== timestamp) throw new Error(`Artifact identity mismatch: ${platform}`);
@@ -128,17 +91,6 @@ export function publishAutoBuild(config, { run = runCommand } = {}) {
       for (const name of new Set(names)) add(path.join(directory, name));
       add(feed);
     }
-    const pluginDirectory = path.join(root, 'plugins'); fs.mkdirSync(pluginDirectory);
-    for (const plugin of plugins) {
-      const file = path.join(pluginDirectory, plugin.name);
-      ghCommand(['release', 'download', plugin.tag, '--repo', plugin.repository, '--pattern', plugin.name, '--dir', pluginDirectory], run, () => {
-        // Exact mkdtemp-owned basename; never remove shared caches or worktrees.
-        fs.rmSync(file, { force: true });
-      });
-      if (digest(file) !== plugin.sha256) throw new Error(`Plugin SHA-256 mismatch: ${plugin.name}`);
-      fs.writeFileSync(`${file}.sha256`, `${plugin.sha256}  ${plugin.name}\n`);
-      add(file); add(`${file}.sha256`);
-    }
     // This checkpoint commits the complete target before any installer/feed write.
     // Equal timestamps may resume only when this exact plan is already published.
     const checkpointName = 'autobuild-publication.json';
@@ -149,7 +101,7 @@ export function publishAutoBuild(config, { run = runCommand } = {}) {
         .map(([name, { sha256, size }]) => ({ name, sha256, size })),
     }) + '\n');
     add(checkpointFile);
-    // No mutation until every local asset and upstream ZIP passes validation.
+    // No mutation until every local application asset passes validation.
     let release = optional(`repos/${repository}/releases/tags/${releaseTag}`);
     // A partially created AutoBuild release must not hide the legacy time baseline.
     const baselines = [[releaseTag, release], [oldTag, optional(`repos/${repository}/releases/tags/${oldTag}`)]];

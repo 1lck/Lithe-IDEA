@@ -89,7 +89,8 @@ final class BinaryFileViewerRegistry {
     func openIfSupported(
         url: URL,
         header: Data,
-        activateWhenReady: Bool = true
+        activateWhenReady: Bool = true,
+        allowsExtensionMatch: Bool = true
     ) async -> Bool {
         if let registration = registrations.first(where: { registration in
             registration.magicSignatures.contains { $0.matches(header) }
@@ -104,7 +105,7 @@ final class BinaryFileViewerRegistry {
         }
 
         let fileExtension = url.pathExtension.lowercased()
-        guard !fileExtension.isEmpty,
+        guard allowsExtensionMatch, !fileExtension.isEmpty,
               let registration = registrations.first(where: {
                   $0.fileExtensions.contains(fileExtension)
               }) else { return false }

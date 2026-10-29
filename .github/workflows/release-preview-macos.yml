@@ -56,7 +56,9 @@ jobs:
     needs: prepare
     if: github.actor == github.repository_owner || contains(format(',{0},', vars.LITHE_RELEASE_ACTOR), format(',{0},', github.actor)) || github.event_name == 'schedule'
     runs-on: macos-26
-    timeout-minutes: 30
+    # Intel packaging took ~26 minutes before Sparkle in AutoBuild run 40812978761.
+    # Match stable release budgets so update generation has its own bounded window.
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
@@ -117,6 +119,7 @@ jobs:
           fi
 
       - name: Build and package the preview app
+        timeout-minutes: 35
         env:
           LITHE_ARCH: ${{ matrix.architecture }}
           LITHE_VERSION: ${{ needs.prepare.outputs.version }}
@@ -149,6 +152,7 @@ jobs:
           (cd dist && shasum -a 256 -c "Lithe-${LITHE_VERSION}-${LITHE_ARCH}.dmg.sha256")
 
       - name: Generate signed preview updates
+        timeout-minutes: 30
         env:
           GH_TOKEN: ${{ github.token }}
           LITHE_ARCH: ${{ matrix.architecture }}
@@ -252,7 +256,7 @@ jobs:
         with:
           name: windows-autobuild
           path: dist
-      - name: Stage trusted plugin mirrors and publish latest complete manifest
+      - name: Verify application assets and publish latest complete manifest
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_SHA: ${{ needs.prepare.outputs.sha }}
