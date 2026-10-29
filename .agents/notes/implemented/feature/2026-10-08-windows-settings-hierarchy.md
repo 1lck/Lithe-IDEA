@@ -60,14 +60,14 @@ Windows 设置组件使用 `settings-panels.tsx`、`SettingsPanel` 和 `Settings
 
 ## 验证
 
-- `scripts/build-windows.ps1 -Configuration Release` 验证类型、前端和 Windows 构建。
+- `scripts/windows/build/build-windows.ps1 -Configuration Release` 验证类型、前端和 Windows 构建。
 - `.agents/skills/write-stable-tests/scripts/verify-test-stability.ps1` 与 `.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend` 检查测试稳定性并生成计时报告。
 - `windows/tauri/src/features/settings/components/settings-hierarchy.test.tsx` 覆盖两种界面语言下的中英文字段检索、不可见字段排除、折叠组搜索、无结果、重复外部请求、面包屑和 Esc 清空查询，并固定每个页面恰好属于一个分组或一级页面、分组内容与一级入口顺序、中英文分组标题，以及快捷键、MCP、AI 与提交在搜索命中和外部请求时展开新的所属分组，并验证无结果搜索、命中后的自动跳转、手动切换和外部导航均保留项目与 Maven 草稿，关闭后清除且释放页面资源。这些交互不能由类型检查证明。
 - `windows/tauri/src/extensions/ui/components/extensions-sidebar-focus.test.tsx` 挂载真实插件浏览器，验证设置模式保留全局搜索焦点、独立入口仍自动聚焦；原生发现和市场请求使用立即完成的测试替身，不访问网络。分层、主题、下拉控件、更新状态和插件焦点回归分别以独立进程接入 Windows CI（持续集成）。
 - 编辑器路由测试验证字号即时写入，关闭不会回滚；快捷键测试准确定位页面内搜索，避免与新全局搜索混淆。
 - 核对共用中英文标签及说明与 macOS 设置语境一致，保留变量占位符；检查命令入口、搜索匹配和无障碍名称使用同一文案。Windows 专有说明按实际功能验收。
 - `windows/tauri/src/features/settings/lib/settings-theme-sync.test.ts` 用受控媒体查询和原生接口模拟验证手动浅色切回系统深色、系统明暗变化、重复启用不重复监听，以及手动模式清理监听。真实 Windows 另验证浅色 → 跟随系统立即恢复当前系统模式；系统变化由既有窗口事件与 WebView2 媒体查询传递。
-- `scripts/verify-windows-boundaries.sh`、`scripts/verify-platform-feature-matrix.sh` 和 `scripts/verify-agent-notes.sh` 验证边界及记录。
+- `scripts/windows/verify/verify-windows-boundaries.sh`、`scripts/platform-feature-matrix/verify-platform-feature-matrix.sh` 和 `scripts/agent-notes/verify-agent-notes.sh` 验证边界及记录。
 - 真实 Windows 窗口中确认一级入口依次为外观与行为、插件、版本控制、构建/执行/部署、语言与框架、工具、AI；快捷键和编辑器在外观与行为下，MCP 配置、AI 与提交、AI 聊天与编辑在 AI 下；搜索和外部请求跳转到这些页面时展开所属分组且面包屑一致。本次只运行了浏览器组件测试，尚未在真实 Windows 上验证。
 - 深浅色检查分类、下拉菜单、字体检索、外部关闭、Esc 和底部按钮；连续拖动时确认存储不变，松开后保存，重开恢复宽度；分别以 720px、768px、769px 和 800px 视口检查正文至少 500px、弹窗无水平溢出及底部按钮可用，再从已保存的宽布局缩至最小窗口。
 

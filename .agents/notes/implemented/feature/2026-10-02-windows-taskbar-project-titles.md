@@ -65,11 +65,11 @@ Windows CI 显式运行标题上下文、来源、同步和焦点四组前端回
 - `cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml window_title`。
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.ps1`。
 - `./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend`，以及 WindowsRust 计时测试，检查逐测试 HTML/JUnit 报告。
-- `./scripts/verify-windows-boundaries.ps1`。
-- `node scripts/verify-agent-notes.mjs`。
-- `node scripts/generate-platform-feature-matrix.mjs --check`。
-- `./scripts/build-windows.ps1 -Configuration Release`，然后运行 Windows 宿主的完整 Cargo 测试。
-- `./scripts/verify-runtime-bundle-immutability.sh`；本机没有 zsh，原脚本未运行；已使用脚本原有的两条正则做只读扫描，未发现安装目录写入。不修改校验规则或宣称原脚本通过。
+- `./scripts/windows/verify/verify-windows-boundaries.ps1`。
+- `node scripts/agent-notes/verify-agent-notes.mjs`。
+- `node scripts/platform-feature-matrix/generate-platform-feature-matrix.mjs --check`。
+- `./scripts/windows/build/build-windows.ps1 -Configuration Release`，然后运行 Windows 宿主的完整 Cargo 测试。
+- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`；本机没有 zsh，原脚本未运行；已使用脚本原有的两条正则做只读扫描，未发现安装目录写入。不修改校验规则或宣称原脚本通过。
 - Windows 实机：打开不同项目与不同目录的同名项目，悬停任务栏并打开 Alt+Tab；切换项目、分屏、文件及工具页；修改别名，关闭项目与窗口，检查其他窗口标题恢复。覆盖独立文件、中文名称、UNC 路径及初始化失败，验收结束清理本次启动的应用。
 
 ## 适用范围

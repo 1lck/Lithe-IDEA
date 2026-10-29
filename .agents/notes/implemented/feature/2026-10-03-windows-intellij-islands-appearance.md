@@ -104,8 +104,8 @@ IntelliJ 用 Java2D 的 `arc`（圆角直径）描述圆角：卡片 `Island.arc
 
 ## 验证
 
-- `scripts/verify-platform-feature-matrix.sh`
-- `scripts/verify-agent-notes.sh`
+- `scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
+- `scripts/agent-notes/verify-agent-notes.sh`
 - 在 `windows/tauri` 下运行 `bun test src/features/window/utils/project-gradient.test.ts src/features/git/utils/diff-buffer-label.test.ts src/features/tabs/utils/tab-chrome-buffer.test.ts src/features/keymaps/commands/navigation-command-actions.web-viewer.test.ts`
 - 按 `shared/platform-feature-matrix/features/workbench-islands-appearance.json` 和 `workbench-project-color-gradient.json` 的验证步骤在 Windows 实机确认。
 

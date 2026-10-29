@@ -64,8 +64,8 @@ its manifest fixture, and the Core tests; the SDK's sample provider
 Java Support now has a two-architecture release configuration, with automatic
 publication disabled (`releaseEnabled: false`) until the host trust capability
 and migration are released. No downloadable official plugin is listed yet:
-`Plugins/marketplace/index.json` is empty. The release flow (`scripts/build-official-plugins.sh`,
-`scripts/official-plugin-releases.mjs`, and
+`Plugins/marketplace/index.json` is empty. The release flow (`scripts/plugins/build-official-plugins.sh`,
+`scripts/plugins/official-plugin-releases.mjs`, and
 `.github/workflows/release-official-plugins.yml`) is kept for future official
 plugins. A new one gets its own directory under `Official/`, its own tag series
 (`plugin-<name>-v<version>`), and an entry in `official-plugins.json`.
@@ -87,7 +87,7 @@ development package with `--development-unsigned`, then install it from disk in
 a debug build of Lithe:
 
 ```sh
-scripts/build-official-plugins.sh --configuration debug \
+scripts/plugins/build-official-plugins.sh --configuration debug \
   --triple arm64-apple-macosx --plugin-id <plugin-id> \
   --development-unsigned --output /tmp/lithe-dev-plugins
 ```

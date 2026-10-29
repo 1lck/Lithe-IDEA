@@ -122,12 +122,12 @@ JDT 就绪后才出现，JDT 不可用时这一项没有提示（其他输入照
 ## 验证
 
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
-- `./scripts/verify-windows-boundaries.sh`
-- `./scripts/verify-shared-contracts.sh`
-- `./scripts/verify-agent-notes.sh`
+- `./scripts/windows/verify/verify-windows-boundaries.sh`
+- `./scripts/architecture/verify-shared-contracts.sh`
+- `./scripts/agent-notes/verify-agent-notes.sh`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend -FrontendTestPath src/features/run/stores/run-project-load.test.ts`
-- `./scripts/verify-rust-core.sh`
-- `./scripts/test-macos.sh`
+- `./scripts/rust-core/verify-rust-core.sh`
+- `./scripts/macos/test/test-macos.sh`
 
 回归测试控制校验完成的时机，验证提前显示、超时保留配置、过期提示以及旧结果隔离。
 #507 的测试覆盖：普通源码只按路径、入口源码仍按内容、JDT 比对的新增/删除/模块前缀、

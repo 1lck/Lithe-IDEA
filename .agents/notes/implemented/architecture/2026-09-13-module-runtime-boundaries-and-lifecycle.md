@@ -318,11 +318,11 @@ SQL 执行状态栏沿同版 `EditorMarkupModelImpl` 的共享几何：右侧 14
 
 ## 验证
 
-- `./scripts/verify-agent-notes.sh`
-- `./scripts/verify-module-boundaries.sh`
-- `./scripts/verify-service-boundaries.sh`
-- `./scripts/verify-shared-contracts.sh`
-- `./scripts/test-macos.sh`
+- `./scripts/agent-notes/verify-agent-notes.sh`
+- `./scripts/architecture/verify-module-boundaries.sh`
+- `./scripts/architecture/verify-service-boundaries.sh`
+- `./scripts/architecture/verify-shared-contracts.sh`
+- `./scripts/macos/test/test-macos.sh`
 - `macos/Tests/LitheApplicationKernelTests/ModuleRuntimeTests.swift`
 - `macos/Tests/LitheTests/DatabaseWorkspaceLifecycleTests.swift`
 
@@ -340,7 +340,7 @@ SQL 执行状态栏沿同版 `EditorMarkupModelImpl` 的共享几何：右侧 14
 - `macos/Sources/Lithe*Module/`
 - `Plugins/mac/Official/`
 - `macos/Tests/LitheApplicationKernelTests/`
-- `scripts/verify-module-boundaries.sh`
+- `scripts/architecture/verify-module-boundaries.sh`
 
 Redis Key Browser 的标题栏、DB 标识、SCAN 搜索/刷新与空状态接入现有共享控件；移除红色图标底板、胶囊及局部错误条，错误统一由已有协调器通知，不重复显示。Estimate size 是布尔选项，沿用 Community `c7f91397` 的 `DarculaCheckBoxUI` 复选框语义，macOS 复用原生常规 checkbox 而非另写 Java 绘制器；刷新/搜索沿用同版原始 SVG 和共享 22pt 工具栏按钮。空浏览区填充可用高度，搜索保持顶部，避免空状态固有高度把整列垂直居中。此调整仅覆盖 Redis 截图指定区域，Nacos 和 Redis 有值编辑表单保持现有实现。
 

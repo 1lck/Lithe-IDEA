@@ -61,7 +61,7 @@ macOS 和 Windows 分别构建，并先后向同一个 Release 上传附件。�
 ```bash
 node --test scripts/test-sync-atomgit-release.mjs
 actionlint .github/workflows/sync-atomgit-release.yml .github/workflows/release-macos.yml .github/workflows/release-windows.yml
-./scripts/verify-agent-notes.sh
+./scripts/agent-notes/verify-agent-notes.sh
 ```
 
 测试使用离线替身验证顺序、重试、失败清理、提交不一致、分页和 401 不被当作不存在，不依赖真实网络或生产凭据。Tag 推送用本地 bare 仓库跑真实的 `git push`，覆盖正常推送、本地 Tag 不符和远端 Tag 不一致被拒三种情况。附件白名单、重试次数与间隔、重试前重新读取目标状态都有独立用例。

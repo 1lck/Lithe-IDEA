@@ -26,7 +26,7 @@
 - **远端文件读写限制**：Core 一次装入内存的文件最多 32 MiB，分块读取还会核对版本、偏移与结束标记；流式快照哈希可读取更大的文件。原子写入沿用协议的 8 MiB 上限，超限在编码和发送前失败，不拆成会暴露半份内容的覆盖操作。文件或目录是否存在的查询必须保留权限、断线等失败，不能把它们当成“不存在”。临时目录清理失败记录错误类别，避免静默残留或把用户路径写入日志。
 - **终端确认与清理**：交互终端默认使用远端账户的 Shell，显式菜单选择保留独立 argv；调试进程按工作区身份选择主机，即使调试器给出的工作目录已经是远端绝对路径。启动在收到远端确认后才发布就绪与 PID，等待中的启动也算模块活动资源。重启先等待上次传输清理，输入按顺序发送，待发送尺寸只保留最新值；写入与缩放复用 Core 的操作取消，退出释放远程渲染标记，不把远端 PID 交给本机进程监控。
 - **运行时与 Shell 发现**：网络调用在平台工作线程运行，界面读取缓存；发现有数量、数据和时间限制，取消或切换工作区后丢弃旧结果，失败不发布部分结果或本机回退。Shell 从远端登录环境、`/etc/shells` 和文件权限发现，旧服务缺目标权限时再查询链接真实路径；本机终端设置里的可执行文件路径不作为远程默认值。
-- **资源生命周期**：Git 临时索引和源文件快照在远端临时目录或 Git common directory，由单次操作清理；探测、可执行文件与搜索缓存保存在客户端内存并按连接隔离。服务的 socket、锁和日志身份同时包含会话键与二进制 SHA-256，版本号相同但内容变化时不复用旧常驻进程。以上资源在 `scripts/worktree-resources.json` 中明确排除跨工作树复制，运行时不写安装资源，不改变签名和 Sparkle delta 基线。
+- **资源生命周期**：Git 临时索引和源文件快照在远端临时目录或 Git common directory，由单次操作清理；探测、可执行文件与搜索缓存保存在客户端内存并按连接隔离。服务的 socket、锁和日志身份同时包含会话键与二进制 SHA-256，版本号相同但内容变化时不复用旧常驻进程。以上资源在 `scripts/resources/worktree-resources.json` 中明确排除跨工作树复制，运行时不写安装资源，不改变签名和 Sparkle delta 基线。
 - **构建与插件运行**：构建扫描、工具探测、构建进程和报告读取使用原工作区的主机身份，stdout/stderr 分别增量解码。插件只部署经过原安装来源复核的包，异平台变体必须同版本、同声明且不增加批准程序；复用市场校验和下载器，不向小型服务引入包管理或语言引擎。目标文件通过带 SHA-256 的分块上传原子发布，普通文件只读、可执行文件只读可执行，可写状态位于远端用户目录。快照清理捕获原连接，在 Core 销毁进程后执行。
 - **完整运行目录由远端会话保管**：客户端先生成运行目录身份，再请求 `fs.createRunDirectory`，即使分配回复丢失也能用原身份释放。服务端只在远端用户的私有 `~/.lithe-server/plugin-runs/` 下新建目录，不接管已经存在的路径；释放仅按当前会话持有的身份查找，不接受任意删除路径，重复释放无害；删除失败保留登记供重试，即使释放正在等待创建者清理，也会收到真实错误而不是成功。已有父目录必须为当前用户所有、非符号链接且不向其他用户开放，不通过改权限接管共享目录。分配和释放沿用读取线程预登记与创建者清理规则。非驻留断线、会话关闭和空闲到期在结束进程、排空工作线程后回收完整目录，客户端崩溃不再依赖客户端补发删除。常驻会话仅断线时保留资源，供重连继续使用。远端服务被强制杀死后的回收尚未实现：尤其 macOS 可能留有进程，不能只用目录年龄或服务锁消失就删除运行输入。旧版客户端创建的未登记快照也不自动扫描删除。
 - **上传不互相拖住**：上传表只登记和移除身份，不把文件打开、写入、同步、发布或删除放在全局锁里。每个文件独立同步，同一上传的并发操作返回 `BUSY`；断线、取消和到期先标记取消，由仍在执行的工作线程保管并最终删除暂存文件。一个慢文件不能阻止另一个文件完成，释放动作也不能等慢文件的锁。
@@ -82,22 +82,22 @@
 ## 验证
 
 ```bash
-./scripts/test-macos.sh --filter RemoteConnections
+./scripts/macos/test/test-macos.sh --filter RemoteConnections
 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'RemoteWorkspaceRoutingTests|RemoteDirectoryObservationTests'
 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'RemoteRuntimeDiscoveryTests|RemoteShellDiscoveryTests|RemoteTerminalTransportTests|TerminalModuleTests'
 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'RemotePluginDeploymentTests|RemotePluginLaunchPreparerTests|RemoteBuildExecutionTests|MacBuildProviderSessionsTests|MacVcsProviderSessionsTests'
-./scripts/verify-remote-workspace.sh
-node scripts/test-reuse-worktree-resources.mjs
-./scripts/verify-runtime-bundle-immutability.sh
-./scripts/verify-platform-feature-matrix.sh
-./scripts/verify-service-boundaries.sh
+./scripts/remote/verify-remote-workspace.sh
+node scripts/resources/test-reuse-worktree-resources.mjs
+./scripts/macos/verify/verify-runtime-bundle-immutability.sh
+./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh
+./scripts/architecture/verify-service-boundaries.sh
 ```
 
 ## 适用范围
 
 - `rust/lithe-remote/`
-- `scripts/build-remote-servers.sh`
-- `scripts/verify-remote-workspace.sh`
+- `scripts/remote/build-remote-servers.sh`
+- `scripts/remote/verify-remote-workspace.sh`
 - `macos/Sources/Lithe/Services/Remote/RemoteWorkspaceRouting.swift`
 - `macos/Sources/Lithe/Platform/MacOS/Remote/MacRemoteWorkspaceRoots.swift`
 - `macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift`

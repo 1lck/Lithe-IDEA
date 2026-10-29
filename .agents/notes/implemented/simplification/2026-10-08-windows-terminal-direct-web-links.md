@@ -35,7 +35,7 @@ macOS 没有改动。确认对话框不能再作为网页链接动作的前置�
 
 - `cd windows/tauri && bun run typecheck`、`bun run build`。
 - `bun test src/features/terminal` 检查现有终端行为回归。
-- `node scripts/verify-agent-notes.mjs`、`node scripts/generate-platform-feature-matrix.mjs --check`。
+- `node scripts/agent-notes/verify-agent-notes.mjs`、`node scripts/platform-feature-matrix/generate-platform-feature-matrix.mjs --check`。
 - 在 Windows 产品终端分别点击 localhost、127.0.0.1 和 HTTPS 链接，
   确认直接进入默认浏览器；文件路径继续打开 IDE 文件，打开失败仍记录错误。
   构建和前端回归不代替这组原生验收。

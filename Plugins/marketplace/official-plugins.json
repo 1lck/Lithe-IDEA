@@ -8,7 +8,7 @@
       "bundledUntilPublishedVersion": "1.1.0",
       "tagPrefix": "plugin-java-support-v",
       "packageDirectory": "Plugins/mac/Official/JavaSupport",
-      "inputPaths": ["third_party/jdtls/manifest.json", "third_party/jdk/manifest.json", "scripts/prepare-jdtls.sh", "scripts/prepare-jdk.sh", "scripts/build-official-plugins.sh"],
+      "inputPaths": ["third_party/jdtls/manifest.json", "third_party/jdk/manifest.json", "scripts/macos/prepare/prepare-jdtls.sh", "scripts/macos/prepare/prepare-jdk.sh", "scripts/plugins/build-official-plugins.sh"],
       "assets": [
         {"assetName": "Lithe-Java-Support-{version}-darwin-arm64.zip", "platforms": ["darwin-arm64"], "arch": "arm64"},
         {"assetName": "Lithe-Java-Support-{version}-darwin-x64.zip", "platforms": ["darwin-x64"], "arch": "x86_64"}

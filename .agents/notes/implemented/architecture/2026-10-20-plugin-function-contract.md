@@ -132,8 +132,8 @@ Maven 插件窗口的“刷新快照”按钮
 
 - `cargo test -p lithe-core --lib plugin_function`：`function-protocol.json` 的协商、注册、调用、结果、进度和后端请求全部标准答案，以及消息截断、超大结果和注册上限。
 - `cargo test -p lithe-core --lib lsp::interface::engine`：用脚本化后端覆盖路由与结果、失败与插件错误码、初始函数列表（包括空列表）只靠事件发现、取消/超时/成功/失败/撤回后复用宿主 ID 的迟到进度隔离、函数结束后复用 ID 发构建请求不受旧函数撤回影响、会话停止/失败后清空注册表且迟到注册不能恢复能力、自身超时、只支持 `litheBuild` 的旧后端照常工作、宿主自有会话不提供函数、后端请求回调自己被拒绝。
-- `./scripts/verify-shared-contracts.sh`：`function-protocol.json` 的 schema 版本、协议名、用例名唯一、错误码都在 README 里有文档、不含机器路径。
-- `./scripts/verify-rust-core.sh` 与 `./scripts/verify-rust-core-comments.sh`：Core 编译、测试和注释规范。
+- `./scripts/architecture/verify-shared-contracts.sh`：`function-protocol.json` 的 schema 版本、协议名、用例名唯一、错误码都在 README 里有文档、不含机器路径。
+- `./scripts/rust-core/verify-rust-core.sh` 与 `./scripts/rust-core/verify-rust-core-comments.sh`：Core 编译、测试和注释规范。
 
 ## 适用范围
 
@@ -145,4 +145,4 @@ Maven 插件窗口的“刷新快照”按钮
 - `shared/contracts/plugins/v1/README.md`
 - `shared/contracts/plugins/v1/fixtures/function-protocol.json`
 - `shared/contracts/rust-core-api.md`
-- `scripts/verify-shared-contracts.sh`
+- `scripts/architecture/verify-shared-contracts.sh`

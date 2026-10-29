@@ -46,7 +46,7 @@
 - 历史滚动基准（200 条会话，程序化逐帧滚动，调试构建）：纯滚动 p95 从 8.6ms 降到 1.4ms；流式输出期间刷新 p50 从 14ms（25% 帧超过 16.7ms）降到 1.7ms（0 掉帧）；标题变化 p95 从 34ms 降到 10ms。排序与分组在 200 / 2,000 / 20,000 条会话下每行成本分别为 14.9 / 5.5 / 4.2µs，确认没有平方级路径。
 
 - `AgentLargeHistoryLoadTests`：1 200 轮回放整体只发布少量次数、顺序和工具合并正确；中断保留部分回放但不标记完整；失败恢复旧副本；窗口扩大规则；历史分组。
-- `./scripts/test-macos.sh --filter AgentHistoryTests`、`AgentConversationSelectionTests`、`AgentTranscriptScrollTests`、`ContextMenuCoverageTests` 等 Agent 相关套件。
+- `./scripts/macos/test/test-macos.sh --filter AgentHistoryTests`、`AgentConversationSelectionTests`、`AgentTranscriptScrollTests`、`ContextMenuCoverageTests` 等 Agent 相关套件。
 - 对 Claude ACP 的 `session/load` 探测方法：直接起 `claude-agent-acp`，发 `initialize` 与 `session/load`，统计事件数量和耗时。
 
 ## 适用范围

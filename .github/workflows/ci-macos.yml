@@ -50,7 +50,7 @@ jobs:
 
       - name: Test CI change classifier
         shell: bash
-        run: ./scripts/test-classify-ci-changes.sh
+        run: ./scripts/ci/common/test-classify-ci-changes.sh
 
       - name: Test release scripts and Markdown preview
         timeout-minutes: 2
@@ -58,9 +58,9 @@ jobs:
           mkdir -p .artifacts/test-stability
           node --test --test-reporter=spec --test-reporter-destination=stdout \
             --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/sparkle-baseline.junit.xml \
-            scripts/test-download-sparkle-baseline.mjs scripts/test-publish-autobuild.mjs scripts/test-reuse-worktree-resources.mjs scripts/test-markdown-preview.mjs \
-            scripts/test-codex-config-relay.mjs scripts/verify-release-signature.test.mjs \
-            scripts/plan-ci-lane-reuse.test.mjs scripts/verify-reused-ci-jobs.test.mjs scripts/ci-workflow-gates.test.mjs scripts/cancel-closed-pr-runs.test.mjs
+            scripts/release/sparkle/test-download-sparkle-baseline.mjs scripts/release/autobuild/test-publish-autobuild.mjs scripts/resources/test-reuse-worktree-resources.mjs scripts/macos/test/test-markdown-preview.mjs \
+            scripts/agent/test-codex-config-relay.mjs scripts/release/sparkle/verify-release-signature.test.mjs \
+            scripts/ci/common/plan-ci-lane-reuse.test.mjs scripts/ci/common/verify-reused-ci-jobs.test.mjs scripts/ci/common/ci-workflow-gates.test.mjs scripts/ci/cancel-closed-pr-runs/cancel-closed-pr-runs.test.mjs
 
       - name: Generate Sparkle download timing report
         if: always()
@@ -137,7 +137,7 @@ jobs:
           elif [[ "$BASE_REF" == "main" && "$HEAD_REF" == "preview" && "$HEAD_REPOSITORY" == "$GITHUB_REPOSITORY" ]]; then
             LITHE_CI_SCOPE=release_promotion
           fi
-          ./scripts/classify-ci-changes.sh "$BASE_SHA" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          ./scripts/ci/common/classify-ci-changes.sh "$BASE_SHA" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
 
       # Promoting preview to main reruns no lane: the same commit must already
       # have passed macOS CI as a preview push.
@@ -176,7 +176,7 @@ jobs:
             rust_core=${{ steps.classify.outputs.rust_core }}
             macos_release=${{ steps.classify.outputs.macos_release }}
         shell: bash
-        run: node scripts/plan-ci-lane-reuse.mjs
+        run: node scripts/ci/common/plan-ci-lane-reuse.mjs
 
       - name: Validate changed text
         if: steps.base.outputs.manual == 'false'
@@ -199,14 +199,14 @@ jobs:
       - name: Validate Rust Core comment-only changes
         if: steps.classify.outputs.rust_core == 'false' && steps.classify.outputs.rust_comments == 'true'
         shell: bash
-        run: ./scripts/verify-rust-core-comments.sh
+        run: ./scripts/rust-core/verify-rust-core-comments.sh
 
       - name: Validate lightweight metadata changes
         if: steps.classify.outputs.metadata == 'true'
         shell: bash
         run: |
           ruby -c Casks/lithe.rb
-          ruby -c scripts/update-homebrew-cask.rb
+          ruby -c scripts/release/macos/update-homebrew-cask.rb
 
       - name: Summarize selected lanes
         shell: bash
@@ -270,7 +270,7 @@ jobs:
           mkdir -p .artifacts/test-stability
           node --test --test-reporter=spec --test-reporter-destination=stdout \
             --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/macos-build-cache.junit.xml \
-            scripts/build-macos.test.mjs
+            scripts/macos/build/build-macos.test.mjs
 
       - name: Generate macOS build cache timing report
         if: always()
@@ -293,12 +293,12 @@ jobs:
       - name: Build Swift tests
         id: build
         timeout-minutes: 40
-        run: ./scripts/test-macos.sh list > /dev/null
+        run: ./scripts/macos/test/test-macos.sh list > /dev/null
 
       - name: Verify the Rust Core Swift bridge
         if: needs.changes.outputs.rust_core == 'true'
         timeout-minutes: 20
-        run: ./scripts/verify-rust-core-swift-bridge.sh --skip-build
+        run: ./scripts/rust-core/verify-rust-core-swift-bridge.sh --skip-build
 
       - name: Run Swift unit tests
         if: needs.changes.outputs.swift == 'true'
@@ -334,13 +334,13 @@ jobs:
         timeout-minutes: 15
         env:
           LITHE_GIT_PERFORMANCE_SKIP_TEST_BUILD: "1"
-        run: ./scripts/test-git-performance-baseline.sh
+        run: ./scripts/macos/perf/test-git-performance-baseline.sh
 
       - name: Run Git status observation tests
         if: needs.changes.outputs.git_validation == 'true'
         timeout-minutes: 3
         run: |
-          ./scripts/test-macos.sh \
+          ./scripts/macos/test/test-macos.sh \
             --skip-build \
             --filter GitStatusObservationTests
 
@@ -402,7 +402,7 @@ jobs:
           cargo: "true"
 
       - name: Run Rust Core tests
-        run: ./scripts/verify-rust-core-crates.sh
+        run: ./scripts/rust-core/verify-rust-core-crates.sh
 
       - name: Upload Rust test reports
         if: always()
@@ -451,7 +451,7 @@ jobs:
       - name: Test Monaco workbench in WebKit
         if: matrix.architecture != 'x86_64'
         timeout-minutes: 5
-        run: ./scripts/probe-macos-monaco.sh --workbench-tests
+        run: ./scripts/macos/probe/probe-macos-monaco.sh --workbench-tests
 
       - name: Upload Monaco workbench test report
         if: always() && matrix.architecture != 'x86_64'
@@ -464,7 +464,7 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          # The app bundles the Linux remote workspace servers (scripts/build-remote-servers.sh).
+          # The app bundles the Linux remote workspace servers (scripts/remote/build-remote-servers.sh).
           targets: ${{ format('{0},x86_64-unknown-linux-musl,aarch64-unknown-linux-musl', matrix.architecture == 'arm64' && 'aarch64-apple-darwin' || matrix.architecture == 'x86_64' && 'x86_64-apple-darwin' || 'aarch64-apple-darwin,x86_64-apple-darwin') }}
 
       - name: Prepare verified dependency caches
@@ -482,15 +482,15 @@ jobs:
       - name: Check packaging scripts and metadata
         shell: zsh {0}
         run: |
-          for script in scripts/*.sh; do
+          for script in scripts/**/*.sh; do
             if [[ "$(head -n 1 "$script")" == "#!/bin/zsh" ]]; then
               zsh -n "$script"
             fi
           done
-          ruby -c scripts/update-homebrew-cask.rb
-          ruby -c scripts/create-macos-update-manifest.rb
-          ruby -c scripts/test-macos-update-manifest.rb
-          ruby scripts/test-macos-update-manifest.rb
+          ruby -c scripts/release/macos/update-homebrew-cask.rb
+          ruby -c scripts/release/macos/create-macos-update-manifest.rb
+          ruby -c scripts/release/macos/test-macos-update-manifest.rb
+          ruby scripts/release/macos/test-macos-update-manifest.rb
           plutil -lint macos/Resources/Info.plist
 
       - name: Build and verify default universal package
@@ -500,13 +500,13 @@ jobs:
           # intermittent "hdiutil: create failed - Resource busy" is diagnosed.
           LITHE_DMG_DIAGNOSTICS: "1"
         run: |
-          ./scripts/verify-macos-package.sh
-          ./scripts/verify-macos-package.sh --slim
+          ./scripts/macos/verify/verify-macos-package.sh
+          ./scripts/macos/verify/verify-macos-package.sh --slim
 
       - name: Verify Sparkle update packaging
         run: |
-          sparkle_tools=$(zsh scripts/prepare-sparkle-tools.sh)
-          ruby scripts/test-sparkle-update.rb "$sparkle_tools"
+          sparkle_tools=$(zsh scripts/release/sparkle/prepare-sparkle-tools.sh)
+          ruby scripts/release/sparkle/test-sparkle-update.rb "$sparkle_tools"
 
       - name: Build complete macOS test package
         id: package
@@ -517,8 +517,8 @@ jobs:
         run: |
           # The universal smoke test uses Java fixtures in a temporary folder.
           # Assemble again with real tools, reusing its compiled Swift/Rust files.
-          ./scripts/package-app.sh
-          ./scripts/create-dmg.sh
+          ./scripts/macos/package/package-app.sh
+          ./scripts/macos/package/create-dmg.sh
           version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' macos/Resources/Info.plist)
           suffix="-$LITHE_ARCH"
           if [[ "$LITHE_ARCH" == "universal" ]]; then suffix=""; fi
@@ -640,7 +640,7 @@ jobs:
         if: needs.changes.result == 'success' && needs.changes.outputs.reuse != '{}' && needs.changes.outputs.reuse != ''
         uses: actions/checkout@v7
         with:
-          sparse-checkout: scripts/verify-reused-ci-jobs.mjs
+          sparse-checkout: scripts/ci/common/verify-reused-ci-jobs.mjs
           sparse-checkout-cone-mode: false
 
       - name: Verify reused lane results
@@ -649,4 +649,4 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           LITHE_CI_REUSE: ${{ needs.changes.outputs.reuse }}
         timeout-minutes: 95
-        run: node scripts/verify-reused-ci-jobs.mjs
+        run: node scripts/ci/common/verify-reused-ci-jobs.mjs

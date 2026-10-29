@@ -104,18 +104,18 @@ Windows 预览只保存已经脱敏的内存快照，最多四份、五分钟有
 
 ## 验证
 
-- `./scripts/verify-runtime-bundle-immutability.sh`
-- `./scripts/verify-rust-core-comments.sh`
-- `./scripts/verify-shared-contracts.sh`
-- `./scripts/verify-service-boundaries.sh`
-- `./scripts/verify-windows-boundaries.sh`
-- `./scripts/verify-agent-notes.sh`
+- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/rust-core/verify-rust-core-comments.sh`
+- `./scripts/architecture/verify-shared-contracts.sh`
+- `./scripts/architecture/verify-service-boundaries.sh`
+- `./scripts/windows/verify/verify-windows-boundaries.sh`
+- `./scripts/agent-notes/verify-agent-notes.sh`
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'MacApplicationLogWriterTests|DiagnosticsExportServiceTests|StableRollbackTests'`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope WindowsRust`
-- `node scripts/test-reuse-worktree-resources.mjs`
-- `./scripts/test-macos.sh --filter DiagnosticsWorkflowTests`
-- `./scripts/probe-macos-logging-ui.sh --skip-build`
+- `node scripts/resources/test-reuse-worktree-resources.mjs`
+- `./scripts/macos/test/test-macos.sh --filter DiagnosticsWorkflowTests`
+- `./scripts/macos/probe/probe-macos-logging-ui.sh --skip-build`
 
 本地原生截图通过临时宿主加载产品字符串表。SwiftPM 默认 runner 不包含产品翻译，
 不能把它输出的英文截图当成中文渲染证据。探针只复制当前 Xcode 的 runner 和构建时
@@ -134,4 +134,4 @@ Windows 预览只保存已经脱敏的内存快照，最多四份、五分钟有
 - `windows/tauri/src-tauri/src/logging.rs`
 - `windows/tauri/src-tauri/src/diagnostics.rs`
 - `windows/tauri/src/features/settings/components/log-settings-panel.tsx`
-- `scripts/worktree-resources.json`
+- `scripts/resources/worktree-resources.json`

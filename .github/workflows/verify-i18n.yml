@@ -7,8 +7,8 @@ on:
       - ".gitattributes"
       - "shared/i18n/**"
       - "shared/fixtures/i18n/**"
-      - "scripts/*i18n*"
-      - "scripts/package-macos-localizations.sh"
+      - "scripts/i18n/**"
+      - "scripts/macos/package/package-macos-localizations.sh"
       - "macos/Resources/*.lproj/**"
       - "macos/Sources/Lithe/Models/Settings/AppLanguage.generated.swift"
       - "windows/tauri/src/i18n/**"
@@ -19,8 +19,8 @@ on:
       - ".gitattributes"
       - "shared/i18n/**"
       - "shared/fixtures/i18n/**"
-      - "scripts/*i18n*"
-      - "scripts/package-macos-localizations.sh"
+      - "scripts/i18n/**"
+      - "scripts/macos/package/package-macos-localizations.sh"
       - "macos/Resources/*.lproj/**"
       - "macos/Sources/Lithe/Models/Settings/AppLanguage.generated.swift"
       - "windows/tauri/src/i18n/**"
@@ -55,7 +55,7 @@ jobs:
         with:
           node-version: "22"
       - name: Check generated translations
-        run: node scripts/generate-i18n.mjs --check
+        run: node scripts/i18n/generate-i18n.mjs --check
       - name: Test contracts, fallback, migration and packaging
         timeout-minutes: 2
         run: |
@@ -64,7 +64,7 @@ jobs:
           # its explicit 15s (or lower) bound in test-i18n.mjs.
           node --test --test-timeout=60000 --test-reporter=spec --test-reporter-destination=stdout \
             --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/i18n-node.junit.xml \
-            scripts/test-i18n.mjs
+            scripts/i18n/test-i18n.mjs
       - name: Generate per-test timing report
         if: always()
         run: |

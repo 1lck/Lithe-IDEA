@@ -126,7 +126,7 @@ Agent Notes 不是只写给 AI 的提示词，也不是源码的镜像。团队�
 模板在本 Skill 的 `templates/` 目录中。写完后运行：
 
 ```bash
-./scripts/verify-agent-notes.sh
+./scripts/agent-notes/verify-agent-notes.sh
 ```
 
 该脚本同时校验 Note 格式、路径、链接、验证命令和目录骨架；新增生命周期
@@ -155,13 +155,13 @@ Agent Notes 不是只写给 AI 的提示词，也不是源码的镜像。团队�
 查看时运行：
 
 ```bash
-node scripts/build-agent-notes-board.mjs --init .artifacts/agent-notes-board.html "Lithe 工程决策看板"
+node scripts/agent-notes/build-agent-notes-board.mjs --init .artifacts/agent-notes-board.html "Lithe 工程决策看板"
 ```
 
 需要生成包含完整 Note 正文的静态页面时运行：
 
 ```bash
-node scripts/build-agent-notes-board.mjs \
+node scripts/agent-notes/build-agent-notes-board.mjs \
   --bundle .agents/notes .artifacts/agent-notes-board/index.html "Lithe 工程决策看板"
 ```
 
@@ -200,4 +200,4 @@ node scripts/build-agent-notes-board.mjs \
 - `## 后果` 同时写收益和代价。
 - `## 验证` 中的脚本存在，且和本次改动相关。
 - `## 适用范围` 中的路径仍存在。
-- `./scripts/verify-agent-notes.sh` 通过。
+- `./scripts/agent-notes/verify-agent-notes.sh` 通过。

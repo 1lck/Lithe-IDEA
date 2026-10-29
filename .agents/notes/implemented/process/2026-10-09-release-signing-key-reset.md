@@ -44,10 +44,10 @@
 
 - 用 `gh secret list --repo Lithe-IDEA/Lithe-IDEA` 仅确认 Secret 名称存在，不读取 Secret 值。
 - 用 `gh variable list --repo Lithe-IDEA/Lithe-IDEA` 确认公钥变量和发布账号变量存在。
-- 运行 `./scripts/verify-agent-notes.sh`。
-- 运行 `node --test scripts/verify-release-signature.test.mjs`，确认篡改文件、错误公钥和截断签名被拒绝。
+- 运行 `./scripts/agent-notes/verify-agent-notes.sh`。
+- 运行 `node --test scripts/release/sparkle/verify-release-signature.test.mjs`，确认篡改文件、错误公钥和截断签名被拒绝。
 - 发布工作流安装到独立临时目录，验证版本、公钥、启动及安装目录 SHA-256 清单不变，并有界终止自身应用进程、卸载或删除临时安装。
-- 发布前运行 `./scripts/verify-official-plugins.sh`、`./scripts/verify-macos-package.sh` 和 Windows 更新器对应测试。
+- 发布前运行 `./scripts/plugins/verify-official-plugins.sh`、`./scripts/macos/verify/verify-macos-package.sh` 和 Windows 更新器对应测试。
 - 在真实发布前完成旧版本到新版本的安装、Sparkle 验签、Tauri 更新器验签和官方插件安装验证；普通 CI 成功不能替代这些检查。
 
 ## 适用范围

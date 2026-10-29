@@ -653,7 +653,7 @@ shell 身份和当前可执行文件都吻合时算空闲；同 PID 的 exec 替
   `posix_spawn` 和 `std::process::Command` 启动长期进程，`MacPluginPackageDownloader`
   和 `MacStableRollback` 迁移到统一端口。
 - 测试遵守 `write-stable-tests` 的有界等待、资源清理规则，单测试有计时上限。
-- `scripts/verify-runtime-bundle-immutability.sh` 在启动、运行、退出的完整流程后
+- `scripts/macos/verify/verify-runtime-bundle-immutability.sh` 在启动、运行、退出的完整流程后
   仍然通过。
 - `shared/platform-feature-matrix/features/` 增加“退出时结束或确认全部子进程”
   能力行，两个平台分别记录实现和验证状态。

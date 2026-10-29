@@ -129,8 +129,8 @@ macOS 宿主接受级别 1 到 3（`supportedDeclarativeAPIVersions = [1, 2, 3]`
 
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib declarative_plugins`：`invalid-manifests.json` 中关于 `requires` 的用例（级别 3 缺少 `requires`、低级别出现 `requires`、空表、非正整数版本、格式错误的 ID、未知能力、未知能力先于未知段被报出、未知版本、少列、多列、自有 Provider 缺少 `serverProcess`）；`level_3_manifests_list_exactly_the_capabilities_they_use` 检查报错字段、规范化输出里的 `requires`，以及 `hostCapabilities` 对级别 3 和低级别的不同效果；`build_providers_require_their_own_host_capability` 覆盖自有与共享 Provider 在缺少或不支持 `buildProviders` 版本时被拒绝、完整支持时通过，以及不传宿主表时 Core 仍能校验并生成启动计划。
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib marketplace_plugins`：`index-cases.json` 验证只有 `buildSystems` 的宿主保留语言服务器版本；`build_provider_versions_require_host_support_before_download` 覆盖自有与共享 Provider 的版本筛选；`install-reviews.json` 覆盖两种 Provider 的能力缺失、版本不支持、完整支持和不传宿主表的审查，纯模板插件只需 `buildSystems`；`invalid-index-entries.json` 中三个 `requires` 用例；`level_3_versions_list_their_capabilities` 和 `host_capabilities_do_not_change_legacy_levels`。
-- `./scripts/verify-shared-contracts.sh`：schema 与 fixture 一致，新增的拒绝码都有文档。
-- `./scripts/verify-rust-core-comments.sh`：`plugins/capabilities.rs` 的注释规范。
+- `./scripts/architecture/verify-shared-contracts.sh`：schema 与 fixture 一致，新增的拒绝码都有文档。
+- `./scripts/rust-core/verify-rust-core-comments.sh`：`plugins/capabilities.rs` 的注释规范。
 
 ## 适用范围
 

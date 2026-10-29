@@ -1035,7 +1035,7 @@ SwiftUI 更新锚点时，AppKit（macOS 原生界面库）可能还在计算父
 - `AgentMavenAppearanceTests` 验证 Agent 表面在所有应用配色和明暗外观中跟随共享主题，并逐个用 AppKit 解码 Maven 的明暗 SVG，检查 16×16（Profiles 为 17×16）原始尺寸与可见像素；这些资源检查不代替完整应用交互验收。
 
 - `MonacoEditorContextMenuTests` 检查真实原生菜单面板在明暗主题下的共享尺寸、无动画、禁用跳过、选中/取消回复、官方 SVG 的 16×16 尺寸与资源可解析性，以及非法展示数据拒绝。
-- `./scripts/probe-macos-monaco.sh --workbench-tests` 使用正式 macOS 前端入口，验证真实 Monaco 菜单经过原生桥接而不产生网页菜单，同时保留既有菜单事件。`context-menu.integration.ts` 验证动态条目、分组、快捷键、实例前缀映射、动作上下文、原 action runner、取消/失败/替换和卸载后的旧响应。
+- `./scripts/macos/probe/probe-macos-monaco.sh --workbench-tests` 使用正式 macOS 前端入口，验证真实 Monaco 菜单经过原生桥接而不产生网页菜单，同时保留既有菜单事件。`context-menu.integration.ts` 验证动态条目、分组、快捷键、实例前缀映射、动作上下文、原 action runner、取消/失败/替换和卸载后的旧响应。
 
 - `ContextMenuCoverageTests.contextMenusCannotSilentlyBypassSharedStyle` 阻止产品重新使用 SwiftUI `Menu`、`.popover`、`NSPopUpButton` 或非 segmented 的原生 `Picker`。
 - `nestedDropdownKeepsParentAndRoutesKeysToChild` 验证子菜单右侧对齐、靠右边缘时向左打开、不关闭父面板、按键只选择子菜单动作、两层独立关闭。
@@ -1056,8 +1056,8 @@ SwiftUI 更新锚点时，AppKit（macOS 原生界面库）可能还在计算父
 - `ContextMenuCoverageTests.searchableDropdownUsesSharedWindowAndDismissal` 验证可搜索面板的透明无边框窗口、动态尺寸、Esc 关闭与关闭回调只执行一次。
 - `ContextMenuCoverageTests.anchoredActionAndSearchableDropdownsShareTopLeft` 验证相同锚点下 Date 操作菜单与可搜索内容的左上角一致、无动画、键盘关闭回调及屏幕边界限制。
 - `SettingsSelectPopupGeometryTests` 验证设置选择控件定位边界；真实父/子面板验证 Database 一类表单弹窗内打开选值菜单时保留父面板，Esc 只关闭子菜单并解除窗口关系。
-- 执行 `./scripts/verify-agent-notes.sh`、`./scripts/verify-service-boundaries.sh`、`./scripts/verify-runtime-bundle-immutability.sh` 和 `./scripts/verify-platform-feature-matrix.sh`。
-- 组件检查不能替代 `./scripts/preview.sh` 的完整应用检查；实际预览还需确认
+- 执行 `./scripts/agent-notes/verify-agent-notes.sh`、`./scripts/architecture/verify-service-boundaries.sh`、`./scripts/macos/verify/verify-runtime-bundle-immutability.sh` 和 `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`。
+- 组件检查不能替代 `./scripts/macos/build/preview.sh` 的完整应用检查；实际预览还需确认
   分组开合、原生侧向子菜单、搜索焦点与输入、通知历史入口以及主工具栏动作。
 
 ## 适用范围

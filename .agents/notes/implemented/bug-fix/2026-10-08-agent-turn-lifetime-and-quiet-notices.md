@@ -77,11 +77,11 @@ Windows 共享 Host 完整对话接入仍是已有的待完成能力，不能因
 - `node .agents/skills/write-stable-tests/scripts/run-rust-tests-with-timing.mjs --manifest rust/Cargo.toml --package lithe-agent-host`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'AgentConversationFeatureModelTests|AgentConversationPresentationTests|AgentHistoryTests|AgentNextTurnConfigurationTests|AgentActivityTests'`
 - `node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs -- src/features/ai/lib/acp-activity-monitor.test.ts src/i18n/locale.test.ts`
-- `./scripts/verify-shared-contracts.sh`
-- `./scripts/verify-windows-boundaries.sh`
-- `./scripts/verify-runtime-bundle-immutability.sh`
-- `./scripts/verify-platform-feature-matrix.sh`
-- `./scripts/verify-agent-notes.sh`
+- `./scripts/architecture/verify-shared-contracts.sh`
+- `./scripts/windows/verify/verify-windows-boundaries.sh`
+- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
+- `./scripts/agent-notes/verify-agent-notes.sh`
 
 Rust 通过虚拟时间和内存协议连接验证超过一小时的静默、超过十分钟的工具进度、
 多个授权答复、停止确认及首次连接的重连预算；已有工作后的恢复超过二十秒并收到

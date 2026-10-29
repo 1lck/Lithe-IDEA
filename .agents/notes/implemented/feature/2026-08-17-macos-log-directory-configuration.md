@@ -65,11 +65,11 @@
 
 ## 验证
 
-- `./scripts/test-macos.sh`
-- `./scripts/verify-service-boundaries.sh`
+- `./scripts/macos/test/test-macos.sh`
+- `./scripts/architecture/verify-service-boundaries.sh`
 - `macos/Tests/LitheTests/MacApplicationLogWriterTests.swift`
 - `macos/Tests/LitheTests/AppLocalizationTests.swift`
-- `./scripts/verify-agent-notes.sh`
+- `./scripts/agent-notes/verify-agent-notes.sh`
 
 测试覆盖 macOS 默认日志目录、切换目录后的后续写入、设置文案和诊断导出
 使用的统一 `applicationLogFileURL`。

@@ -63,8 +63,8 @@ IDEA 参考版本为 `fb72b4df43aba102479eb0502d20b03586b9c5b8`：
 - 浏览器组件探针检查真实输入居中、间距、按钮尺寸、手动输入及相同滚轮事件的位移。
   组件探针不等于完整 WebView2 应用与 IDEA 的帧性能对照。
 - 运行 `.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend`、
-  `scripts/build-windows.ps1 -Configuration Release`、`scripts/verify-windows-boundaries.sh`、
-  `scripts/verify-runtime-bundle-immutability.sh`、`scripts/verify-platform-feature-matrix.sh` 和 `scripts/verify-agent-notes.sh`。
+  `scripts/windows/build/build-windows.ps1 -Configuration Release`、`scripts/windows/verify/verify-windows-boundaries.sh`、
+  `scripts/macos/verify/verify-runtime-bundle-immutability.sh`、`scripts/platform-feature-matrix/verify-platform-feature-matrix.sh` 和 `scripts/agent-notes/verify-agent-notes.sh`。
 
 ## 适用范围
 

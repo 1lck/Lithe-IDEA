@@ -174,15 +174,15 @@ Windows 是独立前端实现，写入进行中到期的那次延迟自动保存
 ## 验证
 
 共享 fixture 位于 `shared/fixtures/documents/lifecycle-v1.json`。
-运行 `./scripts/verify-shared-contracts.sh`、`./scripts/verify-rust-core.sh`、
-`./scripts/verify-core.sh` 和 `./scripts/verify-rust-core-comments.sh`。
+运行 `./scripts/architecture/verify-shared-contracts.sh`、`./scripts/rust-core/verify-rust-core.sh`、
+`./scripts/architecture/verify-core.sh` 和 `./scripts/rust-core/verify-rust-core-comments.sh`。
 
-macOS 使用 `./scripts/test-macos.sh` 及
+macOS 使用 `./scripts/macos/test/test-macos.sh` 及
 `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh`，验证等长同时间
 修改、缺失重建、过期基线、Unicode 字节差异、异步保存期间输入及关闭流程。
 `DocumentSaveBatchTests` 验证跨工作区保存后的新输入和新增会话；
 `MacDocumentObservationTests` 验证普通事件路径筛选、目录替换和丢失事件恢复。
-Windows 使用 `./scripts/build-windows.ps1 -Configuration Release`，以及
+Windows 使用 `./scripts/windows/build/build-windows.ps1 -Configuration Release`，以及
 `./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1`；原生测试覆盖
 替换通知、多窗口释放、提交前变化与暂存清理，前端测试覆盖注册代次、保存延后
 核对和冲突选择。连续打断后的调度、保存等待和关闭取消使用手动调度器验证，
@@ -192,8 +192,8 @@ Windows 使用 `./scripts/build-windows.ps1 -Configuration Release`，以及
 交替使用有界测试门控制顺序。Windows CI 显式运行文档监听控制器测试，并在
 WindowsRust 范围单独运行 `lithe-project`；只运行宿主不会执行依赖包内的测试。
 
-边界和笔记分别使用 `./scripts/verify-service-boundaries.sh`、
-`./scripts/verify-windows-boundaries.sh`、`./scripts/verify-agent-notes.sh`。
+边界和笔记分别使用 `./scripts/architecture/verify-service-boundaries.sh`、
+`./scripts/windows/verify/verify-windows-boundaries.sh`、`./scripts/agent-notes/verify-agent-notes.sh`。
 实际运行结果和未通过的既有测试写入交付说明；单元测试不冒充完整产品界面验收。
 
 ## 适用范围

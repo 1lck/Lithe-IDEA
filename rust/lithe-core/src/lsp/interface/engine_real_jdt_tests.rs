@@ -1,7 +1,8 @@
 //! Opt-in end-to-end checks against a real, packaged JDT LS.
 //!
 //! They run only when `LITHE_JDTLS_SMOKE_ROOT` names a directory prepared by
-//! `scripts/prepare-jdtls.{sh,ps1}`, `LITHE_JDTLS_SMOKE_JAVA` names the Java
+//! `scripts/macos/prepare/prepare-jdtls.sh` or
+//! `scripts/windows/prepare/prepare-jdtls.ps1`, `LITHE_JDTLS_SMOKE_JAVA` names the Java
 //! executable that runs JDT LS, and `LITHE_JDTLS_SMOKE_PROJECT_JDK` names a
 //! JDK 25 home for the fixture project. Optional `LITHE_JDTLS_SMOKE_MAVEN`
 //! names Maven so the discovered composed and inherited tests are also run.

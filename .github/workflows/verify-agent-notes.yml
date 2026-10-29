@@ -6,9 +6,9 @@ on:
     paths:
       - ".agents/notes/**"
       - ".agents/skills/agent-notes/**"
-      - "scripts/agent-notes-parser.mjs"
-      - "scripts/verify-agent-notes.mjs"
-      - "scripts/verify-agent-notes.sh"
+      - "scripts/agent-notes/agent-notes-parser.mjs"
+      - "scripts/agent-notes/verify-agent-notes.mjs"
+      - "scripts/agent-notes/verify-agent-notes.sh"
       - ".github/workflows/deploy-agent-notes-board.yml"
       - ".github/workflows/verify-agent-notes.yml"
   workflow_dispatch:
@@ -34,4 +34,4 @@ jobs:
           node-version: 20
 
       - name: Verify Agent Notes
-        run: node scripts/verify-agent-notes.mjs
+        run: node scripts/agent-notes/verify-agent-notes.mjs

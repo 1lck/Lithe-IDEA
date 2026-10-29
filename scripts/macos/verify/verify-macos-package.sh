@@ -1,0 +1,322 @@
+#!/bin/zsh
+set -euo pipefail
+
+ROOT_DIR="${0:A:h:h:h:h}"
+cd "$ROOT_DIR"
+SLIM=false
+case "${1:-}" in
+    --slim) SLIM=true ;;
+    "") ;;
+    *) print -u2 -- "Usage: $0 [--slim]"; exit 2 ;;
+esac
+
+java_debug_server_version="$(
+    /usr/bin/plutil -extract javaDebugServerVersion raw -o - third_party/jdtls/manifest.json
+)"
+java_debug_plugin_name="com.microsoft.java.debug.plugin-$java_debug_server_version.jar"
+java_test_plugin_version="$(
+    /usr/bin/plutil -extract javaTestPluginVersion raw -o - third_party/jdtls/manifest.json
+)"
+java_test_plugin_name="com.microsoft.java.test.plugin-$java_test_plugin_version.jar"
+java_test_runner_name="com.microsoft.java.test.runner-jar-with-dependencies.jar"
+# Java Support names its launcher exactly, so the fixture uses the same name.
+java_plugin_manifest="$ROOT_DIR/Plugins/mac/Official/JavaSupport/plugin.json"
+java_launcher_path=$(/usr/bin/plutil -extract languageServers.0.launch.entry raw "$java_plugin_manifest")
+java_launcher_name="${java_launcher_path:t}"
+java_plugin_package="Contents/Resources/OfficialPlugins/dev.lithe.plugin.java-support"
+
+temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/lithe-package-verification.XXXXXX")
+trap 'rm -rf -- "$temporary_directory"' EXIT
+jdtls_root="$temporary_directory/jdtls"
+arm64_jdk_root="$temporary_directory/jdk-arm64"
+x86_64_jdk_root="$temporary_directory/jdk-x86_64"
+dist_root="$temporary_directory/dist"
+package_log="$temporary_directory/package.log"
+dmg_log="$temporary_directory/dmg.log"
+marketplace_index="$ROOT_DIR/Plugins/marketplace/index.json"
+if [[ "$SLIM" == true ]]; then
+    marketplace_index="$temporary_directory/published-index.fixture.json"
+    node --input-type=module - "$marketplace_index" <<'NODE'
+import { writeFileSync } from "node:fs";
+import { loadConfig, releaseFor, updateIndex } from "./scripts/plugins/official-plugin-releases.mjs";
+const release = releaseFor(loadConfig().find((plugin) => plugin.id === "dev.lithe.plugin.java-support"));
+writeFileSync(process.argv[2], JSON.stringify(updateIndex({ schemaVersion: 1, plugins: [] }, release, {
+    checksums: Object.fromEntries(release.assets.map((asset, i) => [asset.assetName, String(i + 1).repeat(64)])),
+    releaseDate: "2026-10-25",
+})));
+NODE
+fi
+bundle_java=$(node scripts/plugins/official-plugin-distribution.mjs dev.lithe.plugin.java-support "$marketplace_index")
+
+# The package smoke test validates assembly rather than third-party downloads.
+# This fixture satisfies prepare-jdtls.sh's production layout checks while
+# keeping CI deterministic and independent of the Eclipse download service.
+mkdir -p \
+    "$jdtls_root/plugins" \
+    "$jdtls_root/features" \
+    "$jdtls_root/config_mac_arm" \
+    "$jdtls_root/config_mac" \
+    "$jdtls_root/config_win" \
+    "$jdtls_root/bin" \
+    "$jdtls_root/lombok" \
+    "$jdtls_root/java-debug" \
+    "$jdtls_root/java-test/extensions" \
+    "$jdtls_root/java-test/runner"
+cat > "$jdtls_root/bin/jdtls" <<'LAUNCHER'
+#!/bin/zsh
+java_agent_argument="-javaagent:../lombok/lombok.jar"
+print -r -- "$java_agent_argument"
+LAUNCHER
+chmod +x "$jdtls_root/bin/jdtls"
+cat > "$jdtls_root/bin/jdtls.ps1" <<'LAUNCHER'
+$javaAgentArgument = "-javaagent:../lombok/lombok.jar"
+Write-Output $javaAgentArgument
+LAUNCHER
+: > "$jdtls_root/lombok/lombok.jar"
+: > "$jdtls_root/lombok/LICENSE-MIT.txt"
+: > "$jdtls_root/plugins/$java_launcher_name"
+print -r -- '{"version":"0.0.0"}' > "$jdtls_root/manifest.json"
+: > "$jdtls_root/LICENSE-EPL-2.0.txt"
+: > "$jdtls_root/config_mac_arm/config.ini"
+: > "$jdtls_root/config_mac/config.ini"
+: > "$jdtls_root/java-debug/$java_debug_plugin_name"
+: > "$jdtls_root/java-debug/LICENSE-EPL-1.0.txt"
+java_test_extension_bundles=(
+    "junit-jupiter-api_5.9.3.jar"
+    "junit-jupiter-engine_5.9.3.jar"
+    "junit-jupiter-migrationsupport_5.9.3.jar"
+    "junit-jupiter-params_5.9.3.jar"
+    "junit-platform-commons_1.9.3.jar"
+    "junit-platform-engine_1.9.3.jar"
+    "junit-platform-launcher_1.9.3.jar"
+    "junit-platform-runner_1.9.3.jar"
+    "junit-platform-suite-api_1.9.3.jar"
+    "junit-platform-suite-commons_1.9.3.jar"
+    "junit-platform-suite-engine_1.9.3.jar"
+    "junit-vintage-engine_5.9.3.jar"
+    "org.apiguardian.api_1.1.2.jar"
+    "org.eclipse.jdt.junit4.runtime_1.3.0.v20220609-1843.jar"
+    "org.eclipse.jdt.junit5.runtime_1.1.100.v20220907-0450.jar"
+    "org.opentest4j_1.2.0.jar"
+    "org.jacoco.core_0.8.12.202403310830.jar"
+    "$java_test_plugin_name"
+)
+for bundle in "${java_test_extension_bundles[@]}"; do
+    : > "$jdtls_root/java-test/extensions/$bundle"
+    print -r -- "$bundle" >> "$jdtls_root/java-test/extensions.txt"
+done
+: > "$jdtls_root/java-test/runner/$java_test_runner_name"
+: > "$jdtls_root/java-test/LICENSE-MIT.txt"
+
+if [[ "$bundle_java" == true ]]; then
+for missing_configuration in config_mac_arm config_mac; do
+    broken_jdtls_root="$temporary_directory/jdtls-missing-$missing_configuration"
+    cp -R "$jdtls_root" "$broken_jdtls_root"
+    rm -rf -- "$broken_jdtls_root/$missing_configuration"
+    failure_log="$temporary_directory/missing-$missing_configuration.log"
+    if env -u LITHE_ARCH \
+        LITHE_JDTLS_ROOT="$broken_jdtls_root" \
+        LITHE_JDK_ROOT="$temporary_directory/invalid-jdk" \
+        scripts/macos/package/package-app.sh > "$failure_log" 2>&1; then
+        print -u2 -- "Default universal packaging accepted JDTLS without $missing_configuration"
+        exit 1
+    fi
+    if ! grep -Fq "JDTLS $missing_configuration configuration is missing" "$failure_log"; then
+        print -u2 -- "Default universal packaging did not validate $missing_configuration before building"
+        cat "$failure_log" >&2
+        exit 1
+    fi
+done
+fi
+
+cat > "$temporary_directory/java.c" <<'SOURCE'
+int main(void) { return 0; }
+SOURCE
+for jdk_arch in arm64 x86_64; do
+    jdk_root="$temporary_directory/jdk-$jdk_arch"
+    mkdir -p "$jdk_root/bin" "$jdk_root/lib"
+    xcrun clang -arch "$jdk_arch" "$temporary_directory/java.c" -o "$jdk_root/bin/java"
+    cat > "$jdk_root/release" <<'RELEASE'
+JAVA_VERSION="21.0.0"
+RELEASE
+done
+
+# Missing download inputs prove slim assembly never prepares Java resources.
+if [[ "$bundle_java" == false ]]; then
+    jdtls_root="$temporary_directory/must-not-read-jdtls"
+    arm64_jdk_root="$temporary_directory/must-not-read-arm64-jdk"
+    x86_64_jdk_root="$temporary_directory/must-not-read-x64-jdk"
+fi
+env -u LITHE_ARCH -u LITHE_JDK_ROOT \
+    LITHE_OFFICIAL_PLUGIN_INDEX="$marketplace_index" \
+    LITHE_DIST_ROOT="$dist_root" \
+    LITHE_JDTLS_ROOT="$jdtls_root" \
+    LITHE_JDK_ARM64_ROOT="$arm64_jdk_root" \
+    LITHE_JDK_X86_64_ROOT="$x86_64_jdk_root" \
+    LITHE_CODESIGN_IDENTITY="-" \
+    scripts/macos/package/package-app.sh | tee "$package_log"
+
+app_path="$(tail -n 1 "$package_log")"
+expected_app_path="$dist_root/Lithe.app"
+if [[ "$app_path" != "$expected_app_path" ]]; then
+    print -u2 -- "Unexpected packaged app path: $app_path"
+    exit 1
+fi
+
+required_executables=(
+    "$app_path/Contents/MacOS/Lithe"
+    "$app_path/Contents/Frameworks/Sparkle.framework/Sparkle"
+    "$app_path/Contents/Frameworks/Sparkle.framework/Versions/B/Autoupdate"
+    "$app_path/Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app/Contents/MacOS/Updater"
+    "$app_path/Contents/Helpers/lithe-mcp"
+)
+for executable in "${required_executables[@]}"; do
+    if [[ ! -x "$executable" ]]; then
+        print -u2 -- "Packaged executable is missing: $executable"
+        exit 1
+    fi
+done
+
+required_resources=(
+    "$app_path/Contents/Info.plist"
+    "$app_path/Contents/Resources/Lithe_Lithe.bundle"
+    "$app_path/Contents/Resources/Fonts/Inter-Black.otf"
+    "$app_path/Contents/Resources/Fonts/Inter-BlackItalic.otf"
+    "$app_path/Contents/Resources/Fonts/Inter-Bold.otf"
+    "$app_path/Contents/Resources/Fonts/Inter-BoldItalic.otf"
+    "$app_path/Contents/Resources/Fonts/Inter-ExtraBold.otf"
+    "$app_path/Contents/Resources/Fonts/Inter-ExtraBoldItalic.otf"
+    "$app_path/Contents/Resources/Fonts/Inter-ExtraLight.otf"
+    "$app_path/Contents/Resources/Fonts/Inter-ExtraLightItalic.otf"
+    "$app_path/Contents/Resources/Fonts/Inter-Italic.otf"
+    "$app_path/Contents/Resources/Fonts/Inter-Light.otf"
+    "$app_path/Contents/Resources/Fonts/Inter-LightItalic.otf"
+    "$app_path/Contents/Resources/Fonts/Inter-Medium.otf"
+    "$app_path/Contents/Resources/Fonts/Inter-MediumItalic.otf"
+    "$app_path/Contents/Resources/Fonts/Inter-Regular.otf"
+    "$app_path/Contents/Resources/Fonts/Inter-SemiBold.otf"
+    "$app_path/Contents/Resources/Fonts/Inter-SemiBoldItalic.otf"
+    "$app_path/Contents/Resources/Fonts/Inter-Thin.otf"
+    "$app_path/Contents/Resources/Fonts/Inter-ThinItalic.otf"
+    "$app_path/Contents/Resources/Fonts/Inter-LICENSE.txt"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMono-Bold.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMono-BoldItalic.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMono-ExtraBold.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMono-ExtraBoldItalic.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMono-ExtraLight.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMono-ExtraLightItalic.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMono-Italic.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMono-Light.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMono-LightItalic.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMono-Medium.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMono-MediumItalic.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMono-Regular.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMono-SemiBold.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMono-SemiBoldItalic.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMono-Thin.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMono-ThinItalic.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMonoNerdFontMono-Regular.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMonoNerdFontMono-Bold.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMonoNerdFontMono-Italic.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMonoNerdFontMono-BoldItalic.ttf"
+    "$app_path/Contents/Resources/Fonts/JetBrainsMonoNerdFont-OFL.txt"
+    "$app_path/Contents/Resources/Fonts/OFL.txt"
+    "$app_path/Contents/Resources/Fonts/AUTHORS.txt"
+    "$app_path/Contents/Resources/Fonts/NOTICE.txt"
+    "$app_path/Contents/Resources/SwiftTerm_SwiftTerm.bundle/Shaders.metal"
+    "$app_path/Contents/Resources/MonacoEditor/index.html"
+    "$app_path/Contents/Resources/MonacoEditor/workbench.js"
+    "$app_path/Contents/Resources/MonacoEditor/workbench.css"
+    "$app_path/Contents/Resources/MonacoEditor/worker.js"
+    "$app_path/Contents/Resources/MonacoEditor/textmate-worker.js"
+    "$app_path/Contents/Resources/MonacoEditor/onig.wasm"
+    "$app_path/Contents/Resources/MonacoEditor/java.tmLanguage.json"
+    "$app_path/Contents/Resources/MonacoEditor/MONACO-LICENSE.txt"
+    "$app_path/Contents/Resources/MonacoEditor/TEXTMATE-LICENSE.md"
+    "$app_path/Contents/Resources/MonacoEditor/ONIGURUMA-LICENSE.txt"
+    "$app_path/Contents/Resources/MonacoEditor/VSCODE-LICENSE.txt"
+    "$app_path/Contents/Resources/MonacoEditor/TEXTMATE-NOTICE.txt"
+)
+if [[ "$bundle_java" == true ]]; then
+required_resources+=(
+    "$app_path/$java_plugin_package/plugin.json"
+    "$app_path/$java_plugin_package/$java_launcher_path"
+    "$app_path/$java_plugin_package/language-server/configuration/arm64/config.ini"
+    "$app_path/$java_plugin_package/language-server/configuration/x86_64/config.ini"
+    "$app_path/$java_plugin_package/language-server/lombok/lombok.jar"
+    "$app_path/$java_plugin_package/language-server/java-debug/$java_debug_plugin_name"
+    "$app_path/$java_plugin_package/language-server/java-debug/LICENSE-EPL-1.0.txt"
+    "$app_path/$java_plugin_package/language-server/java-test/extensions/$java_test_plugin_name"
+    "$app_path/$java_plugin_package/language-server/java-test/runner/$java_test_runner_name"
+    "$app_path/$java_plugin_package/language-server/java-test/LICENSE-MIT.txt"
+    "$app_path/$java_plugin_package/runtime/arm64/bin/java"
+    "$app_path/$java_plugin_package/runtime/arm64/lib"
+    "$app_path/$java_plugin_package/runtime/x86_64/bin/java"
+    "$app_path/$java_plugin_package/runtime/x86_64/lib"
+    "$app_path/$java_plugin_package/icons/java.svg"
+    "$app_path/$java_plugin_package/templates/java/maven/pom.xml"
+)
+else
+    if [[ -e "$app_path/$java_plugin_package" ]]; then
+        print -u2 -- "Slim app must not contain Java Support"
+        exit 1
+    fi
+    if find "$app_path/Contents" -type f \( -name 'org.eclipse.jdt.ls.core_*.jar' -o -name 'libjvm.dylib' \) | /usr/bin/grep -q .; then
+        print -u2 -- "Slim app must not contain another JDT LS or JDK copy"
+        exit 1
+    fi
+fi
+for resource in "${required_resources[@]}"; do
+    if [[ ! -e "$resource" ]]; then
+        print -u2 -- "Packaged resource is missing: $resource"
+        exit 1
+    fi
+done
+/usr/bin/lipo "$app_path/Contents/MacOS/Lithe" -verify_arch arm64 x86_64
+/usr/bin/lipo "$app_path/Contents/Frameworks/Sparkle.framework/Sparkle" -verify_arch arm64 x86_64
+/usr/bin/otool -l "$app_path/Contents/MacOS/Lithe" | /usr/bin/grep -F '@executable_path/../Frameworks' >/dev/null
+if [[ "$bundle_java" == true ]]; then
+/usr/bin/lipo \
+    "$app_path/$java_plugin_package/runtime/arm64/bin/java" \
+    -verify_arch arm64
+/usr/bin/lipo \
+    "$app_path/$java_plugin_package/runtime/x86_64/bin/java" \
+    -verify_arch x86_64
+fi
+# JDT LS and its JDK belong to the Java Support plugin package. The
+# application itself must not carry a second copy outside that package.
+if [[ -e "$app_path/Contents/Resources/LanguageServers" ]]; then
+    print -u2 -- "Packaged app must not contain language servers outside plugin packages"
+    exit 1
+fi
+
+# Go and PHP support moved to community plugins in Lithe Store. The app must
+# not carry their retired official packages; the marketplace index below is
+# the offline catalog for downloadable official plugins.
+for optional_plugin in dev.lithe.plugin.php-support dev.lithe.plugin.go-support; do
+    if [[ -e "$app_path/Contents/Resources/OfficialPlugins/$optional_plugin" ]]; then
+        print -u2 -- "Optional plugin $optional_plugin must not be bundled with Lithe"
+        exit 1
+    fi
+done
+
+if ! cmp -s "$app_path/Contents/Resources/PluginMarketplace/index.json" "$marketplace_index"; then
+    print -u2 -- "Packaged app must contain the official plugin marketplace index"
+    exit 1
+fi
+
+/usr/bin/codesign --verify --deep --strict "$app_path"
+
+env -u LITHE_ARCH \
+    LITHE_DIST_ROOT="$dist_root" \
+    LITHE_VERSION="ci-smoke" \
+    scripts/macos/package/create-dmg.sh | tee "$dmg_log"
+dmg_path="$(tail -n 1 "$dmg_log")"
+expected_dmg_path="$dist_root/Lithe-ci-smoke.dmg"
+if [[ "$dmg_path" != "$expected_dmg_path" || ! -s "$dmg_path" ]]; then
+    print -u2 -- "Disk image was not created at the expected path: $dmg_path"
+    exit 1
+fi
+hdiutil imageinfo "$dmg_path" > /dev/null
+
+print -- "macOS package and disk image verification passed for the universal architecture (Java bundled: $bundle_java)"
