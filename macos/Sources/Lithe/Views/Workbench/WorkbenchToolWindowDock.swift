@@ -194,21 +194,12 @@ final class WorkbenchToolContentStore: ObservableObject {
 
     final class Surface: NSView {
         weak var store: WorkbenchToolContentStore?
-        private var testingUnderlyingContent = false
         override func hitTest(_ point: NSPoint) -> NSView? {
-            guard !testingUnderlyingContent else { return nil }
             let hit = super.hitTest(point)
             guard let hit, hit !== self else { return nil }
-            // Ask the native layout below this overlay first: its divider's
-            // 10pt target extends beyond the 5pt gap into the retained panes.
-            testingUnderlyingContent = true
-            defer { testingUnderlyingContent = false }
-            if let root = window?.contentView,
-               let handle = root.hitTest(root.superview?.convert(point, from: superview) ?? point)
-                    as? SplitHandleInteractionView {
-                return handle
-            }
-            return hit
+            // Native geometry preserves the expanded divider target without
+            // synchronously reentering an ancestor's active SwiftUI hit test.
+            return store?.splitHandleHitTests.handle(at: convert(point, from: superview), in: self) ?? hit
         }
         override func accessibilityChildren() -> [Any]? {
             NSAccessibility.unignoredChildren(from: subviews.filter { !$0.isHidden })
@@ -227,6 +218,7 @@ final class WorkbenchToolContentStore: ObservableObject {
     }
 
     let surface = Surface()
+    let splitHandleHitTests = SplitHandleHitTestRegistry()
     private(set) var entries: [WorkbenchFeatureModel.ToolWindow: Entry] = [:]
 
     init() { surface.store = self }
@@ -311,7 +303,8 @@ extension View {
     func workbenchToolContentLayers<DropPreview: View>(
         store: WorkbenchToolContentStore, @ViewBuilder dropPreview: () -> DropPreview
     ) -> some View {
-        self.overlay { WorkbenchToolContentSurface(store: store) }
+        self.environment(\.splitHandleHitTestRegistry, store.splitHandleHitTests)
+            .overlay { WorkbenchToolContentSurface(store: store) }
             .overlay { dropPreview().allowsHitTesting(false) }
     }
 }

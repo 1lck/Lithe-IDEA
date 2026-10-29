@@ -205,21 +205,30 @@ struct DiffScrollSynchronizationTests {
         #expect(sync.scrollView(.left) == nil && sync.scrollView(.right) == nil, "Unmounting removes clip observers")
     }
 
-    @Test
-    func collapsedDiffHandleKeepsEventsInsideWorkbenchAndCanReopen() async throws {
+    @Test(arguments: [false, true])
+    func collapsedDiffHandleKeepsEventsInsideWorkbenchAndCanReopen(retainsSidebars: Bool) async throws {
         let rows = rows()
         let display = rows.enumerated().map { DiffDisplayRow.row($0.element, index: $0.offset) }
         let layout = DiffSplitLayout.plan(displayRows: display, kinds: rows.map(\.kind))
         var outerDrags = 0
+        let store = WorkbenchToolContentStore()
         let hosting = NSHostingView(rootView: HStack(spacing: 0) {
-            Color(red: 1, green: 0, blue: 0).frame(width: 80)
+            Group {
+                if retainsSidebars {
+                    RetainedWorkbenchToolContent(store: store, tool: .gitLog, content: Color(red: 1, green: 0, blue: 0))
+                } else { Color(red: 1, green: 0, blue: 0) }
+            }.frame(width: 80)
             SplitHandleView(axis: .horizontal, onDragStarted: { outerDrags += 1 }, onDragChanged: { _ in }, onDragEnded: { _ in })
             DiffSplitPaneView(displayRows: display, kinds: rows.map(\.kind), layout: layout,
                 fileExtension: "swift", contentWidth: 1_600, viewportWidth: 900,
                 header: { _ in AnyView(Color(red: 1, green: 0, blue: 0).frame(height: 29)) }, onExpand: { _ in }).frame(width: 900)
             SplitHandleView(axis: .horizontal, onDragStarted: { outerDrags += 1 }, onDragChanged: { _ in }, onDragEnded: { _ in })
-            Color(red: 1, green: 0, blue: 0).frame(width: 80)
-        })
+            Group {
+                if retainsSidebars {
+                    RetainedWorkbenchToolContent(store: store, tool: .terminal, content: Color(red: 1, green: 0, blue: 0))
+                } else { Color(red: 1, green: 0, blue: 0) }
+            }.frame(width: 80)
+        }.workbenchToolContentLayers(store: store) { EmptyView() })
         hosting.frame = NSRect(x: 0, y: 0, width: 1_070, height: 250)
         let window = NSWindow(contentRect: hosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = hosting; window.orderFront(nil)
