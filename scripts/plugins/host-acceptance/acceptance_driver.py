@@ -702,17 +702,20 @@ class AppSession:
     def stop(self, require_graceful: bool = True) -> dict:
         if self.process is None:
             return {"forced": False, "tree": []}
-        current_tree = process_tree(self.process.pid) if self.root_owner is not None and self.root_owner.running() else []
-        if self.root_owner is not None:
-            self.owned_tree = list(dict.fromkeys(self.owned_tree + capture_owned_tree(self.root_owner, current_tree)))
-        tree = list({
-            int(item["ProcessId"]): item
-            for item in self.initial_tree + current_tree
-        }.values())
-        attempt = {"shutdownPath": "application-quit-event", "forced": False, "tree": tree,
+        attempt = {"shutdownPath": "application-quit-event", "forced": False, "tree": [],
                    "observerDetachedAfterWindowClose": False, "quitRequest": None, "survivorsBeforeCleanup": []}
         self.stop_attempts.append(attempt)
         try:
+            # Inspection can fail while a short-lived browser child exits. Keep
+            # that failure inside the cleanup owner, preserving retained handles.
+            current_tree = process_tree(self.process.pid) if self.root_owner is not None and self.root_owner.running() else []
+            if self.root_owner is not None:
+                self.owned_tree = list(dict.fromkeys(self.owned_tree + capture_owned_tree(self.root_owner, current_tree)))
+            tree = list({
+                int(item["ProcessId"]): item
+                for item in self.initial_tree + current_tree
+            }.values())
+            attempt["tree"] = tree
             attempt["nativeWindowInventory"] = application_window_inventory(self.root_owner) if self.root_owner is not None else []
             if self.root_owner is not None and self.root_owner.running():
                 if self.page is None or self.page.is_closed():

@@ -710,7 +710,35 @@ def main() -> int:
             recorded = json.loads((root / "logs/app-1.stop.json").read_text(encoding="utf-8"))
             assert recorded[1]["forced"] is True and "left survivors" in recorded[1]["error"]
 
+    def session_inspection_failure_keeps_cleanup_and_evidence_owned():
+        with tempfile.TemporaryDirectory(prefix="lithe-session-inspection-") as directory:
+            root = Path(directory)
+            session = driver.AppSession(None, root / "app.exe", root, root / "webview", root / "logs", 1)
+            owner, child = MagicMock(pid=101), MagicMock(pid=102)
+            owner.running.return_value = child.running.return_value = True
+            session.root_owner = owner
+            session.owned_tree = [child]
+            session.process = MagicMock(pid=101, returncode=0)
+            session.process.poll.return_value = 0
+            def cleanup(pid):
+                assert pid == 101
+                owner.running.return_value = child.running.return_value = False
+            with patch.object(driver, "process_tree", side_effect=RuntimeError("identity inspection failed")):
+                with patch.object(driver, "terminate_process_tree", side_effect=cleanup) as terminate:
+                    try:
+                        session.stop()
+                    except RuntimeError as error:
+                        assert str(error) == "identity inspection failed"
+                    else:
+                        raise AssertionError("an inspection failure was accepted as graceful shutdown")
+                    terminate.assert_called_once_with(101)
+            assert not owner.running() and not child.running()
+            recorded = json.loads((root / "logs/app-1.stop.json").read_text(encoding="utf-8"))
+            assert recorded[0]["forced"] is True
+            assert recorded[0]["error"] == "RuntimeError: identity inspection failed"
+
     try:
+        run_case("session inspection failure cleans retained owners and preserves failure evidence", session_inspection_failure_keeps_cleanup_and_evidence_owned, tests)
         run_case("bounded process captures a successful child", completes, tests)
         run_case("process output decodes UTF-8 and replaces malformed bytes", output_is_utf8_and_loss_tolerant, tests)
         run_case("inspection errors cannot become an empty process tree", inspection_failure_is_not_an_empty_tree, tests)

@@ -447,6 +447,9 @@ async fn open_page(
                 builder
                     .parent_raw(caller.hwnd().map_err(|error| error.to_string())?)
                     .decorations(false)
+                    // Tao reserves non-client insets for borderless shadows.
+                    // A workbench child must align its client origin to the DOM.
+                    .shadow(false)
                     .resizable(false)
                     .minimizable(false)
                     .maximizable(false)
