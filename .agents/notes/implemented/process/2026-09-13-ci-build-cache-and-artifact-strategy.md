@@ -435,7 +435,7 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 - `./scripts/plugins/build-official-plugins.sh --configuration debug --triple x86_64-apple-macosx`
 - `./scripts/rust-core/verify-rust-core.sh`
 - `./scripts/windows/verify/verify-windows-boundaries.sh`
-- `node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --working-directory . --max-ms 30000 --report .artifacts/test-stability/windows-dependency-install.json -- scripts/windows/test/windows-frontend-install.test.ts`：Windows 无网络夹具用 IPC 确认子进程占用目录，再让安装失败，验证清理后冷重试成功、永久失败仍报错、成功退出也不留子进程、超时触发本地期限，且不清除有效缓存。
+- `node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --working-directory . --max-ms 30000 --report .artifacts/test-stability/windows-dependency-install.json -- scripts/windows/build/windows-frontend-install.test.ts`：Windows 无网络夹具用 IPC 确认子进程占用目录，再让安装失败，验证清理后冷重试成功、永久失败仍报错、成功退出也不留子进程、超时触发本地期限，且不清除有效缓存。
 - `gh run download <run-id> --repo 1lck/Lithe-IDEA --pattern 'Lithe-macos-*'`
 - `gh workflow run release-preview-windows.yml -f source_branch=<branch>`
 
@@ -452,7 +452,7 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 - `scripts/ci/common/classify-ci-changes.sh`
 - `scripts/windows/build/install-windows-frontend-dependencies.ps1`
 - `scripts/windows/build/invoke-windows-bun-install.ps1`
-- `scripts/windows/test/windows-frontend-install.test.ts`
+- `scripts/windows/build/windows-frontend-install.test.ts`
 - `scripts/ci/common/test-classify-ci-changes.sh`
 - `scripts/macos/build/build-macos.sh`
 - `scripts/macos/build/build-macos.test.mjs`

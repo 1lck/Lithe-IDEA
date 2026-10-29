@@ -176,7 +176,7 @@ jobs:
         shell: pwsh
         # Native PowerShell/Job Object startup and owned-process cleanup need
         # headroom beyond the fixture's separate five second install deadlines.
-        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --working-directory . --max-ms 60000 --suite-timeout-ms 180000 --report .artifacts/test-stability/windows-dependency-install.json -- scripts/windows/test/windows-frontend-install.test.ts
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --working-directory . --max-ms 60000 --suite-timeout-ms 180000 --report .artifacts/test-stability/windows-dependency-install.json -- scripts/windows/build/windows-frontend-install.test.ts
 
       - name: Configure isolated dependency caches
         shell: pwsh

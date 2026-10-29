@@ -58,8 +58,9 @@ export const CI_INFRA_RULES = Object.freeze([
   { pattern: /^scripts\/ci\/common\/(test-)?classify-ci-changes\.sh$/, workflows: ALL_WORKFLOWS },
   { pattern: /^scripts\/ci\/common\/(plan-ci-lane-reuse|verify-reused-ci-jobs)(\.test)?\.mjs$/, workflows: ALL_WORKFLOWS },
   { pattern: /^scripts\/(macos\/test\/test-macos|rust-core\/build-rust-core|macos\/prepare\/(prepare-macos-dependencies|validate-macos-dependency-caches)|rust-core\/verify-rust-core[a-z-]*)\.sh$/, workflows: MACOS_FAMILY },
-  // Windows-named scripts live in several category directories, so match the file name anywhere below scripts/.
-  { pattern: /^scripts\/(?:[^/]+\/)*[^/]*windows[^/]*\.(ps1|mjs|ts)$/i, workflows: ['windows'] },
+  // Windows scripts are routed by directory, like the classifier does. The one Windows-only
+  // script that stays with its cross-platform domain is listed by name.
+  { pattern: /^scripts\/(windows|release\/windows)\/|^scripts\/ide-mcp\/build-windows-ide-mcp\.mjs$/, workflows: ['windows'] },
   { pattern: /^(Package\.swift|Package\.resolved|\.swift-version)$/, workflows: MACOS_FAMILY },
   { pattern: /^(package\.json|bun\.lock|bunfig\.toml)$/, workflows: ALL_WORKFLOWS },
   // The shared Monaco editor feeds the macOS package and the Windows frontend,

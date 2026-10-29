@@ -356,10 +356,10 @@ classify_path() {
             rust_core=true
             macos_release=true
             ;;
-        scripts/windows/build/build-windows.ps1|scripts/windows/verify/verify-windows-boundaries.ps1|scripts/windows/verify/verify-windows-boundaries.sh|scripts/windows/prepare/prepare-jdtls.ps1|scripts/windows/prepare/prepare-jdk.ps1|scripts/windows/package/package-windows.ps1|scripts/windows/build/install-windows-frontend-dependencies.ps1|scripts/windows/build/invoke-windows-bun-install.ps1|scripts/windows/test/windows-frontend-install.test.ts|scripts/windows/build/invoke-windows-tauri-build.ps1|scripts/release/windows/create-windows-updater-manifest.ps1|scripts/release/windows/test-windows-updater-manifest.ps1)
+        scripts/windows/build/build-windows.ps1|scripts/windows/verify/verify-windows-boundaries.ps1|scripts/windows/verify/verify-windows-boundaries.sh|scripts/windows/prepare/prepare-jdtls.ps1|scripts/windows/prepare/prepare-jdk.ps1|scripts/windows/package/package-windows.ps1|scripts/windows/build/install-windows-frontend-dependencies.ps1|scripts/windows/build/invoke-windows-bun-install.ps1|scripts/windows/build/windows-frontend-install.test.ts|scripts/windows/build/invoke-windows-tauri-build.ps1|scripts/release/windows/create-windows-updater-manifest.ps1|scripts/release/windows/test-windows-updater-manifest.ps1)
             windows=true
             ;;
-        scripts/prepare-lithe-pr-review.mjs|scripts/test-prepare-lithe-pr-review.mjs|scripts/run-lithe-codex-with-timeout.sh|scripts/ci/update-repo-charts/update-repo-charts.py)
+        scripts/ci/update-repo-charts/update-repo-charts.py)
             ;;
         *)
             # New or unclassified repository areas are validated conservatively

@@ -391,6 +391,13 @@ test('CI infrastructure reaches only the workflows that read it', () => {
     'windows/tauri/rust-toolchain.toml': ['windows'],
     'windows/tauri/package.json': ['windows'],
     'scripts/windows/build/install-windows-frontend-dependencies.ps1': ['windows'],
+    // Routed by directory, so Windows scripts without "windows" in the name are covered too.
+    'scripts/windows/prepare/prepare-jdk.ps1': ['windows'],
+    'scripts/windows/verify/verify-windows-boundaries.sh': ['windows'],
+    'scripts/release/windows/create-windows-updater-manifest.ps1': ['windows'],
+    'scripts/ide-mcp/build-windows-ide-mcp.mjs': ['windows'],
+    // A "windows" substring in the name of a cross-platform script does not make it Windows infrastructure.
+    'scripts/plugins/windows-compat-check.mjs': [],
     '.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1': ['windows'],
     // `.github/` paths follow the given references, whichever workflow asks.
     '.github/workflows/ci-macos.yml': shared,

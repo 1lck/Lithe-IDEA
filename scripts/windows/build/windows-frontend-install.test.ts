@@ -128,7 +128,7 @@ async function withInstaller(mode: string, check: (root: string, result: Awaited
     await fs.mkdir(path.join(root, "bin"));
     await fs.mkdir(path.join(root, ".artifacts/bun-cache"), { recursive: true });
     for (const name of ["install-windows-frontend-dependencies.ps1", "invoke-windows-bun-install.ps1"]) {
-      await fs.copyFile(path.join(scripts, "../build", name), path.join(root, "scripts/windows/build", name));
+      await fs.copyFile(path.join(scripts, name), path.join(root, "scripts/windows/build", name));
     }
     await fs.writeFile(path.join(root, "windows/tauri/package.json"), JSON.stringify({ packageManager: "bun@1.3.12" }));
     await fs.writeFile(path.join(root, ".artifacts/bun-cache/.lithe-integrity.json"), "old manifest");

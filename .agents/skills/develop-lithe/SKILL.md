@@ -92,7 +92,12 @@ macOS 是当前参考产品；Windows 是独立实现，不得导入 Swift 源�
 
 - 没有合适目录时，新建一个以领域或作用命名的目录，并在同一次改动里更新上表；不要新建
   `misc/`、`utils/`、`tools/` 这类不表达作用的目录。
-- 测试脚本与被测脚本放在同一目录，命名沿用 `test-*` 或 `*.test.*`。
+- 例外：属于某个跨平台领域、但只在一个平台上运行的脚本，留在领域目录，文件名带平台名，不放进
+  `scripts/macos/` 或 `scripts/windows/`（例如 `scripts/ide-mcp/build-windows-ide-mcp.mjs`、
+  `scripts/ide-mcp/build-ide-mcp.sh`、`scripts/editor/package-macos-monaco.sh`）。这类脚本要在分类器和
+  `plan-ci-lane-reuse.mjs` 里按完整路径登记，不要靠文件名里的平台子串匹配。
+- 测试脚本与被测脚本放在同一目录，命名沿用 `test-*` 或 `*.test.*`。验收对象不是某个脚本的手动验收脚本
+  （例如验收 Rust 代码的 `scripts/windows/test/test-windows-agent-recycle.ps1`）放在对应平台的 `test/`。
 - 脚本引用同目录文件时，使用相对于脚本自身的位置（`$SCRIPT_DIR`、`import.meta.url`、`__dir__`、
   `$PSScriptRoot`），不要依赖当前工作目录。跨目录引用必须写完整的 `scripts/<分类>/<名字>`，
   Ruby 的 `require_relative` 和 Shell 的 `source` 也要带上相对目录，仅靠文件名搜索会漏掉它们。
@@ -104,6 +109,13 @@ macOS 是当前参考产品；Windows 是独立实现，不得导入 Swift 源�
     `./scripts/ci/common/test-classify-ci-changes.sh` 和
     `node --test scripts/ci/common/plan-ci-lane-reuse.test.mjs`。
   - 会把脚本复制进临时目录的测试夹具要保持相同的目录深度，被复制脚本通过相对路径依赖的文件也要一起复制。
+  - 非脚本文件里写死的脚本路径，没有任何检查会替你发现遗漏，要逐个搜索确认：
+    `windows/tauri/src-tauri/tauri.conf.json` 的 `beforeDevCommand`、`beforeBuildCommand`，
+    `windows/tauri/package.json` 的 `scripts`，`Plugins/marketplace/official-plugins.json` 的 `inputPaths`。
+    `inputPaths` 里的脚本被移动后，已有发布标签的插件会被
+    `node scripts/plugins/official-plugin-releases.mjs check` 判为发布输入变化，需要按发布流程决定是否升版本。
+  - 工作树资源注册表 `scripts/resources/worktree-resources.json` 和 `reuse-worktree-resources.mjs` 里的脚本路径，
+    改完运行 `node --test scripts/resources/test-reuse-worktree-resources.mjs`。
   - 文档、Skill、Agent Note 和 `shared/platform-feature-matrix/` 中写明的路径。
 
 ### 分层边界
