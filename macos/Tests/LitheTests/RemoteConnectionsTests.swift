@@ -428,6 +428,44 @@ struct RemoteWorkspaceRoutingTests {
         #expect(transport.text(at: "/srv/app/a.txt") == "changed elsewhere")
     }
 
+    @Test(arguments: [DocumentHardLinkSaveMode.replaceCurrentPath, .updateLinkedFile])
+    func localHardLinkConsentPassesThroughTheProductionRouter(mode: DocumentHardLinkSaveMode) async throws {
+        let (files, _, transport, _) = routing()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("pom.xml")
+        let alias = directory.appendingPathComponent("alias.xml")
+        try Data("original".utf8).write(to: file)
+        try FileManager.default.linkItem(at: file, to: alias)
+        let read = try #require(try await files.readDocumentDetailsAsync(from: file, encoding: nil))
+        do {
+            _ = try await files.writeDocumentTextAsync("edited", to: file, expectedContent: read.text,
+                encoding: .utf8, expectedIdentity: read.identity)
+            Issue.record("Local hard-link save must first request consent")
+        } catch let required as DocumentHardLinkConfirmationRequired {
+            let result = try await files.writeDocumentTextAsync("edited", to: file, expectedContent: read.text,
+                encoding: .utf8, expectedIdentity: read.identity,
+                hardLinkAuthorization: .init(targetIdentity: required.targetIdentity, mode: mode))
+            guard case .saved = result else { Issue.record("Authorized local write must reach the native adapter"); return }
+        }
+        #expect(try String(contentsOf: file, encoding: .utf8) == "edited")
+        #expect(try String(contentsOf: alias, encoding: .utf8) == (mode == .updateLinkedFile ? "edited" : "original"))
+        #expect(transport.expectedVersions.isEmpty)
+    }
+
+    @Test func localHardLinkConsentCannotAuthorizeARemoteWrite() async {
+        let (files, _, transport, _) = routing()
+        transport.put("original", at: "/srv/app/a.txt")
+        await #expect(throws: CocoaError(.featureUnsupported)) {
+            _ = try await files.writeDocumentTextAsync("edited", to: root.appendingPathComponent("a.txt"),
+                expectedContent: "original", encoding: .utf8, expectedIdentity: nil,
+                hardLinkAuthorization: .init(targetIdentity: "local-only", mode: .updateLinkedFile))
+        }
+        #expect(transport.text(at: "/srv/app/a.txt") == "original")
+        #expect(transport.expectedVersions.isEmpty)
+    }
+
     @Test
     func theTreeListsFoldersFirstAndHidesConfiguredNames() throws {
         let (_, tree, transport, _) = routing()

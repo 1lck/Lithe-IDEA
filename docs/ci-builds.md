@@ -190,6 +190,8 @@ retained. macOS jobs expose artifact links before the combined release publishes
 
 定时任务使用默认分支 `main` 中的工作流，再检出 `preview` 源码。修复发布
 工作流时必须把改动合入 `main`；只修改 `preview` 不会更新每天执行的流程。
+手动运行的 `--ref` 选择工作流版本，`source_branch=preview` 只选择产品源码；
+修复合入 `preview` 后可用 `--ref preview` 验证，但每日发布仍需同步到 `main`。
 保留 `release-preview-macos.yml` 文件；prepare 只采样一次 UTC，从同一秒导出
 `YYYYMMDD.HHMMSS` build（例如 `20261015.124354`）及标准 ISO 时间，并固定源码 SHA
 和版本。顺序来自构建时间，旧 `58.1` 仅兼容作为历史基线。
@@ -210,6 +212,9 @@ gh workflow run release-preview-macos.yml \
 
 不要直接重跑旧的失败任务，它仍然使用旧工作流。确认两个 macOS 架构、Windows
 和 publish job 均成功，再检查安装包和 `appcast-preview-*.xml` 的更新时间。
+macOS 的稳定版与 AutoBuild 共用 75 分钟 job、35 分钟打包、30 分钟 Sparkle
+生成的有界预算；原 30 分钟总上限可能在 Intel 打包成功后取消更新包生成。
+这些期限分别定义在两个工作流中，由同一组离线测试检查，不会随源码分支自动同步。
 公开渠道使用 `autobuild`，基础设施兼容内部 `preview` 开关与既有 appcast 文件名。
 固定 tag 为 `AutoBuild`，标题与正文显示本次 UTC 构建时间。滚动 Release 的最初发布日期
 不代表本次构建日期；以标题、appcast 与安装包中的共享时间为准。
@@ -226,16 +231,14 @@ gh workflow run release-preview-macos.yml \
 源码 SHA、版本、build、ISO 时间及按名称排序的全部目标文件大小与 SHA-256。
 重跑只有在本地生成的检查点与远端逐字节一致时，才允许继续同一次发布；当前 feed
 必须与本地逐字节一致，否则仍走严格递增校验。该恢复允许补齐被中断替换删除的 feed
-或空的 `starter` 上传残片。同时间但源码、插件、安装包或 feed 字节不同，以及更旧
+或空的 `starter` 上传残片。同时间但源码、安装包或 feed 字节不同，以及更旧
 身份遇到较新检查点，都会在远端变更前失败。没有有效检查点不能跳过时间顺序。
 
-`scripts/release/autobuild/publish-autobuild.mjs` 从 prepare SHA 用 `git fetch/show` 把
-`Plugins/marketplace/official-plugins.json` 和 `index.json` 固定到本次临时目录，
-按数值语义版本选择每个已注册可下载插件的最新版本，保留全部下载变体并去重。
-只下载索引指向的 `Lithe-IDEA` 组织 GitHub Release ZIP；仓库重命名重定向由 gh
-处理。Go/PHP 已迁移为 Lithe Store 社区插件，当前没有可下载官方插件，内置 Java 也不属于镜像。先按索引 SHA-256
-验证原始 ZIP，再生成旁路 checksum；不构建、重签插件，也不需要插件私钥。
-索引和上游 canonical URL 不修改，AutoBuild 只是方便手动下载的镜像架。
+`scripts/release/autobuild/publish-autobuild.mjs` 只发布应用安装包和 Sparkle 更新资源，
+不读取或校验官方插件 registry/index，不下载、校验或镜像独立插件包，也不需要插件私钥。
+插件是否上架、暂停发布或其下载服务是否可用，都不影响应用发布。
+插件继续由各自的发布流程和市场管理；独立发布及客户端安装的签名、哈希和兼容性校验不变。
+这不是把未经验证的插件上传到 AutoBuild，而是将插件从应用发布目标清单中移除。
 
 发布器验证全部本地输入与基线后，先持久化检查点，再上传所有数据，最后替换两个 XML；通过 GitHub asset
 SHA-256 digest（缺失时重新下载校验）验证所有目标资源后，显式 force PATCH
@@ -596,15 +599,15 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
 
 以下目录不应直接复制或跨工作树共享：
 
-- AutoBuild 插件镜像与发布校验 staging：
-  `<RUNNER_TEMP>/lithe-autobuild-<invocation>/{marketplace,plugins,baselines,verification}/`。
-  源码 SHA、固定索引中的 SHA-256、组织 release/tag/asset、当前 build/ISO 时间与本次发布共同决定输入；
+- AutoBuild 应用发布校验 staging：
+  `<RUNNER_TEMP>/lithe-autobuild-<invocation>/{baselines,verification}/`。
+  源码 SHA、应用 release/tag/asset、当前 build/ISO 时间与本次发布共同决定输入；
   根目录生成 `autobuild-publication.json`，`baselines/AutoBuild/` 保存当前入口的检查点与
   双架构 appcast；旧入口仍存在时，`baselines/preview-0.3.0/` 另存其双架构 appcast。
   两组基线用于本次严格时间排序，只有 AutoBuild 接受匹配检查点的精确恢复。
   检查点绑定全部目标字节，不是可跨工作树复制的构建缓存；远端发布资产仅供本次调用下载验证。
-  ZIP 的平台/架构由索引下载变体约束，复用现有签名，不依赖本地工具链重新构建。
-  缺少可跨工作树复用的 identity stamp，`autobuild-plugin-mirror-staging` 注册在
+  应用产物的平台/架构由共享构建身份及 appcast 约束，保留现有签名，不在发布阶段重新构建。
+  不再生成插件目录或下载插件包。缺少可跨工作树复用的 identity stamp，`autobuild-publication-staging` 注册在
   `excludedResources` 并由复用脚本的通用排除路由拒绝，任何复制阶段都不共享。
   每次 gh 子进程有 120 秒期限，暂时性故障最多三次尝试，每次重试先清除本次残片；
   本地输入全部验证后才上传。发布器的 `finally` 删除自己创建的精确 mkdtemp 目录，
