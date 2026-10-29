@@ -738,6 +738,8 @@ struct RuntimeSession {
     provider_id: String,
     /// Plugin that owns the process, if any; see `StartServerRequest::plugin_id`.
     plugin_id: Option<String>,
+    /// Fixed workspace host, inherited by protocol workers; never a global selection.
+    workspace_host: Option<crate::remote::workspace::Host>,
     /// Maven import settings JDT LS currently holds. Replaced as a whole when
     /// the workspace's Maven configuration changes; never held across another
     /// lock.
@@ -1467,6 +1469,13 @@ impl LspEngine {
 
     fn start_server(&self, request: StartServerRequest) -> Result<StartServerResponse, CoreError> {
         validate_start_request(&request)?;
+        if crate::remote::workspace::is_remote() && request.provider_id.eq_ignore_ascii_case("java")
+        {
+            return Err(CoreError::new(
+                ErrorCode::NotSupported,
+                "Remote Java language servers require a host-compatible plugin launch plan",
+            ));
+        }
         let startup_started_at = Instant::now();
         let session_id = format!(
             "lsp-session-{}",
@@ -1615,7 +1624,8 @@ impl LspEngine {
             ClientInitializeRequest {
                 state: LspClientState::default(),
                 root_uri: request.root_uri.clone(),
-                process_id: Some(std::process::id() as i64),
+                process_id: (!crate::remote::workspace::is_remote())
+                    .then_some(std::process::id() as i64),
                 initialization_options: adapt_initialization_options(
                     &request.provider_id,
                     request.initialization_options,
@@ -1648,6 +1658,7 @@ impl LspEngine {
             id: session_id.clone(),
             provider_id: request.provider_id,
             plugin_id: request.plugin_id,
+            workspace_host: crate::remote::workspace::current(),
             jdt_maven_configuration: Mutex::new(jdt_maven_configuration),
             maven_inputs,
             maven_update_order: Mutex::new(()),
@@ -2950,6 +2961,7 @@ impl RuntimeSession {
     ) {
         let output_session = self.clone();
         thread::spawn(move || {
+            let _host = crate::remote::workspace::enter(output_session.workspace_host.clone());
             let mut frame_buffer = Vec::new();
             let mut chunk = vec![0_u8; 8 * 1024];
             while output_session.active.load(Ordering::Acquire) {
@@ -3049,21 +3061,7 @@ impl RuntimeSession {
             CoreError::new(ErrorCode::ParseFailed, "Invalid LSP server JSON message.")
                 .with_details(error.to_string())
         })?;
-        let method = value.get("method").and_then(Value::as_str);
-        let readiness = readiness_signal(&self.provider_id, method, value.get("params"));
-        let java_import_progress = import_progress(&self.provider_id, method, value.get("params"));
         let outbound_order = self.lock_outbound_order()?;
-
-        if value.get("method").and_then(Value::as_str) == Some("workspace/configuration") {
-            if let Some(response) = self.provider_configuration_response(&value)? {
-                return self.send_messages_or_fail(
-                    &outbound_order,
-                    vec![response],
-                    "serverRequest",
-                );
-            }
-        }
-
         let response_id = if value.get("method").is_none() {
             lsp_value_id(value.get("id"))
         } else {
@@ -3091,6 +3089,36 @@ impl RuntimeSession {
                 response_id,
             );
             return Ok(());
+        }
+        let message = match &self.workspace_host {
+            Some(host) => super::remote_process::map_message(
+                host,
+                &message,
+                false,
+                pending_before
+                    .as_ref()
+                    .map(|pending| pending.method.as_str()),
+            )?,
+            None => message,
+        };
+        let value: Value = serde_json::from_str(&message).map_err(|error| {
+            CoreError::new(
+                ErrorCode::ParseFailed,
+                "Invalid mapped LSP server JSON message.",
+            )
+            .with_details(error.to_string())
+        })?;
+        let method = value.get("method").and_then(Value::as_str);
+        let readiness = readiness_signal(&self.provider_id, method, value.get("params"));
+        let java_import_progress = import_progress(&self.provider_id, method, value.get("params"));
+        if method == Some("workspace/configuration") {
+            if let Some(response) = self.provider_configuration_response(&value)? {
+                return self.send_messages_or_fail(
+                    &outbound_order,
+                    vec![response],
+                    "serverRequest",
+                );
+            }
         }
 
         let reduced = {
@@ -4947,6 +4975,10 @@ impl RuntimeSession {
         messages: Vec<String>,
     ) -> Result<(), CoreError> {
         for message in messages {
+            let message = match &self.workspace_host {
+                Some(host) => super::remote_process::map_message(host, &message, true, None)?,
+                None => message,
+            };
             let frame = frame_message(FrameMessageRequest { message })?.frame;
             self.process.write_input(frame.as_bytes())?;
         }
@@ -5084,7 +5116,7 @@ fn java_executable_from_environment(environment: &BTreeMap<String, String>) -> O
 /// `None` for other schemes and for files that do not exist.
 fn resolved_file_of_uri(uri: &str) -> Option<PathBuf> {
     let path = url::Url::parse(uri).ok()?.to_file_path().ok()?;
-    std::fs::canonicalize(path).ok()
+    crate::remote::workspace_io::canonicalize(path).ok()
 }
 
 /// Which open documents the host reached through a symbolic link.
@@ -5174,7 +5206,7 @@ fn java_entrypoint_scope_uri(root_uri: &str) -> String {
     url::Url::parse(root_uri)
         .ok()
         .and_then(|url| url.to_file_path().ok())
-        .and_then(|path| std::fs::canonicalize(path).ok())
+        .and_then(|path| crate::remote::workspace_io::canonicalize(path).ok())
         .and_then(|canonical| url::Url::from_directory_path(canonical).ok())
         .map(|url| url.to_string())
         .unwrap_or_else(|| root_uri.to_string())
@@ -5186,7 +5218,7 @@ fn java_entrypoint_scope_uri(root_uri: &str) -> String {
 /// rather than in the pure normalizer that receives the result.
 fn canonical_workspace_root(root_uri: &str) -> Option<String> {
     let path = url::Url::parse(root_uri).ok()?.to_file_path().ok()?;
-    let canonical = std::fs::canonicalize(path).ok()?;
+    let canonical = crate::remote::workspace_io::canonicalize(path).ok()?;
     let canonical = canonical.to_string_lossy().replace('\\', "/");
     // Windows canonical paths carry a verbatim `\\?\` prefix that JDT never reports.
     Some(

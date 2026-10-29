@@ -2,8 +2,8 @@
 
 use super::rewrite::{GitHistoryRewriteBlocker, GitHistoryRewriteCommit, RewriteLease};
 use super::*;
+use crate::remote::workspace_io as fs;
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::{self, OpenOptions};
 
 const SESSION_DIRECTORY: &str = "lithe-rebase-session";
 const SESSION_MANIFEST: &str = "session.json";
@@ -356,14 +356,7 @@ fn ensure_owned_file(path: &Path) -> Result<(), CoreError> {
 
 fn write_file(path: &Path, bytes: &[u8]) -> Result<(), CoreError> {
     ensure_owned_file(path)?;
-    let mut file = OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .open(path)
-        .map_err(io_error)?;
-    file.write_all(bytes).map_err(io_error)?;
-    file.sync_all().map_err(io_error)
+    fs::write_synced(path, bytes).map_err(io_error)
 }
 
 // Status is the only persisted field that changes during a session. Reserve
@@ -508,7 +501,7 @@ fn environment(root: &str, record: &SessionRecord) -> Result<Vec<(String, String
 
 fn native_owned(root: &str, record: &SessionRecord) -> Result<bool, CoreError> {
     let native = metadata_directory(root)?.join("rebase-merge");
-    if !native.exists() {
+    if !fs::try_exists(&native).map_err(io_error)? {
         return Ok(false);
     }
     let read = |name: &str| {
@@ -580,7 +573,7 @@ fn project_session(
     let status = if owned {
         if !operation.conflicted_paths.is_empty() {
             "conflict"
-        } else if native.join("amend").exists()
+        } else if fs::try_exists(native.join("amend")).map_err(io_error)?
             && done.last().is_some_and(|step| step.action == "edit")
         {
             "edit"

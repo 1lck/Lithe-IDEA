@@ -143,6 +143,8 @@
 "8 spaces" = "8 个空格";
 "; " = "；";
 "A ChangeList with this name already exists." = "已存在同名的更改列表。";
+"A Git operation cannot span different workspace hosts." = "一次 Git 操作不能跨越不同的工作区主机。";
+"A Git operation cannot span local and remote workspaces." = "一次 Git 操作不能同时跨越本地和远程工作区。";
 "A Hook with this name already exists." = "已存在同名 Hook。";
 "A Java cache-retention target is not a removable directory." = "Java 缓存保留目标不是可删除的目录。";
 "A Java project with no build tool, Maven, or Gradle." = "不使用构建工具，或使用 Maven、Gradle 的 Java 项目。";
@@ -551,6 +553,7 @@
 "Check the Hook name, command, event, Agents and timeout (1–86400 seconds)." = "请检查 Hook 名称、命令、事件、Agent 和超时（1–86400 秒）。";
 "Check the MCP command, URL and headers." = "请检查 MCP 命令、URL 和请求头。";
 "Check the configuration format, API URL and model. Each configuration must be under 64 KiB." = "请检查配置格式、API 地址和模型，每份配置不得超过 64 KiB。";
+"Check the workspace connection and refresh the available runtimes." = "请检查工作区连接并刷新可用运行环境。";
 "Check your internet connection and try again later." = "请检查网络连接，稍后再试。";
 "Check: %@" = "检查：%@";
 "Checked %@" = "%@检查";
@@ -950,6 +953,8 @@
 "Could not confirm" = "无法确认";
 "Could not connect to the Debug Adapter: %@" = "无法连接调试适配器：%@";
 "Could not copy your Stable settings" = "无法复制正式版设置";
+"Could not discover runtimes on the remote host. Check the connection and refresh." = "无法探测远程主机的运行环境，请检查连接后刷新。";
+"Could not discover shells on the remote host. Check the connection and try again." = "无法探测远程主机上的 Shell。请检查连接后重试。";
 "Could not find the Java source for %@" = "找不到 %@ 对应的 Java 源码";
 "Could not import MCP JSON. Check the mcpServers object and try again." = "无法导入 MCP JSON。请检查 mcpServers 对象后重试。";
 "Could not inspect saved file" = "无法读取已保存的文件";
@@ -1765,6 +1770,7 @@
 "Install community plugin “%@”?" = "安装社区插件“%@”？";
 "Install from repository" = "从仓库安装";
 "Install the selected channel" = "安装所选渠道版本";
+"Install the tool on the remote host, add it to the login PATH, and refresh the available runtimes." = "请在远程主机上安装工具并加入登录环境的 PATH，然后刷新可用运行环境。";
 "Installation" = "安装来源";
 "Installation: %@" = "安装来源：%@";
 "Installed" = "已安装";
@@ -2656,6 +2662,7 @@
 "Plugin %@ from the official repository is not signed by Lithe, so it was not installed." = "官方仓库中的插件 %@ 没有 Lithe 签名，因此未安装。";
 "Plugin %@ has been removed from Lithe. Uninstall the old package." = "插件 %@ 已从 Lithe 中移除。请卸载旧的插件包。";
 "Plugin %@ has no Lithe signature. Community plugins require confirmation before installation." = "插件 %@ 没有 Lithe 签名。社区插件安装前需要确认。";
+"Plugin %@ has no approved package for %@. Install a compatible plugin version." = "插件 %@ 没有适用于 %@ 的已批准包，请安装兼容版本。";
 "Plugin %@ has no previous version to restore." = "插件 %@ 没有可恢复的上一个版本。";
 "Plugin %@ has no setting %@." = "插件 %@ 没有设置项 %@。";
 "Plugin %@ is an unsigned development package. Only development builds of Lithe can load it." = "插件 %@ 是未签名的开发包。只有 Lithe 的开发版本可以加载它。";
@@ -2948,6 +2955,7 @@
 "Remote Project" = "远程项目";
 "Remote URL" = "远程地址";
 "Remote folder" = "远程文件夹";
+"Remote pending documents exceeded the startup limit. Wait for the language server to start." = "远程语言服务启动前的待同步文档已达到上限，请等待启动完成。";
 "Remote: %@" = "远程：%@";
 "Removal pending" = "等待移除";
 "Remove" = "移除";
@@ -3188,6 +3196,7 @@
 "Runs on %@ shipped with the plugin" = "使用插件自带的 %@ 运行";
 "Runs the %@ installed on this Mac through the %@ adapter." = "通过 %2$@ 适配器驱动这台 Mac 上已安装的 %1$@。";
 "Runtime" = "运行时长";
+"Runtime discovery failed" = "运行环境探测失败";
 "Runtime used by the language server (installed on this Mac)" = "语言服务器使用的运行时（本机已安装）";
 "Rust Core cache-retention planning is unavailable." = "Rust Core 的缓存保留规划不可用。";
 "Rust Core returned a Java cache-retention key that was not observed." = "Rust Core 返回了未被观察到的 Java 缓存保留键。";
@@ -3506,6 +3515,7 @@
 "Some MCP configuration files could not be restored: %@. Refresh and check these files before retrying." = "部分 MCP 配置文件未能恢复：%@。请刷新并检查这些文件后重试。";
 "Some dependencies are not shown." = "部分依赖未显示。";
 "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations." = "部分项目目录无法读取，已有运行配置已保留。请恢复访问权限后重新识别运行配置。";
+"Some special files could not be copied" = "部分特殊文件未能复制";
 "Sort by Last Updated" = "按最近更新排序";
 "Sort by Name" = "按名称排序";
 "Sort plugins" = "插件排序";
@@ -3917,12 +3927,18 @@
 "The published update manifest is invalid and cannot be trusted. Open the Release page and download the update manually." = "已发布的更新清单无效，无法信任。请打开 Release 页面手动下载更新。";
 "The pull request will return to the open list and can receive new reviews." = "该拉取请求将回到打开列表，并可继续接收审查。";
 "The rebase was aborted. Inspect the branch and working files before continuing your work." = "变基已中止。继续工作前请检查分支和工作文件。";
+"The remote plugin package changes approved commands or permissions. Install and approve that version first." = "远程插件包更改了已批准的命令或权限，请先安装并批准该版本。";
+"The remote plugin package is not part of the approved installation." = "远程插件包不属于已批准的安装。";
+"The remote terminal closed before it started." = "远程终端在启动完成前已关闭。";
+"The remote terminal is busy. Wait before sending more input." = "远程终端正忙，请稍后再发送输入。";
+"The remote terminal must be started asynchronously." = "远程终端需要异步启动。";
 "The reported file changes have been updated. Review them again before rolling back." = "Agent 上报的文件修改已更新，请重新确认后再回撤。";
 "The repository changed or another Git operation is running. Preview the patch again." = "仓库已更改或有其他 Git 操作正在运行。请重新预览补丁。";
 "The repository changed or another Git operation is running. Refresh before retrying." = "仓库已更改或有其他 Git 操作正在运行。请刷新后重试。";
 "The repository changed or another Git operation is running. Refresh the preview to retry." = "仓库已更改或有其他 Git 操作正在运行。请刷新预览后重试。";
 "The repository will be opened in detached HEAD state." = "仓库将以 detached HEAD 状态打开。";
 "The request has no secret." = "请求不包含密钥。";
+"The required tool is not available on the remote host." = "远程主机上没有可用的所需工具。";
 "The response stopped at the model's token limit." = "回复已达到模型的 token 上限，已停止。";
 "The saved provider run configuration is unavailable." = "已保存的提供方运行配置不可用。";
 "The selected AI provider has an invalid API URL or model." = "所选 AI 服务商的 API 地址或模型无效。";
@@ -3957,6 +3973,7 @@
 "The staged changes will be committed and the current branch will be pushed to its configured remote." = "暂存的更改将被提交，并推送当前分支到已配置的远程仓库。";
 "The stopped source file is no longer available: %@" = "程序停住的源文件已不存在：%@";
 "The switch controls the Lithe shared block, not the Agent or its own instructions. Save shared changes before switching. Open a row to edit the complete native file." = "开关控制是否使用 Lithe 共享区块，不会停用 Agent 或它的自有指令。请先保存共享修改再操作开关。点击行可编辑完整原生文件。";
+"The terminal directory is outside the remote workspace." = "终端目录不在远程工作区内。";
 "The test file is outside the current workspace: %@" = "测试文件在当前工作区之外：%@";
 "The update could not be installed. Download the release manually and try again." = "无法安装更新，请手动下载版本后重试。";
 "The update package could not be downloaded. Check your internet connection and try again." = "无法下载更新包，请检查网络连接后重试。";
@@ -4042,6 +4059,7 @@
 "This folder already belongs to a Git repository" = "此目录已属于一个 Git 仓库。";
 "This folder cannot be read." = "无法读取此文件夹。";
 "This folder is empty" = "此文件夹为空";
+"This host cannot receive a compatible plugin package. Update the remote server." = "此主机无法接收兼容的插件包，请更新远程服务。";
 "This page" = "此页面";
 "This panel needs exactly one matching plugin instance in the workspace." = "此面板要求工作区中恰好有一个匹配的插件实例。";
 "This permanently deletes uncommitted and untracked files in '%@'. The branch itself is kept." = "这会永久删除“%@”中的未提交文件和未跟踪文件，但会保留对应分支。";
@@ -7540,8 +7558,18 @@
 "native.remoteFetchFailed" = "远程 Fetch 失败";
 "native.remoteFetchSucceeded" = "远程 Fetch 成功";
 "native.remoteFolder" = "远程文件夹";
+"native.remoteGitMixedHosts" = "一次 Git 操作不能跨越不同的工作区主机。";
+"native.remoteGitMixedLocal" = "一次 Git 操作不能同时跨越本地和远程工作区。";
 "native.remoteJVMTomcat" = "远程 JVM / Tomcat";
 "native.remoteProject" = "远程项目";
+"native.remoteRuntimeDiscoveryFailed" = "无法探测远程主机的运行环境，请检查连接后刷新。";
+"native.remoteRuntimeToolMissing" = "远程主机上没有可用的所需工具。";
+"native.remoteRuntimeToolRecovery" = "请在远程主机上安装工具并加入登录环境的 PATH，然后刷新可用运行环境。";
+"native.remoteShellDiscoveryFailed" = "无法探测远程主机上的 Shell。请检查连接后重试。";
+"native.remoteTerminalAsyncStart" = "远程终端需要异步启动。";
+"native.remoteTerminalClosedBeforeStart" = "远程终端在启动完成前已关闭。";
+"native.remoteTerminalInputBusy" = "远程终端正忙，请稍后再发送输入。";
+"native.remoteTerminalInvalidDirectory" = "终端目录不在远程工作区内。";
 "native.remoteURL" = "远程地址";
 "native.removalPending" = "等待移除";
 "native.removeAll" = "全部移除";
@@ -7773,6 +7801,8 @@
 "native.runsTests" = "运行 %1$@ 测试";
 "native.runsTheInstalledOnThisMacThroughTheAdapter" = "通过 %2$@ 适配器驱动这台 Mac 上已安装的 %1$@。";
 "native.runtime" = "运行时长";
+"native.runtimeDiscoveryFailed" = "运行环境探测失败";
+"native.runtimeDiscoveryRecovery" = "请检查工作区连接并刷新可用运行环境。";
 "native.runtimeUsedByTheLanguageServerInstalledOnThisMac" = "语言服务器使用的运行时（本机已安装）";
 "native.rustCoreCacheRetentionPlanningIsUnavailable" = "Rust Core 的缓存保留规划不可用。";
 "native.rustCoreReturnedAJavaCacheRetentionKey" = "Rust Core 返回了未被观察到的 Java 缓存保留键。";
@@ -9031,6 +9061,12 @@
 "punctuation and symbols" = "标点与符号";
 "quickOpen.filesCount" = "%1$lld 个文件";
 "rebase" = "变基";
+"remote.copyIncomplete" = "部分特殊文件未能复制";
+"remote.pendingDocumentsLimit" = "远程语言服务启动前的待同步文档已达到上限，请等待启动完成。";
+"remote.pluginApprovalRequired" = "远程插件包更改了已批准的命令或权限，请先安装并批准该版本。";
+"remote.pluginHostUnsupported" = "此主机无法接收兼容的插件包，请更新远程服务。";
+"remote.pluginPlatformUnavailable" = "插件 %1$@ 没有适用于 %2$@ 的已批准包，请安装兼容版本。";
+"remote.pluginUnapproved" = "远程插件包不属于已批准的安装。";
 "results" = "个结果";
 "revert" = "反向提交";
 "run configuration" = "运行配置";

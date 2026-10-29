@@ -1,5 +1,5 @@
 [workspace]
-members = ["lithe-core", "lithe-git-host", "lithe-agent-host", "lithe-ide-host", "lithe-remote-protocol", "lithe-remote-server", "lithe-remote-client"]
+members = ["lithe-core", "lithe-git-host", "lithe-agent-host", "lithe-ide-host", "lithe-remote"]
 resolver = "2"
 
 [profile.release]

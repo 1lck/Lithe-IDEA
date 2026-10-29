@@ -783,7 +783,12 @@ try {
     "--warn-ms", "10", "--max-ms", "100", "--test-budget", "tests::native_=300",
     "--test-budget", "tests::native=250",
     "--test-budget", linkedBudget,
+    "--no-default-features", "--features", "client,server",
   ]);
+  assert.equal(options.features, "client,server");
+  assert.equal(options.noDefaultFeatures, true);
+  assert.throws(() => parseRustTimingArguments(["--manifest", "Cargo.toml", "--features"]));
+  assert.throws(() => parseRustTimingArguments(["--manifest", "Cargo.toml", "--features", "--no-default-features"]));
   for (const budget of ["=300", "tests::native_=0", "tests::native_=5", "invalid"]) {
     assert.throws(() => parseRustTimingArguments(["--manifest", "Cargo.toml", "--test-budget", budget]));
   }
@@ -793,6 +798,8 @@ try {
     let durationMs = 0;
     let timedOut = false;
     if (onStdoutLine) {
+      assert.ok(args.includes("--no-default-features"));
+      assert.equal(args[args.indexOf("--features") + 1], "client,server");
       onStdoutLine(JSON.stringify({ reason: "compiler-artifact", profile: { test: true },
         executable: path.join(budgetFixtureRoot, "fake-tests"), manifest_path: options.manifest,
         target: { name: "budget-fixture" } }));
@@ -809,6 +816,8 @@ try {
   };
   await assert.rejects(runRustTestsWithTiming(options, { runProcessImpl, now: () => currentTime }), /1 Rust test/);
   const result = JSON.parse(readFileSync(report, "utf8"));
+  assert.equal(result.features, "client,server");
+  assert.equal(result.noDefaultFeatures, true);
   assert.deepEqual(result.tests.map(({ status, maxMs }) => ({ status, maxMs })), [
     { status: "passed", maxMs: 100 }, { status: "passed", maxMs: 300 },
     { status: "passed", maxMs: 30000 }, { status: "timeout", maxMs: 300 },

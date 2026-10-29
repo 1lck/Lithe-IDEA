@@ -544,8 +544,8 @@ fn when_file_holds(builder: &ModelBuilder<'_>, rule: &impl RuleMatch, directory:
     rule.when_file().is_none_or(|file| {
         builder
             .workspace
-            .join(&decode::join_relative(directory, file))
-            .is_file()
+            .read_path(&decode::join_relative(directory, file))
+            .is_some_and(|path| crate::remote::workspace_io::is_file(path).unwrap_or(false))
     })
 }
 

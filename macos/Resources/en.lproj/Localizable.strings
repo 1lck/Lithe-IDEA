@@ -143,6 +143,8 @@
 "8 spaces" = "8 spaces";
 "; " = "; ";
 "A ChangeList with this name already exists." = "A ChangeList with this name already exists.";
+"A Git operation cannot span different workspace hosts." = "A Git operation cannot span different workspace hosts.";
+"A Git operation cannot span local and remote workspaces." = "A Git operation cannot span local and remote workspaces.";
 "A Hook with this name already exists." = "A Hook with this name already exists.";
 "A Java cache-retention target is not a removable directory." = "A Java cache-retention target is not a removable directory.";
 "A Java project with no build tool, Maven, or Gradle." = "A Java project with no build tool, Maven, or Gradle.";
@@ -551,6 +553,7 @@
 "Check the Hook name, command, event, Agents and timeout (1–86400 seconds)." = "Check the Hook name, command, event, Agents and timeout (1–86400 seconds).";
 "Check the MCP command, URL and headers." = "Check the MCP command, URL and headers.";
 "Check the configuration format, API URL and model. Each configuration must be under 64 KiB." = "Check the configuration format, API URL and model. Each configuration must be under 64 KiB.";
+"Check the workspace connection and refresh the available runtimes." = "Check the workspace connection and refresh the available runtimes.";
 "Check your internet connection and try again later." = "Check your internet connection and try again later.";
 "Check: %@" = "Check: %@";
 "Checked %@" = "Checked %@";
@@ -950,6 +953,8 @@
 "Could not confirm" = "Could not confirm";
 "Could not connect to the Debug Adapter: %@" = "Could not connect to the Debug Adapter: %@";
 "Could not copy your Stable settings" = "Could not copy your Stable settings";
+"Could not discover runtimes on the remote host. Check the connection and refresh." = "Could not discover runtimes on the remote host. Check the connection and refresh.";
+"Could not discover shells on the remote host. Check the connection and try again." = "Could not discover shells on the remote host. Check the connection and try again.";
 "Could not find the Java source for %@" = "Could not find the Java source for %@";
 "Could not import MCP JSON. Check the mcpServers object and try again." = "Could not import MCP JSON. Check the mcpServers object and try again.";
 "Could not inspect saved file" = "Could not inspect saved file";
@@ -1765,6 +1770,7 @@
 "Install community plugin “%@”?" = "Install community plugin “%@”?";
 "Install from repository" = "Install from repository";
 "Install the selected channel" = "Install the selected channel";
+"Install the tool on the remote host, add it to the login PATH, and refresh the available runtimes." = "Install the tool on the remote host, add it to the login PATH, and refresh the available runtimes.";
 "Installation" = "Installation";
 "Installation: %@" = "Installation: %@";
 "Installed" = "Installed";
@@ -2656,6 +2662,7 @@
 "Plugin %@ from the official repository is not signed by Lithe, so it was not installed." = "Plugin %@ from the official repository is not signed by Lithe, so it was not installed.";
 "Plugin %@ has been removed from Lithe. Uninstall the old package." = "Plugin %@ has been removed from Lithe. Uninstall the old package.";
 "Plugin %@ has no Lithe signature. Community plugins require confirmation before installation." = "Plugin %@ has no Lithe signature. Community plugins require confirmation before installation.";
+"Plugin %@ has no approved package for %@. Install a compatible plugin version." = "Plugin %@ has no approved package for %@. Install a compatible plugin version.";
 "Plugin %@ has no previous version to restore." = "Plugin %@ has no previous version to restore.";
 "Plugin %@ has no setting %@." = "Plugin %@ has no setting %@.";
 "Plugin %@ is an unsigned development package. Only development builds of Lithe can load it." = "Plugin %@ is an unsigned development package. Only development builds of Lithe can load it.";
@@ -2948,6 +2955,7 @@
 "Remote Project" = "Remote Project";
 "Remote URL" = "Remote URL";
 "Remote folder" = "Remote folder";
+"Remote pending documents exceeded the startup limit. Wait for the language server to start." = "Remote pending documents exceeded the startup limit. Wait for the language server to start.";
 "Remote: %@" = "Remote: %@";
 "Removal pending" = "Removal pending";
 "Remove" = "Remove";
@@ -3188,6 +3196,7 @@
 "Runs on %@ shipped with the plugin" = "Runs on %@ shipped with the plugin";
 "Runs the %@ installed on this Mac through the %@ adapter." = "Runs the %@ installed on this Mac through the %@ adapter.";
 "Runtime" = "Runtime";
+"Runtime discovery failed" = "Runtime discovery failed";
 "Runtime used by the language server (installed on this Mac)" = "Runtime used by the language server (installed on this Mac)";
 "Rust Core cache-retention planning is unavailable." = "Rust Core cache-retention planning is unavailable.";
 "Rust Core returned a Java cache-retention key that was not observed." = "Rust Core returned a Java cache-retention key that was not observed.";
@@ -3506,6 +3515,7 @@
 "Some MCP configuration files could not be restored: %@. Refresh and check these files before retrying." = "Some MCP configuration files could not be restored: %@. Refresh and check these files before retrying.";
 "Some dependencies are not shown." = "Some dependencies are not shown.";
 "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations." = "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations.";
+"Some special files could not be copied" = "Some special files could not be copied";
 "Sort by Last Updated" = "Sort by Last Updated";
 "Sort by Name" = "Sort by Name";
 "Sort plugins" = "Sort plugins";
@@ -3917,12 +3927,18 @@
 "The published update manifest is invalid and cannot be trusted. Open the Release page and download the update manually." = "The published update manifest is invalid and cannot be trusted. Open the Release page and download the update manually.";
 "The pull request will return to the open list and can receive new reviews." = "The pull request will return to the open list and can receive new reviews.";
 "The rebase was aborted. Inspect the branch and working files before continuing your work." = "The rebase was aborted. Inspect the branch and working files before continuing your work.";
+"The remote plugin package changes approved commands or permissions. Install and approve that version first." = "The remote plugin package changes approved commands or permissions. Install and approve that version first.";
+"The remote plugin package is not part of the approved installation." = "The remote plugin package is not part of the approved installation.";
+"The remote terminal closed before it started." = "The remote terminal closed before it started.";
+"The remote terminal is busy. Wait before sending more input." = "The remote terminal is busy. Wait before sending more input.";
+"The remote terminal must be started asynchronously." = "The remote terminal must be started asynchronously.";
 "The reported file changes have been updated. Review them again before rolling back." = "The reported file changes have been updated. Review them again before rolling back.";
 "The repository changed or another Git operation is running. Preview the patch again." = "The repository changed or another Git operation is running. Preview the patch again.";
 "The repository changed or another Git operation is running. Refresh before retrying." = "The repository changed or another Git operation is running. Refresh before retrying.";
 "The repository changed or another Git operation is running. Refresh the preview to retry." = "The repository changed or another Git operation is running. Refresh the preview to retry.";
 "The repository will be opened in detached HEAD state." = "The repository will be opened in detached HEAD state.";
 "The request has no secret." = "The request has no secret.";
+"The required tool is not available on the remote host." = "The required tool is not available on the remote host.";
 "The response stopped at the model's token limit." = "The response stopped at the model's token limit.";
 "The saved provider run configuration is unavailable." = "The saved provider run configuration is unavailable.";
 "The selected AI provider has an invalid API URL or model." = "The selected AI provider has an invalid API URL or model.";
@@ -3957,6 +3973,7 @@
 "The staged changes will be committed and the current branch will be pushed to its configured remote." = "The staged changes will be committed and the current branch will be pushed to its configured remote.";
 "The stopped source file is no longer available: %@" = "The stopped source file is no longer available: %@";
 "The switch controls the Lithe shared block, not the Agent or its own instructions. Save shared changes before switching. Open a row to edit the complete native file." = "The switch controls the Lithe shared block, not the Agent or its own instructions. Save shared changes before switching. Open a row to edit the complete native file.";
+"The terminal directory is outside the remote workspace." = "The terminal directory is outside the remote workspace.";
 "The test file is outside the current workspace: %@" = "The test file is outside the current workspace: %@";
 "The update could not be installed. Download the release manually and try again." = "The update could not be installed. Download the release manually and try again.";
 "The update package could not be downloaded. Check your internet connection and try again." = "The update package could not be downloaded. Check your internet connection and try again.";
@@ -4042,6 +4059,7 @@
 "This folder already belongs to a Git repository" = "This folder already belongs to a Git repository";
 "This folder cannot be read." = "This folder cannot be read.";
 "This folder is empty" = "This folder is empty";
+"This host cannot receive a compatible plugin package. Update the remote server." = "This host cannot receive a compatible plugin package. Update the remote server.";
 "This page" = "This page";
 "This panel needs exactly one matching plugin instance in the workspace." = "This panel needs exactly one matching plugin instance in the workspace.";
 "This permanently deletes uncommitted and untracked files in '%@'. The branch itself is kept." = "This permanently deletes uncommitted and untracked files in '%@'. The branch itself is kept.";
@@ -7540,8 +7558,18 @@
 "native.remoteFetchFailed" = "Remote Fetch failed";
 "native.remoteFetchSucceeded" = "Remote Fetch succeeded";
 "native.remoteFolder" = "Remote folder";
+"native.remoteGitMixedHosts" = "A Git operation cannot span different workspace hosts.";
+"native.remoteGitMixedLocal" = "A Git operation cannot span local and remote workspaces.";
 "native.remoteJVMTomcat" = "Remote JVM / Tomcat";
 "native.remoteProject" = "Remote Project";
+"native.remoteRuntimeDiscoveryFailed" = "Could not discover runtimes on the remote host. Check the connection and refresh.";
+"native.remoteRuntimeToolMissing" = "The required tool is not available on the remote host.";
+"native.remoteRuntimeToolRecovery" = "Install the tool on the remote host, add it to the login PATH, and refresh the available runtimes.";
+"native.remoteShellDiscoveryFailed" = "Could not discover shells on the remote host. Check the connection and try again.";
+"native.remoteTerminalAsyncStart" = "The remote terminal must be started asynchronously.";
+"native.remoteTerminalClosedBeforeStart" = "The remote terminal closed before it started.";
+"native.remoteTerminalInputBusy" = "The remote terminal is busy. Wait before sending more input.";
+"native.remoteTerminalInvalidDirectory" = "The terminal directory is outside the remote workspace.";
 "native.remoteURL" = "Remote URL";
 "native.removalPending" = "Removal pending";
 "native.removeAll" = "Remove All";
@@ -7773,6 +7801,8 @@
 "native.runsTests" = "Runs %1$@ tests";
 "native.runsTheInstalledOnThisMacThroughTheAdapter" = "Runs the %1$@ installed on this Mac through the %2$@ adapter.";
 "native.runtime" = "Runtime";
+"native.runtimeDiscoveryFailed" = "Runtime discovery failed";
+"native.runtimeDiscoveryRecovery" = "Check the workspace connection and refresh the available runtimes.";
 "native.runtimeUsedByTheLanguageServerInstalledOnThisMac" = "Runtime used by the language server (installed on this Mac)";
 "native.rustCoreCacheRetentionPlanningIsUnavailable" = "Rust Core cache-retention planning is unavailable.";
 "native.rustCoreReturnedAJavaCacheRetentionKey" = "Rust Core returned a Java cache-retention key that was not observed.";
@@ -9031,6 +9061,12 @@
 "punctuation and symbols" = "punctuation and symbols";
 "quickOpen.filesCount" = "%1$lld files";
 "rebase" = "rebase";
+"remote.copyIncomplete" = "Some special files could not be copied";
+"remote.pendingDocumentsLimit" = "Remote pending documents exceeded the startup limit. Wait for the language server to start.";
+"remote.pluginApprovalRequired" = "The remote plugin package changes approved commands or permissions. Install and approve that version first.";
+"remote.pluginHostUnsupported" = "This host cannot receive a compatible plugin package. Update the remote server.";
+"remote.pluginPlatformUnavailable" = "Plugin %1$@ has no approved package for %2$@. Install a compatible plugin version.";
+"remote.pluginUnapproved" = "The remote plugin package is not part of the approved installation.";
 "results" = "results";
 "revert" = "revert";
 "run configuration" = "run configuration";

@@ -30,7 +30,7 @@
 
 ### 单连接启动
 
-`lithe_remote_client::launch` 在远端跑一段单行 POSIX `sh` 脚本：
+`lithe_remote::client::launch` 在远端跑一段单行 POSIX `sh` 脚本：
 
 1. 先输出主机详细信息和平台标记块；
 2. 客户端按平台选出随 App 附带的服务，把“版本 SHA-256 大小 目录名”作为一行写回；
@@ -41,7 +41,7 @@
 
 ### 随 App 附带的远端服务
 
-`scripts/build-remote-servers.sh` 用 Rust 自带的 `rust-lld` 构建两个 Linux musl 静态版，输出到 `rust/target/remote-servers/`，同时写一个 `manifest.json` 记录服务版本。打包时复制到 `Contents/Resources/RemoteServers/<目标>/lithe-remote-server`。
+`scripts/build-remote-servers.sh` 用 Rust 自带的 `rust-lld` 从 `lithe-remote` crate 只启用 `server` feature，构建两个 Linux musl 静态版，输出到 `rust/target/remote-servers/`，同时写一个 `manifest.json` 记录服务版本。打包时复制到 `Contents/Resources/RemoteServers/<目标>/lithe-remote-server`。源码合并不改变这个可执行文件名或安装身份，构建组合见远程工作区路由 Note。
 
 - 这是只读的固定输入：运行时只读取它并上传给主机，不往这个目录写任何东西，所以不影响代码签名和 Sparkle 增量包。
 - Linux ELF 文件对 `codesign` 来说只是资源。macOS 版服务是 Mach-O，需要 Developer ID 签名和公证，所以暂时不附带；远程 Mac 会显示“暂不支持这个平台”。
@@ -74,8 +74,8 @@
 ## 验证
 
 ```bash
-cargo test --manifest-path rust/Cargo.toml -p lithe-remote-client
-cargo test --manifest-path rust/Cargo.toml -p lithe-remote-server --test server
+cargo test --manifest-path rust/Cargo.toml -p lithe-remote --lib
+cargo test --manifest-path rust/Cargo.toml -p lithe-remote --all-features --test server
 cargo test --manifest-path rust/Cargo.toml -p lithe-core remote::
 ./scripts/verify-runtime-bundle-immutability.sh
 ```
@@ -89,7 +89,7 @@ cargo test --manifest-path rust/Cargo.toml -p lithe-core remote::
 - `macos/Sources/Lithe/Services/Remote/RemoteConnectionStore.swift`
 - `macos/Sources/Lithe/Platform/MacOS/Remote/`
 - `rust/lithe-core/src/remote/`
-- `rust/lithe-remote-client/src/launch.rs`
+- `rust/lithe-remote/src/client/launch.rs`
 - `scripts/build-remote-servers.sh`
 
 
