@@ -3346,6 +3346,7 @@
     "menu.saveAsTitle": "另存为",
     "menu.saveFileFailed": "保存文件失败。请重试。",
     "menu.selectAll": "全选",
+    "menu.settings": "设置",
     "menu.showHover": "显示悬停信息",
     "menu.showLocalHistory": "显示本地历史",
     "menu.sourceControl": "源代码管理",

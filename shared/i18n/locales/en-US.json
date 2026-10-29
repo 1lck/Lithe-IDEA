@@ -3346,6 +3346,7 @@
     "menu.saveAsTitle": "Save As",
     "menu.saveFileFailed": "Failed to save file. Please try again.",
     "menu.selectAll": "Select All",
+    "menu.settings": "Settings",
     "menu.showHover": "Show Hover",
     "menu.showLocalHistory": "Show Local History",
     "menu.sourceControl": "Source Control",

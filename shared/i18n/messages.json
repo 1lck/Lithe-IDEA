@@ -25678,6 +25678,13 @@
       }
     },
     {
+      "id": "menu.settings",
+      "description": "Windows UI: menu.settings",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
       "id": "menu.showHover",
       "description": "Windows UI: menu.showHover",
       "platforms": [
