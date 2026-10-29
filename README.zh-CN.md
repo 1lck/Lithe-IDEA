@@ -258,6 +258,17 @@ open dist/Lithe.app
   经济模式低至 0.5 折！<a href="https://pateway.ai/?ch=68i69k">通过此链接注册可获试用额度</a>，还可参与不定时活动领取免费额度，双向推荐奖励最高达 150 美元。
 </p>
 
+<p align="center">
+  <a href="https://apinebula.ai/ref/8dhC67x0">
+    <img src="./docs/assets/sponsors/apinebula-banner.jpg" width="720" alt="APINEBULA">
+  </a>
+</p>
+<p align="center">
+  感谢 APINEBULA 赞助本项目！<br>
+  APINEBULA 是银河录像局旗下的企业级 AI 聚合平台，通过一个 API 接入 Claude、GPT、Gemini 等主流模型，价格低至 1 折，支持高并发、正式合同、对公打款与开票，适用于 AI 编程、Agent 开发和业务系统集成。<br>
+  <a href="https://apinebula.ai/ref/8dhC67x0">通过此链接注册</a>，首次充值时填写优惠码 <strong>Lithe</strong>，可享九折优惠。
+</p>
+
 <a href="mailto:2188718831@qq.com">想显示在下方？</a>
 
 <table>

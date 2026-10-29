@@ -262,6 +262,17 @@ See [Repository ownership and sharing boundaries](./.agents/notes/implemented/ar
   Economy mode rates are as low as 5% of official pricing. <a href="https://pateway.ai/?ch=68i69k">Sign up for trial credits</a>, earn free credits in periodic campaigns, and receive mutual referral bonuses of up to $150 USD.
 </p>
 
+<p align="center">
+  <a href="https://apinebula.ai/ref/8dhC67x0">
+    <img src="./docs/assets/sponsors/apinebula-banner.jpg" width="720" alt="APINEBULA">
+  </a>
+</p>
+<p align="center">
+  Thanks to APINEBULA for sponsoring this project!<br>
+  APINEBULA, an enterprise AI platform under Galaxy Video Bureau, provides access to Claude, GPT, Gemini, and other leading models through one API, with prices starting at 10% of standard rates. It supports high concurrency, formal contracts, corporate bank transfers, and invoicing for AI coding, agent development, and business integrations.<br>
+  <a href="https://apinebula.ai/ref/8dhC67x0">Register through this link</a> and enter promo code <strong>Lithe</strong> on your first top-up to get 10% off.
+</p>
+
 <a href="mailto:2188718831@qq.com">Want to be featured below?</a>
 
 <table>
