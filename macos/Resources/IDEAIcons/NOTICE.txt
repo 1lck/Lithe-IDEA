@@ -412,3 +412,9 @@ brand fallback: expui/nodes/dataTables{,_dark}.svg. These are unmodified
 Community platform/icons/src assets from revision
 c7f91397daa3a961b4e78bc634fe467a0a7d9ade (Apache-2.0).
 The New menu Data Source entry reuses the Database dock dbms icon above.
+
+File-tree icons for resource bundles and Office documents: fileTypes/i18n{,_dark}.svg
+are unmodified platform/icons/src/expui/fileTypes assets, and fileTypes/custom{,_dark}.svg
+is the unmodified platform/icons/src/fileTypes/custom.svg (IDEA's icon for its "Native"
+file type, which has no separate dark variant), both from Community revision
+fb72b4df43ab (Apache-2.0).

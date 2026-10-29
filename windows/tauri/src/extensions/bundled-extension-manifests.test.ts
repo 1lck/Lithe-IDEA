@@ -79,6 +79,40 @@ describe("bundled file icon themes", () => {
     }
   });
 
+  test("maps the file types macOS already recognises plus the added IDEA kinds", async () => {
+    const iconTheme = await getIdeaIconTheme();
+    const byExtension = (extension: string) => iconTheme.fileExtensions?.[extension];
+
+    expect(byExtension(".kt")).toBe("idea-kotlin");
+    expect(byExtension(".kts")).toBe("idea-kotlin");
+    expect(byExtension(".gradle.kts")).toBe("idea-gradle");
+    expect(byExtension(".rs")).toBe("idea-rust");
+    expect(byExtension(".py")).toBe("idea-python");
+    expect(byExtension(".jsonl")).toBe("idea-json");
+    expect(byExtension(".wbmp")).toBe("idea-image");
+    expect(byExtension(".strings")).toBe("idea-i18n");
+    for (const extension of [".doc", ".docx", ".ppt", ".pptx"]) {
+      expect(byExtension(extension)).toBe("idea-custom");
+    }
+    expect(iconTheme.filenames?.[".gitattributes"]).toBe("idea-gitignore");
+    expect(iconTheme.filenames?.["docker-compose.yml"]).toBe("idea-docker");
+  });
+
+  test("ships a light and dark asset for every added file-type icon", async () => {
+    const iconTheme = await getIdeaIconTheme();
+    const addedIds = ["kotlin", "rust", "go", "python", "ruby", "scala", "php", "i18n", "custom"].map(
+      (name) => `idea-${name}`,
+    );
+
+    for (const iconId of addedIds) {
+      for (const assetPath of [iconTheme.iconDefinitions[iconId], iconTheme.lightIconDefinitions?.[iconId]]) {
+        expect(assetPath).toBeDefined();
+        const asset = Bun.file(new URL(`./bundled/icon-themes/idea/${assetPath!.replace(/^\.\//, "")}`, import.meta.url));
+        expect(await asset.exists()).toBe(true);
+      }
+    }
+  });
+
   test("preserves the upstream copyright header in added IDEA assets", async () => {
     const iconTheme = await getIdeaIconTheme();
 

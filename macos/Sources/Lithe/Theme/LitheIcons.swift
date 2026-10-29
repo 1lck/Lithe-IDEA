@@ -50,6 +50,8 @@ enum LitheIconKind: Hashable {
     // 文本与媒体
     case markdown
     case plainText
+    case i18n
+    case document
     case image
     case binary
     case generic
@@ -105,6 +107,9 @@ enum LitheIcons {
         .database: "fileTypes/sql.svg",
         .markdown: "fileTypes/markdown.svg",
         .plainText: "fileTypes/text.svg",
+        .i18n: "fileTypes/i18n.svg",
+        // IDEA's "Native" file type (Office documents and similar) uses AllIcons.FileTypes.Custom.
+        .document: "fileTypes/custom.svg",
         .image: "fileTypes/image.svg",
         .binary: "fileTypes/archive.svg",
         .generic: "fileTypes/unknown.svg",
@@ -287,12 +292,14 @@ enum LitheIcons {
         case "xml", "xsd", "wsdl", "pom": return .xml
         case "properties", "ini", "cfg", "conf", "env": return .properties
         case "yml", "yaml": return .yaml
-        case "json", "json5": return .json
+        case "json", "json5", "jsonl", "jsonlines", "ndjson", "ldjson": return .json
         case "db", "sqlite", "sqlite3", "sql", "mv": return .database
         case "md", "markdown", "rst", "adoc": return .markdown
-        case "txt", "log", "strings": return .plainText
+        case "txt", "log": return .plainText
+        case "strings": return .i18n
+        case "doc", "docx", "ppt", "pptx": return .document
         case "csv", "tsv": return .csv
-        case "png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "bmp", "tiff": return .image
+        case "png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "bmp", "tiff", "wbmp": return .image
         case "zip", "gz", "tar", "so", "dylib", "dll", "icns", "pdf", "woff", "woff2", "ttf", "otf": return .binary
         default: return .generic
         }
