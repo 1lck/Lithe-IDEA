@@ -649,7 +649,8 @@ export function mountWorkbench(host: WorkbenchHost) {
     // Keywords are "code" to Monaco's standard token types, but they never have a
     // definition. Filtering them here avoids a language-server round trip that can
     // take seconds for keywords such as `static` or `switch`.
-    const javaKeywords = new Set<string>(javaLanguage.keywords);
+    // `this` and `super` also name constructor calls, which have definitions, so they stay navigable.
+    const javaKeywords = new Set<string>(javaLanguage.keywords.filter(word => word !== "this" && word !== "super"));
     const isKeywordPosition = (position: monaco.IPosition | null) => {
       const model = view.getModel();
       if (!javaKeywordNavigationFilter || !position || model?.getLanguageId() !== "java") return false;
