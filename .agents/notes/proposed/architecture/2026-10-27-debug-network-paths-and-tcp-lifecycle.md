@@ -94,8 +94,8 @@ IDE -- DAP（调试适配器协议，stdio 或 TCP）--> 调试适配器
 - `macos/Sources/Lithe/Platform/MacOS/Debug/`
 - `windows/tauri/src-tauri/src/debug.rs`
 - `shared/contracts/plugins/v1/`
-- `rust/lithe-remote-client/src/transport.rs`
-- `rust/lithe-remote-client/src/forward.rs`
+- `rust/lithe-remote/src/client/transport.rs`
+- `rust/lithe-remote/src/client/forward.rs`
 
 ## 依据
 

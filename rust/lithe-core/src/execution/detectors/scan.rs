@@ -27,9 +27,10 @@ impl DirectoryContext {
     pub fn at(root: &Path, path: &Path) -> Result<Option<Self>, CoreError> {
         let entries = match fs::read_dir(path) {
             Ok(entries) => entries,
-            Err(_) if !crate::remote::workspace::is_remote() => return Ok(None),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(error.into()),
+            // Detection skips a directory the host cannot list, as it does locally,
+            // but a dropped link must not pass for a project without manifests.
+            Err(error) if fs::is_transport_failure(&error) => return Err(error.into()),
+            Err(_) => return Ok(None),
         };
         let files = entries
             .flatten()

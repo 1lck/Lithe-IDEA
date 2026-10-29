@@ -231,7 +231,7 @@
 ## 适用范围
 
 - `rust/lithe-core/src/debug/`
-- `rust/lithe-remote-client/src/transport.rs`
+- `rust/lithe-remote/src/client/transport.rs`
 - `shared/contracts/plugins/v1/`
 - `macos/Sources/Lithe/Platform/MacOS/Debug/`
 - `shared/i18n/`

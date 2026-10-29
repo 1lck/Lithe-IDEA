@@ -641,6 +641,90 @@ fn remote_workspace_file_limits_preserve_host_content_and_report_disconnects() {
     assert_eq!(std::fs::read_dir(local).unwrap().count(), 0);
 }
 
+// `runConfig.inspect` has no remote adapter yet; this pins the shared traversal's
+// remote contract so enabling it cannot read the placeholder or accept a dead link.
+#[test]
+fn shared_run_scan_reads_the_host_tree_and_stops_when_the_link_drops() {
+    use crate::execution::workspace_scan::{scan_run_workspace, scan_with_reader};
+    use crate::remote::{workspace, workspace_io as fs};
+
+    let host = HostFixture::new();
+    let _deadline = crate::protocol::cancellation::Scope::begin(None, Some(10_000));
+    let local = host.root.join("placeholder");
+    let remote = host.root.join("host");
+    std::fs::create_dir_all(remote.join("service/api")).unwrap();
+    std::fs::write(remote.join("package.json"), "{}").unwrap();
+    std::fs::write(remote.join("service/pom.xml"), "<project/>").unwrap();
+    let workspace = serde_json::from_value(
+        json!({"sessionId": host.id, "localRoot": local, "remoteRoot": remote}),
+    )
+    .unwrap();
+    let _workspace = workspace::Scope::begin(Some(workspace), "build.detect").unwrap();
+
+    let scan = scan_run_workspace(&local, Some(3)).unwrap();
+    let files: Vec<_> = scan
+        .directories
+        .iter()
+        .map(|directory| {
+            let relative = directory.path.strip_prefix(&local).unwrap();
+            (
+                relative.to_owned(),
+                directory.files.iter().cloned().collect::<Vec<_>>(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        files,
+        [
+            (std::path::PathBuf::new(), vec!["package.json".to_owned()]),
+            ("service".into(), vec!["pom.xml".to_owned()]),
+            ("service/api".into(), Vec::new()),
+        ]
+    );
+    assert!(scan.unreadable_paths.is_empty());
+    assert_eq!(std::fs::read_dir(&local).unwrap().count(), 0);
+
+    // A directory the host reports as unreadable is incomplete-scan evidence,
+    // while the same session keeps serving its siblings.
+    let unreadable = scan_with_reader(&local, Some(3), &|path| {
+        if path.ends_with("service") {
+            return Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied));
+        }
+        fs::read_dir(path)?
+            .map(|entry| {
+                let entry = entry?;
+                let kind = entry.file_type()?;
+                Ok((entry.path(), kind.is_dir(), kind.is_symlink()))
+            })
+            .collect()
+    })
+    .unwrap();
+    assert_eq!(
+        unreadable.unreadable_paths,
+        std::collections::BTreeSet::from(["service".to_owned()])
+    );
+
+    // The link dropping after the root was listed must fail the whole scan,
+    // not publish the root alone as if the project had no modules.
+    let dropped = scan_with_reader(&local, Some(3), &|path| {
+        let entries = fs::read_dir(path)?
+            .map(|entry| {
+                let entry = entry?;
+                let kind = entry.file_type()?;
+                Ok((entry.path(), kind.is_dir(), kind.is_symlink()))
+            })
+            .collect::<std::io::Result<Vec<_>>>();
+        lookup(&host.id).unwrap().close();
+        entries
+    });
+    assert!(
+        dropped.is_err(),
+        "a dropped link must not look like a smaller project"
+    );
+    assert!(scan_run_workspace(&local, Some(3)).is_err());
+    assert_eq!(std::fs::read_dir(local).unwrap().count(), 0);
+}
+
 #[test]
 fn captured_host_process_preserves_binary_streams_and_cleans_up_limit_failures() {
     let host = HostFixture::new();

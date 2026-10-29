@@ -41,6 +41,19 @@ fn rpc<T: DeserializeOwned>(host: &Host, method: &str, params: Value) -> io::Res
     serde_json::from_value(value).map_err(io::Error::other)
 }
 
+/// Whether a remote workspace operation failed because the link was cancelled,
+/// timed out or dropped, rather than describing one path. Keep in step with the
+/// kinds assigned in `rpc`. Callers that tolerate unreadable paths must still
+/// stop on these, or a dead connection looks like a smaller project. Always
+/// false for local workspaces, where such kinds describe the path itself.
+pub(crate) fn is_transport_failure(error: &io::Error) -> bool {
+    workspace::is_remote()
+        && matches!(
+            error.kind(),
+            io::ErrorKind::Interrupted | io::ErrorKind::TimedOut | io::ErrorKind::ConnectionAborted
+        )
+}
+
 fn path(host: &Host, path: &Path) -> io::Result<String> {
     host.remote_path(path)
         .to_str()
