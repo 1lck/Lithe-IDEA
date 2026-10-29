@@ -36,6 +36,7 @@ package final class BuildSystemsFeatureModel: ObservableObject {
     package var hasBuildSystemPlugins: Bool { service.hasBuildSystemPlugins }
     package var workspaceURL: URL? { service.workspaceURL }
     package var languageImport: JavaLanguageImportConfiguration? { service.languageImport }
+    package var inputRevision: UInt64 { service.inputRevision }
     package var onLanguageImportChanged: ((URL) -> Void)? {
         get { service.onLanguageImportChanged }
         set { service.onLanguageImportChanged = newValue }

@@ -98,9 +98,7 @@ final class RuntimeSettingsFeatureModel: ObservableObject {
         workspaceURL: URL?,
         files: [URL],
         buildSources: [ProjectRuntimeInventory.BuildSource] = [],
-        languageSupports: [LanguageSupportDeclaration] = [],
-        mavenSettingsPath: String?,
-        mavenLocalRepositoryPath: String?
+        languageSupports: [LanguageSupportDeclaration] = []
     ) {
         guard !isSaving else { return }
         guard let workspaceURL else {
@@ -116,26 +114,20 @@ final class RuntimeSettingsFeatureModel: ObservableObject {
             languageSupports: languageSupports
         )
         settings = service.settings
-        // Maven's legacy override owner is still separate during stage D.
-        // Do not copy these values to runtime preferences when opening a page.
-        settings.mavenSettingsPath = mavenSettingsPath ?? ""
-        settings.mavenLocalRepositoryPath = mavenLocalRepositoryPath ?? ""
         baseline = settings
         draftSnapshot = service.settingsSnapshot
         settingsError = service.settingsError
     }
 
     /// Refreshes canonical tool selections without loading a build model or
-    /// replacing an open settings draft. Legacy form fields keep their owner.
+    /// replacing an open settings draft. Provider-owned configuration has a separate editor.
     func reloadToolchainSettings() -> Bool {
         guard !isSaving, !hasChanges else { return false }
         guard service.reloadSettings() else {
             settingsError = service.settingsError
             return false
         }
-        var current = service.settings
-        current.mavenSettingsPath = settings.mavenSettingsPath
-        current.mavenLocalRepositoryPath = settings.mavenLocalRepositoryPath
+        let current = service.settings
         settings = current
         baseline = current
         draftSnapshot = service.settingsSnapshot
@@ -155,9 +147,7 @@ final class RuntimeSettingsFeatureModel: ObservableObject {
             isSaving = false
             return false
         }
-        var saved = service.settings
-        saved.mavenSettingsPath = settings.mavenSettingsPath
-        saved.mavenLocalRepositoryPath = settings.mavenLocalRepositoryPath
+        let saved = service.settings
         settings = saved
         self.draftSnapshot = service.settingsSnapshot
         return true
@@ -175,9 +165,7 @@ final class RuntimeSettingsFeatureModel: ObservableObject {
             settingsError = service.settingsError
             return
         }
-        var current = service.settings
-        current.mavenSettingsPath = baseline.mavenSettingsPath
-        current.mavenLocalRepositoryPath = baseline.mavenLocalRepositoryPath
+        let current = service.settings
         settings = current
         baseline = current
         draftSnapshot = service.settingsSnapshot

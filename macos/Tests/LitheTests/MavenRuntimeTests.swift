@@ -58,7 +58,7 @@ struct MavenRuntimeTests {
         let macCases = fixture.storageIdentityCases.filter { $0.platform == "macos" }
         #expect(macCases.count == 1)
         for item in macCases {
-            #expect(MacMavenConfigurationStore.storageIdentity(
+            #expect(MacLegacyMavenConfigurationMigration.storageIdentity(
                 workspacePath: item.workspacePath,
                 reactorPath: item.reactorPath
             ) == item.expectedIdentity)
@@ -180,49 +180,6 @@ struct MavenRuntimeTests {
         #expect(plan.arguments == ["-B", "-ntp", "verify"])
         #expect(plan.workingDirectory == "projects/demo")
         #expect(plan.configurationFingerprint == "sha256:fixture")
-    }
-
-    @Test
-    func mavenConfigurationSeparatesPortableAndLocalPaths() throws {
-        let testRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-maven-store-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: testRoot) }
-        let workspace = testRoot.appendingPathComponent("workspace", isDirectory: true)
-        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
-        let storage = MavenTestFileStorage(root: testRoot)
-        let store = MacMavenConfigurationStore(storage: storage)
-        let configuration = MavenStoredConfiguration(
-            portable: MavenPortableConfiguration(
-                selectedProfiles: ["dev", "qa"],
-                customProfiles: ["qa"],
-                skipTests: true
-            ),
-            local: MavenLocalConfiguration(
-                settingsPath: "/private/settings.xml",
-                mavenExecutablePath: "/private/apache-maven",
-                javaHomePath: "/private/jdk"
-            )
-        )
-
-        try store.saveMavenConfiguration(
-            configuration,
-            workspaceURL: workspace,
-            reactorPath: "."
-        )
-
-        let portableURL = workspace.appendingPathComponent(".lithe/maven/config.json")
-        let portableText = String(decoding: try Data(contentsOf: portableURL), as: UTF8.self)
-        #expect(portableText.contains("\"selectedProfiles\""))
-        #expect(!portableText.contains("/private/"))
-        #expect(try store.loadMavenConfiguration(
-            workspaceURL: workspace,
-            reactorPath: "."
-        ) == configuration)
-        let localFiles = try FileManager.default.contentsOfDirectory(
-            at: storage.applicationSupportDirectory().appendingPathComponent("Lithe/Maven"),
-            includingPropertiesForKeys: nil
-        )
-        #expect(localFiles.count == 1)
     }
 
     @Test

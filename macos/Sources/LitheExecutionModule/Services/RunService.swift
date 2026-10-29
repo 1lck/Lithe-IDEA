@@ -28,7 +28,11 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     /// `nil` until that layer saves defaults or while it cannot be read.
     @Published package private(set) var savedProjectToolchain: ProjectToolchainSelection?
     @Published package private(set) var effectiveSourcesByConfigurationID: [String: RunConfigurationSource] = [:]
-    @Published package private(set) var mavenProfiles: [MavenProfile] = []
+    /// Presentation choices come from current provider models, never a second POM scan.
+    package var mavenProfiles: [MavenProfile] {
+        Array(Set(buildModels().flatMap { $0.optionValues["profiles"] ?? [] })).sorted()
+            .map { MavenProfile(id: $0, isActiveByDefault: false) }
+    }
     @Published package private(set) var moduleSessions: [RunSession] = []
     @Published package private(set) var portConflicts: [RunPortConflict] = []
     @Published package private(set) var configurationStatus: ProjectRunConfigurationStatus = .missing
@@ -88,8 +92,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         configurationSaveError = nil
         do {
             let id = try runConfigurationOperations.saveBuildProviderConfiguration(reference, name: configuration.name, at: workspace)
-            let resolution = try resolveWithServiceToolchains(operations: runConfigurationOperations, projectURL: workspace,
-                mavenProject: mavenProject, preferredConfigurationID: id)
+            let resolution = try resolveWithServiceToolchains(operations: runConfigurationOperations, projectURL: workspace, preferredConfigurationID: id)
             guard let saved = resolution.configurations.first(where: { $0.configuration.id == id }),
                   saved.configuration.buildProvider == reference else {
                 throw RunConfigurationEditorSaveFailure(stage: .reload,
@@ -119,13 +122,12 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     private var activeLanguageExecutionSession: (any LanguageExecutionSession)?
     private var projectURL: URL?
     private var projectFiles: [URL] = []
-    private var mavenProject: MavenProject?
+    private var buildModels: () -> [BuildModel] = { [] }
     private var dependencyWorkspaceURL: URL?
     private var dependencyConfiguration = WorkspaceDependencyConfiguration()
     private var dependencyIndexes = WorkspaceDependencyIndexes()
     private var languageSnapshots: [String: LanguageDependencySnapshot] = [:]
     private var dependencySources: [String: DependencyServiceDescriptor] = [:]
-    private var mavenModelRevision = 0
     private var projectLoadID = UUID()
     /// Advances on every regeneration so a JDT freshness answer computed against
     /// the previous document cannot be attached to the new one.
@@ -277,13 +279,17 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         languageRunExtensions[languageID] = nil
     }
 
-    /// 供输出文本定位源码使用:项目根 + 各 Maven 模块根。
+    /// Output navigation uses only roots published by current build providers.
     package var sourceSearchRoots: [URL] {
-        var roots = projectURL.map { [$0] } ?? []
-        if let mavenProject {
-            roots.append(contentsOf: mavenProject.allModules.map(\.url))
-        }
-        return roots
+        guard let projectURL else { return [] }
+        return [projectURL] + Array(Set(buildModels().flatMap {
+            $0.projects.map(\.path) + $0.contentRoots.filter { $0.kind != "excluded" }.map(\.path)
+        }).subtracting(["."]))
+            .sorted().map { projectURL.appendingPathComponent($0, isDirectory: true) }
+    }
+
+    package func configureBuildModels(_ models: @escaping () -> [BuildModel]) {
+        buildModels = models
     }
 
     /// A language capability explicitly opts into the dependency browser.
@@ -442,18 +448,6 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         }
     }
 
-    /// Applies an accepted Maven model without replacing the file snapshot or
-    /// reloading run configuration from disk. The execution graph owns delivery.
-    package func acceptMavenProject(_ project: MavenProject, at workspace: URL) {
-        let workspace = workspace.standardizedFileURL
-        guard projectURL == workspace else { return }
-        if case .loading(let pendingWorkspace) = projectLoadState,
-           pendingWorkspace != workspace { return }
-        mavenModelRevision += 1
-        mavenProject = project
-        mavenProfiles = project.profiles
-    }
-
     /// Loads run state for a workspace.
     ///
     /// `snapshotID` identifies the workspace snapshot `files` came from. Passing
@@ -462,7 +456,6 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     package func loadProject(
         at projectURL: URL,
         files: [URL],
-        mavenProject: MavenProject?,
         snapshotID: UUID? = nil
     ) async {
         // An overlapping load may still expose the initial Current File placeholder.
@@ -471,7 +464,6 @@ package final class RunService: ObservableObject, BuildRunLaunching {
             selectedConfigurationIDsByProject[currentProject.path] = selectedConfigurationID
         }
         let loadID = UUID()
-        let modelRevision = mavenModelRevision
         projectLoadID = loadID
         let workspace = projectURL.standardizedFileURL
         if let buildRunWorkspace, buildRunWorkspace != workspace {
@@ -513,12 +505,6 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         if dependenciesChanged {
             dependencyRevision &+= 1
         }
-        // A Reload may commit while inspection is suspended. Preserve that
-        // accepted model instead of restoring the caller's earlier snapshot.
-        if mavenModelRevision == modelRevision {
-            self.mavenProject = mavenProject
-        }
-        mavenProfiles = self.mavenProject?.profiles ?? []
         self.projectFiles = files
         configurationStatus = inspection.status
         configurationDiagnostics = inspection.diagnostics
@@ -535,7 +521,6 @@ package final class RunService: ObservableObject, BuildRunLaunching {
                 let resolution = try await resolveLoadedProjectToolchains(
                     operations: operations,
                     projectURL: projectURL,
-                    mavenProject: self.mavenProject,
                     preferredConfigurationID: preferredID,
                     loadID: loadID
                 )
@@ -658,7 +643,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         }
         let operations = runConfigurationOperations
         let files = projectFiles
-        let modulePaths = mavenProject?.allModules.map(\.relativePath) ?? []
+        let modulePaths = Array(Set(buildModels().flatMap { $0.projects.map(\.path) })).sorted()
         let result = await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 continuation.resume(returning: Result {
@@ -680,7 +665,6 @@ package final class RunService: ObservableObject, BuildRunLaunching {
                 var resolution = try resolveWithServiceToolchains(
                     operations: operations,
                     projectURL: projectURL,
-                    mavenProject: mavenProject,
                     preferredConfigurationID: nil
                 )
                 try operations.migrateLegacySettings(
@@ -690,7 +674,6 @@ package final class RunService: ObservableObject, BuildRunLaunching {
                 resolution = try resolveWithServiceToolchains(
                     operations: operations,
                     projectURL: projectURL,
-                    mavenProject: mavenProject,
                     preferredConfigurationID: selectedConfigurationIDsByProject[projectURL.standardizedFileURL.path]
                         ?? resolution.defaultConfigurationID
                 )
@@ -788,7 +771,6 @@ package final class RunService: ObservableObject, BuildRunLaunching {
                 let resolution = try resolveWithServiceToolchains(
                     operations: runConfigurationOperations,
                     projectURL: projectURL,
-                    mavenProject: mavenProject,
                     preferredConfigurationID: selectedConfiguration?.id
                 )
                 configurationDiagnostics = resolution.diagnostics
@@ -838,7 +820,6 @@ package final class RunService: ObservableObject, BuildRunLaunching {
             let resolution = try resolveWithServiceToolchains(
                 operations: runConfigurationOperations,
                 projectURL: projectURL,
-                mavenProject: mavenProject,
                 preferredConfigurationID: configuration.id
             )
             configurationDiagnostics = diagnosticsAfterDocumentEdit(
@@ -878,7 +859,6 @@ package final class RunService: ObservableObject, BuildRunLaunching {
             let resolution = try resolveWithServiceToolchains(
                 operations: runConfigurationOperations,
                 projectURL: projectURL,
-                mavenProject: mavenProject,
                 preferredConfigurationID: id
             )
             guard resolution.configurations.contains(where: { $0.configuration.id == id }) else {
@@ -1021,7 +1001,6 @@ package final class RunService: ObservableObject, BuildRunLaunching {
             return
         }
         let currentFile = currentFileURL.flatMap { relativePath(for: $0, root: projectURL) }
-        let planClassPath = currentFileURL.flatMap(classPath(for:))
         let requiredExtensionLanguageID = configuration.kind == .currentFile
             ? currentFileURL.flatMap { languageProviderCatalog.provider(for: $0)?.id }
             : configuration.kind.providerID
@@ -1059,7 +1038,7 @@ package final class RunService: ObservableObject, BuildRunLaunching {
                     at: projectURL,
                     configurationID: configuration.id,
                     currentFile: currentFile,
-                    classPath: planClassPath,
+                    classPath: nil,
                     javaLaunch: javaLaunch,
                     debugPort: nil,
                     mavenContext: mavenContext
@@ -1251,7 +1230,6 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         projectLoadState = .idle
         selectedConfigurationIDsByProject = [:]
         projectFiles = []
-        mavenProject = nil
         dependencyWorkspaceURL = nil
         dependencyConfiguration = WorkspaceDependencyConfiguration()
         dependencyIndexes = WorkspaceDependencyIndexes()
@@ -1266,7 +1244,6 @@ package final class RunService: ObservableObject, BuildRunLaunching {
         projectToolchain = ProjectToolchainSelection()
         savedProjectToolchain = nil
         effectiveSourcesByConfigurationID = [:]
-        mavenProfiles = []
         moduleSessions = []
         portConflicts = []
         configurationStatus = .missing
@@ -1440,11 +1417,9 @@ package final class RunService: ObservableObject, BuildRunLaunching {
 
     private func toolchainCandidates(
         projectURL: URL,
-        mavenProject: MavenProject?,
         options: RunOptions? = nil
     ) -> [ProjectToolchainCandidate] {
         let runtimeCandidates = runtime.runConfigurationToolchainCandidates(
-            for: mavenProject,
             projectRoot: projectURL,
             javaHomeOverride: options?.javaHomePath,
             mavenExecutableOverride: options?.mavenExecutablePath
@@ -1464,13 +1439,12 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     private func resolveLoadedProjectToolchains(
         operations: any RunConfigurationOperations,
         projectURL: URL,
-        mavenProject: MavenProject?,
         preferredConfigurationID: String?,
         loadID: UUID
     ) async throws -> RunConfigurationResolution {
         func candidates(options: RunOptions? = nil) async throws -> [ProjectToolchainCandidate] {
             let runtimeCandidates = try await runtime.loadRunConfigurationToolchainCandidates(
-                for: mavenProject, projectRoot: projectURL,
+                projectRoot: projectURL,
                 javaHomeOverride: options?.javaHomePath,
                 mavenExecutableOverride: options?.mavenExecutablePath
             )
@@ -1492,17 +1466,15 @@ package final class RunService: ObservableObject, BuildRunLaunching {
     private func resolveWithServiceToolchains(
         operations: any RunConfigurationOperations,
         projectURL: URL,
-        mavenProject: MavenProject?,
         preferredConfigurationID: String?
     ) throws -> RunConfigurationResolution {
         let initial = try operations.resolve(
             at: projectURL,
-            toolchainCandidates: toolchainCandidates(projectURL: projectURL, mavenProject: mavenProject)
+            toolchainCandidates: toolchainCandidates(projectURL: projectURL)
         )
         guard let options = javaServiceOptions(in: initial, preferredID: preferredConfigurationID) else { return initial }
         let candidates = toolchainCandidates(
             projectURL: projectURL,
-            mavenProject: mavenProject,
             options: options
         )
         return try operations.resolve(at: projectURL, toolchainCandidates: candidates)
@@ -1853,29 +1825,6 @@ package final class RunService: ObservableObject, BuildRunLaunching {
                 }
             }
         )
-    }
-
-    private func classPath(for fileURL: URL) -> String? {
-        var candidateRoots: [URL] = []
-        if let mavenProject {
-            candidateRoots += mavenProject.allModules
-                .filter { Self.isInside(fileURL, directory: $0.url) }
-                .sorted { $0.url.path.count > $1.url.path.count }
-                .map(\.url)
-            candidateRoots.append(mavenProject.rootURL)
-        }
-        if let projectURL {
-            candidateRoots.append(projectURL)
-        }
-
-        var seenPaths = Set<String>()
-        for root in candidateRoots {
-            let classesURL = root.appendingPathComponent("target/classes", isDirectory: true)
-            guard seenPaths.insert(classesURL.standardizedFileURL.path).inserted else { continue }
-            guard fileAccess.isDirectory(at: classesURL) else { continue }
-            return classesURL.standardizedFileURL.path
-        }
-        return nil
     }
 
     private func startModuleSession(
@@ -2246,8 +2195,9 @@ package final class RunService: ObservableObject, BuildRunLaunching {
             }
         }
 
-        let moduleRoot = configuration.modulePath.flatMap { modulePath in
-            mavenProject?.modules.first(where: { $0.relativePath == modulePath })?.url
+        let moduleRoot = configuration.modulePath.flatMap { path in
+            buildModels().flatMap(\.projects).first(where: { $0.path == path })
+                .flatMap { project in projectURL?.appendingPathComponent(project.path, isDirectory: true) }
         } ?? projectURL
         guard let moduleRoot else { return nil }
         let resourceFiles = projectFiles.filter { fileURL in

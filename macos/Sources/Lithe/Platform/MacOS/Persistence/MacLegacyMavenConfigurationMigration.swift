@@ -13,6 +13,10 @@ struct MacLegacyMavenConfigurationMigration {
     let options: MacBuildOptionsStore
     let immutableRoots: [URL]
 
+    nonisolated static func storageIdentity(workspacePath: String, reactorPath: String) -> String {
+        workspacePath + "\0" + reactorPath
+    }
+
     /// Call only after the old configuration readers and writers are detached.
     /// Every source is retained until all destinations have been read back.
     @discardableResult
@@ -25,7 +29,8 @@ struct MacLegacyMavenConfigurationMigration {
                                   fields: ["version", "selectedProfiles", "customProfiles", "skipTests"])
         let localDirectory = storage.applicationSupportDirectory().appendingPathComponent("Lithe/Maven")
         let local: [(root: String, source: Source<Local>)] = try roots.compactMap { root in
-            let digest = SHA256.hash(data: Data((workspace.path + "\0" + root).utf8)).map { String(format: "%02x", $0) }.joined()
+            let identity = Self.storageIdentity(workspacePath: workspace.path, reactorPath: root)
+            let digest = SHA256.hash(data: Data(identity.utf8)).map { String(format: "%02x", $0) }.joined()
             let url = localDirectory.appendingPathComponent(digest + ".json")
             return try source(Local.self, at: url, within: localDirectory,
                               fields: ["version", "settingsPath", "localRepositoryPath", "mavenExecutablePath", "javaHomePath"])
@@ -52,6 +57,8 @@ struct MacLegacyMavenConfigurationMigration {
             shared.savedChoices["profiles"] = Array(Set((shared.savedChoices["profiles"] ?? []) + portable.value.customProfiles)).sorted()
         }
         document.systems["maven"] = shared
+        let existingDefaults = try options.instanceDefaults(workspaceURL: workspace, buildSystemID: "maven")
+        let existingWorkspaceOptions = try options.options(workspaceURL: workspace, buildSystemID: "maven")
         let previousOptions = try options.instanceOptions(workspaceURL: workspace, buildSystemID: "maven")
         var instanceOptions = previousOptions
         let runURL = workspace.appendingPathComponent(".lithe/run/local.json")
@@ -65,8 +72,8 @@ struct MacLegacyMavenConfigurationMigration {
         for (root, source) in local {
             try source.value.validate()
             var values = instanceOptions[root] ?? [:]
-            if values["settingsFile"] == nil, let value = source.value.settingsPath, shared.instanceDefaults["settingsFile"] != .string(value) { values["settingsFile"] = .string(value) }
-            if values["localRepository"] == nil, let value = source.value.localRepositoryPath, shared.instanceDefaults["localRepository"] != .string(value) { values["localRepository"] = .string(value) }
+            if values["settingsFile"] == nil, existingDefaults["settingsFile"] == nil, existingWorkspaceOptions["settingsFile"] == nil, let value = source.value.settingsPath, shared.instanceDefaults["settingsFile"] != .string(value) { values["settingsFile"] = .string(value) }
+            if values["localRepository"] == nil, existingDefaults["localRepository"] == nil, existingWorkspaceOptions["localRepository"] == nil, let value = source.value.localRepositoryPath, shared.instanceDefaults["localRepository"] != .string(value) { values["localRepository"] = .string(value) }
             if !values.isEmpty { instanceOptions[root] = values }
             // Reactor-local paths have higher priority than project defaults.
             // An existing root entry, even explicitly automatic, wins intact.

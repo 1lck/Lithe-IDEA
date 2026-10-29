@@ -7,6 +7,26 @@ import Testing
 
 @MainActor
 struct BuildSystemServiceTests {
+    @Test
+    func nativePreparationIdentityRejectsOptionsChangedAwayAndBackEvenWithoutModelSharing() async throws {
+        let planner = FakeBuildPlanner()
+        planner.importEnabled = true
+        planner.dynamicOptions = true
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "static")])
+        let harness = Harness(planner: planner)
+        harness.optionsStore.values["fixture"] = ["features": .array([.string("first")])]
+        harness.service.reset(workspaceURL: Self.workspace)
+        let initial = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
+        let revision = harness.service.inputRevision
+        harness.service.setOption(Self.instanceID, optionID: "features", value: .array([.string("next")]))
+        _ = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
+        harness.service.setOption(Self.instanceID, optionID: "features", value: .array([.string("first")]))
+        let returned = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
+        #expect(returned == initial)
+        #expect(harness.service.inputRevision > revision)
+        harness.service.stop()
+    }
+
     private static let workspace = URL(fileURLWithPath: "/workspace/demo")
 
     @Test
@@ -47,7 +67,7 @@ struct BuildSystemServiceTests {
         harness.service.reset(workspaceURL: Self.workspace)
         _ = try await harness.service.prepareLanguageImport(workspaceURL: Self.workspace)
         #expect(harness.service.languageImport?.mavenContext?.reactorPath == "a")
-        await graph.run.loadProject(at: Self.workspace, files: [], mavenProject: nil)
+        await graph.run.loadProject(at: Self.workspace, files: [])
         func launch() {
             if primary { graph.run.run(configuration: configuration, currentFileURL: nil) }
             else { graph.run.startConfiguration(configuration) }

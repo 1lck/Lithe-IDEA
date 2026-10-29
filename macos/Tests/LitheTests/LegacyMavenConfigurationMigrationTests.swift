@@ -8,6 +8,32 @@ import Testing
 @MainActor
 struct LegacyMavenConfigurationMigrationTests {
     @Test
+    func productionCutoverOnlyTransfersTheOfficialDetectedRootsAndPreservesNewDefaults() throws {
+        let context = try Context()
+        defer { context.clean() }
+        try context.legacy.saveMavenConfiguration(.init(portable: .init(selectedProfiles: ["ci"]),
+            local: .init(settingsPath: "/fixture/retired.xml")), workspaceURL: context.workspace, reactorPath: "a")
+        var document = BuildProjectOptionsDocument()
+        var system = BuildProjectOptionsDocument.System()
+        system.instanceDefaults["settingsFile"] = .string("/fixture/new-source.xml")
+        document.systems["maven"] = system
+        try context.options.saveProjectDocument(document, workspace: context.workspace, expecting: nil)
+        func instance(plugin: String) -> BuildSystemInstance {
+            BuildSystemInstance(id: "maven:a", pluginID: plugin, buildSystemID: "maven", displayName: "Maven",
+                root: "a", markers: ["a/pom.xml"], modelSource: .provider, optionFingerprint: "fixture", model: nil, modelError: nil)
+        }
+        #expect(!(try context.options.migrateLegacyConfiguration(workspaceURL: context.workspace, instances: [])))
+        #expect(!(try context.options.migrateLegacyConfiguration(workspaceURL: context.workspace, instances: [instance(plugin: "fixture.other-plugin")])))
+        #expect(context.storage.fileExists(at: context.portable))
+        #expect(try context.options.migrateLegacyConfiguration(workspaceURL: context.workspace, instances: [instance(plugin: "io.github.lithe-idea.maven-build")]))
+        #expect(!context.storage.fileExists(at: context.portable))
+        #expect(!context.storage.fileExists(at: context.local("a")))
+        #expect(try context.options.instanceDefaults(workspaceURL: context.workspace, buildSystemID: "maven")["settingsFile"] == .string("/fixture/new-source.xml"))
+        #expect(try context.options.instanceOptions(workspaceURL: context.workspace, buildSystemID: "maven")["a"]?["settingsFile"] == nil)
+        #expect(!(try context.options.migrateLegacyConfiguration(workspaceURL: context.workspace, instances: [instance(plugin: "io.github.lithe-idea.maven-build")])))
+    }
+
+    @Test
     func runtimeMavenFieldsRemainPrivateDefaultsWhileExistingRootAndTeamChoicesWin() throws {
         let context = try Context()
         defer { context.clean() }
@@ -271,7 +297,7 @@ struct LegacyMavenConfigurationMigrationTests {
         let preferences = MigrationPreferences()
         let options: MacBuildOptionsStore
         let run: MacRunConfigurationStore
-        var legacy: MacMavenConfigurationStore { .init(storage: storage) }
+        var legacy: LegacyMavenFixtureWriter { .init(storage: storage) }
         var portable: URL { workspace.appendingPathComponent(".lithe/maven/config.json") }
         init() throws {
             root = FileManager.default.temporaryDirectory.appendingPathComponent("maven-configuration-transfer-" + UUID().uuidString).resolvingSymlinksInPath()
@@ -342,4 +368,79 @@ private struct MigrationFileStorage: FileStorage {
     func removeItem(at url: URL) throws { try native.removeItem(at: url) }
     func moveItem(at sourceURL: URL, to destinationURL: URL) throws { try native.moveItem(at: sourceURL, to: destinationURL) }
     func copyItem(at sourceURL: URL, to destinationURL: URL) throws { try native.copyItem(at: sourceURL, to: destinationURL) }
+}
+
+// Fixed saved-format fixtures survive deletion of the production legacy store.
+private struct MavenPortableConfiguration: Codable, Equatable, Sendable {
+    static let currentVersion = 1
+
+    var version: Int
+    var selectedProfiles: [String]
+    var customProfiles: [String]
+    var skipTests: Bool
+
+    init(
+        version: Int = currentVersion,
+        selectedProfiles: [String] = [],
+        customProfiles: [String] = [],
+        skipTests: Bool = false
+    ) {
+        self.version = version
+        self.selectedProfiles = selectedProfiles
+        self.customProfiles = customProfiles
+        self.skipTests = skipTests
+    }
+}
+
+private struct MavenLocalConfiguration: Codable, Equatable, Sendable {
+    static let currentVersion = 1
+
+    var version: Int
+    var settingsPath: String?
+    var localRepositoryPath: String?
+    var mavenExecutablePath: String?
+    var javaHomePath: String?
+
+    init(
+        version: Int = currentVersion,
+        settingsPath: String? = nil,
+        localRepositoryPath: String? = nil,
+        mavenExecutablePath: String? = nil,
+        javaHomePath: String? = nil
+    ) {
+        self.version = version
+        self.settingsPath = settingsPath
+        self.localRepositoryPath = localRepositoryPath
+        self.mavenExecutablePath = mavenExecutablePath
+        self.javaHomePath = javaHomePath
+    }
+}
+
+private struct MavenStoredConfiguration: Equatable, Sendable {
+    let portable: MavenPortableConfiguration?
+    let local: MavenLocalConfiguration?
+
+    init(
+        portable: MavenPortableConfiguration?,
+        local: MavenLocalConfiguration?
+    ) {
+        self.portable = portable
+        self.local = local
+    }
+}
+
+private struct LegacyMavenFixtureWriter {
+    let storage: MigrationFileStorage
+    func saveMavenConfiguration(_ value: MavenStoredConfiguration, workspaceURL: URL, reactorPath: String) throws {
+        let portable = workspaceURL.appendingPathComponent(".lithe/maven/config.json")
+        let identity = MacLegacyMavenConfigurationMigration.storageIdentity(workspacePath: workspaceURL.path, reactorPath: reactorPath)
+        let digest = SHA256.hash(data: Data(identity.utf8)).map { String(format: "%02x", $0) }.joined()
+        let local = storage.applicationSupportDirectory().appendingPathComponent("Lithe/Maven/" + digest + ".json")
+        for (url, data) in [(portable, try value.portable.map { try JSONEncoder().encode($0) }),
+                            (local, try value.local.map { try JSONEncoder().encode($0) })] {
+            guard let data else { continue }
+            try storage.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try storage.writeData(data, to: url, options: [])
+        }
+    }
 }

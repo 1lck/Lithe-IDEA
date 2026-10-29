@@ -6,7 +6,6 @@ import LitheModuleAPI
 
 @MainActor
 extension AppModel {
-    var mavenFeatureIfActive: MavenFeatureModel? { executionCapability?.mavenFeature }
     var runFeatureIfActive: RunFeatureModel? { executionCapability?.runFeature }
 
     /// Run configurations and plugin build tasks still running in this project, for
@@ -51,27 +50,6 @@ extension AppModel {
         // deferred action waiting on it would never be resumed.
         guard let access = await executionModuleCoordinator.activateAccess() else { return nil }
         loadBuildSystems(access)
-        access.mavenFeature.configureJavaConfigurationSync { [weak self] rootURL in
-            guard let self, self.workspaceURL?.standardizedFileURL == rootURL.standardizedFileURL,
-                  let sessions = self.languageToolingSessionsIfActive else { return false }
-            // Plugin options own Java import when present; a legacy Maven
-            // settings write must not replace them, including during detection.
-            guard !self.isBuildLanguageImportPending else { return false }
-            switch sessions.updateJavaMavenConfiguration(rootURL: rootURL, reloadProjects: false) {
-            case .updated: return true
-            case .noSession: return false
-            case .failed(let failure):
-                throw NSError(
-                    domain: "MavenJavaConfiguration",
-                    code: 1,
-                    userInfo: [NSLocalizedDescriptionKey: failure.userMessage]
-                )
-            }
-        }
-        for ownership in services.pluginCatalog.languageSupports.values {
-            registerLanguageDependencySourceIfAvailable(support: ownership.declaration)
-        }
-        registerJavaDependencySourceIfAvailable()
         return access
     }
 

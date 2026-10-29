@@ -561,7 +561,6 @@ extension AppModel {
             return
         }
         executionModuleCoordinator.stopFeatures(
-            maven: nil,
             run: runFeatureIfActive
         )
     }

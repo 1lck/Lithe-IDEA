@@ -375,7 +375,7 @@ struct LitheTreeListTests {
         do {
             let access = try #require(await model.activateExecutionModule())
             let feature = access.runFeature
-            await feature.loadProject(at: root, files: [], mavenProject: nil)
+            await feature.loadProject(at: root, files: [])
             // Use a registered source with an explicit local path, isolating UI dispatch
             // from language-server startup while exercising the real dependency feature.
             feature.registerDependencySource(languageID: "acceptance", displayName: "Acceptance dependencies")

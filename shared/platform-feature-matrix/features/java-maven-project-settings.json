@@ -2,7 +2,7 @@
   "id": "java-maven-project-settings",
   "area": "Java",
   "group": "Java/Maven",
-  "capability": "按项目配置 Maven 工具链、settings.xml 与本地仓库；项目默认值明确标注“本机 · 此项目”，运行配置区分本机保存与团队共享；macOS 子项目工具路径与项目默认值保存在同一本地 Run 文档；macOS 子项目清单读取通用构建模型与语言插件声明",
+  "capability": "项目与子项目工具链使用 canonical Run local.json；Maven 调用选项和原生 XML 归 Build Provider，旧配置只经校验、迁移和读回后清理",
   "macos": {
     "evidence": [
       "macos/Sources/Lithe/Views/App/ProjectRuntimeSettingsView.swift",
@@ -16,7 +16,8 @@
       "macos/Sources/Lithe/Models/Runtime/ProjectRuntimeInventory.swift",
       "macos/Tests/LitheTests/ProjectRuntimeSettingsTests.swift",
       "macos/Sources/Lithe/Platform/MacOS/Persistence/MacLegacyMavenConfigurationMigration.swift",
-      "macos/Tests/LitheTests/LegacyMavenConfigurationMigrationTests.swift"
+      "macos/Tests/LitheTests/LegacyMavenConfigurationMigrationTests.swift",
+      "macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -37,5 +38,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Java / Maven",
-  "verification": "在 macOS 项目设置和 Windows Maven 设置页分别切换两个项目，配置 Maven、JDK、settings.xml 与本地仓库，验证保存重开、自动检测展示及项目间隔离；Windows 还需验证写盘失败后可直接重试。 Windows 自定义 settings.xml 后，仓库留空应显示该文件中的目录；验证 XML 实体和 CDATA、继承的项目 JDK/Maven、切换项目丢弃未保存草稿；冷启动 Wrapper 不应触发下载，版本探测卡住时设置窗口保持响应并在超时后清理探测进程；Run 配置显式选择的 Maven/JDK 优先于项目设置，未设置的字段分别继承 Maven 设置；确认主任务与前置任务使用相同工具链，Maven 设置上下文缺失时仍保留显式覆盖，均未配置时交由平台自动发现。 双端中英文检查项目 JDK/Maven 页的“本机 · 此项目”副标题、默认继承与团队共享说明，以及运行配置的本机/项目保存范围；原有 JDK、Maven、项目环境关键词仍能搜索到页面。 macOS 项目默认工具选择只经 Core 读取 local.json；覆盖旧偏好唯一迁移、已有显式自动优先、损坏目标/写入失败保留源、打开/取消/失焦/离页不写、确认保存后读回、外部编辑冲突保留草稿，以及 Run 编辑器保存重新读取当前默认值。旧 Maven 每个 reactor 的工具覆盖和原生 XML/仓库来源迁移仍待阶段 D 后续工作，完整 UI 实机验收继续 pending。 macOS 子项目工具路径迁移到同一 local.json：保留已保存项目默认值；仅在尚未保存子项目映射时迁入旧值，显式空映射不被旧偏好复活；保存、重开、外部冲突、非法相对根及写入失败检查不丢源数据，Run 编辑器保存保留映射。Windows 子项目映射尚无运行证据。 macOS 子项目清单只消费 Provider 的路径、名称与父子关系；未加载模型时按已安装语言插件声明提供目录，不再依赖旧 MavenProject 或硬编码文件名。归一化根、层级、重复目录、外部路径、无声明文件和模型覆盖范围的回归验证；旧配置转移器的隔离测试验证目标读回后清源和失败保留，但生产切换入口尚未启用，不能据此判定 Maven 全数据迁移完成。 项目运行偏好键存在但不是预期 Data 时，普通读取和一次性迁移均失败，运行工具选择被阻止；原值保留且不创建 local.json。 旧运行偏好的 settings/仓库字段迁入本机实例默认值，保留 JDK/未知字段，已有目标优先；空值、无 reactor、写入失败和部分发布后外部改源均保留或拒绝清理。迁移器仍未接生产。"
+  "verification": "macOS 项目默认及子项目工具链只读取 canonical Run local.json，Maven 调用选项和 XML 在 Provider 设置中读取、编辑、确认并读回。315 项原生回归覆盖取消/重开/外部冲突、损坏偏好拒绝、迁移失败保留源、部分发布后改源拒绝、显式自动与新默认值优先，以及检测官方 reactor 后转移旧文件和运行偏好再重新检测。旧 XML 表单、解析器、MavenService/FeatureModel、POM 专属加载与 MacMavenConfigurationStore 已删除；Run 工程/源码根只读取当前模型。真实 Maven Agent compile 通过且插件包清单不变。尚须完整设置 UI、正式包和 Windows 原生验收；Windows 当前仍保留独立 Maven 设置/存储，覆盖配置隔离、XML 实体/CDATA、保存冲突、Wrapper 不被动执行和工具选择失败，不把 macOS 结果当作 Windows 证据。"
 }

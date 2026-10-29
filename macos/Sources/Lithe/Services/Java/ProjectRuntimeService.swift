@@ -53,12 +53,6 @@ extension ProjectRuntimeService: LanguageToolRuntimePort {
     }
 }
 
-extension ProjectRuntimeService: MavenRuntimePort {
-    package func mavenProcessEnvironment(javaHomePath: String?) -> [String: String] {
-        environment(for: .maven, javaHomeOverride: javaHomePath)
-    }
-}
-
 @MainActor
 final class ProjectRuntimeService: ObservableObject {
     enum JavaLanguageServerRuntimePreparation: Equatable {
@@ -594,7 +588,7 @@ final class ProjectRuntimeService: ObservableObject {
     }
 
     func loadRunConfigurationToolchainCandidates(
-        for project: MavenProject?, projectRoot: URL? = nil,
+        projectRoot: URL? = nil,
         javaHomeOverride: String? = nil, mavenExecutableOverride: String? = nil
     ) async throws -> [ProjectToolchainCandidate] {
         guard reloadSettings() else { throw RunConfigurationOperationFailure(message: settingsError ?? "") }
@@ -616,13 +610,12 @@ final class ProjectRuntimeService: ObservableObject {
         }
         let javaHome = javaHomeURL(overridePath: javaHomeOverride)
         let explicitMaven = projectRoot.flatMap { mavenExecutable(at: $0, overridePath: mavenExecutableOverride) }
-        let knownMaven = project.flatMap(activeMavenRuntime)
         let fallbackMaven = projectRoot.flatMap { mavenExecutable(at: $0) }
         let probed: (JavaRuntimeCandidate?, MavenRuntimeCandidate?) = await Self.backgroundProbe { cancelled in
             guard !cancelled() else { return (nil, nil) }
             let java = javaHome.flatMap(locator.javaRuntime(at:))
             guard !cancelled() else { return (nil, nil) }
-            let maven = explicitMaven.flatMap(locator.mavenRuntime(at:)) ?? knownMaven
+            let maven = explicitMaven.flatMap(locator.mavenRuntime(at:))
             guard !cancelled() else { return (nil, nil) }
             return (java, maven ?? fallbackMaven.flatMap(locator.mavenRuntime(at:)))
         }
@@ -647,7 +640,6 @@ final class ProjectRuntimeService: ObservableObject {
     }
 
     func runConfigurationToolchainCandidates(
-        for project: MavenProject?,
         projectRoot: URL? = nil,
         javaHomeOverride: String? = nil,
         mavenExecutableOverride: String? = nil
@@ -656,8 +648,7 @@ final class ProjectRuntimeService: ObservableObject {
         let maven = projectRoot.flatMap { root in
             mavenExecutable(at: root, overridePath: mavenExecutableOverride)
                 .flatMap(runtimeLocator.mavenRuntime(at:))
-        } ?? project.flatMap(activeMavenRuntime)
-            ?? projectRoot.flatMap { root in
+        } ?? projectRoot.flatMap { root in
                 mavenExecutable(at: root).flatMap(runtimeLocator.mavenRuntime(at:))
             }
         return Self.toolchainCandidates(java: java, maven: maven)

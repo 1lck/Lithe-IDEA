@@ -566,11 +566,6 @@ final class MacServiceContainer {
                         }
                     )
                     let graph = ExecutionFeatureGraph(
-                        maven: MavenService(
-                            runtimeService: runtimeService,
-                            mavenOperations: javaMavenOperations,
-                            configurationStore: MacMavenConfigurationStore(storage: fileStorage)
-                        ),
                         run: runService,
                         tests: LanguageTestService(
                             catalog: languagePackRegistry.catalog,

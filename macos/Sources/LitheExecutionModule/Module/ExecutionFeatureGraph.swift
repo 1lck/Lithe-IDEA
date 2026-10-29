@@ -5,34 +5,28 @@ import LitheModuleAPI
 
 @MainActor
 package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
-    package let maven: MavenService
     package let run: RunService
     package let tests: LanguageTestService
-    package let mavenFeature: MavenFeatureModel
     package let runFeature: RunFeatureModel
     package let projectDevelopment: ProjectDevelopmentFeatureModel
     /// Nil when the host runs no plugin build systems.
     package let buildSystems: BuildSystemService?
     package let buildSystemsFeature: BuildSystemsFeatureModel?
     private var activityObservers: Set<AnyCancellable> = []
-    private var mavenLease: ModuleLease?
     private var runLease: ModuleLease?
     private var testLease: ModuleLease?
     private var buildLease: ModuleLease?
 
     package init(
-        maven: MavenService,
         run: RunService,
         tests: LanguageTestService,
         buildSystems: BuildSystemService? = nil
     ) {
-        self.maven = maven; self.run = run; self.tests = tests
+        self.run = run; self.tests = tests
         self.buildSystems = buildSystems
         buildSystemsFeature = buildSystems.map(BuildSystemsFeatureModel.init(service:))
-        let mavenFeature = MavenFeatureModel(service: maven)
-        self.mavenFeature = mavenFeature
         runFeature = RunFeatureModel(service: run)
-        projectDevelopment = ProjectDevelopmentFeatureModel(mavenFeature: mavenFeature, runFeature: runFeature)
+        projectDevelopment = ProjectDevelopmentFeatureModel(runFeature: runFeature)
         run.configureBuildLanguageImportProvider { [weak buildSystems] workspace, root in
             try buildSystems?.languageImport(workspaceURL: workspace, root: root) ?? JavaLanguageImportConfiguration()
         }
@@ -43,15 +37,14 @@ package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
             let message: String? = if case .failed(let message) = ended.state { message } else { nil }
             run?.finishBuildPreparation(ended.runID, message: message)
         }.store(in: &activityObservers)
-        maven.onProjectReloaded = { [weak run] workspace, project in
-            run?.acceptMavenProject(project, at: workspace)
+        run.configureBuildModels { [weak buildSystems] in
+            buildSystems?.entries.filter { $0.modelState == .loaded && !$0.isReloadRequired }.compactMap(\.model) ?? []
         }
 
     }
 
     package var isActive: Bool {
-        maven.isReloading
-            || run.isRunning || run.hasRunningServices || tests.isRunning
+        run.isRunning || run.hasRunningServices || tests.isRunning
             || buildSystems?.hasActiveWork == true
     }
     package var hasActiveExecutionWork: Bool { isActive }
@@ -63,11 +56,6 @@ package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
     }
 
     package func configureModuleLeases(acquire: @escaping @MainActor (String) -> ModuleLease) {
-        maven.$isReloading.removeDuplicates().sink { [weak self] active in
-            guard let self else { return }
-            if active, mavenLease == nil { mavenLease = acquire("Maven operation is running") }
-            if !active { mavenLease?.release(); mavenLease = nil }
-        }.store(in: &activityObservers)
         run.$isRunning.removeDuplicates().sink { [weak self] active in
             guard let self else { return }
             if active, runLease == nil { runLease = acquire("Run configuration is running") }
@@ -89,13 +77,12 @@ package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
     /// run that launched them, so they are stopped here as well: nothing the
     /// IDE started may keep running after the session that owns it is gone.
     package func stop() {
-        maven.stop(); run.stop(); run.stopAllServices(); tests.stop(); buildSystems?.stop()
+        run.stop(); run.stopAllServices(); tests.stop(); buildSystems?.stop()
         releaseLeases()
         activityObservers.removeAll()
     }
 
     private func releaseLeases() {
-        mavenLease?.release(); mavenLease = nil
         runLease?.release(); runLease = nil
         testLease?.release(); testLease = nil
         buildLease?.release(); buildLease = nil

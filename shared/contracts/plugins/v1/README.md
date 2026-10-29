@@ -407,7 +407,7 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 | `settings` | `settings[]` and `settingActions[]` | `1`, `2` (adds [placement, scope, effect, page buttons](#settings-v2-placement-scope-effect-and-page-buttons)) |
 | `ui` | `ui` | `1`, `2` (adds [web content](#web-content-ui-2)) |
 | `buildSystems` | Declarative build detection, models, and command plans; v2 executable setting adapter; v3 instance-scoped options | `1`, `2`, `3` |
-| `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers; v2 tasks, v3 tests, v4 run, v5 native debug preparation, v6 read-only model inputs, v7 native configuration | `1`, `2`, `3`, `4`, `5`, `6`, `7` |
+| `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers; v2 tasks, v3 tests, v4 run, v5 native debug preparation, v6 read-only model inputs, v7 native configuration, v8 inline test reports | `1`, `2`, `3`, `4`, `5`, `6`, `7`, `8` |
 | `buildModelInputs` | Optional public model sharing between enabled workspace plugins | `1` |
 | `executableResolution` | Shared executable candidate ordering and strict selection; v2 canonical project/subproject toolchain registry bindings | `1`, `2` |
 | `vcsProviders` | `vcsProviders[]` | `1` |
@@ -459,7 +459,7 @@ in `plugins.declarative.validate`, `plugins.marketplace.validateIndex`, and
 
 The macOS host sends its capability table with validation, marketplace filtering
 and install review. It advertises `buildSystems: [1, 2, 3]` and
-`buildProviders: [1, 2, 3, 4, 5, 6, 7]`; native Provider models, dependencies, tasks, tests and launch preparation
+`buildProviders: [1, 2, 3, 4, 5, 6, 7, 8]`; native Provider models, dependencies, tasks, tests and launch preparation
 share workspace-owned sessions. Backend and VCS support use their own entries
 in the same table. Core validates supported versions without a host table,
 but admission must use the actual host table. Windows does not yet advertise

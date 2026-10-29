@@ -344,8 +344,8 @@ Core 契约部分的验收已在已实现的 Note 里完成。剩下的工作按
 - `rust/lithe-core/src/runtime/dispatcher.rs`
 - `shared/contracts/rust-core-api.md`
 - `macos/Sources/Lithe/Platform/MacOS/Runtime/MacRuntimeDiscovery.swift`
-- `macos/Sources/Lithe/Platform/MacOS/Persistence/MacMavenConfigurationStore.swift`
-- `macos/Sources/LitheExecutionModule/Services/MavenService.swift`
+- `macos/Sources/Lithe/Platform/MacOS/Persistence/MacLegacyMavenConfigurationMigration.swift`
+- `macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift`
 - `macos/Sources/LitheExecutionModule/Services/StandardLanguageTestProvider.swift`
 - `macos/Sources/LitheCoreContracts/Execution/MavenContracts.swift`
 - `macos/Sources/Lithe/Views/Run/BuildSystemToolWindowView.swift`

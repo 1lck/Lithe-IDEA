@@ -752,7 +752,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         cancelJavaTestWorkflows()
         debugModuleCoordinator.stopFeature(genericDebugFeatureIfActive)
         executionModuleCoordinator.stopFeatures(
-            maven: mavenFeatureIfActive,
             run: runFeatureIfActive
         )
         languageToolingSessionsIfActive?.stopLanguageServer(providerID: "java")
@@ -942,7 +941,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         languageIntelligenceModuleCoordinator.resetWorkspaceState(languageToolingFeature)
         runtimeFeature.openProject(at: normalizedURL)
         executionModuleCoordinator.resetFeatures(
-            maven: mavenFeatureIfActive,
             run: runFeatureIfActive,
             tests: languageTestServiceIfActive,
             buildSystems: buildSystemsFeatureIfActive
@@ -1010,7 +1008,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         executionModuleCoordinator.resetTests(languageTestServiceIfActive)
         runtimeFeature.closeProject()
         executionModuleCoordinator.resetFeatures(
-            maven: mavenFeatureIfActive,
             run: runFeatureIfActive,
             tests: languageTestServiceIfActive,
             buildSystems: buildSystemsFeatureIfActive

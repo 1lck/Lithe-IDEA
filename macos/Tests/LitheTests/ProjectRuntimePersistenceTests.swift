@@ -70,9 +70,10 @@ struct ProjectRuntimePersistenceTests {
         let store = MacProjectRuntimeSettingsStore(core: core, storage: MacFileStorage(), preferences: preferences)
         let key = MacProjectRuntimeSettingsStore.preferencesKey(root)
         let legacy = ProjectRuntimeSettings(javaHomePath: "/fixture/old-jdk", mavenHomeSelection: .wrapper,
-            mavenJavaHomePath: "/fixture/old-maven-jdk", mavenSettingsPath: "/fixture/settings.xml")
+            mavenJavaHomePath: "/fixture/old-maven-jdk")
         var document = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(legacy)) as? [String: Any])
         document["futurePreference"] = true
+        document["mavenSettingsPath"] = "/fixture/settings.xml"
         let original = try JSONSerialization.data(withJSONObject: document)
         preferences.set(original, forKey: key)
         let expected = existingCanonical ? ProjectToolchainSelection() : legacy.projectToolchainSelection()
@@ -218,8 +219,7 @@ struct ProjectRuntimePersistenceTests {
         return root
     }
     private func prepare(_ feature: RuntimeSettingsFeatureModel, root: URL) {
-        feature.prepare(workspaceName: "fixture", workspaceURL: root, files: [],
-            mavenSettingsPath: nil, mavenLocalRepositoryPath: nil)
+        feature.prepare(workspaceName: "fixture", workspaceURL: root, files: [])
     }
 }
 

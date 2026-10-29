@@ -495,7 +495,6 @@ extension AppModel {
         }
         guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
         let selectedConfiguration = runFeature.selectedConfiguration
-        let mavenContext = mavenFeatureIfActive?.launchContext
         // Debug is the second execution mode for the Run selection. Re-apply
         // the selection here so its project-scoped Java runtime override is
         // active even when the Run panel was never opened in this session.
@@ -505,7 +504,10 @@ extension AppModel {
         }
         var javaUpdateTarget: JavaDebugLaunchTarget?
         let configuration: DebugLaunchConfiguration
+        let buildInputs: UInt64?
         do {
+            try await prepareBuildLanguageImport()
+            buildInputs = buildSystemsFeatureIfActive?.inputRevision
             configuration = try await featureGraph.debugLaunchPreparation.prepare(
                 provider: provider,
                 fileURL: fileURL,
@@ -536,7 +538,7 @@ extension AppModel {
             return
         }
         guard isCurrentWorkspace(identity), !Task.isCancelled,
-              mavenFeatureIfActive?.launchContext == mavenContext,
+              buildSystemsFeatureIfActive?.inputRevision == buildInputs,
               runFeature.selectedConfiguration == selectedConfiguration else { return }
         guard featureGraph.debugLaunchPreparation.start(
             configuration: configuration,

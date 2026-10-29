@@ -381,14 +381,6 @@ extension AppModel {
 
     func prepareProjectRuntimeSettings() async {
         await runtimeFeature.refreshAvailableRuntimes()
-        if let identity = currentWorkspaceIdentity,
-           let run = await activateExecutionModule()?.runFeature,
-           isCurrentWorkspace(identity) {
-            // Bind the remaining legacy Maven/project workflow before filling
-            // the form. Runtime defaults are read directly from their source.
-            _ = await ensureRunProjectReady(run, for: identity)
-            guard isCurrentWorkspace(identity) else { return }
-        }
         runtimeFeature.prepare(
             workspaceName: projectName,
             workspaceURL: workspaceURL,
@@ -404,29 +396,12 @@ extension AppModel {
                     model: entry.modelState == .loaded && !entry.isReloadRequired ? entry.model : nil)
             } ?? [],
             languageSupports: services.pluginCatalog.languageSupports.values.map(\.declaration)
-                .filter { !languageToolingFeature.isDisabled($0.id) },
-            mavenSettingsPath: mavenFeatureIfActive?.settingsPath,
-            mavenLocalRepositoryPath: mavenFeatureIfActive?.localRepositoryPath
+                .filter { !languageToolingFeature.isDisabled($0.id) }
         )
     }
 
     func persistProjectRuntimeSettings() async {
-        guard let identity = currentWorkspaceIdentity, runtimeFeature.saveSettings() else { return }
-        let settings = runtimeFeature.settings
-        if let maven = mavenFeatureIfActive, maven.project != nil {
-            maven.updateLocalConfiguration(
-                settingsPath: settings.mavenSettingsPath,
-                localRepositoryPath: settings.mavenLocalRepositoryPath,
-                mavenExecutablePath: settings.mavenExecutableOverride,
-                javaHomePath: settings.mavenJavaHomePath
-            )
-            let error = await maven.saveConfiguration()
-            guard isCurrentWorkspace(identity) else { return }
-            if let error {
-                runtimeFeature.finishSaving(error: error)
-                return
-            }
-        }
+        guard currentWorkspaceIdentity != nil, runtimeFeature.saveSettings() else { return }
         runtimeFeature.finishSaving()
     }
 }

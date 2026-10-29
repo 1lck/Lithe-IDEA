@@ -21,12 +21,14 @@ struct IdeCapabilitiesTests {
         defer { defaults.removePersistentDomain(forName: suite) }
         let preferences = MacUserDefaultsStore(defaults: defaults)
         let store = MacProjectRuntimeSettingsStore(core: RustCoreBridge(), storage: MacFileStorage(), preferences: preferences)
+        let legacyKey = MacProjectRuntimeSettingsStore.preferencesKey(root)
+        preferences.set(try JSONSerialization.data(withJSONObject: ["mavenSettingsPath": "/fixture/legacy-settings.xml",
+            "mavenLocalRepositoryPath": "/fixture/legacy-repository"]), forKey: legacyKey)
         let service = ProjectRuntimeService(runtimeLocator: ProjectRuntimeSettingsTestLocator(), settingsStore: store)
         let runtime = RuntimeSettingsFeatureModel(service: service)
         runtime.openProject(at: root)
         defer { runtime.closeProject() }
-        runtime.prepare(workspaceName: "Fixture", workspaceURL: root, files: [],
-            mavenSettingsPath: "/fixture/legacy-settings.xml", mavenLocalRepositoryPath: "/fixture/legacy-repository")
+        runtime.prepare(workspaceName: "Fixture", workspaceURL: root, files: [])
         let actions = CapabilityActionsFixture(root: root)
         actions.runtime = runtime
         actions.transport.validateWithCore = true
@@ -39,8 +41,10 @@ struct IdeCapabilitiesTests {
             #expect((result["settings"] as? [String: String])?["javaHomePath"] == "/fixture/agent-jdk")
             #expect((result["settings"] as? [String: String])?["settingsPath"] == nil)
             #expect(try store.load(at: root, migrateLegacy: false).settings.javaHomePath == "/fixture/agent-jdk")
-            #expect(runtime.settings.mavenSettingsPath == "/fixture/legacy-settings.xml")
-            #expect(runtime.settings.mavenLocalRepositoryPath == "/fixture/legacy-repository")
+            let retainedBytes = try #require(preferences.data(forKey: legacyKey))
+            let retained = try #require(JSONSerialization.jsonObject(with: retainedBytes) as? [String: Any])
+            #expect(retained["mavenSettingsPath"] as? String == "/fixture/legacy-settings.xml")
+            #expect(retained["mavenLocalRepositoryPath"] as? String == "/fixture/legacy-repository")
             #expect(actions.activationCount == 0)
             #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(".lithe/maven/config.json").path))
             runtime.updateSettings { $0.javaHomePath = "/fixture/open-draft" }
@@ -87,7 +91,7 @@ struct IdeCapabilitiesTests {
     func preparedProviderOutputRendersWithoutGeneratedConfigurations(dark: Bool) async throws {
         let fixture = try ProviderCapabilityExecutionFixture()
         defer { fixture.remove() }
-        await fixture.run.loadProject(at: fixture.root, files: [], mavenProject: nil)
+        await fixture.run.loadProject(at: fixture.root, files: [])
         let preparation = try JSONDecoder().decode(BuildRunPreparation.self, from: Data(
             #"{"executable":{"kind":"command","value":"fixture"},"arguments":["Main"],"workingDirectory":".","environment":{}}"#.utf8))
         let configuration = try #require(fixture.run.configurations.first { $0.id == fixture.configurationID })
@@ -153,7 +157,7 @@ struct IdeCapabilitiesTests {
         let entry = try #require(build.entries.first)
         let actions = CapabilityActionsFixture(root: fixture.root)
         let access = fixture.execution
-        actions.execution = ExecutionFeatureAccess(mavenFeature: access.mavenFeature, runFeature: access.runFeature,
+        actions.execution = ExecutionFeatureAccess(runFeature: access.runFeature,
             tests: access.tests, projectDevelopment: access.projectDevelopment, buildSystems: BuildSystemsFeatureModel(service: build))
         let feature = IdeCapabilitiesFeatureModel(model: actions)
         feature.allowExecute = true
@@ -248,7 +252,7 @@ struct IdeCapabilitiesTests {
         defer { build.stop() }
         let actions = CapabilityActionsFixture(root: fixture.root)
         let access = fixture.execution
-        actions.execution = ExecutionFeatureAccess(mavenFeature: access.mavenFeature, runFeature: access.runFeature,
+        actions.execution = ExecutionFeatureAccess(runFeature: access.runFeature,
             tests: access.tests, projectDevelopment: access.projectDevelopment, buildSystems: BuildSystemsFeatureModel(service: build))
         let feature = IdeCapabilitiesFeatureModel(model: actions)
         feature.allowExecute = true
@@ -349,7 +353,7 @@ struct IdeCapabilitiesTests {
     func savedProviderRunKeepsItsAgentIdentityAcrossPreparationAndLaunch() async throws {
         let fixture = try ProviderCapabilityExecutionFixture()
         defer { fixture.remove() }
-        await fixture.run.loadProject(at: fixture.root, files: [], mavenProject: nil)
+        await fixture.run.loadProject(at: fixture.root, files: [])
         var preparations: [UUID] = []
         var cancelled: [UUID] = []
         let reference = fixture.reference
@@ -516,11 +520,10 @@ private final class ProviderCapabilityExecutionFixture {
                 serverPortParser: CapabilityPortParserFixture(), runConfigurationOperations: store,
                 executableResolver: resolver, languageProviderCatalog: .compatibilityFallback,
                 languageRunProviders: .standard(catalog: .compatibilityFallback))
-            let maven = MavenFeatureModel(service: MavenService(runtimeService: runtime, mavenOperations: RustJavaMavenOperations(core: core)))
             let runFeature = RunFeatureModel(service: run)
-            execution = ExecutionFeatureAccess(mavenFeature: maven, runFeature: runFeature,
+            execution = ExecutionFeatureAccess(runFeature: runFeature,
                 tests: LanguageTestService(executableResolver: resolver, processFactory: { CapabilityProcessFixture() }),
-                projectDevelopment: ProjectDevelopmentFeatureModel(mavenFeature: maven, runFeature: runFeature), buildSystems: nil)
+                projectDevelopment: ProjectDevelopmentFeatureModel(runFeature: runFeature), buildSystems: nil)
         } catch {
             try? FileManager.default.removeItem(at: root)
             throw error
@@ -529,7 +532,6 @@ private final class ProviderCapabilityExecutionFixture {
 
     func remove() {
         run.reset()
-        execution.mavenFeature.reset()
         execution.tests.stop()
         try? FileManager.default.removeItem(at: root)
     }
@@ -547,15 +549,13 @@ private final class CapabilityProcessFixture: StreamingProcess, @unchecked Senda
 }
 
 @MainActor
-private final class CapabilityRuntimeFixture: RunRuntimePort, MavenRuntimePort {
-    func mavenExecutable(for project: MavenProject, overridePath: String?) -> URL? { nil }
-    func mavenProcessEnvironment(javaHomePath: String?) -> [String: String] { [:] }
+private final class CapabilityRuntimeFixture: RunRuntimePort {
     func setActiveServiceJavaHomePath(_ path: String) {}
     func javaHomeURL(overridePath: String?) -> URL? { nil }
     func mavenJavaHomeURL(overridePath: String?) -> URL? { nil }
-    func runConfigurationToolchainCandidates(for project: MavenProject?, projectRoot: URL?,
+    func runConfigurationToolchainCandidates(projectRoot: URL?,
         javaHomeOverride: String?, mavenExecutableOverride: String?) -> [ProjectToolchainCandidate] { [] }
-    func loadRunConfigurationToolchainCandidates(for project: MavenProject?, projectRoot: URL?,
+    func loadRunConfigurationToolchainCandidates(projectRoot: URL?,
         javaHomeOverride: String?, mavenExecutableOverride: String?) async throws -> [ProjectToolchainCandidate] { [] }
 }
 

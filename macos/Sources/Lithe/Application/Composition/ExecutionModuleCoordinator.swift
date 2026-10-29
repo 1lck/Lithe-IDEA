@@ -60,7 +60,6 @@ final class ExecutionModuleCoordinator {
     func activateAccess() async -> ExecutionFeatureAccess? {
         guard let capability = await activate() else { return nil }
         return ExecutionFeatureAccess(
-            mavenFeature: capability.mavenFeature,
             runFeature: capability.runFeature,
             tests: capability.testService,
             projectDevelopment: capability.projectDevelopment,
@@ -69,19 +68,16 @@ final class ExecutionModuleCoordinator {
     }
 
     func resetFeatures(
-        maven: MavenFeatureModel?,
         run: RunFeatureModel?,
         tests: LanguageTestService?,
         buildSystems: BuildSystemsFeatureModel?
     ) {
-        maven?.reset()
         run?.reset()
         tests?.reset()
         buildSystems?.reset(workspaceURL: nil)
     }
 
-    func stopFeatures(maven: MavenFeatureModel?, run: RunFeatureModel?) {
-        maven?.stop()
+    func stopFeatures(run: RunFeatureModel?) {
         run?.stop()
     }
 

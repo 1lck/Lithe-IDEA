@@ -110,7 +110,7 @@ struct RunConfigurationIntegrationTests {
         let fixture = makeFixture(status: .missing)
         let saved = ProjectToolchainSelection(javaHomePath: "/fixture/project-jdk")
         fixture.operations.inspectionToolchain = saved
-        await fixture.service.loadProject(at: fixture.root, files: [], mavenProject: nil)
+        await fixture.service.loadProject(at: fixture.root, files: [])
         #expect(fixture.service.projectLoadState.hasLoadedDocuments(for: fixture.root))
         // Settings mirror these defaults before any configuration is generated.
         #expect(fixture.service.savedProjectToolchain == saved)
@@ -136,7 +136,7 @@ struct RunConfigurationIntegrationTests {
     func generationRefusesUnsupportedVersionsEvenWithoutTheConfirmationEntry() async {
         let fixture = makeFixture(status: .invalid("Unsupported configuration version"))
         fixture.operations.inspectionRecoveryAction = .upgradeApplication
-        await fixture.service.loadProject(at: fixture.root, files: [], mavenProject: nil, snapshotID: UUID())
+        await fixture.service.loadProject(at: fixture.root, files: [], snapshotID: UUID())
         let feature = RunFeatureModel(service: fixture.service)
         feature.requestRunConfigurationGeneration()
         #expect(!feature.isGenerationConfirmationPresented)
@@ -2666,11 +2666,11 @@ struct RunConfigurationIntegrationTests {
             plans: [configuration.id: plan]
         )
 
-        await fixture.service.loadProject(at: fixture.root, files: [], mavenProject: nil)
+        await fixture.service.loadProject(at: fixture.root, files: [])
         fixture.service.run(configuration: configuration, currentFileURL: nil)
         #expect(fixture.process.isRunning)
         let stopCountAfterStart = fixture.process.stopCount
-        await fixture.service.loadProject(at: fixture.root, files: [], mavenProject: nil)
+        await fixture.service.loadProject(at: fixture.root, files: [])
         #expect(fixture.process.isRunning)
         #expect(fixture.process.stopCount == stopCountAfterStart)
     }
@@ -2682,7 +2682,6 @@ struct RunConfigurationIntegrationTests {
         await fixture.service.loadProject(
             at: fixture.root,
             files: [],
-            mavenProject: fixture.mavenProject,
             snapshotID: UUID()
         )
 
@@ -2716,7 +2715,6 @@ struct RunConfigurationIntegrationTests {
         await fixture.service.loadProject(
             at: fixture.root,
             files: [],
-            mavenProject: fixture.mavenProject,
             snapshotID: UUID()
         )
         fixture.service.run(configuration: configuration, currentFileURL: nil)
@@ -2759,7 +2757,6 @@ struct RunConfigurationIntegrationTests {
         await fixture.service.loadProject(
             at: fixture.root,
             files: [],
-            mavenProject: fixture.mavenProject,
             snapshotID: UUID()
         )
         fixture.service.runAllServices(javaLaunches: [configuration.id: target])
@@ -2794,7 +2791,7 @@ struct RunConfigurationIntegrationTests {
             plans: [configuration.id: plan]
         )
 
-        await fixture.service.loadProject(at: fixture.root, files: [], mavenProject: nil)
+        await fixture.service.loadProject(at: fixture.root, files: [])
         fixture.service.run(configuration: configuration, currentFileURL: nil)
 
         let request = try #require(fixture.process.requests.last)
@@ -2818,8 +2815,7 @@ struct RunConfigurationIntegrationTests {
 
         await fixture.service.loadProject(
             at: fixture.root,
-            files: [source],
-            mavenProject: nil
+            files: [source]
         )
         #expect(fixture.service.configurations == [current])
         fixture.service.run(configuration: current, currentFileURL: source)
@@ -2870,8 +2866,7 @@ struct RunConfigurationIntegrationTests {
 
         await fixture.service.loadProject(
             at: fixture.root,
-            files: [],
-            mavenProject: fixture.mavenProject
+            files: []
         )
         fixture.service.runAllServices()
 
@@ -2928,8 +2923,7 @@ struct RunConfigurationIntegrationTests {
 
         await fixture.service.loadProject(
             at: fixture.root,
-            files: [],
-            mavenProject: fixture.mavenProject
+            files: []
         )
         fixture.service.runAllServices()
 
@@ -2986,8 +2980,7 @@ struct RunConfigurationIntegrationTests {
 
         await fixture.service.loadProject(
             at: fixture.root,
-            files: [],
-            mavenProject: fixture.mavenProject
+            files: []
         )
         fixture.service.runAllServices()
 
@@ -3037,7 +3030,7 @@ struct RunConfigurationIntegrationTests {
             ]
         )
 
-        await fixture.service.loadProject(at: fixture.root, files: [], mavenProject: fixture.mavenProject)
+        await fixture.service.loadProject(at: fixture.root, files: [])
 
         #expect(fixture.service.serviceURL(for: argumentService)?.absoluteString == "http://127.0.0.1:5173")
         #expect(fixture.service.serviceURL(for: environmentService)?.absoluteString == "http://127.0.0.1:8000")
@@ -3084,7 +3077,7 @@ struct RunConfigurationIntegrationTests {
             ]
         )
 
-        await fixture.service.loadProject(at: fixture.root, files: [], mavenProject: fixture.mavenProject)
+        await fixture.service.loadProject(at: fixture.root, files: [])
 
         #expect(fixture.service.serviceURL(for: unknown) == nil)
         #expect(fixture.service.serviceURL(for: invalid) == nil)
@@ -3132,8 +3125,7 @@ struct RunConfigurationIntegrationTests {
 
         await fixture.service.loadProject(
             at: fixture.root,
-            files: [],
-            mavenProject: nil
+            files: []
         )
         fixture.service.runAllServices()
 
@@ -3166,8 +3158,7 @@ struct RunConfigurationIntegrationTests {
 
         await fixture.service.loadProject(
             at: fixture.root,
-            files: [],
-            mavenProject: nil
+            files: []
         )
         fixture.service.startConfiguration(frontend)
 
@@ -3245,7 +3236,6 @@ struct RunConfigurationIntegrationTests {
         await fixture.service.loadProject(
             at: fixture.root,
             files: [],
-            mavenProject: fixture.mavenProject,
             snapshotID: UUID()
         )
         await fixture.service.generateRunConfigurations()
@@ -3490,7 +3480,7 @@ struct RunConfigurationIntegrationTests {
             runConfigurationOperations: store
         )
 
-        await service.loadProject(at: root, files: [], mavenProject: nil)
+        await service.loadProject(at: root, files: [])
         let configuration = try #require(service.configurations.first { $0.id == "go:api" })
         service.run(configuration: configuration, currentFileURL: nil)
 
@@ -3685,8 +3675,7 @@ struct RunConfigurationIntegrationTests {
 
         await fixture.service.loadProject(
             at: fixture.root,
-            files: [],
-            mavenProject: fixture.mavenProject
+            files: []
         )
 
         #expect(fixture.service.selectedConfigurationID == second.id)
@@ -3721,8 +3710,7 @@ struct RunConfigurationIntegrationTests {
 
         await fixture.service.loadProject(
             at: fixture.root,
-            files: [],
-            mavenProject: fixture.mavenProject
+            files: []
         )
 
         let projected = try #require(
@@ -3739,7 +3727,7 @@ struct RunConfigurationIntegrationTests {
             status: .ready,
             effective: [EffectiveRunConfiguration(configuration: .currentFile, options: JavaRunOptions())]
         )
-        await fixture.service.loadProject(at: fixture.root, files: [], mavenProject: fixture.mavenProject)
+        await fixture.service.loadProject(at: fixture.root, files: [])
 
         let created = fixture.service.createConfiguration(
             RunConfigurationDraft(
@@ -3773,7 +3761,7 @@ struct RunConfigurationIntegrationTests {
             effective: [current, EffectiveRunConfiguration(configuration: backend, options: JavaRunOptions())],
             preferences: preferences
         )
-        await first.service.loadProject(at: first.root, files: [], mavenProject: first.mavenProject)
+        await first.service.loadProject(at: first.root, files: [])
         first.service.select(backend)
 
         let reopened = makeFixture(
@@ -3781,7 +3769,7 @@ struct RunConfigurationIntegrationTests {
             effective: [current, EffectiveRunConfiguration(configuration: backend, options: JavaRunOptions())],
             preferences: preferences
         )
-        await reopened.service.loadProject(at: reopened.root, files: [], mavenProject: reopened.mavenProject)
+        await reopened.service.loadProject(at: reopened.root, files: [])
 
         #expect(reopened.service.selectedConfigurationID == backend.id)
     }
@@ -3807,10 +3795,10 @@ struct RunConfigurationIntegrationTests {
         )
 
         let oldLoad = Task {
-            await service.loadProject(at: oldRoot, files: [], mavenProject: nil)
+            await service.loadProject(at: oldRoot, files: [])
         }
         #expect(await operations.waitUntilBlocked())
-        await service.loadProject(at: newRoot, files: [], mavenProject: nil)
+        await service.loadProject(at: newRoot, files: [])
         operations.releaseBlockedInspection()
         await oldLoad.value
 
@@ -3839,10 +3827,10 @@ struct RunConfigurationIntegrationTests {
         )
 
         let snapshotID = UUID()
-        await service.loadProject(at: root, files: [], mavenProject: nil, snapshotID: snapshotID)
+        await service.loadProject(at: root, files: [], snapshotID: snapshotID)
         let generation = Task { await service.generateRunConfigurations() }
         #expect(await operations.waitUntilBlocked())
-        await service.loadProject(at: root, files: [], mavenProject: nil, snapshotID: snapshotID)
+        await service.loadProject(at: root, files: [], snapshotID: snapshotID)
         operations.releaseGeneration()
         await generation.value
 
@@ -3881,8 +3869,7 @@ struct RunConfigurationIntegrationTests {
         )
         await fixture.service.loadProject(
             at: fixture.root,
-            files: [],
-            mavenProject: fixture.mavenProject
+            files: []
         )
         let options = RunOptions(
             javaHomePath: "toolchains/jdk",
@@ -3918,8 +3905,7 @@ struct RunConfigurationIntegrationTests {
         )
         await fixture.service.loadProject(
             at: fixture.root,
-            files: [],
-            mavenProject: fixture.mavenProject
+            files: []
         )
         let options = RunOptions(programArguments: "--dev")
 
@@ -3950,7 +3936,7 @@ struct RunConfigurationIntegrationTests {
             status: .ready,
             effective: [EffectiveRunConfiguration(configuration: configuration, options: RunOptions(), source: .generated)]
         )
-        await unsaved.service.loadProject(at: unsaved.root, files: [], mavenProject: unsaved.mavenProject)
+        await unsaved.service.loadProject(at: unsaved.root, files: [])
         #expect(unsaved.service.savedProjectToolchain == nil)
         #expect(unsaved.service.saveEditorChanges(RunOptions(), for: configuration, scope: .local))
         #expect(unsaved.operations.savedToolchains == [ProjectToolchainSelection()])
@@ -3962,7 +3948,7 @@ struct RunConfigurationIntegrationTests {
             status: .ready,
             effective: [EffectiveRunConfiguration(configuration: configuration, options: RunOptions(), source: .generated)]
         )
-        await stored.service.loadProject(at: stored.root, files: [], mavenProject: stored.mavenProject)
+        await stored.service.loadProject(at: stored.root, files: [])
         // A different editor saves after this service loaded its documents.
         stored.operations.inspectionToolchain = saved
         #expect(stored.service.saveEditorChanges(RunOptions(), for: configuration, scope: .local))
@@ -3989,8 +3975,7 @@ struct RunConfigurationIntegrationTests {
         )
         await fixture.service.loadProject(
             at: fixture.root,
-            files: [],
-            mavenProject: fixture.mavenProject
+            files: []
         )
         fixture.operations.resolveFailureMessage = "Injected reload failure."
 
@@ -4024,8 +4009,7 @@ struct RunConfigurationIntegrationTests {
         )
         await fixture.service.loadProject(
             at: fixture.root,
-            files: [],
-            mavenProject: fixture.mavenProject
+            files: []
         )
 
         fixture.service.resetOptions(for: configuration)
@@ -4144,7 +4128,6 @@ struct RunConfigurationIntegrationTests {
         )
         return RunServiceFixture(
             root: root,
-            mavenProject: project,
             service: service,
             operations: operations,
             process: process,
@@ -4235,7 +4218,6 @@ private struct LanguageServerReliabilityHarness {
 @MainActor
 private struct RunServiceFixture {
     let root: URL
-    let mavenProject: MavenProject
     let service: JavaRunService
     let operations: RecordingRunConfigurationOperations
     let process: RecordingStreamingProcess

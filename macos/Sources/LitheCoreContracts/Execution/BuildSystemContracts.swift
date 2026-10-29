@@ -625,6 +625,9 @@ package struct BuildOptionsResolution: Equatable, Sendable, Decodable {
 /// it is stored separately so sibling-only choices survive.
 @MainActor
 package protocol BuildOptionsStoring: AnyObject {
+    /// Transfers retired platform preferences only after passive instance discovery.
+    /// A changed destination forces detection to restart before publishing inputs.
+    func migrateLegacyConfiguration(workspaceURL: URL, instances: [BuildSystemInstance]) throws -> Bool
     func options(workspaceURL: URL, buildSystemID: String) throws -> [String: ToolingJSONValue]
     func setOptions(_ options: [String: ToolingJSONValue], workspaceURL: URL, buildSystemID: String) throws
     /// Independent values for options declared with scope=instance, keyed by root.
@@ -640,6 +643,7 @@ package protocol BuildOptionsStoring: AnyObject {
 }
 
 package extension BuildOptionsStoring {
+    func migrateLegacyConfiguration(workspaceURL: URL, instances: [BuildSystemInstance]) throws -> Bool { false }
     func savedChoices(workspaceURL: URL, buildSystemID: String) throws -> [String: [String]] { [:] }
     func instanceDefaults(workspaceURL: URL, buildSystemID: String) throws -> [String: ToolingJSONValue] { [:] }
 }

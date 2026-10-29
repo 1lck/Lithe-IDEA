@@ -14,6 +14,11 @@ Lithe 以前只把 `settings.xml` 这一个字段转给 JDT LS（Eclipse 的 Jav
 会读的设置。** 开发者以后新增任何影响依赖解析的 Maven 配置项，都要同时回答
 “它怎么到达语言服务”，否则命令行和语言服务会再次分叉。
 
+macOS 已删除旧 Maven 服务和配置副本的生产读写。Build Provider 的实例配置、canonical 工具链及
+受保护的原生配置流程提供唯一输入；Java 导入、Run 和 Debug 不再读取旧服务的 launch context。
+Debug 在异步准备前等待当前 Build 输入，输入代次变化（包括改走又改回）会废弃准备结果。
+旧配置字段只由一次性迁移 adapter 读取，目标读回后才清理；下文较早的服务接线说明用于解释历史问题。
+
 ## 问题
 
 三个独立缺陷叠在一起，表现为同一个现象。
@@ -427,6 +432,15 @@ profile 变化、失败或超时期间变更补跑、握手前无设置变化的
 `LanguageIntelligenceModuleTests`、`ExecutionModuleTests` 覆盖原地更新、回退重启和
 设置实时同步。
 
+## 阶段 D 删除后的验证
+
+`stage-d-retire-maven-project-load.{json,html,junit.xml}` 的 315 项原生回归通过，覆盖
+Provider 模型消失后撤销 Run 投影、官方根被动检测后的受保护迁移、配置变更的 ABA 代次、
+旧数据/未知字段/显式自动保护，以及真实 Maven Agent 编译、输出与包清单检查。
+已删除旧服务的扫描/重载测试，保留并复用 `BuildSystemServiceTests` 中对应的 Provider
+合并等待、模型/配置失效、取消及工作区隔离场景；Run 原生进程与加载并发测试继续执行。
+这些测试不代替完整 Java/JDT UI、正式插件包或 Windows 原生验收。
+
 ## 验证
 
 mvnd 的 Core 定向验证应包含整个 `tests::languages::`：除 mvnd 根目录、`bin`、
@@ -540,7 +554,7 @@ JDK 和未知偏好；非空值成为本机 Build 默认值，空值继续表示
 - Windows 前端：`windows/tauri/src/features/maven/services/resolve-maven-toolchain.ts`、
   `windows/tauri/src/features/maven/stores/maven.store.ts`
 - Windows 宿主：`windows/tauri/src-tauri/src/run.rs`（`maven_resolve_installation`）
-- macOS：`macos/Sources/LitheExecutionModule/Services/MavenService.swift`
+- macOS：`macos/Sources/LitheExecutionModule/Services/BuildSystemService.swift`
 - 项目环境与运行配置设置入口：
   - Rust Core：`rust/lithe-core/src/execution/configuration.rs`（`runConfig.inspect`、
     `runConfig.updateOptions` 工具链分支）

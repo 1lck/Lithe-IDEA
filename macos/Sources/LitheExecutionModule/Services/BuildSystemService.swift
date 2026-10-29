@@ -175,6 +175,9 @@ package final class BuildSystemService: ObservableObject {
     private var nativeConfiguration: BuildNativeConfigurationCoordinator?
     private var nativeObservation: AnyCancellable?
     private var modelInputRevision: UInt64 = 0
+    /// Revokes native consumers' prepared work when provider inputs change,
+    /// including a change away and back to identical option values.
+    package private(set) var inputRevision: UInt64 = 0
     private var providerRunID: UUID?
     private var preparingApplicationID: UUID?
     private var detectionTask: Task<Void, Never>?
@@ -348,6 +351,7 @@ package final class BuildSystemService: ObservableObject {
     /// stale when the files it depends on changed.
     package func detect() {
         guard let workspaceURL else { return }
+        inputRevision += 1
         redetectTask?.cancel(); redetectTask = nil
         detectionTask?.cancel()
         let detectionID = UUID()
@@ -424,7 +428,9 @@ package final class BuildSystemService: ObservableObject {
             switch result {
             case .success(let detected):
                 do {
-                    if try self.migrateInstanceOptions(entries: detected.entries, workspaceURL: workspaceURL) {
+                    let migrated = try self.optionsStore.migrateLegacyConfiguration(
+                        workspaceURL: workspaceURL, instances: detected.entries.map(\.instance))
+                    if try migrated || self.migrateInstanceOptions(entries: detected.entries, workspaceURL: workspaceURL) {
                         self.detect()
                         return
                     }
@@ -1159,6 +1165,7 @@ package final class BuildSystemService: ObservableObject {
 
     /// Ends every process this service started.
     package func stop() {
+        inputRevision += 1
         nativeConfiguration?.stop()
         stopPreparedApplication()
         detectionTask?.cancel(); detectionTask = nil
@@ -1804,6 +1811,7 @@ package final class BuildSystemService: ObservableObject {
     /// Producers are independent in v1: consumers cannot re-export their inputs.
     /// Revoke consumers immediately; cancellation-ignoring replies still fail revision checks.
     private func invalidateModelInputs() {
+        inputRevision += 1
         modelInputRevision += 1
         let consumers = Set(entries.filter { !$0.declaration.modelInputs.isEmpty }.map(\.id))
         if let runEntryID, consumers.contains(runEntryID) { stopRun() }

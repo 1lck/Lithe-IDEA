@@ -47,14 +47,12 @@ struct ProjectRuntimeSettings: Codable, Hashable, Sendable {
     var mavenHomePath = ""
     /// Empty means use the project JDK, then the detected system JDK.
     var mavenJavaHomePath = ""
-    var mavenSettingsPath = ""
-    var mavenLocalRepositoryPath = ""
     /// Per-subproject JDK and Maven overrides for monorepos.
     var moduleOverrides: [ProjectModuleRuntimeOverride] = []
 
     enum CodingKeys: String, CodingKey {
         case javaHomePath, mavenHomeSelection, mavenHomePath, mavenJavaHomePath
-        case mavenSettingsPath, mavenLocalRepositoryPath, moduleOverrides
+        case moduleOverrides
     }
 
     init(
@@ -62,16 +60,12 @@ struct ProjectRuntimeSettings: Codable, Hashable, Sendable {
         mavenHomeSelection: MavenHomeSelection = .automatic,
         mavenHomePath: String = "",
         mavenJavaHomePath: String = "",
-        mavenSettingsPath: String = "",
-        mavenLocalRepositoryPath: String = "",
         moduleOverrides: [ProjectModuleRuntimeOverride] = []
     ) {
         self.javaHomePath = javaHomePath
         self.mavenHomeSelection = mavenHomeSelection
         self.mavenHomePath = mavenHomePath
         self.mavenJavaHomePath = mavenJavaHomePath
-        self.mavenSettingsPath = mavenSettingsPath
-        self.mavenLocalRepositoryPath = mavenLocalRepositoryPath
         self.moduleOverrides = moduleOverrides
     }
 
@@ -84,11 +78,6 @@ struct ProjectRuntimeSettings: Codable, Hashable, Sendable {
         ) ?? .automatic
         mavenHomePath = try container.decodeIfPresent(String.self, forKey: .mavenHomePath) ?? ""
         mavenJavaHomePath = try container.decodeIfPresent(String.self, forKey: .mavenJavaHomePath) ?? ""
-        mavenSettingsPath = try container.decodeIfPresent(String.self, forKey: .mavenSettingsPath) ?? ""
-        mavenLocalRepositoryPath = try container.decodeIfPresent(
-            String.self,
-            forKey: .mavenLocalRepositoryPath
-        ) ?? ""
         moduleOverrides = try container.decodeIfPresent(
             [ProjectModuleRuntimeOverride].self,
             forKey: .moduleOverrides

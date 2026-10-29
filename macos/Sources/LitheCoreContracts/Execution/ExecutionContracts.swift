@@ -274,14 +274,12 @@ package protocol RunRuntimePort: AnyObject {
     func javaHomeURL(overridePath: String?) -> URL?
     func mavenJavaHomeURL(overridePath: String?) -> URL?
     func runConfigurationToolchainCandidates(
-        for project: MavenProject?,
         projectRoot: URL?,
         javaHomeOverride: String?,
         mavenExecutableOverride: String?
     ) -> [ProjectToolchainCandidate]
     /// Project restoration awaits version probes instead of running them on the UI executor.
     func loadRunConfigurationToolchainCandidates(
-        for project: MavenProject?,
         projectRoot: URL?,
         javaHomeOverride: String?,
         mavenExecutableOverride: String?

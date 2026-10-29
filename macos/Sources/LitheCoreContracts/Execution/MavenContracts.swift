@@ -281,71 +281,6 @@ package struct MavenTestReportRequest: Codable, Equatable, Sendable {
     }
 }
 
-package enum MavenProjectLoadState: Equatable, Sendable {
-    case idle
-    case loading
-    case ready
-    case failed(String)
-}
-
-package struct MavenPortableConfiguration: Codable, Equatable, Sendable {
-    package static let currentVersion = 1
-
-    package var version: Int
-    package var selectedProfiles: [String]
-    package var customProfiles: [String]
-    package var skipTests: Bool
-
-    package init(
-        version: Int = currentVersion,
-        selectedProfiles: [String] = [],
-        customProfiles: [String] = [],
-        skipTests: Bool = false
-    ) {
-        self.version = version
-        self.selectedProfiles = selectedProfiles
-        self.customProfiles = customProfiles
-        self.skipTests = skipTests
-    }
-}
-
-package struct MavenLocalConfiguration: Codable, Equatable, Sendable {
-    package static let currentVersion = 1
-
-    package var version: Int
-    package var settingsPath: String?
-    package var localRepositoryPath: String?
-    package var mavenExecutablePath: String?
-    package var javaHomePath: String?
-
-    package init(
-        version: Int = currentVersion,
-        settingsPath: String? = nil,
-        localRepositoryPath: String? = nil,
-        mavenExecutablePath: String? = nil,
-        javaHomePath: String? = nil
-    ) {
-        self.version = version
-        self.settingsPath = settingsPath
-        self.localRepositoryPath = localRepositoryPath
-        self.mavenExecutablePath = mavenExecutablePath
-        self.javaHomePath = javaHomePath
-    }
-}
-
-package struct MavenStoredConfiguration: Equatable, Sendable {
-    package let portable: MavenPortableConfiguration?
-    package let local: MavenLocalConfiguration?
-
-    package init(
-        portable: MavenPortableConfiguration?,
-        local: MavenLocalConfiguration?
-    ) {
-        self.portable = portable
-        self.local = local
-    }
-}
-
 package struct MavenLaunchContext: Codable, Equatable, Sendable {
     package static let currentVersion = 1
 
@@ -486,22 +421,4 @@ extension MavenProjectOperations {
     ) -> MavenTestResults? {
         mavenTestResults(output: output, projectRoot: projectRoot)
     }
-}
-
-package protocol MavenConfigurationStoring: Sendable {
-    func loadMavenConfiguration(
-        workspaceURL: URL,
-        reactorPath: String
-    ) throws -> MavenStoredConfiguration
-    func saveMavenConfiguration(
-        _ configuration: MavenStoredConfiguration,
-        workspaceURL: URL,
-        reactorPath: String
-    ) throws
-}
-
-@MainActor
-package protocol MavenRuntimePort: AnyObject {
-    func mavenExecutable(for project: MavenProject, overridePath: String?) -> URL?
-    func mavenProcessEnvironment(javaHomePath: String?) -> [String: String]
 }

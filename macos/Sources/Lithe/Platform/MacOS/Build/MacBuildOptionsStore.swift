@@ -18,6 +18,17 @@ final class MacBuildOptionsStore: BuildOptionsStoring {
         self.immutableRoots = immutableRoots
     }
 
+    func migrateLegacyConfiguration(workspaceURL: URL, instances: [BuildSystemInstance]) throws -> Bool {
+        let roots = instances.filter {
+            $0.pluginID == "io.github.lithe-idea.maven-build" && $0.buildSystemID == "maven"
+        }.map(\.root)
+        guard !roots.isEmpty else { return false }
+        let files = storage ?? MacFileStorage()
+        return try MacLegacyMavenConfigurationMigration(storage: files, preferences: store,
+            runStore: MacRunConfigurationStore(core: RustCoreBridge(), storage: files, preferences: store),
+            options: self, immutableRoots: immutableRoots).migrate(workspace: workspaceURL, reactorRoots: roots)
+    }
+
     func options(workspaceURL: URL, buildSystemID: String) throws -> [String: ToolingJSONValue] {
         let shared = try projectDocument(workspaceURL).document.systems[buildSystemID]?.options ?? [:]
         return shared.merging(try read([String: ToolingJSONValue].self, key: Self.key(workspaceURL: workspaceURL, buildSystemID: buildSystemID)) ?? [:]) { _, local in local }

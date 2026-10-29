@@ -247,9 +247,11 @@ macOS 宿主接受级别 3，并在 `PluginManifest.hostCapabilities` 里声明 
 - **视图状态不能跨模型沿用。** 模型、实例列表或工作区变化后清除所选任务、未提交的参数弹窗和选项输入弹窗，避免运行旧模型中的请求。实例选择消失后回到首个有效实例，自定义输入还要校验打开时的实例身份，防止旧弹窗改到新实例。任务分组节点按每级标题的 UTF-8 长度编码身份；标题即使含有分隔符，也不能和另一条分组路径共用折叠状态。
 - **已删除。** `MavenView`、`MavenBuildOutputView`、`MavenDependencyLocalization`、`BuildSystemsView`，`execution.maven`、`execution.maven.output`、`execution.build` 贡献，`toggle-maven` 命令和对应的 `ToolWindow` 常量。旧布局里的这些 ID 和其他未知贡献一样被忽略；`ToolWindow.restoredID` 改为显式映射旧名字，不再依赖 `allCases` 的顺序。
 
-还留着的 Maven 宿主代码：`MavenService`（以及 `MavenFeatureModel`）仍负责未声明插件导入配置时的兼容设置、模块运行/调试的启动上下文，以及 `lithe_maven_*` Agent 工具。Agent 执行的 Maven 目标不再有专门的输出窗口，Agent 通过 `lithe_operation_output` 读取输出。`MavenResolutionProblems`（JDT 报告的 `pom.xml` 问题）仍供编辑器诊断使用，但不再显示在构建窗口里。通用构建窗口读取的依赖也尚未成为 Java 依赖侧栏的补充来源。
-
-macOS 已接入插件选项到 JDT 的通用桥（第 12 节）：检测、选项修改和模型加载完成后，Core 归一化每个实例的生效选项为 `mavenContext` / `javaGradle`，Swift 只负责等待、转发和过期保护，并通过唯一的发布回调更新同一工作区的 Java 会话。停用插件的清除资格归属实际带过 Maven 输入的活动会话，不用工作区内“曾发布过”的全局标记。运行/调试与 Agent 工具仍使用原来的 Maven 业务，因此还不能删除 `MavenService`。
+阶段 D 已删除 macOS 的 `MavenService`、`MavenFeatureModel`、项目加载中的 POM 分支及旧配置存储。
+Run 的工程路径、源码根和选项候选直接读取当前 Provider 模型；模型失效后这些投影立即消失，
+不再用旧 MavenProject 填补。环境设置页只编辑 canonical 工具链，Maven 原生 XML 与调用选项在插件设置中维护。
+旧数据经平台迁移 adapter 校验并读回后才清理，迁移改变配置时重新检测后再发布语言导入输入。
+`MavenResolutionProblems` 仍展示 JDT 诊断；Run 的旧启动规划、精确测试和 Windows 当前共享命令消费者仍须继续迁移。
 
 ### 12. 语言服务器导入：`languageImport`
 

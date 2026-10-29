@@ -54,7 +54,7 @@
 ### 阶段 D 的实施记录（尚未完成）
 
 - 工作分支 `codex/issue-1495-maven-migration` 从 `upstream/preview@0beb43c936f61e68b983533805d6534a01fdf8b4` 建立，整合 #1517 的 `9f702e15deeeed2e9889d396fab50c706ee48c0a` 作为阶段 C 源码依赖；随后整合已合并 #1517 的最新 preview `f0957b7f0`，保留其后续修正。
-- 首个完整流程为 Agent 查询插件 Build 实例/任务 → Provider 执行 → 输出/退出查询 → 按 ID 停止。新入口复用 Build 服务；同步删除旧 Maven 任务执行 API、进程和状态机。配置与加载旧路径尚未删除，不能标记任务二或阶段 D 完成。
+- 首个完整流程为 Agent 查询插件 Build 实例/任务 → Provider 执行 → 输出/退出查询 → 按 ID 停止。新入口复用 Build 服务；同步删除旧 Maven 任务执行 API、进程和状态机。macOS 旧配置与项目加载服务随后已删除；剩余启动规划、精确测试和平台/发行验收仍阻止阶段 D 完成。
 - SDK #4 已于 2026-10-28 合并；阶段 D 配套增量为 [SDK Draft #5](https://github.com/Lithe-IDEA/lithe-plugin-docs/pull/5) 与叠在 #7 上的 [Maven Draft #8](https://github.com/Lithe-IDEA/lithe-plugin-maven/pull/8)。它们尚未发行，不修改任务一的正式发布门槛。
 
 当前删除/迁移账本（只记录本分支新增证据，不复用阶段 C 的通过数）：
@@ -62,10 +62,10 @@
 | 流程 | 本分支状态 | 仍须处理 |
 | --- | --- | --- |
 | Agent 构建 → 输出/状态 → 停止 | 已实现并验证；`MavenService` 任务进程/API/状态机已删除；原生回归 159 项/6 组通过，真实 Agent + Maven 模块编译 4.787 秒通过 | Draft PR；不代替整阶段配置/加载/平台验收 |
-| Maven 配置和项目运行设置 | 项目默认和按根工具路径已切 Run local.json；Build 选项按实例保留团队默认及本机差异；协议 7 原生 XML 读取、确认保存、冲突保护和回读已经接通通用插件设置页及真实 Maven。旧配置迁移器已验证，但尚未激活 | 删除旧设置表单/Agent/Run 的配置读写后再激活迁移器；旧运行偏好中的 settings/仓库字段已覆盖受保护转移，迁移器仍须等旧消费者拆除后启用，不能提前删源；正式包与完整 UI 验收 |
-| 项目加载、标签/搜索模块事实、运行配置 | 展示层已切通用 Build 模型；项目加载/运行配置未迁移 | 用 Provider 模型替代 POM scanner，删除旧 MavenProject 注入；Java 入口继续复用 JDT |
+| Maven 配置和项目运行设置 | 项目默认和按根工具路径已切 Run local.json；Build 选项按实例保留团队默认及本机差异；协议 7 原生 XML 读取、确认保存、冲突保护和回读已经接通通用插件设置页及真实 Maven。旧设置表单 XML 读取与配置存储已删除；迁移器已接官方插件被动检测，验证后清理源并重新检测，315 项原生回归通过 | 正式包与完整 UI 验收 |
+| 项目加载、标签/搜索模块事实、运行配置 | 已删除 MavenService/FeatureModel 和 POM 专属加载；Run 工程路径、源码根、候选来自当前 Provider 模型，无 MavenProject 注入 | 运行配置生成和旧启动规划仍需迁移；Java 入口继续复用 JDT |
 | 依赖树与依赖导航 | 已删除旧 macOS 依赖进程、Swift 文本树桥、临时 adapter 与坐标路径 fallback；Build 用 Provider，导航用 JDT；245 项受影响原生回归通过，真实 Agent 构建及 Provider 编译/精确测试 2 项通过 | 完整 UI/JDT 实机流程、Windows 现存共享命令仍待迁移 |
-| Java 导入、运行/测试/调试准备 | Java 导入和 Run Maven 上下文已停用旧服务回退，按 reactor 根读取同一代 Build 输入；315 项受影响原生测试通过；运行/测试/调试仍含旧 Maven 模型和规划 | 迁移剩余旧工程模型、启动规划和测试/调试准备；Java/JDT 全领域迁移留在阶段 E |
+| Java 导入、运行/测试/调试准备 | Java 导入和 Run Maven 上下文已停用旧服务回退，按 reactor 根读取同一代 Build 输入；315 项受影响原生测试通过；Debug 已等待 Build 输入并检查 ABA 代次；旧 Maven 工程模型已从生产加载删除 | 迁移剩余启动规划和精确测试/调试准备；Java/JDT 全领域迁移留在阶段 E |
 | Maven 执行中的测试报告 | 协议 8 随操作返回规范报告，Maven 后端用实际配置的 Surefire/Failsafe Mojo 目录和 Apache parser；删除插件内旧固定目录测试选择报告读取器；真实 Core/macOS/Maven 和两个 SDK 通过，Maven 3.6.3 兼容通过 | Java 精确测试宿主路径及 Windows 旧共享命令仍未迁移；[固定提交 Java 8 CI](https://github.com/Lithe-IDEA/lithe-plugin-maven/actions/runs/40792694290) 在两种 Maven 各 72 项通过；正式包验证仍依赖 SDK 发行 |
 | 共享 Maven 命令 | 未删除 | Windows 当前仍直接使用 scanner/launch/dependency/report 命令；接替当前消费者后才能删 Core 命令/fixture |
 | 发行包和双平台验收 | 未完成 | 最新正式 SDK/插件组合、macOS 完整 UI、Windows 实机、安装目录字节不变与进程清理 |
