@@ -1456,6 +1456,7 @@ fn select_project_java(
         .map(|candidate| candidate.id.clone());
     lithe_core::execution::select_java(lithe_core::execution::JavaSelectionRequest {
         root: root.map(Path::to_path_buf),
+        requirements: None,
         candidates,
         fallback_id,
     })

@@ -140,6 +140,10 @@ macOS 是当前参考产品；Windows 是独立实现，不得导入 Swift 源�
 - 进程型功能保留 `operationID`、取消、超时和过期结果语义。
 - 第二个平台依赖新共享行为前，先补充或更新共享 fixture。
 - 命令名、JSON 字段、错误码和 C ABI 都是兼容面；变更时同步更新契约文档及所有消费者。
+- `lithe-core` 的公开 Rust 类型、结构体字段和函数签名也是兼容面：`windows/tauri/src-tauri` 与
+  `windows/tauri/crates/project` 把它当 Rust 库直接链接，不经过 JSON/C ABI。macOS 通过 JSON 调用时缺省字段按
+  `None` 处理，Windows 的结构体字面量却会因缺字段而编译失败（例如给 `JavaSelectionRequest` 新增
+  `requirements` 曾让 Windows 安装包构建 E0063）。只改 Core 也要同时修正这些调用点。
 
 ## 三、语言与编码约定
 
@@ -362,6 +366,7 @@ git diff --name-only origin/preview...HEAD
 | Git graph 行为 | `./scripts/git-graph/verify-git-graph.sh` |
 | 运行时资源与发行目录只读边界 | `./scripts/macos/verify/verify-runtime-bundle-immutability.sh` |
 | 从 macOS/Linux 验证 Windows 边界 | `./scripts/windows/verify/verify-windows-boundaries.sh` |
+| `lithe-core` 公开 Rust 类型或函数签名 | `rg '<类型或函数名>' windows/` 找 Windows 调用点；再在 `windows/tauri/src-tauri` 运行 `cargo check --bin lithe-windows`，与改动前对照，确认没有新增错误。macOS 上 Windows 专有 API 会有既有报错，交叉编译 `x86_64-pc-windows-msvc` 会被 `ring` 的 C 构建脚本卡住；边界脚本不跑 `cargo`，抓不到这类问题 |
 | Windows 实现在 Windows 上验证 | `./scripts/windows/build/build-windows.ps1 -Configuration Release`，再 `cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml` |
 
 同时运行直接受影响 crate/target 的测试。当前机器不能执行的平台检查须明确报告，不得声称未执行的检查通过。
