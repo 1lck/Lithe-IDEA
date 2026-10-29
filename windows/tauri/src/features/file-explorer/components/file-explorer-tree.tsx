@@ -86,6 +86,7 @@ import {
   joinPath,
   pathStartsWithRoot,
   stripTrailingPathSeparators,
+  toRootedPath,
 } from "@/utils/path-helpers";
 import { useFileExplorerContextMenu } from "../hooks/use-file-explorer-context-menu";
 import { useFileExplorerDragDrop } from "../hooks/use-file-explorer-drag-drop";
@@ -1478,8 +1479,12 @@ function FileExplorerTreeComponent({
               setProjectView("project");
               setTreeSearchQuery("");
               setTreeSearchOpen(false);
-              void requestRevealPath(activePath);
-              selectPath(activePath);
+              // The editor may spell the path differently from the tree nodes it must match.
+              const treePath = rootFolderPath
+                ? toRootedPath(activePath, rootFolderPath)
+                : activePath;
+              void requestRevealPath(treePath);
+              selectPath(treePath);
             }
           }}
         >
