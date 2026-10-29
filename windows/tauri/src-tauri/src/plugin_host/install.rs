@@ -83,10 +83,14 @@ pub struct InstallReview {
 /// directory; nothing is installed and nothing outside the snapshot is
 /// written.
 #[tauri::command]
-pub fn declarative_plugins_prepare_disk_install(
+pub async fn declarative_plugins_prepare_disk_install(
     app: AppHandle,
     source_path: String,
 ) -> Result<PreparedInstall, String> {
+    crate::blocking::run_blocking(move || prepare_disk_install(app, source_path)).await
+}
+
+fn prepare_disk_install(app: AppHandle, source_path: String) -> Result<PreparedInstall, String> {
     let temporary_root = app
         .path()
         .app_local_data_dir()

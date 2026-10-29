@@ -8,6 +8,8 @@ use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager, Theme, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_opener::OpenerExt;
 
+use crate::blocking::run_blocking;
+
 static WINDOW_ID: AtomicU64 = AtomicU64::new(1);
 static PATCH_SAVE_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -206,11 +208,16 @@ pub fn clipboard_sequence_number() -> u32 {
 }
 
 #[tauri::command]
-pub fn clipboard_paste(
+pub async fn clipboard_paste(
     app: AppHandle,
-    state: tauri::State<'_, FileClipboard>,
     target_directory: PathBuf,
 ) -> Result<Vec<PastedEntry>, String> {
+    // Copying a directory tree can take seconds.
+    run_blocking(move || paste_clipboard(&app, target_directory)).await
+}
+
+fn paste_clipboard(app: &AppHandle, target_directory: PathBuf) -> Result<Vec<PastedEntry>, String> {
+    let state = app.state::<FileClipboard>();
     if !target_directory.is_dir() {
         return Err("Clipboard target must be an existing directory".into());
     }
@@ -395,7 +402,7 @@ pub async fn create_app_window(app: AppHandle, request: Option<Value>) -> Result
 mod tests {
     use super::{
         cli_payloads, copy_path, create_app_window, parse_wsl_automount_root, read_bounded,
-        read_local_file_bounded, unique_destination, WINDOW_TASKBAR_ICON,
+        read_local_file_bounded_from_path, unique_destination, WINDOW_TASKBAR_ICON,
         WSL_DEFAULT_AUTOMOUNT_ROOT,
     };
     use std::fs;
@@ -449,7 +456,7 @@ mod tests {
         let destination = root.0.join("changes.patch");
         fs::write(&destination, "previous patch").unwrap();
         let contents = "\u{feff}diff --git a/a b/a\r\ncomplete UTF-8 内容\r\n";
-        super::write_patch_file(destination.clone(), contents.into()).unwrap();
+        super::write_patch_file_durably(&destination, contents).unwrap();
         assert_eq!(fs::read(&destination).unwrap(), contents.as_bytes());
 
         // Replacing a non-empty directory fails on both native platforms. The
@@ -457,7 +464,7 @@ mod tests {
         let protected = root.0.join("protected.patch");
         fs::create_dir(&protected).unwrap();
         fs::write(protected.join("original"), "keep").unwrap();
-        assert!(super::write_patch_file(protected.clone(), "replacement".into()).is_err());
+        assert!(super::write_patch_file_durably(&protected, "replacement").is_err());
         assert_eq!(fs::read(protected.join("original")).unwrap(), b"keep");
         assert_eq!(fs::read_dir(&root.0).unwrap().count(), 2);
     }
@@ -523,7 +530,7 @@ mod tests {
         ));
         fs::write(&path, vec![b'x'; limit + 32]).unwrap();
 
-        let result = read_local_file_bounded(path.clone(), limit).unwrap();
+        let result = read_local_file_bounded_from_path(&path, limit).unwrap();
         let payload = serde_json::to_value(&result).unwrap();
 
         assert!(result.truncated);
@@ -684,8 +691,8 @@ pub fn get_bundled_extensions_path(app: AppHandle) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn read_local_file(path: PathBuf) -> Result<Vec<u8>, String> {
-    fs::read(path).map_err(|error| error.to_string())
+pub async fn read_local_file(path: PathBuf) -> Result<Vec<u8>, String> {
+    run_blocking(move || fs::read(path).map_err(|error| error.to_string())).await
 }
 
 fn read_bounded(reader: &mut impl Read, max_bytes: usize) -> io::Result<BoundedFileRead> {
@@ -715,22 +722,32 @@ fn read_local_file_bounded_from_path(path: &Path, max_bytes: usize) -> io::Resul
 }
 
 #[tauri::command]
-pub fn read_local_file_bounded(path: PathBuf, max_bytes: usize) -> Result<BoundedFileRead, String> {
-    read_local_file_bounded_from_path(&path, max_bytes).map_err(|error| error.to_string())
+pub async fn read_local_file_bounded(
+    path: PathBuf,
+    max_bytes: usize,
+) -> Result<BoundedFileRead, String> {
+    run_blocking(move || {
+        read_local_file_bounded_from_path(&path, max_bytes).map_err(|error| error.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn read_file_custom(path: PathBuf) -> Result<String, String> {
-    fs::read_to_string(path).map_err(|error| error.to_string())
+pub async fn read_file_custom(path: PathBuf) -> Result<String, String> {
+    run_blocking(move || fs::read_to_string(path).map_err(|error| error.to_string())).await
 }
 
 #[tauri::command]
-pub fn write_file(path: PathBuf, contents: String) -> Result<(), String> {
-    fs::write(path, contents).map_err(|error| error.to_string())
+pub async fn write_file(path: PathBuf, contents: String) -> Result<(), String> {
+    run_blocking(move || fs::write(path, contents).map_err(|error| error.to_string())).await
 }
 
 #[tauri::command]
-pub fn write_patch_file(path: PathBuf, contents: String) -> Result<(), String> {
+pub async fn write_patch_file(path: PathBuf, contents: String) -> Result<(), String> {
+    run_blocking(move || write_patch_file_durably(&path, &contents)).await
+}
+
+fn write_patch_file_durably(path: &Path, contents: &str) -> Result<(), String> {
     if !path.is_absolute() {
         return Err("Patch destination must be an absolute path".into());
     }
@@ -757,7 +774,7 @@ pub fn write_patch_file(path: PathBuf, contents: String) -> Result<(), String> {
                 .map_err(|error| error.to_string())?;
             file.sync_all().map_err(|error| error.to_string())?;
             drop(file);
-            crate::run::replace_run_document(&temporary, &path)
+            crate::run::replace_run_document(&temporary, path)
         })();
         if let Err(error) = result {
             return match fs::remove_file(&temporary) {
@@ -775,10 +792,14 @@ pub fn write_patch_file(path: PathBuf, contents: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn move_file(source_path: PathBuf, target_path: PathBuf) -> Result<(), String> {
+pub async fn move_file(source_path: PathBuf, target_path: PathBuf) -> Result<(), String> {
+    run_blocking(move || move_without_replacing(&source_path, &target_path)).await
+}
+
+fn move_without_replacing(source_path: &Path, target_path: &Path) -> Result<(), String> {
     #[cfg(windows)]
     {
-        crate::file_publication::publish_new_record(&source_path, &target_path)
+        crate::file_publication::publish_new_record(source_path, target_path)
             .map_err(|error| error.to_string())
     }
     #[cfg(not(windows))]
@@ -791,12 +812,17 @@ pub fn move_file(source_path: PathBuf, target_path: PathBuf) -> Result<(), Strin
 }
 
 #[tauri::command]
-pub fn rename_file(source_path: PathBuf, target_path: PathBuf) -> Result<(), String> {
-    fs::rename(source_path, target_path).map_err(|error| error.to_string())
+pub async fn rename_file(source_path: PathBuf, target_path: PathBuf) -> Result<(), String> {
+    run_blocking(move || fs::rename(source_path, target_path).map_err(|error| error.to_string()))
+        .await
 }
 
 #[tauri::command]
-pub fn get_symlink_info(path: PathBuf) -> Result<SymlinkInfo, String> {
+pub async fn get_symlink_info(path: PathBuf) -> Result<SymlinkInfo, String> {
+    run_blocking(move || read_symlink_info(&path)).await
+}
+
+fn read_symlink_info(path: &Path) -> Result<SymlinkInfo, String> {
     let metadata = fs::symlink_metadata(&path).map_err(|error| error.to_string())?;
     let is_symlink = metadata.file_type().is_symlink();
     let target = if is_symlink {

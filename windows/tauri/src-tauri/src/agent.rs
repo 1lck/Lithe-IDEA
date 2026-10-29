@@ -32,16 +32,19 @@ pub const AGENT_EVENT_NAME: &str = "agent_event";
 const CLOSING_WAIT: Duration = Duration::from_secs(15);
 
 /// Opens one Agent connection owned by the calling window.
+///
+/// Opening starts the Agent process, so it runs off the UI thread.
 #[tauri::command]
-pub fn agent_open(
+pub async fn agent_open(
     webview: tauri::Webview,
     request: AgentOpenRequest,
 ) -> Result<AgentConnectionInfo, String> {
+    let window = webview.label().to_string();
     let sink = WindowEventSink {
         app: webview.app_handle().clone(),
-        window: webview.label().to_string(),
+        window: window.clone(),
     };
-    open_connection(webview.label(), request, sink)
+    crate::blocking::run_blocking(move || open_connection(&window, request, sink)).await
 }
 
 /// Queues one shared `AgentCommand` on an open connection owned by the caller.

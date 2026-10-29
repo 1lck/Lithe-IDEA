@@ -6,7 +6,7 @@ use std::{
     collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
 };
-use tauri::{ipc::Channel, AppHandle, State};
+use tauri::{ipc::Channel, AppHandle, Manager, State};
 
 #[derive(Default)]
 pub struct FrontendTerminalSessions {
@@ -102,16 +102,30 @@ pub fn warm_terminal_environment(terminal_manager: State<'_, Arc<TerminalManager
     terminal_manager.warm_user_environment();
 }
 
+/// Starting the shell and its pseudo console runs off the UI thread.
 #[tauri::command]
-pub fn create_terminal(
-    mut config: TerminalConfig,
+pub async fn create_terminal(
+    config: TerminalConfig,
     on_event: Channel<TerminalEvent>,
     window_label: String,
     frontend_session_id: String,
     app: AppHandle,
-    frontend_sessions: State<'_, FrontendTerminalSessions>,
-    terminal_manager: State<'_, Arc<TerminalManager>>,
 ) -> Result<String, String> {
+    crate::blocking::run_blocking(move || {
+        start_terminal(config, on_event, &window_label, &frontend_session_id, &app)
+    })
+    .await
+}
+
+fn start_terminal(
+    mut config: TerminalConfig,
+    on_event: Channel<TerminalEvent>,
+    window_label: &str,
+    frontend_session_id: &str,
+    app: &AppHandle,
+) -> Result<String, String> {
+    let frontend_sessions = app.state::<FrontendTerminalSessions>();
+    let terminal_manager = app.state::<Arc<TerminalManager>>();
     config.term_program_version = Some(app.package_info().version.to_string());
     let handler: TerminalEventHandler = Arc::new(move |_, event| on_event.send(event).is_ok());
     let connection_id = terminal_manager
@@ -119,7 +133,7 @@ pub fn create_terminal(
         .map_err(|error| error.to_string())?;
 
     if let Err(error) =
-        frontend_sessions.register(&window_label, &frontend_session_id, connection_id.clone())
+        frontend_sessions.register(window_label, frontend_session_id, connection_id.clone())
     {
         let _ = terminal_manager.close_terminal(&connection_id);
         return Err(error);
