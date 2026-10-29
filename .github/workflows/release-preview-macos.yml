@@ -256,7 +256,7 @@ jobs:
         with:
           name: windows-autobuild
           path: dist
-      - name: Stage trusted plugin mirrors and publish latest complete manifest
+      - name: Verify application assets and publish latest complete manifest
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_SHA: ${{ needs.prepare.outputs.sha }}
