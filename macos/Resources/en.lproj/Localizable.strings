@@ -1314,7 +1314,6 @@
 "Enable MCP" = "Enable MCP";
 "Enable breakpoint" = "Enable breakpoint";
 "Enable breakpoints" = "Enable breakpoints";
-"Enable class and method navigation (Command-click / F12)" = "Enable class and method navigation (Command-click / F12)";
 "Enable for this project" = "Enable for this project";
 "Enable skill" = "Enable skill";
 "Enabled" = "Enabled";
@@ -3495,6 +3494,7 @@
 "Skip JDK and reflection code" = "Skip JDK and reflection code";
 "Skip Version" = "Skip Version";
 "Skip constructors" = "Skip constructors";
+"Skip definition lookups for Java keywords" = "Skip definition lookups for Java keywords";
 "Skip static initializers" = "Skip static initializers";
 "Skip synthetic methods" = "Skip synthetic methods";
 "Skip tests" = "Skip tests";
@@ -5771,7 +5771,6 @@
 "native.enableAgentConversation" = "Enable Agent conversation";
 "native.enableBreakpoint" = "Enable breakpoint";
 "native.enableBreakpoints" = "Enable breakpoints";
-"native.enableClassAndMethodNavigation" = "Enable class and method navigation (Command-click / F12)";
 "native.enableExceptionBreakpoint" = "Enable %1$@ exception breakpoint";
 "native.enableFieldBreakpoint" = "Enable %1$@ field breakpoint";
 "native.enableForThisProject" = "Enable for this project";
@@ -6368,6 +6367,7 @@
 "native.javaEntriesAppearAfterTheJavaLanguageServiceListsRunnableClasses" = "Java entries appear after the Java language service lists runnable classes.";
 "native.javaEntriesCouldNotBeRefreshed" = "Java entries could not be refreshed";
 "native.javaEntryPointFreshnessCheckFailed" = "Java entry-point freshness check failed";
+"native.javaKeywordNavigationFilter" = "Skip definition lookups for Java keywords";
 "native.javaMainMethodDiscoveryIsNotSupportedBy" = "Java main-method discovery is not supported by this language server.";
 "native.javaNavigationIsAvailableForJavaFiles" = "Java navigation is available for .java files";
 "native.javaNavigationIsIdle" = "Java navigation is idle";

@@ -1495,22 +1495,9 @@ impl DeclarativePluginManifest {
             .copied()
             .unwrap_or(1);
         let mut ids = BTreeSet::new();
-        let mut navigation_languages = BTreeSet::new();
         for (index, setting) in self.settings.iter().enumerate() {
             let field = format!("settings[{index}]");
             setting.validate(&field, version)?;
-            if setting.effect() == super::settings::SettingEffect::EditorNavigation {
-                if let Some(super::settings::SettingPage::Language(language)) = &setting.page {
-                    if !self
-                        .language_servers
-                        .iter()
-                        .any(|server| &server.language_id == language)
-                        || !navigation_languages.insert(language.clone())
-                    {
-                        return Err(invalid(field.clone(), "Editor navigation requires one setting per language server owned by this plugin."));
-                    }
-                }
-            }
             if !ids.insert(setting.id.clone()) {
                 return Err(invalid(
                     format!("{field}.id"),

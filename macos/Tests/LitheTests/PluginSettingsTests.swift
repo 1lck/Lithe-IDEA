@@ -1,4 +1,3 @@
-import Combine
 import Foundation
 @testable import Lithe
 import LitheApplicationKernel
@@ -10,106 +9,6 @@ import Testing
 /// the plugin page presents them, and which values the host will store.
 @MainActor
 struct PluginSettingsTests {
-    @Test
-    func globalNavigationChangesReachExistingAndNewProjectModelsAndReleaseObservers() async throws {
-        let preferences = SettingsKeyValueStore(), notifications = NotificationCenter()
-        let settings = AppSettings(store: preferences)
-        let firstContainer = MacServiceContainer(store: preferences, settings: settings, moduleLaunchMode: .safeMode)
-        let secondContainer = MacServiceContainer(store: preferences, settings: settings, moduleLaunchMode: .safeMode)
-        defer { firstContainer.moduleLifecycleCoordinator.stop(); secondContainer.moduleLifecycleCoordinator.stop() }
-        func manager() throws -> MacPluginManager {
-            try makeManager(settings: MacPluginSettingsStore(store: preferences),
-                fixture: "editor-navigation.plugin.json", enabled: true, notificationCenter: notifications)
-        }
-        let firstManager = try manager(), secondManager = try manager()
-        let first = AppModel(settings: settings, services: projectServices(firstContainer.services, manager: firstManager))
-        var second: AppModel? = AppModel(settings: settings, services: projectServices(secondContainer.services, manager: secondManager))
-        weak var released = second
-        let id = PluginID("dev.lithe.fixture.editor-navigation")
-        try await WorkbenchTestScope.withCleanup({
-            await first.shutdownProjectSession()
-            await second?.shutdownProjectSession()
-        }) { _ in
-            for _ in 0..<20 {
-                first.setPluginSetting(.bool(true), id: "navigation", for: id)
-                #expect(first.definitionNavigationPolicy == ["fixture": true])
-                #expect(second?.definitionNavigationPolicy == ["fixture": true])
-                let operation = second?.languageNavigationCoordinator.begin(providerID: "fixture", kind: .definitions)
-                second?.isImplementationChooserVisible = true
-                first.setPluginSetting(.bool(false), id: "navigation", for: id)
-                #expect(second?.definitionNavigationPolicy == ["fixture": false])
-                #expect(second?.isImplementationChooserVisible == false)
-                if let operation { #expect(second?.languageNavigationCoordinator.owns(operation) == false) }
-            }
-            // An unrelated provider keeps its existing behavior while the plugin is off.
-            first.definitionNavigationPolicy["java"] = false
-            #expect(!first.isDefinitionNavigationEnabled(for: URL(fileURLWithPath: "/fixture/Main.java")))
-            for name in ["Mapper.xml", "application.properties", "application.yaml", "module.py"] {
-                #expect(first.isDefinitionNavigationEnabled(for: URL(fileURLWithPath: "/fixture/" + name)))
-            }
-            await second?.shutdownProjectSession()
-            second = nil
-            #expect(released == nil, "Global notification subscription retained a closed project model")
-            second = AppModel(settings: settings, services: projectServices(secondContainer.services, manager: secondManager))
-            #expect(second?.definitionNavigationPolicy == ["fixture": false])
-            first.setPluginSetting(.bool(true), id: "navigation", for: id)
-            #expect(second?.definitionNavigationPolicy == ["fixture": true])
-        }
-    }
-
-    @Test
-    func globalNotificationSubscriptionDoesNotRetainPluginManager() throws {
-        let notifications = NotificationCenter()
-        var manager: MacPluginManager? = try makeManager(settings: InMemoryPluginSettings(), notificationCenter: notifications)
-        weak var released = manager
-        let subscription = manager!.changes.sink { _ in }
-        defer { subscription.cancel() }
-        manager = nil
-        #expect(released == nil)
-    }
-
-    @Test
-    func pluginNavigationChangesArePublishedAndDisablementWithdrawsContribution() async throws {
-        let settings = InMemoryPluginSettings()
-        let manager = try makeManager(settings: settings, fixture: "editor-navigation.plugin.json", enabled: true)
-        let id = PluginID("dev.lithe.fixture.editor-navigation")
-        var changes = 0
-        let subscription = manager.changes.sink { changes += 1 }
-        defer { subscription.cancel() }
-        #expect(PluginSettingsRegistry.definitionNavigationPolicy(in: manager.snapshots) == ["fixture": false])
-        try manager.setSetting(.bool(true), id: "navigation", for: id)
-        #expect(changes == 1)
-        let enabled = try #require(manager.snapshots.first { $0.id == id })
-        #expect(enabled.isEnabled)
-        #expect(!enabled.requiresRestart)
-        #expect(enabled.settings.first?.value == .bool(true))
-        #expect(PluginSettingsRegistry.definitionNavigationPolicy(in: manager.snapshots) == ["fixture": true])
-        try manager.setSetting(.bool(false), id: "navigation", for: id)
-        #expect(PluginSettingsRegistry.definitionNavigationPolicy(in: manager.snapshots) == ["fixture": false])
-        try manager.setSetting(.bool(true), id: "navigation", for: id)
-        try await manager.setEnabled(false, for: id)
-        #expect(PluginSettingsRegistry.definitionNavigationPolicy(in: manager.snapshots) == ["fixture": false])
-        #expect(changes == 4)
-    }
-
-    @Test
-    func javaNavigationIsPluginOwnedOptInAndPersistsWithoutChangingOtherSettings() throws {
-        let descriptor = try DeclarativePluginTestSupport.officialDescriptor("JavaSupport")
-        let navigation = try #require(descriptor.settings.first { $0.effect == .editorNavigation })
-        #expect(navigation.defaultValue == .bool(false))
-        #expect(navigation.page == .language("java"))
-        #expect(navigation.scope == .global)
-        let preferences = SettingsKeyValueStore()
-        let store = MacPluginSettingsStore(store: preferences)
-        let plugin = descriptor.id.rawValue
-        store.setValue(.integer(4096), forSetting: "heapMaxMB", plugin: plugin)
-        store.setValue(.bool(true), forSetting: navigation.id, plugin: plugin)
-        #expect(MacPluginSettingsStore(store: preferences).values(forPlugin: plugin)[navigation.id] == .bool(true))
-        store.setValue(nil, forSetting: navigation.id, plugin: plugin)
-        #expect(PluginSettingState.resolve(navigation, global: store.values(forPlugin: plugin)[navigation.id], project: nil).value == .bool(false))
-        #expect(store.values(forPlugin: plugin)["heapMaxMB"] == .integer(4096))
-    }
-
     @Test
     func valuesAreKeptPerPluginAndAnEmptyRecordLeavesNothingBehind() {
         let preferences = SettingsKeyValueStore()
@@ -205,7 +104,7 @@ struct PluginSettingsTests {
     func theJavaPluginOffersMaximumMemoryAndLogLevelWithTheCurrentBehaviorAsDefault() throws {
         let descriptor = try DeclarativePluginTestSupport.officialDescriptor("JavaSupport")
 
-        #expect(descriptor.settings.map(\.id) == ["classMethodNavigation", "heapMaxMB", "logLevel"])
+        #expect(descriptor.settings.map(\.id) == ["heapMaxMB", "logLevel"])
         let heap = try #require(descriptor.settings.first { $0.id == "heapMaxMB" })
         // The language server starts with a 2 GB heap and full logging. A smaller
         // heap makes JDT LS import Maven modules in its constrained-memory mode,
@@ -471,32 +370,10 @@ struct PluginSettingsTests {
         ))
     }
 
-    private func projectServices(_ base: AppServices, manager: any PluginManaging) -> AppServices {
-        AppServices(moduleRuntime: base.moduleRuntime, pluginManager: manager,
-            pluginMarketplace: base.pluginMarketplace, pluginCatalog: base.pluginCatalog,
-            languageProviderCatalogSource: base.languageProviderCatalogSource,
-            workspaceLanguageServerPreferences: base.workspaceLanguageServerPreferences,
-            javaTestResultServerFactory: { MacJavaTestResultServer() },
-            workspaceOperations: base.workspaceOperations, documentLifecycleDecider: base.documentLifecycleDecider,
-            lineEditing: base.lineEditing, javaMavenOperations: base.javaMavenOperations,
-            markdownRenderer: base.markdownRenderer, markdownImageImporter: base.markdownImageImporter,
-            store: base.store, fileStorage: base.fileStorage, fileOperations: base.fileOperations,
-            binaryFileViewerRegistry: base.binaryFileViewerRegistry, projectRuntimeService: base.projectRuntimeService,
-            gitWatchContextProvider: base.gitWatchContextProvider, githubService: base.githubService,
-            secureStore: base.secureStore, diagnosticsExportService: base.diagnosticsExportService,
-            credentialResolver: base.credentialResolver, aiConfigurationSources: [],
-            recentProjectsStore: base.recentProjectsStore, workspaceSessionStore: base.workspaceSessionStore,
-            directoryMarkStore: base.directoryMarkStore, workbenchLayoutStore: base.workbenchLayoutStore,
-            workbenchBackgroundPlatform: base.workbenchBackgroundPlatform, directoryWatcherFactory: base.directoryWatcherFactory,
-            platformUI: base.platformUI, shortcutDetectorFactory: base.shortcutDetectorFactory)
-    }
-
     private func makeManager(
         settings: any PluginSettingsStoring,
         fixture: String = "node-runtime.plugin.json",
-        enabled: Bool = false,
-        packageURL: URL = FileManager.default.temporaryDirectory,
-        notificationCenter: NotificationCenter = NotificationCenter()
+        packageURL: URL = FileManager.default.temporaryDirectory
     ) throws -> MacPluginManager {
         let descriptor = try DeclarativePluginTestSupport.operations.validate(
             manifest: Data(contentsOf: DeclarativePluginTestSupport.repositoryRoot
@@ -512,9 +389,6 @@ struct PluginSettingsTests {
             packageURL: packageURL
         )
         let configuration = MacModuleConfigurationStore(store: SettingsKeyValueStore())
-        if enabled {
-            for module in descriptor.pluginManifest.modules { configuration.setEnabledState(true, for: module.manifest.id) }
-        }
         return MacPluginManager(
             packageStore: MacPluginPackageStore(
                 rootURL: FileManager.default.temporaryDirectory
@@ -530,8 +404,7 @@ struct PluginSettingsTests {
                 try DeclarativePluginTestSupport.operations.workspaceConfiguration(
                     manifest: manifest, languageID: languageID, settings: global, projectSettings: project
                 )
-            },
-            notificationCenter: notificationCenter
+            }
         )
     }
 }

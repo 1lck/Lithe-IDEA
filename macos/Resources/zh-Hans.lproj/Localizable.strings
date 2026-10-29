@@ -1314,7 +1314,6 @@
 "Enable MCP" = "开启 MCP";
 "Enable breakpoint" = "启用断点";
 "Enable breakpoints" = "启用断点";
-"Enable class and method navigation (Command-click / F12)" = "启用类和方法跳转（Command＋点击 / F12）";
 "Enable for this project" = "在本项目启用";
 "Enable skill" = "启用技能";
 "Enabled" = "已启用";
@@ -3495,6 +3494,7 @@
 "Skip JDK and reflection code" = "跳过 JDK 和反射代码";
 "Skip Version" = "跳过此版本";
 "Skip constructors" = "跳过构造函数";
+"Skip definition lookups for Java keywords" = "Java 关键字不查询定义";
 "Skip static initializers" = "跳过静态初始化器";
 "Skip synthetic methods" = "跳过合成方法";
 "Skip tests" = "跳过测试";
@@ -5771,7 +5771,6 @@
 "native.enableAgentConversation" = "启用 Agent 对话";
 "native.enableBreakpoint" = "启用断点";
 "native.enableBreakpoints" = "启用断点";
-"native.enableClassAndMethodNavigation" = "启用类和方法跳转（Command＋点击 / F12）";
 "native.enableExceptionBreakpoint" = "启用异常断点 %1$@";
 "native.enableFieldBreakpoint" = "启用字段断点 %1$@";
 "native.enableForThisProject" = "在本项目启用";
@@ -6368,6 +6367,7 @@
 "native.javaEntriesAppearAfterTheJavaLanguageServiceListsRunnableClasses" = "Java 语言服务列出可运行的类之后，Java 入口才会出现。";
 "native.javaEntriesCouldNotBeRefreshed" = "无法刷新 Java 入口";
 "native.javaEntryPointFreshnessCheckFailed" = "Java 入口点时效性检查失败";
+"native.javaKeywordNavigationFilter" = "Java 关键字不查询定义";
 "native.javaMainMethodDiscoveryIsNotSupportedBy" = "此语言服务器不支持 Java main 方法发现。";
 "native.javaNavigationIsAvailableForJavaFiles" = "Java 导航仅适用于 .java 文件";
 "native.javaNavigationIsIdle" = "Java 导航空闲";

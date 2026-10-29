@@ -11,6 +11,7 @@ import { mapCompletionKind } from "./completion-kind";
 import { mountDiffReview, type DiffReviewInput, type ReviewSelection } from "./diff-review";
 import * as monaco from "monaco-editor/esm/vs/editor/editor.api.js";
 import "monaco-editor/esm/vs/editor/editor.all.js";
+import { language as javaLanguage } from "monaco-editor/esm/vs/basic-languages/java/java.js";
 import { ensureMonacoLanguageTokenizer } from "./language-contributions";
 import { toMonacoLanguageId } from "./language";
 import { SourceText } from "./source-text";
@@ -36,6 +37,8 @@ const nativeFoldingOffset = nativeGutter.gap * 2 + nativeGutter.icon;
 export interface WorkbenchHost {
   request(payload: object): Promise<any>;
   hoverDelay?: number;
+  /** Document language IDs whose host supports semantic link availability. */
+  definitionLinkLanguages?: readonly string[];
   foldJavaImportsByDefault?: boolean;
   palette: { defaults: Record<string, { light: string; dark: string }> };
   javaNavigationIcons?: Record<"up-interface" | "up-inheritance" | "down-interface" | "down-inheritance", string>;
@@ -118,6 +121,8 @@ export function mountWorkbench(host: WorkbenchHost) {
   let suspendedViews: { role: string; id: string | undefined; state: monaco.editor.ICodeEditorViewState | null;
     find: FindSnapshot | undefined; focused: boolean }[] | undefined;
   let displayOptions: monaco.editor.IStandaloneEditorConstructionOptions = {};
+  // Host setting: skip Java keyword definition lookups. Defaults on, like the native host.
+  let javaKeywordNavigationFilter = true;
   const allEditors = () => [editor, ...[...surfaces.values()].map(surface => surface.editor)].filter(Boolean);
   function applyReadOnly(entry: Entry) {
     for (const view of allEditors()) {
@@ -143,8 +148,7 @@ export function mountWorkbench(host: WorkbenchHost) {
   }
   let updating = false;
   let failed = false;
-  let definitionNavigationPolicy: Record<string, boolean> = {};
-  const definitionNavigation = new Map<monaco.editor.IStandaloneCodeEditor, { languageID: string; mode: boolean | undefined; lifetime: DisposableStore }>();
+  const definitionNavigation = new Map<monaco.editor.IStandaloneCodeEditor, { languageID: string; model: monaco.editor.ITextModel; lifetime: DisposableStore }>();
   let activation: Promise<unknown> = Promise.resolve();
   let textmate: Awaited<ReturnType<typeof installJavaTextMate>>;
   const semanticChanges = new Emitter<void>();
@@ -629,19 +633,32 @@ export function mountWorkbench(host: WorkbenchHost) {
     // Plugin identity belongs to the document; several identities can share
     // one Monaco tokenizer (for example properties/ini or bash/shell).
     const languageID = [...entries.values()].find(entry => entry.model === view.getModel())?.languageID;
-    const mode = languageID ? definitionNavigationPolicy[languageID] : false;
     const existing = definitionNavigation.get(view);
-    if (existing && (existing.mode !== mode || existing.languageID !== languageID)) {
+    if (existing && (existing.languageID !== languageID || existing.model !== view.getModel())) {
       existing.lifetime.dispose(); definitionNavigation.delete(view);
     }
-    if (languageID && mode !== false && !definitionNavigation.has(view)) {
-      definitionNavigation.set(view, { languageID, mode, lifetime: attachDefinitionNavigation(view, mode === true) });
+    if (languageID && !definitionNavigation.has(view)) {
+      definitionNavigation.set(view, { languageID, model: view.getModel()!, lifetime: attachDefinitionNavigation(view, host.definitionLinkLanguages?.includes(languageID) === true) });
     }
   }
   function attachDefinitionNavigation(view: monaco.editor.IStandaloneCodeEditor, managed: boolean) {
     const lifetime = new DisposableStore();
+    // Monaco removes its model view before onDidChangeModel; retain the owned
+    // node until disposal so cleanup can still remove pointer/hint classes.
+    const node = view.getDomNode();
+    // Keywords are "code" to Monaco's standard token types, but they never have a
+    // definition. Filtering them here avoids a language-server round trip that can
+    // take seconds for keywords such as `static` or `switch`.
+    const javaKeywords = new Set<string>(javaLanguage.keywords);
+    const isKeywordPosition = (position: monaco.IPosition | null) => {
+      const model = view.getModel();
+      if (!javaKeywordNavigationFilter || !position || model?.getLanguageId() !== "java") return false;
+      const word = model.getWordAtPosition(position)?.word;
+      return word !== undefined && javaKeywords.has(word);
+    };
     const isCodePosition = (position: monaco.IPosition | null) => {
       const tokens = (view.getModel() as any)?.tokenization;
+      if (isKeywordPosition(position)) return false;
       // Reuse Monaco/TextMate lexical state, including multiline comments. Do not
       // synchronously tokenize a large prefix just to respond to mouse movement.
       if (!position || !tokens?.isCheapToTokenize(position.lineNumber)) return false;
@@ -651,7 +668,7 @@ export function mountWorkbench(host: WorkbenchHost) {
     };
     const navigate = async (position: monaco.IPosition | null) => {
       const pair = [...entries].find(([, entry]) => entry.model === view.getModel());
-      if (!pair || !position || lifetime.isDisposed) return;
+      if (!pair || !position || lifetime.isDisposed || isKeywordPosition(position)) return;
       const [id, entry] = pair, current = documentCheckpoint(id, entry);
       await entry.chain;
       if (lifetime.isDisposed || !current() || view.getModel() !== entry.model) return;
@@ -661,7 +678,7 @@ export function mountWorkbench(host: WorkbenchHost) {
     lifetime.add(view.addAction({ id: "lithe.goToDefinition", label: "Go to Definition", keybindings: [monaco.KeyCode.F12],
       contextMenuGroupId: "navigation", contextMenuOrder: 1, run: () => navigate(view.getPosition()) }));
     if (!managed) {
-      // Preserve existing navigation for providers without an opt-in declaration,
+      // Preserve existing navigation for languages without semantic link feedback,
       // including XML attribute/configuration links. Do not add hover queries.
       lifetime.add(view.onMouseDown(event => {
         const gesture = event.event;
@@ -682,10 +699,10 @@ export function mountWorkbench(host: WorkbenchHost) {
     let ownsHover = false;
     const clear = (hideHint = true) => {
       generation++; hovered = ""; links.clear();
-      view.getDomNode()?.classList.remove("lithe-definition-pointer");
+      node?.classList.remove("lithe-definition-pointer");
       if (ownsHover && (hideHint || !ContentHoverController.get(view)?.isHoverVisible)) {
         ownsHover = false;
-        view.getDomNode()?.classList.remove("lithe-command-hover");
+        node?.classList.remove("lithe-command-hover");
         ContentHoverController.get(view)?.hideContentHover();
       }
     };
@@ -715,7 +732,7 @@ export function mountWorkbench(host: WorkbenchHost) {
       // Candidate feedback must not wait for the native semantic round trip.
       // Availability validates this presentation; clicking still resolves real targets.
       const range = new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn);
-      view.getDomNode()?.classList.add("lithe-definition-pointer");
+      node?.classList.add("lithe-definition-pointer");
       links.set([{ range, options: { inlineClassName: "goto-definition-link" } }]);
       const request = generation, current = documentCheckpoint(id, entry);
       await entry.chain;
@@ -727,7 +744,7 @@ export function mountWorkbench(host: WorkbenchHost) {
         const hover = ContentHoverController.get(view);
         if (hover && !hover.isHoverVisible) {
           ownsHover = true;
-          view.getDomNode()?.classList.add("lithe-command-hover");
+          node?.classList.add("lithe-command-hover");
           // Documentation remains delayed independently of immediate link feedback.
           hover.showContentHover(range, 0 /* Delayed */, 0 /* Mouse */, false);
         }
@@ -1204,13 +1221,10 @@ export function mountWorkbench(host: WorkbenchHost) {
       } finally { updating = false; }
     },
     configure(payload: any) {
-      if (payload.definitionNavigationPolicy && typeof payload.definitionNavigationPolicy === "object") {
-        definitionNavigationPolicy = payload.definitionNavigationPolicy;
-        for (const view of allEditors()) syncDefinitionNavigation(view);
-      }
       const theme = payload.theme as WorkbenchThemeInput | undefined;
       const name = theme ? defineWorkbenchTheme(theme, host.palette)
         : payload.dark ? "lithe-dark" : "lithe-light";
+      javaKeywordNavigationFilter = payload.javaKeywordNavigationFilter !== false;
       Object.assign(displayOptions, {
         // Standalone updateOptions and newly created split editors both apply
         // this construction theme globally, so it must track the host theme.

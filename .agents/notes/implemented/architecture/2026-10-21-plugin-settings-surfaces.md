@@ -62,7 +62,6 @@ macOS 设置窗口现在可以由插件“注册”页面：插件在 `plugin.js
 | `immediate` | 让 Core 展开 `workspaceConfiguration`，用 `lsp.updateWorkspaceConfiguration` 推给该插件正在运行的服务器；清单校验会拒绝没有被任何 `workspaceConfiguration` 引用的 immediate 设置。连续编辑时，已被新值淘汰的旧发送静默结束，只有真实发送失败才提示重启。 |
 | `reload` | 重新加载该插件的构建模型 |
 | `nextRun` | 不做任何事，下次运行或构建读取 |
-| `editorNavigation`（settings 3） | 按插件语言立即注册或释放定义跳转手势、动作和提示；不写语言服务器配置，不重启共享服务 |
 
 为了保证“立即生效”真的不需要新进程，Core 在校验时拒绝把 `immediate` 设置用在命令行参数或 `initializationOptions` 里。
 
@@ -100,7 +99,7 @@ configuredExecutable。新插件必须用第五种候选和新能力；既有发
 
 ### 6. 宿主能力版本
 
-macOS 的 `hostCapabilities` 声明 `settings: [1, 2, 3]`、`languageServers: [1, 2]` 和 `buildSystems: [1, 2]`。Windows 还没有这些界面和推送，所以仍只声明 1，需要 settings v2/v3 的插件在 Windows 上会被市场隐藏，而不是装上后行为不完整。
+macOS 的 `hostCapabilities` 声明 `settings: [1, 2]`、`languageServers: [1, 2]` 和 `buildSystems: [1, 2]`。Windows 还没有这些界面和推送，所以仍只声明 1，需要 v2 的插件在 Windows 上会被市场隐藏，而不是装上后行为不完整。
 
 ### 7. 路径选择按钮保留完整宽度
 
@@ -183,23 +182,3 @@ Swift 和 Windows 各写一遍合并规则最直接，但两边一旦有细微�
 - `macos/Sources/Lithe/Views/Components/LitheSettingsControls.swift`
 - `macos/Sources/Lithe/Views/App/ContributedSettingsPageView.swift`
 - `shared/contracts/plugins/v1/README.md`
-
-
-### Java Support 的定义跳转开关
-
-Java Support 通过 settings 3 声明全局布尔设置 `classMethodNavigation`，默认关闭，归入 Java 页面；
-插件详情和语言设置页读取同一个插件存储值。宿主只识别通用 effect 和语言，不硬编码 Java 插件 ID。
-清单必须引用自身提供的语言服务器，每种语言只能声明一次，不能把此值作为服务启动参数。
-
-插件管理器在全局设置写入后，通过同进程通知同步所有项目窗口；通知只携带失效信号，各窗口重新读取插件存储，不复制设置值或重新扫描安装包。项目作用域设置仍只通知当前窗口。启用、卸载等变更继续使用既有插件生命周期通知。
-
-定义跳转策略区分“未声明”“开启”“关闭”：未声明的语言保留原有 Command 点击/F12，不增加悬停查询；声明开启时才安装增强手势，关闭则撤销该语言交互。不能将 Java 的允许列表用作所有语言的权限列表，否则会拦截 MyBatis XML、Spring 配置和其他 LSP 的既有跳转。
-
-各插件只声明语言服务器和可选开关，符号解析复用 LSP，手势与资源管理共用宿主实现，不要求插件复制一份跳转代码。窗口重新解析可用贡献；
-关闭或禁用插件会清理手势、动作、指针和悬停，拒绝旧结果，但不关闭标签或分屏。
-仍在共享服务中的请求按原有完成或超时生命周期结束。已有诊断、补全、用法和继承标记不归此开关。
-
-不能仅把编辑器全局布尔开关搬到插件页面：这会留下第二份配置源，也无法随插件禁用撤销能力。
-Windows 暂不宣告 settings 3，避免把不执行资源约束的宿主误报为兼容。
-
-验证补充：`PluginSettingsTests` 覆盖双项目模型共享偏好、反复切换、旧操作失效、新项目继承与通知订阅不保留已关闭对象；WebKit 覆盖 XML 属性/配置/其他语言的原有导航，以及 100 次切换后监听回到基线、模型和编辑器数量不增长。资源所有权测试不能替代长期运行的堆采样，也不要求共享语言服务或 WebKit 的 RSS 在关闭时归零。

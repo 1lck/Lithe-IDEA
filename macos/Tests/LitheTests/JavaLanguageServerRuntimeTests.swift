@@ -431,7 +431,7 @@ struct JavaLanguageServerRuntimeTests {
 
     @Test(arguments: [false, true])
     @MainActor
-    func acceptedVirtualImplementationSurvivesChooserDismissal(disableWhileLoading: Bool) async throws {
+    func acceptedVirtualImplementationSurvivesChooserDismissal(cancelWhileLoading: Bool) async throws {
         let root = URL(fileURLWithPath: "/workspace/virtual-navigation", isDirectory: true)
         let session = JavaImportTestSession()
         let manager = try javaImportManager(root: root, session: session)
@@ -478,9 +478,9 @@ struct JavaLanguageServerRuntimeTests {
                 reply = nil
                 // The shared dropdown calls its binding after navigate has hidden it.
                 model.dismissImplementationChooser()
-                if disableWhileLoading { model.closeLanguageNavigationResults() }
+                if cancelWhileLoading { model.closeLanguageNavigationResults() }
                 completion(.success("class Target {}"))
-                if disableWhileLoading {
+                if cancelWhileLoading {
                     #expect(!model.openDocuments.contains { $0.url == uri })
                     #expect(model.editorNavigationTarget == nil)
                 } else {

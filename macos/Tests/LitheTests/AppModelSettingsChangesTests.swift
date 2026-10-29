@@ -8,19 +8,6 @@ import Testing
 @MainActor
 struct AppModelSettingsChangesTests {
     @Test
-    func withdrawingPluginNavigationClosesResultsAndInvalidatesPendingOperation() {
-        let probe = SettingsChangesProbe()
-        defer { probe.cancel() }
-        probe.model.definitionNavigationPolicy = ["fixture": true]
-        let operation = probe.model.languageNavigationCoordinator.begin(providerID: "fixture", kind: .definitions)
-        probe.model.isImplementationChooserVisible = true
-        probe.model.refreshPluginEditorNavigation()
-        #expect(probe.model.definitionNavigationPolicy.isEmpty)
-        #expect(!probe.model.isImplementationChooserVisible)
-        #expect(!probe.model.languageNavigationCoordinator.owns(operation))
-    }
-
-    @Test
     func workbenchOnlyRelayDoesNotReachSettings() async {
         let probe = SettingsChangesProbe()
         defer { probe.cancel() }

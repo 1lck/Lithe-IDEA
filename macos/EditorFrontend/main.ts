@@ -216,6 +216,7 @@ const workbench = mountWorkbench({
   request: payload => window.webkit.messageHandlers.litheEditor.postMessage(payload),
   palette,
   foldJavaImportsByDefault: true,
+  definitionLinkLanguages: ["java"],
   hoverDelay: 500, // IDEA EditorSettingsExternalizable.TOOLTIPS_DELAY_RANGE.initial
   javaNavigationIcons: { "up-interface": implementingMethod, "down-interface": implementedMethod,
     "up-inheritance": overridingMethod, "down-inheritance": overriddenMethod },

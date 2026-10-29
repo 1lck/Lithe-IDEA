@@ -2035,23 +2035,3 @@ fn debug_start_arguments_refuse_stale_registrations_and_missing_target_facts() {
     .expect("payload is well formed");
     assert_eq!(stale["error"]["code"], "debug.provider.stale");
 }
-
-#[test]
-fn editor_navigation_is_owned_by_one_plugin_language_and_requires_host_support() {
-    let manifest: Value =
-        serde_json::from_str(contract_file!("fixtures/editor-navigation.plugin.json")).unwrap();
-    assert_eq!(validate(manifest.clone())["status"], "ok");
-    let host =
-        json!({"languages":[1], "languageServers":[1], "serverProcess":[1], "settings":[1,2]});
-    let old_host =
-        validate_command(json!({"manifest":manifest.clone(), "hostCapabilities":host})).unwrap();
-    assert_ne!(old_host["status"], "ok");
-    let mut foreign = manifest.clone();
-    foreign["settings"][0]["page"]["languageID"] = json!("other");
-    assert_ne!(validate(foreign)["status"], "ok");
-    let mut duplicate = manifest;
-    let mut setting = duplicate["settings"][0].clone();
-    setting["id"] = json!("another");
-    duplicate["settings"].as_array_mut().unwrap().push(setting);
-    assert_ne!(validate(duplicate)["status"], "ok");
-}

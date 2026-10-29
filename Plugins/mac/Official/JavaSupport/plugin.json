@@ -4,7 +4,7 @@
   "displayName": "Java Support",
   "version": "1.1.0",
   "pluginAPIVersion": 3,
-  "requires": {"languages": 1, "languageServers": 1, "serverProcess": 1, "settings": 3, "projectGenerators": 1, "packageTrust": 1},
+  "requires": {"languages": 1, "languageServers": 1, "serverProcess": 1, "settings": 2, "projectGenerators": 1, "packageTrust": 1},
   "vendor": {
     "id": "dev.lithe",
     "displayName": "Lithe",
@@ -22,15 +22,6 @@
     }
   ],
   "settings": [
-    {
-      "id": "classMethodNavigation",
-      "type": "boolean",
-      "title": "Enable class and method navigation (Command-click / F12)",
-      "default": false,
-      "effect": "editorNavigation",
-      "page": {"languageID": "java"},
-      "section": "Navigation"
-    },
     {
       "id": "heapMaxMB",
       "type": "integer",

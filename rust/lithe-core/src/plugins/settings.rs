@@ -72,8 +72,6 @@ pub(crate) enum SettingEffect {
     Reload,
     /// The next run or build command uses it.
     NextRun,
-    /// Immediately enables definition navigation for the declared language.
-    EditorNavigation,
 }
 
 /// The settings page that shows a setting besides the plugin's own page.
@@ -219,7 +217,7 @@ pub(crate) struct SettingDeclaration {
     effect: Option<SettingEffect>,
     /// Page that shows the setting besides the plugin's own. `settings` 2.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) page: Option<SettingPage>,
+    page: Option<SettingPage>,
     /// Heading the setting is grouped under on its page. `settings` 2.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     section: Option<String>,
@@ -376,7 +374,7 @@ impl SettingDeclaration {
             || self.placeholder.is_some()
     }
 
-    pub(crate) fn effect(&self) -> SettingEffect {
+    fn effect(&self) -> SettingEffect {
         self.effect.unwrap_or(SettingEffect::Restart)
     }
 
@@ -442,17 +440,6 @@ impl SettingDeclaration {
             return Err(invalid(
                 field.to_string(),
                 "This setting requires version 2 of the settings capability.",
-            ));
-        }
-        if self.effect() == SettingEffect::EditorNavigation
-            && (version < 3
-                || self.kind != SETTING_BOOLEAN
-                || self.scope() != SettingScope::Global
-                || !matches!(self.page, Some(SettingPage::Language(_))))
-        {
-            return Err(invalid(
-                field.to_string(),
-                "Editor navigation requires settings 3, a global boolean, and a language page.",
             ));
         }
         if !is_setting_identifier(&self.id) {
@@ -673,7 +660,7 @@ pub(crate) fn declared(settings: &[SettingDeclaration]) -> DeclaredSettings {
         }
         if setting.effect() == SettingEffect::Immediate {
             declared.immediate.insert(setting.id.clone());
-        } else if setting.effect() != SettingEffect::EditorNavigation {
+        } else {
             declared.launch.insert(setting.id.clone());
         }
         if setting.is_free_form() {
@@ -785,30 +772,6 @@ fn is_absolute_path(text: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn editor_navigation_requires_capability_three_and_never_becomes_server_configuration() {
-        let value = serde_json::json!({"id":"navigation", "type":"boolean", "title":"Navigation", "default":false,
-            "effect":"editorNavigation", "page":{"languageID":"java"}});
-        let setting: super::SettingDeclaration = serde_json::from_value(value.clone()).unwrap();
-        assert!(setting.validate("settings[0]", 2).is_err());
-        assert!(setting.validate("settings[0]", 3).is_ok());
-        let declared = super::declared(&[setting]);
-        assert!(declared.launch.is_empty() && declared.immediate.is_empty());
-        for patch in [
-            serde_json::json!({"scope":"project"}),
-            serde_json::json!({"page":{"buildSystemID":"maven"}}),
-            serde_json::json!({"type":"integer", "default":0, "minimum":0, "maximum":1}),
-        ] {
-            let mut invalid = value.clone();
-            invalid
-                .as_object_mut()
-                .unwrap()
-                .extend(patch.as_object().unwrap().clone());
-            let setting: super::SettingDeclaration = serde_json::from_value(invalid).unwrap();
-            assert!(setting.validate("settings[0]", 3).is_err());
-        }
-    }
-
     use super::*;
     use serde_json::json;
 

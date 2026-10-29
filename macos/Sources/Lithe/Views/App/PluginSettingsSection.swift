@@ -251,7 +251,7 @@ private struct PluginSettingRow: View {
     private var savesWhileTyping: Bool {
         switch declaration.effect {
         case .restart, .nextRun: true
-        case .immediate, .reload, .editorNavigation: false
+        case .immediate, .reload: false
         }
     }
 
@@ -346,7 +346,7 @@ private struct PluginSettingEffectPill: View {
 
     var body: some View {
         switch effect {
-        case .immediate, .editorNavigation: LitheSettingsPill(LocalizedStringKey("Applies immediately"))
+        case .immediate: LitheSettingsPill(LocalizedStringKey("Applies immediately"))
         case .restart: LitheSettingsPill(LocalizedStringKey("Needs restart"), kind: .effect)
         case .reload: LitheSettingsPill(LocalizedStringKey("Reloads project"), kind: .effect)
         case .nextRun: LitheSettingsPill(LocalizedStringKey("Next run"))

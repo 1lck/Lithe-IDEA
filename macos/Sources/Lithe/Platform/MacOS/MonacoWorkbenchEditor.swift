@@ -86,7 +86,7 @@ private struct MonacoWorkbenchDisplayConfiguration: Equatable {
     let fontFamily: String
     let wrap: Bool
     let minimap: Bool
-    let definitionNavigationPolicy: [String: Bool]
+    let javaKeywordNavigationFilter: Bool
     let theme: MonacoWorkbenchThemeConfiguration
 
     var bridgePayload: [String: Any] {
@@ -95,7 +95,7 @@ private struct MonacoWorkbenchDisplayConfiguration: Equatable {
             "fontFamily": fontFamily,
             "wrap": wrap,
             "minimap": minimap,
-            "definitionNavigationPolicy": definitionNavigationPolicy,
+            "javaKeywordNavigationFilter": javaKeywordNavigationFilter,
             "dark": theme.dark,
             "theme": theme.bridgePayload
         ]
@@ -157,6 +157,7 @@ private struct MonacoWorkbenchContent: View {
                     ),
                     wrap: settings.editorSoftWrapEnabled,
                     minimap: settings.editorMinimapEnabled,
+                    javaKeywordNavigationFilter: settings.javaKeywordNavigationFilterEnabled,
                     markers: diagnostics.diagnostics(for: document.url),
                     secondaryMarkers: secondaryDocument.map { diagnostics.diagnostics(for: $0.url) } ?? [],
                     softWrapControl: EditorSoftWrapToggleConfiguration(
@@ -187,6 +188,7 @@ private struct MonacoWorkbenchSurface: NSViewRepresentable {
     let theme: MonacoWorkbenchThemeConfiguration
     let wrap: Bool
     let minimap: Bool
+    let javaKeywordNavigationFilter: Bool
     let markers: [EditorDiagnostic]
     let secondaryMarkers: [EditorDiagnostic]
     let softWrapControl: EditorSoftWrapToggleConfiguration
@@ -202,7 +204,7 @@ private struct MonacoWorkbenchSurface: NSViewRepresentable {
         coordinator.session.detachView(ownerID: coordinator.ownerID)
     }
     func updateNSView(_ view: NSView, context: Context) {
-        session.update(ownerID: context.coordinator.ownerID, document: document, secondaryDocument: secondaryDocument, preview: preview, markdownScrollPosition: markdownScrollPosition, model: model, fontSize: fontSize, fontFamily: fontFamily, theme: theme, wrap: wrap, minimap: minimap, markers: markers, secondaryMarkers: secondaryMarkers, softWrapControl: softWrapControl)
+        session.update(ownerID: context.coordinator.ownerID, document: document, secondaryDocument: secondaryDocument, preview: preview, markdownScrollPosition: markdownScrollPosition, model: model, fontSize: fontSize, fontFamily: fontFamily, theme: theme, wrap: wrap, minimap: minimap, javaKeywordNavigationFilter: javaKeywordNavigationFilter, markers: markers, secondaryMarkers: secondaryMarkers, softWrapControl: softWrapControl)
     }
 }
 
@@ -438,7 +440,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         selectMount()
     }
 
-    func update(ownerID: UUID, document: EditorDocument, secondaryDocument: EditorDocument?, preview: MonacoPreviewConfiguration?, markdownScrollPosition: Binding<MarkdownScrollPosition>?, model: AppModel, fontSize: Double, fontFamily: String, theme: MonacoWorkbenchThemeConfiguration, wrap: Bool, minimap: Bool, markers: [EditorDiagnostic], secondaryMarkers: [EditorDiagnostic], softWrapControl: EditorSoftWrapToggleConfiguration? = nil) {
+    func update(ownerID: UUID, document: EditorDocument, secondaryDocument: EditorDocument?, preview: MonacoPreviewConfiguration?, markdownScrollPosition: Binding<MarkdownScrollPosition>?, model: AppModel, fontSize: Double, fontFamily: String, theme: MonacoWorkbenchThemeConfiguration, wrap: Bool, minimap: Bool, javaKeywordNavigationFilter: Bool, markers: [EditorDiagnostic], secondaryMarkers: [EditorDiagnostic], softWrapControl: EditorSoftWrapToggleConfiguration? = nil) {
         guard mounts[ownerID] != nil else { return }
         self.model = model
         observeFind(model: model)
@@ -450,11 +452,11 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         ) }
         mounts[ownerID]?.update = { [weak self, weak document, weak secondaryDocument, weak model] in
             guard let self, let document, let model else { return }
-            self.present(document: document, model: model, fontSize: fontSize, fontFamily: fontFamily, theme: theme, wrap: wrap, minimap: minimap, markers: markers)
+            self.present(document: document, model: model, fontSize: fontSize, fontFamily: fontFamily, theme: theme, wrap: wrap, minimap: minimap, javaKeywordNavigationFilter: javaKeywordNavigationFilter, markers: markers)
             self.presentMarkdownScroll(document: document, binding: markdownScrollPosition)
             if let secondaryDocument {
                 self.hasSecondaryView = true
-                self.present(document: secondaryDocument, model: model, fontSize: fontSize, fontFamily: fontFamily, theme: theme, wrap: wrap, minimap: minimap, markers: secondaryMarkers, surface: "secondary")
+                self.present(document: secondaryDocument, model: model, fontSize: fontSize, fontFamily: fontFamily, theme: theme, wrap: wrap, minimap: minimap, javaKeywordNavigationFilter: javaKeywordNavigationFilter, markers: secondaryMarkers, surface: "secondary")
             } else if self.hasSecondaryView {
                 self.hasSecondaryView = false
                 self.activeIDs.removeValue(forKey: "secondary")
@@ -818,7 +820,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
         }
     }
 
-    private func present(document: EditorDocument, model: AppModel, fontSize: Double, fontFamily: String, theme: MonacoWorkbenchThemeConfiguration, wrap: Bool, minimap: Bool, markers: [EditorDiagnostic], surface: String = "primary") {
+    private func present(document: EditorDocument, model: AppModel, fontSize: Double, fontFamily: String, theme: MonacoWorkbenchThemeConfiguration, wrap: Bool, minimap: Bool, javaKeywordNavigationFilter: Bool, markers: [EditorDiagnostic], surface: String = "primary") {
         guard viewOwnerID != nil else { return }
         let id = document.id.uuidString
         let groupDocuments: [EditorDocument]
@@ -915,7 +917,7 @@ final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNavigationDele
             fontFamily: MacEditorFontCatalog.editorFontStack(fontFamily),
             wrap: wrap,
             minimap: minimap,
-            definitionNavigationPolicy: model.definitionNavigationPolicy,
+            javaKeywordNavigationFilter: javaKeywordNavigationFilter,
             theme: theme
         )
         if lastConfiguration != configuration {

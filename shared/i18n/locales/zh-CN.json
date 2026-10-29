@@ -6039,6 +6039,7 @@
     "native.showLocalHistory": "查看本地历史…",
     "native.showLongGraphEdges": "显示完整长连线",
     "native.showMinimap": "显示代码缩略图",
+    "native.javaKeywordNavigationFilter": "Java 关键字不查询定义",
     "native.showOrHideGitHistory": "显示或隐藏 Git 历史",
     "native.showOrHideJavaDiagnostics": "显示或隐藏 Java 诊断",
     "native.showOrHideLanguageDiagnostics": "显示或隐藏语言诊断",
@@ -9486,8 +9487,7 @@
     "remote.pluginUnapproved": "远程插件包不属于已批准的安装。",
     "remote.pluginHostUnsupported": "此主机无法接收兼容的插件包，请更新远程服务。",
     "remote.pluginApprovalRequired": "远程插件包更改了已批准的命令或权限，请先安装并批准该版本。",
-    "remote.pluginPlatformUnavailable": "插件 {plugin} 没有适用于 {platform} 的已批准包，请安装兼容版本。",
-    "native.enableClassAndMethodNavigation": "启用类和方法跳转（Command＋点击 / F12）"
+    "remote.pluginPlatformUnavailable": "插件 {plugin} 没有适用于 {platform} 的已批准包，请安装兼容版本。"
   },
   "overrides": {
     "macos": {

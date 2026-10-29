@@ -41,7 +41,7 @@ async function verify() {
   await ready;
   const initialEditor = monacoEditor.getEditors()[0];
   assert(!initialEditor.getAction("lithe.goToDefinition"), "definition navigation was registered while default-off");
-  window.lithe.configure({ definitionNavigationPolicy: { java: true }, dark: true, fontFamily: "monospace", fontSize: 13, wrap: false });
+  window.lithe.configure({ dark: true, fontFamily: "monospace", fontSize: 13, wrap: false });
   const cases: { name: string; durationMs: number }[] = [];
   async function check(name: string, operation: () => Promise<void>) {
     await send({ type: "progress", name });
@@ -1935,50 +1935,7 @@ async function verify() {
       assert((await send({ type: "definitionRequests" })).requests.length === before, "Command click navigated from a comment/string");
     } finally { await window.lithe.retain([]); }
   });
-  await check("navigation opt-out disposes gestures and rejects pending hints across re-enable", async () => {
-    const id = "definition-toggle", text = "class Probe {}";
-    await send({ type: "open", id, text });
-    await window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", readonly: false });
-    const input = editor as any, root = editor.getDomNode()!, model = editor.getModel()!;
-    const configure = (enabled: boolean) => window.lithe.configure({ definitionNavigationPolicy: { java: enabled },
-      dark: false, fontFamily: "monospace", fontSize: 13, wrap: false });
-    const target = { type: monacoEditor.MouseTargetType.CONTENT_TEXT, position: new Position(1, 9),
-      range: new Range(1, 9, 1, 10), detail: {} };
-    const move = () => input._onMouseMove.fire({ event: { metaKey: true, leftButton: false, detail: 0 }, target });
-    const controller = ContentHoverController.get(editor)!;
-    const original = controller.showContentHover;
-    let hints = 0;
-    controller.showContentHover = function (...args) { hints++; original.apply(this, args); };
-    try {
-      await send({ type: "holdDefinitionHover", hold: true });
-      move();
-      await withDeadline(send({ type: "waitDefinitionHover" }), "hover request never reached host");
-      configure(false);
-      assert(!editor.getAction("lithe.goToDefinition"), "disabled navigation retained its F12/context-menu action");
-      assert(!root.classList.contains("lithe-definition-pointer"), "disabled navigation retained pointer");
-      assert(!model.getAllDecorations().some(value => value.options.inlineClassName === "goto-definition-link"), "disabled navigation retained link");
-      const disabledCount = (await send({ type: "definitionRequests" })).hoverRequests;
-      move();
-      assert(!root.classList.contains("lithe-definition-pointer"), "disabled navigation still processed movement");
-      assert((await send({ type: "definitionRequests" })).hoverRequests === disabledCount, "disabled navigation sent a hover request");
-      configure(true);
-      await send({ type: "holdDefinitionHover", hold: false });
-      await Promise.resolve();
-      assert(hints === 0, "old request reopened hint after re-enable");
-      for (let index = 0; index < 3; index++) { configure(false); configure(true); }
-      const before = (await send({ type: "definitionRequests" })).requests.length;
-      const click = { event: { metaKey: true, leftButton: true, detail: 1 }, target };
-      input._onMouseDown.fire(click); input._onMouseUp.fire(click);
-      await Promise.resolve();
-      assert((await send({ type: "definitionRequests" })).requests.length === before + 1, "toggle accumulated click listeners");
-    } finally {
-      controller.showContentHover = original; controller.hideContentHover();
-      await send({ type: "holdDefinitionHover", hold: false });
-      configure(true); await window.lithe.retain([]);
-    }
-  });
-  await check("Java opt-out preserves legacy XML configuration and other language navigation", async () => {
-    window.lithe.configure({ definitionNavigationPolicy: { java: false } });
+  await check("default Java link feedback preserves XML configuration and other language navigation", async () => {
     try {
       for (const filename of ["Mapper.xml", "application.properties", "application.yaml", "module.py"]) {
         const id = "legacy-" + filename, text = filename.endsWith("xml") ? '<select id="findOrder" />' : "findOrder";
@@ -1999,128 +1956,70 @@ async function verify() {
         assert(after.hoverRequests === before.hoverRequests, "legacy provider acquired unsolicited hover queries");
       }
     } finally {
-      window.lithe.configure({ definitionNavigationPolicy: { java: true } });
       await window.lithe.retain([]);
     }
   });
-  await check("repeated navigation toggles release editor and window listeners without retaining models", async () => {
-    const id = "navigation-resource-cycle", text = "class Probe {}";
+  await check("Java links are enabled by default and query only during Command hover", async () => {
+    const id = "default-navigation", text = "class Probe {}";
     await send({ type: "open", id, text });
     await window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", readonly: false });
-    const configure = (enabled: boolean) => window.lithe.configure({ definitionNavigationPolicy: { java: enabled } });
+    const input = editor as any, root = editor.getDomNode()!;
+    const move = (metaKey: boolean) => input._onMouseMove.fire({ event: { metaKey, leftButton: false, detail: 0 },
+      target: { type: monacoEditor.MouseTargetType.CONTENT_TEXT, position: new Position(1, 9), range: new Range(1, 9, 1, 10), detail: {} } });
+    try {
+      assert(!!editor.getAction("lithe.goToDefinition"), "default navigation action is missing");
+      const before = await send({ type: "definitionRequests" });
+      move(false);
+      assert((await send({ type: "definitionRequests" })).hoverRequests === before.hoverRequests, "ordinary movement queried definitions");
+      await send({ type: "holdDefinitionHover", hold: true });
+      move(true);
+      await withDeadline(send({ type: "waitDefinitionHover" }), 3000, "default hover request");
+      assert(root.classList.contains("lithe-definition-pointer"), "default Java hover has no pointer");
+      // Closing the document must revoke a held response and release its gestures.
+      await window.lithe.retain([]);
+      assert(!editor.getAction("lithe.goToDefinition"), "closed document retained its action");
+      await send({ type: "holdDefinitionHover", hold: false });
+      assert(!root.classList.contains("lithe-definition-pointer"), "closed document revived a late pointer");
+    } finally {
+      await send({ type: "holdDefinitionHover", hold: false });
+      await window.lithe.retain([]);
+    }
+  });
+  await check("repeated document and split lifetimes release navigation listeners", async () => {
+    await window.lithe.retain([]);
     const input = editor as any;
     const listenerCounts = () => Object.fromEntries(Object.entries(input)
       .filter(([key, value]: [string, any]) => key.startsWith("_on") && typeof value?._size === "number")
       .map(([key, value]: [string, any]) => [key, value._size]));
+    const baseline = JSON.stringify(listenerCounts());
+    const models = monacoEditor.getModels().length, editors = monacoEditor.getEditors().length;
     const originalAdd = window.addEventListener, originalRemove = window.removeEventListener;
     const blurListeners = new Set<EventListenerOrEventListenerObject>();
-    const models = monacoEditor.getModels().length, editors = monacoEditor.getEditors().length;
-    configure(false);
-    const baseline = listenerCounts();
-    assert(Object.keys(baseline).length > 5, "listener instrumentation did not observe Monaco emitters");
-    window.addEventListener = function (type: any, listener: any, options: any) {
+    window.addEventListener = function(type: any, listener: any, options: any) {
       if (type === "blur") blurListeners.add(listener);
-      originalAdd.call(this, type, listener, options);
-    };
-    window.removeEventListener = function (type: any, listener: any, options: any) {
+      return originalAdd.call(this, type, listener, options);
+    } as typeof window.addEventListener;
+    window.removeEventListener = function(type: any, listener: any, options: any) {
       if (type === "blur") blurListeners.delete(listener);
-      originalRemove.call(this, type, listener, options);
-    };
+      return originalRemove.call(this, type, listener, options);
+    } as typeof window.removeEventListener;
+    const container = document.createElement("div"); document.body.append(container);
     try {
-      for (let index = 0; index < 100; index++) {
-        configure(true);
-        assert(blurListeners.size === 1, "enabled navigation duplicated its window listener");
-        configure(false);
-        assert(blurListeners.size === 0, "disabled navigation retained its window listener");
-        assert(JSON.stringify(listenerCounts()) === JSON.stringify(baseline), "editor listeners accumulated after opt-out");
-        assert(!editor.getAction("lithe.goToDefinition"), "disabled navigation retained a command");
-      }
-      assert(monacoEditor.getModels().length === models && monacoEditor.getEditors().length === editors,
-        "toggling navigation changed model/editor ownership");
-      assert(!editor.getModel()!.getAllDecorations().some(value => value.options.inlineClassName === "goto-definition-link"),
-        "disabled navigation retained decorations");
-    } finally {
-      configure(false);
-      window.addEventListener = originalAdd; window.removeEventListener = originalRemove;
-      configure(true); await window.lithe.retain([]);
-    }
-  });
-  await check("navigation opt-out applies to existing and newly attached split editors", async () => {
-    const id = "definition-toggle-split", text = "class Probe {}";
-    const container = document.createElement("div");
-    container.style.cssText = "position:absolute;left:50%;top:0;width:50%;height:100%";
-    document.body.append(container);
-    const configure = (enabled: boolean) => window.lithe.configure({ definitionNavigationPolicy: { java: enabled },
-      dark: false, fontFamily: "monospace", fontSize: 13, wrap: false });
-    try {
-      await send({ type: "open", id, text });
-      await window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", readonly: false });
-      await window.lithe.attachSurface("toggle-split", container, { id });
-      assert(monacoEditor.getEditors().every(view => view.getAction("lithe.goToDefinition")), "enabled split did not register navigation");
-      configure(false);
-      assert(monacoEditor.getEditors().every(view => !view.getAction("lithe.goToDefinition")), "existing split retained navigation");
-      window.lithe.detachSurface("toggle-split");
-      await window.lithe.attachSurface("toggle-split", container, { id });
-      assert(monacoEditor.getEditors().every(view => !view.getAction("lithe.goToDefinition")), "new split registered disabled navigation");
-      configure(true);
-      assert(monacoEditor.getEditors().every(view => view.getAction("lithe.goToDefinition")), "re-enable missed a split");
-      configure(false);
-      monacoEditor.setModelLanguage(editor.getModel()!, "plaintext");
-      assert(monacoEditor.getEditors().every(view => !view.getAction("lithe.goToDefinition")), "tokenizer changes must not bypass the document policy");
-      monacoEditor.setModelLanguage(editor.getModel()!, "java");
-      assert(monacoEditor.getEditors().every(view => !view.getAction("lithe.goToDefinition")), "restoring syntax must preserve opt-out");
-    } finally {
-      window.lithe.detachSurface("toggle-split"); container.remove();
-      configure(true); await window.lithe.retain([]);
-    }
-  });
-  await check("navigation policy follows plugin IDs instead of Monaco aliases", async () => {
-    const configure = (enabled: boolean) => window.lithe.configure({ definitionNavigationPolicy: { bash: enabled, properties: enabled },
-      dark: false, fontFamily: "monospace", fontSize: 13, wrap: false });
-    try {
-      for (const [language, syntax, filename] of [["bash", "shell", "test.sh"], ["properties", "ini", "test.properties"]]) {
-        const id = `navigation-alias-${language}`, text = "value=target";
+      for (let cycle = 0; cycle < 20; cycle++) {
+        const id = `default-lifetime-${cycle}`, text = "class Probe {}";
         await send({ type: "open", id, text });
-        await window.lithe.activate({ id, text, language, revision: 0, filename, readonly: false });
-        assert(editor.getModel()!.getLanguageId() === syntax, "fixture did not use the aliased tokenizer");
-        configure(false);
-        assert(!editor.getAction("lithe.goToDefinition"), "disabled plugin retained the navigation action");
-        configure(true);
-        (editor as any)._onMouseMove.fire({ event: { metaKey: true, leftButton: false, detail: 0 },
-          target: { type: monacoEditor.MouseTargetType.CONTENT_TEXT, position: new Position(1, 2), range: new Range(1, 2, 1, 3), detail: {} } });
-        assert(editor.getDomNode()!.classList.contains("lithe-definition-pointer"), "enabled alias missed managed hover");
-        configure(false);
-        assert(!editor.getDomNode()!.classList.contains("lithe-definition-pointer"), "disabled alias retained its pointer");
+        await window.lithe.activate({ id, text, revision: 0, filename: "Probe.java", readonly: false });
+        await window.lithe.attachSurface("default-split", container, { id });
+        assert(monacoEditor.getEditors().every(view => !!view.getAction("lithe.goToDefinition")), "new split missed default navigation");
+        window.lithe.detachSurface("default-split");
+        await window.lithe.retain([]);
+        assert(blurListeners.size === 0, "closed views retained window listeners");
+        assert(JSON.stringify(listenerCounts()) === baseline, "document navigation listeners accumulated");
+        assert(monacoEditor.getModels().length === models && monacoEditor.getEditors().length === editors, "closed views retained models/editors");
       }
     } finally {
-      window.lithe.configure({ definitionNavigationPolicy: { java: true }, dark: false, fontFamily: "monospace", fontSize: 13, wrap: false });
-      await window.lithe.retain([]);
-    }
-  });
-  await check("documents sharing a tokenizer retain independent navigation policies", async () => {
-    const container = document.createElement("div");
-    container.style.cssText = "position:absolute;left:50%;top:0;width:50%;height:100%";
-    document.body.append(container);
-    const text = "value=target";
-    window.lithe.configure({ definitionNavigationPolicy: { properties: false, ini: true },
-      dark: false, fontFamily: "monospace", fontSize: 13, wrap: false });
-    try {
-      for (const id of ["alias-main", "alias-split"]) await send({ type: "open", id, text });
-      await window.lithe.activate({ id: "alias-main", text, language: "properties", revision: 0, filename: "test.properties", readonly: false });
-      await window.lithe.attachSurface("alias-split", container, { id: "alias-split", text, language: "ini", revision: 0, filename: "test.ini", readonly: false });
-      const split = monacoEditor.getEditors().find(view => view !== editor)!;
-      assert(editor.getModel()!.getLanguageId() === "ini" && split.getModel()!.getLanguageId() === "ini", "fixture must share a tokenizer");
-      assert(!editor.getAction("lithe.goToDefinition") && !!split.getAction("lithe.goToDefinition"), "shared tokenizer mixed document policies");
-      await window.lithe.activate({ id: "alias-main", revision: 0 });
-      assert(!editor.getAction("lithe.goToDefinition"), "an update without language lost the plugin identity");
-      await window.lithe.activate({ id: "alias-main", language: "ini", revision: 0 });
-      assert(!!editor.getAction("lithe.goToDefinition"), "same-tokenizer identity change did not enable navigation");
-      await window.lithe.activate({ id: "alias-main", language: "properties", revision: 0 });
-      assert(!editor.getAction("lithe.goToDefinition"), "same-tokenizer identity change retained navigation");
-    } finally {
-      window.lithe.detachSurface("alias-split"); container.remove();
-      window.lithe.configure({ definitionNavigationPolicy: { java: true }, dark: false, fontFamily: "monospace", fontSize: 13, wrap: false });
-      await window.lithe.retain([]);
+      window.lithe.detachSurface("default-split"); await window.lithe.retain([]); container.remove();
+      window.addEventListener = originalAdd; window.removeEventListener = originalRemove;
     }
   });
   await check("Command pointer stays stable during slow definition lookup and repaint", async () => {

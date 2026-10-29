@@ -39,7 +39,7 @@
         "packageTrust": { "description": "Required exactly when vendor.bundledSignatureRequirement is present.", "enum": [1] },
         "projectGenerators": { "description": "Entries of the New Project window: fields, requirements, and steps.", "enum": [1] },
         "serverProcess": { "description": "The launch fields of language servers, of build providers that start their own process, of VCS providers, of debug adapters, and of the plugin backend. Version 2 adds runSelectedRuntime and is required exactly when a debug adapter uses it (pluginAPIVersion 4).", "enum": [1, 2] },
-        "settings": { "enum": [1, 2, 3] },
+        "settings": { "enum": [1] },
         "ui": { "description": "Version 2 adds web content; version 3 adds native controls.", "enum": [1, 2, 3] },
         "vcsProviders": { "description": "Required exactly when vcsProviders is non-empty. The provider protocol itself is negotiated in initialize (shared/contracts/vcs-provider-v1.md).", "enum": [1] }
       }
@@ -1005,14 +1005,6 @@
         "title": { "type": "string", "minLength": 1, "maxLength": 120 },
         "description": { "type": "string", "maxLength": 480 },
         "default": { "type": ["integer", "string", "boolean"] },
-        "scope": { "enum": ["global", "project"] },
-        "effect": { "enum": ["restart", "immediate", "reload", "nextRun", "editorNavigation"] },
-        "page": {
-          "type": "object", "additionalProperties": false,
-          "properties": { "languageID": { "type": "string" }, "buildSystemID": { "type": "string" } },
-          "oneOf": [{ "required": ["languageID"] }, { "required": ["buildSystemID"] }]
-        },
-        "section": { "type": "string", "minLength": 1, "maxLength": 120 },
         "minimum": { "type": "integer" },
         "maximum": { "type": "integer" },
         "unit": { "type": "string", "minLength": 1, "maxLength": 120 },

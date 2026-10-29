@@ -75,26 +75,38 @@ final class LanguageNavigationCoordinator: ObservableObject {
             return
         }
         let operationID = begin(providerID: providerID, kind: state.kind)
-        do {
-            try sessions.resolveVirtualDocument(providerID: providerID, uri: location.url) { [weak self] result in
+        Task { @MainActor [weak self] in
+            // A local sources jar answers without the JDT LS decompile round trip.
+            if let text = await JavaSourceJarResolver.sourceText(for: location.url) {
                 guard let self, self.owns(operationID) else { return }
                 self.state = .idle
-                switch result {
-                case .success(let text):
-                    if recordsHistory { recordHistory(location) }
-                    openVirtualDocument(location.url, text, location.displayPath)
-                    setTarget(location)
-                case .failure(let error):
-                    onFailure?()
-                    self.notify(error.localizedDescription)
+                if recordsHistory { recordHistory(location) }
+                openVirtualDocument(location.url, text, location.displayPath)
+                setTarget(location)
+                return
+            }
+            guard let self, self.owns(operationID) else { return }
+            do {
+                try sessions.resolveVirtualDocument(providerID: providerID, uri: location.url) { [weak self] result in
+                    guard let self, self.owns(operationID) else { return }
+                    self.state = .idle
+                    switch result {
+                    case .success(let text):
+                        if recordsHistory { recordHistory(location) }
+                        openVirtualDocument(location.url, text, location.displayPath)
+                        setTarget(location)
+                    case .failure(let error):
+                        onFailure?()
+                        self.notify(error.localizedDescription)
+                    }
                 }
+            } catch {
+                if self.owns(operationID) {
+                    self.state = .idle
+                }
+                onFailure?()
+                self.notify(error.localizedDescription)
             }
-        } catch {
-            if owns(operationID) {
-                state = .idle
-            }
-            onFailure?()
-            notify(error.localizedDescription)
         }
     }
 

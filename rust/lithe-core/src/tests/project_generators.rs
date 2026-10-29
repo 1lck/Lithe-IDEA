@@ -56,10 +56,8 @@ fn official_package_path() -> PathBuf {
     repository_path("Plugins/mac/Official/JavaSupport")
 }
 
-// These tests load the macOS Java package, so model its host capabilities.
-// This does not advertise settings v3 support in the Windows product.
 fn host() -> Value {
-    json!({"languages": [1], "languageServers": [1, 2], "serverProcess": [1], "settings": [1, 2, 3],
+    json!({"languages": [1], "languageServers": [1, 2], "serverProcess": [1], "settings": [1, 2],
            "buildSystems": [1], "projectGenerators": [1], "packageTrust": [1]})
 }
 
@@ -138,30 +136,6 @@ fn catalog_skips_plugins_the_host_cannot_run() {
     assert_eq!(
         result["catalog"]["issues"][0]["error"]["code"],
         "plugin.api.unsupported"
-    );
-}
-
-#[test]
-fn catalog_rejects_java_provider_when_host_lacks_navigation_settings_capability() {
-    let mut legacy_host = host();
-    legacy_host["settings"] = json!([1, 2]);
-    let result = project_generator_catalog_command(json!({
-        "plugins": [
-            {"manifest": json(FIXTURE), "enabled": true},
-            {"manifest": java_language_only(), "enabled": true}
-        ],
-        "hostCapabilities": legacy_host,
-    }))
-    .unwrap();
-    assert_eq!(result["status"], "ok");
-    assert_eq!(result["catalog"]["issues"].as_array().unwrap().len(), 1);
-    assert_eq!(
-        result["catalog"]["issues"][0]["error"]["code"],
-        "plugin.api.unsupported"
-    );
-    assert_eq!(
-        result["catalog"]["generators"][0]["requirements"][0]["providers"],
-        json!([])
     );
 }
 

@@ -14,9 +14,7 @@
       "macos/Sources/Lithe/Views/App/PluginSettingsSection.swift",
       "macos/Tests/LitheTests/PluginSettingsTests.swift",
       "Plugins/mac/Official/JavaSupport/plugin.json",
-      "shared/contracts/plugins/v1/fixtures/node-runtime.plugin.json",
-      "macos/Sources/Lithe/Application/Features/PluginSettingsRegistry.swift",
-      "shared/contracts/plugins/v1/fixtures/editor-navigation.plugin.json"
+      "shared/contracts/plugins/v1/fixtures/node-runtime.plugin.json"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -35,5 +33,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Plugin Platform",
-  "verification": "macOS：打开设置 › 插件，选中 Java Support，切到“设置”页签，确认显示“最大内存”（默认 1024 MB）和“语言服务器日志级别”（默认全部消息）。把最大内存改成 3072：输入 3072 后点“重启语言服务器”，用 ps 查看 JDT LS 的 java 进程参数，确认 -Xmx3072m 且只出现一次；输入 100 时出现范围提示且没有保存，失焦后回到上一个合法值。把日志级别改成“仅错误”并重启，确认进程参数里是 -Dlog.level=SEVERE。点“恢复默认值”后重启，确认回到 -Xmx1024m 和 -Dlog.level=ALL。退出并重新打开 Lithe，确认修改过的值仍在。卸载并恢复 Java Support，值仍在。Windows：契约设置页与双层存储已接入，须完成下述实机验证。 Windows：启动契约语言服务器，修改 immediate 设置，确认 lsp.startServer 和即时更新都带独立 pluginId，已启动会话收到 workspace/didChangeConfiguration；禁用后旧会话不能继续接收。设置双层持久化和界面验收仍 pending。 macOS：Java Support 插件设置中的类和方法跳转默认关闭；启用后 Command 悬停/点击和定义命令可用，关闭及禁用插件后释放专属交互并拒绝旧回复，现有标签和分屏不关闭。插件详情及 Java 设置页共用插件值，不保留编辑器全局开关。settings 3 未在 Windows 声明，旧宿主须拒绝此能力要求。"
+  "verification": "macOS：打开设置 › 插件，选中 Java Support，切到“设置”页签，确认显示“最大内存”（默认 1024 MB）和“语言服务器日志级别”（默认全部消息）。把最大内存改成 3072：输入 3072 后点“重启语言服务器”，用 ps 查看 JDT LS 的 java 进程参数，确认 -Xmx3072m 且只出现一次；输入 100 时出现范围提示且没有保存，失焦后回到上一个合法值。把日志级别改成“仅错误”并重启，确认进程参数里是 -Dlog.level=SEVERE。点“恢复默认值”后重启，确认回到 -Xmx1024m 和 -Dlog.level=ALL。退出并重新打开 Lithe，确认修改过的值仍在。卸载并恢复 Java Support，值仍在。Windows：契约设置页与双层存储已接入，须完成下述实机验证。 Windows：启动契约语言服务器，修改 immediate 设置，确认 lsp.startServer 和即时更新都带独立 pluginId，已启动会话收到 workspace/didChangeConfiguration；禁用后旧会话不能继续接收。设置双层持久化和界面验收仍 pending。"
 }

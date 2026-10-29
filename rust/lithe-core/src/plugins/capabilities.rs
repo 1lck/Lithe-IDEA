@@ -82,7 +82,7 @@ pub const SUPPORTED_CAPABILITIES: &[(&str, &[u32])] = &[
     (PACKAGE_TRUST, &[1]),
     (PROJECT_GENERATORS, &[1]),
     (SERVER_PROCESS, &[1, 2]),
-    (SETTINGS, &[1, 2, 3]),
+    (SETTINGS, &[1, 2]),
     (UI, &[1, 2, 3]),
     (VCS_PROVIDERS, &[1]),
 ];

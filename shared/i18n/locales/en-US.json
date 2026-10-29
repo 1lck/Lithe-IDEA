@@ -6039,6 +6039,7 @@
     "native.showLocalHistory": "Show Local History…",
     "native.showLongGraphEdges": "Show long graph edges",
     "native.showMinimap": "Show minimap",
+    "native.javaKeywordNavigationFilter": "Skip definition lookups for Java keywords",
     "native.showOrHideGitHistory": "Show or hide Git history",
     "native.showOrHideJavaDiagnostics": "Show or hide Java diagnostics",
     "native.showOrHideLanguageDiagnostics": "Show or hide language diagnostics",
@@ -9486,8 +9487,7 @@
     "remote.pluginUnapproved": "The remote plugin package is not part of the approved installation.",
     "remote.pluginHostUnsupported": "This host cannot receive a compatible plugin package. Update the remote server.",
     "remote.pluginApprovalRequired": "The remote plugin package changes approved commands or permissions. Install and approve that version first.",
-    "remote.pluginPlatformUnavailable": "Plugin {plugin} has no approved package for {platform}. Install a compatible plugin version.",
-    "native.enableClassAndMethodNavigation": "Enable class and method navigation (Command-click / F12)"
+    "remote.pluginPlatformUnavailable": "Plugin {plugin} has no approved package for {platform}. Install a compatible plugin version."
   },
   "overrides": {
     "windows": {

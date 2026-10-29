@@ -153,7 +153,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     private var featureObservationBinder: AppModelObservationBinder?
     private var fileVisibilityRulesObserverID: UUID?
     private var searchExclusionsObservation: AnyCancellable?
-    @Published var definitionNavigationPolicy: [String: Bool] = [:]
     private var livePluginObservation: AnyCancellable?
     private var requestProjectOpen: ((URL) -> Void)?
     private var requestProjectOpenAtPlacement: ((URL, ProjectOpenPlacement) -> Void)?
@@ -587,7 +586,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         // a debugger installed now is offered now.
         livePluginObservation = services.pluginRegistrationChanges?.sink { [weak self] in
             self?.languageToolingFeature.refreshCatalog()
-            self?.refreshPluginEditorNavigation()
         }
         suggestDatabasePluginIfNeeded()
         detectedAIConfigurations = loadAIConfigurations()
@@ -631,11 +629,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         )
         configureMediaViewerRegistry()
         shortcutSessionCoordinator?.setActive(true)
-        refreshPluginEditorNavigation()
         settingsChangeObservations = [
-            services.pluginManager.changes.sink { [weak self] in
-                self?.refreshPluginEditorNavigation()
-            },
             objectWillChange.sink { [weak self] _ in
                 guard let self, !self.isRelayingWorkbenchOnlyChange else { return }
                 self.settingsChanges.send()

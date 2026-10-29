@@ -61,21 +61,6 @@ struct ContributedSettingsPage: Identifiable, Equatable, Sendable {
 }
 
 enum PluginSettingsRegistry {
-    /// An absent entry preserves existing navigation. Only explicit plugin
-    /// declarations opt a language into the managed navigation lifecycle.
-    static func definitionNavigationPolicy(in snapshots: [PluginManagementSnapshot]) -> [String: Bool] {
-        var policy: [String: Bool] = [:]
-        for snapshot in snapshots {
-            let usable = snapshot.isEnabled && !snapshot.isQuarantined && !snapshot.isSuppressedBySafeMode
-                && !snapshot.requiresRestart && snapshot.installationStatus == .installed
-            for setting in snapshot.settings where setting.declaration.effect == .editorNavigation {
-                guard case .language(let language) = setting.declaration.page else { continue }
-                policy[language] = policy[language] == true || (usable && setting.value == .bool(true))
-            }
-        }
-        return policy
-    }
-
     /// The pages enabled plugins register, ordered by group and title. A
     /// language page appears for every language an enabled plugin serves
     /// with a language server, so its status has a home even before the
