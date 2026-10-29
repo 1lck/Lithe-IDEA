@@ -55,7 +55,7 @@ Monaco 0.55.1 的新编辑使用递增 `versionId`，undo/redo 恢复 `alternati
 新编辑发生在 undo 之后时，Monaco 删除 redo 分支，共享镜像同时释放该分支的 root。
 不使用固定 Map 长度限制，仍保留可达的旧 undo 和 grouped undo；外部替换遵守同一分支规则。
 纯逻辑回归加入两端 CI；真实 Monaco 测试覆盖 grouped undo、分支和 redo。
-`scripts/soak-editor-source.ts` 是固定 100 轮的诊断入口，比较连续输入、128 KiB 大块替换后 undo/分支、外部替换。
+`scripts/editor/soak-editor-source.ts` 是固定 100 轮的诊断入口，比较连续输入、128 KiB 大块替换后 undo/分支、外部替换。
 Bun 1.3.12 下样本的废弃分支保留堆增量由约 32.4 MB 降至 2.5 MB，外部替换由 36.0 MB 降至 1.3 MB；
 这些是显式 GC 后的 JS 堆样本，不是 WKWebView/WebView2 的内存或 CPU 验收，也不设置依赖机器的 CI 阈值。
 仍可撤销的线性历史保留 roots；长期线性编辑及 Monaco 自身撤销栈淘汰后的回收需继续实机测量，
@@ -169,7 +169,7 @@ drain 期间改名、改回或开始保存时，旧磁盘快照不得替换当�
 文档、再触发真实 Monaco 主视图与分屏的焦点／光标事件，最后验证其他文档仍可
 编辑并完成同步；关闭文档的编辑和保存请求另验证拒绝。此回归在旧策略下复现
 `Document closed` 红条，在取消策略下通过；运行入口仍为
-`scripts/probe-macos-monaco.sh --workbench-tests`。没有新增运行时资源或 bundle 写入。
+`scripts/macos/probe/probe-macos-monaco.sh --workbench-tests`。没有新增运行时资源或 bundle 写入。
 
 ### 关闭模型后的过期符号高亮
 
@@ -192,7 +192,7 @@ PR #1046 的 arm64 探针在分屏清理之后报告空模型的 URI 访问。�
 三个真实回归，上游自身拒绝过期模型后删除钩子。不要关闭整个符号高亮功能，
 也不要忽略所有 TypeError 或解除同步失败保护来使 CI 通过。
 
-macOS 的 `scripts/probe-macos-monaco.sh --workbench-tests` 覆盖主视图、分屏和 diff
+macOS 的 `scripts/macos/probe/probe-macos-monaco.sh --workbench-tests` 覆盖主视图、分屏和 diff
 释放后的回调，仍验证存活文档可编辑、文本不变；每个高亮等待最多两秒，窗口和
 模型均清理。共享逻辑被 Windows 复用，但 macOS 原生探针不能代替 WebView2 实机
 验收，功能矩阵保持 pending。
@@ -791,32 +791,32 @@ UTF-16 编辑、保存屏障、Worker 和迟到语义结果；Swift 串行回归
 仍必须以 Release
 工作台和真实项目采样作为性能依据；不能凭独立宿主通过就宣布卡顿彻底解决。
 
-- `./scripts/probe-macos-monaco.sh`：需要 Bun、Node
+- `./scripts/macos/probe/probe-macos-monaco.sh`：需要 Bun、Node
   和 Swift，脚本安装共享编辑器锁定依赖；可通过 `LITHE_MONACO_PACKAGE_DIR` 指定已有包位置。原生宿主以 `-O`
   构建，记录实际工具链版本。附加 `--manual` 可手工体验，也可再传入文件路径。
-  锁屏时可运行 `./scripts/probe-macos-monaco.sh --logic-only`，但不能据此判断流畅度。
-- `./scripts/probe-macos-monaco.sh --workbench-tests`：在真实 WebKit 中运行工作台
+  锁屏时可运行 `./scripts/macos/probe/probe-macos-monaco.sh --logic-only`，但不能据此判断流畅度。
+- `./scripts/macos/probe/probe-macos-monaco.sh --workbench-tests`：在真实 WebKit 中运行工作台
   同一份实现，验证 CRLF/UTF-16 编辑、保存屏障、跨标签页撤销、诊断、模型释放
   和过期外部更新，并覆盖后台多行状态、主题变化、语义缓存与迟到结果。
   语言响应使用受控夹具，不代表真实 JDTLS 功能验证。
-- `./scripts/build-editor.sh`：构建正式 macOS 资源到 `.artifacts/editor/macos`；
+- `./scripts/editor/build-editor.sh`：构建正式 macOS 资源到 `.artifacts/editor/macos`；
   JS、CSS、Worker、WASM 与许可证随正式包一起分发。
-- `./scripts/package-macos-monaco.sh`：调用正式 Release 打包流程，由该流程构建并打包 Web
+- `./scripts/editor/package-macos-monaco.sh`：调用正式 Release 打包流程，由该流程构建并打包 Web
   资源和签名，产物路径写入 `.artifacts/monaco-workbench/app-path.txt`。
 - 以 `LITHE_PERFORMANCE_BASELINE=1` 启动实验包，记录 `monaco.webview.load`、
   `monaco.document.activate` 与 `LITHE_MONACO_OPEN`。后者区分模型建立、挂载、
   首次动画帧和 1.5 秒内的帧间隔；首个动画帧不是精确屏幕呈现时间。隐藏/锁屏时
   动画帧可能不执行，观测仍有界结束，不阻塞激活；必须检查 `hidden` 和帧数。
-- `./scripts/test-macos.sh` 与 Swift 测试计时框架验证文档同步范围和关闭时最后一批
+- `./scripts/macos/test/test-macos.sh` 与 Swift 测试计时框架验证文档同步范围和关闭时最后一批
   输入的行为；测试使用明确释放的回调，不依靠 sleep 同步。
 - 场景覆盖 Unicode 增量、撤销重做、保存屏障、旧版本与非法范围拒绝、真实
   Worker 镜像、1k/10k/50k 行 Java、折行、大量诊断与装饰、保留模型和撤销历史。
 - 实验是独立原生集成程序，不属于产品 Swift Testing 测试目标；每场景输出
   时间，复用现有报告生成器生成 HTML 和 JUnit。失败或中断不得沿用旧通过结果。
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
-- `./scripts/verify-service-boundaries.sh`
-- `./scripts/verify-windows-boundaries.sh`
-- `./scripts/verify-agent-notes.sh`
+- `./scripts/architecture/verify-service-boundaries.sh`
+- `./scripts/windows/verify/verify-windows-boundaries.sh`
+- `./scripts/agent-notes/verify-agent-notes.sh`
 - `git diff --check`
 
 ## 适用范围
@@ -824,8 +824,8 @@ UTF-16 编辑、保存屏障、Worker 和迟到语义结果；Swift 串行回归
 - `frontend/editor/`
 - `macos/EditorFrontend/`
 - `macos/Experiments/Monaco/`
-- `scripts/probe-macos-monaco.sh`
-- `scripts/package-macos-monaco.sh`
+- `scripts/macos/probe/probe-macos-monaco.sh`
+- `scripts/editor/package-macos-monaco.sh`
 - `macos/Sources/Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift`
 - `macos/Sources/Lithe/Models/Editor/EditorDocument.swift`
 - `macos/Sources/Lithe/Application/Features/DocumentFeatureModel.swift`
@@ -849,8 +849,8 @@ popup chrome，不复制另一套主题。普通说明维持 500ms 和 Monaco �
 ### 实现选择器的原生弹窗生命周期（macOS）
 
 `LanguageImplementationChooserView` 原先直接叠在 EditorAreaView 上，既没有原生弹窗的外部点击/Esc
-关闭机制，也没有完整焦点归属。现在通过 `litheDropdown` 的持久锚点呈现，关闭 binding 统一调用
-`closeLanguageNavigationResults()`，同时重置导航 operation，迟到结果不能恢复已取消列表。
+关闭机制，也没有完整焦点归属。现在通过 `litheDropdown` 的持久锚点呈现，关闭 binding 调用 `dismissImplementationChooser()`，仅在选择器仍显示（用户取消）时转交
+`closeLanguageNavigationResults()` 重置 operation；选中目标已先隐藏列表，随后到达的关闭回调不能取消正在加载的虚拟源码。插件关闭、切换工作区等强制清理仍无条件重置 operation，迟到结果不能恢复已取消列表。
 选中目标后关闭，切换编辑标签同样关闭；键盘上下选择、Return 确认走已有 dropdown 键盘入口，
 搜索输入法组合期间不截获确认键。共享 presenter 负责外部点击、Esc、失焦、屏幕边界和监听清理。
 外框由共享 `litheContextMenuSurface` 唯一绘制；搜索框与结果行分别使用 `LitheSearchField` 和
@@ -901,3 +901,9 @@ editorNavigation 声明将设置、默认值及语言归属一起交给插件。
 
 验证：真实 WebKit 测试控制慢请求返回顺序，覆盖关闭、重开、旧回复、重复开关无重复点击和现存/新建分屏；
 PluginSettingsTests 验证插件声明、默认关闭、持久化、跨项目通知、禁用撤销、关闭面板和旧操作失效，以及项目模型/插件管理器不被通知订阅保留。未声明开关的其他语言保留既有点击与 F12，不增加悬停查询；WebKit 覆盖 XML 属性、配置文件、其他语言，以及 100 轮开关后监听归零和模型数量稳定。
+
+
+导航策略使用每份文档的插件语言 ID，而非 Monaco 的语法 ID：`bash` 对应 `shell`、`properties` 对应 `ini`，
+不同插件语言也可共用同一种语法。模型保留插件身份；省略语言的同文档更新保持该身份，显式改变身份时即使
+语法不变也释放旧手势并使在途语义结果过期。真实 WebKit 回归覆盖别名的开关及悬停、共用语法的主视图/分屏独立策略、
+同模型身份切换。Swift 受控回复回归覆盖选择实现 → 关闭回调 → 延迟虚拟源码到达，以及加载期间关闭功能、用户取消。

@@ -35,7 +35,7 @@ Mac mini Runner，因为离线时没有回退、fork 代码跑在长期存活的
 
 同一个 PR 的后续 push 按 lane 复用之前的结果。观察到的问题是：作者补一个很小的
 提交，或者为了同步 `preview` 更新分支，所有 lane 都会重新完整运行，而结果大概率
-不变。`scripts/plan-ci-lane-reuse.mjs` 在 macOS CI、插件 CI 和 Windows CI 的分类 job
+不变。`scripts/ci/common/plan-ci-lane-reuse.mjs` 在 macOS CI、插件 CI 和 Windows CI 的分类 job
 中逐个 lane 判断：找到这个 PR 之前真正执行过该 lane 的最近一次运行，job 已通过或
 已经在 GitHub 托管 Runner 上排队或运行，并且 PR 自己在此之后的改动（按现有分类规则）不影响这个 lane，就复用
 那次结果。只看 PR 自己的改动：用“每个文件的 PR 版本”比较两个修订，从 base 同步
@@ -53,7 +53,9 @@ Mac mini Runner，因为离线时没有回退、fork 代码跑在长期存活的
   关系在规划时从 base 和 head 两个修订读取，不手写清单，新增 action 不用改规则。
   release、取消旧运行等不被引用的 workflow 改动不让任何 PR lane 重跑。
 - `windows/` 下的 Cargo 清单与锁文件、Rust 工具链和前端 `package.json`、
-  `scripts/*windows*`、`test-stability-windows.ps1` 只影响 Windows CI。Windows 产品通过
+  `scripts/` 下文件名含 `windows` 的 `.ps1`/`.mjs`/`.ts` 脚本（按用途分目录后可在
+  `scripts/windows/`、`scripts/release/windows/` 等多个目录）、`test-stability-windows.ps1`
+  只影响 Windows CI。Windows 产品通过
   path 依赖链接 Rust Core，所以 `rust/` 下的 Cargo 改动仍影响全部 workflow。
 - `Package.swift`/`Package.resolved`/`.swift-version`、`test-macos.sh`、Rust Core 构建与
   验证脚本、`test-stability-macos.sh` 同时影响 macOS CI 和插件 CI，因为插件 workflow
@@ -123,12 +125,12 @@ macOS 27 上 `CGWindowListCopyWindowInfo` 整体返回 NULL 的排查，产品�
 已弃用的接口；苹果提供可读取透明度的替代接口后，应恢复完整检查。
 
 Swift 测试 job 同时承担 Rust Core 的 Swift 链接验证：
-`scripts/verify-rust-core-swift-bridge.sh --skip-build` 复用该 job 已编译的
+`scripts/rust-core/verify-rust-core-swift-bridge.sh --skip-build` 复用该 job 已编译的
 测试产物，检查 C ABI、链接符号、Git execution 集成和桥接测试；Rust Core
-job 只运行 `scripts/verify-rust-core-crates.sh` 的纯 Rust 检查。此前两个 job
+job 只运行 `scripts/rust-core/verify-rust-core-crates.sh` 的纯 Rust 检查。此前两个 job
 各自完整编译一次 Swift，同一个 PR 同时改 Swift 和 Rust 时会重复占用一个
 macOS 槽位约十分钟。只改 Rust 时 Swift 测试 job 仍会启动，但只编译并运行
-桥接验证，不跑完整单元测试。本地 `scripts/verify-rust-core.sh` 依次运行两半，
+桥接验证，不跑完整单元测试。本地 `scripts/rust-core/verify-rust-core.sh` 依次运行两半，
 入口不变。
 
 纯 Rust 通道的 Agent Host（Agent 进程和协议宿主）使用计时 runner 默认的
@@ -148,7 +150,7 @@ Agent Host 及 ACP/MCP 协议依赖时，触发了原先的两分钟总限额，
 没有提高测试执行预算，也不把源任务失败或未生成测试报告当成通过。代价是异常
 冷编译最多占用更久的 runner；不能用整个 job 的超时替代单测试的有界等待。
 
-Swift 测试通道使用同样的分离方式。运行 `39943871840` 中，`scripts/test-macos.sh list`
+Swift 测试通道使用同样的分离方式。运行 `39943871840` 中，`scripts/macos/test/test-macos.sh list`
 在 20 分钟上限到期时仍停在 1406/1456 个编译任务；被复用的失败任务又使 macOS 门禁
 失败。`swift-tests` 的编译步骤现为 40 分钟、整个 job 80 分钟，与插件通道一致；
 单元、插件和数据库测试仍使用 960 秒执行预算和 17 分钟外层步骤。构建失败时跳过合并
@@ -196,7 +198,7 @@ macOS runner（GitHub 托管的 Mac 构建机）按组织共享，Free 计划同
 但会拖慢所有 PR 的反馈。因此：
 
 - 主 Swift 测试和 Rust Core 桥接检查共用 macOS CI 的 **Swift tests** job，只执行
-  一次 `./scripts/test-macos.sh list` 编译，再按分类结果运行各自的过滤测试。
+  一次 `./scripts/macos/test/test-macos.sh list` 编译，再按分类结果运行各自的过滤测试。
   过去独立的数据库 job 单独编译约 10 分钟，只为运行十几秒测试；数据库改为插件
   后，这条 lane 和 Database CI 已一起删除。
 - 远程工作区的三个 crate（`lithe-remote-*`）走独立的 Remote Workspace CI，只在
@@ -230,7 +232,7 @@ macOS runner（GitHub 托管的 Mac 构建机）按组织共享，Free 计划同
 
 正确做法：新增 Swift 专项测试时，在共用 **Swift tests** job 里加一个按分类
 结果执行的过滤步骤。不要这样做：新建一个 macOS job 再跑一遍
-`./scripts/test-macos.sh list`，这会让每次推送多占一个 macOS runner 约
+`./scripts/macos/test/test-macos.sh list`，这会让每次推送多占一个 macOS runner 约
 10 分钟。
 
 Git 性能基线和 Git 状态观察属于专项验证。只有 Git 生产代码、对应专项测试或
@@ -419,21 +421,21 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 ## 验证
 
 - `actionlint .github/workflows/ci-macos.yml .github/workflows/ci-windows.yml .github/workflows/ci-plugins.yml .github/workflows/ci-remote.yml`
-- `./scripts/test-classify-ci-changes.sh`：包含 Draft PR 关闭 runner lane、保留 Linux lane，以及 macOS Java 不触发 real-JDT、共享引擎和 Windows Java 仍触发的正反例。
-- `node --test scripts/ci-workflow-gates.test.mjs scripts/plan-ci-lane-reuse.test.mjs scripts/verify-reused-ci-jobs.test.mjs`：从实际工作流执行 gate shell，验证取消条件、分类/测试失败、lane 覆盖及复用来源的失败传播。
-- `node --test scripts/cancel-closed-pr-runs.test.mjs`：用离线 GitHub CLI 替身执行关闭清理，验证分页历史运行、来源隔离、关闭时间、取消竞争和 API 失败传播。
-- `./scripts/test-classify-ci-changes.sh` 覆盖 `save-macos-cargo-build-cache` 改动触发全部 macOS lane。
+- `./scripts/ci/common/test-classify-ci-changes.sh`：包含 Draft PR 关闭 runner lane、保留 Linux lane，以及 macOS Java 不触发 real-JDT、共享引擎和 Windows Java 仍触发的正反例。
+- `node --test scripts/ci/common/ci-workflow-gates.test.mjs scripts/ci/common/plan-ci-lane-reuse.test.mjs scripts/ci/common/verify-reused-ci-jobs.test.mjs`：从实际工作流执行 gate shell，验证取消条件、分类/测试失败、lane 覆盖及复用来源的失败传播。
+- `node --test scripts/ci/cancel-closed-pr-runs/cancel-closed-pr-runs.test.mjs`：用离线 GitHub CLI 替身执行关闭清理，验证分页历史运行、来源隔离、关闭时间、取消竞争和 API 失败传播。
+- `./scripts/ci/common/test-classify-ci-changes.sh` 覆盖 `save-macos-cargo-build-cache` 改动触发全部 macOS lane。
 - `actionlint .github/workflows/ci-macos.yml .github/workflows/release-preview-macos.yml`
-- `./scripts/test-macos.sh`
-- `./scripts/test-git-performance-baseline.sh`
-- `./scripts/build-macos.sh --configuration debug --triple arm64-apple-macosx`
-- `node --test scripts/build-macos.test.mjs scripts/test-reuse-worktree-resources.mjs`：离线工具替身验证 scratch 清理与编译参数一致、按架构失效、旧策略迁移、失败不误记成功、继续编译、默认布局和资源复用拒绝。
-- `./scripts/build-macos.sh --configuration debug --triple x86_64-apple-macosx`
-- `./scripts/build-official-plugins.sh --configuration debug --triple arm64-apple-macosx`
-- `./scripts/build-official-plugins.sh --configuration debug --triple x86_64-apple-macosx`
-- `./scripts/verify-rust-core.sh`
-- `./scripts/verify-windows-boundaries.sh`
-- `node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --working-directory . --max-ms 30000 --report .artifacts/test-stability/windows-dependency-install.json -- scripts/windows-frontend-install.test.ts`：Windows 无网络夹具用 IPC 确认子进程占用目录，再让安装失败，验证清理后冷重试成功、永久失败仍报错、成功退出也不留子进程、超时触发本地期限，且不清除有效缓存。
+- `./scripts/macos/test/test-macos.sh`
+- `./scripts/macos/perf/test-git-performance-baseline.sh`
+- `./scripts/macos/build/build-macos.sh --configuration debug --triple arm64-apple-macosx`
+- `node --test scripts/macos/build/build-macos.test.mjs scripts/resources/test-reuse-worktree-resources.mjs`：离线工具替身验证 scratch 清理与编译参数一致、按架构失效、旧策略迁移、失败不误记成功、继续编译、默认布局和资源复用拒绝。
+- `./scripts/macos/build/build-macos.sh --configuration debug --triple x86_64-apple-macosx`
+- `./scripts/plugins/build-official-plugins.sh --configuration debug --triple arm64-apple-macosx`
+- `./scripts/plugins/build-official-plugins.sh --configuration debug --triple x86_64-apple-macosx`
+- `./scripts/rust-core/verify-rust-core.sh`
+- `./scripts/windows/verify/verify-windows-boundaries.sh`
+- `node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --working-directory . --max-ms 30000 --report .artifacts/test-stability/windows-dependency-install.json -- scripts/windows/build/windows-frontend-install.test.ts`：Windows 无网络夹具用 IPC 确认子进程占用目录，再让安装失败，验证清理后冷重试成功、永久失败仍报错、成功退出也不留子进程、超时触发本地期限，且不清除有效缓存。
 - `gh run download <run-id> --repo 1lck/Lithe-IDEA --pattern 'Lithe-macos-*'`
 - `gh workflow run release-preview-windows.yml -f source_branch=<branch>`
 
@@ -447,19 +449,19 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 - `.github/workflows/ci-windows.yml`
 - `.github/workflows/ci-remote.yml`
 - `.github/workflows/ci-plugins.yml`
-- `scripts/classify-ci-changes.sh`
-- `scripts/install-windows-frontend-dependencies.ps1`
-- `scripts/invoke-windows-bun-install.ps1`
-- `scripts/windows-frontend-install.test.ts`
-- `scripts/test-classify-ci-changes.sh`
-- `scripts/build-macos.sh`
-- `scripts/build-macos.test.mjs`
-- `scripts/worktree-resources.json`
-- `scripts/reuse-worktree-resources.mjs`
-- `scripts/test-reuse-worktree-resources.mjs`
-- `scripts/build-official-plugins.sh`
-- `scripts/verify-rust-core.sh`
-- `scripts/MacOS13SDKCompatibility.h`
+- `scripts/ci/common/classify-ci-changes.sh`
+- `scripts/windows/build/install-windows-frontend-dependencies.ps1`
+- `scripts/windows/build/invoke-windows-bun-install.ps1`
+- `scripts/windows/build/windows-frontend-install.test.ts`
+- `scripts/ci/common/test-classify-ci-changes.sh`
+- `scripts/macos/build/build-macos.sh`
+- `scripts/macos/build/build-macos.test.mjs`
+- `scripts/resources/worktree-resources.json`
+- `scripts/resources/reuse-worktree-resources.mjs`
+- `scripts/resources/test-reuse-worktree-resources.mjs`
+- `scripts/plugins/build-official-plugins.sh`
+- `scripts/rust-core/verify-rust-core.sh`
+- `scripts/macos/build/MacOS13SDKCompatibility.h`
 - `rust/`
 - `macos/`
 - `windows/tauri/`

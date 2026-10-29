@@ -156,7 +156,7 @@ struct EditorAreaView: View {
                 Color.clear.frame(width: 1, height: 1)
                     .litheDropdown(isPresented: Binding(
                         get: { model.isImplementationChooserVisible },
-                        set: { if !$0 { model.closeLanguageNavigationResults() } }
+                        set: { if !$0 { model.dismissImplementationChooser() } }
                     ), searchOnTyping: true) {
                         LanguageImplementationChooserView().environmentObject(model)
                     }

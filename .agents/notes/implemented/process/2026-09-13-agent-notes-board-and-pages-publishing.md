@@ -13,15 +13,15 @@
 ## 决策
 
 工程决策看板是由 `.agents/notes/` 编译生成的只读视图，不保存任何独立的决策正文。Node 构建脚本使用与校验器共用的
-[`scripts/agent-notes-parser.mjs`](../../../../scripts/agent-notes-parser.mjs)
+[`scripts/agent-notes/agent-notes-parser.mjs`](../../../../scripts/agent-notes/agent-notes-parser.mjs)
 解析中文 Note 标题、状态、章节和相对 Markdown 引用，生成包含完整正文的单文件 HTML。
 
 看板模板保存在
 [`assets/agent-notes-board.html`](../../../../assets/agent-notes-board.html)，本地开发模式使用浏览器的 File System Access API 读取项目目录并定时重新扫描；静态发布模式把当前 Note 数据内嵌到 HTML，不依赖后端、数据库或运行时服务。
 
-PR 阶段由独立的轻量工作流运行 `./scripts/verify-agent-notes.sh`，只做校验不部署。GitHub Pages 只从 `preview` 分支发布；部署工作流在构建前再次运行
-`./scripts/verify-agent-notes.sh`，校验通过后执行
-`scripts/build-agent-notes-board.mjs --bundle`，将完整看板上传为 Pages artifact。生成的 `index.html` 不提交到仓库，Note 仍是唯一源文件。
+PR 阶段由独立的轻量工作流运行 `./scripts/agent-notes/verify-agent-notes.sh`，只做校验不部署。GitHub Pages 只从 `preview` 分支发布；部署工作流在构建前再次运行
+`./scripts/agent-notes/verify-agent-notes.sh`，校验通过后执行
+`scripts/agent-notes/build-agent-notes-board.mjs --bundle`，将完整看板上传为 Pages artifact。生成的 `index.html` 不提交到仓库，Note 仍是唯一源文件。
 
 ## 考虑过的备选方案
 
@@ -40,16 +40,16 @@ PR 阶段由独立的轻量工作流运行 `./scripts/verify-agent-notes.sh`，�
 
 ## 验证
 
-- `./scripts/verify-agent-notes.sh`
-- `node scripts/build-agent-notes-board.mjs --bundle .agents/notes .artifacts/agent-notes-board/index.html "Lithe 工程决策看板"`
+- `./scripts/agent-notes/verify-agent-notes.sh`
+- `node scripts/agent-notes/build-agent-notes-board.mjs --bundle .agents/notes .artifacts/agent-notes-board/index.html "Lithe 工程决策看板"`
 - `git diff --check`
 
 ## 适用范围
 
 - `assets/agent-notes-board.html`
-- `scripts/agent-notes-parser.mjs`
-- `scripts/build-agent-notes-board.mjs`
-- `scripts/verify-agent-notes.mjs`
+- `scripts/agent-notes/agent-notes-parser.mjs`
+- `scripts/agent-notes/build-agent-notes-board.mjs`
+- `scripts/agent-notes/verify-agent-notes.mjs`
 - `.agents/skills/agent-notes/SKILL.md`
 - `.github/workflows/deploy-agent-notes-board.yml`
 - `.github/workflows/verify-agent-notes.yml`

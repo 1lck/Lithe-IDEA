@@ -21,5 +21,5 @@
   },
   "owner": "Editor",
   "notes": "修正 macOS 原生主题半透明当前行底色作为 Monaco 输入法覆盖层底色时的字形透出。Linux Chromium 的真实 Monaco 组合事件样式回归通过；macOS 原生输入法及删除键实机验证待完成。Windows 不加载此 macOS 样式。",
-  "verification": "运行 scripts/probe-macos-monaco.sh --workbench-tests。在 macOS 使用系统拼音与微信输入法，在含中文和英文的同一行中间输入、删减候选拼音、确认上屏，再按删除键；检查整行无重影、候选与光标正常、撤销恢复文本。覆盖明暗主题、背景图开关和分屏，结束输入后背景恢复。"
+  "verification": "运行 scripts/macos/probe/probe-macos-monaco.sh --workbench-tests。在 macOS 使用系统拼音与微信输入法，在含中文和英文的同一行中间输入、删减候选拼音、确认上屏，再按删除键；检查整行无重影、候选与光标正常、撤销恢复文本。覆盖明暗主题、背景图开关和分屏，结束输入后背景恢复。"
 }

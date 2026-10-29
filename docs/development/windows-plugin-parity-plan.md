@@ -318,15 +318,15 @@ M4 开始就建立唯一构建操作入口，供原生按钮和插件网页共�
 Windows 可执行入口（从仓库根运行，typecheck 在前端目录运行）：
 
 ```powershell
-node scripts/verify-agent-notes.mjs
-node scripts/generate-platform-feature-matrix.mjs --check
-node scripts/verify-platform-feature-matrix-change.mjs <base-sha> <head-sha>
-./scripts/verify-windows-boundaries.ps1
+node scripts/agent-notes/verify-agent-notes.mjs
+node scripts/platform-feature-matrix/generate-platform-feature-matrix.mjs --check
+node scripts/platform-feature-matrix/verify-platform-feature-matrix-change.mjs <base-sha> <head-sha>
+./scripts/windows/verify/verify-windows-boundaries.ps1
 ./.agents/skills/write-stable-tests/scripts/verify-test-stability.ps1
 ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope WindowsRust
 ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend
 ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope SharedRust
-./scripts/build-windows.ps1 -Configuration Release
+./scripts/windows/build/build-windows.ps1 -Configuration Release
 cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml
 ```
 
@@ -337,7 +337,7 @@ bun run typecheck
 
 这些命令是按受影响范围选择的检查集合，不要求每个纯文档 PR 重建所有平台。矩阵 change gate 使用真实 PR base/head SHA；实现期间仍要在提交前按 Skill 检查实际改动范围。Rust 改动另执行相应 manifest 的 `cargo fmt --check`，涉及 Core 时先执行 Core 注释门禁。
 
-macOS/具备 zsh 的正式验证环境按相应 Skill 执行 `scripts/verify-shared-contracts.sh`、`scripts/verify-rust-core.sh`、`scripts/verify-runtime-bundle-immutability.sh` 和相关 Swift 测试/计时 harness。`verify-agent-notes.sh` 只包装 Node 校验，可在 Windows 原样运行其 Node 入口；共享契约脚本包含多项语义检查，不能以“所有 JSON 能解析”冒充全脚本通过。安装资源的静态不可变检查也不能代替真实工作流前后的文件哈希比较。
+macOS/具备 zsh 的正式验证环境按相应 Skill 执行 `scripts/architecture/verify-shared-contracts.sh`、`scripts/rust-core/verify-rust-core.sh`、`scripts/macos/verify/verify-runtime-bundle-immutability.sh` 和相关 Swift 测试/计时 harness。`verify-agent-notes.sh` 只包装 Node 校验，可在 Windows 原样运行其 Node 入口；共享契约脚本包含多项语义检查，不能以“所有 JSON 能解析”冒充全脚本通过。安装资源的静态不可变检查也不能代替真实工作流前后的文件哈希比较。
 
 ### 5.3 资源生命周期
 
@@ -350,7 +350,7 @@ macOS/具备 zsh 的正式验证环境按相应 Skill 执行 `scripts/verify-sha
 | Provider/LSP/UI 状态 | 插件、工作区及窗口语义拥有的平台可写目录 | 关闭会话释放进程/锁；持久数据按所属功能保留/卸载清理，包内不写 |
 | 新建项目 staging | 目标项目旁的本次私有目录 | 成功移动到最终位置，失败/取消删除，绝不覆盖已存在目录 |
 
-新增或调整下载、解压、生成、缓存路径时，同 PR 检查并更新 `scripts/worktree-resources.json`、`reuse-worktree-resources.mjs` 校验路由、对应测试和 `docs/ci-builds.md`。没有可靠身份 stamp 的资源不得注册为可复用；运行时状态不跨工作树共享。不要把临时方案写进发行目录，随后依赖“启动前清理”。
+新增或调整下载、解压、生成、缓存路径时，同 PR 检查并更新 `scripts/resources/worktree-resources.json`、`reuse-worktree-resources.mjs` 校验路由、对应测试和 `docs/ci-builds.md`。没有可靠身份 stamp 的资源不得注册为可复用；运行时状态不跨工作树共享。不要把临时方案写进发行目录，随后依赖“启动前清理”。
 
 ### 5.4 验收证据格式
 

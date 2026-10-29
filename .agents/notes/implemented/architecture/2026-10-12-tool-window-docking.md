@@ -79,11 +79,11 @@ macOS 的工具窗口位置由工作台维护，功能模块继续维护自己�
 ## 验证
 
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
-- `./scripts/test-macos.sh --filter 'ToolWindowDockingTests|WorkbenchFeatureModelTests|WorkbenchMavenLayoutTests'`
-- `./scripts/verify-service-boundaries.sh`
-- `./scripts/verify-runtime-bundle-immutability.sh`
-- `./scripts/verify-platform-feature-matrix.sh`
-- `./scripts/verify-agent-notes.sh`
+- `./scripts/macos/test/test-macos.sh --filter 'ToolWindowDockingTests|WorkbenchFeatureModelTests|WorkbenchMavenLayoutTests'`
+- `./scripts/architecture/verify-service-boundaries.sh`
+- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
+- `./scripts/agent-notes/verify-agent-notes.sh`
 - `ToolWindowDockingTests.transparentProjectStripesOnlyCaptureTheSelectedProjectsClicks` 使用三个透明度不同、原生命中区域重叠的项目入口，验证反复切换后只有选中项目响应；`projectStripeOwnershipIsScopedToItsWindowInsteadOfTheKeyWindow` 验证两个窗口各自的首次点击；`switchingProjectsCancelsToolPressesAndFloatingDragPreviews` 验证按下后切换、无后续鼠标事件时取消预览以及旧释放不提交动作。
 - `LitheSplitPaneCollapseTests.releaseWaitsForCommittedSize` 使用原生按下、拖动、松开事件，故意延迟父布局回传，检查松开后的最终尺寸、回传后继续跟随父布局及内容不重新挂载；`ToolWindowDockingTests.narrowGroupFractionSurvivesCommitAndReload` 检查窄面板比例保存和恢复。
 - 实际工作台检查跨边缘移动、同组排序、双组打开、收起正确窗口、Esc/窗口外取消、窄窗口及重启恢复；模型检查不能替代原生拖放验收。

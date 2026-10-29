@@ -90,10 +90,10 @@ Windows 的既有分栏实现不受此次 macOS 呈现改动影响，完整两�
 
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter EditorTabOrderFeatureModelTests`
-- `./scripts/verify-service-boundaries.sh`
-- `./scripts/verify-runtime-bundle-immutability.sh`
-- `./scripts/verify-platform-feature-matrix.sh`
-- `./scripts/verify-agent-notes.sh`
+- `./scripts/architecture/verify-service-boundaries.sh`
+- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
+- `./scripts/agent-notes/verify-agent-notes.sh`
 - 原生事件检查右侧、底部半区、释放提交、Esc 取消、重排、关闭与焦点；实机预览另检查真实字体资源、代码输入、灰色浮动标签及分隔器调整。
 - `EditorTabOrderFeatureModelTests` 对工作区、目录、分支/引用、历史、保存更改、冲突与行标记入口在深浅主题下挂载原生编辑分组，检查普通标签、切换保留、分屏与共享关闭；`GitModuleTests` 检查独立会话并发加载、关闭一个会话、刷新及迟到结果隔离。组件验证不替代完整产品与 Windows 实机验收。
 

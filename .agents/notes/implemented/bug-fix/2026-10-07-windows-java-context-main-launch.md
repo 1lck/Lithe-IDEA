@@ -26,7 +26,7 @@ JDT工作区入口搜索可能遗漏默认或不可见项目中的单文件，�
 
 - `node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --working-directory windows/tauri -- src/features/run/services/java-main-launch.test.ts`
 - `node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --working-directory windows/tauri -- src/features/run/services/java-context-entrypoint.test.ts`
-- `node scripts/verify-java-semantic-ownership.mjs`
+- `node scripts/architecture/verify-java-semantic-ownership.mjs`
 
 ## 适用范围
 

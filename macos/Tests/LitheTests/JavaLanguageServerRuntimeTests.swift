@@ -1,4 +1,6 @@
 import Foundation
+import LitheApplicationKernel
+import LitheModuleAPI
 import CryptoKit
 import LitheCoreContracts
 import LitheLanguageIntelligenceModule
@@ -427,6 +429,76 @@ struct JavaLanguageServerRuntimeTests {
         await observer.value
     }
 
+    @Test(arguments: [false, true])
+    @MainActor
+    func acceptedVirtualImplementationSurvivesChooserDismissal(disableWhileLoading: Bool) async throws {
+        let root = URL(fileURLWithPath: "/workspace/virtual-navigation", isDirectory: true)
+        let session = JavaImportTestSession()
+        let manager = try javaImportManager(root: root, session: session)
+        let store = JavaLanguageServerTestStore()
+        let settings = AppSettings(store: store)
+        let container = MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode)
+        defer { container.moduleLifecycleCoordinator.stop(); manager.stopAllLanguageServers() }
+        let model = AppModel(settings: settings, services: container.services)
+        let runtime = ModuleRuntime()
+        let graph = NavigationTestLanguageGraph(sessions: manager, store: store)
+        let module = LanguageIntelligenceModule(makeGraph: { graph })
+        // The fixture activates only this module; no workspace services or real server.
+        try runtime.register(ModuleFactory(manifest: ModuleManifest(
+            id: .languageIntelligence, displayName: "Navigation test", scope: .workspace,
+            providedCapabilities: [.languageIntelligence]),
+            contributions: LanguageIntelligenceModule.moduleContributions) { module })
+        var reply: ((Result<String, Error>) -> Void)?
+        session.onVirtualDocument = { reply = $0 }
+        try await WorkbenchTestScope.withCleanup({
+            reply?(.failure(CancellationError())); reply = nil
+            session.onVirtualDocument = nil
+            await model.shutdownProjectSession()
+            await runtime.shutdownAll()
+        }) { scope in
+            try await scope.run("accept implementation and resolve delayed virtual source") {
+                _ = try await runtime.activate(.languageIntelligence)
+                model.cacheModuleCapability(try #require(module.exportedCapabilities()[.languageIntelligence]),
+                    id: .languageIntelligence, moduleID: .languageIntelligence)
+                _ = try manager.startLanguageServer(providerID: "java", rootURL: root)
+                session.publish(.ready)
+                let uri = try #require(URL(string: "jdt://contents/library/Target.class"))
+                let values = [uri, try #require(URL(string: "jdt://contents/library/Other.class"))].map {
+                    LanguageServerLocation(url: $0, range: .init(start: .init(line: 3, utf16Column: 4),
+                        end: .init(line: 3, utf16Column: 10)))
+                }
+                model.languageNavigationCoordinator.handleResult(values, providerID: "java", kind: .implementations,
+                    onEmpty: { Issue.record("Expected implementation targets") },
+                    onResults: { _ in model.presentLanguageNavigationResults(.implementations) })
+                try #require(model.isImplementationChooserVisible)
+                let selected = try #require(model.languageNavigationCoordinator.state.locations.first)
+                model.navigate(to: selected)
+                try #require(!model.isImplementationChooserVisible)
+                let completion = try #require(reply, "Selection must request virtual source")
+                reply = nil
+                // The shared dropdown calls its binding after navigate has hidden it.
+                model.dismissImplementationChooser()
+                if disableWhileLoading { model.closeLanguageNavigationResults() }
+                completion(.success("class Target {}"))
+                if disableWhileLoading {
+                    #expect(!model.openDocuments.contains { $0.url == uri })
+                    #expect(model.editorNavigationTarget == nil)
+                } else {
+                    let document = try #require(model.openDocuments.first { $0.url == uri })
+                    #expect(document.text == "class Target {}")
+                    #expect(document.isReadOnly)
+                    #expect(model.editorNavigationTarget?.url == uri)
+                    #expect(model.editorNavigationTarget?.line == 3)
+                }
+                model.presentLanguageNavigationResults(.implementations)
+                let cancelled = model.languageNavigationCoordinator.begin(providerID: "java", kind: .implementations)
+                model.dismissImplementationChooser()
+                #expect(!model.isImplementationChooserVisible)
+                #expect(!model.languageNavigationCoordinator.owns(cancelled))
+            }
+        }
+    }
+
     @MainActor
     private func javaImportManager(root: URL, session: JavaImportTestSession) throws -> LanguageToolingSessionManager {
         let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: root.appendingPathComponent("Main.java")))
@@ -464,6 +536,7 @@ private final class JavaImportTestSession: LanguageServerSession {
     var onDiagnostics: ((URL, [LanguageServerDiagnostic]) -> Void)?
     var onStateChange: ((LanguageServerSessionState) -> Void)?
     var onStart: (() -> Void)?
+    var onVirtualDocument: ((@escaping (Result<String, Error>) -> Void) -> Void)?
     private(set) var starts: [JavaLanguageImportConfiguration] = []
     private(set) var stopCount = 0
     private(set) var updates: [MavenLaunchContext] = []
@@ -510,7 +583,10 @@ private final class JavaImportTestSession: LanguageServerSession {
     func execute(_ command: LanguageServerCommand, fileURL: URL,
                  completion: @escaping (Result<Void, Error>) -> Void) throws { completion(.success(())) }
     func resolveVirtualDocument(uri: String,
-                                completion: @escaping (Result<String, Error>) -> Void) throws { completion(.success("")) }
+                                completion: @escaping (Result<String, Error>) -> Void) throws {
+        if let onVirtualDocument { onVirtualDocument(completion) }
+        else { completion(.success("")) }
+    }
     func javaEntrypoints(completion: @escaping (Result<JavaEntrypoints, Error>) -> Void) throws { throw CancellationError() }
 }
 
@@ -546,4 +622,20 @@ private struct JavaLanguageServerTestStore: KeyValueStore {
     func stringArray(forKey key: String) -> [String]? { nil }
     func set(_ value: Any?, forKey key: String) {}
     func removeObject(forKey key: String) {}
+}
+
+@MainActor
+private final class NavigationTestLanguageGraph: LanguageIntelligenceServiceGraph {
+    let sessions: LanguageToolingSessionManager
+    let tools: LanguageServerToolService
+    var hasActiveLanguageServers: Bool { !sessions.activeLanguageServerIDs.isEmpty }
+    init(sessions: LanguageToolingSessionManager, store: JavaLanguageServerTestStore) {
+        self.sessions = sessions
+        tools = LanguageServerToolService(
+            runtimeService: ProjectRuntimeService(runtimeLocator: JavaLanguageServerTestRuntimeLocator(runtimes: []), store: store),
+            commandRunner: MacProcessRunner(), settingsStore: MacLanguageToolSettingsStore(store: store))
+    }
+    func activate(context: ModuleContext) {}
+    func prepareForSleep() async throws {}
+    func stop() async { sessions.stopAllLanguageServers() }
 }

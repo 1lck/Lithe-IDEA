@@ -1023,7 +1023,7 @@ mod tests {
     // restoration and cleanup of only this fixture's Recycle Bin entry.
     #[cfg(windows)]
     #[test]
-    #[ignore = "run scripts/test-windows-agent-recycle.ps1 in an interactive Windows session"]
+    #[ignore = "run scripts/windows/test/test-windows-agent-recycle.ps1 in an interactive Windows session"]
     fn agent_recycle_real_shell_acceptance() {
         let workspace =
             PathBuf::from(std::env::var_os("LITHE_AGENT_RECYCLE_ACCEPTANCE_ROOT").unwrap());

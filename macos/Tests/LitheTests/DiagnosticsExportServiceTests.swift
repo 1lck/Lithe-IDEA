@@ -156,7 +156,7 @@ struct DiagnosticsExportServiceTests {
     @Test
     func prepareStagesRedactedLogAndAwaitsConfirmation() async {
         // `swift test` does not force-load the Rust Core static library by
-        // default (see scripts/test-macos.sh); skip gracefully rather than
+        // default (see scripts/macos/test/test-macos.sh); skip gracefully rather than
         // asserting on the "unavailable" failure path, mirroring
         // RealJavaDebugIntegrationTests's guard.
         guard RustCoreBridge().isAvailable else { return }

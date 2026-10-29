@@ -332,6 +332,13 @@ extension AppModel {
         )
     }
 
+    func dismissImplementationChooser() {
+        // Selecting a target hides the chooser before virtual source loading.
+        // Its later presentation callback is not a user cancellation.
+        guard isImplementationChooserVisible else { return }
+        closeLanguageNavigationResults()
+    }
+
     func closeLanguageNavigationResults() {
         isReferencesVisible = false
         isImplementationChooserVisible = false

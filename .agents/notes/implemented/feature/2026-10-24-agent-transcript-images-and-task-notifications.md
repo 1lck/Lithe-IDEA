@@ -156,11 +156,11 @@ issue #1462 指出的多余复制按钮来自不属于最终回复的过程文�
 
 ## 验证
 
-- `./scripts/test-macos.sh --filter AgentImageTests`
-- `./scripts/test-macos.sh --filter AgentDesktopCardTests`
+- `./scripts/macos/test/test-macos.sh --filter AgentImageTests`
+- `./scripts/macos/test/test-macos.sh --filter AgentDesktopCardTests`
 - `cargo test -p lithe-agent-host claude_earlier_history`
 - `cargo test -p lithe-agent-host claude_desktop`
-- `./scripts/verify-agent-notes.sh`
+- `./scripts/agent-notes/verify-agent-notes.sh`
 
 ## 适用范围
 

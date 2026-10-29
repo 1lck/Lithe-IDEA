@@ -2064,13 +2064,63 @@ async function verify() {
       assert(monacoEditor.getEditors().every(view => !view.getAction("lithe.goToDefinition")), "new split registered disabled navigation");
       configure(true);
       assert(monacoEditor.getEditors().every(view => view.getAction("lithe.goToDefinition")), "re-enable missed a split");
+      configure(false);
       monacoEditor.setModelLanguage(editor.getModel()!, "plaintext");
-      assert(monacoEditor.getEditors().every(view => view.getAction("lithe.goToDefinition")), "legacy language navigation was blocked by the plugin policy");
+      assert(monacoEditor.getEditors().every(view => !view.getAction("lithe.goToDefinition")), "tokenizer changes must not bypass the document policy");
       monacoEditor.setModelLanguage(editor.getModel()!, "java");
-      assert(monacoEditor.getEditors().every(view => view.getAction("lithe.goToDefinition")), "restoring the plugin language did not restore navigation");
+      assert(monacoEditor.getEditors().every(view => !view.getAction("lithe.goToDefinition")), "restoring syntax must preserve opt-out");
     } finally {
       window.lithe.detachSurface("toggle-split"); container.remove();
       configure(true); await window.lithe.retain([]);
+    }
+  });
+  await check("navigation policy follows plugin IDs instead of Monaco aliases", async () => {
+    const configure = (enabled: boolean) => window.lithe.configure({ definitionNavigationPolicy: { bash: enabled, properties: enabled },
+      dark: false, fontFamily: "monospace", fontSize: 13, wrap: false });
+    try {
+      for (const [language, syntax, filename] of [["bash", "shell", "test.sh"], ["properties", "ini", "test.properties"]]) {
+        const id = `navigation-alias-${language}`, text = "value=target";
+        await send({ type: "open", id, text });
+        await window.lithe.activate({ id, text, language, revision: 0, filename, readonly: false });
+        assert(editor.getModel()!.getLanguageId() === syntax, "fixture did not use the aliased tokenizer");
+        configure(false);
+        assert(!editor.getAction("lithe.goToDefinition"), "disabled plugin retained the navigation action");
+        configure(true);
+        (editor as any)._onMouseMove.fire({ event: { metaKey: true, leftButton: false, detail: 0 },
+          target: { type: monacoEditor.MouseTargetType.CONTENT_TEXT, position: new Position(1, 2), range: new Range(1, 2, 1, 3), detail: {} } });
+        assert(editor.getDomNode()!.classList.contains("lithe-definition-pointer"), "enabled alias missed managed hover");
+        configure(false);
+        assert(!editor.getDomNode()!.classList.contains("lithe-definition-pointer"), "disabled alias retained its pointer");
+      }
+    } finally {
+      window.lithe.configure({ definitionNavigationPolicy: { java: true }, dark: false, fontFamily: "monospace", fontSize: 13, wrap: false });
+      await window.lithe.retain([]);
+    }
+  });
+  await check("documents sharing a tokenizer retain independent navigation policies", async () => {
+    const container = document.createElement("div");
+    container.style.cssText = "position:absolute;left:50%;top:0;width:50%;height:100%";
+    document.body.append(container);
+    const text = "value=target";
+    window.lithe.configure({ definitionNavigationPolicy: { properties: false, ini: true },
+      dark: false, fontFamily: "monospace", fontSize: 13, wrap: false });
+    try {
+      for (const id of ["alias-main", "alias-split"]) await send({ type: "open", id, text });
+      await window.lithe.activate({ id: "alias-main", text, language: "properties", revision: 0, filename: "test.properties", readonly: false });
+      await window.lithe.attachSurface("alias-split", container, { id: "alias-split", text, language: "ini", revision: 0, filename: "test.ini", readonly: false });
+      const split = monacoEditor.getEditors().find(view => view !== editor)!;
+      assert(editor.getModel()!.getLanguageId() === "ini" && split.getModel()!.getLanguageId() === "ini", "fixture must share a tokenizer");
+      assert(!editor.getAction("lithe.goToDefinition") && !!split.getAction("lithe.goToDefinition"), "shared tokenizer mixed document policies");
+      await window.lithe.activate({ id: "alias-main", revision: 0 });
+      assert(!editor.getAction("lithe.goToDefinition"), "an update without language lost the plugin identity");
+      await window.lithe.activate({ id: "alias-main", language: "ini", revision: 0 });
+      assert(!!editor.getAction("lithe.goToDefinition"), "same-tokenizer identity change did not enable navigation");
+      await window.lithe.activate({ id: "alias-main", language: "properties", revision: 0 });
+      assert(!editor.getAction("lithe.goToDefinition"), "same-tokenizer identity change retained navigation");
+    } finally {
+      window.lithe.detachSurface("alias-split"); container.remove();
+      window.lithe.configure({ definitionNavigationPolicy: { java: true }, dark: false, fontFamily: "monospace", fontSize: 13, wrap: false });
+      await window.lithe.retain([]);
     }
   });
   await check("Command pointer stays stable during slow definition lookup and repaint", async () => {

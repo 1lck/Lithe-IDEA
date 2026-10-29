@@ -65,10 +65,10 @@ Windows 的 Spring Endpoints 列表展示已有 `spring.index` 返回的 HTTP �
 - `cd windows/tauri && bun test src/features/spring src/features/keymaps/commands/view-command-actions.test.ts src/features/file-system/services/file-watcher-listener.test.ts`
 - `cd windows/tauri && bun run typecheck`
 - `node .agents/skills/write-stable-tests/scripts/verify-test-stability.mjs --platform windows`
-- `./scripts/verify-windows-boundaries.sh`
-- `./scripts/verify-shared-contracts.sh`
-- `./scripts/verify-platform-feature-matrix.sh`
-- `./scripts/verify-agent-notes.sh`
+- `./scripts/windows/verify/verify-windows-boundaries.sh`
+- `./scripts/architecture/verify-shared-contracts.sh`
+- `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
+- `./scripts/agent-notes/verify-agent-notes.sh`
 - Windows 实机验证：打开 Spring 项目，用命令面板进入接口列表，筛选并点击接口；
   重命名源码目录后再次跳转；扫描中切换项目；检查失败提示和超过 200 个接口时的滚动。
 

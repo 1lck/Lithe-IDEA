@@ -35,7 +35,7 @@ bun run desktop:dev
 Build the Windows executable through the repository script:
 
 ```powershell
-./scripts/build-windows.ps1 -Configuration Release
+./scripts/windows/build/build-windows.ps1 -Configuration Release
 ```
 
 The macOS host can run frontend type/build checks and Rust checks, but the

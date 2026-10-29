@@ -86,7 +86,7 @@
 - 实时注册表的内容完全在内存里，不持久化。每次启动由启动加载器（`MacPluginStartupLoader`）读一次已安装目录得到初始快照，之后只靠扫描维护。
 - 插件包的所有权没有变：安装、卸载、回退仍然只经过 `MacPluginPackageStore`，写入位置是 Application Support 下的插件目录。
 - 扫描是只读的，不创建、不改写任何文件，不从 `Bundle.main.resourceURL` 或安装目录推导可写目标。内置插件包（bundle 里的 `bundledRootURL`）只被读取；“卸载内置插件”仍然记录在 Application Support 的状态里（`setBundledPluginRemoved`）。
-- 对代码签名和 Sparkle 增量更新（delta）没有影响：运行期没有写入 `.app` 或 Windows 安装目录。验证见 `scripts/verify-runtime-bundle-immutability.sh`（`scripts/test-macos.sh` 开头会运行）。
+- 对代码签名和 Sparkle 增量更新（delta）没有影响：运行期没有写入 `.app` 或 Windows 安装目录。验证见 `scripts/macos/verify/verify-runtime-bundle-immutability.sh`（`scripts/macos/test/test-macos.sh` 开头会运行）。
 
 ### 已知边界（有意保留）
 
@@ -103,7 +103,7 @@
 
 - `macos/Tests/LitheTests/PluginLiveActivationTests.swift`：谓词的正反例（含契约 fixture）、debug-only 语言与插件 id 排序无关、注册表的收录/代数/启用/撤回/按 id 取第一个、后台扫描不在主线程、扫描失败保留旧登记、另一窗口的通知触发重扫、管理器的安装/更新/回退/启用/卸载流程。等待事件使用带本地期限的 `ChangeLatch`，不用真实 sleep。
 - `LanguageProviderCatalogSourceTests`（debug-only 声明不抢语言、顺序无关、不触发扩展提示、每次 load 读取实时声明）、`DebugModuleTests`（`providersSource` 每次调用都查）、`LanguageIntelligenceModuleTests`（出现调试器不会停正在运行的语言服务器）。
-- `scripts/verify-runtime-bundle-immutability.sh` 和 `./scripts/verify-agent-notes.sh`。
+- `scripts/macos/verify/verify-runtime-bundle-immutability.sh` 和 `./scripts/agent-notes/verify-agent-notes.sh`。
 
 ## 适用范围
 

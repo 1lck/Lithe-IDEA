@@ -64,10 +64,59 @@ description: 在 Lithe 仓库进行实现、重构、审查、调试、测试、
 | `Plugins/mac/`、`Plugins/win/` | 对应平台拥有的插件包 |
 | `frontend/editor/` | 共享 Monaco 呈现、词法着色及编辑器模型生命周期；不得调用平台 API |
 | `shared/` | 跨平台契约及 fixture，不承载编译实现 |
-| `scripts/`、`.github/` | 仓库级开发、验证脚本与 CI 工作流 |
+| `scripts/`、`.github/` | 仓库级开发、验证脚本与 CI 工作流；脚本按作用分类，见“脚本放置与分类” |
 | `third_party/` | 上游代码；除非任务明确针对它，否则不修改 |
 
 macOS 是当前参考产品；Windows 是独立实现，不得导入 Swift 源码或依赖 macOS 类型。
+
+### 脚本放置与分类
+
+新增、移动或审查脚本时，遵守以下规则。
+
+- 仓库级脚本（构建、打包、准备、验证、测试入口、发布、CI 辅助、诊断探针等）必须放在 `scripts/`
+  下，不得散落在仓库根目录、`macos/`、`windows/`、`.github/` 或临时目录，也不得直接放在
+  `scripts/` 根目录；必须进入下面某个分类子目录。
+- 两类脚本不属于仓库级，随所属位置放置，不进 `scripts/`：Skill 自带的脚本放在该 Skill 的
+  `scripts/`（例如 `.agents/skills/write-stable-tests/scripts/`）；单个包自己的构建脚本放在该包内
+  （例如 `windows/tauri/scripts/`、插件包内的 `scripts/`）。
+- 按脚本的作用语义分类，不按文件类型，也不按创建者分类。按下表从上到下选第一个匹配的目录：
+
+| 目录 | 放什么 |
+| --- | --- |
+| `scripts/ci/common/` | 多个工作流共用的 CI 编排：变更分类、车道复用、复用校验、工作流门禁测试 |
+| `scripts/ci/<工作流名>/` | 只为某一个工作流存在的脚本，目录名与工作流名对应（如 `cancel-closed-pr-runs`、`update-repo-charts`） |
+| `scripts/release/{sparkle,macos,windows,autobuild,notes}/` | 发布流水线：Sparkle 更新与验签、更新清单、AutoBuild 发布、发布说明校验 |
+| `scripts/macos/{build,package,prepare,test,verify,perf,probe}/` | 只服务 macOS 产品：构建、打包、依赖与资源准备、测试入口、门禁校验、性能基线、手动探针 |
+| `scripts/windows/{build,package,prepare,test,verify}/` | 只服务 Windows 产品，含义同上 |
+| `scripts/rust-core/`、`architecture/`、`i18n/`、`agent-notes/`、`platform-feature-matrix/`、`plugins/`、`remote/`、`ide-mcp/`、`editor/`、`git-graph/`、`agent/`、`resources/` | 跨平台的领域脚本，目录名就是领域名 |
+
+- 没有合适目录时，新建一个以领域或作用命名的目录，并在同一次改动里更新上表；不要新建
+  `misc/`、`utils/`、`tools/` 这类不表达作用的目录。
+- 例外：属于某个跨平台领域、但只在一个平台上运行的脚本，留在领域目录，文件名带平台名，不放进
+  `scripts/macos/` 或 `scripts/windows/`（例如 `scripts/ide-mcp/build-windows-ide-mcp.mjs`、
+  `scripts/ide-mcp/build-ide-mcp.sh`、`scripts/editor/package-macos-monaco.sh`）。这类脚本要在分类器和
+  `plan-ci-lane-reuse.mjs` 里按完整路径登记，不要靠文件名里的平台子串匹配。
+- 测试脚本与被测脚本放在同一目录，命名沿用 `test-*` 或 `*.test.*`。验收对象不是某个脚本的手动验收脚本
+  （例如验收 Rust 代码的 `scripts/windows/test/test-windows-agent-recycle.ps1`）放在对应平台的 `test/`。
+- 脚本引用同目录文件时，使用相对于脚本自身的位置（`$SCRIPT_DIR`、`import.meta.url`、`__dir__`、
+  `$PSScriptRoot`），不要依赖当前工作目录。跨目录引用必须写完整的 `scripts/<分类>/<名字>`，
+  Ruby 的 `require_relative` 和 Shell 的 `source` 也要带上相对目录，仅靠文件名搜索会漏掉它们。
+- 用 `git mv` 移动脚本以保留历史。移动或新增后必须同步：
+  - `.github/workflows/` 里的 `run:` 路径、`paths` 过滤器和循环（`*` 不跨 `/`，需要递归时用 `**`）。
+  - `scripts/ci/common/classify-ci-changes.sh`（路径会先转小写，`case` 里的 `*` 可跨 `/`）和
+    `scripts/ci/common/plan-ci-lane-reuse.mjs` 的基础设施规则。新路径必须被分类器识别；未知的
+    `scripts/` 路径会按失败关闭处理并触发全量 CI。运行
+    `./scripts/ci/common/test-classify-ci-changes.sh` 和
+    `node --test scripts/ci/common/plan-ci-lane-reuse.test.mjs`。
+  - 会把脚本复制进临时目录的测试夹具要保持相同的目录深度，被复制脚本通过相对路径依赖的文件也要一起复制。
+  - 非脚本文件里写死的脚本路径，没有任何检查会替你发现遗漏，要逐个搜索确认：
+    `windows/tauri/src-tauri/tauri.conf.json` 的 `beforeDevCommand`、`beforeBuildCommand`，
+    `windows/tauri/package.json` 的 `scripts`，`Plugins/marketplace/official-plugins.json` 的 `inputPaths`。
+    `inputPaths` 里的脚本被移动后，已有发布标签的插件会被
+    `node scripts/plugins/official-plugin-releases.mjs check` 判为发布输入变化，需要按发布流程决定是否升版本。
+  - 工作树资源注册表 `scripts/resources/worktree-resources.json` 和 `reuse-worktree-resources.mjs` 里的脚本路径，
+    改完运行 `node --test scripts/resources/test-reuse-worktree-resources.mjs`。
+  - 文档、Skill、Agent Note 和 `shared/platform-feature-matrix/` 中写明的路径。
 
 ### 分层边界
 
@@ -91,6 +140,10 @@ macOS 是当前参考产品；Windows 是独立实现，不得导入 Swift 源�
 - 进程型功能保留 `operationID`、取消、超时和过期结果语义。
 - 第二个平台依赖新共享行为前，先补充或更新共享 fixture。
 - 命令名、JSON 字段、错误码和 C ABI 都是兼容面；变更时同步更新契约文档及所有消费者。
+- `lithe-core` 的公开 Rust 类型、结构体字段和函数签名也是兼容面：`windows/tauri/src-tauri` 与
+  `windows/tauri/crates/project` 把它当 Rust 库直接链接，不经过 JSON/C ABI。macOS 通过 JSON 调用时缺省字段按
+  `None` 处理，Windows 的结构体字面量却会因缺字段而编译失败（例如给 `JavaSelectionRequest` 新增
+  `requirements` 曾让 Windows 安装包构建 E0063）。只改 Core 也要同时修正这些调用点。
 
 ## 三、语言与编码约定
 
@@ -125,7 +178,7 @@ Windows/Tauri Rust crate、生成代码或第三方源码。本 Skill 中文化�
 - 实现内部用 `//` 解释不明显的兼容性、确定性、顺序、安全、性能或跨平台约束。
 - 测试名和断言不足以说明意图时，补充场景、回归风险或保护边界。
 - 不为覆盖率复述赋值、声明、名称，也不给简单访问器或直接控制流机械加注释。
-- 较慢的 Rust Core 检查前先运行 `./scripts/verify-rust-core-comments.sh`。
+- 较慢的 Rust Core 检查前先运行 `./scripts/rust-core/verify-rust-core-comments.sh`。
   脚本检查模块说明、导出 Rustdoc、英文注释及 unsafe 安全说明；
   它不要求每个内部 helper 都有文档，也不能替代对内部类型语义的人工检查。
 
@@ -219,9 +272,9 @@ Git 历史、反汇编等连续浏览的分页列表必须像 IDEA 一样，在�
 - 新增或修改文案时，同次改动完成：
   1. 在 `shared/i18n/messages.json` 声明词条、macOS 原生 key、参数和类型；`Int32` 用 `macos.formats` 声明 `d`。
      在 `locales/en-US.json`、`locales/zh-CN.json` 补齐译文；参数用 `{argN}`，不要重排。
-  2. 运行 `node scripts/generate-i18n.mjs`，将生成结果纳入同次改动，不手改生成表。
+  2. 运行 `node scripts/i18n/generate-i18n.mjs`，将生成结果纳入同次改动，不手改生成表。
   3. 运行第七节列出的三项 i18n 验证。
-- 检查失败应修代码或补词条，不得放宽 `scripts/verify-app-language-localization.mjs`、扩大豁免、
+- 检查失败应修代码或补词条，不得放宽 `scripts/i18n/verify-app-language-localization.mjs`、扩大豁免、
   把文案藏进变量或改用 `Text(verbatim:)` 绕过检查。产品名、示例值、标识符等确实不翻译的内容才可豁免，且须在 PR 说明。
 - 上游诊断、用户代码、Agent 返回内容和日志标识不属于界面翻译，保持原文。
 - Windows 同样不得硬编码文案，使用 `windows/tauri/src/i18n` 接口并补齐共享词条。
@@ -245,7 +298,7 @@ macOS app bundle 与 Windows 安装目录是发行基线；Sparkle delta 依赖�
   Application Support、临时目录或工作区。禁止从 `Bundle.main.resourceURL`、`resource_dir()` 或安装目录推导写入位置。
 - Equinox 等会向自身旁边写入的工具，必须在可写缓存使用输入副本；
   `-configuration` 示例见 `rust/lithe-core/src/lsp/languages/jdt_configuration.rs`。
-- 新打包运行时增加典型流程前后的安装文件清单比较测试，并保持 `scripts/verify-runtime-bundle-immutability.sh` 通过。
+- 新打包运行时增加典型流程前后的安装文件清单比较测试，并保持 `scripts/macos/verify/verify-runtime-bundle-immutability.sh` 通过。
 
 决策与完整生命周期规则见
 `.agents/notes/implemented/bug-fix/2026-09-25-runtime-bundle-immutability-and-update-delta.md`
@@ -268,7 +321,7 @@ macOS app bundle 与 Windows 安装目录是发行基线；Sparkle delta 依赖�
 - 实现状态与验证状态独立。仅有代码而无运行时证据时，验证保持 `pending`；
   只有在目标平台完成验证流程后才标为 `verified`。JSON 中状态标签、图标与说明是生成器唯一状态真源。
 - 公共状态定义放在 `shared/platform-feature-matrix/metadata.json`；只改日期或 metadata 不能满足能力更新门禁。
-- 更新源数据后运行 `node scripts/generate-platform-feature-matrix.mjs`，检查
+- 更新源数据后运行 `node scripts/platform-feature-matrix/generate-platform-feature-matrix.mjs`，检查
   `.artifacts/platform-feature-matrix/` 的 HTML/Markdown/CSV/JSON，不提交生成视图。
   公共视图随 Agent Notes 看板发布，PR CI 上传对应 revision 的产物。
 
@@ -284,12 +337,12 @@ git diff --name-only origin/preview...HEAD
 第二节所列平台实现路径发生变化时，运行：
 
 ```bash
-./scripts/verify-platform-feature-matrix-change.sh origin/preview HEAD
-./scripts/verify-platform-feature-matrix.sh
+./scripts/platform-feature-matrix/verify-platform-feature-matrix-change.sh origin/preview HEAD
+./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh
 ```
 
 已知 PR 精确 base/head SHA 时用它们替换示例引用。门禁报告缺少实质能力记录变更时，
-先补相关 JSON 再继续。交付前也必须运行 `./scripts/verify-platform-feature-matrix.sh`。
+先补相关 JSON 再继续。交付前也必须运行 `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`。
 
 `matrix-exempt` 仅允许 reviewer 用于已审查且没有用户可观察变化的重构，并在 PR 说明；
 不得用来绕过功能变更。准备 PR 时，用户要求跳过可选测试也不豁免契约门禁。
@@ -302,18 +355,19 @@ git diff --name-only origin/preview...HEAD
 
 | 改动 | 最低相关验证 |
 | --- | --- |
-| 用户可见文案 | `node scripts/verify-app-language-localization.mjs`、`node scripts/generate-i18n.mjs --check`、`node --test --test-timeout=60000 scripts/test-i18n.mjs` |
-| Agent Notes 或架构决策迁移 | `./scripts/verify-agent-notes.sh` |
+| 用户可见文案 | `node scripts/i18n/verify-app-language-localization.mjs`、`node scripts/i18n/generate-i18n.mjs --check`、`node --test --test-timeout=60000 scripts/i18n/test-i18n.mjs` |
+| Agent Notes 或架构决策迁移 | `./scripts/agent-notes/verify-agent-notes.sh` |
 | 测试代码或基础设施 | `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`，再运行该 Skill 对应平台的逐项计时入口 |
-| Swift 应用或测试 | `./scripts/test-macos.sh` |
-| Core、Services、Views 或依赖组装边界 | `./scripts/verify-service-boundaries.sh` |
-| 共享应用行为或 JSON fixture | `./scripts/verify-shared-contracts.sh` |
-| Rust Core、JSON C ABI 或 Swift bridge | 先 `./scripts/verify-rust-core-comments.sh`，再 `./scripts/verify-rust-core.sh` |
-| Core 功能行为 | `./scripts/verify-core.sh` |
-| Git graph 行为 | `./scripts/verify-git-graph.sh` |
-| 运行时资源与发行目录只读边界 | `./scripts/verify-runtime-bundle-immutability.sh` |
-| 从 macOS/Linux 验证 Windows 边界 | `./scripts/verify-windows-boundaries.sh` |
-| Windows 实现在 Windows 上验证 | `./scripts/build-windows.ps1 -Configuration Release`，再 `cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml` |
+| Swift 应用或测试 | `./scripts/macos/test/test-macos.sh` |
+| Core、Services、Views 或依赖组装边界 | `./scripts/architecture/verify-service-boundaries.sh` |
+| 共享应用行为或 JSON fixture | `./scripts/architecture/verify-shared-contracts.sh` |
+| Rust Core、JSON C ABI 或 Swift bridge | 先 `./scripts/rust-core/verify-rust-core-comments.sh`，再 `./scripts/rust-core/verify-rust-core.sh` |
+| Core 功能行为 | `./scripts/architecture/verify-core.sh` |
+| Git graph 行为 | `./scripts/git-graph/verify-git-graph.sh` |
+| 运行时资源与发行目录只读边界 | `./scripts/macos/verify/verify-runtime-bundle-immutability.sh` |
+| 从 macOS/Linux 验证 Windows 边界 | `./scripts/windows/verify/verify-windows-boundaries.sh` |
+| `lithe-core` 公开 Rust 类型或函数签名 | `rg '<类型或函数名>' windows/` 找 Windows 调用点；再在 `windows/tauri/src-tauri` 运行 `cargo check --bin lithe-windows`，与改动前对照，确认没有新增错误。macOS 上 Windows 专有 API 会有既有报错，交叉编译 `x86_64-pc-windows-msvc` 会被 `ring` 的 C 构建脚本卡住；边界脚本不跑 `cargo`，抓不到这类问题 |
+| Windows 实现在 Windows 上验证 | `./scripts/windows/build/build-windows.ps1 -Configuration Release`，再 `cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml` |
 
 同时运行直接受影响 crate/target 的测试。当前机器不能执行的平台检查须明确报告，不得声称未执行的检查通过。
 

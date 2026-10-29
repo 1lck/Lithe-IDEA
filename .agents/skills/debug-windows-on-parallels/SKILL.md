@@ -118,7 +118,7 @@ set "PATH=C:\Program Files\LLVM\bin;C:\Users\<user>\.cargo\bin;C:\Users\<user>\.
 set "CARGO_HOME=C:\Users\<user>\.cargo"
 set "RUSTUP_HOME=C:\Users\<user>\.rustup"
 cd /d C:\<repo>
-powershell -NoProfile -ExecutionPolicy Bypass -File ".\scripts\build-windows.ps1" -Configuration Debug -RustTarget aarch64-pc-windows-msvc
+powershell -NoProfile -ExecutionPolicy Bypass -File ".\scripts\windows\build\build-windows.ps1" -Configuration Debug -RustTarget aarch64-pc-windows-msvc
 echo === exit: %ERRORLEVEL% ===
 ```
 

@@ -41,13 +41,13 @@ testing/
 本地校验：
 
 ```bash
-./scripts/verify-agent-notes.sh
+./scripts/agent-notes/verify-agent-notes.sh
 ```
 
 本地生成看板：
 
 ```bash
-node scripts/build-agent-notes-board.mjs \
+node scripts/agent-notes/build-agent-notes-board.mjs \
   --bundle .agents/notes .artifacts/agent-notes-board/index.html "Lithe 工程决策看板"
 ```
 

@@ -39,7 +39,7 @@
 - `ExecutionModuleTests` 验证恢复配置等待异步端口，并在重置、项目切换和取消时保持加载身份边界。
 - `MavenRuntimeTests` 和 `MacRuntimeDiscoveryTests` 验证原有自动 JDK 选择与工具发现规则。
 - 用真实 `AppModel` 与平台组合根打开最小配置目录和实际项目，在五秒观察窗口内每十毫秒提交主队列工作，检查最大延迟低于两百毫秒。机器相关探针留在本地诊断产物，不进入确定性的单元测试。
-- 运行 `scripts/verify-runtime-bundle-immutability.sh`、`scripts/verify-agent-notes.sh`、测试稳定性检查和平台功能矩阵检查。
+- 运行 `scripts/macos/verify/verify-runtime-bundle-immutability.sh`、`scripts/agent-notes/verify-agent-notes.sh`、测试稳定性检查和平台功能矩阵检查。
 
 ## 适用范围
 

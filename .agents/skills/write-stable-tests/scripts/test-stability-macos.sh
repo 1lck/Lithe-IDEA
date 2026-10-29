@@ -65,4 +65,4 @@ node "$SCRIPT_DIR/run-swift-tests-with-timing.mjs" \
     --stall-timeout-ms "$(( STALL_TIMEOUT_SECONDS * 1000 ))" \
     --suite-timeout-ms "$(( SUITE_TIMEOUT_SECONDS * 1000 ))" \
     --report "$REPORT" \
-    -- "$ROOT_DIR/scripts/test-macos.sh" --no-parallel "${SWIFT_ARGS[@]}"
+    -- "$ROOT_DIR/scripts/macos/test/test-macos.sh" --no-parallel "${SWIFT_ARGS[@]}"

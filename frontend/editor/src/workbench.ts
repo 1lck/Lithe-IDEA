@@ -66,7 +66,7 @@ export function mountWorkbench(host: WorkbenchHost) {
   type GitMarker = { id: string; line: number; kind: "added" | "modified" | "deleted"; stage: boolean; unstage: boolean; discard: boolean };
   type BlameLine = { line: number; commit: string; author: string; date: string };
   type JavaMarker = { id: string; line: number; direction: "up" | "down"; relation?: "interface" | "inheritance" };
-  type Entry = { source: SourceText; model: monaco.editor.ITextModel; release: () => void; revision: number; chain: Promise<unknown>; readonly: boolean; frozen: boolean; freezeOperation?: string; pendingEdits: number; state: monaco.editor.ICodeEditorViewState | null; debugDecorations?: string[]; debugPaused?: boolean; canToggleBreakpoints?: boolean; debugGeneration?: number; closingHolds?: number; filename?: string; locationRevision: number; contextGeneration: number };
+  type Entry = { languageID: string; source: SourceText; model: monaco.editor.ITextModel; release: () => void; revision: number; chain: Promise<unknown>; readonly: boolean; frozen: boolean; freezeOperation?: string; pendingEdits: number; state: monaco.editor.ICodeEditorViewState | null; debugDecorations?: string[]; debugPaused?: boolean; canToggleBreakpoints?: boolean; debugGeneration?: number; closingHolds?: number; filename?: string; locationRevision: number; contextGeneration: number };
   const entries = new Map<string, Entry>();
   const workers: Worker[] = [];
   const closingOperations = new Map<string, { entry?: Entry; cancelled: boolean }>();
@@ -144,7 +144,7 @@ export function mountWorkbench(host: WorkbenchHost) {
   let updating = false;
   let failed = false;
   let definitionNavigationPolicy: Record<string, boolean> = {};
-  const definitionNavigation = new Map<monaco.editor.IStandaloneCodeEditor, { mode: boolean | undefined; lifetime: DisposableStore }>();
+  const definitionNavigation = new Map<monaco.editor.IStandaloneCodeEditor, { languageID: string; mode: boolean | undefined; lifetime: DisposableStore }>();
   let activation: Promise<unknown> = Promise.resolve();
   let textmate: Awaited<ReturnType<typeof installJavaTextMate>>;
   const semanticChanges = new Emitter<void>();
@@ -311,7 +311,9 @@ export function mountWorkbench(host: WorkbenchHost) {
 
   async function prepareEntry(payload: any): Promise<Entry> {
     let entry = entries.get(payload.id);
-    const language = payload.language ? toMonacoLanguageId(payload.language) : languageForFilename(payload.filename);
+    const languageID = payload.language || (entry && (payload.filename === undefined || payload.filename === entry.filename)
+      ? entry.languageID : languageForFilename(payload.filename));
+    const language = toMonacoLanguageId(languageID);
     if (!entry) {
       if (typeof payload.text !== "string") throw new Error("New model requires document text");
       await ensureMonacoLanguageTokenizer(language);
@@ -324,7 +326,7 @@ export function mountWorkbench(host: WorkbenchHost) {
       const model = acquired.model;
       // Monaco owns normalized editing coordinates; the source mirror preserves disk newlines.
       model.setEOL(monaco.editor.EndOfLineSequence.LF);
-      entry = { source: new SourceText(payload.text, model.getAlternativeVersionId()), model, release: acquired.release, revision: payload.revision, chain: Promise.resolve(), readonly: payload.readonly, frozen: false, pendingEdits: 0, state: null, filename: payload.filename, locationRevision: payload.locationRevision ?? 0, contextGeneration: 0 };
+      entry = { languageID, source: new SourceText(payload.text, model.getAlternativeVersionId()), model, release: acquired.release, revision: payload.revision, chain: Promise.resolve(), readonly: payload.readonly, frozen: false, pendingEdits: 0, state: null, filename: payload.filename, locationRevision: payload.locationRevision ?? 0, contextGeneration: 0 };
       entries.set(payload.id, entry);
       const owned = entry;
       model.onDidChangeContent(event => {
@@ -343,14 +345,21 @@ export function mountWorkbench(host: WorkbenchHost) {
         });
       });
     } else {
-      const languageChanged = (payload.language || payload.filename) && entry.model.getLanguageId() !== language;
-      if (languageChanged || (payload.filename !== undefined && payload.filename !== entry.filename) ||
+      const identityChanged = entry.languageID !== languageID;
+      const languageChanged = entry.model.getLanguageId() !== language;
+      if (identityChanged || languageChanged || (payload.filename !== undefined && payload.filename !== entry.filename) ||
           (payload.locationRevision !== undefined && payload.locationRevision !== entry.locationRevision)) {
         // Invalidate before awaiting syntax loading. Rename away and back must
         // not revive an older request, even when its text version is unchanged.
         entry.contextGeneration++;
         if (payload.filename !== undefined) entry.filename = payload.filename;
         if (payload.locationRevision !== undefined) entry.locationRevision = payload.locationRevision;
+      }
+      if (identityChanged) {
+        entry.languageID = languageID;
+        for (const view of allEditors()) {
+          if (view.getModel() === entry.model) syncDefinitionNavigation(view);
+        }
       }
       if (languageChanged) {
         await ensureMonacoLanguageTokenizer(language);
@@ -617,14 +626,16 @@ export function mountWorkbench(host: WorkbenchHost) {
     view.onDidDispose(() => node.removeEventListener("paste", paste, true));
   }
   function syncDefinitionNavigation(view: monaco.editor.IStandaloneCodeEditor) {
-    const language = view.getModel()?.getLanguageId();
-    const mode = language ? definitionNavigationPolicy[language] : false;
+    // Plugin identity belongs to the document; several identities can share
+    // one Monaco tokenizer (for example properties/ini or bash/shell).
+    const languageID = [...entries.values()].find(entry => entry.model === view.getModel())?.languageID;
+    const mode = languageID ? definitionNavigationPolicy[languageID] : false;
     const existing = definitionNavigation.get(view);
-    if (existing && existing.mode !== mode) {
+    if (existing && (existing.mode !== mode || existing.languageID !== languageID)) {
       existing.lifetime.dispose(); definitionNavigation.delete(view);
     }
-    if (mode !== false && !definitionNavigation.has(view)) {
-      definitionNavigation.set(view, { mode, lifetime: attachDefinitionNavigation(view, mode === true) });
+    if (languageID && mode !== false && !definitionNavigation.has(view)) {
+      definitionNavigation.set(view, { languageID, mode, lifetime: attachDefinitionNavigation(view, mode === true) });
     }
   }
   function attachDefinitionNavigation(view: monaco.editor.IStandaloneCodeEditor, managed: boolean) {
