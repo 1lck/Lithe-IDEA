@@ -284,6 +284,16 @@ open dist/Lithe.app
   </tr>
   <tr>
     <td width="112" align="center">
+      <a href="https://timicc.com">
+        <img src="./docs/assets/sponsors/timicc.png" width="64" alt="TIMI CC">
+      </a>
+    </td>
+    <td>
+      <a href="https://timicc.com"><strong>TIMI CC</strong></a> 是企业级 AI 中继平台，专注于稳定性与优质服务，为 Claude Code、Codex 等主流 AI 编程工具提供快速、稳定、高质量的模型接入服务。
+    </td>
+  </tr>
+  <tr>
+    <td width="112" align="center">
       <a href="https://torchai.ai/sign-up?aff=FdkE">
         <img src="./docs/assets/sponsors/torchai.jpg" width="64" alt="TorchAI">
       </a>
@@ -320,6 +330,16 @@ open dist/Lithe.app
     </td>
     <td>
       <a href="https://www.atlascloud.ai/zh"><strong>Atlas Cloud</strong></a> 提供 <strong>400 多种模型</strong>的 AI 中转服务，开发者可以在同一平台探索和比较模型。感谢 Atlas Cloud 对 Lithe 的支持！
+    </td>
+  </tr>
+  <tr>
+    <td width="112" align="center">
+      <a href="https://zeusnorun.com/register?ref=AZD4UMG9">
+        <img src="./docs/assets/sponsors/zeus.png" width="64" alt="Zeus 宙斯中转站">
+      </a>
+    </td>
+    <td>
+      <a href="https://zeusnorun.com/register?ref=AZD4UMG9"><strong>Zeus 宙斯中转站</strong></a> 提供 GPT、Claude、Grok、国产模型及 GPT Image 中转服务，承诺 GPT 不降智，最低 0.08 倍率。坚持“不掺假、不作恶、不跑路”，支持开票与对公付款，已与多家高校和企业合作。
     </td>
   </tr>
   <tr>
