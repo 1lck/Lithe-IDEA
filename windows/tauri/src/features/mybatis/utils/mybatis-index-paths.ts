@@ -1,5 +1,4 @@
 import { getBaseName, getRelativePath, normalizePath } from "@/utils/path-helpers";
-import type { MybatisIndex } from "../types/mybatis.types";
 
 export function isMybatisIndexPath(filePath: string): boolean {
   const name = getBaseName(filePath).toLowerCase();
@@ -21,25 +20,9 @@ export function collectMybatisIndexPaths(filePaths: readonly string[], root: str
   return [...paths].sort();
 }
 
-const mapperPathsByIndex = new WeakMap<MybatisIndex, Set<string>>();
-
-/**
- * Whether editing `filePath` can change `index`. Mapper XML always can; a Java
- * file only when it holds a mapper interface the index already pairs. Every
- * other Java edit rebuilt the index from the whole workspace and held up
- * completion on large projects while it ran.
+/** Unpaired Java buffers can add or restore their first mapper method.
+ * Core prunes unrelated reads using XML namespaces; pairs are not candidates.
  */
-export function editAffectsMybatisIndex(
-  filePath: string,
-  root: string,
-  index: MybatisIndex,
-): boolean {
-  if (!isMybatisIndexPath(filePath)) return false;
-  if (!getBaseName(filePath).toLowerCase().endsWith(".java")) return true;
-  let mapperPaths = mapperPathsByIndex.get(index);
-  if (!mapperPaths) {
-    mapperPaths = new Set(index.statements.map((statement) => statement.javaPath));
-    mapperPathsByIndex.set(index, mapperPaths);
-  }
-  return mapperPaths.has(normalizePath(workspaceRelativeMybatisPath(filePath, root)));
+export function editAffectsMybatisIndex(filePath: string): boolean {
+  return isMybatisIndexPath(filePath);
 }

@@ -86,21 +86,12 @@ final class MybatisFeatureModel: ObservableObject {
         }
     }
 
-    /// Whether editing `url` can change the index. Mapper XML always can; a
-    /// Java file only when it holds a mapper interface the index already pairs.
-    /// Rebuilding for every other Java edit re-read the whole workspace and held
-    /// up completion on large projects. New mapper files arrive through the
-    /// project file list, which loads the index again.
+    /// A temporarily unpaired Java buffer can add or restore its first mapper
+    /// method. Core prunes unrelated reads using XML namespaces; successful
+    /// statement pairs are not a complete set of invalidation candidates.
     func editChangesIndex(_ url: URL) -> Bool {
-        switch url.pathExtension.lowercased() {
-        case "xml":
-            return true
-        case "java":
-            let changed = url.standardizedFileURL
-            return statements.contains { $0.javaURL.standardizedFileURL == changed }
-        default:
-            return false
-        }
+        let ext = url.pathExtension.lowercased()
+        return ext == "java" || ext == "xml"
     }
 
     func handles(_ url: URL) -> Bool {

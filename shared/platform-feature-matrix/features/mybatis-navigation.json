@@ -23,6 +23,6 @@
     "verificationStatus": "pending"
   },
   "owner": "Java / MyBatis",
-  "verification": "使用 Mapper/XML fixture 对比索引、导航、文件变更刷新和失效处理。",
-  "notes": "索引只解析 XML 映射文件命名空间对应的 Java 文件（a.b.Outer.Inner 对应 Outer.java），其余 Java 源码不读取；编辑时只有 XML 映射文件或已与映射配对的 Java 文件会触发重建，编辑普通 Java 文件不再重建整份索引。"
+  "verification": "使用 Mapper/XML fixture 对比索引、导航、文件变更刷新和失效处理。 在同一已打开 Java 缓冲区移除最后一个匹配方法后恢复，以及新增第一个匹配方法，均应重新索引并恢复导航。",
+  "notes": "Core 只读取 XML 命名空间对应的 Java 候选文件；宿主保留 Java 编辑失效，不能把已成功配对的语句当作完整候选集。"
 }

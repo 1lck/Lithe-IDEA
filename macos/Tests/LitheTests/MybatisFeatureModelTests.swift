@@ -110,7 +110,7 @@ struct MybatisFeatureModelTests {
     }
 
     @Test
-    func onlyMapperXmlAndPairedMapperEditsRebuildTheIndex() async throws {
+    func unpairedAndTemporarilyMissingMapperEditsRemainEligible() async throws {
         let root = URL(fileURLWithPath: "/workspace")
         let javaURL = root.appendingPathComponent("src/main/java/demo/UserMapper.java")
         let xmlURL = root.appendingPathComponent("src/main/resources/mapper/UserMapper.xml")
@@ -122,7 +122,10 @@ struct MybatisFeatureModelTests {
 
         #expect(feature.editChangesIndex(javaURL))
         #expect(feature.editChangesIndex(root.appendingPathComponent("src/main/resources/mapper/OrderMapper.xml")))
-        #expect(!feature.editChangesIndex(root.appendingPathComponent("src/main/java/demo/UserService.java")))
+        #expect(feature.editChangesIndex(root.appendingPathComponent("src/main/java/demo/NewMapper.java")))
+        feature.reset()
+        #expect(feature.statements.isEmpty)
+        #expect(feature.editChangesIndex(javaURL))
         #expect(!feature.editChangesIndex(root.appendingPathComponent("README.md")))
     }
 

@@ -69,7 +69,6 @@ export function useMybatisIndex() {
     void load();
 
     const unsubscribeBuffers = useBufferStore.subscribe((state, previous) => {
-      const { index } = useMybatisStore.getState();
       const changed = state.buffers.some((buffer) => {
         if (!buffer.path || !isMybatisIndexPath(buffer.path) || !hasTextContent(buffer)) return false;
         const previousBuffer = previous.buffers.find((candidate) => candidate.id === buffer.id);
@@ -77,7 +76,7 @@ export function useMybatisIndex() {
         if (!previousBuffer || !hasTextContent(previousBuffer)) return true;
         return (
           previousBuffer.content !== buffer.content &&
-          editAffectsMybatisIndex(buffer.path, rootFolderPath, index)
+          editAffectsMybatisIndex(buffer.path)
         );
       });
       if (changed) scheduleReload();

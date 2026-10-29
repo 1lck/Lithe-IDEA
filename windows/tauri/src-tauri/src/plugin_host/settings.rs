@@ -8,7 +8,15 @@
 
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
+
+// Serialize the complete read/modify/publish transaction, including deletion.
+// A process-wide lock also covers aliases of the same workspace path.
+static SETTINGS_TRANSACTION: Mutex<()> = Mutex::new(());
+static TEMP_ID: AtomicU64 = AtomicU64::new(0);
 use tauri::{AppHandle, Manager};
 
 /// Global values of one plugin, persisted as
@@ -50,14 +58,54 @@ fn write_object(path: &Path, map: &Map<String, Value>) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
-    let temp = path.with_extension("json.tmp");
-    std::fs::write(
-        &temp,
-        serde_json::to_string_pretty(&Value::Object(map.clone()))
-            .map_err(|error| error.to_string())?,
-    )
-    .map_err(|error| error.to_string())?;
-    std::fs::rename(&temp, path).map_err(|error| error.to_string())
+    let bytes = serde_json::to_vec_pretty(&Value::Object(map.clone()))
+        .map_err(|error| error.to_string())?;
+    let temp = path.with_extension(format!(
+        "json.{}.{}.tmp",
+        std::process::id(),
+        TEMP_ID.fetch_add(1, Ordering::Relaxed)
+    ));
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temp)
+        .map_err(|error| error.to_string())?;
+    let cleanup = TemporaryWrite(temp.clone());
+    let written = file.write_all(&bytes);
+    drop(file);
+    written.map_err(|error| error.to_string())?;
+    let result = std::fs::rename(&temp, path).map_err(|error| error.to_string());
+    drop(cleanup);
+    result
+}
+
+struct TemporaryWrite(PathBuf);
+
+impl Drop for TemporaryWrite {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+/// Reads the latest committed values under the same lock as publication.
+fn update_object(
+    path: &Path,
+    remove_empty: bool,
+    edit: impl FnOnce(&mut Map<String, Value>) -> Result<(), String>,
+) -> Result<(), String> {
+    let _transaction = SETTINGS_TRANSACTION
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let mut store = read_object(path)?;
+    edit(&mut store)?;
+    if remove_empty && store.is_empty() {
+        return match std::fs::remove_file(path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error.to_string()),
+        };
+    }
+    write_object(path, &store)
 }
 
 /// Both stored layers for one plugin.
@@ -100,16 +148,17 @@ pub fn store_global(
     value: Option<Value>,
 ) -> Result<(), String> {
     let path = global_store_path(app, plugin_id)?;
-    let mut store = read_object(&path)?;
-    match value {
-        Some(value) => {
-            store.insert(setting_id.to_string(), value);
+    update_object(&path, false, |store| {
+        match value {
+            Some(value) => {
+                store.insert(setting_id.to_string(), value);
+            }
+            None => {
+                store.remove(setting_id);
+            }
         }
-        None => {
-            store.remove(setting_id);
-        }
-    }
-    write_object(&path, &store)
+        Ok(())
+    })
 }
 
 /// Stores the workspace override of a project-scoped setting, or erases it
@@ -123,32 +172,26 @@ pub fn store_project(
     value: Option<Value>,
 ) -> Result<(), String> {
     let path = project_store_path(workspace_path);
-    let mut store = read_object(&path)?;
-    let entry = store
-        .entry(plugin_id.to_string())
-        .or_insert_with(|| Value::Object(Map::new()));
-    let values = entry
-        .as_object_mut()
-        .ok_or_else(|| format!("{} has a corrupted plugin-settings entry", path.display()))?;
-    match value {
-        Some(value) => {
-            values.insert(setting_id.to_string(), value);
+    update_object(&path, true, |store| {
+        let entry = store
+            .entry(plugin_id.to_string())
+            .or_insert_with(|| Value::Object(Map::new()));
+        let values = entry
+            .as_object_mut()
+            .ok_or_else(|| format!("{} has a corrupted plugin-settings entry", path.display()))?;
+        match value {
+            Some(value) => {
+                values.insert(setting_id.to_string(), value);
+            }
+            None => {
+                values.remove(setting_id);
+            }
         }
-        None => {
-            values.remove(setting_id);
+        if values.is_empty() {
+            store.remove(plugin_id);
         }
-    }
-    if values.is_empty() {
-        store.remove(plugin_id);
-    }
-    if store.is_empty() {
-        match std::fs::remove_file(&path) {
-            Ok(()) => return Ok(()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-            Err(error) => return Err(error.to_string()),
-        }
-    }
-    write_object(&path, &store)
+        Ok(())
+    })
 }
 
 /// Tauri command: effective values of one plugin's settings.
@@ -218,4 +261,81 @@ pub async fn declarative_plugins_workspace_configuration(
         )
     })
     .await
+}
+
+#[cfg(test)]
+mod transaction_tests {
+    use super::*;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    #[test]
+    fn concurrent_edits_preserve_both_values_and_remove_temporary_files() {
+        let root = std::env::temp_dir().join(format!(
+            "lithe-settings-transaction-{}-{}",
+            std::process::id(),
+            TEMP_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        let path = root.join("settings.json");
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let (started_tx, started_rx) = mpsc::channel();
+        let (done_tx, done_rx) = mpsc::channel();
+        let deadline = Duration::from_secs(3);
+        std::thread::scope(|scope| {
+            let first_path = &path;
+            let first_done = done_tx.clone();
+            let first = scope.spawn(move || {
+                let result = update_object(first_path, false, |values| {
+                    // Check the actual transaction boundary, not timing: a second
+                    // transaction must not read until this edit is published.
+                    assert!(SETTINGS_TRANSACTION.try_lock().is_err());
+                    entered_tx.send(()).unwrap();
+                    release_rx
+                        .recv_timeout(deadline)
+                        .expect("release first transaction");
+                    values.insert("first".into(), Value::from(1));
+                    Ok(())
+                });
+                first_done.send(result).unwrap();
+            });
+            entered_rx
+                .recv_timeout(deadline)
+                .expect("first transaction entered");
+            let second_path = &path;
+            let second = scope.spawn(move || {
+                started_tx.send(()).unwrap();
+                let result = update_object(second_path, false, |values| {
+                    assert_eq!(values.get("first"), Some(&Value::from(1)));
+                    values.insert("second".into(), Value::from(2));
+                    Ok(())
+                });
+                done_tx.send(result).unwrap();
+            });
+            started_rx
+                .recv_timeout(deadline)
+                .expect("second transaction started");
+            release_tx.send(()).unwrap();
+            for _ in 0..2 {
+                done_rx
+                    .recv_timeout(deadline)
+                    .expect("transaction completed")
+                    .unwrap();
+            }
+            first.join().unwrap();
+            second.join().unwrap();
+        });
+        let values = read_object(&path).unwrap();
+        assert_eq!(values.get("first"), Some(&Value::from(1)));
+        assert_eq!(values.get("second"), Some(&Value::from(2)));
+        assert_eq!(std::fs::read_dir(&root).unwrap().count(), 1);
+    }
 }
