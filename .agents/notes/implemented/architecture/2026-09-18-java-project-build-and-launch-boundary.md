@@ -99,6 +99,28 @@ Java 源码中）仍可保留 Spring Boot Maven goal 兼容路径。
 原问题换成一次不确定的错误运行。JDT 对模块化项目返回的
 `module/name.Type` 会转换为 JVM 需要的 `-m module/name.Type`。
 
+### 阶段 D 的 Provider 资源准备
+
+macOS 已把资源步骤切入 Maven Provider 的公开项目任务：先保存文档、等待当前
+Build 模型，再按模型中属于目标工程的源码角色选择主资源或主加测试资源任务。
+其他工程发布的更深内容目录不能覆盖目标工程的源码角色。工作区通过符号链接
+打开而 JDT 返回规范路径时，文件归属判断比较解析链接后的路径；工作区激活身份
+仍比较原工作区及代次，不能把另一个打开操作当成当前操作。
+
+Provider 完成后才请求 JDT 构建和运行路径，并把当前准备回执传给 Core，避免
+Core 再规划一次资源进程。失败、取消、配置 ABA 或工作区替换均撤销回执。
+Windows 现有消费者尚未切换，因此未带回执的共享启动计划继续保留原资源步骤。
+这次切换没有新增资源目录、可复用缓存或发行包写入。
+
+真实集成 `real_provider_resources_survive_jdt_build_and_reach_the_project_jvm` 通过
+同一个生效 Profile 串起 Maven Provider、打包的 JDT LS 和真实项目 JVM。
+场景使用嵌套 reactor、依赖模块及非标准主/测试源码和过滤资源根；在 JDT 导入后
+修改资源，再分别启动主源码与测试源码入口，断言实际输出包含新资源和依赖模块值。
+全部会话关闭后比较 Maven 插件包与 JDT 安装目录的 SHA-256 清单。
+它证明这个明确输入组合可以协作，不能代替完整 UI、每个 Run 覆盖、正式发行组合
+或 Windows 实机验收。Run 专属 Profile 与 JDT 当前导入是否始终一致仍须继续迁移；
+不能把本测试直接提供同一份导入输入当作宿主全部 Run 覆盖已接通的证据。
+
 ### 构建协调（Issue #692 后续）
 
 `vscode.java.buildWorkspace` 会构建 JDT 工作区里的全部 Java 项目。若依 Plus
@@ -252,6 +274,19 @@ Maven JDK、显式覆盖及资源步骤；#1133 的 Maven 原生资源步骤保�
   基于时间的等待。
 
 ## 验证
+
+- Provider 与真实 JDT/JVM 的新增集成显式设置 `LITHE_JDTLS_SMOKE_MAVEN_PACKAGE`
+  为开发包或正式包根目录，并同时设置既有 `LITHE_JDTLS_SMOKE_ROOT`、
+  `LITHE_JDTLS_SMOKE_JAVA`、`LITHE_JDTLS_SMOKE_PROJECT_JDK` 与
+  `LITHE_JDTLS_SMOKE_MAVEN`。不设置包路径时普通单元车道不启动外部工具；
+  明确设置后缺少工具或包必须失败，不能降级跳过。
+  通过 Rust 计时入口运行，真实工具场景沿用专属的 600 秒总预算：
+  `node .agents/skills/write-stable-tests/scripts/run-rust-tests-with-timing.mjs --manifest rust/lithe-core/Cargo.toml --test-budget lsp::interface::engine::real_jdt_tests::=600000 --report .artifacts/test-stability/stage-d-real-jdt-core.json`。
+  本机 1395 项通过，其中新增集成 35.983 秒，另两项真实 JDT 为 14.897/11.520 秒。
+  最后把临时目录所有权提前到首个 fixture 写入前；该场景再次逐项计时通过，含进程清理为 27.751 秒。
+- 原生工程归属、链接路径及取消回归：
+  `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'BuildSystemServiceTests|RunWorkflowCoordinatorTests|RunEntryPointTests'`。
+  本机 130 项计时通过，新增链接路径 3 毫秒，当前工程角色/撤销场景 15 毫秒。
 
 - 资源处理参数与独立子项目兼容：`cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib tests::run_configuration::`。
 - macOS 服务会话消费前置步骤的顺序、失败阻止 JVM、Stop 取消和超时期限：

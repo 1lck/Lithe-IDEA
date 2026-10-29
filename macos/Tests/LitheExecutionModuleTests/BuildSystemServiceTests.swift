@@ -13,7 +13,7 @@ struct BuildSystemServiceTests {
         planner.fingerprint = "o"
         planner.dynamicOptions = true
         planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "static", model:
-            #"{"projects":[{"id":"p","path":"app","name":"App"}],"contentRoots":[{"projectID":"p","path":"app/spec","kind":"testSource"}],"optionValues":{"features":["run-only","changed"]}}"#)])
+            #"{"projects":[{"id":"p","path":"app","name":"App"},{"id":"other","path":".","name":"Other"}],"contentRoots":[{"projectID":"p","path":"app/spec","kind":"testSource"},{"projectID":"other","path":"app/spec/deeper","kind":"source"}],"optionValues":{"features":["run-only","changed"]}}"#)])
         planner.providerRequest = Self.providerRequest(method: "lithe/build/execute")
         let providers = FakeBuildProviders()
         let release = BuildTestGate(), finished = BuildTestGate()
@@ -27,7 +27,9 @@ struct BuildSystemServiceTests {
         var error: Error?
         let task = Task {
             defer { finished.open() }
-            do { try await harness.service.prepareLanguageRun(fileURL: Self.workspace.appendingPathComponent("app/spec/UnrelatedName.java"),
+            // A deeper root published by another project must not turn this
+            // project's test source into a main-source preparation.
+            do { try await harness.service.prepareLanguageRun(fileURL: Self.workspace.appendingPathComponent("app/spec/deeper/UnrelatedName.java"),
                 workspace: Self.workspace, mainTask: "prepare.main", testTask: "prepare.test",
                 optionOverrides: ["features": .array([.string("run-only")])],
                 tool: { _ in BuildProviderHints(toolExecutable: URL(fileURLWithPath: "/selected/tool"), toolEnvironment: ["JAVA_HOME": "/selected/jdk"]) },
@@ -51,6 +53,37 @@ struct BuildSystemServiceTests {
         await task.value
         #expect((error == nil) == (mode == "success"))
         if ["cancel", "configuration", "workspace"].contains(mode) { #expect(error is CancellationError) }
+    }
+
+    @Test
+    func languagePreparationAndTestOwnershipAcceptTheCanonicalSourceOfALinkedWorkspace() async throws {
+        let files = FileManager.default
+        let scratch = files.temporaryDirectory.appendingPathComponent("build-linked-workspace-\(UUID().uuidString)")
+        let actual = scratch.appendingPathComponent("actual")
+        let workspace = scratch.appendingPathComponent("link")
+        try files.createDirectory(at: actual.appendingPathComponent("app/spec"), withIntermediateDirectories: true)
+        defer { try? files.removeItem(at: scratch) }
+        try files.createSymbolicLink(at: workspace, withDestinationURL: actual)
+        let source = actual.appendingPathComponent("app/spec/Main.java").resolvingSymlinksInPath()
+        try Data("class Main {}".utf8).write(to: source)
+        let planner = FakeBuildPlanner()
+        planner.fingerprint = "o"
+        planner.detection = BuildDetection(instances: [try Self.instance(modelSource: "static", model:
+            #"{"projects":[{"id":"p","path":"app","name":"App"}],"contentRoots":[{"projectID":"p","path":"app/spec","kind":"testSource"}]}"#)])
+        planner.providerRequest = Self.providerRequest(method: "lithe/build/execute")
+        let providers = FakeBuildProviders()
+        let tasks = ["prepare.main", "prepare.test"].map { DeclarativeBuildSystem.Task(id: $0, displayName: $0,
+            group: .build, scopes: [.project], fromModel: false, targetTags: [], requiresUserArguments: false, description: nil) }
+        let harness = Harness(planner: planner, sources: [fixtureSource(testSelectorKinds: ["org.example.semantic"], tasks: tasks)], providers: providers)
+        defer { harness.service.stop() }
+        harness.service.reset(workspaceURL: workspace)
+        try #require(await harness.waitForEntries { !$0.isEmpty })
+        let entry = try #require(harness.service.languageTestEntries(selectorKind: "org.example.semantic", fileURL: source, workspace: workspace).first)
+        #expect(harness.service.languageTestProject(in: entry, fileURL: source, workspace: workspace)?.name == "App")
+        try await harness.service.prepareLanguageRun(fileURL: source, workspace: workspace,
+            mainTask: "prepare.main", testTask: "prepare.test", tool: { _ in nil }, isCurrent: { true })
+        #expect(planner.taskRequests.last?.task == "prepare.test")
+        #expect(planner.taskRequests.last?.project?.path == "app")
     }
 
     @Test(arguments: [false, true])

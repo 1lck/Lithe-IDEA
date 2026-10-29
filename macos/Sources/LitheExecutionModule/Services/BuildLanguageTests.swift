@@ -33,10 +33,10 @@ package extension BuildSystemService {
                 && $0.modelState == .loaded && !$0.isReloadRequired && $0.model != nil
         }
         guard let fileURL else { return candidates.sorted { $0.instance.root < $1.instance.root } }
-        let path = fileURL.standardizedFileURL.path
+        let path = fileURL.resolvingSymlinksInPath().standardizedFileURL.path
         return candidates.filter { entry in
             entry.model?.projects.contains { project in
-                let directory = workspace.appendingPathComponent(project.path).standardizedFileURL.path
+                let directory = workspace.appendingPathComponent(project.path).resolvingSymlinksInPath().standardizedFileURL.path
                 return path == directory || path.hasPrefix(directory + "/")
             } == true
         }.sorted { $0.instance.root.count > $1.instance.root.count }.prefix(1).map { $0 }
@@ -44,9 +44,9 @@ package extension BuildSystemService {
 
     func languageTestProject(in entry: BuildSystemEntry, fileURL: URL?, workspace: URL) -> BuildSelection? {
         guard let fileURL else { return nil }
-        let path = fileURL.standardizedFileURL.path
+        let path = fileURL.resolvingSymlinksInPath().standardizedFileURL.path
         return entry.model?.projects.filter { project in
-            let directory = workspace.appendingPathComponent(project.path).standardizedFileURL.path
+            let directory = workspace.appendingPathComponent(project.path).resolvingSymlinksInPath().standardizedFileURL.path
             return path == directory || path.hasPrefix(directory + "/")
         }.sorted { $0.path.count > $1.path.count }.first.map(BuildSelection.init(project:))
     }
@@ -106,21 +106,22 @@ package extension BuildSystemService {
         let previous = operation?.id
         try await prepareLanguageTestModels(taskIDs: [mainTask, testTask], workspace: workspace)
         let revision = inputRevision
-        let path = fileURL.standardizedFileURL.path
+        let path = fileURL.resolvingSymlinksInPath().standardizedFileURL.path
         let candidates = entries.filter { entry in
             entry.modelState == .loaded && !entry.isReloadRequired
                 && entry.model?.projects.contains { project in
-                    let directory = workspace.appendingPathComponent(project.path).standardizedFileURL.path
+                    let directory = workspace.appendingPathComponent(project.path).resolvingSymlinksInPath().standardizedFileURL.path
                     return path == directory || path.hasPrefix(directory + "/")
                 } == true
         }.sorted { $0.instance.root.count > $1.instance.root.count }
         guard isCurrent(), !Task.isCancelled, operation?.id == previous else { throw CancellationError() }
-        guard let entry = candidates.first, let project = languageTestProject(in: entry, fileURL: fileURL, workspace: workspace) else {
+        guard let entry = candidates.first, let project = languageTestProject(in: entry, fileURL: fileURL, workspace: workspace),
+              let owner = entry.model?.projects.first(where: { $0.name == project.name && $0.path == project.path }) else {
             throw BuildSystemServiceError(L10n.string("Load the current build model and enable its provider before running this configuration."))
         }
         let role = entry.model?.contentRoots.filter { root in
-            let directory = workspace.appendingPathComponent(root.path).standardizedFileURL.path
-            return path == directory || path.hasPrefix(directory + "/")
+            let directory = workspace.appendingPathComponent(root.path).resolvingSymlinksInPath().standardizedFileURL.path
+            return root.projectID == owner.id && (path == directory || path.hasPrefix(directory + "/"))
         }.sorted { $0.path.count > $1.path.count }.first?.kind
         let taskID = role == "testSource" || role == "generatedTestSource" ? testTask : mainTask
         guard entry.declaration.tasks.contains(where: { $0.id == taskID && $0.scopes.contains(.project) }) else {
