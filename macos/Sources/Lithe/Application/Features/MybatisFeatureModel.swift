@@ -70,8 +70,7 @@ final class MybatisFeatureModel: ObservableObject {
         files: [URL],
         openDocuments: [EditorDocument]
     ) {
-        let ext = changedDocument.url.pathExtension.lowercased()
-        guard ext == "java" || ext == "xml" else { return }
+        guard editChangesIndex(changedDocument.url) else { return }
         reloadTask?.cancel()
         reloadTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(300))
@@ -85,6 +84,14 @@ final class MybatisFeatureModel: ObservableObject {
                 textOverrides: overrides
             )
         }
+    }
+
+    /// A temporarily unpaired Java buffer can add or restore its first mapper
+    /// method. Core prunes unrelated reads using XML namespaces; successful
+    /// statement pairs are not a complete set of invalidation candidates.
+    func editChangesIndex(_ url: URL) -> Bool {
+        let ext = url.pathExtension.lowercased()
+        return ext == "java" || ext == "xml"
     }
 
     func handles(_ url: URL) -> Bool {

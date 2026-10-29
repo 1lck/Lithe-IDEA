@@ -15,9 +15,22 @@ enum LitheSignpost {
     private static let baselineEnabled =
         ProcessInfo.processInfo.environment["LITHE_PERFORMANCE_BASELINE"] == "1"
     private static var baselineOutput: ((String) -> Void)?
+    static let settingsLatencyTracingEnabled =
+        ProcessInfo.processInfo.environment["LITHE_SETTINGS_LATENCY_TRACE"] == "1"
 
     static func configureBaselineOutput(_ output: @escaping (String) -> Void) {
         baselineOutput = output
+    }
+
+    /// Opt-in native timestamps, independent of the external AX observer and
+    /// of the baseline mode that disables the normal frame-rate monitor.
+    static func settingsLatencyEvent(
+        _ phase: String, category: String, eventID: Int64,
+        input: UInt64, received: UInt64, selected: UInt64
+    ) {
+        guard settingsLatencyTracingEnabled else { return }
+        let time = DispatchTime.now().uptimeNanoseconds
+        baselineOutput?("LITHE_SETTINGS_LATENCY phase=\(phase) category=\(category) event_id=\(eventID) time_ns=\(time) input_ns=\(input) received_ns=\(received) selected_ns=\(selected)\n")
     }
 
     static func begin(_ name: StaticString) -> State {

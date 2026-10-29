@@ -29,6 +29,7 @@
 "%@ free of %@" = "%@ free of %@";
 "%@ holds the metadata of several version control systems. Choose the one that manages it." = "%@ holds the metadata of several version control systems. Choose the one that manages it.";
 "%@ in %@" = "%@ in %@";
+"%@ is hard-linked. Changes are not saved automatically. Save manually to choose how to update the file." = "%@ is hard-linked. Changes are not saved automatically. Save manually to choose how to update the file.";
 "%@ is needed for this project but %@ is disabled." = "%@ is needed for this project but %@ is disabled.";
 "%@ is no longer an official plugin. It moved to the community plugin %@ in Lithe Store and gets no further updates here. Uninstall it, restart Lithe, then install the community version from the Marketplace." = "%@ is no longer an official plugin. It moved to the community plugin %@ in Lithe Store and gets no further updates here. Uninstall it, restart Lithe, then install the community version from the Marketplace.";
 "%@ is not available." = "%@ is not available.";
@@ -44,6 +45,7 @@
 "%@ provider (inside the plugin)" = "%@ provider (inside the plugin)";
 "%@ provider (installed on this Mac)" = "%@ provider (installed on this Mac)";
 "%@ returned an invalid language-server provider." = "%@ returned an invalid language-server provider.";
+"%@ shares its contents with other paths. Save as Independent File updates only this path and breaks its hard-link relationship. Update All Hard Links writes to the shared file, including links outside this project; it is not atomic and an interrupted write may leave partial contents. Cancel keeps your edits unsaved." = "%@ shares its contents with other paths. Save as Independent File updates only this path and breaks its hard-link relationship. Update All Hard Links writes to the shared file, including links outside this project; it is not atomic and an interrupted write may leave partial contents. Cancel keeps your edits unsaved.";
 "%@ started a task that is still running" = "%@ started a task that is still running";
 "%@ test run timed out after %@ seconds." = "%@ test run timed out after %@ seconds.";
 "%@ testing extension is not active." = "%@ testing extension is not active.";
@@ -553,6 +555,7 @@
 "Check the Hook name, command, event, Agents and timeout (1–86400 seconds)." = "Check the Hook name, command, event, Agents and timeout (1–86400 seconds).";
 "Check the MCP command, URL and headers." = "Check the MCP command, URL and headers.";
 "Check the configuration format, API URL and model. Each configuration must be under 64 KiB." = "Check the configuration format, API URL and model. Each configuration must be under 64 KiB.";
+"Check the file and parent folder permissions, and allow Lithe to access this location in System Settings." = "Check the file and parent folder permissions, and allow Lithe to access this location in System Settings.";
 "Check the workspace connection and refresh the available runtimes." = "Check the workspace connection and refresh the available runtimes.";
 "Check your internet connection and try again later." = "Check your internet connection and try again later.";
 "Check: %@" = "Check: %@";
@@ -953,6 +956,7 @@
 "Could not confirm" = "Could not confirm";
 "Could not connect to the Debug Adapter: %@" = "Could not connect to the Debug Adapter: %@";
 "Could not copy your Stable settings" = "Could not copy your Stable settings";
+"Could not decode this file" = "Could not decode this file";
 "Could not discover runtimes on the remote host. Check the connection and refresh." = "Could not discover runtimes on the remote host. Check the connection and refresh.";
 "Could not discover shells on the remote host. Check the connection and try again." = "Could not discover shells on the remote host. Check the connection and try again.";
 "Could not find the Java source for %@" = "Could not find the Java source for %@";
@@ -971,6 +975,7 @@
 "Could not load the changed files." = "Could not load the changed files.";
 "Could not load this image" = "Could not load this image";
 "Could not move the editor tab. Its content could not be synchronized." = "Could not move the editor tab. Its content could not be synchronized.";
+"Could not open %@: %@ %@" = "Could not open %@: %@ %@";
 "Could not open HTML in browser" = "Could not open HTML in browser";
 "Could not open the remote folder: %@" = "Could not open the remote folder: %@";
 "Could not prepare the run configuration: %@" = "Could not prepare the run configuration: %@";
@@ -979,11 +984,13 @@
 "Could not read the command line." = "Could not read the command line.";
 "Could not read the project folder. Check that it still exists and that Lithe has permission to access it." = "Could not read the project folder. Check that it still exists and that Lithe has permission to access it.";
 "Could not read the selected built-in background." = "Could not read the selected built-in background.";
+"Could not read this file" = "Could not read this file";
 "Could not register Lithe MCP in %@: %@" = "Could not register Lithe MCP in %@: %@";
 "Could not remove Lithe MCP from %@: %@" = "Could not remove Lithe MCP from %@: %@";
 "Could not restore local history" = "Could not restore local history";
 "Could not restore project history" = "Could not restore project history";
 "Could not restore this project history entry" = "Could not restore this project history entry";
+"Could not save %@: permission denied. Check the file and parent folder permissions. Your edits are still unsaved." = "Could not save %@: permission denied. Check the file and parent folder permissions. Your edits are still unsaved.";
 "Could not save access to the selected background image." = "Could not save access to the selected background image.";
 "Could not save service selection" = "Could not save service selection";
 "Could not save the connections: %@" = "Could not save the connections: %@";
@@ -1470,6 +1477,8 @@
 "File edits" = "File edits";
 "File encoding" = "File encoding";
 "File inventory only. Claude determines whether this skill is available in a session." = "File inventory only. Claude determines whether this skill is available in a session.";
+"File is not available" = "File is not available";
+"File is too large to open" = "File is too large to open";
 "File mask:" = "File mask:";
 "File patterns" = "File patterns";
 "File saved" = "File saved";
@@ -1509,6 +1518,7 @@
 "Floating Point" = "Floating Point";
 "Folder" = "Folder";
 "Folder name" = "Folder name";
+"Folders cannot be opened as text" = "Folders cannot be opened as text";
 "Follow Git setting" = "Follow Git setting";
 "Follow Git tag rules" = "Follow Git tag rules";
 "Follow the instructions you define below" = "Follow the instructions you define below";
@@ -2487,6 +2497,7 @@
 "Only API keys are used. The Agent's own account sign-in, such as a ChatGPT login, is never used." = "Only API keys are used. The Agent's own account sign-in, such as a ChatGPT login, is never used.";
 "Only ask for actions detected as potentially unsafe" = "Only ask for actions detected as potentially unsafe";
 "Only local files can be attached to an Agent message." = "Only local files can be attached to an Agent message.";
+"Only regular files can be opened as text. Devices, sockets and named pipes are not supported." = "Only regular files can be opened as text. Devices, sockets and named pipes are not supported.";
 "Only source files of the current language can be opened from outside the workspace" = "Only source files of the current language can be opened from outside the workspace";
 "Only the API URL, model and API key are saved. Other CLI options continue to use your local configuration. The key is stored separately from settings. Editing shows a template of these saved fields." = "Only the API URL, model and API key are saved. Other CLI options continue to use your local configuration. The key is stored separately from settings. Editing shows a template of these saved fields.";
 "Only the commit message changes. %lld commits will receive new identities. Staged files are not included." = "Only the commit message changes. %lld commits will receive new identities. Staged files are not included.";
@@ -2542,6 +2553,7 @@
 "Open a project to use Git" = "Open a project to use Git";
 "Open a source file before running Current File." = "Open a source file before running Current File.";
 "Open a source file or choose a project Run configuration" = "Open a source file or choose a project Run configuration";
+"Open a text file instead of a folder." = "Open a text file instead of a folder.";
 "Open again" = "Open again";
 "Open file" = "Open file";
 "Open file in editor to see problems" = "Open file in editor to see problems";
@@ -2563,6 +2575,7 @@
 "Open remote" = "Open remote";
 "Open service in browser" = "Open service in browser";
 "Open the Markdown file inside a workspace before pasting an image" = "Open the Markdown file inside a workspace before pasting an image";
+"Open the target file directly. Symbolic-link editing is not supported by this file adapter." = "Open the target file directly. Symbolic-link editing is not supported by this file adapter.";
 "Open to inspect" = "Open to inspect";
 "Opening it moves the conversation out of %@'s archive and back into its history. Browsing archived conversations never changes them." = "Opening it moves the conversation out of %@'s archive and back into its history. Browsing archived conversations never changes them.";
 "Open…" = "Open…";
@@ -2634,6 +2647,7 @@
 "Performance Results" = "Performance Results";
 "Performance is available for local Java processes launched by Lithe." = "Performance is available for local Java processes launched by Lithe.";
 "Perl Support" = "Perl Support";
+"Permission denied when opening this file" = "Permission denied when opening this file";
 "Permission required" = "Permission required";
 "Permissions" = "Permissions";
 "Permissions & Programs" = "Permissions & Programs";
@@ -3225,7 +3239,9 @@
 "Save Message" = "Save Message";
 "Save Metadata" = "Save Metadata";
 "Save Patch…" = "Save Patch…";
+"Save a hard-linked file?" = "Save a hard-linked file?";
 "Save after" = "Save after";
+"Save as Independent File" = "Save as Independent File";
 "Save changed files automatically" = "Save changed files automatically";
 "Save each field separately. Switching scope reloads the saved values." = "Save each field separately. Switching scope reloads the saved values.";
 "Save instructions" = "Save instructions";
@@ -3651,6 +3667,7 @@
 "Switch to the Node.js/npm environment that installed this CLI, update it there, then check again." = "Switch to the Node.js/npm environment that installed this CLI, update it there, then check again.";
 "Switched" = "Switched";
 "Switches save native Agent settings. Reconnect existing conversations to refresh available skills." = "Switches save native Agent settings. Reconnect existing conversations to refresh available skills.";
+"Symbolic links cannot be opened in this editor" = "Symbolic links cannot be opened in this editor";
 "Symbols" = "Symbols";
 "Sync again" = "Sync again";
 "Sync and remove missing tags" = "Sync and remove missing tags";
@@ -3695,6 +3712,7 @@
 "Tests passed" = "Tests passed";
 "Text" = "Text";
 "Text editor" = "Text editor";
+"Text files are limited to 32 MB. Open this file in an external editor." = "Text files are limited to 32 MB. Open this file in an external editor.";
 "Text or hash" = "Text or hash";
 "Text, me, author:, branch:, path:" = "Text, me, author:, branch:, path:";
 "That skill name is reserved by Claude. Choose a different name." = "That skill name is reserved by Claude. Choose a different name.";
@@ -3824,6 +3842,7 @@
 "The debug adapter outgoing buffer is full." = "The debug adapter outgoing buffer is full.";
 "The debug adapter provided an invalid terminal working directory." = "The debug adapter provided an invalid terminal working directory.";
 "The debugger did not return object fields in time." = "The debugger did not return object fields in time.";
+"The decoded contents contain non-text characters. Use a suitable file viewer." = "The decoded contents contain non-text characters. Use a suitable file viewer.";
 "The default ChangeList cannot be renamed." = "The default ChangeList cannot be renamed.";
 "The document changed before Java navigation completed." = "The document changed before Java navigation completed.";
 "The document is not synchronized with the language server." = "The document is not synchronized with the language server.";
@@ -3839,8 +3858,12 @@
 "The featured MCP catalog could not be loaded." = "The featured MCP catalog could not be loaded.";
 "The field value does not match its declaration or exceeds its size limit." = "The field value does not match its declaration or exceeds its size limit.";
 "The field value is invalid or exceeds 1024 UTF-8 bytes." = "The field value is invalid or exceeds 1024 UTF-8 bytes.";
+"The file could not be decoded with the selected or detected encoding. Check its encoding or open it in an external editor." = "The file could not be decoded with the selected or detected encoding. Check its encoding or open it in an external editor.";
+"The file could not be read. Check its availability and try again." = "The file could not be read. Check its availability and try again.";
 "The file has changed since the Agent edit. Open the diff and review it manually." = "The file has changed since the Agent edit. Open the diff and review it manually.";
 "The file is too large to compare." = "The file is too large to compare.";
+"The file no longer exists or was moved. Refresh the project and try again." = "The file no longer exists or was moved. Refresh the project and try again.";
+"The file or its hard links changed while saving. Your edits are still unsaved. Check the file and save again." = "The file or its hard links changed while saving. Your edits are still unsaved. Check the file and save again.";
 "The file system that holds the home directory." = "The file system that holds the home directory.";
 "The file will be created when you save." = "The file will be created when you save.";
 "The function call was cancelled." = "The function call was cancelled.";
@@ -3957,6 +3980,7 @@
 "The selected versions match" = "The selected versions match";
 "The server asked again. Check the previous answer." = "The server asked again. Check the previous answer.";
 "The server rejected the credentials. Check the user name and the authentication method." = "The server rejected the credentials. Check the user name and the authentication method.";
+"The shared file could not be fully saved. All hard links may contain partial changes. Your editor contents are retained; check the file before retrying." = "The shared file could not be fully saved. All hard links may contain partial changes. Your editor contents are retained; check the file before retrying.";
 "The shared instruction directory must be absolute." = "The shared instruction directory must be absolute.";
 "The skill could not be published. Check permissions and existing skill names." = "The skill could not be published. Check permissions and existing skill names.";
 "The skill destination contains a symbolic link or non-directory. Choose a regular native skill directory." = "The skill destination contains a symbolic link or non-directory. Choose a regular native skill directory.";
@@ -4052,6 +4076,7 @@
 "This file changed outside Lithe while you had unsaved edits." = "This file changed outside Lithe while you had unsaved edits.";
 "This file has unsaved editor changes. Save or discard them before rolling back the Agent edit." = "This file has unsaved editor changes. Save or discard them before rolling back the Agent edit.";
 "This file is outside the current project." = "This file is outside the current project.";
+"This file type cannot be opened in this editor" = "This file type cannot be opened in this editor";
 "This file was deleted outside Lithe. Your editor content is preserved." = "This file was deleted outside Lithe. Your editor content is preserved.";
 "This folder already belongs to a Git repository" = "This folder already belongs to a Git repository";
 "This folder cannot be read." = "This folder cannot be read.";
@@ -4235,6 +4260,7 @@
 "Update" = "Update";
 "Update %@" = "Update %@";
 "Update %@/%@ after %@" = "Update %@/%@ after %@";
+"Update All Hard Links" = "Update All Hard Links";
 "Update Available" = "Update Available";
 "Update Current Branch" = "Update Current Branch";
 "Update Lithe to use this configuration version." = "Update Lithe to use this configuration version.";
@@ -4546,6 +4572,32 @@
 "debugger.threadsAndVariables" = "Threads & Variables";
 "detected on this Mac" = "detected on this Mac";
 "ditto exited with code %@: %@" = "ditto exited with code %@: %@";
+"document.fileAccess.checkTheFileAndParentFolderPermissionsAndAllowLitheToAccessThisLocationInSystemSettings" = "Check the file and parent folder permissions, and allow Lithe to access this location in System Settings.";
+"document.fileAccess.couldNotDecodeThisFile" = "Could not decode this file";
+"document.fileAccess.couldNotOpen" = "Could not open %1$@: %2$@ %3$@";
+"document.fileAccess.couldNotReadThisFile" = "Could not read this file";
+"document.fileAccess.fileIsNotAvailable" = "File is not available";
+"document.fileAccess.fileIsTooLargeToOpen" = "File is too large to open";
+"document.fileAccess.foldersCannotBeOpenedAsText" = "Folders cannot be opened as text";
+"document.fileAccess.isHardLinkedChangesAreNotSavedAutomaticallySaveManuallyToChooseHowToUpdateTheFile" = "%1$@ is hard-linked. Changes are not saved automatically. Save manually to choose how to update the file.";
+"document.fileAccess.onlyRegularFilesCanBeOpenedAsTextDevicesSocketsAndNamedPipesAreNotSupported" = "Only regular files can be opened as text. Devices, sockets and named pipes are not supported.";
+"document.fileAccess.openATextFileInsteadOfAFolder" = "Open a text file instead of a folder.";
+"document.fileAccess.openTheTargetFileDirectlySymbolicLinkEditingIsNotSupportedByThisFileAdapter" = "Open the target file directly. Symbolic-link editing is not supported by this file adapter.";
+"document.fileAccess.permissionDeniedWhenOpeningThisFile" = "Permission denied when opening this file";
+"document.fileAccess.saveAHardLinkedFile" = "Save a hard-linked file?";
+"document.fileAccess.saveAsIndependentFile" = "Save as Independent File";
+"document.fileAccess.savePermissionDenied" = "Could not save %1$@: permission denied. Check the file and parent folder permissions. Your edits are still unsaved.";
+"document.fileAccess.sharesItsContentsWithOtherPathsSaveAsIndependentFileUpdatesOnlyThisPathAndBreaksItsHardLinkRelationshipUpdateAllHardLinksWritesToTheSharedFileIncludingLinksOutsideThisProjectItIsNotAtomicAndAnInterruptedWriteMayLeavePartialContentsCancelKeepsYourEditsUnsaved" = "%1$@ shares its contents with other paths. Save as Independent File updates only this path and breaks its hard-link relationship. Update All Hard Links writes to the shared file, including links outside this project; it is not atomic and an interrupted write may leave partial contents. Cancel keeps your edits unsaved.";
+"document.fileAccess.symbolicLinksCannotBeOpenedInThisEditor" = "Symbolic links cannot be opened in this editor";
+"document.fileAccess.textFilesAreLimitedTo32MbOpenThisFileInAnExternalEditor" = "Text files are limited to 32 MB. Open this file in an external editor.";
+"document.fileAccess.theDecodedContentsContainNonTextCharactersUseASuitableFileViewer" = "The decoded contents contain non-text characters. Use a suitable file viewer.";
+"document.fileAccess.theFileCouldNotBeDecodedWithTheSelectedOrDetectedEncodingCheckItsEncodingOrOpenItInAnExternalEditor" = "The file could not be decoded with the selected or detected encoding. Check its encoding or open it in an external editor.";
+"document.fileAccess.theFileCouldNotBeReadCheckItsAvailabilityAndTryAgain" = "The file could not be read. Check its availability and try again.";
+"document.fileAccess.theFileNoLongerExistsOrWasMovedRefreshTheProjectAndTryAgain" = "The file no longer exists or was moved. Refresh the project and try again.";
+"document.fileAccess.theFileOrItsHardLinksChangedWhileSavingYourEditsAreStillUnsavedCheckTheFileAndSaveAgain" = "The file or its hard links changed while saving. Your edits are still unsaved. Check the file and save again.";
+"document.fileAccess.theSharedFileCouldNotBeFullySavedAllHardLinksMayContainPartialChangesYourEditorContentsAreRetainedCheckTheFileBeforeRetrying" = "The shared file could not be fully saved. All hard links may contain partial changes. Your editor contents are retained; check the file before retrying.";
+"document.fileAccess.thisFileTypeCannotBeOpenedInThisEditor" = "This file type cannot be opened in this editor";
+"document.fileAccess.updateAllHardLinks" = "Update All Hard Links";
 "duplicate omitted" = "duplicate omitted";
 "extensions.reinstall" = "Reinstall";
 "extensions.uninstall" = "Uninstall";

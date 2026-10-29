@@ -5,19 +5,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { publishAutoBuild, selectPlugins, ghCommand, validateBuildIdentity, runCommand } from './publish-autobuild.mjs';
+import { publishAutoBuild, ghCommand, validateBuildIdentity, runCommand } from './publish-autobuild.mjs';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const source = 'a'.repeat(40);
-const pluginBytes = Buffer.from('already signed upstream ZIP');
-const registered = { id: 'php', tagPrefix: 'plugin-php-v' };
-function version(value, names = [`PHP-${value}.zip`]) {
-  return { version: value, downloads: names.map(name => ({ downloadURL: `https://github.com/Lithe-IDEA/Lithe-IDEA/releases/download/plugin-php-v${value}/${name}`, sha256: hash(pluginBytes) })) };
-}
-function catalog(versions = [version('1.0.0')]) {
-  return [{ schemaVersion: 1, plugins: [registered] }, { schemaVersion: 1, plugins: [{ id: 'php', versions }, { id: 'java', versions: [{ version: '9.0.0' }] }] }];
-}
-
 function fixture(t, options = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lithe-autobuild-test-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -60,7 +51,6 @@ function fixture(t, options = {}) {
   let releaseTitle = 'AutoBuild';
   let id = 100, exists = !options.bootstrap, legacy = true, legacyRef = true, ref = 'b'.repeat(40);
   const calls = [];
-  const [registry, index] = catalog();
   function interrupt(stage) {
     if (options.failAt !== stage) return;
     options.failAt = undefined;
@@ -68,22 +58,19 @@ function fixture(t, options = {}) {
   }
   const run = (command, args) => {
     calls.push([command, ...args]);
-    if (command === 'git') {
-      if (args[0] === 'fetch') { assert.equal(args.at(-1), config.source); return ''; }
-      assert.match(args[1], new RegExp(`^${config.source}:Plugins/marketplace/`));
-      return JSON.stringify(args[1].endsWith('official-plugins.json') ? registry : index);
-    }
     if (command === 'ruby') return runCommand(command, args);
     assert.equal(command, 'gh');
     if (args[0] === 'release') {
       if (args[1] === 'download') {
+        assert.ok(['AutoBuild', 'preview-0.3.0'].includes(args[2]), 'only application release assets may be downloaded');
+        assert.equal(args[args.indexOf('--repo') + 1], config.repository);
         const directory = args[args.indexOf('--dir') + 1], name = args[args.indexOf('--pattern') + 1];
         const file = path.join(directory, name);
         assert.ok(!fs.existsSync(file), 'each bounded retry removes partial downloads');
-        if (!['AutoBuild', 'preview-0.3.0'].includes(args[2]) && options.retryDownload && downloadAttempts++ === 0) {
+        if (options.retryDownload && downloadAttempts++ === 0) {
           fs.writeFileSync(file, 'partial'); throw new Error('HTTP 503');
         }
-        fs.writeFileSync(file, args[2] === 'AutoBuild' ? remoteBytes.get(name) : args[2] === 'preview-0.3.0' ? legacyBytes.get(name) : options.badSHA ? 'corrupt ZIP' : pluginBytes);
+        fs.writeFileSync(file, args[2] === 'AutoBuild' ? remoteBytes.get(name) : legacyBytes.get(name));
         return '';
       }
       if (args[1] === 'create') { assert.equal(exists, false); exists = true; assets = []; remoteBytes.clear(); releaseTitle = args[args.indexOf('--title') + 1]; return ''; }
@@ -110,6 +97,7 @@ function fixture(t, options = {}) {
         const notes = fs.readFileSync(args[args.indexOf('--notes-file') + 1], 'utf8');
         assert.ok(notes.includes(releaseTitle));
         assert.match(notes, /普通用户建议使用 Stable/); assert.match(notes, /Ordinary users should use the Stable/);
+        assert.match(notes, /Plugins are distributed independently/);
         return '';
       }
     }
@@ -132,7 +120,7 @@ function fixture(t, options = {}) {
     if (endpoint.endsWith('/git/ref/tags/preview-0.3.0')) { if (!legacyRef) throw new Error('HTTP 404'); return '{}'; }
     assert.fail(`Unexpected command: ${command} ${args.join(' ')}`);
   };
-  return { config, run, calls, temp, dist, stale, index, remoteBytes, assets: () => assets, state: () => ({ ref, legacy, legacyRef }), removeAsset: name => { assets = assets.filter(asset => asset.name !== name); remoteBytes.delete(name); } };
+  return { config, run, calls, temp, dist, stale, remoteBytes, assets: () => assets, state: () => ({ ref, legacy, legacyRef }), removeAsset: name => { assets = assets.filter(asset => asset.name !== name); remoteBytes.delete(name); } };
 }
 const deletes = f => f.calls.filter(call => call.includes('DELETE'));
 const uploads = f => f.calls.filter(call => call[1] === 'release' && call[2] === 'upload');
@@ -240,7 +228,7 @@ for (const bootstrap of [false, true]) await test(`same plan repairs a missing f
   assert.deepEqual(fs.readdirSync(f.temp), []);
 });
 
-for (const change of ['source', 'plugin', 'feed']) await test(`same identity rejects changed ${change} before any mutation`, { timeout: 5000 }, t => {
+for (const change of ['source', 'feed']) await test(`same identity rejects changed ${change} before any mutation`, { timeout: 5000 }, t => {
   const f = fixture(t, { failAt: 'uploaded:autobuild-publication.json' });
   assert.throws(() => publishAutoBuild(f.config, { run: f.run }), /interrupted at/);
   if (change === 'source') {
@@ -249,8 +237,6 @@ for (const change of ['source', 'plugin', 'feed']) await test(`same identity rej
       const file = path.join(f.dist, `identity-${platform}.json`);
       fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), source: f.config.source }));
     }
-  } else if (change === 'plugin') {
-    f.index.plugins[0].versions = [version('1.1.0')];
   } else {
     const file = path.join(f.dist, 'sparkle-arm64/appcast-preview-arm64.xml');
     fs.appendFileSync(file, '\n');
@@ -323,18 +309,24 @@ await test('starter feed without a matching checkpoint cannot bypass baseline ch
   assert.ok(!f.calls.slice(count).some(call => call.includes('upload') || call.includes('PATCH') || call.includes('DELETE')));
 });
 
-await test('latest numeric version wins; all variants deduplicate and bundled Java is excluded', { timeout: 5000 }, () => {
-  const [registry, index] = catalog([version('1.9.0'), version('1.10.0', ['PHP-arm.zip', 'PHP-x64.zip', 'PHP-arm.zip']), version('2.0.0-beta')]);
-  assert.deepEqual(selectPlugins(registry, index).map(item => item.name), ['PHP-arm.zip', 'PHP-x64.zip']);
-});
-await test('untrusted URLs and conflicting index hashes are rejected', { timeout: 5000 }, () => {
-  const [registry, index] = catalog();
-  index.plugins[0].versions[0].downloads[0].downloadURL = 'https://github.com/attacker/repo/releases/download/plugin-php-v1.0.0/PHP.zip';
-  assert.throws(() => selectPlugins(registry, index), /Untrusted/);
-  const [r, i] = catalog();
-  const duplicate = structuredClone(i.plugins[0].versions[0].downloads[0]); duplicate.sha256 = '0'.repeat(64);
-  i.plugins[0].versions[0].downloads.push(duplicate);
-  assert.throws(() => selectPlugins(r, i), /Conflicting/);
+await test('publication needs no plugin catalog or upstream releases and keeps only application assets', { timeout: 5000 }, t => {
+  const f = fixture(t);
+  const manifest = publishAutoBuild(f.config, { run: f.run });
+  const expected = ['autobuild-publication.json'];
+  for (const platform of ['arm64', 'x86_64', 'windows-x64']) {
+    const name = `Lithe-${f.config.version}-${platform}.${platform === 'windows-x64' ? 'exe' : 'dmg'}`;
+    expected.push(name, `${name}.sha256`);
+  }
+  for (const architecture of ['arm64', 'x86_64']) {
+    expected.push(`appcast-preview-${architecture}.xml`, `Lithe-preview-${f.config.build}-${architecture}.zip`, `Lithe${f.config.build}-58.1-${architecture}.delta`);
+  }
+  assert.deepEqual(manifest, expected.sort());
+  assert.ok(!f.calls.some(call => call[0] === 'git'));
+  const downloads = f.calls.filter(call => call[1] === 'release' && call[2] === 'download');
+  assert.ok(downloads.every(call => ['AutoBuild', 'preview-0.3.0'].includes(call[3])));
+  assert.deepEqual(f.assets().map(asset => asset.name).sort(), manifest);
+  assert.deepEqual(f.state(), { ref: source, legacy: false, legacyRef: false });
+  assert.deepEqual(fs.readdirSync(f.temp), []);
 });
 await test('publication accepts legacy baseline, uploads data before feeds and repeats idempotently', { timeout: 5000 }, t => {
   const f = fixture(t);
@@ -358,9 +350,10 @@ await test('bootstrap creates exactly AutoBuild before uploading', { timeout: 50
   const create = f.calls.find(call => call[2] === 'create');
   assert.equal(create[3], 'AutoBuild'); assert.equal(create[create.indexOf('--title') + 1], 'AutoBuild — 构建自 2026-10-15 12:43:54 UTC');
 });
-await test('bad plugin SHA prevents every release mutation and cleans staging', { timeout: 5000 }, t => {
-  const f = fixture(t, { badSHA: true });
-  assert.throws(() => publishAutoBuild(f.config, { run: f.run }), /Plugin SHA-256 mismatch/);
+await test('bad installer SHA prevents every release mutation and cleans staging', { timeout: 5000 }, t => {
+  const f = fixture(t);
+  fs.appendFileSync(path.join(f.dist, `Lithe-${f.config.version}-arm64.dmg`), 'corrupt installer');
+  assert.throws(() => publishAutoBuild(f.config, { run: f.run }), /Checksum mismatch: Lithe-0\.4\.0-arm64\.dmg/);
   assert.equal(uploads(f).length, 0); assert.equal(deletes(f).length, 0);
   assert.ok(!f.calls.some(call => call.includes('PATCH') || call.includes('create') || call.includes('edit')));
   assert.deepEqual(fs.readdirSync(f.temp), []);
@@ -400,10 +393,10 @@ await test('missing server digests trigger bounded byte verification before clea
   assert.ok(f.calls.findIndex(call => call[2] === 'download' && call[3] === 'AutoBuild') < f.calls.findIndex(call => call.includes('DELETE')));
   assert.deepEqual(fs.readdirSync(f.temp), []);
 });
-await test('plugin download retries discard partial bytes before SHA verification', { timeout: 5000 }, t => {
+await test('appcast baseline download retries discard partial bytes before validation', { timeout: 5000 }, t => {
   const f = fixture(t, { retryDownload: true });
   publishAutoBuild(f.config, { run: f.run });
-  assert.equal(f.calls.filter(call => call[2] === 'download' && call[3] !== 'AutoBuild').length, 2);
+  assert.equal(f.calls.filter(call => call[2] === 'download' && call[3] === 'AutoBuild' && call[call.indexOf('--pattern') + 1] === 'appcast-preview-arm64.xml').length, 2);
   assert.deepEqual(fs.readdirSync(f.temp), []);
 });
 

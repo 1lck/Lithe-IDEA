@@ -8,6 +8,11 @@ function diagnosticMessageToString(message: LSPDiagnostic["message"]): string {
   return typeof message === "string" ? message : message.value;
 }
 
+export interface OwnerDiagnosticsUpdate {
+  filePath: string;
+  diagnostics: Diagnostic[] | null;
+}
+
 interface DiagnosticsState {
   // Map of file path to diagnostics
   diagnosticsByFile: Map<string, Diagnostic[]>;
@@ -15,6 +20,11 @@ interface DiagnosticsState {
   // Actions
   actions: {
     setDiagnostics: (filePath: string, diagnostics: Diagnostic[], owner?: string) => void;
+    /**
+     * Replaces one owner's diagnostics for many files in a single update; a
+     * `null` entry removes that owner's diagnostics for the file.
+     */
+    applyOwnerDiagnostics: (owner: string, updates: OwnerDiagnosticsUpdate[]) => void;
     clearDiagnostics: (filePath: string) => void;
     clearDiagnosticsForOwner: (filePath: string, owner: string) => void;
     clearAllDiagnostics: () => void;
@@ -84,21 +94,36 @@ export const useDiagnosticsStore = createSelectors(
 
     actions: {
       setDiagnostics: (filePath: string, diagnostics: Diagnostic[], owner = "default") => {
-        set((state) => {
-          const normalizedDiagnostics = diagnostics.map((diagnostic) => ({
-            ...diagnostic,
-            filePath,
-            owner,
-          }));
-          const nextDiagnosticsByOwner = new Map(state.diagnosticsByOwner);
-          const fileOwners = new Map(nextDiagnosticsByOwner.get(filePath) ?? []);
-          fileOwners.set(owner, normalizedDiagnostics);
-          nextDiagnosticsByOwner.set(filePath, fileOwners);
+        get().actions.applyOwnerDiagnostics(owner, [{ filePath, diagnostics }]);
+      },
 
-          const newMap = new Map(state.diagnosticsByFile);
-          newMap.set(filePath, Array.from(fileOwners.values()).flat());
+      applyOwnerDiagnostics: (owner: string, updates: OwnerDiagnosticsUpdate[]) => {
+        if (updates.length === 0) return;
+        // Copy each map once per batch, not once per file: a workspace import
+        // delivers thousands of files and every copy re-renders the subscribers.
+        set((state) => {
+          const nextDiagnosticsByOwner = new Map(state.diagnosticsByOwner);
+          const nextDiagnosticsByFile = new Map(state.diagnosticsByFile);
+          for (const { filePath, diagnostics } of updates) {
+            const fileOwners = new Map(nextDiagnosticsByOwner.get(filePath) ?? []);
+            if (diagnostics === null) {
+              fileOwners.delete(owner);
+            } else {
+              fileOwners.set(
+                owner,
+                diagnostics.map((diagnostic) => ({ ...diagnostic, filePath, owner })),
+              );
+            }
+            if (fileOwners.size === 0) {
+              nextDiagnosticsByOwner.delete(filePath);
+              nextDiagnosticsByFile.delete(filePath);
+            } else {
+              nextDiagnosticsByOwner.set(filePath, fileOwners);
+              nextDiagnosticsByFile.set(filePath, Array.from(fileOwners.values()).flat());
+            }
+          }
           return {
-            diagnosticsByFile: newMap,
+            diagnosticsByFile: nextDiagnosticsByFile,
             diagnosticsByOwner: nextDiagnosticsByOwner,
           };
         });
@@ -118,25 +143,7 @@ export const useDiagnosticsStore = createSelectors(
       },
 
       clearDiagnosticsForOwner: (filePath: string, owner: string) => {
-        set((state) => {
-          const nextDiagnosticsByOwner = new Map(state.diagnosticsByOwner);
-          const fileOwners = new Map(nextDiagnosticsByOwner.get(filePath) ?? []);
-          fileOwners.delete(owner);
-
-          const nextDiagnosticsByFile = new Map(state.diagnosticsByFile);
-          if (fileOwners.size === 0) {
-            nextDiagnosticsByOwner.delete(filePath);
-            nextDiagnosticsByFile.delete(filePath);
-          } else {
-            nextDiagnosticsByOwner.set(filePath, fileOwners);
-            nextDiagnosticsByFile.set(filePath, Array.from(fileOwners.values()).flat());
-          }
-
-          return {
-            diagnosticsByFile: nextDiagnosticsByFile,
-            diagnosticsByOwner: nextDiagnosticsByOwner,
-          };
-        });
+        get().actions.applyOwnerDiagnostics(owner, [{ filePath, diagnostics: null }]);
       },
 
       clearAllDiagnostics: () => {

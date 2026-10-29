@@ -4,6 +4,7 @@ import Foundation
 /// Implementations may use AppKit, Qt, or another native UI toolkit.
 @MainActor
 protocol PlatformUI: AnyObject {
+    func confirmHardLinkSave(at url: URL) -> DocumentHardLinkSaveMode?
     func activateApplication()
     func chooseDirectory(title: String, prompt: String) -> URL?
     func chooseFile(title: String, prompt: String) -> URL?
@@ -20,6 +21,7 @@ protocol PlatformUI: AnyObject {
 }
 
 extension PlatformUI {
+    func confirmHardLinkSave(at url: URL) -> DocumentHardLinkSaveMode? { nil }
     func choosePluginPackage(title: String, prompt: String) -> URL? {
         chooseDirectory(title: title, prompt: prompt)
     }
