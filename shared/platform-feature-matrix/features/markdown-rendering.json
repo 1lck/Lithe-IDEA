@@ -13,11 +13,12 @@
   },
   "windows": {
     "evidence": [
-      "windows/tauri/src/features/editor/markdown"
+      "windows/tauri/src/features/editor/markdown",
+      "windows/tauri/src/features/editor/markdown/use-highlighted-markdown.test.tsx"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "owner": "Editor",
-  "verification": "使用代码高亮、表格、Mermaid、链接和相对路径 fixture 对比渲染结果。"
+  "verification": "使用代码高亮、表格、Mermaid、链接和相对路径 fixture 对比渲染结果。打开含上千个代码块的大型 Markdown 预览，渲染不卡住，编辑时预览不会先闪成未高亮的代码；代码里的 `$&`、`$1` 按原文显示。"
 }

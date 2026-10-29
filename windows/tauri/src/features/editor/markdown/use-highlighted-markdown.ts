@@ -18,16 +18,27 @@ export function useHighlightedMarkdown(
   useEffect(() => {
     let cancelled = false;
 
-    setHtml(parsedHtml);
     if (!parsedHtml) {
+      setHtml(parsedHtml);
       return undefined;
     }
+    // Keep the current preview until the edited document is highlighted too.
+    // Showing the plain HTML in between rebuilt and laid out the whole preview
+    // twice per edit; only an empty preview shows it first.
+    setHtml((current) => current || parsedHtml);
 
-    void highlightMarkdownCodeBlocks(parsedHtml).then((highlightedHtml) => {
-      if (!cancelled) {
-        setHtml(highlightedHtml);
-      }
-    });
+    void highlightMarkdownCodeBlocks(parsedHtml).then(
+      (highlightedHtml) => {
+        if (!cancelled) {
+          setHtml(highlightedHtml);
+        }
+      },
+      () => {
+        if (!cancelled) {
+          setHtml(parsedHtml);
+        }
+      },
+    );
 
     return () => {
       cancelled = true;
