@@ -317,9 +317,9 @@ export function mergeLaunchEnvironment(
   plan: { environment?: Record<string, unknown>; env?: Record<string, string> },
 ): Record<string, unknown> {
   return {
-    ...configurationEnv,
-    ...(plan.env ?? {}),
     ...(plan.environment ?? {}),
+    ...(plan.env ?? {}),
+    ...configurationEnv,
   };
 }
 

@@ -15,6 +15,7 @@ TRIPLE=""
 OUTPUT_DIR=""
 PLUGIN_ID=""
 BUNDLED_ONLY=false
+MARKETPLACE_INDEX="$ROOT_DIR/Plugins/marketplace/index.json"
 # Architectures a package's own runtime is assembled for: arm64, x86_64, or
 # universal. Defaults to the architecture of --triple.
 RUNTIME_ARCH=""
@@ -29,10 +30,11 @@ while [[ $# -gt 0 ]]; do
         --triple) TRIPLE="$2"; shift 2 ;;
         --output) OUTPUT_DIR="$2"; shift 2 ;;
         --bundled-only) BUNDLED_ONLY=true; shift ;;
+        --marketplace-index) MARKETPLACE_INDEX="$2"; shift 2 ;;
         --plugin-id) PLUGIN_ID="$2"; shift 2 ;;
         --arch) RUNTIME_ARCH="$2"; shift 2 ;;
         --development-unsigned) DEVELOPMENT_UNSIGNED=true; shift ;;
-        *) print -u2 -- "Usage: $0 --triple triple [--configuration debug|release] [--output directory] [--plugin-id id] [--arch arm64|x86_64|universal] [--bundled-only] [--development-unsigned]"; exit 2 ;;
+        *) print -u2 -- "Usage: $0 --triple triple [--configuration debug|release] [--output directory] [--plugin-id id] [--arch arm64|x86_64|universal] [--bundled-only] [--marketplace-index path] [--development-unsigned]"; exit 2 ;;
     esac
 done
 
@@ -82,8 +84,9 @@ for plugin_source in "$ROOT_DIR"/Plugins/mac/Official/*(/N); do
     if [[ -n "$PLUGIN_ID" && "$package_id" != "$PLUGIN_ID" ]]; then
         continue
     fi
-    if [[ "$BUNDLED_ONLY" == true ]] && ! node "$ROOT_DIR/scripts/official-plugin-distribution.mjs" "$package_id"; then
-        continue
+    if [[ "$BUNDLED_ONLY" == true ]]; then
+        bundled=$(node "$ROOT_DIR/scripts/official-plugin-distribution.mjs" "$package_id" "$MARKETPLACE_INDEX")
+        [[ "$bundled" == true ]] || continue
     fi
     schema_version=$(/usr/bin/plutil -extract schemaVersion raw "$manifest")
     if [[ "$schema_version" != "2" ]]; then
@@ -91,8 +94,16 @@ for plugin_source in "$ROOT_DIR"/Plugins/mac/Official/*(/N); do
         exit 1
     fi
     signature_requirement=$(/usr/bin/plutil -extract vendor.signatureRequirement raw "$manifest")
+    bundled_signature_requirement=$(/usr/bin/plutil -extract vendor.bundledSignatureRequirement raw "$manifest" 2>/dev/null || true)
+    # The same manifest describes both distributions. Only the explicitly
+    # selected application-bundled build may rely on the application's seal;
+    # standalone packages always go through publisher signing below.
+    uses_host_seal=false
+    if [[ "$BUNDLED_ONLY" == true && "$bundled_signature_requirement" == "sameTeamAsHost" ]]; then
+        uses_host_seal=true
+    fi
     publisher_signed=false
-    if [[ "$signature_requirement" == "publisherPackage" && "$DEVELOPMENT_UNSIGNED" == false ]]; then
+    if [[ "$signature_requirement" == "publisherPackage" && "$DEVELOPMENT_UNSIGNED" == false && "$uses_host_seal" == false ]]; then
         publisher_signed=true
     fi
     if [[ "$publisher_signed" == true && -z "${LITHE_PLUGIN_PACKAGE_PRIVATE_KEY:-}" ]]; then
@@ -118,7 +129,7 @@ for plugin_source in "$ROOT_DIR"/Plugins/mac/Official/*(/N); do
         "$package_assembler" --output "$package_dir" --arch "$RUNTIME_ARCH" >&2
     fi
 
-    if [[ "$signature_requirement" == "publisherPackage" && "$publisher_signed" == false ]]; then
+    if [[ "$signature_requirement" == "publisherPackage" && "$publisher_signed" == false && "$uses_host_seal" == false ]]; then
         print -u2 -- "Built unsigned development package $package_id; only development builds of Lithe can install it"
     fi
     if [[ "$publisher_signed" == true ]]; then

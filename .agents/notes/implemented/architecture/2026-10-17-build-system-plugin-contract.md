@@ -12,6 +12,10 @@ Rust Core 负责校验声明、识别工程、展开每一条命令行，并把�
 
 目前落地的是 Core、共享契约和 macOS 宿主（第 10 节）。macOS 为每个启用的构建系统各开一个工具窗口，向 Core 声明 `buildSystems: [1]` 和 `buildProviders: [1]`，并在用户点击加载模型或依赖时启动 Provider、发送 `lithe/build/*`；Windows 宿主还没有接入。API 3 的清单按能力分版本，声明式构建系统使用 `buildSystems`，两种写法的 Provider 都额外使用 `buildProviders: 1`；插件市场只在宿主声明支持对应能力时才列出 API 3 的版本，见[声明式插件按能力分版本](2026-10-17-plugin-capability-versions.md)。宿主接入和 Maven 迁移的计划见[构建系统 Provider 提案](../../proposed/architecture/2026-10-17-build-system-provider-api.md)。
 
+### 当前实现范围与删除条件
+
+这里的统一模型、Provider 和通用工具窗口已经落地；下文记录的 `MavenService`、Run/Debug/Agent 旧消费者及 Maven 导入兼容路径仍是当前实现，不能把它们解释为 Maven 领域迁移已完成或必须长期保留。[#1495 的迁移清单](../../proposed/architecture/2026-10-26-maven-java-domain-plugin-migration.md) 按入口列出替换与删除条件：最新宿主/匹配插件接管所有消费者并完成数据迁移后，删除旧服务、旧配置读取和 fallback。Build Provider v1 的模型/依赖能力与宿主执行声明式 CLI 任务，也不等同于插件后端已拥有构建执行。
+
 ### Provider 任务与测试执行补充（2026-10-26）
 
 当前增加 `buildProviders: 2/3/4` 与 `litheBuild` 协议 2/3/4：原生 Build 任务、测试发现/执行和应用启动准备通过类型化请求进入同一个工作区 Provider，不要求网页，不使用插件私有函数。测试报告复用原有解析器，应用准备交给既有 Run 进程所有者。本文关于版本 1 仅有模型/依赖的说明仍适用于版本 1；具体版本准入、进度、取消与删除条件见[Build Provider 原生任务执行](2026-10-26-build-provider-task-execution.md)。这不代表命令模型运行配置、服务编排或 Java/Maven 业务迁移已经完成。
@@ -258,7 +262,7 @@ Gradle 的 `offline` 和 `userHome` 是用户自己选的值，不是猜测，�
 macOS 接入规则（2026-10-18）：
 
 - `BuildSystemService` 在无进程检测后，用当前模型接受的有效选项调用 `build.languageImport`。只按返回的 `kind` 转发，不按插件或构建系统 ID 判断。Maven 安装路径来自 `MacBuildToolResolver.languageImportExecutable` 的被动发现，不执行版本探测、Wrapper 或运行时探测；找不到工具仍可使用 JDT 的默认安装设置。
-- 一个 JDT 会话可同时带一个 Maven 和一个 Gradle 输入。检测到多个相同种类的实例时，先选工作区根，再选最浅的根，最后按路径和稳定 ID 排序；不合并不同 reactor 的 Profiles 或机器路径。没有对应插件输入时保留原 Maven 设置兼容路径；`MavenService` 仍是 Run/Debug/Agent 业务的现有提供者。
+- 一个 JDT 会话可同时带一个 Maven 和一个 Gradle 输入。检测到多个相同种类的实例时，先选工作区根，再选最浅的根，最后按路径和稳定 ID 排序；不合并不同 reactor 的 Profiles 或机器路径。没有对应插件输入时，当前实现仍读取原 Maven 设置兼容路径；`MavenService` 仍是 Run/Debug/Agent 业务的现有提供者。这是待迁移状态：#1495 的 M3–M8 消费者完成切换后删除此路径，不作为新能力的失败回退。
 - 打开项目、编辑器同步、Run/Debug、测试发现、Java 入口点与维护操作在启动前都受同一份准备结果约束。维护入口先结束模块激活和插件注册，再等待导入；首次启动在 Java 运行时准备完成后还要重新等待当前结果，因为此前已经准备好的配置可能在挂起期间失效。最后一次等待结束后直接调用同步启动，不能在二者之间再插入异步工作。入口携带包含重开代次的 `WorkspaceIdentity`，每个异步边界后重查并检查取消；同步启动入口在配置尚未准备好时拒绝启动，不能借旧 Maven 上下文绕过等待。
 - 检测、选项或插件变化使导入结果失效并重新计算。命令模型加载后可能收窄可选值，因此发布模型和生效选项后也要重新归一化；受监听文件变化影响时，立即清除旧输入并取消旧检测，再沿用 500 毫秒合并等待重算，等待期间不能读取保存前的配置。直接发起的检测会取消尚未到期的合并任务，避免迟到的重复检测再次清空刚准备好的配置。完成时同时校验工作区代次、检测 UUID 和取消状态，再通知同一工作区的 Java 会话；Maven 优先原地更新，Gradle 等下次会话启动。若运行中的会话拒绝 Maven 更新（例如它启动时没有 Maven 输入），调用现有 `reloadJavaWorkspace` 恢复，不能只留下警告。Java 准备协调器串行持有这项恢复：新发布先取消并等待旧恢复结束清理，再应用最新配置；旧恢复取消了自己创建的会话时，新发布继续承担重启，不能把此时的 `noSession` 当成无需处理。工作区替换、关闭、停用 Java 或会话关闭会取消恢复；包含同路径重开的代次检查阻止旧任务启动新会话。等待者有 30 秒期限，各自取消只释放自己的 continuation；停止或重置取消所有等待者，旧检测不能清除新检测或更新新工作区。
 - 停用或移除 Maven 构建插件后，没有插件或兼容输入的活动会话也必须清除旧 Profiles、settings、仓库和工具路径。会话管理器记录启动时实际传入的 Maven 上下文，仅向带过 Maven 输入的同一会话发送空配置；纯 Gradle 会话首次启动仍传 `nil`，不能为了将来清除而给所有 Java 会话注入空 Maven 输入。停止或清除会话时同时释放记录，重开后的会话不能继承旧配置的清除资格。

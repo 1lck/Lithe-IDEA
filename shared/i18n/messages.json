@@ -13984,17 +13984,29 @@
     },
     {
       "id": "git.diff.repositoryPreviewEmptyTitle",
-      "description": "Windows UI: git.diff.repositoryPreviewEmptyTitle",
+      "description": "Shared repository comparison editor tab title",
       "platforms": [
-        "windows"
-      ]
+        "windows",
+        "macos"
+      ],
+      "macos": {
+        "key": "Repository Diff",
+        "arguments": []
+      }
     },
     {
       "id": "git.diff.repositoryPreviewTitle",
-      "description": "Windows UI: git.diff.repositoryPreviewTitle",
+      "description": "Shared repository comparison editor tab file title",
       "platforms": [
-        "windows"
+        "windows",
+        "macos"
       ],
+      "macos": {
+        "key": "Repository Diff: %@",
+        "arguments": [
+          "file"
+        ]
+      },
       "parameters": {
         "file": "string"
       }
@@ -19329,8 +19341,13 @@
       "id": "git.unifiedView",
       "description": "Windows UI: git.unifiedView",
       "platforms": [
+        "macos",
         "windows"
-      ]
+      ],
+      "macos": {
+        "key": "Unified view",
+        "arguments": []
+      }
     },
     {
       "id": "git.unstageAllChanges",
@@ -39590,6 +39607,17 @@
       }
     },
     {
+      "id": "native.hideCommitDetails",
+      "description": "Native UI: Hide commit details",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Hide commit details",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.hideConfigurationList",
       "description": "Native UI: Hide configuration list",
       "platforms": [
@@ -57080,6 +57108,17 @@
       }
     },
     {
+      "id": "native.sideBySideView",
+      "description": "Native UI: Side-by-side view",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Side-by-side view",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.signInToCodex",
       "description": "Native UI: Sign in to Codex",
       "platforms": [
@@ -71592,6 +71631,34 @@
       ]
     },
     {
+      "id": "settings.mcp.error.expired",
+      "description": "Windows IDE MCP request error: expired",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.mcp.error.request",
+      "description": "Windows IDE MCP request error: request",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.mcp.error.transport",
+      "description": "Windows IDE MCP request error: transport",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.mcp.error.undelivered",
+      "description": "Windows IDE MCP request error: undelivered",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
       "id": "settings.mcp.openProject",
       "description": "Windows UI: settings.mcp.openProject",
       "platforms": [
@@ -71601,6 +71668,27 @@
     {
       "id": "settings.mcp.plugins",
       "description": "Windows UI: settings.mcp.plugins",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.mcp.status.active",
+      "description": "Windows IDE MCP request status: active",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.mcp.status.failed",
+      "description": "Windows IDE MCP request status: failed",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "id": "settings.mcp.status.waiting",
+      "description": "Windows IDE MCP request status: waiting",
       "platforms": [
         "windows"
       ]
@@ -89946,6 +90034,52 @@
       }
     },
     {
+      "id": "plugins.java.installNotice",
+      "description": "macOS Java Support independent distribution installation entry",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Java Support is installed separately. Install it from the Marketplace, or use Install from Disk for an offline package. Your Java settings are kept.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "plugins.java.installTemplates",
+      "description": "macOS Java Support independent distribution installation entry",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Install Java Support for Java, Maven and Spring templates…",
+        "arguments": []
+      }
+    },
+    {
+      "id": "run.incompleteProjectScanTitle",
+      "description": "Run: incomplete workspace scan warning",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Project scan is incomplete",
+        "arguments": []
+      }
+    },
+    {
+      "id": "run.incompleteProjectScanMessage",
+      "description": "Run: incomplete workspace scan warning",
+      "platforms": [
+        "macos",
+        "windows"
+      ],
+      "macos": {
+        "key": "Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations.",
+        "arguments": []
+      }
+    },
+    {
       "id": "native.theLanguageServerThisBuildSystemUsesIsNotAvailable",
       "description": "Native UI: The language server this build system uses is not available. Open a file of the language and try again.",
       "platforms": [
@@ -90074,6 +90208,61 @@
       ],
       "macos": {
         "key": "The build provider's debug program or adapter is unavailable. Build it again and check that the plugin is enabled.",
+        "arguments": []
+      }
+    },
+    {
+      "id": "git.log.olderCommitsFailed",
+      "description": "Git history pagination failure; explicitly refresh because the failed Core cursor is consumed.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Could not load older commits. Refresh history",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.stageFiles",
+      "description": "Native UI: Stage Files",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Stage Files",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.unstageFiles",
+      "description": "Native UI: Unstage Files",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Unstage Files",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.discardChangesToSelectedFiles",
+      "description": "Native UI: Discard changes to selected files?",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "Discard changes to selected files?",
+        "arguments": []
+      }
+    },
+    {
+      "id": "native.discardWorktreeChangesWarning",
+      "description": "Native UI: This action cannot be undone by Lithe. Untracked files will be deleted.",
+      "platforms": [
+        "macos"
+      ],
+      "macos": {
+        "key": "This action cannot be undone by Lithe. Untracked files will be deleted.",
         "arguments": []
       }
     },

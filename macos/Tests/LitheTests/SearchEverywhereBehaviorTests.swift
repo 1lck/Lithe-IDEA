@@ -710,8 +710,8 @@ struct SearchEverywhereBehaviorTests {
                 timestamp: 0, windowNumber: popup.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)))
         }
         deadline = clock.now.advanced(by: .seconds(1))
-        while popup.childWindows?.first == nil, clock.now < deadline { await Task.yield() }
-        var filter = try #require(popup.childWindows?.first)
+        while popup.childWindows?.first(where: { !$0.styleMask.contains(.titled) }) == nil, clock.now < deadline { await Task.yield() }
+        var filter = try #require(popup.childWindows?.first(where: { !$0.styleMask.contains(.titled) }))
         session.enabledEverywhereProviders = [.actions]
         deadline = clock.now.advanced(by: .seconds(1))
         while !filteredProviderWasRead, clock.now < deadline { await Task.yield() }
@@ -842,11 +842,16 @@ struct SearchEverywhereBehaviorTests {
                 editor.selectAll(nil)
                 editor.insertText("discarded", replacementRange: editor.selectedRange())
                 try await clickControl("search-exclusions-cancel", in: dialog)
+                // The SwiftUI binding closes the native dialog on its next
+                // update. Do not send the next click through that closing panel.
+                deadline = clock.now.advanced(by: .seconds(1))
+                while dialog.parent != nil || dialog.isVisible, clock.now < deadline { await Task.yield() }
+                try #require(dialog.parent == nil && !dialog.isVisible)
                 #expect(settings.searchExcludedPathPatterns.isEmpty && session.isSearchEverywhereVisible)
                 try await clickControl("search-everywhere-filter", in: popup)
                 deadline = clock.now.advanced(by: .seconds(1))
-                while popup.childWindows?.first == nil, clock.now < deadline { await Task.yield() }
-                filter = try #require(popup.childWindows?.first)
+                while popup.childWindows?.first(where: { !$0.styleMask.contains(.titled) }) == nil, clock.now < deadline { await Task.yield() }
+                filter = try #require(popup.childWindows?.first(where: { !$0.styleMask.contains(.titled) }))
                 dialog = try await openEditor()
                 editor = try #require(dialog.contentView.flatMap { descendants($0).compactMap { $0 as? NSTextView }.first })
             }
@@ -855,6 +860,9 @@ struct SearchEverywhereBehaviorTests {
             editor.insertText(draft, replacementRange: editor.selectedRange())
             searchedPatterns = []
             try await clickControl("search-exclusions-apply", in: dialog)
+            deadline = clock.now.advanced(by: .seconds(1))
+            while dialog.parent != nil || dialog.isVisible, clock.now < deadline { await Task.yield() }
+            try #require(dialog.parent == nil && !dialog.isVisible)
             saved = draft.isEmpty ? [] : ["*.log", "**/.*/"]
             deadline = clock.now.advanced(by: .seconds(2))
             while !searchedPatterns.contains(saved), clock.now < deadline { await Task.yield() }
@@ -866,9 +874,13 @@ struct SearchEverywhereBehaviorTests {
                 #expect(settings.searchEverywhereVisibilityRules == settings.fileVisibilityRules)
                 try await clickControl("search-everywhere-filter", in: popup)
                 deadline = clock.now.advanced(by: .seconds(1))
-                while popup.childWindows?.first == nil, clock.now < deadline { await Task.yield() }
-                filter = try #require(popup.childWindows?.first)
+                while popup.childWindows?.first(where: { !$0.styleMask.contains(.titled) }) == nil, clock.now < deadline { await Task.yield() }
+                filter = try #require(popup.childWindows?.first(where: { !$0.styleMask.contains(.titled) }))
                 try await clickControl("search-exclusions-toggle", in: filter)
+                // Native input delivery may finish after sendEvent returns.
+                // Observe its effect once, without sending a second toggle.
+                deadline = clock.now.advanced(by: .seconds(1))
+                while !settings.searchExclusionsEnabled, clock.now < deadline { await Task.yield() }
                 #expect(settings.searchExclusionsEnabled)
                 #expect(settings.searchEverywhereVisibilityRules.hiddenFilePatterns.contains("*.log"))
             }
@@ -882,8 +894,8 @@ struct SearchEverywhereBehaviorTests {
             popup = try #require(parent.childWindows?.first)
             try await clickControl("search-everywhere-filter", in: popup)
             deadline = clock.now.advanced(by: .seconds(1))
-            while popup.childWindows?.first == nil, clock.now < deadline { await Task.yield() }
-            filter = try #require(popup.childWindows?.first)
+            while popup.childWindows?.first(where: { !$0.styleMask.contains(.titled) }) == nil, clock.now < deadline { await Task.yield() }
+            filter = try #require(popup.childWindows?.first(where: { !$0.styleMask.contains(.titled) }))
         }
         let finalDialog = try await openEditor()
         let finalEditor = try #require(finalDialog.contentView.flatMap { descendants($0).compactMap { $0 as? NSTextView }.first })

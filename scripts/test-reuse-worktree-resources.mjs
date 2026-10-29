@@ -64,6 +64,19 @@ function reuse(extraArguments = []) {
 }
 
 try {
+  await test("SwiftPM build products and compiler stamps cannot be reused", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const resource = registry.excludedResources.find(item => item.id === "swiftpm-build-state");
+    assert.equal(resource.reusable, false);
+    assert.ok(resource.locations.includes(".build/<triple>/.lithe-swift-toolchain"));
+    const listed = run(process.execPath, [reuseScript, "--list"]);
+    assertSucceeded(listed);
+    assert.ok(!listed.stdout.includes(resource.id));
+    const refused = reuse(["--resource", resource.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /swiftpm-build-state is isolated.*cannot be reused/);
+    await assert.rejects(fs.access(targetRoot), { code: "ENOENT" });
+  });
   await test("shared translations are regenerated locally rather than reused", { timeout: 15000 }, async () => {
     const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
     const resource = registry.excludedResources.find(item => item.id === "shared-i18n");
@@ -272,6 +285,18 @@ try {
     const refused = reuse(["--resource", resource.id]);
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /plugin-web-state.*cannot be reused/);
+  });
+  await test("architecture release archives and extracted signature probes are never reusable", { timeout: 15000 }, async () => {
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const packages = registry.excludedResources.find(item => item.id === "official-plugin-packages");
+    assert.ok(packages.locations.includes("dist/packages/<arch>/<plugin-id>/"));
+    assert.ok(packages.locations.includes("dist/verify/<arch>/<plugin-id>/"));
+    assert.ok(packages.locations.includes(".artifacts/java-plugin-distribution/"));
+    assert.ok(packages.locations.includes("<test-temp>/lithe-package-verification.*/published-index.fixture.json"));
+    assert.match(packages.reason, /LITHE_OFFICIAL_PLUGIN_INDEX/);
+    const refused = reuse(["--resource", packages.id]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /official-plugin-packages is isolated.*cannot be reused/);
   });
   await test("plugin packages and marketplace state stay isolated in each worktree", { timeout: 15000 }, async () => {
     const listed = run(process.execPath, [reuseScript, "--list"]);

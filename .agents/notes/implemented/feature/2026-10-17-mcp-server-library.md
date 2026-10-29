@@ -154,6 +154,13 @@ Lithe 的托管服务器或插件市场，也不把收录标成安全审核。Co
 macOS adapter 使用无持久缓存、无 Cookie 和无凭据存储的 URLSession，限制响应为
 1 MiB，请求/总资源期限分别为 15/20 秒。搜索任务归 SwiftUI 页面拥有，离开页面取消；
 请求身份防止旧响应覆盖新搜索，分页合并按名称去重，相同 cursor 不再反复加载。
+在线匹配列表不再要求点击“加载更多”：共享 `LitheScrollLoadTrigger` 在原生滚动视口
+接近列表尾部时请求下一页，几何信息只留在控件内，不向整个设置页发布每像素滚动状态。
+不能把普通 `VStack` 尾部的 `onAppear` 当成可见性：它可以在离屏时挂载，导致自动拉完整个目录。
+该探针也被通用 VCS 历史复用，但不替换 Git 自己已有的原生行渲染器。
+模型以已提交的查询与代理路由续页，不读取用户尚未提交的新输入；同一页仅允许一个在途请求。
+无新增结果、重复或循环 cursor 均停止续载。失败保留已加载匹配并暂停自动请求，用户显式重试时
+沿用失败页的 cursor；显式改用直连时重新搜索，不能把系统代理的 cursor 带到另一条路由。
 精选与在线条目按 ID 和不含名称的连接定义去重。连接失败保留已匹配条目，明确区分
 安全连接、超时和网络不可达，并保留手动添加入口，不把失败伪装成“没有服务器”。
 请求默认遵循 macOS 系统代理；只有用户点击“直连重试”才为此页面的公开目录请求
@@ -165,6 +172,11 @@ macOS adapter 使用无持久缓存、无 Cookie 和无凭据存储的 URLSessio
 将其登记为 `mcp-registry-metadata`，不存在可复制阶段。
 
 ## 考虑过的备选方案
+
+### 保留正常加载更多按钮，或一次读取所有在线结果
+
+目录是连续列表，手动逐页点击会打断浏览；一次读取全部结果则浪费网络并可能无限追逐异常 cursor。
+因此只在视口接近尾部时使用现有有界分页，保留失败后的显式重试，不把自动续页误写成自动重试。
 
 ### 只复制一段 Lithe 配置，不做资源库
 
@@ -201,6 +213,8 @@ Windows 的 Agent 配置路径和 Tauri 侧文件访问模型不同，同步实�
 - 约束：运行时仍然不能向 app bundle、安装目录写入任何内容。备份、临时文件和锁只在 Application Support 或项目工作区中创建。
 
 ## 验证
+
+- `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter "McpRegistryTests|ScrollLoadTriggerTests"`：原生视口与实际 SwiftUI 宿主覆盖离屏不请求、接近尾部预取、短内容、尺寸变化、偏移保持、同页去重和卸载；模型覆盖失败后停止、显式同 cursor 重试、循环/空页停止、在途去重以及查询/路由隔离。普通测试不访问网络，不能代替目标网络环境下的官方目录验收。
 
 - `LITHE_MCP_PROBE_INTEGRATION=1 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --max-seconds 45 -- --filter McpArgumentRoundTripTests`（显式联网验收 Context7 的真实工具列表、原生大栈线程、取消前启动保护、精确参数、独立工具规则和过期文件保护；普通测试不依赖公网）
 - `node .agents/skills/write-stable-tests/scripts/run-rust-tests-with-timing.mjs --manifest rust/Cargo.toml --package lithe-agent-host --report .artifacts/test-stability/mcp-tools-host.json`（本地 stdio、HTTP JSON/SSE 响应、分页、超大响应拒绝、虚拟超时及取消后进程回收）

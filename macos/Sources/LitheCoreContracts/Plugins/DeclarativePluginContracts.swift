@@ -848,7 +848,8 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             vendor: PluginVendor(
                 id: decoded.vendor.id,
                 displayName: decoded.vendor.displayName,
-                signatureRequirement: decoded.vendor.signatureRequirement
+                signatureRequirement: decoded.vendor.signatureRequirement,
+                bundledSignatureRequirement: decoded.vendor.bundledSignatureRequirement
             ),
             entrypoint: .declarative,
             modules: modules,
@@ -892,6 +893,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             let id: String
             let displayName: String
             let signatureRequirement: PluginSignatureRequirement
+            let bundledSignatureRequirement: PluginSignatureRequirement?
         }
         struct Dependencies: Decodable {
             let managementFileNames: [String]

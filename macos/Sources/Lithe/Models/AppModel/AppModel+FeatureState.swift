@@ -90,21 +90,26 @@ extension AppModel {
         }
     }
 
-    var isRepositoryDiffSelected: Bool {
-        // These surfaces take precedence over the editor tabs in EditorAreaView.
-        selectedChange == nil && branchComparison == nil
-            && editorTabOrderFeature.contains(.repositoryDiff) && (editorTabOrderFeature.repositoryDiffSelected
-            || activeDocument == nil && activeEditorTerminalSession == nil && activeMediaDocument == nil)
+    var selectedRepositoryDiffID: UUID? {
+        guard editorTabOrderFeature.repositoryDiffSelected,
+              case .repositoryDiff(let id) = editorTabOrderFeature.focusedItem else { return nil }
+        return id
     }
+    var isRepositoryDiffSelected: Bool { selectedRepositoryDiffID != nil }
     var editorTabItems: [EditorTabItem] { editorTabOrderFeature.items }
 
-    func selectRepositoryDiffTab() {
-        guard editorTabOrderFeature.contains(.repositoryDiff) else { return }
-        editorTabOrderFeature.focus(.repositoryDiff)
-        if !editorTabOrderFeature.repositoryDiffSelected {
-            editorTabOrderFeature.repositoryDiffReturnTab = activeEditorTerminalSession.map { .terminal($0.id) }
-                ?? activeMediaDocument.map { .media($0.id) } ?? activeDocument.map { .document($0.id) }
+    func selectRepositoryDiffTab(_ id: UUID? = nil) {
+        guard let id = id ?? selectedRepositoryDiffID ?? editorTabOrderFeature.repositoryDiffIDs.last,
+              editorTabOrderFeature.contains(.repositoryDiff(id)) else { return }
+        let item = EditorTabItem.repositoryDiff(id)
+        if let previous = editorTabOrderFeature.focusedItem, previous != item,
+           let group = editorTabOrderFeature.groupLayout.groups.first(where: {
+               editorTabOrderFeature.items(in: $0).contains(item)
+           }), editorTabOrderFeature.items(in: group).contains(previous) {
+            editorTabOrderFeature.repositoryDiffReturnTabs[id] = previous
         }
+        editorTabOrderFeature.focus(.repositoryDiff(id))
+        gitFeatureIfActive?.activateRepositoryDiffSession(id)
         terminalPlacementFeature.activateDocument()
         mediaFeature.deactivate()
         activeDocumentID = nil
@@ -145,8 +150,8 @@ extension AppModel {
         editorTabOrderFeature.focus(item)
         switch item {
         case .agentConversation(let tab): showAgentChatsInEditor(tab: tab)
-        case .repositoryDiff:
-            selectRepositoryDiffTab()
+        case .repositoryDiff(let id):
+            selectRepositoryDiffTab(id)
         case .document(let documentID):
             guard let document = openDocuments.first(where: { $0.id == documentID }) else {
                 editorTabOrderFeature.remove(item)

@@ -627,12 +627,16 @@ struct GitLogFilterRowView<Row: GitLogFilterRow>: View {
                 titleText
                     .font(LitheTheme.uiFont(size: LitheDropdownMetrics.fontSize))
                     .lineLimit(1)
+                    .layoutPriority(1)
                 Spacer(minLength: 10)
                 if let detail = item.rowDetail {
+                    // An address keeps both ends when it must shrink; the tail alone is the
+                    // part of a noreply address that identifies the person.
                     Text(verbatim: detail)
                         .font(LitheTheme.uiFont(size: 11.5))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .lineLimit(1)
+                        .truncationMode(.middle)
                 }
                 if isSelected {
                     Image(systemName: "checkmark")
@@ -897,6 +901,8 @@ struct GitLogFilterPopover<Row: GitLogFilterRow>: View {
     let emptyText: LocalizedStringKey
     let isItemSelected: (Row) -> Bool
     let onSelect: (Row) -> Void
+    /// Rows that carry a second column, such as an author's address, need more than the default.
+    var width: CGFloat = 340
 
     @State private var searchQuery = ""
 
@@ -915,7 +921,7 @@ struct GitLogFilterPopover<Row: GitLogFilterRow>: View {
                 onSelect: onSelect
             )
         }
-        .frame(width: 340)
+        .frame(width: width)
         .frame(maxHeight: 460)
         .litheContextMenuSurface()
     }

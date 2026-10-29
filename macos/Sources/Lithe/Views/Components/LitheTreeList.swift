@@ -575,9 +575,13 @@ protocol LitheTreeListNativeRenderer: View {}
 
 extension LitheTreeList where Data == [Never], ID == Never, RowContent == EmptyView {
     init<Renderer: LitheTreeListNativeRenderer>(native renderer: Renderer) {
-        self.init([], id: \.self, selection: .constant(nil)) { _ in EmptyView() }
+        self.init([], id: \.self, selection: .constant(nil), row: Self.noRow)
         nativeRenderer = AnyView(renderer)
     }
+
+    /// The list has no items, so no row is ever built. Generic on purpose: a body over `Never`
+    /// itself is flagged as unreachable.
+    private static func noRow<Item>(_ item: Item) -> EmptyView { EmptyView() }
 }
 
 struct LitheTreeListRowSurface: ViewModifier {

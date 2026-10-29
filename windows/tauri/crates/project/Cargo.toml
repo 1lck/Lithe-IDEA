@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+lithe-core = { path = "../../../../rust/lithe-core" }
 anyhow = "1.0"
 encoding_rs = "0.8"
 sha2 = "0.10"

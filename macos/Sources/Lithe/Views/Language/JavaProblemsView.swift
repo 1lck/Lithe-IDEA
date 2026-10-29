@@ -343,8 +343,6 @@ enum ProblemsPanelScope: CaseIterable {
     static func currentFileURL(in model: AppModel) -> URL? {
         // Match FileEditorManager.selectedEditor, including non-text editor selection.
         guard !model.isAgentEditorSelected, !model.isRepositoryDiffSelected,
-              model.gitFeatureIfActive?.selectedChange == nil,
-              model.gitFeatureIfActive?.branchComparison == nil,
               model.activeEditorTerminalSession == nil,
               model.activeMediaDocument == nil else { return nil }
         return model.activeDocument?.url.standardizedFileURL

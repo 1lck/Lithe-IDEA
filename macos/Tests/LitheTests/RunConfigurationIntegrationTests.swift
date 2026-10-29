@@ -2505,6 +2505,55 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
+    func repeatedStartupFailuresStopUntilExplicitRestart() async throws {
+        let harness = makeLanguageServerHarness()
+        defer { harness.manager.stopAll() }
+        for _ in 0..<3 {
+            let failed = TestGate()
+            harness.manager.onLanguageServerStateChange = { _, state, _ in
+                if case .failed = state { failed.open() }
+            }
+            try harness.manager.synchronizeLanguageServer(for: harness.source, text: "struct App {}", rootURL: harness.root)
+            harness.core.enqueueFailure(code: "serverExited", message: "startup failed")
+            #expect(await failed.waitUntilOpen())
+        }
+        #expect(harness.core.startCalls.count == 3)
+        for _ in 0..<5 {
+            #expect(throws: LanguageServerSessionStartError.self) {
+                try harness.manager.synchronizeLanguageServer(for: harness.source, text: "struct App {}", rootURL: harness.root)
+            }
+        }
+        #expect(harness.core.startCalls.count == 3)
+        harness.manager.stopLanguageServer(providerID: "swift")
+        try harness.manager.synchronizeLanguageServer(for: harness.source, text: "struct App {}", rootURL: harness.root)
+        #expect(harness.core.startCalls.count == 4)
+    }
+
+    @Test
+    func pluginSessionPreservesHostIntegrationLaunchResources() throws {
+        let core = TestLanguageServerRuntimeCore(providerID: "java")
+        let resources = JDTLSLaunchResources(
+            launcherJarURL: URL(fileURLWithPath: "/test-plugin/equinox.jar"),
+            configurationDirectoryURL: URL(fileURLWithPath: "/test-plugin/configuration/arm64"),
+            lombokAgentURL: URL(fileURLWithPath: "/test-plugin/lombok.jar")
+        )
+        let java = URL(fileURLWithPath: "/test-plugin/runtime/bin/java")
+        let cache = URL(fileURLWithPath: "/test-cache/language-servers")
+        let session = StdioLanguageServerSession(
+            providerID: "java", executableURL: java, arguments: ["-jar", resources.launcherJarURL.path],
+            environment: [:], hostIntegrationLaunch: .init(runtimeExecutableURL: java, coreLaunch: .jdt(resources)),
+            cacheDirectoryURL: cache, core: core, pluginID: "test.java-support"
+        )
+        defer { session.stop() }
+        try session.start(rootURL: URL(fileURLWithPath: "/test-workspace"), workspaceFingerprint: "workspace-v1")
+        let launch = try #require(core.startCalls.first)
+        #expect(launch.runtimeExecutableURL == java)
+        #expect(launch.jdtlsLaunchResources == resources)
+        #expect(launch.cacheDirectoryURL == cache)
+        #expect(launch.workspaceFingerprint == "workspace-v1")
+    }
+
+    @Test
     func virtualDocumentContentProjectsFromRustEvents() async throws {
         let core = TestLanguageServerRuntimeCore(providerID: "java")
         let session = StdioLanguageServerSession(

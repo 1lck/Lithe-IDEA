@@ -505,7 +505,8 @@ final class MacServiceContainer {
                     let executableResolver = providedRunExecutableResolver ?? RunExecutableResolver(
                         runtimeService: runtimeService,
                         toolchainRegistry: runToolchainRegistry,
-                        metadataResolver: ProcessRunToolchainMetadataResolver(processRunner: processRunner)
+                        metadataResolver: ProcessRunToolchainMetadataResolver(processRunner: processRunner),
+                        environmentResolver: rustCore
                     )
                     let runService = RunService(
                         runtime: runtimeService,

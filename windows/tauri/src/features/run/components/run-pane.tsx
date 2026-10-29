@@ -163,6 +163,7 @@ export default function RunPane() {
   const freshnessDiagnostic = diagnostics.find((diagnostic) =>
     diagnostic.code === "staleFingerprint" ||
     diagnostic.code === "fingerprintCheckFailed" ||
+    diagnostic.code === "incompleteProjectScan" ||
     diagnostic.code === "staleJavaEntrypoint");
   const isSelectedRunning = selection.isRunning;
   const output = selection.output;
@@ -320,11 +321,13 @@ export default function RunPane() {
           <div className="min-w-0 flex-1">
             <div className="font-medium ui-text-sm">
               {blockingDiagnostic ? t("run.toolchainNeedsAttention") :
-                freshnessDiagnostic?.code === "fingerprintCheckFailed" ? t("run.freshnessCheckFailed") :
+                freshnessDiagnostic?.code === "incompleteProjectScan" ? t("run.incompleteProjectScanTitle") :
+                  freshnessDiagnostic?.code === "fingerprintCheckFailed" ? t("run.freshnessCheckFailed") :
                   t("run.staleConfigurations")}
             </div>
             <div className="text-subtle-foreground ui-text-sm">
-              {blockingDiagnostic?.message ?? freshnessDiagnostic?.message}
+              {blockingDiagnostic?.message ?? (freshnessDiagnostic?.code === "incompleteProjectScan"
+                ? t("run.incompleteProjectScanMessage") : freshnessDiagnostic?.message)}
             </div>
           </div>
           {blockingDiagnostic ? (

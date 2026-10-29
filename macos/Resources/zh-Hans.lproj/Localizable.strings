@@ -966,6 +966,7 @@
 "Could not load changed files" = "无法加载更改的文件";
 "Could not load dependencies" = "无法加载依赖";
 "Could not load file preview" = "无法加载文件预览";
+"Could not load older commits. Refresh history" = "无法加载更早的提交，点击刷新历史";
 "Could not load project" = "无法加载项目";
 "Could not load saved changes" = "无法加载已保存的更改";
 "Could not load service dependencies" = "无法加载服务依赖";
@@ -1186,6 +1187,7 @@
 "Discard Block" = "丢弃代码块";
 "Discard Changes" = "丢弃更改";
 "Discard and Retry" = "放弃并重试";
+"Discard changes to selected files?" = "要丢弃所选文件的更改吗？";
 "Discard draft and reload?" = "放弃草稿并重新加载？";
 "Discard selected change" = "丢弃选中的更改";
 "Discard this change block" = "丢弃此更改代码块";
@@ -1664,6 +1666,7 @@
 "Hide Session Details" = "隐藏会话详情";
 "Hide Terminal tool window" = "隐藏终端工具窗口";
 "Hide commit decorations" = "隐藏提交装饰";
+"Hide commit details" = "隐藏提交详情";
 "Hide configuration list" = "收起运行配置列表";
 "Hide plan" = "收起计划";
 "Hide thinking" = "收起思考";
@@ -1758,6 +1761,7 @@
 "Install ACP adapters, check the runtime, and manage local or custom providers." = "安装 ACP 适配器、检查运行环境，管理本机配置或自定义供应商。";
 "Install AutoBuild" = "安装 AutoBuild";
 "Install Codex CLI to discover its skills." = "请先安装 Codex CLI，再查看它发现的技能。";
+"Install Java Support for Java, Maven and Spring templates…" = "安装 Java Support，获取 Java、Maven 和 Spring 项目模板…";
 "Install Node.js and npm before installing the adapter." = "请先安装 Node.js 和 npm，再安装适配器。";
 "Install PHP Support Plugin" = "安装 PHP Support 插件";
 "Install PHP Support from a signed plugin package." = "请从已签名的插件包安装 PHP Support。";
@@ -1830,6 +1834,7 @@
 "Java SDK" = "Java SDK";
 "Java Stepping Filters" = "Java 步进过滤器";
 "Java Stepping Filters…" = "Java 步进过滤器…";
+"Java Support is installed separately. Install it from the Marketplace, or use Install from Disk for an offline package. Your Java settings are kept." = "Java Support 现已独立安装。请从插件市场安装，或使用“从磁盘安装”导入离线包。原有 Java 设置会保留。";
 "Java entries appear after the Java language service lists runnable classes." = "Java 语言服务列出可运行的类之后，Java 入口才会出现。";
 "Java entries could not be refreshed" = "无法刷新 Java 入口";
 "Java entry-point freshness check failed" = "Java 入口点时效性检查失败";
@@ -2775,6 +2780,7 @@
 "Project run configuration is invalid" = "项目运行配置无效";
 "Project run configuration not found" = "未找到项目运行配置";
 "Project runtime settings are saved locally for this project." = "项目运行时设置会保存在本机的项目配置中。";
+"Project scan is incomplete" = "项目扫描不完整";
 "Project skills" = "项目技能";
 "Project toolchain needs attention" = "项目工具链需要处理";
 "Project will be created in: %@" = "项目将在以下位置创建：%@";
@@ -3032,6 +3038,8 @@
 "Replays every commit onto the base branch without a merge commit." = "将所有提交重放到目标分支，不创建合并提交。";
 "Reported change" = "上报的修改";
 "Repository" = "仓库";
+"Repository Diff" = "仓库差异";
+"Repository Diff: %@" = "仓库差异: %@";
 "Repository URL" = "仓库 URL";
 "Repository changed; review and retry" = "仓库状态已改变，请检查并重试";
 "Repository identity overrides inherited global values. Clear an override to use inherited settings." = "仓库身份会覆盖继承的全局值。清除覆盖后将使用继承的配置。";
@@ -3460,6 +3468,7 @@
 "Showing the previous Java entries while the Java language service prepares the project." = "Java 语言服务正在准备项目，暂时显示上次的 Java 入口。";
 "Shown across the entire workbench, including toolbars, project tree, editor, tabs, terminals, and status bar." = "显示在整个工作台内，包括工具栏、项目文件树、编辑区、标签栏、终端和状态栏。";
 "Side-by-side" = "并排";
+"Side-by-side view" = "并排视图";
 "Sign in again" = "重新登录";
 "Sign in to Codex" = "登录 Codex";
 "Sign in to GitHub" = "登录 GitHub";
@@ -3515,6 +3524,7 @@
 "Solidity Support" = "Solidity 支持";
 "Some MCP configuration files could not be restored: %@. Refresh and check these files before retrying." = "部分 MCP 配置文件未能恢复：%@。请刷新并检查这些文件后重试。";
 "Some dependencies are not shown." = "部分依赖未显示。";
+"Some project folders could not be read. Existing run configurations were retained. Restore access, then regenerate configurations." = "部分项目目录无法读取，已有运行配置已保留。请恢复访问权限后重新识别运行配置。";
 "Sort by Last Updated" = "按最近更新排序";
 "Sort by Name" = "按名称排序";
 "Sort plugins" = "插件排序";
@@ -3538,6 +3548,7 @@
 "Stack frame display options" = "调用栈显示选项";
 "Stage All and Commit use the current ChangeList." = "全部暂存和提交仅使用当前更改列表。";
 "Stage File" = "暂存文件";
+"Stage Files" = "暂存文件";
 "Stage all changes" = "暂存所有更改";
 "Stage all files" = "暂存所有文件";
 "Stage all files in current ChangeList" = "暂存当前更改列表中的所有文件";
@@ -4028,6 +4039,7 @@
 "This Markdown document is read-only" = "此 Markdown 文档为只读";
 "This Window" = "此窗口";
 "This action cannot be undone by Lithe." = "此操作无法在 Lithe 中撤销。";
+"This action cannot be undone by Lithe. Untracked files will be deleted." = "此操作无法通过 Lithe 撤销。未跟踪的文件将被删除。";
 "This adapter cannot step by instruction; steps still move by line" = "该适配器不支持按指令单步，单步仍按源码行前进";
 "This adapter does not support hot code replacement." = "此适配器不支持热代码替换。";
 "This address cannot be opened here." = "无法在此处打开该地址。";
@@ -4191,6 +4203,7 @@
 "Undo Commit" = "撤销最近一次提交（保留更改）";
 "Undo Commit…" = "撤销最近一次提交（保留更改）…";
 "Unhandled" = "未处理";
+"Unified view" = "统一视图";
 "Uninstall" = "卸载";
 "Uninstall %@ from the Installed tab and restart Lithe first. It is the retired official version of this plugin and supports the same language." = "请先在“已安装”中卸载 %@ 并重启 Lithe。它是此插件已退役的官方版本，支持同一种语言。";
 "Uninstall %@?" = "卸载 %@？";
@@ -4218,6 +4231,7 @@
 "Unsigned Decimal" = "无符号十进制";
 "Unsigned development package. Release builds of Lithe will not load it." = "未签名的开发包，正式版 Lithe 不会加载。";
 "Unstage" = "取消暂存";
+"Unstage Files" = "取消暂存文件";
 "Unstage all files" = "取消暂存所有文件";
 "Unstage all files in repository" = "取消暂存仓库的所有文件";
 "Unstage file" = "取消暂存文件";
@@ -4558,6 +4572,10 @@
 "from JAVA_HOME" = "来自 JAVA_HOME";
 "generated main" = "生成的主代码";
 "generated test" = "生成的测试代码";
+"git.diff.repositoryPreviewEmptyTitle" = "仓库差异";
+"git.diff.repositoryPreviewTitle" = "仓库差异: %1$@";
+"git.log.olderCommitsFailed" = "无法加载更早的提交，点击刷新历史";
+"git.unifiedView" = "统一视图";
 "https://github.com/owner/repository" = "https://github.com/owner/repository";
 "ide.build.busy" = "已有构建操作正在运行";
 "ide.build.chooseInstance" = "请选择已检测到的构建实例";
@@ -5653,10 +5671,12 @@
 "native.discardAndRetry" = "放弃并重试";
 "native.discardBlock" = "丢弃代码块";
 "native.discardChanges" = "丢弃更改";
+"native.discardChangesToSelectedFiles" = "要丢弃所选文件的更改吗？";
 "native.discardDraftAndReload" = "放弃草稿并重新加载？";
 "native.discardSelectedChange" = "丢弃选中的更改";
 "native.discardThisChangeBlock" = "丢弃此更改代码块";
 "native.discardThisFileAndRetry" = "丢弃此文件的更改并重试";
+"native.discardWorktreeChangesWarning" = "此操作无法通过 Lithe 撤销。未跟踪的文件将被删除。";
 "native.discardedEditorChanges" = "丢弃编辑器更改";
 "native.disconnect" = "断开连接";
 "native.disconnected" = "已断开";
@@ -6114,6 +6134,7 @@
 "native.hideBuildOutputToolWindow" = "隐藏构建输出工具窗口";
 "native.hideBuildToolWindow" = "隐藏构建工具窗口";
 "native.hideCommitDecorations" = "隐藏提交装饰";
+"native.hideCommitDetails" = "隐藏提交详情";
 "native.hideConfigurationList" = "收起运行配置列表";
 "native.hideDebugToolWindow" = "隐藏调试工具窗口";
 "native.hideDetails" = "隐藏详情";
@@ -8060,6 +8081,7 @@
 "native.showingThePreviousJavaEntriesWhileTheJavaLanguageServicePreparesTheProject" = "Java 语言服务正在准备项目，暂时显示上次的 Java 入口。";
 "native.shownAcrossTheEntireWorkbenchIncludingToolbarsProjectTreeEditorTabsTerminalsAndStatusBar" = "显示在整个工作台内，包括工具栏、项目文件树、编辑区、标签栏、终端和状态栏。";
 "native.sideBySide" = "并排";
+"native.sideBySideView" = "并排视图";
 "native.signInToCodex" = "登录 Codex";
 "native.signInToGitHub" = "登录 GitHub";
 "native.signInToViewAndManagePullRequests" = "登录后即可查看和管理拉取请求。";
@@ -8149,6 +8171,7 @@
 "native.stageAtLeastOneFileFirst" = "请先至少暂存一个文件";
 "native.stageFile" = "暂存文件";
 "native.stageFile.variant2" = "暂存文件";
+"native.stageFiles" = "暂存文件";
 "native.stageThisChangeBlock" = "暂存此更改代码块";
 "native.stageYourFilesInChangesEnterACommitMessageAndCreateTheFirstCommit" = "在“更改”面板暂存文件、填写提交消息，然后创建首次提交。";
 "native.staged" = "已暂存";
@@ -8801,6 +8824,7 @@
 "native.unstageAllFiles" = "取消暂存所有文件";
 "native.unstageAllFilesInRepository" = "取消暂存仓库的所有文件";
 "native.unstageFile" = "取消暂存文件";
+"native.unstageFiles" = "取消暂存文件";
 "native.unstageThisChangeBlock" = "取消暂存此更改代码块";
 "native.unstaged" = "未暂存";
 "native.unstagedChanges" = "未暂存更改";
@@ -9059,6 +9083,8 @@
 "npm was not found. It is normally installed with Node.js." = "未找到 npm。它通常随 Node.js 一起安装。";
 "or" = "或";
 "outline.expandAll" = "全部展开";
+"plugins.java.installNotice" = "Java Support 现已独立安装。请从插件市场安装，或使用“从磁盘安装”导入离线包。原有 Java 设置会保留。";
+"plugins.java.installTemplates" = "安装 Java Support，获取 Java、Maven 和 Spring 项目模板…";
 "plugins.title" = "插件";
 "ports %@" = "端口 %@";
 "project Maven Wrapper" = "项目 Maven Wrapper";
@@ -9069,6 +9095,8 @@
 "results" = "个结果";
 "revert" = "反向提交";
 "run configuration" = "运行配置";
+"run.incompleteProjectScanMessage" = "部分项目目录无法读取，已有运行配置已保留。请恢复访问权限后重新识别运行配置。";
+"run.incompleteProjectScanTitle" = "项目扫描不完整";
 "running for %@" = "已运行 %@";
 "scope managed from %@" = "依赖管理前 scope 为 %@";
 "scope not updated to %@" = "未提升为 %@ scope";

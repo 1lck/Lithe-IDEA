@@ -359,6 +359,17 @@ Swift 单元和插件 CI 通道复用已有 Cargo 下载缓存。先通过
 
 ### 独立工作树的本地编译
 
+SwiftPM 的 `.build/`、资源 bundle 和 `.lithe-swift-toolchain` 标记登记为
+`swiftpm-build-state`，所有工作树复用阶段均拒绝复制。编译器标记只用于本工作树
+缓存失效，不是可转移的源码、平台、架构、SDK 和工具链完整性证明；只复用经过校验的
+`.artifacts/swiftpm-cache` 下载缓存。构建脚本在实际 scratch 目录保存带策略版本的
+完整编译器身份：新版 SwiftPM 的 `.build/<triple>/` 各自独立，旧布局仍用 `.build/`。
+身份未知或变化时，用同一 scratch 参数执行 `swift package clean`，保留它的依赖下载
+和 checkout，再生成资源、签名；清理失败不更新标记。不要手工合并旧的平铺资源与
+新 `Contents/Resources` 布局，也不要通过关闭 codesign 规避旧资源污染。状态生命周期
+由本工作树 SwiftPM 清理管理；这些操作仅作用于构建目录，不修改已安装应用、签名
+发行基线或 Sparkle delta。
+
 共享翻译源文件位于 `shared/i18n/`。每个工作树通过 Git 获取源文件和已提交的
 macOS 字符串表、`AppLanguage.generated.swift`、Windows `shared.generated.ts`，
 然后运行 `node scripts/generate-i18n.mjs --check` 校验。修改源翻译后运行不带
@@ -706,7 +717,49 @@ Maven 模型与依赖快照继续位于现有
 Provider 状态经平台 adapter 写 Application Support；插件安装目录和发行 bundle 只读，
 不改变代码签名或 Sparkle delta 的源基线。
 
-Java Support（`dev.lithe.plugin.java-support`）是唯一随 Lithe.app 发行的官方插件包，
+### Java Support 独立下载安装与迁移
+
+Java Support 当前仍随应用发行，独立下载的构建配置已登记，但
+`Plugins/marketplace/official-plugins.json` 中的 `releaseEnabled: false` 暂停自动发布。
+等支持 `packageTrust: 1` 的宿主发行、迁移验收和真实下载包验证完成后，再单独启用发布；
+不要在基础设施 PR 中提前上架旧宿主无法安装的包。
+
+`bundledUntilPublishedVersion: 1.1.0` 控制过渡副本的退出条件：只有仓库官方索引
+包含达到门槛且 API/能力匹配的完整双架构版本，应用才跳过 JDT/JDK 准备及 Java 插件组装。
+空索引或缺少某个架构仍内置；损坏索引会中止构建，不能静默省去插件。安装使用同一 ID，
+启用、禁用、旧卸载标记及设置保留；打开 Java 文件/项目或新建项目时有明确安装入口，
+离线可使用可信磁盘包。当前无线上发布，默认构建仍保留过渡包。
+
+构建输入 `LITHE_OFFICIAL_PLUGIN_INDEX` 默认为 `Plugins/marketplace/index.json`，只读，
+同时决定内置分发和应用内嵌索引；传给 `build-official-plugins.sh --marketplace-index`。
+没有下载或缓存步骤，不允许从其他工作树的生成索引或用户运行时索引复用。
+`verify-macos-package.sh --slim` 在本次临时目录生成双架构索引 fixture，并验证在缺少
+JDT/JDK 输入时仍能生成不含 Java 资源的 universal app 和 DMG；fixture 不是可发布索引，
+随测试目录清理，不影响签名或 Sparkle 发行基线。
+
+同一份清单要求下载版的 `publisherPackage` 签名，并声明内置副本的
+`bundledSignatureRequirement: sameTeamAsHost`。应用组装必须显式用 `--bundled-only`，
+由 app 自身签名封住完整包；普通单插件构建在正式配置中始终要求发布者私钥。
+本地开发只能用 debug + `--development-unsigned`，不能把开发包用于正式发布。
+原生 JDK 使用构建时固定、校验过的上游签名，包内最终字节完成后再生成 Ed25519 签名。
+
+发布计划包含 `darwin-arm64` 和 `darwin-x64` 两个 ZIP，各自一个 SHA-256；
+源码和资源输入变化后需要新的插件版本。重试索引发布时，从对应 tag 读取
+配置、清单和 API/`requires`，下载并计算全部资产哈希后一次写入版本，不能读取
+当前工作树的清单来描述历史包。目录如下：
+
+- `dist/packages/<arch>/<plugin-id>/`：本次发布组装的最终签名包。
+- `dist/verify/<arch>/<plugin-id>/`：归档解压后的签名验证副本。
+- `dist/Lithe-Java-Support-<version>-darwin-<arch>.zip`：按架构的发布归档。
+- `.artifacts/java-plugin-distribution/`：本地真实资源组装、归档、签名和启动检查输出。
+
+这些输出和 `.build/.../OfficialPlugins` 一样没有可跨工作树转移的 identity stamp，
+全部进入 `official-plugin-packages` 排除路由；不允许复制或共享。需要复用的只有
+经既有 `jdtls` / `jdk` 路由核验的下载缓存，再在目标工作树重新组装。
+临时验证副本由本次验证清理，发布 runner 的 `dist` 随 job 结束回收；持久安装的
+版本包由宿主包管理器负责，运行时保持只读。它们不改变应用签名或 Sparkle 源基线。
+
+Java Support（`dev.lithe.plugin.java-support`）是过渡期唯一随 Lithe.app 发行的官方插件包，
 也是唯一自带运行时的包，因此它与架构有关：
 
 - **资源路径**：组装结果在 `.build/<triple>/<configuration>/OfficialPlugins/dev.lithe.plugin.java-support/`，

@@ -27,8 +27,16 @@ struct DiffSplitLayout {
                     prefix < newEnd ? Self(range: prefix..<newEnd, kind: kind) : nil)
         }
     }
-    /// Presentation identity: frame changes reuse the same prepared text storage.
-    let identity = UUID()
+    /// Content fingerprint of everything the prepared text storage and scroll mapping derive from.
+    ///
+    /// SwiftUI re-plans the layout on every render of the owning view. A fresh identity per plan
+    /// made each render (any Git model publish, a tab switch) re-highlight and re-lay-out the whole
+    /// file in TextKit, which froze the main thread on large diffs. Equal content now shares one
+    /// identity, so frame-only and unrelated re-renders reuse the prepared text storage.
+    struct Identity: Hashable {
+        fileprivate let digest: Int
+    }
+    let identity: Identity
     struct Item: Identifiable {
         let displayRow: DiffDisplayRow
         let kind: DiffRowKind
@@ -65,6 +73,71 @@ struct DiffSplitLayout {
 
     var contentHeight: CGFloat { max(leftHeight, rightHeight) }
     let lineNumberGutterWidth: CGFloat
+
+    init(
+        leftItems: [Item],
+        rightItems: [Item],
+        transitions: [Transition],
+        leftHeight: CGFloat,
+        rightHeight: CGFloat,
+        lineNumberGutterWidth: CGFloat
+    ) {
+        self.leftItems = leftItems
+        self.rightItems = rightItems
+        self.transitions = transitions
+        self.leftHeight = leftHeight
+        self.rightHeight = rightHeight
+        self.lineNumberGutterWidth = lineNumberGutterWidth
+        identity = Self.fingerprint(leftItems: leftItems, rightItems: rightItems,
+            transitions: transitions, gutterWidth: lineNumberGutterWidth)
+    }
+
+    private static func fingerprint(
+        leftItems: [Item], rightItems: [Item], transitions: [Transition], gutterWidth: CGFloat
+    ) -> Identity {
+        var hasher = Hasher()
+        func combine(_ text: String?) {
+            guard let text else { return hasher.combine(-1) }
+            // Raw bytes: String's own hashing normalizes non-ASCII text, which is slow for CJK diffs.
+            let hashed: Void? = text.utf8.withContiguousStorageIfAvailable {
+                hasher.combine(bytes: UnsafeRawBufferPointer($0))
+            }
+            if hashed == nil { hasher.combine(text) }
+            hasher.combine(text.utf8.count)
+        }
+        hasher.combine(gutterWidth)
+        for items in [leftItems, rightItems] {
+            hasher.combine(items.count)
+            for item in items {
+                hasher.combine(item.displayRow.id)
+                hasher.combine(item.kind)
+                hasher.combine(item.top)
+                hasher.combine(item.height)
+                hasher.combine(item.isScrollAnchor)
+                hasher.combine(item.inlineHighlight?.range.lowerBound ?? -1)
+                hasher.combine(item.inlineHighlight?.range.upperBound ?? -1)
+                hasher.combine(item.inlineHighlight?.kind)
+                switch item.displayRow {
+                case let .row(row, _):
+                    combine(row.left)
+                    combine(row.rightText)
+                case let .collapsed(region):
+                    hasher.combine(region.startIndex)
+                    hasher.combine(region.endIndex)
+                }
+            }
+        }
+        hasher.combine(transitions.count)
+        for transition in transitions {
+            hasher.combine(transition.id)
+            hasher.combine(transition.kind)
+            hasher.combine(transition.leftRange.lowerBound)
+            hasher.combine(transition.leftRange.upperBound)
+            hasher.combine(transition.rightRange.lowerBound)
+            hasher.combine(transition.rightRange.upperBound)
+        }
+        return Identity(digest: hasher.finalize())
+    }
 
     static func plan(
         displayRows: [DiffDisplayRow],

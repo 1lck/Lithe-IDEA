@@ -564,6 +564,22 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::WorkspaceFilterChanges => {
+            match serde_json::from_value::<Vec<String>>(parsed.payload) {
+                Ok(paths) => CoreResponse::success(
+                    id,
+                    serde_json::json!(paths
+                        .into_iter()
+                        .filter(|path| crate::project::is_workspace_event_relevant(path))
+                        .collect::<Vec<_>>()),
+                ),
+                Err(error) => CoreResponse::failure(
+                    id,
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid workspace event paths")
+                        .with_details(error.to_string()),
+                ),
+            }
+        }
         CoreCommand::WorkspaceListDirectories => {
             match serde_json::from_value::<DirectoryListingRequest>(parsed.payload)
                 .map_err(|error| {
@@ -871,6 +887,25 @@ fn execute(request: &str) -> CoreResponse {
                     serde_json::to_value(data).expect("Maven launch plan should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::ExecutionResolveEnvironment => {
+            match serde_json::from_value::<crate::execution::LaunchEnvironmentRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(crate::execution::resolve_launch_environment(request))
+                        .expect("environment encodes"),
+                ),
+                Err(error) => CoreResponse::failure(
+                    id,
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid launch environment request",
+                    )
+                    .with_details(error.to_string()),
+                ),
             }
         }
         CoreCommand::ExecutionPlanLaunchCommand => {

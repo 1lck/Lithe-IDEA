@@ -71,6 +71,8 @@ package final class LanguageToolingSessionManager: ObservableObject,
     private let runtimeFactory: (any LanguageProviderRuntimeFactory)?
     private var languageServers: [String: any LanguageServerSession] = [:]
     private var languageServerRoots: [String: URL] = [:]
+    private static let maximumStartupAttempts = 3
+    private var languageServerStartupAttempts: [String: (root: URL, count: Int)] = [:]
     /// Core can clear Maven settings only for a session launched with Maven
     /// inputs. Keep this with the session so a pure Gradle start stays nil.
     private var languageServerMavenContexts: [String: MavenLaunchContext] = [:]
@@ -1151,6 +1153,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
     }
 
     package func stopLanguageServer(providerID: String) {
+        languageServerStartupAttempts[providerID] = nil
         if providerID == "java" { projectPreparation = nil }
         if providerID == "java" {
             javaDependencyChangeTask?.cancel()
@@ -1213,6 +1216,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
         languageServerSessionIdentities = [:]
         languageServerFeatureProviders = [:]
         languageServerStates = [:]
+        languageServerStartupAttempts = [:]
         languageServerOperationIDs = [:]
     }
 
@@ -1641,6 +1645,15 @@ package final class LanguageToolingSessionManager: ObservableObject,
             return active
         }
 
+        let previousAttempt = languageServerStartupAttempts[descriptor.id]
+        let attempts = previousAttempt?.root == rootURL ? previousAttempt?.count ?? 0 : 0
+        // Document synchronization must not turn a persistent startup failure
+        // into an unbounded process loop. Explicit stop/restart clears the budget.
+        if attempts >= Self.maximumStartupAttempts,
+           case .failed(let failure) = languageServerStates[descriptor.id] {
+            throw LanguageServerSessionStartError(failure: failure)
+        }
+
         if extensionLifecycles[descriptor.id]?.value?.isRetired == true {
             // Stopped by its module before any server was started for it.
             unregisterLanguageServerExtension(languageID: descriptor.id)
@@ -1664,6 +1677,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
         if languageServers[descriptor.id] != nil || languageServerRoots[descriptor.id] != nil {
             stopLanguageServer(providerID: descriptor.id)
         }
+        languageServerStartupAttempts[descriptor.id] = (rootURL, attempts + 1)
         let operationID = requestedOperationID ?? UUID()
         languageServerOperationIDs[descriptor.id] = operationID
         recordLanguageServerLog(
@@ -2168,6 +2182,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
             languageServerFeatures[providerID] = nil
             languageServerInfos[providerID] = nil
         case .ready:
+            languageServerStartupAttempts[providerID] = nil
             languageServerFeatures[providerID] = session.features
             languageServerInfos[providerID] = session.serverInfo
             recordLanguageServerLog(

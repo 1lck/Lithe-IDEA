@@ -388,6 +388,8 @@ async function main() {
       // and AutoBuild staging (including per-tag baselines and local/downloaded publication checkpoints), per-launch
       // Codex relays and isolated plugin packages take this rejection route, never a content-hash validator.
       // Identical bytes do not establish transferable execution ownership.
+      // SwiftPM scratch-local compiler stamps only invalidate local products;
+      // swiftpm-build-state is not a sealed download cache and has no copy stage.
       // Includes application-log-state: logs, confirmation snapshots and export ZIP
       // staging belong to one runtime session; no validator or copy stage applies.
       // Includes test-jfr-recordings: worker-owned profiling output has no transferable build identity.
@@ -396,6 +398,9 @@ async function main() {
       // Includes agent-ui-test-evidence: fixture screenshots belong to one test
       // revision/theme/viewport, never to a reusable build or runtime resource.
       // Includes plugin-ui-icons: signed runtime packages are never build-cache inputs.
+      // official-plugin-packages also rejects dist/packages, dist/verify, per-architecture
+      // release ZIPs, synthetic published-index.fixture.json and java-plugin-distribution probes;
+      // origin trust and build-index ownership are not transferable.
       // Includes agent-hook-library-state: user commands, native ownership journals and locks have no copy stage.
       // Includes agent-instruction-library-state: user text and sync locks have no build identity or copy stage.
       // Includes mcp-tool-probe-state: SDK sessions, native tool exclusions and

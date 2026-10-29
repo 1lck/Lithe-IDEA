@@ -14,7 +14,7 @@ const VERSION: u32 = 2;
 const LEGACY_VERSION: u32 = 1;
 // Bumped when generation changes what a workspace should contain: existing
 // workspaces regenerate instead of keeping a stale `generated.json`.
-const GENERATOR_REVISION: &str = "10";
+const GENERATOR_REVISION: &str = "11";
 /// Toolchain requirements and `project.json` are separate documents that happen
 /// to live under `.lithe`. Their schema did not change with run-config v2, so
 /// they keep their own version and must not be validated against `VERSION`.
@@ -359,6 +359,9 @@ fn migrate_configuration_value(item: &mut Value) {
 /// or to `path` for a Java source that only counts by presence.
 pub struct GeneratorMetadata {
     pub fingerprint: String,
+    /// Unreadable inputs retained as unknown; a partial baseline cannot prove freshness.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub unreadable_paths: BTreeSet<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub inputs: BTreeMap<String, String>,
 }
@@ -512,6 +515,16 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
         validate_sidecar_version(document.version)?;
     }
     let mut diagnostics = Vec::new();
+    if request.check_fingerprint == Some(false) {
+        if let Some(metadata) = generated
+            .as_ref()
+            .and_then(|document| document.generator.as_ref())
+        {
+            if !metadata.unreadable_paths.is_empty() {
+                diagnostics.push(incomplete_scan_diagnostic(&metadata.unreadable_paths));
+            }
+        }
+    }
     let local = local_layer_document(&root, request.local_document.clone())?;
     if let Some((document, metadata)) = generated
         .as_ref()
@@ -519,7 +532,14 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
         .filter(|_| request.check_fingerprint != Some(false))
     {
         let current_inputs = project_inputs(&root, &java_entry_sources(&document.configurations))?;
-        if metadata.fingerprint != fingerprint_from_inputs(&current_inputs) {
+        if !current_inputs.unreadable_paths.is_empty() || !metadata.unreadable_paths.is_empty() {
+            let unknown = current_inputs
+                .unreadable_paths
+                .union(&metadata.unreadable_paths)
+                .cloned()
+                .collect();
+            diagnostics.push(incomplete_scan_diagnostic(&unknown));
+        } else if metadata.fingerprint != fingerprint_from_inputs(&current_inputs.inputs) {
             // Stored inputs that no longer reproduce the stored fingerprint were
             // recorded by another generator revision, whose input rules (such
             // as which sources are hashed) may differ from today's.
@@ -527,10 +547,10 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
                 fingerprint_from_inputs(&metadata.inputs) != metadata.fingerprint;
             let message = if metadata.inputs.is_empty() {
                 "Project inputs changed after run configuration generation".to_string()
-            } else if generator_changed || metadata.inputs == current_inputs {
+            } else if generator_changed || metadata.inputs == current_inputs.inputs {
                 "Run configuration generator changed; regenerate configurations".to_string()
             } else {
-                input_change_summary(&metadata.inputs, &current_inputs)
+                input_change_summary(&metadata.inputs, &current_inputs.inputs)
             };
             diagnostics.push(json!({
                 "code": "staleFingerprint",
@@ -726,7 +746,6 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
         })
         .collect::<Result<Vec<_>, _>>()?;
     let mut configurations = deduplicate_java_configurations(configurations);
-    let java_entry_count = configurations.len();
     if has_java_sources {
         configurations.push(RunConfiguration {
             id: "current-file".to_string(),
@@ -769,10 +788,20 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
     // Counts real entry points, not documents: the always-present "Current File"
     // fallback is excluded so an empty project still reports zero and the UI can
     // say so, while a detected npm service correctly reports one.
-    let entry_count = java_entry_count + detected.len();
     configurations.extend(detected);
+    let mut snapshot = project_inputs(&root, &java_entry_sources(&configurations))?;
+    // Unknown subtrees cannot delete known configurations or baseline inputs.
+    // Invalid required documents still fail instead of being silently overwritten.
+    if !snapshot.unreadable_paths.is_empty() {
+        if let Some(previous) = read_document(&root, "run/generated.json")? {
+            retain_unknown_inputs(&mut configurations, &mut snapshot, previous);
+        }
+    }
     disambiguate_configuration_names(&mut configurations);
-    let inputs = project_inputs(&root, &java_entry_sources(&configurations))?;
+    let entry_count = configurations
+        .iter()
+        .filter(|item| item.id != "current-file")
+        .count();
     let requirements = detect_requirements(
         &root,
         maven_root.as_ref().map(|(path, _)| path.as_path()),
@@ -782,8 +811,9 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
     let generated = RunConfigurationDocument {
         version: VERSION,
         generator: Some(GeneratorMetadata {
-            fingerprint: fingerprint_from_inputs(&inputs),
-            inputs,
+            fingerprint: fingerprint_from_inputs(&snapshot.inputs),
+            inputs: snapshot.inputs,
+            unreadable_paths: snapshot.unreadable_paths,
         }),
         configurations,
     };
@@ -3385,36 +3415,90 @@ pub(super) fn java_feature_version_parts(parts: Vec<u32>) -> Vec<u32> {
 
 /// Collects generation inputs. Java sources count by path unless generation
 /// reads their content (`content_sources`); every other input is hashed.
-fn project_inputs(
-    root: &Path,
-    content_sources: &BTreeSet<String>,
-) -> Result<BTreeMap<String, String>, CoreError> {
-    let mut files = Vec::new();
-    let mut stack = vec![root.to_path_buf()];
-    while let Some(dir) = stack.pop() {
-        for entry in fs::read_dir(dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.is_dir() {
-                if !ignored_directory(&path) {
-                    stack.push(path);
-                }
-            } else if fingerprint_input(&path) {
-                if let Ok(relative) = path.strip_prefix(root) {
-                    files.push(relative.to_string_lossy().replace('\\', "/"));
-                }
+struct ProjectInputs {
+    inputs: BTreeMap<String, String>,
+    unreadable_paths: BTreeSet<String>,
+}
+
+// Retention is independent of filesystem permissions so both hosts preserve the
+// same last-known configuration when an optional subtree becomes unreadable.
+fn retain_unknown_inputs(
+    configurations: &mut Vec<RunConfiguration>,
+    snapshot: &mut ProjectInputs,
+    previous: RunConfigurationDocument,
+) {
+    for configuration in previous.configurations {
+        let source = configuration.source.as_deref().or_else(|| {
+            configuration
+                .extensions
+                .get("java")?
+                .get("source")?
+                .as_str()
+        });
+        if source.is_some_and(|path| under_unknown(path, &snapshot.unreadable_paths))
+            && !configurations
+                .iter()
+                .any(|current| current.id == configuration.id)
+        {
+            configurations.push(configuration);
+        }
+    }
+    if let Some(metadata) = previous.generator {
+        for (path, hash) in metadata.inputs {
+            if under_unknown(&path, &snapshot.unreadable_paths) {
+                snapshot.inputs.entry(path).or_insert(hash);
             }
         }
     }
-    files.sort();
-    let mut result = BTreeMap::new();
-    for relative in files {
-        if relative.ends_with(".java") && !content_sources.contains(&relative) {
-            result.insert(relative, PATH_ONLY_INPUT.to_string());
-            continue;
-        }
-        if let Ok(bytes) = fs::read(root.join(&relative)) {
-            result.insert(relative, format!("sha256:{:x}", Sha256::digest(bytes)));
+}
+
+fn under_unknown(path: &str, unknown: &BTreeSet<String>) -> bool {
+    unknown
+        .iter()
+        .any(|prefix| path == prefix || path.starts_with(&format!("{prefix}/")))
+}
+
+fn incomplete_scan_diagnostic(paths: &BTreeSet<String>) -> Value {
+    json!({"code": "incompleteProjectScan", "message": format!(
+        "Project scan is incomplete; freshness and removals could not be verified. Unreadable inputs: {}",
+        paths.iter().cloned().collect::<Vec<_>>().join(", "))})
+}
+
+fn project_inputs(
+    root: &Path,
+    content_sources: &BTreeSet<String>,
+) -> Result<ProjectInputs, CoreError> {
+    let scan = super::workspace_scan::scan_run_workspace(root, None)?;
+    let mut result = ProjectInputs {
+        inputs: BTreeMap::new(),
+        unreadable_paths: scan.unreadable_paths,
+    };
+    for directory in scan.directories {
+        for name in directory.files {
+            let path = directory.path.join(name);
+            if !fingerprint_input(&path) {
+                continue;
+            }
+            let relative = path
+                .strip_prefix(root)
+                .expect("scan stays within root")
+                .to_string_lossy()
+                .replace('\\', "/");
+            if relative.ends_with(".java") && !content_sources.contains(&relative) {
+                result.inputs.insert(relative, PATH_ONLY_INPUT.to_string());
+                continue;
+            }
+            crate::protocol::cancellation::check()?;
+            match fs::read(&path) {
+                Ok(bytes) => {
+                    result
+                        .inputs
+                        .insert(relative, format!("sha256:{:x}", Sha256::digest(bytes)));
+                }
+                Err(_) => {
+                    result.unreadable_paths.insert(relative);
+                }
+            }
         }
     }
     Ok(result)
@@ -3452,29 +3536,6 @@ fn input_change_summary(
         .filter(|(path, hash)| previous.get(*path).is_some_and(|old| old != *hash))
         .count();
     format!("Project inputs changed: {added} added, {removed} removed, {changed} modified")
-}
-
-fn ignored_directory(path: &Path) -> bool {
-    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
-        return false;
-    };
-    name.eq_ignore_ascii_case(".worktree")
-        || name.eq_ignore_ascii_case(".worktrees")
-        || matches!(
-            name,
-            ".git"
-                | ".lithe"
-                | ".idea"
-                | ".gradle"
-                | ".venv"
-                | "venv"
-                | "node_modules"
-                | "vendor"
-                | "target"
-                | "build"
-                | "dist"
-                | "out"
-        )
 }
 
 fn fingerprint_input(path: &Path) -> bool {
@@ -3550,28 +3611,21 @@ fn highest_version(versions: Vec<String>) -> Option<String> {
 }
 
 fn project_manifest_paths(root: &Path, names: &[&str]) -> Vec<PathBuf> {
-    let mut result = Vec::new();
-    let mut stack = vec![root.to_path_buf()];
-    while let Some(directory) = stack.pop() {
-        let Ok(entries) = fs::read_dir(directory) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                if !ignored_directory(&path) {
-                    stack.push(path);
-                }
-            } else if path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| names.contains(&name))
-            {
-                result.push(path);
-            }
-        }
-    }
-    result
+    // This heuristic only supplements declared toolchain requirements. Fingerprint
+    // scanning separately reports unknown subtrees to both product hosts.
+    let Ok(scan) = super::workspace_scan::scan_run_workspace(root, None) else {
+        return Vec::new();
+    };
+    scan.directories
+        .into_iter()
+        .flat_map(|directory| {
+            directory
+                .files
+                .into_iter()
+                .filter(|name| names.contains(&name.as_str()))
+                .map(move |name| directory.path.join(name))
+        })
+        .collect()
 }
 
 fn declared_java_version(root: &Path) -> Option<(String, Option<String>)> {
@@ -3669,4 +3723,43 @@ fn valid_provider(value: &str) -> bool {
                 .chars()
                 .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
     })
+}
+
+#[cfg(test)]
+mod incomplete_scan_tests {
+    use super::*;
+
+    #[test]
+    fn unknown_inputs_retain_only_affected_configurations_and_hashes() {
+        let previous: RunConfigurationDocument = serde_json::from_value(json!({
+            "version": 2,
+            "generator": {"fingerprint": "old", "inputs": {
+                "blocked/package.json": "old-blocked", "removed/package.json": "old-removed"
+            }},
+            "configurations": [
+                {"id":"blocked", "name":"Blocked", "provider":"npm.script", "source":"blocked/package.json"},
+                {"id":"removed", "name":"Removed", "provider":"npm.script", "source":"removed/package.json"}
+            ]
+        })).unwrap();
+        let mut configurations = Vec::new();
+        let mut snapshot = ProjectInputs {
+            inputs: BTreeMap::from([("visible/package.json".into(), "new".into())]),
+            unreadable_paths: BTreeSet::from(["blocked".into()]),
+        };
+        retain_unknown_inputs(&mut configurations, &mut snapshot, previous);
+        assert_eq!(configurations.len(), 1);
+        assert_eq!(configurations[0].id, "blocked");
+        assert_eq!(
+            snapshot
+                .inputs
+                .get("blocked/package.json")
+                .map(String::as_str),
+            Some("old-blocked")
+        );
+        assert!(!snapshot.inputs.contains_key("removed/package.json"));
+        assert!(!under_unknown(
+            "blocked-sibling/package.json",
+            &snapshot.unreadable_paths
+        ));
+    }
 }

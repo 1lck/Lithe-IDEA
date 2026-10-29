@@ -19,6 +19,36 @@ struct PluginMarketplaceFeatureModelTests {
         isEnabled: true
     )
 
+    @Test
+    func bundledJavaCanMoveToTheOfficialDownloadAtTheSameVersion() async throws {
+        let id = OfficialPluginCatalog.javaPluginID
+        let (feature, service, manager) = try makeModel(staleOfficialIDs: [id.rawValue])
+        var object = try #require(JSONSerialization.jsonObject(with:
+            DeclarativePluginTestSupport.officialDescriptor("JavaSupport").normalizedManifest
+        ) as? [String: Any])
+        object["version"] = "1.0.0"
+        let manifest = try DeclarativePluginTestSupport.descriptor(object).pluginManifest
+        func snapshot(_ status: PluginInstallationStatus) -> PluginManagementSnapshot {
+            PluginManagementSnapshot(
+                manifest: manifest, origin: .bundled, installationStatus: status,
+                isEnabled: false, isRequired: false, isRunning: false, isQuarantined: false,
+                isSuppressedBySafeMode: false, requiresRestart: false, canRollback: false, statusMessage: "Disabled", marketplace: nil
+            )
+        }
+        manager.snapshots = [snapshot(.installed)]
+        let listing = try #require(feature.listings.first { $0.pluginID == id })
+        let offer = try #require(feature.offer(for: listing))
+        #expect(feature.installedSourceID(for: id) == PluginMarketplaceSource.officialID)
+        #expect(feature.installState(for: offer) == .updateAvailable(installed: "1.0.0", available: "1.0.0"))
+        #expect(feature.availableUpdate(for: id)?.entry.id == id.rawValue)
+        service.origin = .marketplace
+        await feature.install(offer)
+        #expect(manager.installed.count == 1)
+        #expect(feature.pendingConfirmation == nil)
+        manager.snapshots = [snapshot(.removed)]
+        #expect(feature.installState(for: offer) == .installable)
+    }
+
     /// Rows and the detail pane ask for one URL at the same time; they share
     /// one request, and a rejected icon is not requested again per row.
     @Test

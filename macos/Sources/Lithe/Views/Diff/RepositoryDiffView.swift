@@ -4,7 +4,9 @@ import LitheGitModule
 
 /// Shared repository diff. Working changes retain mutation actions; saved/history inputs stay read-only.
 struct RepositoryDiffView: View {
-    @ObservedObject var feature: GitFeatureModel
+    /// Used only to run actions. Observing it re-rendered every mounted diff on any Git publish.
+    let feature: GitFeatureModel
+    @ObservedObject var session: GitRepositoryDiffSession
     let context: GitCommitDiffContext?
     let change: GitChange?
     let onClose: () -> Void
@@ -14,19 +16,19 @@ struct RepositoryDiffView: View {
     /// monospaced family so existing call sites and tests keep their rendering.
     var fontFamily: String = EditorFontDefaults.monospacedFamily
 
-    init(feature: GitFeatureModel, context: GitCommitDiffContext,
+    init(feature: GitFeatureModel, session: GitRepositoryDiffSession? = nil, context: GitCommitDiffContext,
          onClose: @escaping () -> Void, onOpenFile: @escaping () -> Void,
          onOpenCommitDiff: @escaping (GitCommitFile) -> Void,
          fontFamily: String = EditorFontDefaults.monospacedFamily) {
-        self.feature = feature; self.context = context; change = nil
+        self.feature = feature; self.session = session ?? feature.activeRepositoryDiffSession; self.context = context; change = nil
         self.onClose = onClose; self.onOpenFile = onOpenFile
         self.onOpenCommitDiff = onOpenCommitDiff; self.fontFamily = fontFamily
     }
 
-    init(feature: GitFeatureModel, change: GitChange,
+    init(feature: GitFeatureModel, session: GitRepositoryDiffSession? = nil, change: GitChange,
          onClose: @escaping () -> Void, onOpenFile: @escaping () -> Void,
          fontFamily: String = EditorFontDefaults.monospacedFamily) {
-        self.feature = feature; self.change = change; context = nil
+        self.feature = feature; self.session = session ?? feature.activeRepositoryDiffSession; self.change = change; context = nil
         self.onClose = onClose; self.onOpenFile = onOpenFile
         onOpenCommitDiff = { _ in }; self.fontFamily = fontFamily
     }
@@ -46,11 +48,11 @@ struct RepositoryDiffView: View {
             VStack(spacing: 0) {
                 toolbar(proxy: proxy)
                 if showsSearch { diffSearchControl(proxy: proxy).padding(.horizontal, 8) }
-                if usesUnifiedPane || feature.isLoadingDiff || feature.diffRows.isEmpty {
+                if usesUnifiedPane || session.isLoadingDiff || session.diffRows.isEmpty {
                     versionHeader
                 }
 
-                if feature.isLoadingDiff {
+                if session.isLoadingDiff {
                     VStack(spacing: 9) {
                         ProgressView().controlSize(.small)
                         Text("Loading commit diff…")
@@ -58,7 +60,7 @@ struct RepositoryDiffView: View {
                     .font(LitheTheme.uiFont)
                     .foregroundStyle(LitheTheme.secondaryText)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if feature.diffRows.isEmpty {
+                } else if session.diffRows.isEmpty {
                     VStack(spacing: 9) {
                         Image(systemName: "doc.richtext")
                             .font(LitheTheme.uiFont(size: 30, weight: .light))
@@ -81,7 +83,7 @@ struct RepositoryDiffView: View {
         .onChange(of: diffSearchQuery) { _ in selectedDiffSearchIndex = 0 }
     }
 
-    private var usesUnifiedPane: Bool { unified || kind == .added || kind == .deleted }
+    private var usesUnifiedPane: Bool { unified }
 
     private func toolbar(proxy: ScrollViewProxy) -> some View {
         HStack(spacing: 4) {
@@ -117,7 +119,7 @@ struct RepositoryDiffView: View {
                 expandedRegionIDs = []
             } label: {
                 LitheIDEAIcon(resourcePath: "expui/general/collapseAll", size: 16, preservesOriginalColors: true)
-            }.litheToolbarIconButton(isEnabled: !feature.diffRows.isEmpty)
+            }.litheToolbarIconButton(isEnabled: !session.diffRows.isEmpty)
                 .litheRowHover(isActive: collapsesUnchangedRegions, activeBackground: LitheTheme.hoverBackground)
                 .accessibilityLabel("Collapse unchanged fragments")
                 .accessibilityValue(collapsesUnchangedRegions ? "On" : "Off")
@@ -153,16 +155,16 @@ struct RepositoryDiffView: View {
                 LitheContextMenuItem.toggle("Highlight words", isOn: $highlightsWords)
                 if let change {
                     for mode in GitDiffWhitespaceMode.allCases {
-                        LitheContextMenuItem.action(mode.title, checked: feature.gitDiffWhitespaceMode == mode) {
-                            Task { await feature.reloadSelectedChangeDiff(whitespace: mode) }
+                        LitheContextMenuItem.action(mode.title, checked: session.gitDiffWhitespaceMode == mode) {
+                            Task { await feature.reloadSelectedChangeDiff(whitespace: mode, session: session) }
                         }
                     }
                     LitheContextMenuItem.separator
                     if change.isStaged && !change.hasWorkingTreeChange {
-                        LitheContextMenuItem.action("Unstage") { Task { await feature.unstageSelectedChange() } }
+                        LitheContextMenuItem.action("Unstage") { Task { await feature.unstageChange(change) } }
                     } else {
-                        LitheContextMenuItem.action("Stage File") { Task { await feature.stageSelectedChange() } }
-                        LitheContextMenuItem.action("Discard") { feature.requestDiscardSelectedChange() }
+                        LitheContextMenuItem.action("Stage File") { Task { await feature.stageChange(change) } }
+                        LitheContextMenuItem.action("Discard") { feature.requestDiscardChange(change) }
                     }
                 }
                 LitheContextMenuItem.separator
@@ -185,12 +187,10 @@ struct RepositoryDiffView: View {
 
     private var files: [GitCommitFile] {
         guard let context else { return [] }
-        if context.commit.hash.hasPrefix("saved:"), let snapshot = feature.savedDiffSnapshot {
-            return snapshot.files.filter { $0.version == feature.savedDiffVersion }.map(\.file)
+        if context.commit.hash.hasPrefix("saved:"), let snapshot = session.savedDiffSnapshot {
+            return snapshot.files.filter { $0.version == session.savedDiffVersion }.map(\.file)
         }
-        guard feature.selectedGitCommit?.hash == context.commit.hash,
-              feature.selectedGitCommitFiles.contains(where: { $0.id == context.file.id }) else { return [context.file] }
-        return feature.selectedGitCommitFiles
+        return session.commitFiles.contains(where: { $0.id == context.file.id }) ? session.commitFiles : [context.file]
     }
 
     private var fileIndex: Int? { context.flatMap { value in files.firstIndex { $0.id == value.file.id } } }
@@ -272,10 +272,10 @@ struct RepositoryDiffView: View {
 
     private func diffContent(proxy: ScrollViewProxy) -> some View {
         // Patch hunk headers are metadata. Preserve source row IDs for existing navigation.
-        let rows = feature.diffRows.filter { $0.kind != .information }
+        let rows = session.diffRows.filter { $0.kind != .information }
         var actionHunks: [DiffRowID: DiffHunk] = [:]
         if change != nil {
-            let hunks = Dictionary(feature.diffHunks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            let hunks = Dictionary(session.diffHunks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             var seen = Set<String>()
             for row in rows where row.kind.isCommitDifference {
                 if let id = row.hunkID, seen.insert(id).inserted, let hunk = hunks[id] { actionHunks[row.id] = hunk }
@@ -285,19 +285,20 @@ struct RepositoryDiffView: View {
             ? DiffCollapse.plan(rows: rows, expandedRegionIDs: expandedRegionIDs, pinnedRowIDs: Set(diffSearchMatches))
             : rows.enumerated().map { DiffDisplayRow.row($0.element, index: $0.offset) }
         let kinds = displayRows.map { $0.layoutRow.kind }
-        let layout = DiffSplitLayout.plan(displayRows: displayRows, kinds: kinds, gutterWidth: DiffLayoutMetrics.lineNumberGutterWidth(rows: rows, family: fontFamily))
-        let unifiedLayout = DiffUnifiedLayout(rows: rows, displayRows: displayRows, fontFamily: fontFamily)
+        // Plan only the layout this render shows; each plan walks and fingerprints every row.
+        let layout = usesUnifiedPane ? nil : DiffSplitLayout.plan(displayRows: displayRows, kinds: kinds, gutterWidth: DiffLayoutMetrics.lineNumberGutterWidth(rows: rows, family: fontFamily))
+        let unifiedLayout = usesUnifiedPane ? DiffUnifiedLayout(rows: rows, displayRows: displayRows, fontFamily: fontFamily) : nil
         let measuredWidth = DiffLayoutMetrics.contentWidth(rows: rows, viewportWidth: 0,
             minimumWidth: usesUnifiedPane ? 680 : 980, paneCount: usesUnifiedPane ? 1 : 2, family: fontFamily)
         let selectedIDs = Set(differenceIndexByRow.compactMap { $0.value == selectedDifferenceIndex ? $0.key : nil })
         return GeometryReader { geometry in
-            if usesUnifiedPane {
+            if let unifiedLayout {
                 DiffUnifiedPaneView(layout: unifiedLayout, fileExtension: fileURL.pathExtension,
                     contentWidth: measuredWidth, highlightsWords: highlightsWords, selectedRowIDs: selectedIDs,
                     fontFamily: fontFamily, currentSearchMatchID: selectedDiffSearchRowID,
                     rowOverlay: { row in AnyView(hunkActions(actionHunks[row.id])) },
                     onExpand: { expandedRegionIDs.insert($0.id) })
-            } else {
+            } else if let layout {
                 DiffSplitPaneView(displayRows: displayRows, kinds: kinds, layout: layout,
                     fileExtension: fileURL.pathExtension, contentWidth: max(geometry.size.width, measuredWidth),
                     viewportWidth: geometry.size.width, highlightsWords: highlightsWords,
@@ -322,7 +323,7 @@ struct RepositoryDiffView: View {
     private var differenceStarts: [DiffRowID] {
         var result: [DiffRowID] = []
         var insideDifference = false
-        for row in feature.diffRows {
+        for row in session.diffRows {
             let isDifference = row.kind.isCommitDifference
             if isDifference && !insideDifference {
                 result.append(row.id)
@@ -336,7 +337,7 @@ struct RepositoryDiffView: View {
         var result: [DiffRowID: Int] = [:]
         var currentIndex = -1
         var insideDifference = false
-        for row in feature.diffRows {
+        for row in session.diffRows {
             let isDifference = row.kind.isCommitDifference
             if isDifference && !insideDifference {
                 currentIndex += 1
@@ -396,7 +397,7 @@ struct RepositoryDiffView: View {
         let query = diffSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return [] }
         let foldedQuery = query.localizedLowercase
-        return feature.diffRows.filter { $0.kind != .information }.compactMap { row in
+        return session.diffRows.filter { $0.kind != .information }.compactMap { row in
             let texts = [row.left, row.rightText].compactMap { $0 }
             return texts.contains(where: { $0.localizedLowercase.contains(foldedQuery) }) ? row.id : nil
         }
@@ -429,7 +430,7 @@ struct RepositoryDiffView: View {
     private func hunkActions(_ hunk: DiffHunk?) -> some View {
         if let change, let hunk {
             DiffHunkActionsView(feature: feature, hunk: hunk, change: change,
-                isMutationEnabled: feature.gitDiffWhitespaceMode == .doNotIgnore)
+                isMutationEnabled: session.gitDiffWhitespaceMode == .doNotIgnore)
         }
     }
 

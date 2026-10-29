@@ -190,11 +190,12 @@ struct IdeCapabilitiesTests {
                 "optionID": "skipTests", "value": true])
             #expect(configured["saved"] as? Bool == true)
             #expect((configured["option"] as? [String: Any])?["value"] as? Bool == true)
-            #expect(try options.options(workspaceURL: fixture.root, buildSystemID: "maven")["skipTests"] == .bool(true))
+            #expect(try options.instanceOptions(workspaceURL: fixture.root, buildSystemID: "maven")[entry.instance.root]?["skipTests"] == .bool(true))
+            #expect(try options.options(workspaceURL: fixture.root, buildSystemID: "maven")["skipTests"] == nil)
             let invalid = await feature.call("lithe_build_configure", arguments: ["instanceID": entry.id,
                 "optionID": "skipTests", "value": "invalid"])
             #expect(invalid["error"] != nil)
-            #expect(try options.options(workspaceURL: fixture.root, buildSystemID: "maven")["skipTests"] == .bool(true))
+            #expect(try options.instanceOptions(workspaceURL: fixture.root, buildSystemID: "maven")[entry.instance.root]?["skipTests"] == .bool(true))
             let loaded = TestGate()
             let modelObservation = build.$entries.sink { entries in
                 if entries.contains(where: { $0.id == entry.id && $0.modelState == .loaded }) { loaded.open() }

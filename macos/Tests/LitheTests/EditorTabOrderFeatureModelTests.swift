@@ -366,7 +366,7 @@ struct EditorTabOrderFeatureModelTests {
             let drag = EditorGroupDragState()
             let original = model.editorTabItems
             let host = NSHostingView(rootView: EditorGroupContainer(feature: model.editorTabOrderFeature, drag: drag)
-                .environmentObject(model).environmentObject(settings).environmentObject(model.editorChrome))
+                .environmentObject(model).environmentObject(settings).environmentObject(model.editorChrome).environmentObject(model.editorDiagnosticsStore))
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 400),
                                   styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false; window.contentView = host
@@ -640,24 +640,25 @@ struct EditorTabOrderFeatureModelTests {
             commit: GitCommit(hash: "abc123", shortHash: "abc123", parentHashes: ["def456"],
                 authorName: "Test", authorEmail: "test@example.invalid", date: "", subject: "Test", decorations: ""),
             file: GitCommitFile(status: "M", path: "Sources/Example.swift"))
-        feature.selectedGitCommitDiffContext = context
         model.documentFeature.openVirtualDocument(URL(string: "lithe-test://documents/First.swift")!, text: "first", displayPath: nil)
         model.documentFeature.openVirtualDocument(URL(string: "lithe-test://documents/Second.swift")!, text: "second", displayPath: nil)
         do {
             let documents = model.openDocuments
             let first = try #require(documents.first), second = try #require(documents.last)
-            model.editorTabOrderFeature.moveToEnd(.repositoryDiff)
+            let diffID = model.beginRepositoryDiffRequest()
+            feature.selectedGitCommitDiffContext = context
+            model.editorTabOrderFeature.moveToEnd(.repositoryDiff(diffID))
             model.selectRepositoryDiffTab()
             #expect(model.isRepositoryDiffSelected)
             #expect(model.activeDocument == nil, "Diff must not leave hidden file save/edit commands active")
-            model.moveEditorTab(.repositoryDiff, before: .document(second.id))
-            #expect(model.editorTabItems == [.document(first.id), .repositoryDiff, .document(second.id)])
+            model.moveEditorTab(.repositoryDiff(diffID), before: .document(second.id))
+            #expect(model.editorTabItems == [.document(first.id), .repositoryDiff(diffID), .document(second.id)])
             model.selectEditorDocument(first)
             #expect(!model.isRepositoryDiffSelected)
             #expect(feature.selectedGitCommitDiffContext?.id == context.id)
             model.selectRepositoryDiffTab()
             #expect(model.isRepositoryDiffSelected)
-            let hosting = NSHostingView(rootView: EditorAreaView().environmentObject(model).environmentObject(settings).environmentObject(model.editorChrome))
+            let hosting = NSHostingView(rootView: EditorAreaView().environmentObject(model).environmentObject(settings).environmentObject(model.editorChrome).environmentObject(model.editorDiagnosticsStore))
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 220),
                 styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false; window.contentView = hosting; window.orderFront(nil)
@@ -679,9 +680,9 @@ struct EditorTabOrderFeatureModelTests {
                     eventNumber: index, clickCount: 1, pressure: index == 4 ? 0 : 1)))
                 await Task.yield(); hosting.layoutSubtreeIfNeeded()
             }
-            #expect(model.editorTabItems == [.repositoryDiff, .document(second.id), .document(first.id)])
+            #expect(model.editorTabItems == [.repositoryDiff(diffID), .document(second.id), .document(first.id)])
             #expect(model.activeDocumentID == first.id)
-            model.moveEditorTab(.document(first.id), before: .repositoryDiff)
+            model.moveEditorTab(.document(first.id), before: .repositoryDiff(diffID))
             model.selectRepositoryDiffTab()
             await Task.yield(); hosting.layoutSubtreeIfNeeded()
             if let directory = ProcessInfo.processInfo.environment["LITHE_DIFF_CAPTURE_DIR"] {
@@ -712,12 +713,12 @@ struct EditorTabOrderFeatureModelTests {
             #expect(feature.selectedGitCommitDiffContext == nil)
             #expect(model.editorTabItems == [.document(first.id), .document(second.id)])
             #expect(model.activeDocumentID == first.id)
-            model.showGitCommitDiff(for: context.file)
-            #expect(model.editorTabItems.contains(.repositoryDiff), "Loading previews are still closable tabs")
+            let loadingID = model.beginRepositoryDiffRequest()
+            #expect(model.editorTabItems.contains(.repositoryDiff(loadingID)), "Loading previews are still closable tabs")
             #expect(model.requestCloseActiveWorkbenchItem())
             await Task.yield()
-            #expect(!model.editorTabItems.contains(.repositoryDiff))
-            #expect(model.editorTabOrderFeature.repositoryDiffRequestID == nil)
+            #expect(!model.editorTabItems.contains(.repositoryDiff(diffID)))
+            #expect(model.editorTabOrderFeature.repositoryDiffIDs.isEmpty)
             #expect(model.activeDocumentID == first.id)
         } catch { await model.shutdownProjectSession(); throw error }
         await model.shutdownProjectSession()
@@ -733,14 +734,15 @@ struct EditorTabOrderFeatureModelTests {
         model.documentFeature.openVirtualDocument(URL(string: "lithe-test://documents/.gitignore")!, text: ".DS_Store", displayPath: nil)
         do {
             let document = try #require(model.openDocuments.first)
+            let diffID = UUID()
             if dragDiff {
-                model.editorTabOrderFeature.moveToEnd(.repositoryDiff)
+                model.editorTabOrderFeature.moveToEnd(.repositoryDiff(diffID))
                 model.selectRepositoryDiffTab()
             } else {
-                model.editorTabOrderFeature.move(.repositoryDiff, before: .document(document.id))
+                model.editorTabOrderFeature.move(.repositoryDiff(diffID), before: .document(document.id))
             }
             let host = NSHostingView(rootView: EditorAreaView().environmentObject(model)
-                .environmentObject(settings).environmentObject(model.editorChrome)
+                .environmentObject(settings).environmentObject(model.editorChrome).environmentObject(model.editorDiagnosticsStore)
                 .environment(\.colorScheme, dragDiff ? .dark : .light))
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: layout == .singleLine ? 500 : 250, height: 220),
                 styleMask: [.borderless], backing: .buffered, defer: false)
@@ -808,7 +810,7 @@ struct EditorTabOrderFeatureModelTests {
             try await drag(points)
             #expect(window.childWindows?.contains { $0.identifier?.rawValue == "lithe.editor-tab-drag-preview" } != true)
             #expect(model.editorTabItems == (dragDiff
-                ? [.repositoryDiff, .document(document.id)] : [.document(document.id), .repositoryDiff]))
+                ? [.repositoryDiff(diffID), .document(document.id)] : [.document(document.id), .repositoryDiff(diffID)]))
             #expect(model.isRepositoryDiffSelected == dragDiff)
         } catch { await model.shutdownProjectSession(); throw error }
         await model.shutdownProjectSession()
@@ -816,10 +818,11 @@ struct EditorTabOrderFeatureModelTests {
 
     @Test
     func floatingPreviewCancelsWithoutTakingFocus() async throws {
+        let diffID = UUID()
         let preview = EditorTabDragPreviewStore()
         let host = NSHostingView(rootView: Text("Repository Diff: Example.swift")
             .frame(width: 230, height: 36)
-            .background(EditorTabDragPreviewAnchor(item: .repositoryDiff, store: preview)))
+            .background(EditorTabDragPreviewAnchor(item: .repositoryDiff(diffID), store: preview)))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 230, height: 100),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
@@ -827,7 +830,7 @@ struct EditorTabOrderFeatureModelTests {
         host.layoutSubtreeIfNeeded(); await Task.yield(); host.layoutSubtreeIfNeeded()
         var cancelled = false
         let responder = window.firstResponder
-        preview.begin(.repositoryDiff) { cancelled = true; preview.finish() }
+        preview.begin(.repositoryDiff(diffID)) { cancelled = true; preview.finish() }
         let panel = try #require(preview.panel)
         let origin = panel.frame.origin
         preview.move(by: CGSize(width: 300, height: 120))
@@ -843,15 +846,259 @@ struct EditorTabOrderFeatureModelTests {
     @Test
     func documentReconciliationPreservesRepositoryDiffSlot() {
         let model = EditorTabOrderFeatureModel()
-        let first = UUID(), second = UUID()
+        let first = UUID(), second = UUID(), diffID = UUID()
         model.reconcileDocuments(orderedIDs: [first, second])
-        model.move(.repositoryDiff, before: .document(second))
+        model.move(.repositoryDiff(diffID), before: .document(second))
         model.reconcileDocuments(orderedIDs: [second, first])
-        #expect(model.items == [.document(second), .repositoryDiff, .document(first)])
+        #expect(model.items == [.document(second), .repositoryDiff(diffID), .document(first)])
+    }
+
+    @Test(arguments: ["working", "directory", "branch", "references", "history", "saved", "conflict", "gutter"],
+          [ColorScheme.dark, .light])
+    func allRepositoryDiffEntrypointsUseEditorGroups(kind: String, scheme: ColorScheme) async throws {
+        MacBundledFontRegistry.registerFonts()
+        let store = EditorTabOrderTestStore()
+        let settings = AppSettings(store: store)
+        let model = AppModel(settings: settings, services: MacServiceContainer(
+            store: store, settings: settings, moduleLaunchMode: .safeMode).services)
+        let root = URL(fileURLWithPath: "/workspace")
+        let operations = DiffToolbarGitOperations(root: root, includesWorkingChanges: true)
+        let feature = GitFeatureModel(service: GitService(operations: operations))
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {})
+        model.moduleCapabilityStore.cache(GitModuleCapability(feature: feature), id: .gitWorkspace, moduleID: .git)
+        model.documentFeature.openVirtualDocument(URL(string: "lithe-test://documents/Kept.swift")!,
+            text: "unsaved content", displayPath: nil)
+        do {
+            let document = try #require(model.activeDocument)
+            await feature.refreshGit()
+            let change = try #require(feature.gitChanges.first)
+            let reference = GitReference(fullName: "refs/heads/main", shortName: "main", kind: .local,
+                isCurrent: true, upstreamShortName: nil)
+            let target = GitReference(fullName: "refs/heads/topic", shortName: "topic", kind: .local,
+                isCurrent: false, upstreamShortName: nil)
+            switch kind {
+            case "working": model.selectChange(change)
+            case "directory": await model.showGitDirectoryDiff(for: root)
+            case "branch": await model.showComparisonWithWorkingTree(for: reference)
+            case "references": await model.showComparison(from: reference, to: target)
+            case "history":
+                await feature.selectGitCommit(operations.commitValue)
+                model.showGitCommitDiff(for: operations.filesValue[0])
+            case "saved":
+                let snapshot = GitSavedChangesSnapshot(id: "stash", repositoryRoot: root, files: [
+                    GitSavedPatchFile(file: operations.filesValue[0], version: "Stash", base: "base",
+                        patch: "diff --git a/a.swift b/a.swift\n--- a/a.swift\n+++ b/a.swift\n@@ -1 +1 @@\n-old\n+saved\n")
+                ])
+                model.showSavedChangesDiff(snapshot, version: "Stash", file: operations.filesValue[0])
+            case "conflict": model.showGitConflictDiff(path: change.path)
+            default:
+                await model.showGitLineChange(GitLineChangeMarker(line: 0, kind: .modified, hunkID: nil), for: change.url)
+            }
+            let diffID = try #require(model.selectedRepositoryDiffID)
+            let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+            while (feature.diffRows.isEmpty && feature.branchComparisonRows.isEmpty), ContinuousClock.now < deadline {
+                await Task.yield()
+            }
+            try #require(!feature.diffRows.isEmpty || !feature.branchComparisonRows.isEmpty,
+                "The selected Diff must finish through its real entrypoint within the local deadline")
+            if kind == "history" {
+                let context = feature.selectedGitCommitDiffContext
+                feature.previewGitCommitSelection(GitCommit(hash: "next", shortHash: "next", parentHashes: [],
+                    authorName: "", authorEmail: "", date: "", subject: "Next", decorations: ""))
+                #expect(feature.selectedGitCommitDiffContext == context, "Git Log selection does not replace an open Diff")
+            }
+            #expect(model.editorTabItems == [.document(document.id), .repositoryDiff(diffID)])
+            #expect(model.isRepositoryDiffSelected && model.activeDocument == nil)
+            model.selectEditorDocument(document)
+            #expect(!model.isRepositoryDiffSelected)
+            #expect(ProblemsPanelScope.currentFileURL(in: model) == document.url.standardizedFileURL)
+            #expect(feature.selectedChange != nil || feature.branchComparison != nil || feature.selectedGitCommitDiffContext != nil)
+            if kind == "working" {
+                let requestID = model.editorTabOrderFeature.repositoryDiffIDs.last
+                model.selectChange(change)
+                #expect(model.isRepositoryDiffSelected)
+                #expect(model.editorTabOrderFeature.repositoryDiffIDs.last == requestID, "Reopening the same file reuses its loaded preview")
+            }
+            model.selectEditorTab(.repositoryDiff(diffID))
+            let originalGroup = try #require(model.editorTabOrderFeature.groupLayout.groups.first)
+            model.moveEditorTab(.repositoryDiff(diffID), toGroup: originalGroup, side: .right)
+            #expect(model.editorTabOrderFeature.groupLayout.groups.count == 2)
+            let host = NSHostingView(rootView: EditorAreaView().environmentObject(model).environmentObject(settings)
+                .environmentObject(model.editorChrome).environmentObject(model.editorDiagnosticsStore)
+                .environment(\.colorScheme, scheme))
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1400, height: 400),
+                styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
+            window.contentView = host
+            defer { window.contentView = nil; window.close() }
+            host.layoutSubtreeIfNeeded(); await Task.yield(); host.layoutSubtreeIfNeeded()
+            func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+            let anchors = descendants(host).compactMap { $0 as? EditorTabDragPreviewAnchor.AnchorView }
+            #expect(anchors.contains { $0.item == .repositoryDiff(diffID) }, "Diff must mount the ordinary tab strip, not cover it")
+            #expect(anchors.contains { $0.item == .document(document.id) })
+            #expect(!descendants(host).compactMap { $0 as? DiffNativeTextView }.isEmpty)
+            model.selectEditorDocument(document)
+            host.layoutSubtreeIfNeeded()
+            let diffText = try #require(descendants(host).compactMap { $0 as? DiffNativeTextView }.first)
+            #expect(window.makeFirstResponder(diffText))
+            NotificationCenter.default.post(name: NSWindow.didUpdateNotification, object: window)
+            let focusDeadline = ContinuousClock.now.advanced(by: .seconds(2))
+            while !model.isRepositoryDiffSelected, ContinuousClock.now < focusDeadline {
+                await withCheckedContinuation { gate in DispatchQueue.main.async { gate.resume() } }
+                host.layoutSubtreeIfNeeded()
+            }
+            try #require(model.isRepositoryDiffSelected, "Native focus in an inactive Diff split must select its tab")
+            if let folder = ProcessInfo.processInfo.environment["LITHE_DIFF_CAPTURE_DIR"] {
+                try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+                let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+                host.cacheDisplay(in: host.bounds, to: bitmap)
+                try #require(bitmap.representation(using: .png, properties: [:])).write(to:
+                    URL(fileURLWithPath: folder).appendingPathComponent("diff-tab-\(kind)-\(scheme).png"))
+            }
+            #expect(model.requestCloseActiveWorkbenchItem())
+            #expect(model.editorTabItems == [.document(document.id)])
+            #expect(model.editorTabOrderFeature.groupLayout.groups.count == 1)
+            #expect(model.activeDocument === document && document.text == "unsaved content")
+            #expect(feature.selectedChange == nil && feature.branchComparison == nil && feature.selectedGitCommitDiffContext == nil)
+        } catch { await model.shutdownProjectSession(); throw error }
+        await model.shutdownProjectSession()
+    }
+
+    @Test func multipleDiffTabsKeepNativeScrollAndOnlySelectedTabAcceptsFocus() async throws {
+        let store = EditorTabOrderTestStore(), root = URL(fileURLWithPath: "/workspace")
+        let settings = AppSettings(store: store)
+        let model = AppModel(settings: settings, services: MacServiceContainer(
+            store: store, settings: settings, moduleLaunchMode: .safeMode).services)
+        let feature = GitFeatureModel(service: GitService(operations: DiffToolbarGitOperations(root: root)),
+            diffDocumentProvider: { change, _ in
+                DiffDocument(rows: (1...180).map {
+                    DiffRow(oldLine: $0, newLine: $0, left: "\(change.path) old \($0)",
+                        right: "\(change.path) new \($0)", kind: .changed, sequence: $0 - 1)
+                }, hunks: [])
+            })
+        model.moduleCapabilityStore.cache(GitModuleCapability(feature: feature), id: .gitWorkspace, moduleID: .git)
+        do {
+            var ids: [UUID] = []
+            for path in ["first.swift", "second.swift"] {
+                let change = GitChange(repositoryRoot: root, path: path, originalPath: nil, indexStatus: " ", workTreeStatus: "M")
+                let id = model.beginRepositoryDiffRequest(key: RepositoryDiffTabKey(repositoryRoot: root,
+                    source: .workingFile(change.url)))
+                ids.append(id)
+                await model.performRepositoryDiffRequest(id) { await $0.selectChange(change, session: $1) }
+            }
+            #expect(model.editorTabOrderFeature.repositoryDiffIDs == ids)
+            let host = NSHostingView(rootView: EditorAreaView().environmentObject(model).environmentObject(settings)
+                .environmentObject(model.editorChrome).environmentObject(model.editorDiagnosticsStore))
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 350),
+                styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
+            defer { window.contentView = nil; window.close() }
+            func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+            func settle() async {
+                host.layoutSubtreeIfNeeded()
+                await withCheckedContinuation { gate in DispatchQueue.main.async { gate.resume() } }
+                host.layoutSubtreeIfNeeded()
+            }
+            await settle()
+            model.selectRepositoryDiffTab(ids[0]); await settle()
+            let firstEditor = try #require(descendants(host).compactMap { $0 as? DiffNativeTextView }
+                .first { $0.string.contains("first.swift new") })
+            let secondEditor = try #require(descendants(host).compactMap { $0 as? DiffNativeTextView }
+                .first { $0.string.contains("second.swift new") })
+            let firstScroll = try #require(firstEditor.enclosingScrollView)
+            let stripe = try #require(descendants(host).compactMap { $0 as? DiffStripeScroller }
+                .first { $0.side == .right && $0.synchronization?.scrollView(.right) === firstScroll })
+            stripe.synchronization?.scroll(.right, to: 900)
+            let offset = firstScroll.contentView.bounds.minY
+            #expect(offset > 0 && firstEditor.acceptsFirstResponder && !secondEditor.acceptsFirstResponder)
+            #expect(window.makeFirstResponder(firstEditor))
+            model.selectRepositoryDiffTab(ids[1]); await settle()
+            #expect(window.firstResponder !== firstEditor)
+            #expect(!firstEditor.acceptsFirstResponder && secondEditor.acceptsFirstResponder)
+            model.selectRepositoryDiffTab(ids[0]); await settle()
+            #expect(descendants(host).contains { $0 === firstEditor }, "Tab switches retain native editor identity")
+            #expect(abs(firstScroll.contentView.bounds.minY - offset) < 0.5)
+            let reopened = model.beginRepositoryDiffRequest(key: RepositoryDiffTabKey(repositoryRoot: root,
+                source: .workingFile(root.appendingPathComponent("first.swift"))))
+            #expect(reopened == ids[0] && model.editorTabOrderFeature.repositoryDiffIDs.count == 2)
+            model.closeRepositoryDiffTab(ids[1])
+            #expect(model.selectedRepositoryDiffID == ids[0] && feature.repositoryDiffSessions[ids[0]] != nil)
+        } catch { feature.reset(); await model.shutdownProjectSession(); throw error }
+        feature.reset()
+        await model.shutdownProjectSession()
+    }
+
+    @Test func independentDiffRequestsDoNotCancelEachOtherOrStealSelection() async throws {
+        let store = EditorTabOrderTestStore(), root = URL(fileURLWithPath: "/workspace")
+        let settings = AppSettings(store: store)
+        let model = AppModel(settings: settings, services: MacServiceContainer(
+            store: store, settings: settings, moduleLaunchMode: .safeMode).services)
+        let feature = GitFeatureModel(service: GitService(operations: DiffToolbarGitOperations(root: root)))
+        model.moduleCapabilityStore.cache(GitModuleCapability(feature: feature), id: .gitWorkspace, moduleID: .git)
+        model.documentFeature.openVirtualDocument(URL(string: "lithe-test://documents/Return.swift")!, text: "kept", displayPath: nil)
+        do {
+            let document = try #require(model.activeDocument)
+            let first = model.beginRepositoryDiffRequest()
+            let second = model.beginRepositoryDiffRequest()
+            var started = false
+            await model.performRepositoryDiffRequest(first) { _, session in
+                started = true
+                #expect(session.id == first)
+            }
+            #expect(started && model.selectedRepositoryDiffID == second)
+            model.closeRepositoryDiffTab(first)
+            await model.performRepositoryDiffRequest(first) { _, _ in Issue.record("Closed request started") }
+            #expect(model.editorTabOrderFeature.repositoryDiffIDs == [second])
+            model.selectEditorDocument(document)
+            await model.performRepositoryDiffRequest(second) { _, _ in }
+            #expect(model.activeDocument === document && !model.isRepositoryDiffSelected)
+            model.closeRepositoryDiffTab(second)
+            #expect(model.activeDocument === document && feature.repositoryDiffSessions.isEmpty)
+        } catch { await model.shutdownProjectSession(); throw error }
+        await model.shutdownProjectSession()
+    }
+
+    @Test(arguments: ["document", "media", "agent"])
+    func backgroundDiffDoesNotInterceptCloseAndReturnsToItsSource(kind: String) async throws {
+        let store = EditorTabOrderTestStore(), root = URL(fileURLWithPath: "/workspace")
+        let settings = AppSettings(store: store)
+        let model = AppModel(settings: settings, services: MacServiceContainer(
+            store: store, settings: settings, moduleLaunchMode: .safeMode).services)
+        let feature = GitFeatureModel(service: GitService(operations: DiffToolbarGitOperations(root: root)))
+        model.moduleCapabilityStore.cache(GitModuleCapability(feature: feature), id: .gitWorkspace, moduleID: .git)
+        do {
+            let source: EditorTabItem
+            switch kind {
+            case "media":
+                model.openMediaFile(root.appendingPathComponent("image.png"), kind: .image)
+                let media = try #require(model.activeMediaDocument)
+                model.selectMediaDocument(media)
+                source = .media(media.id)
+            case "agent":
+                model.showAgentChatsInEditor()
+                source = .agentConversation(try #require(model.focusedAgentEditorTab))
+            default:
+                model.documentFeature.openVirtualDocument(URL(string: "lithe-test://documents/Source.swift")!,
+                    text: "kept", displayPath: nil)
+                source = .document(try #require(model.activeDocument).id)
+            }
+            let firstID = model.beginRepositoryDiffRequest()
+            #expect(model.editorTabOrderFeature.repositoryDiffReturnTabs[firstID] == source)
+            model.closeRepositoryDiffTab()
+            #expect(model.editorTabOrderFeature.focusedItem == source)
+            let diffID = model.beginRepositoryDiffRequest()
+            model.selectEditorTab(source)
+            #expect(model.requestCloseActiveWorkbenchItem())
+            #expect(!model.editorTabItems.contains(source))
+            #expect(model.editorTabItems.contains(.repositoryDiff(diffID)), "Cmd-W closes the active content, not the background Diff")
+        } catch { await model.shutdownProjectSession(); throw error }
+        await model.shutdownProjectSession()
     }
 
     @Test(arguments: [false, true], [false, true])
-    func workingTreeDiffOwnsCloseCommandWhileHistoryTabIsRetained(closeBackgroundTab: Bool, loading: Bool) async throws {
+    func workingTreeDiffSharesTabAndCloseLifecycle(closeBackgroundTab: Bool, loading: Bool) async throws {
         let store = EditorTabOrderTestStore()
         let settings = AppSettings(store: store)
         let model = AppModel(settings: settings, services: MacServiceContainer(
@@ -862,33 +1109,28 @@ struct EditorTabOrderFeatureModelTests {
             rows: [DiffRow(oldLine: 1, newLine: 1, left: "old", right: "new", kind: .changed, hunkID: "h1")],
             hunks: [DiffHunk(id: "h1", header: "@@ -1 +1 @@", patch: "-old\n+new")])
         let checkClose: @MainActor @Sendable () -> Void = { [weak model] in
-            guard let model, let feature = model.gitFeatureIfActive else {
-                Issue.record("The working-tree preview must retain its owning feature")
+            guard let model, let feature = model.gitFeatureIfActive, let document = model.openDocuments.first else {
+                Issue.record("The preview must retain its owning feature and return document")
                 return
             }
-            #expect(!model.isRepositoryDiffSelected)
+            #expect(model.isRepositoryDiffSelected)
             #expect(model.activeDocumentID == nil)
             #expect(feature.isLoadingDiff == loading)
             #expect(feature.selectedDiffPatch == (loading ? "" : diff.patch))
             if closeBackgroundTab {
-                model.closeGitCommitDiff()
-                #expect(feature.selectedChange == change)
-                #expect(feature.selectedDiffPatch == (loading ? "" : diff.patch))
-                #expect(feature.isLoadingDiff == loading)
-                #expect(!model.editorTabItems.contains(.repositoryDiff))
-                #expect(model.activeDocumentID == nil, "Closing a hidden tab must not activate its return document")
+                model.selectEditorDocument(document)
+                #expect(feature.selectedChange == change, "Switching tabs retains the preview")
+                model.closeRepositoryDiffTab()
             } else {
                 #expect(model.requestCloseActiveWorkbenchItem())
-                #expect(feature.selectedChange == nil, "Close must dismiss the visible working-tree preview")
-                #expect(!feature.isLoadingDiff, "Closing the visible preview must clear its loading state immediately")
-                #expect(!feature.hasActiveModuleWork, "A closed preview must not block Git module sleep")
-                #expect(model.editorTabItems.contains(.repositoryDiff), "The hidden history tab was not the close target")
             }
+            #expect(feature.selectedChange == nil)
+            #expect(!feature.isLoadingDiff && !feature.hasActiveModuleWork)
+            #expect(model.editorTabOrderFeature.repositoryDiffIDs.isEmpty)
+            #expect(model.activeDocumentID == document.id)
         }
         let feature = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())),
             diffDocumentProvider: { _, _ in
-                // Run the close action at the load boundary, before returning
-                // the result. No timing assumption or background Git process.
                 if loading { await checkClose() }
                 return diff
             })
@@ -896,26 +1138,14 @@ struct EditorTabOrderFeatureModelTests {
         model.documentFeature.openVirtualDocument(URL(string: "lithe-test://documents/Example.swift")!,
             text: "example", displayPath: nil)
         do {
-            let document = try #require(model.openDocuments.first)
-            model.editorTabOrderFeature.moveToEnd(.repositoryDiff)
-            model.selectRepositoryDiffTab()
-            #expect(model.isRepositoryDiffSelected)
-
+            _ = try #require(model.openDocuments.first)
+            _ = model.beginRepositoryDiffRequest()
             await feature.selectChange(change)
             if !loading { checkClose() }
-            if closeBackgroundTab {
-                #expect(feature.selectedDiffPatch == diff.patch)
-                #expect(feature.diffRows == diff.rows)
-                #expect(feature.diffHunks.map(\.id) == diff.hunks.map(\.id))
-                #expect(!feature.isLoadingDiff, "Closing the background tab must let the working-tree load finish")
-            } else {
-                #expect(feature.selectedChange == nil)
-                #expect(feature.selectedDiffPatch.isEmpty && feature.diffRows.isEmpty && feature.diffHunks.isEmpty,
-                    "A late result must not repopulate the closed preview")
-                #expect(!feature.isLoadingDiff && !feature.hasActiveModuleWork,
-                    "The feature must remain idle after the closed preview's load returns")
-            }
-            #expect(model.openDocuments.contains { $0.id == document.id })
+            #expect(feature.selectedChange == nil)
+            #expect(feature.selectedDiffPatch.isEmpty && feature.diffRows.isEmpty && feature.diffHunks.isEmpty,
+                "Late results must not repopulate the closed tab")
+            #expect(!feature.isLoadingDiff && !feature.hasActiveModuleWork)
         } catch { await model.shutdownProjectSession(); throw error }
         await model.shutdownProjectSession()
     }
@@ -1114,7 +1344,7 @@ struct EditorTabOrderFeatureModelTests {
             let first = try #require(model.openDocuments.first), second = try #require(model.openDocuments.last)
             let drag: EditorGroupDragState? = injectedState ? EditorGroupDragState() : nil
             let host = NSHostingView(rootView: EditorAreaView(groupDrag: drag).environmentObject(model)
-                .environmentObject(settings).environmentObject(model.editorChrome))
+                .environmentObject(settings).environmentObject(model.editorChrome).environmentObject(model.editorDiagnosticsStore))
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 400),
                 styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
@@ -1122,7 +1352,7 @@ struct EditorTabOrderFeatureModelTests {
             host.layoutSubtreeIfNeeded(); await Task.yield(); host.layoutSubtreeIfNeeded()
             // Parent reconstruction with unchanged geometry must retain the root-owned drag registry.
             host.rootView = EditorAreaView(groupDrag: drag).environmentObject(model)
-                .environmentObject(settings).environmentObject(model.editorChrome)
+                .environmentObject(settings).environmentObject(model.editorChrome).environmentObject(model.editorDiagnosticsStore)
             host.layoutSubtreeIfNeeded(); await Task.yield(); host.layoutSubtreeIfNeeded()
             func send(_ type: NSEvent.EventType, _ point: NSPoint) throws {
                 NSApp.sendEvent(try #require(NSEvent.mouseEvent(with: type,

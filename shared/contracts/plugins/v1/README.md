@@ -400,6 +400,7 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 | Capability | Covers | Versions |
 | --- | --- | --- |
 | `languages` | `languages[]` | `1` |
+| `packageTrust` | `vendor.bundledSignatureRequirement`: origin-scoped trust for a host-sealed bundled copy of a publisher-signed plugin | `1` |
 | `languageServers` | `languageServers[]` apart from their launch fields | `1`, `2` (adds [`workspaceConfiguration`](#workspace-configuration-languageservers-2)) |
 | `serverProcess` | The launch fields of language servers, of build providers with a process of their own, of VCS providers, and of the plugin backend: `launch`, `arguments`, `validationArguments`, `runtimeDependencies`, `initializationOptions` | `1` |
 | `executionProviders` | `executionProviders[]` | `1` |
@@ -531,6 +532,20 @@ plugin only permits activation; nothing starts until its event occurs.
   this value refuse such packages as invalid manifests, which is intended.
   A signature document, when present, must still be verified; community trust
   cannot silently ignore an invalid signature.
+
+API level 3 packages can declare `requires.packageTrust: 1` and
+`vendor.bundledSignatureRequirement: "sameTeamAsHost"`, together with
+`vendor.signatureRequirement: "publisherPackage"`. Only official-namespace IDs
+may use this declaration. Both the primary and bundled policies must match the
+host's pinned official catalog. Only a package whose actual resolved path is
+inside the host's sealed installation and whose origin is `bundled` may omit
+the publisher signature. Every independently installed, imported or rolled-back
+copy still needs the publisher signature. A present signature is always checked,
+even inside the host seal. The optional declaration alone grants no trust.
+Hosts without `packageTrust: 1` filter this version before download and reject
+its manifest; no new application-version field is needed. An older manifest
+without the declaration keeps its existing policy. The valid example is
+`fixtures/publisher-bundled.plugin.json`.
 
 A host pins the signature requirement of its official plugin IDs so a package
 cannot downgrade itself. Selecting a file from disk never overrides that pin,
