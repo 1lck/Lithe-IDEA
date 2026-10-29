@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import LitheModuleAPI
 
 enum StandaloneFileOpenFailure: Error, Equatable {
     case unavailable
@@ -7,29 +8,70 @@ enum StandaloneFileOpenFailure: Error, Equatable {
     case tooLarge
     case notText
     case readFailed
+    case permissionDenied
+    case decodingFailed
+    case symbolicLink
+    case unsupportedFile
+
+    init(error: Error) {
+        switch error {
+        case DocumentFileAccessError.directory: self = .directory; return
+        case DocumentFileAccessError.symbolicLink: self = .symbolicLink; return
+        case DocumentFileAccessError.notRegularFile: self = .unsupportedFile; return
+        default: break
+        }
+        let value = error as NSError
+        if value.domain == NSCocoaErrorDomain {
+            switch CocoaError.Code(rawValue: value.code) {
+            case .fileReadNoSuchFile, .fileNoSuchFile: self = .unavailable
+            case .fileReadTooLarge: self = .tooLarge
+            case .fileReadNoPermission, .fileWriteNoPermission: self = .permissionDenied
+            case .fileReadInapplicableStringEncoding, .fileReadUnknownStringEncoding: self = .decodingFailed
+            default: self = .readFailed
+            }
+        } else if value.domain == NSPOSIXErrorDomain {
+            switch POSIXErrorCode(rawValue: Int32(value.code)) {
+            case .ENOENT: self = .unavailable
+            case .EACCES, .EPERM: self = .permissionDenied
+            default: self = .readFailed
+            }
+        } else { self = .readFailed }
+    }
 
     var title: String {
         switch self {
-        case .unavailable: "File is not available"
-        case .directory: "Folders cannot be opened as text"
-        case .tooLarge: "File is too large to open"
-        case .notText: "This file cannot be displayed as text"
-        case .readFailed: "Could not read this file"
+        case .unavailable: L10n.string("File is not available")
+        case .directory: L10n.string("Folders cannot be opened as text")
+        case .tooLarge: L10n.string("File is too large to open")
+        case .notText: L10n.string("This file cannot be displayed as text")
+        case .readFailed: L10n.string("Could not read this file")
+        case .permissionDenied: L10n.string("Permission denied when opening this file")
+        case .decodingFailed: L10n.string("Could not decode this file")
+        case .symbolicLink: L10n.string("Symbolic links cannot be opened in this editor")
+        case .unsupportedFile: L10n.string("This file type cannot be opened in this editor")
         }
     }
 
     var detail: String {
         switch self {
         case .unavailable:
-            "The file no longer exists or Lithe does not have access to it."
+            L10n.string("The file no longer exists or was moved. Refresh the project and try again.")
         case .directory:
-            "Open a text file instead of a folder."
+            L10n.string("Open a text file instead of a folder.")
         case .tooLarge:
-            "Standalone text files are limited to 32 MB."
+            L10n.string("Text files are limited to 32 MB. Open this file in an external editor.")
         case .notText:
-            "The file could not be decoded as supported plain text."
+            L10n.string("The decoded contents contain non-text characters. Use a suitable file viewer.")
         case .readFailed:
-            "The file could not be read. Check its permissions and try again."
+            L10n.string("The file could not be read. Check its availability and try again.")
+        case .permissionDenied:
+            L10n.string("Check the file and parent folder permissions, and allow Lithe to access this location in System Settings.")
+        case .decodingFailed:
+            L10n.string("The file could not be decoded with the selected or detected encoding. Check its encoding or open it in an external editor.")
+        case .symbolicLink:
+            L10n.string("Open the target file directly. Symbolic-link editing is not supported by this file adapter.")
+        case .unsupportedFile:
+            L10n.string("Only regular files can be opened as text. Devices, sockets and named pipes are not supported.")
         }
     }
 }
@@ -210,6 +252,7 @@ final class DocumentFeatureModel: ObservableObject {
     private let fileOperations: any WorkspaceFileOperations
     private let fileStorage: any FileStorage
     private let binaryFileViewerRegistry: BinaryFileViewerRegistry
+    private let confirmHardLinkSave: @MainActor (URL) -> DocumentHardLinkSaveMode?
     private var workspaceURLProvider: (@MainActor () -> URL?)?
     private var autoSaveEnabledProvider: (@MainActor () -> Bool)?
     private var autoSaveDelayProvider: (@MainActor () -> TimeInterval)?
@@ -247,6 +290,7 @@ final class DocumentFeatureModel: ObservableObject {
         fileOperations: any WorkspaceFileOperations,
         fileStorage: any FileStorage,
         binaryFileViewerRegistry: BinaryFileViewerRegistry,
+        confirmHardLinkSave: @escaping @MainActor (URL) -> DocumentHardLinkSaveMode? = { _ in nil },
         autoSaveDelay: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     ) {
         self.operations = operations
@@ -254,6 +298,7 @@ final class DocumentFeatureModel: ObservableObject {
         self.fileOperations = fileOperations
         self.fileStorage = fileStorage
         self.binaryFileViewerRegistry = binaryFileViewerRegistry
+        self.confirmHardLinkSave = confirmHardLinkSave
         self.autoSaveDelay = autoSaveDelay
     }
 
@@ -386,14 +431,10 @@ final class DocumentFeatureModel: ObservableObject {
                         throw CocoaError(.fileReadNoSuchFile)
                     }
                     result = WorkspaceTextFilePolicy.isPlainText(details.text) ? .success(details) : .failure(.notText)
-                } catch let error as CocoaError {
-                    switch error.code {
-                    case .fileReadNoSuchFile: result = .failure(.unavailable)
-                    case .fileReadTooLarge: result = .failure(.tooLarge)
-                    case .fileReadInapplicableStringEncoding: result = .failure(.notText)
-                    default: result = .failure(.readFailed)
-                    }
-                } catch { result = .failure(.readFailed) }
+                } catch {
+                    self.logOpenFailure(error)
+                    result = .failure(StandaloneFileOpenFailure(error: error))
+                }
             } else {
                 result = await Task.detached(priority: .userInitiated) {
                     Self.readStandaloneFile(at: normalizedURL, using: fileStorage)
@@ -445,15 +486,13 @@ final class DocumentFeatureModel: ObservableObject {
         do {
             data = try fileStorage.readData(from: url, options: [])
         } catch {
-            return .failure(.readFailed)
+            return .failure(StandaloneFileOpenFailure(error: error))
         }
         guard data.count <= WorkspaceTextFilePolicy.standaloneFileByteLimit else {
             return .failure(.tooLarge)
         }
-        guard let text = String(data: data, encoding: .utf8),
-              WorkspaceTextFilePolicy.isPlainText(text) else {
-            return .failure(.notText)
-        }
+        guard let text = String(data: data, encoding: .utf8) else { return .failure(.decodingFailed) }
+        guard WorkspaceTextFilePolicy.isPlainText(text) else { return .failure(.notText) }
         return .success(text)
     }
 
@@ -558,16 +597,23 @@ final class DocumentFeatureModel: ObservableObject {
         }
 
         let details: DocumentReadDetails?
+        var openFailure: StandaloneFileOpenFailure?
         if relativePath == nil, !fileOperations.supportsDocumentEncoding {
             let fileStorage = self.fileStorage
-            details = await Task.detached(priority: .userInitiated) {
-                try? Self.readStandaloneFile(at: normalizedURL, using: fileStorage)
-                    .map { DocumentReadDetails(text: $0, encoding: .utf8) }
-                    .get()
+            let result = await Task.detached(priority: .userInitiated) {
+                Self.readStandaloneFile(at: normalizedURL, using: fileStorage)
             }.value
+            switch result {
+            case .success(let text): details = DocumentReadDetails(text: text, encoding: .utf8)
+            case .failure(let failure): details = nil; openFailure = failure
+            }
         } else if fileOperations.supportsDocumentEncoding {
             do { details = try await fileOperations.readDocumentDetailsAsync(from: normalizedURL, encoding: encoding) }
-            catch { details = nil }
+            catch {
+                logOpenFailure(error)
+                details = nil
+                openFailure = StandaloneFileOpenFailure(error: error)
+            }
         } else {
             // Legacy workspace providers expose UTF-8 text without native byte metadata.
             let operations = self.operations
@@ -580,12 +626,18 @@ final class DocumentFeatureModel: ObservableObject {
             }
             details = text.map { DocumentReadDetails(text: $0, encoding: .utf8) }
         }
+        guard workspaceURLProvider() == openingWorkspaceURL,
+              pendingFileOpenRequests[filePath]?.id == requestID else { return }
+        if let failure = openFailure ?? (details == nil ? .unavailable : nil), failure != .decodingFailed {
+            if pendingFileOpenRequests[filePath]?.isPreview != true {
+                notifyOpenFailure(failure, at: normalizedURL)
+            }
+            return
+        }
         guard let details, WorkspaceTextFilePolicy.isPlainText(details.text) else {
             if pendingFileOpenRequests[filePath]?.isPreview == true { return }
-            // `file.read` accepts plain text regardless of suffix and rejects
-            // binary content. Only after that path fails do we probe a small
-            // header for an explicitly registered binary viewer. With the
-            // default empty registry this falls through to the rejection below.
+            // A known binary signature can explain a decoding failure, but a
+            // suffix alone must not hide an actual encoding error.
             let fileStorage = self.fileStorage
             let header = await Task.detached(priority: .userInitiated) {
                 try? fileStorage.readPrefix(
@@ -600,11 +652,12 @@ final class DocumentFeatureModel: ObservableObject {
                await binaryFileViewerRegistry.openIfSupported(
                    url: normalizedURL,
                    header: header,
-                   activateWhenReady: shouldActivate
+                   activateWhenReady: shouldActivate,
+                   allowsExtensionMatch: openFailure != .decodingFailed
                ) {
                 return
             }
-            notify?("This file cannot be displayed as text")
+            notifyOpenFailure(openFailure ?? .notText, at: normalizedURL)
             return
         }
         guard workspaceURLProvider() == openingWorkspaceURL,
@@ -634,6 +687,15 @@ final class DocumentFeatureModel: ObservableObject {
         }
         onDocumentCollectionChanged?()
         onDocumentOpened?(document)
+    }
+
+    private func notifyOpenFailure(_ failure: StandaloneFileOpenFailure, at url: URL) {
+        notify?(String(format: L10n.string("Could not open %@: %@ %@"), url.lastPathComponent, failure.title, failure.detail))
+    }
+
+    private func logOpenFailure(_ error: Error) {
+        let value = error as NSError
+        NSLog("[document.open] outcome=failed reason=\(StandaloneFileOpenFailure(error: error)) domain=\(value.domain) code=\(value.code)")
     }
 
     func requestProjectTreeReveal(for fileURL: URL, isDirectory: Bool = false) {
@@ -886,7 +948,9 @@ final class DocumentFeatureModel: ObservableObject {
                     guard self.closeRequestID == requestID, !Task.isCancelled else { return }
                     self.cancelPendingClose()
                     self.onCloseFailed?()
-                    self.notify?("Could not save \(document.url.lastPathComponent)")
+                    if !(error is CancellationError) {
+                        self.notify?(self.saveFailureMessage(for: document, error: error))
+                    }
                     return
                 }
             }
@@ -979,7 +1043,9 @@ final class DocumentFeatureModel: ObservableObject {
                 self.notify?("Saved \(document.url.lastPathComponent)")
             } catch {
                 if self.persistenceGeneration == generation, !Task.isCancelled {
-                    self.notify?(self.saveFailureMessage(for: document, error: error))
+                    if !(error is CancellationError) {
+                        self.notify?(self.saveFailureMessage(for: document, error: error))
+                    }
                 }
             }
         }
@@ -1035,7 +1101,9 @@ final class DocumentFeatureModel: ObservableObject {
             defer { self.finishEncodingChange(request.id) }
             do { try await self.performEncodingReopen(request, saveChanges: saveChanges) }
             catch {
-                if !Task.isCancelled { self.notify?(self.saveFailureMessage(for: request.document, error: error)) }
+                if !Task.isCancelled, !(error is CancellationError) {
+                    self.notify?(self.saveFailureMessage(for: request.document, error: error))
+                }
             }
         }
         encodingTask = task
@@ -1120,7 +1188,7 @@ final class DocumentFeatureModel: ObservableObject {
                   self.autoSaveEnabledProvider?() == true, document.isDirty {
                 do {
                     let previousText = document.savedText
-                    try await self.saveDocument(document)
+                    try await self.saveDocument(document, allowsHardLinkConfirmation: false)
                     if !Task.isCancelled { self.onRecordSave?(document, previousText) }
                     return
                 } catch SaveProgress.newerRevisionPending {
@@ -1128,7 +1196,9 @@ final class DocumentFeatureModel: ObservableObject {
                     // Conflicts and I/O failures must never become automatic retries.
                     guard self.openDocuments.contains(where: { $0 === document }) else { return }
                 } catch {
-                    if !Task.isCancelled { self.notify?("Could not auto-save \(document.url.lastPathComponent)") }
+                    if !Task.isCancelled {
+                        self.notify?(self.saveFailureMessage(for: document, error: error))
+                    }
                     return
                 }
             }
@@ -1354,7 +1424,8 @@ final class DocumentFeatureModel: ObservableObject {
     }
 
     private func saveDocument(
-        _ document: EditorDocument, targetEncoding: DocumentEncoding? = nil, allowingEncodingReopen: Bool = false
+        _ document: EditorDocument, targetEncoding: DocumentEncoding? = nil, allowingEncodingReopen: Bool = false,
+        allowsHardLinkConfirmation: Bool = true
     ) async throws {
         guard allowingEncodingReopen || encodingDocumentID != document.id else { throw CancellationError() }
         let operationID = UUID().uuidString
@@ -1390,14 +1461,16 @@ final class DocumentFeatureModel: ObservableObject {
             }
             try Task.checkCancellation()
             guard self.persistenceGeneration == generation else { throw CancellationError() }
-            try await self.performDocumentSave(document, generation: generation, operationID: operationID, targetEncoding: targetEncoding)
+            try await self.performDocumentSave(document, generation: generation, operationID: operationID,
+                targetEncoding: targetEncoding, allowsHardLinkConfirmation: allowsHardLinkConfirmation)
         }
         saveTasks[document.id] = task
         try await task.value
     }
 
     private func performDocumentSave(
-        _ document: EditorDocument, generation: UUID, operationID: String, targetEncoding: DocumentEncoding?
+        _ document: EditorDocument, generation: UUID, operationID: String, targetEncoding: DocumentEncoding?,
+        allowsHardLinkConfirmation: Bool
     ) async throws {
         guard !document.isReadOnly else {
             logSaveFailure(EditorDocument.DocumentError.readOnly, stage: "preflight-after-sync",
@@ -1442,8 +1515,34 @@ final class DocumentFeatureModel: ObservableObject {
 
         var failureStage = "write"
         do {
-            let result = try await fileOperations.writeDocumentTextAsync(content, to: url, expectedContent: expectedContent,
-                encoding: encoding, expectedIdentity: expectedIdentity)
+            let result: EncodedDocumentWriteResult
+            do {
+                result = try await fileOperations.writeDocumentTextAsync(content, to: url, expectedContent: expectedContent,
+                    encoding: encoding, expectedIdentity: expectedIdentity)
+            } catch let required as DocumentHardLinkConfirmationRequired {
+                guard allowsHardLinkConfirmation else { throw required }
+                try Task.checkCancellation()
+                guard persistenceGeneration == generation, document.url == url,
+                      document.locationRevision == locationRevision,
+                      document.lifecycleState.revision == saving.state.revision else { throw CancellationError() }
+                guard let mode = confirmHardLinkSave(url) else { throw CancellationError() }
+                // A modal confirmation can pump native events. Consent is for
+                // this exact document revision, location, target and write only.
+                try Task.checkCancellation()
+                guard persistenceGeneration == generation, document.url == url,
+                      document.locationRevision == locationRevision, !document.isReadOnly,
+                      document.lifecycleState.revision == saving.state.revision else { throw CancellationError() }
+                defer {
+                    if mode == .updateLinkedFile, persistenceGeneration == generation {
+                        // Notifications need not name every alias, even after a
+                        // partial write. Dirty aliases still take the conflict path.
+                        processExternalChanges(observedDocuments.filter { $0 !== document }.map(\.url))
+                    }
+                }
+                result = try await fileOperations.writeDocumentTextAsync(content, to: url, expectedContent: expectedContent,
+                    encoding: encoding, expectedIdentity: expectedIdentity,
+                    hardLinkAuthorization: .init(targetIdentity: required.targetIdentity, mode: mode))
+            }
             guard persistenceGeneration == generation, document.url == url,
                   document.locationRevision == locationRevision else { throw CancellationError() }
             switch result {
@@ -1489,9 +1588,15 @@ final class DocumentFeatureModel: ObservableObject {
         NSLog("[document.save] outcome=failed stage=\(stage) operationID=\(operationID) documentID=\(document.id.uuidString) revision=\(document.lifecycleState.revision) domain=\(value.domain) code=\(value.code)")
     }
 
-    private func saveFailureMessage(for document: EditorDocument, error: Error) -> String {
+    func saveFailureMessage(for document: EditorDocument, error: Error) -> String {
         let name = document.url.lastPathComponent
         switch error {
+        case is DocumentHardLinkConfirmationRequired:
+            return String(format: L10n.string("%@ is hard-linked. Changes are not saved automatically. Save manually to choose how to update the file."), name)
+        case DocumentFileAccessError.hardLinkChanged:
+            return L10n.string("The file or its hard links changed while saving. Your edits are still unsaved. Check the file and save again.")
+        case DocumentFileAccessError.inPlaceWriteFailed:
+            return L10n.string("The shared file could not be fully saved. All hard links may contain partial changes. Your editor contents are retained; check the file before retrying.")
         case EditorDocument.DocumentError.readOnly:
             return "Could not save \(name): the file is read-only"
         case EditorDocument.DocumentError.editorNotSynchronized:
@@ -1500,8 +1605,9 @@ final class DocumentFeatureModel: ObservableObject {
             return "Newer edits in \(name) are still unsaved"
         default:
             let value = error as NSError
-            if value.domain == NSCocoaErrorDomain && value.code == CocoaError.Code.fileWriteNoPermission.rawValue {
-                return "Could not save \(name): permission denied"
+            if (value.domain == NSCocoaErrorDomain && value.code == CocoaError.Code.fileWriteNoPermission.rawValue)
+                || (value.domain == NSPOSIXErrorDomain && [POSIXErrorCode.EACCES.rawValue, POSIXErrorCode.EPERM.rawValue].contains(Int32(value.code))) {
+                return String(format: L10n.string("Could not save %@: permission denied. Check the file and parent folder permissions. Your edits are still unsaved."), name)
             }
             if value.domain == NSCocoaErrorDomain && value.code == CocoaError.Code.fileWriteInapplicableStringEncoding.rawValue {
                 return "Could not save \(name): some characters cannot be represented in the selected encoding"
