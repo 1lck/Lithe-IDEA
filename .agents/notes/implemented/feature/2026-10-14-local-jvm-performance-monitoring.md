@@ -125,7 +125,7 @@ Sparkle 差分更新基线。未来若打包额外工具，必须先更新资源
 - `ProcessTreePerformanceTests`：实际 shell 启动 CPU 工作子进程，验证真实启动 PID、
   根与子进程归属、CPU/RSS 样本和取消清理；超时关闭整组进程。
 - `ExecutionModuleTests`：内置/扩展 PID 转发、重跑拒绝旧事件、停止及关闭清理。
-- `scripts/verify-runtime-bundle-immutability.sh`、`scripts/verify-service-boundaries.sh`。
+- `scripts/macos/verify/verify-runtime-bundle-immutability.sh`、`scripts/architecture/verify-service-boundaries.sh`。
 
 本轮本机显式启用 JDK 21 的88项相关回归通过，真实 JFR 集成检查4.276秒；补充4项
 生命周期检查以及失败启动清理身份的单项回归通过，资源复用脚本14项检查通过。

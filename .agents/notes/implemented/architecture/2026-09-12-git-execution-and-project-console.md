@@ -213,20 +213,20 @@ Fetch 状态回归覆盖无输出等待、阶段切换、认证、并发仓库�
 仍停留在 Git Log、底部进度变化和完成后收起。
 
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
-- `./scripts/verify-rust-core-comments.sh`
-- `./scripts/verify-rust-core.sh`
-- `./scripts/verify-core.sh`
-- `./scripts/verify-service-boundaries.sh`
-- `./scripts/verify-shared-contracts.sh`
-- `./scripts/verify-windows-boundaries.sh`
-- `./scripts/verify-agent-notes.sh`
+- `./scripts/rust-core/verify-rust-core-comments.sh`
+- `./scripts/rust-core/verify-rust-core.sh`
+- `./scripts/architecture/verify-core.sh`
+- `./scripts/architecture/verify-service-boundaries.sh`
+- `./scripts/architecture/verify-shared-contracts.sh`
+- `./scripts/windows/verify/verify-windows-boundaries.sh`
+- `./scripts/agent-notes/verify-agent-notes.sh`
 
 共享 fixture 覆盖命令、事件、生命周期、Fetch、远程查询和完整展示结果。
 本地 HTTP 认证测试服务器直接绑定数字回环地址，不做反向 DNS 查询。服务器
 启动不能在 Git 请求 deadline 之前引入无界网络等待；回归用例禁止调用
 `socket.getfqdn`，认证、重试与取消场景仍保留原有 15 秒预算。
 
-Rust 与 macOS 测试使用仓库计时工具；`scripts/test-git-execution.py` 通过
+Rust 与 macOS 测试使用仓库计时工具；`scripts/rust-core/test-git-execution.py` 通过
 C ABI 和隔离仓库、本地认证服务验证配置作用域、部分成功、重试、取消及
 包含空格的 AskPass 路径，要求已构建的 Core 和 macOS 应用。
 Windows CI 使用同一计时工具执行生命周期日志回归并保留 HTML/JUnit 报告，
@@ -259,6 +259,13 @@ checkout/clone 完整流程用例 `git_write_executes_checkout_preflight_clone_a
 分支，覆盖干净、脏和未跟踪文件预检、智能/强制切换以及本地 clone，因此只为它在
 SharedRust 和真实 JDT 两个入口设置三十秒预算；不延长请求或整套期限，不重试失败断言。
 
+linked-worktree 的 Git 元数据路径回归在 Windows CI 40442602987 达到 15.419 秒
+时被截止，未报告断言失败。夹具先减少两个无关的 Git 配置进程，把所有 Git 子进程
+交给原生 Git Host，以十秒期限和进程树回收替代无界等待；Core 请求单独限时五秒。
+Windows ARM64 本地对比从 1.799 秒降到 1.362 秒，但这不代表托管 runner 的延迟上界。
+因此只为这个用例在 SharedRust 与真实 JDT 入口设置三十秒预算，不改普通测试和整套
+期限，不删除 linked git/common directory 区分、真实 worktree 或路径断言。
+
 取消模块的确定性回归核对 mutation 后正常读取保留原截止时间和取消能力，
 已取消或超时请求的独立读取仍受清理期限约束，错误和异常退出后恢复原状态。
 真实仓库 rebase 回归核对 edit、conflict、continue、skip、abort 和过期 amendment；
@@ -277,7 +284,7 @@ SharedRust 和真实 JDT 两个入口设置三十秒预算；不延长请求或�
 - `windows/tauri/src-tauri/src/platform.rs`
 - `shared/fixtures/git/`
 - `shared/contracts/rust-core-api.md`
-- `scripts/test-git-execution.py`
+- `scripts/rust-core/test-git-execution.py`
 - `.github/workflows/ci-windows.yml`
 
 ### macOS Console 左侧工具栏样式

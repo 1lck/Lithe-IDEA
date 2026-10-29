@@ -791,7 +791,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
             let typing = event.modifierFlags.intersection([.command, .control, .function]).isEmpty
                 && event.characters?.unicodeScalars.contains { !CharacterSet.controlCharacters.contains($0) } == true
             guard find || (panel.firstResponder === panel && typing) else { return false }
-            func searchField(in view: NSView) -> NSTextField? {
+            @MainActor func searchField(in view: NSView) -> NSTextField? {
                 if let field = view as? NSTextField, field.isEditable, field.isEnabled { return field }
                 return view.subviews.lazy.compactMap { searchField(in: $0) }.first
             }

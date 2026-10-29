@@ -462,14 +462,32 @@ public struct DeclarativeLanguageServerLaunchPlan: Equatable, Sendable {
         public let adapterID: String
         public let requests: [String]
         public let languageIDs: [String]
-        /// How the host reaches the adapter process: `stdio`, `tcpAnnounced` or
-        /// `tcpPort`. A host that only speaks stdio refuses the others before it
-        /// starts the process.
+        /// How the host reaches the adapter: `stdio`, `tcpAnnounced`, `tcpPort`
+        /// or `tcpLanguageServer`. A host refuses a transport it does not speak
+        /// before it starts any process.
         public let transport: String
+        /// Set for `tcpLanguageServer`: the plugin language server that hosts
+        /// the adapter and the command that makes it listen. The plan's process
+        /// is then that language server, not an adapter process.
+        public let languageServerEndpoint: LanguageServerEndpoint?
+
+        /// Where a language server announces the adapter it hosts.
+        public struct LanguageServerEndpoint: Equatable, Sendable {
+            public let languageID: String
+            /// The `workspace/executeCommand` command whose result is the
+            /// loopback port of the adapter.
+            public let command: String
+
+            public init(languageID: String, command: String) {
+                self.languageID = languageID
+                self.command = command
+            }
+        }
 
         public init(
             id: String, providerID: String, displayName: String, adapterID: String,
-            requests: [String], languageIDs: [String], transport: String = "stdio"
+            requests: [String], languageIDs: [String], transport: String = "stdio",
+            languageServerEndpoint: LanguageServerEndpoint? = nil
         ) {
             self.id = id
             self.providerID = providerID
@@ -478,6 +496,7 @@ public struct DeclarativeLanguageServerLaunchPlan: Equatable, Sendable {
             self.requests = requests
             self.languageIDs = languageIDs
             self.transport = transport
+            self.languageServerEndpoint = languageServerEndpoint
         }
     }
 
@@ -679,6 +698,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 id: $0.id,
                 displayName: $0.displayName,
                 adapterID: $0.adapterID ?? $0.id,
+                requests: Set($0.requests.compactMap(DebugRequestKind.init(rawValue:))),
                 languageIDs: $0.languageIDs,
                 fileLaunchLanguageIDs: $0.fileLaunchLanguageIDs,
                 consoleCommands: $0.consoleCommands,
@@ -828,7 +848,8 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             vendor: PluginVendor(
                 id: decoded.vendor.id,
                 displayName: decoded.vendor.displayName,
-                signatureRequirement: decoded.vendor.signatureRequirement
+                signatureRequirement: decoded.vendor.signatureRequirement,
+                bundledSignatureRequirement: decoded.vendor.bundledSignatureRequirement
             ),
             entrypoint: .declarative,
             modules: modules,
@@ -872,6 +893,7 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             let id: String
             let displayName: String
             let signatureRequirement: PluginSignatureRequirement
+            let bundledSignatureRequirement: PluginSignatureRequirement?
         }
         struct Dependencies: Decodable {
             let managementFileNames: [String]
@@ -1224,9 +1246,19 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 let presentation: String?
                 let icon: PluginUIIcon?
             }
+            struct ProviderRun: Decodable {
+                struct Debug: Decodable { let adapter: String }
+                let debug: Debug?
+                struct Targets: Decodable { let tags: [String] }
+                let id: String
+                let source: String?
+                let name: String?
+                let fromTargets: Targets?
+            }
             struct Test: Decodable {
                 let scopes: [BuildScope]
                 let targetTags: [String]?
+                let discovery: Bool?
             }
 
             let id: String
@@ -1236,8 +1268,11 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
             let model: Source?
             let tasks: [Task]
             let test: Test?
+            let run: [ProviderRun]
             let dependencies: Source?
             let declaresProvider: Bool
+            let sharesModel: Bool
+            let modelInputs: [DeclarativeBuildSystem.ModelInput]
 
             init(from decoder: Decoder) throws {
                 let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -1248,12 +1283,15 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                 model = try values.decodeIfPresent(Source.self, forKey: .model)
                 tasks = try values.decodeIfPresent([Task].self, forKey: .tasks) ?? []
                 test = try values.decodeIfPresent(Test.self, forKey: .test)
+                run = try values.decodeIfPresent([ProviderRun].self, forKey: .run) ?? []
                 dependencies = try values.decodeIfPresent(Source.self, forKey: .dependencies)
                 declaresProvider = values.contains(.provider)
+                sharesModel = values.contains(.modelSharing)
+                modelInputs = try values.decodeIfPresent([DeclarativeBuildSystem.ModelInput].self, forKey: .modelInputs) ?? []
             }
 
             private enum CodingKeys: String, CodingKey {
-                case id, displayName, icon, options, model, tasks, test, dependencies, provider
+                case id, displayName, icon, options, model, tasks, test, dependencies, provider, run, modelSharing, modelInputs
             }
 
             func declaration() -> DeclarativeBuildSystem {
@@ -1282,7 +1320,11 @@ public struct DeclarativePluginDescriptor: Equatable, Sendable {
                     // A host integration lists the whole instance and each
                     // project; the other sources declare their scopes.
                     dependencyScopes: dependencies.map { $0.scopes ?? [.workspace, .project] } ?? [],
-                    declaresProvider: declaresProvider
+                    declaresProvider: declaresProvider,
+                    testDiscovery: test?.discovery ?? false,
+                    providerRuns: run.filter { $0.source == "provider" }.map {
+                        .init(id: $0.id, displayName: $0.name ?? $0.id, targetTags: $0.fromTargets?.tags ?? [], debugAdapter: $0.debug?.adapter)
+                    }, sharesModel: sharesModel, modelInputs: modelInputs
                 )
             }
         }
@@ -1352,6 +1394,7 @@ public struct DeclarativeDebugAdapter: Equatable, Sendable {
     public let displayName: String
     /// The `adapterID` of the DAP `initialize` request.
     public let adapterID: String
+    public let requests: Set<DebugRequestKind>
     /// Every language a selector of the adapter names, whatever the request or
     /// target kind. It says which languages the plugin has a debugger for, so a
     /// debug-only declaration is recognised; it does not choose the adapter for
@@ -1379,6 +1422,7 @@ public struct DeclarativeDebugAdapter: Equatable, Sendable {
         id: String,
         displayName: String,
         adapterID: String,
+        requests: Set<DebugRequestKind> = [.launch, .attach],
         languageIDs: [String],
         fileLaunchLanguageIDs: [String]? = nil,
         consoleCommands: [DebugConsoleCommand] = [],
@@ -1389,6 +1433,7 @@ public struct DeclarativeDebugAdapter: Equatable, Sendable {
         self.id = id
         self.displayName = displayName
         self.adapterID = adapterID
+        self.requests = requests
         self.languageIDs = languageIDs
         self.fileLaunchLanguageIDs = fileLaunchLanguageIDs ?? languageIDs
         self.consoleCommands = consoleCommands
@@ -1491,13 +1536,16 @@ public struct DeclarativeDebugStartRequest: Equatable, Sendable {
     /// The program the host found for a launch whose adapter binds `program` to
     /// `target.executable`; an absolute path the host has checked is runnable.
     public let executable: String?
+    public let arguments: [String]?
+    public let environment: [String: String]?
     public let registrationGeneration: Int
     public let currentRegistrationGeneration: Int
 
     public init(
         request: Request, targetKind: String, path: String? = nil, processID: Int? = nil,
         workingDirectory: String? = nil, executable: String? = nil,
-        registrationGeneration: Int, currentRegistrationGeneration: Int
+        registrationGeneration: Int, currentRegistrationGeneration: Int,
+        arguments: [String]? = nil, environment: [String: String]? = nil
     ) {
         self.request = request
         self.targetKind = targetKind
@@ -1505,6 +1553,8 @@ public struct DeclarativeDebugStartRequest: Equatable, Sendable {
         self.processID = processID
         self.workingDirectory = workingDirectory
         self.executable = executable
+        self.arguments = arguments
+        self.environment = environment
         self.registrationGeneration = registrationGeneration
         self.currentRegistrationGeneration = currentRegistrationGeneration
     }

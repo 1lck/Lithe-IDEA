@@ -110,15 +110,20 @@ public struct PluginVendor: Equatable, Codable, Sendable {
     public let id: String
     public let displayName: String
     public let signatureRequirement: PluginSignatureRequirement
+    /// Only a host-pinned bundled package may use this alternate trust. A
+    /// downloaded or disk-imported copy always needs the primary signature.
+    public let bundledSignatureRequirement: PluginSignatureRequirement?
 
     public init(
         id: String,
         displayName: String,
-        signatureRequirement: PluginSignatureRequirement
+        signatureRequirement: PluginSignatureRequirement,
+        bundledSignatureRequirement: PluginSignatureRequirement? = nil
     ) {
         self.id = id
         self.displayName = displayName
         self.signatureRequirement = signatureRequirement
+        self.bundledSignatureRequirement = bundledSignatureRequirement
     }
 }
 
@@ -503,9 +508,10 @@ public struct PluginManifest: Equatable, Codable, Sendable {
     /// level 3 plugin that requires anything else. Validating a capability is
     /// not running it, so an entry is added only with its host support.
     public static let hostCapabilities: [String: [Int]] = [
+        "packageTrust": [1],
         "backend": [1],
-        "buildProviders": [1],
-        "buildSystems": [1, 2], "debugAdapters": [1], "executableResolution": [1],
+        "buildProviders": [1, 2, 3, 4, 5, 6], "buildModelInputs": [1],
+        "buildSystems": [1, 2], "debugAdapters": [1, 2], "executableResolution": [1],
         "executionProviders": [1],
         "languageServers": [1, 2],
         "languages": [1],

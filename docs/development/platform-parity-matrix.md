@@ -6,4 +6,4 @@ PR 对应的矩阵请在 **Verify Platform Feature Matrix** 工作流摘要中�
 
 源数据位于 [能力目录](../../shared/platform-feature-matrix/features/)，维护方式见 [功能对齐说明](platform-parity.md)。
 
-本地运行 `node scripts/generate-platform-feature-matrix.mjs`，打开 `.artifacts/platform-feature-matrix/index.html`。生成文件不提交到 Git。
+本地运行 `node scripts/platform-feature-matrix/generate-platform-feature-matrix.mjs`，打开 `.artifacts/platform-feature-matrix/index.html`。生成文件不提交到 Git。

@@ -19,7 +19,6 @@ struct GitWorktreeListScrollView: NSViewRepresentable, LitheTreeListNativeRender
     static let rowHeight = LitheTheme.Tree.rowHeight * 3
     static let rowSpacing: CGFloat = 0
     static let verticalInset = LitheTheme.Tree.verticalInset
-    static let pathMaximumWidth: CGFloat = 260
 
     let items: [GitWorktreeListItem]
     let selectedWorktreeID: String?
@@ -333,14 +332,14 @@ final class GitWorktreeListNSView: NSControl {
         LitheTreeListAppearance.highlightRect(row).insetBy(dx: LitheTheme.Tree.horizontalInset, dy: 6)
     }
 
-    private func pathRect(in content: CGRect) -> CGRect {
+    static func pathRect(in content: CGRect) -> CGRect {
         CGRect(x: content.minX, y: content.minY + 20,
-               width: max(0, min(content.width, GitWorktreeListScrollView.pathMaximumWidth)), height: 18)
+               width: max(0, content.width), height: 18)
     }
 
     override func expansionFrame(withFrame contentFrame: NSRect) -> NSRect {
         guard let hoveredIndex, items.indices.contains(hoveredIndex), let hoveredPoint else { return .zero }
-        let path = pathRect(in: Self.contentRect(in: rowRect(for: hoveredIndex)))
+        let path = Self.pathRect(in: Self.contentRect(in: rowRect(for: hoveredIndex)))
         let width = ceil((items[hoveredIndex].worktree.path as NSString)
             .size(withAttributes: [.font: resolvedDrawingStyle().path.font]).width)
         guard path.contains(hoveredPoint), path.intersects(visibleRect), width > path.width else { return .zero }
@@ -404,7 +403,7 @@ final class GitWorktreeListNSView: NSControl {
         if !current.isEmpty {
             drawText(current, in: CGRect(x: rect.maxX - currentWidth, y: rect.minY, width: currentWidth, height: 18), style: style.accent, alignment: .right)
         }
-        drawText(worktree.path, in: pathRect(in: rect), style: style.path, lineBreakMode: .byTruncatingMiddle)
+        drawText(worktree.path, in: Self.pathRect(in: rect), style: style.path, lineBreakMode: .byTruncatingMiddle)
 
         let statusTitle = self.statusTitle(for: item.status)
         let statusWidth = ceil((statusTitle as NSString).size(withAttributes: [.font: style.metadata.font]).width) + 12

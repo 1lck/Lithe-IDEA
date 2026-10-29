@@ -19,7 +19,7 @@
       "windows/tauri/src/features/terminal/utils/terminal-keyboard-protocol.test.ts",
       "windows/tauri/src/features/terminal/hooks/use-terminal-connection.ts",
       "windows/tauri/src-tauri/build.rs",
-      "scripts/prepare-conpty.ps1",
+      "scripts/windows/prepare/prepare-conpty.ps1",
       "third_party/conpty/manifest.json",
       "windows/tauri/src-tauri/tauri.jdtls.conf.json"
     ],

@@ -115,13 +115,13 @@ intellij-community 的 `runConfigurations/testState` 图标（Apache 2.0）。
 
 ## 验证
 
-- `./scripts/verify-rust-core.sh`：`java_main_methods`、`java_run_markers`、
+- `./scripts/rust-core/verify-rust-core.sh`：`java_main_methods`、`java_run_markers`、
   `maven_test_reports` 单元测试，`shared/fixtures/java/run-markers-v1.json` 兼容性
   fixture，以及可选的真实 JDT 冒烟测试（设置 `LITHE_JDTLS_SMOKE_ROOT` 时断言 Java 25
   实例 `main` 有标记、`private main` 没有）。
-- `./scripts/verify-shared-contracts.sh`
-- `./scripts/verify-windows-boundaries.sh`
-- `./scripts/test-macos.sh`：`MavenTestOutcomeTests` 与测试服务报告请求断言。
+- `./scripts/architecture/verify-shared-contracts.sh`
+- `./scripts/windows/verify/verify-windows-boundaries.sh`
+- `./scripts/macos/test/test-macos.sh`：`MavenTestOutcomeTests` 与测试服务报告请求断言。
 
 ## 适用范围
 

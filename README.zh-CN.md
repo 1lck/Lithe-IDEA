@@ -201,7 +201,7 @@ flowchart LR
 在项目根目录运行开发版本：
 
 ```bash
-./scripts/preview.sh
+./scripts/macos/build/preview.sh
 ```
 
 该脚本会构建并链接 Rust Core，然后启动 macOS 应用。只验证 Swift 源码时可以运行：
@@ -213,20 +213,20 @@ swift run --disable-sandbox Lithe
 构建 App Bundle：
 
 ```bash
-./scripts/package-app.sh
+./scripts/macos/package/package-app.sh
 open dist/Lithe.app
 ```
 
 提交改动前运行：
 
 ```bash
-./scripts/test-macos.sh
-./scripts/verify-core.sh
-./scripts/verify-git-graph.sh
-./scripts/verify-service-boundaries.sh
-./scripts/verify-shared-contracts.sh
-./scripts/verify-windows-boundaries.sh
-./scripts/verify-rust-core.sh
+./scripts/macos/test/test-macos.sh
+./scripts/architecture/verify-core.sh
+./scripts/git-graph/verify-git-graph.sh
+./scripts/architecture/verify-service-boundaries.sh
+./scripts/architecture/verify-shared-contracts.sh
+./scripts/windows/verify/verify-windows-boundaries.sh
+./scripts/rust-core/verify-rust-core.sh
 ```
 
 目录归属、跨平台边界、共享规则以及 Rust Core 必须遵守的注释规范见[仓库所有权与共享边界](./.agents/notes/implemented/architecture/2026-09-13-repository-ownership-and-sharing-boundaries.md)。提交功能改动时，请说明验证方式和已知限制。

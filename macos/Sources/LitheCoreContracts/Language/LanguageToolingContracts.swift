@@ -970,6 +970,9 @@ package protocol LanguageServerSession: AnyObject {
         fileURL: URL,
         completion: @escaping (Result<ToolingJSONValue, Error>) -> Void
     ) throws
+    /// Executes a workspace command with task cancellation. Runtime sessions
+    /// cancel the Core operation without stopping the shared language server.
+    func executeReturningValue(_ command: LanguageServerCommand, fileURL: URL) async throws -> ToolingJSONValue
     func resolveVirtualDocument(
         uri: String,
         completion: @escaping (Result<String, Error>) -> Void
@@ -1082,6 +1085,22 @@ package extension LanguageServerSession {
 }
 
 package extension LanguageServerSession {
+    func executeReturningValue(_ command: LanguageServerCommand, fileURL: URL) async throws -> ToolingJSONValue {
+        try Task.checkCancellation()
+        let (stream, continuation) = AsyncThrowingStream<ToolingJSONValue, Error>.makeStream()
+        try executeReturningValue(command, fileURL: fileURL) { result in
+            switch result {
+            case .success(let value): continuation.yield(value); continuation.finish()
+            case .failure(let error): continuation.finish(throwing: error)
+            }
+        }
+        defer { continuation.finish() }
+        var iterator = stream.makeAsyncIterator()
+        guard let value = try await iterator.next() else { throw CancellationError() }
+        try Task.checkCancellation()
+        return value
+    }
+
     var onSemanticTokensRefresh: (() -> Void)? {
         get { nil }
         set {}
@@ -1162,6 +1181,7 @@ package protocol LanguageProviderRuntime: AnyObject {
     var supportsLanguageServerSession: Bool { get }
     var unavailableToolingMessage: String? { get }
     func makeLanguageServerSession() -> (any LanguageServerSession)?
+    func makeLanguageServerSession(rootURL: URL) -> (any LanguageServerSession)?
 }
 
 @MainActor
@@ -1188,4 +1208,5 @@ package extension LanguageProviderRuntime {
     var supportsLanguageServerSession: Bool { false }
     var unavailableToolingMessage: String? { nil }
     func makeLanguageServerSession() -> (any LanguageServerSession)? { nil }
+    func makeLanguageServerSession(rootURL: URL) -> (any LanguageServerSession)? { makeLanguageServerSession() }
 }

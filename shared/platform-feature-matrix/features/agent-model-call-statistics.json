@@ -22,7 +22,7 @@
       "macos/Sources/Lithe/Views/Agent/AgentEditorConversationChrome.swift",
       "macos/Tests/LitheTests/AgentSessionSelectorLayoutTests.swift",
       "rust/lithe-agent-host/src/codex-config-relay.cjs",
-      "scripts/test-codex-config-relay.mjs"
+      "scripts/agent/test-codex-config-relay.mjs"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -35,7 +35,7 @@
       "rust/lithe-agent-host/src/model_proxy/websocket/tests.rs",
       "rust/lithe-agent-host/src/subscription.rs",
       "rust/lithe-agent-host/src/codex-config-relay.cjs",
-      "scripts/test-codex-config-relay.mjs",
+      "scripts/agent/test-codex-config-relay.mjs",
       "windows/tauri/src/features/agent/components/agent-observed-statistics.tsx",
       "windows/tauri/src/features/agent/types/agent-observations.test.ts"
     ],

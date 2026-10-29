@@ -129,6 +129,16 @@ step. Other cases and suite/step deadlines retain their existing budgets.
 Use scoped budgets only for measured
 integration costs, never to bypass an unbounded wait or an assertion failure.
 
+The linked-worktree `watch_context_distinguishes_linked_worktree_git_and_common_directories`
+case gets 30 seconds in SharedRust and real-JDT after Windows run 40442602987
+hit the 15-second watchdog at 15.419 seconds without an assertion failure.
+Fixture setup now writes identity/signing configuration locally instead of
+starting two extra Git processes, bounds every Git child to 10 seconds through
+Git Host's process-tree cleanup, and bounds the Core request to 5 seconds.
+On the Windows ARM64 guest the original case took 1.799 seconds and the fixed
+case 1.362 seconds; that faster guest result does not establish the hosted
+runner's worst-case latency. Other cases and suite deadlines remain unchanged.
+
 `git_paths_roundtrip_` imports the production TypeScript path normalizer in
 real Node subprocesses between native Git/Core requests. Windows run 39933419913
 cancelled Node at the fixture's 10-second subprocess deadline in the long-path

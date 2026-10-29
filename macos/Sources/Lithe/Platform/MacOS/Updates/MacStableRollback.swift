@@ -36,7 +36,7 @@ final class MacStableRollback: ObservableObject {
     func download(bundle: Bundle) {
         guard !state.isActive else { return }
         state = .downloading
-        task = Task {
+        task = Task { [self] in
             do {
                 if let staged {
                     // Never remove a recovery copy left by a previous installer.

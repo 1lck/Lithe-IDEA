@@ -36,6 +36,13 @@ package final class ExecutionFeatureGraph: NSObject, ExecutionServiceGraph {
         run.configureMavenContextProvider { [weak maven] in
             maven?.launchContext
         }
+        run.configureBuildProviderRuns(start: { [weak buildSystems] configuration, workspace in
+            buildSystems?.runProviderConfiguration(configuration, workspace: workspace)
+        }, cancel: { [weak buildSystems] id in buildSystems?.cancelRun(id) })
+        buildSystems?.runEnded.sink { [weak run] ended in
+            let message: String? = if case .failed(let message) = ended.state { message } else { nil }
+            run?.finishBuildPreparation(ended.runID, message: message)
+        }.store(in: &activityObservers)
         maven.onProjectReloaded = { [weak run] workspace, project in
             run?.acceptMavenProject(project, at: workspace)
         }

@@ -37,24 +37,7 @@ const RUN_OUTPUT_QUEUE_CAPACITY_CHUNKS: usize = 64;
 const RUN_STOP_TIMEOUT: Duration = Duration::from_secs(10);
 // The exit code `ProcessTree` gives every process it ends.
 const STOPPED_EXIT_CODE: i32 = 1;
-const SKIPPED_DIRECTORIES: &[&str] = &[
-    "target",
-    "node_modules",
-    ".git",
-    "build",
-    "dist",
-    "out",
-    ".idea",
-    ".lithe",
-    "bin",
-    "obj",
-    "__pycache__",
-    ".gradle",
-    "vendor",
-    "coverage",
-    ".svn",
-    ".hg",
-];
+
 const MAX_JAVA_SOURCES: usize = 8_000;
 const LITHE_GITIGNORE_ENTRIES: &[&str] = &[
     "run/local.json",
@@ -549,10 +532,8 @@ pub struct PreLaunchOutcome {
 #[tauri::command]
 pub fn run_list_java_sources(root: PathBuf) -> Result<Vec<String>, String> {
     let root = existing_directory(&root)?;
-    let mut paths = Vec::new();
-    collect_java_sources(&root, &root, &mut paths)?;
-    paths.sort();
-    Ok(paths)
+    lithe_core::execution::list_run_java_sources(&root, MAX_JAVA_SOURCES)
+        .map_err(|error| error.message)
 }
 
 #[tauri::command]
@@ -689,20 +670,19 @@ pub fn run_resolve_launch(args: ResolveLaunchArgs) -> Result<ResolvedLaunch, Str
         java_home.as_deref(),
         &args.runtime_executable_paths,
     )?;
-    let mut environment = std::env::vars().collect::<HashMap<_, _>>();
-    if let Some(home) = &java_home {
-        environment.insert("JAVA_HOME".into(), home.clone());
-    }
-    for (key, value) in args.environment {
-        if let Some(text) =
-            resolve_environment_value(&value, java_home.as_deref(), maven_java_home.as_deref())
-        {
-            environment.insert(key, text);
-        }
-    }
-    if let Some(home) = maven_java_home.or(java_home) {
-        environment.entry("JAVA_HOME".into()).or_insert(home);
-    }
+    let mut environment = lithe_core::execution::resolve_launch_environment(
+        lithe_core::execution::LaunchEnvironmentRequest {
+            toolchain: args.executable.toolchain.clone(),
+            java_home,
+            maven_java_home,
+            inherited: std::env::vars().collect(),
+            overrides: args.environment.into_iter().collect(),
+            case_insensitive: cfg!(windows),
+        },
+    )
+    .environment
+    .into_iter()
+    .collect();
     prepend_runtime_paths(
         &mut environment,
         &args.runtime_executable_paths,
@@ -1245,46 +1225,6 @@ fn write_generated_documents(
     atomic_write(&generated_path, pretty_json(generated)?.as_bytes())
 }
 
-fn collect_java_sources(
-    root: &Path,
-    directory: &Path,
-    paths: &mut Vec<String>,
-) -> Result<(), String> {
-    if paths.len() >= MAX_JAVA_SOURCES {
-        return Ok(());
-    }
-    let entries = fs::read_dir(directory).map_err(|error| error.to_string())?;
-    for entry in entries {
-        let entry = entry.map_err(|error| error.to_string())?;
-        let path = entry.path();
-        let file_type = entry.file_type().map_err(|error| error.to_string())?;
-        if file_type.is_dir() {
-            let name = entry.file_name().to_string_lossy().to_string();
-            if is_skipped_directory(&name) {
-                continue;
-            }
-            collect_java_sources(root, &path, paths)?;
-            continue;
-        }
-        if file_type.is_file() {
-            let name = entry.file_name().to_string_lossy().to_string();
-            if name.to_ascii_lowercase().ends_with(".java") {
-                if let Some(relative) = workspace_relative(root, &path) {
-                    paths.push(relative);
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
-fn is_skipped_directory(name: &str) -> bool {
-    name.starts_with('.')
-        || SKIPPED_DIRECTORIES
-            .iter()
-            .any(|value| value.eq_ignore_ascii_case(name))
-}
-
 fn workspace_relative(root: &Path, path: &Path) -> Option<String> {
     path.strip_prefix(root)
         .ok()
@@ -1516,6 +1456,7 @@ fn select_project_java(
         .map(|candidate| candidate.id.clone());
     lithe_core::execution::select_java(lithe_core::execution::JavaSelectionRequest {
         root: root.map(Path::to_path_buf),
+        requirements: None,
         candidates,
         fallback_id,
     })
@@ -2163,30 +2104,6 @@ fn resolve_working_directory(root: &Path, relative: &str) -> Result<PathBuf, Str
         return Err(format!("Working directory does not exist: {relative}"));
     }
     Ok(normalize_path(&path))
-}
-
-fn resolve_environment_value(
-    value: &Value,
-    java_home: Option<&str>,
-    maven_java_home: Option<&str>,
-) -> Option<String> {
-    if let Some(text) = value.as_str() {
-        return Some(text.to_string());
-    }
-    let object = value.as_object()?;
-    let toolchain = object.get("toolchain")?.as_str()?;
-    let property = object
-        .get("property")
-        .and_then(Value::as_str)
-        .unwrap_or("home");
-    if property != "home" {
-        return None;
-    }
-    match toolchain {
-        "project-jdk" => java_home.map(str::to_string),
-        "project-maven" => maven_java_home.map(str::to_string),
-        _ => java_home.map(str::to_string),
-    }
 }
 
 fn lookup_on_path(name: &str) -> Option<PathBuf> {
@@ -2934,10 +2851,18 @@ mod tests {
 
     #[test]
     fn skipped_directories_include_build_outputs() {
-        assert!(is_skipped_directory("target"));
-        assert!(is_skipped_directory(".git"));
-        assert!(is_skipped_directory("node_modules"));
-        assert!(!is_skipped_directory("src"));
+        assert!(lithe_core::execution::is_run_scan_excluded_directory(
+            "target"
+        ));
+        assert!(lithe_core::execution::is_run_scan_excluded_directory(
+            ".git"
+        ));
+        assert!(lithe_core::execution::is_run_scan_excluded_directory(
+            "node_modules"
+        ));
+        assert!(!lithe_core::execution::is_run_scan_excluded_directory(
+            "src"
+        ));
     }
 
     #[test]
@@ -3423,6 +3348,53 @@ mod tests {
     }
 
     #[test]
+    fn maven_launch_uses_selected_maven_jdk_in_real_host_resolution() {
+        let root = temp_project();
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                fs::remove_dir_all(&self.0).unwrap();
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        let java = root.join("jdk8");
+        let maven_java = root.join("jdk21");
+        for home in [&java, &maven_java] {
+            fs::create_dir_all(home.join("bin")).unwrap();
+            fs::write(
+                home.join(if cfg!(windows) {
+                    "bin/java.exe"
+                } else {
+                    "bin/java"
+                }),
+                b"fixture",
+            )
+            .unwrap();
+        }
+        let maven = root.join("mvn.cmd");
+        fs::write(&maven, b"fixture").unwrap();
+        let resolved = run_resolve_launch(ResolveLaunchArgs {
+            root: root.clone(),
+            executable: LaunchExecutable {
+                toolchain: Some("project-maven".into()),
+                command: None,
+                tool: None,
+            },
+            working_directory: ".".into(),
+            java_home_path: java.to_string_lossy().into_owned(),
+            maven_java_home_path: maven_java.to_string_lossy().into_owned(),
+            maven_executable_path: maven.to_string_lossy().into_owned(),
+            runtime_executable_paths: HashMap::new(),
+            environment: Map::new(),
+        })
+        .unwrap();
+        assert_eq!(
+            resolved.environment.get("JAVA_HOME"),
+            Some(&normalize_path(&maven_java).to_string_lossy().into_owned())
+        );
+    }
+
+    #[test]
     fn selected_runtime_directories_are_prepended_to_launch_path() {
         let root = temp_project();
         let node = root.join("node/node.exe");
@@ -3453,20 +3425,6 @@ mod tests {
             vec![root.join("node"), root.join("tools"), original]
         );
         fs::remove_dir_all(root).ok();
-    }
-
-    #[test]
-    fn launch_environment_resolves_java_home_from_toolchain_reference() {
-        let home = resolve_environment_value(
-            &json!({ "toolchain": "project-jdk", "property": "home" }),
-            Some(r"C:\jdk"),
-            Some(r"C:\maven-jdk"),
-        );
-        assert_eq!(home.as_deref(), Some(r"C:\jdk"));
-        assert_eq!(
-            resolve_environment_value(&json!("debug"), Some(r"C:\jdk"), None).as_deref(),
-            Some("debug")
-        );
     }
 
     #[test]

@@ -305,6 +305,7 @@ pub fn history_page(request: GitHistoryPageRequest) -> Result<GitHistoryPageResp
         (session, lease)
     };
     if session.root != root
+        || session.host_key != crate::remote::workspace::identity_key(std::path::Path::new(&root))
         || session.reference != request.reference
         || session.order != request.order
     {
@@ -439,7 +440,11 @@ pub fn close_history_cursor(
         if registry
             .sessions
             .get(&request.cursor)
-            .is_some_and(|session| session.root != root)
+            .is_some_and(|session| {
+                session.root != root
+                    || session.host_key
+                        != crate::remote::workspace::identity_key(std::path::Path::new(&root))
+            })
         {
             return Err(invalid_history_cursor(&request.cursor));
         }
@@ -461,6 +466,8 @@ enum HistoryStreamMessage {
 struct HistorySession {
     cursor: String,
     root: String,
+    host_key: std::path::PathBuf,
+    remote: Option<super::remote_history::RemoteHistory>,
     reference: Option<String>,
     /// Prevents a continuation from silently switching traversal policies.
     order: HistoryOrder,
@@ -538,6 +545,27 @@ impl HistorySession {
             GIT_COMMIT_DATE_ARGUMENT.to_string(),
             "--pretty=format:%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%ad%x1f%s%x1f%D".to_string(),
         ]);
+        if let Some(remote) = super::remote_history::RemoteHistory::start(&root, &arguments)? {
+            return Ok(Self {
+                cursor: format!(
+                    "git-history-cursor-{}",
+                    NEXT_HISTORY_CURSOR.fetch_add(1, Ordering::Relaxed)
+                ),
+                host_key: crate::remote::workspace::identity_key(std::path::Path::new(&root)),
+                root,
+                reference,
+                order,
+                remote: Some(remote),
+                child: None,
+                receiver: None,
+                stdout_reader: None,
+                stderr_reader: None,
+                pending: None,
+                emitted: 0,
+                last_access: Instant::now(),
+                finished: false,
+            });
+        }
         let mut process = git_process();
         let mut child = process
             .args(&arguments)
@@ -578,6 +606,8 @@ impl HistorySession {
         );
         Ok(Self {
             cursor,
+            host_key: std::path::PathBuf::from(&root),
+            remote: None,
             root,
             reference,
             order,
@@ -615,6 +645,15 @@ impl HistorySession {
     }
 
     fn next_commit(&mut self, deadline: Instant) -> Result<Option<GitCommitResponse>, CoreError> {
+        if let Some(remote) = &mut self.remote {
+            while let Some(line) = remote.next_line(deadline)? {
+                if let Some(commit) = parse_commit(&line) {
+                    return Ok(Some(commit));
+                }
+            }
+            self.finish_process(false)?;
+            return Ok(None);
+        }
         loop {
             cancellation::check()?;
             if Instant::now() >= deadline {
@@ -660,6 +699,7 @@ impl HistorySession {
             return Ok(());
         }
         self.finished = true;
+        self.remote.take();
         self.receiver.take();
         let status = if let Some(mut child) = self.child.take() {
             if terminate {
@@ -1121,6 +1161,8 @@ mod tests {
 
     fn finished_session(cursor: &str, last_access: Instant) -> HistorySession {
         HistorySession {
+            host_key: std::path::PathBuf::new(),
+            remote: None,
             cursor: cursor.to_string(),
             root: "/test/repository".to_string(),
             reference: None,

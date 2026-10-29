@@ -154,7 +154,7 @@ Swift、PHP 等已有明确 provider 的配置可归类，但这不代表增加�
   覆盖生态归类、语言切换、外部选中、重新扫描、无重复栏头与计数、拖动期间不写偏好、
   拖动折叠与展开、阈值附近防抖、保存宽度及窄栏键盘恢复、窗口变窄与卸载清理，
   以及输出会话隔离。
-- 共享契约：`./scripts/verify-shared-contracts.sh`，契约文本与
+- 共享契约：`./scripts/architecture/verify-shared-contracts.sh`，契约文本与
   `shared/contracts/run-configuration-v2.schema.json` 同步更新。
 
 ## 适用范围

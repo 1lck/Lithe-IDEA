@@ -30,7 +30,7 @@ macOS 和 Windows 编辑器都在状态栏提供编码入口，并支持“以�
 
 用户明确选择外部编辑器时，解码和大小限制由该编辑器处理，不先要求 Lithe 原生读取成功。Windows 内置编辑器首次打开与会话恢复复用 `loadFileContent`；点击已经在后台加载的标签必须等待该次读取和判定结束。共享 Monaco 层直接注册随 0.55.1 分发的 INI tokenizer，其上游扩展名包含 `.properties`，无需为这个问题新增 tree-sitter 语法或自写高亮器。原有原生编辑器高亮实现不参与 Monaco 路径。
 
-`WorkspaceTextFilePolicy` 的 Swift 入口转发到 Core，不再维护第二份控制字符算法。因此 macOS 测试也必须链接真实 Core；`scripts/test-macos.sh` 使用现有构建路径完成链接，不能用弱符号的不可用结果来验证正常文本。
+`WorkspaceTextFilePolicy` 的 Swift 入口转发到 Core，不再维护第二份控制字符算法。因此 macOS 测试也必须链接真实 Core；`scripts/macos/test/test-macos.sh` 使用现有构建路径完成链接，不能用弱符号的不可用结果来验证正常文本。
 
 ## 考虑过的备选方案
 
@@ -50,14 +50,14 @@ macOS 和 Windows 编辑器都在状态栏提供编码入口，并支持“以�
 
 ## 验证
 
-- `./scripts/test-macos.sh --filter 'DocumentGuardedSaveTests'`
+- `./scripts/macos/test/test-macos.sh --filter 'DocumentGuardedSaveTests'`
 - `cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml -p lithe-project document_file`
 - `bunx tsc --noEmit -p windows/tauri/tsconfig.json`
-- `./scripts/verify-windows-boundaries.sh`
-- `./scripts/verify-platform-feature-matrix.sh`
+- `./scripts/windows/verify/verify-windows-boundaries.sh`
+- `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
 - macOS 和 Windows 实机仍需按矩阵中的验证步骤运行编码读取、转换保存、脏文件选择和外部修改场景。
 
-- `./scripts/test-macos.sh --filter TextContentPolicyTests`
+- `./scripts/macos/test/test-macos.sh --filter TextContentPolicyTests`
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core text_content_tests`
 - `shared/fixtures/editor/text-content-v1.json` 覆盖中文、emoji、NUL、控制字符和旧采样范围之外的内容；Windows 路由测试另外验证首次打开与恢复的共用入口。
 

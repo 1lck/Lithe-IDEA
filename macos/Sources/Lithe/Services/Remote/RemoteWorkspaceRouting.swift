@@ -14,6 +14,22 @@ struct RemoteWorkspaceBinding: Sendable {
     let remoteRoot: String
     let sessionID: String
     let connectionID: UUID
+
+    /// Virtual sibling namespace for host paths outside the opened folder,
+    /// including parent repositories and canonical symlink targets. This must
+    /// match Rust's Host::host_paths_root; no files are materialized here.
+    var hostPathsRoot: URL {
+        root.standardizedFileURL.appendingPathExtension("lithe-remote-host")
+    }
+
+    func localURL(forRemotePath path: String) -> URL {
+        if path == remoteRoot { return root }
+        let prefix = remoteRoot.hasSuffix("/") ? remoteRoot : remoteRoot + "/"
+        if path.hasPrefix(prefix) {
+            return root.appendingPathComponent(String(path.dropFirst(prefix.count))).standardizedFileURL
+        }
+        return hostPathsRoot.appendingPathComponent(String(path.dropFirst())).standardizedFileURL
+    }
 }
 
 extension Notification.Name {
@@ -53,7 +69,12 @@ final class RemoteWorkspaceRegistry: @unchecked Sendable {
     func resolve(_ url: URL) -> (binding: RemoteWorkspaceBinding, remotePath: String)? {
         let path = url.standardizedFileURL.path
         return lock.withLock {
-            for (root, binding) in bindings {
+            for (root, binding) in bindings.sorted(by: { $0.key.count > $1.key.count }) {
+                let hostRoot = binding.hostPathsRoot.path
+                if path == hostRoot { return (binding, "/") }
+                if path.hasPrefix(hostRoot + "/") {
+                    return (binding, String(path.dropFirst(hostRoot.count)))
+                }
                 if path == root { return (binding, binding.remoteRoot) }
                 let prefix = root.hasSuffix("/") ? root : root + "/"
                 guard path.hasPrefix(prefix) else { continue }
@@ -99,6 +120,18 @@ struct ConnectionWatchingTransport: RemoteWorkspaceTransport {
         _ data: Data, to path: String, expected: RemoteFileVersion?, session id: String
     ) throws -> RemoteWriteOutcome {
         try watching(id) { try base.writeFile(data, to: path, expected: expected, session: id) }
+    }
+
+    func mutate(_ mutation: RemoteFileMutation, session: String) throws {
+        try watching(session) { try base.mutate(mutation, session: session) }
+    }
+
+    func watch(root: String, session: String, onEvent: @escaping @Sendable (RemoteWatchEvent) -> Void) async throws {
+        do {
+            try await base.watch(root: root, session: session, onEvent: onEvent)
+        } catch {
+            try watching(session) { throw error }
+        }
     }
 
     private func watching<Value>(_ id: String, _ work: () throws -> Value) throws -> Value {
@@ -158,17 +191,14 @@ struct RemoteRoutingWorkspaceOperations: WorkspaceOperations {
     }
 
     func warmSearchIndex(at rootURL: URL, visibilityRules: FileVisibilityRules) {
-        guard !registry.contains(rootURL) else { return }
         local.warmSearchIndex(at: rootURL, visibilityRules: visibilityRules)
     }
 
     func updateSearchIndex(at rootURL: URL, changedPaths: [String], visibilityRules: FileVisibilityRules) {
-        guard !registry.contains(rootURL) else { return }
         local.updateSearchIndex(at: rootURL, changedPaths: changedPaths, visibilityRules: visibilityRules)
     }
 
     func invalidateSearchIndex(at rootURL: URL, visibilityRules: FileVisibilityRules) {
-        guard !registry.contains(rootURL) else { return }
         local.invalidateSearchIndex(at: rootURL, visibilityRules: visibilityRules)
     }
 
@@ -183,11 +213,17 @@ struct RemoteRoutingWorkspaceOperations: WorkspaceOperations {
 
     func writeFile(_ text: String, at rootURL: URL, relativePath: String) -> Bool {
         let url = rootURL.appendingPathComponent(relativePath)
-        guard registry.contains(url) else {
+        guard let (binding, path) = registry.resolve(url) else {
             return local.writeFile(text, at: rootURL, relativePath: relativePath)
         }
-        // This legacy entry point has no version to check, and remote files
-        // cannot be created yet, so it never writes.
+        do {
+            let expected: RemoteFileVersion?
+            do { expected = try transport.readFile(path, session: binding.sessionID).version }
+            catch let failure as RemoteProbeFailure where failure.code == "workspace_not_found" { expected = nil }
+            if case .saved = try transport.writeFile(Data(text.utf8), to: path, expected: expected, session: binding.sessionID) {
+                return true
+            }
+        } catch { return false }
         return false
     }
 
@@ -229,8 +265,8 @@ final class RemoteRoutingFileOperations: WorkspaceFileOperations, @unchecked Sen
     private var versionOrder: [String] = []
     private static let rememberedVersions = 512
     /// Parent listings used to answer existence checks, so a burst of
-    /// `fileExists` calls costs one round trip; short-lived because remote
-    /// files are not watched. Writes drop them.
+    /// `fileExists` calls costs one round trip. Mutations and observed external
+    /// changes drop them; the short lifetime also covers inactive observers.
     private var listings: [String: (entries: [RemoteDirectoryEntry], at: Date)] = [:]
     private static let listingLifetime: TimeInterval = 3
 
@@ -273,11 +309,8 @@ final class RemoteRoutingFileOperations: WorkspaceFileOperations, @unchecked Sen
         guard encoding == .utf8 || encoding == .utf8Bom else { throw CocoaError(.fileWriteInapplicableStringEncoding) }
         var data = Data(text.utf8)
         if encoding == .utf8Bom { data.insert(contentsOf: [0xEF, 0xBB, 0xBF], at: 0) }
-        // Without a version the host would create the file; remote files
-        // cannot be created yet.
-        guard let expectedIdentity else { throw CocoaError(.featureUnsupported) }
-        var expected = version(for: versionKey(binding, path, expectedIdentity))
-        if expected == nil {
+        var expected = expectedIdentity.flatMap { version(for: versionKey(binding, path, $0)) }
+        if let expectedIdentity, expected == nil {
             // Opened before this session: compare the current bytes.
             let current = try transport.readFile(path, session: binding.sessionID)
             guard Self.identity(of: current.data) == expectedIdentity else {
@@ -358,34 +391,50 @@ final class RemoteRoutingFileOperations: WorkspaceFileOperations, @unchecked Sen
     }
 
     func createFile(at url: URL) throws {
-        try remoteOnly(url)
+        if let (binding, path) = registry.resolve(url) {
+            guard url.standardizedFileURL != binding.root.standardizedFileURL else { throw CocoaError(.fileWriteFileExists) }
+            lock.withLock { listings.removeAll() }
+            guard case .saved = try transport.writeFile(Data(), to: path, expected: nil, session: binding.sessionID) else {
+                throw CocoaError(.fileWriteFileExists)
+            }
+            return
+        }
         try local.createFile(at: url)
     }
 
     func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws {
-        try remoteOnly(url)
+        if let (binding, path) = registry.resolve(url) {
+            try mutate(.createDirectory(path: path, recursive: withIntermediateDirectories), binding: binding)
+            return
+        }
         try local.createDirectory(at: url, withIntermediateDirectories: withIntermediateDirectories)
     }
 
     func copyItem(at sourceURL: URL, to destinationURL: URL) throws {
-        try remoteOnly(sourceURL)
-        try remoteOnly(destinationURL)
+        if try transfer(sourceURL, destinationURL, copying: true) { return }
         try local.copyItem(at: sourceURL, to: destinationURL)
     }
 
     func moveItem(at sourceURL: URL, to destinationURL: URL) throws {
-        try remoteOnly(sourceURL)
-        try remoteOnly(destinationURL)
+        if try transfer(sourceURL, destinationURL, copying: false) { return }
         try local.moveItem(at: sourceURL, to: destinationURL)
     }
 
     func removeItem(at url: URL) throws {
-        try remoteOnly(url)
+        if let (binding, path) = registry.resolve(url) {
+            try requireNonRoot(url, binding: binding)
+            try mutate(.remove(path: path), binding: binding)
+            return
+        }
         try local.removeItem(at: url)
     }
 
     func trashItem(at url: URL) throws {
-        try remoteOnly(url)
+        if let (binding, path) = registry.resolve(url) {
+            try requireNonRoot(url, binding: binding)
+            try mutate(.trash(path: path), binding: binding)
+            return
+        }
         try local.trashItem(at: url)
     }
 
@@ -396,7 +445,12 @@ final class RemoteRoutingFileOperations: WorkspaceFileOperations, @unchecked Sen
 
     func writeText(_ text: String, to url: URL) throws {
         guard registry.contains(url) else { return try local.writeText(text, to: url) }
-        _ = try remoteWrite(text, to: url, encoding: .utf8, expectedIdentity: nil)
+        let identity: String?
+        do { identity = try remoteRead(url)?.identity }
+        catch let error as CocoaError where error.code == .fileReadNoSuchFile { identity = nil }
+        if case .conflict = try remoteWrite(text, to: url, encoding: .utf8, expectedIdentity: identity) {
+            throw CocoaError(.fileWriteFileExists)
+        }
     }
 
     func readText(from url: URL) throws -> String {
@@ -405,9 +459,47 @@ final class RemoteRoutingFileOperations: WorkspaceFileOperations, @unchecked Sen
     }
 
     func observeDocuments(at urls: [URL], onChange: @escaping @Sendable ([URL]) -> Void) -> any DocumentFileObservation {
-        // Remote files are not watched yet; a changed file is detected as a
-        // conflict when it is saved.
-        local.observeDocuments(at: urls.filter { !registry.contains($0) }, onChange: onChange)
+        let localObservation = local.observeDocuments(at: urls.filter { !registry.contains($0) }, onChange: onChange)
+        let groups = Dictionary(grouping: urls.filter { registry.contains($0) }) { registry.resolve($0)!.binding.root }
+        let observations = groups.compactMap { root, documents -> RemoteDirectoryObservation? in
+            guard let binding = registry.binding(forRoot: root) else { return nil }
+            let observation = RemoteDirectoryObservation(
+                configuration: DirectoryWatchConfiguration(workspaceRoot: root, gitContext: nil),
+                visibilityRules: FileVisibilityRules(hiddenDirectoryNames: [], hiddenFilePatterns: []),
+                binding: binding, registry: registry, transport: transport
+            ) { [weak self] batch in
+                self?.lock.withLock { self?.listings.removeAll() }
+                let affected = batch.requiresFullRescan ? documents : documents.filter { document in
+                    batch.workspacePaths.contains { path in document.path == path || document.path.hasPrefix(path + "/") }
+                }
+                if !affected.isEmpty { onChange(affected) }
+            }
+            observation.start()
+            return observation
+        }
+        return RemoteDocumentObservations(local: localObservation, remote: observations)
+    }
+
+    private func requireNonRoot(_ url: URL, binding: RemoteWorkspaceBinding) throws {
+        guard url.standardizedFileURL != binding.root.standardizedFileURL else { throw CocoaError(.fileWriteNoPermission) }
+    }
+
+    private func mutate(_ mutation: RemoteFileMutation, binding: RemoteWorkspaceBinding) throws {
+        defer { lock.withLock { listings.removeAll() } }
+        try transport.mutate(mutation, session: binding.sessionID)
+    }
+
+    private func transfer(_ source: URL, _ destination: URL, copying: Bool) throws -> Bool {
+        let from = registry.resolve(source)
+        let to = registry.resolve(destination)
+        guard from != nil || to != nil else { return false }
+        guard let from, let to, from.binding.sessionID == to.binding.sessionID else {
+            throw CocoaError(.featureUnsupported)
+        }
+        try requireNonRoot(source, binding: from.binding)
+        try requireNonRoot(destination, binding: to.binding)
+        try mutate(copying ? .copy(from: from.remotePath, to: to.remotePath) : .move(from: from.remotePath, to: to.remotePath), binding: from.binding)
+        return true
     }
 
     func readDocumentText(from url: URL) throws -> String? {

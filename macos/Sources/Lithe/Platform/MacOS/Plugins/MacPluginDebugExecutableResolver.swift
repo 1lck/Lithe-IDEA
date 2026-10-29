@@ -23,7 +23,7 @@ struct MacPluginDebugExecutableResolver {
 
     /// A regular file the current user may execute; a directory such as an
     /// `.app` bundle is not a program a debugger can launch.
-    static func isRunnableFile(_ path: String) -> Bool {
+    @Sendable static func isRunnableFile(_ path: String) -> Bool {
         var isDirectory: ObjCBool = false
         return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
             && !isDirectory.boolValue

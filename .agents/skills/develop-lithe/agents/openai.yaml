@@ -1,4 +1,4 @@
 interface:
-  display_name: "Lithe Development"
-  short_description: "Apply Lithe architecture and coding rules"
-  default_prompt: "Use $develop-lithe to implement and verify a change in the Lithe repository."
+  display_name: "Lithe 开发规范"
+  short_description: "遵循 Lithe 架构、跨平台契约、界面规范与验证流程完成仓库改动"
+  default_prompt: "使用 $develop-lithe，遵循仓库规范完成本次 Lithe 改动并执行相关验证。"

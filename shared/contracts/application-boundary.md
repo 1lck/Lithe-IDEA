@@ -532,6 +532,42 @@ must not impose a shorter readiness deadline. The terminal timeout code is
 `serviceReadyTimeout`, and its details preserve the last import, download, and
 cache snapshot for both products.
 
+### Explicit debug adapter selection
+
+`DebugLaunchConfiguration.adapterProviderID` is optional host routing metadata.
+Plugin registrations use the existing Registry identity `pluginID/adapterID`;
+the host Java adapter retains `java`. The field is not a DAP argument, a process
+command, or a plugin-private function call. An omitted identity uses the existing
+file selection. An explicit identity, including an empty or withdrawn one, must
+never fall back to another adapter matching the file.
+
+Qualified registrations include every declared adapter, including attach-only
+and executable/process adapters. They do not become automatic file defaults.
+Before creating a transport, the session manager resolves the current registration
+and verifies its declared launch/attach request. An explicit target need not be
+an open source file. Retry and configuration transformations retain the identity;
+failed additional starts clean up their own session and preserve the previous one.
+
+Source breakpoints are shared by matching registered adapters, including replay
+on a later launch. Function, exception and data breakpoint changes use the selected
+adapter identity, even when the target has no source extension. Plugin ownership
+continues to control withdrawal and process cleanup. The platform resolver still
+owns manifest validation, permissions, executable resolution and supported transports;
+this routing field grants no new permission and carries no adapter process or socket.
+
+The host fixture is [adapter-selection-v1.json](../fixtures/debug/adapter-selection-v1.json).
+macOS consumes this contract. Windows has no plugin adapter launch consumer yet.
+Build Provider version 5 adds a separate native debug preparation request;
+version 4 run plans are never reinterpreted as debug plans. The selected run
+names a same-plugin launch adapter. Core validates an existing instance-contained
+program plus bounded arguments/environment/directory, and the platform rechecks
+executable permissions before binding target facts through `debug.adapters.startArguments`.
+Build-tree Debug and saved-provider Run Debug save documents first and revalidate
+workspace, source, configuration, model and plugin identity before handoff. Debug
+owns the resulting session; stopping preparation or accepting late replies cannot
+start a session after invalidation. Java/JDT and cross-plugin preparation are not
+covered by this native increment.
+
 ## Error Codes
 
 Use stable categories rather than platform error strings:
@@ -581,6 +617,20 @@ append through Core's opaque `nextCursor` while continuing the same bounded Git
 log stream. Changing repositories or references and closing the history view
 cancels the owning `operationID` and closes any retained cursor; a late result
 cannot replace the active selection and its returned cursor is also closed.
+
+Launch environment precedence and automatic run scanning are Rust Core policy.
+Platform adapters discover executable/home paths and provide the native parent
+environment; `execution.resolveEnvironment` applies inherited < selected current
+step toolchain < explicit user values. A Maven resource step uses its Maven JVM,
+while the subsequent Java process uses the project JVM. Automatic scan exclusions,
+partial-snapshot retention and diagnostics share one implementation; unreadable
+optional subtrees must not erase previously discovered configurations.
+
+Ordinary workspace events use Core's `workspace.filterChanges` policy before a
+host applies event-count recovery thresholds. Native lost-event/error flags always
+request recovery. Hosts retain native watch registration, Git/document channels,
+explicit watches and platform-specific lifecycle; the shared filter must not
+replace those channels or swallow real source changes mixed with build output.
 
 Run configuration behavior is exposed through the `runConfig.*` commands.
 Platform clients coordinate inspection, generation, resolution, typed document
@@ -809,3 +859,16 @@ current conversation has used a skill. Explicit create/import operations write
 only to native user/project directories and preserve existing skills. Explicit toggles write native settings: Codex by discovered path via its official App Server API, Claude by name via skillOverrides in user or project-local settings. Claude states are configured visibility, not effective managed/session policy. Never persist a separate Lithe enabled flag, move packages to simulate disablement, or claim that a change revokes already loaded session content. File
 contents remain untrusted document data. Settings discovery and file management
 must not create conversations, send prompts, or interrupt existing Agent work.
+
+Build-provider application preparation and execution have separate owners. The
+workspace Build session validates a current target and prepares it; the native
+Run host owns the application process, output and stop. Explicit persistence
+uses the existing local Run v2 layer and stores a typed selector rather than
+launch facts. Reopening or restarting re-resolves that selector in the enabled
+workspace Provider and prepares afresh. Save-before-run completes before taking
+the preparation snapshot; source/configuration changes revoke pending results.
+The public Run operation ID spans preparation and process handoff, so UI and Agent
+queries keep one execution identity. Stop targets the owned preparation ID before
+launch and the owned native process ID afterward. Missing or stale references fail without a CLI or old domain fallback.
+A Provider application's native output remains visible even without generated
+Run configurations. See `../fixtures/run-configuration/build-provider.json`.

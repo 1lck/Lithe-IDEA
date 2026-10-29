@@ -56,12 +56,12 @@ Agent 的配置入口由同一个目录补齐，移动到任何已有停靠区�
 
 ## 验证
 
-- `./scripts/verify-shared-contracts.sh`
+- `./scripts/architecture/verify-shared-contracts.sh`
 - `cargo test --manifest-path rust/lithe-core/Cargo.toml --lib declarative_plugins`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'PluginUIIconTests|WorkbenchContributionHostTests|WorkbenchFeatureModelTests|WorkbenchModuleUIRegistryTests|ModuleSessionCoordinatorTests'`
-- `./scripts/verify-service-boundaries.sh`
-- `./scripts/verify-runtime-bundle-immutability.sh`
-- `./scripts/verify-platform-feature-matrix.sh`
+- `./scripts/architecture/verify-service-boundaries.sh`
+- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
 
 ## 适用范围
 

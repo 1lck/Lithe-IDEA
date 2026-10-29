@@ -1689,6 +1689,42 @@ struct LitheCoreLogicTests {
         #expect(removal.transitions[0].rightRange == 22...22)
     }
 
+    /// A whole-file addition or deletion has no second version, yet the side-by-side
+    /// pane must still lay it out: the missing side stays empty and scrolling keeps working.
+    @Test
+    func splitDiffLayoutHandlesWholeFileAdditionAndDeletion() {
+        let added = (0..<3).map {
+            DiffRow(oldLine: nil, newLine: $0 + 1, left: nil, right: "line \($0)", kind: .addition, sequence: $0)
+        }
+        let addedLayout = DiffSplitLayout.plan(
+            displayRows: added.enumerated().map { DiffDisplayRow.row($0.element, index: $0.offset) },
+            kinds: added.map(\.kind)
+        )
+        #expect(addedLayout.leftItems.isEmpty)
+        #expect(addedLayout.rightItems.map(\.top) == [0, 22, 44])
+        #expect(addedLayout.transitions.count == 1)
+        #expect(addedLayout.transitions[0].isAddition)
+        #expect(addedLayout.transitions[0].rightRange == 0...66)
+        // The empty old side stays at the top however far the new side scrolls.
+        let addedMapping = DiffScrollMapping(layout: addedLayout)
+        #expect(addedMapping.transfer(0, from: .right) == 0)
+        #expect(addedMapping.transfer(40, from: .right) == 0)
+        #expect(addedMapping.transfer(0, from: .left) == 0)
+
+        let deleted = (0..<3).map {
+            DiffRow(oldLine: $0 + 1, newLine: nil, left: "line \($0)", right: nil, kind: .removal, sequence: $0)
+        }
+        let deletedLayout = DiffSplitLayout.plan(
+            displayRows: deleted.enumerated().map { DiffDisplayRow.row($0.element, index: $0.offset) },
+            kinds: deleted.map(\.kind)
+        )
+        #expect(deletedLayout.rightItems.isEmpty)
+        #expect(deletedLayout.leftItems.map(\.top) == [0, 22, 44])
+        #expect(deletedLayout.transitions.count == 1)
+        #expect(deletedLayout.transitions[0].isRemoval)
+        #expect(DiffScrollMapping(layout: deletedLayout).transfer(40, from: .left) == 0)
+    }
+
     @Test
     func diffCollapseFoldsLongUnchangedRunsAndKeepsSurroundingContext() {
         var rows: [DiffRow] = []

@@ -15,11 +15,11 @@ macOS 是当前参考产品，Windows 是独立实现。两端可以共享 Rust 
 采用“源数据 + 生成视图 + 轻量校验”的流程：
 
 - `shared/platform-feature-matrix/features/<id>.json` 是唯一源数据，使用稳定的功能 ID，并分别保存 `macos`、`windows` 的 `implementationStatus`、`verificationStatus` 和证据路径。状态的 label、icon、description 由 `shared/platform-feature-matrix/metadata.json` 提供；已知缺口或外部 Issue 写在可选的 `notes` 字段中。
-- `scripts/generate-platform-feature-matrix.mjs` 校验两套状态定义、ID 和证据路径，并在 `.artifacts/platform-feature-matrix/` 生成 HTML、Markdown、CSV 和汇总 JSON，生成物不提交到 Git。
-- `scripts/verify-platform-feature-matrix.sh` 只校验源数据及证据路径，适合作为本地和 PR gate。
+- `scripts/platform-feature-matrix/generate-platform-feature-matrix.mjs` 校验两套状态定义、ID 和证据路径，并在 `.artifacts/platform-feature-matrix/` 生成 HTML、Markdown、CSV 和汇总 JSON，生成物不提交到 Git。
+- `scripts/platform-feature-matrix/verify-platform-feature-matrix.sh` 只校验源数据及证据路径，适合作为本地和 PR gate。
 - `docs/development/platform-parity.md` 说明矩阵的使用规则；仓库根目录 `AGENTS.md` 只负责把贡献者引到 `develop-lithe` Skill，避免规则正文出现第二份副本。功能 PR 必须更新源数据，不得直接手改生成视图。
 - `.github/workflows/verify-platform-feature-matrix.yml` 在每个 PR、`preview` / `main` 推送和手动运行时执行校验，并上传 JSON、Markdown、CSV 视图，方便在线查看和下载。
-- `scripts/verify-platform-feature-matrix-change.sh` 检查平台实现路径变更是否同时更新矩阵；纯重构可通过 reviewer 添加 `matrix-exempt` label 显式豁免。
+- `scripts/platform-feature-matrix/verify-platform-feature-matrix-change.sh` 检查平台实现路径变更是否同时更新矩阵；纯重构可通过 reviewer 添加 `matrix-exempt` label 显式豁免。
 - 当前矩阵先按两端代码入口和共享契约完成初版静态盘点；实现状态不是实机验收结论，能力点的 `verificationStatus` 仍需后续跨平台验证推进。
 
 实现状态分为 `implemented`、`partial`、`missing` 和 `platform-specific`，验证状态分为 `verified`、`pending` 和 `not-applicable`。矩阵行按“一个可单独验收的用户能力”拆分，`area` 和 `group` 只用于导航，不作为状态统计单位。只有 `implemented` 与 `verified` 同时成立才表示已经验收，避免把“有文件”误报成“跨平台可用”。
@@ -71,10 +71,10 @@ CSV 方便筛选，Excel 对非开发者更友好，但二进制 Excel 不利于
 
 ## 验证
 
-- `node scripts/generate-platform-feature-matrix.mjs`
-- `./scripts/verify-platform-feature-matrix.sh`
-- `./scripts/verify-platform-feature-matrix-change.sh <base> <head>`
-- 修改 Agent Note 后运行 `./scripts/verify-agent-notes.sh`
+- `node scripts/platform-feature-matrix/generate-platform-feature-matrix.mjs`
+- `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
+- `./scripts/platform-feature-matrix/verify-platform-feature-matrix-change.sh <base> <head>`
+- 修改 Agent Note 后运行 `./scripts/agent-notes/verify-agent-notes.sh`
 
 ## 适用范围
 

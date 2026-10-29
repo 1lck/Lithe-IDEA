@@ -18,14 +18,22 @@ final class MacBuildToolResolver: BuildToolResolving {
     private let runtime: ProjectRuntimeService
     private let processRunner: any ProcessRunner
     private let fileStorage: any FileStorage
+    private let registry: RemoteWorkspaceRegistry?
+    private let remoteFiles: (any RemoteBuildFileProbing)?
+    private let remoteProcesses: (any RemoteProcessRunning)?
     /// Probe output by executable, arguments, and modification date, so a
     /// repeated run does not start the same probe again.
     private var probeOutputs: [String: String] = [:]
 
-    init(runtime: ProjectRuntimeService, processRunner: any ProcessRunner, fileStorage: any FileStorage) {
+    init(runtime: ProjectRuntimeService, processRunner: any ProcessRunner, fileStorage: any FileStorage,
+         registry: RemoteWorkspaceRegistry? = nil, remoteFiles: (any RemoteBuildFileProbing)? = nil,
+         remoteProcesses: (any RemoteProcessRunning)? = nil) {
         self.runtime = runtime
         self.processRunner = processRunner
         self.fileStorage = fileStorage
+        self.registry = registry
+        self.remoteFiles = remoteFiles
+        self.remoteProcesses = remoteProcesses
     }
 
     func resolve(
@@ -34,6 +42,11 @@ final class MacBuildToolResolver: BuildToolResolving {
         workspaceURL: URL,
         checkVersion: @escaping @Sendable (String?, String) throws -> BuildVersionCheck
     ) async throws -> ResolvedBuildTool {
+        if registry?.contains(workspaceURL) == true {
+            await runtime.ensureRuntimesDiscovered()
+            try Task.checkCancellation()
+            guard runtime.projectURL == workspaceURL.standardizedFileURL else { throw CancellationError() }
+        }
         var environment = runtime.processEnvironment()
         var runtimeExecutables: [String: URL] = [:]
         for dependency in invocation.runtimeDependencies {
@@ -47,7 +60,8 @@ final class MacBuildToolResolver: BuildToolResolving {
         }
 
         var problems: [String] = []
-        let resolver = candidateResolver(runtimeExecutables)
+        let resolver = try await preparedResolver(runtimeExecutables, candidates: invocation.executables,
+                                                  workspaceURL: workspaceURL, environment: environment)
         for candidate in invocation.executables {
             switch resolver.resolve(candidate, workspaceURL: workspaceURL, environment: environment, environmentInputs: invocation.environmentInputs) {
             case .skip: continue
@@ -63,7 +77,7 @@ final class MacBuildToolResolver: BuildToolResolving {
                     }
                     do {
                         if let tool = try await accept(choice.url, invocation: invocation, environment: selectedEnvironment,
-                                                       checkVersion: checkVersion, problems: &problems) { return tool }
+                                                       workspaceURL: workspaceURL, checkVersion: checkVersion, problems: &problems) { return tool }
                     } catch is CancellationError { throw CancellationError() }
                     catch { throw BuildToolResolutionError(error.localizedDescription, terminal: choice.terminal) }
                     if choice.terminal { throw BuildToolResolutionError(Self.unavailableMessage(displayName, problems: problems), terminal: true) }
@@ -76,6 +90,7 @@ final class MacBuildToolResolver: BuildToolResolving {
     /// Project import needs the installation path for global settings, but
     /// must not run build code or a version probe merely by opening a project.
     func languageImportExecutable(_ invocation: BuildInvocation, workspaceURL: URL) -> URL? {
+        guard registry?.contains(workspaceURL) != true else { return nil }
         let environment = runtime.processEnvironment()
         let resolver = candidateResolver([:])
         for candidate in invocation.executables {
@@ -87,6 +102,75 @@ final class MacBuildToolResolver: BuildToolResolving {
             }
         }
         return nil
+    }
+
+    func prepareLanguageImportExecutable(_ invocation: BuildInvocation, workspaceURL: URL) async throws -> URL? {
+        guard registry?.contains(workspaceURL) == true else {
+            return languageImportExecutable(invocation, workspaceURL: workspaceURL)
+        }
+        try Task.checkCancellation()
+        guard runtime.projectURL == workspaceURL.standardizedFileURL else { throw CancellationError() }
+        let environment = runtime.processEnvironment()
+        let resolver = try await preparedResolver([:], candidates: invocation.executables,
+                                                  workspaceURL: workspaceURL, environment: environment)
+        for candidate in invocation.executables {
+            switch resolver.resolve(candidate, workspaceURL: workspaceURL, environment: environment,
+                                    environmentInputs: invocation.environmentInputs) {
+            case .skip: continue
+            case .terminalFailure: return nil
+            case .resolved(let choices): return choices.first?.url
+            }
+        }
+        return nil
+    }
+
+    private func preparedResolver(
+        _ runtimes: [String: URL], candidates: [ExecutableCandidate], workspaceURL: URL,
+        environment: [String: String]
+    ) async throws -> ExecutableCandidateResolver {
+        guard let binding = registry?.resolve(workspaceURL)?.binding else { return candidateResolver(runtimes) }
+        guard let remoteFiles else { throw CocoaError(.featureUnsupported) }
+        var paths = Set<URL>()
+        var commands: [String: [URL]] = [:]
+        for candidate in candidates {
+            switch candidate {
+            case .projectFile(let path, let requires):
+                paths.insert(workspaceURL.appendingPathComponent(path).standardizedFileURL)
+                requires.forEach { paths.insert(workspaceURL.appendingPathComponent($0).standardizedFileURL) }
+            case .environment(let variable, let path):
+                if let base = environment[variable], base.hasPrefix("/") {
+                    paths.insert(URL(fileURLWithPath: base).appendingPathComponent(path).standardizedFileURL)
+                }
+            case .command(let command):
+                let found = commandCandidates(command)
+                commands[command] = found
+                paths.formUnion(found)
+            case .runtime(let id): if let url = runtimes[id] { paths.insert(url) }
+            case .setting(_, let path): if let path, path.hasPrefix("/") { paths.insert(URL(fileURLWithPath: path)) }
+            }
+        }
+        let requested = paths.sorted { $0.path < $1.path }.map { url in
+            let root = binding.root.path
+            let path = url.path == root ? binding.remoteRoot : url.path.hasPrefix(root + "/")
+                ? binding.remoteRoot + url.path.dropFirst(root.count) : url.path
+            return (url, path)
+        }
+        let files: [URL: RemoteBuildFileMetadata] = try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(with: Result {
+                    var files: [URL: RemoteBuildFileMetadata] = [:]
+                    for (url, path) in requested {
+                        if let metadata = try remoteFiles.buildFileMetadata(path, session: binding.sessionID) {
+                            files[url] = metadata
+                        }
+                    }
+                    return files
+                })
+            }
+        }
+        try Task.checkCancellation()
+        return ExecutableCandidateResolver(fileExists: { files[$0] != nil },
+            isExecutable: { files[$0]?.isExecutable == true }, commands: { commands[$0] ?? [] }, runtimes: { runtimes[$0] })
     }
 
     private func candidateResolver(_ runtimes: [String: URL]) -> ExecutableCandidateResolver {
@@ -101,13 +185,14 @@ final class MacBuildToolResolver: BuildToolResolving {
         _ url: URL,
         invocation: BuildInvocation,
         environment: [String: String],
+        workspaceURL: URL,
         checkVersion: @escaping @Sendable (String?, String) throws -> BuildVersionCheck,
         problems: inout [String]
     ) async throws -> ResolvedBuildTool? {
         guard let arguments = invocation.versionArguments, let minimum = invocation.minimumVersion else {
             return ResolvedBuildTool(executableURL: url, environment: environment, executesProjectCode: false, version: nil)
         }
-        let output = await probe(url, arguments: arguments, environment: environment)
+        let output = try await probe(url, arguments: arguments, environment: environment, workspaceURL: workspaceURL)
         let check = try checkVersion(nil, output)
         guard check.satisfied else {
             problems.append(Self.tooOldMessage(url.path, found: check.version, minimum: minimum))
@@ -131,7 +216,8 @@ final class MacBuildToolResolver: BuildToolResolving {
         let sources: [ExecutableCandidate] = dependency.hostManaged
             ? (dependency.id == "java" ? [.runtime("java")] : [.command(dependency.id)])
             : dependency.executables
-        let resolver = candidateResolver(javaHome.map { ["java": $0.appendingPathComponent("bin/java")] } ?? [:])
+        let resolver = try await preparedResolver(javaHome.map { ["java": $0.appendingPathComponent("bin/java")] } ?? [:],
+            candidates: sources, workspaceURL: workspaceURL, environment: environment)
         var problems: [String] = []
         for source in sources {
             switch resolver.resolve(source, workspaceURL: workspaceURL, environment: environment, environmentInputs: invocation.environmentInputs) {
@@ -149,7 +235,7 @@ final class MacBuildToolResolver: BuildToolResolving {
                     selectedEnvironment["PATH"] = path.isEmpty ? directory : directory + ":" + path
                     if !choice.executesProjectCode,
                        let minimum = dependency.minimumVersion, let arguments = dependency.versionArguments {
-                        let output = await probe(choice.url, arguments: arguments, environment: selectedEnvironment)
+                        let output = try await probe(choice.url, arguments: arguments, environment: selectedEnvironment, workspaceURL: workspaceURL)
                         let check: BuildVersionCheck
                         do { check = try checkVersion(dependency.id, output) }
                         catch { throw BuildToolResolutionError(error.localizedDescription, terminal: choice.terminal) }
@@ -173,7 +259,18 @@ final class MacBuildToolResolver: BuildToolResolving {
             .map(\.executableURL)
     }
 
-    private func probe(_ url: URL, arguments: [String], environment: [String: String]) async -> String {
+    private func probe(_ url: URL, arguments: [String], environment: [String: String], workspaceURL: URL) async throws -> String {
+        if let registry, registry.contains(workspaceURL) {
+            guard let remoteProcesses else { throw CocoaError(.featureUnsupported) }
+            let runner = MacRemoteBuildCommandRunner(local: MacBuildCommandRunner(), registry: registry, host: remoteProcesses)
+            let captured = RemoteBuildProbeOutput()
+            let result = try await runner.run(BuildCommandRequest(executableURL: url, arguments: arguments,
+                workingDirectory: workspaceURL, environment: environment, timeout: .milliseconds(Self.probeTimeoutMilliseconds))) {
+                captured.append($0)
+            }
+            guard case .exited(0) = result.termination else { return "" }
+            return try captured.value()
+        }
         let modified = fileStorage.metadata(for: url)?.modificationDate?.timeIntervalSince1970 ?? 0
         let key = ([url.path, String(modified)] + arguments).joined(separator: "\u{1F}")
         if let output = probeOutputs[key] { return output }
@@ -199,6 +296,29 @@ final class MacBuildToolResolver: BuildToolResolving {
     private static func unavailableMessage(_ name: String, problems: [String]) -> String {
         let summary = L10n.string("\(name) is not available.")
         return ([summary] + problems).joined(separator: " ")
+    }
+}
+
+private final class RemoteBuildProbeOutput: @unchecked Sendable {
+    private let lock = NSLock()
+    private var output = ""
+    private var overflowed = false
+    func append(_ text: String) {
+        lock.withLock {
+            guard !overflowed else { return }
+            guard output.utf8.count + text.utf8.count <= 262_144 else {
+                overflowed = true
+                output = ""
+                return
+            }
+            output += text
+        }
+    }
+    func value() throws -> String {
+        try lock.withLock {
+            guard !overflowed else { throw CocoaError(.fileReadTooLarge) }
+            return output
+        }
     }
 }
 

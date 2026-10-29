@@ -38,6 +38,8 @@ final class ModuleSessionCoordinator {
         onModuleReleased(moduleID)
     }
 
+    var isShuttingDown: Bool { shutdownTask != nil }
+
     func beginShutdown() {
         guard shutdownTask == nil else { return }
         workbench.endLayoutSession()

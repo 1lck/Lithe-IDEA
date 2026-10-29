@@ -96,7 +96,7 @@ Equinox（JDT LS 使用的 OSGi 框架，负责加载插件）会往 `-configura
 - 升级 JDT LS 后会留下一个旧的配置区（几 MB），30 天没被使用就自动删除。
 - 已经被旧版本写过的安装目录：macOS 在这次更新时回退完整 ZIP 一次，替换后的
   bundle 是干净的；Windows 安装目录里的旧状态文件还在，但 JDT LS 不再读写它们。
-- 守护脚本 `scripts/verify-runtime-bundle-immutability.sh` 只保留对 macOS Swift
+- 守护脚本 `scripts/macos/verify/verify-runtime-bundle-immutability.sh` 只保留对 macOS Swift
   源码的通用写入扫描。JDT LS 的约束由 Core 的行为测试保证，不再用 grep 检查实现
   代码的字面量，也不再检查一段只在 macOS CI 上运行的 Windows 源码。
 
@@ -109,9 +109,9 @@ Equinox（JDT LS 使用的 OSGi 框架，负责加载插件）会往 `-configura
   完成导入、构建、classpath 解析后，断言安装目录的文件清单和大小与启动前一致，
   并且 `org.eclipse.osgi` 出现在缓存配置区。临时恢复旧行为时，这个断言会因为安装包
   配置目录里多出 `org.eclipse.osgi` 等目录而失败。
-- `./scripts/verify-rust-core.sh`
-- `./scripts/verify-runtime-bundle-immutability.sh`
-- `./scripts/verify-agent-notes.sh`
+- `./scripts/rust-core/verify-rust-core.sh`
+- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `./scripts/agent-notes/verify-agent-notes.sh`
 
 ## 适用范围
 
@@ -119,8 +119,8 @@ Equinox（JDT LS 使用的 OSGi 框架，负责加载插件）会往 `-configura
 - `rust/lithe-core/src/lsp/interface/engine.rs`
 - `rust/lithe-core/src/lsp/interface/engine_real_jdt_tests.rs`
 - `shared/contracts/rust-core-api.md`
-- `scripts/verify-runtime-bundle-immutability.sh`
-- `scripts/verify-macos-app-build-safety.sh`
-- `scripts/test-macos.sh`
+- `scripts/macos/verify/verify-runtime-bundle-immutability.sh`
+- `scripts/macos/verify/verify-macos-app-build-safety.sh`
+- `scripts/macos/test/test-macos.sh`
 - `.agents/skills/develop-lithe/SKILL.md`
 - `docs/architecture/macos-updates.md`

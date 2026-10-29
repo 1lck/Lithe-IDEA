@@ -43,7 +43,7 @@ jobs:
       - name: Generate SVG charts
         run: |
           set -euo pipefail
-          python3 scripts/update-repo-charts.py \
+          python3 scripts/ci/update-repo-charts/update-repo-charts.py \
             --repo "$GITHUB_REPOSITORY" \
             --stargazers "$RUNNER_TEMP/repo-charts/stargazers.json" \
             --merged-pull-requests "$RUNNER_TEMP/repo-charts/merged-pull-requests.json" \

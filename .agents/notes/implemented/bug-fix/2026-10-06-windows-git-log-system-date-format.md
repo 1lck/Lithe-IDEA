@@ -36,8 +36,8 @@ Windows Git Log 的英文日期不再由翻译模板固定为日/月/年，而�
 
 - `.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend` 可通过 `-FrontendTestPath` 定向验证日期工具、原生结果显示及迟到结果保护。
 - `cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml --bin lithe-windows date_time::tests` 验证原生美式/英式日期顺序、时间制和非法时间戳。显式地区测试关闭用户覆盖，不修改系统设置。
-- `scripts/verify-runtime-bundle-immutability.sh` 检查运行时安装目录只读边界。
-- `scripts/verify-agent-notes.sh` 和 `scripts/verify-platform-feature-matrix.sh` 验证记录。
+- `scripts/macos/verify/verify-runtime-bundle-immutability.sh` 检查运行时安装目录只读边界。
+- `scripts/agent-notes/verify-agent-notes.sh` 和 `scripts/platform-feature-matrix/verify-platform-feature-matrix.sh` 验证记录。
 - 在真实 Windows 产品中对比系统短日期/时间设置和 Git Log，检查英文、中文、跨时区提交以及重新打开后的格式生效。
 
 ## 适用范围

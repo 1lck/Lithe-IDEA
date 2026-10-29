@@ -2,8 +2,9 @@
 //! about a debug adapter before starting any process for it.
 //!
 //! A declaration names the adapter, how its process is started and reached
-//! (stdio or a loopback TCP endpoint), and optional matching, default DAP
-//! arguments and capability suppression. It carries no behavior: there is no
+//! (stdio, a loopback TCP endpoint, or a port the plugin's own language server
+//! opens on request), and optional matching, default DAP arguments and
+//! capability suppression. It carries no behavior: there is no
 //! resolver, workflow or host integration, so a plugin can only choose among
 //! facts Core already understands. DAP capabilities belong to the running
 //! adapter and are negotiated in `initialize`; `capabilities.disabled` can
@@ -23,7 +24,8 @@ use crate::plugins::declarative::{
 use crate::plugins::settings::DeclaredSettings;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{json, Map, Value};
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
+use std::net::IpAddr;
 
 /// Most adapters one plugin may declare.
 const MAX_ADAPTERS: usize = 16;
@@ -37,6 +39,8 @@ const MAX_SELECTORS: usize = 16;
 const MAX_CONFIGURATION_TYPES: usize = 16;
 /// Longest announced-endpoint prefix, in bytes.
 const MAX_ENDPOINT_PREFIX: usize = 256;
+/// Longest language server command ID, in characters.
+const MAX_ENDPOINT_COMMAND: usize = 128;
 /// Most console commands one adapter may declare.
 const MAX_CONSOLE_COMMANDS: usize = 1024;
 /// Longest console command name, in characters.
@@ -52,6 +56,20 @@ const MAX_EXECUTABLE_CANDIDATE: usize = 1024;
 /// The `targetBindings.program` source that reads the executable the host
 /// resolved, instead of the target's own path.
 const TARGET_EXECUTABLE: &str = "target.executable";
+/// The target kind of a remote `host:port` the debuggee listens on.
+const TARGET_CONNECTION: &str = "connection";
+/// Most names an argument path joins, for example `connect.host`.
+const MAX_ARGUMENT_PATH_DEPTH: usize = 4;
+/// Longest single name in an argument path, in characters.
+const MAX_ARGUMENT_NAME: usize = 64;
+/// Most path mappings one remote target may carry.
+const MAX_PATH_MAPPINGS: usize = 16;
+/// Longest local or remote root of a path mapping, in characters.
+const MAX_PATH_MAPPING_ROOT: usize = 1024;
+/// Longest host name, as DNS limits it.
+const MAX_HOST: usize = 253;
+/// Longest label of a host name, as DNS limits it.
+const MAX_HOST_LABEL: usize = 63;
 /// Variables an executable candidate may name, and the only ones the host
 /// can answer: the workspace root and the open source file's location.
 const EXECUTABLE_VARIABLES: &[&str] = &[
@@ -243,11 +261,229 @@ pub(crate) struct DebugExecutable {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct DebugTargetBindings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) args: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) env: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) program: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) process_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) cwd: Option<String>,
+    /// Where a remote `host:port` goes. Attach only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) connection: Option<DebugConnectionBinding>,
+}
+
+/// Where each fact of a remote target lands in the adapter's attach
+/// arguments. Adapters name and nest these differently (`hostName` and `port`,
+/// `connect.host`, a single `host:port` string), so unlike the fixed names
+/// above each value here is the destination path, not the source fact: `host`
+/// reads `target.host`, `port` reads `target.port`, `address` reads both.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct DebugConnectionBinding {
+    /// Argument that receives the host name or IP literal. Pairs with `port`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) host: Option<String>,
+    /// Argument that receives the port, as an integer. Pairs with `host`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) port: Option<String>,
+    /// Argument that receives `host:port` as one string, with an IPv6 host in
+    /// brackets.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) address: Option<String>,
+    /// How local and remote source roots reach the adapter. Absent when the
+    /// adapter has no such argument; the host then does not offer the choice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) path_mappings: Option<DebugPathMappingBinding>,
+}
+
+/// The ways adapters take source roots: where they go and in what form.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(tag = "shape", rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) enum DebugPathMappingBinding {
+    /// `[{ <localKey>: …, <remoteKey>: … }, …]` at `argument`.
+    #[serde(rename_all = "camelCase")]
+    Objects {
+        argument: String,
+        local_key: String,
+        remote_key: String,
+    },
+    /// The first mapping only, as two strings: `local` and `remote` are the
+    /// destination arguments.
+    First { local: String, remote: String },
+    /// `{ <root>: <other root>, … }` at `argument`, keyed by one side.
+    #[serde(rename_all = "camelCase")]
+    Dictionary {
+        argument: String,
+        keyed_by: MappingRoot,
+    },
+    /// `[[<root>, <other root>], …]` at `argument`, in the declared order.
+    Pairs {
+        argument: String,
+        order: MappingOrder,
+    },
+}
+
+/// Which side of a mapping a dictionary is keyed by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum MappingRoot {
+    Local,
+    Remote,
+}
+
+/// Which root comes first in a pair.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum MappingOrder {
+    RemoteLocal,
+    LocalRemote,
+}
+
+impl DebugPathMappingBinding {
+    /// Destination paths the binding writes, with the field each belongs to.
+    fn destinations(&self) -> Vec<(&'static str, &str)> {
+        match self {
+            Self::Objects { argument, .. }
+            | Self::Dictionary { argument, .. }
+            | Self::Pairs { argument, .. } => vec![("pathMappings.argument", argument)],
+            Self::First { local, remote } => {
+                vec![
+                    ("pathMappings.local", local),
+                    ("pathMappings.remote", remote),
+                ]
+            }
+        }
+    }
+
+    fn key_fields(&self) -> Vec<(&'static str, &str)> {
+        match self {
+            Self::Objects {
+                local_key,
+                remote_key,
+                ..
+            } => vec![
+                ("pathMappings.localKey", local_key),
+                ("pathMappings.remoteKey", remote_key),
+            ],
+            Self::First { .. } | Self::Dictionary { .. } | Self::Pairs { .. } => Vec::new(),
+        }
+    }
+
+    /// How many mappings the adapter can take. A shape that holds one mapping
+    /// refuses more rather than keeping the first and dropping the rest.
+    fn limit(&self) -> usize {
+        match self {
+            Self::First { .. } => 1,
+            Self::Objects { .. } | Self::Dictionary { .. } | Self::Pairs { .. } => {
+                MAX_PATH_MAPPINGS
+            }
+        }
+    }
+}
+
+impl DebugConnectionBinding {
+    /// Every destination argument path with the binding field it comes from.
+    fn destinations(&self) -> Vec<(&'static str, &str)> {
+        let mut destinations = Vec::new();
+        for (name, path) in [
+            ("host", &self.host),
+            ("port", &self.port),
+            ("address", &self.address),
+        ] {
+            if let Some(path) = path {
+                destinations.push((name, path.as_str()));
+            }
+        }
+        if let Some(mappings) = &self.path_mappings {
+            destinations.extend(mappings.destinations());
+        }
+        destinations
+    }
+
+    fn validate(
+        &self,
+        field: &str,
+        defaults: Option<&Map<String, Value>>,
+        fixed_names: &[&str],
+    ) -> Validation<()> {
+        if self.host.is_some() != self.port.is_some() {
+            return Err(invalid(
+                format!("{field}.host"),
+                "host and port are declared together.",
+            ));
+        }
+        if self.host.is_none() && self.address.is_none() {
+            return Err(invalid(
+                field,
+                "A connection binding receives the target through host and port, or address.",
+            ));
+        }
+        let destinations = self.destinations();
+        for (name, path) in &destinations {
+            if !is_argument_path(path) {
+                return Err(invalid(
+                    format!("{field}.{name}"),
+                    format!(
+                        "An argument path is up to {MAX_ARGUMENT_PATH_DEPTH} names joined by dots, each a letter or underscore followed by letters, digits, underscores, or hyphens."
+                    ),
+                ));
+            }
+        }
+        if let Some(mappings) = &self.path_mappings {
+            for (name, key) in mappings.key_fields() {
+                if !is_argument_name(key) {
+                    return Err(invalid(
+                        format!("{field}.{name}"),
+                        "A key is a letter or underscore followed by letters, digits, underscores, or hyphens.",
+                    ));
+                }
+            }
+            if let DebugPathMappingBinding::Objects {
+                local_key,
+                remote_key,
+                ..
+            } = mappings
+            {
+                if local_key == remote_key {
+                    return Err(invalid(
+                        format!("{field}.pathMappings.remoteKey"),
+                        "The local and remote keys differ.",
+                    ));
+                }
+            }
+        }
+        // Two facts can never share a destination, and a destination the
+        // plugin's own defaults already set would make the default win over
+        // the host the user confirmed: the adapter would connect somewhere the
+        // confirmation did not name.
+        for (index, (name, path)) in destinations.iter().enumerate() {
+            if let Some((other, _)) = destinations[..index]
+                .iter()
+                .find(|(_, other)| paths_overlap(path, other))
+            {
+                return Err(invalid(
+                    format!("{field}.{name}"),
+                    format!("The argument path overlaps {other}."),
+                ));
+            }
+            if fixed_names.iter().any(|fixed| paths_overlap(path, fixed)) {
+                return Err(invalid(
+                    format!("{field}.{name}"),
+                    "The argument path overlaps another binding.",
+                ));
+            }
+            if defaults.is_some_and(|defaults| default_occupies(defaults, path)) {
+                return Err(invalid(
+                    format!("{field}.{name}"),
+                    "The argument path is already set by the configuration's own arguments.",
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -262,7 +498,11 @@ pub(crate) struct DebugCapabilities {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct DebugLaunch {
-    pub(crate) process: DebugProcess,
+    /// Absent exactly for `tcpLanguageServer`, whose adapter lives inside a
+    /// language server the plugin already declares and has no process of its
+    /// own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) process: Option<DebugProcess>,
     pub(crate) transport: DebugTransport,
     /// Required by, and only allowed for, the TCP transports.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -275,13 +515,27 @@ pub(crate) enum DebugTransport {
     Stdio,
     TcpAnnounced,
     TcpPort,
+    /// The adapter runs inside the plugin's language server, which opens a
+    /// loopback port when asked by a command.
+    TcpLanguageServer,
 }
 
-/// Where a TCP adapter listens. The fields of the other transport must stay
+/// Where a TCP adapter listens. The fields of the other transports must stay
 /// absent, which `validate` checks.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct DebugEndpoint {
+    /// `tcpLanguageServer`: language ID of a language server of this plugin.
+    #[serde(
+        default,
+        rename = "languageID",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub(crate) language_id: Option<String>,
+    /// `tcpLanguageServer`: the `workspace/executeCommand` command that starts
+    /// the adapter and answers with its loopback port.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) command: Option<String>,
     /// `tcpAnnounced`: the stream the adapter prints its endpoint on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) stream: Option<String>,
@@ -404,6 +658,8 @@ impl DebugProcess {
 pub(crate) struct DeclarationContext<'a> {
     pub(crate) plugin_api_version: u32,
     pub(crate) declared_settings: &'a DeclaredSettings,
+    /// Language IDs of the plugin's `languageServers[]`.
+    pub(crate) language_servers: &'a BTreeSet<String>,
 }
 
 /// Validates every declaration and sorts them by ID.
@@ -438,9 +694,14 @@ pub(crate) fn validate_declarations(
 /// Whether any adapter starts on the selected runtime, which is the only use
 /// of `serverProcess` 2.
 pub(crate) fn uses_selected_runtime(adapters: &[DebugAdapterDeclaration]) -> bool {
-    adapters
-        .iter()
-        .any(|adapter| adapter.launch.process.selected_runtime_tool().is_some())
+    adapters.iter().any(|adapter| {
+        adapter
+            .launch
+            .process
+            .as_ref()
+            .and_then(DebugProcess::selected_runtime_tool)
+            .is_some()
+    })
 }
 
 /// Whether any adapter serves `attach`, which needs its own permission.
@@ -499,6 +760,20 @@ impl DebugAdapterDeclaration {
                 configuration.validate(&configuration_field, request, context)?;
             }
         }
+        // A connection target needs somewhere to put `host:port`; without it
+        // the selector would offer the adapter for a target it cannot start.
+        if self.selectors.iter().any(|selector| {
+            selector
+                .target_kinds
+                .iter()
+                .any(|kind| kind == TARGET_CONNECTION)
+        }) && self.connection_binding().is_none()
+        {
+            return Err(invalid(
+                format!("{field}.selectors"),
+                "A connection selector needs an attach configuration with a connection binding.",
+            ));
+        }
         if let Some(capabilities) = &mut self.capabilities {
             capabilities.validate(&format!("{field}.capabilities"))?;
         }
@@ -506,6 +781,16 @@ impl DebugAdapterDeclaration {
             console.validate(&format!("{field}.console"))?;
         }
         self.launch.validate(&format!("{field}.launch"), context)
+    }
+
+    /// The binding that receives a remote target, when the adapter attaches
+    /// to one.
+    pub(crate) fn connection_binding(&self) -> Option<&DebugConnectionBinding> {
+        self.configurations
+            .as_ref()
+            .and_then(|configurations| configurations.attach.as_ref())
+            .and_then(|configuration| configuration.target_bindings.as_ref())
+            .and_then(|bindings| bindings.connection.as_ref())
     }
 
     fn validate_selectors(&mut self, field: &str) -> Result<(), PluginRejection> {
@@ -619,7 +904,13 @@ impl DebugConfiguration {
             return Ok(());
         };
         let binding_field = format!("{field}.targetBindings");
-        if bindings.program.is_none() && bindings.process_id.is_none() && bindings.cwd.is_none() {
+        if bindings.program.is_none()
+            && bindings.process_id.is_none()
+            && bindings.cwd.is_none()
+            && bindings.args.is_none()
+            && bindings.env.is_none()
+            && bindings.connection.is_none()
+        {
             return Err(invalid(
                 &binding_field,
                 "A binding list declares a binding.",
@@ -633,6 +924,8 @@ impl DebugConfiguration {
             ),
             ("processId", &bindings.process_id, &["target.processID"][..]),
             ("cwd", &bindings.cwd, &["target.workingDirectory"][..]),
+            ("args", &bindings.args, &["target.arguments"][..]),
+            ("env", &bindings.env, &["target.environment"][..]),
         ] {
             if source
                 .as_deref()
@@ -644,14 +937,30 @@ impl DebugConfiguration {
                 ));
             }
         }
-        // `processId` names a running process, which only attach has.
-        if (bindings.process_id.is_some() && request != DebugRequest::Attach)
+        // `processId` names a running process and `connection` a remote
+        // endpoint, which only attach has.
+        if ((bindings.process_id.is_some() || bindings.connection.is_some())
+            && request != DebugRequest::Attach)
             || (bindings.program.is_some() && request != DebugRequest::Launch)
         {
             return Err(invalid(
                 binding_field,
                 "The binding does not apply to this request.",
             ));
+        }
+        if let Some(connection) = &bindings.connection {
+            let fixed_names: Vec<&str> = [
+                ("processId", bindings.process_id.is_some()),
+                ("cwd", bindings.cwd.is_some()),
+            ]
+            .into_iter()
+            .filter_map(|(name, declared)| declared.then_some(name))
+            .collect();
+            connection.validate(
+                &format!("{binding_field}.connection"),
+                self.arguments.as_ref(),
+                &fixed_names,
+            )?;
         }
         Ok(())
     }
@@ -869,9 +1178,24 @@ impl DebugConsole {
 
 impl DebugLaunch {
     fn validate(&self, field: &str, context: &DeclarationContext<'_>) -> Validation<()> {
-        self.process
-            .validate(&format!("{field}.process"), context)?;
         let endpoint_field = format!("{field}.endpoint");
+        let hosted = self.transport == DebugTransport::TcpLanguageServer;
+        match (&self.process, hosted) {
+            (Some(process), false) => process.validate(&format!("{field}.process"), context)?,
+            (None, true) => {}
+            (None, false) => {
+                return Err(invalid(
+                    format!("{field}.process"),
+                    "An adapter process is required unless the transport is tcpLanguageServer.",
+                ));
+            }
+            (Some(_), true) => {
+                return Err(invalid(
+                    format!("{field}.process"),
+                    "A tcpLanguageServer adapter runs inside the language server and has no process.",
+                ));
+            }
+        }
         match (self.transport, &self.endpoint) {
             (DebugTransport::Stdio, None) => Ok(()),
             (DebugTransport::Stdio, Some(_)) => Err(invalid(
@@ -884,6 +1208,7 @@ impl DebugLaunch {
             )),
             (DebugTransport::TcpAnnounced, Some(endpoint)) => {
                 let valid = endpoint.port.is_none()
+                    && !endpoint.has_language_server_fields()
                     && matches!(endpoint.stream.as_deref(), Some("stdout" | "stderr"))
                     && matches!(endpoint.value.as_deref(), Some("port" | "hostPort"))
                     && endpoint.prefix.as_deref().is_some_and(|prefix| {
@@ -904,6 +1229,7 @@ impl DebugLaunch {
                 let valid = endpoint.stream.is_none()
                     && endpoint.prefix.is_none()
                     && endpoint.value.is_none()
+                    && !endpoint.has_language_server_fields()
                     && endpoint.port.is_some_and(|port| port >= 1);
                 if valid {
                     Ok(())
@@ -914,7 +1240,39 @@ impl DebugLaunch {
                     ))
                 }
             }
+            (DebugTransport::TcpLanguageServer, Some(endpoint)) => {
+                if endpoint.stream.is_some()
+                    || endpoint.prefix.is_some()
+                    || endpoint.value.is_some()
+                    || endpoint.port.is_some()
+                {
+                    return Err(invalid(
+                        endpoint_field,
+                        "A language server endpoint names only a language and a command.",
+                    ));
+                }
+                let language = endpoint.language_id.as_deref().unwrap_or_default();
+                if !context.language_servers.contains(language) {
+                    return Err(invalid(
+                        format!("{endpoint_field}.languageID"),
+                        "The language server is not declared in languageServers.",
+                    ));
+                }
+                if !endpoint.command.as_deref().is_some_and(is_server_command) {
+                    return Err(invalid(
+                        format!("{endpoint_field}.command"),
+                        "A command is 1-128 letters, digits, and . _ : -.",
+                    ));
+                }
+                Ok(())
+            }
         }
+    }
+}
+
+impl DebugEndpoint {
+    fn has_language_server_fields(&self) -> bool {
+        self.language_id.is_some() || self.command.is_some()
     }
 }
 
@@ -929,19 +1287,22 @@ pub(crate) fn activation_event(adapter: &DebugAdapterDeclaration) -> String {
 /// the runtime is the one the user already chose for Run.
 pub(crate) fn programs(adapter: &DebugAdapterDeclaration) -> Vec<Value> {
     let mut program = match &adapter.launch.process {
-        DebugProcess::Server(process) => process.program(ServerRole::DebugAdapter),
-        DebugProcess::SelectedRuntime(process) => json!({
+        Some(DebugProcess::Server(process)) => process.program(ServerRole::DebugAdapter),
+        Some(DebugProcess::SelectedRuntime(process)) => json!({
             "kind": "selectedRuntimeDebugAdapter",
             "tool": process.launch.tool,
             "arguments": process.arguments,
             "validationArguments": process.validation_arguments,
         }),
+        // The server is reviewed as the plugin's language server; what is new
+        // here is the command that makes it serve debugging.
+        None => json!({ "kind": "languageServerDebugAdapter" }),
     };
     program["debugAdapter"] = json!(adapter.id);
     program["transport"] = json!(adapter.launch.transport);
     program["endpoint"] = json!(adapter.launch.endpoint);
     let mut programs = vec![program];
-    if let DebugProcess::Server(process) = &adapter.launch.process {
+    if let Some(DebugProcess::Server(process)) = &adapter.launch.process {
         programs.extend(process.runtime_programs());
     }
     programs
@@ -981,7 +1342,7 @@ pub(crate) fn check_package_resources(
     resources: &[PackageResource],
 ) -> Validation<()> {
     for (index, adapter) in adapters.iter().enumerate() {
-        if let DebugProcess::Server(process) = &adapter.launch.process {
+        if let Some(DebugProcess::Server(process)) = &adapter.launch.process {
             for (key, path) in process.packaged_files() {
                 check_resource(
                     resources,
@@ -1115,9 +1476,14 @@ impl Generation {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct TargetFacts {
+    /// Host-validated process arguments and environment; absent differs from empty.
+    #[serde(default)]
+    pub(crate) arguments: Option<Vec<String>>,
+    #[serde(default)]
+    pub(crate) environment: Option<std::collections::BTreeMap<String, String>>,
     // Selection by kind happens before a start; the host still states it so a
-    // start names what it was prepared for.
-    #[allow(dead_code)]
+    // start names what it was prepared for. A `connection` target is also
+    // checked against the adapter, see `plan`.
     pub(crate) kind: String,
     #[serde(default)]
     pub(crate) path: Option<String>,
@@ -1128,6 +1494,22 @@ pub(crate) struct TargetFacts {
     /// The program the host found for a source file, an absolute path.
     #[serde(default)]
     pub(crate) executable: Option<String>,
+    /// Where a remote debuggee listens: a host name or IP literal without
+    /// brackets, port, or scheme.
+    #[serde(default)]
+    pub(crate) host: Option<String>,
+    #[serde(default)]
+    pub(crate) port: Option<u64>,
+    /// Local source roots and where the remote machine has them.
+    #[serde(default)]
+    pub(crate) path_mappings: Vec<PathMapping>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct PathMapping {
+    pub(crate) local: String,
+    pub(crate) remote: String,
 }
 
 /// What a start asks of the adapter: the request and the facts around it.
@@ -1138,12 +1520,32 @@ pub(crate) struct StartRequest {
     pub(crate) facts: StartFacts,
 }
 
+/// The remote endpoint a start connects to, as the adapter will receive it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct StartConnection {
+    pub(crate) host: String,
+    pub(crate) port: u16,
+    /// False only when `host` is `localhost` or a loopback IP literal. A name
+    /// that resolves to loopback still counts as remote, so a host asks the
+    /// user about every endpoint Core cannot prove stays on this machine.
+    pub(crate) remote: bool,
+}
+
+/// What a start gives the host: the DAP arguments and, for a connection
+/// target, the endpoint they carry.
+#[derive(Debug, Clone)]
+pub(crate) struct StartArguments {
+    pub(crate) arguments: Map<String, Value>,
+    pub(crate) connection: Option<StartConnection>,
+}
+
 /// The default DAP arguments of a request with each binding filling its
 /// argument from the target, unless the defaults already set it.
 pub(crate) fn start_arguments(
     adapter: &DebugAdapterDeclaration,
     start: &StartRequest,
-) -> Validation<Map<String, Value>> {
+) -> Validation<StartArguments> {
     plan(adapter, start.request, &start.facts)?;
     let configuration =
         adapter
@@ -1159,7 +1561,10 @@ pub(crate) fn start_arguments(
     let Some(bindings) =
         configuration.and_then(|configuration| configuration.target_bindings.as_ref())
     else {
-        return Ok(arguments);
+        return Ok(StartArguments {
+            arguments,
+            connection: None,
+        });
     };
     let target = &start.facts.target;
     // A binding is the fact path that fills the argument of the same name.
@@ -1183,7 +1588,279 @@ pub(crate) fn start_arguments(
         &bindings.cwd,
         target.working_directory.clone().map(Value::from),
     );
-    Ok(arguments)
+    bind(
+        "args",
+        &bindings.args,
+        target.arguments.as_ref().map(|args| json!(args)),
+    );
+    bind(
+        "env",
+        &bindings.env,
+        target.environment.as_ref().map(|env| json!(env)),
+    );
+    let connection = match &bindings.connection {
+        Some(binding) => Some(bind_connection(binding, target, &mut arguments)?),
+        None => None,
+    };
+    Ok(StartArguments {
+        arguments,
+        connection,
+    })
+}
+
+/// Writes the target's endpoint, and its path mappings when the adapter takes
+/// them, to the destinations the binding names.
+fn bind_connection(
+    binding: &DebugConnectionBinding,
+    target: &TargetFacts,
+    arguments: &mut Map<String, Value>,
+) -> Validation<StartConnection> {
+    let endpoint = connection_endpoint(target)?;
+    if let (Some(host), Some(port)) = (&binding.host, &binding.port) {
+        set_argument(arguments, host, Value::from(endpoint.host.clone()))?;
+        set_argument(arguments, port, Value::from(endpoint.port))?;
+    }
+    if let Some(address) = &binding.address {
+        let joined = if endpoint.host.contains(':') {
+            format!("[{}]:{}", endpoint.host, endpoint.port)
+        } else {
+            format!("{}:{}", endpoint.host, endpoint.port)
+        };
+        set_argument(arguments, address, Value::from(joined))?;
+    }
+    // `plan` has already checked the mappings against this shape: their number
+    // fits it, and a dictionary has no key twice.
+    if let (Some(mappings), false) = (&binding.path_mappings, target.path_mappings.is_empty()) {
+        let roots = |mapping: &PathMapping, order: MappingOrder| match order {
+            MappingOrder::RemoteLocal => (mapping.remote.clone(), mapping.local.clone()),
+            MappingOrder::LocalRemote => (mapping.local.clone(), mapping.remote.clone()),
+        };
+        match mappings {
+            DebugPathMappingBinding::Objects {
+                argument,
+                local_key,
+                remote_key,
+            } => {
+                let entries = target
+                    .path_mappings
+                    .iter()
+                    .map(|mapping| {
+                        let mut entry = Map::new();
+                        entry.insert(local_key.clone(), Value::from(mapping.local.clone()));
+                        entry.insert(remote_key.clone(), Value::from(mapping.remote.clone()));
+                        Value::Object(entry)
+                    })
+                    .collect();
+                set_argument(arguments, argument, Value::Array(entries))?;
+            }
+            DebugPathMappingBinding::First { local, remote } => {
+                for first in target.path_mappings.iter().take(1) {
+                    set_argument(arguments, local, Value::from(first.local.clone()))?;
+                    set_argument(arguments, remote, Value::from(first.remote.clone()))?;
+                }
+            }
+            DebugPathMappingBinding::Dictionary { argument, keyed_by } => {
+                let order = match keyed_by {
+                    MappingRoot::Remote => MappingOrder::RemoteLocal,
+                    MappingRoot::Local => MappingOrder::LocalRemote,
+                };
+                let entries = target
+                    .path_mappings
+                    .iter()
+                    .map(|mapping| {
+                        let (key, value) = roots(mapping, order);
+                        (key, Value::from(value))
+                    })
+                    .collect();
+                set_argument(arguments, argument, Value::Object(entries))?;
+            }
+            DebugPathMappingBinding::Pairs { argument, order } => {
+                let entries = target
+                    .path_mappings
+                    .iter()
+                    .map(|mapping| {
+                        let (first, second) = roots(mapping, *order);
+                        Value::Array(vec![Value::from(first), Value::from(second)])
+                    })
+                    .collect();
+                set_argument(arguments, argument, Value::Array(entries))?;
+            }
+        }
+    }
+    Ok(endpoint)
+}
+
+/// Sets the argument at a dotted path, creating the objects on the way. A
+/// declaration cannot leave anything at the path (see
+/// `DebugConnectionBinding::validate`), so an occupied path is a bug in the
+/// declaration that slipped past it and is refused rather than overwritten.
+fn set_argument(arguments: &mut Map<String, Value>, path: &str, value: Value) -> Validation<()> {
+    let occupied = || {
+        PluginRejection::at(
+            "debug.arguments.invalid",
+            path,
+            "The adapter's arguments already hold something at this path.",
+        )
+    };
+    let mut current = arguments;
+    let mut names = path.split('.').peekable();
+    while let Some(name) = names.next() {
+        if names.peek().is_none() {
+            return match current.entry(name.to_string()) {
+                serde_json::map::Entry::Vacant(slot) => {
+                    slot.insert(value);
+                    Ok(())
+                }
+                serde_json::map::Entry::Occupied(_) => Err(occupied()),
+            };
+        }
+        let next = current
+            .entry(name.to_string())
+            .or_insert_with(|| Value::Object(Map::new()));
+        let Value::Object(next) = next else {
+            return Err(occupied());
+        };
+        current = next;
+    }
+    Ok(())
+}
+
+/// The endpoint a connection target names, checked.
+fn connection_endpoint(target: &TargetFacts) -> Validation<StartConnection> {
+    let invalid_target = |field: &'static str, message: &str| {
+        PluginRejection::at("debug.target.invalid", field, message)
+    };
+    let Some(host) = target.host.as_deref() else {
+        return Err(invalid_target(
+            "target.host",
+            "The target has no host, which the adapter's configuration reads.",
+        ));
+    };
+    if let Some(problem) = host_problem(host) {
+        return Err(invalid_target("target.host", problem));
+    }
+    let port = target
+        .port
+        .ok_or_else(|| {
+            invalid_target(
+                "target.port",
+                "The target has no port, which the adapter's configuration reads.",
+            )
+        })
+        .and_then(|port| {
+            u16::try_from(port)
+                .ok()
+                .filter(|port| *port != 0)
+                .ok_or_else(|| invalid_target("target.port", "A port is 1-65535."))
+        })?;
+    Ok(StartConnection {
+        host: host.to_string(),
+        port,
+        remote: !is_loopback_host(host),
+    })
+}
+
+/// Why a string is not a host to connect to, or `None` when it is one: a DNS
+/// name or an IP literal, without scheme, credentials, port, path, brackets,
+/// or whitespace. Non-ASCII names are written in punycode; an IPv6 zone is not
+/// supported.
+pub(super) fn host_problem(host: &str) -> Option<&'static str> {
+    if host.is_empty() || host.len() > MAX_HOST {
+        return Some("A host is 1-253 characters.");
+    }
+    if host.parse::<IpAddr>().is_ok() {
+        return None;
+    }
+    if host.contains(':') {
+        return Some("A host is a name or an IP address, without a scheme, port, or brackets.");
+    }
+    if host
+        .bytes()
+        .all(|byte| byte.is_ascii_digit() || byte == b'.')
+    {
+        return Some("A numeric host is a dotted IPv4 address.");
+    }
+    let labels_valid = host.split('.').all(|label| {
+        !label.is_empty()
+            && label.len() <= MAX_HOST_LABEL
+            && !label.starts_with('-')
+            && !label.ends_with('-')
+            && label
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+    });
+    if labels_valid {
+        None
+    } else {
+        Some("A host name is dot-separated labels of letters, digits, and hyphens.")
+    }
+}
+
+/// Whether Core can tell from the text alone that the host is this machine.
+pub(super) fn is_loopback_host(host: &str) -> bool {
+    host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<IpAddr>()
+            .is_ok_and(|address| address.is_loopback())
+}
+
+/// Checks the path mappings the host sends along with a remote target against
+/// the shape the adapter takes them in.
+fn check_path_mappings(
+    mappings: &[PathMapping],
+    shape: &DebugPathMappingBinding,
+) -> Validation<()> {
+    let invalid_mapping = |message: String| {
+        PluginRejection::at("debug.target.invalid", "target.pathMappings", message)
+    };
+    // A shape that holds fewer mappings than the user gave would start a
+    // session with some source lines silently unmapped.
+    if mappings.len() > shape.limit() {
+        return Err(invalid_mapping(match shape.limit() {
+            1 => "The adapter takes one path mapping.".to_string(),
+            limit => format!("A target has up to {limit} path mappings."),
+        }));
+    }
+    for mapping in mappings {
+        let sound = |root: &str| {
+            !root.is_empty()
+                && root.chars().count() <= MAX_PATH_MAPPING_ROOT
+                && !root.chars().any(char::is_control)
+        };
+        if !sound(&mapping.local) || !sound(&mapping.remote) {
+            return Err(invalid_mapping(format!(
+                "A path mapping root is one line of 1-{MAX_PATH_MAPPING_ROOT} characters."
+            )));
+        }
+        // The local root is on this machine, so it must be a full path; the
+        // remote root is the other machine's and may follow other conventions.
+        if !std::path::Path::new(&mapping.local).is_absolute() {
+            return Err(invalid_mapping(
+                "A path mapping's local root is an absolute path.".to_string(),
+            ));
+        }
+    }
+    // A dictionary holds one value per key; two mappings from the same root
+    // cannot both be sent, and keeping either would drop the other unseen.
+    if let DebugPathMappingBinding::Dictionary { keyed_by, .. } = shape {
+        let mut keys = HashSet::new();
+        for mapping in mappings {
+            let key = match keyed_by {
+                MappingRoot::Local => &mapping.local,
+                MappingRoot::Remote => &mapping.remote,
+            };
+            if !keys.insert(key.as_str()) {
+                return Err(invalid_mapping(format!(
+                    "The adapter takes one path mapping per {} root.",
+                    match keyed_by {
+                        MappingRoot::Local => "local",
+                        MappingRoot::Remote => "remote",
+                    }
+                )));
+            }
+        }
+    }
+    Ok(())
 }
 
 impl DebugAdapterDeclaration {
@@ -1201,6 +1878,13 @@ impl DebugAdapterDeclaration {
             "transport": self.launch.transport,
             "endpoint": self.launch.endpoint,
             "disabledCapabilities": self.capabilities.as_ref().map(|c| c.disabled.clone()).unwrap_or_default(),
+            // Present exactly when the adapter attaches to a remote host and
+            // port; says whether the host may offer path mappings and how many
+            // the adapter can take (0 when it takes none).
+            "remoteAttach": self.connection_binding().map(|binding| json!({
+                "pathMappings": binding.path_mappings.is_some(),
+                "maxPathMappings": binding.path_mappings.as_ref().map_or(0, DebugPathMappingBinding::limit),
+            })),
         })
     }
 }
@@ -1226,13 +1910,24 @@ pub(crate) fn plan(
             "The adapter does not serve this request.",
         ));
     }
-    if adapter.launch.process.selected_runtime_tool().is_some()
+    if uses_selected_runtime(std::slice::from_ref(adapter))
         && facts.runtime_selection.map_or(true, Generation::is_stale)
     {
         return Err(PluginRejection::at(
             "debug.runtime.stale",
             "runtimeSelection",
             "The selected runtime changed after this start was prepared.",
+        ));
+    }
+    // A remote target is only ever attached to, through an adapter that says
+    // where its host and port go.
+    if facts.target.kind == TARGET_CONNECTION
+        && (request != DebugRequest::Attach || adapter.connection_binding().is_none())
+    {
+        return Err(PluginRejection::at(
+            "debug.target.invalid",
+            "target.kind",
+            "The adapter does not attach to a remote host and port.",
         ));
     }
     let bindings = adapter
@@ -1271,6 +1966,34 @@ pub(crate) fn plan(
         }
         _ => {}
     }
+    if bindings.args.is_some()
+        && target.arguments.as_ref().map_or(true, |args| {
+            args.len() > 1024
+                || args
+                    .iter()
+                    .any(|arg| arg.len() > 65536 || arg.contains('\0'))
+        })
+    {
+        return Err(missing("target.arguments", "bounded arguments"));
+    }
+    if bindings.env.is_some()
+        && target.environment.as_ref().map_or(true, |env| {
+            env.len() > 64
+                || env.iter().any(|(key, value)| {
+                    key.is_empty()
+                        || key.len() > 128
+                        || !key.bytes().enumerate().all(|(index, byte)| {
+                            byte == b'_'
+                                || byte.is_ascii_alphabetic()
+                                || index > 0 && byte.is_ascii_digit()
+                        })
+                        || value.len() > 65536
+                        || value.contains('\0')
+                })
+        })
+    {
+        return Err(missing("target.environment", "bounded environment"));
+    }
     if bindings.process_id.is_some() && target.process_id.is_none() {
         return Err(missing("target.processID", "process ID"));
     }
@@ -1282,7 +2005,64 @@ pub(crate) fn plan(
     {
         return Err(missing("target.workingDirectory", "working directory"));
     }
+    if let Some(connection) = &bindings.connection {
+        connection_endpoint(target)?;
+        if let Some(shape) = &connection.path_mappings {
+            check_path_mappings(&target.path_mappings, shape)?;
+        } else if !target.path_mappings.is_empty() {
+            // Dropping a mapping the user typed would let the session start
+            // with source lines that silently do not match.
+            return Err(PluginRejection::at(
+                "debug.target.invalid",
+                "target.pathMappings",
+                "The adapter takes no path mappings.",
+            ));
+        }
+    }
     Ok(())
+}
+
+/// A name in an argument path: a DAP argument or a key of a nested object.
+fn is_argument_name(name: &str) -> bool {
+    let mut characters = name.chars();
+    name.len() <= MAX_ARGUMENT_NAME
+        && characters
+            .next()
+            .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
+        && characters.all(|character| character.is_ascii_alphanumeric() || "_-".contains(character))
+}
+
+/// A dotted path to an argument, such as `hostName` or `connect.host`.
+fn is_argument_path(path: &str) -> bool {
+    let mut depth = 0;
+    path.split('.').all(|name| {
+        depth += 1;
+        depth <= MAX_ARGUMENT_PATH_DEPTH && is_argument_name(name)
+    })
+}
+
+/// Whether two argument paths are the same or one is inside the other.
+fn paths_overlap(left: &str, right: &str) -> bool {
+    left.split('.')
+        .zip(right.split('.'))
+        .all(|(left, right)| left == right)
+}
+
+/// Whether the arguments already hold something at the path, or a value that
+/// is not an object on the way to it.
+fn default_occupies(defaults: &Map<String, Value>, path: &str) -> bool {
+    let mut current = defaults;
+    let mut names = path.split('.').peekable();
+    while let Some(name) = names.next() {
+        let Some(value) = current.get(name) else {
+            return false;
+        };
+        match value {
+            Value::Object(next) if names.peek().is_some() => current = next,
+            _ => return true,
+        }
+    }
+    false
 }
 
 fn validate_name(value: &str, field: &str) -> Validation<()> {
@@ -1309,6 +2089,15 @@ fn is_local_id(value: &str) -> bool {
         })
 }
 
+/// A `workspace/executeCommand` command ID, as language servers register them.
+fn is_server_command(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_ENDPOINT_COMMAND
+        && value
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || "._:-".contains(character))
+}
+
 fn is_language_id(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= MAX_LOCAL_ID
@@ -1330,4 +2119,18 @@ fn sort_unique(values: &mut Vec<String>, field: &str) -> Validation<()> {
     } else {
         Err(invalid(field, "An entry is listed more than once."))
     }
+}
+
+/// New bindings have their own manifest admission version.
+pub(crate) fn uses_target_arguments(adapters: &[DebugAdapterDeclaration]) -> bool {
+    adapters
+        .iter()
+        .filter_map(|adapter| adapter.configurations.as_ref())
+        .any(|configs| {
+            [configs.launch.as_ref(), configs.attach.as_ref()]
+                .into_iter()
+                .flatten()
+                .filter_map(|config| config.target_bindings.as_ref())
+                .any(|bindings| bindings.args.is_some() || bindings.env.is_some())
+        })
 }

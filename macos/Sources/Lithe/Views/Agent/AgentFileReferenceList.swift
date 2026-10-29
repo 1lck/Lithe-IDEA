@@ -35,6 +35,12 @@ struct AgentFileReferenceList: View {
     }
 }
 
+/// NSImage only conforms to Sendable from macOS 14, so the background load hands it back in a box.
+/// The image is created off the main thread and never mutated afterwards.
+private struct LoadedThumbnail: @unchecked Sendable {
+    let image: NSImage?
+}
+
 /// Image attachments show a thumbnail so a pasted screenshot is recognizable.
 private struct AgentFileReferenceIcon: View {
     let url: URL
@@ -53,7 +59,7 @@ private struct AgentFileReferenceIcon: View {
         .task(id: url) {
             guard isImage else { return }
             let url = url
-            thumbnail = await Task.detached(priority: .utility) { NSImage(contentsOf: url) }.value
+            thumbnail = await Task.detached(priority: .utility) { LoadedThumbnail(image: NSImage(contentsOf: url)) }.value.image
         }
     }
 

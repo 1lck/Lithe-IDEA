@@ -62,7 +62,7 @@ jobs:
           LITHE_VERSION: ${{ steps.version.outputs.version }}
         run: |
           $notes = "docs/releases/v$env:LITHE_VERSION.md"
-          node scripts/validate-stable-release-notes.mjs $notes
+          node scripts/release/notes/validate-stable-release-notes.mjs $notes
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -158,7 +158,7 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          ./scripts/validate-windows-build-caches.ps1 `
+          ./scripts/windows/prepare/validate-windows-build-caches.ps1 `
             -CargoDownloadsOutcome "${{ steps.cargo-download-cache.outcome }}" `
             -CargoBuildOutcome "${{ steps.cargo-build-cache.outcome }}" `
             -CargoBuildHit "${{ steps.cargo-build-cache.outputs.cache-hit }}" `
@@ -228,12 +228,12 @@ jobs:
           } else {
             Write-Output "Packaging an unsigned Windows installer."
           }
-          ./scripts/package-windows.ps1 @packageArgs
+          ./scripts/windows/package/package-windows.ps1 @packageArgs
 
       - name: Create updater manifest
         shell: pwsh
         run: |
-          ./scripts/create-windows-updater-manifest.ps1 `
+          ./scripts/release/windows/create-windows-updater-manifest.ps1 `
             -Version "${{ steps.version.outputs.version }}" `
             -Repository "$env:GITHUB_REPOSITORY" `
             -ReleaseTag "${{ steps.version.outputs.tag }}" `
@@ -251,7 +251,7 @@ jobs:
         timeout-minutes: 5
         shell: pwsh
         run: |
-          ./scripts/verify-windows-release-install.ps1 `
+          ./scripts/release/windows/verify-windows-release-install.ps1 `
             -Installer "dist/Lithe-${{ steps.version.outputs.version }}-windows-x64.exe" `
             -Version "${{ steps.version.outputs.version }}"
 

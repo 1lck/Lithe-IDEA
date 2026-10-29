@@ -51,36 +51,36 @@ enum PluginPackageStoreError: Error, Equatable, LocalizedError {
         case .invalidPackageDirectory: L10n.string("The plugin package directory is invalid.")
         case .unsafeIdentifier(let value): L10n.string("Plugin package identifier is unsafe: \(value).")
         case .manifestDoesNotMatchInstallation: L10n.string("Plugin manifest does not match its installation record.")
-        case .versionAlreadyInstalled(let version): L10n.string("Plugin version \(version) is already installed.")
-        case .missingInstallation(let id): L10n.string("Plugin \(id) is not installed.")
-        case .rollbackUnavailable(let id): L10n.string("Plugin \(id) has no previous version to restore.")
-        case .requiredPluginCannotBeUninstalled(let id): L10n.string("Required plugin \(id) cannot be uninstalled.")
+        case .versionAlreadyInstalled(let version): L10n.string("Plugin version \(version.description) is already installed.")
+        case .missingInstallation(let id): L10n.string("Plugin \(id.rawValue) is not installed.")
+        case .rollbackUnavailable(let id): L10n.string("Plugin \(id.rawValue) has no previous version to restore.")
+        case .requiredPluginCannotBeUninstalled(let id): L10n.string("Required plugin \(id.rawValue) cannot be uninstalled.")
         case .missingPackageSignature: L10n.string("The official plugin package signature is missing.")
         case .invalidPackageSignature(let detail): L10n.string("The official plugin package signature is invalid: \(detail)")
         case .officialSignatureRequirementMismatch(let id):
-            L10n.string("Official plugin \(id) declares a signature policy that does not match the host trust policy.")
-        case .retiredPlugin(let id): L10n.string("Plugin \(id) has been removed from Lithe. Uninstall the old package.")
+            L10n.string("Official plugin \(id.rawValue) declares a signature policy that does not match the host trust policy.")
+        case .retiredPlugin(let id): L10n.string("Plugin \(id.rawValue) has been removed from Lithe. Uninstall the old package.")
         case .developmentPackageNotAllowed(let id):
-            L10n.string("Plugin \(id) is an unsigned development package. Only development builds of Lithe can load it.")
+            L10n.string("Plugin \(id.rawValue) is an unsigned development package. Only development builds of Lithe can load it.")
         case .legacyNativePackage(let id, let version):
-            L10n.string("Plugin \(id) \(version) is a retired native package and is no longer loaded. Reinstall it from Plugin Management to update.")
+            L10n.string("Plugin \(id.rawValue) \(version.description) is a retired native package and is no longer loaded. Reinstall it from Plugin Management to update.")
         case .declarationRejected(_, let rejection):
             rejection.message
         case .languageServerLaunchMissing(let id, let path):
-            L10n.string("Plugin \(id) is missing its language server or it is not executable: \(path).")
+            L10n.string("Plugin \(id.rawValue) is missing its language server or it is not executable: \(path).")
         case .buildProviderLaunchMissing(let id, let buildSystemID, let path):
-            L10n.string("Plugin \(id) is missing the \(buildSystemID) build provider's file or it is not usable: \(path).")
+            L10n.string("Plugin \(id.rawValue) is missing the \(buildSystemID) build provider's file or it is not usable: \(path).")
         case .backendLaunchMissing(let id, let path):
-            L10n.string("Plugin \(id) is missing its backend's file or it is not usable: \(path).")
+            L10n.string("Plugin \(id.rawValue) is missing its backend's file or it is not usable: \(path).")
         case .hostSealRequired(let id):
-            L10n.string("Plugin \(id) can only be trusted when it ships inside Lithe.")
+            L10n.string("Plugin \(id.rawValue) can only be trusted when it ships inside Lithe.")
         case .unsignedPackageNotAllowed(let id):
-            L10n.string("Plugin \(id) has no Lithe signature. Community plugins require confirmation before installation.")
+            L10n.string("Plugin \(id.rawValue) has no Lithe signature. Community plugins require confirmation before installation.")
         case .communityContentChanged(let id):
-            L10n.string("Community plugin \(id) differs from its approved contents. Select the package again or reinstall it from its plugin repository.")
+            L10n.string("Community plugin \(id.rawValue) differs from its approved contents. Select the package again or reinstall it from its plugin repository.")
         case .invalidInstalledPlugin(let id, let message):
             if let id {
-                L10n.string("Installed plugin \(id) is invalid: \(message)")
+                L10n.string("Installed plugin \(id.rawValue) is invalid: \(message)")
             } else {
                 L10n.string("An installed plugin is invalid: \(message)")
             }
@@ -88,7 +88,7 @@ enum PluginPackageStoreError: Error, Equatable, LocalizedError {
     }
 }
 
-struct InstalledPluginPackage: Equatable {
+struct InstalledPluginPackage: Equatable, Sendable {
     let descriptor: DeclarativePluginDescriptor
     let installation: PluginInstallationRecord
     let packageURL: URL
@@ -127,6 +127,7 @@ final class MacPluginPackageStore {
     /// Expands build provider launches so installation can check the files
     /// they point at. A package that declares a provider is refused without it.
     private let launchPlanner: (any DeclarativeLanguageServerLaunchPlanning)?
+    private let architecture: String
     private let verifier: any PluginPackageSignatureVerifying
     private let fileManager: FileManager
     private let encoder: JSONEncoder
@@ -140,6 +141,7 @@ final class MacPluginPackageStore {
         hostVersion: PluginVersion = BuiltInPluginCatalog.hostVersion,
         validator: any DeclarativePluginManifestValidating,
         launchPlanner: (any DeclarativeLanguageServerLaunchPlanning)? = nil,
+        architecture: String = MacPluginLanguageServerLaunchResolver.hostArchitecture,
         verifier: any PluginPackageSignatureVerifying = MacOfficialPluginSignatureVerifier(),
         fileManager: FileManager = .default
     ) {
@@ -150,6 +152,7 @@ final class MacPluginPackageStore {
         self.hostVersion = hostVersion
         self.validator = validator
         self.launchPlanner = launchPlanner ?? validator as? any DeclarativeLanguageServerLaunchPlanning
+        self.architecture = architecture
         self.verifier = verifier
         self.fileManager = fileManager
         encoder = JSONEncoder()
@@ -200,6 +203,12 @@ final class MacPluginPackageStore {
         // The server of a bundled plugin removed last session has stopped by
         // now, so its state can go without pulling files from under it.
         for pluginID in removedBundledPluginIDs() {
+            // A confirmed installation may replace a previously removed sealed
+            // copy. The removal marker still suppresses that fallback, but it
+            // must never erase the installed version's state or credentials.
+            let directory = rootURL.appendingPathComponent(pluginID.rawValue, isDirectory: true)
+            if let record = try? installationRecord(at: directory),
+               record.status == .installed || record.status == .updateStaged { continue }
             removeState(of: pluginID)
         }
     }
@@ -349,16 +358,20 @@ final class MacPluginPackageStore {
 
     /// A preparation worker owns its decoder and never reads or writes installed
     /// records. Immutable validation policy is shared with the installation store.
-    func makePreparationStoreFactory() -> @Sendable () -> MacPluginPackageStore {
+    func makePreparationStoreFactory(architecture: String? = nil) -> @Sendable () -> MacPluginPackageStore {
         let rootURL = rootURL
         let hostVersion = hostVersion
         let validator = validator
         let verifier = verifier
+        let launchPlanner = launchPlanner
+        let architecture = architecture ?? self.architecture
         return {
             MacPluginPackageStore(
                 rootURL: rootURL,
                 hostVersion: hostVersion,
                 validator: validator,
+                launchPlanner: launchPlanner,
+                architecture: architecture,
                 verifier: verifier,
                 fileManager: FileManager()
             )
@@ -735,6 +748,10 @@ final class MacPluginPackageStore {
     private func validateLaunchResources(_ descriptor: DeclarativePluginDescriptor, at packageURL: URL) throws {
         let root = packageURL.standardizedFileURL.resolvingSymlinksInPath()
         for server in descriptor.languageServers {
+            if case .runtime = server.launch {
+                try validateRuntimeLanguageServerLaunch(server.languageID, of: descriptor, at: root)
+                continue
+            }
             guard case .packaged(let relativePath) = server.launch else { continue }
             let executableURL = root.appendingPathComponent(relativePath).standardizedFileURL
             let values = try? executableURL.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
@@ -753,6 +770,36 @@ final class MacPluginPackageStore {
         }
     }
 
+    /// A runtime launch can reference both an interpreter and entry/resources.
+    /// Validate the target architecture before installing a signed but broken
+    /// package, without starting the runtime or creating writable state.
+    private func validateRuntimeLanguageServerLaunch(
+        _ languageID: String,
+        of descriptor: DeclarativePluginDescriptor,
+        at root: URL
+    ) throws {
+        let missing = { (path: String) in PluginPackageStoreError.languageServerLaunchMissing(descriptor.id, path) }
+        guard let launchPlanner else { throw missing("runtime") }
+        let unused = fileManager.temporaryDirectory.appendingPathComponent("lithe-language-validation", isDirectory: true)
+        let plan: DeclarativeLanguageServerLaunchPlan
+        do {
+            plan = try launchPlanner.languageServerLaunchPlan(
+                manifest: descriptor.normalizedManifest,
+                languageID: languageID,
+                request: DeclarativeLanguageServerLaunchRequest(
+                    pluginDirectory: root,
+                    stateDirectory: unused.appendingPathComponent("state", isDirectory: true),
+                    workspaceStateDirectory: unused.appendingPathComponent("workspace", isDirectory: true),
+                    architecture: MacPluginLanguageServerLaunchResolver.hostArchitecture,
+                    settings: [:]
+                )
+            )
+        } catch let rejection as DeclarativePluginRejection {
+            throw PluginPackageStoreError.declarationRejected(descriptor.id, rejection)
+        }
+        try validatePlannedFiles(plan, at: root, missing: missing)
+    }
+
     /// Expands the backend launch with a throwaway state directory and
     /// checks every package path it points at, like a provider's.
     private func validateBackendLaunch(of descriptor: DeclarativePluginDescriptor, at root: URL) throws {
@@ -768,7 +815,7 @@ final class MacPluginPackageStore {
                     pluginDirectory: root,
                     stateDirectory: unused.appendingPathComponent("state", isDirectory: true),
                     workspaceStateDirectory: nil,
-                    architecture: MacPluginLanguageServerLaunchResolver.hostArchitecture,
+                    architecture: architecture,
                     settings: [:]
                 )
             )
@@ -802,7 +849,7 @@ final class MacPluginPackageStore {
                     pluginDirectory: root,
                     stateDirectory: unused.appendingPathComponent("state", isDirectory: true),
                     workspaceStateDirectory: unused.appendingPathComponent("workspace", isDirectory: true),
-                    architecture: MacPluginLanguageServerLaunchResolver.hostArchitecture,
+                    architecture: architecture,
                     settings: [:]
                 )
             )
@@ -852,7 +899,8 @@ final class MacPluginPackageStore {
 
     private func validateOfficialTrustPolicy(_ manifest: PluginManifest) throws {
         guard let trusted = OfficialPluginCatalog.entry(for: manifest.id) else { return }
-        guard manifest.vendor.signatureRequirement == trusted.signatureRequirement else {
+        guard manifest.vendor.signatureRequirement == trusted.signatureRequirement,
+              manifest.vendor.bundledSignatureRequirement == trusted.bundledSignatureRequirement else {
             throw PluginPackageStoreError.officialSignatureRequirementMismatch(manifest.id)
         }
     }
@@ -999,17 +1047,22 @@ struct MacOfficialPluginSignatureVerifier: PluginPackageSignatureVerifying {
         // packages trusted through the host installation, so a forged or
         // damaged document is never silently ignored.
         let signatureRequirement = Self.signatureRequirement(for: manifest)
-        if signatureRequirement == .publisherPackage || Self.hasPackageSignature(at: packageURL) {
+        let hostBundlePath = hostBundleURL.standardizedFileURL.resolvingSymlinksInPath().path + "/"
+        let packagePath = packageURL.standardizedFileURL.resolvingSymlinksInPath().path
+        let usesHostSeal = origin == .bundled
+            && packagePath.hasPrefix(hostBundlePath)
+            && manifest.vendor.bundledSignatureRequirement == .sameTeamAsHost
+            && OfficialPluginCatalog.entry(for: manifest.id)?.bundledSignatureRequirement == .sameTeamAsHost
+        if (signatureRequirement == .publisherPackage && !usesHostSeal) || Self.hasPackageSignature(at: packageURL) {
             try verifyPublisherPackageSignature(packageAt: packageURL, manifest: manifest)
         }
+        if usesHostSeal { return }
         if signatureRequirement == .publisherPackage {
             return
         }
         // `sameTeamAsHost` has no code signature to compare any more: the
         // package is trusted only inside the host bundle, whose code signature
         // seals every resource it contains.
-        let hostBundlePath = hostBundleURL.standardizedFileURL.resolvingSymlinksInPath().path + "/"
-        let packagePath = packageURL.standardizedFileURL.resolvingSymlinksInPath().path
         guard origin == .bundled, packagePath.hasPrefix(hostBundlePath) else {
             throw PluginPackageStoreError.hostSealRequired(manifest.id)
         }

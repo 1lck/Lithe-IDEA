@@ -140,8 +140,15 @@ final class EditorTabOrderFeatureModel: ObservableObject {
     }
 
     @Published var repositoryDiffSelected = false
-    var repositoryDiffReturnTab: EditorTabItem?
-    var repositoryDiffRequestID: UUID?
+    var repositoryDiffReturnTabs: [UUID: EditorTabItem] = [:]
+    var repositoryDiffKeys: [UUID: RepositoryDiffTabKey] = [:]
+
+    var repositoryDiffIDs: [UUID] {
+        items.compactMap {
+            guard case .repositoryDiff(let id) = $0 else { return nil }
+            return id
+        }
+    }
 
     var documentIDs: [UUID] {
         items.compactMap {

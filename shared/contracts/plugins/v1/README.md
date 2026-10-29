@@ -400,15 +400,17 @@ hosts. Level 3 versions each section on its own. A level 3 manifest lists in
 | Capability | Covers | Versions |
 | --- | --- | --- |
 | `languages` | `languages[]` | `1` |
+| `packageTrust` | `vendor.bundledSignatureRequirement`: origin-scoped trust for a host-sealed bundled copy of a publisher-signed plugin | `1` |
 | `languageServers` | `languageServers[]` apart from their launch fields | `1`, `2` (adds [`workspaceConfiguration`](#workspace-configuration-languageservers-2)) |
 | `serverProcess` | The launch fields of language servers, of build providers with a process of their own, of VCS providers, and of the plugin backend: `launch`, `arguments`, `validationArguments`, `runtimeDependencies`, `initializationOptions` | `1` |
 | `executionProviders` | `executionProviders[]` | `1` |
 | `settings` | `settings[]` and `settingActions[]` | `1`, `2` (adds [placement, scope, effect, page buttons](#settings-v2-placement-scope-effect-and-page-buttons)) |
 | `ui` | `ui` | `1`, `2` (adds [web content](#web-content-ui-2)) |
 | `buildSystems` | Declarative build detection, models, and command plans | `1` |
-| `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers | `1` |
+| `buildProviders` | `buildSystems[].provider`, including own-process and shared language-server providers; v2 tasks, v3 tests, v4 run, v5 native debug preparation, v6 read-only model inputs | `1`, `2`, `3`, `4`, `5`, `6` |
+| `buildModelInputs` | Optional public model sharing between enabled workspace plugins | `1` |
 | `vcsProviders` | `vcsProviders[]` | `1` |
-| `debugAdapters` | [`debugAdapters[]`](#api-level-4-debug-adapters) | `1` |
+| `debugAdapters` | [`debugAdapters[]`](#api-level-4-debug-adapters); v2 adds target arguments/environment | `1`, `2` |
 | `projectGenerators` | [`projectGenerators[]`](#project-generators): entries of the New Project window | `1` |
 | `backend` | [`backend`](#plugin-backend): the plugin's own long-lived process for its pages | `1` |
 
@@ -454,17 +456,13 @@ in `plugins.declarative.validate`, `plugins.marketplace.validateIndex`, and
   therefore offered on a host that cannot run them.
 - `hostCapabilities` has no effect on levels 1 and 2.
 
-The macOS host runs levels 1 to 3 and sends its capability table, including
-`buildSystems: [1]`, with all three commands. It does not implement build
-providers and does not declare `buildProviders`. Provider plugins are therefore
-filtered from the market and refused by declarative validation and install
-review; template-only build plugins remain available. It does not declare
-`vcsProviders` either, so VCS provider plugins are filtered the same way until
-the macOS host starts providers. It declares `backend: [1]`: it starts
-plugin backends and serves their credentials from the Keychain. Core supports `backend: 1`, `buildProviders: 1`, and
-`vcsProviders: 1` for validation and plans without a host table. Windows has
-no declarative plugin host and sends no `hostCapabilities`, so it offers no
-level 3 version.
+The macOS host sends its capability table with validation, marketplace filtering
+and install review. It advertises `buildSystems: [1, 2]` and
+`buildProviders: [1, 2, 3, 4, 5, 6]`; native Provider models, dependencies, tasks, tests and launch preparation
+share workspace-owned sessions. Backend and VCS support use their own entries
+in the same table. Core validates supported versions without a host table,
+but admission must use the actual host table. Windows does not yet advertise
+Build Provider orchestration; Core protocol support alone does not enable it.
 
 Rules for publishing across levels and capability versions:
 
@@ -497,7 +495,7 @@ Rules for publishing across levels and capability versions:
 | `process.build` | `buildSystems` is not empty |
 | `process.vcs` | `vcsProviders` is not empty |
 | `debug.launch` | `debugAdapters` is not empty |
-| `debug.attach` | an adapter lists `attach` in `requests` (and only then) |
+| `debug.attach` | an adapter lists `attach` in `requests` (and only then); it also covers attaching to a remote host and port |
 | `project.generate` | `projectGenerators` is not empty |
 | `ui.contribute` | `ui` is declared |
 | `ui.web` | a tool window shows [web content](#web-content-ui-2) |
@@ -533,6 +531,20 @@ plugin only permits activation; nothing starts until its event occurs.
   this value refuse such packages as invalid manifests, which is intended.
   A signature document, when present, must still be verified; community trust
   cannot silently ignore an invalid signature.
+
+API level 3 packages can declare `requires.packageTrust: 1` and
+`vendor.bundledSignatureRequirement: "sameTeamAsHost"`, together with
+`vendor.signatureRequirement: "publisherPackage"`. Only official-namespace IDs
+may use this declaration. Both the primary and bundled policies must match the
+host's pinned official catalog. Only a package whose actual resolved path is
+inside the host's sealed installation and whose origin is `bundled` may omit
+the publisher signature. Every independently installed, imported or rolled-back
+copy still needs the publisher signature. A present signature is always checked,
+even inside the host seal. The optional declaration alone grants no trust.
+Hosts without `packageTrust: 1` filter this version before download and reject
+its manifest; no new application-version field is needed. An older manifest
+without the declaration keeps its existing policy. The valid example is
+`fixtures/publisher-bundled.plugin.json`.
 
 A host pins the signature requirement of its official plugin IDs so a package
 cannot downgrade itself. Selecting a file from disk never overrides that pin,
@@ -886,6 +898,316 @@ Canonical formats let a plugin's own script print the shape Core expects:
 Unknown fields in canonical documents are ignored so newer scripts work with
 older hosts. Output that does not fit its decoder is `plugin.build.invalidOutput`.
 
+### Provider task execution (buildProviders 2)
+
+A task with `source: "provider"` requires `requires.buildProviders: 2` or newer.
+It keeps the ordinary task ID, scopes, target tags and model selection, but
+`arguments` must be `[]` and `execution` must be `task`. Application/service
+launch and test discovery are separate capabilities. Provider model-task
+templates cannot be referenced by `run[].fromTasks`; they need a typed Run
+capability rather than an empty command plan. A provider task never
+falls back to a host command or a plugin-private function. Command tasks
+retain their current shape and omit `source`.
+
+`build.taskPlan` returns a `provider` request instead of argv for this source.
+`lithe/build/execute` receives the effective `buildSystemID`, workspace-relative
+`root`, `options`, `optionArguments`, option `environment`, `task` declaration ID,
+bounded `userArguments`, and optional `project`, `target`, `modelTask` selections
+(`name`, workspace-relative `path`, `tags`, `properties`). Scope/path validation
+is identical to command tasks. The provider owns build semantics; options
+are not a second host-generated command. As with model/dependency requests,
+the host may add `tool: { executable: <resolved absolute path> }` from the
+same invocation resolver; explicit invalid tool/runtime selection is a failure,
+never permission for independent discovery. It must reject stale project facts
+rather than guess a target.
+
+The host offers `litheBuild.versions: [6, 5, 4, 3, 2, 1]`. Version 2 adds task execution
+and its progress notification to the two version 1 methods. A process that
+chooses version 1 cannot receive execution; unsupported negotiation fails
+explicitly. A plugin that needs this behavior declares capability version 2
+so unsupported hosts refuse installation. The two version numbers serve
+different purposes: installation admission and per-process negotiation.
+
+Core sets `params.operationID` to the unique JSON-RPC request ID (as a string);
+callers cannot choose it. `lithe/build/progress` notifications echo that ID and
+may include `message` (up to 4 KiB UTF-8), integer `percentage` (0–100), and
+`output` (up to 64 KiB UTF-8 per notification). Malformed reports and reports
+for ended, cancelled, timed-out or other requests are dropped. Core maps the
+wire ID back to the host operation ID; reused host IDs cannot accept old
+progress. No plugin-function negotiation is needed.
+
+The reply is `{ "exitCode": <signed 32-bit integer>, "output": <string> }`.
+`output` is the complete bounded diagnostic text (at most 32 MiB UTF-8),
+including text streamed in progress; the host displays progress output and
+uses final output for the existing diagnostic decoder without duplicating it
+in the console. Nonzero exit codes are completed tool failures, not protocol
+errors. Malformed replies end with `plugin.build.invalidResult`; JSON-RPC
+errors end with `plugin.build.failed`. Timeout and cancellation use the
+existing request codes and `$/cancelRequest`. Request completion occurs once;
+late replies/progress do not revive it.
+
+The host binds each call to the plugin package, build-system/workspace
+session, current run, effective option fingerprint and watched configuration revision.
+Settings, package replacement, disable, workspace close/reopen, cancellation
+and backend failure invalidate or stop the owning operation. The existing
+Provider session owns children and writable workspace state; no page,
+additional runtime, directory or cross-plugin private cache is required.
+Only public typed results may cross domain boundaries.
+
+Canonical examples: `fixtures/build-provider-execution.plugin.json` and
+`fixtures/build-execution-protocol.json`. Protocol v2 is a construction
+primitive for #1495; it does not by itself migrate Maven or Java consumers.
+
+### Provider test execution (buildProviders 3)
+
+A build system's `test` may declare `source: "provider"` with
+`requires.buildProviders: 3`. It retains the existing scopes, target tags and
+supported filters, but `arguments` must be `[]`. It requires a plugin-owned
+Provider process; `results` may be omitted or use `junitXml`/`litheTestResults`
+reports. `hostIntegration` is refused: the plugin owns test execution and
+report production, and the host reuses the existing report decoder.
+
+`build.testPlan` returns `provider: { method: "lithe/build/test", params }`
+and the usual `results` metadata instead of argv. The effective
+`buildSystemID`, `root`, `options`, `optionArguments`, `environment`, bounded
+`userArguments`, optional `project`/`target`, and optional `suite`/`case` are
+typed fields. A case filter does not require a suite when the provider
+supports it; providers must reject selectors they cannot honor rather than
+widening the test run. Paths, scopes and declared filters are validated before
+the request is sent. The host's report project list only resolves report globs;
+it is not a second backend project model.
+
+Only a process choosing protocol version 3 or 4 receives `lithe/build/test`.
+Versions 1 and 2 explicitly refuse tests. Version 3 retains every version 2
+task behavior. Tests use the same Core-assigned operation identity,
+`lithe/build/progress`, tool hint, bounded `{ exitCode, output }` result,
+timeout, cancellation and late-result rules as task execution. Reports are
+read after execution using the existing freshness, path and size checks.
+Workspace-wide reports still require a current project model when the build
+system has one. Configuration validity is retained through diagnostic and
+report decoding; late results cannot update a changed workspace/configuration.
+
+Java/Maven migration remains separate. No new resource/cache location is introduced.
+Canonical examples: `fixtures/build-provider-tests.plugin.json` and
+`fixtures/build-test-protocol.json`.
+
+#### Test discovery
+
+Provider tests may additionally declare `discovery: true`. This requires both
+`suite` and `case` filters: every discovered selector must be exactly runnable.
+`build.testDiscoveryPlan` accepts the common plan fields and optional `refresh`
+and `tool`, returning a request for the whole instance:
+`lithe/build/discoverTests` with its effective options. Project/output-file
+selection is refused. This method also requires protocol version 3 or 4 and uses
+the existing bounded request/cancellation lifecycle, without execution progress.
+
+The provider returns `{ "format": "litheTestDiscovery", "version": 1,
+"tests": [{ "suite", "case", "project"?, "target"? }] }`. Project and target
+are the usual typed selections with workspace-relative paths. There may be at
+most 10,000 items and 32 MiB UTF-8 JSON. Unknown document/item fields are
+ignored; malformed selectors, invalid paths/scopes, unsupported versions and
+oversized lists reject the entire result with `plugin.build.invalidOutput`.
+An empty array is a successful discovery with no tests.
+
+The host passes the reply and original plan configuration to
+`build.decodeTestDiscovery`. Core validates every selector through the same
+test-plan rules, deterministically orders the list, collapses exact duplicates,
+and derives an opaque `id` including project/target identity. Equal suite/case
+names in sibling modules therefore remain distinct. The returned `discovery`
+contains `tests: [{ id, suite, case, project?, target? }]`. No source parsing,
+framework detection, or second project graph occurs in the host/Core.
+
+Native discovery starts only on a user action, reuses the workspace Provider,
+and is independent of plugin pages. Source edits, configuration changes,
+package changes and workspace teardown revoke the cached list and in-flight
+discovery. A native action must revalidate the selected ID against the current
+list before submitting its exact selectors to `lithe/build/test`; stale
+toolbar selections cannot run. The backend must reject a selector whose facts
+have become stale externally. Canonical example: `fixtures/build-test-discovery.json`.
+
+### Provider run preparation (buildProviders 4)
+
+A run declaration may use `source: "provider"` with
+`requires.buildProviders: 4`. This increment supports application targets only:
+`fromTargets.tags` is required; `fromTasks`, service execution, nonempty
+`arguments`, and extension templates are refused. The optional `name` is a
+literal display name. `workingDirectory` is supplied by the prepared result;
+the declaration's command-source default has no effect. These declarations
+never generate empty command-based persisted Run entries.
+
+`build.prepareRunPlan` validates a selected `run` declaration ID, required
+`project` and `target` selections, effective options, and bounded
+`userArguments`. It returns a provider request for `lithe/build/prepareRun`,
+with the common instance fields, options/option arguments/environment,
+`run`, `project`, `target`, and `userArguments`. An output file is refused.
+The host may add the resolved build tool hint. The provider owns upstream
+synchronization, build, classpath and launch facts; Core does not reconstruct
+those facts from source files or build configuration.
+
+Protocol versions 4 and 5 accept this method. Version 4 retains task and test
+support. Preparation shares the Core-assigned wire `operationID`, progress,
+timeout, cancellation and stale-result handling of execution. It ends when
+preparation finishes; the application is a separate host-owned process.
+A JSON-RPC error aborts preparation and cannot launch an application. It retains
+the common LSP `serverError` category; it is not an execution exit-code result
+and does not forward a private-function `pluginErrorCode`.
+
+The successful result is a portable launch plan:
+
+```json
+{
+  "executable": { "kind": "toolchain", "value": "project-jdk" },
+  "arguments": ["-cp", "classes", "example.Main"],
+  "workingDirectory": "app",
+  "environment": {}
+}
+```
+
+The executable is either a host toolchain identifier (`toolchain`) or a bare
+command resolved by the host (`command`); absolute paths and shell command
+strings are refused. Arguments are separate strings, at most 1,024 entries
+and 64 KiB UTF-8 each, without NUL. The environment has at most 64 entries;
+keys match `[A-Za-z_][A-Za-z0-9_]*` with at most 128 bytes, values are strings
+of at most 64 KiB without NUL. The complete JSON is bounded at 32 MiB.
+`workingDirectory` must be an existing workspace-relative directory inside
+the selected instance, including after resolving filesystem aliases.
+Unknown fields are ignored. The host calls `build.decodeRunPreparation`
+with its workspace root, instance root and raw result; any malformed plan
+fails as `plugin.build.invalidOutput` before executable resolution.
+
+#### Native debug preparation (version 5)
+
+A provider run may additionally declare `debug: {"adapter":"native"}` with
+`requires.buildProviders: 5` and `requires.debugAdapters: 2`. `adapter` is a
+local ID declared by this plugin; qualified cross-package references are refused.
+The adapter must serve launch of executable targets, with bindings `program` ←
+`target.path`, `cwd` ← `target.workingDirectory`, `args` ← `target.arguments`,
+and `env` ← `target.environment`. These fields cannot be overridden by adapter
+default arguments. This first increment covers native executable launch only;
+it does not accept attach endpoints, backend-selected adapters or arbitrary DAP JSON.
+
+`build.prepareDebugPlan` validates the same selected run/project/target and
+arguments as run preparation and returns `lithe/build/prepareDebug`. Only wire
+version 5 accepts it. Progress, cancellation, timeouts, tool hints, workspace
+ownership and JSON-RPC failure handling follow run preparation. A successful result
+contains exactly these four fields:
+
+```json
+{"program":"app/bin/sample","arguments":["a b","x#y"],"workingDirectory":"app","environment":{}}
+```
+
+The provider owns synchronization/build before returning. `program` is an existing
+workspace-relative regular file contained in the selected instance, including
+canonical symlink resolution. Arguments, environment and directory retain run
+preparation's size and containment limits. Unknown fields are refused here; there
+is no adapter process, socket, shell, private function or DAP argument channel.
+`build.decodeDebugPreparation` takes the selected `run` separately and returns
+`preparation` with its validated `root`, declaration-owned `adapter`, and these
+four fields. Missing, malformed and escaping targets fail before adapter startup.
+
+The native host saves documents before preparation, retains model/configuration/
+source/plugin identity through decode, and drops stale results. It checks executable
+permissions and canonical containment again at handoff. `debug.adapters.startArguments`
+binds the validated target facts; the existing Registry launches the adapter using
+its own permissions and package process declaration. The launch configuration retains
+`pluginID/adapterID` for routing and retry. Stopping preparation cancels only its
+operation; the Debug host owns launched sessions and plugin withdrawal cleanup.
+Saved Run configurations keep their existing selectors and prepare again for Debug.
+
+Fixtures: [native declaration](fixtures/build-provider-debug-preparation.plugin.json)
+and [native result](fixtures/build-debug-preparation.json). This does not provide
+Java/JDT preparation, long-running services or cross-plugin collaboration.
+
+
+The native Build tree re-resolves model IDs before preparation. Source/model,
+option, settings, package and workspace changes revoke a pending preparation.
+After validation the existing Run host resolves the executable and owns output,
+stop, exit status, and argument-resource cleanup. Workspace teardown and plugin
+disable stop the application by its exact host operation ID; an old owner
+cannot stop a replacement process. The Run host can explicitly save a selector to the existing local Run v2 layer
+as `provider: "build.provider"` with `extensions.build`. The reference contains
+`pluginID`, `buildSystemID`, instance `root`, `run`, `projectID`, `targetID`, and
+raw `userArguments`, never an executable, environment, or cached classpath.
+Every restart re-resolves the enabled instance/model and sends a fresh preparation.
+Missing plugins/targets/models fail explicitly; there is no command fallback.
+Saving and running work before detector-generated Run configurations exist.
+Service coordination, debug target registration and Java/Maven migration remain
+separate. See `fixtures/build-provider-run-preparation.plugin.json`
+and `fixtures/build-run-preparation.json`.
+
+### Optional read-only model inputs (buildModelInputs 1)
+
+A producer opts into `buildSystems[].modelSharing: { options: [<optionID>] }`.
+Only normalized `projects`, `targets` and `contentRoots`, including their
+ordinary public metadata, are published. Tasks, run entries, settings,
+`optionValues`, process handles and private functions are excluded. The
+options list names existing ordinary build options whose **effective values**
+may be shared; omitted options stay private. A configuration fingerprint
+identifies all effective options without publishing their values.
+
+A consumer declares `modelInputs: [{ pluginID, buildSystemID }]`, requires
+`buildModelInputs: 1` and `buildProviders: 6`, and owns a provider and model.
+Slots are exact optional identities; Core sorts them by plugin ID and build
+system ID and rejects duplicates. Version 1 producers cannot also consume
+inputs, so consumers cannot recursively re-export a model.
+
+The native host calls `build.resolveModelInputs` with the consumer manifest
+and `{revision, sources: [{manifest, instances: [{buildSystemID, root, state,
+model?, options?}]}]}`. Sources are enabled installed packages in the current
+workspace activation, never identities supplied by another backend.
+Input states are `ready`, `loading`, `stale`, or `failed`; only ready
+instances include a complete normalized model. A truncated model becomes stale.
+Core revalidates source manifests, ownership, shape and path containment and
+returns `modelInputs: {version: 1, revision, inputs}`, where each input is:
+
+```json
+{
+  "pluginID": "dev.example.source",
+  "buildSystemID": "source",
+  "state": "available",
+  "instances": [{
+    "root": "app",
+    "state": "ready",
+    "model": {"projects": [], "targets": [], "contentRoots": []},
+    "configurationFingerprint": "<64 lowercase hex characters>",
+    "options": {}
+  }]
+}
+```
+
+A missing, disabled, non-public or mismatched producer gives
+`state: "unavailable", instances: []`. An installed public producer with no
+detected instance is available with an empty list. A non-ready instance has
+only `root` and `state`; no old model or options travel with it. Roots and
+model paths remain workspace-relative, and instances are deterministically
+ordered. There are at most 8 slots, 64 instances per source, 2,000 projects and
+10,000 targets/content roots per instance, and 8 MiB of resolved JSON. The
+revision is a nonnegative integer no larger than 9,007,199,254,740,991.
+
+The host supplies this snapshot as the common plan request's optional
+`modelInputs`. It is required exactly for a consumer with declared slots.
+Every Provider plan copies it unchanged into `params.modelInputs`; Core
+revalidates the snapshot and rejects extra fields or mismatched slots.
+The running backend must negotiate `litheBuild` version 6 independently of
+manifest admission. Older versions reject an input-bearing request even for
+an existing method such as `lithe/build/model`.
+
+A revision belongs to one workspace activation. The host revokes consumer
+model/dependency loads, discovery and in-flight execution/preparation when a
+producer's model, options, watched configuration or package availability
+changes. Revisions also detect changing an option away and back before a reply
+arrives. Guard the result after decoding as well as after the RPC; do not
+publish an old reply merely because cancellation was ignored. Already launched
+applications retain their existing native ownership.
+
+This facility never installs or activates a producer, invokes its private
+functions, grants permissions, leases a process or resolves a package version.
+There is no general plugin-dependency/export API. Backend authors must handle
+unavailable and non-ready slots explicitly. Language integration and existing
+Java/Maven business migration remain separate work. Shared fixtures:
+`fixtures/build-model-producer.plugin.json` and
+`fixtures/build-model-consumer.plugin.json`.
+
 ### Build providers
 
 Some tools expose their model only through their own API (the Gradle Tooling
@@ -936,11 +1258,14 @@ another format is `plugin.build.invalidOutput`.
 
 The manifest only says how to start the provider and which sources use it.
 Everything else is negotiated in the LSP `initialize` exchange, so a provider
-can grow without a new manifest field or capability version:
+can add optional data within a negotiated protocol version:
 
-- The host sends `capabilities.experimental.litheBuild: { "versions": [1] }`,
+- The host sends `capabilities.experimental.litheBuild: { "versions": [6, 5, 4, 3, 2, 1] }`,
   the build-provider protocol versions it speaks. Version 1 is the two
-  requests above with the params and result formats of this section.
+  requests above with the params and result formats of this section;
+  version 2 adds typed task execution; version 3 adds typed test execution
+  and discovery; version 4 adds application run preparation; version 5 adds native debug preparation;
+  version 6 accepts the host's explicitly declared read-only model inputs.
 - The provider answers `capabilities.experimental.litheBuild: { "version": 1 }`
   with the version it chose from that list. A provider that answers no
   version, or one the host did not offer, is not used for build requests; a
@@ -1015,7 +1340,8 @@ defined in [the VCS provider contract](https://github.com/1lck/Lithe-IDEA/blob/p
 ## API level 4: debug adapters
 
 `debugAdapters[]` declares debug adapters the plugin implements. Each one is a
-DAP process the host starts and talks to over stdio or a loopback TCP port.
+DAP process the host starts and talks to over stdio or a loopback TCP port, or
+a debug server hosted by the plugin's own language server.
 The declaration is data only: there is no resolver, workflow, host integration,
 or `initializationOptions`, and any such field is refused. Requires
 `requires.debugAdapters` 1, `debug.launch` (plus `debug.attach` when an
@@ -1029,20 +1355,120 @@ A manifest below level 4 may not declare `debugAdapters`, and a level 3 manifest
 | `requests` | `launch` (default) and/or `attach`. |
 | `selectors[]` | Optional automatic matching by `targetKinds` and `languageIDs`; absent means explicit selection only. |
 | `configurationTypes` | Imported `launch.json` `type` values the adapter answers to. |
-| `configurations.launch/attach` | Default DAP `arguments`, a packaged `parametersSchema`, and `targetBindings` (`program` ← `target.path`, `processId` ← `target.processID`, `cwd` ← `target.workingDirectory`). A configuration for an undeclared request is refused. |
+| `configurations.launch/attach` | Default DAP `arguments`, a packaged `parametersSchema`, and `targetBindings` (`program` ← `target.path`, `processId` ← `target.processID`, `cwd` ← `target.workingDirectory`, and for `attach` only `connection` ← `target.host`, `target.port`, `target.pathMappings`; version 2 also supports bounded `args` ← `target.arguments` and `env` ← `target.environment`; see [Remote attach](#remote-attach)). A configuration for an undeclared request is refused. |
 | `configurations.launch.executable` | For a target that is a source file the adapter cannot debug directly (C, C++, Swift): `setting` names a `file` setting of the plugin, `candidates[]` (up to 8) are the paths a host looks for when the user chose nothing. Each candidate starts with `${workspaceFolder}/` or `${fileDirectory}/`, may use `${fileBasenameNoExtension}`, and has no `..`. Declare it together with `targetBindings.program: "target.executable"` and neither without the other; a launch fills `program` with the path the host settled on. The user's setting always wins: a chosen path that is not a runnable file is an error, not a reason to try the candidates. The host shows the path it found in that setting, and the setting's `description` is where the plugin teaches how to produce the program. |
 | `capabilities.disabled` | Standard DAP `supports*` names or `exceptionBreakpointFilters` the host treats as absent. |
 | `console.commandPrefix` | Text (1–8 characters, no spaces; for lldb-dap a backtick) the adapter's console reads as "what follows is a debugger command". The host puts it before the typed line only when it asks the adapter to complete, and moves the adapter's answer back, so the user never sees it. An adapter that treats a bare word as an expression (lldb-dap) otherwise mixes language keywords such as `long` into the first word's completions; the prefix limits them to commands. Declare at least this or `console.commands[]` when `console` is present. |
 | `console.commands[]` | Debugger commands (`name`, optional one-line `description`) the Debug Console offers as completions. An adapter that answers the DAP `completions` request completes live, so list commands only for an adapter that does not (or whose live answers lack some commands); the host merges both. Names are inserted as written, unique, and not padded with spaces; descriptions are shown as written and not translated. |
-| `launch.process` | The shared `serverProcess` launch fields without `initializationOptions`, or `{"launch": {"kind": "runSelectedRuntime", "tool": "python" \| "java" \| "node"}}`, which needs `serverProcess` 2 and is the only use of it. |
-| `launch.transport` | `stdio`, `tcpAnnounced` (`endpoint`: `stream`, one-line `prefix`, `value` = `port` or `hostPort`), or `tcpPort` (`endpoint.port`). TCP endpoints are loopback only. |
+| `launch.process` | The shared `serverProcess` launch fields without `initializationOptions`, or `{"launch": {"kind": "runSelectedRuntime", "tool": "python" \| "java" \| "node"}}`, which needs `serverProcess` 2 and is the only use of it. Required for every transport except `tcpLanguageServer`, which must not have it. |
+| `launch.transport` | `stdio`, `tcpAnnounced` (`endpoint`: `stream`, one-line `prefix`, `value` = `port` or `hostPort`), `tcpPort` (`endpoint.port`), or `tcpLanguageServer` (`endpoint`: `languageID`, `command`). TCP endpoints are loopback only. |
+| `launch.endpoint` for `tcpLanguageServer` | For an adapter that lives inside a language server and has no process of its own (the Java Debug Server runs in JDT LS). `languageID` names a `languageServers[]` entry of the same plugin; `command` (1–128 characters of letters, digits, `.`, `_`, `:`, `-`) is the `workspace/executeCommand` the host sends to that server for each session. The server answers with the loopback port to connect to, as an integer or a numeric string from 1 to 65535. The host starts the language server for the workspace first, as it does for editing. The command is part of what the user reviews at install and update, and changing it asks again. |
+
+### Remote attach
+
+An adapter that attaches to a debuggee on another machine (a JVM started with
+`-agentlib:jdwp`, a Node inspector, gdbserver) is an
+ordinary `attach` adapter whose `targetBindings` carry a `connection`. The
+adapter itself still runs on this machine, stdio or loopback as before; only
+the debuggee is remote. This is the adapter-to-debuggee endpoint, not the
+IDE-to-adapter DAP endpoint. By default, debugpy `--listen` starts a DAP adapter
+on the target machine: the IDE must connect to that adapter, not start another
+local adapter and merely pass it `connect.host` and `connect.port`.
+
+`connection` does not declare an external DAP endpoint or remote adapter
+execution (for example `ssh host gdb -i=dap`). These require separate host
+integration; this contract and its validation do not establish that support.
+The current transport scope is ordinary TCP connection and lifecycle, reusing
+the existing socket implementation and retaining stdio. It does not add proxy,
+tunnel, port-forwarding or SSH execution settings, or relax the loopback rule
+for language-server-provided DAP endpoints. Adapter-native source mapping should
+be reused where applicable, without translating the same path pair again in Core.
+
+The following illustrates nested argument binding and mapping shape, not a
+complete debugpy `--listen` connection configuration:
+
+```json
+"configurations": {
+  "attach": {
+    "arguments": { "timeout": 5000 },
+    "targetBindings": {
+      "connection": {
+        "host": "connect.host",
+        "port": "connect.port",
+        "pathMappings": { "shape": "objects", "argument": "pathMappings",
+                          "localKey": "localRoot", "remoteKey": "remoteRoot" }
+      }
+    }
+  }
+}
+```
+
+- The values of `connection` are paths into the adapter's `arguments`, because
+  adapters name and nest them differently: java-debug takes `hostName` and
+  `port`, nested arguments may use `connect.host` and `connect.port`, js-debug
+  `address` and `port`, gdb one `host:port` string. A path is 1–4 dot-separated names of
+  letters, digits, `_`, and `-` (up to 64 characters each) and Core creates the
+  intermediate objects.
+- `host` and `port` are declared together. `address` takes the endpoint as one
+  `host:port` string, with an IPv6 host in brackets (`[2001:db8::1]:2345`); it
+  stands in for `host` and `port`, or is a further destination beside them.
+  At least one of the two forms is required.
+- `pathMappings` is optional and has four shapes, one per way adapters take
+  source roots:
+  - `objects` fills a list of objects, one per mapping: `argument` names the
+    list, `localKey` and `remoteKey` the keys of each object
+    (`[{ "localRoot": …, "remoteRoot": … }]`).
+  - `first` is for an adapter with a single pair of roots and fills `local`
+    and `remote` from the one mapping. It takes exactly one: a target with
+    more is refused rather than truncated.
+  - `dictionary` fills an object at `argument` whose keys are the roots of one
+    side and whose values are the other (`"keyedBy": "remote"` gives
+    `{ "<remote>": "<local>" }`). A target with the same root twice on the
+    keyed side is refused, since an object holds one value per key.
+  - `pairs` fills a list of two-element arrays at `argument`, in the order
+    `"order": "remoteLocal"` (`[["<remote>", "<local>"]]`) or `"localRemote"`.
+  An adapter whose mapping is none of these declares no `pathMappings`, and a
+  start that sends mappings to it is refused.
+- A destination may not equal, contain, or sit inside another destination, the
+  `processId` or `cwd` argument a declared binding of the same configuration
+  fills, or a name that the configuration's own `arguments` already sets. Defaults win over bindings, so without this rule
+  the adapter would connect somewhere other than the endpoint the user
+  confirmed. A manifest that does it is `plugin.manifest.invalid`.
+- `connection` is allowed under `attach` only. `selectors[].targetKinds` may
+  list `connection`, and only for an adapter that declares the binding.
+
+The target of a start is `{ "kind": "connection", "host", "port",
+"pathMappings"?: [{ "local", "remote" }] }`. `host` is a DNS name or an IP
+literal of 1–253 characters, with labels of up to 63 letters, digits, and
+hyphens, none leading or trailing: no scheme, port, brackets, whitespace, or
+user. A dotted run of digits must be a valid IPv4 address, and IPv6 zone IDs and
+internationalized names (use punycode) are not accepted. `port` is 1–65535.
+There are at most 16 mappings; each root is 1–1024 characters without control
+characters, and a `local` root must be an absolute path on the host's
+platform.
+
+`debug.adapters.startArguments` answers with the filled `arguments` and a
+`connection: { host, port, remote }`. `remote` is `false` only for what
+Core can prove local from the text: `localhost` (any case), `127.0.0.0/8`, and
+`::1`. Every other host, including `0.0.0.0`, `::ffff:127.0.0.1`, and
+`localhost.example.org`, is `remote: true`. A host asks the user to confirm each
+`remote` endpoint it has not been told to trust, and does not remember the
+answer by default. `debug.attach` covers remote attach; there is no separate
+permission. `plan.debugAdapter.remoteAttach` in the launch plan is
+`{ "pathMappings": boolean, "maxPathMappings": number }` for an adapter that
+takes a connection (`maxPathMappings` is 0 without mappings, 1 for `first`, and
+16 otherwise) and `null` otherwise, so a host knows whether to offer the
+host-and-port form and the mapping list, and how many rows the list may hold.
 
 The cases in `fixtures/debug-adapter-rejections.json` state the stable code and
 field for each refusal and the layer that reports it: `schema`,
 `coreManifest`, `corePlan` (one start: stale registration or runtime
-selection, a target missing a fact a binding reads), and `coreInstall`
+selection, a target missing a fact a binding reads; the request defaults to
+`launch` and `context.request` sets `attach`), and `coreInstall`
 (a `parametersSchema` that is missing or links outside the package).
-`fixtures/debug-adapter.plugin.json` is a valid example.
+`fixtures/debug-adapter.plugin.json` is a valid example, and
+`fixtures/debug-adapter-remote-attach.plugin.json` declares six adapters that
+differ in how they take a connection.
 
 ## Plugin backend
 

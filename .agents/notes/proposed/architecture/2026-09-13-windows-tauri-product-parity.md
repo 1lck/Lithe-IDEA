@@ -55,9 +55,9 @@ Core 契约，也还没有在真实 Windows 机器上跑过完整回归。继续
 
 - `bun run typecheck` 和 `bun run build` 在 `windows/tauri` 下通过。
 - Windows Tauri crate 能格式化、构建并通过测试。
-- [`scripts/verify-windows-boundaries.sh`](../../../../scripts/verify-windows-boundaries.sh)
+- [`scripts/windows/verify/verify-windows-boundaries.sh`](../../../../scripts/windows/verify/verify-windows-boundaries.sh)
   和它的 PowerShell 对应版本
-  [`scripts/verify-windows-boundaries.ps1`](../../../../scripts/verify-windows-boundaries.ps1)
+  [`scripts/windows/verify/verify-windows-boundaries.ps1`](../../../../scripts/windows/verify/verify-windows-boundaries.ps1)
   通过。
 - Windows CI 能构建出真实可执行文件，并同时测试 `lithe-core` 和
   Tauri host。
@@ -84,6 +84,6 @@ Core 契约，也还没有在真实 Windows 机器上跑过完整回归。继续
 
 - `windows/tauri/src/`
 - `windows/tauri/src-tauri/`
-- `scripts/verify-windows-boundaries.sh`
-- `scripts/verify-windows-boundaries.ps1`
+- `scripts/windows/verify/verify-windows-boundaries.sh`
+- `scripts/windows/verify/verify-windows-boundaries.ps1`
 - `shared/contracts/application-boundary.md`

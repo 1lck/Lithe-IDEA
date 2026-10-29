@@ -28,13 +28,15 @@
       "additionalProperties": false,
       "properties": {
         "backend": { "description": "Required exactly when backend is present: the plugin's own process serving its web pages.", "enum": [1] },
-        "buildProviders": { "description": "Required exactly when any buildSystems[].provider is present, including own-process and shared language-server providers. Declares host support for Provider orchestration, independent of declarative buildSystems and serverProcess launch support.", "enum": [1] },
+        "buildModelInputs": {"description": "Optional public model sharing between already enabled workspace plugins; no installation, private function, or process authority. Required exactly when modelSharing or modelInputs is used. Consumers require buildProviders 6. Version 1 producers cannot also consume inputs.", "enum": [1]},
+        "buildProviders": { "description": "Required exactly when any buildSystems[].provider is present, including own-process and shared language-server providers. Declares host support for Provider orchestration, independent of declarative buildSystems and serverProcess launch support; version 2 adds task execution, version 3 test execution/discovery, version 4 application run preparation, and version 5 native debug preparation; version 6 optional read-only model inputs.", "enum": [1, 2, 3, 4, 5, 6] },
         "buildSystems": { "description": "Declarative build detection, models, and command plans; does not imply buildProviders support.", "enum": [1, 2] },
-        "debugAdapters": { "description": "Required exactly when debugAdapters is non-empty. The DAP session itself is negotiated by the adapter in initialize.", "enum": [1] },
+        "debugAdapters": { "description": "Required exactly when debugAdapters is non-empty. Version 2 adds bounded target argument and environment bindings. The DAP session itself is negotiated by the adapter in initialize.", "enum": [1, 2] },
         "executableResolution": { "enum": [1], "description": "Shared executable candidate ordering and strict selection." },
     "executionProviders": { "enum": [1] },
         "languageServers": { "enum": [1] },
         "languages": { "enum": [1] },
+        "packageTrust": { "description": "Required exactly when vendor.bundledSignatureRequirement is present.", "enum": [1] },
         "projectGenerators": { "description": "Entries of the New Project window: fields, requirements, and steps.", "enum": [1] },
         "serverProcess": { "description": "The launch fields of language servers, of build providers that start their own process, of VCS providers, of debug adapters, and of the plugin backend. Version 2 adds runSelectedRuntime and is required exactly when a debug adapter uses it (pluginAPIVersion 4).", "enum": [1, 2] },
         "settings": { "enum": [1] },
@@ -49,7 +51,11 @@
       "properties": {
         "id": { "type": "string", "minLength": 1 },
         "displayName": { "type": "string", "minLength": 1 },
-        "signatureRequirement": { "enum": ["sameTeamAsHost", "publisherPackage", "none"] }
+        "signatureRequirement": { "enum": ["sameTeamAsHost", "publisherPackage", "none"] },
+        "bundledSignatureRequirement": {
+          "description": "packageTrust 1: host-pinned official packages may trust the host's sealed bundled copy; all other origins require publisherPackage.",
+          "const": "sameTeamAsHost"
+        }
       }
     },
     "permissions": {
@@ -90,7 +96,7 @@
       "items": { "$ref": "#/$defs/vcsProvider" }
     },
     "debugAdapters": {
-      "description": "pluginAPIVersion 4, requires.debugAdapters 1: debug adapters the plugin implements, each started as its own DAP process. Requires debug.launch (and debug.attach when an adapter serves attach) and one onDebug:<id> activation event per adapter.",
+      "description": "pluginAPIVersion 4, requires.debugAdapters 1: debug adapters the plugin implements, each started as its own DAP process, or hosted by the plugin's own language server (transport tcpLanguageServer). Requires debug.launch (and debug.attach when an adapter serves attach) and one onDebug:<id> activation event per adapter.",
       "type": "array",
       "maxItems": 16,
       "items": { "$ref": "#/$defs/debugAdapter" }
@@ -235,6 +241,92 @@
       "minLength": 1,
       "pattern": "^(?!/)(?!.*(?:^|/)[.]{1,2}(?:/|$))[^\\\\:\\u0000]+$"
     },
+    "debugArgumentName": {
+      "description": "One DAP argument name or object key.",
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_-]{0,63}$"
+    },
+    "debugArgumentPath": {
+      "description": "Dotted path to a DAP argument, up to four names, for example `hostName` or `connect.host`. Objects on the way are created; the path must not overlap another binding or an argument the configuration sets itself.",
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_-]{0,63}(\\.[A-Za-z_][A-Za-z0-9_-]{0,63}){0,3}$"
+    },
+    "debugConnectionBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "host": {
+          "description": "Receives `target.host`, a string. Declared together with `port`.",
+          "$ref": "#/$defs/debugArgumentPath"
+        },
+        "port": {
+          "description": "Receives `target.port`, an integer 1-65535. Declared together with `host`.",
+          "$ref": "#/$defs/debugArgumentPath"
+        },
+        "address": {
+          "description": "Receives `host:port` as one string; an IPv6 host is written in brackets.",
+          "$ref": "#/$defs/debugArgumentPath"
+        },
+        "pathMappings": {
+          "description": "How local and remote source roots reach the adapter. Omit when the adapter takes none; the host then does not offer the choice.",
+          "oneOf": [
+            {
+              "description": "A list of objects at `argument`, each with the local root under `localKey` and the remote root under `remoteKey`.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["shape", "argument", "localKey", "remoteKey"],
+              "properties": {
+                "shape": { "const": "objects" },
+                "argument": { "$ref": "#/$defs/debugArgumentPath" },
+                "localKey": { "$ref": "#/$defs/debugArgumentName" },
+                "remoteKey": { "$ref": "#/$defs/debugArgumentName" }
+              }
+            },
+            {
+              "description": "The first mapping only, as two strings at `local` and `remote`.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["shape", "local", "remote"],
+              "properties": {
+                "shape": { "const": "first" },
+                "local": { "$ref": "#/$defs/debugArgumentPath" },
+                "remote": { "$ref": "#/$defs/debugArgumentPath" }
+              }
+            },
+            {
+              "description": "An object at `argument` with one root as the key and the other as the value, keyed by the `keyedBy` side. A target with the same root twice on that side is refused.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["shape", "argument", "keyedBy"],
+              "properties": {
+                "shape": { "const": "dictionary" },
+                "argument": { "$ref": "#/$defs/debugArgumentPath" },
+                "keyedBy": { "enum": ["local", "remote"] }
+              }
+            },
+            {
+              "description": "A list of two-element arrays at `argument`, the roots in the given `order`.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["shape", "argument", "order"],
+              "properties": {
+                "shape": { "const": "pairs" },
+                "argument": { "$ref": "#/$defs/debugArgumentPath" },
+                "order": { "enum": ["remoteLocal", "localRemote"] }
+              }
+            }
+          ]
+        }
+      },
+      "dependentRequired": {
+        "host": ["port"],
+        "port": ["host"]
+      },
+      "anyOf": [
+        { "required": ["host"] },
+        { "required": ["address"] }
+      ]
+    },
     "debugServerProcessV1": {
       "$ref": "#/$defs/serverProcess",
       "description": "Reuse existing launch fields and validation. LSP initializationOptions have no meaning for a DAP transport and are excluded.",
@@ -297,7 +389,6 @@
     "debugLaunch": {
       "type": "object",
       "required": [
-        "process",
         "transport"
       ],
       "properties": {
@@ -307,6 +398,9 @@
       },
       "oneOf": [
         {
+          "required": [
+            "process"
+          ],
           "properties": {
             "transport": {
               "const": "stdio"
@@ -315,6 +409,7 @@
         },
         {
           "required": [
+            "process",
             "endpoint"
           ],
           "properties": {
@@ -355,6 +450,7 @@
         },
         {
           "required": [
+            "process",
             "endpoint"
           ],
           "properties": {
@@ -373,6 +469,44 @@
                   "type": "integer",
                   "minimum": 1,
                   "maximum": 65535
+                }
+              }
+            }
+          }
+        },
+        {
+          "required": [
+            "endpoint"
+          ],
+          "not": {
+            "required": [
+              "process"
+            ]
+          },
+          "properties": {
+            "transport": {
+              "const": "tcpLanguageServer"
+            },
+            "endpoint": {
+              "description": "The adapter runs inside a language server this plugin declares in languageServers, which has no adapter process of its own. The host starts that server, sends workspace/executeCommand with command, and connects to the loopback port the server answers with (an integer or a numeric string).",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "languageID",
+                "command"
+              ],
+              "properties": {
+                "languageID": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "pattern": "^[a-z0-9+_-]+$"
+                },
+                "command": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9._:-]+$"
                 }
               }
             }
@@ -440,6 +574,12 @@
             },
             "cwd": {
               "const": "target.workingDirectory"
+            },
+            "args": { "const": "target.arguments" },
+            "env": { "const": "target.environment" },
+            "connection": {
+              "description": "Attach only. Where the remote target's host and port go. Unlike the other bindings, each value is the destination argument path, because adapters name and nest these differently.",
+              "$ref": "#/$defs/debugConnectionBinding"
             }
           }
         },
@@ -1942,6 +2082,8 @@
         "invocation"
       ],
       "properties": {
+        "modelSharing": {"type": "object", "additionalProperties": false, "properties": {"options": {"type": "array", "maxItems": 32, "uniqueItems": true, "items": {"type": "string"}}}, "description": "Opt into publishing normalized projects, targets and content roots, plus only these explicitly shared ordinary build option values. Never tasks, run plans, settings or optionValues."},
+        "modelInputs": {"type": "array", "minItems": 1, "maxItems": 8, "uniqueItems": true, "items": {"type": "object", "additionalProperties": false, "required": ["pluginID", "buildSystemID"], "properties": {"pluginID": {"type": "string"}, "buildSystemID": {"type": "string"}}}, "description": "Exact optional producer slots, sorted by Core. Missing or disabled producers are unavailable and never installed or activated automatically."},
         "id": {
           "type": "string",
           "pattern": "^[a-z][a-z0-9-]*$",
@@ -2311,6 +2453,10 @@
                   "maxLength": 64
                 }
               },
+              "source": {
+                "description": "Omitted expands argv in Core; provider sends lithe/build/execute. Provider tasks require buildProviders 2, empty arguments, and task execution.",
+                "enum": ["provider"]
+              },
               "requiresUserArguments": {
                 "type": "boolean"
               },
@@ -2341,6 +2487,15 @@
               "id"
             ],
             "properties": {
+              "debug": {
+                "description": "Native executable debug preparation (buildProviders 5); same-package debugAdapters 2 launch adapter with typed program/cwd/args/env bindings.",
+                "type": "object", "additionalProperties": false, "required": ["adapter"],
+                "properties": { "adapter": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$", "maxLength": 64 } }
+              },
+              "source": {
+                "description": "Provider-owned application preparation (buildProviders 4), fromTargets only, without host command templates.",
+                "enum": ["provider"]
+              },
               "id": {
                 "type": "string",
                 "pattern": "^[a-z][a-z0-9-]*$",
@@ -2439,6 +2594,14 @@
             "arguments"
           ],
           "properties": {
+            "discovery": {
+              "type": "boolean",
+              "description": "Opt in to lithe/build/discoverTests; requires provider test source and suite/case filters."
+            },
+            "source": {
+              "description": "Omitted expands argv; provider sends lithe/build/test, requires buildProviders 3, empty arguments, and plugin-owned report decoding.",
+              "enum": ["provider"]
+            },
             "scopes": {
               "$ref": "#/$defs/buildScopes"
             },

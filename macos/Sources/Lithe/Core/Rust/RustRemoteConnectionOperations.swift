@@ -1,8 +1,10 @@
 import Foundation
+import LitheCoreContracts
+import LitheModuleAPI
 
 /// Typed `remote.*` commands. Rust Core runs OpenSSH and
 /// relays its questions; this adapter only translates payloads and events.
-struct RustRemoteConnectionOperations: RemoteConnectionProbing, RemoteSessionConnecting, RemoteWorkspaceTransport {
+struct RustRemoteConnectionOperations: RemoteConnectionProbing, RemoteSessionConnecting, RemoteWorkspaceTransport, RemoteTerminalConnecting {
     let core: RustCoreBridge
 
     func probe(
@@ -50,10 +52,11 @@ struct RustRemoteConnectionOperations: RemoteConnectionProbing, RemoteSessionCon
 
     /// Runs one blocking Core command off the caller's thread. Cancelling
     /// the calling task cancels the command.
-    private func run<Payload: Encodable & Sendable, Value: Decodable & Sendable>(
+    func run<Payload: Encodable & Sendable, Value: Decodable & Sendable>(
         _ command: String,
         payload: Payload,
-        onPrompt: @escaping @Sendable (RemoteAuthenticationPrompt) -> Void
+        onPrompt: @escaping @Sendable (RemoteAuthenticationPrompt) -> Void,
+        onEvent: @escaping @Sendable (String) -> Void = { _ in }
     ) async -> Result<Value, RemoteProbeFailure> {
         let operationID = UUID().uuidString
         let cancellation = RustCoreCancellation(core: core, operationID: operationID)
@@ -69,6 +72,7 @@ struct RustRemoteConnectionOperations: RemoteConnectionProbing, RemoteSessionCon
                         operationID: operationID,
                         onEvent: { event in
                             cancellation.receive(event)
+                            onEvent(event)
                             if let prompt = Self.prompt(from: event) { onPrompt(prompt) }
                         }
                     )
@@ -123,6 +127,132 @@ struct RustRemoteConnectionOperations: RemoteConnectionProbing, RemoteSessionCon
         )
         guard result.status == "saved", let size = result.size else { return .conflict }
         return .saved(RemoteFileVersion(size: size, modifiedMs: result.modifiedMs))
+    }
+
+    func mutate(_ mutation: RemoteFileMutation, session: String) throws {
+        let method: String
+        let params: [String: ToolingJSONValue]
+        switch mutation {
+        case .createDirectory(let path, let recursive):
+            method = "fs.createDir"
+            params = ["path": .string(path), "recursive": .bool(recursive)]
+        case .copy(let from, let to):
+            method = "fs.copy"
+            params = ["from": .string(from), "to": .string(to), "recursive": .bool(true)]
+        case .move(let from, let to):
+            method = "fs.rename"
+            params = ["from": .string(from), "to": .string(to)]
+        case .remove(let path):
+            method = "fs.remove"
+            params = ["path": .string(path), "recursive": .bool(true)]
+        case .trash(let path):
+            method = "fs.trash"
+            params = ["path": .string(path)]
+        }
+        let value: ToolingJSONValue = try blocking(
+            "remote.hostRequest", payload: HostPayload(sessionId: session, method: method, params: params)
+        )
+        if case .object(let result) = value,
+           case .number(let skipped) = result["skippedSpecialFiles"], skipped > 0 {
+            throw RemoteProbeFailure(code: "copy_incomplete", message: L10n.string("Some special files could not be copied"))
+        }
+    }
+
+    func watch(
+        root: String, session: String,
+        onEvent: @escaping @Sendable (RemoteWatchEvent) -> Void
+    ) async throws {
+        struct Parameters: Encodable, Sendable { let root: String }
+        struct Payload: Encodable, Sendable { let sessionId: String; let params: Parameters }
+        struct Event: Decodable {
+            struct Parameters: Decodable {
+                struct Change: Decodable { let path: String }
+                let changes: [Change]?
+                let overflow: Bool?
+                let code: String?
+            }
+            let type: String
+            let event: String?
+            let params: Parameters?
+        }
+        let result: Result<ToolingJSONValue, RemoteProbeFailure> = await run(
+            "remote.runWatch", payload: Payload(sessionId: session, params: Parameters(root: root)),
+            onPrompt: { _ in }, onEvent: { raw in
+                guard let event = try? JSONDecoder().decode(Event.self, from: Data(raw.utf8)),
+                      event.type == "remote" else { return }
+                switch event.event {
+                case "watch.started": onEvent(.started)
+                case "watch.changed":
+                    onEvent(.changed(paths: event.params?.changes?.map(\.path) ?? [], overflow: event.params?.overflow ?? true))
+                case "watch.error": onEvent(.invalidated(rootRemoved: event.params?.code == "ROOT_REMOVED"))
+                default: break
+                }
+            }
+        )
+        _ = try result.get()
+    }
+
+    func runTerminal(
+        _ request: RemoteTerminalRequest, session: String,
+        onEvent: @escaping @Sendable (RemoteTerminalEvent) -> Void
+    ) async -> Result<Void, RemoteProbeFailure> {
+        struct Payload: Encodable, Sendable { let sessionId: String; let params: RemoteTerminalRequest }
+        struct Exit: Decodable, Sendable { let exitCode: Int32? }
+        struct Event: Decodable {
+            struct Parameters: Decodable {
+                let terminalId: UInt64?
+                let pid: Int32?
+                let data: String?
+                let exitCode: Int32?
+            }
+            let type: String
+            let event: String?
+            let params: Parameters?
+        }
+        let result: Result<Exit, RemoteProbeFailure> = await run(
+            "remote.runTerminal", payload: Payload(sessionId: session, params: request),
+            onPrompt: { _ in }, onEvent: { raw in
+                guard let event = try? JSONDecoder().decode(Event.self, from: Data(raw.utf8)),
+                      event.type == "remote", let params = event.params else { return }
+                switch event.event {
+                case "terminal.started":
+                    if let id = params.terminalId, let pid = params.pid { onEvent(.started(id: id, pid: pid)) }
+                case "terminal.output":
+                    if let encoded = params.data, let data = Data(base64Encoded: encoded) { onEvent(.output(data)) }
+                case "terminal.exit": onEvent(.exited(params.exitCode))
+                default: break
+                }
+            }
+        )
+        return result.map { _ in () }
+    }
+
+    func writeTerminal(_ data: Data, id: UInt64, session: String) async throws {
+        struct Parameters: Encodable, Sendable { let terminalId: UInt64; let data: String }
+        try await terminalControl("terminal.write", params: Parameters(terminalId: id, data: data.base64EncodedString()), session: session)
+    }
+
+    func resizeTerminal(id: UInt64, columns: UInt16, rows: UInt16, session: String) async throws {
+        struct Parameters: Encodable, Sendable { let terminalId: UInt64; let columns: UInt16; let rows: UInt16 }
+        try await terminalControl("terminal.resize", params: Parameters(terminalId: id, columns: columns, rows: rows), session: session)
+    }
+
+    private struct HostPayload<Parameters: Encodable & Sendable>: Encodable, Sendable {
+        let sessionId: String
+        let method: String
+        let params: Parameters
+    }
+
+    private func terminalControl<Parameters: Encodable & Sendable>(
+        _ method: String, params: Parameters, session: String
+    ) async throws {
+        // Control methods return JSON null; the JSON value decoder preserves
+        // this successful response without requiring a synthetic data object.
+        let payload = HostPayload(sessionId: session, method: method, params: params)
+        let result: Result<ToolingJSONValue, RemoteProbeFailure> = await run(
+            "remote.hostRequest", payload: payload, onPrompt: { _ in }
+        )
+        _ = try result.get()
     }
 
     private func blocking<Payload: Encodable, Value: Decodable>(_ command: String, payload: Payload) throws -> Value {

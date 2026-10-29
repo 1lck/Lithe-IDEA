@@ -199,3 +199,17 @@ test("Maven profile configuration adds only undeclared profiles as custom entrie
   expect(setSelectedProfiles).toHaveBeenCalledWith(["dev", "ci"]);
   expect(saveLocalConfiguration).toHaveBeenCalledTimes(1);
 });
+
+
+test("MCP deadline is rechecked after native validation before accepting a workflow", async () => {
+  const { api, dependencies } = fixture();
+  let allowed = true;
+  dependencies.validate.mockImplementationOnce(async () => {
+    allowed = false;
+    return { ok: true, mutation: true };
+  });
+  const result = await api.call("lithe_environment_configure", { javaHomePath: "fixture" }, () => allowed);
+  expect((result as { error: { code: string } }).error.code).toBe("TIMEOUT");
+  expect(dependencies.loadProjectEnvironment).not.toHaveBeenCalled();
+  expect(dependencies.saveProjectEnvironmentSettings).not.toHaveBeenCalled();
+}, 1000);

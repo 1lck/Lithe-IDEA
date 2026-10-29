@@ -75,9 +75,9 @@ macOS 顶部尚未显示同步箭头，此处只参考其状态归属。
   无关仓库不查询、卸载清理；使用可手动推进的计时器。
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.ps1`
 - `./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend`
-- `./scripts/verify-windows-boundaries.ps1`
-- `./scripts/build-windows.ps1 -Configuration Release`
-- `./scripts/verify-runtime-bundle-immutability.sh`
+- `./scripts/windows/verify/verify-windows-boundaries.ps1`
+- `./scripts/windows/build/build-windows.ps1 -Configuration Release`
+- `./scripts/macos/verify/verify-runtime-bundle-immutability.sh`
 - 真实 Windows 产品中关闭 Commit，外部 pull、checkout、暂存，再核对顶部、文件树和
   重开 Commit；测试多仓库、工作树与快速切项目。原生交互验收继续为 pending。
 

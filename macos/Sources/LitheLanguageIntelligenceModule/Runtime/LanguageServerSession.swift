@@ -29,17 +29,21 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     private static let idlePollNanoseconds: UInt64 = 50_000_000
 
     private let providerID: String
-    private let executableURL: URL
-    private let arguments: [String]
-    private let environment: [String: String]
-    private let initializationOptions: ToolingJSONValue?
+    private var executableURL: URL
+    private var arguments: [String]
+    private var environment: [String: String]
+    private var initializationOptions: ToolingJSONValue?
+    private var preparedWorkspaceConfiguration: ToolingJSONValue?
+    private let prepareProcess: (@MainActor (URL) async throws -> PreparedLanguageServerProcess)?
+    private var preparationTask: Task<Void, Never>?
+    private var startingPreparedProcess = false
     private let launchResolver: (@MainActor (URL) throws -> ResolvedLanguageServerLaunch)?
     private let hostIntegrationLaunch: LanguageServerHostIntegrationLaunch?
     private let cacheDirectoryURL: URL?
     private let initializeTimeout: TimeInterval
     private let requestTimeout: TimeInterval
     private let shutdownTimeout: TimeInterval
-    private let core: any LanguageServerRuntimeCore
+    private var core: any LanguageServerRuntimeCore
     private weak var processRegistry: (any LanguageServerProcessRegistry)?
     private let moduleID: ModuleID
     /// The plugin that owns the process; nil for host-owned servers, which
@@ -49,8 +53,22 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     private let hostServices: [String]
 
     private var sessionID: String?
+    private var startupGeneration: UUID?
+    private var usesBackgroundStart = false
+    private struct StartingDocument {
+        let text: String
+        let languageID: String
+    }
+    /// Latest full snapshots replace incremental edits while the remote
+    /// process is starting. They are flushed once, before polling its events.
+    private var startingDocuments: [URL: StartingDocument] = [:]
+    private var startingDocumentBytes = 0
+    private var startingFileChanges: [LanguageServerWorkspaceFileChange] = []
+    private static let startingDocumentByteLimit = 8 * 1024 * 1024
     private var pendingOperations: [String: PendingOperation] = [:]
-    /// Progress listeners of running plugin functions, by operation ID.
+    /// Progress listeners of running provider tasks, by operation ID.
+    private var buildProgress: [String: @MainActor @Sendable (BuildProviderProgress) -> Void] = [:]
+    /// Progress listeners of plugin-private calls remain a separate contract.
     private var functionProgress: [String: @MainActor @Sendable (PluginFunctionProgress) -> Void] = [:]
     private var documentVersions: [URL: Int] = [:]
     private var pollTask: Task<Void, Never>?
@@ -78,6 +96,8 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     /// Called once the session has ended and handed its process back to
     /// Core, so the owner can end what the process left running.
     package var onReleased: (@MainActor () -> Void)?
+    /// Package snapshots may be removed only after Core has ended the process.
+    package var releaseResources: (@Sendable () async -> Void)?
 
     package var onDiagnostics: ((URL, [LanguageServerDiagnostic]) -> Void)?
     package var onLog: ((LanguageServerLogLevel, String, String?, String?) -> Void)?
@@ -111,6 +131,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         arguments: [String],
         environment: [String: String],
         initializationOptions: ToolingJSONValue? = nil,
+        prepareProcess: (@MainActor (URL) async throws -> PreparedLanguageServerProcess)? = nil,
         launchResolver: (@MainActor (URL) throws -> ResolvedLanguageServerLaunch)? = nil,
         hostIntegrationLaunch: LanguageServerHostIntegrationLaunch? = nil,
         cacheDirectoryURL: URL? = nil,
@@ -128,6 +149,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         self.arguments = arguments
         self.environment = environment
         self.initializationOptions = initializationOptions
+        self.prepareProcess = prepareProcess
         self.launchResolver = launchResolver
         self.hostIntegrationLaunch = hostIntegrationLaunch
         self.cacheDirectoryURL = cacheDirectoryURL
@@ -144,6 +166,7 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     /// Derived from the last lifecycle state Rust published: there is no local
     /// process handle to ask.
     package var isRunning: Bool {
+        if startupGeneration != nil { return true }
         guard sessionID != nil else { return false }
         switch state {
         case .stopped, .failed:
@@ -171,12 +194,54 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         mavenContext: MavenLaunchContext?,
         javaGradle: JavaGradleImportConfiguration?
     ) throws {
-        guard sessionID == nil else { return }
+        guard sessionID == nil, startupGeneration == nil else { return }
         let normalizedRoot = rootURL.standardizedFileURL
         transition(to: .startingProcess)
+        if let prepareProcess, !startingPreparedProcess {
+            let generation = UUID()
+            startupGeneration = generation
+            preparationTask = Task { @MainActor [weak self] in
+                do {
+                    let prepared = try await prepareProcess(normalizedRoot)
+                    guard let self, self.startupGeneration == generation, !Task.isCancelled else {
+                        await prepared.release()
+                        return
+                    }
+                    self.preparationTask = nil
+                    self.startupGeneration = nil
+                    self.executableURL = prepared.executableURL
+                    self.arguments = prepared.launch.arguments
+                    self.environment = prepared.environment
+                    self.initializationOptions = prepared.launch.initializationOptions
+                    self.preparedWorkspaceConfiguration = prepared.launch.workspaceConfiguration
+                    self.core = prepared.core
+                    self.releaseResources = prepared.release
+                    self.startingPreparedProcess = true
+                    defer { self.startingPreparedProcess = false }
+                    do {
+                        try self.start(rootURL: normalizedRoot, workspaceFingerprint: workspaceFingerprint,
+                                       mavenContext: mavenContext, javaGradle: javaGradle)
+                    } catch {
+                        self.releaseSession()
+                    }
+                } catch {
+                    guard let self, self.startupGeneration == generation else { return }
+                    self.preparationTask = nil
+                    self.startupGeneration = nil
+                    self.startingDocuments = [:]
+                    self.startingDocumentBytes = 0
+                    self.startingFileChanges = []
+                    let failure = LanguageServerSessionFailure(code: (error as? DeclarativePluginRejection)?.code ?? "plugin.launch.failed",
+                        stage: "processStart", message: error.localizedDescription)
+                    self.transition(to: .failed(failure))
+                    self.releaseSession()
+                }
+            }
+            return
+        }
         var arguments = arguments
         var initializationOptions = initializationOptions
-        var workspaceConfiguration: ToolingJSONValue?
+        var workspaceConfiguration = preparedWorkspaceConfiguration
         if let launchResolver {
             do {
                 let resolved = try launchResolver(normalizedRoot)
@@ -201,54 +266,109 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             ([executableURL.path] + arguments).joined(separator: " "),
             nil
         )
-        let started = if let pluginID, !hostServices.isEmpty {
-            core.startPluginLanguageServer(
-                pluginID: pluginID,
-                providerID: providerID,
-                executableURL: executableURL,
-                arguments: arguments,
-                environment: environment,
-                rootURL: normalizedRoot,
-                initializationOptions: initializationOptions,
-                hostServices: hostServices,
-                initializeTimeout: initializeTimeout,
-                requestTimeout: requestTimeout,
-                shutdownTimeout: shutdownTimeout
-            )
-        } else if let pluginID {
-            core.startPluginLanguageServer(
-                pluginID: pluginID,
-                providerID: providerID,
-                executableURL: executableURL,
-                arguments: arguments,
-                environment: environment,
-                rootURL: normalizedRoot,
-                initializationOptions: initializationOptions,
-                workspaceConfiguration: workspaceConfiguration,
-                initializeTimeout: initializeTimeout,
-                requestTimeout: requestTimeout,
-                shutdownTimeout: shutdownTimeout
-            )
-        } else {
-            core.startLanguageServer(
-            providerID: providerID,
-            executableURL: executableURL,
-            arguments: arguments,
-            environment: environment,
-            rootURL: normalizedRoot,
-            workingDirectoryURL: normalizedRoot,
-            initializationOptions: initializationOptions,
-            runtimeExecutableURL: hostIntegrationLaunch?.runtimeExecutableURL,
-            jdtlsLaunchResources: hostIntegrationLaunch?.coreLaunch?.jdtlsLaunchResources,
-            cacheDirectoryURL: cacheDirectoryURL,
-            workspaceFingerprint: workspaceFingerprint,
-            mavenContext: mavenContext,
-            javaGradle: javaGradle,
-            initializeTimeout: initializeTimeout,
-            requestTimeout: requestTimeout,
-            shutdownTimeout: shutdownTimeout
-            )
+        let core = core
+        let pluginID = pluginID
+        let hostServices = hostServices
+        let providerID = providerID
+        let executableURL = executableURL
+        let environment = environment
+        let initializeTimeout = initializeTimeout
+        let requestTimeout = requestTimeout
+        let shutdownTimeout = shutdownTimeout
+        let hostIntegrationLaunch = hostIntegrationLaunch
+        let cacheDirectoryURL = cacheDirectoryURL
+        let resolvedArguments = arguments
+        let resolvedOptions = initializationOptions
+        let resolvedConfiguration = workspaceConfiguration
+        let launch: @Sendable () -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> = {
+            if let pluginID {
+                core.startPluginLanguageServer(
+                    pluginID: pluginID,
+                    providerID: providerID,
+                    executableURL: executableURL,
+                    arguments: resolvedArguments,
+                    environment: environment,
+                    rootURL: normalizedRoot,
+                    initializationOptions: resolvedOptions,
+                    workspaceConfiguration: resolvedConfiguration,
+                    hostServices: hostServices,
+                    hostIntegrationLaunch: hostIntegrationLaunch,
+                    cacheDirectoryURL: cacheDirectoryURL,
+                    workspaceFingerprint: workspaceFingerprint,
+                    mavenContext: mavenContext,
+                    javaGradle: javaGradle,
+                    initializeTimeout: initializeTimeout,
+                    requestTimeout: requestTimeout,
+                    shutdownTimeout: shutdownTimeout
+                )
+            } else {
+                core.startLanguageServer(
+                    providerID: providerID,
+                    executableURL: executableURL,
+                    arguments: resolvedArguments,
+                    environment: environment,
+                    rootURL: normalizedRoot,
+                    workingDirectoryURL: normalizedRoot,
+                    initializationOptions: resolvedOptions,
+                    runtimeExecutableURL: hostIntegrationLaunch?.runtimeExecutableURL,
+                    jdtlsLaunchResources: hostIntegrationLaunch?.coreLaunch?.jdtlsLaunchResources,
+                    cacheDirectoryURL: cacheDirectoryURL,
+                    workspaceFingerprint: workspaceFingerprint,
+                    mavenContext: mavenContext,
+                    javaGradle: javaGradle,
+                    initializeTimeout: initializeTimeout,
+                    requestTimeout: requestTimeout,
+                    shutdownTimeout: shutdownTimeout
+                )
+            }
         }
+        usesBackgroundStart = core.requiresBackgroundLanguageServerStart(rootURL: normalizedRoot)
+        if usesBackgroundStart {
+            let generation = UUID()
+            startupGeneration = generation
+            let resources = releaseResources
+            releaseResources = nil
+            Task.detached(priority: .userInitiated) { [weak self] in
+                let started = launch()
+                // The completion claims the result only while its generation
+                // is active; a closed/replaced owner destroys the late session.
+                if await self?.completeBackgroundStart(started, generation: generation, resources: resources) != true {
+                    if case .success(let payload) = started { core.destroyLanguageServer(sessionID: payload.sessionID) }
+                    await resources?()
+                }
+            }
+            return
+        }
+        do { try acceptStart(launch()) }
+        catch {
+            if sessionID != nil { stop() }
+            else { releaseSession() }
+            throw error
+        }
+    }
+
+    private func completeBackgroundStart(
+        _ result: Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure>,
+        generation: UUID,
+        resources: (@Sendable () async -> Void)?
+    ) -> Bool {
+        guard startupGeneration == generation else { return false }
+        startupGeneration = nil
+        releaseResources = resources
+        do {
+            try acceptStart(result)
+        } catch {
+            startingDocuments = [:]
+            startingDocumentBytes = 0
+            if sessionID != nil {
+                onLog?(.error, "Language server document sync failed", error.localizedDescription, nil)
+                stop()
+            } else { releaseSession() }
+        }
+        return true
+    }
+
+    private func acceptStart(_ started: Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure>) throws {
         switch started {
         case .success(let payload):
             sessionID = payload.sessionID
@@ -258,6 +378,16 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             }
             transition(to: Self.sessionState(payload.state) ?? .initializing)
             startPolling()
+            let changes = startingFileChanges
+            startingFileChanges = []
+            if !changes.isEmpty { try notifyWorkspaceFilesChanged(changes) }
+            let documents = startingDocuments
+            startingDocuments = [:]
+            startingDocumentBytes = 0
+            for url in documents.keys.sorted(by: { $0.path < $1.path }) {
+                guard let document = documents[url] else { continue }
+                try synchronize(fileURL: url, text: document.text, languageID: document.languageID)
+            }
         case .failure(let error):
             let message = "Language server failed to start: \(error.userMessage)"
             let failure = LanguageServerSessionFailure(
@@ -272,6 +402,16 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     }
 
     package func synchronize(fileURL: URL, text: String, languageID: String) throws {
+        if startupGeneration != nil {
+            let url = fileURL.standardizedFileURL
+            let bytes = startingDocumentBytes - (startingDocuments[url]?.text.utf8.count ?? 0) + text.utf8.count
+            guard bytes <= Self.startingDocumentByteLimit, startingDocuments[url] != nil || startingDocuments.count < 512 else {
+                throw LanguageServerRuntimeSessionError.documentSyncFailed(L10n.string("Remote pending documents exceeded the startup limit. Wait for the language server to start."))
+            }
+            startingDocuments[url] = StartingDocument(text: text, languageID: languageID)
+            startingDocumentBytes = bytes
+            return
+        }
         guard let sessionID else { throw LanguageServerRuntimeSessionError.notReady }
         // Documents synced before initialize completes are held by the runtime and
         // opened once the server is ready, so there is nothing to queue here.
@@ -294,6 +434,9 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         languageID: String,
         changes: [LanguageServerDocumentChange]
     ) throws {
+        if startupGeneration != nil {
+            return try synchronize(fileURL: fileURL, text: text, languageID: languageID)
+        }
         guard let sessionID else { throw LanguageServerRuntimeSessionError.notReady }
         guard let incrementalCore = core as? any IncrementalLanguageServerRuntimeCore else {
             return try synchronize(fileURL: fileURL, text: text, languageID: languageID)
@@ -314,8 +457,15 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     package func notifyWorkspaceFilesChanged(
         _ changes: [LanguageServerWorkspaceFileChange]
     ) throws {
-        guard let sessionID else { throw LanguageServerRuntimeSessionError.notReady }
         guard !changes.isEmpty else { return }
+        if startupGeneration != nil {
+            guard changes.count <= 4096 - startingFileChanges.count else {
+                throw LanguageServerRuntimeSessionError.notReady
+            }
+            startingFileChanges.append(contentsOf: changes)
+            return
+        }
+        guard let sessionID else { throw LanguageServerRuntimeSessionError.notReady }
         switch core.notifyLanguageServerWorkspaceFilesChanged(
             sessionID: sessionID,
             changes: changes
@@ -339,6 +489,9 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     }
 
     package func closeDocument(_ fileURL: URL) {
+        if let removed = startingDocuments.removeValue(forKey: fileURL.standardizedFileURL) {
+            startingDocumentBytes -= removed.text.utf8.count
+        }
         guard let sessionID else { return }
         documentVersions[fileURL.standardizedFileURL] = nil
         // The runtime owns which documents are open, so closing one it does not
@@ -569,10 +722,55 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         }
     }
 
+    package func executeReturningValue(
+        _ command: LanguageServerCommand,
+        fileURL: URL
+    ) async throws -> ToolingJSONValue {
+        try Task.checkCancellation()
+        guard let sessionID, state == .ready else {
+            throw LanguageServerRuntimeSessionError.notReady
+        }
+        // Like build requests, workspace commands must not block the main
+        // actor on stdin and must register before cancellation can reach Core.
+        _ = fileURL
+        let operation: LanguageServerRuntimeOperation
+        switch await send(timeout: requestTimeout, { core in
+            core.requestLanguageServerOperation(
+                sessionID: sessionID, operation: .executeCommand, fileURL: nil,
+                virtualURI: nil, position: nil, newName: nil, range: nil,
+                diagnostics: [], completionItem: nil, codeAction: nil, command: command
+            )
+        }) {
+        case .success(let started): operation = started
+        case .failure(let error):
+            sendsInFlight -= 1
+            try Task.checkCancellation()
+            throw LanguageServerRuntimeSessionError.requestRejected(error.userMessage)
+        }
+        let value: ToolingJSONValue = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                registerPendingOperation(operation, name: LanguageServerOperation.executeCommand.rawValue) { result in
+                    continuation.resume(with: result.flatMap { event in
+                        guard case .object(let object)? = event.result, let value = object["value"] else {
+                            return .failure(LanguageServerRuntimeSessionError.missingResult)
+                        }
+                        return .success(value)
+                    })
+                }
+                sendsInFlight -= 1
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.cancelOffMain(operation.operationID) }
+        }
+        try Task.checkCancellation()
+        return value
+    }
+
     package func buildRequest(
         method: String,
         params: ToolingJSONValue,
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        progress: @escaping @MainActor @Sendable (BuildProviderProgress) -> Void = { _ in }
     ) async throws -> ToolingJSONValue {
         guard let sessionID, state == .ready else {
             throw LanguageServerRuntimeSessionError.notReady
@@ -587,12 +785,14 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             try Task.checkCancellation()
             throw LanguageServerRuntimeSessionError.requestRejected(error.userMessage)
         }
+        buildProgress[operation.operationID] = progress
         // Registration happens before this actor can run the cancellation
         // below, so a cancelled request always finds its pending entry and
         // ends with the cancellation event Core publishes.
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                registerPendingOperation(operation, name: method) { result in
+                registerPendingOperation(operation, name: method) { [weak self] result in
+                    self?.buildProgress[operation.operationID] = nil
                     continuation.resume(with: result.flatMap { event in
                         guard case .object(let object)? = event.result, let value = object["value"] else {
                             return .failure(LanguageServerRuntimeSessionError.missingResult)
@@ -874,11 +1074,19 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
     }
 
     package func stop() {
+        let wasStarting = startupGeneration != nil
+        preparationTask?.cancel()
+        preparationTask = nil
+        startupGeneration = nil
+        startingDocuments = [:]
+        startingDocumentBytes = 0
+        startingFileChanges = []
         configurationUpdateGeneration &+= 1
         configurationUpdateTask = nil
         guard let sessionID else {
             failPendingOperations(with: LanguageServerRuntimeSessionError.sessionStopped)
             transition(to: .stopped)
+            if wasStarting || releaseResources != nil { releaseSession() }
             return
         }
         // The runtime sends the shutdown, force-terminates on its own deadline,
@@ -895,6 +1103,9 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
                 watchdog.arm(after: stuckSendGrace) { [weak self] in self?.endStuckSend() }
                 stopWatchdog = watchdog
             }
+        } else if usesBackgroundStart {
+            let core = core
+            Task.detached(priority: .userInitiated) { core.stopLanguageServer(sessionID: sessionID) }
         } else {
             core.stopLanguageServer(sessionID: sessionID)
         }
@@ -1065,6 +1276,14 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
             onFunctionsChange?(updated)
             return false
         case "requestProgress":
+            if let operationID = event.operationID, let listener = buildProgress[operationID],
+               case .object(let object)? = event.result {
+                let message: String? = if case .string(let text)? = object["message"] { text } else { nil }
+                let output: String? = if case .string(let text)? = object["output"] { text } else { nil }
+                let percentage: Int? = if case .integer(let number)? = object["percentage"] { number } else { nil }
+                listener(BuildProviderProgress(message: message, percentage: percentage, output: output))
+                return false
+            }
             guard let operationID = event.operationID, let listener = functionProgress[operationID],
                   case .object(let object)? = event.result else {
                 return false
@@ -1144,13 +1363,29 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
 
     /// Hands the session back to the runtime once it has reached a terminal state.
     private func releaseSession() {
+        startingDocuments = [:]
+        startingDocumentBytes = 0
+        startingFileChanges = []
         pollTask = nil
         stopWatchdog?.disarm()
         stopWatchdog = nil
+        buildProgress = [:]
         functionProgress = [:]
         failPendingOperations(with: LanguageServerRuntimeSessionError.sessionStopped)
+        let releaseResources = releaseResources
+        self.releaseResources = nil
         if let sessionID {
-            core.destroyLanguageServer(sessionID: sessionID)
+            if usesBackgroundStart || releaseResources != nil {
+                let core = core
+                Task.detached(priority: .userInitiated) {
+                    core.destroyLanguageServer(sessionID: sessionID)
+                    await releaseResources?()
+                }
+            } else {
+                core.destroyLanguageServer(sessionID: sessionID)
+            }
+        } else if let releaseResources {
+            Task.detached { await releaseResources() }
         }
         sessionID = nil
         documentVersions = [:]

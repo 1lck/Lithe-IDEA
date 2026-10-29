@@ -456,6 +456,78 @@
         }
       ],
       "gaps": []
+    },
+    {
+      "id": "adapter-tcp-endpoint",
+      "behavior": "IDE-to-DAP endpoints are validated independently of debuggee attach arguments; TCP startup/write waits, buffering, cancellation and ownership are bounded",
+      "status": "covered",
+      "evidence": [
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/debug/endpoint.rs",
+          "test": "dap_endpoint_contract_fixtures_match_validation_and_consent_classification",
+          "fixture": "shared/fixtures/debug/adapter-endpoints-v1.json"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheTests/TCPDebugAdapterTests.swift",
+          "test": "realTCPRunsCoreInitializeAndAttachWithFragmentedDAPResponses"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift",
+          "test": "explicitEndpointUsesItsFactoryAndPreservesTheDAPRequest"
+        }
+      ],
+      "gaps": []
+    },
+    {
+      "id": "adapter-tcp-lifecycle",
+      "behavior": "The TCP byte-stream lifecycle (state transitions, generation tokens, finish-once, connect/write/drain deadlines, queue budgets, single in-flight write) is decided by Rust Core and replayed from a shared fixture; platforms only run the returned effects",
+      "status": "covered",
+      "evidence": [
+        {
+          "platform": "rust",
+          "path": "rust/lithe-core/src/debug/transport_lifecycle.rs",
+          "test": "lifecycle_fixture_scenarios_match_expected_steps",
+          "fixture": "shared/fixtures/debug/transport-lifecycle-v1.json"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheTests/TCPDebugAdapterTests.swift",
+          "test": "terminalEventsCleanUpExactlyOnceAndRevokeCallbacks"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheTests/TCPDebugAdapterTests.swift",
+          "test": "restartRejectsOldSocketCallbacksAndWriteCompletions"
+        }
+      ],
+      "gaps": []
+    },
+    {
+      "id": "explicit-adapter-routing",
+      "behavior": "host-selected adapter identities survive configuration transforms and retry; missing registrations and unsupported requests never fall back to a matching source-file adapter; fileless targets and concurrent matching adapters retain session ownership",
+      "status": "covered",
+      "evidence": [
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift",
+          "test": "adapterSelectionMatchesTheSharedHostFixture",
+          "fixture": "shared/fixtures/debug/adapter-selection-v1.json"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheDebugModuleTests/DebugModuleTests.swift",
+          "test": "explicitFeatureRetryKeepsItsAdapterAndFailureCleansUpOnlyItsNewSession"
+        },
+        {
+          "platform": "macos",
+          "path": "macos/Tests/LitheTests/PluginLiveActivationTests.swift",
+          "test": "qualifiedAdaptersKeepEveryPackageAndNeverBecomeFileDefaults"
+        }
+      ],
+      "gaps": []
     }
   ]
 }

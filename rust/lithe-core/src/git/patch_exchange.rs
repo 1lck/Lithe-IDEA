@@ -5,6 +5,7 @@ use super::{
     operation_state, repository_root, resolve_commit_revision, validate_root, CoreError, ErrorCode,
     GitCommandResponse, GitOperationStateRequest, TemporaryGitCommitContext,
 };
+use crate::remote::workspace_io as fs;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
@@ -304,7 +305,7 @@ fn export_unstaged_with_untracked(
         "GIT_INDEX_FILE".into(),
         context.index_path.to_string_lossy().into_owned(),
     )];
-    match std::fs::copy(index, &context.index_path) {
+    match fs::copy(index, &context.index_path) {
         Ok(_) => {}
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             let output = capture_git_with_environment(
@@ -498,7 +499,7 @@ fn check_patch(
         &["rev-parse", "--path-format=absolute", "--git-path", "index"],
         "Git index",
     )?;
-    match std::fs::copy(index, &context.index_path) {
+    match fs::copy(index, &context.index_path) {
         Ok(_) => {}
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(patch_io_error(error)),
@@ -699,7 +700,7 @@ fn state_token(
     // Some Git reads refresh stat data despite optional-lock suppression. Keep
     // every snapshot subprocess on a copy while hashing the real index bytes.
     let context = TemporaryGitCommitContext::prepare_snapshot(None)?;
-    match std::fs::copy(&index, &context.index_path) {
+    match fs::copy(&index, &context.index_path) {
         Ok(_) => {}
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(patch_io_error(error)),
@@ -799,7 +800,7 @@ fn state_token(
 fn ensure_working_ancestors(root: &Path, path: &Path) -> Result<(), CoreError> {
     let mut parent = path.parent();
     while let Some(directory) = parent.filter(|directory| *directory != root) {
-        match std::fs::symlink_metadata(directory) {
+        match fs::symlink_metadata(directory) {
             Ok(metadata) if !metadata.is_dir() || metadata.file_type().is_symlink() => {
                 return Err(invalid(
                     "Patch paths cannot traverse symbolic links or files",
@@ -815,7 +816,7 @@ fn ensure_working_ancestors(root: &Path, path: &Path) -> Result<(), CoreError> {
 }
 
 fn hash_optional_file(hash: &mut Sha256, path: &Path) -> Result<(), CoreError> {
-    match std::fs::symlink_metadata(path) {
+    match fs::symlink_metadata(path) {
         Ok(_) => {
             hash.update([1]);
             hash_working_file(hash, path)
@@ -830,15 +831,14 @@ fn hash_optional_file(hash: &mut Sha256, path: &Path) -> Result<(), CoreError> {
 
 fn hash_working_file(hash: &mut Sha256, path: &Path) -> Result<(), CoreError> {
     use std::io::Read;
-    let metadata = std::fs::symlink_metadata(path).map_err(patch_io_error)?;
+    let metadata = fs::symlink_metadata(path).map_err(patch_io_error)?;
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        hash.update(metadata.permissions().mode().to_le_bytes());
+        hash.update(metadata.mode().to_le_bytes());
     }
     hash.update([u8::from(metadata.file_type().is_symlink())]);
     if metadata.file_type().is_symlink() {
-        let target = std::fs::read_link(path).map_err(patch_io_error)?;
+        let target = fs::read_link(path).map_err(patch_io_error)?;
         add_hash_field(hash, target.as_os_str().as_encoded_bytes());
         return Ok(());
     }
@@ -848,7 +848,7 @@ fn hash_working_file(hash: &mut Sha256, path: &Path) -> Result<(), CoreError> {
         ));
     }
     hash.update(metadata.len().to_le_bytes());
-    let mut file = std::fs::File::open(path).map_err(patch_io_error)?;
+    let mut file = fs::File::open(path).map_err(patch_io_error)?;
     let mut buffer = [0; 65536];
     loop {
         crate::protocol::cancellation::check()?;

@@ -37,6 +37,22 @@ struct GitExecutionTests {
     }
 
     @Test
+    func contextIgnoresRequestsCancelledBeforeAnyCommandRan() {
+        let context = GitExecutionContext(operationID: "workflow", source: .user)
+        context.receive(GitExecutionEvent(operationId: "workflow", type: "requestStarted"), at: URL(fileURLWithPath: "/workspace"))
+        context.receive(GitExecutionEvent(operationId: "workflow", type: "requestFinished",
+            error: .init(code: "cancelled", message: "Operation was cancelled")))
+        #expect(context.drainSnapshot() == nil, "A superseded request is not a failed command")
+        #expect(!context.hasEntries)
+
+        // A different failure on the same context is still reported.
+        context.receive(GitExecutionEvent(operationId: "workflow", type: "requestStarted"), at: URL(fileURLWithPath: "/workspace"))
+        context.receive(GitExecutionEvent(operationId: "workflow", type: "requestFinished",
+            error: .init(code: "process_failed", message: "Git process cleanup did not complete within its deadline")))
+        #expect(context.drainSnapshot()?.last?.operationErrorMessage == "Git process cleanup did not complete within its deadline")
+    }
+
+    @Test
     func contextPreflightFailureHistoryRemainsBounded() {
         let context = GitExecutionContext(operationID: "workflow")
         for index in 0..<201 {

@@ -6,7 +6,7 @@ import Testing
 /// Plans and reads a dependency-tree file through the linked Rust Core.
 ///
 /// The ordinary Swift unit lane does not link Core, so this suite runs in the
-/// Core-linked lane of `scripts/verify-rust-core.sh`.
+/// Core-linked lane of `scripts/rust-core/verify-rust-core.sh`.
 @Suite("Maven dependency tree through Rust Core")
 struct MavenDependencyTreeBridgeTests {
     @Test(.enabled(if: RustCoreBridge().isAvailable, "Requires the linked Rust Core integration library"))

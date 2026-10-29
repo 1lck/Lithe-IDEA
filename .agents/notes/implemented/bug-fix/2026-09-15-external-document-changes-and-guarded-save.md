@@ -134,6 +134,20 @@ Windows 是独立前端实现，写入进行中到期的那次延迟自动保存
 磁盘 B 不符，B 和 C 都保留。认可 B 后外部又写入 D，仍必须重新提示。
 不要把“保留编辑器版本”实现成永久 `force=true`。
 
+### 构建输出先筛选，再判断事件洪峰（#1176）
+
+512 条阈值现在统计筛选后的有效变化。普通工作区事件由 Core 的默认目录策略
+排除构建输出；Windows 原生宿主在跨 Tauri 边界前筛选，macOS 使用同一批量
+命令。相对路径以最具体的显式监听根计算，项目根本身叫 build 不会被误排除。
+显式监听的文件与生成源码目录仍有自己的事件。重命名先分解两端，再独立筛选，
+从 target 移入 src 的文件仍能出现。
+
+系统报告事件丢失或监听失败时始终恢复重扫，不能因为路径在 target 下就忽略。
+不采用暂停 watcher、延迟几秒或屏蔽整批事件：构建期间可能同时编辑源码。
+代价是原生 watcher 仍收集构建输出，改善的是跨平台业务刷新量，不宣称减少
+操作系统通知量；Git 和已打开文档监听保持独立。共享 fixture、输出洪峰混合
+源码、显式监听、跨过滤边界重命名及原生丢失标记回归共同约束该边界。
+
 ## 考虑过的备选方案
 
 - 无界的全项目递归监听会让资源和事件量随整个项目增长，也无法解决漏通知后的
@@ -160,15 +174,15 @@ Windows 是独立前端实现，写入进行中到期的那次延迟自动保存
 ## 验证
 
 共享 fixture 位于 `shared/fixtures/documents/lifecycle-v1.json`。
-运行 `./scripts/verify-shared-contracts.sh`、`./scripts/verify-rust-core.sh`、
-`./scripts/verify-core.sh` 和 `./scripts/verify-rust-core-comments.sh`。
+运行 `./scripts/architecture/verify-shared-contracts.sh`、`./scripts/rust-core/verify-rust-core.sh`、
+`./scripts/architecture/verify-core.sh` 和 `./scripts/rust-core/verify-rust-core-comments.sh`。
 
-macOS 使用 `./scripts/test-macos.sh` 及
+macOS 使用 `./scripts/macos/test/test-macos.sh` 及
 `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh`，验证等长同时间
 修改、缺失重建、过期基线、Unicode 字节差异、异步保存期间输入及关闭流程。
 `DocumentSaveBatchTests` 验证跨工作区保存后的新输入和新增会话；
 `MacDocumentObservationTests` 验证普通事件路径筛选、目录替换和丢失事件恢复。
-Windows 使用 `./scripts/build-windows.ps1 -Configuration Release`，以及
+Windows 使用 `./scripts/windows/build/build-windows.ps1 -Configuration Release`，以及
 `./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1`；原生测试覆盖
 替换通知、多窗口释放、提交前变化与暂存清理，前端测试覆盖注册代次、保存延后
 核对和冲突选择。连续打断后的调度、保存等待和关闭取消使用手动调度器验证，
@@ -178,8 +192,8 @@ Windows 使用 `./scripts/build-windows.ps1 -Configuration Release`，以及
 交替使用有界测试门控制顺序。Windows CI 显式运行文档监听控制器测试，并在
 WindowsRust 范围单独运行 `lithe-project`；只运行宿主不会执行依赖包内的测试。
 
-边界和笔记分别使用 `./scripts/verify-service-boundaries.sh`、
-`./scripts/verify-windows-boundaries.sh`、`./scripts/verify-agent-notes.sh`。
+边界和笔记分别使用 `./scripts/architecture/verify-service-boundaries.sh`、
+`./scripts/windows/verify/verify-windows-boundaries.sh`、`./scripts/agent-notes/verify-agent-notes.sh`。
 实际运行结果和未通过的既有测试写入交付说明；单元测试不冒充完整产品界面验收。
 
 ## 适用范围

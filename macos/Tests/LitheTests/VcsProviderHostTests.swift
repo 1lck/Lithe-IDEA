@@ -12,6 +12,80 @@ import Testing
 @Suite("VCS provider host")
 @MainActor
 struct VcsProviderHostTests {
+    @Test(arguments: [nil, "File.swift"] as [String?])
+    func historyLoadsOlderRevisionsFromTheViewportWithoutAButton(path: String?) async throws {
+        let fixture = try VcsFeatureFixture(roots: [("", "svn")])
+        defer { fixture.close() }
+        fixture.providers.replies["status"] = try VcsTestData.statusReply([])
+        #expect(await fixture.open())
+        let continuationReached = TestGate(), releaseContinuation = TestGate()
+        defer { releaseContinuation.open() }
+        fixture.providers.historyReply = { operation in
+            let cursor: String?
+            switch operation {
+            case .history(let value, let limit):
+                #expect(path == nil && limit == VcsProvidersFeatureModel.historyPageSize)
+                cursor = value
+            case .fileHistory(let file, let value, let limit):
+                #expect(file == path && limit == VcsProvidersFeatureModel.historyPageSize)
+                cursor = value
+            default: throw CancellationError()
+            }
+            if cursor != nil {
+                continuationReached.open()
+                #expect(await releaseContinuation.waitUntilOpen())
+            }
+            return try VcsTestData.json([
+                "entries": (cursor == nil ? 0..<50 : 50..<100).map { number -> [String: Any] in
+                    ["revision": ["id": "\(number)", "display": "r\(number)", "kind": "number"],
+                     "message": "Commit \(number)", "changes": [], "changesTruncated": false]
+                },
+                "nextCursor": cursor == nil ? "older" as Any : NSNull()
+            ])
+        }
+        let host = NSHostingView(rootView: VcsHistoryListView(feature: fixture.feature, rootID: "", path: path))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 300),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.orderFront(nil)
+        defer { window.contentView = nil; window.close() }
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        func requestCount() -> Int {
+            fixture.providers.requests.filter { ["history", "fileHistory"].contains($0.operation.name) }.count
+        }
+        func settle(until condition: () -> Bool) async -> Bool {
+            let clock = ContinuousClock(), deadline = clock.now.advanced(by: .seconds(2))
+            repeat {
+                host.layoutSubtreeIfNeeded()
+                if condition() { return true }
+                await Task.yield()
+            } while clock.now < deadline
+            return condition()
+        }
+        #expect(await settle { requestCount() == 1 && descendants(host).contains { $0 is NSScrollView } })
+        let scroll = try #require(descendants(host).compactMap { $0 as? NSScrollView }.first)
+        #expect(await settle { (scroll.documentView?.bounds.height ?? 0) > 1_000 })
+        #expect(requestCount() == 1, "Offscreen rows must not eagerly fetch the entire revision list")
+        let document = try #require(scroll.documentView)
+        let previousHeight = document.bounds.height
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: previousHeight - scroll.contentView.bounds.height))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        #expect(await continuationReached.waitUntilOpen())
+        host.layoutSubtreeIfNeeded()
+        await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+        host.layoutSubtreeIfNeeded()
+        let offset = scroll.contentView.bounds.minY
+        releaseContinuation.open()
+        #expect(await settle { requestCount() == 2 && document.bounds.height > previousHeight + 1_000 })
+        #expect(abs(scroll.contentView.bounds.minY - offset) < 1)
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: document.bounds.height - scroll.contentView.bounds.height))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        host.layoutSubtreeIfNeeded()
+        await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+        #expect(requestCount() == 2, "An exhausted provider stops automatic paging")
+    }
+
     @Test
     func sharedChangesTreeActivatesAnUnversionedFile() async throws {
         let fixture = try VcsFeatureFixture(roots: [("", "svn")])
@@ -758,6 +832,7 @@ private final class FakeVcsProviders: VcsProviderRequesting {
     /// Requests that wait for the gate before answering.
     var holds: [String: TestGate] = [:]
     var onFileOperation: ((VcsOperation, String) throws -> Void)?
+    var historyReply: ((VcsOperation) async throws -> ToolingJSONValue)?
     private(set) var requests: [Request] = []
     private(set) var retainCount = 0
     /// Targets that answered a request and were not stopped since.
@@ -784,6 +859,9 @@ private final class FakeVcsProviders: VcsProviderRequesting {
         }
         if let failure = failures[operation.name] { throw failure }
         if operation.name == "fileOperation" { try onFileOperation?(operation, root) }
+        if ["history", "fileHistory"].contains(operation.name), let historyReply {
+            return VcsProviderReply(value: try await historyReply(operation), negotiation: Self.negotiation(target.vcs))
+        }
         return VcsProviderReply(value: replies[operation.name] ?? .object([:]), negotiation: Self.negotiation(target.vcs))
     }
 

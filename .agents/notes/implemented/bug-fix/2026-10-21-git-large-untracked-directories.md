@@ -81,12 +81,12 @@ LazyVStack {
 ## 验证
 
 - `cargo test --manifest-path rust/Cargo.toml -p lithe-core --lib untracked`
-- `./scripts/test-macos.sh --filter 'GitChangeSectionsCacheTests|GitLocalChangelistsTests|treeStatus|untrackedDirectorySummary|GitStatusObservationTests'`
-- `./scripts/verify-rust-core.sh`
-- `./scripts/verify-service-boundaries.sh`
-- `./scripts/verify-platform-feature-matrix.sh`
-- `./scripts/verify-agent-notes.sh`
-- `./scripts/verify-windows-boundaries.sh`
+- `./scripts/macos/test/test-macos.sh --filter 'GitChangeSectionsCacheTests|GitLocalChangelistsTests|treeStatus|untrackedDirectorySummary|GitStatusObservationTests'`
+- `./scripts/rust-core/verify-rust-core.sh`
+- `./scripts/architecture/verify-service-boundaries.sh`
+- `./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`
+- `./scripts/agent-notes/verify-agent-notes.sh`
+- `./scripts/windows/verify/verify-windows-boundaries.sh`
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
 
 实机验收步骤见功能矩阵 `git-large-untracked-directories`。组件测试不能替代真实仓库下的滚动和帧率检查。

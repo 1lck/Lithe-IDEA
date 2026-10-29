@@ -108,6 +108,11 @@ fn execute(request: &str) -> CoreResponse {
     if let Err(error) = crate::protocol::cancellation::check() {
         return CoreResponse::failure(id, error);
     }
+    let _workspace =
+        match crate::remote::workspace::Scope::begin(parsed.remote_workspace, &parsed.command) {
+            Ok(scope) => scope,
+            Err(error) => return CoreResponse::failure(id, error),
+        };
     let _git_policy = match crate::git::execution_policy::Scope::begin(parsed.git_execution) {
         Ok(scope) => scope,
         Err(error) => return CoreResponse::failure(id, error),
@@ -213,6 +218,28 @@ fn execute(request: &str) -> CoreResponse {
             parsed.payload,
             crate::plugins::declarative::language_server_launch_plan_command,
         ),
+        CoreCommand::DebugValidateAdapterEndpoint => {
+            match crate::debug::validate_adapter_endpoint(parsed.payload) {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::DebugTransportPolicy => match crate::debug::transport_policy(parsed.payload) {
+            Ok(data) => CoreResponse::success(id, data),
+            Err(error) => CoreResponse::failure(id, error),
+        },
+        CoreCommand::DebugTransportHandle => {
+            match crate::debug::handle_transport_event(parsed.payload) {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::DebugTransportRelease => {
+            match crate::debug::release_transport(parsed.payload) {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::DebugAdaptersStartArguments => plugin_response(
             id,
             parsed.payload,
@@ -262,9 +289,44 @@ fn execute(request: &str) -> CoreResponse {
         CoreCommand::BuildTaskPlan => {
             plugin_response(id, parsed.payload, crate::build::build_task_plan_command)
         }
+        CoreCommand::BuildPrepareDebugPlan => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_prepare_debug_plan_command,
+        ),
+        CoreCommand::BuildDecodeDebugPreparation => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_decode_debug_preparation_command,
+        ),
+        CoreCommand::BuildResolveModelInputs => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_resolve_model_inputs_command,
+        ),
+        CoreCommand::BuildPrepareRunPlan => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_prepare_run_plan_command,
+        ),
+        CoreCommand::BuildDecodeRunPreparation => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_decode_run_preparation_command,
+        ),
         CoreCommand::BuildTestPlan => {
             plugin_response(id, parsed.payload, crate::build::build_test_plan_command)
         }
+        CoreCommand::BuildTestDiscoveryPlan => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_test_discovery_plan_command,
+        ),
+        CoreCommand::BuildDecodeTestDiscovery => plugin_response(
+            id,
+            parsed.payload,
+            crate::build::build_decode_test_discovery_command,
+        ),
         CoreCommand::BuildDependencyPlan => plugin_response(
             id,
             parsed.payload,
@@ -490,6 +552,22 @@ fn execute(request: &str) -> CoreResponse {
                     serde_json::to_value(data).expect("snapshot should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::WorkspaceFilterChanges => {
+            match serde_json::from_value::<Vec<String>>(parsed.payload) {
+                Ok(paths) => CoreResponse::success(
+                    id,
+                    serde_json::json!(paths
+                        .into_iter()
+                        .filter(|path| crate::project::is_workspace_event_relevant(path))
+                        .collect::<Vec<_>>()),
+                ),
+                Err(error) => CoreResponse::failure(
+                    id,
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid workspace event paths")
+                        .with_details(error.to_string()),
+                ),
             }
         }
         CoreCommand::WorkspaceListDirectories => {
@@ -801,6 +879,25 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::ExecutionResolveEnvironment => {
+            match serde_json::from_value::<crate::execution::LaunchEnvironmentRequest>(
+                parsed.payload,
+            ) {
+                Ok(request) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(crate::execution::resolve_launch_environment(request))
+                        .expect("environment encodes"),
+                ),
+                Err(error) => CoreResponse::failure(
+                    id,
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid launch environment request",
+                    )
+                    .with_details(error.to_string()),
+                ),
+            }
+        }
         CoreCommand::ExecutionPlanLaunchCommand => {
             match serde_json::from_value::<crate::execution::LaunchCommandPlanRequest>(
                 parsed.payload,
@@ -1107,6 +1204,27 @@ fn execute(request: &str) -> CoreResponse {
                     id,
                     serde_json::to_value(data)
                         .expect("Debug function breakpoint update should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::DebugSetInstructionBreakpoints => {
+            match serde_json::from_value::<crate::debug::SetInstructionBreakpointsRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid debug set-instruction-breakpoints request",
+                )
+                .with_details(error.to_string())
+            })
+            .and_then(crate::debug::set_instruction_breakpoints)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("Debug instruction breakpoint update should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }
@@ -2436,9 +2554,10 @@ fn execute(request: &str) -> CoreResponse {
                 ),
             }
         }
-        CoreCommand::GitExecutable => {
-            CoreResponse::success(id, git::configuration::locate_executable())
-        }
+        CoreCommand::GitExecutable => match git::configuration::locate_executable() {
+            Ok(data) => CoreResponse::success(id, data),
+            Err(error) => CoreResponse::failure(id, error),
+        },
         CoreCommand::RemoteProbe => {
             match serde_json::from_value::<crate::remote::ProbeRequest>(parsed.payload) {
                 Ok(request) => match crate::remote::probe(request) {
@@ -2516,6 +2635,63 @@ fn execute(request: &str) -> CoreResponse {
                     CoreError::new(ErrorCode::InvalidRequest, "Invalid remote file request")
                         .with_details(error.to_string()),
                 ),
+            }
+        }
+        CoreCommand::RemoteCaptureProcess => {
+            match serde_json::from_value(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid host capture request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::remote::workspace_host::capture_process)
+            {
+                Ok(value) => CoreResponse::success(id, value),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::RemoteHostRequest
+        | CoreCommand::RemoteRunProcess
+        | CoreCommand::RemoteRunWatch
+        | CoreCommand::RemoteRunTerminal => {
+            let operation = match command {
+                CoreCommand::RemoteHostRequest => crate::remote::workspace_host::request,
+                CoreCommand::RemoteRunProcess => crate::remote::workspace_host::run_process,
+                CoreCommand::RemoteRunWatch => crate::remote::workspace_host::run_watch,
+                _ => crate::remote::workspace_host::run_terminal,
+            };
+            match serde_json::from_value(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid workspace host request")
+                        .with_details(error.to_string())
+                })
+                .and_then(operation)
+            {
+                Ok(value) => CoreResponse::success(id, value),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::RemoteUploadFile => {
+            match serde_json::from_value(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid upload request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::remote::upload::upload)
+            {
+                Ok(value) => CoreResponse::success(id, value),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::RemoteHostInfo => {
+            match parsed
+                .payload
+                .get("sessionId")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| CoreError::new(ErrorCode::InvalidRequest, "Missing host session"))
+                .and_then(crate::remote::upload::host_info)
+            {
+                Ok(value) => CoreResponse::success(id, value),
+                Err(error) => CoreResponse::failure(id, error),
             }
         }
         CoreCommand::RemoteDisconnect => {

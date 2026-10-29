@@ -53,6 +53,30 @@ launch already succeeds there.
 Strings returned by the core are UTF-8 JSON allocated by Rust. The caller must
 release response strings with `lithe_core_free_string`.
 
+### Remote workspace path identity
+
+Workspace-aware commands accept an optional top-level `remoteWorkspace` with
+`sessionId`, `localRoot` (the native placeholder), and `remoteRoot` (the host
+folder). Roots must be absolute without parent components; `localRoot` must
+have a final component. Without this context commands retain local behavior.
+Remote failures never trigger a local filesystem or process fallback.
+
+Paths below `remoteRoot` project below `localRoot`. Absolute host paths outside
+that folder, including containing Git repositories and canonical symlink
+targets, project below a virtual sibling named
+`<localRoot final component>.lithe-remote-host`, followed by the host path with
+its leading `/` removed. For example, opening `/srv/repo/src` as `/native/src`
+returns `/native/src.lithe-remote-host/srv/repo` for the containing repository.
+This namespace is not materialized or persisted as user data. The native
+registry recognizes both namespaces as the **same binding** and attaches its
+original context to subsequent requests (status, stage, watch, etc.). Core
+reverses both projections before accessing the host. Never infer a connection
+from a raw host absolute path or use `..` to escape the placeholder. Multiple
+hosts with the same host path retain distinct native identities; mixed local
+and remote roots or different bindings in one request remain unsupported.
+Only schema-owned path/URI fields are mapped; opaque argv and user text stay
+unchanged. This is a client/Core projection, not a remote-server wire change.
+
 The ACP Agent calls use an opaque handle for one agent process and connection
 per workspace and agent; one connection carries many conversation sessions.
 `lithe_agent_open_json` accepts `{ "agentId"?: string, "command"?: string,
@@ -952,6 +976,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `editor.lineEdit` | Apply a deterministic line-level text transform and return the replacement plus selection to restore |
 | `editor.lineCommentToken` | Resolve the line comment token for a file extension or language id |
 | `workspace.snapshot` | Enumerate visible workspace nodes and relative file paths; `nestedWorktrees` lists linked worktrees checked out inside their own repository, which are left out of the tree, files, and search index ; `includeTree: false` returns only `files` and a childless `root`; `files` (and the tree, when included) keep the lowercase traversal order that bounded consumers such as Windows Quick Open rely on, not the natural display order of `workspace.listDirectories` |
+| `workspace.filterChanges` | Filter an array of workspace-relative paths against Core's default build/cache exclusions; preserve order, spelling, and the empty root path. Native event loss bypasses filtering. Hosts relativize to the most specific explicit watch root and retain explicitly watched files. |
 | `workspace.listDirectories` | Return one visible level of children for each requested workspace-relative directory (`""` is the root); missing, hidden, symlinked, or nested-worktree paths are omitted, and each listing reports the nested worktrees it left out. Child directories have `children: []` only when a shallow probe proves them visibly empty; otherwise children remain omitted (unloaded), with no recursive tree allocation. Children list directories first, then names in IDEA's natural file-name order (digit runs compare by value, case-insensitive, `-` next to `_`; fixture `shared/fixtures/workspace/file-name-order-v1.json`) |
 | `workspace.repositories` | Discover deterministic Git repository roots for an opened workspace |
 | `workspace.search` | Search visible file names and UTF-8 text files |
@@ -968,6 +993,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `history.delete` | Delete one history entry and its snapshot |
 | `maven.scan` | Parse a Maven project descriptor and recursively return modules/profiles |
 | `maven.launchPlan` | Produce a deterministic Maven invocation from a versioned project context |
+| `execution.resolveEnvironment` | Merge native `inherited` string values, selected `javaHome`/`mavenJavaHome` for the current `toolchain`, and `overrides` into `{ environment }`. `caseInsensitive: true` canonicalizes Windows keys to uppercase. Maven uses Maven JDK with project-JDK fallback; Java uses project JDK. String overrides win; structured `{ toolchain, property: "home" }` bindings use the current step's home for JAVA_HOME, and the named toolchain for other variables. Unknown bindings are omitted. |
 | `execution.planLaunchCommand` | Move oversized Java path-list options into a JDK argument file |
 | `processLifecycle.resolve` | Decide how each process or resource of one Lithe instance ends |
 | `processLifecycle.inventory` | Group a process snapshot of one Lithe instance into terminals, Agent tasks and background services |
@@ -977,6 +1003,10 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `maven.diagnostics` | Parse stable Maven compiler diagnostics from build output |
 | `maven.testResults` | Parse bounded JUnit/Surefire result summaries and failure locations |
 | `debug.createSession` | Create a transport-neutral DAP session and return its initialize frame |
+| `debug.validateAdapterEndpoint` | Validate an IDE-to-DAP TCP endpoint and classify whether remote consent is required; performs no DNS or network I/O |
+| `debug.transport.policy` | Return the default byte-stream deadlines, queue budgets and the session `initialize` deadline; creates no state |
+| `debug.transport.handle` | Apply one platform event to an IDE-to-adapter byte-stream lifecycle and return the effects the platform runs next |
+| `debug.transport.release` | Forget the lifecycle of a stopped byte stream once the platform dropped its handles |
 | `debug.launch` | Queue a launch or attach request, including during initialization |
 | `debug.javaTestLaunch` | Normalize JUnit or TestNG launch metadata into Java DAP arguments |
 | `debug.steppingFilters` | Return adapter defaults or normalize portable stepping filters |
@@ -986,6 +1016,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `debug.setFunctionBreakpoints` | Replace and deterministically order one session's named function breakpoints |
 | `debug.dataBreakpointInfo` | Resolve an adapter-owned data breakpoint identity for a paused variable or field |
 | `debug.setDataBreakpoints` | Replace and deterministically order one session's resolved data breakpoints |
+| `debug.setInstructionBreakpoints` | Replace and deterministically order one session's machine-instruction breakpoints |
 | `debug.setVariable` | Replace one visible variable value in its adapter-owned parent container |
 | `debug.cancelOperation` | Cancel or time out one pending operation and ignore its late response |
 | `debug.execute` | Submit continue, pause, next, step-in, or step-out control |
@@ -1106,10 +1137,17 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `build.detect` | Find every build-system instance the enabled plugins declare in a workspace, with models that need no process |
 | `build.invocationPlan` | List a build system's executable candidates, runtime dependencies, and version probe for one platform |
 | `build.checkToolVersion` | Decide whether a build tool's or runtime's version output meets the declared minimum |
+| `build.resolveModelInputs` | Validate enabled producer facts and project a bounded public model snapshot for a declared consumer |
 | `build.resolveOptions` | Check stored build options against the declaration and return effective values, choices, and the fingerprint |
 | `build.modelPlan` | Expand the command that prints a command-sourced build model, or the request a build provider answers |
 | `build.taskPlan` | Expand one declared or model task for a workspace, project, or target |
-| `build.testPlan` | Expand a test run for a scope, suite, or case and say where its reports will be |
+| `build.testPlan` | Plan a test run for a scope, suite, or case and say where its reports will be |
+| `build.testDiscoveryPlan` | Plan opt-in Provider test discovery for an instance |
+| `build.decodeTestDiscovery` | Validate, deduplicate and order Provider test selectors |
+| `build.prepareRunPlan` | Plan Provider-owned application preparation from a model target |
+| `build.decodeRunPreparation` | Validate portable launch data before the native Run host starts a process |
+| `build.prepareDebugPlan` | Plan same-plugin native debug preparation (Provider v5) |
+| `build.decodeDebugPreparation` | Validate an existing instance-contained native debug program and bounded process facts |
 | `build.dependencyPlan` | Expand the command that prints a project's dependency tree, or the request a build provider answers |
 | `build.decodeModel` | Decode model output or a provider result into projects, targets, tasks, content roots, option values, and run entries |
 | `build.decodeTestResults` | Decode a test run's reports and output into per-case results and a summary |
@@ -1465,6 +1503,9 @@ Native journals track `requestStarted` separately from visible command records.
 The native receiver retains the originating request directory so a failure before
 `started` can be shown as an unconfirmed request with no fabricated arguments or
 exit code. Successfully completed internal queries still produce no history row.
+A request that ends with the `cancelled` error before any command started was
+superseded, not a Git failure, and also produces no row; a cancelled request that
+had started a command keeps that command with the cancellation as its reason.
 A request-start event must not allocate a placeholder or consume command-history capacity. Clearing
 history suppresses late invocations from requests already in preflight, while
 started operations remain cancellable until `requestFinished`, even after their
@@ -2090,6 +2131,121 @@ scope, variable, evaluation, output, stop, continue, and termination events.
 Platforms own adapter discovery, JDT LS activation, sockets or process pipes,
 native process termination, persistence, and UI rendering.
 
+`debug.validateAdapterEndpoint` accepts exactly `{ host, port }`. `host` is a
+bare IPv4, unbracketed IPv6, or DNS name, not a URL, authority, credential,
+path, or scoped address; `port` is an integer from 1 through 65535. It returns
+`{ host, port, remote }`, preserving the input. `localhost` (case insensitive),
+127.0.0.0/8 and `::1` are loopback; every other spelling requires remote
+consent, without resolving DNS. Invalid inputs return `invalid_request`.
+Compatibility cases live in `shared/fixtures/debug/adapter-endpoints-v1.json`.
+The platform obtains approval before connecting a non-loopback endpoint, once
+per connection with no remembered approval, and warns that plain TCP provides
+neither authentication nor encryption. This endpoint is the **IDE-to-adapter**
+address, not a `targetBindings.connection` debuggee address.
+
+The macOS launch envelope may carry optional `adapterEndpoint: { host, port }`
+beside `arguments`. Its session manager selects an already-running DAP server
+instead of starting a local adapter. Missing platform support fails without a
+local fallback. This host-only field is not forwarded as DAP arguments: Core's
+launch configuration ignores it. `request` still independently chooses `launch`
+or `attach`. The provider's language-server port source remains loopback-only.
+Closing the byte stream never terminates the external server, shared language
+server or user-managed tunnel. DAP disconnect retains its request-specific
+ownership: an `attach` sends `terminateDebuggee: false`, while a `launch` can
+terminate the debuggee it launched. On user stop, the TCP host makes a
+bounded best-effort drain of queued frames (including disconnect) for up to one
+second before closing; this is local write completion, not a remote acknowledgement.
+Failure and explicit transport abort close immediately. There is no automatic reconnect or request
+replay. Proxy/tunnel implementations and plugin `tcpPort` / `tcpAnnounced`
+process hosting are not enabled by this API.
+
+The `debug.transport.*` commands hold the lifecycle rules of that byte stream
+so every platform network layer shares one rule set. They are separate from the
+DAP session state: Core never opens a socket, resolves DNS, reads a clock or
+sees the bytes. The platform keeps the socket, the DNS and system timers, and
+the queued frames; only byte counts cross the JSON boundary.
+
+`debug.transport.policy` ignores its payload and returns `{ limits,
+initializationMilliseconds }`. `limits` holds `discoveryMilliseconds` (10000,
+endpoint discovery such as a cold language-server start), `connectMilliseconds`
+(10000), `writeMilliseconds` (10000, one stalled write, never the length of a
+session), `bufferedBytes` (8 MiB), `bufferedWrites` (1024) and
+`drainMilliseconds` (1000). `initializationMilliseconds` is the connect budget
+plus 10000, the window a DAP `initialize` round trip gets, so a session never
+gives up before its transport does.
+
+`debug.transport.handle` accepts exactly `{ transportId, event }` and returns a
+step `{ generation, phase, outcome, effects }`. `transportId` is a host-chosen
+non-empty identifier of at most 512 bytes. Only a `start` event creates a
+transport. A callback for an unknown or released one is `ignored`, and `send`
+to it is `rejectedNotRunning`. `event.type` is one of:
+
+- `start { limits? }` begins a lifecycle; `limits` overrides any of the six
+  defaults with an integer from 1 through 2147483647, otherwise
+  `invalid_request`. A repeat while running is `ignored`. A `start` while the
+  previous lifecycle is draining replaces it.
+- `send { bytes }` queues one frame of that size. The host keeps the bytes in
+  first-in, first-out order. An empty frame is accepted and queued as nothing.
+- `stop {}` is a user cancel: silent teardown, no termination.
+- `finishSendingAndStop {}` flushes queued frames of a ready stream for at most
+  `drainMilliseconds`, then closes silently; with nothing queued or before the
+  stream is ready it closes at once. While draining, new `send` is
+  `rejectedNotRunning`, received data is `ignored` and any failure is silent
+  because the owner already released its session.
+- `endpointResolved { generation, host, port }`, `connectionReady`,
+  `dataReceived`, `peerClosed`, `failed { message }`, `writeCompleted {
+  writeId }` and `timerFired { timerId }`, each carrying the `generation` the
+  host captured when it started the work being answered. `port` is a signed
+  integer so that an out-of-range provider value fails the transport
+  (`invalidEndpoint`) instead of the request.
+
+Every event field is checked strictly: an unknown event, an unknown field or a
+missing field is `invalid_request`.
+
+`generation` rises whenever outstanding work is invalidated (a start, a finish,
+a stop). A callback whose generation is not the live one, or that arrives in
+the wrong phase, is `ignored`. Timer and write ids are unique per transport and
+never reused, so a timer the host failed to cancel and a write completion from
+a replaced write are `ignored` too. `phase` is `stopped`, `discovering`,
+`connecting`, `ready` or `draining`. `outcome` is `applied`, `ignored`,
+`rejectedNotRunning` or `rejectedBufferLimit`. The last one means the queue went
+over its byte or count budget: Core has already failed the transport and the host
+rejects that one `send`.
+
+`effects` is an ordered list the host runs top to bottom:
+
+- `discoverEndpoint` asks for the endpoint and reports `endpointResolved` or `failed`.
+- `armTimer { timerId, purpose, afterMilliseconds }` and `cancelTimer { timerId }`.
+  `purpose` is `discovery`, `connect`, `write` or `drain`. The host reports
+  `timerFired` when an armed timer elapses.
+- `connect { host, port }` opens the socket; `port` is already 1 through 65535.
+- `write { writeId, bytes }` sends the oldest queued frame, which has that size,
+  and reports `writeCompleted` or `failed`. At most one write is in flight.
+- `deliverData` forwards the received bytes to the owner.
+- `close` cancels pending discovery, unhooks and stops the socket and drops
+  queued frames.
+- `reportFailure { reason, message? }` shows the failure on the owner's error
+  output. `reason` is `startupTimedOut`, `writeTimedOut`, `bufferLimit`,
+  `invalidEndpoint` or `host`. The platform owns the localized text of the first
+  four; for `host` the message is the host's own upstream diagnostic, echoed
+  back unchanged.
+- `notifyTermination { exitCode }` ends the owner's session: 0 for a clean peer
+  close, 1 after a failure. It comes last, after `reportFailure`.
+
+A host that re-enters Core while it runs a step's effects, for example an error
+observer that restarts the transport, compares the live generation with the
+step's and abandons the remainder of the older step. `debug.transport.release`
+accepts `{ transportId }` and returns `{ released }`; hosts call it after `stop`
+once they dropped the socket. Releasing a registration resets its generation,
+timer and write counters. A host that restarts after releasing Core state must
+use a fresh `transportId` and reject callbacks from the previous registration
+before dispatching them or touching native timer handles. Host-side Core call
+failures must tear down native resources for `send` as well as callback events;
+an error observer restarting the stream invalidates the old termination too.
+Scripted scenarios, with the exact steps expected,
+live in `shared/fixtures/debug/transport-lifecycle-v1.json`; platform adapter
+tests can replay them.
+
 `debug.createSession` accepts `{ sessionId, adapterId, rootPath,
 supportsRunInTerminalRequest, disabledCapabilities? }`.
 `disabledCapabilities` carries the plugin adapter's `capabilities.disabled`
@@ -2179,6 +2335,48 @@ allowed access modes, and `canPersist`. The client then calls
 disabled entries, and sends access type, condition, and hit count only when the
 adapter negotiated data-breakpoint support. Native clients must discard IDs
 whose `canPersist` is false when the debug session ends.
+
+`debug.setInstructionBreakpoints` replaces one session's instruction (address)
+breakpoints. Each entry carries an opaque `instructionReference` (the address
+string the adapter reported, never a JSON number, because a 64-bit address can
+exceed the JavaScript safe integer range), an optional byte `offset`, `enabled`,
+`condition`, and `hitCondition`. Core validates the reference text, sorts and
+deduplicates by reference and offset, keeps the set in the session, and sends DAP
+`setInstructionBreakpoints` only after the adapter advertised
+`supportsInstructionBreakpoints` and sent `initialized`. Clients keep the set per
+session and never persist or replay it: an address is only valid for one run of
+one process.
+
+`debug.execute` accepts an optional `granularity` of `statement`, `line`, or
+`instruction` on `next`, `stepIn`, `stepOut`, and `stepBack`. Core forwards it as
+the DAP `granularity` argument only when the adapter advertised
+`supportsSteppingGranularity`; otherwise it omits the field and the adapter steps
+by its default unit. Clients use `instruction` while a disassembly view is open.
+
+`debug.inspect` also accepts the kinds `disassemble` and `readMemory`. Both take
+an opaque `memoryReference` and are rejected unless the capability snapshot
+reports them supported (`adapter` and registered extension and `authorized`) and
+the session is paused. `disassemble` additionally takes `offset` (bytes),
+`instructionOffset` (negative asks for instructions before the reference),
+`instructionCount`, and `resolveSymbols` (default true), and returns
+`instructions` with `address`, `instructionBytes`, `instruction`, an optional
+`symbol` on the first instruction of a symbol, and an optional `sourcePath` and
+`line`. `readMemory` takes `offset` and `count` and returns `address`,
+`unreadableBytes`, and base64 `dataBase64`, like DAP. Core never does address
+arithmetic and never opens `writeMemory`: reading is the only memory operation,
+and writing would need its own authorization. Both results are tied to the
+`stopGeneration` they were requested in, so a late reply after the debuggee
+resumed is dropped as stale.
+
+A stack frame without debug info has no usable file or line. When the adapter
+sends neither a source path nor a `sourceReference`, Core reports
+`line` 0 and no `sourcePath` for it, and carries the adapter's
+`instructionPointerReference` so clients can anchor the disassembly on the frame
+instead of showing a made-up file or line 1. A scope whose DAP
+`presentationHint` is `registers` is passed through with that hint; the host has
+no register table of its own, so register names, groups, and values are the
+adapter's. The compatibility cases are in
+`shared/fixtures/debug/projection-v2-examples.json`.
 
 `debug.setVariable` accepts the selected variable's parent `variablesReference`,
 name, and replacement text. Core permits mutation only while paused and after
@@ -2565,17 +2763,28 @@ and virtual-location representation as ordinary navigation.
 
 `lsp.buildRequest` accepts `{ sessionId, operationId?, method, params,
 timeoutMilliseconds? }` and returns `{ operationId }`. `method` and `params`
-are the `provider` field of a `build.modelPlan` or `build.dependencyPlan`
-result; only `lithe/build/model` and `lithe/build/dependencies` are accepted,
-and anything else is `invalid_request`. Every session offers
-`capabilities.experimental.litheBuild: { versions: [1] }` in `initialize`; a
+are the `provider` field of a `build.modelPlan`, `build.dependencyPlan` or
+provider-sourced `build.taskPlan`/`build.testPlan`, `build.testDiscoveryPlan`, or
+`build.prepareRunPlan` result. Version 1 accepts
+`lithe/build/model` and `lithe/build/dependencies`; version 2 adds
+`lithe/build/execute`, version 3 adds `lithe/build/test` with the same bounded
+execution lifecycle and `lithe/build/discoverTests` with the raw result lifecycle.
+Version 4 adds `lithe/build/prepareRun`, with execution progress but a raw launch
+plan passed to `build.decodeRunPreparation` before native process startup. Version 5 adds `lithe/build/prepareDebug`: raw native executable facts pass through `build.decodeDebugPreparation` and the existing DebugAdapter Registry, not private functions or a second DAP engine.
+Other methods are `invalid_request`; tasks on version 1
+and tests on versions 1/2 or run preparation on versions 1/2/3 are `not_supported`.
+Every session offers
+`capabilities.experimental.litheBuild: { versions: [4, 3, 2, 1] }` in `initialize`; a
 session whose process did not answer one of those versions rejects the request
 with `not_supported`, so a shared provider that does not speak the protocol
 still serves its language. `timeoutMilliseconds` replaces the session's request
 timeout for this request and is capped at one hour. The `requestCompleted`
 event carries the provider's reply unchanged as `result.value`, which the host
 passes to `build.decodeModel` or `build.decodeDependencies` as `result`;
-cancellation and late results follow `lsp.cancelOperation`.
+cancellation and late results follow `lsp.cancelOperation`. Execution replies
+are validated as `{exitCode: Int32, output: string}` and progress is mapped
+from a Core-owned wire request ID to `requestProgress` for the still-pending
+operation. See the [provider execution contract](plugins/v1/README.md#provider-task-execution-buildproviders-2).
 
 `lsp.vcsRequest` accepts `{ sessionId, operationId?, vcs, operation, root,
 tool?, arguments?, timeoutMilliseconds? }` and returns `{ operationId }`.
@@ -2891,6 +3100,22 @@ the sources of generated Java entries by content (`sha256:<hex>` in
 editing a class body is not a staleness. When the stored inputs no longer
 reproduce the stored fingerprint, the document came from another generator
 revision and the diagnostic says so instead of listing modified files.
+Automatic run discovery, fingerprint traversal, Node manifest discovery and the
+Windows Java source list use Core's shared scan policy. Known caches/build outputs
+are pruned before descending; other hidden source directories remain visible and
+symlinks are not followed. Failure to read the workspace root is an error. An
+unreadable optional child or fingerprint input is recorded in
+`generator.unreadablePaths`; generation retains previous configurations and input
+hashes beneath those unknown paths. Inspection returns `incompleteProjectScan`
+instead of claiming fingerprint freshness or inferred removals when either the
+current scan or saved baseline is incomplete. The persisted diagnostic also appears
+with `checkFingerprint: false`; a successful complete regeneration clears it.
+This does not replace declared build-system modules or JDT's entrypoint facts.
+The bounded Java source list stops opening further directories once its source
+limit is reached, retains only collected Java paths, and returns them sorted.
+Full fingerprint scans remain uncapped by this list limit and keep reporting
+unreadable inputs independently.
+
 `runConfig.inspect` also accepts optional schema-versioned `javaEntrypoints`
 from the current `lsp.request` result, independent of `checkFingerprint`. Core
 then compares JDT's `(sourcePath, mainClass)` pairs, with a `module/` prefix
@@ -2986,6 +3211,21 @@ object in the local layer (e.g.
 `{ "java": { "homePath": ... }, "maven": { "executablePath": ..., "javaHomePath": ... } }`)
 provides defaults for every configuration's `extensions.java.*`. A non-empty
 per-configuration toolchain path overrides the corresponding project default.
+
+Provider applications can be explicitly saved with `runConfig.createUserConfiguration`
+using `{root,scope:"local",name,type:"buildProvider",build:{pluginID,buildSystemID,
+root,run,projectID,targetID,userArguments?}}`. Core upserts the existing local
+reference by selector identity and retains its `user:` ID, unrelated configurations
+and project toolchain defaults. `extensions.build` in Run v2 holds the typed
+reference; process commands, top-level args/environment/toolchains/debug are
+refused for `build.provider`. Current model membership is revalidated by the
+native build workflow before every preparation. No generated document is needed:
+`runConfig.inspect` recognizes explicit saved local references and `runConfig.resolve`
+merges them against an empty generated layer. A workspace without generated data
+or an explicit saved Provider reference retains the existing missing state.
+The platform guards the source snapshot, atomically writes only the local layer,
+then re-reads the result. `shared/fixtures/run-configuration/build-provider.json`
+is the canonical persistence example.
 
 `runConfig.updateOptions` and `runConfig.createUserConfiguration` are pure
 document transformations. They validate scope, paths, supported types, stable
@@ -3296,11 +3536,16 @@ build system, and a build system without a provider with
 `plugin.launch.unavailable`.
 
 A `debugAdapterID` selects a `debugAdapters[]` entry with a `serverProcess`
-(naming it together with another selector is the same `invalid_request`
-failure); the plan adds `debugAdapter: { id, providerID, displayName,
-adapterID, requests, selectors, configurationTypes, transport, endpoint?,
-disabledCapabilities }`. An adapter that starts on the selected runtime is
-refused with `plugin.launch.unavailable`. Core validates every declared
+or a `tcpLanguageServer` transport (naming it together with another selector is
+the same `invalid_request` failure); the plan adds `debugAdapter: { id,
+providerID, displayName, adapterID, requests, selectors, configurationTypes,
+transport, endpoint?, disabledCapabilities }`. An adapter that starts on the
+selected runtime is refused with `plugin.launch.unavailable`. A
+`tcpLanguageServer` adapter has no process of its own: its plan is the launch
+plan of the plugin language server that `endpoint.languageID` names, so the
+host starts that server as for editing, then sends `workspace/executeCommand`
+with `endpoint.command` and connects to the loopback port the server answers
+with (an integer or a numeric string from 1 to 65535). Core validates every declared
 `transport`, but a host starts only the transports it implements: the macOS host
 runs `stdio` and refuses `tcpPort` and `tcpAnnounced` before starting the
 process, with `plugin.launch.unsupportedTransport`.
@@ -3308,14 +3553,37 @@ process, with `plugin.launch.unsupportedTransport`.
 `debug.adapters.startArguments` accepts `{ manifest, adapterID, request:
 "launch" | "attach", facts: { registration: { generation, currentGeneration },
 runtimeSelection?, target: { kind, path?, processID?, workingDirectory?,
-executable? } } }`
-and returns `{ status: "ok", arguments }`: the request's configured
+executable?, host?, port?, pathMappings? } } }`
+and returns `{ status: "ok", arguments, connection? }`: the request's configured
 `arguments` with each `targetBindings` name filled from the target unless the
 configuration already sets it. `program` is filled from `target.path`, or from
 `target.executable` (an absolute path the host found) when the configuration
 binds it to `target.executable`. Refusals use the `rejected` shape with
 `debug.provider.stale`, `debug.request.unsupported`, `debug.runtime.stale`, or
 `debug.target.invalid`.
+
+A target of `kind: "connection"` attaches to a debuggee on a host and port:
+`host` is a DNS name or IP literal, `port` is 1–65535, and `pathMappings` is up
+to 16 `{ local, remote }` source-root pairs whose `local` is an absolute path on
+the host's platform. It is accepted only for `attach` and only by an adapter
+whose attach configuration declares a `connection` binding; the binding names
+the argument paths that receive each fact, so Core writes `hostName`,
+`connect.host`, or a joined `host:port` string as that adapter reads it. A bad
+`host`, `port`, or `pathMappings` entry is `debug.target.invalid` with the field
+`target.host`, `target.port`, or `target.pathMappings`; so is
+`pathMappings` sent to an adapter that declares no mapping argument, and a
+`connection` target for a `launch` or an adapter without the binding
+(`target.kind`). The response then carries `connection: { host, port, remote }`.
+`remote` is `false` only for `localhost`, `127.0.0.0/8`, and `::1` read from the
+text; every other host is `true`, including `0.0.0.0` and `::ffff:127.0.0.1`.
+Core does not resolve names and opens no socket; the host asks the user before it
+connects to a `remote` endpoint and does not remember the answer by default. The
+launch plan's `debugAdapter.remoteAttach` is `{ pathMappings, maxPathMappings }`
+for an adapter that takes a connection and `null` otherwise. The mappings reach
+the adapter in the shape its binding declares (`objects`, `first`, `dictionary`,
+or `pairs`); a shape that cannot hold them all (`first` takes one, a
+`dictionary` takes each root once on its keyed side) refuses the target with
+`target.pathMappings` instead of dropping some.
 
 `debug.adapters.executablePlan` accepts `{ manifest, adapterID, settings?,
 projectSettings?, workspace?, targetPath? }` and returns `{ status: "ok",
@@ -3365,11 +3633,13 @@ has one build workflow and never branches on a build-system ID: Core plans
 each process, the host runs it with the discovered executable, and Core
 decodes what it printed or wrote.
 
-A build system with a `provider` also requires `buildProviders: 1`. Core supports
-validation and planning for that capability; a host advertises it only after
-implementing Provider lifecycle and requests. macOS does not yet advertise it,
-so its marketplace and install review reject Provider plugins while accepting
-compatible declarative build systems.
+A build system with a `provider` requires `buildProviders: 1`, version 2 when
+a task uses `source: "provider"`, version 3 when tests do, or version 4 for
+provider application run preparation, version 5 for native debug preparation, and
+version 6 for optional read-only model inputs. Core validates and plans all six versions;
+a host advertises each only after implementing its lifecycle and requests.
+macOS advertises all six and routes provider tasks, tests and run preparation through
+the existing workspace session. Prepared applications use the existing native Run host. Windows does not yet advertise Provider lifecycle support.
 
 Except `build.detect`, every command accepts
 `{ manifest, buildSystemID, request }`, revalidates the manifest, and answers
@@ -3398,7 +3668,7 @@ Paths in requests are workspace-relative with `/` unless named absolute.
 `root` is the instance root from detection. Selected entities are
 `{ name, path?, tags?, execution?, properties? }` as the decoded model
 returned them. Plan requests share `{ root, options?, pluginDirectory?,
-workspaceStateDirectory? }`; `options` are the stored values by option ID,
+workspaceStateDirectory?, modelInputs? }`; `options` are the stored values by option ID,
 and the directories are absolute host paths used only as substitution text.
 
 | Command | Request | Result |
@@ -3406,10 +3676,17 @@ and the directories are absolute host paths used only as substitution text.
 | `build.detect` | `{ workspaceRoot, plugins: [{ manifest }], options?: { <buildSystemID>: { <optionID>: value } } }` | `detection`: `{ instances, rejected: [{ index, error }], shadowed: [{ pluginID, buildSystemID, by }] }`; each instance is `{ id, pluginID, buildSystemID, displayName, root, markers, modelSource, optionFingerprint }` plus `model` or `modelError` for `static` and `hostIntegration` sources; a `provider` source has neither |
 | `build.invocationPlan` | `{ root, platform: "macos" \| "linux" \| "windows" }` | `invocation`: `{ buildSystemID, root, executables, environmentInputs, runtimeDependencies, version, minimumVersion }` with project-file paths joined to `root`; every runtime dependency with a known probe, host-managed ones included, carries `version: { arguments }` |
 | `build.checkToolVersion` | `{ runtime?, output }` | `version`: `{ satisfied, version? }`; `runtime` checks that runtime dependency instead of the tool |
+| `build.resolveModelInputs` | `{revision, sources: [{manifest, instances: [{buildSystemID, root, state, model?, options?}]}]}` from installed enabled current-workspace sources | `modelInputs`: version 1 public snapshot with exact optional producer slots, state, normalized projects/targets/content roots, configuration fingerprint and explicitly shared options; no tasks/run/settings/private functions; see the [plugin contract](https://github.com/1lck/Lithe-IDEA/blob/preview/shared/contracts/plugins/v1/README.md#optional-read-only-model-inputs-buildmodelinputs-1) |
 | `build.resolveOptions` | `{ options, modelValues? }` | `options`: `{ options: [{ id, displayName, kind, value, source, choices, allowCustom }], dropped, fingerprint }` |
 | `build.modelPlan`, `build.dependencyPlan` | plan fields plus `project?` (dependencies), `outputFile?`, and for provider sources `refresh?` (boolean) and `tool?: { executable }` (absolute path) | `plan`: `{ buildSystemID, root, arguments, environment, workingDirectory, execution, optionFingerprint, output, decoder, executesProjectCode, mayUseNetwork }`; for a `provider` source `{ buildSystemID, root, provider: { method, params }, decoder, executesProjectCode, mayUseNetwork, optionFingerprint }`, where `method` is `lithe/build/model` or `lithe/build/dependencies` and `params` is `{ buildSystemID, root, options, optionArguments, environment, project?, refresh?, tool? }`; `refresh` appears only when `true` and `tool` only when the host sent it |
-| `build.taskPlan` | plan fields plus `task`, `project?`, `target?`, `modelTask?`, `userArguments?` | `plan` with `arguments`, `environment`, `workingDirectory`, `execution`, and `optionFingerprint` |
-| `build.testPlan` | plan fields plus `project?`, `target?`, `suite?`, `case?`, `userArguments?`, `projects?` (the model's project directories) | `plan` with the task-plan fields and `results`: `null`, `{ decoder, reports }` with workspace-relative globs (for the selected project, or for the root and every listed project when none is selected), or `{ decoder: "hostIntegration" }`. A `suite` or `case` the templates cannot place on the command line under this selection, such as a case without its suite when the tool only addresses `Suite#case`, is `plugin.build.invalidSelection` rather than a wider run |
+| `build.taskPlan` | plan fields plus `task`, `project?`, `target?`, `modelTask?`, `userArguments?` | command `plan` with `arguments`, `environment`, `workingDirectory`, `execution`, and `optionFingerprint`; a provider task instead returns `provider: {method: "lithe/build/execute", params}` with effective options, selected task/entities, user arguments and effect metadata |
+| `build.testPlan` | plan fields plus `project?`, `target?`, `suite?`, `case?`, `userArguments?`, `projects?` (the model's project directories) | command plan or `provider: {method: "lithe/build/test", params}` (buildProviders 3), plus `results`: `null`, `{ decoder, reports }` with workspace-relative globs (for the selected project, or for the root and every listed project when none is selected), or command-only `{ decoder: "hostIntegration" }`. Command filters that templates cannot place, such as a case without its suite when the tool only addresses `Suite#case`, are `plugin.build.invalidSelection`; Provider filters remain separate typed values and must be declared supported |
+| `build.testDiscoveryPlan` | common plan fields plus `refresh?`, `tool?`; no project/output file | `plan.provider` for `lithe/build/discoverTests`, only with `test.discovery: true` (Provider v3), using the same effective options and effect metadata |
+| `build.decodeTestDiscovery` | common plan fields plus canonical `result` | `discovery.tests` with validated `{id, suite, case, project?, target?}` selectors; bounded at 10,000 items/32 MiB, deterministic and exactly runnable; malformed replies reject in full |
+| `build.prepareRunPlan` | common plan fields, `run`, required `project`/`target`, `userArguments?`; no output file | `plan.provider` for `lithe/build/prepareRun` (Provider v4), selected declaration/tags/paths/options validated |
+| `build.decodeRunPreparation` | `workspaceRoot`, instance `root`, raw `result` | `launch` with portable `{executable:{kind,value},arguments,workingDirectory,environment}`; bounded strings and workspace directory containment, `plugin.build.invalidOutput` on invalid result |
+| `build.prepareDebugPlan` | same selected fields as `build.prepareRunPlan`; run declares same-plugin `debug.adapter` | `plan.provider` for `lithe/build/prepareDebug` (v5); no cross-package reference |
+| `build.decodeDebugPreparation` | `workspaceRoot`, instance `root`, selected `run`, raw `result` | `preparation` with declaration-owned `adapter`, normalized `root`, `program`, `arguments`, `workingDirectory`, `environment`; program is an existing regular file contained in the instance after canonicalization |
 | `build.decodeModel` | `{ workspaceRoot, root, output?, outputFile?, result?, options? }`; `result` is the provider's JSON answer | `model`: `{ projects, targets, tasks, contentRoots, optionValues, run }`; `run` entries carry `buildSystem: { id, root, projectID, targetID?, optionFingerprint }` |
 | `build.decodeTestResults` | `{ workspaceRoot, root, project?, projects?, output, notBeforeMillis?, suite? }`; without `project` the reports of the root and every listed model project are read | `results`: `{ tests: [{ suite, case, status, message?, durationMillis?, path?, line?, invocations }], summary: { total, passed, failed, errors, skipped }, success }`; repeated invocations of one case merge into the most severe status |
 | `build.decodeDiagnostics` | `{ workspaceRoot, root, output }` | `diagnostics`: `[{ path, line, column?, severity, message }]`, deduplicated, inside the workspace only |
@@ -3528,6 +3805,13 @@ the remote server running. Requests over it take `sessionId`:
 | `remote.readDir` | `{ sessionId, path }` | the remote protocol's `fs.readDir` result |
 | `remote.readFile` | `{ sessionId, path }` | `{ data (base64), size, modifiedMs }`; files over 16 MiB are `not_supported` |
 | `remote.writeFile` | `{ sessionId, path, data, expected? }` | `{ status: "saved", size, modifiedMs }` or `{ status: "conflict" }` |
+| `remote.hostRequest` | `{ sessionId, method, params }` | the finite host method's result, including JSON `null` |
+| `remote.hostInfo` | `{ sessionId }` | the original connection's handshake `host`, including OS, architecture, home and features |
+| `remote.uploadFile` | `{ sessionId, sourcePath, path, sha256, mode }` | verified `{ size, sha256 }` |
+| `remote.runWatch` | `{ sessionId, params: { root, excludeNames? } }` | waits until root removal or cancellation; relays `watch.started`, `watch.changed`, `watch.error` |
+| `remote.runProcess` | `{ sessionId, params: { argv, cwd?, environment?, env?, pipeStdin? } }` | leader exit; relays `process.started`, `process.output`, `process.exit` |
+| `remote.runTerminal` | `{ sessionId, params: { argv?, cwd?, env?, columns, rows } }` | leader exit; relays `terminal.started`, `terminal.output`, `terminal.exit` |
+| `remote.captureProcess` | `{ sessionId, params, timeoutMilliseconds, maxOutputBytes }` | base64 `stdout`, `stderr`, nullable `exitCode` and `signal` |
 
 `remote.writeFile` replaces the file atomically on the host. With
 `expected` (`{ size, modifiedMs }` from the read) a changed file is a
@@ -3535,6 +3819,49 @@ the remote server running. Requests over it take `sessionId`:
 `workspace_not_found`, a denied one `permission_denied`. A broken connection
 fails with `connection_closed` and is forgotten, so the host reconnects; an
 unknown or closed `sessionId` is also `connection_closed`.
+
+`remote.hostRequest` accepts finite filesystem, environment and port queries,
+plus controls of existing processes and terminals. Creating a watch, process,
+terminal, walk or tunnel through that command is `invalid_request`; creation
+requires an owner that subscribes before sending the start request. Streamed
+Core events use `{ type: "remote", event, params }`. Resource IDs are allocated
+by Core and replace any caller-supplied ID. Startup output is bounded to 8 MiB.
+Cancellation, invalid event data and disconnect release the subscription and
+stop the host resource with a two-second cleanup deadline.
+That deadline bounds the client's wait, not ownership: when creation has not
+published yet, the host records teardown against the pending resource ID and
+the creating worker cleans it after publication. A rejected or timed-out close
+worker cannot turn an already accepted cancellation into an orphaned resource.
+
+Watch startup emits `watch.started` before buffered changes. The caller rescans
+on startup, `overflow`, or watch error; `ROOT_REMOVED` ends the call. Watch paths
+remain absolute host paths until the native adapter maps the owning workspace
+back to placeholder URLs. A limit error preserves the partially working watch
+and requests a rescan. Process capture requires a 1–30,000 ms deadline and
+1–8 MiB output budget, rejects open stdin, and owns cleanup on overflow/timeout.
+
+`remote.uploadFile` reads a native absolute regular file and streams it to the
+specified host using the optional `upload` feature. It verifies source size,
+chunk acknowledgements and the commit receipt; failure attempts an uncancelled
+abort with a two-second deadline. Each host call has a 30-second deadline, while
+the host imposes the five-minute staging lifetime. This command does not approve
+plugin code: the platform package adapter validates trust, version, manifest and
+target architecture before invoking it. Target publication never overwrites.
+Successful upload ownership transfers to the caller, which removes its run
+snapshot after the process has ended. The native source and installation remain
+read-only. See the staged upload limits in `remote-workspace-protocol-v1.md`.
+
+Plugin deployment requires both `upload` and `runDirectories` host features.
+Through `remote.hostRequest`, `fs.createRunDirectory` accepts a caller-generated
+`directoryId` and returns a fresh host `path`; `fs.releaseRunDirectory` accepts
+the same identity and is idempotent. Allocation may finish after Core cancellation,
+but the host owns it and orders a subsequent release after pending creation.
+The platform retains the original connection and the identity before allocation,
+releases after process destruction, and never falls back to unchecked `fs.remove`.
+Nonpersistent disconnect or session termination also collects full snapshots;
+persistent disconnect retains them until explicit release, shutdown or idle expiry.
+Forced server termination recovery remains unsupported, rather than risking
+deletion of inputs used by surviving processes.
 
 ### Git patch discovery and rebase amendment preconditions
 
@@ -3854,6 +4181,13 @@ Fixtures live in `shared/fixtures/process-lifecycle/settle-v1.json`.
 `lithe-ide-host` adapter. This local host command is not remotely exposed. See
 [IDE API v1](ide-api/v1.md) for the allowlisted plugin/MCP capabilities, connection
 ownership, authorization, output cursors and shutdown semantics.
+Native Rust hosts can attach an owner-checked, connection-lifetime callback using
+`attach_ide_request_dispatcher`; this is separate from the request-scoped Git/Agent
+progress callback. It forwards notification IDs only. `ideHost.control` action
+`claim` atomically returns an unexpired, unclaimed request or null before any
+application action. Closing the connection releases the callback. Windows delivers independent,
+window-scoped Tauri events rather than an ordered Channel; a missing notification
+must not block subsequent requests.
 
 ### Java service hot replacement
 

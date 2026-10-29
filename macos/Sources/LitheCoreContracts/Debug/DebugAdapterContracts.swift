@@ -20,6 +20,13 @@ public protocol DebugAdapterTransport: AnyObject {
     func stop()
 }
 
+/// Optional bounded best-effort flush for the final DAP disconnect frame.
+/// This ends the transport, never the external server; `stop` still aborts now.
+@MainActor
+public protocol DebugAdapterDrainingTransport: DebugAdapterTransport {
+    func finishSendingAndStop()
+}
+
 @MainActor
 public protocol DebugOperationDeadline: AnyObject {
     func cancel()
@@ -41,8 +48,20 @@ public enum DebugAdapterState: String, Equatable, Sendable {
     case idle, initializing, ready, launching, running, paused, terminated, failed
 }
 
-public enum DebugRequestKind: String, Codable, Equatable, Sendable {
+public enum DebugRequestKind: String, Codable, Hashable, Sendable {
     case launch, attach
+}
+
+/// IDE-to-adapter DAP endpoint, never the adapter-to-debuggee attach target.
+/// Core validates it before the platform asks consent or opens a connection.
+public struct DebugAdapterEndpoint: Codable, Equatable, Sendable {
+    public let host: String
+    public let port: Int
+
+    public init(host: String, port: Int) {
+        self.host = host
+        self.port = port
+    }
 }
 
 public struct DebugLaunchConfiguration: Codable, Equatable, Sendable {
@@ -50,17 +69,27 @@ public struct DebugLaunchConfiguration: Codable, Equatable, Sendable {
     public let request: DebugRequestKind
     public let arguments: [String: ToolingJSONValue]
     public let steppingFilters: DebugSteppingFilters?
+    /// Host-selected Registry identity (`pluginID/adapterID` for plugins).
+    /// A missing identity selects by source file; an unavailable explicit
+    /// identity must fail rather than select another adapter for that file.
+    public let adapterProviderID: String?
+    /// An already running DAP server; absent means the provider's normal transport.
+    public let adapterEndpoint: DebugAdapterEndpoint?
 
     public init(
         name: String,
         request: DebugRequestKind,
         arguments: [String: ToolingJSONValue],
-        steppingFilters: DebugSteppingFilters? = nil
+        steppingFilters: DebugSteppingFilters? = nil,
+        adapterProviderID: String? = nil,
+        adapterEndpoint: DebugAdapterEndpoint? = nil
     ) {
         self.name = name
         self.request = request
         self.arguments = arguments
         self.steppingFilters = steppingFilters
+        self.adapterProviderID = adapterProviderID
+        self.adapterEndpoint = adapterEndpoint
     }
 
     public func applying(steppingFilters: DebugSteppingFilters) -> Self {
@@ -68,7 +97,9 @@ public struct DebugLaunchConfiguration: Codable, Equatable, Sendable {
             name: name,
             request: request,
             arguments: arguments,
-            steppingFilters: steppingFilters
+            steppingFilters: steppingFilters,
+            adapterProviderID: adapterProviderID,
+            adapterEndpoint: adapterEndpoint
         )
     }
 }
@@ -326,6 +357,8 @@ public struct DebugBreakpoint: Identifiable, Equatable, Sendable {
     public let message: String?
     public let functionName: String?
     public let dataID: String?
+    /// Address of an instruction breakpoint; opaque, never parsed by the host.
+    public let instructionReference: String?
     public let sourceURL: URL?
     public let requestedLine: Int?
     public let line: Int?
@@ -340,13 +373,15 @@ public struct DebugBreakpoint: Identifiable, Equatable, Sendable {
         column: Int?,
         functionName: String? = nil,
         dataID: String? = nil,
-        requestedLine: Int? = nil
+        requestedLine: Int? = nil,
+        instructionReference: String? = nil
     ) {
         self.id = id
         self.verified = verified
         self.message = message
         self.functionName = functionName
         self.dataID = dataID
+        self.instructionReference = instructionReference
         self.sourceURL = sourceURL
         self.requestedLine = requestedLine
         self.line = line
@@ -413,6 +448,78 @@ public struct DebugFunctionBreakpoint: Codable, Hashable, Sendable {
         self.enabled = enabled
         self.condition = condition
         self.hitCondition = hitCondition
+    }
+}
+
+/// A breakpoint on one machine instruction. `instructionReference` is the opaque
+/// address string the adapter reported; 64-bit addresses are never parsed or added to.
+public struct DebugInstructionBreakpoint: Codable, Hashable, Sendable {
+    public let instructionReference: String
+    public let offset: Int?
+    public let enabled: Bool
+    public let condition: String?
+    public let hitCondition: String?
+
+    public init(
+        instructionReference: String,
+        offset: Int? = nil,
+        enabled: Bool = true,
+        condition: String? = nil,
+        hitCondition: String? = nil
+    ) {
+        self.instructionReference = instructionReference
+        self.offset = offset
+        self.enabled = enabled
+        self.condition = condition
+        self.hitCondition = hitCondition
+    }
+}
+
+/// How far one step moves, in the DAP `SteppingGranularity` vocabulary.
+public enum DebugSteppingGranularity: String, Codable, Equatable, Sendable {
+    case statement, line, instruction
+}
+
+/// One machine instruction. `address` and `instructionBytes` stay adapter-formatted
+/// strings so they are shown exactly as reported.
+public struct DebugDisassembledInstruction: Identifiable, Equatable, Sendable {
+    public let address: String
+    public let instructionBytes: String?
+    public let instruction: String
+    /// Symbol the instruction belongs to; reported only on the first instruction of it.
+    public let symbol: String?
+    public let sourceURL: URL?
+    public let line: Int?
+
+    public var id: String { address }
+
+    public init(
+        address: String,
+        instructionBytes: String?,
+        instruction: String,
+        symbol: String? = nil,
+        sourceURL: URL? = nil,
+        line: Int? = nil
+    ) {
+        self.address = address
+        self.instructionBytes = instructionBytes
+        self.instruction = instruction
+        self.symbol = symbol
+        self.sourceURL = sourceURL
+        self.line = line
+    }
+}
+
+/// Raw debuggee bytes returned by a read-only memory request.
+public struct DebugMemoryRead: Equatable, Sendable {
+    public let address: String
+    public let unreadableBytes: Int
+    public let data: Data
+
+    public init(address: String, unreadableBytes: Int, data: Data) {
+        self.address = address
+        self.unreadableBytes = unreadableBytes
+        self.data = data
     }
 }
 
@@ -619,6 +726,10 @@ public struct DebugAdapterCapabilities: Equatable, Sendable {
     public let supportsStepInTargetsRequest: Bool
     public let supportsGotoTargetsRequest: Bool
     public let supportsCompletionsRequest: Bool
+    public let supportsDisassembleRequest: Bool
+    public let supportsSteppingGranularity: Bool
+    public let supportsInstructionBreakpoints: Bool
+    public let supportsReadMemoryRequest: Bool
     public let exceptionBreakpointFilters: [DebugExceptionBreakpointFilter]
 
     public static let unknown = DebugAdapterCapabilities()
@@ -643,6 +754,10 @@ public struct DebugAdapterCapabilities: Equatable, Sendable {
         supportsStepInTargetsRequest: Bool = false,
         supportsGotoTargetsRequest: Bool = false,
         supportsCompletionsRequest: Bool = false,
+        supportsDisassembleRequest: Bool = false,
+        supportsSteppingGranularity: Bool = false,
+        supportsInstructionBreakpoints: Bool = false,
+        supportsReadMemoryRequest: Bool = false,
         exceptionBreakpointFilters: [DebugExceptionBreakpointFilter] = []
     ) {
         self.negotiated = negotiated
@@ -664,6 +779,10 @@ public struct DebugAdapterCapabilities: Equatable, Sendable {
         self.supportsStepInTargetsRequest = supportsStepInTargetsRequest
         self.supportsGotoTargetsRequest = supportsGotoTargetsRequest
         self.supportsCompletionsRequest = supportsCompletionsRequest
+        self.supportsDisassembleRequest = supportsDisassembleRequest
+        self.supportsSteppingGranularity = supportsSteppingGranularity
+        self.supportsInstructionBreakpoints = supportsInstructionBreakpoints
+        self.supportsReadMemoryRequest = supportsReadMemoryRequest
         self.exceptionBreakpointFilters = exceptionBreakpointFilters
     }
 }
@@ -681,6 +800,14 @@ public struct DebugStackFrame: Identifiable, Equatable, Sendable {
     public let line: Int
     public let column: Int
     public let isFiltered: Bool
+    /// Address of the frame's current instruction. A frame without debug info has no
+    /// file and `line` 0, so the disassembly view anchors on this instead.
+    public let instructionPointerReference: String?
+
+    /// True when the frame has no file the editor could open. Adapters such as
+    /// lldb-dap still report a line for code without debug information (they serve
+    /// the disassembly as a synthetic source), so the line alone does not tell.
+    public var isSourceless: Bool { sourceURL == nil }
 
     public init(
         id: Int,
@@ -688,7 +815,8 @@ public struct DebugStackFrame: Identifiable, Equatable, Sendable {
         sourceURL: URL?,
         line: Int,
         column: Int,
-        isFiltered: Bool = false
+        isFiltered: Bool = false,
+        instructionPointerReference: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -696,6 +824,7 @@ public struct DebugStackFrame: Identifiable, Equatable, Sendable {
         self.line = line
         self.column = column
         self.isFiltered = isFiltered
+        self.instructionPointerReference = instructionPointerReference
     }
 }
 
@@ -706,6 +835,10 @@ public struct DebugScope: Identifiable, Equatable, Sendable {
     public let expensive: Bool
     public let namedVariables: Int
     public let indexedVariables: Int
+    /// DAP `presentationHint` (`arguments`, `locals`, `registers`), or nil.
+    public let presentationHint: String?
+
+    public var isRegisters: Bool { presentationHint == "registers" }
 
     public init(
         id: Int,
@@ -713,7 +846,8 @@ public struct DebugScope: Identifiable, Equatable, Sendable {
         variablesReference: Int,
         expensive: Bool,
         namedVariables: Int = 0,
-        indexedVariables: Int = 0
+        indexedVariables: Int = 0,
+        presentationHint: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -721,6 +855,7 @@ public struct DebugScope: Identifiable, Equatable, Sendable {
         self.expensive = expensive
         self.namedVariables = max(0, namedVariables)
         self.indexedVariables = max(0, indexedVariables)
+        self.presentationHint = presentationHint
     }
 }
 
@@ -788,6 +923,7 @@ public protocol DebugAdapterControllingSession: DebugAdapterSession {
     func setExceptionBreakpoints(_ breakpoints: [DebugExceptionBreakpoint])
     func setFunctionBreakpoints(_ breakpoints: [DebugFunctionBreakpoint])
     func setDataBreakpoints(_ breakpoints: [DebugDataBreakpoint])
+    func setInstructionBreakpoints(_ breakpoints: [DebugInstructionBreakpoint])
     func requestDataBreakpointInfo(
         name: String,
         variablesReference: Int?,
@@ -801,6 +937,13 @@ public protocol DebugAdapterControllingSession: DebugAdapterSession {
         threadID: Int?,
         targetID: Int?,
         singleThread: Bool
+    )
+    /// Steps by `granularity`; adapters without `supportsSteppingGranularity` fall back
+    /// to their default step.
+    func execute(
+        _ command: DebugExecutionCommand,
+        threadID: Int?,
+        granularity: DebugSteppingGranularity
     )
     func requestStepInTargets(
         frameID: Int,
@@ -817,6 +960,21 @@ public protocol DebugAdapterControllingSession: DebugAdapterSession {
     func requestExceptionInfo(
         threadID: Int,
         completion: @escaping (Result<DebugExceptionInfo, Error>) -> Void
+    )
+    /// Instructions around `memoryReference`; `instructionOffset` may be negative to ask
+    /// for instructions before it. Valid only while the thread stays stopped.
+    func requestDisassembly(
+        memoryReference: String,
+        instructionOffset: Int,
+        instructionCount: Int,
+        completion: @escaping (Result<[DebugDisassembledInstruction], Error>) -> Void
+    )
+    /// Reads `count` bytes at `memoryReference` plus `offset`. Read-only.
+    func requestReadMemory(
+        memoryReference: String,
+        offset: Int,
+        count: Int,
+        completion: @escaping (Result<DebugMemoryRead, Error>) -> Void
     )
     func requestStackTrace(threadID: Int, completion: @escaping (Result<[DebugStackFrame], Error>) -> Void)
     func requestScopes(frameID: Int, completion: @escaping (Result<[DebugScope], Error>) -> Void)
@@ -872,6 +1030,30 @@ public extension DebugAdapterControllingSession {
     func setExceptionBreakpoints(_: [DebugExceptionBreakpoint]) {}
     func setFunctionBreakpoints(_: [DebugFunctionBreakpoint]) {}
     func setDataBreakpoints(_: [DebugDataBreakpoint]) {}
+    func setInstructionBreakpoints(_: [DebugInstructionBreakpoint]) {}
+    func execute(
+        _ command: DebugExecutionCommand,
+        threadID: Int?,
+        granularity _: DebugSteppingGranularity
+    ) {
+        execute(command, threadID: threadID)
+    }
+    func requestDisassembly(
+        memoryReference _: String,
+        instructionOffset _: Int,
+        instructionCount _: Int,
+        completion: @escaping (Result<[DebugDisassembledInstruction], Error>) -> Void
+    ) {
+        completion(.failure(DebugAdapterCapabilityError.unsupported("disassembly")))
+    }
+    func requestReadMemory(
+        memoryReference _: String,
+        offset _: Int,
+        count _: Int,
+        completion: @escaping (Result<DebugMemoryRead, Error>) -> Void
+    ) {
+        completion(.failure(DebugAdapterCapabilityError.unsupported("memory reading")))
+    }
     func execute(_ command: DebugExecutionCommand, threadID: Int?, targetID _: Int?) {
         execute(command, threadID: threadID)
     }

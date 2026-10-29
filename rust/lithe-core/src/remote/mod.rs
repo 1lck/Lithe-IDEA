@@ -1,7 +1,7 @@
 //! Remote development connections: checking that a saved SSH connection
 //! reaches a usable host before any workspace is opened on it.
 //!
-//! The command builds the transport chain with `lithe-remote-client`, runs
+//! The command builds the transport chain with `lithe_remote::client`, runs
 //! its platform probe through the system OpenSSH client, and relays every
 //! question OpenSSH asks (passwords, key passphrases, one-time codes, unknown
 //! host keys) to the host UI through the shared AskPass session. Core never
@@ -11,13 +11,17 @@
 
 use crate::git::execution_events;
 use crate::protocol::{CoreError, ErrorCode};
-use lithe_remote_client::bootstrap::{parse_probe, probe_command};
-use lithe_remote_client::{Hop, SshHop, TransportChain};
+use lithe_remote::client::bootstrap::{parse_probe, probe_command};
+use lithe_remote::client::{Hop, SshHop, TransportChain};
 use serde::{Deserialize, Serialize};
 use std::process::{Command, ExitStatus};
 use std::time::{Duration, Instant};
 
 pub(crate) mod sessions;
+pub(crate) mod upload;
+pub(crate) mod workspace;
+pub(crate) mod workspace_host;
+pub(crate) mod workspace_io;
 
 /// Seconds OpenSSH waits for the TCP connection when the profile sets none.
 const DEFAULT_CONNECT_TIMEOUT_SECONDS: u32 = 15;
@@ -107,7 +111,7 @@ pub(crate) struct ProbedHost {
     /// Rust target of the server build for this host, or `None`.
     server_target: Option<&'static str>,
     /// Facts for display, such as the distribution and memory.
-    details: lithe_remote_client::bootstrap::HostDetails,
+    details: lithe_remote::client::bootstrap::HostDetails,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

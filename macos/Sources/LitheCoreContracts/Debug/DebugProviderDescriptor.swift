@@ -10,22 +10,34 @@ public struct DebugProviderDescriptor: Identifiable, Hashable, Sendable {
     public let fileExtensions: Set<String>
     public let fileNames: Set<String>
     public let fileNamePrefixes: Set<String>
+    /// Qualified plugin entries are explicit selections, not competing file
+    /// defaults. Their file patterns still identify supported breakpoints.
+    public let matchesAllSources: Bool
+    public let selectsByFile: Bool
+    public let requests: Set<DebugRequestKind>
 
     public init(
         id: String,
         displayName: String,
         fileExtensions: Set<String>,
         fileNames: Set<String> = [],
-        fileNamePrefixes: Set<String> = []
+        fileNamePrefixes: Set<String> = [],
+        selectsByFile: Bool = true,
+        matchesAllSources: Bool = false,
+        requests: Set<DebugRequestKind> = [.launch, .attach]
     ) {
         self.id = id
         self.displayName = displayName
         self.fileExtensions = fileExtensions
         self.fileNames = fileNames
         self.fileNamePrefixes = fileNamePrefixes
+        self.matchesAllSources = matchesAllSources
+        self.selectsByFile = selectsByFile
+        self.requests = requests
     }
 
     public func matches(_ fileURL: URL) -> Bool {
+        if matchesAllSources { return true }
         let name = fileURL.lastPathComponent.lowercased()
         if fileNames.contains(name) { return true }
         if fileNamePrefixes.contains(where: name.hasPrefix) { return true }
