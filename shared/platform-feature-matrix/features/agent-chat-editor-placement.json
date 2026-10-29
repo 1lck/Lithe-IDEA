@@ -8,7 +8,7 @@
     "verificationStatus": "pending",
     "evidence": [
       "macos/Sources/Lithe/Views/Agent/AgentConversationView.swift",
-      "macos/Sources/Lithe/Views/Agent/AgentHistoryPopover.swift",
+      "macos/Sources/Lithe/Views/Agent/AgentHistoryView.swift",
       "macos/Sources/Lithe/Views/Editor/EditorAreaView.swift",
       "macos/Sources/Lithe/Models/AppModel/AppModel+AgentConversation.swift",
       "macos/Sources/LitheAgentConversationModule/Application/AgentConnectionModel.swift",

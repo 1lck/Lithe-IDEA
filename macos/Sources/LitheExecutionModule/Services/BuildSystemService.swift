@@ -18,6 +18,12 @@ package enum BuildDependencyState: Equatable, Sendable {
     case failed(String)
 }
 
+package enum BuildTestDiscoveryState: Equatable, Sendable {
+    case loading
+    case loaded(BuildTestDiscovery)
+    case failed(String)
+}
+
 package enum BuildRunState: Equatable, Sendable {
     case idle
     case running
@@ -43,6 +49,7 @@ package struct BuildSystemEntry: Equatable, Identifiable, Sendable {
     package let instance: BuildSystemInstance
     package let declaration: DeclarativeBuildSystem
     package let source: BuildSystemPluginSource
+    package let workspaceURL: URL?
     package var model: BuildModel?
     package var modelState: BuildModelState
     package var options: [BuildResolvedOption]
@@ -55,13 +62,14 @@ package struct BuildSystemEntry: Equatable, Identifiable, Sendable {
 
     package var id: String { instance.id }
     package var target: BuildSystemTarget {
-        BuildSystemTarget(manifest: source.manifest, buildSystemID: instance.buildSystemID)
+        BuildSystemTarget(manifest: source.manifest, buildSystemID: instance.buildSystemID, workspaceURL: workspaceURL)
     }
 
     package init(
         instance: BuildSystemInstance,
         declaration: DeclarativeBuildSystem,
         source: BuildSystemPluginSource,
+        workspaceURL: URL? = nil,
         model: BuildModel? = nil,
         modelState: BuildModelState = .notLoaded,
         options: [BuildResolvedOption] = [],
@@ -70,6 +78,7 @@ package struct BuildSystemEntry: Equatable, Identifiable, Sendable {
         dependencies: [String: BuildDependencyState] = [:]
     ) {
         self.instance = instance; self.declaration = declaration; self.source = source
+        self.workspaceURL = workspaceURL
         self.model = model; self.modelState = modelState; self.options = options; self.sync = sync
         self.isReloadRequired = isReloadRequired; self.dependencies = dependencies
     }
@@ -105,6 +114,14 @@ package final class BuildSystemService: ObservableObject {
     @Published package private(set) var outputRoots: [URL] = []
     @Published package private(set) var diagnostics: [BuildDiagnostic] = []
     @Published package private(set) var testResults: BuildTestResults?
+    @Published private var testDiscoveries: [String: BuildTestDiscoveryState] = [:]
+    private var discoverySnapshots: [String: DiscoverySnapshot] = [:]
+    private struct DiscoverySnapshot: Equatable {
+        let source: BuildSystemPluginSource
+        let fingerprint: String?
+        let settings: [String: ToolingJSONValue]
+        let revision: Int
+    }
     package private(set) var workspaceURL: URL?
     /// Nil while detection is pending. An empty value means no plugin import.
     @Published package private(set) var languageImport: JavaLanguageImportConfiguration?
@@ -120,6 +137,9 @@ package final class BuildSystemService: ObservableObject {
     private let stateLocator: any BuildSystemStateLocating
     private let runner: any BuildCommandRunning
     private let providers: (any BuildProviderRequesting)?
+    private let runLauncher: (any BuildRunLaunching)?
+    private var preparingDebugID: UUID?
+    private var preparedApplication: (source: BuildSystemPluginSource, operationID: String)?
     private let settings: @MainActor (String) -> [String: ToolingJSONValue]
     private let waitForRedetection: @Sendable () async throws -> Void
     private let sources: @MainActor () -> [BuildSystemPluginSource]
@@ -132,10 +152,17 @@ package final class BuildSystemService: ObservableObject {
     /// revisions are separate: a dependency result must not replace a model
     /// the detection just read.
     private var modelRevisions: [String: Int] = [:]
+    /// A producer's options/package may change and change back while it loads.
+    /// Other producers' ordinary publications only revoke consumer snapshots.
+    private var modelConfigurationRevisions: [String: UInt64] = [:]
     private var dependencyRevisions: [String: Int] = [:]
     /// Bumped when a watched workspace file changes, so a load that started
     /// before the change can tell its result is based on older files.
     private var fileRevision = 0
+    private var providerConfigurationRevision = 0
+    private var modelInputRevision: UInt64 = 0
+    private var providerRunID: UUID?
+    private var preparingApplicationID: UUID?
     private var detectionTask: Task<Void, Never>?
     private var redetectTask: Task<Void, Never>?
     private var runTask: Task<Void, Never>?
@@ -180,6 +207,7 @@ package final class BuildSystemService: ObservableObject {
         stateLocator: any BuildSystemStateLocating,
         runner: any BuildCommandRunning,
         providers: (any BuildProviderRequesting)? = nil,
+        runLauncher: (any BuildRunLaunching)? = nil,
         settings: @escaping @MainActor (String) -> [String: ToolingJSONValue] = { _ in [:] },
         waitForRedetection: @escaping @Sendable () async throws -> Void = {
             try await Task.sleep(for: .milliseconds(500))
@@ -192,6 +220,7 @@ package final class BuildSystemService: ObservableObject {
         self.stateLocator = stateLocator
         self.runner = runner
         self.providers = providers
+        self.runLauncher = runLauncher
         self.settings = settings
         self.waitForRedetection = waitForRedetection
         self.sources = sources
@@ -200,8 +229,9 @@ package final class BuildSystemService: ObservableObject {
     /// Every run that ends, stopped or superseded runs included, so a caller
     /// that started one can tell how its own run ended.
     package let runEnded = PassthroughSubject<BuildRunEnd, Never>()
+    package let applicationLaunched = PassthroughSubject<String, Never>()
 
-    /// The task or test run in progress; nil when none runs.
+    /// The task, test, or application preparation (including save) in progress.
     package var currentRunID: UUID? { runID }
     package var isRunning: Bool { runState == .running }
     package var isLoadingModel: Bool { !modelTasks.isEmpty }
@@ -219,11 +249,13 @@ package final class BuildSystemService: ObservableObject {
     package func reset(workspaceURL: URL?) {
         stop()
         generation += 1
+        modelInputRevision += 1
         detectionTask?.cancel(); detectionTask = nil
         redetectTask?.cancel(); redetectTask = nil
         self.workspaceURL = workspaceURL?.standardizedFileURL
         entries = []
         modelRevisions = [:]
+        modelConfigurationRevisions = [:]
         dependencyRevisions = [:]
         fileRevision = 0
         issues = []
@@ -290,6 +322,7 @@ package final class BuildSystemService: ObservableObject {
             switch result {
             case .success(let detected):
                 let current = Dictionary(uniqueKeysWithValues: self.entries.map { ($0.id, $0) })
+                let publishedBefore = self.entries.filter { $0.declaration.sharesModel }
                 self.entries = detected.entries.map { detectedEntry in
                     guard let currentEntry = current[detectedEntry.id],
                           currentEntry.instance.pluginID == detectedEntry.instance.pluginID
@@ -313,8 +346,10 @@ package final class BuildSystemService: ObservableObject {
                         // detection just read.
                         merged.dependencies = currentEntry.dependencies
                     }
+                    if !merged.declaration.modelInputs.isEmpty, currentEntry.isReloadRequired { merged.isReloadRequired = true }
                     return merged
                 }
+                if publishedBefore != self.entries.filter({ $0.declaration.sharesModel }) { self.invalidateModelInputs() }
                 self.issues = detected.issues
                 self.persistDroppedOptions()
                 let inputs = self.entries.map { entry in
@@ -340,7 +375,16 @@ package final class BuildSystemService: ObservableObject {
                                 settings: self.settings(input.entry.source.pluginID)
                               )
                         else { continue }
-                        executables[input.entry.id] = self.tools.languageImportExecutable(invocation, workspaceURL: workspaceURL)
+                        do {
+                            executables[input.entry.id] = try await self.tools.prepareLanguageImportExecutable(invocation, workspaceURL: workspaceURL)
+                        } catch {
+                            guard self.generation == generation, self.detectionID == detectionID,
+                                  !Task.isCancelled else { return }
+                            self.failLanguageImport(error)
+                            return
+                        }
+                        guard self.generation == generation, self.detectionID == detectionID,
+                              !Task.isCancelled else { return }
                     }
                     let withExecutables = executables
                     let configured = await Task.detached(priority: .userInitiated) {
@@ -371,9 +415,18 @@ package final class BuildSystemService: ObservableObject {
     /// Ends what a now disabled plugin started and detects again with the
     /// plugins enabled now, so its instances leave the tool window.
     package func pluginsChanged() {
+        for producer in entries where producer.declaration.sharesModel {
+            modelConfigurationRevisions[producer.id, default: 0] += 1
+        }
+        invalidateModelInputs()
+        if preparingApplicationID != nil { stopRun() }
+        if let runEntryID, testDiscoveries[runEntryID] == .loading { stopRun() }
+        testDiscoveries = [:]
+        discoverySnapshots = [:]
         let enabled = Set(sources().map(\.pluginID))
         let removed = Set(entries.filter { !enabled.contains($0.instance.pluginID) }.map(\.id))
         if let runEntryID, removed.contains(runEntryID) { stopRun() }
+        if let preparedApplication, !sources().contains(preparedApplication.source) { stopPreparedApplication() }
         for key in Array(modelTasks.keys) where removed.contains(key) {
             modelTasks.removeValue(forKey: key)?.cancel()
         }
@@ -394,15 +447,29 @@ package final class BuildSystemService: ObservableObject {
         // A load can read a subproject file before the model lists it, so any
         // reported change invalidates a model load that is in flight.
         fileRevision += 1
+        if preparingApplicationID != nil { stopRun() }
         let root = workspaceURL.path.hasSuffix("/") ? workspaceURL.path : workspaceURL.path + "/"
         let changed = Set(urls.compactMap { url -> String? in
             let path = url.standardizedFileURL.path
+            if path == workspaceURL.path { return "." }
             return path.hasPrefix(root) ? String(path.dropFirst(root.count)) : nil
         })
+        // Source edits change discovery even when no build configuration did.
+        if !changed.isEmpty {
+            if let runEntryID, testDiscoveries[runEntryID] == .loading { stopRun() }
+            testDiscoveries = [:]
+            discoverySnapshots = [:]
+        }
         let affected = entries.contains { entry in
             entry.sync?.watch.contains(where: changed.contains) == true
         }
         guard affected else { return }
+        for entry in entries where entry.declaration.sharesModel && entry.sync?.watch.contains(where: changed.contains) == true {
+            update(entry.id) { $0.isReloadRequired = true }
+        }
+        invalidateModelInputs()
+        providerConfigurationRevision += 1
+        if providerRunID != nil { stopRun() }
         // Reject the old input immediately; consumers wait for the coalesced
         // detection instead of starting Java with pre-save import settings.
         detectionTask?.cancel(); detectionTask = nil
@@ -526,6 +593,7 @@ package final class BuildSystemService: ObservableObject {
     /// may answer from its own snapshot.
     package func loadModel(_ entryID: String, reason: BuildLoadReason = .initial) {
         guard let workspaceURL, let entry = entry(entryID) else { return }
+        if preparingApplicationID != nil, runEntryID == entryID { stopRun() }
         switch entry.instance.modelSource {
         case .static?, .hostIntegration?:
             detect()
@@ -536,7 +604,12 @@ package final class BuildSystemService: ObservableObject {
             break
         }
         modelTasks[entryID]?.cancel()
-        update(entryID) { $0.modelState = .loading }
+        update(entryID) {
+            $0.modelState = .loading
+            if entry.declaration.sharesModel { $0.isReloadRequired = $0.model != nil }
+        }
+        noteModelChanged(entryID)
+        let publicationRevision = entry.declaration.sharesModel ? modelConfigurationRevisions[entryID, default: 0] : nil
         let generation = generation
         let id = UUID()
         // The model command depends on the options; a change while it runs
@@ -557,6 +630,8 @@ package final class BuildSystemService: ObservableObject {
             switch result {
             case .success(let loaded):
                 let configChanged: Bool = {
+                    // An exporter cannot make an ABA-configured in-flight model public.
+                    if let publicationRevision, self.modelConfigurationRevisions[entryID, default: 0] != publicationRevision { return true }
                     guard self.fileRevision == startFileRevision else { return true }
                     guard let current = self.entry(entryID),
                           let currentFingerprint = self.optionFingerprint(current, workspaceURL: workspaceURL)
@@ -602,9 +677,7 @@ package final class BuildSystemService: ObservableObject {
         owner: CommandOwner
     ) async -> Result<LoadedModel, Error> {
         do {
-            let context = try planContext(entry, workspaceURL: workspaceURL)
-            let outputFile = try context.workspaceStateDirectory.map { try stateLocator.allocateOutputFile(in: $0) }
-            defer { if let outputFile { stateLocator.removeOutputFile(outputFile) } }
+            return .success(try await withPlanContext(entry, workspaceURL: workspaceURL, allocatesOutputFile: true) { context, outputFile in
             let planner = planner
             let plan = try await outputPlan(entry, workspaceURL: workspaceURL, reason: reason, owner: owner) { hints in
                 try planner.modelPlan(entry.target, context: context, outputFile: outputFile, providerHints: hints)
@@ -621,7 +694,7 @@ package final class BuildSystemService: ObservableObject {
             )
             let target = entry.target
             let root = entry.instance.root
-            return .success(try await Task.detached(priority: .userInitiated) {
+            let loaded = try await Task.detached(priority: .userInitiated) {
                 let model = try planner.decodeModel(
                     target, workspaceURL: workspaceURL, root: root, output: output, options: context.options
                 )
@@ -635,7 +708,10 @@ package final class BuildSystemService: ObservableObject {
                         projects: model.projects.map(\.path), options: context.options
                     )
                 )
-            }.value)
+            }.value
+            guard modelInputsAreCurrent(context.modelInputs) else { throw CancellationError() }
+            return loaded
+            })
         } catch {
             return .failure(error)
         }
@@ -643,22 +719,211 @@ package final class BuildSystemService: ObservableObject {
 
     // MARK: Tasks and tests
 
+    /// Saved references resolve against the currently enabled plugin and model.
+    @discardableResult
+    package func runProviderConfiguration(_ configuration: RunConfiguration, workspace: URL) -> UUID? {
+        guard workspace.standardizedFileURL == workspaceURL, let reference = configuration.buildProvider,
+              let entry = entries.first(where: { $0.instance.pluginID == reference.pluginID
+                && $0.instance.buildSystemID == reference.buildSystemID && $0.instance.root == reference.root }) else { return nil }
+        return runApplication(entry.id, request: reference.request, title: configuration.name, configuration: configuration)
+    }
+
+    package func cancelRun(_ id: UUID) { if runID == id { stopRun() } }
+
+    package func cancelDebugPreparation() { if let id = preparingDebugID { cancelRun(id) } }
+
+    /// Debug owns the launched session; this service owns only preparation.
+    @discardableResult
+    package func debugApplication(_ entryID: String, request: BuildRunRequest, title: String,
+                                  launch: @escaping @MainActor (BuildSystemPluginSource, BuildDebugPreparation) throws -> Void) -> UUID? {
+        prepareApplication(entryID, request: request, title: title, debugLaunch: launch)
+    }
+
+    @discardableResult
+    package func debugProviderConfiguration(_ configuration: RunConfiguration, workspace: URL,
+                                  launch: @escaping @MainActor (BuildSystemPluginSource, BuildDebugPreparation) throws -> Void) -> UUID? {
+        guard workspace.standardizedFileURL == workspaceURL, let reference = configuration.buildProvider,
+              let entry = entries.first(where: { $0.instance.pluginID == reference.pluginID
+                && $0.instance.buildSystemID == reference.buildSystemID && $0.instance.root == reference.root }) else { return nil }
+        return debugApplication(entry.id, request: reference.request, title: configuration.name, launch: launch)
+    }
+
+    /// The provider owns build/launch facts; the Run host owns the application.
+    @discardableResult
+    package func runApplication(_ entryID: String, request: BuildRunRequest, title: String, configuration: RunConfiguration? = nil,
+                                beforePreparing: @escaping @MainActor () async -> Bool = { true }) -> UUID? {
+        prepareApplication(entryID, request: request, title: title, configuration: configuration, beforePreparing: beforePreparing)
+    }
+
+    private func prepareApplication(_ entryID: String, request: BuildRunRequest, title: String,
+                                    configuration: RunConfiguration? = nil,
+                                    beforePreparing: @escaping @MainActor () async -> Bool = { true },
+                                    debugLaunch: (@MainActor (BuildSystemPluginSource, BuildDebugPreparation) throws -> Void)? = nil) -> UUID? {
+        guard let workspaceURL, let entry = entry(entryID), let model = entry.model,
+              !entry.isReloadRequired, entry.modelState == .loaded,
+              let project = model.projects.first(where: { $0.id == request.projectID }),
+              let target = model.targets.first(where: { $0.id == request.targetID && $0.projectID == project.id }),
+              entry.declaration.providerRuns.contains(where: { $0.id == request.run && (debugLaunch == nil || $0.debugAdapter != nil) }) else { return nil }
+        let origin = configuration ?? RunConfiguration(id: "build:" + entryID + ":" + request.run + ":" + request.targetID,
+            name: title, kind: .process(provider: "build.provider"), execution: .application, modulePath: nil, mainClass: nil,
+            buildProvider: BuildProviderRunReference(pluginID: entry.instance.pluginID, buildSystemID: entry.instance.buildSystemID,
+                root: entry.instance.root, run: request.run, projectID: request.projectID, targetID: request.targetID,
+                userArguments: request.userArguments))
+        if debugLaunch == nil { stopPreparedApplication() }
+        let sourceRevision = fileRevision
+        return startRun(entryID, title: title) { service, run in
+            // Own the save/readiness stage in the same slot as preparation.
+            // An ignored cancellation must not startRun again and replace newer work.
+            service.providerRunID = run.id
+            service.preparingApplicationID = run.id
+            defer { if service.preparingApplicationID == run.id { service.preparingApplicationID = nil } }
+            defer { if service.providerRunID == run.id { service.providerRunID = nil } }
+            guard await beforePreparing(), service.isCurrent(run),
+                  service.fileRevision == sourceRevision,
+                  let current = service.entry(entryID), current.source == entry.source,
+                  current.model == model, current.modelState == .loaded, !current.isReloadRequired
+            else { throw CancellationError() }
+            guard let providers = service.providers, debugLaunch != nil || service.runLauncher != nil else {
+                throw BuildSystemServiceError(Self.providerUnsupportedMessage)
+            }
+            return try await service.withPlanContext(entry, workspaceURL: workspaceURL) { context, _ in
+            let planned: BuildProviderRequest
+            if debugLaunch != nil {
+                planned = try service.planner.prepareDebugPlan(entry.target, context: context, run: request.run,
+                    project: BuildSelection(project: project), selectedTarget: BuildSelection(target: target), userArguments: request.userArguments)
+            } else {
+                planned = try service.planner.prepareRunPlan(entry.target, context: context, run: request.run,
+                    project: BuildSelection(project: project), selectedTarget: BuildSelection(target: target), userArguments: request.userArguments)
+            }
+            let validConfiguration = service.runValidity(.provider(planned), entry: entry, workspaceURL: workspaceURL, run: run)
+            let isValid: @MainActor @Sendable () -> Bool = { [weak service] in
+                guard let service else { return false }
+                return validConfiguration() && service.fileRevision == sourceRevision
+                    && service.entry(entryID)?.model == model && service.entry(entryID)?.modelState == .loaded
+                    && service.entry(entryID)?.isReloadRequired == false
+            }
+            if debugLaunch != nil { service.preparingDebugID = run.id }
+            defer { if service.preparingDebugID == run.id { service.preparingDebugID = nil } }
+            let resolved = try await service.providerRequestWithTool(planned, entry: entry, workspaceURL: workspaceURL, run: run)
+            guard isValid() else { throw CancellationError() }
+            let progress: @MainActor @Sendable (BuildProviderProgress) -> Void = { [weak service] progress in
+                guard let service, isValid() else { return }
+                if let output = progress.output { service.appendOutput(output, in: service.outputDirectory(entry)) }
+                else if let message = progress.message { service.appendOutput(message + "\n", in: service.outputDirectory(entry)) }
+            }
+            let providerTarget = Self.providerTarget(entry, workspaceURL: workspaceURL)
+            let result: ToolingJSONValue
+            if debugLaunch != nil {
+                result = try await providers.prepareDebug(resolved, on: providerTarget, timeout: .seconds(3600), progress: progress)
+            } else {
+                result = try await providers.prepareRun(resolved, on: providerTarget, timeout: .seconds(3600), progress: progress)
+            }
+            guard isValid() else { throw CancellationError() }
+            let planner = service.planner
+            if let debugLaunch {
+                let preparation = try await Task.detached(priority: .userInitiated) {
+                    try planner.decodeDebugPreparation(entry.target, workspaceURL: workspaceURL, root: context.root,
+                                                       run: request.run, result: result)
+                }.value
+                guard isValid() else { throw CancellationError() }
+                try debugLaunch(entry.source, preparation)
+                return 0
+            }
+            let preparation = try await Task.detached(priority: .userInitiated) {
+                try planner.decodeRunPreparation(entry.target, workspaceURL: workspaceURL, root: context.root, result: result)
+            }.value
+            guard isValid() else { throw CancellationError() }
+            guard let launcher = service.runLauncher else { throw BuildSystemServiceError(Self.providerUnsupportedMessage) }
+            let operationID = try launcher.launchPreparedRun(preparation, workspaceURL: workspaceURL, title: title, configuration: origin)
+            service.preparedApplication = (entry.source, operationID)
+            service.applicationLaunched.send(entryID)
+            return 0
+            }
+        }
+    }
+
+    private func stopPreparedApplication() {
+        if let preparedApplication { runLauncher?.stopPreparedRun(preparedApplication.operationID) }
+        preparedApplication = nil
+    }
+
+    /// Discovery is user-triggered and independent of a plugin page. Cached
+    /// selectors are visible/runnable only for their exact configuration.
+    package func testDiscovery(_ entryID: String) -> BuildTestDiscoveryState? {
+        guard let workspaceURL, let entry = entry(entryID),
+              discoverySnapshots[entryID] == discoverySnapshot(entry, workspaceURL: workspaceURL)
+        else { return nil }
+        return testDiscoveries[entryID]
+    }
+
+    private func discoverySnapshot(_ entry: BuildSystemEntry, workspaceURL: URL) -> DiscoverySnapshot {
+        DiscoverySnapshot(source: entry.source, fingerprint: optionFingerprint(entry, workspaceURL: workspaceURL),
+                          settings: settings(entry.source.pluginID), revision: providerConfigurationRevision)
+    }
+
+    @discardableResult
+    package func discoverTests(_ entryID: String) -> UUID? {
+        guard let workspaceURL, let entry = entry(entryID), entry.declaration.testDiscovery else { return nil }
+        testDiscoveries[entryID] = nil
+        discoverySnapshots[entryID] = nil
+        return startRun(entryID, title: L10n.string("Discover Tests")) { service, run in
+            try await service.withPlanContext(entry, workspaceURL: workspaceURL) { context, _ in
+            let request = try service.planner.testDiscoveryPlan(entry.target, context: context)
+            let isValid = service.runValidity(.provider(request), entry: entry, workspaceURL: workspaceURL, run: run)
+            service.providerRunID = run.id
+            service.discoverySnapshots[entryID] = service.discoverySnapshot(entry, workspaceURL: workspaceURL)
+            service.testDiscoveries[entryID] = .loading
+            defer { if service.providerRunID == run.id { service.providerRunID = nil } }
+            do {
+                guard let providers = service.providers else { throw BuildSystemServiceError(Self.providerUnsupportedMessage) }
+                let planned = try await service.providerRequestWithTool(request, entry: entry, workspaceURL: workspaceURL, run: run)
+                guard isValid() else { throw CancellationError() }
+                let result = try await providers.send(planned, to: Self.providerTarget(entry, workspaceURL: workspaceURL),
+                                                      timeout: Self.modelTimeout)
+                guard isValid() else { throw CancellationError() }
+                let planner = service.planner
+                let discovery = try await Task.detached(priority: .userInitiated) {
+                    try planner.decodeTestDiscovery(entry.target, context: context, result: result)
+                }.value
+                guard isValid() else { throw CancellationError() }
+                service.testDiscoveries[entryID] = .loaded(discovery)
+                return 0
+            } catch {
+                if isValid() { service.testDiscoveries[entryID] = .failed(error.localizedDescription) }
+                else if service.runID == run.id { service.testDiscoveries[entryID] = nil }
+                throw error
+            }
+            }
+        }
+    }
+
+    @discardableResult
+    package func runDiscoveredTest(_ entryID: String, testID: String, title: String) -> UUID? {
+        guard case .loaded(let discovery) = testDiscovery(entryID),
+              let test = discovery.tests.first(where: { $0.id == testID }) else { return nil }
+        let request = BuildTestRequest(project: test.project, target: test.target,
+                                       suite: test.suite, testCase: test.testCase,
+                                       projects: entry(entryID)?.model?.projects.map(\.path) ?? [])
+        return runTests(entryID, request: request, title: title)
+    }
+
     /// Runs a declared task, or a model task through its template.
     @discardableResult
     package func runTask(_ entryID: String, request: BuildTaskRequest, title: String) -> UUID? {
         guard let workspaceURL, let entry = entry(entryID) else { return nil }
         return startRun(entryID, title: title) { service, run in
-            let context = try service.planContext(entry, workspaceURL: workspaceURL)
+            try await service.withPlanContext(entry, workspaceURL: workspaceURL) { context, _ in
             let plan = try service.planner.taskPlan(entry.target, context: context, request: request)
-            let collected = try await service.runStreamedCommand(
-                plan, entry: entry, workspaceURL: workspaceURL, owner: .run(run)
-            )
+            let isValid = service.runValidity(plan, entry: entry, workspaceURL: workspaceURL, run: run)
+            defer { if service.providerRunID == run.id { service.providerRunID = nil } }
+            let collected = try await service.runExecutionPlan(plan, entry: entry, workspaceURL: workspaceURL, run: run)
             let diagnostics = await service.decodeDiagnostics(entry, workspaceURL: workspaceURL, output: collected.text)
             // The decode runs after the command; a stop, replacement, or
             // workspace switch in between must not publish into the new state.
-            guard service.isCurrent(run) else { throw CancellationError() }
+            guard isValid() else { throw CancellationError() }
             service.diagnostics = diagnostics
             return collected.exitCode
+            }
         }
     }
 
@@ -666,8 +931,10 @@ package final class BuildSystemService: ObservableObject {
     package func runTests(_ entryID: String, request: BuildTestRequest, title: String) -> UUID? {
         guard let workspaceURL, let entry = entry(entryID) else { return nil }
         return startRun(entryID, title: title) { service, run in
-            let context = try service.planContext(entry, workspaceURL: workspaceURL)
+            try await service.withPlanContext(entry, workspaceURL: workspaceURL) { context, _ in
             let plan = try service.planner.testPlan(entry.target, context: context, request: request)
+            let isValid = service.runValidity(plan.execution, entry: entry, workspaceURL: workspaceURL, run: run)
+            defer { if service.providerRunID == run.id { service.providerRunID = nil } }
             if plan.results != nil, request.project == nil,
                entry.instance.modelSource != nil,
                entry.model == nil || entry.isReloadRequired {
@@ -675,16 +942,16 @@ package final class BuildSystemService: ObservableObject {
                 // model a new subproject's reports are invisible and a failing
                 // run would decode as success. A plugin without a model has no
                 // projects to discover, so its own reports stay readable.
-                throw BuildSystemServiceError(String(
-                    localized: "Load or reload the project model before running all tests, so subproject reports are collected."
+                throw BuildSystemServiceError(L10n.string(
+                    "Load or reload the project model before running all tests, so subproject reports are collected."
                 ))
             }
             let started = Date()
-            let collected = try await service.runStreamedCommand(
-                plan.process, entry: entry, workspaceURL: workspaceURL, owner: .run(run)
+            let collected = try await service.runExecutionPlan(
+                plan.execution, entry: entry, workspaceURL: workspaceURL, run: run
             )
             let diagnostics = await service.decodeDiagnostics(entry, workspaceURL: workspaceURL, output: collected.text)
-            guard service.isCurrent(run) else { throw CancellationError() }
+            guard isValid() else { throw CancellationError() }
             service.diagnostics = diagnostics
             if plan.results != nil {
                 let resultsRequest = BuildTestResultsRequest(
@@ -702,18 +969,19 @@ package final class BuildSystemService: ObservableObject {
                     let results = try await Task.detached(priority: .userInitiated) {
                         try planner.decodeTestResults(target, request: resultsRequest)
                     }.value
-                    guard service.isCurrent(run) else { throw CancellationError() }
+                    guard isValid() else { throw CancellationError() }
                     service.testResults = results
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch {
-                    guard service.isCurrent(run) else { throw CancellationError() }
+                    guard isValid() else { throw CancellationError() }
                     service.appendOutput(
                         "\n" + error.localizedDescription + "\n", in: service.outputDirectory(entry)
                     )
                 }
             }
             return collected.exitCode
+            }
         }
     }
 
@@ -723,9 +991,12 @@ package final class BuildSystemService: ObservableObject {
         var ended: BuildRunEnd?
         if let runID, let runEntryID {
             ended = BuildRunEnd(runID: runID, entryID: runEntryID, state: .cancelled, exitCode: nil)
+            if testDiscoveries[runEntryID] == .loading { testDiscoveries[runEntryID] = nil }
         }
         runTask?.cancel()
         runTask = nil
+        providerRunID = nil
+        preparingApplicationID = nil
         runID = nil
         runEntryID = nil
         if runState == .running {
@@ -736,6 +1007,7 @@ package final class BuildSystemService: ObservableObject {
 
     /// Ends every process this service started.
     package func stop() {
+        stopPreparedApplication()
         detectionTask?.cancel(); detectionTask = nil
         detectionID = nil
         redetectTask?.cancel(); redetectTask = nil
@@ -744,6 +1016,8 @@ package final class BuildSystemService: ObservableObject {
         isDetecting = false
         finishImportWaiters(.failure(CancellationError()))
         stopRun()
+        testDiscoveries = [:]
+        discoverySnapshots = [:]
         for task in modelTasks.values { task.cancel() }
         for task in dependencyTasks.values { task.cancel() }
         modelTasks = [:]
@@ -780,7 +1054,7 @@ package final class BuildSystemService: ObservableObject {
         runState = .running
         runningTitle = title
         runTask = Task { [weak self] in
-            guard let self else { return }
+            guard let self, self.isCurrent(run) else { return }
             let state: BuildRunState
             var exitCode: Int32?
             do {
@@ -905,9 +1179,7 @@ package final class BuildSystemService: ObservableObject {
         owner: CommandOwner
     ) async -> Result<BuildDependencyTree, Error> {
         do {
-            let context = try planContext(entry, workspaceURL: workspaceURL)
-            let outputFile = try context.workspaceStateDirectory.map { try stateLocator.allocateOutputFile(in: $0) }
-            defer { if let outputFile { stateLocator.removeOutputFile(outputFile) } }
+            return .success(try await withPlanContext(entry, workspaceURL: workspaceURL, allocatesOutputFile: true) { context, outputFile in
             let planner = planner
             let selection = project.map(BuildSelection.init(project:))
             let plan = try await outputPlan(entry, workspaceURL: workspaceURL, reason: reason, owner: owner) { hints in
@@ -927,11 +1199,14 @@ package final class BuildSystemService: ObservableObject {
             )
             let target = entry.target
             let root = entry.instance.root
-            return .success(try await Task.detached(priority: .userInitiated) {
+            let loaded = try await Task.detached(priority: .userInitiated) {
                 try planner.decodeDependencies(
                     target, workspaceURL: workspaceURL, root: root, project: project?.path, output: output
                 )
-            }.value)
+            }.value
+            guard modelInputsAreCurrent(context.modelInputs) else { throw CancellationError() }
+            return loaded
+            })
         } catch {
             return .failure(error)
         }
@@ -991,6 +1266,10 @@ package final class BuildSystemService: ObservableObject {
     package func setOption(_ entryID: String, optionID: String, value: ToolingJSONValue?) {
         guard let workspaceURL, let entry = entry(entryID) else { return }
         let buildSystemID = entry.instance.buildSystemID
+        invalidateTestDiscovery(buildSystemID: buildSystemID)
+        if providerRunID != nil, let runEntryID, self.entry(runEntryID)?.instance.buildSystemID == buildSystemID {
+            stopRun()
+        }
         var stored = optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
         stored[optionID] = value
         var empty = optionsStore.emptyMultiSelectOptions(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
@@ -1001,6 +1280,9 @@ package final class BuildSystemService: ObservableObject {
         optionsStore.setEmptyMultiSelectOptions(empty, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
         optionsStore.setOptions(stored, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
         refreshOptions(buildSystemID: buildSystemID)
+        if entry.declaration.sharesModel {
+            invalidateProducerConfiguration(buildSystemID: buildSystemID)
+        }
         // The options take part in the sync fingerprint, so a changed value
         // marks a loaded command model stale.
         detect()
@@ -1019,6 +1301,10 @@ package final class BuildSystemService: ObservableObject {
             return
         }
         let buildSystemID = entry.instance.buildSystemID
+        invalidateTestDiscovery(buildSystemID: buildSystemID)
+        if providerRunID != nil, let runEntryID, self.entry(runEntryID)?.instance.buildSystemID == buildSystemID {
+            stopRun()
+        }
         var stored = optionsStore.options(workspaceURL: workspaceURL, buildSystemID: buildSystemID)
         let values: [ToolingJSONValue]
         if case .array(let items)? = stored[optionID] { values = items } else { values = [] }
@@ -1035,7 +1321,17 @@ package final class BuildSystemService: ObservableObject {
         optionsStore.setEmptyMultiSelectOptions(empty, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
         optionsStore.setOptions(stored, workspaceURL: workspaceURL, buildSystemID: buildSystemID)
         refreshOptions(buildSystemID: buildSystemID)
+        if entry.declaration.sharesModel {
+            invalidateProducerConfiguration(buildSystemID: buildSystemID)
+        }
         detect()
+    }
+
+    private func invalidateTestDiscovery(buildSystemID: String) {
+        for entry in entries where entry.instance.buildSystemID == buildSystemID {
+            testDiscoveries[entry.id] = nil
+            discoverySnapshots[entry.id] = nil
+        }
     }
 
     private func refreshOptions(buildSystemID: String) {
@@ -1156,23 +1452,99 @@ package final class BuildSystemService: ObservableObject {
         ))?.fingerprint
     }
 
-    private func planContext(_ entry: BuildSystemEntry, workspaceURL: URL) throws -> BuildPlanContext {
+    private func withPlanContext<Value>(
+        _ entry: BuildSystemEntry, workspaceURL: URL, allocatesOutputFile: Bool = false,
+        perform: (BuildPlanContext, URL?) async throws -> Value
+    ) async throws -> Value {
         let stored = storedOptions(for: entry, workspaceURL: workspaceURL)
         let resolution = try? planner.resolveOptions(
             entry.target, options: stored, modelValues: entry.model?.optionValues
         )
-        return BuildPlanContext(
+        // Resolved before the lease below so a throw cannot skip `release()`.
+        let modelInputs = try resolvedModelInputs(entry, workspaceURL: workspaceURL)
+        let resources = try await stateLocator.prepareRun(
+            pluginID: entry.instance.pluginID, buildSystemID: entry.instance.buildSystemID,
+            packageURL: entry.source.packageURL, workspaceURL: workspaceURL, allocatesOutputFile: allocatesOutputFile
+        )
+        let context = BuildPlanContext(
             root: entry.instance.root,
             // A plan gets only values Core still accepts for the current
             // model; otherwise a removed Cargo feature would reach the argv.
             options: Self.effectiveOptionValues(resolution, stored: stored),
-            pluginDirectory: entry.source.packageURL,
-            workspaceStateDirectory: try stateLocator.workspaceStateDirectory(
-                pluginID: entry.instance.pluginID,
-                buildSystemID: entry.instance.buildSystemID,
-                workspaceURL: workspaceURL
-            )
+            pluginDirectory: resources.pluginDirectory,
+            workspaceStateDirectory: resources.workspaceStateDirectory,
+            modelInputs: modelInputs
         )
+        do {
+            try Task.checkCancellation()
+            let value = try await perform(context, resources.outputFile)
+            await resources.release()
+            return value
+        } catch {
+            await resources.release()
+            throw error
+        }
+    }
+
+    private func resolvedModelInputs(_ consumer: BuildSystemEntry, workspaceURL: URL) throws -> ToolingJSONValue? {
+        guard !consumer.declaration.modelInputs.isEmpty else { return nil }
+        let enabled = sources()
+        let required = Set(consumer.declaration.modelInputs.map(\.pluginID))
+        let facts = enabled.filter { required.contains($0.pluginID) }.map { source in
+            BuildModelInputSource(manifest: source.manifest, instances: entries.filter { $0.source == source && $0.declaration.sharesModel }.map { producer in
+                let state: String
+                switch producer.modelState {
+                case .loading: state = "loading"
+                case .failed: state = "failed"
+                case .loaded where !producer.isReloadRequired && producer.model != nil: state = "ready"
+                default: state = "stale"
+                }
+                return BuildModelInputSource.Instance(buildSystemID: producer.instance.buildSystemID, root: producer.instance.root,
+                    state: state, model: state == "ready" ? producer.model : nil, options: storedOptions(for: producer, workspaceURL: workspaceURL))
+            })
+        }
+        return try planner.resolveModelInputs(consumer.target, revision: modelInputRevision, sources: facts)
+    }
+
+    private func modelInputsAreCurrent(_ snapshot: ToolingJSONValue?) -> Bool {
+        guard let snapshot else { return true }
+        guard case .object(let value) = snapshot, case .integer(let revision) = value["revision"] else { return false }
+        return revision >= 0 && UInt64(revision) == modelInputRevision
+    }
+
+    private func modelInputsAreCurrent(_ request: BuildProviderRequest) -> Bool {
+        guard case .object(let params) = request.params else { return false }
+        return modelInputsAreCurrent(params["modelInputs"])
+    }
+
+    /// Producers are independent in v1: consumers cannot re-export their inputs.
+    /// Revoke consumers immediately; cancellation-ignoring replies still fail revision checks.
+    private func invalidateModelInputs() {
+        modelInputRevision += 1
+        let consumers = Set(entries.filter { !$0.declaration.modelInputs.isEmpty }.map(\.id))
+        if let runEntryID, consumers.contains(runEntryID) { stopRun() }
+        for id in consumers {
+            modelTasks.removeValue(forKey: id)?.cancel()
+            for key in Array(dependencyTasks.keys) where Self.entryID(ofDependencyTask: key) == id {
+                dependencyTasks.removeValue(forKey: key)?.cancel()
+            }
+            update(id) {
+                $0.isReloadRequired = $0.model != nil
+                if $0.modelState == .loading { $0.modelState = $0.model == nil ? .notLoaded : .loaded }
+                $0.dependencies = [:]
+            }
+            modelRevisions[id, default: 0] += 1
+            testDiscoveries[id] = nil
+            discoverySnapshots[id] = nil
+        }
+    }
+
+    private func invalidateProducerConfiguration(buildSystemID: String) {
+        for producer in entries where producer.instance.buildSystemID == buildSystemID {
+            if producer.declaration.sharesModel { modelConfigurationRevisions[producer.id, default: 0] += 1 }
+            update(producer.id) { $0.isReloadRequired = true }
+        }
+        invalidateModelInputs()
     }
 
     /// Stored values reduced to the ones Core accepted in `resolution`. Core
@@ -1250,6 +1622,80 @@ package final class BuildSystemService: ObservableObject {
         return CollectedOutput(text: collector.text, exitCode: exitCode)
     }
 
+    /// Retain the provider configuration guard through every asynchronous decode,
+    /// including report parsing after the backend has already returned.
+    private func runValidity(
+        _ plan: BuildOutputPlan, entry: BuildSystemEntry, workspaceURL: URL, run: RunIdentity
+    ) -> @MainActor @Sendable () -> Bool {
+        let revision = providerConfigurationRevision
+        let launchSettings = settings(entry.source.pluginID)
+        return { [weak self] in
+            guard let self, self.isCurrent(run) else { return false }
+            guard case .provider(let request) = plan else { return true }
+            guard self.modelInputsAreCurrent(request), self.providerConfigurationRevision == revision,
+                  self.settings(entry.source.pluginID) == launchSettings,
+                  let current = self.entry(entry.id), current.source == entry.source else { return false }
+            return self.optionFingerprint(current, workspaceURL: workspaceURL) == request.optionFingerprint
+        }
+    }
+
+    private func runExecutionPlan(
+        _ plan: BuildOutputPlan, entry: BuildSystemEntry, workspaceURL: URL, run: RunIdentity
+    ) async throws -> CollectedOutput {
+        switch plan {
+        case .process(let process):
+            return try await runStreamedCommand(process, entry: entry, workspaceURL: workspaceURL, owner: .run(run))
+        case .provider(let request):
+            return try await runProviderTask(request, entry: entry, workspaceURL: workspaceURL, run: run)
+        }
+    }
+
+    /// Provider tasks share model/dependency sessions, not plugin page sessions.
+    /// Progress/results are bound to this run and its effective configuration.
+    private func runProviderTask(
+        _ request: BuildProviderRequest, entry: BuildSystemEntry, workspaceURL: URL, run: RunIdentity
+    ) async throws -> CollectedOutput {
+        guard let providers else { throw BuildSystemServiceError(Self.providerUnsupportedMessage) }
+        providerRunID = run.id
+        let isValid = runValidity(.provider(request), entry: entry, workspaceURL: workspaceURL, run: run)
+        let planned = try await providerRequestWithTool(request, entry: entry, workspaceURL: workspaceURL, run: run)
+        guard isValid() else { throw CancellationError() }
+        let directory = outputDirectory(entry)
+        let streamed = OutputCollector(limit: Self.decodedOutputLimit)
+        let result = try await providers.execute(
+            planned, on: Self.providerTarget(entry, workspaceURL: workspaceURL), timeout: .seconds(3600)
+        ) { [weak self] progress in
+            guard let self, isValid() else { return }
+            if let text = progress.output {
+                streamed.append(text)
+                self.appendOutput(text, in: directory)
+            } else if let message = progress.message {
+                self.appendOutput(message + "\n", in: directory)
+            }
+        }
+        guard isValid() else { throw CancellationError() }
+        if result.output.utf8.starts(with: streamed.text.utf8) {
+            appendOutput(String(decoding: result.output.utf8.dropFirst(streamed.text.utf8.count), as: UTF8.self), in: directory)
+        } else {
+            // A malformed stream must not hide the final diagnostic output.
+            appendOutput(result.output, in: directory)
+        }
+        return CollectedOutput(text: result.output, exitCode: result.exitCode)
+    }
+
+    private func providerRequestWithTool(
+        _ request: BuildProviderRequest, entry: BuildSystemEntry, workspaceURL: URL, run: RunIdentity
+    ) async throws -> BuildProviderRequest {
+        let tool = try await providerTool(entry, workspaceURL: workspaceURL, owner: .run(run))
+        var params = request.params
+        if let tool, case .object(var object) = params {
+            object["tool"] = .object(["executable": .string(tool.path)])
+            params = .object(object)
+        }
+        return BuildProviderRequest(method: request.method, params: params, optionFingerprint: request.optionFingerprint,
+                                    executesProjectCode: request.executesProjectCode, mayUseNetwork: request.mayUseNetwork)
+    }
+
     /// Plans a model or dependency load. A provider request also carries the
     /// load reason and the build tool the host resolved, so the provider
     /// neither repeats the lookup nor answers a reload from a stale snapshot.
@@ -1325,7 +1771,10 @@ package final class BuildSystemService: ObservableObject {
                 appendOutput("\n▶ " + title + "\n→ " + request.method + "\n", in: outputDirectory(entry))
             }
             let target = Self.providerTarget(entry, workspaceURL: workspaceURL)
-            return .providerResult(try await providers.send(request, to: target, timeout: timeout))
+            guard modelInputsAreCurrent(request), canAppend(owner) else { throw CancellationError() }
+            let result = try await providers.send(request, to: target, timeout: timeout)
+            guard modelInputsAreCurrent(request), canAppend(owner), !Task.isCancelled else { throw CancellationError() }
+            return .providerResult(result)
         }
     }
 
@@ -1433,6 +1882,7 @@ package final class BuildSystemService: ObservableObject {
 
     private func noteModelChanged(_ entryID: String) {
         modelRevisions[entryID, default: 0] += 1
+        if entry(entryID)?.declaration.sharesModel == true { invalidateModelInputs() }
     }
 
     private func noteDependenciesChanged(_ entryID: String) {
@@ -1490,7 +1940,7 @@ package final class BuildSystemService: ObservableObject {
                   let declaration = source.buildSystems.first(where: { $0.id == instance.buildSystemID })
             else { return nil }
             let stored = storedOptions[instance.buildSystemID] ?? [:]
-            let target = BuildSystemTarget(manifest: source.manifest, buildSystemID: instance.buildSystemID)
+            let target = BuildSystemTarget(manifest: source.manifest, buildSystemID: instance.buildSystemID, workspaceURL: workspaceURL)
             let earlier = previous[instance.id]
             // The instance ID is the build-system ID plus its root, so another
             // plugin can take the same ID over. Its model and dependencies are
@@ -1529,6 +1979,7 @@ package final class BuildSystemService: ObservableObject {
                 instance: instance,
                 declaration: declaration,
                 source: source,
+                workspaceURL: workspaceURL,
                 model: model,
                 modelState: modelState,
                 options: resolution?.options ?? [],

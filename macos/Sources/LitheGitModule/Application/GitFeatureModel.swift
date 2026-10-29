@@ -154,12 +154,23 @@ package final class GitFeatureModel: ObservableObject {
         return gitWorktreeInspectionVersionCounter
     }
     @Published package private(set) var gitWorktreeInspectionLoadState = GitWorktreeInspectionLoadState.idle
+    @Published package private(set) var isLoadingMoreWorktreeHistory = false
+    @Published package private(set) var worktreeHistoryPageFailed = false
     @Published package private(set) var isPerformingStashOperation = false
     @Published package private(set) var isPerformingShelfOperation = false
     @Published package private(set) var isPerformingWorktreeOperation = false
+    @Published package private(set) var isMutatingWorktreeChanges = false
+    @Published package private(set) var isRefreshingWorktreeChanges = false
+    @Published package private(set) var worktreeChangesError: String?
+    private var worktreeChangesRequestGeneration: UInt64 = 0
+    private var worktreeChangesMutationID: UUID?
     @Published package private(set) var gitRepositoryRoot: URL? {
         didSet {
             if oldValue != gitRepositoryRoot {
+                cancelWorktreeHistoryLoading()
+                worktreeChangesRequestGeneration &+= 1
+                isRefreshingWorktreeChanges = false
+                worktreeChangesError = nil
                 repositorySetup.reset()
                 identitySettings.reset()
                 historyEditing.reset()
@@ -169,12 +180,66 @@ package final class GitFeatureModel: ObservableObject {
         }
     }
     @Published package private(set) var currentBranch = "No Git"
-    @Published package var selectedChange: GitChange?
-    @Published package private(set) var selectedDiffPatch = ""
-    @Published package private(set) var diffRows: [DiffRow] = []
-    @Published package private(set) var diffHunks: [DiffHunk] = []
-    @Published package var gitDiffWhitespaceMode = GitDiffWhitespaceMode.doNotIgnore
-    @Published package private(set) var isLoadingDiff = false
+    @Published package private(set) var repositoryDiffSessions: [UUID: GitRepositoryDiffSession] = [:]
+    private let legacyDiffSession = GitRepositoryDiffSession()
+    private var diffSubscriptions: [UUID: AnyCancellable] = [:]
+    @Published private var activeDiffSessionID: UUID?
+    package var activeRepositoryDiffSession: GitRepositoryDiffSession {
+        activeDiffSessionID.flatMap { repositoryDiffSessions[$0] } ?? legacyDiffSession
+    }
+
+    package func repositoryDiffSession(id: UUID) -> GitRepositoryDiffSession {
+        if let session = repositoryDiffSessions[id] { return session }
+        let session = GitRepositoryDiffSession(id: id)
+        repositoryDiffSessions[id] = session
+        diffSubscriptions[id] = session.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
+        return session
+    }
+
+    package func activateRepositoryDiffSession(_ id: UUID) {
+        _ = repositoryDiffSession(id: id)
+        activeDiffSessionID = id
+    }
+
+    package func closeRepositoryDiffSession(_ id: UUID) {
+        repositoryDiffSessions.removeValue(forKey: id)?.close()
+        diffSubscriptions[id] = nil
+        if activeDiffSessionID == id { activeDiffSessionID = nil }
+    }
+
+    package func closeAllRepositoryDiffSessions() {
+        for id in Array(repositoryDiffSessions.keys) { closeRepositoryDiffSession(id) }
+        legacyDiffSession.reset()
+    }
+
+    private var allDiffSessions: [GitRepositoryDiffSession] {
+        [legacyDiffSession] + Array(repositoryDiffSessions.values)
+    }
+
+    package var selectedChange: GitChange? {
+        get { activeRepositoryDiffSession.selectedChange }
+        set { activeRepositoryDiffSession.selectedChange = newValue }
+    }
+    package var selectedDiffPatch: String {
+        get { activeRepositoryDiffSession.selectedDiffPatch }
+        set { activeRepositoryDiffSession.selectedDiffPatch = newValue }
+    }
+    package var diffRows: [DiffRow] {
+        get { activeRepositoryDiffSession.diffRows }
+        set { activeRepositoryDiffSession.diffRows = newValue }
+    }
+    package var diffHunks: [DiffHunk] {
+        get { activeRepositoryDiffSession.diffHunks }
+        set { activeRepositoryDiffSession.diffHunks = newValue }
+    }
+    package var gitDiffWhitespaceMode: GitDiffWhitespaceMode {
+        get { activeRepositoryDiffSession.gitDiffWhitespaceMode }
+        set { activeRepositoryDiffSession.gitDiffWhitespaceMode = newValue }
+    }
+    package var isLoadingDiff: Bool {
+        get { activeRepositoryDiffSession.isLoadingDiff }
+        set { activeRepositoryDiffSession.isLoadingDiff = newValue }
+    }
     @Published package private(set) var isRefreshingGit = false
     @Published package var pendingDiscardChange: GitChange?
     @Published package var pendingDiscardHunk: DiffHunkRequest?
@@ -279,17 +344,40 @@ package final class GitFeatureModel: ObservableObject {
 
     @Published package private(set) var selectedGitCommitFilesLoadState =
         GitCommitFilesLoadState.idle
-    @Published package var selectedGitCommitFile: GitCommitFile?
-    @Published package var selectedGitCommitDiffContext: GitCommitDiffContext?
+    package var selectedGitCommitFile: GitCommitFile? {
+        get { activeRepositoryDiffSession.selectedGitCommitFile }
+        set { activeRepositoryDiffSession.selectedGitCommitFile = newValue }
+    }
+    package var selectedGitCommitDiffContext: GitCommitDiffContext? {
+        get { activeRepositoryDiffSession.selectedGitCommitDiffContext }
+        set { activeRepositoryDiffSession.selectedGitCommitDiffContext = newValue }
+    }
     @Published package private(set) var isLoadingGitHistory = false
     @Published package private(set) var isLoadingMoreGitHistory = false
     @Published package private(set) var canLoadMoreGitHistory = false
+    @Published package private(set) var gitHistoryPageFailed = false
     @Published package private(set) var gitConsoleHistoryTruncated = false
     @Published package private(set) var gitConsoleEntries: [GitConsoleEntry] = []
-    @Published package private(set) var branchComparison: GitBranchComparison?
-    @Published package var selectedBranchComparisonFile: GitBranchComparisonFile?
-    @Published package private(set) var branchComparisonRows: [DiffRow] = []
-    @Published package private(set) var isLoadingBranchComparison = false
+    package var branchComparison: GitBranchComparison? {
+        get { activeRepositoryDiffSession.branchComparison }
+        set { activeRepositoryDiffSession.branchComparison = newValue }
+    }
+    package var selectedBranchComparisonFile: GitBranchComparisonFile? {
+        get { activeRepositoryDiffSession.selectedBranchComparisonFile }
+        set { activeRepositoryDiffSession.selectedBranchComparisonFile = newValue }
+    }
+    package var branchComparisonRows: [DiffRow] {
+        get { activeRepositoryDiffSession.branchComparisonRows }
+        set { activeRepositoryDiffSession.branchComparisonRows = newValue }
+    }
+    package var isLoadingBranchComparison: Bool {
+        get { activeRepositoryDiffSession.isLoadingBranchComparison }
+        set { activeRepositoryDiffSession.isLoadingBranchComparison = newValue }
+    }
+    package var repositoryDiffGeneration: UUID {
+        get { activeRepositoryDiffSession.repositoryDiffGeneration }
+        set { activeRepositoryDiffSession.repositoryDiffGeneration = newValue }
+    }
     @Published package private(set) var isPerformingBranchOperation = false
     @Published package private(set) var isCloningRepository = false
     @Published package private(set) var availableRepositoryRoots: [URL] = []
@@ -364,6 +452,11 @@ package final class GitFeatureModel: ObservableObject {
     private var lineChangeHunks: [URL: [String: DiffHunk]] = [:]
     private var worktreeRequestGeneration: UInt64 = 0
     private var worktreeInspectionRequestGeneration: UInt64 = 0
+    private var worktreeHistoryCursor: String?
+    private var worktreeHistoryRoot: URL?
+    private var worktreeHistoryOperationID: String?
+    private static let worktreeHistoryPageSize = 50
+    private static let worktreeHistoryMaximumCount = 5_000
 
     private static let commitFilesPrefetchRadius = 4
 
@@ -403,6 +496,9 @@ package final class GitFeatureModel: ObservableObject {
         self.repositoryRootsProvider = repositoryRootsProvider ?? { await service.repositories(in: $0) }
         self.diffDocumentProvider = diffDocumentProvider ?? {
             await service.diffDocument(for: $0, whitespace: $1)
+        }
+        diffSubscriptions[legacyDiffSession.id] = legacyDiffSession.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
         }
         executionJournalSubscription = executionJournal?.changes
             .throttle(for: .milliseconds(100), scheduler: DispatchQueue.main, latest: true)
@@ -449,7 +545,10 @@ package final class GitFeatureModel: ObservableObject {
             || isPerformingStashOperation
             || isPerformingShelfOperation
             || isPerformingWorktreeOperation
-            || isLoadingDiff
+            || isMutatingWorktreeChanges
+            || isRefreshingWorktreeChanges
+            || !repositoryDiffSessions.isEmpty
+            || allDiffSessions.contains { $0.isLoadingDiff || $0.isLoadingBranchComparison }
             || isRefreshingGit
             || isCommitting
             || isLoadingGitHistory
@@ -462,6 +561,7 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     package func reset() {
+        closeAllRepositoryDiffSessions()
         repositorySetup.reset()
         identitySettings.reset()
         historyEditing.reset()
@@ -482,7 +582,7 @@ package final class GitFeatureModel: ObservableObject {
         worktreeRequestGeneration &+= 1
         gitWorktreeInspection = nil
         gitWorktreeInspectionLoadState = .idle
-        worktreeInspectionRequestGeneration &+= 1
+        cancelWorktreeHistoryLoading()
         gitOperationState = nil
         pendingPullStrategy = nil
         pendingIntegrationConflict = nil
@@ -498,6 +598,11 @@ package final class GitFeatureModel: ObservableObject {
         isPerformingStashOperation = false
         isPerformingShelfOperation = false
         isPerformingWorktreeOperation = false
+        worktreeChangesMutationID = nil
+        isMutatingWorktreeChanges = false
+        isRefreshingWorktreeChanges = false
+        worktreeChangesError = nil
+        worktreeChangesRequestGeneration &+= 1
         gitRepositoryRoot = nil
         availableRepositoryRoots = []
         requestedRepositoryRoot = nil
@@ -633,11 +738,13 @@ package final class GitFeatureModel: ObservableObject {
     private func refreshGitState(at workspaceURL: URL) async {
         guard !Task.isCancelled else { return }
         var didChange = false
+        var historyContextChanged = false
         let repositoryRoots = await repositoryRootsProvider(workspaceURL)
         guard !Task.isCancelled, workspaceURLProvider?()?.standardizedFileURL == workspaceURL.standardizedFileURL else { return }
         if availableRepositoryRoots != repositoryRoots {
             availableRepositoryRoots = repositoryRoots
             didChange = true
+            historyContextChanged = true
         }
         if let requestedRepositoryRoot, !repositoryRoots.contains(requestedRepositoryRoot) {
             self.requestedRepositoryRoot = nil
@@ -662,6 +769,7 @@ package final class GitFeatureModel: ObservableObject {
                 isLoadingInitialGitConsoleEntry = false
                 hasLoadedInitialGitConsoleEntry = false
                 didChange = true
+                historyContextChanged = true
             }
             if requestedRepositoryRoot == snapshot.repositoryRoot,
                let requestedRepositoryReference {
@@ -669,10 +777,12 @@ package final class GitFeatureModel: ObservableObject {
                 isShowingAllGitReferences = false
                 self.requestedRepositoryReference = nil
                 didChange = true
+                historyContextChanged = true
             }
             if currentBranch != snapshot.branch {
                 currentBranch = snapshot.branch
                 didChange = true
+                historyContextChanged = true
             }
             if changesChanged {
                 gitChanges = changes
@@ -716,30 +826,11 @@ package final class GitFeatureModel: ObservableObject {
                 )
             }
 
-            if let selectedChange,
-               let updated = changes.first(where: {
-                   $0.repositoryRoot.standardizedFileURL == selectedChange.repositoryRoot.standardizedFileURL
-                       && $0.path == selectedChange.path
-               }) ?? untrackedChange(at: selectedChange.url, in: selectedChange.repositoryRoot) {
-                if self.selectedChange != updated {
-                    self.selectedChange = updated
-                    didChange = true
-                }
-                let document = await diffDocumentProvider(updated, gitDiffWhitespaceMode)
+            for session in allDiffSessions where session.selectedChange != nil {
+                await refreshWorkingDiff(
+                    session, changes: changes, confirmedRoots: observation.successfullyReadRepositoryRoots
+                )
                 guard !Task.isCancelled else { return }
-                if selectedDiffPatch != document.patch {
-                    selectedDiffPatch = document.patch
-                    diffRows = document.rows
-                    diffHunks = document.hunks
-                    didChange = true
-                }
-            } else if selectedChange != nil {
-                self.selectedChange = nil
-                selectedDiffPatch = ""
-                diffRows = []
-                diffHunks = []
-                isLoadingDiff = false
-                didChange = true
             }
         } else {
             if gitRepositoryRoot != nil {
@@ -752,14 +843,10 @@ package final class GitFeatureModel: ObservableObject {
             if !gitStashes.isEmpty { gitStashes = []; didChange = true }
             if !gitShelves.isEmpty { gitShelves = []; didChange = true }
             if gitOperationState != nil { gitOperationState = nil; didChange = true }
-            if selectedChange != nil { selectedChange = nil; didChange = true }
-            if !selectedDiffPatch.isEmpty { selectedDiffPatch = ""; didChange = true }
-            if !diffRows.isEmpty { diffRows = []; didChange = true }
-            if !diffHunks.isEmpty { diffHunks = []; didChange = true }
-            if isLoadingDiff { isLoadingDiff = false; didChange = true }
+
         }
 
-        if didChange && isGitLogVisibleProvider?() == true {
+        if historyContextChanged && isGitLogVisibleProvider?() == true {
             guard !Task.isCancelled else { return }
             await refreshGitHistory()
         }
@@ -905,7 +992,6 @@ package final class GitFeatureModel: ObservableObject {
         }
         requestedRepositoryRoot = root
         requestedRepositoryReference = reference
-        selectedChange = nil
         await refreshGit()
     }
 
@@ -922,46 +1008,79 @@ package final class GitFeatureModel: ObservableObject {
         gitIdentity = nil
         canLoadMoreGitHistory = false
         selectedGitCommit = nil
-        selectedGitCommitFile = nil
-        selectedGitCommitDiffContext = nil
         clearGitCommitFilesCache()
         historyEditing.reset()
-        closeBranchComparison()
         gitLogFilterGeneration = UUID()
         gitLogMatchedCommitHashes = nil
         isFilteringGitLog = false
     }
 
-    package func selectChange(_ change: GitChange) async {
+    /// Re-reads one working-tree comparison after a status refresh.
+    ///
+    /// `confirmedRoots` are the repositories whose status this refresh actually
+    /// read. A path missing from `changes` means "clean" only inside one of them:
+    /// a linked worktree's tab is not covered by the workspace snapshot, so its
+    /// absence proves nothing and the tab keeps its content.
+    private func refreshWorkingDiff(
+        _ session: GitRepositoryDiffSession, changes: [GitChange], confirmedRoots: Set<URL>
+    ) async {
+        guard let previous = session.selectedChange, !session.isClosed else { return }
+        if let directory = session.directoryURL {
+            await showDirectoryDiff(at: directory, session: session, refreshingConfirmedRoots: confirmedRoots)
+            return
+        }
+        let updated = changes.first {
+            $0.repositoryRoot.standardizedFileURL == previous.repositoryRoot.standardizedFileURL && $0.path == previous.path
+        } ?? inspectedWorktreeChange(matching: previous) ?? untrackedChange(at: previous.url, in: previous.repositoryRoot)
+        guard let updated else {
+            if confirmedRoots.contains(previous.repositoryRoot.standardizedFileURL) { session.reset() }
+            return
+        }
+        let generation = UUID()
+        session.repositoryDiffGeneration = generation
+        let document = await diffDocumentProvider(updated, session.gitDiffWhitespaceMode)
+        guard session.repositoryDiffGeneration == generation, !session.isClosed, !Task.isCancelled else { return }
+        if session.selectedChange != updated { session.selectedChange = updated }
+        session.updateDocument(patch: document.patch, rows: document.rows, hunks: document.hunks)
+        if session.isLoadingDiff { session.isLoadingDiff = false }
+    }
+
+    package func selectChange(_ change: GitChange, session: GitRepositoryDiffSession? = nil) async {
+        let session = session ?? activeRepositoryDiffSession
         // A directory summary stands for many files; its rows expand instead.
         guard !change.isUntrackedDirectory else { return }
-        closeBranchComparison()
-        selectedGitCommitDiffContext = nil
-        selectedChange = change
-        selectedDiffPatch = ""
-        diffRows = []
-        diffHunks = []
-        isLoadingDiff = true
-        let document = await diffDocumentProvider(change, gitDiffWhitespaceMode)
-        guard selectedChange?.id == change.id else { return }
-        selectedDiffPatch = document.patch
-        diffRows = document.rows
-        diffHunks = document.hunks
-        isLoadingDiff = false
+        session.reset()
+        let generation = session.repositoryDiffGeneration
+        session.selectedChange = change
+        session.selectedDiffPatch = ""
+        session.diffRows = []
+        session.diffHunks = []
+        session.isLoadingDiff = true
+        let document = await diffDocumentProvider(change, session.gitDiffWhitespaceMode)
+        guard session.repositoryDiffGeneration == generation, session.selectedChange?.id == change.id else { return }
+        session.selectedDiffPatch = document.patch
+        session.diffRows = document.rows
+        session.diffHunks = document.hunks
+        session.isLoadingDiff = false
     }
 
     package func closeWorkingTreeDiff() {
         guard selectedChange != nil else { return }
-        // Invalidate the pending preview before clearing its state. A late
-        // result fails the selection guard and cannot leave the module busy.
-        selectedChange = nil
-        selectedDiffPatch = ""
-        diffRows = []
-        diffHunks = []
-        isLoadingDiff = false
+        activeRepositoryDiffSession.reset()
     }
 
-    package func showDirectoryDiff(at directoryURL: URL) async {
+    /// Compatibility close for commands acting on the focused comparison only.
+    package func closeRepositoryDiff() { activeRepositoryDiffSession.reset() }
+
+    /// A non-nil `refreshingConfirmedRoots` re-reads a directory comparison that is
+    /// already open: the session keeps showing its rows until the new ones differ,
+    /// and it closes only when the status of its repository was read and is clean.
+    package func showDirectoryDiff(
+        at directoryURL: URL,
+        session: GitRepositoryDiffSession? = nil,
+        refreshingConfirmedRoots: Set<URL>? = nil
+    ) async {
+        let session = session ?? activeRepositoryDiffSession
         let directoryPath = directoryURL.standardizedFileURL.path
         guard let repositoryRoot = (availableRepositoryRoots.isEmpty
             ? [gitRepositoryRoot].compactMap { $0 } : availableRepositoryRoots)
@@ -980,7 +1099,12 @@ package final class GitFeatureModel: ObservableObject {
             $0.repositoryRoot.standardizedFileURL == repositoryRoot.standardizedFileURL
                 && (relativePath.isEmpty || $0.path == relativePath || $0.path.hasPrefix(prefix))
         }.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
-        guard !changes.isEmpty else { return }
+        guard !changes.isEmpty else {
+            if let confirmed = refreshingConfirmedRoots, confirmed.contains(repositoryRoot.standardizedFileURL) {
+                session.reset()
+            }
+            return
+        }
 
         let hasWorkingTreeChange = changes.contains(where: \.hasWorkingTreeChange)
         let isEntirelyUntracked = changes.allSatisfy(\.isUntracked)
@@ -992,34 +1116,49 @@ package final class GitFeatureModel: ObservableObject {
             workTreeStatus: isEntirelyUntracked ? "?" : (hasWorkingTreeChange ? "M" : " ")
         )
 
-        closeBranchComparison()
-        selectedGitCommitDiffContext = nil
-        selectedChange = summary
-        selectedDiffPatch = ""
-        diffRows = []
-        diffHunks = []
-        isLoadingDiff = true
+        let refreshing = refreshingConfirmedRoots != nil
+        let generation: UUID
+        if refreshing {
+            generation = UUID()
+            session.repositoryDiffGeneration = generation
+        } else {
+            session.reset()
+            generation = session.repositoryDiffGeneration
+            session.directoryURL = directoryURL
+            session.selectedChange = summary
+            session.selectedDiffPatch = ""
+            session.diffRows = []
+            session.diffHunks = []
+            session.isLoadingDiff = true
+        }
         var documents: [DiffDocument] = []
         for change in changes {
             documents.append(
                 await service.diffDocumentAgainstHead(
                     for: change,
-                    whitespace: gitDiffWhitespaceMode
+                    whitespace: session.gitDiffWhitespaceMode
                 )
             )
+            // A refresh has nothing to show for a cancelled read; a first load
+            // still resolves its loading state below.
+            if refreshing, Task.isCancelled { return }
         }
-        guard selectedChange?.id == summary.id else { return }
-        selectedDiffPatch = documents.map(\.patch).filter { !$0.isEmpty }.joined(separator: "\n")
-        diffRows = documents.flatMap(\.rows)
-        diffHunks = documents.flatMap(\.hunks)
-        isLoadingDiff = false
+        guard session.repositoryDiffGeneration == generation, !session.isClosed else { return }
+        if session.selectedChange != summary { session.selectedChange = summary }
+        session.updateDocument(
+            patch: documents.map(\.patch).filter { !$0.isEmpty }.joined(separator: "\n"),
+            rows: documents.flatMap(\.rows),
+            hunks: documents.flatMap(\.hunks)
+        )
+        if session.isLoadingDiff { session.isLoadingDiff = false }
     }
 
-    package func selectConflictPath(_ path: String) async {
+    package func selectConflictPath(_ path: String, session: GitRepositoryDiffSession? = nil) async {
+        let session = session ?? activeRepositoryDiffSession
         guard let change = gitChanges.first(where: {
             $0.path == path && $0.repositoryRoot == gitRepositoryRoot
         }) else { return }
-        await selectChange(change)
+        await selectChange(change, session: session)
     }
 
     package func loadLineChanges(for fileURL: URL) async {
@@ -1041,9 +1180,10 @@ package final class GitFeatureModel: ObservableObject {
         )
     }
 
-    package func showLineChange(_ marker: GitLineChangeMarker, for fileURL: URL) async {
+    package func showLineChange(_ marker: GitLineChangeMarker, for fileURL: URL, session: GitRepositoryDiffSession? = nil) async {
+        let session = session ?? activeRepositoryDiffSession
         guard let change = change(at: fileURL.standardizedFileURL) else { return }
-        await selectChange(change)
+        await selectChange(change, session: session)
         _ = marker
     }
 
@@ -1278,16 +1418,23 @@ package final class GitFeatureModel: ObservableObject {
         requestedStashReference = reference
     }
 
-    package func reloadSelectedChangeDiff(whitespace: GitDiffWhitespaceMode) async {
-        gitDiffWhitespaceMode = whitespace
-        guard let selectedChange else { return }
-        isLoadingDiff = true
+    package func reloadSelectedChangeDiff(whitespace: GitDiffWhitespaceMode, session: GitRepositoryDiffSession? = nil) async {
+        let session = session ?? activeRepositoryDiffSession
+        session.gitDiffWhitespaceMode = whitespace
+        if let directory = session.directoryURL {
+            await showDirectoryDiff(at: directory, session: session)
+            return
+        }
+        guard let selectedChange = session.selectedChange else { return }
+        session.repositoryDiffGeneration = UUID()
+        let generation = session.repositoryDiffGeneration
+        session.isLoadingDiff = true
         let document = await service.diffDocument(for: selectedChange, whitespace: whitespace)
-        guard self.selectedChange?.id == selectedChange.id else { return }
-        selectedDiffPatch = document.patch
-        diffRows = document.rows
-        diffHunks = document.hunks
-        isLoadingDiff = false
+        guard session.repositoryDiffGeneration == generation, session.selectedChange?.id == selectedChange.id else { return }
+        session.selectedDiffPatch = document.patch
+        session.diffRows = document.rows
+        session.diffHunks = document.hunks
+        session.isLoadingDiff = false
     }
 
     package func commitMessageInput(for change: GitChange) async -> CommitMessageInput {
@@ -1333,29 +1480,39 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     package func stageSelectedChange() async {
-        guard !isCommitting, let selectedChange, selectedChange.canToggleStaging else { return }
+        guard let selectedChange else { return }
+        await stageChange(selectedChange)
+    }
+
+    package func stageChange(_ selectedChange: GitChange) async {
+        guard !isCommitting, selectedChange.canToggleStaging else { return }
         let result = await withGitOperation { await service.stage(selectedChange) }
         showResult(result, success: "Staged \(selectedChange.path)")
-        await refreshGit()
+        await refreshAfterChangeMutation([selectedChange])
     }
 
     package func unstageSelectedChange() async {
-        guard !isCommitting, let selectedChange else { return }
+        guard let selectedChange else { return }
+        await unstageChange(selectedChange)
+    }
+
+    package func unstageChange(_ selectedChange: GitChange) async {
+        guard !isCommitting else { return }
         let result = await withGitOperation { await service.unstage(selectedChange) }
         showResult(result, success: "Unstaged \(selectedChange.path)")
-        await refreshGit()
+        await refreshAfterChangeMutation([selectedChange])
     }
 
     package func stageDiffHunk(_ hunk: DiffHunk, in change: GitChange) async {
         let result = await withGitOperation { await service.stage(hunk: hunk, of: change) }
         showResult(result, success: "Staged a change block in \(change.path)")
-        await refreshGit()
+        await refreshAfterChangeMutation([change])
     }
 
     package func unstageDiffHunk(_ hunk: DiffHunk, in change: GitChange) async {
         let result = await withGitOperation { await service.unstage(hunk: hunk, of: change) }
         showResult(result, success: "Unstaged a change block in \(change.path)")
-        await refreshGit()
+        await refreshAfterChangeMutation([change])
     }
 
     package func requestDiscardHunk(_ hunk: DiffHunk, in change: GitChange) {
@@ -1369,7 +1526,7 @@ package final class GitFeatureModel: ObservableObject {
             await service.discard(hunk: request.hunk, of: request.change)
         }
         showResult(result, success: "Discarded a change block in \(request.change.path)")
-        await refreshGit()
+        await refreshAfterChangeMutation([request.change])
     }
 
     package func cancelDiscardHunk() {
@@ -1410,7 +1567,7 @@ package final class GitFeatureModel: ObservableObject {
             }
             return results
         }
-        await refreshGit()
+        await refreshAfterChangeMutation(changes)
     }
 
     package func cancelDiscardChange() {
@@ -1492,6 +1649,9 @@ package final class GitFeatureModel: ObservableObject {
 
     package var isStagingChanges: Bool { !pendingStagingStates.isEmpty }
 
+    /// Staged state the user just asked for, by change ID, while Git is still applying it.
+    package var pendingStagedStates: [GitChange.ID: Bool] { pendingStagingStates.mapValues(\.staged) }
+
     package func effectiveStagingState(for change: GitChange) -> Bool {
         pendingStagingStates[change.id]?.staged ?? change.isStaged
     }
@@ -1526,7 +1686,7 @@ package final class GitFeatureModel: ObservableObject {
         if !result.succeeded {
             pendingStagingStates.removeValue(forKey: change.id)
         }
-        await refreshGit()
+        await refreshAfterChangeMutation([change])
     }
 
     package func finishSetStaging(_ pendingChanges: [GitChange], staged: Bool) async {
@@ -1560,7 +1720,7 @@ package final class GitFeatureModel: ObservableObject {
         for change in pendingChanges where !completedChangeIDs.contains(change.id) {
             pendingStagingStates.removeValue(forKey: change.id)
         }
-        await refreshGit()
+        await refreshAfterChangeMutation(pendingChanges)
     }
 
     package func stageAllChanges() async {
@@ -1849,8 +2009,11 @@ package final class GitFeatureModel: ObservableObject {
         )
     }
 
-    package func refreshGitHistory() async {
+    package func refreshGitHistory(preservingLoadedHistory: Bool = false) async {
         guard let gitRepositoryRoot else { return }
+        let pageLimit = preservingLoadedHistory
+            ? max(Self.gitHistoryPageSize, gitCommits.count)
+            : Self.gitHistoryPageSize
         cancelGitHistoryLoading()
         let generation = gitHistoryGeneration
         let selectedReference = selectedGitReference
@@ -1861,19 +2024,18 @@ package final class GitFeatureModel: ObservableObject {
         let referencesOperationID = gitHistoryOperationID(kind: "references", generation: generation)
         let pageOperationID = gitHistoryOperationID(kind: "page", generation: generation)
         activeGitHistoryOperationIDs.formUnion([referencesOperationID, pageOperationID])
-        gitGraphRepositoryCommits = []
+        if !preservingLoadedHistory { gitGraphRepositoryCommits = [] }
         isLoadingGitHistory = true
+        if !preservingLoadedHistory { canLoadMoreGitHistory = false }
         let previousCommitHash = selectedGitCommit?.hash
         async let references = service.references(
             at: gitRepositoryRoot,
             operationID: referencesOperationID
         )
-        async let page = service.historyPage(
-            at: gitRepositoryRoot,
-            reference: historyReference,
-            cursor: nil,
-            limit: Self.gitHistoryPageSize,
-            operationID: pageOperationID
+        async let page = refreshGitHistoryWindow(
+            at: gitRepositoryRoot, reference: historyReference, limit: pageLimit,
+            previousCommits: preservingLoadedHistory ? gitCommits : [],
+            generation: generation, operationID: pageOperationID
         )
         // Enrich the graph independently: the visible page and its cursor must
         // become usable even while a much larger repository walk is pending.
@@ -1883,7 +2045,9 @@ package final class GitFeatureModel: ObservableObject {
         // waiting for every repository's references, and a slow reference read
         // must not sit between the stale-result guard and the publish, where it
         // could let a superseded page through after the guard already passed.
-        async let repositoryReferences: Void = refreshGitRepositoryReferences(generation: generation)
+        async let repositoryReferences: Void = refreshGitRepositoryReferences(
+            generation: generation, excluding: gitRepositoryRoot
+        )
         let (referenceSnapshot, historyPage) = await (references, page)
         activeGitHistoryOperationIDs.subtract([referencesOperationID, pageOperationID])
         guard gitHistoryGeneration == generation,
@@ -1896,26 +2060,35 @@ package final class GitFeatureModel: ObservableObject {
             return
         }
         isLoadingGitHistory = false
+        if let referenceSnapshot {
+            if gitReferences != referenceSnapshot.references { gitReferences = referenceSnapshot.references }
+            recentGitReferences = referenceSnapshot.recentReferences
+            gitIdentity = referenceSnapshot.identity
+            publishGitRepositoryReferences(referenceSnapshot, at: gitRepositoryRoot)
+        }
         guard let historyPage else {
+            gitHistoryPageFailed = !gitCommits.isEmpty
+            canLoadMoreGitHistory = gitHistoryPageFailed
             await repositoryGraph
             await repositoryReferences
             return
         }
 
-        if let referenceSnapshot {
-            gitReferences = referenceSnapshot.references
-            recentGitReferences = referenceSnapshot.recentReferences
-            gitIdentity = referenceSnapshot.identity
+        // A watcher refresh rebuilds only the already loaded window, publishing
+        // it atomically. Never shrink deep history to the first page on save.
+        if !preservingLoadedHistory || gitCommits != historyPage.commits { gitCommits = historyPage.commits }
+        canLoadMoreGitHistory = historyPage.hasMore && historyPage.nextCursor != nil && !historyPage.commits.isEmpty
+        gitHistoryCursor = canLoadMoreGitHistory ? historyPage.nextCursor : nil
+        if !canLoadMoreGitHistory, let cursor = historyPage.nextCursor {
+            service.closeHistoryCursor(at: gitRepositoryRoot, cursor: cursor)
         }
-        gitCommits = historyPage.commits
-        gitHistoryCursor = historyPage.nextCursor
-        canLoadMoreGitHistory = historyPage.hasMore
 
-        let nextCommit = historyPage.commits.first(where: { $0.hash == previousCommitHash })
+        let retainedCommitHash = preservingLoadedHistory ? selectedGitCommit?.hash : previousCommitHash
+        let nextCommit = historyPage.commits.first(where: { $0.hash == retainedCommitHash })
             ?? historyPage.commits.first
         historyEditing.retainSelection(in: historyPage.commits, fallback: nextCommit?.hash)
         if let nextCommit {
-            if previousCommitHash == nextCommit.hash {
+            if retainedCommitHash == nextCommit.hash {
                 selectedGitCommit = nextCommit
                 await loadGitCommitFiles(for: nextCommit)
             } else {
@@ -1926,11 +2099,37 @@ package final class GitFeatureModel: ObservableObject {
             selectedGitCommit = nil
             selectedGitCommitFiles = []
             selectedGitCommitFilesLoadState = .idle
-            selectedGitCommitFile = nil
-            selectedGitCommitDiffContext = nil
         }
         await repositoryGraph
         await repositoryReferences
+    }
+
+    private func refreshGitHistoryWindow(
+        at root: URL, reference: GitReference?, limit: Int, previousCommits: [GitCommit],
+        generation: UUID, operationID: String
+    ) async -> GitHistoryPage? {
+        guard let page = await service.historyPage(
+            at: root, reference: reference, cursor: nil, limit: limit, operationID: operationID
+        ) else { return nil }
+        guard let previousTail = previousCommits.last,
+              !page.commits.contains(where: { $0.hash == previousTail.hash }),
+              page.hasMore, let cursor = page.nextCursor,
+              gitHistoryGeneration == generation, gitRepositoryRoot == root, !Task.isCancelled else { return page }
+
+        // New heads must not evict the old loaded tail (or its selection). Only
+        // extend by the observed displacement, not another page on every watch event.
+        let previousIndices = Dictionary(previousCommits.enumerated().map { ($1.hash, $0) }, uniquingKeysWith: min)
+        guard let overlap = page.commits.enumerated().first(where: { previousIndices[$0.element.hash] != nil }),
+              let previousIndex = previousIndices[overlap.element.hash] else { return page }
+        let extensionLimit = min(overlap.offset - previousIndex, Self.gitGraphRepositoryLimit - page.commits.count)
+        guard extensionLimit > 0 else { return page }
+        guard let extensionPage = await service.historyPage(
+            at: root, reference: reference, cursor: cursor, limit: extensionLimit, operationID: operationID
+        ) else { return nil }
+        var hashes = Set(page.commits.map(\.hash))
+        let fresh = extensionPage.commits.filter { hashes.insert($0.hash).inserted }
+        return GitHistoryPage(commits: page.commits + fresh, nextCursor: extensionPage.nextCursor,
+                              hasMore: extensionPage.hasMore && !fresh.isEmpty)
     }
 
     private func refreshGitRepositoryGraph(at root: URL, generation: UUID) async {
@@ -1946,7 +2145,8 @@ package final class GitFeatureModel: ObservableObject {
         // The repository context never owns the visible page's cursor/selection.
         if let cursor = page?.nextCursor { service.closeHistoryCursor(at: root, cursor: cursor) }
         guard gitHistoryGeneration == generation, gitRepositoryRoot == root, !Task.isCancelled else { return }
-        gitGraphRepositoryCommits = page?.commits ?? []
+        let commits = page?.commits ?? []
+        if gitGraphRepositoryCommits != commits { gitGraphRepositoryCommits = commits }
     }
 
     /// Loads the reference list for every discovered repository so the Git Log
@@ -1954,15 +2154,16 @@ package final class GitFeatureModel: ObservableObject {
     /// the roots are fetched sequentially for deterministic ordering without
     /// serializing writes. Guarded by `gitHistoryGeneration` like the rest of
     /// the history refresh, so a workspace switch cannot publish stale roots.
-    private func refreshGitRepositoryReferences(generation: UUID) async {
+    private func refreshGitRepositoryReferences(generation: UUID, excluding activeRoot: URL? = nil) async {
         let roots = availableRepositoryRoots
         guard !roots.isEmpty else {
             if !gitRepositoryReferences.isEmpty { gitRepositoryReferences = [] }
             return
         }
-        var loaded: [GitRepositoryReferences] = []
+        var loaded = gitRepositoryReferences.filter { $0.repositoryRoot == activeRoot }
         for (index, root) in roots.enumerated() {
             guard gitHistoryGeneration == generation, !Task.isCancelled else { return }
+            if root == activeRoot { continue }
             let operationID = gitHistoryOperationID(
                 kind: "repository-references-\(index)",
                 generation: generation
@@ -1981,7 +2182,22 @@ package final class GitFeatureModel: ObservableObject {
             )
         }
         guard gitHistoryGeneration == generation, !Task.isCancelled else { return }
-        gitRepositoryReferences = loaded
+        // The active snapshot may have arrived while another root was loading.
+        if let activeRoot {
+            loaded.removeAll { $0.repositoryRoot == activeRoot }
+            loaded += gitRepositoryReferences.filter { $0.repositoryRoot == activeRoot }
+        }
+        gitRepositoryReferences = roots.compactMap { root in loaded.first { $0.repositoryRoot == root } }
+    }
+
+    private func publishGitRepositoryReferences(_ snapshot: GitReferenceSnapshot, at root: URL) {
+        guard availableRepositoryRoots.contains(root) else { return }
+        let active = GitRepositoryReferences(repositoryRoot: root, references: snapshot.references,
+                                             recentReferences: snapshot.recentReferences)
+        let existing = gitRepositoryReferences
+        gitRepositoryReferences = availableRepositoryRoots.compactMap { candidate in
+            candidate == root ? active : existing.first { $0.repositoryRoot == candidate }
+        }
     }
 
     package func applyGitLogFilter(_ rawQuery: String) async {
@@ -2052,6 +2268,14 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     package func loadMoreGitHistory() async {
+        // Core consumes a failed cursor. Retry by opening a fresh history rather than
+        // reusing an invalid cursor or repeatedly fetching at the visible bottom edge.
+        // The reopened history spans the commits already loaded, so a retry deep in
+        // the list neither shrinks it to the first page nor moves the selection.
+        if gitHistoryPageFailed {
+            await refreshGitHistory(preservingLoadedHistory: true)
+            return
+        }
         guard let gitRepositoryRoot,
               let cursor = gitHistoryCursor,
               canLoadMoreGitHistory,
@@ -2086,17 +2310,22 @@ package final class GitFeatureModel: ObservableObject {
         }
         isLoadingMoreGitHistory = false
         guard let page else {
-            canLoadMoreGitHistory = false
+            gitHistoryPageFailed = true
             return
         }
 
-        let loadedHashes = Set(gitCommits.map(\.hash))
-        gitCommits.append(contentsOf: page.commits.filter { !loadedHashes.contains($0.hash) })
-        gitHistoryCursor = page.nextCursor
-        canLoadMoreGitHistory = page.hasMore
+        var loadedHashes = Set(gitCommits.map(\.hash))
+        let fresh = page.commits.filter { loadedHashes.insert($0.hash).inserted }
+        gitCommits.append(contentsOf: fresh)
+        canLoadMoreGitHistory = page.hasMore && page.nextCursor != nil && !fresh.isEmpty
+        gitHistoryCursor = canLoadMoreGitHistory ? page.nextCursor : nil
+        if !canLoadMoreGitHistory, let cursor = page.nextCursor {
+            service.closeHistoryCursor(at: gitRepositoryRoot, cursor: cursor)
+        }
     }
 
     package func cancelGitHistoryLoading() {
+        gitHistoryPageFailed = false
         gitHistoryGeneration = UUID()
         if let gitRepositoryRoot, let cursor = gitHistoryCursor {
             service.closeHistoryCursor(at: gitRepositoryRoot, cursor: cursor)
@@ -2125,8 +2354,6 @@ package final class GitFeatureModel: ObservableObject {
         guard let gitRepositoryRoot else {
             selectedGitCommitFiles = []
             selectedGitCommitFilesLoadState = .failed
-            selectedGitCommitFile = nil
-            selectedGitCommitDiffContext = nil
             return
         }
         if let cachedFiles = commitFilesLoader.cachedFiles(for: commit, at: gitRepositoryRoot) {
@@ -2136,8 +2363,6 @@ package final class GitFeatureModel: ObservableObject {
             selectedGitCommitFiles = []
             selectedGitCommitFilesLoadState = .loading
         }
-        selectedGitCommitFile = nil
-        selectedGitCommitDiffContext = nil
     }
 
     package func loadGitCommitFiles(for commit: GitCommit) async {
@@ -2198,70 +2423,67 @@ package final class GitFeatureModel: ObservableObject {
         selectedGitCommitFilesLoadState = selectedGitCommit == nil ? .idle : .loading
     }
 
-    package private(set) var savedDiffSnapshot: GitSavedChangesSnapshot?
-    package private(set) var savedDiffVersion: String?
+    package var savedDiffSnapshot: GitSavedChangesSnapshot? {
+        get { activeRepositoryDiffSession.savedDiffSnapshot }
+        set { activeRepositoryDiffSession.savedDiffSnapshot = newValue }
+    }
+    package var savedDiffVersion: String? {
+        get { activeRepositoryDiffSession.savedDiffVersion }
+        set { activeRepositoryDiffSession.savedDiffVersion = newValue }
+    }
 
     package func loadSavedChanges(stash: GitStash?, shelf: GitShelfEntry?) async -> Result<GitSavedChangesSnapshot, GitPatchFailure> {
         guard let root = gitRepositoryRoot else { return .failure(GitPatchFailure("No repository")) }
         return await service.savedChangesSnapshot(stash: stash, shelf: shelf, at: root)
     }
 
-    package func showSavedChangesDiff(_ snapshot: GitSavedChangesSnapshot, version: String, file: GitCommitFile) {
+    package func showSavedChangesDiff(_ snapshot: GitSavedChangesSnapshot, version: String, file: GitCommitFile, session: GitRepositoryDiffSession? = nil) {
+        let session = session ?? activeRepositoryDiffSession
         guard snapshot.repositoryRoot == gitRepositoryRoot,
               let saved = snapshot.files.first(where: { $0.version == version && $0.file == file }) else { return }
-        closeBranchComparison()
-        selectedChange = nil
-        savedDiffSnapshot = snapshot
-        savedDiffVersion = version
+        session.reset()
+        session.savedDiffSnapshot = snapshot
+        session.savedDiffVersion = version
+        session.commitFiles = snapshot.files.filter { $0.version == version }.map(\.file)
         let commit = GitCommit(hash: "saved:\(snapshot.id):\(version)", shortHash: version,
             parentHashes: [saved.base], authorName: "", authorEmail: "", date: "", subject: version, decorations: "")
-        selectedGitCommitFile = file
-        selectedGitCommitDiffContext = GitCommitDiffContext(repositoryRoot: snapshot.repositoryRoot, commit: commit, file: file)
-        selectedDiffPatch = ""
-        diffRows = saved.document.rows
-        diffHunks = saved.document.hunks
-        isLoadingDiff = false
+        session.selectedGitCommitFile = file
+        session.selectedGitCommitDiffContext = GitCommitDiffContext(repositoryRoot: snapshot.repositoryRoot, commit: commit, file: file)
+        session.selectedDiffPatch = ""
+        session.diffRows = saved.document.rows
+        session.diffHunks = saved.document.hunks
+        session.isLoadingDiff = false
     }
 
-    package func showGitCommitDiff(for file: GitCommitFile) async {
-        guard let gitRepositoryRoot, let commit = selectedGitCommit else { return }
-        let context = GitCommitDiffContext(
-            repositoryRoot: gitRepositoryRoot,
-            commit: commit,
-            file: file
-        )
-        closeBranchComparison()
-        selectedChange = nil
-        selectedDiffPatch = ""
-        selectedGitCommitFile = file
-        selectedGitCommitDiffContext = context
-        diffRows = []
-        diffHunks = []
-        isLoadingDiff = true
+    package func showGitCommitDiff(for file: GitCommitFile, session: GitRepositoryDiffSession? = nil, context requestedContext: GitCommitDiffContext? = nil, files: [GitCommitFile]? = nil) async {
+        let session = session ?? activeRepositoryDiffSession
+        guard let root = requestedContext?.repositoryRoot ?? gitRepositoryRoot,
+              let commit = requestedContext?.commit ?? selectedGitCommit else { return }
+        let context = GitCommitDiffContext(repositoryRoot: root, commit: commit, file: file)
+        session.reset()
+        let generation = session.repositoryDiffGeneration
+        session.selectedDiffPatch = ""
+        session.commitFiles = files ?? selectedGitCommitFiles
+        session.selectedGitCommitFile = file
+        session.selectedGitCommitDiffContext = context
+        session.diffRows = []
+        session.diffHunks = []
+        session.isLoadingDiff = true
         let document = await service.diffDocument(
             for: commit,
             file: file,
-            at: gitRepositoryRoot,
-            whitespace: gitDiffWhitespaceMode
+            at: root,
+            whitespace: session.gitDiffWhitespaceMode
         )
-        guard selectedGitCommitDiffContext?.id == context.id else { return }
-        diffRows = document.rows
-        diffHunks = document.hunks
-        isLoadingDiff = false
+        guard session.repositoryDiffGeneration == generation, session.selectedGitCommitDiffContext?.id == context.id else { return }
+        session.diffRows = document.rows
+        session.diffHunks = document.hunks
+        session.isLoadingDiff = false
     }
 
     package func closeGitCommitDiff() {
-        savedDiffSnapshot = nil
-        savedDiffVersion = nil
-        selectedGitCommitDiffContext = nil
-        selectedGitCommitFile = nil
-        // Working-tree/directory previews reuse these buffers after replacing
-        // the history context. Closing its background tab must preserve them.
-        guard selectedChange == nil, branchComparison == nil else { return }
-        selectedDiffPatch = ""
-        diffRows = []
-        diffHunks = []
-        isLoadingDiff = false
+        guard selectedGitCommitDiffContext != nil else { return }
+        activeRepositoryDiffSession.reset()
     }
 
     package func loadBlame(for fileURL: URL) async -> [GitBlameLine] {
@@ -2289,61 +2511,72 @@ package final class GitFeatureModel: ObservableObject {
         await selectGitCommit(loaded)
     }
 
-    package func showComparisonWithWorkingTree(for reference: GitReference) async {
-        guard let gitRepositoryRoot else { return }
-        selectedGitCommitDiffContext = nil
-        selectedChange = nil
-        selectedDiffPatch = ""
-        isLoadingBranchComparison = true
-        branchComparisonRows = []
+    package func showComparisonWithWorkingTree(for reference: GitReference, session: GitRepositoryDiffSession? = nil, repositoryRoot: URL? = nil) async {
+        let session = session ?? activeRepositoryDiffSession
+        guard let gitRepositoryRoot = repositoryRoot ?? gitRepositoryRoot else { return }
+        session.reset()
+        session.comparisonRoot = gitRepositoryRoot
+        let generation = session.repositoryDiffGeneration
+        session.isLoadingBranchComparison = true
+        session.branchComparisonRows = []
         let comparison = await service.comparisonWithWorkingTree(
             for: reference,
             at: gitRepositoryRoot
         )
-        branchComparison = comparison
-        selectedBranchComparisonFile = comparison.files.first
+        guard session.repositoryDiffGeneration == generation, !session.isClosed else { return }
+        session.branchComparison = comparison
+        session.selectedBranchComparisonFile = comparison.files.first
         if let firstFile = comparison.files.first {
-            branchComparisonRows = await service.diff(
+            let rows = await service.diff(
                 for: firstFile,
                 against: reference,
                 at: gitRepositoryRoot,
-                whitespace: gitDiffWhitespaceMode
+                whitespace: session.gitDiffWhitespaceMode
             )
+            guard session.repositoryDiffGeneration == generation, !session.isClosed else { return }
+            session.branchComparisonRows = rows
         }
-        isLoadingBranchComparison = false
+        session.isLoadingBranchComparison = false
     }
 
-    package func showComparison(from reference: GitReference, to target: GitReference) async {
-        guard let gitRepositoryRoot, reference.id != target.id else { return }
-        selectedGitCommitDiffContext = nil
-        selectedChange = nil
-        selectedDiffPatch = ""
-        isLoadingBranchComparison = true
-        branchComparisonRows = []
+    package func showComparison(from reference: GitReference, to target: GitReference, session: GitRepositoryDiffSession? = nil, repositoryRoot: URL? = nil) async {
+        let session = session ?? activeRepositoryDiffSession
+        guard let gitRepositoryRoot = repositoryRoot ?? gitRepositoryRoot, reference.id != target.id else { return }
+        session.reset()
+        session.comparisonRoot = gitRepositoryRoot
+        let generation = session.repositoryDiffGeneration
+        session.isLoadingBranchComparison = true
+        session.branchComparisonRows = []
         let comparison = await service.comparison(
             from: reference,
             to: target,
             at: gitRepositoryRoot
         )
-        branchComparison = comparison
-        selectedBranchComparisonFile = comparison.files.first
+        guard session.repositoryDiffGeneration == generation, !session.isClosed else { return }
+        session.branchComparison = comparison
+        session.selectedBranchComparisonFile = comparison.files.first
         if let firstFile = comparison.files.first {
-            branchComparisonRows = await service.diff(
+            let rows = await service.diff(
                 for: firstFile,
                 from: reference,
                 to: target,
                 at: gitRepositoryRoot,
-                whitespace: gitDiffWhitespaceMode
+                whitespace: session.gitDiffWhitespaceMode
             )
+            guard session.repositoryDiffGeneration == generation, !session.isClosed else { return }
+            session.branchComparisonRows = rows
         }
-        isLoadingBranchComparison = false
+        session.isLoadingBranchComparison = false
     }
 
-    package func selectBranchComparisonFile(_ file: GitBranchComparisonFile) async {
-        guard let gitRepositoryRoot, let comparison = branchComparison else { return }
-        selectedBranchComparisonFile = file
-        branchComparisonRows = []
-        isLoadingBranchComparison = true
+    package func selectBranchComparisonFile(_ file: GitBranchComparisonFile, session: GitRepositoryDiffSession? = nil) async {
+        let session = session ?? activeRepositoryDiffSession
+        guard let gitRepositoryRoot = session.comparisonRoot, let comparison = session.branchComparison else { return }
+        session.repositoryDiffGeneration = UUID()
+        let generation = session.repositoryDiffGeneration
+        session.selectedBranchComparisonFile = file
+        session.branchComparisonRows = []
+        session.isLoadingBranchComparison = true
         let rows: [DiffRow]
         if let target = comparison.targetReference {
             rows = await service.diff(
@@ -2351,26 +2584,25 @@ package final class GitFeatureModel: ObservableObject {
                 from: comparison.reference,
                 to: target,
                 at: gitRepositoryRoot,
-                whitespace: gitDiffWhitespaceMode
+                whitespace: session.gitDiffWhitespaceMode
             )
         } else {
             rows = await service.diff(
                 for: file,
                 against: comparison.reference,
                 at: gitRepositoryRoot,
-                whitespace: gitDiffWhitespaceMode
+                whitespace: session.gitDiffWhitespaceMode
             )
         }
-        guard selectedBranchComparisonFile?.id == file.id else { return }
-        branchComparisonRows = rows
-        isLoadingBranchComparison = false
+        guard session.repositoryDiffGeneration == generation, !session.isClosed,
+              session.selectedBranchComparisonFile?.id == file.id else { return }
+        session.branchComparisonRows = rows
+        session.isLoadingBranchComparison = false
     }
 
     package func closeBranchComparison() {
-        branchComparison = nil
-        selectedBranchComparisonFile = nil
-        branchComparisonRows = []
-        isLoadingBranchComparison = false
+        guard branchComparison != nil || isLoadingBranchComparison else { return }
+        activeRepositoryDiffSession.reset()
     }
 
     package func refreshWorktrees() async {
@@ -2440,7 +2672,7 @@ package final class GitFeatureModel: ObservableObject {
         await refreshGit()
         guard gitRepositoryRoot == root, !Task.isCancelled else { return }
         if isGitLogVisibleProvider?() == true, gitCommitsVersion == previousHistoryVersion {
-            await refreshGitHistory()
+            await refreshGitHistory(preservingLoadedHistory: true)
         }
         if gitWorktreeLoadState == .ready { await refreshWorktrees() }
     }
@@ -2468,8 +2700,128 @@ package final class GitFeatureModel: ObservableObject {
         )
     }
 
+    private func inspectedWorktreeChange(matching change: GitChange) -> GitChange? {
+        guard let inspection = gitWorktreeInspection,
+              let worktree = gitWorktrees.first(where: { $0.id == inspection.worktreeID }),
+              worktree.url.standardizedFileURL == change.repositoryRoot.standardizedFileURL else { return nil }
+        return inspection.changes.first { $0.id == change.id }
+    }
+
+    package func setWorktreeStaging(_ changes: [GitChange], staged: Bool, in worktree: GitWorktree) async {
+        await mutateWorktreeChanges(changes, in: worktree, staged: staged)
+    }
+
+    /// The caller must obtain the same destructive confirmation used by Commit.
+    package func discardWorktreeChanges(_ changes: [GitChange], in worktree: GitWorktree) async {
+        await mutateWorktreeChanges(changes, in: worktree, staged: nil)
+    }
+
+    private func mutateWorktreeChanges(_ changes: [GitChange], in worktree: GitWorktree, staged: Bool?) async {
+        guard let repositoryRoot = gitRepositoryRoot, !Task.isCancelled,
+              !isMutatingWorktreeChanges, !isRefreshingWorktreeChanges,
+              !isPerformingWorktreeOperation, !isCommitting, !isStagingChanges,
+              let listedWorktree = gitWorktrees.first(where: { $0.id == worktree.id }), !listedWorktree.isPrunable,
+              let inspection = gitWorktreeInspection, inspection.worktreeID == worktree.id,
+              inspection.hasLoadedChanges else { return }
+        // Resolve captured rows against the latest inspection. Neither a stale
+        // confirmation nor a foreign GitChange may redirect a worktree action.
+        let targets = coveringUntrackedDirectoryContents(inspection.changes.filter { current in
+            current.repositoryRoot.standardizedFileURL == worktree.url.standardizedFileURL
+                && changes.contains(current)
+                && (staged.map { current.canToggleStaging && ($0 ? (!current.isStaged || current.hasWorkingTreeChange) : current.isStaged) }
+                    ?? current.hasWorkingTreeChange)
+        })
+        guard !targets.isEmpty else { return }
+        let mutationID = UUID()
+        worktreeChangesMutationID = mutationID
+        isMutatingWorktreeChanges = true
+        worktreeChangesError = nil
+        // The rows show the requested state at once, as Commit's do. Git and the status
+        // refresh only confirm it, so a click never waits on them to look applied.
+        var optimisticIDs: [GitChange.ID] = []
+        if let staged {
+            for change in targets where change.canToggleStaging && change.isStaged != staged {
+                pendingStagingStates[change.id] = (worktree.url.standardizedFileURL, staged)
+                optimisticIDs.append(change.id)
+            }
+        }
+        func settle() {
+            for id in optimisticIDs { pendingStagingStates.removeValue(forKey: id) }
+            if worktreeChangesMutationID == mutationID {
+                worktreeChangesMutationID = nil
+                isMutatingWorktreeChanges = false
+            }
+        }
+        defer { settle() }
+        await withGitOperation {
+            for change in targets {
+                guard !Task.isCancelled, gitRepositoryRoot == repositoryRoot,
+                      worktreeChangesMutationID == mutationID else { break }
+                let result = await recordingGitCommand {
+                    if let staged { return staged ? await service.stage(change) : await service.unstage(change) }
+                    return await service.discard(change)
+                }
+                guard !Task.isCancelled, gitRepositoryRoot == repositoryRoot,
+                      worktreeChangesMutationID == mutationID else { break }
+                guard result.succeeded else {
+                    if gitWorktreeInspection?.worktreeID == worktree.id {
+                        worktreeChangesError = trimmedMessage(result)
+                    }
+                    notify?(trimmedMessage(result))
+                    break
+                }
+            }
+        }
+        guard gitRepositoryRoot == repositoryRoot, worktreeChangesMutationID == mutationID,
+              !Task.isCancelled else { return }
+        // The rows are settled once this worktree's status is read. The project-wide refresh
+        // that follows must not keep the checkboxes busy.
+        await refreshAfterChangeMutation(targets, onWorktreeSettled: settle)
+    }
+
+    private func refreshAfterChangeMutation(_ changes: [GitChange], onWorktreeSettled: () -> Void = {}) async {
+        let root = gitRepositoryRoot
+        if let inspection = gitWorktreeInspection,
+           let worktree = gitWorktrees.first(where: { $0.id == inspection.worktreeID }),
+           changes.contains(where: { $0.repositoryRoot.standardizedFileURL == worktree.url.standardizedFileURL }) {
+            await refreshWorktreeChanges(worktree, clearingError: false)
+        }
+        onWorktreeSettled()
+        guard gitRepositoryRoot == root, !Task.isCancelled else { return }
+        await refreshGit()
+    }
+
+    /// Refresh status only: preserve the loaded history window and its cursor.
+    package func refreshWorktreeChanges(_ worktree: GitWorktree, clearingError: Bool = true) async {
+        guard !worktree.isPrunable, gitWorktreeInspection?.worktreeID == worktree.id else { return }
+        if clearingError { worktreeChangesError = nil }
+        worktreeChangesRequestGeneration &+= 1
+        let generation = worktreeChangesRequestGeneration
+        let root = gitRepositoryRoot
+        isRefreshingWorktreeChanges = true
+        defer { if generation == worktreeChangesRequestGeneration { isRefreshingWorktreeChanges = false } }
+        let snapshot = await service.snapshot(for: worktree.url)
+        guard generation == worktreeChangesRequestGeneration, gitRepositoryRoot == root,
+              let current = gitWorktreeInspection, current.worktreeID == worktree.id, !Task.isCancelled else { return }
+        guard let snapshot, snapshot.repositoryRoot.standardizedFileURL == worktree.url.standardizedFileURL else {
+            worktreeChangesError = L10n.string("Could not inspect this worktree")
+            return
+        }
+        gitWorktreeInspection = GitWorktreeInspection(worktreeID: current.worktreeID, changes: snapshot.changes,
+            commits: current.commits, hasMoreCommits: current.hasMoreCommits)
+        let confirmedRoots: Set<URL> = [worktree.url.standardizedFileURL]
+        reconcilePendingStagingStates(with: snapshot.changes, successfullyReadRepositoryRoots: confirmedRoots)
+        for session in allDiffSessions where session.selectedChange?.repositoryRoot.standardizedFileURL == worktree.url.standardizedFileURL {
+            await refreshWorkingDiff(session, changes: snapshot.changes, confirmedRoots: confirmedRoots)
+        }
+    }
+
     package func inspectWorktree(_ worktree: GitWorktree) async {
-        worktreeInspectionRequestGeneration &+= 1
+        cancelWorktreeHistoryLoading()
+        worktreeChangesRequestGeneration &+= 1
+        let changesGeneration = worktreeChangesRequestGeneration
+        isRefreshingWorktreeChanges = false
+        worktreeChangesError = nil
         let generation = worktreeInspectionRequestGeneration
         let inspectionStartedAt = ContinuousClock.now
         guard !worktree.isPrunable else {
@@ -2525,16 +2877,20 @@ package final class GitFeatureModel: ObservableObject {
             durationMilliseconds: elapsedMilliseconds(since: inspectionStartedAt)
         )
 
-        // Do not make the first detail render wait for the full status scan.
-        // The larger history window and the status result are both applied only
-        // if this worktree is still selected.
-        let resolvedChanges = (await snapshot)?.changes ?? []
+        // A status scan must not overwrite pages appended while it was running.
+        let resolvedSnapshot = await snapshot
         guard generation == worktreeInspectionRequestGeneration,
+              changesGeneration == worktreeChangesRequestGeneration,
               gitWorktreeInspection?.worktreeID == worktree.id,
               !Task.isCancelled else { return }
+        guard let resolvedSnapshot,
+              resolvedSnapshot.repositoryRoot.standardizedFileURL == worktree.url.standardizedFileURL else {
+            worktreeChangesError = L10n.string("Could not inspect this worktree")
+            return
+        }
         let inspection = GitWorktreeInspection(
             worktreeID: worktree.id,
-            changes: resolvedChanges,
+            changes: resolvedSnapshot.changes,
             commits: gitWorktreeInspection?.commits ?? resolvedHistory.commits,
             hasMoreCommits: gitWorktreeInspection?.hasMoreCommits ?? resolvedHistory.hasMore,
             hasLoadedChanges: true
@@ -2545,48 +2901,72 @@ package final class GitFeatureModel: ObservableObject {
             phase: "changes-published",
             durationMilliseconds: elapsedMilliseconds(since: inspectionStartedAt)
         )
-
-        guard inspection.commits.count >= 30 else { return }
-        Task { [weak self] in
-            guard let self else { return }
-            let fullHistory = await self.service.history(
-                at: worktree.url,
-                reference: reference,
-                // Keep the warm cache bounded; older commits can be
-                // requested later by pagination or an explicit search.
-                limit: 80
-            )
-            guard generation == self.worktreeInspectionRequestGeneration,
-                  self.gitWorktreeInspection?.worktreeID == worktree.id,
-                  !Task.isCancelled else { return }
-            self.gitWorktreeInspection = GitWorktreeInspection(
-                worktreeID: worktree.id,
-                changes: self.gitWorktreeInspection?.changes ?? resolvedChanges,
-                commits: fullHistory.commits,
-                hasMoreCommits: fullHistory.hasMore,
-                hasLoadedChanges: self.gitWorktreeInspection?.hasLoadedChanges ?? true
-            )
-        }
     }
 
-    package func loadMoreWorktreeHistory(for worktree: GitWorktree) async {
+    package func loadMoreWorktreeHistory(for worktree: GitWorktree, automatically: Bool = false) async {
         guard let inspection = gitWorktreeInspection,
               inspection.worktreeID == worktree.id,
               inspection.hasMoreCommits,
+              !isLoadingMoreWorktreeHistory,
+              !(automatically && worktreeHistoryPageFailed),
               !Task.isCancelled else { return }
         let generation = worktreeInspectionRequestGeneration
         let reference = worktreeHistoryReference(for: worktree)
-        let nextLimit = inspection.commits.count + 50
-        let history = await service.history(at: worktree.url, reference: reference, limit: nextLimit)
+        // The first window may come from the active Log/cache. Open one cursor
+        // covering it; subsequent pages use only the bounded continuation. A
+        // failed Core cursor is consumed, so explicit retry reopens this window.
+        let cursor = worktreeHistoryCursor
+        let limit = cursor == nil
+            ? min(inspection.commits.count + Self.worktreeHistoryPageSize, Self.worktreeHistoryMaximumCount)
+            : min(Self.worktreeHistoryPageSize, Self.worktreeHistoryMaximumCount - inspection.commits.count)
+        let operationID = "worktree-history-\(UUID().uuidString)"
+        worktreeHistoryCursor = nil
+        worktreeHistoryRoot = worktree.url
+        worktreeHistoryOperationID = operationID
+        isLoadingMoreWorktreeHistory = true
+        worktreeHistoryPageFailed = false
+        let page = await service.historyPage(
+            at: worktree.url, reference: reference, cursor: cursor, limit: limit, operationID: operationID
+        )
         guard generation == worktreeInspectionRequestGeneration,
-              gitWorktreeInspection?.worktreeID == worktree.id,
-              !Task.isCancelled else { return }
+              let current = gitWorktreeInspection, current.worktreeID == worktree.id else {
+            if let cursor = page?.nextCursor { service.closeHistoryCursor(at: worktree.url, cursor: cursor) }
+            return
+        }
+        worktreeHistoryOperationID = nil
+        isLoadingMoreWorktreeHistory = false
+        guard let page, !Task.isCancelled else {
+            if let cursor = page?.nextCursor { service.closeHistoryCursor(at: worktree.url, cursor: cursor) }
+            worktreeHistoryPageFailed = true
+            return
+        }
+        var known = Set(current.commits.map(\.hash))
+        let fresh = Array(page.commits.filter { known.insert($0.hash).inserted }
+            .prefix(max(0, Self.worktreeHistoryMaximumCount - current.commits.count)))
+        let hasMore = page.hasMore && page.nextCursor != nil && !fresh.isEmpty
+            && current.commits.count + fresh.count < Self.worktreeHistoryMaximumCount
+        worktreeHistoryCursor = hasMore ? page.nextCursor : nil
+        if !hasMore, let cursor = page.nextCursor { service.closeHistoryCursor(at: worktree.url, cursor: cursor) }
         gitWorktreeInspection = GitWorktreeInspection(
             worktreeID: worktree.id,
-            changes: inspection.changes,
-            commits: history.commits,
-            hasMoreCommits: history.hasMore
+            changes: current.changes,
+            commits: current.commits + fresh,
+            hasMoreCommits: hasMore,
+            hasLoadedChanges: current.hasLoadedChanges
         )
+    }
+
+    package func cancelWorktreeHistoryLoading() {
+        worktreeInspectionRequestGeneration &+= 1
+        if let root = worktreeHistoryRoot, let cursor = worktreeHistoryCursor {
+            service.closeHistoryCursor(at: root, cursor: cursor)
+        }
+        if let operationID = worktreeHistoryOperationID { service.cancel(operationID: operationID) }
+        worktreeHistoryCursor = nil
+        worktreeHistoryRoot = nil
+        worktreeHistoryOperationID = nil
+        isLoadingMoreWorktreeHistory = false
+        worktreeHistoryPageFailed = false
     }
 
     package func createWorktree(
@@ -2656,6 +3036,7 @@ package final class GitFeatureModel: ObservableObject {
             : trimmedMessage(result))
         if result.succeeded {
             if gitWorktreeInspection?.worktreeID == worktree.id {
+                cancelWorktreeHistoryLoading()
                 // Clear deleted checkout details before the registry refresh so
                 // the UI cannot keep rendering a removed path.
                 gitWorktreeInspection = nil

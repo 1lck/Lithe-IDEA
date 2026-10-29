@@ -132,7 +132,7 @@ if (!isDocumentOpen(published)) return;
   （`diagnostics-file-path.test.ts` 覆盖工作区内保留、已知 buffer 优先、工作区外
   丢弃、同名前缀目录不算包含、分隔符归一、POSIX 大小写敏感；
   `diagnostics-retention.test.ts` 覆盖三种结果、上限行为和"已打开文件不受限"）。
-- 边界校验：`./scripts/verify-windows-boundaries.sh`
+- 边界校验：`./scripts/windows/verify/verify-windows-boundaries.sh`
 - 测试稳定性门禁：`./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`
 - 类型检查：`cd windows/tauri && bun run typecheck`
 - 未在本次执行：Windows 实机验证。需要在 Windows 上打开若依 Plus，点运行，
@@ -212,7 +212,7 @@ IDEA 的该预览可编辑；此次 Lithe 提供只读源码预览。独立预�
 
 验证入口：会话生命周期与保存归属使用 `MonacoWorkbenchSessionLifetimeTests`，
 分栏使用 `LitheSplitPaneGeometryTests` / `LitheSplitPaneCollapseTests`，真实 WebKit 使用
-`./scripts/probe-macos-monaco.sh --workbench-tests`。测试工具栏开关、分栏拖动和完整工作区
+`./scripts/macos/probe/probe-macos-monaco.sh --workbench-tests`。测试工具栏开关、分栏拖动和完整工作区
 焦点流时，仍须进行应用级交互验收。
 
 
@@ -234,7 +234,7 @@ Problems 列表仍需 `.focusable()` 接收方向键；SwiftUI 默认焦点效�
 沿用 Git Log 已使用的 `litheFocusEffectHidden()`，只隐藏外框，保留键盘选择和行选中样式。
 只读源码预览只执行定位，不打开主编辑器的查找浮层，避免空查找框抢走焦点。
 
-Debug 构建通过 `./scripts/preview.sh --problems-demo` 打开真实 ProblemsView 演示，
+Debug 构建通过 `./scripts/macos/build/preview.sh --problems-demo` 打开真实 ProblemsView 演示，
 包含错误、警告、信息、提示、未知级别，以及废弃、未使用、关联信息、多行长文和 Unicode。
 演示使用独立设置域和临时工作区，不启动语言服务器；退出时关闭工作区并清理临时数据，
 5 秒截止机制防止关闭流程挂起。演示文件只写入系统临时目录，不写 app bundle；

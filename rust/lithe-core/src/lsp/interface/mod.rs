@@ -4,7 +4,8 @@ mod build_provider;
 mod client;
 mod engine;
 pub(crate) mod plugin_function;
-mod process;
+pub(crate) mod process;
+pub(crate) mod remote_process;
 #[cfg(test)]
 mod scripted;
 mod transport;

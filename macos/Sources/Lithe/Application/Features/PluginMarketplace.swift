@@ -492,9 +492,17 @@ final class PluginMarketplaceFeatureModel: ObservableObject {
                 return .installedFromOtherSource(sourceName: name)
             }
             if let available = offer.entry.availability.download,
-               let availableVersion = PluginVersion(available.version),
-               availableVersion > snapshot.manifest.version {
-                return .updateAvailable(installed: installedVersion, available: available.version)
+               let availableVersion = PluginVersion(available.version) {
+                // A sealed transition copy can move to the independent
+                // distribution without changing the plugin version. This is
+                // still an explicit installation, never an automatic download.
+                if snapshot.origin == .bundled, snapshot.installationStatus == .removed {
+                    return .installable
+                }
+                if availableVersion > snapshot.manifest.version
+                    || (snapshot.origin == .bundled && availableVersion == snapshot.manifest.version) {
+                    return .updateAvailable(installed: installedVersion, available: available.version)
+                }
             }
             return .installed(version: installedVersion)
         }
@@ -546,6 +554,10 @@ final class PluginMarketplaceFeatureModel: ObservableObject {
             return provenance.sourceID
         }
         if snapshot.origin == .marketplace, official != nil {
+            return PluginMarketplaceSource.officialID
+        }
+        if snapshot.origin == .bundled, official?.distribution == .download,
+           official?.bundledSignatureRequirement == .sameTeamAsHost {
             return PluginMarketplaceSource.officialID
         }
         return nil

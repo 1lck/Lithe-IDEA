@@ -13,7 +13,12 @@
       "macos/Sources/Lithe/Views/Workbench/WorkbenchToolWindowDock.swift",
       "macos/Tests/LitheTests/WorkbenchSurfaceBackgroundTests.swift",
       "macos/Sources/Lithe/Platform/MacOS/UI/MacShortcutDetector.swift",
-      "macos/Tests/LitheTests/TerminalShortcutInputPolicyTests.swift"
+      "macos/Tests/LitheTests/TerminalShortcutInputPolicyTests.swift",
+      "macos/Sources/Lithe/Views/Workbench/SplitHandleView.swift",
+      "macos/Sources/Lithe/Views/Components/LitheSplitPaneView.swift",
+      "macos/Tests/LitheTests/GitLogReferenceResizeTests.swift",
+      "macos/Tests/LitheTests/SplitHandleHitTestTests.swift",
+      "macos/Tests/LitheTests/DiffScrollSynchronizationTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -30,5 +35,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Terminal",
-  "verification": "验证复制粘贴、终端搜索、调整面板大小和高频输入不丢失。 macOS 安装原有支持列表中的 Nerd Font Mono，使用 Starship pastel-powerline 核对圆弧、Git/Bun 图标和拼接效果；注册打包 UI 字体后终端选择与 12.5pt 字号不变，未安装 Nerd Font 时回退到 Menlo 或系统等宽字体。 安装包必须包含完整 JetBrains Mono Nerd Font Mono 四个字型及许可；在未安装 Nerd Font 的机器上仍能直接显示完整提示符，粗斜体符号与文字使用相同字体度量，发行 bundle 字节不变。 Windows 终端点击识别出的 localhost、127.0.0.1 和 HTTPS 网页链接时直接打开系统默认浏览器，不显示外部链接确认；文件路径继续打开 IDE 文件，浏览器打开失败记录错误。真实 Windows 产品交互验收 pending。 macOS 保留宿主：在明暗主题切换无背景图→有图→无图，真实终端标题栏和正文随之透明/恢复，宿主及输入控件身份保持。隐藏终端后聚焦编辑器，再从活动栏重开已有会话，first responder 回到同一终端输入控件；连续调整面板尺寸和环境值不抢焦点，重开后立即隐藏会取消待交付的激活请求。运行 TerminalPlacementFeatureModelTests.retainedTerminalRestoresFocusAndWallpaperWithoutRecreatingItsSurface，并通过实际应用截图及交互验收。 隐藏保留的工具终端后，从工具会话 B 切到编辑器会话 C，确认工具会话回退到 A 并重新挂载时不请求焦点、窗口 first responder 仍为 C；同步出现任务和延迟原生回调都遵守隐藏祖先检查。重开工具窗口后才显式激活 A，缩放不抢焦点。；macOS 保留宿主圆角需在明暗主题、侧栏顶部与移动后、项目辉光改变、渐变开关及背景图切换时，与原工作台树四角像素一致（WorkbenchSurfaceBackgroundTests.retainedPaneCornersMatchWorkbenchGradient）。 终端持有键盘焦点时,纯 Control 组合键(Ctrl-D 结束输入、Ctrl-R 历史搜索、Ctrl-W 删词)原样交回终端写入 PTY,不再被应用键位的 Debug/Run 截获;带 Command、Shift 或 Option 的组合键仍走应用键位,Ctrl+Shift+F 等项目级命令不受影响(TerminalShortcutInputPolicyTests)。 Windows 聚焦终端或终端搜索框后按 Ctrl+Shift+F，须打开项目搜索而不弹出终端内搜索；Ctrl+F 仍搜索当前终端输出，Ctrl+Alt+F/AltGr 输入及已被其他命令处理的按键不能误开终端搜索。使用 terminal-keyboard.test.ts 验证快捷键边界，WebView2 实机验收保持 pending。"
+  "verification": "验证复制粘贴、终端搜索、调整面板大小和高频输入不丢失。 macOS 安装原有支持列表中的 Nerd Font Mono，使用 Starship pastel-powerline 核对圆弧、Git/Bun 图标和拼接效果；注册打包 UI 字体后终端选择与 12.5pt 字号不变，未安装 Nerd Font 时回退到 Menlo 或系统等宽字体。 安装包必须包含完整 JetBrains Mono Nerd Font Mono 四个字型及许可；在未安装 Nerd Font 的机器上仍能直接显示完整提示符，粗斜体符号与文字使用相同字体度量，发行 bundle 字节不变。 Windows 终端点击识别出的 localhost、127.0.0.1 和 HTTPS 网页链接时直接打开系统默认浏览器，不显示外部链接确认；文件路径继续打开 IDE 文件，浏览器打开失败记录错误。真实 Windows 产品交互验收 pending。 macOS 保留宿主：在明暗主题切换无背景图→有图→无图，真实终端标题栏和正文随之透明/恢复，宿主及输入控件身份保持。隐藏终端后聚焦编辑器，再从活动栏重开已有会话，first responder 回到同一终端输入控件；连续调整面板尺寸和环境值不抢焦点，重开后立即隐藏会取消待交付的激活请求。运行 TerminalPlacementFeatureModelTests.retainedTerminalRestoresFocusAndWallpaperWithoutRecreatingItsSurface，并通过实际应用截图及交互验收。 隐藏保留的工具终端后，从工具会话 B 切到编辑器会话 C，确认工具会话回退到 A 并重新挂载时不请求焦点、窗口 first responder 仍为 C；同步出现任务和延迟原生回调都遵守隐藏祖先检查。重开工具窗口后才显式激活 A，缩放不抢焦点。；macOS 保留宿主圆角需在明暗主题、侧栏顶部与移动后、项目辉光改变、渐变开关及背景图切换时，与原工作台树四角像素一致（WorkbenchSurfaceBackgroundTests.retainedPaneCornersMatchWorkbenchGradient）。 终端持有键盘焦点时,纯 Control 组合键(Ctrl-D 结束输入、Ctrl-R 历史搜索、Ctrl-W 删词)原样交回终端写入 PTY,不再被应用键位的 Debug/Run 截获;带 Command、Shift 或 Option 的组合键仍走应用键位,Ctrl+Shift+F 等项目级命令不受影响(TerminalShortcutInputPolicyTests)。 Windows 聚焦终端或终端搜索框后按 Ctrl+Shift+F，须打开项目搜索而不弹出终端内搜索；Ctrl+F 仍搜索当前终端输出，Ctrl+Alt+F/AltGr 输入及已被其他命令处理的按键不能误开终端搜索。使用 terminal-keyboard.test.ts 验证快捷键边界，WebView2 实机验收保持 pending。 macOS #1542：显示保留的 Git Log/终端时，横纵分隔条中央及两侧偏移 4pt 仍经窗口事件完成拖动且只提交一次，宿主身份不变；根命中查询深度始终为 1，面板内部连续 100 次查询不产生额外根查询，鼠标移动不回查祖先 SwiftUI。验证禁用、收起（含嵌套分隔条）、恢复、卸载、跨窗口与登记表隔离、实时移动/裁剪、隐藏/透明和弱引用释放；保留宿主内部仍正常命中，外层边缘优先。Diff 两端收起后在普通与保留侧栏下均能经窗口拖回，不触发外层拖动。运行 GitLogReferenceResizeTests、SplitHandleHitTestTests 和 DiffScrollSynchronizationTests；旧实现先出现嵌套命中断言失败，新实现通过。较新 macOS 原生组件回归不替代 macOS 13 Intel 原报告崩溃验收，目标环境验证保持 pending。"
 }

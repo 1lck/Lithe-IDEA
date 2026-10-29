@@ -9,6 +9,261 @@ import Testing
 /// process a request reuses, and when the host stops or restarts it.
 @MainActor
 struct MacBuildProviderSessionsTests {
+    @Test
+    func preparedPluginKeepsConfigurationAndQueuedWorkspaceChanges() async throws {
+        let core = ScriptedProviderCore()
+        let preparing = TestGate()
+        let resume = TestGate()
+        let released = TestGate()
+        let root = URL(fileURLWithPath: "/workspace")
+        let configuration: ToolingJSONValue = .object(["fixture": .integer(7)])
+        let session = LanguageServerRuntimeSession(
+            providerID: "fixture", executableURL: URL(fileURLWithPath: "/unused"), arguments: [], environment: [:],
+            prepareProcess: { _ in
+                preparing.open()
+                guard await resume.waitUntilOpen() else { throw CancellationError() }
+                return PreparedLanguageServerProcess(executableURL: URL(fileURLWithPath: "/host/bin/server"),
+                    environment: [:], launch: .init(arguments: ["--remote"], initializationOptions: nil,
+                        workspaceConfiguration: configuration), core: core, release: { released.open() })
+            }, core: core, pluginID: "dev.example.fixture"
+        )
+        defer { resume.open(); session.stop() }
+        try session.start(rootURL: root, workspaceFingerprint: nil)
+        try #require(await preparing.waitUntilOpen())
+        let changes = [LanguageServerWorkspaceFileChange(fileURL: root.appendingPathComponent("new.swift"), kind: .created)]
+        try session.notifyWorkspaceFilesChanged(changes)
+        try session.synchronize(fileURL: root.appendingPathComponent("open.swift"), text: "latest", languageID: "swift")
+        resume.open()
+        try #require(await core.synchronized.waitUntilOpen())
+        #expect(core.workspaceConfigurations == [configuration])
+        #expect(core.workspaceChanges == changes)
+        #expect(core.startCalls.last?.arguments == ["--remote"])
+        session.stop()
+        #expect(await released.waitUntilOpen())
+    }
+
+    @Test
+    func stoppedPreparationReleasesLatePackageWithoutLaunching() async throws {
+        let core = ScriptedProviderCore()
+        let preparing = TestGate()
+        let resume = TestGate()
+        let released = TestGate()
+        // Model a host allocation whose reply arrives after cancellation.
+        let lateReply = Task { @MainActor in await resume.waitUntilOpen() }
+        let session = LanguageServerRuntimeSession(
+            providerID: "fixture", executableURL: URL(fileURLWithPath: "/unused"), arguments: [], environment: [:],
+            prepareProcess: { _ in
+                preparing.open()
+                guard await lateReply.value else { throw CancellationError() }
+                return PreparedLanguageServerProcess(executableURL: URL(fileURLWithPath: "/host/bin/server"),
+                    environment: [:], launch: .init(arguments: [], initializationOptions: nil),
+                    core: core, release: { released.open() })
+            }, core: core
+        )
+        defer { resume.open(); lateReply.cancel(); session.stop() }
+        try session.start(rootURL: URL(fileURLWithPath: "/workspace"), workspaceFingerprint: nil)
+        try #require(await preparing.waitUntilOpen())
+        session.stop()
+        resume.open()
+        #expect(await released.waitUntilOpen())
+        #expect(core.startCalls.isEmpty)
+        #expect(!session.isRunning)
+    }
+
+    @Test
+    func failedPreparedProcessReleasesItsPackage() async throws {
+        let core = ScriptedProviderCore(failStart: true)
+        let released = TestGate()
+        let session = LanguageServerRuntimeSession(
+            providerID: "fixture", executableURL: URL(fileURLWithPath: "/unused"), arguments: [], environment: [:],
+            prepareProcess: { _ in
+                PreparedLanguageServerProcess(executableURL: URL(fileURLWithPath: "/host/bin/server"),
+                    environment: [:], launch: .init(arguments: [], initializationOptions: nil),
+                    core: core, release: { released.open() })
+            }, core: core
+        )
+        defer { session.stop() }
+        try session.start(rootURL: URL(fileURLWithPath: "/workspace"), workspaceFingerprint: nil)
+        #expect(await released.waitUntilOpen())
+        #expect(!session.isRunning)
+    }
+
+    @Test
+    func remoteStartupReturnsBeforeTheHostRepliesAndFlushesLatestDocuments() async throws {
+        let core = ScriptedProviderCore(backgroundStart: true)
+        let session = LanguageServerRuntimeSession(
+            providerID: "fixture", executableURL: URL(fileURLWithPath: "/host/bin/server"),
+            arguments: [], environment: [:], core: core
+        )
+        defer { core.releaseStartup.open(); session.stop() }
+        let root = URL(fileURLWithPath: "/workspace")
+        let file = root.appendingPathComponent("one.swift")
+        let closedFile = root.appendingPathComponent("closed.swift")
+        try session.start(rootURL: root, workspaceFingerprint: nil)
+        try #require(await core.started.waitUntilOpen())
+        #expect(session.isRunning)
+        try session.synchronize(fileURL: file, text: "old", languageID: "swift")
+        try session.synchronize(fileURL: file, text: "latest", languageID: "swift", changes: [])
+        try session.synchronize(fileURL: closedFile, text: "closed", languageID: "swift")
+        session.closeDocument(closedFile)
+        #expect(core.syncedTexts.isEmpty)
+
+        core.releaseStartup.open()
+        try #require(await core.synchronized.waitUntilOpen())
+        #expect(core.syncedTexts == ["latest"])
+        session.stop()
+        #expect(await core.destroyed.waitUntilOpen())
+    }
+
+    @Test
+    func stoppingRemoteStartupDestroysItsLateSessionWithoutPublishingReady() async throws {
+        let core = ScriptedProviderCore(backgroundStart: true)
+        let session = LanguageServerRuntimeSession(
+            providerID: "fixture", executableURL: URL(fileURLWithPath: "/host/bin/server"),
+            arguments: [], environment: [:], core: core
+        )
+        defer { core.releaseStartup.open(); session.stop() }
+        var states: [LanguageServerSessionState] = []
+        var releases = 0
+        let resourcesReleased = TestGate()
+        session.onStateChange = { states.append($0) }
+        session.onReleased = { releases += 1 }
+        session.releaseResources = {
+            #expect(core.destroyed.isOpen, "Package bytes must outlive the late process")
+            resourcesReleased.open()
+        }
+        try session.start(rootURL: URL(fileURLWithPath: "/workspace"), workspaceFingerprint: nil)
+        try #require(await core.started.waitUntilOpen())
+        session.stop()
+        #expect(!session.isRunning)
+        #expect(releases == 1)
+        #expect(!resourcesReleased.isOpen)
+        core.releaseStartup.open()
+        #expect(await core.destroyed.waitUntilOpen())
+        #expect(await resourcesReleased.waitUntilOpen())
+        #expect(states == [.startingProcess, .stopped])
+        #expect(core.stopCalls.isEmpty)
+    }
+
+    @Test
+    func releasingRemoteStartupOwnerStillDestroysTheLateSession() async throws {
+        let core = ScriptedProviderCore(backgroundStart: true)
+        var session: LanguageServerRuntimeSession? = LanguageServerRuntimeSession(
+            providerID: "fixture", executableURL: URL(fileURLWithPath: "/host/bin/server"),
+            arguments: [], environment: [:], core: core
+        )
+        defer { core.releaseStartup.open(); session?.stop() }
+        let resourcesReleased = TestGate()
+        session?.releaseResources = {
+            #expect(core.destroyed.isOpen)
+            resourcesReleased.open()
+        }
+        weak var owner = session
+        try session?.start(rootURL: URL(fileURLWithPath: "/workspace"), workspaceFingerprint: nil)
+        try #require(await core.started.waitUntilOpen())
+        session = nil
+        #expect(owner == nil)
+        core.releaseStartup.open()
+        #expect(await core.destroyed.waitUntilOpen())
+        #expect(await resourcesReleased.waitUntilOpen())
+    }
+
+    /// Native execution and model requests share the same process; no page
+    /// or plugin-function negotiation participates.
+    @Test(arguments: ["lithe/build/execute", "lithe/build/test"])
+    func nativeExecutionReusesTheWorkspaceProviderAndDeliversProgress(method: String) async throws {
+        let fixture = try ProviderFixture()
+        defer { fixture.remove() }
+        let packageBefore = try fixture.packageSnapshot()
+        _ = try await fixture.load()
+        let received = BuildProgressRecorder()
+        let result = try await fixture.sessions.execute(BuildProviderRequest(
+            method: method, params: .object([:]), optionFingerprint: "",
+            executesProjectCode: true, mayUseNetwork: true
+        ), on: fixture.target, timeout: .seconds(5)) { received.values.append($0) }
+        #expect(result == BuildProviderExecutionResult(exitCode: 0, output: "built"))
+        #expect(received.values == [BuildProviderProgress(percentage: 50, output: "building")])
+        #expect(fixture.core.startCalls.count == 1)
+        #expect(fixture.core.buildRequests == ["lithe/build/model", method])
+        let otherRoot = fixture.root.appendingPathComponent("other-workspace")
+        try FileManager.default.createDirectory(at: otherRoot, withIntermediateDirectories: true)
+        let other = BuildProviderTarget(
+            pluginID: ProviderFixture.pluginID, manifest: fixture.manifest, packageURL: fixture.packageURL,
+            buildSystemID: "gradle", workspaceURL: otherRoot
+        )
+        _ = try await fixture.sessions.execute(BuildProviderRequest(
+            method: method, params: .object([:]), optionFingerprint: "",
+            executesProjectCode: true, mayUseNetwork: true
+        ), on: other, timeout: .seconds(5)) { _ in }
+        #expect(fixture.core.startCalls.count == 2)
+        #expect(try fixture.packageSnapshot() == packageBefore)
+        fixture.sessions.stopProviders(ofPlugin: ProviderFixture.pluginID)
+        #expect(fixture.core.stopCalls.count == 2)
+    }
+
+    @Test
+    func nativeRunPreparationReusesProviderAndKeepsPackageReadOnly() async throws {
+        let fixture = try ProviderFixture()
+        defer { fixture.remove() }
+        let before = try fixture.packageSnapshot()
+        _ = try await fixture.load()
+        let progress = BuildProgressRecorder()
+        let result = try await fixture.sessions.prepareRun(BuildProviderRequest(
+            method: "lithe/build/prepareRun", params: .object([:]), optionFingerprint: "",
+            executesProjectCode: true, mayUseNetwork: true), on: fixture.target, timeout: .seconds(5)) { progress.values.append($0) }
+        #expect(result == .object(["executable": .object(["kind": .string("command"), "value": .string("java")]),
+                                   "arguments": .array([]), "workingDirectory": .string("."), "environment": .object([:])]))
+        #expect(progress.values == [BuildProviderProgress(percentage: 50, output: "building")])
+        #expect(fixture.core.startCalls.count == 1)
+        #expect(fixture.core.buildRequests == ["lithe/build/model", "lithe/build/prepareRun"])
+        #expect(try fixture.packageSnapshot() == before)
+    }
+
+    /// Cancellation reaches Core for the exact workspace command, while the
+    /// shared language server stays available for editing and later sessions.
+    @Test(arguments: [false, true])
+    func aHostedDebugStartCommandCompletesOrCancelsWithoutStoppingTheServer(cancel: Bool) async throws {
+        let core = ScriptedProviderCore()
+        let session = LanguageServerRuntimeSession(
+            providerID: "example", executableURL: URL(fileURLWithPath: "/tools/example-ls"),
+            arguments: [], environment: [:], core: core
+        )
+        let root = URL(fileURLWithPath: "/workspace/hosted-debug", isDirectory: true)
+        try session.start(rootURL: root, workspaceFingerprint: nil)
+        let finished = TestGate()
+        let request = Task { @MainActor () -> Result<ToolingJSONValue, Error> in
+            defer { finished.open() }
+            do {
+                return .success(try await session.executeReturningValue(
+                    .init(title: "Start", command: "example.startDebugSession", arguments: []), fileURL: root
+                ))
+            } catch { return .failure(error) }
+        }
+        defer { request.cancel(); session.stop() }
+        try #require(await core.commandStarted.waitUntilOpen(), "The workspace command never started")
+        if cancel {
+            request.cancel()
+            try #require(await core.functionCancelled.waitUntilOpen(), "Core never received command cancellation")
+        } else {
+            core.finishDebugStartCommand()
+        }
+        try #require(await finished.waitUntilOpen(), "The command did not finish before its local deadline")
+        switch await request.value {
+        case .success(let value):
+            #expect(!cancel)
+            #expect(value == .integer(4711))
+        case .failure(let error):
+            #expect(cancel)
+            #expect(error is CancellationError)
+        }
+        #expect(session.isRunning)
+        #expect(core.stopCalls.isEmpty)
+        // A response already in flight cannot resurrect a cancelled command.
+        if cancel { core.finishDebugStartCommand() }
+        session.stop()
+        try #require(await core.destroyed.waitUntilOpen(), "The language session did not release its resources")
+    }
+
     /// A second request reuses the process; stopping the plugin's providers,
     /// which the plugin manager does before replacing its package, ends it
     /// and the next request starts a new one.
@@ -421,6 +676,28 @@ private struct ProviderFixture {
         )
     }
 
+    /// Compare both the complete listing and bytes, including added empty
+    /// directories; runtime state must not appear next to packaged inputs.
+    func packageSnapshot() throws -> [String: Data] {
+        let keys: Set<URLResourceKey> = [.isDirectoryKey, .isSymbolicLinkKey]
+        let files = try #require(FileManager.default.enumerator(
+            at: packageURL, includingPropertiesForKeys: Array(keys)
+        ))
+        var snapshot: [String: Data] = [:]
+        for case let url as URL in files {
+            let relative = String(url.path.dropFirst(packageURL.path.count))
+            let values = try url.resourceValues(forKeys: keys)
+            if values.isSymbolicLink == true {
+                snapshot["link:" + relative] = Data(try FileManager.default.destinationOfSymbolicLink(atPath: url.path).utf8)
+            } else if values.isDirectory == true {
+                snapshot["directory:" + relative] = Data()
+            } else {
+                snapshot["file:" + relative] = try Data(contentsOf: url)
+            }
+        }
+        return snapshot
+    }
+
     func remove() {
         sessions.retainProviders { _ in false }
         try? FileManager.default.removeItem(at: root)
@@ -435,13 +712,18 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
     let started = TestGate()
     let functionStarted = TestGate()
     let functionCancelled = TestGate()
+    let commandStarted = TestGate()
     let destroyed = TestGate()
+    let releaseStartup = TestGate()
+    let synchronized = TestGate()
     /// Opened when a `workspace.stuck` send is blocked; it stays blocked, as
     /// a write to a backend that stopped reading would, until `releaseStuckSend`.
     let stuckSendStarted = TestGate()
     private let stuckSendReleased = TestGate()
     private let initialState: String
     private let readyAfterStop: Bool
+    private let backgroundStart: Bool
+    private let failStart: Bool
     private let lock = NSLock()
     private var nextSession = 0
     private var events: [String: [LanguageServerRuntimeEvent]] = [:]
@@ -450,12 +732,26 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
     private var _buildRequests: [String] = []
     private var _buildParams: [ToolingJSONValue] = []
     private var _functionRequests: [FunctionCall] = []
+    private var _syncedTexts: [String] = []
+    private var _workspaceConfigurations: [ToolingJSONValue?] = []
+    private var _workspaceChanges: [LanguageServerWorkspaceFileChange] = []
 
-    init(initialState: String = "ready", readyAfterStop: Bool = false) {
+    init(initialState: String = "ready", readyAfterStop: Bool = false, backgroundStart: Bool = false, failStart: Bool = false) {
         self.initialState = initialState
         self.readyAfterStop = readyAfterStop
+        self.backgroundStart = backgroundStart
+        self.failStart = failStart
     }
 
+    func requiresBackgroundLanguageServerStart(rootURL _: URL) -> Bool { backgroundStart }
+    var syncedTexts: [String] { lock.withLock { _syncedTexts } }
+    var workspaceConfigurations: [ToolingJSONValue?] { lock.withLock { _workspaceConfigurations } }
+    var workspaceChanges: [LanguageServerWorkspaceFileChange] { lock.withLock { _workspaceChanges } }
+
+    func notifyLanguageServerWorkspaceFilesChanged(sessionID _: String, changes: [LanguageServerWorkspaceFileChange]) -> Result<Void, LanguageServerRuntimeFailure> {
+        lock.withLock { _workspaceChanges.append(contentsOf: changes) }
+        return .success(())
+    }
     var startCalls: [StartCall] { lock.withLock { _startCalls } }
     var stopCalls: [String] { lock.withLock { _stopCalls } }
     var buildRequests: [String] { lock.withLock { _buildRequests } }
@@ -486,6 +782,13 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
         workspaceFingerprint _: String?, mavenContext _: MavenLaunchContext?, initializeTimeout _: TimeInterval,
         requestTimeout _: TimeInterval, shutdownTimeout _: TimeInterval
     ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
+        if failStart { return .failure(.init(code: "processFailed", message: "fixture startup failed")) }
+        if backgroundStart {
+            started.open()
+            guard releaseStartup.waitSynchronously() else {
+                return .failure(.init(code: "timed_out", message: "The test did not release startup."))
+            }
+        }
         let result = lock.withLock {
             nextSession += 1
             _startCalls.append(StartCall(arguments: arguments, pluginID: nil))
@@ -500,6 +803,23 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
     /// Core queues the negotiated functions before the session turns ready.
     /// With `initialState: "initializing"` the session stays initializing
     /// until `becomeReady()`, or until a stop queues the late ready reply.
+    func startPluginLanguageServer(
+        pluginID: String, providerID: String, executableURL: URL, arguments: [String],
+        environment: [String: String], rootURL: URL, initializationOptions: ToolingJSONValue?,
+        workspaceConfiguration: ToolingJSONValue?, hostServices: [String],
+        hostIntegrationLaunch _: LanguageServerHostIntegrationLaunch?, cacheDirectoryURL _: URL?,
+        workspaceFingerprint _: String?, mavenContext _: MavenLaunchContext?,
+        javaGradle _: JavaGradleImportConfiguration?, initializeTimeout: TimeInterval,
+        requestTimeout: TimeInterval, shutdownTimeout: TimeInterval
+    ) -> Result<LanguageServerRuntimeStart, LanguageServerRuntimeFailure> {
+        lock.withLock { _workspaceConfigurations.append(workspaceConfiguration) }
+        // The host-services overload keeps the protocol's default refusal of services.
+        return startPluginLanguageServer(pluginID: pluginID, providerID: providerID, executableURL: executableURL,
+            arguments: arguments, environment: environment, rootURL: rootURL, initializationOptions: initializationOptions,
+            hostServices: hostServices, initializeTimeout: initializeTimeout, requestTimeout: requestTimeout,
+            shutdownTimeout: shutdownTimeout)
+    }
+
     func startPluginLanguageServer(
         pluginID: String, providerID _: String, executableURL _: URL, arguments: [String],
         environment: [String: String], rootURL _: URL, initializationOptions _: ToolingJSONValue?,
@@ -617,10 +937,20 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
             _buildRequests.append(method)
             _buildParams.append(params)
             let operationID = "\(sessionID)-\(_buildRequests.count)"
+            if ["lithe/build/execute", "lithe/build/test", "lithe/build/prepareRun"].contains(method) {
+                events[sessionID, default: []].append(LanguageServerRuntimeEvent(
+                    type: "requestProgress", operationID: operationID,
+                    result: .object(["percentage": .integer(50), "output": .string("building")])
+                ))
+            }
+            let launch: ToolingJSONValue = .object(["executable": .object(["kind": .string("command"), "value": .string("java")]),
+                                                   "arguments": .array([]), "workingDirectory": .string("."), "environment": .object([:])])
+            let value: ToolingJSONValue = method == "lithe/build/prepareRun" ? launch : ["lithe/build/execute", "lithe/build/test"].contains(method)
+                ? .object(["exitCode": .integer(0), "output": .string("built")])
+                : .object(["session": .string(sessionID)])
             events[sessionID, default: []].append(LanguageServerRuntimeEvent(
-                type: "requestCompleted",
-                operationID: operationID,
-                result: .object(["value": .object(["session": .string(sessionID)])])
+                type: "requestCompleted", operationID: operationID,
+                result: .object(["value": value])
             ))
             return .success(LanguageServerRuntimeOperation(operationID: operationID))
         }
@@ -631,20 +961,35 @@ private final class ScriptedProviderCore: LanguageServerRuntimeCore, @unchecked 
     }
 
     func syncLanguageServerDocument(
-        sessionID _: String, fileURL _: URL, languageID _: String, text _: String
+        sessionID _: String, fileURL _: URL, languageID _: String, text: String
     ) -> Result<LanguageServerDocumentSync, LanguageServerRuntimeFailure> {
-        .success(LanguageServerDocumentSync(documentVersion: 1, changed: false))
+        lock.withLock { _syncedTexts.append(text) }
+        synchronized.open()
+        return .success(LanguageServerDocumentSync(documentVersion: 1, changed: false))
     }
 
     func closeLanguageServerDocument(sessionID _: String, fileURL _: URL) {}
 
     func requestLanguageServerOperation(
-        sessionID _: String, operation _: LanguageServerOperation, fileURL _: URL?, virtualURI _: String?,
+        sessionID _: String, operation: LanguageServerOperation, fileURL _: URL?, virtualURI _: String?,
         position _: LanguageServerPosition?, newName _: String?, range _: LanguageServerRange?,
         diagnostics _: [LanguageServerDiagnostic], completionItem _: LanguageServerCompletionItem?,
-        codeAction _: LanguageServerCodeAction?, command _: LanguageServerCommand?
+        codeAction _: LanguageServerCodeAction?, command: LanguageServerCommand?
     ) -> Result<LanguageServerRuntimeOperation, LanguageServerRuntimeFailure> {
-        .success(LanguageServerRuntimeOperation(operationID: "unused"))
+        if operation == .executeCommand, command?.command == "example.startDebugSession" {
+            commandStarted.open()
+            return .success(LanguageServerRuntimeOperation(operationID: "debug-start"))
+        }
+        return .success(LanguageServerRuntimeOperation(operationID: "unused"))
+    }
+
+    func finishDebugStartCommand() {
+        lock.withLock {
+            events["provider-\(nextSession)", default: []].append(LanguageServerRuntimeEvent(
+                type: "requestCompleted", operationID: "debug-start",
+                result: .object(["value": .integer(4711)])
+            ))
+        }
     }
 
     func cancelLanguageServerOperation(sessionID: String, operationID: String) {
@@ -681,3 +1026,6 @@ private final class EmptyToolRuntime: LanguageToolRuntimePort {
     func languageToolProcessEnvironment(runtimeTools _: [String]) -> [String: String] { [:] }
     func missingLanguageToolMessage(_ name: String) -> String { name }
 }
+
+@MainActor
+private final class BuildProgressRecorder { var values: [BuildProviderProgress] = [] }

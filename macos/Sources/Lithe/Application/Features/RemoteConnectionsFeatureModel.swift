@@ -178,7 +178,7 @@ final class RemoteConnectionsFeatureModel: ObservableObject {
         autoAnsweredPrompts = []
         let prober = prober
         testTask = Task { [weak self] in
-            let result = await prober.probe(connection.target) { prompt in
+            let result = await prober.probe(connection.target) { [weak self] prompt in
                 Task { @MainActor [weak self] in self?.receive(prompt, for: connection.id) }
             }
             guard let self, !Task.isCancelled, self.testedID == connection.id else { return }
@@ -293,7 +293,7 @@ final class RemoteConnectionsFeatureModel: ObservableObject {
         autoAnsweredPrompts = []
         let sessions = sessions
         testTask = Task { [weak self] in
-            let result = await sessions.connect(connection.target, servers: servers) { prompt in
+            let result = await sessions.connect(connection.target, servers: servers) { [weak self] prompt in
                 Task { @MainActor [weak self] in self?.receive(prompt, for: connection.id) }
             }
             guard let self, !Task.isCancelled, self.testedID == connection.id else {
@@ -337,6 +337,27 @@ final class RemoteConnectionsFeatureModel: ObservableObject {
     func openBrowserEntry(_ entry: RemoteDirectoryEntry) {
         guard let browser, entry.isDirectory else { return }
         openBrowserPath((browser.path as NSString).appendingPathComponent(entry.name))
+    }
+
+    /// Opens the browsed folder as a workspace. The open session passes to the
+    /// workspace, so it is not disconnected here.
+    func openBrowsedFolder() {
+        guard let browser, !browser.isLoading else { return }
+        guard let connection = connections.first(where: { $0.id == browser.connectionID }) else {
+            self.browser?.error = String(
+                format: L10n.string("Could not open the remote folder: %@"), L10n.string("The connection failed.")
+            )
+            return
+        }
+        do {
+            try openWorkspace(connection, browser.path, browser.session)
+            browseTask?.cancel()
+            browseTask = nil
+            self.browser = nil
+            didOpenWorkspace = true
+        } catch {
+            self.browser?.error = String(format: L10n.string("Could not open the remote folder: %@"), error.localizedDescription)
+        }
     }
 
     /// Saves the browsed folder as the connection's project folder.

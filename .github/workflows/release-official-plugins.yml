@@ -13,13 +13,28 @@ on:
     paths:
       - "Plugins/mac/Official/**"
       - "Plugins/marketplace/**"
-      - "scripts/official-plugin-releases.mjs"
+      - "scripts/plugins/official-plugin-releases.mjs"
+      - "scripts/plugins/official-plugin-releases.test.mjs"
+      - "scripts/plugins/official-plugin-distribution.mjs"
+      - "scripts/plugins/test-official-plugin-distribution.mjs"
+      - "scripts/plugins/build-official-plugins.sh"
+      - "scripts/macos/prepare/prepare-jdtls.sh"
+      - "scripts/macos/prepare/prepare-jdk.sh"
+      - "third_party/jdtls/manifest.json"
+      - "third_party/jdk/manifest.json"
+      - ".github/workflows/release-official-plugins.yml"
   push:
     branches:
       - preview
     paths:
       - "Plugins/mac/Official/**"
       - "Plugins/marketplace/official-plugins.json"
+      - "scripts/plugins/build-official-plugins.sh"
+      - "scripts/macos/prepare/prepare-jdtls.sh"
+      - "scripts/macos/prepare/prepare-jdk.sh"
+      - "third_party/jdtls/manifest.json"
+      - "third_party/jdk/manifest.json"
+      - ".github/workflows/release-official-plugins.yml"
   workflow_dispatch:
 
 permissions:
@@ -44,19 +59,19 @@ jobs:
           fetch-tags: true
 
       - name: Test release planning
-        run: node --test scripts/official-plugin-releases.test.mjs
+        run: node --test scripts/plugins/official-plugin-releases.test.mjs scripts/plugins/test-official-plugin-distribution.mjs
 
       - name: Require a new version for changed plugins
-        run: node scripts/official-plugin-releases.mjs check
+        run: node scripts/plugins/official-plugin-releases.mjs check
 
       - name: Plan untagged plugin versions
         id: plan
-        run: echo "releases=$(node scripts/official-plugin-releases.mjs plan)" >> "$GITHUB_OUTPUT"
+        run: echo "releases=$(node scripts/plugins/official-plugin-releases.mjs plan)" >> "$GITHUB_OUTPUT"
 
   release:
     name: Release ${{ matrix.release.tag }}
     needs: plan
-    if: github.repository == 'Lithe-IDEA/Lithe-IDEA' && github.event_name != 'pull_request' && github.ref == 'refs/heads/preview' && needs.plan.outputs.releases != '[]'
+    if: github.repository == '1lck/Lithe-IDEA' && github.event_name != 'pull_request' && github.ref == 'refs/heads/preview' && needs.plan.outputs.releases != '[]'
     runs-on: macos-26
     timeout-minutes: 30
     permissions:
@@ -78,54 +93,61 @@ jobs:
       - name: Set up Swift 6.3.3 and Xcode
         uses: ./.github/actions/setup-macos-toolchain
 
-      - name: Build and sign the plugin package
+      - name: Build, sign, and verify every architecture
         env:
           LITHE_PLUGIN_PACKAGE_PRIVATE_KEY: ${{ secrets.LITHE_PLUGIN_PACKAGE_PRIVATE_KEY }}
-          PLUGIN_ID: ${{ matrix.release.id }}
-          ASSET_NAME: ${{ matrix.release.assetName }}
+          RELEASE_JSON: ${{ toJSON(matrix.release) }}
         run: |
+          set -euo pipefail
           test -n "$LITHE_PLUGIN_PACKAGE_PRIVATE_KEY" || { echo "Configure LITHE_PLUGIN_PACKAGE_PRIVATE_KEY before releasing plugins"; exit 1; }
-          # Declarative packages contain no native code, so one archive serves
-          # every macOS architecture listed in official-plugins.json.
-          plugin_root=$(scripts/build-official-plugins.sh \
-            --configuration release \
-            --triple arm64-apple-macosx \
-            --plugin-id "$PLUGIN_ID" \
-            --output dist/official-plugins)
-          ditto -c -k --sequesterRsrc --keepParent "$plugin_root/$PLUGIN_ID" "dist/$ASSET_NAME"
-          shasum -a 256 "dist/$ASSET_NAME" | cut -d' ' -f1 > "dist/$ASSET_NAME.sha256"
+          id=$(jq -r .id <<<"$RELEASE_JSON")
+          version=$(jq -r .version <<<"$RELEASE_JSON")
+          swift build --product LitheOfficialPluginVerifier
+          swift_bin=$(swift build --show-bin-path)
+          jq -c '.assets[]' <<<"$RELEASE_JSON" | while read -r asset; do
+            name=$(jq -r .assetName <<<"$asset")
+            arch=$(jq -r '.arch // "arm64"' <<<"$asset")
+            plugin_root=$(scripts/plugins/build-official-plugins.sh \
+              --configuration release --triple arm64-apple-macosx --arch "$arch" \
+              --plugin-id "$id" --output "dist/packages/$arch")
+            ditto -c -k --keepParent "$plugin_root/$id" "dist/$name"
+            verify="dist/verify/$arch"
+            mkdir -p "$verify"
+            ditto -x -k "dist/$name" "$verify"
+            manifest="$verify/$id/plugin.json"
+            test "$(plutil -extract id raw "$manifest")" = "$id"
+            test "$(plutil -extract version raw "$manifest")" = "$version"
+            "$swift_bin/LitheOfficialPluginVerifier" "$verify/$id"
+            signer="$(swift build --configuration release --triple arm64-apple-macosx --show-bin-path)/LithePluginPackageSigner"
+            "$signer" --verify "$verify/$id"
+            # Preserve the pinned upstream runtime's native signatures. The
+            # publisher signature alone does not prove macOS can launch it.
+            runtime="$verify/$id/runtime/$arch"
+            if [ -d "$runtime" ]; then
+              lipo "$runtime/bin/java" -verify_arch "$arch"
+              codesign --verify --strict "$runtime/bin/java"
+              codesign --verify --strict "$runtime/lib/server/libjvm.dylib"
+            fi
+            shasum -a 256 "dist/$name" | cut -d' ' -f1 > "dist/$name.sha256"
+          done
 
-      - name: Verify the archived package
-        env:
-          PLUGIN_ID: ${{ matrix.release.id }}
-          VERSION: ${{ matrix.release.version }}
-          ASSET_NAME: ${{ matrix.release.assetName }}
-        run: |
-          # The build script already verified the publisher signature; check
-          # that the archive users download holds exactly that package.
-          mkdir -p dist/verify
-          ditto -x -k "dist/$ASSET_NAME" dist/verify
-          manifest="dist/verify/$PLUGIN_ID/plugin.json"
-          test "$(plutil -extract id raw "$manifest")" = "$PLUGIN_ID"
-          test "$(plutil -extract version raw "$manifest")" = "$VERSION"
-          test -f "dist/verify/$PLUGIN_ID/lithe-plugin-signature.json"
-
-      - name: Publish the plugin release
+      - name: Publish all architectures in one release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ matrix.release.tag }}
-          ASSET_NAME: ${{ matrix.release.assetName }}
-          PLUGIN_ID: ${{ matrix.release.id }}
-          VERSION: ${{ matrix.release.version }}
+          RELEASE_JSON: ${{ toJSON(matrix.release) }}
         run: |
-          # Plugin releases must never take the repository's "Latest" slot:
-          # app updates resolve releases/latest/download/appcast-*.xml, which
-          # only the Lithe app releases publish.
-          gh release create "$TAG" "dist/$ASSET_NAME" \
-            --latest=false \
-            --target "$GITHUB_SHA" \
-            --title "$PLUGIN_ID $VERSION" \
-            --notes "Official Lithe plugin $PLUGIN_ID $VERSION. SHA-256: $(cat "dist/$ASSET_NAME.sha256")"
+          set -euo pipefail
+          tag=$(jq -r .tag <<<"$RELEASE_JSON")
+          id=$(jq -r .id <<<"$RELEASE_JSON")
+          version=$(jq -r .version <<<"$RELEASE_JSON")
+          assets=()
+          while read -r asset; do
+            assets+=("dist/$asset" "dist/$asset.sha256")
+          done < <(jq -r '.assets[].assetName' <<<"$RELEASE_JSON")
+          printf 'Official Lithe plugin %s %s. Each architecture has its own archive and SHA-256 file.\n' "$id" "$version" > dist/release-notes.md
+          # App update checks own the repository's Latest slot.
+          gh release create "$tag" "${assets[@]}" --latest=false --target "$GITHUB_SHA" \
+            --title "$id $version" --notes-file dist/release-notes.md
 
   sync-index:
     name: List released plugins in the official index
@@ -135,7 +157,7 @@ jobs:
     # a listing that failed earlier is retried.
     if: >-
       !cancelled()
-      && github.repository == 'Lithe-IDEA/Lithe-IDEA'
+      && github.repository == '1lck/Lithe-IDEA'
       && github.event_name != 'pull_request'
       && github.ref == 'refs/heads/preview'
       && needs.plan.result == 'success'
@@ -161,30 +183,33 @@ jobs:
           git fetch --force --tags origin
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          pending=$(node scripts/official-plugin-releases.mjs pending-index)
+          pending=$(node scripts/plugins/official-plugin-releases.mjs pending-index)
           echo "Pending: $pending"
           echo "$pending" | jq -c '.[]' | while read -r release; do
             id=$(jq -r .id <<<"$release")
             version=$(jq -r .version <<<"$release")
             tag=$(jq -r .tag <<<"$release")
-            asset=$(jq -r .assetName <<<"$release")
             branch="automation/plugin-index-$tag"
             if [ "$(gh pr list --head "$branch" --state open --json number --jq length)" != "0" ]; then
               echo "$tag already has an open index pull request"
               continue
             fi
-            # The checksum comes from the asset users will download, not from
-            # a local build, so a rerun lists exactly what was published.
+            # A retry reads the tagged configuration and manifest, and hashes
+            # every published archive before listing this version atomically.
             rm -rf dist && mkdir -p dist
-            gh release download "$tag" --pattern "$asset" --dir dist
-            sha=$(sha256sum "dist/$asset" | cut -d' ' -f1)
+            checksums='{}'
+            while read -r asset; do
+              gh release download "$tag" --pattern "$asset" --dir dist
+              sha=$(sha256sum "dist/$asset" | cut -d' ' -f1)
+              checksums=$(jq -c --arg name "$asset" --arg sha "$sha" '. + {($name): $sha}' <<<"$checksums")
+            done < <(jq -r '.assets[].assetName' <<<"$release")
             released=$(gh release view "$tag" --json publishedAt --jq '.publishedAt[0:10]')
             git switch --force-create "$branch" origin/preview
-            node scripts/official-plugin-releases.mjs update-index "$id" "$version" "$sha" "$released"
+            node scripts/plugins/official-plugin-releases.mjs update-index "$id" "$version" "$checksums" "$released"
             git add Plugins/marketplace/index.json
             git commit -m "chore(plugins): 将 $id $version 加入官方插件索引"
             git push --force origin "$branch"
-            gh pr create --base preview --head "$branch" \
-              --title "chore(plugins): 官方插件索引加入 $id $version" \
-              --body "插件发布流程已发布 \`$tag\`（资产 \`$asset\`，SHA-256 \`$sha\`）。本 PR 只把该版本的下载地址和 SHA-256 写入 \`Plugins/marketplace/index.json\`，合并后用户在插件市场刷新即可看到新版本。"
+            printf '发布流程已发布 %s。本 PR 将该版本全部架构的下载地址、实际归档 SHA-256、API 等级和能力要求写入官方索引。\n' "$tag" > dist/index-pr.md
+            gh pr create --draft --base preview --head "$branch" \
+              --title "chore(plugins): 官方插件索引加入 $id $version" --body-file dist/index-pr.md
           done

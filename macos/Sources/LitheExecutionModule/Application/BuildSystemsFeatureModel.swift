@@ -30,6 +30,7 @@ package final class BuildSystemsFeatureModel: ObservableObject {
     package var isRunning: Bool { service.isRunning }
     package var currentRunID: UUID? { service.currentRunID }
     package var runEnded: AnyPublisher<BuildRunEnd, Never> { service.runEnded.eraseToAnyPublisher() }
+    package var applicationLaunched: AnyPublisher<String, Never> { service.applicationLaunched.eraseToAnyPublisher() }
     package var hasActiveWork: Bool { service.hasActiveWork }
     package var hasBuildSystemPlugins: Bool { service.hasBuildSystemPlugins }
     package var workspaceURL: URL? { service.workspaceURL }
@@ -67,6 +68,30 @@ package final class BuildSystemsFeatureModel: ObservableObject {
     @discardableResult
     package func runTests(_ entryID: String, request: BuildTestRequest, title: String) -> UUID? {
         service.runTests(entryID, request: request, title: title)
+    }
+    package func cancelDebugPreparation() { service.cancelDebugPreparation() }
+
+    @discardableResult
+    package func debugApplication(_ entryID: String, request: BuildRunRequest, title: String,
+                                  launch: @escaping @MainActor (BuildSystemPluginSource, BuildDebugPreparation) throws -> Void) -> UUID? {
+        service.debugApplication(entryID, request: request, title: title, launch: launch)
+    }
+
+    @discardableResult
+    package func debugProviderConfiguration(_ configuration: RunConfiguration, workspace: URL,
+                                  launch: @escaping @MainActor (BuildSystemPluginSource, BuildDebugPreparation) throws -> Void) -> UUID? {
+        service.debugProviderConfiguration(configuration, workspace: workspace, launch: launch)
+    }
+
+    @discardableResult
+    package func runApplication(_ entryID: String, request: BuildRunRequest, title: String,
+                                beforePreparing: @escaping @MainActor () async -> Bool = { true }) -> UUID? {
+        service.runApplication(entryID, request: request, title: title, beforePreparing: beforePreparing)
+    }
+    package func testDiscovery(_ entryID: String) -> BuildTestDiscoveryState? { service.testDiscovery(entryID) }
+    package func discoverTests(_ entryID: String) { service.discoverTests(entryID) }
+    package func runDiscoveredTest(_ entryID: String, testID: String, title: String) {
+        service.runDiscoveredTest(entryID, testID: testID, title: title)
     }
     package func loadDependencies(
         _ entryID: String, project: BuildModel.Project?, reason: BuildLoadReason = .initial

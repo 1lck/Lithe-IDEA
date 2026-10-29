@@ -1,0 +1,176 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lithe.invalid/proposals/1210/debug-session-projection.draft.schema.json",
+  "title": "Proposed debug session projection version 2",
+  "description": "Review-only shape of the normalized projections the unified Rust Core debug engine returns to macOS and Windows. Version 2 reserves room for optional extensions (no-source frames, session sources, registers, memory) so they can be added later without breaking changes. Not implemented; v1 stays in place until every consumer migrates.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["projectionVersion", "sessionID", "stopGeneration", "projection"],
+  "properties": {
+    "projectionVersion": { "const": 2 },
+    "sessionID": { "$ref": "#/$defs/opaqueID" },
+    "stopGeneration": {
+      "description": "Incremented on every stop. References from an older generation are invalid after continue, step or restart; late results carrying them are dropped.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "projection": {
+      "oneOf": [
+        { "$ref": "#/$defs/stackTrace" },
+        { "$ref": "#/$defs/scopes" },
+        { "$ref": "#/$defs/capabilities" }
+      ]
+    }
+  },
+  "$defs": {
+    "opaqueID": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "opaqueReference": {
+      "description": "Adapter-owned address or reference kept as a string. Hosts never do arithmetic on it; 64-bit addresses exceed the JavaScript safe integer range.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "openString": {
+      "description": "DAP enumerations are open; unknown values are preserved instead of rejected.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "source": {
+      "description": "Exactly one source identity.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "path"],
+          "properties": {
+            "kind": { "const": "workspace" },
+            "path": {
+              "description": "Workspace-relative path; absolute paths and parent segments are rejected.",
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(?!/)(?![A-Za-z]:)(?!(.*/)?\\.\\.(/|$)).+$"
+            },
+            "name": { "type": "string" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "sourceReference", "name"],
+          "properties": {
+            "kind": { "const": "session" },
+            "sourceReference": {
+              "description": "Session-bound DAP sourceReference, fetched with the source request. Invalid after the session ends.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            },
+            "name": { "type": "string", "minLength": 1 },
+            "origin": { "type": "string" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "grantID", "name"],
+          "properties": {
+            "kind": { "const": "external" },
+            "grantID": {
+              "description": "Host-issued grant for an authorized path outside the workspace; the raw path is not exposed to the UI layer.",
+              "$ref": "#/$defs/opaqueID"
+            },
+            "name": { "type": "string", "minLength": 1 }
+          }
+        }
+      ]
+    },
+    "stackFrame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name"],
+      "properties": {
+        "id": { "$ref": "#/$defs/opaqueID" },
+        "name": { "type": "string" },
+        "source": { "$ref": "#/$defs/source" },
+        "line": { "type": "integer", "minimum": 1 },
+        "column": { "type": "integer", "minimum": 1 },
+        "endLine": { "type": "integer", "minimum": 1 },
+        "endColumn": { "type": "integer", "minimum": 1 },
+        "instructionPointerReference": { "$ref": "#/$defs/opaqueReference" },
+        "moduleID": { "type": "string" },
+        "presentationHint": { "$ref": "#/$defs/openString" },
+        "isFiltered": { "type": "boolean" }
+      },
+      "dependentRequired": {
+        "line": ["source"],
+        "column": ["line"],
+        "endLine": ["line"],
+        "endColumn": ["endLine"]
+      }
+    },
+    "stackTrace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "threadID", "frames"],
+      "properties": {
+        "kind": { "const": "stackTrace" },
+        "threadID": { "type": "integer" },
+        "frames": { "type": "array", "items": { "$ref": "#/$defs/stackFrame" } },
+        "totalFrames": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "variablesReference", "expensive"],
+      "properties": {
+        "name": { "type": "string" },
+        "presentationHint": {
+          "description": "Passed through as reported: arguments, locals, registers, returnValue or any unknown value.",
+          "$ref": "#/$defs/openString"
+        },
+        "variablesReference": { "type": "integer", "minimum": 0 },
+        "namedVariables": { "type": "integer", "minimum": 0 },
+        "indexedVariables": { "type": "integer", "minimum": 0 },
+        "expensive": { "type": "boolean" },
+        "source": { "$ref": "#/$defs/source" }
+      }
+    },
+    "scopes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "frameID", "scopes"],
+      "properties": {
+        "kind": { "const": "scopes" },
+        "frameID": { "$ref": "#/$defs/opaqueID" },
+        "scopes": { "type": "array", "items": { "$ref": "#/$defs/scope" } }
+      }
+    },
+    "capabilityState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["adapter", "extension", "authorized", "supported"],
+      "properties": {
+        "adapter": { "type": "boolean", "description": "Reported by the adapter in initialize or a capabilities event." },
+        "extension": { "type": "boolean", "description": "The host extension handling it is registered on this platform." },
+        "authorized": { "type": "boolean" },
+        "supported": { "type": "boolean", "description": "Must equal adapter AND extension AND authorized; Core enforces this." }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "revision", "capabilities"],
+      "properties": {
+        "kind": { "const": "capabilities" },
+        "revision": { "type": "integer", "minimum": 0 },
+        "capabilities": {
+          "type": "object",
+          "propertyNames": { "pattern": "^supports[A-Z][A-Za-z0-9]*$" },
+          "additionalProperties": { "$ref": "#/$defs/capabilityState" }
+        }
+      }
+    }
+  }
+}

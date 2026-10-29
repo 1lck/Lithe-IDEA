@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 ///   the binaries instead of staying behind in the repository.
 ///
 /// See `third_party/conpty/manifest.json` for the pinned upstream package and
-/// `scripts/prepare-conpty.ps1` for the download that fills `.artifacts`.
+/// `scripts/windows/prepare/prepare-conpty.ps1` for the download that fills `.artifacts`.
 const CONPTY_FILES: [&str; 3] = ["conpty.dll", "OpenConsole.exe", "ConPTY-LICENSE.txt"];
 
 fn main() {
@@ -70,7 +70,7 @@ fn main() {
     if !source_dir.is_dir() {
         let message = format!(
             "ConPTY runtime is not staged for {platform}. Run \
-             `powershell -ExecutionPolicy Bypass -File scripts/prepare-conpty.ps1` to \
+             `powershell -ExecutionPolicy Bypass -File scripts/windows/prepare/prepare-conpty.ps1` to \
              download it. Without those files the terminal falls back to the \
              system console host, which drops extended keyboard sequences such as \
              Shift+Enter."

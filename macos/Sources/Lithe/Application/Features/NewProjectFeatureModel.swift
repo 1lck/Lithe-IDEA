@@ -56,6 +56,9 @@ final class NewProjectFeatureModel: ObservableObject {
     static let defaultLocation = "~/LitheProjects"
 
     @Published private(set) var entries: [ProjectGeneratorEntry] = []
+    var isJavaSupportMissing: Bool {
+        !sources.contains { $0.pluginID == OfficialPluginCatalog.javaPluginID }
+    }
     @Published private(set) var catalogError: String?
     @Published var selection: Selection = .empty {
         didSet { if oldValue != selection { selectionChanged() } }

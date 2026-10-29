@@ -57,7 +57,7 @@ public extension Bundle {
 /// The single entry point for product copy resolved outside a SwiftUI `Text`.
 ///
 /// Every call follows the application language chosen in Settings, never the system
-/// language. `scripts/verify-app-language-localization.mjs` rejects direct
+/// language. `scripts/i18n/verify-app-language-localization.mjs` rejects direct
 /// `String(localized:)` and `NSLocalizedString` use elsewhere.
 public enum L10n {
     /// Resolves a literal or interpolated string, for example `L10n.string("Saved \(name)")`.

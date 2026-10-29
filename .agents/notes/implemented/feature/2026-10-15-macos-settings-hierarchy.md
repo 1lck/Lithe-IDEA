@@ -71,7 +71,7 @@ Issue 希望“构建工具 → Maven”“服务运行”“框架支持”也�
 
 - `SettingsSidebarLayoutTests` 保证每个页面恰好属于一个分组或是一级页面，并固定本表的分组内容与 AI 页面顺序。
 - `SettingsSearchVocabularyTests` 保证每个页面仍能被检索到。
-- `./scripts/test-macos.sh --filter SettingsSidebarLayoutTests`。
+- `./scripts/macos/test/test-macos.sh --filter SettingsSidebarLayoutTests`。
 - 实机查看设置窗口的侧栏、面包屑、搜索展开和从其他入口跳转到某一页时展开所属分组。
 
 ## 适用范围

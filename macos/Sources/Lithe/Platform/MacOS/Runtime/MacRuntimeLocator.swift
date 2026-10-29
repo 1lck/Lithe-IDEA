@@ -1,8 +1,18 @@
+import Darwin
 import Foundation
 
 struct MacRuntimeLocator: RuntimeLocator {
     func environment() -> [String: String] {
         ProcessInfo.processInfo.environment
+    }
+
+    func defaultExecutableSearchPath() -> String? {
+        let count = confstr(_CS_PATH, nil, 0)
+        guard count > 0 else { return nil }
+        var buffer = [CChar](repeating: 0, count: count)
+        let written = confstr(_CS_PATH, &buffer, buffer.count)
+        guard written > 0, written <= buffer.count else { return nil }
+        return String(cString: buffer)
     }
 
     func discover() -> RuntimeDiscoveryResult {

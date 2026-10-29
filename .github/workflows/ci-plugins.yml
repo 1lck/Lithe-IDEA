@@ -80,7 +80,7 @@ jobs:
           if [[ "$BASE_REF" == "main" && "$HEAD_REF" == "preview" && "$HEAD_REPOSITORY" == "$GITHUB_REPOSITORY" ]]; then
             export LITHE_CI_SCOPE=release_promotion
           fi
-          ./scripts/classify-ci-changes.sh "$BASE_SHA" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          ./scripts/ci/common/classify-ci-changes.sh "$BASE_SHA" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
 
       # Reuse lanes that passed (or are running) on an earlier revision of this
       # pull request when its own new changes cannot affect them.
@@ -99,7 +99,7 @@ jobs:
             ci_scope=${{ steps.classify.outputs.ci_scope }}
             plugins=${{ steps.classify.outputs.plugins }}
         shell: bash
-        run: node scripts/plan-ci-lane-reuse.mjs
+        run: node scripts/ci/common/plan-ci-lane-reuse.mjs
 
       - name: Summarize selected lanes
         shell: bash
@@ -151,7 +151,7 @@ jobs:
       # in run 39741361768. Keep that budget separate from test execution.
       - name: Build Swift tests
         timeout-minutes: 40
-        run: ./scripts/test-macos.sh list > /dev/null
+        run: ./scripts/macos/test/test-macos.sh list > /dev/null
 
       - name: Run plugin-focused Swift tests
         timeout-minutes: 17
@@ -159,7 +159,7 @@ jobs:
 
       - name: Build and verify official plugin packages
         timeout-minutes: 10
-        run: ./scripts/verify-official-plugins.sh
+        run: ./scripts/plugins/verify-official-plugins.sh
 
       - name: Generate combined plugin test report
         if: always()
@@ -211,7 +211,7 @@ jobs:
         if: needs.changes.result == 'success' && needs.changes.outputs.reuse != '{}' && needs.changes.outputs.reuse != ''
         uses: actions/checkout@v7
         with:
-          sparse-checkout: scripts/verify-reused-ci-jobs.mjs
+          sparse-checkout: scripts/ci/common/verify-reused-ci-jobs.mjs
           sparse-checkout-cone-mode: false
 
       - name: Verify reused lane results
@@ -220,4 +220,4 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           LITHE_CI_REUSE: ${{ needs.changes.outputs.reuse }}
         timeout-minutes: 95
-        run: node scripts/verify-reused-ci-jobs.mjs
+        run: node scripts/ci/common/verify-reused-ci-jobs.mjs

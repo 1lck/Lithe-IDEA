@@ -46,7 +46,10 @@ extension RustCoreBridge: DebugProtocolCore {
         sessionID: String,
         adapterID: String,
         rootPath: String,
-        supportsRunInTerminalRequest: Bool
+        supportsRunInTerminalRequest: Bool,
+        supportsStartDebuggingRequest: Bool,
+        disabledCapabilities: [String],
+        parentSessionID: String?
     ) throws -> DebugCoreUpdate {
         try executeResult(
             command: "debug.createSession",
@@ -54,7 +57,10 @@ extension RustCoreBridge: DebugProtocolCore {
                 sessionID: sessionID,
                 adapterID: adapterID,
                 rootPath: rootPath,
-                supportsRunInTerminalRequest: supportsRunInTerminalRequest
+                supportsRunInTerminalRequest: supportsRunInTerminalRequest,
+                supportsStartDebuggingRequest: supportsStartDebuggingRequest,
+                disabledCapabilities: disabledCapabilities,
+                parentSessionID: parentSessionID
             )
         ).get()
     }
@@ -110,6 +116,19 @@ extension RustCoreBridge: DebugProtocolCore {
         try executeResult(
             command: "debug.setFunctionBreakpoints",
             payload: DebugFunctionBreakpointsPayload(
+                sessionID: sessionID,
+                breakpoints: breakpoints
+            )
+        ).get()
+    }
+
+    func setDebugInstructionBreakpoints(
+        sessionID: String,
+        breakpoints: [DebugInstructionBreakpoint]
+    ) throws -> DebugCoreUpdate {
+        try executeResult(
+            command: "debug.setInstructionBreakpoints",
+            payload: DebugInstructionBreakpointsPayload(
                 sessionID: sessionID,
                 breakpoints: breakpoints
             )
@@ -191,7 +210,8 @@ extension RustCoreBridge: DebugProtocolCore {
         command: DebugExecutionCommand,
         threadID: Int?,
         targetID: Int?,
-        singleThread: Bool
+        singleThread: Bool,
+        granularity: DebugSteppingGranularity?
     ) throws -> DebugCoreUpdate {
         try executeResult(
             command: "debug.execute",
@@ -201,7 +221,8 @@ extension RustCoreBridge: DebugProtocolCore {
                 command: command.rawValue,
                 threadID: threadID,
                 targetID: targetID,
-                singleThread: singleThread
+                singleThread: singleThread,
+                granularity: granularity
             ),
             operationID: operationID
         ).get()
@@ -218,9 +239,11 @@ extension RustCoreBridge: DebugProtocolCore {
         start: Int?,
         count: Int?,
         expression: String?,
+        context: String?,
         sourcePath: String?,
         line: Int?,
-        column: Int?
+        column: Int?,
+        memory: DebugCoreMemoryQuery?
     ) throws -> DebugCoreUpdate {
         try executeResult(
             command: "debug.inspect",
@@ -235,9 +258,15 @@ extension RustCoreBridge: DebugProtocolCore {
                 start: start,
                 count: count,
                 expression: expression,
+                context: context,
                 sourcePath: sourcePath,
                 line: line,
-                column: column
+                column: column,
+                memoryReference: memory?.reference,
+                offset: memory?.offset,
+                instructionOffset: memory?.instructionOffset,
+                instructionCount: memory?.instructionCount,
+                resolveSymbols: memory?.resolveSymbols
             ),
             operationID: operationID
         ).get()
@@ -282,6 +311,24 @@ extension RustCoreBridge: DebugProtocolCore {
         return try executeResult(
             command: "debug.runInTerminalResponse",
             payload: payload
+        ).get()
+    }
+
+    func completeDebugStartDebuggingRequest(
+        sessionID: String,
+        requestID: String,
+        result: Result<Void, Error>
+    ) throws -> DebugCoreUpdate {
+        let failure: Error?
+        if case .failure(let error) = result { failure = error } else { failure = nil }
+        return try executeResult(
+            command: "debug.startDebuggingResponse",
+            payload: DebugStartDebuggingResponsePayload(
+                sessionID: sessionID,
+                requestID: requestID,
+                success: failure == nil,
+                message: failure?.localizedDescription
+            )
         ).get()
     }
 
@@ -353,11 +400,28 @@ private struct DebugCreateSessionPayload: Encodable {
     let adapterID: String
     let rootPath: String
     let supportsRunInTerminalRequest: Bool
+    let supportsStartDebuggingRequest: Bool
+    let disabledCapabilities: [String]
+    let parentSessionID: String?
 
     private enum CodingKeys: String, CodingKey {
         case sessionID = "sessionId"
         case adapterID = "adapterId"
-        case rootPath, supportsRunInTerminalRequest
+        case parentSessionID = "parentSessionId"
+        case rootPath, supportsRunInTerminalRequest, supportsStartDebuggingRequest, disabledCapabilities
+    }
+}
+
+private struct DebugStartDebuggingResponsePayload: Encodable {
+    let sessionID: String
+    let requestID: String
+    let success: Bool
+    let message: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionID = "sessionId"
+        case requestID = "requestId"
+        case success, message
     }
 }
 
@@ -441,6 +505,16 @@ private struct DebugFunctionBreakpointsPayload: Encodable {
     }
 }
 
+private struct DebugInstructionBreakpointsPayload: Encodable {
+    let sessionID: String
+    let breakpoints: [DebugInstructionBreakpoint]
+
+    private enum CodingKeys: String, CodingKey {
+        case sessionID = "sessionId"
+        case breakpoints
+    }
+}
+
 private struct DebugDataBreakpointInfoPayload: Encodable {
     let sessionID: String
     let operationID: String
@@ -499,6 +573,7 @@ private struct DebugExecutePayload: Encodable {
     let threadID: Int?
     let targetID: Int?
     let singleThread: Bool
+    let granularity: DebugSteppingGranularity?
 
     private enum CodingKeys: String, CodingKey {
         case sessionID = "sessionId"
@@ -507,6 +582,7 @@ private struct DebugExecutePayload: Encodable {
         case threadID = "threadId"
         case targetID = "targetId"
         case singleThread
+        case granularity
     }
 }
 
@@ -521,9 +597,15 @@ private struct DebugInspectPayload: Encodable {
     let start: Int?
     let count: Int?
     let expression: String?
+    let context: String?
     let sourcePath: String?
     let line: Int?
     let column: Int?
+    let memoryReference: String?
+    let offset: Int?
+    let instructionOffset: Int?
+    let instructionCount: Int?
+    let resolveSymbols: Bool?
 
     private enum CodingKeys: String, CodingKey {
         case sessionID = "sessionId"
@@ -533,8 +615,9 @@ private struct DebugInspectPayload: Encodable {
         case frameID = "frameId"
         case variablesReference
         case variableFilter, start, count
-        case expression
+        case expression, context
         case sourcePath, line, column
+        case memoryReference, offset, instructionOffset, instructionCount, resolveSymbols
     }
 }
 

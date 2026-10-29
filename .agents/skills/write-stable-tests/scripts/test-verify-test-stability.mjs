@@ -770,12 +770,25 @@ try {
 
 const budgetFixtureRoot = mkdtempSync(path.join(os.tmpdir(), "lithe-test-stability-budget-"));
 try {
+  const linkedWorktree = "watch_context_distinguishes_linked_worktree_git_and_common_directories";
+  const linkedBudget = `${linkedWorktree}=30000`;
+  const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
+  assert.ok(readFileSync(path.join(repositoryRoot, ".agents/skills/write-stable-tests/scripts/test-stability-windows.ps1"), "utf8")
+    .includes(`"--test-budget", "${linkedBudget}"`));
+  assert.ok(readFileSync(path.join(repositoryRoot, ".github/workflows/ci-windows.yml"), "utf8")
+    .includes(`--test-budget ${linkedBudget}`));
   const report = path.join(budgetFixtureRoot, "budget.json");
   const options = parseRustTimingArguments([
     "--manifest", path.join(budgetFixtureRoot, "Cargo.toml"), "--report", report,
     "--warn-ms", "10", "--max-ms", "100", "--test-budget", "tests::native_=300",
     "--test-budget", "tests::native=250",
+    "--test-budget", linkedBudget,
+    "--no-default-features", "--features", "client,server",
   ]);
+  assert.equal(options.features, "client,server");
+  assert.equal(options.noDefaultFeatures, true);
+  assert.throws(() => parseRustTimingArguments(["--manifest", "Cargo.toml", "--features"]));
+  assert.throws(() => parseRustTimingArguments(["--manifest", "Cargo.toml", "--features", "--no-default-features"]));
   for (const budget of ["=300", "tests::native_=0", "tests::native_=5", "invalid"]) {
     assert.throws(() => parseRustTimingArguments(["--manifest", "Cargo.toml", "--test-budget", budget]));
   }
@@ -785,15 +798,17 @@ try {
     let durationMs = 0;
     let timedOut = false;
     if (onStdoutLine) {
+      assert.ok(args.includes("--no-default-features"));
+      assert.equal(args[args.indexOf("--features") + 1], "client,server");
       onStdoutLine(JSON.stringify({ reason: "compiler-artifact", profile: { test: true },
         executable: path.join(budgetFixtureRoot, "fake-tests"), manifest_path: options.manifest,
         target: { name: "budget-fixture" } }));
     } else if (args[0] === "--list") {
-      stdout = "tests::unit: test\ntests::native_pass: test\ntests::native_hang: test\n";
+      stdout = `tests::unit: test\ntests::native_pass: test\n${linkedWorktree}: test\ntests::native_hang: test\n`;
     } else {
-      assert.equal(timeoutMs, args[1] === "tests::unit" ? 100 : 300);
+      assert.equal(timeoutMs, args[1] === linkedWorktree ? 30000 : args[1] === "tests::unit" ? 100 : 300);
       timedOut = args[1] === "tests::native_hang";
-      durationMs = args[1] === "tests::unit" ? 30 : timedOut ? 300 : 150;
+      durationMs = args[1] === linkedWorktree ? 16000 : args[1] === "tests::unit" ? 30 : timedOut ? 300 : 150;
       stdout = "running 1 test\n";
     }
     currentTime += durationMs;
@@ -801,8 +816,11 @@ try {
   };
   await assert.rejects(runRustTestsWithTiming(options, { runProcessImpl, now: () => currentTime }), /1 Rust test/);
   const result = JSON.parse(readFileSync(report, "utf8"));
+  assert.equal(result.features, "client,server");
+  assert.equal(result.noDefaultFeatures, true);
   assert.deepEqual(result.tests.map(({ status, maxMs }) => ({ status, maxMs })), [
-    { status: "passed", maxMs: 100 }, { status: "passed", maxMs: 300 }, { status: "timeout", maxMs: 300 },
+    { status: "passed", maxMs: 100 }, { status: "passed", maxMs: 300 },
+    { status: "passed", maxMs: 30000 }, { status: "timeout", maxMs: 300 },
   ]);
   // The native pass exceeds the ordinary budget but must remain a passing case
   // in both HTML and JUnit. The hung native case still fails at its own deadline.
@@ -810,6 +828,7 @@ try {
   assert.match(junit, /failures="0"/);
   assert.match(junit, /errors="1"/);
   assert.doesNotMatch(junit, /Performance budget exceeded: 150ms/);
+  assert.doesNotMatch(junit, /Performance budget exceeded: 16000ms/);
   assert.match(readFileSync(report.replace(".json", ".html"), "utf8"),
     /<tr data-status="warning" data-search="[^"\n]*tests::native_pass"/);
 } finally {

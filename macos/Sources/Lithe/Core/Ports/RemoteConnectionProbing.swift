@@ -1,4 +1,5 @@
 import Foundation
+import LitheCoreContracts
 
 // Note: SSH 连接配置与测试连接见 .agents/notes/implemented/feature/2026-10-24-remote-ssh-connections.md
 
@@ -167,6 +168,20 @@ struct RemoteDirectoryEntry: Decodable, Equatable, Identifiable, Sendable {
         /// Kind of a symbolic link's target; `nil` for other entries and
         /// for dangling links.
         let symlinkTargetKind: String?
+        let size: Int64?
+        /// Modification time in milliseconds since the Unix epoch.
+        let modifiedMs: Int64?
+        let mode: UInt32?
+        let symlinkTargetMode: UInt32?
+
+        init(kind: String, symlinkTargetKind: String? = nil, size: Int64? = nil, modifiedMs: Int64? = nil, mode: UInt32? = nil, symlinkTargetMode: UInt32? = nil) {
+            self.kind = kind
+            self.symlinkTargetKind = symlinkTargetKind
+            self.size = size
+            self.modifiedMs = modifiedMs
+            self.mode = mode
+            self.symlinkTargetMode = symlinkTargetMode
+        }
     }
 
     let name: String
@@ -218,4 +233,146 @@ protocol RemoteWorkspaceTransport: Sendable {
     func writeFile(
         _ data: Data, to path: String, expected: RemoteFileVersion?, session id: String
     ) throws -> RemoteWriteOutcome
+    func mutate(_ mutation: RemoteFileMutation, session: String) throws
+    func watch(
+        root: String, session: String,
+        onEvent: @escaping @Sendable (RemoteWatchEvent) -> Void
+    ) async throws
+}
+
+enum RemoteFileMutation: Sendable, Equatable {
+    case createDirectory(path: String, recursive: Bool)
+    case copy(from: String, to: String)
+    case move(from: String, to: String)
+    case remove(path: String)
+    case trash(path: String)
+}
+
+enum RemoteWatchEvent: Sendable, Equatable {
+    /// A new subscription needs a rescan to cover the startup window.
+    case started
+    case changed(paths: [String], overflow: Bool)
+    case invalidated(rootRemoved: Bool)
+}
+
+extension RemoteWorkspaceTransport {
+    func mutate(_ mutation: RemoteFileMutation, session: String) throws {
+        throw CocoaError(.featureUnsupported)
+    }
+
+    func watch(root: String, session: String, onEvent: @escaping @Sendable (RemoteWatchEvent) -> Void) async throws {
+        throw CocoaError(.featureUnsupported)
+    }
+}
+
+/// A PTY on the workspace host. Environment contains explicit overrides only;
+/// the remote account owns HOME, PATH, shell selection and login profiles.
+struct RemoteTerminalRequest: Encodable, Equatable, Sendable {
+    let argv: [String]?
+    let cwd: String
+    let env: [String: String]
+    let columns: UInt16
+    let rows: UInt16
+}
+
+enum RemoteTerminalEvent: Equatable, Sendable {
+    case started(id: UInt64, pid: Int32)
+    case output(Data)
+    case exited(Int32?)
+}
+
+protocol RemoteTerminalConnecting: Sendable {
+    /// Owns the PTY until exit. Cancelling this task closes its entire process tree.
+    func runTerminal(
+        _ request: RemoteTerminalRequest, session: String,
+        onEvent: @escaping @Sendable (RemoteTerminalEvent) -> Void
+    ) async -> Result<Void, RemoteProbeFailure>
+    func writeTerminal(_ data: Data, id: UInt64, session: String) async throws
+    func resizeTerminal(id: UInt64, columns: UInt16, rows: UInt16, session: String) async throws
+}
+
+/// A non-interactive process with an explicit host working directory.
+struct RemoteProcessRequest: Encodable, Equatable, Sendable {
+    let argv: [String]
+    let cwd: String
+    let env: [String: String]
+    let environment = "login"
+    let processId = 0
+}
+
+enum RemoteProcessEvent: Equatable, Sendable {
+    case output(Data, standardError: Bool)
+}
+
+struct RemoteProcessResult: Decodable, Equatable, Sendable {
+    let exitCode: Int32?
+    let signal: Int32?
+}
+
+protocol RemoteProcessRunning: Sendable {
+    /// Owns the process tree through exit, timeout, or cancellation. Output is
+    /// delivered in host order and stderr remains distinct from stdout.
+    func runProcess(
+        _ request: RemoteProcessRequest, session: String, timeout: Duration?,
+        onEvent: @escaping @Sendable (RemoteProcessEvent) -> Void
+    ) async throws -> RemoteProcessResult
+}
+
+struct RemoteBuildFileMetadata: Equatable, Sendable {
+    let isExecutable: Bool
+}
+
+protocol RemoteBuildFileProbing: Sendable {
+    /// Resolves links on the host. Only a missing file returns nil; transport
+    /// and permission failures remain failures. Calls belong on a worker.
+    func buildFileMetadata(_ path: String, session: String) throws -> RemoteBuildFileMetadata?
+}
+
+/// Host-owned mutable build state. Blocking operations run on a platform worker.
+protocol RemoteBuildStateAccess: Sendable {
+    func prepareBuildState(pluginID: String, buildSystemID: String, workspacePath: String, session: String) throws -> String
+    func removeBuildOutputFile(_ path: String, session: String) throws
+}
+
+/// Immutable plugin snapshots use the same generic host filesystem as builds.
+/// Trust and target-platform selection remain in the package adapter.
+struct RemotePluginHost: Decodable, Equatable, Sendable {
+    let os: String
+    let arch: String
+    let homeDirectory: String?
+    let features: [String]
+
+    var platform: String? {
+        let system: String
+        switch os { case "linux": system = "linux"; case "macos": system = "darwin"; default: return nil }
+        switch arch { case "x86_64": return system + "-x64"; case "aarch64": return system + "-arm64"; default: return nil }
+    }
+
+    var templateArchitecture: String { arch == "aarch64" ? "arm64" : arch }
+}
+
+protocol RemotePluginFileAccess: Sendable {
+    func pluginHost(session: String) async throws -> RemotePluginHost
+    func pluginRequest(_ method: String, params: ToolingJSONValue, session: String) async throws -> ToolingJSONValue
+    func uploadPluginFile(_ source: URL, to path: String, sha256: String, mode: UInt32, session: String) async throws
+}
+
+protocol RemotePluginPackageDeploying: Sendable {
+    func buildRequiresPackage(pluginID: String, buildSystemID: String, packageURL: URL) throws -> Bool
+    func deploy(pluginID: String, packageURL: URL, session: String) async throws -> RemoteDeployedPluginPackage
+}
+
+struct RemoteDeployedPluginPackage: Sendable {
+    let packageURL: URL
+    let manifest: Data
+    let architecture: String
+    let release: @Sendable () async -> Void
+}
+
+/// Read-only shell discovery on one host. Calls block and belong on a worker.
+protocol RemoteShellProbing: Sendable {
+    func shellEnvironment(session: String) throws -> [String: String]
+    func registeredShells(session: String) throws -> String
+    func runtimeDirectory(_ path: String, session: String) throws -> [RemoteDirectoryEntry]
+    func runtimeExecutable(_ path: String, session: String) throws -> Bool
 }

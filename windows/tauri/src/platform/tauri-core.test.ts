@@ -1,8 +1,10 @@
 import { beforeEach, expect, mock, test } from "bun:test";
 
 const tauriInvoke = mock(async () => undefined);
+const nativeCore = await import("@tauri-apps/api/core");
 
 mock.module("@tauri-apps/api/core", () => ({
+  ...nativeCore,
   Channel: class {},
   convertFileSrc: (path: string) => path,
   isTauri: () => true,

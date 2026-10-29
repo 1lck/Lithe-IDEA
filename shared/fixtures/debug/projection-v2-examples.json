@@ -1,0 +1,152 @@
+{
+  "description": "Synthetic projection v2 inputs for review. accept entries must validate against debug-session-projection.draft.schema.json; reject entries must fail schema validation. Semantic rules (supported equals the conjunction, stale generations are dropped) belong to Core tests.",
+  "accept": [
+    {
+      "name": "source frame and no-source assembly frame on one thread",
+      "value": {
+        "projectionVersion": 2,
+        "sessionID": "s-1",
+        "stopGeneration": 3,
+        "projection": {
+          "kind": "stackTrace",
+          "threadID": 1,
+          "frames": [
+            {
+              "id": "f-0",
+              "name": "parse_header",
+              "source": { "kind": "workspace", "path": "src/parse.c" },
+              "line": 42,
+              "column": 5,
+              "instructionPointerReference": "0x0000000100003f2c"
+            },
+            {
+              "id": "f-1",
+              "name": "memcpy",
+              "instructionPointerReference": "0xffffffff81002a10",
+              "presentationHint": "subtle"
+            }
+          ],
+          "totalFrames": 2
+        }
+      }
+    },
+    {
+      "name": "session-bound decompiled source",
+      "value": {
+        "projectionVersion": 2,
+        "sessionID": "s-2",
+        "stopGeneration": 1,
+        "projection": {
+          "kind": "stackTrace",
+          "threadID": 17,
+          "frames": [
+            {
+              "id": "f-0",
+              "name": "ArrayList.add",
+              "source": { "kind": "session", "sourceReference": 1001, "name": "ArrayList.class", "origin": "decompiled" },
+              "line": 467,
+              "column": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "registers scope and unknown presentation hint",
+      "value": {
+        "projectionVersion": 2,
+        "sessionID": "s-1",
+        "stopGeneration": 3,
+        "projection": {
+          "kind": "scopes",
+          "frameID": "f-1",
+          "scopes": [
+            { "name": "Locals", "presentationHint": "locals", "variablesReference": 11, "expensive": false },
+            { "name": "General Purpose Registers", "presentationHint": "registers", "variablesReference": 12, "namedVariables": 33, "expensive": true },
+            { "name": "Vector", "presentationHint": "x-vendor-simd", "variablesReference": 13, "expensive": true }
+          ]
+        }
+      }
+    },
+    {
+      "name": "capability snapshot with read-only memory and no write extension",
+      "value": {
+        "projectionVersion": 2,
+        "sessionID": "s-1",
+        "stopGeneration": 0,
+        "projection": {
+          "kind": "capabilities",
+          "revision": 2,
+          "capabilities": {
+            "supportsConfigurationDoneRequest": { "adapter": true, "extension": true, "authorized": true, "supported": true },
+            "supportsDisassembleRequest": { "adapter": true, "extension": true, "authorized": true, "supported": true },
+            "supportsReadMemoryRequest": { "adapter": true, "extension": true, "authorized": true, "supported": true },
+            "supportsWriteMemoryRequest": { "adapter": true, "extension": false, "authorized": true, "supported": false }
+          }
+        }
+      }
+    }
+  ],
+  "reject": [
+    {
+      "name": "address as JSON number loses precision",
+      "value": {
+        "projectionVersion": 2,
+        "sessionID": "s-1",
+        "stopGeneration": 3,
+        "projection": {
+          "kind": "stackTrace",
+          "threadID": 1,
+          "frames": [{ "id": "f-1", "name": "memcpy", "instructionPointerReference": 18446744071562078736 }]
+        }
+      }
+    },
+    {
+      "name": "line without source fakes a location",
+      "value": {
+        "projectionVersion": 2,
+        "sessionID": "s-1",
+        "stopGeneration": 3,
+        "projection": {
+          "kind": "stackTrace",
+          "threadID": 1,
+          "frames": [{ "id": "f-1", "name": "memcpy", "line": 1 }]
+        }
+      }
+    },
+    {
+      "name": "two source identities at once",
+      "value": {
+        "projectionVersion": 2,
+        "sessionID": "s-2",
+        "stopGeneration": 1,
+        "projection": {
+          "kind": "stackTrace",
+          "threadID": 1,
+          "frames": [{ "id": "f-0", "name": "m", "source": { "kind": "workspace", "path": "a.java", "sourceReference": 3 } }]
+        }
+      }
+    },
+    {
+      "name": "workspace path escapes the workspace",
+      "value": {
+        "projectionVersion": 2,
+        "sessionID": "s-2",
+        "stopGeneration": 1,
+        "projection": {
+          "kind": "stackTrace",
+          "threadID": 1,
+          "frames": [{ "id": "f-0", "name": "m", "source": { "kind": "workspace", "path": "src/../../etc/passwd" }, "line": 1 }]
+        }
+      }
+    },
+    {
+      "name": "projection without stop generation",
+      "value": {
+        "projectionVersion": 2,
+        "sessionID": "s-1",
+        "projection": { "kind": "scopes", "frameID": "f-0", "scopes": [] }
+      }
+    }
+  ]
+}

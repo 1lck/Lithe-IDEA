@@ -43,9 +43,10 @@ PHP Support 作为独立 GitHub Release asset 发布，不再把“能否使用 
 Preview 应用工作流不构建或重签独立插件包，也不注入插件私钥。当前 `preview`
 源码已把 PHP/Go 插件交给组织仓库独立发布，个人仓库的旧插件私钥与其 v2 公钥
 不匹配；继续在应用发布中签插件会触发 `SignerError.untrustedPrivateKey`，阻止
-本来已成功打包的应用发布。AutoBuild 只把已发布 ZIP 原字节镜像到应用 release，
-先验证固定索引的 SHA-256，再附加 checksum sidecar。应用更新继续使用原有
-Sparkle 密钥，不通过替换该密钥或放宽插件验签来恢复构建。
+本来已成功打包的应用发布。AutoBuild 不再读取插件索引或镜像独立插件 ZIP，
+只发布应用安装包与更新资源；插件上架状态和下载失败不应阻塞应用发布。
+独立插件发布及客户端安装的校验不变，应用更新继续使用原有 Sparkle 密钥，
+不通过替换该密钥或放宽插件验签来恢复构建。
 
 每天的定时任务从默认分支 `main` 读取工作流，再检出 `preview` 源码，因此
 删除插件私钥检查、独立插件构建及其两处上传步骤的修复必须合入 `main`。
@@ -83,7 +84,7 @@ v1→v2 那次一样让旧包立刻失效。同一个 key ID 永远不能换成�
 v1 包在新版本里仍会被拒绝，需要重新下载 v2 包。多 key 表是为以后的轮换准备的，
 并没有恢复 v1 兼容性。
 
-构建侧对应 `scripts/build-official-plugins.sh --development-unsigned`，只在 debug
+构建侧对应 `scripts/plugins/build-official-plugins.sh --development-unsigned`，只在 debug
 配置下可用，用来在没有私钥时产出这种开发包；release 配置传入该参数会直接失败。
 
 官方插件由组织仓库 `Lithe-IDEA/Lithe-IDEA` 的独立插件发布工作流使用
@@ -113,9 +114,15 @@ feed，Sparkle 生成不出有效 patch 时也会省略该 delta 并回退到全
 任何阶段都不得跨工作树复制，也不写已安装 app。成功下载仍须通过原有
 Sparkle 处理和发布校验，不改变签名、哈希或 appcast 的接受条件。
 
-稳定版 macOS build job 总期限为 75 分钟，打包步骤为 35 分钟，Sparkle
-步骤为 30 分钟，为双架构打包和有界下载重试留出预算。Preview 工作流的
-期限不变；上述下载保护位于两个渠道共用的发布脚本内。
+稳定版与 AutoBuild 的 macOS build job 总期限均为 75 分钟，打包步骤为
+35 分钟，Sparkle 步骤为 30 分钟，为每个架构的打包和有界下载重试留出预算。
+原先只调整了稳定版，AutoBuild 仍受整个 job 的 30 分钟上限约束；运行
+40812978761 的 Intel 打包约 26 分钟，进入 Sparkle 后被总上限取消，重跑也
+出现相同结果。因此两个工作流都要受同一组离线回归断言保护，不能只因为
+修复合入 `preview` 分支，就认为 AutoBuild 工作流也获得了相同修改。
+正确做法是保留分阶段期限并为上传、校验和清理留出总预算；不要取消所有
+期限，或反复重跑仍含 30 分钟上限的旧任务。上述下载保护仍位于两个渠道
+共用的发布脚本内，不改变签名与基线验证。
 
 ### 独立开发版身份与运行状态
 
@@ -194,10 +201,10 @@ ZIP 生成增量；不兼容身份跳过，损坏归档仍失败。新开发版�
 `MacDevelopmentProfileMigrationTests`、Windows 的 `profile_migration_tests.rs` 与
 `profile-migration.test.ts`（首次复制、已有数据保护、失败重试及快照恢复）、
 `AppUpdateChannelTests` 与 Windows 的 `update-channel.test.ts`（首次默认及显式选择）、
-`scripts/test-sparkle-update.rb`（六种渠道/架构元数据、同身份基线与差分验签、
+`scripts/release/sparkle/test-sparkle-update.rb`（六种渠道/架构元数据、同身份基线与差分验签、
 损坏 ZIP/缺失或非法元数据必须返回 1，只有验证后身份不兼容才返回 3，发布链必须停止）、
-`scripts/test-reuse-worktree-resources.mjs`（运行状态拒绝复用）及
-`scripts/verify-runtime-bundle-immutability.sh`（发行目录只读规则）。真实 Windows
+`scripts/resources/test-reuse-worktree-resources.mjs`（运行状态拒绝复用）及
+`scripts/macos/verify/verify-runtime-bundle-immutability.sh`（发行目录只读规则）。真实 Windows
 双安装器并存和原生 WebView，以及真实双架构签名升级，仍须在对应平台复验，不能
 用前端测试替代。
 
@@ -240,7 +247,7 @@ macOS 双架构和 Windows 复用工作流共同消费这些输入。Windows 只
 artifact identity（包括时间）及 build/ISO 精确对应，避免把不同源码或 build 的安装包混在同一个入口。
 
 发布检查点是记录这次发布完整目标的 `autobuild-publication.json`。发布器先验证
-本地输入、插件和两个历史 feed，再上传包含源码、版本、共享时间及全部目标文件
+本地应用输入和两个历史 feed，再上传包含源码、版本、共享时间及全部目标文件
 大小与 SHA-256 的确定性清单，之后才写数据和 feed。重跑时，只有远端检查点
 与本地逐字节相同，才允许完成同一次发布：相同字节的当前 feed 按身份验证，
 较旧 feed 仍按严格时间顺序验证，被 clobber 删除或留下空 `starter` 的 feed 可补齐。
@@ -253,16 +260,18 @@ artifact identity（包括时间）及 build/ISO 精确对应，避免把不同�
 已提交的发布。因此采用先记录完整目标、再恢复相同目标的办法。
 
 定时任务从 main 使用受审查的工作流；publish 按 `github.workflow_sha` 检出
-helper，再从 prepare 的 preview SHA 用 `git fetch/show` 读取官方插件 registry
-和 index，不能从 preview 工作树加载未受本次工作流审查的发布代码。按数值语义
-版本选择每个注册可下载插件的最新版本，保留所有下载变体并去重；只接受固定索引
-里 `Lithe-IDEA` 组织 GitHub Release 的 ZIP。当前 PHP/Go 为 1.0.0，内置 Java
-不属于镜像。canonical URL 和索引不变，应用 release 只提供手动下载镜像。
+helper，不能从 preview 工作树加载未受本次工作流审查的发布代码。应用发布器
+不再通过 `git fetch/show` 读取插件 registry/index，也不下载、校验或镜像独立插件。
+Java 尚未上架或插件下载失败都不影响应用发布；插件由各自发布流程和市场负责，
+其签名、哈希、兼容性检查及 canonical URL 不变。
 
-正确做法是下载上游已签名 ZIP，验证索引 SHA-256，再生成 `.sha256` 并上传；
-错误做法是在应用工作流重建插件、注入旧私钥或把索引 URL 改指向个人仓库。
-镜像 staging 绑定源码 SHA、固定索引、release/tag/asset 和本次调用，位于
-`<RUNNER_TEMP>/lithe-autobuild-<invocation>/{marketplace,plugins,baselines,verification}/`；
+正确做法是应用发布只验证并上传三个平台的应用产物，让插件独立交付；
+不要只删插件验哈希却继续上传未验证的 ZIP，也不要提前启用 Java 发布或伪造索引。
+仅跳过暂停且未上架插件的方案仍使应用依赖插件目录和下载服务，因此删除整个镜像步骤。
+代价是 AutoBuild 不再提供手动插件下载镜像，原有镜像在新应用资源完整验证后按过期资产清理，
+不删除插件自身的 release 或市场条目。
+发布 staging 绑定源码 SHA、应用 release/tag/asset 和本次调用，位于
+`<RUNNER_TEMP>/lithe-autobuild-<invocation>/{baselines,verification}/`；
 没有可复用 identity stamp，通用排除路由拒绝跨工作树复制。每个子进程限时
 120 秒，暂时性故障最多三次尝试，重试前删除本次下载残片，`finally` 删除本次
 创建的精确临时目录。根目录生成目标检查点，`baselines/AutoBuild/` 下载当前入口的
@@ -276,8 +285,8 @@ helper，再从 prepare 的 preview SHA 用 `git fetch/show` 读取官方插件 
 或 Sparkle 差分基线。
 
 完整目标清单只有最新 macOS DMG、Windows 安装包及 checksum、当前 build 的
-完整 ZIP/目标 delta/feed、每个官方可下载插件的最新 ZIP 变体及 checksum。
-发布器先验证本地输入、全部插件哈希和已有双架构 appcast 的时间顺序，再上传
+完整 ZIP/目标 delta/feed，以及发布检查点，不包含独立插件包。
+发布器先验证本地应用输入、安装包哈希和已有双架构 appcast 的时间顺序，再上传
 所有数据，最后替换 XML。compact 历史 build 必须与 pubDate 一致，旧计数基线
 仍验证 pubDate；缺少整个历史入口才允许首次发布。远端清单
 必须逐个通过 asset SHA-256 digest 验证，缺失 digest 时有界下载并校验。之后
@@ -385,15 +394,15 @@ bundle identifier、展示版本、可执行文件架构、渠道和最低系统
 # 在仓库根目录运行；Bun 包装器自动选择 windows/tauri 作为工作目录。
 node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --report .artifacts/test-stability/windows-updater.json -- src/features/settings/lib/update-channel.test.ts src/features/settings/stores/update.store.test.ts src/features/settings/components/update-channel-selector.test.tsx src/features/layout/components/installed-build-label.test.tsx
 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --max-seconds 60 -- --filter StableRollbackDiskImageIntegrationTests
-./scripts/test-macos.sh
-./scripts/verify-macos-package.sh
-./scripts/verify-official-plugins.sh
+./scripts/macos/test/test-macos.sh
+./scripts/macos/verify/verify-macos-package.sh
+./scripts/plugins/verify-official-plugins.sh
 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'PluginLocalDevelopmentTests|PluginPackageSignatureTests|PluginPackageStoreTests'
-sparkle_tools=$(zsh scripts/prepare-sparkle-tools.sh)
-ruby scripts/test-sparkle-update.rb "$sparkle_tools"
-node scripts/test-download-sparkle-baseline.mjs
-node --test scripts/test-publish-autobuild.mjs
-node scripts/test-reuse-worktree-resources.mjs
+sparkle_tools=$(zsh scripts/release/sparkle/prepare-sparkle-tools.sh)
+ruby scripts/release/sparkle/test-sparkle-update.rb "$sparkle_tools"
+node scripts/release/sparkle/test-download-sparkle-baseline.mjs
+node --test scripts/release/autobuild/test-publish-autobuild.mjs
+node scripts/resources/test-reuse-worktree-resources.mjs
 actionlint .github/workflows/release-macos.yml .github/workflows/release-preview-macos.yml .github/workflows/release-preview-windows.yml .github/workflows/ci-macos.yml
 ```
 
@@ -409,21 +418,21 @@ Sparkle 版本间升级、缺失/损坏的 delta、下载中断、权限不足�
 
 ## 适用范围
 
-- `scripts/prepare-sparkle-tools.sh`
-- `scripts/create-sparkle-update.sh`
-- `scripts/publish-autobuild.mjs`
-- `scripts/test-publish-autobuild.mjs`
-- `scripts/worktree-resources.json`
-- `scripts/reuse-worktree-resources.mjs`
-- `scripts/download-sparkle-baseline.mjs`
-- `scripts/test-download-sparkle-baseline.mjs`
-- `scripts/verify-macos-package.sh`
-- `scripts/test-sparkle-update.rb`
-- `scripts/create-macos-update-manifest.rb`
+- `scripts/release/sparkle/prepare-sparkle-tools.sh`
+- `scripts/release/sparkle/create-sparkle-update.sh`
+- `scripts/release/autobuild/publish-autobuild.mjs`
+- `scripts/release/autobuild/test-publish-autobuild.mjs`
+- `scripts/resources/worktree-resources.json`
+- `scripts/resources/reuse-worktree-resources.mjs`
+- `scripts/release/sparkle/download-sparkle-baseline.mjs`
+- `scripts/release/sparkle/test-download-sparkle-baseline.mjs`
+- `scripts/macos/verify/verify-macos-package.sh`
+- `scripts/release/sparkle/test-sparkle-update.rb`
+- `scripts/release/macos/create-macos-update-manifest.rb`
 - `.github/workflows/release-macos.yml`
 - `.github/workflows/release-preview-macos.yml`
 - `.github/workflows/release-preview-windows.yml`
-- `scripts/build-official-plugins.sh`
+- `scripts/plugins/build-official-plugins.sh`
 - `macos/Sources/LithePluginPackageSigning/`
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginPackageStore.swift`
 - `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginManager.swift`

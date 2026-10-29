@@ -480,6 +480,14 @@ package struct GitCommitDiffContext: Identifiable, Hashable, Sendable {
     package let commit: GitCommit
     package let file: GitCommitFile
 
+    // The synthesized memberwise initializer is internal, so the app module
+    // could not build a context without this explicit package-level one.
+    package init(repositoryRoot: URL, commit: GitCommit, file: GitCommitFile) {
+        self.repositoryRoot = repositoryRoot
+        self.commit = commit
+        self.file = file
+    }
+
     package var id: String { "\(commit.hash):\(file.id)" }
     package var path: String { file.path }
     package var url: URL { repositoryRoot.appendingPathComponent(file.path) }

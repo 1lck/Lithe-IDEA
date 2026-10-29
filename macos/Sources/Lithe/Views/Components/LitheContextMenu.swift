@@ -16,8 +16,6 @@ enum LitheDropdownMetrics {
     static let rowCornerRadius: CGFloat = 4
     static let shortcutFont = LitheTheme.uiNSFont(size: 11)
     static let rowHeight: CGFloat = 24
-    // A tall history viewport keeps empty space; the shared host clamps it to the screen.
-    static let historyViewportHeight: CGFloat = rowHeight * 20
     static let separatorHeight: CGFloat = 11
     static let verticalPadding: CGFloat = 2 * popupPadding
     static let submenuSpacing: CGFloat = 1
@@ -793,7 +791,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
             let typing = event.modifierFlags.intersection([.command, .control, .function]).isEmpty
                 && event.characters?.unicodeScalars.contains { !CharacterSet.controlCharacters.contains($0) } == true
             guard find || (panel.firstResponder === panel && typing) else { return false }
-            func searchField(in view: NSView) -> NSTextField? {
+            @MainActor func searchField(in view: NSView) -> NSTextField? {
                 if let field = view as? NSTextField, field.isEditable, field.isEnabled { return field }
                 return view.subviews.lazy.compactMap { searchField(in: $0) }.first
             }

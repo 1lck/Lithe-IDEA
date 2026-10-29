@@ -27,7 +27,7 @@
       "windows/tauri/src/features/agent/components/agent-edit-review.tsx",
       "windows/tauri/src/features/agent/services/agent-edit-review.test.ts",
       "windows/tauri/crates/project/src/document_file.rs",
-      "scripts/test-windows-agent-recycle.ps1",
+      "scripts/windows/test/test-windows-agent-recycle.ps1",
       "windows/tauri/src/features/agent/components/agent-transcript.process.test.tsx"
     ],
     "implementationStatus": "implemented",

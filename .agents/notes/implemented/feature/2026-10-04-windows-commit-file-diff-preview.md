@@ -376,8 +376,8 @@ macOS 本次不修改，双端功能矩阵保持目标产品运行验收待验�
   整文件新增核对仅有一组新版本 hash/路径、实际新增行号没有 `+`、没有空旧行与灰色外圈，
   单流轨道和并排两侧轨道使用对应增删改背景色；检查底部留白、原生查找和源跳转。
   平台源文件接口使用可控记录器，这项检查不替代完整 WebView2 产品验收。
-- 运行 `scripts/build-windows.ps1 -Configuration Release`、Windows Rust 计时检查、
-  `scripts/verify-runtime-bundle-immutability.sh`、`scripts/verify-agent-notes.sh` 和功能矩阵检查。
+- 运行 `scripts/windows/build/build-windows.ps1 -Configuration Release`、Windows Rust 计时检查、
+  `scripts/macos/verify/verify-runtime-bundle-immutability.sh`、`scripts/agent-notes/verify-agent-notes.sh` 和功能矩阵检查。
 - 产品验收时分别点击单提交、连续提交范围、离散多选和重命名文件；确认预览复用、
   普通提交全量比较不受影响，取消选择/隐藏 Log/切换仓库后迟到请求不激活旧预览。
 

@@ -1,0 +1,118 @@
+{
+  "format": "litheDebugAdapterSelection",
+  "version": 1,
+  "providers": [
+    {
+      "id": "c",
+      "displayName": "Default C",
+      "fileExtensions": [
+        "c"
+      ],
+      "selectsByFile": true,
+      "requests": [
+        "launch",
+        "attach"
+      ]
+    },
+    {
+      "id": "dev.example.native/lldb",
+      "displayName": "Native",
+      "fileExtensions": [
+        "c"
+      ],
+      "selectsByFile": false,
+      "requests": [
+        "launch"
+      ]
+    },
+    {
+      "id": "dev.example.attach/native",
+      "displayName": "Attach",
+      "fileExtensions": [
+        "c"
+      ],
+      "selectsByFile": false,
+      "requests": [
+        "attach"
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "id": "file-default",
+      "target": "main.c",
+      "configuration": {
+        "name": "file-default",
+        "request": "launch",
+        "arguments": {}
+      },
+      "expectedProviderID": "c"
+    },
+    {
+      "id": "qualified-file",
+      "target": "main.c",
+      "configuration": {
+        "name": "qualified-file",
+        "request": "launch",
+        "arguments": {},
+        "adapterProviderID": "dev.example.native/lldb"
+      },
+      "expectedProviderID": "dev.example.native/lldb"
+    },
+    {
+      "id": "qualified-project",
+      "target": ".",
+      "configuration": {
+        "name": "qualified-project",
+        "request": "launch",
+        "arguments": {},
+        "adapterProviderID": "dev.example.native/lldb"
+      },
+      "expectedProviderID": "dev.example.native/lldb"
+    },
+    {
+      "id": "missing-qualified",
+      "target": "main.c",
+      "configuration": {
+        "name": "missing-qualified",
+        "request": "launch",
+        "arguments": {},
+        "adapterProviderID": "dev.example.missing/native"
+      },
+      "error": "unavailable"
+    },
+    {
+      "id": "empty-explicit",
+      "target": "main.c",
+      "configuration": {
+        "name": "empty-explicit",
+        "request": "launch",
+        "arguments": {},
+        "adapterProviderID": ""
+      },
+      "error": "unavailable"
+    },
+    {
+      "id": "unsupported-request",
+      "target": "main.c",
+      "configuration": {
+        "name": "unsupported-request",
+        "request": "launch",
+        "arguments": {},
+        "adapterProviderID": "dev.example.attach/native"
+      },
+      "error": "unsupported"
+    },
+    {
+      "id": "explicit-attach",
+      "target": ".",
+      "configuration": {
+        "name": "explicit-attach",
+        "request": "attach",
+        "arguments": {},
+        "adapterProviderID": "dev.example.attach/native"
+      },
+      "expectedProviderID": "dev.example.attach/native"
+    }
+  ]
+}

@@ -17,10 +17,10 @@ macOS 的字符串表、Windows 的完整翻译字典，以及原先页面内的
 修改后运行：
 
 ```sh
-node scripts/generate-i18n.mjs
-node scripts/generate-i18n.mjs --check
-node scripts/generate-i18n.mjs --coverage
-node --test --test-timeout=60000 scripts/test-i18n.mjs
+node scripts/i18n/generate-i18n.mjs
+node scripts/i18n/generate-i18n.mjs --check
+node scripts/i18n/generate-i18n.mjs --coverage
+node --test --test-timeout=60000 scripts/i18n/test-i18n.mjs
 ```
 
 提交共享源文件和生成结果。Windows `shared.generated.ts`、macOS
@@ -45,7 +45,7 @@ macOS 生成器同时输出语义 key 和旧英文兼容别名，所以 `Text("S
 视图之外构造的文案（错误、弹窗、状态、通知）统一用 `L10n.string("…")`
 （`LitheModuleAPI`，语言由设置驱动）；运行时才确定的格式键用 `L10n.string(key:)`。
 直接调用 `String(localized:)` 或 `NSLocalizedString` 会按系统语言选语言包，`locale:`
-只影响数字和日期格式。`scripts/verify-app-language-localization.mjs`（由
+只影响数字和日期格式。`scripts/i18n/verify-app-language-localization.mjs`（由
 `verify-service-boundaries.sh` 调用）会拒绝这类调用，调用方显式注入自己的语言包时除外；它还要求每个 `L10n.string` 的字面 key
 都已在 `shared/i18n` 里声明，并拒绝 `errorDescription`、`NSAlert` 文本、按钮标题和
 `NSLocalizedDescriptionKey` 里的裸英文字面量（模块与插件清单的注册一致性诊断除外）。

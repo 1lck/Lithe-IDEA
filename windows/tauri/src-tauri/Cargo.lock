@@ -2896,6 +2896,7 @@ dependencies = [
  "lithe-agent-host",
  "lithe-git-host",
  "lithe-ide-host",
+ "lithe-remote",
  "quick-xml 0.37.5",
  "rand 0.8.7",
  "regex",
@@ -2945,6 +2946,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "encoding_rs",
+ "lithe-core",
  "log",
  "notify",
  "notify-debouncer-full",
@@ -2953,6 +2955,16 @@ dependencies = [
  "sha2",
  "windows 0.61.3",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "lithe-remote"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "serde",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]

@@ -3,9 +3,9 @@ import LitheGitModule
 
 extension AppModel {
     func showGitDirectoryDiff(for directoryURL: URL) async {
-        activeDocumentID = nil
-        guard let feature = await activateGitModule() else { return }
-        await feature.showDirectoryDiff(at: directoryURL)
+        let requestID = beginRepositoryDiffRequest(key: RepositoryDiffTabKey(repositoryRoot: gitRepositoryRoot?.standardizedFileURL,
+            source: .directory(directoryURL.standardizedFileURL)))
+        await performRepositoryDiffRequest(requestID) { await $0.showDirectoryDiff(at: directoryURL, session: $1) }
     }
 
     func loadGitLineChanges(for fileURL: URL) async {
@@ -14,8 +14,8 @@ extension AppModel {
     }
 
     func showGitLineChange(_ marker: GitLineChangeMarker, for fileURL: URL) async {
-        guard let feature = await activateGitModule() else { return }
-        await feature.showLineChange(marker, for: fileURL)
+        let requestID = beginRepositoryDiffRequest(key: workingDiffKey(fileURL))
+        await performRepositoryDiffRequest(requestID) { await $0.showLineChange(marker, for: fileURL, session: $1) }
     }
 
     func stageGitLineChange(_ marker: GitLineChangeMarker, for fileURL: URL) async {
@@ -49,9 +49,9 @@ extension AppModel {
     func showGitConflictDiff(path: String) {
         selectedSidebar = .changes
         gitFeatureIfActive?.clearGitConflictFilter()
+        let requestID = beginRepositoryDiffRequest(key: workingDiffKey(gitRepositoryRoot?.appendingPathComponent(path)))
         Task { [weak self] in
-            guard let gitFeature = await self?.activateGitModule() else { return }
-            await gitFeature.selectConflictPath(path)
+            await self?.performRepositoryDiffRequest(requestID) { await $0.selectConflictPath(path, session: $1) }
         }
     }
 
@@ -59,9 +59,9 @@ extension AppModel {
         selectedSidebar = .changes
         gitFeatureIfActive?.setGitConflictFilter(paths)
         if let first = paths.first {
+            let requestID = beginRepositoryDiffRequest(key: workingDiffKey(gitRepositoryRoot?.appendingPathComponent(first)))
             Task { [weak self] in
-                guard let gitFeature = await self?.activateGitModule() else { return }
-                await gitFeature.selectConflictPath(first)
+                await self?.performRepositoryDiffRequest(requestID) { await $0.selectConflictPath(first, session: $1) }
             }
         }
     }
@@ -71,11 +71,18 @@ extension AppModel {
     }
 
     func selectChange(_ change: GitChange) {
-        activeDocumentID = nil
+        guard !change.isUntrackedDirectory else { return }
+        let requestID = beginRepositoryDiffRequest(key: RepositoryDiffTabKey(repositoryRoot: change.repositoryRoot.standardizedFileURL,
+            source: .workingFile(change.url.standardizedFileURL)))
         Task { [weak self] in
-            guard let gitFeature = await self?.activateGitModule() else { return }
-            await gitFeature.selectChange(change)
+            await self?.performRepositoryDiffRequest(requestID) { await $0.selectChange(change, session: $1) }
         }
+    }
+
+    private func workingDiffKey(_ url: URL?) -> RepositoryDiffTabKey? {
+        guard let url else { return nil }
+        let root = gitChanges.first { $0.url.standardizedFileURL == url.standardizedFileURL }?.repositoryRoot ?? gitRepositoryRoot
+        return RepositoryDiffTabKey(repositoryRoot: root?.standardizedFileURL, source: .workingFile(url.standardizedFileURL))
     }
 
     func refreshGit() async {

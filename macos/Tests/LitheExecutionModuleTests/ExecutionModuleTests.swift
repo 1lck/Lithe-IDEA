@@ -8,6 +8,121 @@ import Testing
 
 @MainActor
 struct ExecutionModuleTests {
+    @Test
+    func providerLaunchUsesNativeProcessAndOldOwnerCannotStopReplacement() async throws {
+        let process = TestStreamingProcess()
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let resolver = TestExecutableResolver()
+        let service = RunService(runtime: TestRuntime(), process: process, processFactory: { TestStreamingProcess() },
+            fileAccess: TestRunFileAccess(directories: [root.appendingPathComponent("app", isDirectory: true)]),
+            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: TestRunConfigurationOperations(toolchain: ProjectToolchainSelection(javaHomePath: "/fixture/jdk"),
+                rejectsResolutionWithoutGeneratedDocument: true),
+            executableResolver: resolver,
+            languageProviderCatalog: .compatibilityFallback, languageRunProviders: .standard(catalog: .compatibilityFallback))
+        defer { service.reset() }
+        let launch = try JSONDecoder().decode(BuildRunPreparation.self, from: Data(
+            #"{"executable":{"kind":"command","value":"java"},"arguments":["Main","a b"],"workingDirectory":"app","environment":{}}"#.utf8))
+        let old = try service.launchPreparedRun(launch, workspaceURL: root, title: "Provider Main")
+        let oldOutput = process.onOutput
+        let oldTermination = process.onTermination
+        let current = try service.launchPreparedRun(launch, workspaceURL: root, title: "Replacement")
+        let request = try #require(process.startRequests.last)
+        #expect(request.operationID == current)
+        #expect(request.arguments == ["Main", "a b"])
+        #expect(request.workingDirectory == "/workspace/app")
+        #expect(service.primaryExecutionID == current)
+        #expect(resolver.lastOptions?.javaHomePath == "/fixture/jdk")
+        #expect(service.lastConfiguration == nil)
+        let received = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let observation = service.$output.sink { if $0.contains("replacement output") { received.continuation.yield(()) } }
+        defer { observation.cancel(); received.continuation.finish() }
+        oldOutput?("stale output")
+        oldTermination?(7)
+        process.onOutput?("replacement output")
+        try await awaitSignal(received.stream)
+        #expect(!service.output.contains("stale output"))
+        #expect(service.lastExitCode == nil)
+        service.stopPreparedRun(old)
+        #expect(service.isRunning)
+        service.stopPreparedRun(current)
+        #expect(!service.isRunning)
+        #expect(!process.isRunning)
+    }
+
+    @Test(arguments: [false, true])
+    func providerLaunchFailureLeavesNoRunningProcess(invalidDirectory: Bool) throws {
+        let process = TestStreamingProcess()
+        process.startFailure = ReloadTestError.failed
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let service = RunService(runtime: TestRuntime(), process: process, processFactory: { TestStreamingProcess() },
+            fileAccess: TestRunFileAccess(directories: invalidDirectory ? [] : [root]),
+            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: TestRunConfigurationOperations(), executableResolver: TestExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback, languageRunProviders: .standard(catalog: .compatibilityFallback))
+        defer { service.reset() }
+        let launch = try JSONDecoder().decode(BuildRunPreparation.self, from: Data(
+            #"{"executable":{"kind":"command","value":"java"},"arguments":[],"workingDirectory":".","environment":{}}"#.utf8))
+        #expect(throws: (any Error).self) { _ = try service.launchPreparedRun(launch, workspaceURL: root, title: "Main") }
+        #expect(!service.isRunning)
+        #expect(!process.isRunning)
+    }
+
+    @Test
+    func savedProviderRunRepreparesAndStopCancelsOnlyItsPreparation() async throws {
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let process = TestStreamingProcess()
+        let reference = BuildProviderRunReference(pluginID: "dev.example", buildSystemID: "fixture", root: ".",
+            run: "application", projectID: "p", targetID: "t", userArguments: ["a b"])
+        let configuration = RunConfiguration(id: "user:provider", name: "Main", kind: .process(provider: "build.provider"),
+            modulePath: nil, mainClass: nil, buildProvider: reference)
+        let service = RunService(runtime: TestRuntime(), process: process, processFactory: { TestStreamingProcess() },
+            fileAccess: TestRunFileAccess(directories: [root]), preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: TestRunConfigurationOperations(savedProvider: reference), executableResolver: TestExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback, languageRunProviders: .standard(catalog: .compatibilityFallback))
+        defer { service.reset() }
+        let launch = try JSONDecoder().decode(BuildRunPreparation.self, from: Data(
+            #"{"executable":{"kind":"command","value":"java"},"arguments":["Main"],"workingDirectory":".","environment":{}}"#.utf8))
+        _ = try service.launchPreparedRun(launch, workspaceURL: root, title: "Main", configuration: configuration)
+        #expect(service.saveBuildProviderConfiguration())
+        #expect(service.lastConfiguration?.id == "user:provider")
+        let feature = RunFeatureModel(service: service)
+        #expect(feature.configurations.first { $0.id == "user:provider" }?.buildProvider == reference)
+        var calls: [BuildProviderRunReference] = []
+        var cancellations: [UUID] = []
+        var id = UUID()
+        service.configureBuildProviderRuns(start: { config, workspace in
+            #expect(workspace == root)
+            if let reference = config.buildProvider { calls.append(reference) }
+            return id
+        }, cancel: { cancellations.append($0) })
+        service.restart()
+        #expect(feature.isRunning)
+        #expect(service.isPreparingBuildRun)
+        #expect(service.primaryExecutionID == id.uuidString)
+        #expect(!process.isRunning)
+        let old = id
+        service.stop()
+        #expect(cancellations == [old])
+        #expect(!feature.isRunning)
+        id = UUID()
+        service.restart()
+        service.finishBuildPreparation(old, message: "stale failure")
+        #expect(service.isPreparingBuildRun)
+        _ = try service.launchPreparedRun(launch, workspaceURL: root, title: "Main", configuration: configuration)
+        #expect(service.primaryExecutionID == id.uuidString)
+        #expect(!service.isPreparingBuildRun)
+        #expect(cancellations == [old])
+        #expect(calls == [reference, reference])
+        #expect(process.startRequests.count == 2)
+        #expect(feature.isSelectedConfigurationRunning)
+        await service.loadProject(at: URL(fileURLWithPath: "/other"), files: [], mavenProject: nil)
+        #expect(!process.isRunning)
+        #expect(!service.hasBuildProviderRun)
+        #expect(service.lastConfiguration == nil)
+        #expect(service.primaryExecutionID == nil)
+    }
+
     @Test(arguments: ["services/alpha", "services/beta"])
     func moduleRunPassesMavenContextOnlyToItsOwningReactor(reactor: String) async {
         let configuration = RunConfiguration(
@@ -3149,6 +3264,7 @@ private final class TestRuntime: MavenRuntimePort, RunRuntimePort {
 
 private final class TestStreamingProcess: StreamingProcess, @unchecked Sendable {
     var isRunning = false
+    var startFailure: (any Error)?
     private(set) var startRequests: [ProcessRequest] = []
     var onOutput: (@Sendable (String) -> Void)?
     var onTermination: (@Sendable (Int32) -> Void)?
@@ -3157,6 +3273,7 @@ private final class TestStreamingProcess: StreamingProcess, @unchecked Sendable 
     /// moment the main process launches once every pre-launch step exits zero.
     var onStart: (@Sendable () -> Void)?
     func start(_ request: ProcessRequest) throws {
+        if let startFailure { throw startFailure }
         startRequests.append(request)
         isRunning = true
         onStart?()
@@ -3625,14 +3742,23 @@ private struct SingleRunConfigurationOperations: RunConfigurationOperations {
 
 @MainActor
 private final class TestExecutableResolver: RunExecutableResolving {
+    private(set) var lastOptions: RunOptions?
     func resolve(_ plan: SharedLaunchPlan, projectURL: URL, options: RunOptions) throws -> ResolvedRunExecutable {
-        ResolvedRunExecutable(executableURL: URL(fileURLWithPath: "/test"), environment: [:])
+        lastOptions = options
+        return ResolvedRunExecutable(executableURL: URL(fileURLWithPath: "/test"), environment: [:])
     }
     func refreshCandidates(projectURL: URL) async {}
     func candidates(projectURL: URL) -> [ProjectToolchainCandidate] { [] }
 }
 
 private struct TestRunConfigurationOperations: RunConfigurationOperations {
+    var toolchain = ProjectToolchainSelection()
+    var rejectsResolutionWithoutGeneratedDocument = false
+    var savedProvider: BuildProviderRunReference? = nil
+    func saveBuildProviderConfiguration(_ reference: BuildProviderRunReference, name: String, at projectURL: URL) throws -> String {
+        guard reference == savedProvider else { throw ReloadTestError.failed }
+        return "user:provider"
+    }
     var inspectionGate: ReloadScanGate? = nil
     func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
         if let inspectionGate {
@@ -3641,7 +3767,8 @@ private struct TestRunConfigurationOperations: RunConfigurationOperations {
                 Issue.record("Run inspection was not released before its deadline")
             }
         }
-        return ProjectRunConfigurationInspection(status: .missing, diagnostics: [])
+        return ProjectRunConfigurationInspection(status: .missing, diagnostics: [],
+            projectToolchain: toolchain == ProjectToolchainSelection() ? nil : toolchain)
     }
     func generate(
         at projectURL: URL,
@@ -3652,7 +3779,14 @@ private struct TestRunConfigurationOperations: RunConfigurationOperations {
         RunConfigurationGenerationResult(entryCount: 0)
     }
     func resolve(at projectURL: URL, toolchainCandidates: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
-        RunConfigurationResolution(configurations: [], diagnostics: [], defaultConfigurationID: nil)
+        if rejectsResolutionWithoutGeneratedDocument { throw ReloadTestError.failed }
+        if let savedProvider {
+            let configuration = RunConfiguration(id: "user:provider", name: "Main", kind: .process(provider: "build.provider"),
+                modulePath: nil, mainClass: nil, buildProvider: savedProvider)
+            return RunConfigurationResolution(configurations: [.init(configuration: configuration, options: RunOptions())],
+                diagnostics: [], defaultConfigurationID: nil)
+        }
+        return RunConfigurationResolution(configurations: [], diagnostics: [], defaultConfigurationID: nil, projectToolchain: toolchain)
     }
     func launchPlan(at projectURL: URL, configurationID: String, currentFile: String?, classPath: String?, debugPort: Int?) throws -> SharedLaunchPlan {
         throw RunConfigurationOperationFailure(message: "Unavailable in lifecycle test")

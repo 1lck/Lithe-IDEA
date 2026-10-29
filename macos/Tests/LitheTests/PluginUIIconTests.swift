@@ -100,7 +100,9 @@ struct PluginUIIconTests {
             for dark in [false, true] {
                 let view = WorkbenchContributionIcon(asset: asset, role: .action).foregroundStyle(Color(red: 0, green: 1, blue: 0))
                 let bitmap = try snapshot(view, dark: dark)
-                let center = try #require(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2)?.usingColorSpace(.deviceRGB))
+                // Decode the raw channels with their bitmap's ICC profile,
+                // rather than treating display-dependent samples as device RGB.
+                let center = try nativeSRGBPixel(bitmap, x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2)
                 if mode == .template { #expect(center.greenComponent > 0.8 && center.redComponent < 0.1 && center.blueComponent < 0.1) }
                 else if dark { #expect(center.blueComponent > 0.8 && center.redComponent < 0.1) }
                 else { #expect(center.redComponent > 0.8 && center.blueComponent < 0.1) }

@@ -54,7 +54,7 @@ Windows 提供两个独立的 Git 设置：`showGitChangelists` 和 `showGitPare
 - `macos/Tests/LitheTests/MacGitChangelistStorageTests.swift`：偏好持久化、工作区隔离、损坏数据保留和写入失败。
 - `macos/Tests/LitheTests/CommitWorkflowChangelistTests.swift`：用有界测试闸门控制差异读取和 AI 返回，在选择变化后阻止旧说明回填或弹出替换确认。
 - `macos/Tests/LitheTests/GitChangeSectionsCacheTests.swift`：移动文件后缓存重新分组并保留所有列表可见。
-- `./scripts/test-macos.sh` 与 macOS 稳定性计时入口需在固定的 Swift 6.3.3 工具链运行。
+- `./scripts/macos/test/test-macos.sh` 与 macOS 稳定性计时入口需在固定的 Swift 6.3.3 工具链运行。
 
 - `windows/tauri/src/features/git/stores/git-changelists.store.test.ts`：两个已初始化实例交错保存后第三个实例重载、旧格式迁移、加载前禁用保护、干净路径保留、工作区/仓库/工作树隔离、重命名、损坏与保存失败、共享范围夹具。
 - `windows/tauri/src/features/git/components/status/git-workspace-status-panel.test.tsx`：批量暂存保护与单分组勾选。
@@ -63,7 +63,7 @@ Windows 提供两个独立的 Git 设置：`showGitChangelists` 和 `showGitPare
 - `rust/lithe-core/src/tests/git_workspace_commit.rs`：真实 Git 拦截范围外暂存、不改变索引和工作树、保留部分暂存、刷新前重命名。
 - `shared/fixtures/git/local-changelist-scope-v1.json`：前端范围生成与共享 Core 使用相同样例。
 - `./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh --platform all`。
-- `./scripts/verify-windows-boundaries.sh`、`./scripts/verify-shared-contracts.sh`、`./scripts/verify-runtime-bundle-immutability.sh`、`./scripts/verify-agent-notes.sh`、`./scripts/verify-platform-feature-matrix.sh`。
+- `./scripts/windows/verify/verify-windows-boundaries.sh`、`./scripts/architecture/verify-shared-contracts.sh`、`./scripts/macos/verify/verify-runtime-bundle-immutability.sh`、`./scripts/agent-notes/verify-agent-notes.sh`、`./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`。
 
 ## 适用范围
 

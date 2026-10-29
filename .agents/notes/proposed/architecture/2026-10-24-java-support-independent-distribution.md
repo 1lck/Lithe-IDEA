@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-Java Support 已经是声明式插件，JDT LS、JDK、Lombok 和调试、测试扩展都由插件包拥有，本提案不重复做插件化。建议下一步把它从“随 Lithe.app 发行”改成“官方签名、独立发布、按需安装”，让不使用 Java 的用户不再下载这部分资源。先完成可信安装、旧版本兼容和老用户迁移，再从主安装包移除资源；现有 `jdt` 宿主集成与 Java 运行、测试、调试实现保持当前边界。
+Java Support 已经是声明式插件，JDT LS、JDK、Lombok 和调试、测试扩展都由插件包拥有，本提案不重复做插件化。建议下一步把它从“随 Lithe.app 发行”改成“官方签名、独立发布、按需安装”，让不使用 Java 的用户不再下载这部分资源。先完成可信安装、版本匹配拒绝和用户配置迁移，再从主安装包移除资源。现有 `jdt` 宿主集成与 Java 运行、测试、调试是分发提案的当前边界；完整领域后端迁移由 [#1495 清单](2026-10-26-maven-java-domain-plugin-migration.md)继续推进，完成后删除这些宿主专属实现。
 
 ## 问题
 
@@ -29,7 +29,7 @@ Java Support 已经是声明式插件，JDT LS、JDK、Lombok 和调试、测试
 ### 独立分发存在几个实际阻碍
 
 1. **信任方式不同。** Java 当前声明 `sameTeamAsHost`，含义是由宿主 app 的代码签名封住资源；`MacOfficialPluginSignatureVerifier` 会拒绝位于宿主 bundle 外的这种包。下载版需要 `publisherPackage` 发布者签名，不能只把同一目录压缩上传。
-2. **发布工具还不能原样发布 Java。** `scripts/official-plugin-releases.mjs` 当前按 API 1、单个下载项生成索引；Java 已使用 API 3，需要准确保留 `requires`，并按架构记录不同下载包和校验值。
+2. **发布工具还不能原样发布 Java。** `scripts/plugins/official-plugin-releases.mjs` 当前按 API 1、单个下载项生成索引；Java 已使用 API 3，需要准确保留 `requires`，并按架构记录不同下载包和校验值。
 3. **旧宿主不一定能安装新版。** 旧版官方目录将 Java 的签名策略固定为 `sameTeamAsHost`。即使旧宿主认识 API 3 和清单的全部能力，也不代表它能接受下载版的新信任方式。
 4. **首次离线体验会变化。** 当前实现明确以“首次启动离线可用”为随包发行的理由。改为按需安装后，未安装 Java 插件的新用户需要联网，或提前准备可信磁盘包。这是本提案建议改变的产品行为，尚未落地。
 5. **语言服务器 JDK 同时参与现有运行时发现。** 资源移出主包时，需要验证项目运行时选择，防止运行或调试落到失效的旧插件路径。
@@ -38,7 +38,7 @@ Java Support 已经是声明式插件，JDT LS、JDK、Lombok 和调试、测试
 
 ### 一、目标与范围
 
-首个交付只完成独立分发，不要求把所有 Java 专属逻辑从宿主删除。
+首个交付只完成独立分发，不要求在分发 PR 同时删除所有 Java 专属逻辑；但这不是 #1495 整体完成的判据。按最新确认方向，只支持迁移后的最新宿主与匹配插件，不保留旧宿主业务 fallback、双写或长期兼容层；用户设置和数据仍需完整迁移。
 
 | 位置 | 首个交付后的责任 |
 | --- | --- |
@@ -49,7 +49,7 @@ Java Support 已经是声明式插件，JDT LS、JDK、Lombok 和调试、测试
 
 沿用当前插件 ID，不用新 ID 让用户重新配置 Java。下载版采用新插件版本，不得覆盖已发行 `1.0.0` 的内容；精确版本号在实施和发布时确定。
 
-本轮不拆 Spring/MyBatis，不把 Maven/Gradle 构建模型搬进 Java 插件，不设计新的 Java 语义分析器，也不顺带把 Run/Test/Debug 改为公共扩展点。后者是独立的架构任务，继续由[公共扩展契约提案](2026-10-13-public-extension-contract-and-provider-api.md)跟踪。
+本轮不拆 Spring/MyBatis，不把 Maven/Gradle 构建模型搬进 Java 插件，不设计新的 Java 语义分析器，也不顺带把 Run/Test/Debug 改为公共扩展点。后者按 [#1495 领域迁移](2026-10-26-maven-java-domain-plugin-migration.md)与关联 #1210 调试能力推进；历史[公共扩展契约提案](2026-10-13-public-extension-contract-and-provider-api.md)只供核对已有设计，具体字段须随正式契约评审。
 
 ### 二、分发与源码位置
 
@@ -69,7 +69,7 @@ Java Support 已经是声明式插件，JDT LS、JDK、Lombok 和调试、测试
 - 下载版清单和宿主官方目录一致要求 `publisherPackage`，签名必须覆盖所有最终资源；代码签名、资源规范化等会改变字节的构建步骤全部在包签名之前完成。
 - 旧内置包只能在宿主自身签名封装的 bundle 内按旧策略读取；用户目录里的同名、同版本包不能因此获得旧信任。过渡期允许两种来源时，必须明确检查来源、清单和版本，不能把 Java 的全局校验放宽成“任意一种签名都可以”。
 - 实测下载包里的 JDK 可执行文件及动态库的签名、解压后的执行权限、隔离属性和系统启动限制；沿用或调整原生签名、公证方式的选择由这轮证据确定，不能靠启动时改写包或移除系统保护来通过。
-- 发布前确定旧宿主的兼容过滤方案。当前索引没有可直接填写的最低宿主版本字段，不能虚构字段，也不能仅凭 `pluginAPIVersion: 3` 判定可安装。若现有能力表不足以表达信任边界变化，先通过通用契约变更补齐拒绝机制，再上架新包。
+- 发布前确定版本不匹配的拒绝方案；不为旧宿主补业务兼容路径。当前索引没有可直接填写的最低宿主版本字段，不能虚构字段，也不能仅凭 `pluginAPIVersion: 3` 判定可安装。若现有能力表不足以表达信任边界变化，先通过通用契约变更补齐拒绝机制，再上架新包。
 - 如需新增兼容或信任能力，契约在主仓库随 Core 修改，合并后按[两仓库同步规则](../../implemented/architecture/2026-10-23-plugin-contract-publishing.md)发布到 `lithe-plugin-docs`；未来独立插件仓库不能直接修改契约副本。
 
 首期在主仓库受保护的官方插件发布流程中完成签名，不引入跨仓库私钥分发。私钥不进入插件、源码、构建缓存或日志；本提案不要求读取或转移私钥。未来迁移独立仓库时，另行确定发布权限和签名流程。
@@ -80,15 +80,15 @@ Java Support 已经是声明式插件，JDT LS、JDK、Lombok 和调试、测试
 
 老用户采用先具备安装能力、再移除内置资源的顺序：
 
-1. **过渡宿主仍带内置包。** 新宿主先实现新信任策略、官方源和下载安装；下载失败或取消时继续使用现有内置包。
+1. **先具备可信安装能力。** 新宿主先实现新信任策略、官方源和下载安装。分发过渡期如仍有内置包，只有它与当前宿主能力匹配时才可作为尚未切换的资源来源；不能把旧 JDT 宿主业务保留为后端迁移失败的兜底。
 2. **安装可信下载版。** 从已发布签名包安装到用户目录，经验证和重启后切换。不要复制旧 bundle 中的包再让客户端自行签名，也不要尝试修改已安装 app。
-3. **单一生效来源。** 同一 ID 只能有一个生效版本：已验证的用户安装版本优先，过渡宿主中的内置包只作为尚未完成切换时的来源。选择规则由通用包管理器执行，避免两个 Java 所有者或两个 JDT 会话同时注册。
+3. **单一生效来源。** 同一 ID 只能有一个与当前宿主匹配的生效版本：已验证的用户安装版本优先，过渡宿主中的内置包只作为尚未完成切换时且能力匹配的资源来源。选择规则由通用包管理器执行，避免两个 Java 所有者或两个 JDT 会话同时注册。
 4. **保留用户选择。** 已启用、已禁用和已卸载分别迁移；旧 `.removed-bundled-plugins.json` 标记不能被当作重新启用的授权。插件设置、项目 JDK 和已有运行配置不重置。
 5. **再发布精简主包。** 只有下载、离线安装、迁移和失败恢复都验证后，才删除主包组装步骤。延后安装的用户届时仍可编辑普通文本，但 Java 语言服务、测试和调试需要完成插件安装；产品提示要说明这一变化。
 
 不能假设每位用户都安装过过渡版本。直接从旧版升级到精简主包时，也要识别旧设置、卸载标记和失效资源路径，提供明确安装入口并保留用户选择；网络不可用时保留配置和可重试状态，不把“升级成功”显示成“Java 已可用”。
 
-更新沿用宿主现有重启边界：活动会话绑定实际使用的插件版本，切换和卸载前释放本插件资源，进程退出后才能删除该版本目录。新包验证或启动失败时保留可恢复的已验证旧版本；回滚也必须重新执行签名和宿主兼容检查。
+更新沿用宿主现有重启边界：活动会话绑定实际使用的插件版本，切换和卸载前释放本插件资源，进程退出后才能删除该版本目录。新包验证失败须保留原子安装前的有效状态和用户数据；能否恢复某个已验证包，仍须重新执行签名与当前宿主能力匹配检查。不匹配时报告失败并提示更新，不以回滚名义唤起旧宿主业务或保留双轨实现。
 
 插件路径变化可能触发 JDT 索引重建。配置、项目运行时选择和 `.lithe/run/` 中的稳定配置 ID 保持有效；缓存按新版本指纹重新生成，不把旧索引跨版本复制作为优化。
 
@@ -115,22 +115,25 @@ Windows 插件包使用自己的原生运行时、入口和存储适配器，复
 | JDT 索引、Equinox 可写配置、日志 | 宿主现有平台缓存与状态适配器 | 由集成和会话负责，不复制到安装包，不跨工作树共享 |
 | JDT/JDK 构建下载缓存 | 构建准备脚本 | 有版本、平台、架构和来源校验时才允许按现有资源路由复用 |
 
-移除旧路径或增加新生成物时，同步更新 `scripts/worktree-resources.json`、`scripts/reuse-worktree-resources.mjs` 的校验路由、对应测试，以及 `docs/ci-builds.md` 的独立工作树章节。安装包和可变状态没有可靠复用身份时继续隔离。
+移除旧路径或增加新生成物时，同步更新 `scripts/resources/worktree-resources.json`、`scripts/resources/reuse-worktree-resources.mjs` 的校验路由、对应测试，以及 `docs/ci-builds.md` 的独立工作树章节。安装包和可变状态没有可靠复用身份时继续隔离。
 
 运行时不向 app bundle、Windows 安装目录或插件安装版本写入内容，保持代码签名及 Sparkle 增量更新的源基线。典型安装、启动、运行、测试、调试和卸载流程都要比较发行目录与已安装插件版本的文件清单和哈希。
 
 ### 八、分期与退出条件
 
+当前代码的实现边界见[Java 插件按来源校验与独立发布基础](../../implemented/architecture/2026-10-25-java-plugin-distribution-foundation.md)。该实现登记双架构发布输入但保留 `releaseEnabled: false`，尚未向用户公开下载。迁移选择、缺包提示及以完整索引为门槛的精简构建已在同一实现 PR 中补齐，过渡宿主发行、真实发布包和完整产品迁移仍按本提案验收。
+
+
 | 阶段 | 交付内容 | 进入下一阶段前必须证明 |
 | --- | --- | --- |
 | 0：确认基线 | 盘点两种 macOS 架构的实际资源、压缩体积、JDK 消费者和离线行为；记录上游版本与许可证 | 明确本轮只改变分发；列出需保留的用户工作流和资源消费者 |
-| 1：可信下载安装 | 信任迁移、旧宿主兼容拒绝、真实 API/能力索引、多架构发布、签名包安装；保留内置包 | 干净环境可构建；下载包能在对应架构实际启动；正式构建拒绝伪造、损坏和未签名包 |
+| 1：可信下载安装 | 信任迁移、不匹配宿主/插件的拒绝、真实 API/能力索引、多架构发布、签名包安装；分发过渡期只允许匹配的内置来源 | 干净环境可构建；下载包能在对应架构实际启动；正式构建拒绝伪造、损坏和未签名包 |
 | 2：老用户切换 | 验证下载版选择、重启切换、设置迁移、失败恢复，以及跳过过渡版的升级路径 | 同一 ID 只有一个生效版本；启用、禁用、卸载选择均正确保留；迁移不依赖用户逐版升级 |
 | 3：移除内置资源 | 删除默认应用组装中的 Java 包，更新推荐安装、离线说明、资源清单与矩阵 | 精简应用不含 JDT/JDK 副本；安装插件后完整 Java 工作流可用 |
 | 后续：独立仓库 | 可选迁移插件源码、专属测试和发布来源，固定宿主测试资源输入 | 无第二份可编辑源码；用户无需重新安装或重置设置 |
 | 后续：Windows 对齐 | 补齐必需宿主能力、平台包和真实 Windows 回归 | 同一版本能力声明可执行，Windows 安装目录哈希不变 |
 
-首期按三个实现 PR 推进：可信下载安装、老用户切换、移除内置资源，阶段 0 的基线记录随第一项交付。完成阶段 3 即可验收 macOS 独立分发，不等待独立仓库或 Windows；Windows 另行验收前不声明双端完成。每项实现从最新 `preview` 创建独立分支，本地验证后先提交 Draft PR；不通过反复推送试探完整 CI。
+按用户要求，可信下载安装、老用户切换与受发布索引保护的精简构建在同一个实现 PR 中交付，阶段 0 的基线记录一并保留。完成阶段 3 即可验收 macOS 独立分发，不等待独立仓库或 Windows；Windows 另行验收前不声明双端完成。实现分支从最新 `preview` 创建，本地验证后先提交 Draft PR；不通过反复推送试探完整 CI。
 
 ### 正确做法与反例
 
@@ -142,7 +145,7 @@ Windows 插件包使用自己的原生运行时、入口和存储适配器，复
 
 ### 保持随应用发行
 
-首次离线体验最完整，迁移成本最低；但不使用 Java 的用户持续承担资源和更新成本，卸载不能释放空间。若产品仍坚持“全新安装立即离线开发 Java”，应保留当前方案，不宣称同时达成精简默认包。
+首次离线体验最完整，迁移成本最低；但不使用 Java 的用户持续承担资源和更新成本，卸载不能释放空间。若产品仍坚持“全新安装立即离线开发 Java”，应在发行形态上另行取舍，不宣称同时达成精简默认包；这不改变 #1495 的领域后端目标。
 
 ### 只把 JDK 改成宿主共享下载
 
@@ -162,7 +165,7 @@ Windows 插件包使用自己的原生运行时、入口和存储适配器，复
 - 两种 macOS 架构均能从官方源或磁盘安装可信包；缺包、取消、离线、错误架构、校验失败及旧宿主不兼容都有明确结果。
 - 安装后真实完成补全、诊断、跳转、Java 主类运行、Spring Boot 运行、测试发现与执行，以及工具栏断点调试；不能只验证启动器或接口调用。
 - 插件语言服务器 JDK 与用户程序 JDK 的选择符合现有规则，显式无效配置不会静默回退。
-- 老用户的设置和启用选择保留，失败安装不破坏过渡期可用的旧包；更新、回滚、禁用、卸载没有重复会话和残留进程。
+- 老用户的设置和启用选择保留，失败安装保留数据与安装前有效状态；恢复包仍须匹配当前宿主，更新、禁用、卸载没有重复会话和残留进程，不调用旧宿主业务 fallback。
 - 用户跳过过渡版本直接升级时，配置和卸载选择仍保留；离线和下载失败可重试，不错误显示 Java 已就绪。
 - 项目生成器及其 Maven/Gradle 依赖提示与迁移前一致；停用 Java 插件后相应贡献按当前契约撤销。
 - 应用发行目录和插件安装版本在典型运行流程前后清单、哈希不变；缓存与临时目录由明确 owner 清理。
@@ -173,22 +176,22 @@ Windows 插件包使用自己的原生运行时、入口和存储适配器，复
 本提案只修改决策文档，当前执行：
 
 ```bash
-./scripts/verify-agent-notes.sh
+./scripts/agent-notes/verify-agent-notes.sh
 git diff --check
 ```
 
 后续实现按改动选择以下现有入口，并按 `write-stable-tests` Skill 编写和运行有界测试；下面是计划要求，不表示本次已经执行：
 
 ```bash
-./scripts/verify-shared-contracts.sh
-./scripts/verify-official-plugins.sh
-./scripts/verify-macos-package.sh
-./scripts/verify-runtime-bundle-immutability.sh
-node scripts/test-reuse-worktree-resources.mjs
-node scripts/verify-java-semantic-ownership.mjs
-./scripts/verify-service-boundaries.sh
-./scripts/verify-windows-boundaries.sh
-./scripts/verify-platform-feature-matrix.sh
+./scripts/architecture/verify-shared-contracts.sh
+./scripts/plugins/verify-official-plugins.sh
+./scripts/macos/verify/verify-macos-package.sh
+./scripts/macos/verify/verify-runtime-bundle-immutability.sh
+node scripts/resources/test-reuse-worktree-resources.mjs
+node scripts/architecture/verify-java-semantic-ownership.mjs
+./scripts/architecture/verify-service-boundaries.sh
+./scripts/windows/verify/verify-windows-boundaries.sh
+./scripts/platform-feature-matrix/verify-platform-feature-matrix.sh
 ```
 
 实现时新增覆盖官方索引真实 API/能力与多下载项、过渡期来源选择、签名降级拒绝、用户选择迁移及版本回滚的回归；复用现有 Java 入口、真实 JDT、运行配置、测试和调试集成验证。修改平台实现后，在提交和 PR 前通过相对实际基线的矩阵变更门禁；所有本次验证启动的应用和子进程在交付前关闭并确认无残留。
@@ -196,7 +199,7 @@ node scripts/verify-java-semantic-ownership.mjs
 ## 风险
 
 - **首次离线行为改变。** 精简默认包与当前离线承诺不能同时保留；本提案建议通过明确安装入口和磁盘包支持离线准备，实施前在产品说明中确认这一改变。
-- **旧版兼容与信任策略耦合。** 直接翻转官方目录策略会使旧内置包失效；直接发布新清单会让旧宿主错误展示可安装。阶段 1 未解决前不得上架。
+- **版本匹配与信任策略耦合。** 直接翻转官方目录策略会使旧内置包失效；直接发布新清单会让旧宿主错误展示可安装。阶段 1 未解决前不得上架。
 - **独立更新仍受宿主能力限制。** Java 原始协议适配仍在宿主，插件不能任意升级上游版本；每次升级要在声明兼容的宿主上验证，不能宣传为与宿主版本完全无关。
 - **独立仓库资源来源漂移。** 主仓库真实 JDT 测试和 Windows 仍消费上游输入时，需要固定关系和升级责任，避免插件与宿主测试各验证不同版本。
 - **索引重建与磁盘峰值。** 安装期间旧包、新包、归档和新索引可能同时占空间；在下载前检查空间，按版本使用和回滚策略回收，不能删除仍被进程使用的目录。
@@ -206,12 +209,12 @@ node scripts/verify-java-semantic-ownership.mjs
 
 - `Plugins/mac/Official/JavaSupport/`
 - `Plugins/marketplace/`
-- `scripts/build-official-plugins.sh`
-- `scripts/official-plugin-releases.mjs`
-- `scripts/package-app.sh`
-- `scripts/verify-macos-package.sh`
-- `scripts/worktree-resources.json`
-- `scripts/reuse-worktree-resources.mjs`
+- `scripts/plugins/build-official-plugins.sh`
+- `scripts/plugins/official-plugin-releases.mjs`
+- `scripts/macos/package/package-app.sh`
+- `scripts/macos/verify/verify-macos-package.sh`
+- `scripts/resources/worktree-resources.json`
+- `scripts/resources/reuse-worktree-resources.mjs`
 - `docs/ci-builds.md`
 - `third_party/jdtls/manifest.json`
 - `third_party/jdk/manifest.json`

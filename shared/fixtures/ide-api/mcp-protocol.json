@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "legacyProtocolVersion": "2025-11-25",
+  "modernProtocolVersion": "2026-07-28",
+  "cachePolicy": { "ttlMs": 0, "cacheScope": "private" },
+  "toolCount": 13,
+  "modes": ["legacy", "modern", "modern-after-initialize"]
+}

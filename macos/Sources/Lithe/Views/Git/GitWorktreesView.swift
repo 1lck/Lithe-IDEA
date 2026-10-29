@@ -92,7 +92,6 @@ struct GitWorktreesView: View {
     @FocusState private var historySearchFocused: Bool
     @State private var searchText = ""
     @State private var historySearchText = ""
-    @State private var isLoadingMoreHistory = false
     @State private var selectedWorktreeID: String?
     @State private var activeSection = WorktreeSection.overview
     @State private var projectedWorktrees: [GitWorktreeListItem] = []
@@ -167,6 +166,7 @@ struct GitWorktreesView: View {
             guard let worktree = selectedWorktree, !worktree.isPrunable else { return }
             await feature.inspectWorktree(worktree)
         }
+        .onDisappear { feature.cancelWorktreeHistoryLoading() }
         .task(id: worktreeListProjectionIdentity) {
             let taskIdentity = worktreeListProjectionIdentity
             let worktrees = feature.gitWorktrees
@@ -194,14 +194,7 @@ struct GitWorktreesView: View {
                 changes = []
             }
             let rows = await Task.detached(priority: .userInitiated) {
-                changes.map { change in
-                    GitWorktreeRowsSnapshot.Row.change(
-                        status: change.displayStatus,
-                        path: change.path,
-                        isStaged: change.isStaged,
-                        color: Self.nativeStatusColor(for: change.kind)
-                    )
-                }
+                changes.map(GitWorktreeRowsSnapshot.Row.change)
             }.value
             guard taskIdentity == worktreeChangesProjectionIdentity else { return }
             projectedChangesSnapshot = GitWorktreeRowsSnapshot(
@@ -474,8 +467,12 @@ struct GitWorktreesView: View {
         case .overview:
             ScrollView {
                 VStack(spacing: 12) {
-                    basicInformationCard(worktree)
-                    statusCard(worktree)
+                    // Identity and state read together, so a wide pane shows them side by side
+                    // instead of leaving the right half of each card empty.
+                    LitheAdaptiveColumnsLayout(minimumColumnWidth: 360, spacing: 24) {
+                        basicInformationCard(worktree)
+                        statusCard(worktree)
+                    }
                     actionCard(worktree)
                 }
                 // Keep every overview card on the same content width. Without
@@ -542,7 +539,9 @@ struct GitWorktreesView: View {
 
     private func actionCard(_ worktree: GitWorktree) -> some View {
         worktreeCard(title: "Actions") {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 10)], spacing: 10) {
+            // One wrapping row: a wide pane shows the buttons on a line or two instead of one
+            // fixed pair per line with the right side empty.
+            LitheChipFlowLayout(spacing: LitheTheme.ActionButton.spacing) {
                 worktreeAction("Open in Current Window") {
                     (actions.openProjectInCurrentWindow ?? actions.openProject)(worktree.url)
                 }
@@ -564,10 +563,12 @@ struct GitWorktreesView: View {
                 worktreeAction(worktree.isLocked ? "Unlock Worktree" : "Lock Worktree") {
                     toggleLock(for: worktree)
                 }
+                .disabled(worktree.isPrimary || worktree.isPrunable)
                 .help(lockHelp(for: worktree))
                 worktreeAction("Remove Worktree…", destructive: true) {
                     requestRemoval(for: worktree)
                 }
+                .disabled(worktree.isPrimary || worktree.isCurrent || worktree.isLocked || worktree.isPrunable)
                 .help(removalHelp(for: worktree))
                 if worktree.isPrunable {
                     worktreeAction("Repair Worktree Records") {
@@ -587,14 +588,18 @@ struct GitWorktreesView: View {
         if worktree.isPrunable {
             missingPathState
         } else if let inspection = matchingInspection(for: worktree) {
-            if !inspection.hasLoadedChanges {
+            if let error = feature.worktreeChangesError, !inspection.hasLoadedChanges {
+                VStack {
+                    Text(error).font(Visual.body).foregroundStyle(LitheTheme.error)
+                    Button("Refresh changes") { Task { await feature.refreshWorktreeChanges(worktree) } }
+                        .buttonStyle(LitheActionButtonStyle())
+                }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if !inspection.hasLoadedChanges {
                 inspectionState
-            } else if inspection.changes.isEmpty {
-                worktreeMessage(icon: "checkmark.circle", title: "No local changes", detail: "This worktree has no uncommitted changes.")
             } else {
-                worktreeScrollableCard(title: "Changes") {
-                    GitWorktreeRowsScrollView(snapshot: projectedChangesSnapshot)
-                }
+                GitWorktreeChangesView(feature: feature, worktree: worktree,
+                    snapshot: projectedChangesSnapshot, actions: actions)
+                    .id(worktree.id)
             }
         } else {
             inspectionState
@@ -620,30 +625,22 @@ struct GitWorktreesView: View {
                                 .foregroundStyle(LitheTheme.secondaryText)
                                 .padding(.vertical, 8)
                         } else {
-                            GitWorktreeRowsScrollView(snapshot: snapshot)
+                            GitWorktreeRowsScrollView(
+                                snapshot: snapshot,
+                                contextID: worktree.id + "\u{0}" + query,
+                                canLoadMore: query.isEmpty && inspection.hasMoreCommits
+                                    && snapshot.identity == .history(inspectionVersion: feature.gitWorktreeInspectionVersion, query: historySearchText),
+                                isLoadingMore: feature.isLoadingMoreWorktreeHistory,
+                                loadMoreFailed: feature.worktreeHistoryPageFailed,
+                                onLoadMore: { Task { await feature.loadMoreWorktreeHistory(for: worktree, automatically: true) } }
+                            )
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
                         if query.isEmpty && inspection.hasMoreCommits {
-                            Button {
-                                guard !isLoadingMoreHistory else { return }
-                                isLoadingMoreHistory = true
-                                Task {
-                                    await feature.loadMoreWorktreeHistory(for: worktree)
-                                    isLoadingMoreHistory = false
-                                }
-                            } label: {
-                                HStack {
-                                    Spacer()
-                                    if isLoadingMoreHistory {
-                                        ProgressView().controlSize(.small)
-                                    } else {
-                                        Text("Load More")
-                                    }
-                                    Spacer()
-                                }
-                            }
-                            .buttonStyle(LitheActionButtonStyle())
-                            .disabled(isLoadingMoreHistory)
+                            GitWorktreeHistoryFooter(
+                                isLoading: feature.isLoadingMoreWorktreeHistory,
+                                failed: feature.worktreeHistoryPageFailed,
+                                onLoad: { Task { await feature.loadMoreWorktreeHistory(for: worktree) } })
                         }
                     }
                 }
@@ -656,11 +653,21 @@ struct GitWorktreesView: View {
     private func settingsSection(_ worktree: GitWorktree) -> some View {
         VStack(spacing: 12) {
             worktreeCard(title: "Worktree Settings") {
-                informationRow("Protection", value: worktree.isLocked ? "Locked" : "Unlocked")
-                worktreeAction(worktree.isLocked ? "Unlock Worktree" : "Lock Worktree") {
-                    toggleLock(for: worktree)
+                HStack(alignment: .center, spacing: LitheTheme.ActionButton.spacing) {
+                    worktreeAction(worktree.isLocked ? "Unlock Worktree" : "Lock Worktree") {
+                        toggleLock(for: worktree)
+                    }
+                    .disabled(worktree.isPrimary || worktree.isPrunable)
+                    .help(lockHelp(for: worktree))
+                    Text(worktree.isLocked ? "Locked" : "Unlocked")
+                        .font(Visual.body)
+                        .foregroundStyle(worktree.isLocked ? LitheTheme.warning : LitheTheme.success)
+                        .fixedSize()
+                    Spacer(minLength: LitheTheme.ActionButton.spacing)
+                    Text("Protection")
+                        .font(Visual.metadata)
+                        .foregroundStyle(LitheTheme.secondaryText)
                 }
-                .help(lockHelp(for: worktree))
             }
             worktreeCard(title: "Maintenance") {
                 if worktree.isPrunable {
@@ -677,6 +684,7 @@ struct GitWorktreesView: View {
                 worktreeAction("Remove Worktree…", destructive: true) {
                     requestRemoval(for: worktree)
                 }
+                .disabled(worktree.isPrimary || worktree.isCurrent || worktree.isLocked || worktree.isPrunable)
                 .help(removalHelp(for: worktree))
             }
         }
@@ -741,13 +749,12 @@ struct GitWorktreesView: View {
         destructive: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
+        Button(role: destructive ? .destructive : nil, action: action) {
             Text(LocalizedStringKey(title))
                 .lineLimit(1)
-                .foregroundStyle(destructive ? LitheTheme.error : LitheTheme.primaryText)
-                .frame(maxWidth: .infinity)
         }
         .buttonStyle(LitheActionButtonStyle())
+        .accessibilityIdentifier("worktree-action-\(title)")
         .disabled(feature.isPerformingWorktreeOperation)
     }
 
@@ -1092,4 +1099,37 @@ private struct WorktreeHistoryProjectionIdentity: Hashable {
 private struct WorktreeChangesProjectionIdentity: Hashable {
     let worktreeID: String?
     let inspectionVersion: Int
+}
+
+/// The row under the history list while older commits exist. It is always the same height, so the
+/// viewport never changes at a page boundary, and idle it offers the next page, as the Git Log
+/// footer does, instead of leaving a blank band under the list.
+struct GitWorktreeHistoryFooter: View {
+    let isLoading: Bool
+    let failed: Bool
+    let onLoad: () -> Void
+
+    var body: some View {
+        HStack {
+            Spacer()
+            if isLoading {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("Loading commits…")
+                        .font(LitheTheme.uiFont(size: 12.5))
+                        .foregroundStyle(LitheTheme.secondaryText)
+                }
+            } else if failed {
+                Button("Could not load older commits. Refresh history", action: onLoad)
+                    .buttonStyle(.link)
+                    .accessibilityIdentifier("worktree-history-load-more")
+            } else {
+                Button("Load more commits", action: onLoad)
+                    .buttonStyle(.link)
+                    .accessibilityIdentifier("worktree-history-load-more")
+            }
+            Spacer()
+        }
+        .frame(height: GitWorktreeRowsView.rowHeight)
+    }
 }

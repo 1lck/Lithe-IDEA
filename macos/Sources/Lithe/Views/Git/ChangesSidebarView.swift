@@ -406,7 +406,7 @@ struct ChangesSidebarView: View {
     }
 
     private func openChange(_ row: GitChangeSectionsCache.Row) {
-        if case .change(let change, _) = row.content, !change.isUntrackedDirectory, feature.selectedChange != change {
+        if case .change(let change, _) = row.content, !change.isUntrackedDirectory {
             selectChange(change)
         }
     }

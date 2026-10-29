@@ -6,7 +6,14 @@
   "macos": {
     "evidence": [
       "macos/Sources/Lithe/Models/Editor",
-      "macos/Sources/Lithe/Services/Workspace"
+      "macos/Sources/Lithe/Application/Features/DocumentFeatureModel.swift",
+      "macos/Sources/Lithe/Services/Workspace",
+      "macos/Sources/Lithe/Platform/MacOS/FileSystem/MacWorkspaceFileOperations.swift",
+      "macos/Sources/Lithe/Platform/MacOS/UI/MacPlatformUI.swift",
+      "macos/Tests/LitheTests/DocumentHardLinkTests.swift",
+      "macos/Tests/LitheTests/DocumentOpenAndHardLinkWorkflowTests.swift",
+      "macos/Sources/Lithe/Services/Remote/RemoteWorkspaceRouting.swift",
+      "macos/Tests/LitheTests/RemoteConnectionsTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -22,6 +29,6 @@
     "verificationStatus": "pending"
   },
   "owner": "Workspace",
-  "notes": "Windows 延迟自动保存对齐 macOS 的“写入成功但仍有更晚输入就继续保存”语义：写入进行中到期的那次自动保存不再被丢弃，而是在被等待的写入成功结束后继续保存最新正文；该写入失败或冲突时按 operationId 取消续存，每次领取前重读实时自动保存开关，关闭即取消，请求被更晚编辑取代或文档关闭时停止，失败与冲突不重试。被等待的写入若在领取被拒与重读之间结束，则只按其 lifecycle savedRevision 是否前进（即是否真的落盘）决定继续还是丢弃，不再仅凭 dirty 续写。共享生命周期状态机不变，前端回归改为注入手动计时器验证成功续存、写入失败、关闭自动保存、手动保存失败，以及领取拒绝窗口内写入成功/失败两条路径；完整产品实机验收仍为 pending。",
-  "verification": "编辑未保存文件、外部修改文件并重启应用，确认冲突、保存和恢复行为；另在 Windows 于写入进行中继续连续编辑，确认更晚的正文仍被写入且未保存标记消失；再制造写入失败并关闭自动保存，确认不会自动补写。"
+  "notes": "Windows 延迟自动保存对齐 macOS 的“写入成功但仍有更晚输入就继续保存”语义：写入进行中到期的那次自动保存不再被丢弃，而是在被等待的写入成功结束后继续保存最新正文；该写入失败或冲突时按 operationId 取消续存，每次领取前重读实时自动保存开关，关闭即取消，请求被更晚编辑取代或文档关闭时停止，失败与冲突不重试。被等待的写入若在领取被拒与重读之间结束，则只按其 lifecycle savedRevision 是否前进（即是否真的落盘）决定继续还是丢弃，不再仅凭 dirty 续写。共享生命周期状态机不变，前端回归改为注入手动计时器验证成功续存、写入失败、关闭自动保存、手动保存失败，以及领取拒绝窗口内写入成功/失败两条路径；完整产品实机验收仍为 pending。 macOS #1419：硬链接文本允许打开和编辑，保存时逐次确认“保存为独立文件 / 更新所有硬链接 / 取消”；自动保存暂停并提示手动选择；显式保存若已在等待该自动检查，则按自己的编码与确认策略接续保存，重新检查取消、会话、文档归属和位置，不重试普通 I/O 失败或冲突，确认后继续校验底层对象身份、链接数和字节基线，原地写明确不保证原子性，回撤仍拒绝多链接对象。打开失败区分缺失、权限、目录、大小、解码、符号链接、特殊文件与真正非文本，成功解码的非文本可探测二进制查看器，解码失败只接受明确二进制签名，不凭扩展名吞掉编码错误；其他读取失败不走查看器。本地/远程路由转发本地授权、拒绝用本地对象授权写远程文件，原地写后即使失败也主动核对打开的别名，保护别名中的未保存输入。Windows 保持既有硬链接策略，未声称两端一致。",
+  "verification": "编辑未保存文件、外部修改文件并重启应用，确认冲突、保存和恢复行为；另在 Windows 于写入进行中继续连续编辑，确认更晚的正文仍被写入且未保存标记消失；再制造写入失败并关闭自动保存，确认不会自动补写。 macOS 创建两个硬链接 POM，分别验证独立保存不改别名、更新全部保留同一底层文件、取消不丢失编辑、自动保存不写盘且不弹确认、关闭/运行前保存取消会中止后续动作；自动检查尚未完成时触发手动保存，应在同一次操作里弹出确认并保存最新输入，显式编码须保留，取消/重置/关闭/移走再移回不得接续，普通权限错误不重试；确认期间更改目标/内容/链接数须拒绝覆盖。核对权限、超过 32 MB、无效编码、符号链接、目录与命名管道的中英文提示；完整产品弹窗验收仍 pending。"
 }

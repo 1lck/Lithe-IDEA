@@ -4,6 +4,64 @@ use base64::Engine as _;
 use serde_json::Value;
 
 #[test]
+fn debug_adapter_endpoint_validation_crosses_the_json_boundary() {
+    let fixture: Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../shared/fixtures/debug/adapter-endpoints-v1.json"
+    )))
+    .expect("endpoint fixture is JSON");
+    for case in fixture["cases"].as_array().expect("endpoint cases") {
+        let request = serde_json::json!({
+            "id": "validate-endpoint", "command": "debug.validateAdapterEndpoint", "payload": case["input"]
+        });
+        let response: Value = serde_json::from_str(&execute_json(&request.to_string()))
+            .expect("endpoint response is JSON");
+        assert_eq!(response["id"], "validate-endpoint");
+        assert_eq!(response["ok"], case.get("remote").is_some(), "{case}");
+        if let Some(remote) = case.get("remote") {
+            assert_eq!(response["data"]["remote"], *remote, "{case}");
+        } else {
+            assert_eq!(response["error"]["code"], "invalid_request", "{case}");
+        }
+    }
+}
+
+#[test]
+fn debug_transport_commands_cross_the_json_boundary() {
+    let call = |command: &str, payload: Value| -> Value {
+        let request =
+            serde_json::json!({"id": "transport", "command": command, "payload": payload});
+        serde_json::from_str(&execute_json(&request.to_string()))
+            .expect("transport response is JSON")
+    };
+    let policy = call("debug.transport.policy", serde_json::json!({}));
+    assert_eq!(policy["ok"], true);
+    assert_eq!(policy["data"]["initializationMilliseconds"], 20_000);
+
+    let id = "protocol-test-transport";
+    let started = call(
+        "debug.transport.handle",
+        serde_json::json!({"transportId": id, "event": {"type": "start"}}),
+    );
+    assert_eq!(started["ok"], true);
+    assert_eq!(started["data"]["phase"], "discovering");
+    assert_eq!(started["data"]["effects"][1]["kind"], "discoverEndpoint");
+
+    let rejected = call(
+        "debug.transport.handle",
+        serde_json::json!({"transportId": id, "event": {"type": "start", "limits": {"writeMilliseconds": 0}}}),
+    );
+    assert_eq!(rejected["ok"], false);
+    assert_eq!(rejected["error"]["code"], "invalid_request");
+
+    let released = call(
+        "debug.transport.release",
+        serde_json::json!({"transportId": id}),
+    );
+    assert_eq!(released["data"]["released"], true);
+}
+
+#[test]
 fn ping_exposes_protocol_version() {
     let response: Value = serde_json::from_str(&execute_json(
         r#"{"id":"test-1","command":"core.ping","payload":{}}"#,

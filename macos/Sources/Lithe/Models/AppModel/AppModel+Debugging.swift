@@ -75,7 +75,7 @@ extension AppModel {
                 scope: target.scope)
             return
         }
-        Task { [weak self] in await self?.startDebuggingAfterActivation() }
+        runWorkflowCoordinator.startModuleOperation { [weak self] in await self?.startDebuggingAfterActivation() }
     }
 
     func startOrRestartDebugging() {
@@ -98,6 +98,26 @@ extension AppModel {
         Task { [weak self] in
             await self?.attachJavaDebuggerAfterActivation(host: host, port: port)
         }
+    }
+
+    /// Returns the reason initialization failed, or nil once it has completed
+    /// (or the request was cancelled). The caller keeps its form open on
+    /// a message, so the user's host, port and arguments are not lost.
+    func connectExternalDebugAdapter(
+        configuration: DebugLaunchConfiguration, fileURL: URL
+    ) async -> String? {
+        let notReady = L10n.string("The debug adapter connection could not be started.")
+        guard let identity = currentWorkspaceIdentity, let workspaceURL else { return notReady }
+        guard let feature = await activateDebugModule()?.genericFeature else { return notReady }
+        guard !Task.isCancelled else { return nil }
+        guard isCurrentWorkspace(identity) else { return notReady }
+        // The selected source chooses an installed provider, not a wire
+        // protocol guessed from the port. A failed connection stays visible
+        // in Debug, rather than restoring an older session over its error.
+        showDebugToolWindow()
+        return await ExternalDebugAdapterConnection.connect(
+            feature: feature, fileURL: fileURL, rootURL: workspaceURL, configuration: configuration
+        )
     }
 
     private func attachJavaDebuggerAfterActivation(host: String, port: Int) async {
@@ -173,6 +193,18 @@ extension AppModel {
             }
             return
         }
+        if selectedConfiguration.buildProvider != nil {
+            guard await saveAllDocuments(), isCurrentWorkspace(identity), !Task.isCancelled,
+                  let feature = buildSystemsFeatureIfActive else { return }
+            let started = feature.debugProviderConfiguration(selectedConfiguration, workspace: identity.url) { [weak self] source, preparation in
+                guard let self, self.isCurrentWorkspace(identity), !Task.isCancelled else { throw CancellationError() }
+                try self.launchPreparedProviderDebug(source: source, preparation: preparation,
+                                                     workspaceURL: identity.url, title: selectedConfiguration.name)
+            }
+            if started != nil { showToolWindow(.buildOutput) }
+            else { showNotification("The build provider's debug program or adapter is unavailable. Build it again and check that the plugin is enabled.") }
+            return
+        }
         let activeDocumentIsLaunchable = selectedConfiguration.usesCurrentEditorFile
             ? await isLaunchableJavaEntrypoint(activeDocument, in: workspaceURL)
             : false
@@ -198,10 +230,10 @@ extension AppModel {
                 showNotification("Open a source file or choose a project Run configuration")
             return
         case .javaSourceUnavailable(let name):
-            showNotification("Could not find the Java source for \(name)")
+            showNotification("Could not find the Java source for %@", arguments: [name])
             return
         case .unsupported(let name):
-            showNotification("\(name) does not support Debug yet")
+            showNotification("%@ does not support Debug yet", arguments: [name])
             return
         }
 
@@ -212,7 +244,7 @@ extension AppModel {
         )
         guard case .ready = providerReadiness else {
             if case .unsupported(let fileName) = providerReadiness {
-                showNotification("Debug support is not available for \(fileName)")
+                showNotification("Debug support is not available for %@", arguments: [fileName])
             }
             showToolWindow(.debug)
             return
@@ -223,7 +255,34 @@ extension AppModel {
         await startGenericDebuggingAfterActivation(fileURL: sourceURL, document: document)
     }
 
+    func debugBuildProviderApplication(entryID: String, request: BuildRunRequest, title: String) {
+        runWorkflowCoordinator.startModuleOperation { [weak self] in
+            guard let self, let identity = currentWorkspaceIdentity,
+                  await saveAllDocuments(), isCurrentWorkspace(identity),
+                  await activateDebugModule() != nil, isCurrentWorkspace(identity),
+                  !Task.isCancelled, let feature = buildSystemsFeatureIfActive else { return }
+            if feature.debugApplication(entryID, request: request, title: title, launch: { [weak self] source, preparation in
+                guard let self, self.isCurrentWorkspace(identity), !Task.isCancelled else { throw CancellationError() }
+                try self.launchPreparedProviderDebug(source: source, preparation: preparation, workspaceURL: identity.url, title: title)
+            }) != nil { showToolWindow(.buildOutput) }
+        }
+    }
+
+    private func launchPreparedProviderDebug(source: BuildSystemPluginSource, preparation: BuildDebugPreparation,
+                                            workspaceURL: URL, title: String) throws {
+        guard let feature = genericDebugFeatureIfActive else { throw CancellationError() }
+        let configuration = try debugLaunchConfigurationResolver.resolveProvider(source: source, preparation: preparation,
+                                                                                 workspaceURL: workspaceURL, title: title)
+        guard feature.startAdditional(fileURL: workspaceURL.appendingPathComponent(preparation.program),
+                                      rootURL: workspaceURL, configuration: configuration) else {
+            throw NSError(domain: "BuildProviderDebug", code: 1, userInfo: [NSLocalizedDescriptionKey: feature.errorMessage
+                ?? L10n.string("The build provider's debug program or adapter is unavailable. Build it again and check that the plugin is enabled.")])
+        }
+        showToolWindow(.debug)
+    }
+
     func stopDebugging() {
+        buildSystemsFeatureIfActive?.cancelDebugPreparation()
         runWorkflowCoordinator.cancelModuleOperation()
         cancelJavaTestDebugLaunch()
         guard let feature = genericDebugFeatureIfActive else {
@@ -272,7 +331,10 @@ extension AppModel {
     func revealDebugLocation(url: URL, line: Int, column: Int?) {
         let normalizedURL = url.standardizedFileURL
         guard workspaceFeature.fileExists(at: normalizedURL) else {
-            showNotification("The stopped source file is no longer available: \(url.lastPathComponent)")
+            showNotification(
+                "The stopped source file is no longer available: %@",
+                arguments: [url.lastPathComponent]
+            )
             return
         }
         navigate(

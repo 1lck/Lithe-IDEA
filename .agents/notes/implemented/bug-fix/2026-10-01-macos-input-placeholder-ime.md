@@ -60,8 +60,8 @@ Commit 编辑器在 `setMarkedText` 和 `unmarkText` 后标记完整视图需要
 ```bash
 ./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh
 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'LitheSearchFieldStyleTests|CommitMessageEditorTests'
-./scripts/verify-runtime-bundle-immutability.sh
-./scripts/verify-agent-notes.sh
+./scripts/macos/verify/verify-runtime-bundle-immutability.sh
+./scripts/agent-notes/verify-agent-notes.sh
 ```
 
 ## 适用范围

@@ -6,7 +6,8 @@ import AppKit
 /// Single presentation owner for OutputTextView, including Run, Debug and Tests.
 @MainActor
 enum LitheConsoleStyle {
-    static let defaultFontSize: CGFloat = 13
+    // A constant, so nonisolated callers can use it as a default argument.
+    nonisolated static let defaultFontSize: CGFloat = 13
     // FontPreferences.DEFAULT_LINE_SPACING + EditorView.getLineHeight (default registry path).
     static let lineSpacing: CGFloat = 1.2
     static func lineHeight(for font: NSFont) -> CGFloat {

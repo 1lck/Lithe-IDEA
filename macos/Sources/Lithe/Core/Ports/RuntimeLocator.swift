@@ -66,8 +66,17 @@ struct DefaultRuntimeToolDiscovery: RuntimeToolDiscovery {
 }
 
 protocol RuntimeLocator: Sendable {
+    /// A failed host probe must not be presented as an empty local toolchain.
+    var discoveryFailure: String? { get }
+    func normalizedPath(_ path: String, relativeTo root: URL?) -> String
+    func configureProbePaths(_ paths: [String])
+    /// Remote adapters select from a host-read snapshot without UI-thread I/O.
+    func selectJavaRuntime(candidates: [AutomaticJavaCandidate], fallbackID: String?) -> Result<AutomaticJavaSelection, RustCoreBridge.CoreCallError>?
     func environment() -> [String: String]
+    /// Platform search path used only when a launch environment omits PATH.
+    func defaultExecutableSearchPath() -> String?
     func discover() -> RuntimeDiscoveryResult
+    func discover(isCancelled: @Sendable () -> Bool) -> RuntimeDiscoveryResult
     /// Java-only probing for launch paths; never runs Maven or other tools.
     func discoverJavaRuntimes() -> [JavaRuntimeCandidate]
     func discoverJavaRuntimes(isCancelled: @Sendable () -> Bool) -> [JavaRuntimeCandidate]
@@ -84,12 +93,34 @@ protocol RuntimeLocator: Sendable {
 }
 
 extension RuntimeLocator {
+    var discoveryFailure: String? { nil }
+    func configureProbePaths(_ paths: [String]) {}
+    func selectJavaRuntime(candidates: [AutomaticJavaCandidate], fallbackID: String?) -> Result<AutomaticJavaSelection, RustCoreBridge.CoreCallError>? { nil }
+    func normalizedPath(_ path: String, relativeTo root: URL?) -> String {
+        let normalized = ((path as NSString).expandingTildeInPath as NSString).standardizingPath
+        guard !(normalized as NSString).isAbsolutePath, let root else { return normalized }
+        return root.appendingPathComponent(normalized).standardizedFileURL.path
+    }
+    func discover(isCancelled: @Sendable () -> Bool) -> RuntimeDiscoveryResult {
+        isCancelled() ? RuntimeDiscoveryResult(javaRuntimes: [], mavenRuntimes: []) : discover()
+    }
+    func defaultExecutableSearchPath() -> String? { nil }
     func invalidateProbeCache() {}
     func discoverJavaRuntimes(isCancelled: @Sendable () -> Bool) -> [JavaRuntimeCandidate] {
         isCancelled() ? [] : discoverJavaRuntimes()
     }
     func discoverJavaRuntimes() -> [JavaRuntimeCandidate] { discover().javaRuntimes }
     func javaHomeOnPath(in candidates: [JavaRuntimeCandidate]) -> URL? { nil }
+}
+
+/// Synchronous host I/O used exclusively by runtime discovery's owned worker.
+protocol RemoteRuntimeProbing: Sendable {
+    func runtimeEnvironment(session: String) throws -> [String: String]
+    func runtimeDirectory(_ path: String, session: String) throws -> [RemoteDirectoryEntry]
+    func runtimeRealPath(_ path: String, session: String) throws -> String
+    func runtimeExecutable(_ path: String, session: String) throws -> Bool
+    func runtimeVersion(_ executable: String, session: String) throws -> String
+    func runtimeRequirements(_ root: String, session: String) throws -> ToolingJSONValue
 }
 
 /// Shared selection policy; platform locators still own executable validation

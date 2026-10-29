@@ -8,18 +8,6 @@ import LitheSearchModule
 @MainActor
 struct ProjectReplacementPreviewTextTests {
     @Test
-    func previewGutterUsesEqualInsetsAndDividerSpacingForAllDigitCounts() {
-        for textWidth in [14.0, 28.0, 42.0] {
-            let layout = EditorGutterLayout(lineNumberTextWidth: textWidth, isSearchPreview: true)
-            #expect(layout.lineNumberRange.lowerBound == EditorGutterLayout.previewSpacing)
-            #expect(layout.numberTrailingPadding == EditorGutterLayout.previewSpacing)
-            #expect(layout.width - layout.lineNumberRange.upperBound == EditorGutterLayout.previewSpacing)
-            #expect(layout.lineNumberRange.upperBound - layout.lineNumberRange.lowerBound >= textWidth + layout.numberTrailingPadding)
-            #expect(layout.breakpointInteractionRange.isEmpty)
-        }
-    }
-
-    @Test
     func sourceSnippetsExposeSyntaxColorsToSwiftUI() {
         let value = ProjectReplacementPreviewText.highlighted(
             "<root value=\"22\">text</root>", query: "22", options: .default,

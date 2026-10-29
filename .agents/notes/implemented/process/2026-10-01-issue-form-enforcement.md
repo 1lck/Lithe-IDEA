@@ -101,7 +101,7 @@ Issue 内容是不可信输入。模型只能按固定 schema 输出，Bot 按�
 
 ```bash
 npm test   # 在 lithe-bot-console 仓库中运行
-./scripts/verify-agent-notes.sh
+./scripts/agent-notes/verify-agent-notes.sh
 ```
 
 `test/issue-triage.test.mjs` 覆盖：标签或必填字段识别表单、空白 Issue 被评论并关闭、协作者和 owner 放行、维护者重新打开不再关闭、规则生效前的 Issue 不追溯、权限未知时保留、托管标签增删、模型输出的白名单校验和内容清理、`needs-info` 的添加与移除、模型失败时只跳过分诊、每日补查。全部使用内存中的 GitHub 和模型替身，不访问网络。

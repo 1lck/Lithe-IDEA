@@ -404,6 +404,52 @@ struct LanguageIntelligenceModuleTests {
         #expect(factory.standardRequests.isEmpty)
     }
 
+    /// A debugger plugin installed or removed while the app runs changes only
+    /// the catalog's debug capability. The running language server keeps going;
+    /// any other change to the descriptor still stops it.
+    @Test
+    func aDebuggerAppearingInTheCatalogDoesNotStopTheRunningLanguageServer() throws {
+        func descriptor(displayName: String, capabilities: LanguageToolingCapability) -> LanguageProviderDescriptor {
+            LanguageProviderDescriptor(
+                id: "roc",
+                displayName: displayName,
+                fileExtensions: ["roc"],
+                capabilities: capabilities,
+                activationPolicy: .onDemand,
+                languageIdentifier: "roc",
+                languageServerLaunch: LanguageServerLaunchDescriptor(
+                    executableNames: ["roc_language_server"],
+                    arguments: []
+                )
+            )
+        }
+        let withoutDebugger = descriptor(displayName: "Roc", capabilities: [.languageServer])
+        let withDebugger = descriptor(displayName: "Roc", capabilities: [.languageServer, .debugAdapter])
+        let renamed = descriptor(displayName: "Roc Lang", capabilities: [.languageServer, .debugAdapter])
+        let session = WorkspaceStateLanguageServerSession()
+        let manager = LanguageToolingSessionManager(
+            catalog: LanguageProviderCatalog(descriptors: [withoutDebugger]),
+            runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: withoutDebugger, session: session)]
+        )
+        defer { manager.stopAllLanguageServers() }
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+
+        try manager.startLanguageServer(providerID: "roc", rootURL: root)
+        #expect(session.isRunning)
+
+        manager.updateCatalog(LanguageProviderCatalog(descriptors: [withDebugger]))
+        #expect(session.stopCallCount == 0)
+        #expect(session.isRunning)
+
+        manager.updateCatalog(LanguageProviderCatalog(descriptors: [withoutDebugger]))
+        #expect(session.stopCallCount == 0)
+        #expect(session.isRunning)
+
+        manager.updateCatalog(LanguageProviderCatalog(descriptors: [renamed]))
+        #expect(session.stopCallCount == 1)
+        #expect(!session.isRunning)
+    }
+
     /// Host workflows start a missing server on demand. While a module is
     /// being stopped its capability is still published, so the extension it
     /// already stopped must not be registered again; otherwise the server
@@ -1461,6 +1507,153 @@ struct LanguageIntelligenceModuleTests {
             EmptyWorkspaceModule()
         }
     }
+
+    // MARK: - Debug adapters hosted by a language server
+
+    @Test(arguments: HostedDebugPortOutcome.allCases)
+    func aHostedDebugAdapterWaitsForItsServerAndRejectsCancelledOrStalePorts(outcome: HostedDebugPortOutcome) async throws {
+        let root = URL(fileURLWithPath: "/workspace/hosted-adapter", isDirectory: true)
+        let session = WorkspaceStateLanguageServerSession()
+        let factory = TestLanguageProviderRuntimeFactory()
+        factory.session = session
+        let manager = LanguageToolingSessionManager(runtimeFactory: factory)
+        let provider = TestLanguageServerExtensionProvider(configuration: .init(
+            languageID: "go", displayName: "Go", executableNames: ["example-ls"], languageIdentifier: "go",
+            launchSource: .init(pluginID: "dev.example.debugger", languageID: "go", manifest: Data(),
+                                packageURL: URL(fileURLWithPath: "/plugins/example"))
+        ))
+        let support = LanguageSupportDeclaration(
+            id: "go", displayName: "Go", fileExtensions: ["go"], languageServerModuleID: .languageServerExtension("go")
+        )
+        try #require(manager.registerLanguageServerExtension(provider, support: support))
+        let (events, continuation) = AsyncStream<Result<UInt16, Error>>.makeStream()
+        let task = Task { @MainActor in
+            do {
+                continuation.yield(.success(try await manager.startHostedDebugAdapter(
+                    languageID: "go", pluginID: "dev.example.debugger", command: "example.start", rootURL: root
+                )))
+            } catch { continuation.yield(.failure(error)) }
+            continuation.finish()
+        }
+        let deadline = Task { @MainActor in
+            // test-stability: allow(swift-real-sleep) reason: this is only the local failure watchdog; server and command callbacks drive successful synchronization.
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            task.cancel()
+            continuation.finish()
+        }
+        defer { task.cancel(); deadline.cancel(); continuation.finish(); manager.stopAllLanguageServers() }
+        try await session.waitUntilStarted()
+        #expect(session.executedCommands.isEmpty)
+        if outcome == .cancelBeforeReady {
+            task.cancel()
+        } else {
+            session.publish(.ready)
+            let command = try await session.waitForExecuteCommand()
+            #expect(command.command == "example.start")
+            #expect(command.arguments.isEmpty)
+            if outcome == .cancelCommand {
+                task.cancel()
+            } else {
+                // Capture the reply before replacing the server to model a
+                // response already in flight when the workspace changes.
+                try session.completeExecuteReturningValue(.success(.string("4711"))) {
+                    switch outcome {
+                    case .workspaceChanged:
+                        try manager.startLanguageServer(
+                            providerID: "go", rootURL: root.appendingPathComponent("other", isDirectory: true)
+                        )
+                        session.publish(.ready)
+                    case .sessionReplaced:
+                        let replacement = WorkspaceStateLanguageServerSession()
+                        factory.session = replacement
+                        try #require(manager.registerLanguageServerExtension(
+                            TestLanguageServerExtensionProvider(configuration: provider.configuration), support: support
+                        ))
+                        try manager.startLanguageServer(providerID: "go", rootURL: root)
+                        replacement.publish(.ready)
+                    case .stopping: session.publish(.stopping)
+                    default: break
+                    }
+                }
+            }
+        }
+        var iterator = events.makeAsyncIterator()
+        let result = try #require(await iterator.next(), "Hosted debugging did not finish before its deadline")
+        switch outcome {
+        case .cancelBeforeReady, .cancelCommand:
+            guard case .failure(let error) = result else {
+                Issue.record("A cancelled port request must not succeed")
+                return
+            }
+            #expect(error is CancellationError)
+            // Delivering a late port must not complete the cancelled operation twice.
+            session.completeExecuteReturningValue(.success(.integer(4711)))
+        case .success:
+            #expect(try result.get() == 4711)
+        case .workspaceChanged, .sessionReplaced, .stopping:
+            guard case .failure(let error) = result else {
+                Issue.record("A stale port must not be returned to the debug transport")
+                return
+            }
+            #expect(error as? LanguageToolingSessionError == .languageServerNotOwnedByPlugin(languageID: "go"))
+        }
+        await task.value
+        if outcome != .workspaceChanged && outcome != .sessionReplaced {
+            #expect(session.isRunning)
+            #expect(session.stopCallCount == 0)
+        }
+    }
+
+    /// The command's result is the loopback port: an integer, or the digits
+    /// of one in a string, within 1...65535. Anything else is no port.
+    @Test(arguments: [
+        (ToolingJSONValue.integer(5005), UInt16?.some(5005)),
+        (.integer(1), 1),
+        (.integer(65535), 65535),
+        (.string("5005"), 5005),
+        (.integer(0), nil),
+        (.integer(-1), nil),
+        (.integer(65536), nil),
+        (.string("65536"), nil),
+        (.string("port"), nil),
+        (.string(""), nil),
+        (.string("5005 "), nil),
+        (.number(5005.5), nil),
+        (.bool(true), nil),
+        (.null, nil),
+        (.array([.integer(5005)]), nil),
+        (.object(["port": .integer(5005)]), nil),
+    ])
+    func aDebugAdapterPortIsOnlyAnIntegerWithinTheTCPRange(
+        value: ToolingJSONValue,
+        expected: UInt16?
+    ) {
+        #expect(LanguageToolingSessionManager.debugAdapterPort(from: value) == expected)
+    }
+
+    /// Only the language server of the plugin that declared the adapter may
+    /// receive its command; a server the plugin did not register, here a
+    /// built-in one, is refused before anything starts.
+    @Test
+    func aHostedDebugAdapterIsRefusedForALanguageServerThePluginDoesNotOwn() async throws {
+        let root = URL(fileURLWithPath: "/workspace/hosted-adapter", isDirectory: true)
+        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(for: root.appendingPathComponent("Main.java")))
+        let session = WorkspaceStateLanguageServerSession()
+        let manager = LanguageToolingSessionManager(runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)])
+        defer { manager.stopAllLanguageServers() }
+
+        await #expect(throws: LanguageToolingSessionError.languageServerNotOwnedByPlugin(languageID: "java")) {
+            _ = try await manager.startHostedDebugAdapter(
+                languageID: "java", pluginID: "dev.lithe.fixture", command: "java.startDebugSession", rootURL: root
+            )
+        }
+        #expect(session.startCallCount == 0)
+    }
+}
+
+enum HostedDebugPortOutcome: CaseIterable {
+    case success, cancelBeforeReady, cancelCommand, workspaceChanged, sessionReplaced, stopping
 }
 
 @MainActor
@@ -1520,6 +1713,7 @@ private final class TestLanguageProviderRuntimeFactory: LanguageProviderRuntimeF
 
     private(set) var standardRequests: [LanguageProviderDescriptor] = []
     private(set) var extensionRequests: [ExtensionRequest] = []
+    var session: WorkspaceStateLanguageServerSession?
 
     func makeRuntime(for descriptor: LanguageProviderDescriptor) -> (any LanguageProviderRuntime)? {
         standardRequests.append(descriptor)
@@ -1535,6 +1729,7 @@ private final class TestLanguageProviderRuntimeFactory: LanguageProviderRuntimeF
             launch: languageServerLaunch,
             ownerModuleID: ownerModuleID
         ))
+        if let session { return WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session) }
         return TestLanguageProviderRuntime(descriptor: descriptor)
     }
 }
@@ -1719,8 +1914,16 @@ private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
     }
 
     func completeExecuteReturningValue(_ result: Result<ToolingJSONValue, Error>) {
+        completeExecuteReturningValue(result, beforeCompletion: {})
+    }
+
+    func completeExecuteReturningValue(
+        _ result: Result<ToolingJSONValue, Error>,
+        beforeCompletion: () throws -> Void
+    ) rethrows {
         let completion = executeValueCompletion
         executeValueCompletion = nil
+        try beforeCompletion()
         completion?(result)
     }
 
@@ -1926,12 +2129,13 @@ private enum WorkspaceStateSessionError: LocalizedError {
 
 @MainActor
 private final class TestLanguageServerExtensionProvider: LanguageServerExtensionProviding {
-    let configuration = LanguageServerExtensionConfiguration(
+    let configuration: LanguageServerExtensionConfiguration
+    init(configuration: LanguageServerExtensionConfiguration = LanguageServerExtensionConfiguration(
         languageID: "go",
         displayName: "Go",
         executableNames: ["gopls"],
         languageIdentifier: "go"
-    )
+    )) { self.configuration = configuration }
     let lifecycle: any LanguageServerExtensionLifecycle = TestLanguageServerExtensionLifecycle()
 }
 

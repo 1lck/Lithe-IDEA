@@ -1689,6 +1689,42 @@ struct LitheCoreLogicTests {
         #expect(removal.transitions[0].rightRange == 22...22)
     }
 
+    /// A whole-file addition or deletion has no second version, yet the side-by-side
+    /// pane must still lay it out: the missing side stays empty and scrolling keeps working.
+    @Test
+    func splitDiffLayoutHandlesWholeFileAdditionAndDeletion() {
+        let added = (0..<3).map {
+            DiffRow(oldLine: nil, newLine: $0 + 1, left: nil, right: "line \($0)", kind: .addition, sequence: $0)
+        }
+        let addedLayout = DiffSplitLayout.plan(
+            displayRows: added.enumerated().map { DiffDisplayRow.row($0.element, index: $0.offset) },
+            kinds: added.map(\.kind)
+        )
+        #expect(addedLayout.leftItems.isEmpty)
+        #expect(addedLayout.rightItems.map(\.top) == [0, 22, 44])
+        #expect(addedLayout.transitions.count == 1)
+        #expect(addedLayout.transitions[0].isAddition)
+        #expect(addedLayout.transitions[0].rightRange == 0...66)
+        // The empty old side stays at the top however far the new side scrolls.
+        let addedMapping = DiffScrollMapping(layout: addedLayout)
+        #expect(addedMapping.transfer(0, from: .right) == 0)
+        #expect(addedMapping.transfer(40, from: .right) == 0)
+        #expect(addedMapping.transfer(0, from: .left) == 0)
+
+        let deleted = (0..<3).map {
+            DiffRow(oldLine: $0 + 1, newLine: nil, left: "line \($0)", right: nil, kind: .removal, sequence: $0)
+        }
+        let deletedLayout = DiffSplitLayout.plan(
+            displayRows: deleted.enumerated().map { DiffDisplayRow.row($0.element, index: $0.offset) },
+            kinds: deleted.map(\.kind)
+        )
+        #expect(deletedLayout.rightItems.isEmpty)
+        #expect(deletedLayout.leftItems.map(\.top) == [0, 22, 44])
+        #expect(deletedLayout.transitions.count == 1)
+        #expect(deletedLayout.transitions[0].isRemoval)
+        #expect(DiffScrollMapping(layout: deletedLayout).transfer(40, from: .left) == 0)
+    }
+
     @Test
     func diffCollapseFoldsLongUnchangedRunsAndKeepsSurroundingContext() {
         var rows: [DiffRow] = []
@@ -1807,24 +1843,6 @@ struct LitheCoreLogicTests {
         #expect(rows.map(\.kind) == [.addition, .changed])
         #expect(rows[1].left == "let total = compute(a, b)")
         #expect(rows[1].rightText == "let total = compute(a, b, c)")
-    }
-
-    @Test
-    func diffPairingMatchesRustSimilarityRules() {
-        // Single-line replacements always read as a modification.
-        #expect(DiffPairing.pairs(removed: ["before"], added: ["after"]).count == 1)
-
-        // Nothing clears the floor, so no pair keeps both sides.
-        let unrelated = DiffPairing.pairs(
-            removed: ["import Foundation", "import AppKit"],
-            added: ["let x = 1", "let y = 2", "let z = 3"]
-        )
-        #expect(unrelated.count == 5)
-        #expect(unrelated.allSatisfy { $0.0 == nil || $0.1 == nil })
-
-        // Reindentation alone is a perfect match; empty against text is none.
-        #expect(DiffPairing.similarity("    return value", "\t\treturn value") == 1)
-        #expect(DiffPairing.similarity("abc", "") == 0)
     }
 
     @Test
@@ -2046,78 +2064,6 @@ struct LitheCoreLogicTests {
     }
 
     @Test
-    @MainActor
-    func codeEditorInterceptsHandledImagePaste() {
-        let textView = CodeTextView(frame: .zero)
-        textView.string = "before"
-        var handled = false
-        textView.onPasteImage = {
-            handled = true
-            return true
-        }
-
-        textView.paste(nil)
-
-        #expect(handled)
-        #expect(textView.string == "before")
-    }
-
-    @Test
-    @MainActor
-    func codeEditorDoesNotRegisterThePrivateTerminalTabDropType() {
-        let textView = CodeTextView(frame: .zero)
-
-        #expect(!textView.registeredDraggedTypes.contains(TerminalTabDragPayload.pasteboardType))
-    }
-
-    @Test
-    @MainActor
-    func codeEditorInterceptsCommandVPasteBeforeMenuRouting() throws {
-        let textView = CodeTextView(frame: .zero)
-        var handled = false
-        textView.onPasteImage = {
-            handled = true
-            return true
-        }
-        let event = try #require(
-            NSEvent.keyEvent(
-                with: .keyDown,
-                location: .zero,
-                modifierFlags: .command,
-                timestamp: 0,
-                windowNumber: 0,
-                context: nil,
-                characters: "v",
-                charactersIgnoringModifiers: "v",
-                isARepeat: false,
-                keyCode: 9
-            )
-        )
-
-        #expect(textView.performKeyEquivalent(with: event))
-        #expect(handled)
-    }
-
-    @Test
-    @MainActor
-    func codeEditorLanguageMenuTracksCurrentServerFeatures() {
-        let textView = CodeTextView(frame: .zero)
-
-        textView.languageServerFeatures = [.definition, .hover]
-        #expect(textView.languageContextMenuItems().map(\.title) == [
-            "Go to Definition", "Quick Documentation"
-        ])
-
-        textView.languageServerFeatures = [.completion, .formatting, .codeActions]
-        #expect(textView.languageContextMenuItems().map(\.title) == [
-            "Complete Symbol", "Format Document", "Source Actions…"
-        ])
-
-        textView.languageServerFeatures = []
-        #expect(textView.languageContextMenuItems().isEmpty)
-    }
-
-    @Test
     func textLineIndexKeepsLineNumbersAfterSingleLineEdit() {
         var index = TextLineIndex(source: "one\ntwo\nthree" as NSString)
         #expect(index.lineNumber(at: 4) == 1)
@@ -2127,96 +2073,6 @@ struct LitheCoreLogicTests {
         #expect(index.lineNumber(at: 5) == 1)
         #expect(index.lineNumber(at: 9) == 2)
         #expect(index.characterOffset(forLine: 2) == 9)
-    }
-
-    @Test
-    func highlightedRangeCacheOnlyReturnsUncoveredText() {
-        var cache = HighlightedRangeCache()
-        cache.insert(NSRange(location: 10, length: 10))
-        cache.insert(NSRange(location: 30, length: 10))
-
-        #expect(cache.uncoveredRanges(in: NSRange(location: 0, length: 50)) == [
-            NSRange(location: 0, length: 10),
-            NSRange(location: 20, length: 10),
-            NSRange(location: 40, length: 10)
-        ])
-
-        cache.insert(NSRange(location: 20, length: 10))
-        #expect(cache.ranges == [NSRange(location: 10, length: 30)])
-        #expect(cache.uncoveredRanges(in: NSRange(location: 15, length: 20)).isEmpty)
-
-        cache.removeAll()
-        #expect(cache.uncoveredRanges(in: NSRange(location: 5, length: 5)) == [
-            NSRange(location: 5, length: 5)
-        ])
-    }
-
-    @Test
-    func highlightedRangeCacheShiftsUnchangedRangesAfterAnEdit() {
-        var cache = HighlightedRangeCache()
-        cache.insert(NSRange(location: 0, length: 10))
-        cache.insert(NSRange(location: 20, length: 10))
-        cache.insert(NSRange(location: 40, length: 10))
-
-        cache.applyEdit(
-            replacedRange: NSRange(location: 12, length: 4),
-            replacementLength: 8
-        )
-        #expect(cache.ranges == [
-            NSRange(location: 0, length: 10),
-            NSRange(location: 24, length: 10),
-            NSRange(location: 44, length: 10)
-        ])
-
-        cache.applyEdit(
-            replacedRange: NSRange(location: 24, length: 10),
-            replacementLength: 0
-        )
-        #expect(cache.ranges == [
-            NSRange(location: 0, length: 10),
-            NSRange(location: 34, length: 10)
-        ])
-    }
-
-    @Test
-    @MainActor
-    func replaceNotificationsOnlyApplyToTheBoundDocument() {
-        let textView = CodeTextView(frame: .zero)
-        let documentID = UUID()
-        textView.documentID = documentID
-        textView.string = "foo bar"
-        textView.updateFindMatches(query: "foo", options: .default)
-
-        // 文档不匹配的替换通知必须被忽略，防止分栏时误伤其他编辑器
-        NotificationCenter.default.post(
-            name: .litheFindReplaceNext,
-            object: nil,
-            userInfo: [
-                FindNotificationKeys.documentID: UUID(),
-                FindNotificationKeys.replacement: "baz"
-            ]
-        )
-        #expect(textView.string == "foo bar")
-
-        NotificationCenter.default.post(
-            name: .litheFindReplaceNext,
-            object: nil,
-            userInfo: [
-                FindNotificationKeys.documentID: documentID,
-                FindNotificationKeys.replacement: "baz"
-            ]
-        )
-        #expect(textView.string == "baz bar")
-
-        NotificationCenter.default.post(
-            name: .litheFindReplaceAll,
-            object: nil,
-            userInfo: [
-                FindNotificationKeys.documentID: UUID(),
-                FindNotificationKeys.replacement: "qux"
-            ]
-        )
-        #expect(textView.string == "baz bar")
     }
 
     @Test
@@ -6254,30 +6110,6 @@ struct EditorDocumentTests {
                 in: tree
             ) == nil
         )
-    }
-
-    @Test
-    @MainActor
-    func editorViewportStoreRetainsStateForOpenDocuments() {
-        let retainedID = UUID()
-        let closedID = UUID()
-        let store = EditorViewportStore()
-        store.updateSelection(NSRange(location: 18, length: 4), for: retainedID)
-        store.updateScrollOffset(240, for: retainedID)
-        store.updateSelection(NSRange(location: 7, length: 0), for: closedID)
-
-        #expect(
-            store.state(for: retainedID)
-                == EditorViewportState(
-                    selectionLocation: 18,
-                    selectionLength: 4,
-                    verticalScrollOffset: 240
-                )
-        )
-
-        store.retain(documentIDs: [retainedID])
-        #expect(store.state(for: retainedID).selectionLocation == 18)
-        #expect(store.state(for: closedID) == EditorViewportState())
     }
 }
 

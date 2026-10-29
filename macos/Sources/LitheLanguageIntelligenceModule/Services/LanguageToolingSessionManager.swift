@@ -10,6 +10,8 @@ package enum LanguageToolingSessionError: LocalizedError, Equatable, Sendable {
     case toolingUnavailable(String)
     case capabilityUnavailable(provider: String, capability: String)
     case invalidJavaDebugServerPort
+    case invalidDebugAdapterPort(provider: String)
+    case languageServerNotOwnedByPlugin(languageID: String)
 
     package var errorDescription: String? {
         switch self {
@@ -25,6 +27,10 @@ package enum LanguageToolingSessionError: LocalizedError, Equatable, Sendable {
             return L10n.string("The \(provider) provider does not support \(capability).")
         case .invalidJavaDebugServerPort:
             return L10n.string("The Java Debug Server returned an invalid TCP port.")
+        case .invalidDebugAdapterPort(let provider):
+            return L10n.string("The \(provider) language server returned an invalid TCP port for its debug adapter.")
+        case .languageServerNotOwnedByPlugin(let languageID):
+            return L10n.string("The \(languageID) language server of this plugin is not available.")
         }
     }
 }
@@ -65,6 +71,8 @@ package final class LanguageToolingSessionManager: ObservableObject,
     private let runtimeFactory: (any LanguageProviderRuntimeFactory)?
     private var languageServers: [String: any LanguageServerSession] = [:]
     private var languageServerRoots: [String: URL] = [:]
+    private static let maximumStartupAttempts = 3
+    private var languageServerStartupAttempts: [String: (root: URL, count: Int)] = [:]
     /// Core can clear Maven settings only for a session launched with Maven
     /// inputs. Keep this with the session so a pure Gradle start stays nil.
     private var languageServerMavenContexts: [String: MavenLaunchContext] = [:]
@@ -240,9 +248,11 @@ package final class LanguageToolingSessionManager: ObservableObject,
         let updatedDescriptors = Dictionary(
             uniqueKeysWithValues: catalog.descriptors.map { ($0.id, $0) }
         )
+        // Adding or removing a debugger does not change how a server runs, so it
+        // must not restart the server a plugin installation happened to touch.
         let changedProviderIDs = Set(previousDescriptors.keys)
             .union(updatedDescriptors.keys)
-            .filter { previousDescriptors[$0] != updatedDescriptors[$0] }
+            .filter { previousDescriptors[$0]?.withoutDebugAdapter != updatedDescriptors[$0]?.withoutDebugAdapter }
 
         self.catalog = catalog
         let validProviderIDs = Set(catalog.descriptors.map(\.id))
@@ -529,16 +539,64 @@ package final class LanguageToolingSessionManager: ObservableObject,
             arguments: [],
             rootURL: normalizedRoot
         )
+        guard let port = Self.debugAdapterPort(from: value) else {
+            throw LanguageToolingSessionError.invalidJavaDebugServerPort
+        }
+        return port
+    }
+
+    /// The loopback port a language server answers a debug-start command
+    /// with: an integer or a numeric string, 1...65535.
+    package static func debugAdapterPort(from value: ToolingJSONValue) -> UInt16? {
         let portValue: Int?
         switch value {
         case .integer(let value): portValue = value
         case .string(let value): portValue = Int(value)
         default: portValue = nil
         }
-        guard let portValue, (1...Int(UInt16.max)).contains(portValue) else {
-            throw LanguageToolingSessionError.invalidJavaDebugServerPort
-        }
+        guard let portValue, (1...Int(UInt16.max)).contains(portValue) else { return nil }
         return UInt16(portValue)
+    }
+
+    /// Starts or reuses the language server of `pluginID` for `languageID`,
+    /// runs the plugin's declared debug-start `command` on it, and returns the
+    /// loopback port the adapter it hosts listens on. Only the server of the
+    /// same plugin qualifies, as for build requests: another plugin may answer
+    /// for the same language, and must never receive this plugin's command.
+    package func startHostedDebugAdapter(
+        languageID: String,
+        pluginID: String,
+        command: String,
+        rootURL: URL
+    ) async throws -> UInt16 {
+        try Task.checkCancellation()
+        guard extensionRuntimeIDs.contains(languageID),
+              runtimesByID[languageID]?.descriptor.languageServerLaunch?.launchSource?.pluginID == pluginID else {
+            throw LanguageToolingSessionError.languageServerNotOwnedByPlugin(languageID: languageID)
+        }
+        let root = rootURL.standardizedFileURL
+        _ = try startLanguageServer(providerID: languageID, rootURL: root)
+        let identity = languageServerSessionIdentities[languageID]
+        try await waitUntilLanguageServerReady(providerID: languageID, rootURL: root)
+        try Task.checkCancellation()
+        guard runtimesByID[languageID]?.descriptor.languageServerLaunch?.launchSource?.pluginID == pluginID,
+              languageServerSessionIdentities[languageID] == identity,
+              languageServerRoots[languageID] == root,
+              let session = languageServers[languageID], session.isRunning else {
+            throw LanguageToolingSessionError.languageServerNotOwnedByPlugin(languageID: languageID)
+        }
+        let commandRequest = LanguageServerCommand(title: command, command: command, arguments: [])
+        let value = try await session.executeReturningValue(commandRequest, fileURL: root)
+        try Task.checkCancellation()
+        guard languageServerSessionIdentities[languageID] == identity,
+              languageServerRoots[languageID] == root,
+              languageServerStates[languageID] == .ready else {
+            throw LanguageToolingSessionError.languageServerNotOwnedByPlugin(languageID: languageID)
+        }
+        guard let port = Self.debugAdapterPort(from: value) else {
+            throw LanguageToolingSessionError.invalidDebugAdapterPort(provider: languageID)
+        }
+        return port
     }
 
     /// Resolves the current Java source through JDT LS project metadata instead
@@ -1102,6 +1160,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
     }
 
     package func stopLanguageServer(providerID: String) {
+        languageServerStartupAttempts[providerID] = nil
         if providerID == "java" { projectPreparation = nil }
         if providerID == "java" {
             javaDependencyChangeTask?.cancel()
@@ -1164,6 +1223,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
         languageServerSessionIdentities = [:]
         languageServerFeatureProviders = [:]
         languageServerStates = [:]
+        languageServerStartupAttempts = [:]
         languageServerOperationIDs = [:]
     }
 
@@ -1592,6 +1652,15 @@ package final class LanguageToolingSessionManager: ObservableObject,
             return active
         }
 
+        let previousAttempt = languageServerStartupAttempts[descriptor.id]
+        let attempts = previousAttempt?.root == rootURL ? previousAttempt?.count ?? 0 : 0
+        // Document synchronization must not turn a persistent startup failure
+        // into an unbounded process loop. Explicit stop/restart clears the budget.
+        if attempts >= Self.maximumStartupAttempts,
+           case .failed(let failure) = languageServerStates[descriptor.id] {
+            throw LanguageServerSessionStartError(failure: failure)
+        }
+
         if extensionLifecycles[descriptor.id]?.value?.isRetired == true {
             // Stopped by its module before any server was started for it.
             unregisterLanguageServerExtension(languageID: descriptor.id)
@@ -1615,6 +1684,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
         if languageServers[descriptor.id] != nil || languageServerRoots[descriptor.id] != nil {
             stopLanguageServer(providerID: descriptor.id)
         }
+        languageServerStartupAttempts[descriptor.id] = (rootURL, attempts + 1)
         let operationID = requestedOperationID ?? UUID()
         languageServerOperationIDs[descriptor.id] = operationID
         recordLanguageServerLog(
@@ -1632,7 +1702,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
             detail: descriptor.languageServerLaunch?.executableNames.joined(separator: ", ")
         )
 
-        guard let created = runtime.makeLanguageServerSession() else {
+        guard let created = runtime.makeLanguageServerSession(rootURL: rootURL) else {
             let message = runtime.unavailableToolingMessage ?? descriptor.displayName
             let state = LanguageServerSessionState.failed(LanguageServerSessionFailure(
                 code: "tool_not_found",
@@ -2119,6 +2189,7 @@ package final class LanguageToolingSessionManager: ObservableObject,
             languageServerFeatures[providerID] = nil
             languageServerInfos[providerID] = nil
         case .ready:
+            languageServerStartupAttempts[providerID] = nil
             languageServerFeatures[providerID] = session.features
             languageServerInfos[providerID] = session.serverInfo
             recordLanguageServerLog(

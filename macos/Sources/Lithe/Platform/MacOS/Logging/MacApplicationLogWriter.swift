@@ -1,4 +1,6 @@
 import Foundation
+// DispatchWorkItem.cancel() is thread-safe, but the type is not annotated Sendable.
+@preconcurrency import Dispatch
 import LitheGitModule
 
 // Note: .agents/notes/implemented/architecture/2026-10-20-modular-application-logging.md

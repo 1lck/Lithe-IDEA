@@ -28,6 +28,16 @@ pub struct CreateSessionRequest {
     /// Whether the native host can launch adapter-requested processes in a terminal.
     #[serde(default)]
     pub supports_run_in_terminal_request: bool,
+    /// Whether the native host can open a child debug session for an adapter
+    /// `startDebugging` reverse request (for example Node worker or child processes).
+    #[serde(default)]
+    pub supports_start_debugging_request: bool,
+    /// Standard DAP capabilities a plugin declared it disables (`capabilities.disabled`).
+    #[serde(default)]
+    pub disabled_capabilities: Vec<String>,
+    /// The session whose adapter asked for this one through `startDebugging`.
+    #[serde(default)]
+    pub parent_session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -239,6 +249,34 @@ pub struct SetFunctionBreakpointsRequest {
     pub breakpoints: Vec<FunctionBreakpoint>,
 }
 
+#[derive(Debug, Clone, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+/// One breakpoint on a machine instruction.
+///
+/// The reference is the opaque address string the adapter reported (a 64-bit address can
+/// exceed the JavaScript safe integer range), so the Core never parses or adds to it.
+pub struct InstructionBreakpoint {
+    pub instruction_reference: String,
+    /// Byte offset from the reference, for adapters that resolve symbol-relative locations.
+    #[serde(default)]
+    pub offset: Option<i64>,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub condition: Option<String>,
+    #[serde(default)]
+    pub hit_condition: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Replaces the complete instruction breakpoint set for one session.
+pub struct SetInstructionBreakpointsRequest {
+    pub session_id: String,
+    #[serde(default)]
+    pub breakpoints: Vec<InstructionBreakpoint>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 /// Resolves an adapter-owned data identifier for one visible variable or expression.
@@ -350,6 +388,28 @@ pub struct ExecuteRequest {
     pub target_id: Option<i64>,
     #[serde(default)]
     pub single_thread: bool,
+    /// Step size for `next`, `stepIn`, `stepOut` and `stepBack`; the adapter default when absent.
+    #[serde(default)]
+    pub granularity: Option<DebugSteppingGranularity>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+/// How far one step moves, in the DAP `SteppingGranularity` vocabulary.
+pub enum DebugSteppingGranularity {
+    Statement,
+    Line,
+    Instruction,
+}
+
+impl DebugSteppingGranularity {
+    pub(crate) fn argument(self) -> &'static str {
+        match self {
+            Self::Statement => "statement",
+            Self::Line => "line",
+            Self::Instruction => "instruction",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Eq, PartialEq)]
@@ -364,8 +424,14 @@ pub enum DebugInspectKind {
     ExceptionInfo,
     StepInTargets,
     GotoTargets,
+    /// Debug Console completion proposals for the text typed so far.
+    Completions,
     /// Java Debug Server hot replacement; mutates classes in the debuggee.
     RedefineClasses,
+    /// Machine instructions around a memory reference, for the disassembly view.
+    Disassemble,
+    /// Raw debuggee memory at a reference. Read-only; writing needs its own authorization.
+    ReadMemory,
 }
 
 impl DebugInspectKind {
@@ -379,7 +445,10 @@ impl DebugInspectKind {
             Self::ExceptionInfo => "exceptionInfo",
             Self::StepInTargets => "stepInTargets",
             Self::GotoTargets => "gotoTargets",
+            Self::Completions => "completions",
             Self::RedefineClasses => "redefineClasses",
+            Self::Disassemble => "disassemble",
+            Self::ReadMemory => "readMemory",
         }
     }
 }
@@ -424,12 +493,30 @@ pub struct InspectRequest {
     pub count: Option<i64>,
     #[serde(default)]
     pub expression: Option<String>,
+    /// DAP evaluate context: `watch` (default), `hover`, `repl`, `clipboard` or `variables`.
+    #[serde(default)]
+    pub context: Option<String>,
     #[serde(default)]
     pub source_path: Option<String>,
     #[serde(default)]
     pub line: Option<i64>,
     #[serde(default)]
     pub column: Option<i64>,
+    /// Opaque address or memory reference for `disassemble` and `readMemory`.
+    #[serde(default)]
+    pub memory_reference: Option<String>,
+    /// Byte offset from `memoryReference` (may be negative for `disassemble`).
+    #[serde(default)]
+    pub offset: Option<i64>,
+    /// Instruction offset from the resolved start; negative asks for instructions before it.
+    #[serde(default)]
+    pub instruction_offset: Option<i64>,
+    /// Number of instructions `disassemble` returns.
+    #[serde(default)]
+    pub instruction_count: Option<i64>,
+    /// `disassemble` asks the adapter to resolve symbol names; defaults to true.
+    #[serde(default)]
+    pub resolve_symbols: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -471,9 +558,31 @@ pub struct DebugRunInTerminalRequest {
     pub args_can_be_interpreted_by_shell: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Normalized adapter request to start a child debug session.
+pub struct DebugStartDebuggingRequest {
+    /// Whether the child session launches or attaches to its debuggee.
+    pub request: DebugRequestKind,
+    /// Adapter-provided child configuration with the `request` key removed.
+    /// It is passed through verbatim so adapter-specific fields survive.
+    pub configuration: serde_json::Map<String, serde_json::Value>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-/// Completes one pending `runInTerminal` reverse request from the native host.
+/// Completes one pending `startDebugging` reverse request from the native host.
+pub struct DebugStartDebuggingResponseRequest {
+    pub session_id: String,
+    pub request_id: String,
+    pub success: bool,
+    #[serde(default)]
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Completes one pending `runInTerminal' reverse request from the native host.
 pub struct DebugRunInTerminalResponseRequest {
     pub session_id: String,
     pub request_id: String,
@@ -518,6 +627,11 @@ pub struct DebugCapabilities {
     pub supports_exception_info_request: bool,
     pub supports_step_in_targets_request: bool,
     pub supports_goto_targets_request: bool,
+    pub supports_completions_request: bool,
+    pub supports_disassemble_request: bool,
+    pub supports_stepping_granularity: bool,
+    pub supports_instruction_breakpoints: bool,
+    pub supports_read_memory_request: bool,
     pub exception_breakpoint_filters: Vec<DebugExceptionBreakpointFilter>,
 }
 
@@ -565,6 +679,8 @@ pub enum DebugEventBody {
         reason: String,
         thread_id: Option<i64>,
         description: Option<String>,
+        /// Increments on every stop, resume and termination; stale references compare against it.
+        stop_generation: u64,
     },
     Continued {
         thread_id: Option<i64>,
@@ -578,6 +694,19 @@ pub enum DebugEventBody {
     RunInTerminalRequested {
         request_id: String,
         request: DebugRunInTerminalRequest,
+    },
+    /// The adapter asks the host to open a child debug session.
+    StartDebuggingRequested {
+        request_id: String,
+        request: DebugStartDebuggingRequest,
+    },
+    /// Projection version 2 of the same state, emitted beside the v1 result events.
+    Projection {
+        projection: super::projection_v2::SessionProjection,
+    },
+    /// This session is disconnecting, so the host must disconnect the listed child.
+    ChildSessionStopRequested {
+        child_session_id: String,
     },
     OperationCompleted {
         operation_id: String,
@@ -598,6 +727,8 @@ pub enum DebugOperationFailureCode {
     AdapterRejected,
     Cancelled,
     TimedOut,
+    /// The reply used a frame or variables reference from before the latest resume or stop.
+    StaleReference,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -648,6 +779,47 @@ pub enum DebugOperationResult {
     GotoTargets {
         targets: Vec<DebugGotoTarget>,
     },
+    Completions {
+        items: Vec<DebugCompletionItem>,
+    },
+    Disassemble {
+        instructions: Vec<DebugDisassembledInstruction>,
+    },
+    /// Bytes read from the debuggee, base64 on the wire like DAP's `readMemory`.
+    ReadMemory {
+        address: String,
+        unreadable_bytes: i64,
+        data_base64: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// One machine instruction. `address` and `instruction_bytes` stay adapter-formatted
+/// strings, so 64-bit addresses are never rounded by a JSON number.
+pub struct DebugDisassembledInstruction {
+    pub address: String,
+    pub instruction_bytes: Option<String>,
+    pub instruction: String,
+    /// Symbol the instruction belongs to, reported only on the first instruction of it.
+    pub symbol: Option<String>,
+    pub source_path: Option<String>,
+    pub line: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// One Debug Console proposal. `start`/`length` select the typed text the
+/// proposal replaces, in UTF-16 units from 0; absent means the word at the caret.
+pub struct DebugCompletionItem {
+    pub label: String,
+    /// Text inserted in place of the replaced range; the label when the adapter sends none.
+    pub text: String,
+    pub detail: Option<String>,
+    /// The adapter's DAP `CompletionItemType` (`method`, `variable`, ...).
+    pub kind: Option<String>,
+    pub start: Option<i64>,
+    pub length: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -686,6 +858,9 @@ pub struct DebugBreakpoint {
     pub function_name: Option<String>,
     /// Adapter-owned identity for a data-breakpoint verification result.
     pub data_id: Option<String>,
+    /// Requested address of an instruction-breakpoint verification result.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instruction_reference: Option<String>,
     pub source_path: Option<String>,
     /// Original client line, retained when an adapter resolves a different location.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -709,6 +884,15 @@ pub struct DebugStackFrame {
     pub id: i64,
     pub name: String,
     pub source_path: Option<String>,
+    /// The adapter's `sourceReference` when it serves this frame's source itself, such as
+    /// the disassembly of a function without debug info. `source_path` then names no file
+    /// on disk, even when it looks like an absolute path.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_reference: Option<i64>,
+    /// Opaque address of the frame's current instruction. A frame without debug info has no
+    /// file, so this is what the disassembly view anchors on; `line` is 0 for such a frame.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instruction_pointer_reference: Option<String>,
     pub line: i64,
     pub column: i64,
     /// True when the active portable stepping policy matches this frame.
@@ -726,6 +910,9 @@ pub struct DebugScope {
     pub named_variables: i64,
     /// Adapter-reported count of indexed children, or zero when unavailable.
     pub indexed_variables: i64,
+    /// DAP `presentationHint` (`arguments`, `locals`, `registers`), or none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub presentation_hint: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

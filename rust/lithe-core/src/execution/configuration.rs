@@ -14,7 +14,7 @@ const VERSION: u32 = 2;
 const LEGACY_VERSION: u32 = 1;
 // Bumped when generation changes what a workspace should contain: existing
 // workspaces regenerate instead of keeping a stale `generated.json`.
-const GENERATOR_REVISION: &str = "10";
+const GENERATOR_REVISION: &str = "11";
 /// Toolchain requirements and `project.json` are separate documents that happen
 /// to live under `.lithe`. Their schema did not change with run-config v2, so
 /// they keep their own version and must not be validated against `VERSION`.
@@ -191,6 +191,62 @@ pub struct CreateUserConfigurationRequest {
     pub module: String,
     #[serde(default)]
     pub main_class: String,
+    /// A typed selector, never a cached executable or classpath.
+    #[serde(default)]
+    pub build: Option<BuildProviderRunReference>,
+}
+
+/// Persisted workspace identity for re-preparing a build-provider application.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BuildProviderRunReference {
+    #[serde(rename = "pluginID")]
+    pub plugin_id: String,
+    #[serde(rename = "buildSystemID")]
+    pub build_system_id: String,
+    pub root: String,
+    pub run: String,
+    #[serde(rename = "projectID")]
+    pub project_id: String,
+    #[serde(rename = "targetID")]
+    pub target_id: String,
+    #[serde(default)]
+    pub user_arguments: Vec<String>,
+}
+
+impl BuildProviderRunReference {
+    /// Persistence validates identities only; current model membership is checked at launch.
+    fn validate(&self) -> Result<(), CoreError> {
+        let identifier = |value: &str| {
+            !value.is_empty()
+                && value.len() <= 200
+                && value
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
+        };
+        if !identifier(&self.plugin_id)
+            || !identifier(&self.build_system_id)
+            || !identifier(&self.run)
+            || [&self.project_id, &self.target_id]
+                .iter()
+                .any(|id| id.is_empty() || id.len() > 2048 || id.contains('\0'))
+            || self.user_arguments.len() > 64
+            || self
+                .user_arguments
+                .iter()
+                .any(|arg| arg.len() > 4096 || arg.contains('\0'))
+            || invalid_relative_path(&self.root)
+            || self.root.is_empty()
+            || self.root.contains('\\')
+            || self.root.contains('\0')
+        {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Invalid build provider run reference",
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -284,6 +340,9 @@ fn migrate_configuration_value(item: &mut Value) {
 /// or to `path` for a Java source that only counts by presence.
 pub struct GeneratorMetadata {
     pub fingerprint: String,
+    /// Unreadable inputs retained as unknown; a partial baseline cannot prove freshness.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub unreadable_paths: BTreeSet<String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub inputs: BTreeMap<String, String>,
 }
@@ -437,6 +496,16 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
         validate_sidecar_version(document.version)?;
     }
     let mut diagnostics = Vec::new();
+    if request.check_fingerprint == Some(false) {
+        if let Some(metadata) = generated
+            .as_ref()
+            .and_then(|document| document.generator.as_ref())
+        {
+            if !metadata.unreadable_paths.is_empty() {
+                diagnostics.push(incomplete_scan_diagnostic(&metadata.unreadable_paths));
+            }
+        }
+    }
     let local = local_layer_document(&root, request.local_document.clone())?;
     if let Some((document, metadata)) = generated
         .as_ref()
@@ -444,7 +513,14 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
         .filter(|_| request.check_fingerprint != Some(false))
     {
         let current_inputs = project_inputs(&root, &java_entry_sources(&document.configurations))?;
-        if metadata.fingerprint != fingerprint_from_inputs(&current_inputs) {
+        if !current_inputs.unreadable_paths.is_empty() || !metadata.unreadable_paths.is_empty() {
+            let unknown = current_inputs
+                .unreadable_paths
+                .union(&metadata.unreadable_paths)
+                .cloned()
+                .collect();
+            diagnostics.push(incomplete_scan_diagnostic(&unknown));
+        } else if metadata.fingerprint != fingerprint_from_inputs(&current_inputs.inputs) {
             // Stored inputs that no longer reproduce the stored fingerprint were
             // recorded by another generator revision, whose input rules (such
             // as which sources are hashed) may differ from today's.
@@ -452,10 +528,10 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
                 fingerprint_from_inputs(&metadata.inputs) != metadata.fingerprint;
             let message = if metadata.inputs.is_empty() {
                 "Project inputs changed after run configuration generation".to_string()
-            } else if generator_changed || metadata.inputs == current_inputs {
+            } else if generator_changed || metadata.inputs == current_inputs.inputs {
                 "Run configuration generator changed; regenerate configurations".to_string()
             } else {
-                input_change_summary(&metadata.inputs, &current_inputs)
+                input_change_summary(&metadata.inputs, &current_inputs.inputs)
             };
             diagnostics.push(json!({
                 "code": "staleFingerprint",
@@ -507,7 +583,7 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
         }
     }
     Ok(json!({
-        "status": if generated.is_some() { "ready" } else { "missing" },
+        "status": if generated.is_some() || has_saved_build_run(&local) { "ready" } else { "missing" },
         "generated": generated,
         "toolchainRequirements": requirements,
         "localToolchains": local_toolchains,
@@ -651,7 +727,6 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
         })
         .collect::<Result<Vec<_>, _>>()?;
     let mut configurations = deduplicate_java_configurations(configurations);
-    let java_entry_count = configurations.len();
     if has_java_sources {
         configurations.push(RunConfiguration {
             id: "current-file".to_string(),
@@ -694,10 +769,20 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
     // Counts real entry points, not documents: the always-present "Current File"
     // fallback is excluded so an empty project still reports zero and the UI can
     // say so, while a detected npm service correctly reports one.
-    let entry_count = java_entry_count + detected.len();
     configurations.extend(detected);
+    let mut snapshot = project_inputs(&root, &java_entry_sources(&configurations))?;
+    // Unknown subtrees cannot delete known configurations or baseline inputs.
+    // Invalid required documents still fail instead of being silently overwritten.
+    if !snapshot.unreadable_paths.is_empty() {
+        if let Some(previous) = read_document(&root, "run/generated.json")? {
+            retain_unknown_inputs(&mut configurations, &mut snapshot, previous);
+        }
+    }
     disambiguate_configuration_names(&mut configurations);
-    let inputs = project_inputs(&root, &java_entry_sources(&configurations))?;
+    let entry_count = configurations
+        .iter()
+        .filter(|item| item.id != "current-file")
+        .count();
     let requirements = detect_requirements(
         &root,
         maven_root.as_ref().map(|(path, _)| path.as_path()),
@@ -707,8 +792,9 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
     let generated = RunConfigurationDocument {
         version: VERSION,
         generator: Some(GeneratorMetadata {
-            fingerprint: fingerprint_from_inputs(&inputs),
-            inputs,
+            fingerprint: fingerprint_from_inputs(&snapshot.inputs),
+            inputs: snapshot.inputs,
+            unreadable_paths: snapshot.unreadable_paths,
         }),
         configurations,
     };
@@ -1097,15 +1183,19 @@ fn is_nested_checkout_path(value: &str) -> bool {
 /// Merges generated, team, and local layers and selects compatible toolchains.
 pub fn resolve(request: ResolveRequest) -> Result<Value, CoreError> {
     let root = existing_root(&request.root)?;
-    let generated = read_document_value(&root, "run/generated.json")?.ok_or_else(|| {
-        CoreError::new(
-            ErrorCode::WorkspaceNotFound,
-            "Run configuration has not been generated",
-        )
-    })?;
     let team = read_document_value(&root, "run/configurations.json")?
         .unwrap_or_else(|| json!({"version": VERSION, "configurations": []}));
     let local = local_layer_document(&root, request.local_document)?;
+    let generated = match read_document_value(&root, "run/generated.json")? {
+        Some(document) => document,
+        None if has_saved_build_run(&local) => json!({"version": VERSION, "configurations": []}),
+        None => {
+            return Err(CoreError::new(
+                ErrorCode::WorkspaceNotFound,
+                "Run configuration has not been generated",
+            ))
+        }
+    };
     let local_toolchains = read_local_toolchains(&root)?;
     let manifest = read_document_value(&root, "project.json")?;
     validate_version_value(&generated)?;
@@ -1141,6 +1231,23 @@ pub fn resolve(request: ResolveRequest) -> Result<Value, CoreError> {
     )?);
     for configuration in &mut configurations {
         validate_configuration(configuration)?;
+        if configuration.provider == "build.provider" {
+            // Materialize optional defaults in the shared output so native
+            // consumers receive the same shape as a newly saved selector.
+            let reference: BuildProviderRunReference = serde_json::from_value(
+                configuration.extensions["build"].clone(),
+            )
+            .map_err(|_| {
+                CoreError::new(
+                    ErrorCode::ParseFailed,
+                    "Invalid build provider run reference",
+                )
+            })?;
+            configuration.extensions.insert(
+                "build".to_string(),
+                serde_json::to_value(reference).expect("reference encodes"),
+            );
+        }
         if configuration.disabled {
             diagnostics.push(json!({
                 "id": configuration.id,
@@ -1562,11 +1669,133 @@ fn remove_maven_skip_tests_override(configuration: &mut serde_json::Map<String, 
     maven.remove("skipTests");
 }
 
+/// Only explicit provider references make an ungenerated workspace runnable.
+fn has_saved_build_run(document: &Value) -> bool {
+    document["configurations"].as_array().is_some_and(|items| {
+        items.iter().any(|item| {
+            item["provider"] == "build.provider"
+                && item["id"]
+                    .as_str()
+                    .is_some_and(|id| id.starts_with("user:"))
+        })
+    })
+}
+
+/// Upserts a local reference while preserving unrelated settings and stable IDs.
+fn create_build_provider_configuration(
+    root: &Path,
+    request: &CreateUserConfigurationRequest,
+) -> Result<Value, CoreError> {
+    if request.scope != "local" {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Build provider references must be saved locally",
+        ));
+    }
+    let reference = request.build.as_ref().ok_or_else(|| {
+        CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Missing build provider run reference",
+        )
+    })?;
+    reference.validate()?;
+    normalize_project_directory(root, &reference.root)?;
+    let name = request.name.trim();
+    if name.is_empty() || name.len() > 256 || name.contains('\0') {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Invalid run configuration name",
+        ));
+    }
+    let mut document = read_document_value(root, "run/local.json")?
+        .unwrap_or_else(|| json!({"version":VERSION,"configurations":[]}));
+    validate_version_value(&document)?;
+    let mut ids: std::collections::BTreeSet<String> =
+        configuration_ids(&document)?.into_keys().collect();
+    for relative in ["run/generated.json", "run/configurations.json"] {
+        if let Some(other) = read_document_value(root, relative)? {
+            validate_version_value(&other)?;
+            ids.extend(configuration_ids(&other)?.into_keys());
+        }
+    }
+    let encoded = serde_json::to_value(reference).expect("reference encodes");
+    let mut identity = encoded.clone();
+    identity.as_object_mut().unwrap().remove("userArguments");
+    let items = document["configurations"]
+        .as_array_mut()
+        .ok_or_else(|| CoreError::new(ErrorCode::ParseFailed, "configurations must be an array"))?;
+    let existing = items.iter().position(|item| {
+        if item["provider"] != "build.provider" {
+            return false;
+        }
+        let mut saved = item["extensions"]["build"].clone();
+        if let Some(object) = saved.as_object_mut() {
+            object.remove("userArguments");
+        }
+        saved == identity
+    });
+    let id = existing
+        .and_then(|index| items[index]["id"].as_str())
+        .map(str::to_string)
+        .unwrap_or_else(|| unique_user_configuration_id(name, &ids));
+    let mut configuration = existing
+        .map(|index| items[index].clone())
+        .unwrap_or_else(|| json!({}));
+    let object = configuration.as_object_mut().ok_or_else(|| {
+        CoreError::new(
+            ErrorCode::ParseFailed,
+            "Run configuration must be an object",
+        )
+    })?;
+    let managed = json!({"id":id,"name":name,"provider":"build.provider","execution":"application",
+        "cwd":reference.root,"confidence":"declared"});
+    object.extend(
+        managed
+            .as_object()
+            .expect("managed fields are an object")
+            .clone(),
+    );
+    // Other namespaces may hold user/plugin metadata; replacing the whole
+    // entry would erase data unrelated to this selector update.
+    let extensions = object
+        .entry("extensions")
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        .ok_or_else(|| {
+            CoreError::new(
+                ErrorCode::ParseFailed,
+                "Run configuration extensions must be an object",
+            )
+        })?;
+    extensions.insert("build".to_string(), encoded);
+    let typed: RunConfiguration = serde_json::from_value(configuration.clone())
+        .map_err(|_| CoreError::new(ErrorCode::ParseFailed, "Invalid saved run configuration"))?;
+    validate_configuration(&typed)?;
+    if let Some(index) = existing {
+        items[index] = configuration;
+    } else {
+        items.push(configuration);
+    }
+    items.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
+    Ok(
+        json!({"id":id,"document":serde_json::to_string_pretty(&document).expect("document encodes")}),
+    )
+}
+
 /// Creates a user configuration while preserving stable IDs in existing layers.
 pub fn create_user_configuration(
     request: CreateUserConfigurationRequest,
 ) -> Result<Value, CoreError> {
     let root = existing_root(&request.root)?;
+    if request.kind == "buildProvider" {
+        return create_build_provider_configuration(&root, &request);
+    }
+    if request.build.is_some() {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Build reference requires a buildProvider configuration",
+        ));
+    }
     let relative = scope_document(&request.scope)?;
     let name = request.name.trim();
     if name.is_empty() {
@@ -2551,6 +2780,34 @@ fn validate_configuration(configuration: &RunConfiguration) -> Result<(), CoreEr
         )
         .with_details(configuration.provider.clone()));
     }
+    if configuration.provider == "build.provider" {
+        let reference: BuildProviderRunReference = serde_json::from_value(
+            configuration
+                .extensions
+                .get("build")
+                .cloned()
+                .unwrap_or(Value::Null),
+        )
+        .map_err(|_| {
+            CoreError::new(
+                ErrorCode::ParseFailed,
+                "Invalid build provider run reference",
+            )
+        })?;
+        reference.validate()?;
+        if configuration.command.is_some()
+            || !configuration.args.is_empty()
+            || !configuration.env.is_empty()
+            || !configuration.toolchains.is_empty()
+            || configuration.debug.is_some()
+            || configuration.execution != Execution::Application
+        {
+            return Err(CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Build provider configurations store selectors, not process launch data",
+            ));
+        }
+    }
     let module = configuration.module().unwrap_or_else(|| ".".to_string());
     for (field, value) in [
         ("module", module.as_str()),
@@ -2823,16 +3080,19 @@ pub(super) fn read_requirements(
         .join(".lithe")
         .join("toolchains")
         .join("requirements.json");
-    if !path.exists() {
-        return Ok(None);
-    }
-    let text = fs::read_to_string(path).map_err(|error| {
-        CoreError::new(
-            ErrorCode::PermissionDenied,
-            "Could not read toolchain requirements: .lithe/toolchains/requirements.json",
-        )
-        .with_details(error.to_string())
-    })?;
+    let text = match crate::remote::workspace_io::read_to_string(path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err({
+                CoreError::new(
+                    ErrorCode::PermissionDenied,
+                    "Could not read toolchain requirements: .lithe/toolchains/requirements.json",
+                )
+                .with_details(error.to_string())
+            })
+        }
+    };
     serde_json::from_str(&text).map(Some).map_err(|e| {
         CoreError::new(
             ErrorCode::ParseFailed,
@@ -3085,36 +3345,92 @@ pub(super) fn java_feature_version_parts(parts: Vec<u32>) -> Vec<u32> {
 
 /// Collects generation inputs. Java sources count by path unless generation
 /// reads their content (`content_sources`); every other input is hashed.
-fn project_inputs(
-    root: &Path,
-    content_sources: &BTreeSet<String>,
-) -> Result<BTreeMap<String, String>, CoreError> {
-    let mut files = Vec::new();
-    let mut stack = vec![root.to_path_buf()];
-    while let Some(dir) = stack.pop() {
-        for entry in fs::read_dir(dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.is_dir() {
-                if !ignored_directory(&path) {
-                    stack.push(path);
-                }
-            } else if fingerprint_input(&path) {
-                if let Ok(relative) = path.strip_prefix(root) {
-                    files.push(relative.to_string_lossy().replace('\\', "/"));
-                }
+struct ProjectInputs {
+    inputs: BTreeMap<String, String>,
+    unreadable_paths: BTreeSet<String>,
+}
+
+// Retention is independent of filesystem permissions so both hosts preserve the
+// same last-known configuration when an optional subtree becomes unreadable.
+fn retain_unknown_inputs(
+    configurations: &mut Vec<RunConfiguration>,
+    snapshot: &mut ProjectInputs,
+    previous: RunConfigurationDocument,
+) {
+    for configuration in previous.configurations {
+        let source = configuration.source.as_deref().or_else(|| {
+            configuration
+                .extensions
+                .get("java")?
+                .get("source")?
+                .as_str()
+        });
+        if source.is_some_and(|path| under_unknown(path, &snapshot.unreadable_paths))
+            && !configurations
+                .iter()
+                .any(|current| current.id == configuration.id)
+        {
+            configurations.push(configuration);
+        }
+    }
+    if let Some(metadata) = previous.generator {
+        for (path, hash) in metadata.inputs {
+            if under_unknown(&path, &snapshot.unreadable_paths) {
+                snapshot.inputs.entry(path).or_insert(hash);
             }
         }
     }
-    files.sort();
-    let mut result = BTreeMap::new();
-    for relative in files {
-        if relative.ends_with(".java") && !content_sources.contains(&relative) {
-            result.insert(relative, PATH_ONLY_INPUT.to_string());
-            continue;
-        }
-        if let Ok(bytes) = fs::read(root.join(&relative)) {
-            result.insert(relative, format!("sha256:{:x}", Sha256::digest(bytes)));
+}
+
+fn under_unknown(path: &str, unknown: &BTreeSet<String>) -> bool {
+    unknown
+        .iter()
+        .any(|prefix| path == prefix || path.starts_with(&format!("{prefix}/")))
+}
+
+fn incomplete_scan_diagnostic(paths: &BTreeSet<String>) -> Value {
+    json!({"code": "incompleteProjectScan", "message": format!(
+        "Project scan is incomplete; freshness and removals could not be verified. Unreadable inputs: {}",
+        paths.iter().cloned().collect::<Vec<_>>().join(", "))})
+}
+
+fn project_inputs(
+    root: &Path,
+    content_sources: &BTreeSet<String>,
+) -> Result<ProjectInputs, CoreError> {
+    let scan = super::workspace_scan::scan_run_workspace(root, None)?;
+    let mut result = ProjectInputs {
+        inputs: BTreeMap::new(),
+        unreadable_paths: scan.unreadable_paths,
+    };
+    for directory in scan.directories {
+        for name in directory.files {
+            let path = directory.path.join(name);
+            if !fingerprint_input(&path) {
+                continue;
+            }
+            let relative = path
+                .strip_prefix(root)
+                .expect("scan stays within root")
+                .to_string_lossy()
+                .replace('\\', "/");
+            if relative.ends_with(".java") && !content_sources.contains(&relative) {
+                result.inputs.insert(relative, PATH_ONLY_INPUT.to_string());
+                continue;
+            }
+            crate::protocol::cancellation::check()?;
+            // The scan lists files through the workspace adapter, so content reads
+            // must use the same adapter or remote projects look permanently unreadable.
+            match crate::remote::workspace_io::read(&path) {
+                Ok(bytes) => {
+                    result
+                        .inputs
+                        .insert(relative, format!("sha256:{:x}", Sha256::digest(bytes)));
+                }
+                Err(_) => {
+                    result.unreadable_paths.insert(relative);
+                }
+            }
         }
     }
     Ok(result)
@@ -3152,29 +3468,6 @@ fn input_change_summary(
         .filter(|(path, hash)| previous.get(*path).is_some_and(|old| old != *hash))
         .count();
     format!("Project inputs changed: {added} added, {removed} removed, {changed} modified")
-}
-
-fn ignored_directory(path: &Path) -> bool {
-    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
-        return false;
-    };
-    name.eq_ignore_ascii_case(".worktree")
-        || name.eq_ignore_ascii_case(".worktrees")
-        || matches!(
-            name,
-            ".git"
-                | ".lithe"
-                | ".idea"
-                | ".gradle"
-                | ".venv"
-                | "venv"
-                | "node_modules"
-                | "vendor"
-                | "target"
-                | "build"
-                | "dist"
-                | "out"
-        )
 }
 
 fn fingerprint_input(path: &Path) -> bool {
@@ -3223,7 +3516,7 @@ fn declared_node_version(root: &Path) -> Option<String> {
     highest_version(
         project_manifest_paths(root, &["package.json"])
             .into_iter()
-            .filter_map(|path| fs::read_to_string(path).ok())
+            .filter_map(|path| crate::remote::workspace_io::read_to_string(path).ok())
             .filter_map(|text| serde_json::from_str::<Value>(&text).ok())
             .filter_map(|document| {
                 document
@@ -3250,28 +3543,21 @@ fn highest_version(versions: Vec<String>) -> Option<String> {
 }
 
 fn project_manifest_paths(root: &Path, names: &[&str]) -> Vec<PathBuf> {
-    let mut result = Vec::new();
-    let mut stack = vec![root.to_path_buf()];
-    while let Some(directory) = stack.pop() {
-        let Ok(entries) = fs::read_dir(directory) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                if !ignored_directory(&path) {
-                    stack.push(path);
-                }
-            } else if path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| names.contains(&name))
-            {
-                result.push(path);
-            }
-        }
-    }
-    result
+    // This heuristic only supplements declared toolchain requirements. Fingerprint
+    // scanning separately reports unknown subtrees to both product hosts.
+    let Ok(scan) = super::workspace_scan::scan_run_workspace(root, None) else {
+        return Vec::new();
+    };
+    scan.directories
+        .into_iter()
+        .flat_map(|directory| {
+            directory
+                .files
+                .into_iter()
+                .filter(|name| names.contains(&name.as_str()))
+                .map(move |name| directory.path.join(name))
+        })
+        .collect()
 }
 
 fn declared_java_version(root: &Path) -> Option<(String, Option<String>)> {
@@ -3369,4 +3655,43 @@ fn valid_provider(value: &str) -> bool {
                 .chars()
                 .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
     })
+}
+
+#[cfg(test)]
+mod incomplete_scan_tests {
+    use super::*;
+
+    #[test]
+    fn unknown_inputs_retain_only_affected_configurations_and_hashes() {
+        let previous: RunConfigurationDocument = serde_json::from_value(json!({
+            "version": 2,
+            "generator": {"fingerprint": "old", "inputs": {
+                "blocked/package.json": "old-blocked", "removed/package.json": "old-removed"
+            }},
+            "configurations": [
+                {"id":"blocked", "name":"Blocked", "provider":"npm.script", "source":"blocked/package.json"},
+                {"id":"removed", "name":"Removed", "provider":"npm.script", "source":"removed/package.json"}
+            ]
+        })).unwrap();
+        let mut configurations = Vec::new();
+        let mut snapshot = ProjectInputs {
+            inputs: BTreeMap::from([("visible/package.json".into(), "new".into())]),
+            unreadable_paths: BTreeSet::from(["blocked".into()]),
+        };
+        retain_unknown_inputs(&mut configurations, &mut snapshot, previous);
+        assert_eq!(configurations.len(), 1);
+        assert_eq!(configurations[0].id, "blocked");
+        assert_eq!(
+            snapshot
+                .inputs
+                .get("blocked/package.json")
+                .map(String::as_str),
+            Some("old-blocked")
+        );
+        assert!(!snapshot.inputs.contains_key("removed/package.json"));
+        assert!(!under_unknown(
+            "blocked-sibling/package.json",
+            &snapshot.unreadable_paths
+        ));
+    }
 }

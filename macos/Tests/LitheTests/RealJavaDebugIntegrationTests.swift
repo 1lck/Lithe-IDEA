@@ -105,10 +105,11 @@ struct RealJavaDebugIntegrationTests {
             CoreDebugAdapterProtocolSession(
                 adapterID: "java",
                 transport: RealJavaDebugRecordingTransport(
-                    wrapping: MacJavaDebugAdapterTransport(
+                    wrapping: MacHostedPortDebugAdapterTransport(
                         portResolver: { rootURL in
                             try await languageManager.startJavaDebugServer(rootURL: rootURL)
-                        }
+                        },
+                        core: core
                     ),
                     trace: protocolTrace
                 ),
@@ -412,10 +413,11 @@ struct RealJavaDebugIntegrationTests {
             CoreDebugAdapterProtocolSession(
                 adapterID: "java",
                 transport: RealJavaDebugRecordingTransport(
-                    wrapping: MacJavaDebugAdapterTransport(
+                    wrapping: MacHostedPortDebugAdapterTransport(
                         portResolver: { rootURL in
                             try await languageManager.startJavaDebugServer(rootURL: rootURL)
-                        }
+                        },
+                        core: core
                     ),
                     trace: protocolTrace
                 ),
@@ -428,7 +430,6 @@ struct RealJavaDebugIntegrationTests {
         feature.onRunInTerminalRequest = debugTerminals.handle
         let launchService = JavaTestDebugLaunchService(
             configurationResolver: DebugLaunchConfigurationResolver(
-                fileExists: { fileManager.fileExists(atPath: $0.path) },
                 javaTestLaunchResolver: core
             ),
             resultServerFactory: { MacJavaTestResultServer() }
@@ -853,7 +854,7 @@ private struct RealJavaSupportPackage {
     private let stateRootURL: URL
 
     /// Build the package first with
-    /// `scripts/build-official-plugins.sh --bundled-only --triple <triple>`
+    /// `scripts/plugins/build-official-plugins.sh --bundled-only --triple <triple>`
     /// and pass the directory it prints, plus the plugin ID, as
     /// `LITHE_JAVA_SUPPORT_PACKAGE`. The default is the debug output of a
     /// local build.

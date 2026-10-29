@@ -42,3 +42,8 @@ run:
 ```bash
 node .agents/skills/write-stable-tests/scripts/generate-test-report.mjs
 ```
+
+For feature-gated Rust targets, pass `--no-default-features --features client,server`
+to `run-rust-tests-with-timing.mjs` (as in `scripts/remote/verify-remote-workspace.sh`).
+The runner forwards these flags to Cargo and records the selected features in
+JSON so a passing client-only run cannot be mistaken for server coverage.

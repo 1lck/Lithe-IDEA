@@ -33,11 +33,11 @@ Windows 设置页的固定选项和可搜索选项统一通过 `SettingsSelect` 
 
 ## 验证
 
-- `scripts/build-windows.ps1 -Configuration Release` 验证类型、前端与 Windows 应用构建。
+- `scripts/windows/build/build-windows.ps1 -Configuration Release` 验证类型、前端与 Windows 应用构建。
 - `.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend` 验证现有设置路由、持久化与新增的空值选择回归。
 - `windows/tauri/src/ui/settings-select.test.tsx` 验证自动配置选中态、切换后恢复自动配置、禁用选项和外部标签；此回归不能由类型检查证明。
 - `windows/tauri/src/ui/settings-path-input.test.tsx` 通过实际输入和 Esc 键盘事件验证任意路径草稿保留、继续编辑及手动清空，并以独立进程接入 Windows CI（持续集成），避免其他组件测试的浏览器环境干扰。
-- `scripts/verify-windows-boundaries.sh`、`scripts/verify-platform-feature-matrix.sh`、`scripts/verify-runtime-bundle-immutability.sh` 与 `scripts/verify-agent-notes.sh` 检查边界和文档。
+- `scripts/windows/verify/verify-windows-boundaries.sh`、`scripts/platform-feature-matrix/verify-platform-feature-matrix.sh`、`scripts/macos/verify/verify-runtime-bundle-immutability.sh` 与 `scripts/agent-notes/verify-agent-notes.sh` 检查边界和文档。
 - 在实际设置窗口检查深浅色、普通与可搜索列表、键盘选择与 Esc、点击外部关闭、切换分类、长列表滚动和选项持久化。
 
 ## 适用范围
