@@ -1314,7 +1314,9 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
                 try await documentFeature.save(document, encoding: encoding)
                 showNotification("Saved \(document.displayName) as \(encoding.displayName)")
             } catch {
-                showNotification("Could not save \(document.displayName) as \(encoding.displayName)")
+                if !(error is CancellationError) {
+                    showNotification(documentFeature.saveFailureMessage(for: document, error: error))
+                }
             }
         }
     }

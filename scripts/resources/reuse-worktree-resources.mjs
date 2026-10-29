@@ -83,6 +83,8 @@ async function readRegistry() {
   // both original state and migration snapshots and must not gain a validator.
   // Shared i18n source and generated tables take this same refusal route:
   // rebuild from the target checkout, never copy another worktree's translations.
+  // AutoBuild publication checkpoints and baseline downloads are invocation-owned,
+  // not reusable build inputs, even without plugin mirror staging.
   const excludedResources = registry.excludedResources ?? [];
   if (!Array.isArray(excludedResources)) throw new Error("Invalid excluded worktree resources");
   for (const resource of excludedResources) {

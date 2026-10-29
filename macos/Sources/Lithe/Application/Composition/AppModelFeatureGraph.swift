@@ -85,7 +85,8 @@ final class AppModelFeatureGraph {
             documentLifecycleDecider: services.documentLifecycleDecider,
             fileOperations: services.fileOperations,
             fileStorage: services.fileStorage,
-            binaryFileViewerRegistry: services.binaryFileViewerRegistry
+            binaryFileViewerRegistry: services.binaryFileViewerRegistry,
+            confirmHardLinkSave: { services.platformUI.confirmHardLinkSave(at: $0) }
         )
         navigationHistory = NavigationHistoryFeatureModel()
         java = JavaFeatureModel(operations: services.javaMavenOperations)

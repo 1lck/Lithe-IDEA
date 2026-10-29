@@ -29,6 +29,7 @@
 "%@ free of %@" = "可用 %1$@，共 %2$@";
 "%@ holds the metadata of several version control systems. Choose the one that manages it." = "%@ 包含多个版本控制系统的元数据。请选择管理它的版本控制系统。";
 "%@ in %@" = "%@，位于 %@";
+"%@ is hard-linked. Changes are not saved automatically. Save manually to choose how to update the file." = "%@ 是硬链接文件，不会自动保存修改。请手动保存并选择更新方式。";
 "%@ is needed for this project but %@ is disabled." = "此项目需要 %1$@ 支持，但 %2$@ 已停用。";
 "%@ is no longer an official plugin. It moved to the community plugin %@ in Lithe Store and gets no further updates here. Uninstall it, restart Lithe, then install the community version from the Marketplace." = "%@ 已不再是官方插件，已迁移为 Lithe Store 中的社区插件 %@，这里不会再收到更新。请先卸载它并重启 Lithe，再从插件市场安装社区版本。";
 "%@ is not available." = "%@ 不可用。";
@@ -44,6 +45,7 @@
 "%@ provider (inside the plugin)" = "%@ Provider（插件内置）";
 "%@ provider (installed on this Mac)" = "%@ Provider（使用本机已安装的程序）";
 "%@ returned an invalid language-server provider." = "%@ 返回了无效的语言服务器 Provider。";
+"%@ shares its contents with other paths. Save as Independent File updates only this path and breaks its hard-link relationship. Update All Hard Links writes to the shared file, including links outside this project; it is not atomic and an interrupted write may leave partial contents. Cancel keeps your edits unsaved." = "%@ 与其他路径指向同一份文件内容。“保存为独立文件”只更新当前路径，并解除它与其他路径的硬链接关系。“更新所有硬链接”直接修改共享文件，包括项目外指向它的路径；此操作不是原子保存，中断可能导致内容不完整。“取消”将保留未保存的编辑。";
 "%@ started a task that is still running" = "%@ 启动的任务仍在运行";
 "%@ test run timed out after %@ seconds." = "%@ 测试运行在 %@ 秒后超时。";
 "%@ testing extension is not active." = "%@ 测试扩展未启用。";
@@ -559,6 +561,7 @@
 "Check the Hook name, command, event, Agents and timeout (1–86400 seconds)." = "请检查 Hook 名称、命令、事件、Agent 和超时（1–86400 秒）。";
 "Check the MCP command, URL and headers." = "请检查 MCP 命令、URL 和请求头。";
 "Check the configuration format, API URL and model. Each configuration must be under 64 KiB." = "请检查配置格式、API 地址和模型，每份配置不得超过 64 KiB。";
+"Check the file and parent folder permissions, and allow Lithe to access this location in System Settings." = "请检查文件及其父文件夹的权限，并在系统设置中允许 Lithe 访问此位置。";
 "Check the workspace connection and refresh the available runtimes." = "请检查工作区连接并刷新可用运行环境。";
 "Check your internet connection and try again later." = "请检查网络连接，稍后再试。";
 "Check: %@" = "检查：%@";
@@ -960,6 +963,7 @@
 "Could not confirm" = "无法确认";
 "Could not connect to the Debug Adapter: %@" = "无法连接调试适配器：%@";
 "Could not copy your Stable settings" = "无法复制正式版设置";
+"Could not decode this file" = "无法解码此文件";
 "Could not discover runtimes on the remote host. Check the connection and refresh." = "无法探测远程主机的运行环境，请检查连接后刷新。";
 "Could not discover shells on the remote host. Check the connection and try again." = "无法探测远程主机上的 Shell。请检查连接后重试。";
 "Could not find the Java source for %@" = "找不到 %@ 对应的 Java 源码";
@@ -978,6 +982,7 @@
 "Could not load the changed files." = "无法加载更改的文件。";
 "Could not load this image" = "无法加载此图片";
 "Could not move the editor tab. Its content could not be synchronized." = "无法移动编辑标签，未能同步其内容。";
+"Could not open %@: %@ %@" = "无法打开 %@：%@ %@";
 "Could not open HTML in browser" = "无法在浏览器中打开 HTML";
 "Could not open the remote folder: %@" = "无法打开远程文件夹：%@";
 "Could not prepare the run configuration: %@" = "无法准备运行配置：%@";
@@ -987,11 +992,13 @@
 "Could not read the command line." = "无法读取命令行。";
 "Could not read the project folder. Check that it still exists and that Lithe has permission to access it." = "无法读取项目文件夹，请确认文件夹仍然存在并允许 Lithe 访问。";
 "Could not read the selected built-in background." = "无法读取所选的内置背景。";
+"Could not read this file" = "无法读取此文件";
 "Could not register Lithe MCP in %@: %@" = "无法在 %@ 中注册 Lithe MCP：%@";
 "Could not remove Lithe MCP from %@: %@" = "无法从 %@ 中移除 Lithe MCP：%@";
 "Could not restore local history" = "无法恢复本地历史";
 "Could not restore project history" = "无法恢复项目历史";
 "Could not restore this project history entry" = "无法恢复此项目历史记录";
+"Could not save %@: permission denied. Check the file and parent folder permissions. Your edits are still unsaved." = "无法保存 %@：权限不足。请检查文件及其父文件夹的权限，编辑内容尚未保存。";
 "Could not save access to the selected background image." = "无法保存所选背景图片的访问权限。";
 "Could not save service selection" = "无法保存服务勾选状态";
 "Could not save the connections: %@" = "无法保存连接：%@";
@@ -1486,6 +1493,8 @@
 "File edits" = "文件编辑";
 "File encoding" = "文件编码";
 "File inventory only. Claude determines whether this skill is available in a session." = "此处仅列出技能文件。技能是否在会话中可用，由 Claude 决定。";
+"File is not available" = "文件不可用";
+"File is too large to open" = "文件过大，无法打开";
 "File mask:" = "文件掩码：";
 "File patterns" = "文件模式";
 "File saved" = "文件已保存";
@@ -1525,6 +1534,7 @@
 "Floating Point" = "浮点数";
 "Folder" = "分组";
 "Folder name" = "文件夹名称";
+"Folders cannot be opened as text" = "无法将文件夹作为文本打开";
 "Follow Git setting" = "遵循 Git 配置";
 "Follow Git tag rules" = "遵循 Git 标签规则";
 "Follow the instructions you define below" = "遵循你在下方定义的指令";
@@ -2509,6 +2519,7 @@
 "Only API keys are used. The Agent's own account sign-in, such as a ChatGPT login, is never used." = "只使用 API 密钥登录，不会使用 Agent 自带的账号登录（例如 ChatGPT 登录）。";
 "Only ask for actions detected as potentially unsafe" = "自动审批，仅在检测到潜在风险时请求你的确认。";
 "Only local files can be attached to an Agent message." = "Agent 消息仅支持添加本地文件。";
+"Only regular files can be opened as text. Devices, sockets and named pipes are not supported." = "只能将普通文件作为文本打开，不支持设备、套接字和命名管道。";
 "Only source files of the current language can be opened from outside the workspace" = "工作区外只能打开当前语言的源码文件";
 "Only the API URL, model and API key are saved. Other CLI options continue to use your local configuration. The key is stored separately from settings. Editing shows a template of these saved fields." = "仅保存 API 地址、模型和 API 密钥，其他 CLI 选项继续沿用本机配置。密钥与设置分开存储。编辑时显示这些已保存字段的配置模板。";
 "Only the commit message changes. %lld commits will receive new identities. Staged files are not included." = "仅修改提交消息，%lld 笔提交的哈希会改变。不会包含当前暂存的文件。";
@@ -2564,6 +2575,7 @@
 "Open a project to use Git" = "请打开项目以使用 Git";
 "Open a source file before running Current File." = "运行“当前文件”前请先打开一个源文件。";
 "Open a source file or choose a project Run configuration" = "请打开一个源文件，或选择项目的运行配置";
+"Open a text file instead of a folder." = "请选择文本文件，而不是文件夹。";
 "Open again" = "重新打开";
 "Open file" = "打开文件";
 "Open file in editor to see problems" = "在编辑器中打开文件以查看问题";
@@ -2585,6 +2597,7 @@
 "Open remote" = "打开远程仓库";
 "Open service in browser" = "在浏览器中打开服务";
 "Open the Markdown file inside a workspace before pasting an image" = "请先打开工作区内的 Markdown 文件，再粘贴图片";
+"Open the target file directly. Symbolic-link editing is not supported by this file adapter." = "请直接打开目标文件。当前文件适配器暂不支持编辑符号链接。";
 "Open to inspect" = "打开后检查";
 "Opening it moves the conversation out of %@'s archive and back into its history. Browsing archived conversations never changes them." = "打开后，该会话会从 %@ 的归档中移回历史记录。仅浏览归档会话不会改动它们。";
 "Open…" = "打开…";
@@ -2656,6 +2669,7 @@
 "Performance Results" = "性能分析结果";
 "Performance is available for local Java processes launched by Lithe." = "性能监控适用于由 Lithe 启动的本地 Java 进程。";
 "Perl Support" = "Perl 支持";
+"Permission denied when opening this file" = "打开此文件时权限不足";
 "Permission required" = "需要许可";
 "Permissions" = "权限";
 "Permissions & Programs" = "权限与程序";
@@ -3249,7 +3263,9 @@
 "Save Message" = "保存消息";
 "Save Metadata" = "保存元数据";
 "Save Patch…" = "保存补丁…";
+"Save a hard-linked file?" = "保存硬链接文件？";
 "Save after" = "保存延迟";
+"Save as Independent File" = "保存为独立文件";
 "Save changed files automatically" = "自动保存已修改的文件";
 "Save each field separately. Switching scope reloads the saved values." = "每个字段单独保存。切换范围时会重新加载已保存的值。";
 "Save instructions" = "保存指令";
@@ -3683,6 +3699,7 @@
 "Switch to the Node.js/npm environment that installed this CLI, update it there, then check again." = "请切换到安装此 CLI 的 Node.js/npm 环境，在该环境中更新后重新检测。";
 "Switched" = "已切换";
 "Switches save native Agent settings. Reconnect existing conversations to refresh available skills." = "开关保存到 Agent 原生配置。已有对话需重新连接以刷新可用技能。";
+"Symbolic links cannot be opened in this editor" = "此编辑器暂不支持打开符号链接";
 "Symbols" = "符号";
 "Sync again" = "重新同步";
 "Sync and remove missing tags" = "同步并删除已不存在的标签";
@@ -3728,6 +3745,7 @@
 "Tests passed" = "测试通过";
 "Text" = "文本";
 "Text editor" = "文本编辑器";
+"Text files are limited to 32 MB. Open this file in an external editor." = "文本文件大小上限为 32 MB。请使用外部编辑器打开此文件。";
 "Text or hash" = "文本或 Hash";
 "Text, me, author:, branch:, path:" = "搜索文本，或使用 me、author:、branch:、path:";
 "That skill name is reserved by Claude. Choose a different name." = "该技能名称为 Claude 保留，请使用其他名称。";
@@ -3857,6 +3875,7 @@
 "The debug adapter outgoing buffer is full." = "调试适配器的发送缓冲区已满。";
 "The debug adapter provided an invalid terminal working directory." = "调试适配器提供的终端工作目录无效。";
 "The debugger did not return object fields in time." = "调试器未能及时返回对象字段。";
+"The decoded contents contain non-text characters. Use a suitable file viewer." = "解码后的内容包含非文本字符。请使用适合该格式的查看器。";
 "The default ChangeList cannot be renamed." = "默认更改列表不能重命名。";
 "The document changed before Java navigation completed." = "Java 导航完成前文档已更改。";
 "The document is not synchronized with the language server." = "文档与语言服务器不同步。";
@@ -3872,8 +3891,12 @@
 "The featured MCP catalog could not be loaded." = "无法加载内置 MCP 精选目录。";
 "The field value does not match its declaration or exceeds its size limit." = "字段值不符合声明或超过大小限制。";
 "The field value is invalid or exceeds 1024 UTF-8 bytes." = "字段值无效或超过 1024 个 UTF-8 字节。";
+"The file could not be decoded with the selected or detected encoding. Check its encoding or open it in an external editor." = "无法按所选或自动识别的编码解码文件。请检查文件编码，或使用外部编辑器打开。";
+"The file could not be read. Check its availability and try again." = "无法读取文件。请检查文件是否可访问后重试。";
 "The file has changed since the Agent edit. Open the diff and review it manually." = "文件内容与 Agent 修改存在冲突，请打开差异手动确认。";
 "The file is too large to compare." = "文件过大，无法比较。";
+"The file no longer exists or was moved. Refresh the project and try again." = "文件已不存在或已被移动。请刷新项目后重试。";
+"The file or its hard links changed while saving. Your edits are still unsaved. Check the file and save again." = "保存期间文件或硬链接发生了变化。编辑内容尚未保存，请检查文件后重新保存。";
 "The file system that holds the home directory." = "主目录所在的文件系统。";
 "The file will be created when you save." = "保存时将创建此文件。";
 "The function call was cancelled." = "函数调用已取消。";
@@ -3990,6 +4013,7 @@
 "The selected versions match" = "所选版本相同";
 "The server asked again. Check the previous answer." = "服务器再次提问，请检查上一次的回答。";
 "The server rejected the credentials. Check the user name and the authentication method." = "服务器拒绝了凭据，请检查用户名和认证方式。";
+"The shared file could not be fully saved. All hard links may contain partial changes. Your editor contents are retained; check the file before retrying." = "未能完整保存共享文件。所有硬链接可能已包含部分修改。编辑器中的内容已保留，请检查文件后再重试。";
 "The shared instruction directory must be absolute." = "共享指令目录必须为绝对路径。";
 "The skill could not be published. Check permissions and existing skill names." = "无法保存技能，请检查目录权限以及是否存在同名技能。";
 "The skill destination contains a symbolic link or non-directory. Choose a regular native skill directory." = "技能目标位置包含符号链接或非目录项目，请使用普通技能目录。";
@@ -4085,6 +4109,7 @@
 "This file changed outside Lithe while you had unsaved edits." = "你有未保存的编辑时，该文件在 Lithe 外部发生了变化。";
 "This file has unsaved editor changes. Save or discard them before rolling back the Agent edit." = "此文件有未保存的编辑，请先保存或放弃后再回撤 Agent 修改。";
 "This file is outside the current project." = "此文件不在当前项目中。";
+"This file type cannot be opened in this editor" = "此编辑器不支持打开这种文件类型";
 "This file was deleted outside Lithe. Your editor content is preserved." = "该文件已被外部删除，编辑器内容已保留。";
 "This folder already belongs to a Git repository" = "此目录已属于一个 Git 仓库。";
 "This folder cannot be read." = "无法读取此文件夹。";
@@ -4270,6 +4295,7 @@
 "Update" = "更新";
 "Update %@" = "更新 %@";
 "Update %@/%@ after %@" = "在 %@/%@ 更新引用，等待 %@ 完成";
+"Update All Hard Links" = "更新所有硬链接";
 "Update Available" = "有可用更新";
 "Update Current Branch" = "更新当前分支";
 "Update Lithe to use this configuration version." = "请更新 Lithe 以使用此版本的配置。";
@@ -4582,6 +4608,32 @@
 "debugger.threadsAndVariables" = "线程和变量";
 "detected on this Mac" = "本机检测到";
 "ditto exited with code %@: %@" = "ditto 以代码 %@ 退出：%@";
+"document.fileAccess.checkTheFileAndParentFolderPermissionsAndAllowLitheToAccessThisLocationInSystemSettings" = "请检查文件及其父文件夹的权限，并在系统设置中允许 Lithe 访问此位置。";
+"document.fileAccess.couldNotDecodeThisFile" = "无法解码此文件";
+"document.fileAccess.couldNotOpen" = "无法打开 %1$@：%2$@ %3$@";
+"document.fileAccess.couldNotReadThisFile" = "无法读取此文件";
+"document.fileAccess.fileIsNotAvailable" = "文件不可用";
+"document.fileAccess.fileIsTooLargeToOpen" = "文件过大，无法打开";
+"document.fileAccess.foldersCannotBeOpenedAsText" = "无法将文件夹作为文本打开";
+"document.fileAccess.isHardLinkedChangesAreNotSavedAutomaticallySaveManuallyToChooseHowToUpdateTheFile" = "%1$@ 是硬链接文件，不会自动保存修改。请手动保存并选择更新方式。";
+"document.fileAccess.onlyRegularFilesCanBeOpenedAsTextDevicesSocketsAndNamedPipesAreNotSupported" = "只能将普通文件作为文本打开，不支持设备、套接字和命名管道。";
+"document.fileAccess.openATextFileInsteadOfAFolder" = "请选择文本文件，而不是文件夹。";
+"document.fileAccess.openTheTargetFileDirectlySymbolicLinkEditingIsNotSupportedByThisFileAdapter" = "请直接打开目标文件。当前文件适配器暂不支持编辑符号链接。";
+"document.fileAccess.permissionDeniedWhenOpeningThisFile" = "打开此文件时权限不足";
+"document.fileAccess.saveAHardLinkedFile" = "保存硬链接文件？";
+"document.fileAccess.saveAsIndependentFile" = "保存为独立文件";
+"document.fileAccess.savePermissionDenied" = "无法保存 %1$@：权限不足。请检查文件及其父文件夹的权限，编辑内容尚未保存。";
+"document.fileAccess.sharesItsContentsWithOtherPathsSaveAsIndependentFileUpdatesOnlyThisPathAndBreaksItsHardLinkRelationshipUpdateAllHardLinksWritesToTheSharedFileIncludingLinksOutsideThisProjectItIsNotAtomicAndAnInterruptedWriteMayLeavePartialContentsCancelKeepsYourEditsUnsaved" = "%1$@ 与其他路径指向同一份文件内容。“保存为独立文件”只更新当前路径，并解除它与其他路径的硬链接关系。“更新所有硬链接”直接修改共享文件，包括项目外指向它的路径；此操作不是原子保存，中断可能导致内容不完整。“取消”将保留未保存的编辑。";
+"document.fileAccess.symbolicLinksCannotBeOpenedInThisEditor" = "此编辑器暂不支持打开符号链接";
+"document.fileAccess.textFilesAreLimitedTo32MbOpenThisFileInAnExternalEditor" = "文本文件大小上限为 32 MB。请使用外部编辑器打开此文件。";
+"document.fileAccess.theDecodedContentsContainNonTextCharactersUseASuitableFileViewer" = "解码后的内容包含非文本字符。请使用适合该格式的查看器。";
+"document.fileAccess.theFileCouldNotBeDecodedWithTheSelectedOrDetectedEncodingCheckItsEncodingOrOpenItInAnExternalEditor" = "无法按所选或自动识别的编码解码文件。请检查文件编码，或使用外部编辑器打开。";
+"document.fileAccess.theFileCouldNotBeReadCheckItsAvailabilityAndTryAgain" = "无法读取文件。请检查文件是否可访问后重试。";
+"document.fileAccess.theFileNoLongerExistsOrWasMovedRefreshTheProjectAndTryAgain" = "文件已不存在或已被移动。请刷新项目后重试。";
+"document.fileAccess.theFileOrItsHardLinksChangedWhileSavingYourEditsAreStillUnsavedCheckTheFileAndSaveAgain" = "保存期间文件或硬链接发生了变化。编辑内容尚未保存，请检查文件后重新保存。";
+"document.fileAccess.theSharedFileCouldNotBeFullySavedAllHardLinksMayContainPartialChangesYourEditorContentsAreRetainedCheckTheFileBeforeRetrying" = "未能完整保存共享文件。所有硬链接可能已包含部分修改。编辑器中的内容已保留，请检查文件后再重试。";
+"document.fileAccess.thisFileTypeCannotBeOpenedInThisEditor" = "此编辑器不支持打开这种文件类型";
+"document.fileAccess.updateAllHardLinks" = "更新所有硬链接";
 "duplicate omitted" = "重复依赖已省略";
 "extensions.reinstall" = "重新安装";
 "extensions.uninstall" = "卸载";
