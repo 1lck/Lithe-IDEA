@@ -190,6 +190,8 @@ retained. macOS jobs expose artifact links before the combined release publishes
 
 定时任务使用默认分支 `main` 中的工作流，再检出 `preview` 源码。修复发布
 工作流时必须把改动合入 `main`；只修改 `preview` 不会更新每天执行的流程。
+手动运行的 `--ref` 选择工作流版本，`source_branch=preview` 只选择产品源码；
+修复合入 `preview` 后可用 `--ref preview` 验证，但每日发布仍需同步到 `main`。
 保留 `release-preview-macos.yml` 文件；prepare 只采样一次 UTC，从同一秒导出
 `YYYYMMDD.HHMMSS` build（例如 `20261015.124354`）及标准 ISO 时间，并固定源码 SHA
 和版本。顺序来自构建时间，旧 `58.1` 仅兼容作为历史基线。
@@ -210,6 +212,9 @@ gh workflow run release-preview-macos.yml \
 
 不要直接重跑旧的失败任务，它仍然使用旧工作流。确认两个 macOS 架构、Windows
 和 publish job 均成功，再检查安装包和 `appcast-preview-*.xml` 的更新时间。
+macOS 的稳定版与 AutoBuild 共用 75 分钟 job、35 分钟打包、30 分钟 Sparkle
+生成的有界预算；原 30 分钟总上限可能在 Intel 打包成功后取消更新包生成。
+这些期限分别定义在两个工作流中，由同一组离线测试检查，不会随源码分支自动同步。
 公开渠道使用 `autobuild`，基础设施兼容内部 `preview` 开关与既有 appcast 文件名。
 固定 tag 为 `AutoBuild`，标题与正文显示本次 UTC 构建时间。滚动 Release 的最初发布日期
 不代表本次构建日期；以标题、appcast 与安装包中的共享时间为准。
