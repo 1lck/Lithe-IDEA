@@ -1,3 +1,4 @@
+import { ideToolExposure } from "./ide-tool-exposure";
 import type { hostControl, IdeCapabilities, IdePermissions, IdeRequest } from "./ide-capabilities";
 
 type Capability = Pick<IdeCapabilities, "permissions" | "revoke" | "isCurrent" | "call">;
@@ -189,7 +190,7 @@ export class McpConnectionManager {
         }
       };
       const result = await this.dependencies.open(
-        { ...paths, workspaceKey: root, permissions },
+        { ...paths, workspaceKey: root, permissions, toolExposure: ideToolExposure },
         receive,
       );
       grant.dispose = result.dispose;

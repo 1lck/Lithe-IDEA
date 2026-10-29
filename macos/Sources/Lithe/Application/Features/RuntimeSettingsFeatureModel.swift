@@ -125,6 +125,24 @@ final class RuntimeSettingsFeatureModel: ObservableObject {
         settingsError = service.settingsError
     }
 
+    /// Refreshes canonical tool selections without loading a build model or
+    /// replacing an open settings draft. Legacy form fields keep their owner.
+    func reloadToolchainSettings() -> Bool {
+        guard !isSaving, !hasChanges else { return false }
+        guard service.reloadSettings() else {
+            settingsError = service.settingsError
+            return false
+        }
+        var current = service.settings
+        current.mavenSettingsPath = settings.mavenSettingsPath
+        current.mavenLocalRepositoryPath = settings.mavenLocalRepositoryPath
+        settings = current
+        baseline = current
+        draftSnapshot = service.settingsSnapshot
+        settingsError = service.settingsError
+        return draftSnapshot != nil
+    }
+
     @discardableResult
     func saveSettings() -> Bool {
         guard !isSaving else {

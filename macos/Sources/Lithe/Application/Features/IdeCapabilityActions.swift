@@ -13,9 +13,6 @@ protocol IdeCapabilityActions: AnyObject {
     func isCurrentWorkspace(_ identity: WorkspaceIdentity) -> Bool
     func activateExecutionModule() async -> ExecutionFeatureAccess?
     func ensureRunProjectReady(_ run: RunFeatureModel, for identity: WorkspaceIdentity) async -> RunProjectReadiness
-    func prepareProjectRuntimeSettings() async
-    func persistProjectRuntimeSettings() async
-    func reloadMavenProject(rescan: Bool) async
     func startAPIConfiguration(_ configuration: RunConfiguration) async
     func registerIdeCapabilities(_ feature: IdeCapabilitiesFeatureModel)
     func unregisterIdeCapabilities()

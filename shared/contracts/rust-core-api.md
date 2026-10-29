@@ -4135,6 +4135,10 @@ Fixtures live in `shared/fixtures/process-lifecycle/settle-v1.json`.
 `lithe-ide-host` adapter. This local host command is not remotely exposed. See
 [IDE API v1](ide-api/v1.md) for the allowlisted plugin/MCP capabilities, connection
 ownership, authorization, output cursors and shutdown semantics.
+Native `open` requires a `toolExposure` selection of canonical tools and optional
+argument names. This selection is stored with the connection and enforced before
+requests enter its queue. It can only narrow known schemas; it cannot define tool
+types or permissions. Both MCP discovery and native plugin validation use it.
 Native Rust hosts can attach an owner-checked, connection-lifetime callback using
 `attach_ide_request_dispatcher`; this is separate from the request-scoped Git/Agent
 progress callback. It forwards notification IDs only. `ideHost.control` action

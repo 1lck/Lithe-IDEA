@@ -3,6 +3,64 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use std::collections::{BTreeMap, BTreeSet};
+
+/// Native workflow implementations select which known tools they actually serve.
+/// A restricted argument list can only narrow the canonical input schema.
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ToolExposure {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arguments: Option<Vec<String>>,
+}
+
+/// Resolves a bounded host declaration without accepting caller-supplied schemas.
+/// Catalog order, permission hints, value types and required fields stay canonical.
+pub fn exposed_tools(exposure: &[ToolExposure]) -> Result<Vec<Value>, String> {
+    let catalog = tools();
+    if exposure.len() > catalog.len() {
+        return Err("Too many exposed IDE capabilities".into());
+    }
+    let mut selected = BTreeMap::new();
+    for item in exposure {
+        let known = catalog.iter().any(|tool| tool["name"] == item.name);
+        if !known
+            || selected
+                .insert(item.name.as_str(), item.arguments.as_ref())
+                .is_some()
+        {
+            return Err("Unknown or duplicate exposed IDE capability".into());
+        }
+    }
+    let mut result = Vec::new();
+    for mut tool in catalog {
+        let name = tool["name"].as_str().unwrap();
+        let Some(arguments) = selected.get(name) else {
+            continue;
+        };
+        if let Some(arguments) = arguments {
+            let properties = tool["inputSchema"]["properties"].as_object().unwrap();
+            let names: BTreeSet<_> = arguments.iter().map(String::as_str).collect();
+            if names.len() != arguments.len()
+                || !names.iter().all(|name| properties.contains_key(*name))
+                || !tool["inputSchema"]["required"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|name| names.contains(name.as_str().unwrap()))
+            {
+                return Err("Invalid exposed IDE argument selection".into());
+            }
+            tool["inputSchema"]["properties"]
+                .as_object_mut()
+                .unwrap()
+                .retain(|name, _| names.contains(name.as_str()));
+        }
+        result.push(tool);
+    }
+    Ok(result)
+}
 
 /// Authorization is granted by the IDE settings UI, never by tool arguments.
 #[derive(Clone, Default, Deserialize, Serialize)]
@@ -60,8 +118,29 @@ pub fn tools() -> Vec<Value> {
 
 /// Validates even calls made by in-process plugins; MCP schemas are not authorization.
 pub fn validate(name: &str, args: &Value, permissions: &Permissions) -> Result<(), Value> {
-    let tool = tools()
-        .into_iter()
+    validate_catalog(name, args, permissions, &tools())
+}
+
+/// Enforces the same native capability selection used by MCP discovery.
+pub fn validate_exposed(
+    name: &str,
+    args: &Value,
+    permissions: &Permissions,
+    exposure: &[ToolExposure],
+) -> Result<(), Value> {
+    let tools = exposed_tools(exposure)
+        .map_err(|_| failure("NOT_SUPPORTED", "Invalid IDE capability declaration"))?;
+    validate_catalog(name, args, permissions, &tools)
+}
+
+fn validate_catalog(
+    name: &str,
+    args: &Value,
+    permissions: &Permissions,
+    tools: &[Value],
+) -> Result<(), Value> {
+    let tool = tools
+        .iter()
         .find(|v| v["name"] == name)
         .ok_or_else(|| failure("NOT_SUPPORTED", "Unknown IDE capability"))?;
     let permission = tool["_meta"]["lithe/permission"].as_str().unwrap_or("read");
@@ -187,6 +266,68 @@ pub fn output_page(mut snapshot: Value, cursor: Option<&str>) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn native_inventory_can_only_narrow_known_tools_and_their_argument_fields() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../shared/fixtures/ide-api/host-tool-exposure.json"
+        ))
+        .unwrap();
+        let permissions = Permissions {
+            configure: true,
+            execute: true,
+        };
+        for platform in ["macos", "windows"] {
+            let exposure: Vec<ToolExposure> =
+                serde_json::from_value(fixture[platform].clone()).unwrap();
+            assert_eq!(exposed_tools(&exposure).unwrap().len(), 13);
+        }
+        let exposure: Vec<ToolExposure> = serde_json::from_value(fixture["macos"].clone()).unwrap();
+        assert!(validate_exposed(
+            "lithe_environment_configure",
+            &json!({"javaHomePath":"/fixture/jdk"}),
+            &permissions,
+            &exposure
+        )
+        .is_ok());
+        assert_eq!(
+            validate_exposed(
+                "lithe_environment_configure",
+                &json!({"settingsPath":"/fixture/settings.xml"}),
+                &permissions,
+                &exposure
+            )
+            .unwrap_err()["error"]["code"],
+            "INVALID_ARGUMENTS"
+        );
+        assert_eq!(
+            validate_exposed(
+                "lithe_maven_configure",
+                &json!({"profiles":["ci"]}),
+                &permissions,
+                &exposure
+            )
+            .unwrap_err()["error"]["code"],
+            "NOT_SUPPORTED"
+        );
+        assert!(validate_exposed(
+            "lithe_build_execute",
+            &json!({"instanceID":"maven:.","taskID":"compile"}),
+            &Permissions::default(),
+            &exposure
+        )
+        .is_err());
+        for invalid in [
+            json!([{"name":"unknown"}]),
+            json!([{"name":"lithe_project_inspect"},{"name":"lithe_project_inspect"}]),
+            json!([{"name":"lithe_project_inspect","arguments":["shell"]}]),
+            json!([{"name":"lithe_build_execute","arguments":["instanceID"]}]),
+            json!([{"name":"lithe_environment_configure","arguments":["javaHomePath","javaHomePath"]}]),
+        ] {
+            let exposure: Vec<ToolExposure> = serde_json::from_value(invalid).unwrap();
+            assert!(exposed_tools(&exposure).is_err());
+        }
+    }
+
     #[test]
     fn shared_fixture_protects_the_plugin_and_mcp_contract() {
         let fixture: Value =

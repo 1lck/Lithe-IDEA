@@ -7,6 +7,18 @@ import LitheModuleAPI
 /// Workspace-bound application entry points shared by MCP and host API consumers.
 @MainActor
 final class IdeCapabilitiesFeatureModel: ObservableObject {
+    /// Only workflows implemented by this product are advertised. Schema types
+    /// and permissions remain in the shared catalog; this list can only narrow it.
+    static let toolExposure: [[String: Any]] = [
+        "lithe_project_inspect", "lithe_environment_inspect", "lithe_environment_configure",
+        "lithe_run_list", "lithe_run_start", "lithe_run_restart", "lithe_operations_list",
+        "lithe_operation_output", "lithe_operation_stop", "lithe_build_inspect",
+        "lithe_build_reload", "lithe_build_configure", "lithe_build_execute"
+    ].map { name in
+        name == "lithe_environment_configure"
+            ? ["name": name, "arguments": ["javaHomePath", "mavenExecutablePath", "mavenJavaHomePath"]]
+            : ["name": name]
+    }
     private weak var model: (any IdeCapabilityActions)?
     @Published private(set) var isEnabled = false
     @Published private(set) var configuration = ""
@@ -30,7 +42,7 @@ final class IdeCapabilitiesFeatureModel: ObservableObject {
             return
         }
         do {
-            let result = try transport.open(workspace: identity.url, permissions: permissions)
+            let result = try transport.open(workspace: identity.url, permissions: permissions, toolExposure: Self.toolExposure)
             guard let id = result["hostID"] as? String, let config = result["configuration"] else { throw failure("Invalid MCP connection response") }
             hostID = id
             workspace = identity
@@ -119,7 +131,7 @@ final class IdeCapabilitiesFeatureModel: ObservableObject {
     func call(_ name: String, arguments: [String: Any]) async -> [String: Any] {
         guard isEnabled, let grant = hostID, let model, let workspace, model.isCurrentWorkspace(workspace), let transport else { return failed("WORKSPACE_CLOSED", "The authorized project is no longer open") }
         do {
-            let validation = try transport.control("validate", arguments: ["name": name, "arguments": arguments, "permissions": permissions])
+            let validation = try transport.control("validate", arguments: ["name": name, "arguments": arguments, "permissions": permissions, "toolExposure": Self.toolExposure])
             guard validation["ok"] as? Bool == true else { return validation }
             let mutates = validation["mutation"] as? Bool == true
             if mutates && mutationInFlight { return failed("BUSY", "Another configuration or launch request is in progress") }
@@ -139,21 +151,16 @@ final class IdeCapabilitiesFeatureModel: ObservableObject {
 
     private func execute(_ name: String, _ args: [String: Any], model: any IdeCapabilityActions, identity: WorkspaceIdentity, grant: String) async throws -> [String: Any] {
         if name == "lithe_project_inspect" { return ["workspaceID": model.id.uuidString, "name": model.projectName, "permissions": permissions] }
-        guard let execution = await model.activateExecutionModule() else { return failed("NOT_AVAILABLE", "The execution module is disabled") }
-        try check(model, identity, grant: grant)
-        let run = execution.runFeature
-        let maven = execution.mavenFeature
-        if ["lithe_maven_inspect", "lithe_run_list"].contains(name), !run.projectLoadState.hasLoadedDocuments(for: identity.url) {
-            _ = await model.ensureRunProjectReady(run, for: identity)
+        if name == "lithe_environment_inspect" || name == "lithe_environment_configure" {
+            await model.runtimeFeature.ensureRuntimesDiscovered()
             try check(model, identity, grant: grant)
-        }
-        switch name {
-        case "lithe_environment_inspect", "lithe_environment_configure":
-            await model.prepareProjectRuntimeSettings()
-            try check(model, identity, grant: grant)
+            guard !model.runtimeFeature.hasChanges, !model.runtimeFeature.isSaving else {
+                return failed("BUSY", "Save or cancel the open environment settings draft before using this capability")
+            }
+            guard model.runtimeFeature.reloadToolchainSettings() else {
+                throw failure(model.runtimeFeature.settingsError ?? L10n.string("Could not verify the saved project environment settings. The previous preferences have been kept when possible."))
+            }
             if name == "lithe_environment_configure" {
-                guard run.projectLoadState.hasLoadedDocuments(for: identity.url), !run.isLoadingProject else { return failed("NOT_READY", "Project settings are still loading") }
-                if maven.project == nil && (args["settingsPath"] != nil || args["localRepositoryPath"] != nil) { return failed("NOT_READY", "No Maven project is loaded") }
                 model.runtimeFeature.updateSettings { settings in
                     if let value = args["javaHomePath"] as? String { settings.javaHomePath = value }
                     if let value = args["mavenJavaHomePath"] as? String { settings.mavenJavaHomePath = value }
@@ -161,39 +168,23 @@ final class IdeCapabilitiesFeatureModel: ObservableObject {
                         settings.mavenHomeSelection = value.isEmpty ? .automatic : value == "mvnw" ? .wrapper : .custom
                         settings.mavenHomePath = value
                     }
-                    if let value = args["settingsPath"] as? String { settings.mavenSettingsPath = value }
-                    if let value = args["localRepositoryPath"] as? String { settings.mavenLocalRepositoryPath = value }
                 }
-                await model.persistProjectRuntimeSettings()
-                if let error = model.runtimeFeature.settingsError { throw failure(error) }
+                guard model.runtimeFeature.saveSettings() else {
+                    throw failure(model.runtimeFeature.settingsError ?? L10n.string("Could not verify the saved project environment settings. The previous preferences have been kept when possible."))
+                }
+                model.runtimeFeature.finishSaving()
                 try check(model, identity, grant: grant)
             }
             return environment(model, root: identity.url)
-        case "lithe_maven_inspect":
-            let project: [String: Any]? = maven.project.map {
-                ["artifactId": $0.artifactID, "modules": $0.modules.map(moduleJSON), "profiles": $0.profiles.map { ["id": $0.id] }]
-            }
-            return [
-                "project": project as Any? ?? NSNull(),
-                "profiles": maven.selectedProfiles.sorted(), "skipTests": maven.skipTests,
-                "reloadRequired": maven.isReloadRequired,
-                "diagnostic": (maven.reloadError ?? maven.configurationSaveError ?? maven.javaConfigurationError) as Any? ?? NSNull()
-            ]
-        case "lithe_maven_configure":
-            guard maven.project != nil else { return failed("NOT_READY", "Load a Maven project first") }
-            if let profiles = args["profiles"] as? [String] {
-                for profile in profiles { _ = maven.addCustomProfile(profile) }
-                maven.setSelectedProfiles(Set(profiles))
-            }
-            if let skip = args["skipTests"] as? Bool { maven.setSkipTests(skip) }
-            if let error = await maven.saveConfiguration() { throw failure(error) }
+        }
+        guard let execution = await model.activateExecutionModule() else { return failed("NOT_AVAILABLE", "The execution module is disabled") }
+        try check(model, identity, grant: grant)
+        let run = execution.runFeature
+        if name == "lithe_run_list", !run.projectLoadState.hasLoadedDocuments(for: identity.url) {
+            _ = await model.ensureRunProjectReady(run, for: identity)
             try check(model, identity, grant: grant)
-            return ["saved": true, "profiles": maven.selectedProfiles.sorted(), "skipTests": maven.skipTests, "reloadRequired": maven.isReloadRequired]
-        case "lithe_maven_reload":
-            await model.reloadMavenProject(rescan: true)
-            try check(model, identity, grant: grant)
-            if let error = maven.reloadError { throw failure(error) }
-            return ["outcome": maven.project == nil ? "noProject" : "completed"]
+        }
+        switch name {
         case "lithe_build_inspect":
             guard let build = execution.buildSystems else { return failed("NOT_AVAILABLE", L10n.string("Build plugins are unavailable")) }
             return ["detecting": build.isDetecting, "issues": build.issues,
@@ -356,9 +347,6 @@ final class IdeCapabilitiesFeatureModel: ObservableObject {
          "choices": option.choices.map { ["value": $0.value, "name": $0.title ?? $0.value] }]
     }
 
-    private func moduleJSON(_ module: MavenModule) -> [String: Any] {
-        ["relativePath": module.relativePath, "artifactId": module.artifactID, "modules": module.modules.map(moduleJSON)]
-    }
     private func runStatus(_ status: ProjectRunConfigurationStatus) -> String {
         switch status { case .missing: "missing"; case .ready: "ready"; case .invalid: "invalid" }
     }
@@ -366,7 +354,7 @@ final class IdeCapabilitiesFeatureModel: ObservableObject {
     private func environment(_ model: any IdeCapabilityActions, root: URL) -> [String: Any] {
         let feature = model.runtimeFeature
         let settings = feature.settings
-        return ["scope": "project-local", "settings": ["javaHomePath": settings.javaHomePath, "mavenExecutablePath": settings.mavenExecutableOverride, "mavenJavaHomePath": settings.mavenJavaHomePath, "settingsPath": settings.mavenSettingsPath, "localRepositoryPath": settings.mavenLocalRepositoryPath], "discovered": ["java": feature.javaRuntimes.map { ["homePath": $0.homePath, "version": $0.version, "vendor": $0.vendor] }, "maven": feature.mavenRuntimes.map { ["executablePath": $0.executablePath, "version": $0.version] }], "effective": ["java": choice(feature.javaChoice(overridePath: nil)), "mavenJava": choice(feature.mavenJavaChoice(overridePath: nil)), "maven": choice(feature.mavenChoice(at: root, overridePath: nil))]]
+        return ["scope": "project-local", "settings": ["javaHomePath": settings.javaHomePath, "mavenExecutablePath": settings.mavenExecutableOverride, "mavenJavaHomePath": settings.mavenJavaHomePath], "discovered": ["java": feature.javaRuntimes.map { ["homePath": $0.homePath, "version": $0.version, "vendor": $0.vendor] }, "maven": feature.mavenRuntimes.map { ["executablePath": $0.executablePath, "version": $0.version] }], "effective": ["java": choice(feature.javaChoice(overridePath: nil)), "mavenJava": choice(feature.mavenJavaChoice(overridePath: nil)), "maven": choice(feature.mavenChoice(at: root, overridePath: nil))]]
     }
     private func choiceSource(_ source: RuntimeChoiceSource) -> String {
         switch source {

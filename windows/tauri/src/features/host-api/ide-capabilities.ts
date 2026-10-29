@@ -1,3 +1,4 @@
+import { ideToolExposure } from "./ide-tool-exposure";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { createTranslator } from "@/i18n/locale";
 import { invoke } from "@/platform/tauri-core";
@@ -37,6 +38,7 @@ const defaultDependencies = {
       name,
       arguments: args,
       permissions,
+      toolExposure: ideToolExposure,
     }),
   hasWorkspace: (id: string) => workspaceRuntimeRegistry.hasWorkspace(id),
   workspaceName: (id: string) => workspaceRuntimeRegistry.getWorkspace(id)?.descriptor.name,
