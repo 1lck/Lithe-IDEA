@@ -2,6 +2,7 @@ import { getProjectPreparation } from "@/features/run/stores/project-preparation
 import type { JavaRunLaunchPreparation } from "@/features/run/services/java-run-launch";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import type { CompletionList } from "vscode-languageserver-protocol";
 
 const emit = mock(async () => undefined);
 const emitTo = mock(async () => undefined);
@@ -1565,11 +1566,12 @@ describe("Rust Core LSP adapter failures", () => {
     const filePath = "C:/work/Main.java";
     await invokeLsp("lsp_start_for_file", { workspacePath: "C:/work", filePath, languageId: "java", serverPath: "java-lsp" });
     for (const entry of fixture.cases) {
-      semanticRequestResult = { items: [], isIncomplete: entry.isIncomplete };
-      expect(await invokeLsp("lsp_get_completions", {
+      const expected: CompletionList = { items: [], isIncomplete: entry.isIncomplete };
+      semanticRequestResult = expected;
+      expect(await invokeLsp<CompletionList>("lsp_get_completions", {
         filePath, line: 0, character: 1, completionContext: entry.context,
-      })).toEqual(semanticRequestResult);
-      expect(requestPayload?.completionContext).toEqual(entry.context);
+      })).toEqual(expected);
+      expect(requestPayload).toEqual(expect.objectContaining({ completionContext: entry.context }));
     }
   });
 

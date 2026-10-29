@@ -13,6 +13,7 @@ import type * as Monaco from "monaco-editor";
 // Ctrl+hover underline for go-to-definition.
 import "monaco-editor/esm/vs/editor/contrib/gotoSymbol/browser/link/goToDefinitionAtPosition.js";
 import type { CompletionItem, Hover } from "vscode-languageserver-protocol";
+import { CompletionTriggerKind as LspCompletionTriggerKind } from "vscode-languageserver-protocol";
 import { listen } from "@tauri-apps/api/event";
 import { ownsLspSession } from "@/platform/lsp-core-adapter";
 import { isDocumentFeatureAvailable, LspClient } from "@/features/editor/lsp/lsp-client";
@@ -204,7 +205,14 @@ export function registerMonacoLspProviders() {
         target,
         position.lineNumber - 1,
         position.column - 1,
-        { triggerKind: context.triggerKind + 1, triggerCharacter: context.triggerCharacter },
+        {
+          triggerKind: context.triggerKind === languages.CompletionTriggerKind.TriggerCharacter
+            ? LspCompletionTriggerKind.TriggerCharacter
+            : context.triggerKind === languages.CompletionTriggerKind.TriggerForIncompleteCompletions
+              ? LspCompletionTriggerKind.TriggerForIncompleteCompletions
+              : LspCompletionTriggerKind.Invoked,
+          triggerCharacter: context.triggerCharacter,
+        },
       );
       if (!current()) return { suggestions: [] };
       const word = model.getWordUntilPosition(position);
