@@ -119,6 +119,41 @@ Lithe 是一款主要面向 Java 和 Spring Boot 开发者的轻量级 IDEA 替�
   <a href="./docs/assets/screenshots/git-diff-worktrees.png"><img src="./docs/assets/screenshots/git-diff-worktrees.png" width="100%" alt="Git、Diff 与工作树"></a>
 </p>
 
+### 全局搜索与 Markdown 预览
+
+双击 Shift 搜索文件、符号和操作；Markdown 支持双栏编辑、预览和目录导航。
+
+<p align="center">
+  <a href="./docs/assets/screenshots/search-everywhere-markdown.png"><img src="./docs/assets/screenshots/search-everywhere-markdown.png" width="100%" alt="全局搜索与 Markdown 预览"></a>
+</p>
+
+<details>
+<summary>更多截图</summary>
+
+### Git 历史与分支浏览
+
+结合分支列表、提交图、筛选器和变更文件浏览 Git 历史。
+
+<p align="center">
+  <a href="./docs/assets/screenshots/git-history-markdown.png"><img src="./docs/assets/screenshots/git-history-markdown.png" width="100%" alt="Git 历史与分支浏览"></a>
+</p>
+
+### HTML 预览与运行服务
+
+并排编辑和预览 HTML，在运行面板中查看项目入口与服务配置。
+
+<p align="center">
+  <a href="./docs/assets/screenshots/html-preview-run-services.png"><img src="./docs/assets/screenshots/html-preview-run-services.png" width="100%" alt="HTML 预览与运行服务"></a>
+</p>
+
+### 插件管理与原生调试
+
+管理语言服务、构建和调试插件；图中同时展示 LLDB 反汇编与寄存器视图。
+
+<p align="center">
+  <a href="./docs/assets/screenshots/plugins-native-debugging.png"><img src="./docs/assets/screenshots/plugins-native-debugging.png" width="100%" alt="插件管理与原生调试"></a>
+</p>
+
 ### AI 对话与上下文
 
 在编辑区中与 Agent 对话，展开命令执行记录，查看上下文用量、文件更改和会话统计。
@@ -127,52 +162,7 @@ Lithe 是一款主要面向 Java 和 Spring Boot 开发者的轻量级 IDEA 替�
   <a href="./docs/assets/screenshots/agent-chat-context.png"><img src="./docs/assets/screenshots/agent-chat-context.png" width="100%" alt="AI 对话与上下文"></a>
 </p>
 
-<details>
-<summary>全局搜索与 Markdown 预览</summary>
-
-双击 Shift 搜索文件、符号和操作；Markdown 支持双栏编辑、预览和目录导航。
-
-<p align="center">
-  <a href="./docs/assets/screenshots/search-everywhere-markdown.png"><img src="./docs/assets/screenshots/search-everywhere-markdown.png" width="100%" alt="全局搜索与 Markdown 预览"></a>
-</p>
-
-</details>
-
-<details>
-<summary>Git 历史与分支浏览</summary>
-
-结合分支列表、提交图、筛选器和变更文件浏览 Git 历史。
-
-<p align="center">
-  <a href="./docs/assets/screenshots/git-history-markdown.png"><img src="./docs/assets/screenshots/git-history-markdown.png" width="100%" alt="Git 历史与分支浏览"></a>
-</p>
-
-</details>
-
-<details>
-<summary>HTML 预览与运行服务</summary>
-
-并排编辑和预览 HTML，在运行面板中查看项目入口与服务配置。
-
-<p align="center">
-  <a href="./docs/assets/screenshots/html-preview-run-services.png"><img src="./docs/assets/screenshots/html-preview-run-services.png" width="100%" alt="HTML 预览与运行服务"></a>
-</p>
-
-</details>
-
-<details>
-<summary>插件管理与原生调试</summary>
-
-管理语言服务、构建和调试插件；图中同时展示 LLDB 反汇编与寄存器视图。
-
-<p align="center">
-  <a href="./docs/assets/screenshots/plugins-native-debugging.png"><img src="./docs/assets/screenshots/plugins-native-debugging.png" width="100%" alt="插件管理与原生调试"></a>
-</p>
-
-</details>
-
-<details>
-<summary>Agent 资源与 MCP 配置</summary>
+### Agent 资源与 MCP 配置
 
 集中管理 Agent 的指令、技能、Hooks 和 MCP 配置，在对话中查看运行耗时与 Token 用量。
 
